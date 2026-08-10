@@ -55,10 +55,10 @@ import { down } from "@migrations/apply/down";
 import { push } from "@migrations/push";
 import { createFsStorageDriver } from "@migrations/storage/fs";
 import { s } from "@schema";
-import { describe, expectTypeOf, test } from "vitest";
 // Deliberately the published entry point, not `@schema/field-ref`: the alias
 // would compile while the import the docs teach did not.
 import { createModelFieldRefs } from "@src/index";
+import { describe, expectTypeOf, test } from "vitest";
 
 const author = s.model({
   id: s.string().id(),
@@ -1029,6 +1029,108 @@ describe("the unguarded query levels are pinned as compiling", () => {
     expectTypeOf(_operatorLevelTypoCompiles).toBeFunction();
     expectTypeOf(_booleanGroupTypoCompiles).toBeFunction();
     expectTypeOf(_nestedRelationTypoCompiles).toBeFunction();
+  });
+});
+
+/**
+ * PACKAGE K1 — root `updateMany` `data` accepts the ORDINARY update surface.
+ *
+ * The claim is the positive one, because the negative one at this level is
+ * already pinned as unreachable directly above (`_updateClauseTypoCompiles`:
+ * `data` cannot be key-guarded without six TS2589 sites). So what a probe CAN
+ * show is that the relation key is admitted rather than merely unchecked — and
+ * the difference is visible, because the payload's INTERIOR is typed: a
+ * relation write's own keys and its target's fields resolve, so a misspelled
+ * relation VERB is a compile error even though a misspelled sibling scalar is
+ * not.
+ *
+ * FRESH and NON-FRESH, because excess-property checking only sees a fresh
+ * object literal: a payload assembled in a variable and forwarded — the shape
+ * every "build the update from user input" call site has — must accept the same
+ * surface.
+ *
+ * The runtime half of "public types and runtime validation must agree" is
+ * `parity-k-update-many.test.ts`, which pins that a typo BESIDE a real key still
+ * rejects at the parse boundary with `Unknown key: <typo>`.
+ */
+describe("root updateMany data is the ordinary update surface", () => {
+  const _relationFresh = () =>
+    client.author.updateMany({
+      where: { email: "a@b.c" },
+      data: { email: "z@b.c", books: { connect: [{ id: "b1" }] } },
+    });
+
+  const nonFreshUpdateData = {
+    email: "z@b.c",
+    books: { connect: [{ id: "b1" }] },
+  };
+  const _relationNonFresh = () =>
+    client.author.updateMany({ where: {}, data: nonFreshUpdateData });
+
+  const _toOneFresh = () =>
+    client.book.updateMany({
+      data: { title: "t", writer: { connect: { id: "a1" } } },
+    });
+
+  const _junctionFresh = () =>
+    client.author.updateMany({ data: { tags: { set: [{ id: "t1" }] } } });
+
+  // The interior IS typed — a relation payload whose ONLY key is unknown is
+  // refused, and a to-one payload spelling a verb its arity does not admit is
+  // refused by VALUE type rather than by key. `writer` is a required
+  // `manyToOne`, so `disconnect` is not part of its surface at all:
+  const _toOneUnsupportedVerbAlone = () =>
+    client.book.updateMany({
+      // @ts-expect-error - a required to-one has no 'disconnect'
+      data: { writer: { disconnect: true } },
+    });
+
+  // …but that is NOT evidence, by this file's own third rule: an object sharing
+  // no property with a weak type is refused by a TypeScript rule, not by these
+  // types. MEASURED beside a real key, every level under `data` compiles with
+  // the typo — the to-one verb, the to-many verb, and a field inside the
+  // relation target's own selector. All three are PINNED here rather than
+  // asserted: they sit under `data`, the level measured unguardable directly
+  // above (guarding it turns six estate sites into TS2589 and takes the
+  // type-check from 34s to 172s). The runtime parse boundary refuses all three,
+  // which is where the enforcement lives today —
+  // `parity-k-update-many.test.ts` pins one of them end to end. When a future
+  // TypeScript can carry the deeper form, these three go red; delete them and
+  // move them into the assertions above.
+  const _toOneVerbTypoCompiles = () =>
+    client.book.updateMany({
+      data: { writer: { connect: { id: "a1" }, conect: { id: "a2" } } },
+    });
+
+  const _toManyVerbTypoCompiles = () =>
+    client.author.updateMany({
+      data: { books: { connect: [{ id: "b1" }], conect: [{ id: "b2" }] } },
+    });
+
+  const _relationTargetTypoCompiles = () =>
+    client.author.updateMany({
+      data: { books: { connect: [{ id: "b1", idd: "b2" }] } },
+    });
+
+  // The PROJECTION stays scalar-only while `data` gains relations — the
+  // asymmetry K1 keeps deliberately.
+  const _selectRelationRefused = () =>
+    client.author.updateMany({
+      data: { email: "z@b.c" },
+      // @ts-expect-error - a bulk write projects scalar fields only
+      select: { id: true, books: true },
+    });
+
+  test("the positive probes compile, `select` refuses a relation, and three levels are pinned", () => {
+    expectTypeOf(_relationFresh).toBeFunction();
+    expectTypeOf(_relationNonFresh).toBeFunction();
+    expectTypeOf(_toOneFresh).toBeFunction();
+    expectTypeOf(_junctionFresh).toBeFunction();
+    expectTypeOf(_toOneUnsupportedVerbAlone).toBeFunction();
+    expectTypeOf(_toOneVerbTypoCompiles).toBeFunction();
+    expectTypeOf(_toManyVerbTypoCompiles).toBeFunction();
+    expectTypeOf(_relationTargetTypoCompiles).toBeFunction();
+    expectTypeOf(_selectRelationRefused).toBeFunction();
   });
 });
 

@@ -30,6 +30,7 @@ import type { QueryEngine } from "../query-engine";
 import {
   assertRelationKeyUpdatesAreCompilable,
   assertSelectedUpdateManyDataIsScalar,
+  relationWriteKeys,
 } from "../relation-key-legality";
 import type { QueryScope } from "../types";
 import {
@@ -666,6 +667,11 @@ export class RelationWritePart implements Part {
    * identity for a descendant write to correlate to (ATOM §17). The inverse-upsert
    * found arm was the other caller until Package G routed it through the record
    * compiler; what remains here is the nested `updateMany` leaf.
+   *
+   * The refusal reads {@link relationWriteKeys}, not `relations` alone: a direct
+   * polymorphic `disconnect` carries no relation program, so reading one map used to
+   * let it past this wall and then drop it on the floor (the measured silent wrong
+   * answer recorded at that function). One question, one owner, three readers.
    */
   private parseScalarUpdateData(): Record<string, unknown> {
     const { data, childScope } = this.config;
@@ -675,15 +681,13 @@ export class RelationWritePart implements Part {
         `query-engine-v2 ${kind} for relation '${this.relationName}' requires data.`
       );
     }
-    const { scalarData, relations } = buildParsedRelationPrograms(
-      childScope,
-      data
-    );
+    const parsed = buildParsedRelationPrograms(childScope, data);
+    const { scalarData, relations } = parsed;
     assertPortablePrimaryKeyUpdateInput(childScope.model, kind, {
       data: scalarData,
     });
     assertRelationKeyUpdatesAreCompilable(childScope, scalarData, relations);
-    if (Object.keys(relations).length > 0) {
+    if (relationWriteKeys(parsed).length > 0) {
       throw new UnsupportedOperationError(
         `query-engine-v2 ${kind} for relation '${this.relationName}' does not support nested relation writes in its data.`
       );
@@ -1315,14 +1319,18 @@ export function buildToManyUpdateManyParts(
   );
 }
 
-/** Keep an invalid nested updateMany arm structural until its owner runs legality. */
+/** Keep an invalid nested updateMany arm structural until its owner runs legality.
+ *  Same question, same owner as the legality check itself ({@link relationWriteKeys}):
+ *  when this answers "no relations" and the legality check answers "yes", the Part is
+ *  built AND the write is refused — or, as measured before both read one predicate, the
+ *  Part is built and a polymorphic disconnect is silently dropped. */
 export function updateManyCarriesRelations(
   childScope: QueryScope,
   inputs: readonly NestedUpdateManyInput[]
 ): boolean {
   return inputs.some(
     (input) =>
-      Object.keys(buildParsedRelationPrograms(childScope, input.data).relations)
+      relationWriteKeys(buildParsedRelationPrograms(childScope, input.data))
         .length > 0
   );
 }

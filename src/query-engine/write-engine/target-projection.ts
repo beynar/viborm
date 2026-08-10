@@ -209,6 +209,130 @@ export function capturedTargetConstraint(
   );
 }
 
+/**
+ * ORDER a captured root set deterministically, by complete row key (plan §5.2
+ * step 4, §6 K3 "applies limit before deterministic in-memory sorting").
+ *
+ * WHY THE ENGINE OWNS THIS AT ALL, measured rather than assumed: a bulk capture's
+ * `ORDER BY` is CONDITIONAL on `limit`. `buildFindPagination` appends the identity
+ * tie-breakers only when `take` is defined, so a CAPPED capture already arrives
+ * ordered and this sort is a no-op over it, while an UNCAPPED capture arrives in
+ * whatever order the provider felt like — the opposite of what one would guess, and
+ * exactly why §5.2 asks for an in-memory sort AFTER the limit rather than an
+ * `ORDER BY` in the capture SQL. Sorting here is therefore the ONLY thing that makes
+ * "members execute in deterministic captured order" true for the uncapped case, and
+ * it cannot be moved into the capture without changing which rows a capped capture
+ * selects.
+ *
+ * DETERMINISTIC, NOT SEMANTIC, AND NOT CROSS-PROVIDER. §5.2 asks for "a
+ * deterministic engine order" and that is what this is: the same captured VALUES
+ * always yield the same execution order, independent of collation, plan shape or
+ * physical row order. Two things it does NOT claim, the second measured rather than
+ * reasoned about:
+ *
+ *  · it is not the dialect's `ORDER BY` — a string compares by UTF-16 code unit here
+ *    and by the database's collation there, and reconciling those would mean
+ *    re-implementing collations in JavaScript;
+ *  · it is not the same order on every provider, because the VALUES are not the same
+ *    objects on every provider. A `bigInt` row key arrives from node-postgres as the
+ *    STRING "9" (its int8 parser is pg's default; this repo's `types` override covers
+ *    DATE and TIMESTAMP alone), from PGlite as the NUMBER 9, and from better-sqlite3
+ *    as `9n`. Rank 3 orders "10" before "9"; rank 2 orders 9 before 10. So a
+ *    bigint-keyed capture runs its members in a different order on pg than on PGlite
+ *    or SQLite — visible in the row order of the `select` arm, and able to decide the
+ *    outcome of a payload whose members collide (two roots moved onto one key).
+ *    Recorded for the guard ledger; closing it means deciding that this comparator
+ *    knows what a column's declared type is, which would make it a second reader of
+ *    how a provider decodes.
+ *
+ * Total over every value a row key can carry, in row-key field order:
+ * `null`/absent first, then booleans, numbers and bigints numerically (they compare
+ * across the two types), strings by code unit, `Date` by instant, byte arrays
+ * lexicographically. Anything else — a `Decimal` object is the only known instance,
+ * and only when a decimal column is a primary key — falls back to its decimal TEXT,
+ * which is total and stable but orders "10" before "9". Values of DIFFERENT types
+ * are separated by that type rank before any of it runs, so the comparator can never
+ * answer 0 for two values that are not equal — the one property that would make the
+ * execution order differ between two runs over the same captured set. The byte-array
+ * rank is wider than any schema can reach (`blob().id()` throws, and blob is the only
+ * byte-valued scalar), so it is exercised by the unit probe alone.
+ */
+export function sortCapturedRowKeys<T extends Record<string, unknown>>(
+  identityFields: readonly string[],
+  rows: readonly T[]
+): T[] {
+  return [...rows].sort((left, right) => {
+    for (const field of identityFields) {
+      const order = compareRowKeyValues(left[field], right[field]);
+      if (order !== 0) return order;
+    }
+    return 0;
+  });
+}
+
+/** The rank of a value's TYPE, so cross-type members stay totally ordered. */
+function rowKeyValueRank(value: unknown): number {
+  if (value === null || value === undefined) return 0;
+  if (typeof value === "boolean") return 1;
+  if (typeof value === "number" || typeof value === "bigint") return 2;
+  if (typeof value === "string") return 3;
+  if (value instanceof Date) return 4;
+  if (ArrayBuffer.isView(value)) return 5;
+  return 6;
+}
+
+function compareRowKeyValues(left: unknown, right: unknown): number {
+  const leftRank = rowKeyValueRank(left);
+  const rightRank = rowKeyValueRank(right);
+  if (leftRank !== rightRank) return leftRank < rightRank ? -1 : 1;
+  switch (leftRank) {
+    case 0:
+      return 0;
+    case 1:
+      return left === right ? 0 : left === false ? -1 : 1;
+    case 2: {
+      const leftNumber = left as number | bigint;
+      const rightNumber = right as number | bigint;
+      if (leftNumber < rightNumber) return -1;
+      return leftNumber > rightNumber ? 1 : 0;
+    }
+    case 4:
+      return compareRowKeyValues(
+        (left as Date).getTime(),
+        (right as Date).getTime()
+      );
+    case 5:
+      // Through the VIEW's own window, not the whole backing buffer: a Node
+      // `Buffer` from a driver is routinely a slice of a pooled allocation, so
+      // reading `.buffer` alone would compare unrelated neighbouring bytes.
+      return compareBytes(
+        viewBytes(left as ArrayBufferView),
+        viewBytes(right as ArrayBufferView)
+      );
+    default: {
+      const leftText = leftRank === 3 ? (left as string) : String(left);
+      const rightText = rightRank === 3 ? (right as string) : String(right);
+      if (leftText < rightText) return -1;
+      return leftText > rightText ? 1 : 0;
+    }
+  }
+}
+
+function viewBytes(view: ArrayBufferView): Uint8Array {
+  return new Uint8Array(view.buffer, view.byteOffset, view.byteLength);
+}
+
+function compareBytes(left: Uint8Array, right: Uint8Array): number {
+  const shared = Math.min(left.length, right.length);
+  for (let index = 0; index < shared; index += 1) {
+    const leftByte = left[index] as number;
+    const rightByte = right[index] as number;
+    if (leftByte !== rightByte) return leftByte < rightByte ? -1 : 1;
+  }
+  if (left.length === right.length) return 0;
+  return left.length < right.length ? -1 : 1;
+}
+
 /** Reassert every private value that influenced the compiled record branch. */
 export function capturedTargetColumnPredicate(
   scope: QueryScope,

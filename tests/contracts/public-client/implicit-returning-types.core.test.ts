@@ -145,25 +145,48 @@ describe("updateMany implicit returning", () => {
     >().toEqualTypeOf<false>();
   });
 
-  test("data is scalar-only: relation keys are not admitted", () => {
+  test("data admits relation keys beside scalars, and IS the ordinary update data", () => {
+    // PACKAGE K1 retarget. This test used to assert the opposite — that `posts`
+    // and `profile` were NOT keys of `data` — because the root `updateMany` bound
+    // its data to the scalar-only schema. It now binds to the SAME `core.update`
+    // instance a single `update` binds, so the two surfaces cannot drift, and the
+    // assertion below is what says so: the two data types are equal, not merely
+    // both accepting of a relation name.
     type Payload = OperationPayload<"updateMany", UserModel>;
     type Data = NonNullable<NonNullable<Payload>["data"]>;
+    type UpdateData = NonNullable<
+      NonNullable<OperationPayload<"update", UserModel>>["data"]
+    >;
 
     expectTypeOf<Data>().toHaveProperty("name");
     expectTypeOf<Data>().toHaveProperty("age");
+    expectTypeOf<Data>().toEqualTypeOf<UpdateData>();
     expectTypeOf<
       "posts" extends keyof Data ? true : false
-    >().toEqualTypeOf<false>();
+    >().toEqualTypeOf<true>();
     expectTypeOf<
       "profile" extends keyof Data ? true : false
+    >().toEqualTypeOf<true>();
+  });
+
+  test("the returning PROJECTION stays scalar-only while data gains relations", () => {
+    // The asymmetry K1 deliberately keeps: what a bulk write may WRITE and what it
+    // may PROJECT are different questions. `select` still refuses a relation (a
+    // relation subquery in a RETURNING list has no alias to correlate against), and
+    // `include` is still absent from the surface entirely — asserted above.
+    type Payload = NonNullable<OperationPayload<"updateMany", UserModel>>;
+    type Select = NonNullable<Payload["select"]>;
+
+    expectTypeOf<
+      "posts" extends keyof Select ? true : false
     >().toEqualTypeOf<false>();
   });
 
-  test("nested relation-level updateMany data still admits relation keys (separate surface)", () => {
-    // The root updateMany restriction must NOT leak into the nested
-    // relation-level updateMany (user.update -> posts.updateMany.data), whose
-    // data binds to the target model's full update schema and whose engine
-    // path fails loudly at runtime.
+  test("nested relation-level updateMany data admits relation keys (separate surface)", () => {
+    // The nested relation-level updateMany (user.update -> posts.updateMany.data)
+    // binds to the target model's full update schema and is a DIFFERENT surface
+    // from the root one K1 widened: its engine path still refuses relation writes
+    // loudly at runtime (the nested wall, ATOM §17 / Package L).
     type UpdatePayload = NonNullable<OperationPayload<"update", UserModel>>;
     type PostsWrite = NonNullable<UpdatePayload["data"]>["posts"];
     type NestedUpdateMany = Extract<

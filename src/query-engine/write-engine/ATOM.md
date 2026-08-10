@@ -738,7 +738,7 @@ These remain specialized:
 
 - `createMany` over rows the bulk path expresses — scalar rows, and rows whose
   only relation work is a direct polymorphic `connect`;
-- `updateMany`;
+- `updateMany` over data the bulk path expresses — scalar-only data;
 - `deleteMany`;
 - relation `set`;
 - skip-duplicate grouping and capture;
@@ -763,20 +763,73 @@ skipped root has two defensible meanings for its nested effects (suppress them,
 or apply them to the row that already exists) and the product has not chosen
 one.
 
-The series' returning arm reads each member's final root row key after every
+What is also NOT specialized is root `updateMany` whose data carries a general
+relation program. Routing sends the whole operation to `UpdateManyRecordSeries`,
+a record series that evaluates the public `where` and the provider `limit` ONCE,
+locks and captures the complete root row keys, sorts them into a deterministic
+engine order, and runs one ordinary `UpdateOperation` per captured root (plan
+§4.4, §5.2). The reason is semantic: a parent-held fold belongs inside each
+root's own `UPDATE`, a key transition needs that root's old value to address its
+descendants and its new value to write them, descendant ordering is decided per
+root, and a failure must be attributable to one captured root. One set-based
+scalar `UPDATE` followed by relation Parts expresses none of that, which is why
+the shape is forbidden here even though the returning bulk arm uses it correctly
+for scalar-only data. Scalar-only data never reaches the series, so its plan is
+unchanged, and neither does `limit: 0` — a cap of no rows writes nothing, so the
+existing owner's empty plan is still the whole answer and it needs no
+transaction.
+
+`count` diverges by arm, deliberately. Scalar-only `updateMany` reports the
+provider's affected-row total; the series reports the CAPTURED ROOT COUNT,
+because members' writes are not one statement and a provider that counts changed
+rows rather than matched rows (MySQL, which sets no `CLIENT_FOUND_ROWS`) would
+otherwise answer zero for a no-op assignment.
+
+A root membership that lives on the TARGET row and NAMES AN EXISTING TARGET —
+child-held `connect`, `connectOrCreate`, `set`, including a supplier composed
+with a modifier — is refused before the first write when the capture found more
+than one root, naming the observed count. One target holds one parent, so
+applying it to N roots in sequence would leave the last root owning the child and
+the rest silently not. Junction and parent-held equivalents are meaningful for
+every root and execute; so does `create`, which makes one fresh child per root,
+and so do the EMPTY spellings of the three verbs (`set: []` means "this root
+keeps no targets", a per-root fact with no contention in it). Which shapes
+qualify is the relation legality owner's question, not the series shell's; the
+shell knows only the count.
+
+The refusal covers the ROOT's own relation keys. A membership move a fresh
+DESCENDANT carries — `{ posts: { create: { comments: { connect } } } }` — runs
+once per root and leaves the shared target under the last root's fresh child.
+That is not refused, because at that depth the series does exactly what the same
+payload spelled as N ordinary `update` calls does; refusing it would make the
+bulk spelling reject what the single spelling executes. Measured and pinned as
+behavior rather than inferred.
+
+Both series' returning arms read each member's final root row key after every
 member finishes, and each of those reads carries an `exactlyOneRow`
 postcondition. It is the ordinal contract of an ordered source list whose rows
 concatenate: without it a read that matched nothing would shorten the public
-answer instead of failing. One thing reaches it — a later member moving an
-earlier member's row key, which is legal whenever a row-key member is also a
-foreign key — and the answer is a refusal, because a row whose address moved can
-no longer be addressed by the key its own member reported.
+answer instead of failing. On the create side one thing reaches it — a later
+member moving an earlier member's row key, which is legal whenever a row-key
+member is also a foreign key. On the update side a later member's nested effects
+can also DELETE a captured root. Both answer with a refusal. The alternative,
+returning the rows that survived, was rejected for ONE reason: the engine already
+fails loudly with `NotFoundError` when the same removal happens before the
+victim's own member runs, so a legal-empty read would make the public answer
+depend on capture order alone. It was not rejected for making the arms disagree —
+they disagree either way, and deliberately: the `{ count }` arm of the very
+payload the `select` arm refuses answers the captured root count and succeeds.
+The postcondition is cardinality at the reported key, so it detects a root's
+ABSENCE, not its replacement.
 
-`updateMany` never delegates each row to `RecordUpdateCompiler`. Its selected
-arm legality rejects relation-bearing data before SQL; that check remains
-deferred so an untaken top-level upsert update arm is inert. Relation `set` is
-independent of membership clearability: optional storage emits departures,
-while required storage guards that the departing set is empty.
+Nested relation-level `updateMany` still rejects relation-bearing data before
+SQL, and that check remains deferred so an untaken top-level upsert update arm
+is inert. "Relation-bearing" there means ordinary AND direct polymorphic keys,
+read through one shared predicate: a targetless polymorphic disconnect carries
+no relation program, and a reader that looked only at relation programs let it
+past the wall and then dropped it. Relation `set` is independent of membership
+clearability: optional storage emits departures, while required storage guards
+that the departing set is empty.
 
 Skip-duplicate preparation writes remain in planning. Adapter `batchRefs` and executor
 `insertId` handling remain because they express real substrate capabilities.

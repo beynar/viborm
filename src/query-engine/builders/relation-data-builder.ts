@@ -91,6 +91,22 @@ export function isPolymorphicChildHeldRelation(
   );
 }
 
+/**
+ * Does the TARGET row store this membership? True for both ordinary child-held
+ * arities and both polymorphic ones; false for a parent-held edge (the source row
+ * stores it) and for a junction (a third table does, and it admits many parents).
+ *
+ * The distinction is what decides whether one membership can be shared by several
+ * source rows, so it belongs to relation topology rather than to any one operation.
+ */
+export function isChildHeldRelation(relation: BoundRelation): boolean {
+  return (
+    relation.kind === "childHeldToOne" ||
+    relation.kind === "childHeldToMany" ||
+    isPolymorphicChildHeldRelation(relation)
+  );
+}
+
 /** Bind one relation to its structural position relative to the current model. */
 export function bindRelation(
   ctx: QueryScope,

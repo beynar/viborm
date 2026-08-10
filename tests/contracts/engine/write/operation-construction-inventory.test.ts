@@ -2649,6 +2649,53 @@ describe("write engine route inventory (P6 accounting)", () => {
   //     INSERT reference. The `connect` spelling, whose assignment can instead be a lookup
   //     SUBQUERY, is unexercised. If the ledger's `delete`-target-write refusal is ever
   //     narrowed, this elision goes live on a value shape no witness covers.
+  //
+  // K GATE (2026-08-10) — 20 -> 21. ONE SITE ADDED, in `UpdateManyRecordSeries`:
+  //   · `assertMembershipAppliesToEveryRoot` — a CHILD-HELD `connect`,
+  //     `connectOrCreate` or `set` NAMING AT LEAST ONE EXISTING TARGET in root
+  //     `updateMany` data when the capture found MORE THAN ONE root. The membership
+  //     is stored on the target row and a target can hold one parent, so applying it
+  //     to N roots in sequence ends with the last root owning the child and the rest
+  //     silently not — which is not what "apply this update to every selected row"
+  //     can mean. It is N-DEPENDENT, so no schema can own it (the count is only known
+  //     after the capture), and it fires inside `compileMembers`, before any member
+  //     is built and therefore before the first write. Junction and parent-held
+  //     equivalents are deliberately NOT refused, and neither is `create`: those mean
+  //     one thing per root. The same payload at N = 1 builds its member and runs.
+  //     WHICH SHAPES qualify is `relation-key-legality.findSingleTargetMembershipMove`'s
+  //     (the relation legality owner's); the shell owns the count and the sentence.
+  //     Its DEPTH is the root's own relation keys: a membership move a fresh
+  //     descendant carries is applied per root and is not refused, because at that
+  //     depth the series does what N ordinary `update` calls do (pinned in
+  //     `update-many-relation-series.test.ts`).
+  //
+  // NOT A SITE, recorded so Package O does not hunt for one:
+  //   · the K1 widening RETIRED a refusal without adding one. Root `updateMany` data
+  //     used to reject a relation key at the parse boundary as an UNKNOWN KEY (a
+  //     `ValidationError`, never a census site) because it bound to the scalar-only
+  //     schema. It now binds to `core.update` and the diagnostic is simply gone.
+  //   · a relation-bearing `{ count }` updateMany on a batch-only driver inherits
+  //     `withTransaction`'s generic substrate refusal (a `TransactionError`), exactly
+  //     as J's `createMany` series does. The typed `with 'select'` sentence is kept by
+  //     routing to the existing owner first, not by a second copy of the message.
+  //   · the missing-final-read refusal on the `select` arm is a step POSTCONDITION
+  //     (`exactlyOneRow`, `raceable: false`), which rides the existing failure
+  //     channel and is not an `UnsupportedOperationError`.
+  //   · the G polymorphic blind spot at the nested `updateMany` leaf was FIXED by
+  //     routing three readers through one shared predicate (`relationWriteKeys`) into
+  //     the EXISTING refusal. No message and no site changed; a shape that used to be
+  //     silently dropped now reaches the wall that was always meant for it.
+  //   · a relation-bearing `updateMany` on a model with no declared `.id()` refuses
+  //     NOTHING of its own. `getPrimaryKeyFields` is total (it answers `["id"]` for
+  //     such a model), so the guard the K lane drafted for this was unreachable and
+  //     was deleted at the gate rather than kept as a check whose coverage cannot be
+  //     named. `ManyAndReturnOperation.pkSelect` and `RecordUpdateCompiler`'s
+  //     `parentPrimaryKeys.length === 0` are the same dead shape, pre-existing — a
+  //     Package O item, not a K one.
+  //   · `limit: 0` with relation-bearing data is not a series at all: the router
+  //     keeps it on the existing owner, which already compiles a zero cap to the
+  //     empty plan. So the `{ count: 0 }` answer needs no transaction and stays
+  //     available on batch-only drivers.
   test("no UnsupportedOperationError throw site exists outside the reviewed set", async () => {
     const { readdir, readFile } = await import("node:fs/promises");
     const { join } = await import("node:path");
@@ -2659,7 +2706,7 @@ describe("write engine route inventory (P6 accounting)", () => {
       const source = await readFile(join(dir, file), "utf8");
       sites += source.split("new UnsupportedOperationError(").length - 1;
     }
-    expect(sites).toBe(20);
+    expect(sites).toBe(21);
   });
 });
 

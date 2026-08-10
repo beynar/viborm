@@ -410,7 +410,7 @@ The adopt kinds need the occupied guard's PRE-transition value **and** the POST 
 
 ## 8. Relation writes in the wrong data clause (1)
 
-**8.1 — relation writes inside child-held `updateMany` data** · `RelationWritePart.ts:663`
+**8.1 — relation writes inside child-held `updateMany` data** · `RelationWritePart.ts:690`
 
 ```ts
 client.author.update({
@@ -428,7 +428,9 @@ client.author.update({
 
 The `:2314` wall verbatim, one relation kind over. *(This site used to be SHARED: its other half refused the inverse-to-one UPSERT arm, wording itself `upsert` when `config.kind === "inverseUpsert"`. Package G delivered that half — see "What has been DELIVERED since" — so the site now serves `updateMany` alone and the branching ternary is gone. The `updateMany` half is not future work of the same kind: a set-based UPDATE has no per-row captured identity for a descendant write to correlate to, so lifting it means capturing roots, which is the limitation-lift plan's Package K/L2.)*
 
-*(One thing the surviving half does NOT answer, measured at the gate rather than reasoned about, and named here so Package K/N does not have to rediscover it: `parseScalarUpdateData` reads only `scalarData` and `relations`, so the third parsed member — a direct polymorphic mutation whose resolved intent carries no relation program, i.e. a `disconnect` — passes the wall untouched and is then dropped. `author.update > posts.updateMany.data: { subject: { disconnect: true } }` compiles to the terminal select ALONE and succeeds having cleared nothing; with a scalar beside it, `UPDATE … SET "body" = $1 WHERE "authorId" = $2` runs and the private pair is silently left in place. That is a silent wrong answer rather than a refusal, which is why it has never appeared in this document — and it is exactly the defect Package G fixed on the upsert half by forwarding `polymorphic`. It has nothing to do with capture roots and is refusable today; `updateManyCarriesRelations` and `findRelationBearingUpdateManyData` share the blind spot, both reading `.relations` alone.)*
+*(DELIVERED by Package K, 2026-08-10 — kept below because it is the complete pre-fix diagnosis and the shape it describes is now REFUSED rather than dropped. The fix is one shared predicate, `relation-key-legality.relationWriteKeys`, reading BOTH parsed maps; the three readers named at the end of this note now call it instead of each asking `.relations` alone, and `assertUpdateManyRelationsAreCompilable` takes the key list because its own meta used to compute `Object.keys(relations)` — empty for exactly this case, so even reaching it would not have thrown. No new message, no new census site.)*
+
+*(One thing the surviving half did NOT answer, measured at the gate rather than reasoned about, and named here so Package K/N did not have to rediscover it: `parseScalarUpdateData` read only `scalarData` and `relations`, so the third parsed member — a direct polymorphic mutation whose resolved intent carries no relation program, i.e. a `disconnect` — passes the wall untouched and is then dropped. `author.update > posts.updateMany.data: { subject: { disconnect: true } }` compiles to the terminal select ALONE and succeeds having cleared nothing; with a scalar beside it, `UPDATE … SET "body" = $1 WHERE "authorId" = $2` runs and the private pair is silently left in place. That is a silent wrong answer rather than a refusal, which is why it has never appeared in this document — and it is exactly the defect Package G fixed on the upsert half by forwarding `polymorphic`. It has nothing to do with capture roots and is refusable today; `updateManyCarriesRelations` and `findRelationBearingUpdateManyData` share the blind spot, both reading `.relations` alone.)*
 
 ---
 

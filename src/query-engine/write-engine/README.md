@@ -182,9 +182,18 @@ First-create-wins is local to connect-or-create. Do not generalize it to upsert.
 ## Kept specializations
 
 `createMany`, `updateMany`, `deleteMany`, relation `set`, skip-duplicate capture,
-and many-and-return folds remain specialized. `ManyToManyStatements` remains
-the junction SQL owner. Keep adapter `batchRefs` and the type-only
-`QueryMetadata` compatibility export; the latter is not a runtime boundary.
+and many-and-return folds remain specialized OVER THE PAYLOADS THE BULK PATH
+EXPRESSES. For the two root bulk writes that is the scalar shape: scalar
+`createMany` rows (plus a direct polymorphic `connect`) and scalar `updateMany`
+data. A root `createMany` row carrying a general relation program, or root
+`updateMany` data carrying one, routes the whole operation to a record series
+whose members are ordinary `CreateOperation` / `UpdateOperation` instances —
+`CreateManyRecordSeries.ts` and `UpdateManyRecordSeries.ts`, which parse the bulk
+envelope, construct ordinary record operations, and shape the public bulk result.
+They contain no relation-kind switches and are not record compilers. See ATOM §17
+for why the semantics require it. `ManyToManyStatements` remains the junction SQL
+owner. Keep adapter `batchRefs` and the type-only `QueryMetadata` compatibility
+export; the latter is not a runtime boundary.
 
 Nested `createMany` stays with the owner of its set-shaped placement: a fresh
 parent records post-insert groups in `CreateOperation`; a selected parent uses

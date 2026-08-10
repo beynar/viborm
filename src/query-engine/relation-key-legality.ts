@@ -1,7 +1,12 @@
 import { NestedWriteError, UnsupportedOperationError } from "@errors";
-import { bindRelation } from "./builders/relation-data-builder";
+import {
+  bindRelation,
+  isChildHeldRelation,
+} from "./builders/relation-data-builder";
 import {
   buildParsedRelationPrograms,
+  type ParsedRecordPrograms,
+  type RelationMutationEntry,
   type RelationMutationProgram,
 } from "./builders/relation-mutation-parser";
 import { createQueryScope, getPrimaryKeyFields } from "./context/query-scope";
@@ -9,22 +14,124 @@ import { classifyRelationKeyScalarUpdate } from "./TargetConstraint";
 import type { QueryScope } from "./types";
 
 /**
+ * EVERY relation key one parsed record `data` writes — ordinary and polymorphic
+ * alike — in the order the parser produced them.
+ *
+ * THE ONE OWNER of the question "does this data carry relation writes", because
+ * asking it of `relations` ALONE is a measured silent wrong answer. A DIRECT
+ * polymorphic mutation whose resolved intent is a targetless `disconnect` produces
+ * NO relation program (`buildPolymorphicMutationProgram` returns `{ mutation }`
+ * with no `program`), so it lives only in `polymorphic` — and three readers used
+ * to look past it. Measured at HEAD on PGlite, before this predicate existed:
+ *
+ *   author.update({ data: { posts: { updateMany: {
+ *     where: { draft: true }, data: { body: "x", subject: { disconnect: true } },
+ *   } } } })
+ *     ->  UPDATE "gd_posts" SET "body" = $1 WHERE (…authorId… AND …draft…)
+ *         SELECT … FROM "gd_authors" …
+ *
+ * The wall did not fire, the private `(type, id)` pair was left in place, and the
+ * call SUCCEEDED having cleared nothing. The ordinary spelling of the same shape
+ * (`author: { disconnect: true }`) refuses at the schema. So this function reads
+ * BOTH maps, and every site that decides "relation-bearing" reads it rather than a
+ * map of its own — the blind spot was three copies of one question, not three
+ * independent judgements.
+ *
+ * A `polymorphic` entry always means the data named a polymorphic relation key:
+ * the parser adds one per polymorphic payload, targeted or disconnecting. The
+ * targeted ones ALSO appear in `relations`, hence the de-duplication.
+ */
+export function relationWriteKeys(
+  parsed: ParsedRecordPrograms
+): readonly string[] {
+  return [
+    ...new Set([
+      ...Object.keys(parsed.relations),
+      ...Object.keys(parsed.polymorphic),
+    ]),
+  ];
+}
+
+/**
  * V1's updateMany-data relation legality (P6 pure-leaf extraction, consumed by
  * V2): a nested relation write inside `updateMany` data is inexpressible, rejected
- * before any effect with the byte-identical typed message. `relations` is the
- * canonical relation-program split of one updateMany input's `data`.
+ * before any effect with the byte-identical typed message. `relationKeys` is
+ * {@link relationWriteKeys} of one updateMany input's parsed `data`.
  */
 export function assertUpdateManyRelationsAreCompilable(
   relationName: string,
-  relations: Record<string, RelationMutationProgram>
+  relationKeys: readonly string[]
 ): void {
-  const relationKeys = Object.keys(relations);
   if (relationKeys.length === 0) return;
   throw new NestedWriteError(
     `Nested relation writes inside updateMany data for relation '${relationName}' are not supported.`,
     relationName,
-    { meta: { operation: "updateMany", relations: relationKeys } }
+    { meta: { operation: "updateMany", relations: [...relationKeys] } }
   );
+}
+
+/**
+ * The first membership move in one record `data` that CANNOT be applied to more
+ * than one source row: a CHILD-HELD edge whose entry NAMES at least one existing
+ * target (plan §5.2). Returns `undefined` when the data carries none.
+ *
+ * TWO CONDITIONS, and both are load-bearing.
+ *
+ * CHILD-HELD, because the target row stores the membership and can store exactly
+ * one. A parent-held edge — including a direct polymorphic one, whose `(type, id)`
+ * pair is a column of the SOURCE — gives every source row its own copy, and a
+ * junction stores memberships in a third table that admits many parents. Both are
+ * meaningful for any number of source rows.
+ *
+ * NAMES A TARGET, because the contention is over a NAMED row. `connect`,
+ * `connectOrCreate` and `set` are the three verbs that move an EXISTING target's
+ * stored membership — but each of them also has an EMPTY spelling that names
+ * nobody: `set: []` means "this source row keeps no targets", and `connect: []` /
+ * `connectOrCreate: []` mean nothing at all. Those are per-source-row facts, they
+ * are exactly what the same payload does when it is spelled as one ordinary update
+ * per row, and refusing them would refuse a payload with no contention in it
+ * (measured: `set: []` at one row disconnects that row's children, so at N rows it
+ * disconnects each row's own). The count is read from the entry rather than from
+ * the raw payload so that every spelling the parser normalizes — a bare object, a
+ * one-element array, a list — is counted the same way.
+ *
+ * The caller owns the refusal and its wording, because the caller is the one that
+ * knows how many source rows it has; this function owns only which shapes are the
+ * subject of it. `create` is deliberately outside: a fresh target per source row is
+ * N targets, each owned by its own row.
+ */
+export function findSingleTargetMembershipMove(
+  source: QueryScope,
+  relations: Readonly<Record<string, RelationMutationProgram>>
+): { readonly relationName: string; readonly kind: string } | undefined {
+  for (const program of Object.values(relations)) {
+    if (!isChildHeldRelation(bindRelation(source, program.relationInfo))) {
+      continue;
+    }
+    for (const entry of program.entries) {
+      if (namedTargetCount(entry) > 0) {
+        return { relationName: program.relationInfo.name, kind: entry.kind };
+      }
+    }
+  }
+  return undefined;
+}
+
+/**
+ * How many EXISTING targets an entry names, for the three verbs that move a stored
+ * membership; zero for every other verb. Exhaustive over the parsed entry union, so
+ * a new verb is a compile error here rather than a silently unclassified shape.
+ */
+function namedTargetCount(entry: RelationMutationEntry): number {
+  switch (entry.kind) {
+    case "connect":
+    case "set":
+      return entry.targets.length;
+    case "connectOrCreate":
+      return entry.items.length;
+    default:
+      return 0;
+  }
 }
 
 /**
@@ -40,7 +147,7 @@ export function assertUpdateManyDataRelationsAreCompilable(
   if (!invalid) return;
   assertUpdateManyRelationsAreCompilable(
     invalid.relationName,
-    invalid.relations
+    invalid.relationKeys
   );
 }
 
@@ -83,7 +190,7 @@ function findRelationBearingUpdateManyData(
 ):
   | {
       readonly relationName: string;
-      readonly relations: Record<string, RelationMutationProgram>;
+      readonly relationKeys: readonly string[];
       readonly isJunction: boolean;
     }
   | undefined {
@@ -96,14 +203,13 @@ function findRelationBearingUpdateManyData(
     for (const entry of program.entries) {
       if (entry.kind !== "updateMany") continue;
       for (const input of entry.items) {
-        const nested = buildParsedRelationPrograms(
-          target,
-          input.data
-        ).relations;
-        if (Object.keys(nested).length > 0) {
+        const nested = relationWriteKeys(
+          buildParsedRelationPrograms(target, input.data)
+        );
+        if (nested.length > 0) {
           return {
             relationName: program.relationInfo.name,
-            relations: nested,
+            relationKeys: nested,
             isJunction: relation.kind === "junction",
           };
         }

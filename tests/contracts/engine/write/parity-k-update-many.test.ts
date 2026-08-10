@@ -5,6 +5,7 @@ import { PGliteDriver } from "@drivers/pglite";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames, s } from "@schema";
+import type { ExecutableOperation } from "@src/query-engine/write-engine/OperationExecutor";
 import {
   isOperationValueReference,
   type OperationFragment,
@@ -13,7 +14,9 @@ import {
   type StatementStep,
 } from "@src/query-engine/write-engine/OperationFragment";
 import { planningKey } from "@src/query-engine/write-engine/Part";
+import { isRecordSeries } from "@src/query-engine/write-engine/record-series";
 import { constructRoutedOperation } from "@src/query-engine/write-engine/routing";
+import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { fragmentAtom } from "@tests/fixtures/routed-fragment-atom";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
@@ -615,39 +618,287 @@ describe("parity K — deleteMany rides the same owners and must not move", () =
   });
 });
 
-describe("parity K — the refusal K1 lifts, verbatim", () => {
-  const refusalOf = async (
-    args: Record<string, unknown>
-  ): Promise<string | undefined> => {
+// ---------------------------------------------------------------------------
+// The other side of the split: what K1 accepts and where K2 sends it
+// ---------------------------------------------------------------------------
+
+/** The routed operation WITHOUT the fragment-atom narrowing — the union itself,
+ *  which is what says which destination the router picked. */
+function routeRouted(driver: AnyDriver, args: Record<string, unknown>) {
+  const operation = constructRoutedOperation(
+    engineFor(driver),
+    parityKSchema.gadget,
+    "updateMany",
+    args
+  );
+  if (!operation) throw new Error("updateMany did not route");
+  return operation;
+}
+
+describe("parity K — the refusal K1 lifted, and the destination that replaced it", () => {
+  test("a relation key in data used to be an unknown key; it now routes to a series", async () => {
+    // BEFORE K1 both arms answered "Validation failed for updateMany: Unknown key:
+    // bin", because `data` bound to the model's SCALAR-ONLY update schema — the
+    // relation was not "unsupported", it was not a key at all. K1 binds `data` to
+    // `core.update`, so the diagnostic disappears rather than changing wording, and
+    // the payload becomes a record series. Both arms, because the router's
+    // discriminant is `data` and must not consult `select`.
     const client = createClient({
       schema: parityKSchema,
       driver: new PGliteDriver(),
     }) as any;
-    return await client.gadget.updateMany(args).then(
-      () => undefined,
-      (thrown: unknown) => (thrown as Error).message
+    const stillUnknown = await client.gadget
+      .updateMany({
+        where: { name: "Alpha" },
+        data: { qty: 1, bni: { connect: { id: 9 } } },
+      })
+      .then(
+        () => undefined,
+        (thrown: unknown) => (thrown as Error).message
+      );
+    // A TYPO beside a real key still rejects, at the same boundary and with the same
+    // wording — the widening admitted the relation, not every key.
+    expect(stillUnknown).toBe(
+      "Validation failed for updateMany: Unknown key: bni"
     );
-  };
 
-  test("a relation key in updateMany data is an unknown key today", async () => {
-    // `data` binds to the model's SCALAR-ONLY update schema, so the relation is not
-    // "unsupported" — it is not a key at all. K1 replaces this schema, so the whole
-    // diagnostic disappears rather than changing wording.
-    expect(
-      await refusalOf({
+    for (const args of [
+      {
         where: { name: "Alpha" },
         data: { qty: 1, bin: { connect: { id: 9 } } },
-      })
-    ).toBe("Validation failed for updateMany: Unknown key: bin");
-  });
-
-  test("the returning arm refuses it under the SAME public operation name", async () => {
-    expect(
-      await refusalOf({
+      },
+      {
         where: { name: "Alpha" },
         data: { qty: 1, bin: { disconnect: true } },
         select: { id: true },
+      },
+    ]) {
+      const routed = routeRouted(new PGliteDriver(), args);
+      expect(isRecordSeries(routed)).toBe(true);
+    }
+  });
+
+  test("data with no relation VALUE keeps the one-statement owner", () => {
+    // The router reads the RAW data, and `undefined` is absent on every path — so
+    // the spread-an-optional idiom does not cost a caller their fast path.
+    const driver = new PGliteDriver();
+    const routed = routeRouted(driver, {
+      ...SCALAR_ARGS,
+      data: { name: "beta", bin: undefined },
+    });
+    expect(isRecordSeries(routed)).toBe(false);
+    expect(
+      fragmentContract(driver, fragmentAtom(routed, "updateMany").compile({}))
+    ).toEqual({
+      steps: [
+        {
+          id: "updateMany",
+          kind: "write",
+          sql: 'UPDATE "pk_gadgets" SET "name" = $1 WHERE "pk_gadgets"."qty" = $2',
+          params: ["beta", 5],
+          outputs: { count: { kind: "rowCount" } },
+          ...NO_BRANCH,
+        },
+      ],
+      outputs: { count: reference("updateMany", "count") },
+    });
+  });
+
+  test("the series captures the complete row key, locked, once, capped in SQL", () => {
+    const driver = new PGliteDriver();
+    const routed = routeRouted(driver, {
+      where: { qty: 5 },
+      data: { name: "beta", bin: { connect: { id: 9 } } },
+      limit: 3,
+    });
+    const series = asSeries(routed);
+    expect(fragmentContract(driver, series.capture())).toEqual({
+      steps: [
+        {
+          id: "gadget.updateManySeries.capture",
+          kind: "read",
+          // ONE evaluation of the public `where`, the `limit` applied HERE (before
+          // the in-memory sort), `FOR UPDATE`, and the row key alone.
+          sql: 'SELECT "t0"."id" AS "id" FROM "pk_gadgets" AS "t0" WHERE "t0"."qty" = $1 ORDER BY "t0"."id" ASC LIMIT $2 FOR UPDATE',
+          params: [5, 3],
+          outputs: { rows: { kind: "rows" } },
+          ...NO_BRANCH,
+        },
+      ],
+      outputs: {
+        "gadget.updateManySeries.capture.rows": reference(
+          "gadget.updateManySeries.capture",
+          "rows"
+        ),
+      },
+    });
+  });
+
+  test("limit: 0 never becomes a series — a cap of no rows keeps the existing owner", () => {
+    // RETARGETED at the Package K gate, from "the series builds no capture" to "the
+    // router builds no series". Both spellings answer `{ count: 0 }` with no
+    // statement on a transaction driver, but only this one answers it on a
+    // batch-only one: a record series REQUIRES an interactive transaction, so the
+    // old route turned `limit: 0` into `withTransaction`'s "does not support
+    // callback transactions" for a call that writes nothing — the exact trap J
+    // routed `createMany({ data: [] })` around, one operation name over. Keeping the
+    // limit-0 answer with the owners also leaves ONE owner of "this payload writes
+    // nothing", instead of a second copy inside the shell.
+    const driver = new PGliteDriver();
+    const routed = routeRouted(driver, {
+      where: { qty: 5 },
+      data: { name: "beta", bin: { connect: { id: 9 } } },
+      limit: 0,
+    });
+    expect(isRecordSeries(routed)).toBe(false);
+    expect(
+      fragmentContract(driver, fragmentAtom(routed, "updateMany").compile({}))
+    ).toEqual({ steps: [], outputs: {} });
+  });
+
+  test("limit: 0 with relation data answers zero on a batch-only substrate", async () => {
+    const client = createClient({
+      schema: parityKSchema,
+      driver: new BatchOnlyPGliteDriver(),
+    }) as any;
+    // The scalar twin's answer, for a payload whose only difference is a relation
+    // key that no row exists to apply.
+    expect(
+      await client.gadget.updateMany({
+        where: { qty: 5 },
+        limit: 0,
+        data: { name: "beta", bin: { connect: { id: 9 } } },
       })
-    ).toBe("Validation failed for updateMany: Unknown key: bin");
+    ).toEqual({ count: 0 });
+    expect(
+      await client.gadget.updateMany({
+        where: { qty: 5 },
+        limit: 0,
+        data: { name: "beta" },
+      })
+    ).toEqual({ count: 0 });
+    await client.$disconnect();
+  });
+
+  test("members run in deterministic captured order, not the fed order", () => {
+    // The sibling above (`captured order is the FED order`) pins the SCALAR returning
+    // owner, which preserves what planning handed it. The series is the one place
+    // that sorts, because an uncapped capture carries no ORDER BY at all.
+    const series = asSeries(
+      routeRouted(new PGliteDriver(), {
+        where: { qty: 5 },
+        data: { name: "beta", bin: { connect: { id: 9 } } },
+      })
+    );
+    const members = series.compileMembers({
+      [planningKey("gadget.updateManySeries.capture", "rows")]: [
+        { id: "g3" },
+        { id: "g1" },
+        { id: "g2" },
+      ],
+    });
+    expect(
+      members.map((member) => memberLocateParams(new PGliteDriver(), member))
+    ).toEqual([["g1"], ["g2"], ["g3"]]);
+  });
+
+  test("count is the CAPTURED root count, not the provider's affected rows", () => {
+    // The scalar arm's passthrough is pinned above, including the zero MySQL reports
+    // for a no-op assignment. This is the other side of that split: the series never
+    // asks the provider how many rows changed.
+    const series = asSeries(
+      routeRouted(new PGliteDriver(), {
+        where: { qty: 5 },
+        data: { name: "beta", bin: { connect: { id: 9 } } },
+      })
+    );
+    const captured = {
+      [planningKey("gadget.updateManySeries.capture", "rows")]: [
+        { id: "g1" },
+        { id: "g2" },
+      ],
+    };
+    expect(
+      series.parseSeries({
+        captured,
+        memberResults: [{ id: "g1" }, { id: "g2" }],
+        resultReadResults: [],
+      })
+    ).toEqual({ count: 2 });
+  });
+
+  test("N greater than one refuses child-held connect BEFORE building any member", () => {
+    // `gadgets` is the INVERSE of the parent-held `bin` edge: the membership is
+    // stored on the GADGET row, so two bins cannot both own gadget "g9".
+    const binSeries = constructRoutedOperation(
+      engineFor(new PGliteDriver()),
+      parityKSchema.bin,
+      "updateMany",
+      {
+        where: { name: "Shelf" },
+        data: { gadgets: { connect: [{ id: "g9" }] } },
+      }
+    );
+    expect(() =>
+      asSeries(binSeries as never).compileMembers({
+        [planningKey("bin.updateManySeries.capture", "rows")]: [
+          { id: 1 },
+          { id: 2 },
+        ],
+      })
+    ).toThrow(
+      "updateMany matched 2 rows, so it cannot apply 'connect' to relation 'gadgets': that membership is stored on the target row, which can belong to only one of them — the last row updated would take it from the others. Narrow the filter (or add 'limit: 1') so exactly one row matches, or write this relation in a separate call."
+    );
+  });
+
+  test("the SAME payload at N = 1 builds its member and refuses nothing", () => {
+    const binSeries = constructRoutedOperation(
+      engineFor(new PGliteDriver()),
+      parityKSchema.bin,
+      "updateMany",
+      {
+        where: { name: "Shelf" },
+        data: { gadgets: { connect: [{ id: "g9" }] } },
+      }
+    );
+    expect(
+      asSeries(binSeries as never).compileMembers({
+        [planningKey("bin.updateManySeries.capture", "rows")]: [{ id: 1 }],
+      })
+    ).toHaveLength(1);
+  });
+
+  test("a PARENT-held connect is meaningful at any N and is not refused", () => {
+    // `bin` stores its membership in the GADGET's own `binId` column, so each of the
+    // N roots gets its own copy and they agree by construction.
+    const series = asSeries(
+      routeRouted(new PGliteDriver(), {
+        where: { qty: 5 },
+        data: { bin: { connect: { id: 9 } } },
+      })
+    );
+    expect(
+      series.compileMembers({
+        [planningKey("gadget.updateManySeries.capture", "rows")]: [
+          { id: "g1" },
+          { id: "g2" },
+        ],
+      })
+    ).toHaveLength(2);
   });
 });
+
+/** The record-series view of a routed operation — the mirror of `fragmentAtom`. */
+function asSeries(routed: ReturnType<typeof routeRouted>) {
+  if (!isRecordSeries(routed)) {
+    throw new Error("updateMany did not route to a record series");
+  }
+  return routed;
+}
+
+/** The parameters of a member's own locate read: which row it addresses. */
+function memberLocateParams(driver: AnyDriver, member: ExecutableOperation) {
+  const [locate] = member.planning().steps as readonly StatementStep[];
+  if (!locate) throw new Error("a series member planned no locate read");
+  return driver._prepare(locate.statement).params;
+}

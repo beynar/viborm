@@ -91,6 +91,46 @@ export interface SubOperationOptions {
     readonly data: Record<string, unknown>;
     readonly select: Record<string, unknown>;
   };
+  /**
+   * PACKAGE K5 — an INDEPENDENT ROOT update of ONE CAPTURED ROW: one member of a
+   * relation-bearing root `updateMany` (`UpdateManyRecordSeries`).
+   *
+   * It is the update family's sibling of {@link parsedRoot}, and it differs in the
+   * one way the two families differ: a create names its own row by writing it, while
+   * an update must be TOLD which row it is about. So this carries a `where` — the
+   * complete captured row key, already a `whereUnique` — and the member addresses
+   * exactly that row. Nothing about the located row, its projection, its transitions
+   * or its descendants changes: those are `RecordUpdateCompiler`'s, reached through
+   * the ordinary constructor path.
+   *
+   * `data` IS RAW, DELIBERATELY, AND EACH MEMBER PARSES IT ITSELF. Plan §6 K5 said
+   * "parsed data is shared immutable ParsedRecordPrograms"; that was measured wrong
+   * and this is the amendment. Client-side scalar defaults are THUNKS evaluated at
+   * parse time (`defaultUlid` / `defaultCuid` / `@now`, applied by the object
+   * primitive on every absent key), so a nested `create` parsed ONCE and shared
+   * across N members would give N children the SAME primary key — a unique violation
+   * on member 1 that rolls the whole series back, for the ordinary payload
+   * `updateMany({ data: { posts: { create: { title } } } })` on any model whose id is
+   * generated client-side. Re-materializing the defaults per member would be a second
+   * owner of default application; refusing nested `create` under N>1 is a refusal
+   * §5.2 does not authorize. Parsing the RAW data per member is the only shape that
+   * keeps identities distinct, and it is not a new cost: the public `update` route
+   * already parses its relation payloads from raw a second time (the whole-args parse
+   * at the top of this constructor is not what drives the write).
+   *
+   * What is NOT re-done per member is the ENVELOPE: `where`, `select`, `limit` and
+   * the portable-primary-key check belong to the bulk call, ran once, under the
+   * public operation name `updateMany`.
+   *
+   * `select` is the projection the member answers with — its complete FINAL root row
+   * key, after any transition, and nothing else. The public returning projection is
+   * read later, by `UpdateManyRecordSeries`, once every member's effects have landed.
+   */
+  readonly capturedRoot?: {
+    readonly data: Record<string, unknown>;
+    readonly where: Record<string, unknown>;
+    readonly select: Record<string, unknown>;
+  };
 }
 
 export function pinnedTargetValues(
