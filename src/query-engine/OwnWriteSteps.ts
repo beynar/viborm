@@ -1,5 +1,5 @@
 // biome-ignore-all lint/style/useFilenamingConvention: File matches its primary class export.
-import type { Model } from "@schema/model";
+import { getModelKeyCatalog, type Model } from "@schema/model";
 import type {
   BoundRelation,
   ParentHeldToOne,
@@ -14,7 +14,6 @@ import {
   getFilterPredicateFields,
   getFilterTargetConstraint,
   getTargetConstraintPredicateFields,
-  getTargetIdentityFields,
   normalizeTargetConstraint,
   normalizeWhereUniqueTargetConstraint,
   selectorConstraint,
@@ -526,7 +525,7 @@ function buildToOneUpdateFootprint(
 
   if (changedFields.size > 0) {
     resultConstraints.push(readConstraint);
-    const identityFields = getTargetIdentityFields(target);
+    const identityFields = getModelKeyCatalog(target).uniqueOverlapFields;
     if (identityFields.some((field) => changedFields.has(field))) {
       resultConstraints.push(
         normalizeTargetConstraint(target, identityFields, scalarData)

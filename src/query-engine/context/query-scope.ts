@@ -1,5 +1,5 @@
 import type { DatabaseAdapter } from "@adapters";
-import type { Model } from "@schema/model";
+import { getModelKeyCatalog, type Model } from "@schema/model";
 import type { AnyPolymorphicRelation } from "@schema/relation";
 import type {
   PolymorphicRelationInfo,
@@ -90,28 +90,29 @@ export function getRelationInfo(
   };
 }
 
-/** Return the named compound primary-key constraint and its ordered members. */
+/**
+ * Return the named compound primary-key constraint and its ordered members —
+ * a derived view of the model-key catalog: the row key, when it is a grouped
+ * constraint rather than a bare scalar.
+ */
 export function getCompoundIdConstraint(
   model: Model<any>
 ): { name: string; fields: string[] } | undefined {
-  const compoundId = model["~"].state.compoundId;
-  if (!compoundId) return undefined;
-  const name = Object.keys(compoundId)[0];
-  const entries = name ? compoundId[name]?.entries : undefined;
-  if (!(name && entries)) return undefined;
-  const fields = Object.keys(entries);
-  return fields.length > 0 ? { name, fields } : undefined;
+  const rowKey = getModelKeyCatalog(model).rowKey;
+  return rowKey?.name === undefined
+    ? undefined
+    : { name: rowKey.name, fields: [...rowKey.fields] };
 }
 
-/** Return the ordered scalar fields that form the model primary key. */
+/**
+ * Return the ordered scalar fields that form the model primary key — the
+ * catalog row key's TOTAL view. The `["id"]` fallback for a model with no
+ * declared key is load-bearing: thirty call sites and the converted dead-guard
+ * family (N7-U-A) rely on this function never answering an empty list.
+ */
 export function getPrimaryKeyFields(model: Model<any>): string[] {
-  const compound = getCompoundIdConstraint(model);
-  if (compound) return compound.fields;
-
-  for (const name of model["~"].scalarFieldNames) {
-    if (model["~"].state.scalars[name]?.["~"].state.isId) return [name];
-  }
-  return ["id"];
+  const rowKey = getModelKeyCatalog(model).rowKey;
+  return rowKey ? [...rowKey.fields] : ["id"];
 }
 
 export { getColumnName, getTableName } from "@schema/model";

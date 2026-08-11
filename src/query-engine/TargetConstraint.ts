@@ -1,5 +1,5 @@
 // biome-ignore-all lint/style/useFilenamingConvention: Architecture names this compiler owner TargetConstraint.
-import type { Model } from "@schema/model";
+import { getModelKeyCatalog, type Model } from "@schema/model";
 import type { ScalarType } from "@schema/scalars/common";
 import { isSql } from "@sql";
 import { isRecord } from "@validation/value-guards";
@@ -325,7 +325,11 @@ export function createIdentityConstraint(
   model: Model<any>,
   data: Readonly<Record<string, unknown>>
 ): TargetConstraint {
-  return normalizeTargetConstraint(model, getTargetIdentityFields(model), data);
+  return normalizeTargetConstraint(
+    model,
+    getModelKeyCatalog(model).uniqueOverlapFields,
+    data
+  );
 }
 
 export function updateResultConstraints(
@@ -334,7 +338,7 @@ export function updateResultConstraints(
   data: Readonly<Record<string, unknown>>,
   where: Readonly<Record<string, unknown>>
 ): TargetConstraint[] {
-  const changesIdentity = getTargetIdentityFields(model).some(
+  const changesIdentity = getModelKeyCatalog(model).uniqueOverlapFields.some(
     (fieldName) =>
       Object.hasOwn(data, fieldName) && data[fieldName] !== undefined
   );
@@ -366,7 +370,11 @@ export function updateResultConstraints(
 }
 
 export function unknownConstraint(model: Model<any>): TargetConstraint {
-  return normalizeTargetConstraint(model, getTargetIdentityFields(model), {});
+  return normalizeTargetConstraint(
+    model,
+    getModelKeyCatalog(model).uniqueOverlapFields,
+    {}
+  );
 }
 
 export type PredicateFieldSet = ReadonlySet<string> | "unknown";
@@ -384,7 +392,7 @@ export function buildScalarUpdatePredicateFootprints(
   const changedFields = new Set(Object.keys(scalarData));
   if (changedFields.size === 0) return [];
 
-  const identityFields = getTargetIdentityFields(model);
+  const identityFields = getModelKeyCatalog(model).uniqueOverlapFields;
   const beforeConstraint = selector
     ? normalizeWhereUniqueTargetConstraint(model, { ...selector })
     : normalizeTargetConstraint(model, identityFields, {});
@@ -439,7 +447,7 @@ export function getFilterTargetConstraint(
   model: Model<any>,
   filter: unknown
 ): TargetConstraint {
-  const identityFields = getTargetIdentityFields(model);
+  const identityFields = getModelKeyCatalog(model).uniqueOverlapFields;
   const values: Record<string, unknown> = {};
   if (!isRecord(filter)) {
     return normalizeTargetConstraint(model, identityFields, values);
@@ -477,22 +485,15 @@ export function predicateFieldSetsIntersect(
   return false;
 }
 
-export function getTargetIdentityFields(model: Model<any>): string[] {
-  const state = model["~"].state;
-  const fieldNames = new Set(Object.keys(state.uniques));
-  addConstraintFields(fieldNames, state.compoundId);
-  addConstraintFields(fieldNames, state.compoundUniques);
-  return [...fieldNames];
-}
-
 /**
  * Every field a FOREIGN KEY in this schema's DDL may point at.
  *
  * ADDRESSABILITY and REFERENCEABILITY are different questions, so they are
- * different functions. {@link getTargetIdentityFields} answers the first — the
- * column sets a `whereUnique` can NAME (`state.uniques`, `state.compoundId`,
- * `state.compoundUniques`) — and that is the right answer everywhere a selector
- * is being normalized. This one answers the second, and it is strictly wider:
+ * different views. The catalog's `addressableKeys` owns the first — the grouped
+ * keys a `whereUnique` can NAME — while this module consumes the catalog's
+ * `uniqueOverlapFields`, the flattened union of every field ANY addressable key
+ * names, which answers only "may these two selectors overlap". This function
+ * answers the second question, and it is strictly wider:
  * a unique INDEX (`.index([...], { unique: true })`, which the migration driver
  * emits as `CREATE UNIQUE INDEX`) is a unique column set the database enforces
  * and therefore one a foreign key may reference, even though no selector can
@@ -505,7 +506,7 @@ export function getTargetIdentityFields(model: Model<any>): string[] {
  * fold, which costs a statement — never an answer.
  */
 export function getForeignKeyTargetFields(model: Model<any>): string[] {
-  const fieldNames = new Set(getTargetIdentityFields(model));
+  const fieldNames = new Set(getModelKeyCatalog(model).uniqueOverlapFields);
   for (const index of model["~"].state.indexes) {
     if (index.options.unique !== true) continue;
     for (const fieldName of index.fields) fieldNames.add(fieldName);
@@ -565,18 +566,6 @@ function collectFilterPredicateFields(
     fields.add(field);
   }
   return true;
-}
-
-function addConstraintFields(
-  fieldNames: Set<string>,
-  constraints: Record<string, { entries: Record<string, unknown> }> | undefined
-): void {
-  if (!constraints) return;
-  for (const constraint of Object.values(constraints)) {
-    for (const fieldName of Object.keys(constraint.entries)) {
-      fieldNames.add(fieldName);
-    }
-  }
 }
 
 function getExactFilterValue(

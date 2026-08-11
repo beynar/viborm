@@ -1,6 +1,6 @@
 // biome-ignore-all lint/style/useFilenamingConvention: RelationJunctionPart is the architecture name.
 import { NestedWriteError, QueryEngineError } from "@errors";
-import type { Model } from "@schema/model";
+import { getModelKeyCatalog, type Model } from "@schema/model";
 import type { Sql } from "@sql";
 import { isRecord } from "@validation/value-guards";
 import { getPrimaryKeyFields } from "../builders/correlation-utils";
@@ -2293,21 +2293,20 @@ function conflictableUniques(model: Model<any>): {
   probeable: { selector: string; fields: readonly string[] }[];
   indexOnly: number;
 } {
-  const state = model["~"].state;
   const primaryKeys = new Set(getPrimaryKeyFields(model));
   const probeable: { selector: string; fields: readonly string[] }[] = [];
-  for (const field of Object.keys(state.uniques)) {
-    // `state.uniques` carries `.id()` fields too (extractUniqueScalarMap keys on
-    // `isUnique || isId`), so the primary key is filtered out here, once.
-    if (primaryKeys.has(field)) continue;
-    probeable.push({ selector: field, fields: [field] });
+  for (const key of getModelKeyCatalog(model).addressableKeys) {
+    if (key.name === undefined) {
+      // Bare scalar selectors carry `.id()` fields too, so any row-key member
+      // is filtered out here, once.
+      const field = key.fields[0] as string;
+      if (primaryKeys.has(field)) continue;
+      probeable.push({ selector: field, fields: [field] });
+    } else if (key.kind === "compoundUnique") {
+      probeable.push({ selector: key.name, fields: key.fields });
+    }
   }
-  const compounds: Record<string, { entries: Record<string, unknown> }> =
-    state.compoundUniques ?? {};
-  for (const [selector, constraint] of Object.entries(compounds)) {
-    probeable.push({ selector, fields: Object.keys(constraint.entries) });
-  }
-  const indexOnly = state.indexes.filter(
+  const indexOnly = model["~"].state.indexes.filter(
     (index) => index.options.unique === true
   ).length;
   return { probeable, indexOnly };

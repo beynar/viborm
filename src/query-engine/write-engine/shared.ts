@@ -1,5 +1,5 @@
 import { TransactionError } from "@errors";
-import type { Model } from "@schema/model";
+import { getModelKeyCatalog, type Model } from "@schema/model";
 import { isSql } from "@sql";
 import { isRecord as isRecordValue } from "@validation/value-guards";
 
@@ -373,7 +373,7 @@ function polymorphicPayloadReachesTable(
  * A foreign key may only point at a UNIQUE column set, so a `SET` that rewrites
  * no unique-participating field can fire no action at all. That is the test, and
  * `getForeignKeyTargetFields` is the one home for which column sets those are.
- * It asks a WIDER question than `getTargetIdentityFields`, deliberately: a
+ * It asks a WIDER question than the catalog's `uniqueOverlapFields`, deliberately: a
  * `whereUnique` can only address a declared unique CONSTRAINT, but PostgreSQL
  * (and MySQL) accept a unique INDEX as an FK target too, and viborm's migration
  * driver emits `.index([...], { unique: true })` as exactly that. Asking the
@@ -492,21 +492,22 @@ export function createDataUniqueWhere(
   model: Model<any>,
   createData: Record<string, unknown>
 ): Record<string, unknown> | undefined {
-  const state = model["~"].state;
-  for (const field of Object.keys(state.uniques)) {
-    const value = createData[field];
-    if (isAddressableLiteral(value)) return { [field]: value };
+  // Bare scalar selectors first (shape order), then grouped compound uniques —
+  // the compound PRIMARY key is deliberately not consulted: half a compound key
+  // is a filter, never an identity, and the whole one is the row key, which a
+  // create arm addresses through its own identity channel.
+  for (const key of getModelKeyCatalog(model).addressableKeys) {
+    if (key.name === undefined) {
+      const field = key.fields[0] as string;
+      const value = createData[field];
+      if (isAddressableLiteral(value)) return { [field]: value };
+    }
   }
-  // Each compound unique is an ObjectSchema whose `entries` are its columns — the
-  // same shape `where-unique-builder` reads to compile a compound selector.
-  const compoundUniques: Record<string, { entries: Record<string, unknown> }> =
-    state.compoundUniques ?? {};
-  for (const [name, constraint] of Object.entries(compoundUniques)) {
-    const fields = Object.keys(constraint.entries);
-    if (fields.length === 0) continue;
+  for (const key of getModelKeyCatalog(model).addressableKeys) {
+    if (key.kind !== "compoundUnique" || key.fields.length === 0) continue;
     const values: Record<string, unknown> = {};
     let complete = true;
-    for (const field of fields) {
+    for (const field of key.fields) {
       const value = createData[field];
       if (!isAddressableLiteral(value)) {
         complete = false;
@@ -514,7 +515,7 @@ export function createDataUniqueWhere(
       }
       values[field] = value;
     }
-    if (complete) return { [name]: values };
+    if (complete) return { [key.name as string]: values };
   }
   return undefined;
 }

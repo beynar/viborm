@@ -33,7 +33,11 @@
  * `UpsertOperation.createArmIdentity`.
  */
 
-import type { Model } from "@schema/model";
+import {
+  findAddressableKey,
+  type Model,
+  type OrderedModelKey,
+} from "@schema/model";
 import type { Sql } from "@sql";
 import { getColumnName } from "../context";
 import { QueryEngineError, type QueryScope } from "../types";
@@ -113,17 +117,15 @@ export function partitionWhereUnique(
       continue;
     }
 
-    if (isUniqueScalarDiscriminator(ctx, key)) {
-      entries.push({ fieldName: key, value });
-      discriminator[key] = value;
-      continue;
-    }
-
-    const compoundConstraint = getCompoundUniqueConstraint(ctx, key);
-    if (compoundConstraint) {
-      entries.push(
-        ...buildCompoundUniqueConditions(key, compoundConstraint, value)
-      );
+    const addressable = findAddressableKey(ctx.model, key);
+    if (addressable) {
+      if (addressable.name === undefined) {
+        // A bare scalar selector: the key IS the constrained column.
+        entries.push({ fieldName: key, value });
+      } else {
+        // A grouped constraint selector: the value is an object of members.
+        entries.push(...buildCompoundUniqueConditions(key, addressable, value));
+      }
       discriminator[key] = value;
       continue;
     }
@@ -162,24 +164,9 @@ export function getWhereUniqueEntries(
   return partitionWhereUnique(ctx, where).entries;
 }
 
-function isUniqueScalarDiscriminator(
-  ctx: WhereUniqueModelContext,
-  key: string
-): boolean {
-  return key in ctx.model["~"].state.uniques;
-}
-
-function getCompoundUniqueConstraint(
-  ctx: WhereUniqueModelContext,
-  key: string
-): { entries: Record<string, unknown> } | undefined {
-  const state = ctx.model["~"].state;
-  return state.compoundId?.[key] ?? state.compoundUniques?.[key];
-}
-
 function buildCompoundUniqueConditions(
   key: string,
-  compoundConstraint: { entries: Record<string, unknown> },
+  addressable: OrderedModelKey,
   value: unknown
 ): WhereUniqueEntry[] {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
@@ -189,7 +176,7 @@ function buildCompoundUniqueConditions(
   }
 
   const compound = value as Record<string, unknown>;
-  const expectedFields = Object.keys(compoundConstraint.entries);
+  const expectedFields = addressable.fields;
   const expectedFieldSet = new Set(expectedFields);
 
   for (const fieldName of Object.keys(compound)) {
