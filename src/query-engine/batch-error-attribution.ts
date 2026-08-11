@@ -2,14 +2,13 @@ import type { AnyDriver } from "@drivers";
 import { batchMayContainAssertionCollision } from "@drivers/error-mapping";
 import {
   isVibORMError,
+  NESTED_WRITE_ASSERTION_FLOOR_MESSAGE,
   NestedWriteAssertionError,
   NestedWriteError,
-  NotFoundError,
-  TransactionError,
   VibORMErrorCode,
 } from "@errors";
 import type { PreparedBatchGuard } from "./types";
-import type { Failure } from "./write-engine/OperationFragment";
+import { createFailureError } from "./write-engine/OperationFragment";
 
 /**
  * Attribute a native-batch assertion failure to the guard that raised it (P6
@@ -81,14 +80,10 @@ export async function attributeOperationBatchError(
         )
       : error;
   }
-  return new NestedWriteError(
-    "Nested write assertion failed: a batch precondition (e.g. a connect/disconnect target or ownership check) did not hold.",
-    "",
-    {
-      code: VibORMErrorCode.NESTED_WRITE_ASSERTION_FAILED,
-      cause: error,
-    }
-  );
+  return new NestedWriteError(NESTED_WRITE_ASSERTION_FLOOR_MESSAGE, "", {
+    code: VibORMErrorCode.NESTED_WRITE_ASSERTION_FAILED,
+    cause: error,
+  });
 }
 
 /**
@@ -107,28 +102,4 @@ function sameAttribution(
     guard.failure.relation === other.failure.relation &&
     guard.failure.raceable === other.failure.raceable
   );
-}
-
-/** Reconstruct a guard's declared failure as its typed error. */
-export function createFailureError(
-  failure: Failure,
-  model: string,
-  operation: PreparedBatchGuard["operation"]
-): Error {
-  if (failure.kind === "notFound") {
-    return new NotFoundError(model, operation);
-  }
-  if (failure.kind === "nestedWrite") {
-    const error = new NestedWriteError(failure.message, failure.relation ?? "");
-    if (failure.raceable) error.meta.raceable = true;
-    return error;
-  }
-  const error = new TransactionError(failure.message, {
-    meta: { model, operation },
-  });
-  // Mirrors the nestedWrite arm (and `failureError` in the V2 executor): the
-  // upsert skip premise's retained notExists pin is a raceable `query` failure,
-  // and the routed retry recognizes it only by this mark.
-  if (failure.raceable) error.meta.raceable = true;
-  return error;
 }

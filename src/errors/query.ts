@@ -200,6 +200,15 @@ export class NestedWriteError extends VibORMError {
 }
 
 /**
+ * The batch assertion-abort floor sentence — one home for the three layers that
+ * say it: the executor's guard-free-ladder floor, merged-batch attribution's
+ * un-attributable floor, and driver error mapping's assertion translation.
+ * The wording matches V1's frozen runtime verbatim; edit it nowhere else.
+ */
+export const NESTED_WRITE_ASSERTION_FLOOR_MESSAGE =
+  "Nested write assertion failed: a batch precondition (e.g. a connect/disconnect target or ownership check) did not hold.";
+
+/**
  * Batch-plan nested-write assertion failures
  *
  * Atomic batch plans encode preconditions (connect/disconnect targets must

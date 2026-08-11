@@ -1,4 +1,5 @@
 // biome-ignore-all lint/style/useFilenamingConvention: OperationFragment is the architecture name.
+import { NestedWriteError, NotFoundError, TransactionError } from "@errors";
 import type { Sql } from "@sql";
 
 export const OPERATION_VALUE_REFERENCE = Symbol(
@@ -169,4 +170,38 @@ export function isOperationValueReference(
     "output" in value &&
     typeof value.output === "string"
   );
+}
+
+/**
+ * Materialize a step's declared {@link Failure} as its typed error — the ONE
+ * Failure→Error construction, shared by normal execution and merged-batch
+ * attribution (their ATTRIBUTION algorithms stay separate; only what a failure
+ * becomes is one fact).
+ */
+export function createFailureError(
+  failure: Failure,
+  model: string,
+  operation: string
+): Error {
+  if (failure.kind === "nestedWrite") {
+    const error = new NestedWriteError(failure.message, failure.relation ?? "");
+    if (failure.raceable) {
+      error.meta.raceable = true;
+    }
+    return error;
+  }
+  if (failure.kind === "notFound") {
+    return new NotFoundError(model, operation);
+  }
+  const error = new TransactionError(failure.message, {
+    meta: { model, operation },
+  });
+  // A `query` guard abort can be raceable too — the sole producer is the
+  // retained notExists skip-premise pin (`raceableQueryFailure`, ATOM "Branch
+  // premises and pins"). The mark is what lets the routed retry re-plan and
+  // converge; dropping it here strands the flag the fragment validator required.
+  if (failure.raceable) {
+    error.meta.raceable = true;
+  }
+  return error;
 }

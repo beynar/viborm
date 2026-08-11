@@ -5,9 +5,9 @@ import {
   assertNormalizedQueryResult,
 } from "@drivers/normalized-result";
 import {
+  NESTED_WRITE_ASSERTION_FLOOR_MESSAGE,
   NestedWriteAssertionError,
   NestedWriteError,
-  NotFoundError,
   QueryEngineError,
   TransactionError,
   UniqueConstraintError,
@@ -24,8 +24,9 @@ import type {
   PreparedQuery,
 } from "../types";
 import { validateFragment } from "./FragmentValidator";
-import { NESTED_WRITE_ASSERTION_FLOOR_MESSAGE } from "./messages";
+
 import {
+  createFailureError,
   type Failure,
   type FragmentOutputSource,
   type GuardStep,
@@ -124,10 +125,10 @@ function compileSingleStatementCandidate(
 
 function canExecuteDirectly(candidate: SingleStatementCandidate): boolean {
   const { step } = candidate;
-  return (
-    !(step.kind === "write" && step.onUniqueConflict) &&
-    !step.statement.values.some(isOperationValueReference) &&
-    !stepUsesInsertIdScratch(step)
+  return !(
+    (step.kind === "write" && step.onUniqueConflict) ||
+    step.statement.values.some(isOperationValueReference) ||
+    stepUsesInsertIdScratch(step)
   );
 }
 
@@ -137,9 +138,9 @@ function canPrepareSingle(candidate: SingleStatementCandidate): boolean {
 
 function canBuildStatement(candidate: SingleStatementCandidate): boolean {
   const { step } = candidate;
-  return (
-    !(step.kind === "write" && step.onUniqueConflict) &&
-    !step.statement.values.some(isOperationValueReference)
+  return !(
+    (step.kind === "write" && step.onUniqueConflict) ||
+    step.statement.values.some(isOperationValueReference)
   );
 }
 
@@ -878,29 +879,11 @@ function enforcePostcondition(
 }
 
 function failureError(failure: Failure, context: QueryExecutionContext): Error {
-  if (failure.kind === "nestedWrite") {
-    const error = new NestedWriteError(failure.message, failure.relation ?? "");
-    if (failure.raceable) error.meta.raceable = true;
-    return error;
-  }
-  if (failure.kind === "notFound") {
-    return new NotFoundError(
-      context.model ?? "record",
-      context.operation ?? "query"
-    );
-  }
-  const error = new TransactionError(failure.message, {
-    meta: {
-      model: context.model ?? "record",
-      operation: context.operation ?? "query",
-    },
-  });
-  // A `query` guard abort can be raceable too — the sole producer is the
-  // retained notExists skip-premise pin (`raceableQueryFailure`, ATOM “Branch premises and pins”). The
-  // mark is what lets the routed retry re-plan and converge; dropping it here
-  // strands the flag the fragment validator required.
-  if (failure.raceable) error.meta.raceable = true;
-  return error;
+  return createFailureError(
+    failure,
+    context.model ?? "record",
+    context.operation ?? "query"
+  );
 }
 
 function materializeLinearSql(statement: Sql, values: RuntimeValues): Sql {

@@ -4,6 +4,7 @@ import {
   type DiagnosticDisclosure,
   ForeignKeyError,
   isVibORMError,
+  NESTED_WRITE_ASSERTION_FLOOR_MESSAGE,
   NestedWriteAssertionError,
   NotNullConstraintError,
   QueryError,
@@ -165,10 +166,11 @@ function mapProviderError(
     context.query?.includes(ASSERTION_MARKER) &&
     isAssertionFailure(code, errno, rawMessage)
   ) {
-    return new NestedWriteAssertionError(
-      "Nested write assertion failed: a batch precondition (e.g. a connect/disconnect target or ownership check) did not hold.",
-      { cause, diagnostics, meta }
-    );
+    return new NestedWriteAssertionError(NESTED_WRITE_ASSERTION_FLOOR_MESSAGE, {
+      cause,
+      diagnostics,
+      meta,
+    });
   }
 
   if (code === POSTGRES_UNIQUE || code === "SQLITE_CONSTRAINT_UNIQUE") {
