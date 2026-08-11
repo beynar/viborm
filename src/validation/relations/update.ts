@@ -16,7 +16,9 @@ import type {
   CreateWithOmittedFk,
   InverseRequiredKeys,
   NestedCreateManySchema,
+  UpdateWithOmittedFk,
 } from "./create";
+import { targetHoldsInverseFk } from "./create";
 import { applyCreateManyAvailability } from "./create-many-availability";
 import type { GetTargetSchemas, SchemaGetter, TargetModel } from "./helpers";
 import {
@@ -69,13 +71,18 @@ export type ToOneUpdateTargetWithDataSchema<
   UpdateSchema extends V.Object<any, any>,
 > = V.Union<readonly [ToOneUpdateWrapperSchema<S, UpdateSchema>, UpdateSchema]>;
 
-export type ToOneUpdateTargetSchema<S extends RelationState> =
-  ToOneUpdateTargetWithDataSchema<S, GetTargetSchemas<S>["core"]["update"]>;
-
-export function toOneUpdateTargetFactory<
+export type ToOneUpdateTargetSchema<
   S extends RelationState,
-  T extends SchemaGetter<S>,
->(targetSchemas: T): ToOneUpdateTargetSchema<S>;
+  Source extends AnyModel,
+> = ToOneUpdateTargetWithDataSchema<S, UpdateWithOmittedFk<S, Source>>;
+
+/**
+ * `getUpdateSchema` is REQUIRED — nested update data is always built from the
+ * relation's omitted-FK owner ({@link UpdateWithOmittedFk} for an ordinary edge,
+ * `PolymorphicInverseUpdateTarget` for a polymorphic one). The optional parameter this
+ * used to take defaulted to the target's bare `core.update`, which is precisely the
+ * schema that let a caller spell the enclosing relation's foreign key (N1).
+ */
 export function toOneUpdateTargetFactory<
   S extends RelationState,
   T extends SchemaGetter<S>,
@@ -83,16 +90,8 @@ export function toOneUpdateTargetFactory<
 >(
   targetSchemas: T,
   getUpdateSchema: () => UpdateSchema
-): ToOneUpdateTargetWithDataSchema<S, UpdateSchema>;
-export function toOneUpdateTargetFactory<
-  S extends RelationState,
-  T extends SchemaGetter<S>,
-  UpdateSchema extends V.Object<any, any>,
->(
-  targetSchemas: T,
-  getUpdateSchema?: () => UpdateSchema
 ): ToOneUpdateTargetWithDataSchema<S, UpdateSchema> {
-  const updateSchema = () => getUpdateSchema?.() ?? targetSchemas().core.update;
+  const updateSchema = getUpdateSchema;
   const wrapper = v.object(
     {
       where: () => targetSchemas().core.where,
@@ -162,11 +161,11 @@ type ToOneUpdateEntriesBase<
     },
     { partial: false }
   >;
-  update: () => ToOneUpdateTargetSchema<S>;
+  update: () => ToOneUpdateTargetSchema<S, Source>;
   upsert: V.Object<
     {
       create: () => CreateWithOmittedFk<S, Source>;
-      update: () => GetTargetSchemas<S>["core"]["update"];
+      update: () => UpdateWithOmittedFk<S, Source>;
     },
     { partial: false }
   >;
@@ -274,6 +273,22 @@ export const toOneUpdateFactory = <
     const fkFields = getInverseRelationMapRuntime(state, source);
     return v.omit(targetSchemas().core.create, fkFields);
   };
+  // N1 — the same owner, applied to nested UPDATE data. See
+  // {@link UpdateWithOmittedFk} for why the two contexts share one rule.
+  //
+  // The engine keeps its own refusal for ONE measured reason, stated once, at the
+  // guard (`RelationWritePart.assertOwnedFkAbsentFromUpdateData`): a relation spelled
+  // `.fields()` with ZERO arguments carries `[]`, which this scanner treats as truthy
+  // and the engine's `bindRelation` treats as absent, so the omission removes nothing
+  // while the engine still knows a foreign key. The other candidate — several
+  // back-references matching no `.name()` — is NOT that reason: the engine's
+  // `findInverseRelationState` raises `Ambiguous relation …` before any guard runs.
+  const getUpdateSchema = () => {
+    const fkFields = targetHoldsInverseFk(state)
+      ? getInverseRelationMapRuntime(state, source)
+      : undefined;
+    return v.omit(targetSchemas().core.update, fkFields);
+  };
 
   const connectOrCreateSchema = v.object(
     {
@@ -286,7 +301,7 @@ export const toOneUpdateFactory = <
   const upsertSchema = v.object(
     {
       create: getCreateSchema,
-      update: () => targetSchemas().core.update,
+      update: getUpdateSchema,
     },
     { partial: false }
   );
@@ -297,7 +312,11 @@ export const toOneUpdateFactory = <
     connectOrCreate: connectOrCreateSchema,
     // W4-U3: bare data OR `{ where?, data }` — the wrapper's `where` filters the
     // currently connected record (see `toOneUpdateTargetFactory`).
-    update: () => toOneUpdateTargetFactory<S, T>(targetSchemas),
+    update: () =>
+      toOneUpdateTargetFactory<S, T, ReturnType<typeof getUpdateSchema>>(
+        targetSchemas,
+        getUpdateSchema
+      ),
     upsert: upsertSchema,
   };
   const isChildHeld = state.fields === undefined || state.fields.length === 0;
@@ -375,7 +394,7 @@ type ToManyUpdateEntries<S extends RelationState, Source extends AnyModel> = {
     V.Object<
       {
         where: () => GetTargetSchemas<S>["core"]["whereUniqueExtended"];
-        data: () => GetTargetSchemas<S>["core"]["update"];
+        data: () => UpdateWithOmittedFk<S, Source>;
       },
       { atLeast: ["where", "data"] }
     >
@@ -384,7 +403,7 @@ type ToManyUpdateEntries<S extends RelationState, Source extends AnyModel> = {
     V.Object<
       {
         where: () => GetTargetSchemas<S>["core"]["where"];
-        data: () => GetTargetSchemas<S>["core"]["update"];
+        data: () => UpdateWithOmittedFk<S, Source>;
       },
       { atLeast: ["data"] }
     >
@@ -394,7 +413,7 @@ type ToManyUpdateEntries<S extends RelationState, Source extends AnyModel> = {
       {
         where: () => GetTargetSchemas<S>["core"]["whereUniqueExtended"];
         create: () => CreateWithOmittedFk<S, Source>;
-        update: () => GetTargetSchemas<S>["core"]["update"];
+        update: () => UpdateWithOmittedFk<S, Source>;
       },
       { partial: false }
     >
@@ -430,6 +449,13 @@ export const toManyUpdateFactory = <
   const getCreateSchema = () => {
     const fkFields = getInverseRelationMapRuntime(state, source);
     return v.omit(targetSchemas().core.create, fkFields);
+  };
+  // N1 — see the to-one factory above and {@link UpdateWithOmittedFk}.
+  const getUpdateSchema = () => {
+    const fkFields = targetHoldsInverseFk(state)
+      ? getInverseRelationMapRuntime(state, source)
+      : undefined;
+    return v.omit(targetSchemas().core.update, fkFields);
   };
 
   const getCreateManyDataSchema = (): CreateManyDataSchema<S, Source> => {
@@ -474,7 +500,7 @@ export const toManyUpdateFactory = <
   const updateSchema = v.object(
     {
       where: () => targetSchemas().core.whereUniqueExtended,
-      data: () => targetSchemas().core.update,
+      data: getUpdateSchema,
     },
     { atLeast: ["where", "data"] }
   );
@@ -482,7 +508,7 @@ export const toManyUpdateFactory = <
   const updateManySchema = v.object(
     {
       where: () => targetSchemas().core.where,
-      data: () => targetSchemas().core.update,
+      data: getUpdateSchema,
     },
     { atLeast: ["data"] }
   );
@@ -491,7 +517,7 @@ export const toManyUpdateFactory = <
     {
       where: () => targetSchemas().core.whereUniqueExtended,
       create: getCreateSchema,
-      update: () => targetSchemas().core.update,
+      update: getUpdateSchema,
     },
     { partial: false }
   );

@@ -1181,6 +1181,55 @@ interface WritePartBase {
  * that column from the enclosing record; a second value source could move the
  * selected child away after it was located. The parse boundary normalizes scalar
  * shorthand, so checking the partitioned field name covers both spellings.
+ *
+ * RETAINED, and this is the route that keeps it (Package N1 enumerated the others and
+ * measured each one closed). N1 built every nested update schema from the omitted-FK
+ * owner — `v.omit(core.update, fkFields)`, `UpdateWithOmittedFk` in
+ * `src/validation/relations/create.ts` — so the ordinary payload no longer arrives.
+ * What still arrives is a schema on which the two scanners DISAGREE about which column
+ * the relation owns:
+ *
+ *  · `getInverseRelationMap` (validation) tests `state.fields` for TRUTHINESS, so a
+ *    relation spelled `.fields()` with zero arguments answers `[]` and the omission
+ *    removes nothing;
+ *  · `bindRelation` (this layer) tests `fields && fields.length > 0`, so the SAME
+ *    relation is child-held and `findInverseRelationState` resolves the target's real
+ *    back-reference.
+ *
+ * THREE of the four call positions below are reachable that way and are pinned in
+ * `tests/contracts/engine/write/nested-update-owned-fk.test.ts` ("the retained engine
+ * guard still catches what the parse cannot omit"); deleting the condition turns them
+ * red.
+ *
+ * The fourth call — `buildToManyUpdateManyParts` — was added by the Package N gate, and
+ * the reason is the one measurement that matters here. `updateMany` was position 4 of
+ * this family and the ONLY position the guard never covered; before N1 it accepted the
+ * spelled key on every schema and reparented the row. N1's omission closed it wherever
+ * the two scanners agree, but on the divergent schema they do not, and the arm had no
+ * owner at all: measured through the public client, `posts.updateMany.data.userId`
+ * returned success and left `po1` under `thief`. One invariant, one guard, every
+ * position that can violate it — not three of four.
+ *
+ * `buildToManyUpdateParts` has no measured live route: on the same divergent schema the
+ * targeted `update` arm dies earlier, in the engine's own scanner
+ * (`Cannot determine FK fields for relation 'ghost'`), because a targeted to-many update
+ * binds the target's relations and the zero-argument side cannot be bound. That
+ * asymmetry with `updateMany` — which binds nothing and therefore arrives — is why the
+ * position that looked safest was the one standing open. It stays a guard-ownership-
+ * ledger note, not licence to split one rule across two owners.
+ *
+ * Junction and polymorphic child-held relations never reach any of these four calls
+ * (`RecordUpdateCompiler.interpretRelation` returns for both before this dispatch), so
+ * the guard cannot see a `manyToMany` arm — which is the same edge `UpdateWithOmittedFk`
+ * declines to omit, from the other side.
+ *
+ * ROUTES MEASURED CLOSED by the omission, each through the public client: nesting depth
+ * ≥ 2 (`buildParsedRelationPrograms` re-validates nothing, but `core.update` recurses
+ * into the target's own relation update schemas); `UpdateManyRecordSeries` members, which
+ * are handed the RAW constructor args (the envelope is validated once at the series and
+ * each member re-parses `data`); `CreateManyRecordSeries` rows; the composed
+ * supplier+modify path with its `suppliedWhere` locator; the X1c whole-target delegation;
+ * and the inverse-upsert seam's update arm.
  */
 function assertOwnedFkAbsentFromUpdateData(
   base: WritePartBase,
@@ -1309,14 +1358,17 @@ export function buildToManyUpdateManyParts(
   base: WritePartBase,
   entry: Extract<RelationMutationEntry, { kind: "updateMany" }>
 ): RelationWritePart[] {
-  return entry.items.map(
-    (item) =>
-      new RelationWritePart(base.scope, {
-        ...partConfig(base, "updateMany"),
-        filter: item.where ?? {},
-        data: item.data,
-      })
-  );
+  return entry.items.map((item) => {
+    // The bulk arm derives the same correlation the targeted one does — `WHERE fk =
+    // <parent>` — so a spelled FK is the same second value source, and it rides the
+    // bulk SET that lands after the correlation chose the rows.
+    assertOwnedFkAbsentFromUpdateData(base, item.data);
+    return new RelationWritePart(base.scope, {
+      ...partConfig(base, "updateMany"),
+      filter: item.where ?? {},
+      data: item.data,
+    });
+  });
 }
 
 /** Keep an invalid nested updateMany arm structural until its owner runs legality.

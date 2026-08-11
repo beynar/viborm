@@ -31,9 +31,16 @@ import { describe, expect, test } from "vitest";
  *  2. **Only a `literal` parent source is comparable at construction.** The UPDATE root
  *     hands its children a `planned` source (the located row, read at planning) and a
  *     create root with a DB-generated key hands a `ref` (produced by an INSERT that has
- *     not run). Neither has a value to compare, so both keep the refusal — the recorded
- *     boundary widens from "Ref-only" to both, measured. What is left, and what the
- *     agreement absorbs, is the create root whose own key is SPELLED.
+ *     not run). Neither has a value to compare, so both keep the refusal. What is left,
+ *     and what the agreement absorbs, is the create root whose own key is SPELLED.
+ *
+ *     PACKAGE N1 NARROWED THIS, measured: nested UPDATE data is now built from the same
+ *     omitted-FK owner nested create data is, EXCEPT in a create context's to-many
+ *     `upsert` arm — kept precisely because the absorb above is a capability and this is
+ *     the only parent that can supply a comparable value. So a `planned` source no longer
+ *     reaches this seam at all (an update root answers `Unknown key` first, pinned below
+ *     as its own WALL), and the `ref` source is what still exercises the
+ *     no-value-to-compare arm.
  */
 export const adoptOwnedFkSchema = (() => {
   // The main pair: a spelled STRING parent key (a `literal` source) and a NULLABLE child
@@ -368,7 +375,16 @@ export function registerAdoptOwnedFkBehavior(
       ).rejects.toThrow(OWNED);
     }, 120_000);
 
-    test("a PLANNED parent source (the update root) keeps the refusal", async () => {
+    test("WALL: an UPDATE root cannot spell the owned FK in the upsert arm either", async () => {
+      // Package N1 — this used to be "a PLANNED parent source keeps the refusal", and
+      // it did, HERE: the update root hands its children the located row, which has no
+      // value at construction to agree with. N1 answers the same payload one layer up,
+      // because `update.ts`'s upsert arm is now built from the omitted-FK owner too, so
+      // an UPDATE root's nested update data cannot name the column at all. The fact the
+      // old test recorded — an update root may not spell it — is unchanged and now
+      // holds by construction; what moved is which boundary says so. The seam's own
+      // `planned` branch is therefore no longer reachable through this family, and the
+      // `ref` branch below is what keeps the no-comparable-value arm honest.
       const client = await connect();
       await reset(client);
       await client.owner.create({ data: { id: "o6", email: "o6@x" } });
@@ -386,7 +402,11 @@ export function registerAdoptOwnedFkBehavior(
             },
           },
         })
-      ).rejects.toThrow(OWNED);
+      ).rejects.toThrow("Unknown key: ownerId");
+      // Nothing was written: the decoy still owns the row.
+      expect(
+        await client.thing.findUnique({ where: { slug: "planned" } })
+      ).toMatchObject({ ownerId: "decoy" });
     }, 120_000);
 
     test("a REF parent source (a generated create-root key) keeps the refusal", async () => {

@@ -727,6 +727,18 @@ function locatedRow(
  * so such a spelling refuses instead of being absorbed. That direction fails CLOSED —
  * the caller is told to omit a key the engine already owns — which is the only direction
  * this seam may err in.
+ *
+ * WHICH PAYLOADS STILL REACH IT, after Package N1 (measured, through the public client):
+ * only a CREATE context's to-many `upsert`. N1 built every nested update schema from the
+ * omitted-FK owner, which is why `update.ts`'s `upsert` arm — the UPDATE root's — now
+ * answers `Unknown key` at the parse; and it deliberately did NOT touch `create.ts`'s
+ * `upsert` arm, because absorbing the agreeing spelling is a CAPABILITY and a create root
+ * whose own key is spelled is the only parent with a value to agree with. So the absorb
+ * branch keeps every payload it ever had, and the refusal branch keeps the disagreeing
+ * literal, `null`, the arithmetic envelope, the compound edge, and the `ref` source (a
+ * DB-generated create-root key). The `planned` source no longer arrives here: an update
+ * root cannot spell the key at all now, which is a strictly earlier answer to the same
+ * question, not a lost refusal.
  */
 function withoutAgreeingOwnedFk(
   payload: Record<string, unknown>,

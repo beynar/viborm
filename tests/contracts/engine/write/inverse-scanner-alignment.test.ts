@@ -32,6 +32,21 @@ import { beforeAll, expect, expectTypeOf, test } from "vitest";
  * a sole back-reference IS the edge whatever either side spelled. So the parse now omits
  * `authorId` and refuses to be told it — a typed `ValidationError` where a silent
  * overwrite used to be.
+ *
+ * **A SECOND AXIS IS STILL OPEN, and this file may not imply otherwise.** Measured by the
+ * Package N gate (2026-08-11): the two scanners also read a relation spelled `.fields()`
+ * with ZERO arguments differently. `getInverseRelationMap` filters candidates on
+ * `!relState.fields`, and `[]` is truthy, so such a relation stays a candidate and can be
+ * answered as the edge's field list — omitting nothing. `bindRelation`
+ * (`query-engine/builders/relation-data-builder.ts`) filters on
+ * `fields && fields.length > 0`, so it DROPS the same relation and resolves the target's
+ * real back-reference. The parse therefore admits a foreign key the engine owns, which is
+ * why `RelationWritePart.assertOwnedFkAbsentFromUpdateData` is RETAINED rather than
+ * deleted by Package N1, and it is pinned — with the reparented row as the failure — in
+ * `nested-update-owned-fk.test.ts` (its last two describe blocks, one to-one and one
+ * to-many). Closing this axis means making the two filters agree, which is a schema-layer
+ * change with its own blast radius (the scan feeds read correlation too) and its own
+ * measurement; it is a Package O ledger item, not something this file asserts today.
  */
 
 // =============================================================================

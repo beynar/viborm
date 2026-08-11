@@ -786,6 +786,143 @@ describe("query args refuse a typo beside a real key, per guarded clause", () =>
     expectTypeOf(_nestedConnectSelectorTypoCompiles).toBeFunction();
   });
 
+  // ---------------------------------------------------------------------------
+  // N1 — the relation-owned foreign key is not a key nested UPDATE data offers.
+  //
+  // `author.books` owns `book.authorId` (the `writer` back-reference carries it), and
+  // the engine DERIVES that column from the author the enclosing step acted on. Nested
+  // CREATE data has never offered it; nested UPDATE data now agrees, in all four arms
+  // (`update`, `updateMany`, the to-many `upsert` UPDATE arm, and the to-one arms).
+  //
+  // MEASURED, and it is the reason the claims below are split into three kinds rather
+  // than four `@ts-expect-error` lines: the key is genuinely gone from the schema TYPE
+  // (`VOmit<…>`), and a typo ALONE is red — but only because every nested data bag is a
+  // weak type, so an object sharing no property with it is refused by that rule. BESIDE
+  // A REAL KEY it compiles, at the `data` level's documented ceiling: keying `data`
+  // turns six estate sites into TS2589 and takes the type-check from 34 s to 172 s
+  // (AGENTS.md, "pin what you cannot key"). The create side has always sat at exactly
+  // the same ceiling, which is what the counter-pin below establishes — so N1 did not
+  // move it in either direction, and the runtime `Unknown key` refusals in
+  // `tests/contracts/engine/write/nested-update-owned-fk.test.ts` are the executable
+  // half of this claim.
+  // ---------------------------------------------------------------------------
+
+  /** RED, but by weak-type detection — evidence of nothing on its own (AGENTS.md rule
+   *  1). Kept as the required companion to the pin below, not as the claim. */
+  const _nestedUpdateDataOwnedFkAlone = () =>
+    client.author.update({
+      where: { id: "a" },
+      data: {
+        // @ts-expect-error - "authorId" is owned by the enclosing relation
+        books: { update: { where: { id: "b" }, data: { authorId: "a2" } } },
+      },
+    });
+
+  // PINS, not claims: these are misspelled calls that COMPILE. No `@ts-expect-error`,
+  // so the day `data` becomes keyable they go red and someone deletes the pin.
+  const _nestedUpdateDataOwnedFkBesideRealCompiles = () =>
+    client.author.update({
+      where: { id: "a" },
+      data: {
+        books: {
+          update: {
+            where: { id: "b" },
+            data: { title: "t", authorId: "a2" },
+          },
+        },
+      },
+    });
+
+  const _nestedUpdateManyDataOwnedFkBesideRealCompiles = () =>
+    client.author.update({
+      where: { id: "a" },
+      data: {
+        books: {
+          updateMany: {
+            where: { pages: { gt: 1 } },
+            data: { title: "t", authorId: "a2" },
+          },
+        },
+      },
+    });
+
+  const _nestedUpsertUpdateOwnedFkBesideRealCompiles = () =>
+    client.author.update({
+      where: { id: "a" },
+      data: {
+        books: {
+          upsert: {
+            where: { id: "b" },
+            create: { id: "b", title: "t", pages: 1 },
+            update: { title: "t", authorId: "a2" },
+          },
+        },
+      },
+    });
+
+  /** The COUNTER-MEASUREMENT that makes the three pins above a pre-existing ceiling
+   *  rather than something N1 opened: nested CREATE data has omitted this key since it
+   *  was written, and its typo beside a real key compiles identically. If this one ever
+   *  goes red while the three above stay green, the ceiling moved for one context and
+   *  not the other. */
+  const _nestedCreateDataOwnedFkBesideRealCompiles = () =>
+    client.author.update({
+      where: { id: "a" },
+      data: {
+        books: {
+          create: { id: "b", title: "t", pages: 1, authorId: "a2" },
+        },
+      },
+    });
+
+  /** The positive half: ordinary scalars in the same position still complete. */
+  const _nestedUpdateDataTakesOrdinaryScalars = () =>
+    client.author.update({
+      where: { id: "a" },
+      data: {
+        books: {
+          update: { where: { id: "b" }, data: { title: "t", pages: 2 } },
+        },
+      },
+    });
+
+  /**
+   * The ABSORBED CAPABILITY, pinned as a POSITIVE probe: a CREATE root's to-many
+   * `upsert` UPDATE arm still offers the key, because the engine absorbs a value that
+   * agrees with the parent key it is about to write (E5-U2,
+   * `RelationUpsertPart.withoutAgreeingOwnedFk`). N1 deliberately left this one schema
+   * alone; if the omission ever spreads to it, this line goes red before the behavior
+   * contract does.
+   */
+  const _createRootUpsertUpdateKeepsTheOwnedFk = () =>
+    client.author.create({
+      data: {
+        id: "a",
+        email: "e",
+        passwordHash: "h",
+        books: {
+          upsert: {
+            where: { id: "b" },
+            create: { id: "b", title: "t", pages: 1 },
+            update: { title: "t", authorId: "a" },
+          },
+        },
+      },
+    });
+
+  test("nested update data does not offer the relation-owned FK (N1)", () => {
+    expectTypeOf(_nestedUpdateDataOwnedFkAlone).toBeFunction();
+    expectTypeOf(_nestedUpdateDataTakesOrdinaryScalars).toBeFunction();
+    expectTypeOf(_createRootUpsertUpdateKeepsTheOwnedFk).toBeFunction();
+  });
+
+  test("nested data typos beside a real key still compile — the ceiling, pinned", () => {
+    expectTypeOf(_nestedUpdateDataOwnedFkBesideRealCompiles).toBeFunction();
+    expectTypeOf(_nestedUpdateManyDataOwnedFkBesideRealCompiles).toBeFunction();
+    expectTypeOf(_nestedUpsertUpdateOwnedFkBesideRealCompiles).toBeFunction();
+    expectTypeOf(_nestedCreateDataOwnedFkBesideRealCompiles).toBeFunction();
+  });
+
   test("the probes above compile (assertions live in @ts-expect-error)", () => {
     expectTypeOf(_keyed).toBeFunction();
     expectTypeOf(_operationKeyTypo).toBeFunction();

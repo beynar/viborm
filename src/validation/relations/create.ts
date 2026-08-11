@@ -26,16 +26,90 @@ import {
 // CREATE SCHEMA TYPES (exported for consumer use)
 // =============================================================================
 
+/**
+ * The keys of a target schema the ENCLOSING relation owns: the inverse relation's
+ * foreign-key fields, narrowed to the keys that schema actually has.
+ *
+ * This module owns the omitted-FK lineage for BOTH nested contexts. `core.create` and
+ * `core.update` carry the same relation-owned columns, and a nested payload may not name
+ * them in either one, for one reason: the enclosing step DERIVES that column from the
+ * record it acted on, so a spelled value is a second provenance for it. The polymorphic
+ * edge states the same rule over its relation key
+ * ({@link file://./index.ts} `PolymorphicInverseCreateTarget` /
+ * `PolymorphicInverseUpdateTarget`).
+ */
+type OmittedInverseFkKeys<
+  S extends RelationState,
+  Source extends AnyModel,
+  Entries,
+> = Extract<GetInverseRelationMap<S, Source>, readonly (keyof Entries)[]>;
+
 export type CreateWithOmittedFk<
   S extends RelationState,
   Source extends AnyModel,
 > = V.Omit<
   GetTargetSchemas<S>["core"]["create"],
-  Extract<
-    GetInverseRelationMap<S, Source>,
-    readonly (keyof GetTargetSchemas<S>["core"]["create"]["entries"])[]
+  OmittedInverseFkKeys<
+    S,
+    Source,
+    GetTargetSchemas<S>["core"]["create"]["entries"]
   >
 >;
+
+/**
+ * Does the TARGET row hold this relation's foreign key? Only then is a spelled column a
+ * SECOND provenance for the value the enclosing step's fold derives.
+ *
+ * `getInverseRelationMap` answers two different questions under one name: for a to-one
+ * with `.fields()` it returns THIS side's own fields, and for every other shape it scans
+ * the TARGET for a to-one back-reference. Only the second answer names a column on the
+ * row a nested payload writes.
+ *
+ * MEASURED, and deliberately NOT changed here: `CreateWithOmittedFk` applies the map
+ * without this narrowing, so a nested CREATE over-omits in two shapes the engine has no
+ * fold for — a `manyToMany` arm (the junction holds membership; the scan finds an
+ * unrelated to-one back-reference, e.g. `post.tags.create` cannot spell `featuredPostId`)
+ * and a SELF-REFERENTIAL parent-held to-one (`node.parent.create` cannot spell its own
+ * `parentId`). Both refuse at HEAD, predate this package, and widening them is a
+ * capability lift with its own measurement — recorded for the guard-ownership ledger,
+ * not folded into N1, which may only make the parse agree with the engine.
+ */
+type TargetHoldsInverseFk<S extends RelationState> =
+  S["type"] extends "manyToMany"
+    ? false
+    : S extends { fields: readonly [string, ...string[]] }
+      ? false
+      : true;
+
+/** The runtime twin of {@link TargetHoldsInverseFk} — one rule, both levels. */
+export const targetHoldsInverseFk = (state: RelationState): boolean =>
+  state.type !== "manyToMany" &&
+  (state.fields === undefined || state.fields.length === 0);
+
+/**
+ * The UPDATE-side application of the owner above (Package N1). Nested update data —
+ * the to-one `update` and `upsert` arms, the to-many `update`, `updateMany` and `upsert`
+ * arms — is built from this, so the relation-owned foreign key is not a key the caller
+ * can spell there, exactly as it has never been spellable in a nested create.
+ *
+ * NOT applied to the to-many `upsert` arm of a CREATE context
+ * ({@link ToManyCreateSchema}): the engine ABSORBS an agreeing spelling there
+ * (`RelationUpsertPart.withoutAgreeingOwnedFk`, E5-U2), which is a capability, and only
+ * a create root whose own key is spelled has a value to agree with.
+ */
+export type UpdateWithOmittedFk<
+  S extends RelationState,
+  Source extends AnyModel,
+> = TargetHoldsInverseFk<S> extends true
+  ? V.Omit<
+      GetTargetSchemas<S>["core"]["update"],
+      OmittedInverseFkKeys<
+        S,
+        Source,
+        GetTargetSchemas<S>["core"]["update"]["entries"]
+      >
+    >
+  : GetTargetSchemas<S>["core"]["update"];
 
 type InverseRelationMap<
   S extends RelationState,

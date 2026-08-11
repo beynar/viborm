@@ -17,6 +17,9 @@ import {
   test,
 } from "vitest";
 
+/** Package J's one added refusal — hoisted per the top-level-regex rule. */
+const SKIP_DUPLICATES_REFUSAL = /skipDuplicates/;
+
 // =============================================================================
 // TEST SCHEMA
 // =============================================================================
@@ -336,22 +339,58 @@ describe("Nested CreateMany", () => {
   });
 
   describe("validation before execution", () => {
-    test("rejects relation envelopes in top-level createMany before writing", async () => {
-      const invalidCreateManyArgs = {
+    /**
+     * DELIVERED BY PACKAGE J (relation-bearing `createMany`), corrected here.
+     *
+     * This test used to assert that a relation envelope in a top-level `createMany`
+     * row is REJECTED before writing. That was true until Package J widened the bulk
+     * create element to the ordinary create surface and routed a relation-bearing row
+     * to `CreateManyRecordSeries`. The assertion had been red since that landing and
+     * nothing ran it — the package gates run focused files and the layer projects, and
+     * this file is `extended-local`. Package N found it and measured it: the failure
+     * reproduces with N's own validation changes reverted, so it is J's delivery, not
+     * N's regression.
+     *
+     * What the position is FOR — "nothing is written unless the whole payload is
+     * legal" — is kept, and moved to the shape J's own refusal still covers.
+     */
+    test("accepts a relation envelope in a top-level createMany row (Package J)", async () => {
+      await client.user.createMany({
         data: [
           {
             id: "user-1",
             name: "John",
-            posts: {
-              create: { id: "post-1", title: "Should not write" },
-            },
+            posts: { create: { id: "post-1", title: "Written" } },
           },
         ],
-      } as unknown as Parameters<typeof client.user.createMany>[0];
+      });
 
+      const [users, posts] = await Promise.all([
+        client.user.findMany(),
+        client.post.findMany(),
+      ]);
+      expect(users).toHaveLength(1);
+      expect(posts).toEqual([
+        { id: "post-1", title: "Written", userId: "user-1" },
+      ]);
+    });
+
+    test("rejects skipDuplicates beside a relation-bearing row before writing", async () => {
+      // Package J's ONE added refusal, and the position this test now protects: a
+      // skipped row has no defined meaning for its nested effects, so the contract is
+      // deferred rather than guessed. It is decided at CONSTRUCTION, so nothing runs.
       await expect(
-        client.user.createMany(invalidCreateManyArgs)
-      ).rejects.toThrow();
+        client.user.createMany({
+          data: [
+            {
+              id: "user-1",
+              name: "John",
+              posts: { create: { id: "post-1", title: "Should not write" } },
+            },
+          ],
+          skipDuplicates: true,
+        })
+      ).rejects.toThrow(SKIP_DUPLICATES_REFUSAL);
 
       const [users, posts] = await Promise.all([
         client.user.findMany(),

@@ -1,4 +1,3 @@
-import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 // biome-ignore-all lint/suspicious/noMisplacedAssertion: expectParity is invoked only from test cases.
 import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
@@ -6,12 +5,15 @@ import type { BatchQuery, QueryResult } from "@drivers/types";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { push } from "@migrations";
 import { s } from "@schema";
+import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { describe, expect, test } from "vitest";
 
 const AUTHOR_ID_RELATION_KEY_ERROR = /relation key field 'authorId'/;
 // M12: the general owned-foreign-key refusal, which precedes this file's rule wherever
 // the rewritten relation key is the key the ENCLOSING relation owns.
-const POSTS_OWN_AUTHOR_ID_ERROR = /Relation 'posts' owns 'authorId'/;
+/** N1 — the parse boundary omits the enclosing relation's own foreign key from nested
+ *  update data, so the payload's key is unknown before an operation is constructed. */
+const POSTS_OWN_AUTHOR_ID_PARSE_ERROR = /Unknown key: authorId/;
 const CODE_RELATION_KEY_ERROR = /relation key field 'code'/;
 const ID_RELATION_KEY_ERROR = /relation key field 'id'/;
 const OCCUPIED_RELATION_ERROR = /current relation is occupied/;
@@ -404,14 +406,23 @@ describe("relation-key update legality", () => {
   // M12 — DELIBERATE CLASS CHANGE, the state contract unchanged. `authorId` is not just
   // a relation key of the target here: it is the foreign key the ENCLOSING `posts`
   // relation owns, so this payload is illegal on its own, with or without the sibling
-  // `author: { update }` this file's rule needs. The general refusal now answers first
-  // ("Relation 'posts' owns 'authorId'; omit it from nested create and update data"),
+  // `author: { update }` this file's rule needs. The general refusal answers first,
   // which is also where Prisma lands — its `PostUpdateWithoutAuthorInput` omits the key
   // outright, so the relation-key rule is never consulted for this shape. What the test
   // is FOR is unchanged and still asserted: the nested data is judged before any outer
   // effect, and the snapshot shows nothing written. CLASS IV keeps its own coverage —
   // any relation key of the target that the enclosing relation does NOT own (and the two
   // root-level scenarios above and below) still raise `NestedWriteError` here.
+  //
+  // PACKAGE N1 MOVED IT ONE LAYER FURTHER OUT, and Prisma's own reasoning is now the
+  // MECHANISM rather than a coincidence: nested update data is built from the same
+  // omitted-FK owner nested create data is, so `authorId` is not a key of this payload's
+  // schema and the answer is `ValidationError: Unknown key: authorId` at the parse.
+  // Previously it was the engine's `Relation 'posts' owns 'authorId'; omit it from
+  // nested create and update data`, one construction step later — the same decision,
+  // still before any statement, with a less specific sentence. That trade was already
+  // made on the create side, and `nested-update-owned-fk.test.ts` owns the full account
+  // including the one schema shape that still reaches the engine guard.
   test("recurses into nested update data before outer effects", async () => {
     await expectParity(
       {
@@ -434,8 +445,8 @@ describe("relation-key update legality", () => {
         snapshot: authorPostState,
         expectedState: originalAuthorPostState,
       },
-      POSTS_OWN_AUTHOR_ID_ERROR,
-      "UnsupportedOperationError"
+      POSTS_OWN_AUTHOR_ID_PARSE_ERROR,
+      "ValidationError"
     );
   });
 
