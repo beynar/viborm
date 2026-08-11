@@ -822,6 +822,41 @@ describe("K/G — a polymorphic write at the nested updateMany leaf is refused, 
       "Nested relation writes inside updateMany data for relation 'slots' are not supported."
     );
   });
+
+  test("a MALFORMED polymorphic envelope reports its parse error, not the updateMany wall", () => {
+    // `findRelationBearingUpdateManyData` PARSES the nested data to answer the
+    // legality question, so a malformed polymorphic envelope surfaces its own
+    // parse-time error before `assertUpdateManyDataRelationsAreCompilable` can
+    // name the wall. This precedence is deliberate current behavior; a unified
+    // parsed collection must not flip it silently.
+    const engine = engineFor(new PGliteDriver(), polySchema as any);
+    let caught: unknown;
+    try {
+      constructRoutedOperation(engine, polySchema.board, "update", {
+        where: { id: 1 },
+        data: {
+          slots: {
+            updateMany: {
+              where: {},
+              data: {
+                caption: "x",
+                media: { connect: { type: "bogus", where: { id: 1 } } },
+              },
+            },
+          },
+        },
+      });
+      throw new Error("expected the malformed envelope to be refused");
+    } catch (error) {
+      caught = error;
+    }
+    expect(String(caught)).toContain(
+      "ValidationError: Validation failed for update:"
+    );
+    expect(String(caught)).not.toContain(
+      "Nested relation writes inside updateMany data"
+    );
+  });
 });
 
 // ---------------------------------------------------------------------------
