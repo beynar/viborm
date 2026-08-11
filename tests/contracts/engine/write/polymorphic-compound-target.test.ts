@@ -11,7 +11,7 @@ import { describe, expect, test } from "vitest";
  *
  * This topology had no contract anywhere in the estate (Package A named it as an
  * unpinned hole: every polymorphic witness schema keys its targets by one column),
- * and `RecordUpdateCompiler.interpretPolymorphicChildHeld` refused it outright.
+ * and `RecordUpdateCompiler`'s polymorphic child-held dispatch refused it outright.
  * The refusal is deleted, so this file is the evidence for what replaced it.
  *
  * THE TWO KEYS ARE DIFFERENT FACTS, and the schema makes them collide on purpose:

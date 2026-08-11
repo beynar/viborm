@@ -70,7 +70,7 @@ import { describe, expect, test } from "vitest";
  *     update and the adopt payload under a SELECTED parent, which reached the same site.
  *     These two tests ARE the inverted refusal rows; the values are chosen so a
  *     selector-derived or one-member row key is a different string in the same SQL.
- * The fifth, `interpretPolymorphicChildHeld`, needs a polymorphic inverse whose target
+ * The fifth, the polymorphic child-held dispatch, needs a polymorphic inverse whose target
  * model has a compound primary key, which this schema has no member of. It has its own
  * dual-substrate contract instead: polymorphic-compound-target.test.ts, which also pins
  * the ACCEPTED path this file cannot reach — the exact `(discriminator, stored reference)`

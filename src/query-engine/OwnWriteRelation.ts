@@ -57,7 +57,7 @@ export class OwnWriteRelation {
    * H3 — the unique selector of a `connect` this to-one payload composes with an
    * `update`. When it is present the modify does NOT read membership: the engine
    * locates the supplied row by exactly this selector, because correlating would
-   * address the OUTGOING member (`RecordUpdateCompiler.interpretInverseToOneComposition`).
+   * address the OUTGOING member (`RecordUpdateCompiler`'s child-held composition).
    * Keeping the analyzer's decision read on membership after H would report a
    * dependency the compiled plan does not have — a `disconnect` beside the pair would
    * be named as the update's premise while the update never asks about membership.

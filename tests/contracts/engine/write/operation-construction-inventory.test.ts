@@ -431,7 +431,8 @@ describe("write engine route inventory (P6 accounting)", () => {
   //     under a FRESH parent, since under a selected parent the record compiler answered
   //     first). Its adopt probe's compound SQL is pinned in the same file.
   //   · **-1, `RecordUpdateCompiler.interpretRelation`** and **-1,
-  //     `interpretPolymorphicChildHeld`** — "query-engine-v2 update requires a child with
+  //     `interpretPolymorphicChildHeld`** (since merged into the one child-held
+  //     dispatcher by distinct-truth Phase 6) — "query-engine-v2 update requires a child with
   //     one primary key for relation '<r>'.", emitted VERBATIM at both, which is why the
   //     witness that used to assert it could not say which guard answered. The ordinary
   //     child-held half is now pinned on both substrates in `parity-c-selected-identity`
@@ -1046,40 +1047,40 @@ describe("write engine route inventory (P6 accounting)", () => {
         2,
         "query-engine/write-engine/RecordUpdateCompiler.ts",
         // Shifted by Phase 4 (axis migration reshaped the file above), then Phase 5.
-        1785,
-        1757,
+        1978,
+        1950,
         "postTransitionReference",
       ],
       [
         3,
         "query-engine/write-engine/RecordUpdateCompiler.ts",
         // Shifted by Phase 4, then Phase 5.
-        2000,
-        1896,
+        2193,
+        2089,
         "resolveCreateParent",
       ],
       [
         4,
         "query-engine/write-engine/RecordUpdateCompiler.ts",
         // Shifted by Phase 4, then Phase 5.
-        3519,
-        3499,
+        3330,
+        3310,
         "recordSharedKeyFold",
       ],
       [
         5,
         "query-engine/write-engine/RecordUpdateCompiler.ts",
         // Shifted by Phase 4, then Phase 5.
-        3599,
-        3591,
+        3410,
+        3402,
         "beforeTargetReferencedValue",
       ],
       [
         6,
         "query-engine/write-engine/RecordUpdateCompiler.ts",
         // Shifted by Phase 5.
-        4756,
-        4717,
+        4558,
+        4519,
         "composeToOneEntries",
       ],
       [
@@ -1121,24 +1122,24 @@ describe("write engine route inventory (P6 accounting)", () => {
         15,
         "query-engine/write-engine/CreateOperation.ts",
         // Shifted by unit 9.1, then Phase 4, then Phase 5.
-        2779,
-        2771,
+        2798,
+        2790,
         "requireRecordReferenced",
       ],
       [
         19,
         "query-engine/write-engine/CreateOperation.ts",
         // Shifted by unit 9.1, then Phase 4, then Phase 5.
-        2857,
-        2846,
+        2876,
+        2865,
         "producedReference",
       ],
       [
         20,
         "query-engine/write-engine/CreateOperation.ts",
         // Shifted by unit 9.1, then Phase 4, then Phase 5.
-        3161,
-        3147,
+        3187,
+        3173,
         "assertSharedPkResolved",
       ],
       [

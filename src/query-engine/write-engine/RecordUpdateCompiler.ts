@@ -104,6 +104,7 @@ import {
   updateManyCarriesRelations,
 } from "./RelationWritePart";
 import {
+  applyRootMembershipAssignment,
   bindCorrelatedRelationMembership,
   bindRelationMembership,
   type CorrelatedRelationMembershipBinding,
@@ -125,6 +126,7 @@ import {
   planningMembershipCondition,
   planningSourceFromFinal,
   type RelationMembershipBinding,
+  type RootMembershipAssignment,
   resolvePolymorphicStorageValue,
   transitionedParentId,
 } from "./relation-membership";
@@ -264,27 +266,46 @@ interface BeforeTarget {
  *   referenced literal + a batch `exists` guard (`raceable: false`); missing →
  *   before-root INSERT (constraint + `racePin`, Pin Rule class 2) + FK ← `ref`.
  */
+/**
+ * How a parent-held probe's found row is checked, and how a batch re-guards it.
+ *
+ * `referencedKey` is the ordinary shape: the payload's selector is complete on its
+ * own, so the guard statement is built once at construction, and the found row owes a
+ * NULL check on any referenced column the selector did not name
+ * ({@link RecordUpdateCompilerState.assertLookupKeyPresent}, E1 U2).
+ * `capturedDiscriminator` is what a DIRECT POLYMORPHIC target needs: it is named by a
+ * discriminator beside a referenced value, so the guard is rebuilt at emit from the
+ * value the probe published. ONE kept difference as ONE field, never two arms.
+ */
+type ParentHeldLookup =
+  | {
+      readonly kind: "referencedKey";
+      readonly relation: ParentHeldRelation;
+      readonly where: Record<string, unknown>;
+      readonly guardProbe: Sql;
+    }
+  | {
+      readonly kind: "capturedDiscriminator";
+      readonly guardField: string;
+      readonly where: Record<string, unknown>;
+    };
+
 type ParentHeldTarget =
   | {
       readonly kind: "create";
-      readonly relation: ParentHeldRelation;
       readonly before: BeforeTarget;
-      readonly fkAssign: Record<string, unknown>;
+      readonly assignment: RootMembershipAssignment;
     }
   | {
       readonly kind: "connectOrCreate";
-      readonly relation: ParentHeldRelation;
+      readonly relationInfo: RelationInfo;
       readonly probeId: string;
       readonly guardId: string;
-      readonly guardProbe: Sql;
+      readonly lookup: ParentHeldLookup;
       readonly probe: ReadStep;
-      readonly foundFkAssign: Record<string, unknown>;
-      /** The edge and the selector the found arm's fold was built from — the
-       *  compile-time NULL check on a NON-referenced-unique lookup needs both
-       *  ({@link RecordUpdateCompilerState.assertLookupKeyPresent}, E1 U2). */
-      readonly where: Record<string, unknown>;
+      readonly foundAssignment: RootMembershipAssignment;
       readonly before: BeforeTarget;
-      readonly missingFkAssign: Record<string, unknown>;
+      readonly missingAssignment: RootMembershipAssignment;
     }
   // A parent-held to-one update locates the referenced row through the parent's
   // final FK values. Its batch guard pins that correlation before the child write.
@@ -340,23 +361,27 @@ type ParentHeldTarget =
       readonly before: BeforeTarget;
       readonly missingFkAssign: Record<string, unknown>;
     }
-  | {
-      readonly kind: "polymorphicCreate";
-      readonly before: BeforeTarget;
-      readonly assignment: PolymorphicStorageValue<FinalReferenceSource>;
-    }
-  | {
-      readonly kind: "polymorphicConnectOrCreate";
-      readonly relationInfo: RelationInfo;
-      readonly probeId: string;
-      readonly guardId: string;
-      readonly guardField: string;
-      readonly where: Record<string, unknown>;
-      readonly probe: ReadStep;
-      readonly before: BeforeTarget;
-      readonly foundAssignment: PolymorphicStorageValue<FinalReferenceSource>;
-      readonly missingAssignment: PolymorphicStorageValue<FinalReferenceSource>;
-    }
+  /*
+   * NOT YET COLLAPSED, and the blocker is named rather than worked around. The
+   * `create` and `connectOrCreate` arms above now serve BOTH memberships, because
+   * their only differences were the storage they assign (a `RootMembershipAssignment`
+   * field) and how the found row is re-guarded (a `ParentHeldLookup` field). These
+   * three carry differences that are not fields of the same shape:
+   *
+   *  · the LOCATOR differs — an ordinary arm addresses its target through the parent's
+   *    final foreign-key values (`ParentHeldCorrelation`), a direct polymorphic one
+   *    through the discriminator premise on the located row
+   *    ({@link RecordUpdateCompilerState.assertPolymorphicCurrentTarget});
+   *  · `delete` also differs STRUCTURALLY: the ordinary arm vacates the slot with its
+   *    own `nullWriteId` UPDATE (elidable beside a supplier), while the polymorphic one
+   *    folds an empty private pair into the root UPDATE's storage;
+   *  · `upsert` also differs by `parentSetId` and by the missing arm's rebind.
+   *
+   * Collapsing them needs ONE more union — a parent-held locator — threaded through
+   * `compileParentHeldUpdate` / `-Delete` / `-Upsert`. That is a behavior-preserving
+   * change only if every probe, guard and step id is reproduced exactly, so it is left
+   * for its own unit rather than smuggled in behind an optional field.
+   */
   | {
       readonly kind: "polymorphicUpdate";
       readonly edge: ResolvedPolymorphicEdge;
@@ -458,6 +483,55 @@ interface RelationKeyGuard {
    * primary key has no null member.
    */
   readonly oldReferenceIsAddressable: (known: PlanningKnown) => boolean;
+}
+
+/**
+ * ONE child-held relation's resolved dispatch — position, cardinality, membership and
+ * sources all decided, so {@link RecordUpdateCompilerState.interpretChildHeldEntry}
+ * asks none of them again. Every field is stated by both resolvers; none is optional,
+ * because "absent" was how the old pair spelled "no transition" and that let a caller
+ * forget to answer.
+ */
+interface ChildHeldDispatch {
+  readonly input: Parameters<RecordUpdateCompilerState["interpretRelation"]>[0];
+  /** Carries the relation, both scopes, the target projection and the read source. */
+  readonly writeBase: Parameters<typeof buildToManyUpdateParts>[0];
+  /** In dispatch order: the to-one lattice's composition, or the parsed order. */
+  readonly entries: readonly RelationMutationEntry[];
+  /** H3 — the composed modify, whose locator is the supplier's identity. */
+  readonly modify: RelationMutationEntry | undefined;
+  readonly suppliedWhere: Record<string, unknown> | undefined;
+  /** Where a part that addresses the CURRENT membership lands. */
+  readonly parts: Part[];
+  /** Where an ADOPTING part lands: after the root UPDATE under a guarded transition. */
+  readonly adoptParts: Part[];
+  /** The source an adopting kind writes — post-transition where one applies. */
+  readonly adoptWrite: FinalReferenceSource;
+  /**
+   * The referenced-key transition regime, which only a declared foreign key can be
+   * under: a direct polymorphic membership resolves its transition into the write
+   * source instead, and states `none` here.
+   */
+  readonly keyTransition:
+    | { readonly regime: "none" }
+    | { readonly regime: "guarded"; readonly write: FinalReferenceSource };
+}
+
+/**
+ * H3 — the CARDINALITY decides whether a child-held payload composes: a singular
+ * relation's entries are ordered vacate → supply → modify by the relation owner (and
+ * the modify may be located by the supplier's identity), while a to-many payload keeps
+ * the order the parser produced. The MEMBERSHIP does not enter into it — a fixed
+ * polymorphic inverse takes the same lattice, from the same owner.
+ */
+function composeChildHeldEntries(
+  relation: ChildHeldRelation,
+  relationName: string,
+  entries: readonly RelationMutationEntry[]
+): ComposedToOnePayload {
+  return relation.cardinality === "one"
+    ? composeToOneEntries(relationName, entries)
+    : { entries };
 }
 
 class RecordUpdateCompilerState implements RecordUpdateCompiler {
@@ -650,7 +724,6 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
         target.kind === "connectOrCreate" ||
         target.kind === "update" ||
         target.kind === "upsert" ||
-        target.kind === "polymorphicConnectOrCreate" ||
         target.kind === "polymorphicUpdate" ||
         target.kind === "polymorphicUpsert"
       ) {
@@ -660,8 +733,6 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
         target.kind === "create" ||
         target.kind === "connectOrCreate" ||
         target.kind === "upsert" ||
-        target.kind === "polymorphicCreate" ||
-        target.kind === "polymorphicConnectOrCreate" ||
         target.kind === "polymorphicUpsert"
       ) {
         steps.push(...target.before.subtree.planning(this.scope));
@@ -912,12 +983,15 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
         );
       }
       input.parentHeldTargets.push({
-        kind: "polymorphicCreate",
+        kind: "create",
         before,
-        assignment: linkedPolymorphicStorage(
-          directPolymorphicMembership(edge),
-          source
-        ),
+        assignment: {
+          kind: "polymorphic",
+          storage: linkedPolymorphicStorage(
+            directPolymorphicMembership(edge),
+            source
+          ),
+        },
       });
       return;
     }
@@ -955,25 +1029,31 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
         outputs: { rows: { kind: "rows" } },
       };
       input.parentHeldTargets.push({
-        kind: "polymorphicConnectOrCreate",
+        kind: "connectOrCreate",
         relationInfo: edge.relationInfo,
         probeId,
         guardId,
-        guardField,
-        where: spec.where,
+        lookup: {
+          kind: "capturedDiscriminator",
+          guardField,
+          where: spec.where,
+        },
         probe,
         before,
-        foundAssignment: linkedPolymorphicStorage(
-          directPolymorphicMembership(edge),
-          {
+        foundAssignment: {
+          kind: "polymorphic",
+          storage: linkedPolymorphicStorage(directPolymorphicMembership(edge), {
             kind: "planningField",
             step: probeId,
-          }
-        ),
-        missingAssignment: linkedPolymorphicStorage(
-          directPolymorphicMembership(edge),
-          source
-        ),
+          }),
+        },
+        missingAssignment: {
+          kind: "polymorphic",
+          storage: linkedPolymorphicStorage(
+            directPolymorphicMembership(edge),
+            source
+          ),
+        },
       });
       return;
     }
@@ -1255,12 +1335,10 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
   }): void {
     const { program } = input;
     const relationInfo = program.relationInfo;
-    const relationName = relationInfo.name;
     const relation = bindRelation(input.parent, relationInfo);
     const entries = program.entries;
-    const kinds = entries.map((entry) => entry.kind);
 
-    if (kinds.length === 0) {
+    if (entries.length === 0) {
       // A relation payload that asks for nothing: `{}`, or one whose only arms were
       // Prisma's boolean no-op (`disconnect: false` / `delete: false`, stripped by
       // canonical program construction). Prisma 7.9.1, measured: `data: { profile: {} }` and
@@ -1339,18 +1417,53 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       return;
     }
 
-    if (hasPolymorphicMembership(relation)) {
-      this.interpretPolymorphicChildHeld(input, relation, entries);
-      return;
-    }
+    // Child-held direction (the target holds the FK), ONE path from here for both
+    // memberships and both cardinalities. One-to-many is the plural case; the
+    // inverse-side one-to-one is its arity-1 case — the same correlated/global-adopt
+    // child writes, differing only in the to-one payload spelling (`update: <data>`
+    // with no selector, `disconnect: true`). The parent exists, so no fresh-parent
+    // elision: every probe reads committed state, exactly as the to-many family
+    // already does under update.
+    this.interpretChildHeldRelation(input, relation, entries);
+  }
 
-    // Child-held direction (the target holds the FK). One-to-many is the plural
-    // case; the inverse-side one-to-one is its arity-1 case
-    // — the same correlated/global-adopt child writes, differing only in the to-one
-    // payload spelling (`update: <data>` with no selector, `disconnect: true`).
-    // The parent exists, so no fresh-parent elision: every probe reads committed
-    // state, exactly as the to-many family already does under update.
-    const isInverseToOne = relation.cardinality === "one";
+  /**
+   * THE child-held owner. It resolves the dispatch — position, cardinality,
+   * membership, the parent's read/write sources and each half's Part list — and then
+   * runs ONE loop over ONE per-entry dispatcher. The two resolvers below are the only
+   * membership-specific code, and each keeps its own order of operations because that
+   * order decides which refusal a malformed payload reports first.
+   */
+  private interpretChildHeldRelation(
+    input: Parameters<RecordUpdateCompilerState["interpretRelation"]>[0],
+    relation: ChildHeldRelation,
+    entries: readonly RelationMutationEntry[]
+  ): void {
+    const dispatch = hasPolymorphicMembership(relation)
+      ? this.resolvePolymorphicChildHeld(input, relation, entries)
+      : this.resolveOrdinaryChildHeld(input, relation, entries);
+    // Multiple mutation kinds may coexist on one relation (V1's `{ delete,
+    // deleteMany }`, `{ update, updateMany }`, …). Each present kind contributes its
+    // own Part(s); they compose into the one linear fragment in the order the
+    // resolved collection gives them (the to-one lattice's vacate → supply → modify
+    // for a singular relation, `RELATION_MUTATION_KEYS` order otherwise).
+    for (const entry of dispatch.entries) {
+      this.interpretChildHeldEntry(dispatch, entry);
+    }
+  }
+
+  /**
+   * The ordinary child-held dispatch: the located parent is the source on every kind,
+   * except under a guarded non-cascade referenced-key transition, where the ADOPT
+   * kinds take the post-transition source and land after the root UPDATE.
+   */
+  private resolveOrdinaryChildHeld(
+    input: Parameters<RecordUpdateCompilerState["interpretRelation"]>[0],
+    relation: OrdinaryChildHeldRelation,
+    entries: readonly RelationMutationEntry[]
+  ): ChildHeldDispatch {
+    const relationInfo = relation.relationInfo;
+    const relationName = relationInfo.name;
     // Compound foreign keys are per-field (ATOM “Field-bound foreign-key provenance”): every referenced parent
     // column — the PK, a subset of it, or a non-PK unique (D4-style) — is added
     // to the locate read's select/outputs so a per-field child part reads or refs
@@ -1363,9 +1476,8 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     // relation adds no referenced column to `locateFields`. This keeps the D4 order
     // correct: the root UPDATE stays reorder-FALSE (before the child INSERT), so the
     // fresh row references the post-transition value that already exists.
-    const needsLocatedReference = kinds.some(
-      (mutationKind) =>
-        mutationKind !== "create" && mutationKind !== "createMany"
+    const needsLocatedReference = entries.some(
+      (entry) => entry.kind !== "create" && entry.kind !== "createMany"
     );
     if (needsLocatedReference) {
       for (const field of relation.membership.referencedFields) {
@@ -1401,13 +1513,10 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     // N5-U1 — the ADOPT family's two facts, kept apart because they are not one
     // fact: `adoptWrite` is the SOURCE an adopt edge writes (it overrides
     // `WritePartBase.parentId` and deliberately leaves `membershipReadSource` alone
-    // — that split IS the old-read / new-write rule), and `afterRootTarget` is a
-    // PLACEMENT, the Part list whose writes are emitted after the root UPDATE.
-    // Undefined means: no transition, ordinary source, emitted in place.
-    const adoptWrite =
-      keyTransition.regime === "guarded" ? keyTransition.write : undefined;
-    const afterRootTarget =
-      keyTransition.regime === "guarded" ? input.afterRootParts : undefined;
+    // — that split IS the old-read / new-write rule), and the adopt PLACEMENT is the
+    // Part list whose writes are emitted after the root UPDATE. Without a transition
+    // both fall back to the located source and the ordinary child-part list, byte for
+    // byte.
     const engine = this.engine;
     const writeBase: Parameters<typeof buildToManyUpdateParts>[0] = {
       scope: input.scope,
@@ -1424,71 +1533,68 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       txMode: input.txMode,
       recordCompilers: this.recordCompilers,
     };
-
-    // Multiple mutation kinds may coexist on one relation (V1's `{ delete,
-    // deleteMany }`, `{ update, updateMany }`, …). Each present kind contributes
-    // its own Part(s); they compose into the one linear fragment in a stable,
-    // V1-mirroring order (link/adopt, then removals, then updates).
-    if (isInverseToOne) {
-      this.interpretInverseToOneComposition({
-        entries,
-        relation,
-        childScope,
-        childName,
-        writeBase,
-        input,
-        keyTransition,
-        adoptWrite,
-        afterRootTarget,
-      });
-      return;
-    }
-    for (const entry of entries) {
-      // T3b-2 (family E): a nested `create`/`createMany` under the update root on a
-      // child-held to-many. The located parent's FK is a construction-time literal
-      // (the referenced column pinned by the unique `where`, or rewritten by the root
-      // SET — D4's "thread the new value"), so it reuses the same literal-parent create
-      // leaf the child-held recursion uses.
-      if (entry.kind === "create" || entry.kind === "createMany") {
-        this.interpretChildHeldCreate({
-          entry,
-          relation,
-          childScope,
-          childName,
-          input,
-        });
-        continue;
-      }
-      this.interpretToManyKind({
-        entry,
-        relation,
-        childScope,
-        childName,
-        writeBase,
-        input,
-        adoptWrite,
-        afterRootTarget,
-      });
-    }
+    // H3 — the CARDINALITY decides the composition, for both memberships: a singular
+    // relation's entries are ordered vacate → supply → modify by the relation owner,
+    // and a to-many payload keeps the parsed order. Composed AFTER the transition
+    // guard above, because that is where this call has always stood: a payload that is
+    // both an illegal composition and a guarded transition reports the guard's refusal
+    // first.
+    const composition = composeChildHeldEntries(
+      relation,
+      relationName,
+      entries
+    );
+    return {
+      input,
+      writeBase,
+      entries: composition.entries,
+      modify: composition.modify,
+      suppliedWhere: composition.suppliedWhere,
+      parts: input.childParts,
+      adoptParts:
+        keyTransition.regime === "guarded"
+          ? input.afterRootParts
+          : input.childParts,
+      adoptWrite:
+        keyTransition.regime === "guarded"
+          ? keyTransition.write
+          : input.parentIdSource,
+      keyTransition,
+    };
   }
 
-  private interpretPolymorphicChildHeld(
+  /**
+   * The direct polymorphic child-held dispatch. Its ONE real difference from the
+   * ordinary resolver is the parent triple: {@link resolvePolymorphicParent} answers
+   * the read source, the write source and the placement together, because a private
+   * `(type, id)` pair references the storage owner's own row key and a rewrite of that
+   * key moves ALL of this relation's writes after the root UPDATE — not just the
+   * adopting half. That is why both Part lists here are the same list.
+   *
+   * There is no guarded regime to carry: the ordinary side's occupied guard belongs to
+   * a non-cascade referenced-key transition on a declared foreign key, and this
+   * membership has none — its transition is already resolved into the write source.
+   */
+  private resolvePolymorphicChildHeld(
     input: Parameters<RecordUpdateCompilerState["interpretRelation"]>[0],
     relation: PolymorphicChildHeldRelation,
     entries: readonly RelationMutationEntry[]
-  ): void {
+  ): ChildHeldDispatch {
     const relationName = relation.relationInfo.name;
-    const isInverseToOne = relation.cardinality === "one";
     // H3 — the fixed inverse topology takes the SAME composition as the ordinary
     // child-held to-one: it is the same lattice owner (`to-one-mutation-schema.ts` via
     // the polymorphic relation input), the same `buildToOneUpdatePart` leaf, and the same
     // reason a composed modify cannot correlate. The discriminator is a qualifier of the
     // MEMBERSHIP key, never of the target's row key, so the supplied selector locates the
-    // incoming row here exactly as it does there.
-    const composition = isInverseToOne
-      ? composeToOneEntries(relationName, entries)
-      : { entries };
-    const composed = composition.entries;
+    // incoming row here exactly as it does there. Composed BEFORE the parent triple,
+    // because that is where this call has always stood: a payload that is both an
+    // illegal composition and a non-literal rewritten reference reports the
+    // composition's refusal first.
+    const composition = composeChildHeldEntries(
+      relation,
+      relationName,
+      entries
+    );
     const childScope = createQueryScope(
       this.engine.adapter,
       relation.relationInfo.targetModel
@@ -1499,185 +1605,272 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     );
     const parent = this.resolvePolymorphicParent(input, relation);
     const target = parent.afterRoot ? input.afterRootParts : input.childParts;
-    const push = (parts: readonly Part[]) => target.push(...parts);
-    const pushFresh = (
-      entry: Extract<RelationMutationEntry, { kind: "create" | "createMany" }>
-    ): void => {
-      if (entry.kind === "create") {
-        push(
-          entry.items.map((data) =>
-            this.createFresh({
-              childScope,
-              data,
-              incomingMembership: bindRelationMembership(
-                relation,
-                parent.write
-              ),
-              relationName,
-            })
-          )
-        );
-        return;
-      }
-      push([
-        buildPolymorphicParentCreateManyPart({
-          scope: input.scope,
-          engine: this.engine,
-          childScope,
-          childName,
-          relation,
-          parentId: parent.write,
-          createManyEntry: entry,
-        }),
-      ]);
-    };
-    const needsTargetIdentity = composed.some(
-      (entry) => entry.kind !== "create" && entry.kind !== "createMany"
-    );
-    if (!needsTargetIdentity) {
-      for (const entry of composed) {
-        if (entry.kind === "create" || entry.kind === "createMany") {
-          pushFresh(entry);
-        }
-      }
-      return;
-    }
-
     // The inverse topology's discriminator is a fixed qualifier of the MEMBERSHIP
     // key, never a member of the target's row key: it is bound by
-    // `bindRelationMembership` beside `parent.write`, and the projection below
+    // `bindRelationMembership` beside the write source, and the projection here
     // publishes only the target's own row key. So a compound-keyed polymorphic
-    // target needs nothing here that an ordinary child-held one does not.
-    const targetProjection = buildTargetProjection(childScope.model);
-    const writeBase = {
+    // target needs nothing that an ordinary child-held one does not.
+    const writeBase: Parameters<typeof buildToManyUpdateParts>[0] = {
       scope: input.scope,
       engine: this.engine,
       relation,
       childName,
       childScope,
-      targetProjection,
+      targetProjection: buildTargetProjection(childScope.model),
       parentId: parent.write,
       membershipReadSource: parent.read,
       txMode: input.txMode,
       recordCompilers: this.recordCompilers,
-    } as const;
+    };
+    return {
+      input,
+      writeBase,
+      entries: composition.entries,
+      modify: composition.modify,
+      suppliedWhere: composition.suppliedWhere,
+      parts: target,
+      adoptParts: target,
+      adoptWrite: parent.write,
+      keyTransition: { regime: "none" },
+    };
+  }
 
-    for (const entry of composed) {
-      // biome-ignore lint/style/useDefaultSwitchClause: RelationMutationEntry is exhaustively discriminated.
-      switch (entry.kind) {
-        case "create":
-          pushFresh(entry);
-          break;
-        case "createMany":
-          pushFresh(entry);
-          break;
-        case "connect":
-          push(
-            buildToManyLinkParts(
-              input.scope,
-              this.engine,
-              relation,
-              childName,
-              childScope,
-              targetProjection,
-              entry,
-              parent.write,
-              input.txMode
-            )
-          );
-          break;
-        case "disconnect":
-          assertRelationCanDisconnect(relation);
-          push(
-            buildToManyLinkParts(
-              input.scope,
-              this.engine,
-              relation,
-              childName,
-              childScope,
-              targetProjection,
-              entry,
-              parent.read,
-              input.txMode
-            )
-          );
-          break;
-        case "connectOrCreate":
-          push(
-            buildConnectOrCreateParts(
-              input.scope,
-              this.engine,
-              entry.items,
-              bindRelationMembership(relation, parent.write),
-              input.txMode,
-              this.recordCompilers
-            )
-          );
-          break;
-        case "upsert":
-          if (isInverseToOne) {
-            const item = entry.items[0];
-            if (!item) {
-              throw new QueryEngineError(
-                `query-engine-v2 internal: inverse to-one upsert on relation '${relationName}' has no item.`
-              );
-            }
-            push([buildInverseToOneUpsertPart(writeBase, item)]);
-            break;
-          }
-          push(
-            buildCorrelatedToManyUpsertParts(
-              input.scope,
-              this.engine,
-              entry.items,
-              bindCorrelatedRelationMembership(
-                relation,
-                planningSourceFromFinal(parent.read, relationName, "upsert"),
-                parent.write
-              ),
-              input.txMode,
-              this.recordCompilers
-            )
-          );
-          break;
-        case "update":
-          push(
-            isInverseToOne
-              ? [
-                  buildToOneUpdatePart(
-                    writeBase,
-                    entry,
-                    entry === composition.modify
-                      ? composition.suppliedWhere
-                      : undefined
+  /**
+   * ONE child-held entry, dispatched once — for both memberships and both
+   * cardinalities. Everything that used to make three dispatchers out of this one is
+   * decided BEFORE the switch and rides as data on {@link ChildHeldDispatch}: which
+   * source an adopting kind writes, which source existing membership is read by, which
+   * Part list each half lands in, and whether a guarded referenced-key transition
+   * reroutes a to-one upsert's create arm.
+   *
+   * What stays inside the arms is the handful of differences that are real, each at the
+   * one arm it belongs to: a fresh record's foreign-key provenance (an ordinary parent
+   * resolves it per member at {@link RecordUpdateCompilerState.interpretChildHeldCreate};
+   * a polymorphic one was already resolved into the write source), and the
+   * correlated-versus-global upsert shapes. The switch enumerates the parsed entry
+   * union exhaustively, and its `default` binds the entry to `never` so a future
+   * twelfth kind is a compile error rather than a silent drop — which is what
+   * retired the two runtime engine-fault throws the ordinary pair carried.
+   */
+  private interpretChildHeldEntry(
+    dispatch: ChildHeldDispatch,
+    entry: RelationMutationEntry
+  ): void {
+    const { input, writeBase, parts, adoptParts, adoptWrite, keyTransition } =
+      dispatch;
+    const { relation, childScope, childName, targetProjection, scope, txMode } =
+      writeBase;
+    const relationName = relation.relationInfo.name;
+    const isInverseToOne = relation.cardinality === "one";
+    const push = (built: readonly Part[]) => parts.push(...built);
+    // An ADOPT kind writes the post-transition source and lands in the adopt list;
+    // without a transition both are the located source and the ordinary child parts.
+    const pushAdopt = (built: readonly Part[]) => adoptParts.push(...built);
+
+    switch (entry.kind) {
+      case "create":
+      case "createMany": {
+        // A fresh child's foreign key comes from whichever parent this membership
+        // has. An ORDINARY one is resolved per member — a construction literal, the
+        // located row's Ref, or a post-transition value — and that resolution also
+        // decides whether the INSERT lands after the root UPDATE, so it keeps its own
+        // owner (T3b-2 family E). A DIRECT POLYMORPHIC one is a single already-resolved
+        // source, so the membership binds beside it and the Part lands with the rest of
+        // this relation's writes.
+        if (hasPolymorphicMembership(relation)) {
+          if (entry.kind === "create") {
+            push(
+              entry.items.map((data) =>
+                this.createFresh({
+                  childScope,
+                  data,
+                  incomingMembership: bindRelationMembership(
+                    relation,
+                    adoptWrite
                   ),
-                ]
-              : buildToManyUpdateParts(writeBase, entry)
-          );
-          break;
-        case "updateMany":
-          if (!updateManyCarriesRelations(childScope, entry.items)) {
-            push(buildToManyUpdateManyParts(writeBase, entry));
-          }
-          break;
-        case "delete":
-          push(
-            isInverseToOne
-              ? buildToManyDeleteManyParts(writeBase, {
-                  kind: "deleteMany",
-                  filters: [{}],
+                  relationName,
                 })
-              : buildToManyDeleteParts(writeBase, entry)
-          );
-          break;
-        case "deleteMany":
-          push(buildToManyDeleteManyParts(writeBase, entry));
-          break;
-        case "set":
+              )
+            );
+            return;
+          }
           push([
-            buildToManySetPart({ ...writeBase, parentId: parent.write }, entry),
+            buildPolymorphicParentCreateManyPart({
+              scope,
+              engine: this.engine,
+              childScope,
+              childName,
+              relation,
+              parentId: adoptWrite,
+              createManyEntry: entry,
+            }),
           ]);
-          break;
+          return;
+        }
+        this.interpretChildHeldCreate({
+          entry,
+          relation,
+          childScope,
+          childName,
+          input,
+        });
+        return;
+      }
+      case "connect":
+        // Global lookup-and-adopt. On a singular relation the unique child FK
+        // enforces the one-row slot; the database owns that, not a second guard here.
+        pushAdopt(
+          buildToManyLinkParts(
+            scope,
+            this.engine,
+            relation,
+            childName,
+            childScope,
+            targetProjection,
+            entry,
+            adoptWrite,
+            txMode
+          )
+        );
+        return;
+      case "disconnect":
+        // A required child FK cannot be nulled — V1's verbatim typed rejection, asked
+        // here on every side because the answer is a property of the edge. A release
+        // addresses the rows that carry the parent's CURRENT value, so it reads the
+        // membership source and keeps its place among the ordinary child parts.
+        assertRelationCanDisconnect(relation);
+        push(
+          buildToManyLinkParts(
+            scope,
+            this.engine,
+            relation,
+            childName,
+            childScope,
+            targetProjection,
+            entry,
+            writeBase.membershipReadSource,
+            txMode
+          )
+        );
+        return;
+      case "connectOrCreate":
+        // Still a GLOBAL lookup-and-adopt under update (found → reparent, absent →
+        // create), never correlated.
+        pushAdopt(
+          buildConnectOrCreateParts(
+            scope,
+            this.engine,
+            entry.items,
+            bindRelationMembership(relation, adoptWrite),
+            txMode,
+            this.recordCompilers
+          )
+        );
+        return;
+      case "upsert": {
+        if (isInverseToOne) {
+          // A correlated probe decides found → update / absent → create (fk = parent),
+          // no unique `where` — the same locator as the `update` arm, with a create
+          // branch.
+          const item = entry.items[0];
+          if (!item) {
+            throw new QueryEngineError(
+              `query-engine-v2 internal: inverse to-one upsert on relation '${relationName}' has no item.`
+            );
+          }
+          // CLASS IV (T4c): under a guarded transition the relation-level occupied
+          // guard has already rejected an occupied old slot, so the update arm is
+          // unreachable and the CREATE arm is rerouted onto the post-transition source,
+          // ordered after the root UPDATE.
+          if (keyTransition.regime === "guarded") {
+            this.rerouteTransitionedUpsertCreateArm({
+              input,
+              relation,
+              childScope,
+              upsertInput: item,
+              write: keyTransition.write,
+            });
+            return;
+          }
+          push([buildInverseToOneUpsertPart(writeBase, item)]);
+          return;
+        }
+        pushAdopt(
+          buildCorrelatedToManyUpsertParts(
+            scope,
+            this.engine,
+            entry.items,
+            bindCorrelatedRelationMembership(
+              relation,
+              planningSourceFromFinal(
+                writeBase.membershipReadSource,
+                relationName,
+                "upsert"
+              ),
+              adoptWrite
+            ),
+            txMode,
+            this.recordCompilers
+          )
+        );
+        return;
+      }
+      case "update":
+        // Correlation is the whole locator on a singular relation; the optional
+        // `{ where, data }` wrapper arrives already told apart from bare data by the
+        // relation schema. The ONE entry that addresses a different row — a modify
+        // composed with a supplier — takes the supplier's identity instead (H3).
+        push(
+          isInverseToOne
+            ? [
+                buildToOneUpdatePart(
+                  writeBase,
+                  entry,
+                  entry === dispatch.modify ? dispatch.suppliedWhere : undefined
+                ),
+              ]
+            : buildToManyUpdateParts(writeBase, entry)
+        );
+        return;
+      case "updateMany":
+        // CLASS V (T4c): a relation-carrying updateMany is rejected by the legality
+        // check (immediate at construction for a plain update, or deferred to the taken
+        // upsert branch). Skip building the Part so its construction does not throw
+        // ahead of that runtime-branch-gated verdict (an untaken upsert update arm
+        // whose invalid updateMany never runs must not reject the whole tree). ONE
+        // copy, for every membership.
+        if (updateManyCarriesRelations(childScope, entry.items)) return;
+        push(buildToManyUpdateManyParts(writeBase, entry));
+        return;
+      case "delete":
+        // On a singular relation `delete: true` is a correlated bulk delete — DELETE
+        // child WHERE fk = parent. `true` is the arm's only reachable value: the parse
+        // boundary types it `v.boolean()` and `false` is Prisma's no-op, dropped from
+        // the entry list (N7-U-B).
+        push(
+          isInverseToOne
+            ? buildToManyDeleteManyParts(writeBase, {
+                kind: "deleteMany",
+                filters: [{}],
+              })
+            : buildToManyDeleteParts(writeBase, entry)
+        );
+        return;
+      case "deleteMany":
+        push(buildToManyDeleteManyParts(writeBase, entry));
+        return;
+      case "set":
+        // `set` is BOTH halves at once: it reparents its targets (the adopt half) and
+        // releases the departing rows, which still carry the PRE-transition value.
+        // `membershipReadSource` keeps those two apart; without a transition they are
+        // the same source.
+        pushAdopt([
+          buildToManySetPart({ ...writeBase, parentId: adoptWrite }, entry),
+        ]);
+        return;
+      default: {
+        const unhandled: never = entry;
+        throw new Error(`unreachable entry kind ${JSON.stringify(unhandled)}`);
       }
     }
   }
@@ -2099,393 +2292,6 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     };
   }
 
-  private interpretToManyKind(args: {
-    entry: RelationMutationEntry;
-    relation: OrdinaryChildHeldRelation;
-    childScope: QueryScope;
-    childName: string;
-    writeBase: Parameters<typeof buildToManyUpdateParts>[0];
-    input: {
-      scope: StepScope;
-      parent: QueryScope;
-      parentIdSource: ReturnType<typeof plannedParentId>;
-      txMode: boolean;
-      childParts: Part[];
-    };
-    /** N5-U1 — present only under a guarded non-cascade referenced-PK transition. */
-    adoptWrite?: FinalReferenceSource;
-    afterRootTarget?: Part[];
-  }): void {
-    const {
-      entry,
-      relation,
-      childScope,
-      childName,
-      writeBase,
-      input,
-      adoptWrite,
-      afterRootTarget,
-    } = args;
-    const { relationInfo } = relation;
-    const { members: boundMembers } = relation.membership;
-    const relationName = relationInfo.name;
-    const push = (parts: readonly Part[]) => input.childParts.push(...parts);
-    // N5-U1: an adopt kind writes the POST-transition value and is held back until
-    // after the root UPDATE; without a transition both fall back to the pre-N5
-    // located-parent source and the ordinary child-part list, byte for byte.
-    const adoptParentId = adoptWrite ?? input.parentIdSource;
-    const pushAdopt = (parts: readonly Part[]) =>
-      (afterRootTarget ?? input.childParts).push(...parts);
-
-    switch (entry.kind) {
-      case "upsert": {
-        const readSources = boundMembers.map(() =>
-          planningSourceFromFinal(input.parentIdSource, relationName, "upsert")
-        );
-        const writeSources = boundMembers.map(() => adoptParentId);
-        const members = pairCorrelatedForeignKeyMembers(
-          boundMembers,
-          readSources,
-          writeSources
-        );
-        pushAdopt(
-          buildCorrelatedToManyUpsertParts(
-            input.scope,
-            this.engine,
-            entry.items,
-            {
-              kind: "foreignKey",
-              relation,
-              members,
-            },
-            input.txMode,
-            this.recordCompilers
-          )
-        );
-        return;
-      }
-      case "connectOrCreate":
-        // Still a GLOBAL lookup-and-adopt under update (found → reparent, absent
-        // → create), never correlated — composed like the upsert part.
-        pushAdopt(
-          buildConnectOrCreateParts(
-            input.scope,
-            this.engine,
-            entry.items,
-            {
-              kind: "foreignKey",
-              relation,
-              members: pairForeignKeyMembers(
-                boundMembers,
-                boundMembers.map(() => adoptParentId)
-              ),
-            },
-            input.txMode,
-            this.recordCompilers
-          )
-        );
-        return;
-      case "connect":
-      case "disconnect": {
-        if (entry.kind === "disconnect") {
-          // A required child FK cannot be nulled — V1's verbatim typed rejection.
-          assertRelationCanDisconnect(relation);
-        }
-        // `connect` adopts (post-transition value, after the root UPDATE); `disconnect`
-        // releases rows that carry the parent's CURRENT value and its probe correlates
-        // on the located row in SQL, so it keeps the planned source and its place among
-        // the ordinary child parts.
-        const isAdopt = entry.kind === "connect";
-        const parts = buildToManyLinkParts(
-          input.scope,
-          this.engine,
-          relation,
-          childName,
-          childScope,
-          writeBase.targetProjection,
-          entry,
-          isAdopt ? adoptParentId : input.parentIdSource,
-          input.txMode
-        );
-        if (isAdopt) pushAdopt(parts);
-        else push(parts);
-        return;
-      }
-      case "update":
-        push(buildToManyUpdateParts(writeBase, entry));
-        return;
-      case "updateMany":
-        // CLASS V (T4c): a relation-carrying updateMany is rejected by the legality
-        // check (immediate at construction for a plain update, or deferred to the taken
-        // upsert branch). Skip building the Part so its construction does not throw
-        // ahead of that runtime-branch-gated verdict (an untaken upsert update arm
-        // whose invalid updateMany never runs must not reject the whole tree).
-        if (updateManyCarriesRelations(childScope, entry.items)) {
-          return;
-        }
-        push(buildToManyUpdateManyParts(writeBase, entry));
-        return;
-      case "delete":
-        push(buildToManyDeleteParts(writeBase, entry));
-        return;
-      case "deleteMany":
-        push(buildToManyDeleteManyParts(writeBase, entry));
-        return;
-      case "set":
-        // `set` is BOTH halves at once: it reparents its targets (the adopt half —
-        // post-transition value, after the root UPDATE) and releases the departing
-        // rows, which still carry the PRE-transition value. `membershipReadSource`
-        // keeps those two apart; without a transition they are the same source.
-        pushAdopt([
-          buildToManySetPart(
-            adoptWrite ? { ...writeBase, parentId: adoptWrite } : writeBase,
-            entry
-          ),
-        ]);
-        return;
-      default:
-        // Unreachable by construction (N7-U-A, the X1c disposition). The claim this
-        // comment used to make — "create / createMany nested under update are V1's
-        // surface" — has been false since T3b-2: both are handled UPSTREAM at
-        // `interpretChildHeldCreate`, and the nine cases above cover the rest of
-        // `toManyUpdateFactory`'s key set. Measured: all ELEVEN to-many keys construct on
-        // this path, so nothing falls through here. An engine invariant, not a route.
-        throw new QueryEngineError(
-          `query-engine-v2 internal: unsupported entry reached the child-held update dispatch on relation '${relationName}'; the parse boundary admits only the eleven to-many kinds, all of which are handled above.`
-        );
-    }
-  }
-
-  /**
-   * H3 — compose the child-held half of the to-one lattice. THE RELATION OWNER, not
-   * `RELATION_MUTATION_KEYS`, decides the order: vacate the prior member, supply the
-   * new one, then modify it. Before H the accepted pairs were correct only because
-   * that constant happened to list `disconnect`/`delete` ahead of the suppliers —
-   * `isVacateThenSupply` read `kinds[0]`/`kinds[1]` POSITIONALLY, which
-   * `parity-h-to-one-lattice` falsified by reordering the constant and turning all five
-   * pairs red. The order is now stated here and the constant decides nothing.
-   *
-   * THE MODIFY'S LOCATOR is the composition's whole difficulty. A lone `update` on this
-   * direction is located by correlation alone (`WHERE fk = parent`), and correlation at
-   * PLANNING time — before any write — names the OUTGOING member, or nothing at all on
-   * an empty slot. So a modify composed with a supplier is located by the SUPPLIER's
-   * identity instead ({@link buildToOneUpdatePart}'s `suppliedWhere`), which is what
-   * §6 H3 steps 3-4 ("capture or publish the supplied target's complete identity, then
-   * pass that identity to `RecordUpdateCompiler`") mean on this direction.
-   *
-   * `connect` is the supplier that HAS such an identity at construction: its unique
-   * selector. `create` has none — its row does not exist when every probe runs — and
-   * `connectOrCreate`'s missing arm is the same row. Those two are refused below, at
-   * their own site and with their own sentence, rather than composed wrongly.
-   */
-  private interpretInverseToOneComposition(args: {
-    entries: readonly RelationMutationEntry[];
-    relation: OrdinaryChildHeldRelation;
-    childScope: QueryScope;
-    childName: string;
-    writeBase: Parameters<typeof buildToManyUpdateParts>[0];
-    input: Parameters<RecordUpdateCompilerState["interpretRelation"]>[0];
-    keyTransition: ReturnType<
-      RecordUpdateCompilerState["interpretReferencedKeyTransition"]
-    >;
-    adoptWrite?: FinalReferenceSource;
-    afterRootTarget?: Part[];
-  }): void {
-    const { relation, writeBase, input } = args;
-    const composition = composeToOneEntries(
-      relation.relationInfo.name,
-      args.entries
-    );
-    for (const entry of composition.entries) {
-      if (
-        entry.kind === "update" &&
-        entry === composition.modify &&
-        composition.suppliedWhere
-      ) {
-        input.childParts.push(
-          buildToOneUpdatePart(writeBase, entry, composition.suppliedWhere)
-        );
-        continue;
-      }
-      this.interpretInverseToOneKind({ ...args, entry });
-    }
-  }
-
-  /**
-   * Compile ONE child-held to-one entry, at the position
-   * {@link RecordUpdateCompilerState.interpretInverseToOneComposition} gives it. Every
-   * arm here addresses the slot's current member, so correlation is the locator; the one
-   * entry that may address a different row — a modify composed with a supplier — is
-   * built by the composition owner instead and never reaches this dispatch. The parse
-   * boundary limits it to create/connect/connectOrCreate/update/upsert plus optional
-   * disconnect/delete.
-   */
-  private interpretInverseToOneKind(args: {
-    entry: RelationMutationEntry;
-    relation: OrdinaryChildHeldRelation;
-    childScope: QueryScope;
-    childName: string;
-    writeBase: Parameters<typeof buildToManyUpdateParts>[0];
-    input: Parameters<RecordUpdateCompilerState["interpretRelation"]>[0];
-    keyTransition: ReturnType<
-      RecordUpdateCompilerState["interpretReferencedKeyTransition"]
-    >;
-    /** N5-U1 — both present only under a guarded non-cascade referenced-PK transition. */
-    adoptWrite?: FinalReferenceSource;
-    afterRootTarget?: Part[];
-  }): void {
-    const {
-      entry,
-      relation,
-      childScope,
-      childName,
-      writeBase,
-      input,
-      keyTransition,
-      adoptWrite,
-      afterRootTarget,
-    } = args;
-    const { relationInfo } = relation;
-    const { members: boundMembers } = relation.membership;
-    const relationName = relationInfo.name;
-    const push = (parts: readonly Part[]) => input.childParts.push(...parts);
-    // N5-U1 — the arity-1 case of the to-many adopt ordering (see interpretToManyKind).
-    const adoptParentId = adoptWrite ?? input.parentIdSource;
-    const pushAdopt = (parts: readonly Part[]) =>
-      (afterRootTarget ?? input.childParts).push(...parts);
-
-    switch (entry.kind) {
-      case "create":
-        // The database's unique child FK is the sole occupied-slot guard. This
-        // unconditional create has no racePin: a collision is a genuine conflict,
-        // not a missing-arm race to retry.
-        this.interpretChildHeldCreate({
-          entry,
-          relation,
-          childScope,
-          childName,
-          input,
-        });
-        return;
-      case "connect":
-        // Global lookup-and-adopt. The unique child FK enforces the one-row slot.
-        pushAdopt(
-          buildToManyLinkParts(
-            input.scope,
-            this.engine,
-            relation,
-            childName,
-            childScope,
-            writeBase.targetProjection,
-            entry,
-            adoptParentId,
-            input.txMode
-          )
-        );
-        return;
-      case "connectOrCreate":
-        pushAdopt(
-          buildConnectOrCreateParts(
-            input.scope,
-            this.engine,
-            entry.items,
-            {
-              kind: "foreignKey",
-              relation,
-              members: pairForeignKeyMembers(
-                boundMembers,
-                boundMembers.map(() => adoptParentId)
-              ),
-            },
-            input.txMode,
-            this.recordCompilers
-          )
-        );
-        return;
-      case "update":
-        // Correlation is the whole locator. The optional
-        // `{ where, data }` wrapper arrives already told apart from bare data by the
-        // relation schema, as its canonical envelope; the filter narrows that
-        // locator. See `splitToOneUpdateTarget`.
-        input.childParts.push(buildToOneUpdatePart(writeBase, entry));
-        return;
-      case "upsert": {
-        // The correlated probe
-        // decides found → update / absent → create (fk = parent), no unique `where`.
-        // The same correlated locator as the `update` arm, with a create branch.
-        //
-        // CLASS IV (T4c): when the SAME root update TRANSITIONS a parent PK this child
-        // FK references, the relation-level {@link interpretReferencedKeyTransition} has
-        // already emitted the occupied guard; here the
-        // empty-slot accept-shape reroutes the CREATE arm to a POST-transition-FK leaf
-        // ordered after the root UPDATE (the update arm is unreachable: occupied rejects,
-        // empty creates). A cascade / no-op / non-transition keeps the ordinary part.
-        const item = entry.items[0];
-        if (!item) {
-          throw new QueryEngineError(
-            `query-engine-v2 internal: inverse to-one upsert on relation '${relationName}' has no item.`
-          );
-        }
-        if (keyTransition.regime === "guarded") {
-          this.rerouteTransitionedUpsertCreateArm({
-            input,
-            relation,
-            childScope,
-            upsertInput: item,
-            write: keyTransition.write,
-          });
-          return;
-        }
-        input.childParts.push(buildInverseToOneUpsertPart(writeBase, item));
-        return;
-      }
-      case "disconnect": {
-        // A required child FK cannot be nulled — V1's verbatim typed rejection.
-        assertRelationCanDisconnect(relation);
-        // The arm's value is `true` by construction: the parse boundary types an
-        // inverse-side to-one `disconnect` as `v.boolean()`, and `false` is Prisma's
-        // no-op, dropped from the kind list (N7-U-B).
-        push(
-          buildToManyLinkParts(
-            input.scope,
-            this.engine,
-            relation,
-            childName,
-            childScope,
-            writeBase.targetProjection,
-            entry,
-            input.parentIdSource,
-            input.txMode
-          )
-        );
-        return;
-      }
-      case "delete":
-        // `delete: true` is a correlated bulk delete — DELETE child WHERE fk = parent
-        // (V1's `RelationRemovals.delete` input===true, child-held arm). `true` is the
-        // arm's only reachable value: the parse boundary types it `v.boolean()` and
-        // `false` is Prisma's no-op, dropped from the kind list (N7-U-B).
-        push(
-          buildToManyDeleteManyParts(writeBase, {
-            kind: "deleteMany",
-            filters: [{}],
-          })
-        );
-        return;
-      default:
-        // Unreachable: the seven keys the to-one relation schema can deliver each have a
-        // case above (see this method's doc). A `createMany` / `deleteMany` / `set` /
-        // `updateMany` here would mean the parse boundary let through a key it does not
-        // define — an engine invariant break, not a shape we decline, so it is a
-        // `QueryEngineError` and NOT an `UnsupportedOperationError` route (the X1c
-        // precedent for a branch made unreachable by construction). Fail closed rather
-        // than fall through and silently drop the mutation.
-        throw new QueryEngineError(
-          `query-engine-v2 update reached an unknown nested entry on the inverse-side to-one relation '${relationName}'.`
-        );
-    }
-  }
-
   /**
    * CLASS IV (T4c / T4c-fix) — V1's `RelationUpdates.compileRelationKeyGuards`,
    * reproduced at the RELATION level (kind- AND cardinality-agnostic, exactly as V1
@@ -2505,8 +2311,8 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
    *     their ordinary part (empty-slot native), the to-one upsert reroutes its create
    *     arm onto the returned write source. The ADOPT kinds (`connect` /
    *     `connectOrCreate` / `set`, and a to-many `upsert`) take that source as their
-   *     parent value and are ORDERED after the root UPDATE (N5-U1's `adoptWrite` and
-   *     `afterRootTarget`), which is why the source is returned rather than consumed
+   *     parent value and are ORDERED after the root UPDATE (the dispatch's `adoptWrite`
+   *     and `adoptParts`), which is why the source is returned rather than consumed
    *     here.
    *
    * D2 — there is no `pastSurface` third answer any more. What used to be past the
@@ -2753,25 +2559,18 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
    *  for an invariant that already has one. */
   private rerouteTransitionedUpsertCreateArm(args: {
     input: Parameters<RecordUpdateCompilerState["interpretRelation"]>[0];
-    relation: OrdinaryChildHeldRelation;
+    relation: ChildHeldRelation;
     childScope: QueryScope;
     upsertInput: NormalizedRelationUpsert;
     write: FinalReferenceSource;
   }): void {
     const { input, relation, childScope, upsertInput, write } = args;
-    const relationName = relation.relationInfo.name;
-    const createData = upsertInput.create;
-    const boundMembers = relation.membership.members;
-    const members = pairForeignKeyMembers(
-      boundMembers,
-      boundMembers.map(() => write)
-    );
     input.afterRootParts.push(
       this.createFresh({
         childScope,
-        data: createData,
-        incomingMembership: { kind: "foreignKey", relation, members },
-        relationName,
+        data: upsertInput.create,
+        incomingMembership: bindRelationMembership(relation, write),
+        relationName: relation.relationInfo.name,
       })
     );
   }
@@ -3350,9 +3149,11 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     );
     return {
       kind: "create",
-      relation,
       before,
-      fkAssign: this.beforeTargetFkAssign(relation, before),
+      assignment: {
+        kind: "foreignKey",
+        data: this.beforeTargetFkAssign(relation, before),
+      },
     };
   }
 
@@ -3414,10 +3215,15 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     );
     return {
       kind: "connectOrCreate",
-      relation,
+      relationInfo,
       probeId,
       guardId,
-      guardProbe: buildFindUnique(childScope, { where, select: pkSelect }),
+      lookup: {
+        kind: "referencedKey",
+        relation,
+        where,
+        guardProbe: buildFindUnique(childScope, { where, select: pkSelect }),
+      },
       probe: {
         id: probeId,
         kind: "read",
@@ -3428,10 +3234,15 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
         }),
         outputs: { rows: { kind: "rows" } },
       },
-      foundFkAssign: this.toOneFkAssign(relation, where),
-      where,
+      foundAssignment: {
+        kind: "foreignKey",
+        data: this.toOneFkAssign(relation, where),
+      },
       before,
-      missingFkAssign: this.beforeTargetFkAssign(relation, before),
+      missingAssignment: {
+        kind: "foreignKey",
+        data: this.beforeTargetFkAssign(relation, before),
+      },
     };
   }
 
@@ -3740,7 +3551,14 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       switch (target.kind) {
         case "create":
           this.emitBeforeTarget(target.before, known, guards, beforeRootWrites);
-          Object.assign(extraSet, target.fkAssign);
+          applyRootMembershipAssignment(
+            this.engine,
+            target.assignment,
+            known,
+            "create",
+            extraSet,
+            polymorphicStorage
+          );
           break;
         case "connectOrCreate":
           this.compileParentHeldConnectOrCreate(
@@ -3748,7 +3566,8 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
             known,
             guards,
             beforeRootWrites,
-            extraSet
+            extraSet,
+            polymorphicStorage
           );
           break;
         case "update":
@@ -3757,78 +3576,6 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
         case "delete":
           this.compileParentHeldDelete(target, known, locatedRow, writes);
           break;
-        case "polymorphicCreate":
-          this.emitBeforeTarget(target.before, known, guards, beforeRootWrites);
-          polymorphicStorage.push(
-            resolvePolymorphicStorageValue(
-              this.engine,
-              target.assignment,
-              known,
-              "create"
-            )
-          );
-          break;
-        case "polymorphicConnectOrCreate": {
-          const rows = known[planningKey(target.probeId, "rows")];
-          const found = Array.isArray(rows) && rows.length > 0;
-          if (found) {
-            polymorphicStorage.push(
-              resolvePolymorphicStorageValue(
-                this.engine,
-                target.foundAssignment,
-                known,
-                "connectOrCreate"
-              )
-            );
-            if (this.mode === "batch") {
-              const childScope = createQueryScope(
-                this.engine.adapter,
-                target.relationInfo.targetModel
-              );
-              const guardWhere = this.capturedConnectWhere(
-                childScope,
-                rows,
-                target.guardField,
-                target.relationInfo.name,
-                target.where
-              );
-              guards.push(
-                presenceGuard(
-                  target.guardId,
-                  buildFind(
-                    childScope,
-                    {
-                      where: guardWhere,
-                      select: { [target.guardField]: true },
-                    },
-                    { limit: 1 }
-                  ),
-                  nestedWriteFailure(
-                    nestedReplacement("connectOrCreate"),
-                    target.relationInfo.name,
-                    false
-                  )
-                )
-              );
-            }
-          } else {
-            this.emitBeforeTarget(
-              target.before,
-              known,
-              guards,
-              beforeRootWrites
-            );
-            polymorphicStorage.push(
-              resolvePolymorphicStorageValue(
-                this.engine,
-                target.missingAssignment,
-                known,
-                "connectOrCreate"
-              )
-            );
-          }
-          break;
-        }
         case "polymorphicUpdate": {
           this.assertPolymorphicCurrentTarget(
             locatedRow,
@@ -4048,27 +3795,37 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     known: Readonly<Record<string, unknown>>,
     guards: OperationStep[],
     beforeRootWrites: OperationStep[],
-    extraSet: Record<string, unknown>
+    extraSet: Record<string, unknown>,
+    polymorphicStorage: PolymorphicStorageValue<unknown>[]
   ): void {
-    const { relationInfo } = target.relation;
+    const { relationInfo, lookup } = target;
     const relationName = relationInfo.name;
     const rows = known[planningKey(target.probeId, "rows")];
     // Zero rows is the ARM DECISION here, not an error: the probe's empty read is
     // exactly what makes this a create.
     const found = Array.isArray(rows) && rows.length > 0;
     if (found) {
-      this.assertLookupKeyPresent(
-        rows,
-        relationInfo,
-        target.relation.membership.referencedFields,
-        target.where
+      if (lookup.kind === "referencedKey") {
+        this.assertLookupKeyPresent(
+          rows,
+          relationInfo,
+          lookup.relation.membership.referencedFields,
+          lookup.where
+        );
+      }
+      applyRootMembershipAssignment(
+        this.engine,
+        target.foundAssignment,
+        known,
+        "connectOrCreate",
+        extraSet,
+        polymorphicStorage
       );
-      Object.assign(extraSet, target.foundFkAssign);
       if (this.mode === "batch") {
         guards.push(
           presenceGuard(
             target.guardId,
-            target.guardProbe,
+            this.parentHeldLookupGuard(lookup, relationInfo, rows),
             nestedWriteFailure(
               // V1's found-arm captured guard: the planning-seen target vanished
               // before the batch — a replacement race, not a plain not-found
@@ -4085,7 +3842,46 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     // The arm's raceable missing premise rides the SUBTREE's root INSERT, threaded
     // through `nestedFresh.rootRacePin` at construction (N4-U2's seam).
     this.emitBeforeTarget(target.before, known, guards, beforeRootWrites);
-    Object.assign(extraSet, target.missingFkAssign);
+    applyRootMembershipAssignment(
+      this.engine,
+      target.missingAssignment,
+      known,
+      "connectOrCreate",
+      extraSet,
+      polymorphicStorage
+    );
+  }
+
+  /**
+   * The statement a parent-held found-arm's batch guard runs. A `referencedKey`
+   * lookup precompiled it at construction; a `capturedDiscriminator` rebuilds it here,
+   * because only the probe's own row carries the referenced value that makes the
+   * discriminated selector exact.
+   */
+  private parentHeldLookupGuard(
+    lookup: ParentHeldLookup,
+    relationInfo: RelationInfo,
+    rows: readonly unknown[]
+  ): Sql {
+    if (lookup.kind === "referencedKey") return lookup.guardProbe;
+    const childScope = createQueryScope(
+      this.engine.adapter,
+      relationInfo.targetModel
+    );
+    return buildFind(
+      childScope,
+      {
+        where: this.capturedConnectWhere(
+          childScope,
+          rows,
+          lookup.guardField,
+          relationInfo.name,
+          lookup.where
+        ),
+        select: { [lookup.guardField]: true },
+      },
+      { limit: 1 }
+    );
   }
 
   /** Compile a family-A parent-held `update`: the captured PK addresses the located
@@ -4651,10 +4447,16 @@ const TO_ONE_SUPPLY_KINDS: ReadonlySet<string> = new Set([
  * falsified by reordering it and turning all five accepted pairs red. The relation owner
  * states the order here instead, so the constant decides nothing.
  *
- * `suppliedWhere` is the locator the modify half needs. See
- * {@link RecordUpdateCompilerState.interpretInverseToOneComposition} for why a modify
- * composed with a supplier cannot use FK correlation, and why `connect` is the only
- * supplier whose identity exists before the fragment's first write.
+ * `suppliedWhere` is the locator the modify half needs, because a lone `update` on this
+ * direction is located by correlation alone (`WHERE fk = parent`) and correlation at
+ * PLANNING time — before any write — names the OUTGOING member, or nothing at all on an
+ * empty slot. So a modify composed with a supplier is located by the SUPPLIER's identity
+ * instead ({@link buildToOneUpdatePart}'s third argument, threaded through
+ * {@link ChildHeldDispatch}). `connect` is the only supplier that HAS such an identity
+ * at construction: its unique selector. `create` has none — its row does not exist when
+ * every probe runs — and `connectOrCreate`'s missing arm is the same row; both are
+ * refused below, at their own site and with their own sentence, rather than composed
+ * wrongly.
  */
 interface ComposedToOnePayload {
   readonly entries: readonly RelationMutationEntry[];

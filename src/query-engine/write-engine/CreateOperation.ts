@@ -94,6 +94,7 @@ import {
   buildToManyUpsertParts,
 } from "./RelationUpsertPart";
 import {
+  applyRootMembershipAssignment,
   bindRelationMembership,
   type FinalReferenceSource,
   type ForeignKeyMember,
@@ -103,6 +104,7 @@ import {
   lowerMembershipWrite,
   pairForeignKeyMembers,
   type RelationMembershipBinding,
+  type RootMembershipAssignment,
   resolvePolymorphicStorageValue,
 } from "./relation-membership";
 import { StepScope } from "./StepScope";
@@ -185,70 +187,60 @@ export function buildFreshRecordPart(
  *   `exists` guard); missing → create the target before the parent (FK ← `Ref`),
  *   the target INSERT carrying a `racePin` (Pin Rule class 2, never a guard).
  */
+/**
+ * How a batch guard re-asserts the target its planning probe found.
+ *
+ * `precompiled` is the ordinary shape: the selector the payload spelled is complete on
+ * its own, so the statement is built once at construction. `captured` is the shape a
+ * DIRECT POLYMORPHIC connect needs: its target is named by a discriminator beside a
+ * referenced value, and the exact value only exists once the probe has published it —
+ * so the statement is rebuilt at emit from the captured row. One kept difference, one
+ * field; never two arms.
+ */
+type CapturedGuard =
+  | { readonly kind: "precompiled"; readonly probe: Sql }
+  | {
+      readonly kind: "captured";
+      readonly field: string;
+      readonly where: Record<string, unknown>;
+      readonly forUpdate: boolean;
+    };
+
 type ParentHeldArm =
   | {
       readonly kind: "connect-covered";
-      readonly fkAssign: Record<string, unknown>;
+      readonly assignment: RootMembershipAssignment;
     }
   | {
       readonly kind: "connect-probe";
       readonly relationInfo: RelationInfo;
       readonly guardId: string;
       readonly probeId: string;
-      readonly guardProbe: Sql;
-      readonly fkAssign: Record<string, unknown>;
+      readonly guard: CapturedGuard;
+      readonly assignment: RootMembershipAssignment;
     }
   | {
       readonly kind: "create";
       readonly before: RecordPlan;
-      /** FK column ← the before-parent target's referenced value (a `Ref` or literal). */
-      readonly fkAssign: Record<string, unknown>;
+      /** The before-parent target's referenced value (a `Ref` or literal), assigned
+       *  to whichever storage this membership holds. */
+      readonly assignment: RootMembershipAssignment;
     }
   | {
       readonly kind: "connectOrCreate";
       readonly relationInfo: RelationInfo;
       readonly probeId: string;
       readonly guardId: string;
-      readonly guardProbe: Sql;
-      /** Found arm: FK ← the connect target's referenced literal. */
-      readonly foundFkAssign: Record<string, unknown>;
-      /** Missing arm: the before-parent target create, and the FK ← its `Ref`. */
+      readonly guard: CapturedGuard;
+      /** Found arm: the connect target's referenced literal. */
+      readonly foundAssignment: RootMembershipAssignment;
+      /** Missing arm: the before-parent target create, and its `Ref`. */
       readonly before: RecordPlan;
-      readonly missingFkAssign: Record<string, unknown>;
+      readonly missingAssignment: RootMembershipAssignment;
       /** Withheld (`undefined`) when the selector could not establish the missing
        *  premise — see {@link childRacePin}. A `connectOrCreate` selector is strict,
        *  so today this is always present here; the type admits the withholding
        *  because the one function that mints the pin owns that decision. */
-      readonly racePin: TargetConstraintPin | undefined;
-    }
-  | {
-      readonly kind: "polymorphic-connect-covered";
-      readonly assignment: PolymorphicStorageValue<FinalReferenceSource>;
-    }
-  | {
-      readonly kind: "polymorphic-connect-probe";
-      readonly relationInfo: RelationInfo;
-      readonly guardId: string;
-      readonly probeId: string;
-      readonly guardField: string;
-      readonly where: Record<string, unknown>;
-      readonly assignment: PolymorphicStorageValue<FinalReferenceSource>;
-    }
-  | {
-      readonly kind: "polymorphic-create";
-      readonly before: RecordPlan;
-      readonly assignment: PolymorphicStorageValue<FinalReferenceSource>;
-    }
-  | {
-      readonly kind: "polymorphic-connectOrCreate";
-      readonly relationInfo: RelationInfo;
-      readonly probeId: string;
-      readonly guardId: string;
-      readonly guardField: string;
-      readonly where: Record<string, unknown>;
-      readonly before: RecordPlan;
-      readonly foundAssignment: PolymorphicStorageValue<FinalReferenceSource>;
-      readonly missingAssignment: PolymorphicStorageValue<FinalReferenceSource>;
       readonly racePin: TargetConstraintPin | undefined;
     };
 
@@ -991,12 +983,15 @@ export class CreateOperation {
         "beforeParentTarget"
       );
       input.parentHeldArms.push({
-        kind: "polymorphic-create",
+        kind: "create",
         before,
-        assignment: linkedPolymorphicStorage(
-          directPolymorphicMembership(input.edge),
-          source
-        ),
+        assignment: {
+          kind: "polymorphic",
+          storage: linkedPolymorphicStorage(
+            directPolymorphicMembership(input.edge),
+            source
+          ),
+        },
       });
       return;
     }
@@ -1035,24 +1030,34 @@ export class CreateOperation {
       const guardField = input.edge.referencedField;
       const select = { [guardField]: true };
       input.parentHeldArms.push({
-        kind: "polymorphic-connectOrCreate",
+        kind: "connectOrCreate",
         relationInfo: input.edge.relationInfo,
         probeId,
         guardId,
-        guardField,
-        where: spec.where,
+        guard: {
+          kind: "captured",
+          field: guardField,
+          where: spec.where,
+          forUpdate: false,
+        },
         before,
-        foundAssignment: linkedPolymorphicStorage(
-          directPolymorphicMembership(input.edge),
-          {
-            kind: "planningField",
-            step: probeId,
-          }
-        ),
-        missingAssignment: linkedPolymorphicStorage(
-          directPolymorphicMembership(input.edge),
-          missingSource
-        ),
+        foundAssignment: {
+          kind: "polymorphic",
+          storage: linkedPolymorphicStorage(
+            directPolymorphicMembership(input.edge),
+            {
+              kind: "planningField",
+              step: probeId,
+            }
+          ),
+        },
+        missingAssignment: {
+          kind: "polymorphic",
+          storage: linkedPolymorphicStorage(
+            directPolymorphicMembership(input.edge),
+            missingSource
+          ),
+        },
         racePin: childRacePin(childScope, spec.where),
       });
       this.planningSteps.push({
@@ -1084,12 +1089,15 @@ export class CreateOperation {
       ])
     ) {
       input.parentHeldArms.push({
-        kind: "polymorphic-connect-covered",
-        assignment: this.polymorphicConnectAssignment(
-          input.childScope,
-          input.edge,
-          where
-        ),
+        kind: "connect-covered",
+        assignment: {
+          kind: "polymorphic",
+          storage: this.polymorphicConnectAssignment(
+            input.childScope,
+            input.edge,
+            where
+          ),
+        },
       });
       return;
     }
@@ -1099,19 +1107,26 @@ export class CreateOperation {
     const guardField = input.edge.referencedField;
     const select = { [guardField]: true };
     input.parentHeldArms.push({
-      kind: "polymorphic-connect-probe",
+      kind: "connect-probe",
       relationInfo: input.edge.relationInfo,
       probeId,
       guardId,
-      guardField,
-      where,
-      assignment: linkedPolymorphicStorage(
-        directPolymorphicMembership(input.edge),
-        {
-          kind: "planningField",
-          step: probeId,
-        }
-      ),
+      guard: {
+        kind: "captured",
+        field: guardField,
+        where,
+        forUpdate: true,
+      },
+      assignment: {
+        kind: "polymorphic",
+        storage: linkedPolymorphicStorage(
+          directPolymorphicMembership(input.edge),
+          {
+            kind: "planningField",
+            step: probeId,
+          }
+        ),
+      },
     });
     this.planningSteps.push({
       id: probeId,
@@ -1614,7 +1629,10 @@ export class CreateOperation {
       // The incident's create-then-connect: a sibling before-parent create writes
       // this target, so existence is our own write inside the atomic envelope —
       // pure FK assignment, with no probe, guard, or pin.
-      input.parentHeldArms.push({ kind: "connect-covered", fkAssign });
+      input.parentHeldArms.push({
+        kind: "connect-covered",
+        assignment: { kind: "foreignKey", data: fkAssign },
+      });
       return;
     }
     const childName = getStepModelName(relationInfo.targetModel, relationName);
@@ -1638,8 +1656,11 @@ export class CreateOperation {
       relationInfo: relation.relationInfo,
       guardId,
       probeId,
-      guardProbe: buildFindUnique(childScope, { where, select: pkSelect }),
-      fkAssign,
+      guard: {
+        kind: "precompiled",
+        probe: buildFindUnique(childScope, { where, select: pkSelect }),
+      },
+      assignment: { kind: "foreignKey", data: fkAssign },
     });
     this.planningSteps.push(probe);
   }
@@ -1671,7 +1692,10 @@ export class CreateOperation {
     input.parentHeldArms.push({
       kind: "create",
       before,
-      fkAssign: this.beforeParentFkAssign(input.self.model, relation, before),
+      assignment: {
+        kind: "foreignKey",
+        data: this.beforeParentFkAssign(input.self.model, relation, before),
+      },
     });
   }
 
@@ -1706,14 +1730,16 @@ export class CreateOperation {
       relationInfo,
       probeId,
       guardId,
-      guardProbe: buildFindUnique(childScope, { where, select: pkSelect }),
-      foundFkAssign,
+      guard: {
+        kind: "precompiled",
+        probe: buildFindUnique(childScope, { where, select: pkSelect }),
+      },
+      foundAssignment: { kind: "foreignKey", data: foundFkAssign },
       before,
-      missingFkAssign: this.beforeParentFkAssign(
-        input.self.model,
-        relation,
-        before
-      ),
+      missingAssignment: {
+        kind: "foreignKey",
+        data: this.beforeParentFkAssign(input.self.model, relation, before),
+      },
       racePin: childRacePin(childScope, where),
     });
     this.planningSteps.push({
@@ -1880,24 +1906,26 @@ export class CreateOperation {
                 wheres,
                 txMode,
               };
-              return hasPolymorphicMembership(relation)
-                ? new ChildConnectPart(this.scope, {
-                    ...common,
-                    relation,
-                    polymorphicStorage: this.childPolymorphicStorage(
-                      input.self,
-                      relation
-                    ),
-                  })
-                : new ChildConnectPart(this.scope, {
-                    ...common,
-                    relation,
-                    fkAssign: this.childFkAssign(
-                      input.self,
-                      relation,
-                      childScope.model
-                    ),
-                  });
+              return new ChildConnectPart(this.scope, {
+                ...common,
+                relation,
+                assignment: hasPolymorphicMembership(relation)
+                  ? {
+                      kind: "polymorphic",
+                      storage: this.childPolymorphicStorage(
+                        input.self,
+                        relation
+                      ),
+                    }
+                  : {
+                      kind: "foreignKey",
+                      data: this.childFkAssign(
+                        input.self,
+                        relation,
+                        childScope.model
+                      ),
+                    },
+              });
             })
           );
           break;
@@ -2309,163 +2337,95 @@ export class CreateOperation {
   ): void {
     switch (arm.kind) {
       case "connect-covered":
-        Object.assign(insertData, arm.fkAssign);
+        // The incident's create-then-connect: a sibling before-parent create writes
+        // this target, so existence is our own write inside the atomic envelope —
+        // pure assignment, with no probe, guard, or pin.
+        this.assignParentHeld(
+          arm.assignment,
+          known,
+          "connect",
+          insertData,
+          polymorphicStorage
+        );
         return;
       case "connect-probe":
         this.requireConnectFound(arm.probeId, arm.relationInfo, known);
-        Object.assign(insertData, arm.fkAssign);
-        if (this.mode === "batch") {
-          guards.push(
-            this.connectGuard(arm.guardId, arm.guardProbe, arm.relationInfo)
-          );
-        }
-        return;
-      case "create":
-        this.emitBeforeParent(arm.before, undefined, known, guards, writes);
-        Object.assign(insertData, arm.fkAssign);
-        return;
-      case "connectOrCreate": {
-        const relationName = arm.relationInfo.name;
-        const rows = known[planningKey(arm.probeId, "rows")];
-        const found = Array.isArray(rows) && rows.length > 0;
-        if (found) {
-          Object.assign(insertData, arm.foundFkAssign);
-          if (this.mode === "batch") {
-            guards.push(
-              presenceGuard(
-                arm.guardId,
-                arm.guardProbe,
-                nestedWriteFailure(
-                  nestedReplacement("connectOrCreate"),
-                  relationName,
-                  false
-                )
-              )
-            );
-          }
-        } else {
-          this.emitBeforeParent(arm.before, arm.racePin, known, guards, writes);
-          Object.assign(insertData, arm.missingFkAssign);
-        }
-        return;
-      }
-      case "polymorphic-connect-covered":
-        polymorphicStorage.push(
-          resolvePolymorphicStorageValue(
-            this.engine,
-            arm.assignment,
-            known,
-            "connect"
-          )
-        );
-        return;
-      case "polymorphic-connect-probe":
-        this.requireConnectFound(arm.probeId, arm.relationInfo, known);
-        polymorphicStorage.push(
-          resolvePolymorphicStorageValue(
-            this.engine,
-            arm.assignment,
-            known,
-            "connect"
-          )
+        this.assignParentHeld(
+          arm.assignment,
+          known,
+          "connect",
+          insertData,
+          polymorphicStorage
         );
         if (this.mode === "batch") {
-          const target = this.capturedConnectValue(
-            arm.probeId,
-            arm.guardField,
-            arm.relationInfo,
-            known
-          );
-          const childScope = createQueryScope(
-            this.engine.adapter,
-            arm.relationInfo.targetModel
-          );
           guards.push(
             this.connectGuard(
               arm.guardId,
-              buildFind(
-                childScope,
-                {
-                  where: capturedSelectorWhere(childScope, arm.where, {
-                    [arm.guardField]: target,
-                  }),
-                  select: { [arm.guardField]: true },
-                  forUpdate: true,
-                },
-                { limit: 1 }
+              this.parentHeldGuardProbe(
+                arm.guard,
+                arm.probeId,
+                arm.relationInfo,
+                known
               ),
               arm.relationInfo
             )
           );
         }
         return;
-      case "polymorphic-create":
+      case "create":
         this.emitBeforeParent(arm.before, undefined, known, guards, writes);
-        polymorphicStorage.push(
-          resolvePolymorphicStorageValue(
-            this.engine,
-            arm.assignment,
-            known,
-            "create"
-          )
+        this.assignParentHeld(
+          arm.assignment,
+          known,
+          "create",
+          insertData,
+          polymorphicStorage
         );
         return;
-      case "polymorphic-connectOrCreate": {
-        const relationName = arm.relationInfo.name;
+      case "connectOrCreate": {
         const rows = known[planningKey(arm.probeId, "rows")];
+        // Zero rows is the ARM DECISION here, not an error: the probe's empty read is
+        // exactly what makes this a create.
         const found = Array.isArray(rows) && rows.length > 0;
         if (found) {
-          polymorphicStorage.push(
-            resolvePolymorphicStorageValue(
-              this.engine,
-              arm.foundAssignment,
-              known,
-              "connectOrCreate"
-            )
+          this.assignParentHeld(
+            arm.foundAssignment,
+            known,
+            "connectOrCreate",
+            insertData,
+            polymorphicStorage
           );
           if (this.mode === "batch") {
-            const target = this.capturedConnectValue(
-              arm.probeId,
-              arm.guardField,
-              arm.relationInfo,
-              known
-            );
-            const childScope = createQueryScope(
-              this.engine.adapter,
-              arm.relationInfo.targetModel
-            );
             guards.push(
               presenceGuard(
                 arm.guardId,
-                buildFind(
-                  childScope,
-                  {
-                    where: capturedSelectorWhere(childScope, arm.where, {
-                      [arm.guardField]: target,
-                    }),
-                    select: { [arm.guardField]: true },
-                  },
-                  { limit: 1 }
+                this.parentHeldGuardProbe(
+                  arm.guard,
+                  arm.probeId,
+                  arm.relationInfo,
+                  known
                 ),
                 nestedWriteFailure(
+                  // V1's found-arm captured guard: the planning-seen target vanished
+                  // before the batch — a replacement race, not a plain not-found.
                   nestedReplacement("connectOrCreate"),
-                  relationName,
+                  arm.relationInfo.name,
                   false
                 )
               )
             );
           }
-        } else {
-          this.emitBeforeParent(arm.before, arm.racePin, known, guards, writes);
-          polymorphicStorage.push(
-            resolvePolymorphicStorageValue(
-              this.engine,
-              arm.missingAssignment,
-              known,
-              "connectOrCreate"
-            )
-          );
+          return;
         }
+        // The arm's raceable missing premise rides the SUBTREE's root INSERT.
+        this.emitBeforeParent(arm.before, arm.racePin, known, guards, writes);
+        this.assignParentHeld(
+          arm.missingAssignment,
+          known,
+          "connectOrCreate",
+          insertData,
+          polymorphicStorage
+        );
         return;
       }
       default: {
@@ -2475,6 +2435,65 @@ export class CreateOperation {
         );
       }
     }
+  }
+
+  /**
+   * Apply one parent-held arm's root-membership assignment to this record's two sinks
+   * — the INSERT data an ordinary foreign key rides in, and the private storage list a
+   * polymorphic pair rides in. Which sink is the assignment's own answer.
+   */
+  private assignParentHeld(
+    assignment: RootMembershipAssignment,
+    known: Readonly<Record<string, unknown>>,
+    kind: string,
+    insertData: Record<string, unknown>,
+    polymorphicStorage: PolymorphicStorageValue<unknown>[]
+  ): void {
+    applyRootMembershipAssignment(
+      this.engine,
+      assignment,
+      known,
+      kind,
+      insertData,
+      polymorphicStorage
+    );
+  }
+
+  /**
+   * The statement a parent-held arm's batch guard runs. A `precompiled` guard was
+   * built at construction from a selector that is complete on its own; a `captured`
+   * one is rebuilt HERE from the value the probe published, because a direct
+   * polymorphic connect names its target by a discriminator beside a referenced value
+   * and only the probe knows that value.
+   */
+  private parentHeldGuardProbe(
+    guard: CapturedGuard,
+    probeId: string,
+    relationInfo: RelationInfo,
+    known: Readonly<Record<string, unknown>>
+  ): Sql {
+    if (guard.kind === "precompiled") return guard.probe;
+    const target = this.capturedConnectValue(
+      probeId,
+      guard.field,
+      relationInfo,
+      known
+    );
+    const childScope = createQueryScope(
+      this.engine.adapter,
+      relationInfo.targetModel
+    );
+    return buildFind(
+      childScope,
+      {
+        where: capturedSelectorWhere(childScope, guard.where, {
+          [guard.field]: target,
+        }),
+        select: { [guard.field]: true },
+        ...(guard.forUpdate ? { forUpdate: true } : {}),
+      },
+      { limit: 1 }
+    );
   }
 
   /** Emit a before-parent target record subtree ahead of the record INSERT,
@@ -3096,7 +3115,14 @@ function collectFoldArmSemantics(
   for (const arm of plan.parentHeldArms) {
     // The other parent-held kinds either write nothing (`connect-covered`) or plan a
     // probe, and a tree that probed has already declined on empty planning.
-    if (arm.kind === "create") collectFoldArmSemantics(arm.before, into);
+    // A polymorphic-storage create arm is deliberately UNCLASSIFIED: its
+    // before-parent INSERT was never measured for the fold's order-insensitivity
+    // claim, so the tree keeps declining exactly as it did when the arm carried
+    // its own kind. Lifting this is a ratification with its own witness, not a
+    // classification gap.
+    if (arm.kind === "create" && arm.assignment.kind === "foreignKey") {
+      collectFoldArmSemantics(arm.before, into);
+    }
   }
   into.set(plan.writeStepId, {
     databaseAssigned: insertTakesDatabaseAssignedValue(plan.model, {
@@ -3220,20 +3246,15 @@ interface ChildConnectContext {
   readonly txMode: boolean;
 }
 
-type ChildConnectConfig = ChildConnectContext &
-  (
-    | {
-        readonly relation: OrdinaryChildHeldRelation;
-        readonly fkAssign: Record<string, unknown>;
-      }
-    | {
-        readonly relation: PolymorphicChildHeldRelation;
-        readonly polymorphicStorage: Extract<
-          PolymorphicStorageValue<FinalReferenceSource>,
-          { kind: "linked" }
-        >;
-      }
-  );
+/**
+ * One CHILD-held connect group. The membership axis rides as the assignment the
+ * child's UPDATE makes — the same union a parent-held arm carries — rather than as a
+ * cross-product of the relation type with the storage it writes.
+ */
+interface ChildConnectConfig extends ChildConnectContext {
+  readonly relation: ChildHeldRelation;
+  readonly assignment: RootMembershipAssignment;
+}
 
 class ChildConnectPart implements Part {
   private readonly config: ChildConnectConfig;
@@ -3314,8 +3335,20 @@ class ChildConnectPart implements Part {
         );
       }
     }
-    const polymorphicStorage = this.resolvedPolymorphicStorage(known);
-    const data = "fkAssign" in this.config ? this.config.fkAssign : {};
+    // The child's own two sinks, filled by the one assignment applier: an ordinary
+    // edge writes SET columns, a polymorphic one writes the private pair. An empty
+    // storage list stays ABSENT from the statement rather than present-and-empty.
+    const data: Record<string, unknown> = {};
+    const resolved: PolymorphicStorageValue<unknown>[] = [];
+    applyRootMembershipAssignment(
+      this.config.engine,
+      this.config.assignment,
+      known,
+      "connect",
+      data,
+      resolved
+    );
+    const polymorphicStorage = resolved.length > 0 ? resolved : undefined;
     steps.push({
       id: this.writeId,
       kind: "write",
@@ -3345,22 +3378,6 @@ class ChildConnectPart implements Part {
     return Object.fromEntries(
       getPrimaryKeyFields(this.config.childScope.model).map((f) => [f, true])
     );
-  }
-
-  private resolvedPolymorphicStorage(
-    known: PlanningKnown
-  ): readonly PolymorphicStorageValue<unknown>[] | undefined {
-    if (!("polymorphicStorage" in this.config)) {
-      return undefined;
-    }
-    return [
-      resolvePolymorphicStorageValue(
-        this.config.engine,
-        this.config.polymorphicStorage,
-        known,
-        "connect"
-      ),
-    ];
   }
 }
 

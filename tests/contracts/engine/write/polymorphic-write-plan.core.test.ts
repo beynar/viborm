@@ -202,3 +202,36 @@ test("the direct polymorphic target boundary refuses at construction, eagerly", 
     operation.planning();
   }).toThrow(/Validation failed|Unknown polymorphic target/);
 });
+
+test("a tree carrying a direct-polymorphic create arm DECLINES the CTE fold", () => {
+  // The fold's order-insensitivity claim was measured for ordinary FK arms
+  // only. A polymorphic-storage create arm stays unclassified, so the tree
+  // keeps its multi-statement shape — statement count is a pinned surface.
+  const registry = createSchemaRegistry(polymorphicPlanSchema);
+  const engine = new QueryEngine(
+    new PGliteDriver(),
+    createModelRegistry(polymorphicPlanSchema, registry)
+  );
+  const operation = new CreateOperation(engine, polymorphicPlanSchema.author, {
+    data: {
+      id: 5,
+      name: "n",
+      comments: {
+        create: {
+          id: 6,
+          body: "b",
+          primary: { create: { type: "post", data: { id: 7, title: "t" } } },
+        },
+      },
+    },
+    select: { id: true },
+  });
+  expect(ids(operation.planning())).toEqual([]);
+  const compiled = operation.compile({});
+  expect(ids(compiled)).toEqual([
+    "author.create",
+    "post.create",
+    "comment.create",
+    "author.select",
+  ]);
+});

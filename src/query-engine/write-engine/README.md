@@ -114,8 +114,12 @@ optional, so delete is available, while disconnect still requires clearable
 child storage. Nested createMany applies one shared pair to every grouped row.
 
 Direct polymorphic fields stay with the record compilers because their private
-pair is part of the owner record's INSERT or UPDATE. Fresh owners support
-connect, create, and connect-or-create. Selected owners also support correlated
+pair is part of the owner record's INSERT or UPDATE — and, for every fresh-owner
+verb plus a selected owner's create and connect-or-create, they share the SAME
+arms as an ordinary foreign key, carrying a root-membership assignment that names
+which storage the arm writes. A selected owner's polymorphic update, upsert and
+delete keep parallel arms until the parent-held locator union lands. Fresh owners
+support connect, create, and connect-or-create. Selected owners also support correlated
 update and upsert; optional storage supports disconnect and typed target delete.
 When a selected verb depends on current membership, the locate projects the
 private pair as internal columns and the compiler addresses the captured target.

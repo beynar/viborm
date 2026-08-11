@@ -498,6 +498,49 @@ export function foreignKeyWriteValue(
   );
 }
 
+/**
+ * THE assignment a root membership makes when the ROOT ROW ITSELF holds it: an
+ * ordinary foreign key's columns, which ride in the record's own INSERT/UPDATE data,
+ * or one atomic private `(type, id)` pair, which rides in its polymorphic storage.
+ *
+ * ONE union, because "which storage does this arm write" is the ONLY thing that
+ * differed between the parent-held arms of the two memberships. Everything else a
+ * parent-held arm owns — the probe, the guard, the branch decision, the before-parent
+ * target, the race pin — is the same question with the same answer on both sides, so
+ * they share the arms and this rides as a field.
+ */
+export type RootMembershipAssignment =
+  | {
+      readonly kind: "foreignKey";
+      readonly data: Record<string, unknown>;
+    }
+  | {
+      readonly kind: "polymorphic";
+      readonly storage: PolymorphicStorageValue<FinalReferenceSource>;
+    };
+
+/**
+ * Apply one root-membership assignment to the record's two sinks. The caller owns both
+ * sinks and passes both; which one receives the value is this function's whole
+ * decision, and it is the only place that decision is made.
+ */
+export function applyRootMembershipAssignment(
+  engine: QueryEngine,
+  assignment: RootMembershipAssignment,
+  known: PlanningKnown | undefined,
+  kind: string,
+  data: Record<string, unknown>,
+  polymorphicStorage: PolymorphicStorageValue<unknown>[]
+): void {
+  if (assignment.kind === "polymorphic") {
+    polymorphicStorage.push(
+      resolvePolymorphicStorageValue(engine, assignment.storage, known, kind)
+    );
+    return;
+  }
+  Object.assign(data, assignment.data);
+}
+
 /** Resolve and destination-lower the id member of one atomic private edge. */
 export function resolvePolymorphicStorageValue(
   engine: QueryEngine,

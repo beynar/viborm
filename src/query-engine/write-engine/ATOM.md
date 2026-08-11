@@ -282,6 +282,18 @@ Each consumer branches on exactly the axis its question names. The union still
 forbids the impossible combinations: parent-held is always to-one, junction is
 always to-many, and both child-held storages admit either arity.
 
+ONE dispatcher per position, not one per position × membership. A child-held
+entry is compiled once for both storages, with the parent's read source, its
+write source and each half's placement resolved BEFORE the dispatch; a
+parent-held arm names its verb, and which storage it assigns rides as a
+root-membership assignment on that arm — everywhere the fresh-record compiler
+owns, and for a selected record's create and connect-or-create; the selected
+record's polymorphic update, upsert and delete still hold parallel arms until a
+parent-held locator union lands (the blocker is stated at those arms). What
+stays inside an arm is only a
+difference that is real — a fresh child's foreign-key provenance, a guard that
+must be rebuilt from a captured row, a discriminator premise on the located row.
+
 Classification is ordered:
 
 1. `manyToMany` is `junction`;
