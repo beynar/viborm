@@ -350,12 +350,34 @@ describe("bound relation classification", () => {
       return;
     }
 
+    // The binder carries holder/referenced eagerly; this pins them against the
+    // position ternary every consumer used to re-run.
+    const parentHeld = relation.position === "parentHeld";
+    expect(relation.membership.holder).toBe(
+      parentHeld ? relation.sourceModel : relation.relationInfo.targetModel
+    );
+    expect(relation.membership.referenced).toBe(
+      parentHeld ? relation.relationInfo.targetModel : relation.sourceModel
+    );
+
     expect(relation.membership.foreignFields).toEqual(
       classification.foreignFields
     );
-    expect(relation.membership.referencedFields).toEqual(
-      classification.referencedFields
-    );
+    if (relation.membership.kind === "polymorphic") {
+      expect([relation.membership.referencedField]).toEqual(
+        classification.referencedFields
+      );
+    } else {
+      expect(relation.membership.referencedFields).toEqual(
+        classification.referencedFields
+      );
+      expect(relation.membership.members).toEqual(
+        classification.foreignFields?.map((foreignField, index) => ({
+          foreignField,
+          referencedField: classification.referencedFields?.[index],
+        }))
+      );
+    }
     expect(relation.membership.onUpdate).toBe(classification.onUpdate);
   });
 

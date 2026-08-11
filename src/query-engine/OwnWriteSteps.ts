@@ -1,8 +1,9 @@
 // biome-ignore-all lint/style/useFilenamingConvention: File matches its primary class export.
 import { getModelKeyCatalog, type Model } from "@schema/model";
-import type {
-  BoundRelation,
-  ParentHeldRelation,
+import {
+  type BoundRelation,
+  membershipReferencedFields,
+  type ParentHeldRelation,
 } from "./builders/relation-data-builder";
 import type { RelationMutationEntry } from "./builders/relation-mutation-parser";
 import type { OwnWriteFootprint, OwnWriteLedger } from "./OwnWriteLedger";
@@ -529,9 +530,12 @@ function buildToOneUpdateFootprint(
     }
   }
 
+  // POSITION, not holder identity: a self-relation's holder and referenced are the
+  // same model, and the branch below is exactly that case.
+  const referencedFields = membershipReferencedFields(relation.membership);
   const membershipFields = new Set(
     relation.position === "parentHeld"
-      ? relation.membership.referencedFields
+      ? referencedFields
       : relation.membership.foreignFields
   );
   if (
@@ -540,7 +544,7 @@ function buildToOneUpdateFootprint(
   ) {
     for (const field of [
       ...relation.membership.foreignFields,
-      ...relation.membership.referencedFields,
+      ...referencedFields,
     ]) {
       membershipFields.add(field);
     }
@@ -646,11 +650,12 @@ function buildReboundTargetConstraint(
   rootScalarData: Readonly<Record<string, unknown>>
 ): TargetConstraint {
   const values: Record<string, unknown> = {};
-  const { foreignFields, referencedFields } = relation.membership;
-  for (const [index, fkField] of foreignFields.entries()) {
-    const referencedField = referencedFields[index];
-    if (!(referencedField && Object.hasOwn(rootScalarData, fkField))) continue;
-    const update = classifyRelationKeyScalarUpdate(rootScalarData[fkField]);
+  const { members, referencedFields } = relation.membership;
+  for (const { foreignField, referencedField } of members) {
+    if (!Object.hasOwn(rootScalarData, foreignField)) continue;
+    const update = classifyRelationKeyScalarUpdate(
+      rootScalarData[foreignField]
+    );
     if (update.resolved && update.value !== null) {
       values[referencedField] = update.value;
     }

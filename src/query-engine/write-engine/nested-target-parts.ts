@@ -5,6 +5,7 @@ import {
   bindRelation,
   type ChildHeldRelation,
   hasPolymorphicMembership,
+  membershipReferencedFields,
   type PolymorphicChildHeldRelation,
 } from "../builders/relation-data-builder";
 import type {
@@ -66,6 +67,11 @@ import { buildTargetProjection } from "./target-projection";
  * states its own answer: they are the same source wherever the parent's referenced
  * value is not in transition, and defaulting one to the other is exactly the
  * old-from-new inference Package D deletes.
+ *
+ * PHASE 5 PARTIAL — the two stay separate positional sources rather than one
+ * source-bound membership, for the reason recorded on `WritePartBase.membershipReadSource`:
+ * the read source's narrowing is lazy and kind-named, so binding it once per edge
+ * would move a refusal and rewrite its sentence.
  */
 export type JunctionTargetRelationsBuilder = (
   targetScope: QueryScope,
@@ -196,10 +202,11 @@ function foldJunctionTargetRelation(input: {
   // Non-PK references require the selected-record compiler's captured projection;
   // this lower builder can consume only the target's single primary key.
   const targetPrimaryKeys = getPrimaryKeyFields(targetScope.model);
+  const referenced = membershipReferencedFields(relation.membership);
   const referencesTargetPk =
     targetPrimaryKeys.length === 1 &&
-    relation.membership.referencedFields.length === 1 &&
-    relation.membership.referencedFields[0] === targetPrimaryKeys[0];
+    referenced.length === 1 &&
+    referenced[0] === targetPrimaryKeys[0];
   if (!referencesTargetPk) {
     throw new QueryEngineError(
       `query-engine-v2 internal: a non-primary-key referenced edge on relation '${relationName}' reached the junction target relation builder; it requires the whole fresh-record compiler.`
@@ -336,14 +343,13 @@ function foldJunctionChildHeldEntry(args: {
         );
         return;
       }
-      const { foreignFields, referencedFields } = relation.membership;
+      const boundMembers = relation.membership.members;
       const members = pairCorrelatedForeignKeyMembers(
-        foreignFields,
-        referencedFields,
-        referencedFields.map(() =>
+        boundMembers,
+        boundMembers.map(() =>
           planningSourceFromFinal(parentId, relationName, "upsert")
         ),
-        referencedFields.map(() => parentId)
+        boundMembers.map(() => parentId)
       );
       push(
         buildCorrelatedToManyUpsertParts(
@@ -420,10 +426,10 @@ function foldJunctionChildHeldEntry(args: {
         );
         return;
       }
+      const boundMembers = relation.membership.members;
       const members = pairForeignKeyMembers(
-        relation.membership.foreignFields,
-        relation.membership.referencedFields,
-        relation.membership.referencedFields.map(() => parentId)
+        boundMembers,
+        boundMembers.map(() => parentId)
       );
       parts.push(
         literalReferenceSource(parentId)
@@ -652,7 +658,7 @@ export function buildPolymorphicParentCreateManyPart(input: {
   });
   if (userRows.length === 0) return new LiteralParentWriteParts([]);
   const shapeStorage: PolymorphicStorageValue<unknown> = {
-    ...linkedPolymorphicStorage(relation, parentId),
+    ...linkedPolymorphicStorage(relation.membership, parentId),
     id: referenceScalarSql(
       engine,
       relation.membership.storage.idColumn.scalar,
@@ -669,7 +675,7 @@ export function buildPolymorphicParentCreateManyPart(input: {
   return new PlannedParentCreatePart((known) => {
     const storage = resolvePolymorphicStorageValue(
       engine,
-      linkedPolymorphicStorage(relation, parentId),
+      linkedPolymorphicStorage(relation.membership, parentId),
       known,
       "create"
     );

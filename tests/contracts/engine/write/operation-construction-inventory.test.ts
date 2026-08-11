@@ -1045,7 +1045,7 @@ describe("write engine route inventory (P6 accounting)", () => {
       [
         2,
         "query-engine/write-engine/RecordUpdateCompiler.ts",
-        // Shifted by Phase 4 (axis migration reshaped the file above).
+        // Shifted by Phase 4 (axis migration reshaped the file above), then Phase 5.
         1791,
         1763,
         "postTransitionReference",
@@ -1053,32 +1053,33 @@ describe("write engine route inventory (P6 accounting)", () => {
       [
         3,
         "query-engine/write-engine/RecordUpdateCompiler.ts",
-        // Shifted by Phase 4.
-        2008,
+        // Shifted by Phase 4, then Phase 5.
+        2006,
         1902,
         "resolveCreateParent",
       ],
       [
         4,
         "query-engine/write-engine/RecordUpdateCompiler.ts",
-        // Shifted by Phase 4.
-        3530,
-        3510,
+        // Shifted by Phase 4, then Phase 5.
+        3528,
+        3508,
         "recordSharedKeyFold",
       ],
       [
         5,
         "query-engine/write-engine/RecordUpdateCompiler.ts",
-        // Shifted by Phase 4.
-        3610,
-        3602,
+        // Shifted by Phase 4, then Phase 5.
+        3608,
+        3600,
         "beforeTargetReferencedValue",
       ],
       [
         6,
         "query-engine/write-engine/RecordUpdateCompiler.ts",
-        4767,
-        4728,
+        // Shifted by Phase 5.
+        4765,
+        4726,
         "composeToOneEntries",
       ],
       [
@@ -1095,47 +1096,49 @@ describe("write engine route inventory (P6 accounting)", () => {
         // Shifted +1 / -2 by distinct-truth phase 3 (bound junction sides): the
         // class's junction carve-out shrank by three lines and the target
         // reference read wraps. Coordinates only — the site is unchanged.
-        1375,
-        1360,
+        // Shifted again by Phase 4, then Phase 5.
+        1383,
+        1368,
         "resolveCreatePk",
       ],
       [
         12,
         "query-engine/write-engine/RelationUpsertPart.ts",
-        754,
-        743,
+        // Shifted by Phase 5.
+        757,
+        746,
         "withoutAgreeingOwnedFk",
       ],
       [
         13,
         "query-engine/write-engine/RelationUpsertPart.ts",
-        // Shifted by Phase 4.
-        1204,
-        1197,
+        // Shifted by Phase 4, then Phase 5.
+        1210,
+        1203,
         "assertArmEdgeIsChildHeld",
       ],
       [
         15,
         "query-engine/write-engine/CreateOperation.ts",
-        // Shifted by unit 9.1, then Phase 4.
-        2760,
-        2752,
+        // Shifted by unit 9.1, then Phase 4, then Phase 5.
+        2773,
+        2765,
         "requireRecordReferenced",
       ],
       [
         19,
         "query-engine/write-engine/CreateOperation.ts",
-        // Shifted by unit 9.1, then Phase 4.
-        2838,
-        2827,
+        // Shifted by unit 9.1, then Phase 4, then Phase 5.
+        2851,
+        2840,
         "producedReference",
       ],
       [
         20,
         "query-engine/write-engine/CreateOperation.ts",
-        // Shifted by unit 9.1, then Phase 4.
-        3142,
-        3128,
+        // Shifted by unit 9.1, then Phase 4, then Phase 5.
+        3155,
+        3141,
         "assertSharedPkResolved",
       ],
       [
@@ -1148,9 +1151,9 @@ describe("write engine route inventory (P6 accounting)", () => {
       [
         22,
         "query-engine/relation-key-legality.ts",
-        // Shifted by Phase 4.
-        170,
-        164,
+        // Shifted by Phase 4, then Phase 5.
+        173,
+        167,
         "assertSelectedUpdateManyDataIsScalar",
       ],
       [

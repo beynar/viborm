@@ -14,12 +14,9 @@ export function requiredForeignKeyFields(relation: RowHeldRelation): string[] {
       .filter((column) => !column.nullable)
       .map((column) => column.name);
   }
-  const holder =
-    relation.position === "parentHeld"
-      ? relation.sourceModel
-      : relation.relationInfo.targetModel;
   return membership.foreignFields.filter(
-    (field) => holder["~"].state.scalars[field]?.["~"].state.nullable !== true
+    (field) =>
+      membership.holder["~"].state.scalars[field]?.["~"].state.nullable !== true
   );
 }
 

@@ -2,7 +2,6 @@
 import type { BoundRelation } from "./builders/relation-data-builder";
 import type { RelationMutationEntry } from "./builders/relation-mutation-parser";
 import {
-  junctionSourceIsFirst,
   type RelationMembershipScope,
   relationMembershipScopesEqual,
 } from "./RelationMembership";
@@ -30,18 +29,21 @@ export interface MembershipEndpoints {
 /**
  * Which endpoint of a membership the CURRENT model is.
  *
- * A junction's answer is its canonical side order, read off the bound relation the
- * scope was built from — the scope erases orientation deliberately, and this used to
- * re-run the junction binder purely to undo that erasure.
+ * A junction's answer is the orientation its own scope carries — the scope erases
+ * orientation from what it COMPARES, and records the comparison's verdict beside
+ * it, so this reads the fact rather than asking a second time. Row-held membership
+ * answers by POSITION, not by holder identity: on a self-relation holder and
+ * referenced are the same model, and only the position distinguishes the ends.
  */
 export function getRelationMembershipEndpoints(
   relation: BoundRelation,
+  scope: RelationMembershipScope,
   currentConstraint: TargetConstraint,
   targetConstraint: TargetConstraint
 ): MembershipEndpoints {
   const currentIsFirst =
-    relation.position === "junction"
-      ? junctionSourceIsFirst(relation.membership)
+    scope.kind === "manyToMany"
+      ? scope.sourceIsFirst
       : relation.position === "parentHeld";
   return currentIsFirst
     ? { first: currentConstraint, second: targetConstraint }

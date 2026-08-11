@@ -93,10 +93,14 @@ Phase 4): `position` (`parentHeld` | `childHeld` | `junction`), `cardinality`
 (`one` | `many`), and `membership.kind` (`foreignKey` | `polymorphic` |
 `junction`), with impossible combinations unrepresentable (parent-held is
 always to-one; a junction is always to-many).
-`BoundRelation` carries ordered topology only. It does not carry scopes,
-runtime identities, value sources, transition state, SQL, or branch policy.
-Bind at the first topology decision so error order and untaken arm behavior do
-not move.
+`BoundRelation` carries ordered topology only — including which model HOLDS the
+membership and which it references, and the foreign/referenced fields paired
+member for member. It does not carry scopes, runtime identities, value sources,
+transition state, SQL, or branch policy. Bind at the first topology decision so
+error order and untaken arm behavior do not move; the field pairing is lazy for
+the same reason, because it owns the mismatched-metadata refusal.
+The OwnWrite membership scope is a READER of that bound membership, not a second
+constructor of it.
 
 A polymorphic child-held relation is a fixed inverse topology. Both cardinality
 variants carry the private type/id storage, the inverse's stored discriminator,

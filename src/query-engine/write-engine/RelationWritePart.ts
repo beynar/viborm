@@ -1159,6 +1159,15 @@ interface WritePartBase {
    * itself. `?? parentId` was the old-from-new inference Package D deletes; it was
    * benign only because every site that HAD a transition happened to thread this
    * explicitly, which is a property of the callers, not of the type.
+   *
+   * PHASE 5 PARTIAL — this stays a scalar beside `parentId` rather than folding into
+   * one source-bound membership. Binding the pair into a
+   * {@link CorrelatedRelationMembershipBinding} once per edge would have to run
+   * {@link planningSourceFromFinal} at the binding site, and that narrowing is BOTH
+   * lazy (a kind that never correlates must not refuse) and kind-named (its message
+   * spells the mutation kind that failed). One binding per edge can carry only one
+   * kind, so folding these two channels means changing a refusal's reach and its
+   * sentence — a semantics change wearing a compression's clothes.
    */
   readonly membershipReadSource: FinalReferenceSource;
   readonly txMode: boolean;

@@ -61,10 +61,12 @@ Execution-specific deduplication stays with the consumer that owns it.
 (`parentHeld`/`childHeld`/`junction`), `cardinality` (`one`/`many`), and
 `membership.kind` (`foreignKey`/`polymorphic`/`junction`) — with impossible
 combinations unrepresentable. It stores topology only: source model and one
-membership carrying ordered storage fields, referenced fields, and the
-schema-fixed discriminator needed by a polymorphic inverse. It does not store
-scopes, runtime identities, value sources, transition state, SQL, or branch
-policy.
+membership carrying the holder and referenced models, ordered storage fields,
+referenced fields, those fields paired member for member, and the schema-fixed
+discriminator needed by a polymorphic membership. It does not store scopes,
+runtime identities, value sources, transition state, SQL, or branch policy.
+The field pairing is lazy: it owns the mismatched-metadata refusal and must not
+move it earlier.
 
 The polymorphic child-held variant means one exact physical membership:
 private identity equals the parent referenced value and private type equals the

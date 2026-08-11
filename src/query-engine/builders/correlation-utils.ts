@@ -43,7 +43,7 @@ export function buildCorrelation(
   if (hasPolymorphicMembership(relation)) {
     const parentIdentity = adapter.identifiers.column(
       parentAlias,
-      getColumnName(ctx.model, relation.membership.referencedFields[0])
+      getColumnName(ctx.model, relation.membership.referencedField)
     );
     return buildPolymorphicMembershipPredicate(
       ctx,
@@ -60,36 +60,38 @@ export function buildCorrelation(
     );
   }
 
-  const parentFields =
-    relation.position === "parentHeld"
-      ? relation.membership.foreignFields
-      : relation.membership.referencedFields;
-  const relatedFields =
-    relation.position === "parentHeld"
-      ? relation.membership.referencedFields
-      : relation.membership.foreignFields;
+  // POSITION, not holder identity: a self-relation holds both ends, and this asks
+  // which END the parent alias addresses.
+  const parentHeld = relation.position === "parentHeld";
+  const { foreignFields, referencedFields } = relation.membership;
+  const parentFields = parentHeld ? foreignFields : referencedFields;
+  const relatedFields = parentHeld ? referencedFields : foreignFields;
 
+  // This read path's OWN refusal, with its own sentence — and, because it proves the
+  // two lists have equal arity, the reason the member pairing below cannot refuse
+  // here and displace it.
   if (parentFields.length !== relatedFields.length) {
     throw new QueryEngineError(
       `Relation '${relationInfo.name}' has mismatched fields (${parentFields.length}) and references (${relatedFields.length}).`
     );
   }
 
-  // Build equality conditions for each field/reference pair
-  const conditions: Sql[] = [];
-  for (let i = 0; i < parentFields.length; i++) {
-    const parentColumnName = getColumnName(ctx.model, parentFields[i]!);
+  const conditions: Sql[] = relation.membership.members.map((member) => {
+    const parentColumnName = getColumnName(
+      ctx.model,
+      parentHeld ? member.foreignField : member.referencedField
+    );
     const relatedColumnName = getColumnName(
       relationInfo.targetModel,
-      relatedFields[i]!
+      parentHeld ? member.referencedField : member.foreignField
     );
     const parentCol = adapter.identifiers.column(parentAlias, parentColumnName);
     const relatedCol = adapter.identifiers.column(
       relatedAlias,
       relatedColumnName
     );
-    conditions.push(adapter.operators.eq(parentCol, relatedCol));
-  }
+    return adapter.operators.eq(parentCol, relatedCol);
+  });
 
   return conditions.length === 1
     ? conditions[0]!

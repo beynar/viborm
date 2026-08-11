@@ -1,9 +1,11 @@
 // biome-ignore-all lint/style/useFilenamingConvention: File matches its primary class export.
 
 import type { ResolvedPolymorphicMutation } from "./builders/polymorphic-mutation";
+import { directPolymorphicMembership } from "./builders/polymorphic-relation";
 import {
   type BoundRelation,
   bindRelation,
+  buildPolymorphicMembership,
 } from "./builders/relation-data-builder";
 import {
   buildParsedRelationPrograms,
@@ -21,8 +23,9 @@ import {
 import {
   buildRootUpdateMembershipFootprints,
   buildTransitiveUpdateMembershipFootprints,
-  getPolymorphicMembershipScope,
+  getMembershipScope,
   getRelationMembershipScope,
+  type RelationMembershipScope,
   type RootMembershipFootprint,
 } from "./RelationMembership";
 import type { TargetConstraint } from "./TargetConstraint";
@@ -198,11 +201,7 @@ export class OwnWriteNode {
         this.rootOperation,
         {
           first: footprint.constraint,
-          second: unknownConstraint(
-            relation.position === "parentHeld"
-              ? relation.relationInfo.targetModel
-              : relation.sourceModel
-          ),
+          second: unknownConstraint(relation.membership.referenced),
         },
         membershipScope,
         "inverseTarget",
@@ -240,12 +239,13 @@ export class OwnWriteNode {
             first: this.currentConstraint,
             second: unknownConstraint(member.targetModel),
           },
-          getPolymorphicMembershipScope(
-            this.ctx.model,
-            member.targetModel,
-            mutation.storage,
-            member.storedType,
-            member.referencedField
+          getMembershipScope(
+            buildPolymorphicMembership(
+              this.ctx.model,
+              member.targetModel,
+              mutation.storage,
+              member
+            )
           ),
           "physical",
           "operation"
@@ -369,10 +369,7 @@ function getRelationEntryGroups(
     return [
       Object.entries(relations).map(([relationName, mutation]) => ({
         mutation,
-        membershipScope: getDirectPolymorphicScope(
-          ctx,
-          polymorphic[relationName]
-        ),
+        membershipScope: getDirectPolymorphicScope(polymorphic[relationName]),
       })),
     ];
   }
@@ -383,10 +380,7 @@ function getRelationEntryGroups(
     const entry = {
       mutation,
       boundRelation,
-      membershipScope: getDirectPolymorphicScope(
-        ctx,
-        polymorphic[relationName]
-      ),
+      membershipScope: getDirectPolymorphicScope(polymorphic[relationName]),
     };
     if (boundRelation.position === "parentHeld") {
       currentHoldsFk.push(entry);
@@ -400,20 +394,12 @@ function getRelationEntryGroups(
 interface RelationAnalysisEntry {
   readonly mutation: RelationMutationProgram;
   readonly boundRelation?: BoundRelation;
-  readonly membershipScope?: ReturnType<typeof getRelationMembershipScope>;
+  readonly membershipScope?: RelationMembershipScope;
 }
 
 function getDirectPolymorphicScope(
-  ctx: QueryScope,
   mutation: ResolvedPolymorphicMutation | undefined
-): ReturnType<typeof getRelationMembershipScope> | undefined {
+): RelationMembershipScope | undefined {
   if (!mutation || mutation.kind !== "targeted") return undefined;
-  const { edge } = mutation;
-  return getPolymorphicMembershipScope(
-    ctx.model,
-    edge.targetModel,
-    edge.storage,
-    edge.storedType,
-    edge.referencedField
-  );
+  return getMembershipScope(directPolymorphicMembership(mutation.edge));
 }

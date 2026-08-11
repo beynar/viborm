@@ -9,6 +9,7 @@ import {
   type JunctionBoundRelation,
   type JunctionReferenceMember,
   junctionSideMember,
+  membershipReferencedFields,
 } from "../builders/relation-data-builder";
 import {
   buildParsedRelationPrograms,
@@ -102,6 +103,13 @@ interface JunctionContext {
   readonly parentScope: QueryScope;
   readonly relation: JunctionBoundRelation;
   readonly parentId: FinalReferenceSource;
+  /**
+   * PHASE 5 PARTIAL — the read half stays its own channel beside `parentId`. Folding
+   * the two into one source-bound member would have to narrow the read source
+   * ({@link planningSourceFromFinal}) at the folding site; that narrowing is both lazy
+   * and kind-named (see {@link RelationJunctionPart.membershipLiteral}, whose measured
+   * batch-guard behaviour depends on taking the READ source, and only there).
+   */
   readonly membershipReadSource: FinalReferenceSource;
   readonly txMode: boolean;
 }
@@ -1708,6 +1716,14 @@ export class RelationJunctionPart implements Part {
     );
   }
 
+  /**
+   * PHASE 5 PARTIAL — these two are not a reconstruction of one fact but the LAZY
+   * NARROWING BOUNDARY between them: {@link parentLiteral} takes the write member and
+   * must not refuse when the read source is un-narrowable, while
+   * {@link membershipLiteral} takes the correlated one and must. Collapsing them onto
+   * a single member carried by {@link JunctionContext} moves that refusal, which the
+   * batch-guard measurement above says is a behaviour change.
+   */
   private parentWriteMember(): ForeignKeyMember {
     return {
       foreignField: this.sourceReference.junctionField,
@@ -1793,10 +1809,11 @@ export function buildJunctionParts(input: {
       const bound = bindRelation(childScope, mutation.relationInfo);
       if (bound.position === "junction") continue;
       if (bound.position === "parentHeld") return true;
+      const referenced = membershipReferencedFields(bound.membership);
       const referencesTargetPk =
         targetPrimaryKeys.length === 1 &&
-        bound.membership.referencedFields.length === 1 &&
-        bound.membership.referencedFields[0] === targetPrimaryKeys[0];
+        referenced.length === 1 &&
+        referenced[0] === targetPrimaryKeys[0];
       if (!referencesTargetPk) return true;
     }
     return false;

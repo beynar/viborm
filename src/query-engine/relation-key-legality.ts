@@ -1,5 +1,8 @@
 import { NestedWriteError, UnsupportedOperationError } from "@errors";
-import { bindRelation } from "./builders/relation-data-builder";
+import {
+  bindRelation,
+  membershipReferencedFields,
+} from "./builders/relation-data-builder";
 import {
   buildParsedRelationPrograms,
   type ParsedRecordPrograms,
@@ -242,10 +245,13 @@ export function assertRelationKeyUpdatesAreCompilable(
   for (const mutation of Object.values(relations)) {
     const relation = bindRelation(ctx, mutation.relationInfo);
     if (relation.position === "junction") continue;
+    // POSITION, not holder identity — a self-relation holds both ends. This must
+    // also stay OFF `membership.members`: pairing refuses mismatched arity, and
+    // this refusal is pinned to answer FIRST.
     const relationKeyFields =
       relation.position === "parentHeld"
         ? relation.membership.foreignFields
-        : relation.membership.referencedFields;
+        : membershipReferencedFields(relation.membership);
     for (const field of relationKeyFields) {
       if (scalarData[field] === undefined) continue;
       if (primaryKeyFields.has(field) && relation.position !== "parentHeld") {

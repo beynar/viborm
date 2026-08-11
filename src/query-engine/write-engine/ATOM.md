@@ -255,15 +255,21 @@ A fields-less `manyToOne` is therefore child-held to-one from the current
 source position.
 
 A bound relation carries the source model and its `relationInfo`; its membership
-carries the physical storage. A foreign-key membership carries:
+carries the physical storage and the two models it spans. A foreign-key membership
+carries:
 
+- the holder model and the referenced model (equal on a self-relation);
 - ordered foreign fields;
 - ordered referenced fields;
+- those two lists paired member for member, LAZILY: pairing is where mismatched
+  foreign-key metadata is refused, and binding must not move that refusal ahead of
+  the relation-key legality error that answers first;
 - the `onUpdate` action.
 
-A polymorphic membership carries the same two one-member tuples plus its private
+A polymorphic membership carries the same holder and referenced models, its
+one-member foreign tuple and the SINGLE field it references, plus its private
 storage and fixed stored discriminator (and no referential action). Its one
-identity field references the parent field at the same index. It expresses a
+identity field references the parent's single named field. It expresses a
 conjunction, not two independent links:
 
 ```text
@@ -350,8 +356,14 @@ The source owner enforces these boundaries:
 - compound members preserve schema field order;
 - read and write sources are never inferred from each other.
 
-Field arity is checked when fields and values are paired, after the existing
-legality boundary. Binding topology does not perform that check early.
+Field arity is checked when the membership's FIELDS are paired — the one owner —
+and that pairing is lazy, so it still lands after the existing legality boundary.
+Binding topology does not perform that check early. Attaching VALUES to already
+paired members adds no second arity check: a source list is built by mapping the
+members themselves, or over a reference list the pairing has already proven at
+least member-length, so no member can bind a missing source. (An over-long
+reference list — schema-invalid, unreachable through validation — binds its
+paired prefix; correlated reads still refuse it.)
 
 ## 9. Fresh-record compiler
 

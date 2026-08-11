@@ -94,15 +94,19 @@ Classification (distinct-truth Phase 4 — three orthogonal axes):
 4. remaining ordinary child-held edge → position `childHeld`, foreign-key
    membership, cardinality from the public relation.
 
-The bound value contains the source model, ordered foreign and referenced
-fields, and update action. It does not contain scopes, aliases, identity
-values, reference sources, transition state, junction metadata, SQL, or
-execution policy.
+The bound value contains the source model, the membership's holder and referenced
+models, ordered foreign and referenced fields, those fields PAIRED member for
+member, and the update action. A polymorphic membership carries one referenced
+FIELD, not a list — its discriminator is a fixed qualifier, not a member. The bound
+value does not contain scopes, aliases, identity values, reference sources,
+transition state, junction metadata, SQL, or execution policy.
 
 Bind at the first topology decision. Early binding can change which schema or
-arm-specific failure surfaces first. Field/value pairing, source resolution,
-and membership lowering stay in `write-engine/relation-membership.ts` after
-existing legality checks.
+arm-specific failure surfaces first. The FIELD pairing is therefore lazy and
+memoized (like the junction sides): it owns the mismatched-foreign-key-metadata
+refusal, which must stay behind the relation-key legality boundary. Attaching
+VALUE sources to those members, source resolution, and membership lowering stay in
+`write-engine/relation-membership.ts` after existing legality checks.
 
 ## Parse-once rule
 

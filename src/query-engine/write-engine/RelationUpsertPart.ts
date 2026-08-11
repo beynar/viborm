@@ -1,7 +1,10 @@
 // biome-ignore-all lint/style/useFilenamingConvention: RelationUpsertPart is the architecture name.
 import { NestedWriteError, QueryEngineError } from "@errors";
 import type { Sql } from "@sql";
-import { bindRelation } from "../builders/relation-data-builder";
+import {
+  bindRelation,
+  membershipReferencedFields,
+} from "../builders/relation-data-builder";
 import {
   buildParsedRelationPrograms,
   type ConnectOrCreateInput,
@@ -1001,8 +1004,11 @@ function buildOneUpsertPart(
   const relation = parent.membership.relation;
   const { relationInfo } = relation;
   const relationName = relationInfo.name;
-  const { foreignFields, referencedFields } = relation.membership;
-  if (foreignFields.length !== referencedFields.length) {
+  const { foreignFields } = relation.membership;
+  if (
+    foreignFields.length !==
+    membershipReferencedFields(relation.membership).length
+  ) {
     // The child must hold the foreign key referencing the parent (one column, or an
     // index-aligned compound key — ATOM “Field-bound foreign-key provenance”).
     //

@@ -1185,8 +1185,8 @@ describe('parity D — regime "none" emits no transition probe', () => {
 /** Under `guarded` every nested kind proceeds — since D2 deleted `pastSurface` there is
  *  no regime left that stops one, and the occupied guard the regime emits is kind-blind.
  *  All of them spend `interpretReferencedKeyTransition`'s single
- *  `adopt = { parentId: keyTransition.write, target: input.afterRootParts }`
- *  (`PostTransitionAdopt`), which carries the NEW value only: existing membership keeps
+ *  `adoptWrite = keyTransition.write` (routed by `afterRootTarget = input.afterRootParts`),
+ *  which carries the NEW value only: existing membership keeps
  *  reading through `WritePartBase.membershipReadSource`, and that split of one field
  *  against the other IS the old-read / new-write rule. So each kind below is a separate
  *  chance for D1 to bind the post-transition value to a membership READ. The split is

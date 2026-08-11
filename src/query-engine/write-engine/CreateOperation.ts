@@ -8,6 +8,7 @@ import {
 } from "../builders/correlation-utils";
 import { isMissingGeneratedIncrement } from "../builders/generated-scalar";
 import type { PolymorphicStorageValue } from "../builders/polymorphic-mutation";
+import { directPolymorphicMembership } from "../builders/polymorphic-relation";
 import {
   type BoundRelation,
   bindRelation,
@@ -991,7 +992,10 @@ export class CreateOperation {
       input.parentHeldArms.push({
         kind: "polymorphic-create",
         before,
-        assignment: linkedPolymorphicStorage(input.edge, source),
+        assignment: linkedPolymorphicStorage(
+          directPolymorphicMembership(input.edge),
+          source
+        ),
       });
       return;
     }
@@ -1037,11 +1041,17 @@ export class CreateOperation {
         guardField,
         where: spec.where,
         before,
-        foundAssignment: linkedPolymorphicStorage(input.edge, {
-          kind: "planningField",
-          step: probeId,
-        }),
-        missingAssignment: linkedPolymorphicStorage(input.edge, missingSource),
+        foundAssignment: linkedPolymorphicStorage(
+          directPolymorphicMembership(input.edge),
+          {
+            kind: "planningField",
+            step: probeId,
+          }
+        ),
+        missingAssignment: linkedPolymorphicStorage(
+          directPolymorphicMembership(input.edge),
+          missingSource
+        ),
         racePin: childRacePin(childScope, spec.where),
       });
       this.planningSteps.push({
@@ -1094,10 +1104,13 @@ export class CreateOperation {
       guardId,
       guardField,
       where,
-      assignment: linkedPolymorphicStorage(input.edge, {
-        kind: "planningField",
-        step: probeId,
-      }),
+      assignment: linkedPolymorphicStorage(
+        directPolymorphicMembership(input.edge),
+        {
+          kind: "planningField",
+          step: probeId,
+        }
+      ),
     });
     this.planningSteps.push({
       id: probeId,
@@ -1127,7 +1140,7 @@ export class CreateOperation {
             edge.referencedField
           ),
         };
-    return linkedPolymorphicStorage(edge, id);
+    return linkedPolymorphicStorage(directPolymorphicMembership(edge), id);
   }
 
   /**
@@ -1893,7 +1906,7 @@ export class CreateOperation {
                     relation,
                     this.referencedParentSource(
                       input.self,
-                      relation.membership.referencedFields[0],
+                      relation.membership.referencedField,
                       relationName
                     )
                   )
@@ -1918,7 +1931,7 @@ export class CreateOperation {
                     relation,
                     this.referencedParentSource(
                       input.self,
-                      relation.membership.referencedFields[0],
+                      relation.membership.referencedField,
                       relationName
                     )
                   )
@@ -2089,15 +2102,15 @@ export class CreateOperation {
     PolymorphicStorageValue<FinalReferenceSource>,
     { kind: "linked" }
   > {
-    const { storage, storedType, referencedFields } = relation.membership;
+    const { storage, storedType, referencedField } = relation.membership;
     return {
       kind: "linked",
       storage,
       storedType,
-      referencedField: referencedFields[0],
+      referencedField,
       id: this.referencedParentSource(
         self,
-        referencedFields[0],
+        referencedField,
         relation.relationInfo.name
       ),
     };
@@ -2192,11 +2205,11 @@ export class CreateOperation {
     relation: OrdinaryChildHeldRelation
   ): ForeignKeyMember[] {
     const relationName = relation.relationInfo.name;
-    const { foreignFields, referencedFields } = relation.membership;
-    const sources = referencedFields.map((referenced) =>
-      this.referencedParentSource(self, referenced, relationName)
+    const { members } = relation.membership;
+    const sources = members.map((member) =>
+      this.referencedParentSource(self, member.referencedField, relationName)
     );
-    return pairForeignKeyMembers(foreignFields, referencedFields, sources);
+    return pairForeignKeyMembers(members, sources);
   }
 
   /** One referenced column of this fresh record, as a whole-value parent source. */

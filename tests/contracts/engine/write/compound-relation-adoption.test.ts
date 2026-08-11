@@ -63,8 +63,7 @@ describe("E4-U2 the boundary the per-field source did not move", () => {
 
   test("a write-only member cannot be used as a correlated member (type-level)", () => {
     const writeMembers: readonly ForeignKeyMember[] = pairForeignKeyMembers(
-      ["regionId"],
-      ["region"],
+      [{ foreignField: "regionId", referencedField: "region" }],
       [literalParentId("eu")]
     );
     // @ts-expect-error a correlated member must name its independent planning source.

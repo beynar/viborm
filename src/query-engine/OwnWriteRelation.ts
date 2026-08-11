@@ -105,6 +105,7 @@ export class OwnWriteRelation {
         node.rootOperation,
         getRelationMembershipEndpoints(
           boundRelation,
+          membershipScope,
           node.currentConstraint,
           footprint.constraint
         ),
@@ -319,12 +320,12 @@ export class OwnWriteRelation {
     access: "read" | "write"
   ): ReturnType<typeof getRelationMembershipEndpoints> {
     const currentConstraint =
-      access === "read" &&
-      this.boundRelation.membership.kind === "polymorphic"
+      access === "read" && this.boundRelation.membership.kind === "polymorphic"
         ? this.node.currentReadConstraint
         : this.node.currentConstraint;
     return getRelationMembershipEndpoints(
       this.boundRelation,
+      this.membershipScope,
       currentConstraint,
       targetConstraint
     );

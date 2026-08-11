@@ -23,7 +23,12 @@ import {
   getPrimaryKeyFields,
   getTableName,
 } from "../context";
-import { QueryEngineError, type QueryScope, type RelationInfo } from "../types";
+import {
+  NestedWriteError,
+  QueryEngineError,
+  type QueryScope,
+  type RelationInfo,
+} from "../types";
 import {
   hideMutationTarget,
   readsMutationTarget,
@@ -35,26 +40,56 @@ interface BoundRelationBase {
   readonly sourceModel: Model<any>;
 }
 
+/** One foreign-key column paired with the column it references. */
+export interface ForeignKeyMemberPair {
+  readonly foreignField: string;
+  readonly referencedField: string;
+}
+
 /**
  * Membership stored as ordinary foreign-key columns: the holder's columns in
  * schema order, and the columns they reference, member for member.
  */
 export interface BoundForeignKeyMembership {
   readonly kind: "foreignKey";
+  /** The model whose row stores these foreign-key columns. */
+  readonly holder: Model<any>;
+  /** The model those columns reference. Equal to {@link holder} on a self-relation. */
+  readonly referenced: Model<any>;
   readonly foreignFields: readonly string[];
   readonly referencedFields: readonly string[];
+  /**
+   * The two field lists paired member for member, in schema order.
+   *
+   * LAZY AND MEMOIZED, deliberately — not an optimization. Pairing is where
+   * mismatched foreign-key metadata is REFUSED, and `bindRelation` runs at sites
+   * that never pair (relation-key legality, the OwnWrite entry grouping, the
+   * create/update dispatchers). Pairing eagerly would move that refusal ahead of
+   * the relation-key legality error that answers first today, and that ORDER is
+   * pinned (`bound-relation.test.ts`: "relation-key legality still answers before
+   * mismatched FK arity").
+   *
+   * Schema order, not the canonical order membership-scope equality compares on:
+   * those are two different orders on the same data, and the scope sorts its own.
+   */
+  readonly members: readonly ForeignKeyMemberPair[];
   readonly onUpdate: ReferentialAction | undefined;
 }
 
 /**
  * Membership stored in a polymorphic `(type, id)` column pair. The stored type is
  * a FIXED QUALIFIER of the membership rather than a referenced key member, so the
- * reference itself is the single id column — hence the one-member tuples.
+ * reference itself is the single id column — hence the one-member tuple and the
+ * singular referenced field.
  */
 export interface BoundPolymorphicMembership {
   readonly kind: "polymorphic";
+  /** The model whose row stores the private `(type, id)` pair. */
+  readonly holder: Model<any>;
+  /** The model the id column references under this stored type. */
+  readonly referenced: Model<any>;
   readonly foreignFields: readonly [string];
-  readonly referencedFields: readonly [string];
+  readonly referencedField: string;
   /** A private polymorphic column pair declares no referential action. */
   readonly onUpdate: undefined;
   readonly storage: PolymorphicStorage;
@@ -92,6 +127,12 @@ export interface BoundJunctionMembership {
   /** The end this relation is traversed TO: `relationInfo.targetModel`. */
   readonly target: JunctionSide;
 }
+
+/** How a bound relation's membership is physically stored. */
+export type BoundMembership =
+  | BoundForeignKeyMembership
+  | BoundPolymorphicMembership
+  | BoundJunctionMembership;
 
 /*
  * A bound relation answers THREE ORTHOGONAL questions, and each consumer asks
@@ -184,6 +225,22 @@ export function junctionSideMember(
   side: JunctionSide
 ): JunctionReferenceMember {
   return side.members[0]!;
+}
+
+/**
+ * The columns a ROW-HELD membership references, in schema order.
+ *
+ * A polymorphic membership references exactly one column — its stored type is a
+ * fixed qualifier, not a referenced member — so the two storages spell the same
+ * fact two ways. This projection is the one place that reads them as one; a
+ * caller that already knows which storage it holds reads the field directly.
+ */
+export function membershipReferencedFields(
+  membership: BoundForeignKeyMembership | BoundPolymorphicMembership
+): readonly string[] {
+  return membership.kind === "polymorphic"
+    ? [membership.referencedField]
+    : membership.referencedFields;
 }
 
 interface JunctionTopology {
@@ -341,6 +398,78 @@ function getModelName(model: Model<any>): string {
   return model["~"].names.ts ?? model["~"].state.tableName ?? "unknown";
 }
 
+/**
+ * Pair the two field lists member for member. A reference list SHORTER than the
+ * foreign list is malformed schema metadata and is refused here; a longer one
+ * carries members no foreign column stores, and those have never been bound.
+ */
+function pairMembers(
+  relationName: string,
+  foreignFields: readonly string[],
+  referencedFields: readonly string[]
+): readonly ForeignKeyMemberPair[] {
+  return foreignFields.map((foreignField, index) => {
+    const referencedField = referencedFields[index];
+    if (referencedField === undefined) {
+      throw new NestedWriteError(
+        `Relation '${relationName}' has mismatched foreign-key metadata.`,
+        relationName
+      );
+    }
+    return { foreignField, referencedField };
+  });
+}
+
+function buildForeignKeyMembership(
+  relationName: string,
+  holder: Model<any>,
+  referenced: Model<any>,
+  foreignFields: readonly string[],
+  referencedFields: readonly string[],
+  onUpdate: ReferentialAction | undefined
+): BoundForeignKeyMembership {
+  let members: readonly ForeignKeyMemberPair[] | undefined;
+  return {
+    kind: "foreignKey",
+    holder,
+    referenced,
+    foreignFields,
+    referencedFields,
+    onUpdate,
+    get members() {
+      members ??= pairMembers(relationName, foreignFields, referencedFields);
+      return members;
+    },
+  };
+}
+
+/**
+ * The ONE construction of a polymorphic membership, for the inverse edge the
+ * schema fixes and for the direct edge a payload's discriminator selects. Both
+ * hand the same storage and the same `storage.members` entry; only which model
+ * holds the private pair differs, and that is the caller's to state.
+ */
+export function buildPolymorphicMembership(
+  holder: Model<any>,
+  referenced: Model<any>,
+  storage: PolymorphicStorage,
+  member: {
+    readonly storedType: string;
+    readonly referencedField: string;
+  }
+): BoundPolymorphicMembership {
+  return {
+    kind: "polymorphic",
+    holder,
+    referenced,
+    foreignFields: [storage.idColumn.name],
+    referencedField: member.referencedField,
+    onUpdate: undefined,
+    storage,
+    storedType: member.storedType,
+  };
+}
+
 /** Bind one relation to its structural position relative to the current model. */
 export function bindRelation(
   ctx: QueryScope,
@@ -357,12 +486,14 @@ export function bindRelation(
       cardinality: "one",
       relationInfo,
       sourceModel: ctx.model,
-      membership: {
-        kind: "foreignKey",
-        foreignFields: fields,
-        referencedFields: references ?? getPrimaryKeyFields(targetModel),
-        onUpdate: relationInfo.relation["~"].state.onUpdate,
-      },
+      membership: buildForeignKeyMembership(
+        relationInfo.name,
+        ctx.model,
+        targetModel,
+        fields,
+        references ?? getPrimaryKeyFields(targetModel),
+        relationInfo.relation["~"].state.onUpdate
+      ),
     };
   }
 
@@ -414,15 +545,16 @@ export function bindRelation(
     cardinality: relationInfo.cardinality,
     relationInfo,
     sourceModel: ctx.model,
-    membership: {
-      kind: "foreignKey",
-      foreignFields: resolved.fields as readonly string[] as string[],
-      referencedFields:
-        resolved.references && resolved.references.length > 0
-          ? (resolved.references as readonly string[] as string[])
-          : getPrimaryKeyFields(ctx.model),
-      onUpdate: resolved.onUpdate,
-    },
+    membership: buildForeignKeyMembership(
+      relationInfo.name,
+      relationInfo.targetModel,
+      ctx.model,
+      resolved.fields as readonly string[] as string[],
+      resolved.references && resolved.references.length > 0
+        ? (resolved.references as readonly string[] as string[])
+        : getPrimaryKeyFields(ctx.model),
+      resolved.onUpdate
+    ),
   };
 }
 
@@ -446,14 +578,12 @@ function bindResolvedPolymorphicInverse(
     cardinality: relationInfo.cardinality,
     relationInfo,
     sourceModel: ctx.model,
-    membership: {
-      kind: "polymorphic",
-      foreignFields: [storage.idColumn.name],
-      referencedFields: [member.referencedField],
-      onUpdate: undefined,
+    membership: buildPolymorphicMembership(
+      relationInfo.targetModel,
+      ctx.model,
       storage,
-      storedType: resolved.storedType,
-    },
+      member
+    ),
   };
 }
 

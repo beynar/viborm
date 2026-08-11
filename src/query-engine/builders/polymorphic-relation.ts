@@ -1,10 +1,14 @@
 import { manyToOne } from "@schema/relation";
 import {
-  QueryEngineError,
   type PolymorphicRelationInfo,
+  QueryEngineError,
   type QueryScope,
   type ResolvedPolymorphicEdge,
 } from "../types";
+import {
+  type BoundPolymorphicMembership,
+  buildPolymorphicMembership,
+} from "./relation-data-builder";
 
 /** Resolve one validated public discriminator without conflating direct and inverse topology. */
 export function resolvePolymorphicEdge(
@@ -43,4 +47,26 @@ export function resolvePolymorphicEdge(
       references: [member.referencedField],
     },
   };
+}
+
+/**
+ * The physical membership a resolved DIRECT edge writes — the same bound
+ * membership an inverse edge on that private pair binds, so the two intents
+ * produce one topology and one OwnWrite scope.
+ *
+ * The holder is the storage's owner because that IS the scope the payload was
+ * parsed against: a scope exposes only its own model's polymorphic storage
+ * (`getPolymorphicRelations`), so `storage.ownerModel` and the resolving
+ * `scope.model` are the same instance — and membership-scope equality compares
+ * model identity.
+ */
+export function directPolymorphicMembership(
+  edge: ResolvedPolymorphicEdge
+): BoundPolymorphicMembership {
+  return buildPolymorphicMembership(
+    edge.storage.ownerModel,
+    edge.targetModel,
+    edge.storage,
+    edge
+  );
 }

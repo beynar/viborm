@@ -3,13 +3,15 @@ import type { Sql } from "@sql";
 import { buildPolymorphicMembershipPredicate } from "../builders/correlation-utils";
 import type { PolymorphicStorageValue } from "../builders/polymorphic-mutation";
 import {
+  type BoundPolymorphicMembership,
   type ChildHeldRelation,
+  type ForeignKeyMemberPair,
   hasPolymorphicMembership,
   type OrdinaryChildHeldRelation,
   type PolymorphicChildHeldRelation,
 } from "../builders/relation-data-builder";
 import type { QueryEngine } from "../query-engine";
-import type { QueryScope, ResolvedPolymorphicEdge } from "../types";
+import type { QueryScope } from "../types";
 import { referenceScalarSql, referenceSql } from "./fragment-builders";
 import type { OperationValueReference } from "./OperationFragment";
 import { ref } from "./OperationFragment";
@@ -79,29 +81,30 @@ export interface LoweredMembershipWrite {
   readonly polymorphicStorage: readonly PolymorphicStorageValue<unknown>[];
 }
 
+/**
+ * Attach one write source per BOUND member. The binder paired the fields, and every
+ * caller derives its source list from that same member list, so the source arrays
+ * cannot disagree with it in arity.
+ */
 export function pairForeignKeyMembers(
-  foreignFields: readonly string[],
-  referencedFields: readonly string[],
+  members: readonly ForeignKeyMemberPair[],
   writeSources: readonly FinalReferenceSource[]
 ): ForeignKeyMember[] {
-  assertEqualArity(foreignFields, referencedFields, writeSources);
-  return foreignFields.map((foreignField, index) => ({
+  return members.map(({ foreignField, referencedField }, index) => ({
     foreignField,
-    referencedField: referencedFields[index]!,
+    referencedField,
     writeSource: writeSources[index]!,
   }));
 }
 
 export function pairCorrelatedForeignKeyMembers(
-  foreignFields: readonly string[],
-  referencedFields: readonly string[],
+  members: readonly ForeignKeyMemberPair[],
   readSources: readonly PlanningReferenceSource[],
   writeSources: readonly FinalReferenceSource[]
 ): CorrelatedForeignKeyMember[] {
-  assertEqualArity(foreignFields, referencedFields, readSources, writeSources);
-  return foreignFields.map((foreignField, index) => ({
+  return members.map(({ foreignField, referencedField }, index) => ({
     foreignField,
-    referencedField: referencedFields[index]!,
+    referencedField,
     readSource: readSources[index]!,
     writeSource: writeSources[index]!,
   }));
@@ -152,14 +155,13 @@ export function bindRelationMembership(
   if (hasPolymorphicMembership(relation)) {
     return { kind: "polymorphic", relation, writeSource };
   }
-  const { foreignFields, referencedFields } = relation.membership;
+  const { members } = relation.membership;
   return {
     kind: "foreignKey",
     relation,
     members: pairForeignKeyMembers(
-      foreignFields,
-      referencedFields,
-      referencedFields.map(() => writeSource)
+      members,
+      members.map(() => writeSource)
     ),
   };
 }
@@ -183,15 +185,14 @@ export function bindCorrelatedRelationMembership(
   if (hasPolymorphicMembership(relation)) {
     return { kind: "polymorphic", relation, readSource, writeSource };
   }
-  const { foreignFields, referencedFields } = relation.membership;
+  const { members } = relation.membership;
   return {
     kind: "foreignKey",
     relation,
     members: pairCorrelatedForeignKeyMembers(
-      foreignFields,
-      referencedFields,
-      referencedFields.map(() => readSource),
-      referencedFields.map(() => writeSource)
+      members,
+      members.map(() => readSource),
+      members.map(() => writeSource)
     ),
   };
 }
@@ -213,7 +214,7 @@ export function lowerMembershipWrite(
             kind: "linked",
             storage: binding.relation.membership.storage,
             storedType: binding.relation.membership.storedType,
-            referencedField: binding.relation.membership.referencedFields[0],
+            referencedField: binding.relation.membership.referencedField,
             id: binding.writeSource,
           },
           known,
@@ -279,7 +280,7 @@ export function planningMembershipCondition(
     engine,
     membership.storage.idColumn.scalar,
     membership.storage.idColumn.name,
-    planningReferenceValue(binding.readSource, membership.referencedFields[0])
+    planningReferenceValue(binding.readSource, membership.referencedField)
   );
   return {
     filters: [],
@@ -323,7 +324,7 @@ export function finalMembershipCondition(
     membership.storage.idColumn.name,
     resolvedPlanningReferenceValue(
       binding.readSource,
-      membership.referencedFields[0],
+      membership.referencedField,
       known,
       relationName,
       operation
@@ -387,7 +388,7 @@ export function recordHasMembership(
       record?.[membership.storage.idColumn.name],
       resolvedPlanningReferenceValue(
         binding.readSource,
-        membership.referencedFields[0],
+        membership.referencedField,
         known,
         relationName,
         operation
@@ -527,26 +528,16 @@ export function resolvePolymorphicStorageValue(
   };
 }
 
-/** Bind a value to one resolved private polymorphic edge. */
+/** Bind a value to one bound private polymorphic membership. */
 export function linkedPolymorphicStorage(
-  relation: PolymorphicChildHeldRelation | ResolvedPolymorphicEdge,
+  membership: BoundPolymorphicMembership,
   id: FinalReferenceSource
 ): Extract<PolymorphicStorageValue<FinalReferenceSource>, { kind: "linked" }> {
-  if ("referencedField" in relation) {
-    return {
-      kind: "linked",
-      storage: relation.storage,
-      storedType: relation.storedType,
-      referencedField: relation.referencedField,
-      id,
-    };
-  }
-  const { membership } = relation;
   return {
     kind: "linked",
     storage: membership.storage,
     storedType: membership.storedType,
-    referencedField: membership.referencedFields[0],
+    referencedField: membership.referencedField,
     id,
   };
 }
@@ -600,18 +591,5 @@ export function planningSourceFromFinal(
   }
   throw new QueryEngineError(
     `query-engine-v2 ${kind} for relation '${relationName}' requires a planned or literal parent id to correlate its probe.`
-  );
-}
-
-function assertEqualArity(
-  foreignFields: readonly string[],
-  referencedFields: readonly string[],
-  ...sources: readonly (readonly unknown[])[]
-): void {
-  const arities = [foreignFields.length, referencedFields.length];
-  for (const source of sources) arities.push(source.length);
-  if (arities.every((arity) => arity === arities[0])) return;
-  throw new QueryEngineError(
-    `query-engine-v2 internal: foreign-key member arity mismatch (${arities.join(", ")}).`
   );
 }

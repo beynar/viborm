@@ -1,6 +1,6 @@
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
-import { buildParsedRelationPrograms } from "@query-engine/builders/relation-mutation-parser";
 import { bindRelation } from "@query-engine/builders/relation-data-builder";
+import { buildParsedRelationPrograms } from "@query-engine/builders/relation-mutation-parser";
 import { createQueryScope } from "@query-engine/context/query-scope";
 import {
   analyzeOwnWriteTree,
@@ -102,6 +102,7 @@ function summarizeSelfChildrenStep(
     membershipOrientation: getMembershipReadOrientation(boundRelation),
     endpoints: getRelationMembershipEndpoints(
       boundRelation,
+      membershipScope,
       currentConstraint,
       targetConstraint
     ),

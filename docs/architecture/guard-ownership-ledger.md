@@ -749,3 +749,48 @@ being committed.
 | `pnpm test` | 215 files / **5,046** tests passed. |
 | `pnpm test:all` | Run ONCE, phase by phase, counts recorded rather than exit codes. `pnpm test` 215/**5,046** · `extended-local` 138 passed + 20 skipped files, **3,186 passed / 359 skipped** · `provider-pglite` **779 passed / 1 skipped** · `provider-sqlite3` + `provider-libsql` **2,296 passed / 2 skipped** · `provider-bun` **2 passed** · `provider-d1` **FAILED AT COLLECTION** (see below) · `test:package` was never reached, because the `&&` chain stops at d1 — run separately: tsdown build OK, **4 passed**. The one count that moved against Package N's gate log is `extended-local`: 3,186 against N's 3,185, and the difference is exactly the one witness this package added (the site-17 conversion witness). `.core` files are excluded from `extended-local`, which is why the deleted `capturedTargetConstraint` unit does not show up as a −1 there; it shows up in the layer run. |
 | `provider-d1` — the one red phase | **PRE-EXISTING, PROVEN, NOT PACKAGE O's.** `tests/providers/workers/d1.test.ts` fails during COLLECTION with workerd's `Disallowed operation called within global scope … generating random values are not allowed within global scope`, thrown at `@paralleldrive/cuid2/src/index.js:134` — that package's own top-level `init()`, reached through `d1.test.ts → @src/drivers/d1 → @client/client → … → schema/scalars/string/scalar.ts → autogenerate.ts`. Measured both directions rather than argued: (1) Package O added **no** module to any import graph — its only new import is `assertSelectedUpdateManyDataIsScalar`, from a module three write-engine files already imported — and it REMOVED one (`TargetConstraint`); `src/schema/` is byte-identical to `0ccd6abf` and the sole importer of `autogenerate` is clean; (2) the identical failure REPRODUCES AT `0ccd6abf` in a throwaway `git worktree` with the same `node_modules` (same message, same three frames). The worktree was removed and the main tree was never touched. Flagged for the final report: no gate in this lift had run the `provider-d1` project before, which is why it surfaces here. |
+
+## Addendum — distinct-truth Phase 5 (derive membership views from bound topology)
+
+Two standing items and one ownership move, recorded against the arity-pairing
+guards the phase touched.
+
+**Plan §7.4's stale coordinate.** `CreateOperation.ts:1998` (§O2 disagreement 2
+above) is re-pointed at `getRequiredSinglePrimaryKeyField`, now
+`builders/relation-data-builder.ts:369` — it moved there in Phase 3 with the
+junction binder that owns its only consumers. The refusal, its class and both
+sentences are unchanged; only the file is.
+
+**Guard #1 — mismatched foreign-key metadata.** The owner MOVED from
+`RelationMembership.getRelationMembershipScope` into the binder's lazy `members`
+getter (`relation-data-builder.ts`, `buildForeignKeyMembership`). Same class
+(`NestedWriteError`), same message bytes, same `relationInfo.name` argument, same
+first-access timing: the getter is lazy and memoized precisely so binding does not
+pair, and the scope reader is still the first consumer to ask. The pinned order
+(`bound-relation.test.ts` "relation-key legality still answers before mismatched FK
+arity") is preserved by keeping `relation-key-legality.ts` off `.members`.
+
+**Guard #2 — `assertEqualArity` — DELETED.** What is impossible now: a member
+binding a missing source. The pairers iterate the BOUND members, and every source
+list is built either by mapping the members themselves or over `referencedFields`
+after `.members` has already answered — which proves `referencedFields` is at
+least as long as the member list, so `sources[index]` is always populated.
+RESIDUAL, recorded: `references` LONGER than `fields` is still constructible on
+the client path (schema rule FK007 does not run there), was refused on write
+paths by `assertEqualArity`'s internal error, and now binds the paired prefix
+silently — the extras were never bound before either, and correlated READS still
+refuse the shape via guard #3, but the write/read asymmetry is new and unpinned.
+The refs-SHORTER direction is guard #1's at `.members`, unchanged.
+
+**Guard #3 — `correlation-utils.ts` mismatched fields/references — KEPT.** Its
+sentence is distinct (`has mismatched fields (n) and references (m)`), it is on the
+READ path, and it is publicly reachable on the same schema shape. It is also what
+proves the member pairing below it cannot refuse and displace it, so it now carries
+a second, stated job rather than being a redundant restatement.
+
+**Guards #4 and #5 — untouched.** `RelationUpsertPart`'s index-alignment refusal
+keeps its class, message and documented-unreachable status (its arity read now goes
+through the row-held `membershipReferencedFields` projection, because polymorphic
+membership carries one referenced FIELD rather than a one-element list).
+`CreateOperation.edgeParentId`'s compound-row-key refusal is unchanged in text,
+class and reachability.

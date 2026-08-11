@@ -11,10 +11,12 @@ import type {
   PolymorphicStorageValue,
   ResolvedPolymorphicMutation,
 } from "../builders/polymorphic-mutation";
+import { directPolymorphicMembership } from "../builders/polymorphic-relation";
 import {
   bindRelation,
   buildConnectSubqueryForField,
   type ChildHeldRelation,
+  type ForeignKeyMemberPair,
   hasPolymorphicMembership,
   type OrdinaryChildHeldRelation,
   type ParentHeldRelation,
@@ -386,15 +388,15 @@ type ParentHeldTarget =
 
 /**
  * How a family-A (parent-held) to-one write locates its referenced target:
- * `child.<childReferencedFields[i]> = <finalFk[i]>` where `finalFk[i]` is the
- * parent's FK column value AFTER any same-root scalar rebind (V1 correlates on the
- * post-update `parentValues` for a parent-held relation). A rebound column resolves to a
- * construction-time literal (`override`); an untouched column resolves to the
- * located parent row's value (a SQL `Ref` at planning, the literal at compile).
+ * `child.<member.referencedField> = <the parent's member.foreignField value>` AFTER
+ * any same-root scalar rebind (V1 correlates on the post-update `parentValues` for a
+ * parent-held relation). A rebound column resolves to a construction-time literal
+ * (`override`); an untouched column resolves to the located parent row's value (a SQL
+ * `Ref` at planning, the literal at compile).
  */
 interface ParentHeldCorrelation {
-  readonly childReferencedFields: readonly string[];
-  readonly parentFkFields: readonly string[];
+  /** The bound membership's pairs: `foreignField` is the PARENT's own FK column here. */
+  readonly members: readonly ForeignKeyMemberPair[];
   /** parentFkField → its rebound literal, when the same root update rewrites it. */
   readonly override: Record<string, unknown>;
   /**
@@ -459,32 +461,6 @@ interface RelationKeyGuard {
   readonly oldReferenceIsAddressable: (known: PlanningKnown) => boolean;
 }
 
-/**
- * N5-U1 — how the ADOPT family (`connect` / `connectOrCreate` / `set` / a to-many
- * `upsert`) is built under a `guarded` non-cascade referenced-PK transition. The
- * refusal this replaced said an adopt "writes a fresh FK on the pre-transition value,
- * orphaned by the referential action" — true of the ordering it had, and only of that.
- * Two facts make the shape ordinary:
- *   1. the OLD slot is proven EMPTY by the occupied guard the same relation just
- *      emitted, so nothing is being moved off a value the transition vacates; and
- *   2. the POST-transition value has a source — a construction literal where the
- *      locator pins the reference, a per-member compile-time derivation otherwise (D2).
- * So the edge is written against that source, AFTER the root UPDATE that creates the
- * key it names.
- */
-interface PostTransitionAdopt {
-  /**
-   * The value an adopt edge WRITES — the parent's post-transition referenced column,
-   * for every member of the reference key. It OVERRIDES `WritePartBase.parentId` and
-   * deliberately leaves `WritePartBase.membershipReadSource` alone: that split, one
-   * field against the other, IS the old-read / new-write rule, and `set` — the one
-   * kind that does both at once — needs no third source to express it.
-   */
-  readonly parentId: FinalReferenceSource;
-  /** The list whose writes are emitted after the root UPDATE (`afterRootParts`). */
-  readonly target: Part[];
-}
-
 class RecordUpdateCompilerState implements RecordUpdateCompiler {
   readonly mode: ExecutionMode;
   readonly targetReadId: string;
@@ -499,6 +475,10 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
   private readonly rootWriteFailure: Failure | undefined;
   private readonly pinnedTarget: Readonly<Record<string, unknown>>;
   private readonly incomingMembership: RelationMembershipBinding | undefined;
+  // PHASE 5 PARTIAL: this scalar channel folds into the source-bound membership
+  // only once the Part-level channels it feeds (WritePartBase.parentId /
+  // membershipReadSource) fold — blocked on the kind-named lazy narrowing at the
+  // Parts; see WritePartBase.membershipReadSource.
   private readonly parentIdSource: ReturnType<typeof plannedParentId>;
   private readonly childParts: readonly Part[];
   private readonly afterRootParts: readonly Part[];
@@ -936,7 +916,10 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       input.parentHeldTargets.push({
         kind: "polymorphicCreate",
         before,
-        assignment: linkedPolymorphicStorage(edge, source),
+        assignment: linkedPolymorphicStorage(
+          directPolymorphicMembership(edge),
+          source
+        ),
       });
       return;
     }
@@ -982,11 +965,17 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
         where: spec.where,
         probe,
         before,
-        foundAssignment: linkedPolymorphicStorage(edge, {
-          kind: "planningField",
-          step: probeId,
-        }),
-        missingAssignment: linkedPolymorphicStorage(edge, source),
+        foundAssignment: linkedPolymorphicStorage(
+          directPolymorphicMembership(edge),
+          {
+            kind: "planningField",
+            step: probeId,
+          }
+        ),
+        missingAssignment: linkedPolymorphicStorage(
+          directPolymorphicMembership(edge),
+          source
+        ),
       });
       return;
     }
@@ -1196,7 +1185,10 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       ),
       compiler,
       before,
-      missingAssignment: linkedPolymorphicStorage(edge, source),
+      missingAssignment: linkedPolymorphicStorage(
+        directPolymorphicMembership(edge),
+        source
+      ),
     };
   }
 
@@ -1412,10 +1404,16 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     // so nothing downstream distinguishes them. What used to be refused here (a
     // compound, non-PK, or unpinned reference under any kind but `create`) now takes
     // the second spelling and compiles.
-    const adopt: PostTransitionAdopt | undefined =
-      keyTransition.regime === "guarded"
-        ? { parentId: keyTransition.write, target: input.afterRootParts }
-        : undefined;
+    // N5-U1 — the ADOPT family's two facts, kept apart because they are not one
+    // fact: `adoptWrite` is the SOURCE an adopt edge writes (it overrides
+    // `WritePartBase.parentId` and deliberately leaves `membershipReadSource` alone
+    // — that split IS the old-read / new-write rule), and `afterRootTarget` is a
+    // PLACEMENT, the Part list whose writes are emitted after the root UPDATE.
+    // Undefined means: no transition, ordinary source, emitted in place.
+    const adoptWrite =
+      keyTransition.regime === "guarded" ? keyTransition.write : undefined;
+    const afterRootTarget =
+      keyTransition.regime === "guarded" ? input.afterRootParts : undefined;
     const engine = this.engine;
     const writeBase: Parameters<typeof buildToManyUpdateParts>[0] = {
       scope: input.scope,
@@ -1446,7 +1444,8 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
         writeBase,
         input,
         keyTransition,
-        adopt,
+        adoptWrite,
+        afterRootTarget,
       });
       return;
     }
@@ -1473,7 +1472,8 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
         childName,
         writeBase,
         input,
-        adopt,
+        adoptWrite,
+        afterRootTarget,
       });
     }
   }
@@ -1696,7 +1696,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     readonly write: FinalReferenceSource;
     readonly afterRoot: boolean;
   } {
-    const field = relation.membership.referencedFields[0];
+    const field = relation.membership.referencedField;
     const pinned = this.pinnedTargetValue(field);
     const read = pinned
       ? literalParentId(pinned.value)
@@ -1975,11 +1975,9 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
         getStepModelName(this.model, "record")
       );
       return {
-        members: pairForeignKeyMembers(
-          relation.membership.foreignFields,
-          referencedFields,
-          [literalParentId(transitioned)]
-        ),
+        members: pairForeignKeyMembers(relation.membership.members, [
+          literalParentId(transitioned),
+        ]),
         afterRoot: true,
       };
     }
@@ -2010,11 +2008,9 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       );
     }
     return {
-      members: pairForeignKeyMembers(
-        relation.membership.foreignFields,
-        referencedFields,
-        [literalParentId(literal)]
-      ),
+      members: pairForeignKeyMembers(relation.membership.members, [
+        literalParentId(literal),
+      ]),
       afterRoot: false,
     };
   }
@@ -2041,7 +2037,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     input: Parameters<RecordUpdateCompilerState["interpretRelation"]>[0],
     relation: OrdinaryChildHeldRelation
   ): { members: ForeignKeyMember[]; afterRoot: boolean } {
-    const referencedFields = relation.membership.referencedFields;
+    const { members, referencedFields } = relation.membership;
     for (const field of referencedFields) {
       input.parentFkLocateFields.add(field);
     }
@@ -2052,9 +2048,8 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     );
     return {
       members: pairForeignKeyMembers(
-        relation.membership.foreignFields,
-        referencedFields,
-        referencedFields.map(() => write)
+        members,
+        members.map(() => write)
       ),
       afterRoot: true,
     };
@@ -2082,7 +2077,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     input: Parameters<RecordUpdateCompilerState["interpretRelation"]>[0],
     relation: OrdinaryChildHeldRelation
   ): { members: ForeignKeyMember[]; afterRoot: boolean } {
-    const referencedFields = relation.membership.referencedFields;
+    const { members, referencedFields } = relation.membership;
     // The shortcut asks the CALLER'S unique `where` whether it pins this column to a
     // literal. A nested target located by correlation alone has no such `where` (`{}`
     // — see `parentWhere`), so there is no asker and nothing to pin; reached through
@@ -2093,11 +2088,9 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       const pinned = this.pinnedTargetValue(referencedFields[0]!);
       if (pinned) {
         return {
-          members: pairForeignKeyMembers(
-            relation.membership.foreignFields,
-            referencedFields,
-            [literalParentId(pinned.value)]
-          ),
+          members: pairForeignKeyMembers(relation.membership.members, [
+            literalParentId(pinned.value),
+          ]),
           afterRoot: false,
         };
       }
@@ -2105,9 +2098,8 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     for (const field of referencedFields) input.locateFields.add(field);
     return {
       members: pairForeignKeyMembers(
-        relation.membership.foreignFields,
-        referencedFields,
-        referencedFields.map(() => plannedParentId(this.targetReadId))
+        members,
+        members.map(() => plannedParentId(this.targetReadId))
       ),
       afterRoot: false,
     };
@@ -2127,30 +2119,38 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       childParts: Part[];
     };
     /** N5-U1 — present only under a guarded non-cascade referenced-PK transition. */
-    adopt?: PostTransitionAdopt;
+    adoptWrite?: FinalReferenceSource;
+    afterRootTarget?: Part[];
   }): void {
-    const { entry, relation, childScope, childName, writeBase, input, adopt } =
-      args;
+    const {
+      entry,
+      relation,
+      childScope,
+      childName,
+      writeBase,
+      input,
+      adoptWrite,
+      afterRootTarget,
+    } = args;
     const { relationInfo } = relation;
-    const { foreignFields, referencedFields } = relation.membership;
+    const { members: boundMembers } = relation.membership;
     const relationName = relationInfo.name;
     const push = (parts: readonly Part[]) => input.childParts.push(...parts);
     // N5-U1: an adopt kind writes the POST-transition value and is held back until
     // after the root UPDATE; without a transition both fall back to the pre-N5
     // located-parent source and the ordinary child-part list, byte for byte.
-    const adoptParentId = adopt?.parentId ?? input.parentIdSource;
+    const adoptParentId = adoptWrite ?? input.parentIdSource;
     const pushAdopt = (parts: readonly Part[]) =>
-      (adopt?.target ?? input.childParts).push(...parts);
+      (afterRootTarget ?? input.childParts).push(...parts);
 
     switch (entry.kind) {
       case "upsert": {
-        const readSources = referencedFields.map(() =>
+        const readSources = boundMembers.map(() =>
           planningSourceFromFinal(input.parentIdSource, relationName, "upsert")
         );
-        const writeSources = referencedFields.map(() => adoptParentId);
+        const writeSources = boundMembers.map(() => adoptParentId);
         const members = pairCorrelatedForeignKeyMembers(
-          foreignFields,
-          referencedFields,
+          boundMembers,
           readSources,
           writeSources
         );
@@ -2182,9 +2182,8 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
               kind: "foreignKey",
               relation,
               members: pairForeignKeyMembers(
-                foreignFields,
-                referencedFields,
-                referencedFields.map(() => adoptParentId)
+                boundMembers,
+                boundMembers.map(() => adoptParentId)
               ),
             },
             input.txMode,
@@ -2245,7 +2244,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
         // keeps those two apart; without a transition they are the same source.
         pushAdopt([
           buildToManySetPart(
-            adopt ? { ...writeBase, parentId: adopt.parentId } : writeBase,
+            adoptWrite ? { ...writeBase, parentId: adoptWrite } : writeBase,
             entry
           ),
         ]);
@@ -2295,7 +2294,8 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     keyTransition: ReturnType<
       RecordUpdateCompilerState["interpretReferencedKeyTransition"]
     >;
-    adopt?: PostTransitionAdopt;
+    adoptWrite?: FinalReferenceSource;
+    afterRootTarget?: Part[];
   }): void {
     const { relation, writeBase, input } = args;
     const composition = composeToOneEntries(
@@ -2336,8 +2336,9 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     keyTransition: ReturnType<
       RecordUpdateCompilerState["interpretReferencedKeyTransition"]
     >;
-    /** N5-U1 — present only under a guarded non-cascade referenced-PK transition. */
-    adopt?: PostTransitionAdopt;
+    /** N5-U1 — both present only under a guarded non-cascade referenced-PK transition. */
+    adoptWrite?: FinalReferenceSource;
+    afterRootTarget?: Part[];
   }): void {
     const {
       entry,
@@ -2347,16 +2348,17 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       writeBase,
       input,
       keyTransition,
-      adopt,
+      adoptWrite,
+      afterRootTarget,
     } = args;
     const { relationInfo } = relation;
-    const { foreignFields, referencedFields } = relation.membership;
+    const { members: boundMembers } = relation.membership;
     const relationName = relationInfo.name;
     const push = (parts: readonly Part[]) => input.childParts.push(...parts);
     // N5-U1 — the arity-1 case of the to-many adopt ordering (see interpretToManyKind).
-    const adoptParentId = adopt?.parentId ?? input.parentIdSource;
+    const adoptParentId = adoptWrite ?? input.parentIdSource;
     const pushAdopt = (parts: readonly Part[]) =>
-      (adopt?.target ?? input.childParts).push(...parts);
+      (afterRootTarget ?? input.childParts).push(...parts);
 
     switch (entry.kind) {
       case "create":
@@ -2397,9 +2399,8 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
               kind: "foreignKey",
               relation,
               members: pairForeignKeyMembers(
-                foreignFields,
-                referencedFields,
-                referencedFields.map(() => adoptParentId)
+                boundMembers,
+                boundMembers.map(() => adoptParentId)
               ),
             },
             input.txMode,
@@ -2510,9 +2511,9 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
    *     their ordinary part (empty-slot native), the to-one upsert reroutes its create
    *     arm onto the returned write source. The ADOPT kinds (`connect` /
    *     `connectOrCreate` / `set`, and a to-many `upsert`) take that source as their
-   *     parent value and are ORDERED after the root UPDATE — N5-U1's
-   *     {@link PostTransitionAdopt}, which is why the source is returned rather than
-   *     consumed here.
+   *     parent value and are ORDERED after the root UPDATE (N5-U1's `adoptWrite` and
+   *     `afterRootTarget`), which is why the source is returned rather than consumed
+   *     here.
    *
    * D2 — there is no `pastSurface` third answer any more. What used to be past the
    * surface — a COMPOUND reference, a NON-PK referenced unique (the D4 case), and a
@@ -2556,7 +2557,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     childName: string;
   }): { regime: "none" } | { regime: "guarded"; write: FinalReferenceSource } {
     const { input, relation, childScope, childName } = args;
-    const { foreignFields, referencedFields } = relation.membership;
+    const { referencedFields } = relation.membership;
     const relationName = relation.relationInfo.name;
     if (relation.membership.onUpdate === "cascade") return { regime: "none" };
     // Does the root SET rewrite a referenced parent column — or, E1, does a
@@ -2630,10 +2631,9 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
         kind: "foreignKey",
         relation,
         members: pairCorrelatedForeignKeyMembers(
-          foreignFields,
-          referencedFields,
+          relation.membership.members,
           readSources,
-          referencedFields.map(() => write)
+          relation.membership.members.map(() => write)
         ),
       },
     });
@@ -2767,11 +2767,10 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     const { input, relation, childScope, upsertInput, write } = args;
     const relationName = relation.relationInfo.name;
     const createData = upsertInput.create;
-    const { foreignFields, referencedFields } = relation.membership;
+    const boundMembers = relation.membership.members;
     const members = pairForeignKeyMembers(
-      foreignFields,
-      referencedFields,
-      referencedFields.map(() => write)
+      boundMembers,
+      boundMembers.map(() => write)
     );
     input.afterRootParts.push(
       this.createFresh({
@@ -2962,14 +2961,13 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     relation: ParentHeldRelation,
     suppliedTarget?: Record<string, unknown>
   ): ParentHeldCorrelation {
-    const { foreignFields, referencedFields } = relation.membership;
+    const { foreignFields, members } = relation.membership;
     if (suppliedTarget) {
       // H3/R2 — the incoming member is named by the supplier's own unique selector, so
       // this arm reads none of the parent's foreign-key columns: adding them to the
       // locate would publish a value nothing consumes.
       return {
-        childReferencedFields: referencedFields,
-        parentFkFields: foreignFields,
+        members,
         override: {},
         suppliedFilters: uniqueSelectorConjuncts(
           { model: relation.relationInfo.targetModel },
@@ -2983,8 +2981,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     // a same-root rebind of one must not trigger the child-edge reorder.
     for (const field of foreignFields) input.parentFkLocateFields.add(field);
     return {
-      childReferencedFields: referencedFields,
-      parentFkFields: foreignFields,
+      members,
       override: resolveParentFkRebinds(input.rootScalarData, foreignFields),
     };
   }
@@ -3247,29 +3244,30 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     // holds the old value at planning (the root UPDATE has not run) and at compile (the
     // located row is what is inlined).
     if (correlation.suppliedFilters) return [...correlation.suppliedFilters];
-    return correlation.childReferencedFields.map((childField, index) => {
-      const fkField = correlation.parentFkFields[index]!;
-      if (Object.hasOwn(correlation.override, fkField)) {
-        return { [childField]: { equals: correlation.override[fkField] } };
+    return correlation.members.map(
+      ({ foreignField: fkField, referencedField: childField }) => {
+        if (Object.hasOwn(correlation.override, fkField)) {
+          return { [childField]: { equals: correlation.override[fkField] } };
+        }
+        const member = {
+          foreignField: childField,
+          referencedField: fkField,
+          writeSource: this.parentIdSource,
+          readSource: planningSourceFromFinal(
+            this.parentIdSource,
+            relationName,
+            kind
+          ),
+        };
+        return {
+          [childField]: {
+            equals: useRef
+              ? foreignKeyCorrelationValue(member)
+              : foreignKeyWriteValue(member, known, relationName, kind),
+          },
+        };
       }
-      const member = {
-        foreignField: childField,
-        referencedField: fkField,
-        writeSource: this.parentIdSource,
-        readSource: planningSourceFromFinal(
-          this.parentIdSource,
-          relationName,
-          kind
-        ),
-      };
-      return {
-        [childField]: {
-          equals: useRef
-            ? foreignKeyCorrelationValue(member)
-            : foreignKeyWriteValue(member, known, relationName, kind),
-        },
-      };
-    });
+    );
   }
 
   /** The correlated locate probe for a parent-held `update`/`upsert`: `WHERE
