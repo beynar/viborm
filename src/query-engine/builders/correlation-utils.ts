@@ -56,7 +56,7 @@ export function buildCorrelation(
   if (relation.kind === "junction") {
     throw new QueryEngineError(
       `Many-to-many relation '${relationInfo.name}' cannot use buildCorrelation directly. ` +
-        "Use getManyToManyJoinInfo() and buildManyToManyJoinParts() from many-to-many-utils.ts instead."
+        "Use the bound junction's sides and buildManyToManyJoinParts() from many-to-many-utils.ts instead."
     );
   }
 
@@ -120,13 +120,6 @@ export function buildPolymorphicMembershipPredicate(
 }
 
 /**
- * Get model name for error messages
- */
-function getModelName(model: Model<any>): string {
-  return model["~"].names.ts ?? model["~"].state.tableName ?? "unknown";
-}
-
-/**
  * Wrap flat PK field values into whereUnique shape. Compound PKs nest under
  * the constraint name ({ tenantId_id: { tenantId, id } }); single-field PKs
  * stay flat. buildWhereUnique only accepts unique discriminators, so bare
@@ -138,34 +131,4 @@ export function buildPrimaryKeyWhereUnique(
 ): Record<string, unknown> {
   const compound = getCompoundIdConstraint(model);
   return compound ? { [compound.name]: values } : values;
-}
-
-/**
- * Get the single primary key field of a model, or throw.
- *
- * Junction tables key on one PK column per side, so many-to-many requires a
- * single-field PK on both models.
- */
-export function getRequiredSinglePrimaryKeyField(model: Model<any>): string {
-  const modelName = getModelName(model);
-
-  const compoundId = model["~"].state.compoundId;
-  if (compoundId && Object.keys(compoundId).length > 0) {
-    throw new QueryEngineError(
-      `Model "${modelName}" uses a compound primary key. ` +
-        "Many-to-many relations with compound PKs are not supported. " +
-        "Use a single-field surrogate key (e.g., s.string().id().ulid()) instead."
-    );
-  }
-
-  for (const [name, field] of Object.entries(model["~"].state.scalars)) {
-    if ((field as any)["~"].state.isId) {
-      return name;
-    }
-  }
-
-  throw new QueryEngineError(
-    `Model "${modelName}" has no primary key field. ` +
-      "Many-to-many relations require a single-field primary key."
-  );
 }

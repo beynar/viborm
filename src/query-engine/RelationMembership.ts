@@ -1,11 +1,13 @@
 // biome-ignore-all lint/style/useFilenamingConvention: Architecture names this compiler owner RelationMembership.
 import type { Model } from "@schema/model";
 import type { PolymorphicStorage } from "@schema/relation";
-import { getManyToManyJoinInfo } from "./builders/many-to-many-utils";
 import {
   type BoundRelation,
   bindRelation,
   isPolymorphicChildHeldRelation,
+  type JunctionReferenceMember,
+  type JunctionRelation,
+  junctionSideMember,
 } from "./builders/relation-data-builder";
 import type { RelationMutationProgram } from "./builders/relation-mutation-parser";
 import { getRelationInfo, getRelationNames } from "./context";
@@ -19,8 +21,15 @@ export type RelationMembershipScope =
   | {
       readonly kind: "manyToMany";
       readonly junctionTable: string;
-      readonly firstField: string;
-      readonly secondField: string;
+      /**
+       * The junction's two sides in ORIENTATION-ERASED order, so that the two
+       * spellings of one junction — a self-relation read from either end, the
+       * paired A/B relations — produce scopes that compare equal. Which side the
+       * current model is stays a real fact, answered by
+       * {@link junctionSourceIsFirst} from the same comparison.
+       */
+      readonly first: readonly JunctionReferenceMember[];
+      readonly second: readonly JunctionReferenceMember[];
     }
   | {
       readonly kind: "foreignKey";
@@ -64,22 +73,32 @@ export function getPolymorphicMembershipScope(
   };
 }
 
+/**
+ * Does the junction's SOURCE side occupy the scope's canonical first slot?
+ *
+ * The scope erases orientation on purpose; the membership ledger's endpoint order
+ * still needs it, so it is answered here — from the one comparison that erased it —
+ * instead of re-deriving the junction topology a second time.
+ */
+export function junctionSourceIsFirst(relation: JunctionRelation): boolean {
+  return (
+    junctionSideMember(relation.source).junctionField.localeCompare(
+      junctionSideMember(relation.target).junctionField
+    ) <= 0
+  );
+}
+
 export function getRelationMembershipScope(
-  ctx: QueryScope,
   relation: BoundRelation
 ): RelationMembershipScope {
   const { relationInfo } = relation;
   if (relation.kind === "junction") {
-    const joinInfo = getManyToManyJoinInfo(ctx, relationInfo);
-    const orderedFields: [string, string] =
-      joinInfo.sourceFieldName.localeCompare(joinInfo.targetFieldName) <= 0
-        ? [joinInfo.sourceFieldName, joinInfo.targetFieldName]
-        : [joinInfo.targetFieldName, joinInfo.sourceFieldName];
+    const sourceIsFirst = junctionSourceIsFirst(relation);
     return {
       kind: "manyToMany",
-      junctionTable: joinInfo.junctionTableName,
-      firstField: orderedFields[0],
-      secondField: orderedFields[1],
+      junctionTable: relation.table,
+      first: sourceIsFirst ? relation.source.members : relation.target.members,
+      second: sourceIsFirst ? relation.target.members : relation.source.members,
     };
   }
   if (isPolymorphicChildHeldRelation(relation)) {
@@ -122,6 +141,20 @@ export function getRelationMembershipScope(
   };
 }
 
+function junctionSidesEqual(
+  left: readonly JunctionReferenceMember[],
+  right: readonly JunctionReferenceMember[]
+): boolean {
+  return (
+    left.length === right.length &&
+    left.every(
+      (member, index) =>
+        member.junctionField === right[index]?.junctionField &&
+        member.referencedField === right[index]?.referencedField
+    )
+  );
+}
+
 export function relationMembershipScopesEqual(
   left: RelationMembershipScope,
   right: RelationMembershipScope
@@ -130,8 +163,8 @@ export function relationMembershipScopesEqual(
   if (left.kind === "manyToMany" && right.kind === "manyToMany") {
     return (
       left.junctionTable === right.junctionTable &&
-      left.firstField === right.firstField &&
-      left.secondField === right.secondField
+      junctionSidesEqual(left.first, right.first) &&
+      junctionSidesEqual(left.second, right.second)
     );
   }
   if (
@@ -210,7 +243,7 @@ export function buildTransitiveUpdateMembershipFootprints(
     ) {
       continue;
     }
-    const membershipScope = getRelationMembershipScope(ctx, relation);
+    const membershipScope = getRelationMembershipScope(relation);
     if (
       membershipScopes.some((existingScope) =>
         relationMembershipScopesEqual(existingScope, membershipScope)

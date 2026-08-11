@@ -1,8 +1,8 @@
 // biome-ignore-all lint/style/useFilenamingConvention: Architecture names this compiler owner OwnWriteLedger.
-import { getManyToManyJoinInfo } from "./builders/many-to-many-utils";
 import type { BoundRelation } from "./builders/relation-data-builder";
 import type { RelationMutationEntry } from "./builders/relation-mutation-parser";
 import {
+  junctionSourceIsFirst,
   type RelationMembershipScope,
   relationMembershipScopesEqual,
 } from "./RelationMembership";
@@ -14,7 +14,7 @@ import {
   type TargetConstraint,
   type TargetConstraintOverlap,
 } from "./TargetConstraint";
-import { NestedWriteError, type QueryScope } from "./types";
+import { NestedWriteError } from "./types";
 
 export type DependencyOperation = RelationMutationEntry["kind"];
 export type TargetWriteDimension = "targetExistence" | "targetPredicate";
@@ -27,20 +27,23 @@ export interface MembershipEndpoints {
   readonly second: TargetConstraint;
 }
 
+/**
+ * Which endpoint of a membership the CURRENT model is.
+ *
+ * A junction's answer is its canonical side order, read off the bound relation the
+ * scope was built from — the scope erases orientation deliberately, and this used to
+ * re-run the junction binder purely to undo that erasure.
+ */
 export function getRelationMembershipEndpoints(
-  ctx: QueryScope,
   relation: BoundRelation,
-  scope: RelationMembershipScope,
   currentConstraint: TargetConstraint,
   targetConstraint: TargetConstraint
 ): MembershipEndpoints {
-  if (scope.kind === "manyToMany") {
-    const joinInfo = getManyToManyJoinInfo(ctx, relation.relationInfo);
-    return joinInfo.sourceFieldName === scope.firstField
-      ? { first: currentConstraint, second: targetConstraint }
-      : { first: targetConstraint, second: currentConstraint };
-  }
-  return relation.kind === "parentHeldToOne"
+  const currentIsFirst =
+    relation.kind === "junction"
+      ? junctionSourceIsFirst(relation)
+      : relation.kind === "parentHeldToOne";
+  return currentIsFirst
     ? { first: currentConstraint, second: targetConstraint }
     : { first: targetConstraint, second: currentConstraint };
 }

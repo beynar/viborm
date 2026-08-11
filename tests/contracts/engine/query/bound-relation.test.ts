@@ -163,6 +163,50 @@ const errorKid: Model<any> = s.model({
     .references("code"),
 });
 
+/**
+ * Junction-side pins live on their own hydrated schema: a junction's table and
+ * column names derive from MODEL names (`@schema/relation/helpers`), so an
+ * unhydrated model would resolve every side as "unknown".
+ */
+const junctionSchema = (() => {
+  const post = s.model({
+    id: s.string().id(),
+    labels: s.manyToMany(() => label),
+  });
+
+  const label = s.model({
+    id: s.string().id(),
+    posts: s.manyToMany(() => post),
+  });
+
+  // One self-referential pair with explicit columns on ONE side; the other side
+  // must recover the same two columns, swapped.
+  const follower: Model<any> = s.model({
+    id: s.string().id(),
+    follows: s
+      .manyToMany(() => follower)
+      .A("followerId")
+      .B("followedId"),
+    followedBy: s.manyToMany(() => follower),
+  });
+
+  const compoundDoc = s
+    .model({
+      tenantId: s.string(),
+      id: s.string(),
+      labels: s.manyToMany(() => compoundLabel),
+    })
+    .id(["tenantId", "id"]);
+
+  const compoundLabel = s.model({
+    id: s.string().id(),
+    docs: s.manyToMany(() => compoundDoc),
+  });
+
+  return { post, label, follower, compoundDoc, compoundLabel };
+})();
+hydrateSchemaNames(junctionSchema);
+
 const adapter = new PostgresAdapter();
 
 interface ClassificationCase {
@@ -325,5 +369,94 @@ describe("bound relation classification", () => {
       "Cannot update relation key field 'code' with a non-literal operation while mutating relation 'kids'. Use a literal value or '{ set: ... }'."
     );
     expect(thrown.message).not.toContain("mismatched foreign-key metadata");
+  });
+});
+
+function bindJunction(source: Model<any>, relationName: string) {
+  const scope = createQueryScope(adapter, source);
+  const relationInfo = getRelationInfo(scope, relationName);
+  if (!relationInfo) {
+    throw new Error(`Expected relation '${relationName}' on the test model.`);
+  }
+  const relation = bindRelation(scope, relationInfo);
+  if (relation.kind !== "junction") {
+    throw new Error(`Expected relation '${relationName}' to bind a junction.`);
+  }
+  return relation;
+}
+
+describe("bound junction sides", () => {
+  test("both sides carry their model, column and referenced field", () => {
+    const relation = bindJunction(junctionSchema.post, "labels");
+
+    expect(relation.table).toBe("label_post");
+    expect(relation.source.model).toBe(junctionSchema.post);
+    expect(relation.source.members).toEqual([
+      { junctionField: "postId", referencedField: "id" },
+    ]);
+    expect(relation.target.model).toBe(junctionSchema.label);
+    expect(relation.target.members).toEqual([
+      { junctionField: "labelId", referencedField: "id" },
+    ]);
+  });
+
+  test("the paired relation reverses the sides and keeps the table", () => {
+    const relation = bindJunction(junctionSchema.label, "posts");
+
+    expect(relation.table).toBe("label_post");
+    expect(relation.source.model).toBe(junctionSchema.label);
+    expect(relation.source.members).toEqual([
+      { junctionField: "labelId", referencedField: "id" },
+    ]);
+    expect(relation.target.model).toBe(junctionSchema.post);
+    expect(relation.target.members).toEqual([
+      { junctionField: "postId", referencedField: "id" },
+    ]);
+  });
+
+  test("a self-relation's two ends reverse orientation on one table", () => {
+    const follows = bindJunction(junctionSchema.follower, "follows");
+    const followedBy = bindJunction(junctionSchema.follower, "followedBy");
+
+    expect(follows.table).toBe("follower_follower");
+    expect(followedBy.table).toBe("follower_follower");
+    // Both ends address the same model; only the COLUMN orientation differs, which
+    // is the fact a scalar `sourceFieldName` channel used to have to recover.
+    expect(follows.source.model).toBe(junctionSchema.follower);
+    expect(follows.target.model).toBe(junctionSchema.follower);
+    expect(follows.source.members).toEqual([
+      { junctionField: "followerId", referencedField: "id" },
+    ]);
+    expect(follows.target.members).toEqual([
+      { junctionField: "followedId", referencedField: "id" },
+    ]);
+    expect(followedBy.source.members).toEqual([
+      { junctionField: "followedId", referencedField: "id" },
+    ]);
+    expect(followedBy.target.members).toEqual([
+      { junctionField: "followerId", referencedField: "id" },
+    ]);
+  });
+
+  test("a compound primary key is refused when a side is READ, not when the relation is classified", () => {
+    // The timing is the contract: `bindRelation` runs at many sites that never ask
+    // for junction topology, and the compound-M2M limitation must keep firing where
+    // the topology is requested — with its established class and sentence.
+    const scope = createQueryScope(adapter, junctionSchema.compoundDoc);
+    const relationInfo = getRelationInfo(scope, "labels");
+    if (!relationInfo) throw new Error("Expected relation 'labels'.");
+
+    const relation = bindRelation(scope, relationInfo);
+    expect(relation.kind).toBe("junction");
+    if (relation.kind !== "junction") throw new Error("Expected a junction.");
+
+    expect(() => relation.source).toThrow(
+      'Model "compoundDoc" uses a compound primary key. Many-to-many relations with compound PKs are not supported. Use a single-field surrogate key (e.g., s.string().id().ulid()) instead.'
+    );
+    // The refusal belongs to the junction resolution, not to one side: the other
+    // end of the same pair meets it too, naming the compound model.
+    expect(
+      () => bindJunction(junctionSchema.compoundLabel, "docs").target
+    ).toThrow('Model "compoundDoc" uses a compound primary key.');
   });
 });

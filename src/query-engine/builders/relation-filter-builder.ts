@@ -14,14 +14,12 @@ import { isRecord } from "@validation/value-guards";
 import { createChildScope, getColumnName, getTableName } from "../context";
 import { QueryEngineError, type QueryScope, type RelationInfo } from "../types";
 import { buildCorrelation } from "./correlation-utils";
-import {
-  buildManyToManyJoinParts,
-  getManyToManyJoinInfo,
-} from "./many-to-many-utils";
+import { buildManyToManyJoinParts } from "./many-to-many-utils";
 import {
   hideMutationTarget,
   readsMutationTarget,
 } from "./mutation-target-subquery";
+import { bindJunctionRelation } from "./relation-data-builder";
 
 export type BuildNestedWhere = (
   ctx: QueryScope,
@@ -437,11 +435,11 @@ class RelationFilterSubqueries {
       innerCondition = adapter.operators.not(innerCondition);
     }
 
-    const joinInfo = getManyToManyJoinInfo(ctx, relationInfo);
+    const junction = bindJunctionRelation(ctx, relationInfo);
     const { correlationCondition, joinCondition, fromClause } =
       buildManyToManyJoinParts(
         ctx,
-        joinInfo,
+        junction,
         ctx.rootAlias,
         junctionAlias,
         targetAlias
@@ -456,8 +454,8 @@ class RelationFilterSubqueries {
 
     const subquery = adapter.subqueries.existsCheck(fromClause, whereClause);
     return this.wrapMutationTarget(ctx, subquery, [
-      joinInfo.junctionTableName,
-      joinInfo.targetTableName,
+      junction.table,
+      getTableName(junction.target.model),
     ]);
   }
 }

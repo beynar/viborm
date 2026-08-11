@@ -96,7 +96,7 @@ export class OwnWriteRelation {
     boundRelation: BoundRelation,
     rootMembershipFootprints: readonly RootMembershipFootprint[],
     membershipLedger: OwnWriteLedger | undefined,
-    membershipScope = getRelationMembershipScope(node.ctx, boundRelation)
+    membershipScope = getRelationMembershipScope(boundRelation)
   ): OwnWriteRelation {
     const ledger = node.ledger.fork();
     for (const footprint of rootMembershipFootprints) {
@@ -104,9 +104,7 @@ export class OwnWriteRelation {
       ledger.appendMembership(
         node.rootOperation,
         getRelationMembershipEndpoints(
-          node.ctx,
           boundRelation,
-          membershipScope,
           node.currentConstraint,
           footprint.constraint
         ),
@@ -339,9 +337,7 @@ export class OwnWriteRelation {
         ? this.node.currentReadConstraint
         : this.node.currentConstraint;
     return getRelationMembershipEndpoints(
-      this.ctx,
       this.boundRelation,
-      this.membershipScope,
       currentConstraint,
       targetConstraint
     );

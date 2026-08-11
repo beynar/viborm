@@ -3,11 +3,9 @@ import { createChildScope } from "../context";
 import type { QueryScope, RelationInfo } from "../types";
 import type { BuildNestedSelection, IncludeResult } from "./include-builder";
 import { assembleInnerQuery, type IncludeOptions } from "./include-query";
-import {
-  buildManyToManyJoinParts,
-  getManyToManyJoinInfo,
-} from "./many-to-many-utils";
+import { buildManyToManyJoinParts } from "./many-to-many-utils";
 import { buildNestedReadWindow } from "./nested-read-window";
+import { bindJunctionRelation } from "./relation-data-builder";
 
 /**
  * Build include for manyToMany relation using LATERAL join.
@@ -37,11 +35,11 @@ export function buildManyToManyLateralInclude(
   const targetAlias = ctx.nextAlias();
   const lateralAlias = ctx.nextAlias();
 
-  const joinInfo = getManyToManyJoinInfo(ctx, relationInfo);
+  const junction = bindJunctionRelation(ctx, relationInfo);
   const { correlationCondition, joinCondition, fromClause } =
     buildManyToManyJoinParts(
       ctx,
-      joinInfo,
+      junction,
       ctx.rootAlias,
       junctionAlias,
       targetAlias
@@ -126,11 +124,11 @@ export function buildManyToManyInclude(
   const junctionAlias = ctx.nextAlias();
   const targetAlias = ctx.nextAlias();
 
-  const joinInfo = getManyToManyJoinInfo(ctx, relationInfo);
+  const junction = bindJunctionRelation(ctx, relationInfo);
   const { correlationCondition, joinCondition, fromClause } =
     buildManyToManyJoinParts(
       ctx,
-      joinInfo,
+      junction,
       ctx.rootAlias,
       junctionAlias,
       targetAlias

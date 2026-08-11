@@ -95,15 +95,13 @@ function summarizeSelfChildrenStep(
   const currentConstraint = selectorConstraint(selfNode, { id: 1 });
   const targetConstraint = selectorConstraint(selfNode, { id: 2 });
   const boundRelation = bindRelation(plan.ctx, relation.relationInfo);
-  const membershipScope = getRelationMembershipScope(plan.ctx, boundRelation);
+  const membershipScope = getRelationMembershipScope(boundRelation);
   return {
     ledger,
     membershipScope,
     membershipOrientation: getMembershipReadOrientation(boundRelation),
     endpoints: getRelationMembershipEndpoints(
-      plan.ctx,
       boundRelation,
-      membershipScope,
       currentConstraint,
       targetConstraint
     ),

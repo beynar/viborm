@@ -193,7 +193,7 @@ export class OwnWriteNode {
   appendTransitiveMembershipWrites(ledger: OwnWriteLedger): void {
     for (const footprint of this.transitiveMembershipFootprints) {
       const relation = footprint.relation;
-      const membershipScope = getRelationMembershipScope(this.ctx, relation);
+      const membershipScope = getRelationMembershipScope(relation);
       ledger.appendMembership(
         this.rootOperation,
         {

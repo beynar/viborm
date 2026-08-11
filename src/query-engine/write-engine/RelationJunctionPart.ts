@@ -4,10 +4,11 @@ import { getModelKeyCatalog, type Model } from "@schema/model";
 import type { Sql } from "@sql";
 import { isRecord } from "@validation/value-guards";
 import { getPrimaryKeyFields } from "../builders/correlation-utils";
-import { getManyToManyJoinInfo } from "../builders/many-to-many-utils";
 import {
   bindRelation,
+  type JunctionReferenceMember,
   type JunctionRelation,
+  junctionSideMember,
 } from "../builders/relation-data-builder";
 import {
   buildParsedRelationPrograms,
@@ -324,25 +325,22 @@ export class RelationJunctionPart implements Part {
   private readonly context: JunctionContext;
   private readonly childName: string;
   /**
-   * JUNCTION CARVE-OUT (plan N2 / §7.4). This is the ONE selected-target key in the
-   * write engine that is still a single field, and it is deliberate: a junction side
-   * is one column today, so `getManyToManyJoinInfo` resolves it through
-   * `getRequiredSinglePrimaryKeyField`, which THROWS for a compound-keyed target
-   * before this Part is ever constructed. Every projection-derived read below
-   * therefore describes the same one-member row key the join info already fixed;
-   * this field is the junction's STORED REFERENCE to that target, not a second
-   * answer to "what is the target's row key".
+   * JUNCTION CARVE-OUT (plan N2 / §7.4), now HALF LIFTED. The two ordered
+   * `JunctionSide`s this comment used to name as future exist: the bound junction
+   * carries them, orientation included, and they are this Part's only junction
+   * topology — the three scalar channels copied out of a second binder are gone.
    *
-   * Compound many-to-many is an unimplemented capability, not a seal: N2 fixes its
-   * future shape as two ordered `JunctionSide` reference keys, which replaces this
-   * field, `sourcePkField`, and the join-info channel together. Package C does not
-   * add those types, and — the point of this comment — it must not DEEPEN the scalar
-   * assumption either: nothing new here may read a row key through this field.
+   * What has NOT changed is the capability. A side still holds exactly ONE member,
+   * because the binder resolves it through `getRequiredSinglePrimaryKeyField`, which
+   * THROWS for a compound-keyed model before this Part is ever constructed; compound
+   * many-to-many remains an unimplemented capability refused by that same owner, not
+   * a seal. These two fields are the junction's STORED REFERENCE to each side — a
+   * junction column plus the field it references — never a second answer to "what is
+   * that model's row key", and nothing new here may read a row key through them.
    */
-  private readonly targetPkField: string;
+  private readonly targetReference: JunctionReferenceMember;
   /** The junction's stored reference to the SOURCE side; same carve-out. */
-  private readonly sourcePkField: string;
-  private readonly sourceFieldName: string;
+  private readonly sourceReference: JunctionReferenceMember;
   private readonly childScope: QueryScope;
   private readonly statements: ManyToManyStatements;
   private readonly plan: JunctionPlan;
@@ -361,13 +359,13 @@ export class RelationJunctionPart implements Part {
       input.relation.relationInfo.targetModel,
       input.relation.relationInfo.name
     );
-    const join = getManyToManyJoinInfo(
-      input.parentScope,
-      input.relation.relationInfo
-    );
-    this.targetPkField = join.targetPkField;
-    this.sourcePkField = join.sourcePkField;
-    this.sourceFieldName = join.sourceFieldName;
+    // Read HERE, where the deleted second binder resolved the same topology: the
+    // bound junction resolves its sides lazily and once, so touching them in the
+    // constructor keeps every junction-naming refusal — the compound row key and the
+    // schema helpers' ambiguous/disagreeing junction columns — firing at Part
+    // construction rather than at the first field read.
+    this.targetReference = junctionSideMember(input.relation.target);
+    this.sourceReference = junctionSideMember(input.relation.source);
     this.childScope = createQueryScope(
       input.engine.adapter,
       input.relation.relationInfo.targetModel
@@ -1364,15 +1362,18 @@ export class RelationJunctionPart implements Part {
     childId: string,
     skipDuplicates: boolean
   ): JunctionIdentity {
-    const pk = create[this.targetPkField];
+    const pk = create[this.targetReference.referencedField];
     if (pk !== undefined && pk !== null) return { kind: "literal", value: pk };
-    const scalar = this.childScope.model["~"].state.scalars[this.targetPkField];
+    const scalar =
+      this.childScope.model["~"].state.scalars[
+        this.targetReference.referencedField
+      ];
     if (pk === undefined && scalar?.["~"].state.autoGenerate === "increment") {
       // A skipped INSERT produces no trustworthy identity. Adopt-equivalent rows are
       // rewritten before this point; the remaining shape must refuse.
       if (skipDuplicates) {
         throw new UnsupportedOperationError(
-          `query-engine-v2 createMany-through-junction for relation '${this.relationName}' cannot use 'skipDuplicates' when the target primary key '${this.targetPkField}' is database-generated: a skipped row produces no identity for its join row. Supply '${this.targetPkField}' in the createMany data, or drop 'skipDuplicates'.`
+          `query-engine-v2 createMany-through-junction for relation '${this.relationName}' cannot use 'skipDuplicates' when the target primary key '${this.targetReference.referencedField}' is database-generated: a skipped row produces no identity for its join row. Supply '${this.targetReference.referencedField}' in the createMany data, or drop 'skipDuplicates'.`
         );
       }
       return {
@@ -1380,14 +1381,14 @@ export class RelationJunctionPart implements Part {
         value: referenceSql(
           this.context.engine,
           this.childScope.model,
-          this.targetPkField,
+          this.targetReference.referencedField,
           ref(childId, "id")
         ),
-        field: this.targetPkField,
+        field: this.targetReference.referencedField,
       };
     }
     throw new QueryEngineError(
-      `query-engine-v2 internal: the create-through-junction arm for relation '${this.relationName}' reached identity resolution with no value for the target primary key '${this.targetPkField}'.`
+      `query-engine-v2 internal: the create-through-junction arm for relation '${this.relationName}' reached identity resolution with no value for the target primary key '${this.targetReference.referencedField}'.`
     );
   }
 
@@ -1428,7 +1429,7 @@ export class RelationJunctionPart implements Part {
       this.childScope,
       {
         where: capturedSelectorWhere(this.childScope, where, {
-          [this.targetPkField]: capturedPk,
+          [this.targetReference.referencedField]: capturedPk,
         }),
         select: targetProjectionRowKeySelect(
           buildTargetProjection(this.childScope.model)
@@ -1458,7 +1459,9 @@ export class RelationJunctionPart implements Part {
         statement: this.membershipRead({
           parentValue: parent,
           whereUnique: slot.where,
-          where: { [this.targetPkField]: { equals: capturedPk } },
+          where: {
+            [this.targetReference.referencedField]: { equals: capturedPk },
+          },
           ...(capturedColumns ? { predicate: capturedColumns } : {}),
           take: 1,
         }),
@@ -1476,7 +1479,7 @@ export class RelationJunctionPart implements Part {
       id,
       kind: "write",
       statement: buildDelete(this.childScope, {
-        where: { [this.targetPkField]: targetPk },
+        where: { [this.targetReference.referencedField]: targetPk },
       }),
       outputs: {},
     };
@@ -1490,7 +1493,9 @@ export class RelationJunctionPart implements Part {
       id,
       kind: "write",
       statement: buildDeleteMany(this.childScope, {
-        where: { [this.targetPkField]: { in: [...targetPks] } },
+        where: {
+          [this.targetReference.referencedField]: { in: [...targetPks] },
+        },
       }),
       outputs: {},
     };
@@ -1565,7 +1570,9 @@ export class RelationJunctionPart implements Part {
         statement: this.membershipRead({
           parentValue: parent,
           whereUnique: target.where,
-          where: { [this.targetPkField]: { equals: capturedPk } },
+          where: {
+            [this.targetReference.referencedField]: { equals: capturedPk },
+          },
           ...(capturedColumns ? { predicate: capturedColumns } : {}),
           take: 1,
         }),
@@ -1631,7 +1638,9 @@ export class RelationJunctionPart implements Part {
         this.relationName
       );
     }
-    return (row as Record<string, unknown>)[this.targetPkField];
+    return (row as Record<string, unknown>)[
+      this.targetReference.referencedField
+    ];
   }
 
   /**
@@ -1701,8 +1710,8 @@ export class RelationJunctionPart implements Part {
 
   private parentWriteMember(): ForeignKeyMember {
     return {
-      foreignField: this.sourceFieldName,
-      referencedField: this.sourcePkField,
+      foreignField: this.sourceReference.junctionField,
+      referencedField: this.sourceReference.referencedField,
       writeSource: this.context.parentId,
     };
   }
@@ -1760,16 +1769,13 @@ export function buildJunctionParts(input: {
   const relationName = relationInfo.name;
   const childName = getStepModelName(relationInfo.targetModel, relationName);
   const childScope = createQueryScope(engine.adapter, relationInfo.targetModel);
-  /** The second holder of the junction carve-out documented on the class field
-   *  of the same name: `getManyToManyJoinInfo` resolves it through
-   *  `getRequiredSinglePrimaryKeyField`, which throws for a compound-keyed target
-   *  before this builder runs, so it names the junction's STORED REFERENCE to a
-   *  target whose row key is one member by construction. Nothing new may read a
-   *  row key through it; N2's `JunctionSide` replaces both holders together. */
-  const targetPkField = getManyToManyJoinInfo(
-    parentScope,
-    relationInfo
-  ).targetPkField;
+  /** The second holder of the junction carve-out documented on the class field of
+   *  the same name, now reading the SAME bound side the Part does — one topology
+   *  owner instead of a re-fetch. It still names the junction's STORED REFERENCE to
+   *  a target whose row key is one member by construction (a compound-keyed one is
+   *  refused by `getRequiredSinglePrimaryKeyField` before this builder runs), and
+   *  nothing new may read a row key through it. */
+  const targetReference = junctionSideMember(relation.target);
   const base = {
     engine,
     parentScope,
@@ -1807,7 +1813,7 @@ export function buildJunctionParts(input: {
       childScope,
       create
     );
-    const spelledPk = create[targetPkField];
+    const spelledPk = create[targetReference.referencedField];
     const pkIsLiteral = spelledPk !== undefined && spelledPk !== null;
     if (Object.keys(relations).length === 0) {
       return {
@@ -1844,11 +1850,11 @@ export function buildJunctionParts(input: {
         identity: { kind: "literal", value: spelledPk },
       };
     }
-    const produced = subtree.rootReferenced(targetPkField);
+    const produced = subtree.rootReferenced(targetReference.referencedField);
     if (produced === undefined) {
       // MEASURED UNREACHABLE (Package F, F4). This used to be a capability refusal —
       // "the target primary key must be in the create data" — and the shape it named is
-      // real, but no payload arrives here holding it. `targetPkField` is
+      // real, but no payload arrives here holding it. `targetReference.referencedField` is
       // `getRequiredSinglePrimaryKeyField`, and `planNestedCreateIdentity` is TOTAL over
       // a single-member primary key: it puts a spelled value into the record's identity
       // (so `freshReferenced` answers with a literal), makes an absent auto-increment the
@@ -1860,14 +1866,14 @@ export function buildJunctionParts(input: {
       // code path a user cannot reach, and a `QueryEngineError` is what that is — the
       // disposition `assertCreateTreeKinds` already carries for the same situation.
       throw new QueryEngineError(
-        `query-engine-v2 internal: create-through-junction for relation '${relationName}' resolved no primary key '${targetPkField}' from the target subtree (${foldKind}).`
+        `query-engine-v2 internal: create-through-junction for relation '${relationName}' resolved no primary key '${targetReference.referencedField}' from the target subtree (${foldKind}).`
       );
     }
     let hasGeneratedIdentity = false;
     const pk = foreignKeyWriteValueWith(
       {
-        foreignField: targetPkField,
-        referencedField: targetPkField,
+        foreignField: targetReference.referencedField,
+        referencedField: targetReference.referencedField,
         writeSource: produced,
       },
       undefined,
@@ -1875,14 +1881,23 @@ export function buildJunctionParts(input: {
       "create-through-junction",
       (reference) => {
         hasGeneratedIdentity = true;
-        return referenceSql(engine, childScope.model, targetPkField, reference);
+        return referenceSql(
+          engine,
+          childScope.model,
+          targetReference.referencedField,
+          reference
+        );
       }
     );
     return {
       kind: "record",
       record: subtree,
       identity: hasGeneratedIdentity
-        ? { kind: "produced", value: pk, field: targetPkField }
+        ? {
+            kind: "produced",
+            value: pk,
+            field: targetReference.referencedField,
+          }
         : { kind: "literal", value: pk },
     };
   };
@@ -1896,9 +1911,10 @@ export function buildJunctionParts(input: {
     | { kind: "leaf" }
     | { kind: "vacuous" }
     | { kind: "adopt"; wheres: readonly Record<string, unknown>[] } => {
-    const scalar = childScope.model["~"].state.scalars[targetPkField];
+    const scalar =
+      childScope.model["~"].state.scalars[targetReference.referencedField];
     const everyRowOmitsPk = rows.every(
-      (row) => row[targetPkField] === undefined
+      (row) => row[targetReference.referencedField] === undefined
     );
     // A spelled primary key still has a compile-time identity, so the existing skip
     // leaf (or MySQL's savepoint effect) answers for it exactly as it does today.

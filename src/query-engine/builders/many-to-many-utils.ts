@@ -5,78 +5,22 @@
  * Used by: select-builder, relation-filter-builder, include-builder
  */
 
-import {
-  getJunctionFieldNames,
-  getJunctionTableName,
-} from "@schema/relation/helpers";
 import { type Sql, sql } from "@sql";
 import { createChildScope, getColumnName, getTableName } from "../context";
-import { NestedWriteError, type QueryScope, type RelationInfo } from "../types";
-import { getRequiredSinglePrimaryKeyField } from "./correlation-utils";
+import { NestedWriteError, type QueryScope } from "../types";
+import {
+  type JunctionRelation,
+  junctionSideMember,
+} from "./relation-data-builder";
 import { buildScalarSqlValue } from "./values-builder";
 import { buildWhereUnique } from "./where-unique-builder";
 
 /**
- * Junction table metadata for a many-to-many relation
- */
-export interface ManyToManyJoinInfo {
-  junctionTableName: string;
-  sourceFieldName: string;
-  targetFieldName: string;
-  /** PK field name (TS) on the source model */
-  sourcePkField: string;
-  /** PK field name (TS) on the target model */
-  targetPkField: string;
-  /** Actual PK column name (post-.map()) on the source model */
-  sourcePkColumn: string;
-  /** Actual PK column name (post-.map()) on the target model */
-  targetPkColumn: string;
-  targetTableName: string;
-}
-
-/**
- * Get junction table metadata for a many-to-many relation
- */
-export function getManyToManyJoinInfo(
-  ctx: QueryScope,
-  relationInfo: RelationInfo
-): ManyToManyJoinInfo {
-  const sourceModelName = ctx.model["~"].names.ts ?? "unknown";
-  const targetModelName = relationInfo.targetModel["~"].names.ts ?? "unknown";
-
-  const junctionTableName = getJunctionTableName(
-    relationInfo.relation,
-    sourceModelName,
-    targetModelName
-  );
-  const [sourceFieldName, targetFieldName] = getJunctionFieldNames(
-    relationInfo.relation,
-    sourceModelName,
-    targetModelName
-  );
-
-  const sourcePkField = getRequiredSinglePrimaryKeyField(ctx.model);
-  const targetPkField = getRequiredSinglePrimaryKeyField(
-    relationInfo.targetModel
-  );
-  const sourcePkColumn = getColumnName(ctx.model, sourcePkField);
-  const targetPkColumn = getColumnName(relationInfo.targetModel, targetPkField);
-  const targetTableName = getTableName(relationInfo.targetModel);
-
-  return {
-    junctionTableName,
-    sourceFieldName,
-    targetFieldName,
-    sourcePkField,
-    targetPkField,
-    sourcePkColumn,
-    targetPkColumn,
-    targetTableName,
-  };
-}
-
-/**
  * Build the standard M2M join conditions
+ *
+ * Both conditions fold EVERY member of their side. With one member per side —
+ * the only shape the binder resolves today — `operators.and` returns the single
+ * conjunct unchanged, so the emitted SQL is the bare equality it has always been.
  *
  * @returns correlationCondition: jt.sourceId = parent.id
  * @returns joinCondition: target.id = jt.targetId
@@ -84,7 +28,7 @@ export function getManyToManyJoinInfo(
  */
 export function buildManyToManyJoinParts(
   ctx: QueryScope,
-  joinInfo: ManyToManyJoinInfo,
+  junction: JunctionRelation,
   parentAlias: string,
   junctionAlias: string,
   targetAlias: string
@@ -94,36 +38,36 @@ export function buildManyToManyJoinParts(
   fromClause: Sql;
 } {
   const { adapter } = ctx;
-  const {
-    junctionTableName,
-    sourceFieldName,
-    targetFieldName,
-    sourcePkColumn,
-    targetPkColumn,
-    targetTableName,
-  } = joinInfo;
+  const { source, target } = junction;
 
   // 1. Correlation: jt.sourceId = parent.id
-  const junctionSourceCol = adapter.identifiers.column(
-    junctionAlias,
-    sourceFieldName
-  );
-  const parentPkCol = adapter.identifiers.column(parentAlias, sourcePkColumn);
-  const correlationCondition = adapter.operators.eq(
-    junctionSourceCol,
-    parentPkCol
+  const correlationCondition = adapter.operators.and(
+    ...source.members.map((member) =>
+      adapter.operators.eq(
+        adapter.identifiers.column(junctionAlias, member.junctionField),
+        adapter.identifiers.column(
+          parentAlias,
+          getColumnName(source.model, member.referencedField)
+        )
+      )
+    )
   );
 
   // 2. Join: target.id = jt.targetId
-  const targetPkCol = adapter.identifiers.column(targetAlias, targetPkColumn);
-  const junctionTargetCol = adapter.identifiers.column(
-    junctionAlias,
-    targetFieldName
+  const joinCondition = adapter.operators.and(
+    ...target.members.map((member) =>
+      adapter.operators.eq(
+        adapter.identifiers.column(
+          targetAlias,
+          getColumnName(target.model, member.referencedField)
+        ),
+        adapter.identifiers.column(junctionAlias, member.junctionField)
+      )
+    )
   );
-  const joinCondition = adapter.operators.eq(targetPkCol, junctionTargetCol);
 
   // 3. FROM clause
-  const fromClause = sql`${adapter.identifiers.table(junctionTableName, junctionAlias)}, ${adapter.identifiers.table(targetTableName, targetAlias)}`;
+  const fromClause = sql`${adapter.identifiers.table(junction.table, junctionAlias)}, ${adapter.identifiers.table(getTableName(target.model), targetAlias)}`;
 
   return { correlationCondition, joinCondition, fromClause };
 }
@@ -141,19 +85,22 @@ export function buildManyToManyJoinParts(
  */
 export function buildJunctionParentValue(
   ctx: QueryScope,
-  joinInfo: ManyToManyJoinInfo,
+  junction: JunctionRelation,
   parentData: Record<string, unknown>,
   relationName: string
 ): Sql {
+  const { model } = junction.source;
+  const { referencedField } = junctionSideMember(junction.source);
   const raw =
-    parentData[joinInfo.sourcePkField] ?? parentData[joinInfo.sourcePkColumn];
+    parentData[referencedField] ??
+    parentData[getColumnName(model, referencedField)];
   if (raw === undefined || raw === null) {
     throw new NestedWriteError(
-      `Cannot write many-to-many relation '${relationName}': parent record is missing primary key field '${joinInfo.sourcePkField}'.`,
+      `Cannot write many-to-many relation '${relationName}': parent record is missing primary key field '${referencedField}'.`,
       relationName
     );
   }
-  return buildScalarSqlValue(ctx, ctx.model, joinInfo.sourcePkField, raw);
+  return buildScalarSqlValue(ctx, model, referencedField, raw);
 }
 
 /**
@@ -161,26 +108,22 @@ export function buildJunctionParentValue(
  */
 export function buildJunctionTargetValue(
   ctx: QueryScope,
-  relationInfo: RelationInfo,
-  joinInfo: ManyToManyJoinInfo,
+  junction: JunctionRelation,
   targetRecord: Record<string, unknown>,
   relationName: string
 ): Sql {
+  const { model } = junction.target;
+  const { referencedField } = junctionSideMember(junction.target);
   const raw =
-    targetRecord[joinInfo.targetPkField] ??
-    targetRecord[joinInfo.targetPkColumn];
+    targetRecord[referencedField] ??
+    targetRecord[getColumnName(model, referencedField)];
   if (raw === undefined || raw === null) {
     throw new NestedWriteError(
-      `Cannot write many-to-many relation '${relationName}': target record is missing primary key field '${joinInfo.targetPkField}'.`,
+      `Cannot write many-to-many relation '${relationName}': target record is missing primary key field '${referencedField}'.`,
       relationName
     );
   }
-  return buildScalarSqlValue(
-    ctx,
-    relationInfo.targetModel,
-    joinInfo.targetPkField,
-    raw
-  );
+  return buildScalarSqlValue(ctx, model, referencedField, raw);
 }
 
 /**
@@ -189,28 +132,28 @@ export function buildJunctionTargetValue(
  */
 export function buildJunctionInsert(
   ctx: QueryScope,
-  joinInfo: ManyToManyJoinInfo,
+  junction: JunctionRelation,
   parentValue: Sql,
   targetValue: Sql
 ): Sql {
-  return buildJunctionInsertMany(ctx, joinInfo, parentValue, [targetValue]);
+  return buildJunctionInsertMany(ctx, junction, parentValue, [targetValue]);
 }
 
 /** INSERT junction rows in one portable duplicate-skipping statement. */
 export function buildJunctionInsertMany(
   ctx: QueryScope,
-  joinInfo: ManyToManyJoinInfo,
+  junction: JunctionRelation,
   parentValue: Sql,
   targetValues: readonly Sql[]
 ): Sql {
   const { adapter } = ctx;
-  const table = adapter.identifiers.escape(joinInfo.junctionTableName);
-  const { prefix, suffix } = adapter.mutations.skipDuplicates(
-    joinInfo.sourceFieldName
-  );
+  const sourceField = junctionSideMember(junction.source).junctionField;
+  const targetField = junctionSideMember(junction.target).junctionField;
+  const table = adapter.identifiers.escape(junction.table);
+  const { prefix, suffix } = adapter.mutations.skipDuplicates(sourceField);
   const insertSql = adapter.mutations.insert(
     table,
-    [joinInfo.sourceFieldName, joinInfo.targetFieldName],
+    [sourceField, targetField],
     targetValues.map((targetValue) => [parentValue, targetValue]),
     prefix
   );
@@ -220,11 +163,13 @@ export function buildJunctionInsertMany(
 /** Condition: junction.source = parentValue (unqualified, for junction DML). */
 export function buildJunctionSourceMatch(
   ctx: QueryScope,
-  joinInfo: ManyToManyJoinInfo,
+  junction: JunctionRelation,
   parentValue: Sql
 ): Sql {
   return ctx.adapter.operators.eq(
-    ctx.adapter.identifiers.escape(joinInfo.sourceFieldName),
+    ctx.adapter.identifiers.escape(
+      junctionSideMember(junction.source).junctionField
+    ),
     parentValue
   );
 }
@@ -232,11 +177,13 @@ export function buildJunctionSourceMatch(
 /** Condition: junction.target IN (values | subquery) (for junction DML). */
 export function buildJunctionTargetIn(
   ctx: QueryScope,
-  joinInfo: ManyToManyJoinInfo,
+  junction: JunctionRelation,
   targetValues: Sql
 ): Sql {
   return ctx.adapter.operators.in(
-    ctx.adapter.identifiers.escape(joinInfo.targetFieldName),
+    ctx.adapter.identifiers.escape(
+      junctionSideMember(junction.target).junctionField
+    ),
     targetValues
   );
 }
@@ -247,26 +194,19 @@ export function buildJunctionTargetIn(
  */
 export function buildTargetPkSubquery(
   ctx: QueryScope,
-  relationInfo: RelationInfo,
-  joinInfo: ManyToManyJoinInfo,
+  junction: JunctionRelation,
   whereUnique: Record<string, unknown>
 ): Sql {
   const { adapter } = ctx;
-  const childCtx = createChildScope(
-    ctx,
-    relationInfo.targetModel,
-    ctx.nextAlias()
-  );
-  const whereClause = buildWhereUnique(
-    childCtx,
-    whereUnique,
-    joinInfo.targetTableName
-  );
+  const { model } = junction.target;
+  const targetTableName = getTableName(model);
+  const childCtx = createChildScope(ctx, model, ctx.nextAlias());
+  const whereClause = buildWhereUnique(childCtx, whereUnique, targetTableName);
   const pkCol = adapter.identifiers.column(
-    joinInfo.targetTableName,
-    joinInfo.targetPkColumn
+    targetTableName,
+    getColumnName(model, junctionSideMember(junction.target).referencedField)
   );
-  return sql`(SELECT ${pkCol} FROM ${adapter.identifiers.escape(joinInfo.targetTableName)} WHERE ${whereClause})`;
+  return sql`(SELECT ${pkCol} FROM ${adapter.identifiers.escape(targetTableName)} WHERE ${whereClause})`;
 }
 
 /**
@@ -275,18 +215,19 @@ export function buildTargetPkSubquery(
  */
 export function buildJunctionMembership(
   ctx: QueryScope,
-  joinInfo: ManyToManyJoinInfo,
+  junction: JunctionRelation,
   parentValue: Sql,
   targetTableOrAlias: string
 ): Sql {
   const { adapter } = ctx;
+  const targetMember = junctionSideMember(junction.target);
   const childPkCol = adapter.identifiers.column(
     targetTableOrAlias,
-    joinInfo.targetPkColumn
+    getColumnName(junction.target.model, targetMember.referencedField)
   );
-  const targetCol = adapter.identifiers.escape(joinInfo.targetFieldName);
-  const junctionTable = adapter.identifiers.escape(joinInfo.junctionTableName);
-  const sourceMatch = buildJunctionSourceMatch(ctx, joinInfo, parentValue);
+  const targetCol = adapter.identifiers.escape(targetMember.junctionField);
+  const junctionTable = adapter.identifiers.escape(junction.table);
+  const sourceMatch = buildJunctionSourceMatch(ctx, junction, parentValue);
   return sql`${childPkCol} IN (SELECT ${targetCol} FROM ${junctionTable} WHERE ${sourceMatch})`;
 }
 
@@ -298,18 +239,19 @@ export function buildJunctionMembership(
  */
 export function buildJunctionDeleteCondition(
   ctx: QueryScope,
-  relationInfo: RelationInfo,
-  joinInfo: ManyToManyJoinInfo,
+  junction: JunctionRelation,
   targetPks: Sql
 ): Sql {
-  const condition = buildJunctionTargetIn(ctx, joinInfo, targetPks);
-  if (relationInfo.targetModel !== ctx.model) {
+  const condition = buildJunctionTargetIn(ctx, junction, targetPks);
+  if (junction.target.model !== ctx.model) {
     return condition;
   }
   return ctx.adapter.operators.or(
     condition,
     ctx.adapter.operators.in(
-      ctx.adapter.identifiers.escape(joinInfo.sourceFieldName),
+      ctx.adapter.identifiers.escape(
+        junctionSideMember(junction.source).junctionField
+      ),
       targetPks
     )
   );

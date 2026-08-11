@@ -9,10 +9,8 @@ import { isRecord } from "@validation/value-guards";
 import { createChildScope, getTableName } from "../context";
 import { QueryEngineError, type QueryScope, type RelationInfo } from "../types";
 import { buildCorrelation } from "./correlation-utils";
-import {
-  buildManyToManyJoinParts,
-  getManyToManyJoinInfo,
-} from "./many-to-many-utils";
+import { buildManyToManyJoinParts } from "./many-to-many-utils";
+import { bindJunctionRelation } from "./relation-data-builder";
 import { buildWhere } from "./where-builder";
 
 const getWhereConfig = (
@@ -95,11 +93,11 @@ function buildManyToManyCount(
   const { adapter } = ctx;
   const junctionAlias = ctx.nextAlias();
   const targetAlias = ctx.nextAlias();
-  const joinInfo = getManyToManyJoinInfo(ctx, relationInfo);
+  const junction = bindJunctionRelation(ctx, relationInfo);
   const { correlationCondition, joinCondition, fromClause } =
     buildManyToManyJoinParts(
       ctx,
-      joinInfo,
+      junction,
       parentAlias,
       junctionAlias,
       targetAlias

@@ -1088,8 +1088,11 @@ describe("write engine route inventory (P6 accounting)", () => {
       [
         8,
         "query-engine/write-engine/RelationJunctionPart.ts",
-        1374,
-        1362,
+        // Shifted +1 / -2 by distinct-truth phase 3 (bound junction sides): the
+        // class's junction carve-out shrank by three lines and the target
+        // reference read wraps. Coordinates only — the site is unchanged.
+        1375,
+        1360,
         "resolveCreatePk",
       ],
       [
@@ -1494,7 +1497,7 @@ describe("write engine full client operation surface (P6 precondition)", () => {
  *     Package N2 re-verified that NOTHING has sealed it: no rule in `src/validation`
  *     or `src/schema/validation` reads a junction's compound primary key, the two
  *     carve-outs in `RelationJunctionPart` still name `JunctionSide` by name, and
- *     `JunctionRelation` still carries none of the two-sides topology.
+ *     `JunctionRelation` now CARRIES the two-sides topology (distinct-truth Phase 3: table/source/target, lazily resolved).
  *   · Sites 9, 10, 22 and 23 get NO expiry. Package L prototyped both lifts and BOTH
  *     were REJECTED, so nothing in this lift lifts the nested-bulk wall and a comment
  *     promising otherwise would be promising unscheduled work. L's boundary, verbatim:
