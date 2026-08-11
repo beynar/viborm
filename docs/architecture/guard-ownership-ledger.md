@@ -338,6 +338,9 @@ exists to witness it — see disagreement 3).
 
 ### Named future units (measured, deliberately not done here)
 
+This list is the single home for the lift's named future work. The plan
+(`limitation-lift-plan.md` §12) points here rather than keeping a second copy.
+
 1. **Align `getInverseRelationMap`'s candidate filter with `bindRelation`'s**
    (`src/schema/relation/types.ts:246`). `getInverseRelationMap` tests
    `state.fields` for TRUTHINESS and `bindRelation` tests
@@ -358,6 +361,20 @@ exists to witness it — see disagreement 3).
    `getManyToManyJoinInfo`.
 4. **Reconcile the arm fold and the incoming reparent in one owner**, per column,
    with refuse-on-disagree — Package B's B1 residue, two instances (N5).
+5. **Reclassify the compound many-to-many refusal from a defect to a capability
+   refusal.** `builders/correlation-utils.ts:149
+   getRequiredSinglePrimaryKeyField` raises a bare `QueryEngineError`, which
+   defaults to `V9001 INTERNAL_ERROR`, which `classifyFailure` reports as a
+   DEFECT — "the engine broke its own invariant", the code the error docs tell
+   callers to file a bug against. What the caller actually hit is plan §7.4's
+   named future CAPABILITY, refused honestly and before any I/O. The
+   truthfulness gap is PRE-EXISTING and belongs to that owner, not to Package
+   O's site-17 conversion, which merely made a second site point at it. NOT DONE
+   here: fixing it means giving that owner an expected classification, i.e.
+   changing a live refusal's public error class, which owes its own behavioral
+   witness — and the same fact has a second owner in
+   `src/migrations/serializer.ts:661` (a raw `Error`), so whoever takes it
+   should decide both at once. Surfaced in the final report.
 
 ## §O3 — the five-question audit on every survivor
 

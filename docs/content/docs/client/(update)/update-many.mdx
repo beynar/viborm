@@ -97,6 +97,13 @@ const updated = await client.post.updateMany({
 The rows are read **after** the update, so an atomic operation on the primary key
 returns the new identity, not the old one.
 
+When `data` carries a relation, that read happens once every row has finished,
+by each row's final primary key, in the captured order. If one of those rows is
+gone by then — a later row's nested effects deleted it, or moved its key — the
+call **fails rather than hand back a shorter list**, because a silently shorter
+answer would depend on nothing but capture order. The `{ count }` form of the
+same payload answers the captured row count and succeeds.
+
 :::info
 There is no separate `updateManyAndReturn` method (Prisma has one). Passing
   `select` **is** the returning form. That `select` takes **scalar fields only**:
@@ -144,6 +151,24 @@ that were updated, so at most `limit` of them.
   takes the `n` lowest primary keys. Do not build on it — it is a consequence of
   the implementation, not a promise of the API.
 :::
+
+## What it costs
+
+Scalar-only `updateMany` is unchanged: one `UPDATE` statement, or none at all
+for `limit: 0`. A `limit: 0` call stays on that path even when `data` carries a
+relation — a cap of no rows writes nothing, so it needs no transaction and works
+on every driver.
+
+When `data` carries a relation the call opens a transaction and issues one
+`SELECT` of the matching primary keys — locking them where the database supports
+it — evaluating your `where` and `limit` once. Then, per matched row, exactly
+what that row would have cost as a single [`update`](/docs/client/update) — the
+same target probes, the same child writes, in the same order. Ten matched rows
+with a `connect` issue ten probes, because that is what ten `update` calls
+issue. Adding a `select` adds one read per row at the end. Narrow the `where`
+(or use `limit`) when the row count is large; this form is per-row work by
+design, and it is the price of the relation semantics being the same ones a
+single `update` gives you.
 
 ## Options
 

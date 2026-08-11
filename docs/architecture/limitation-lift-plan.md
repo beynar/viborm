@@ -120,6 +120,10 @@ For every payload accepted before this work, preserve:
 - Error class, message, metadata, and attribution.
 - Direct execution, RETURNING, ON CONFLICT, mutation-projection CTE, planning-batch, and atomic-batch routes.
 
+Six packages deviated from this contract. Every deviation was measured before it
+was taken and ratified with a reason; they are listed with their witnesses in
+[§12](#12-31-deviations-ratified).
+
 ### 3.2 Newly accepted operations
 
 Newly accepted shapes may use more statements and round trips when the provider cannot express the semantics in one statement.
@@ -406,7 +410,7 @@ Use these exact owners:
 | Fresh field demand and publication | src/query-engine/write-engine/CreateOperation.ts |
 | Selected record mutation | src/query-engine/write-engine/RecordUpdateCompiler.ts |
 | Relation target/membership orchestration | Existing RelationWritePart, RelationUpsertPart, RelationJunctionPart, and nested-target-parts modules |
-| Record-series contract | New src/query-engine/write-engine/RecordSeriesOperation.ts |
+| Record-series contract | src/query-engine/write-engine/record-series.ts (landed name; this row drafted it as `RecordSeriesOperation.ts`. `RecordSeriesOperation` is the *type* this module exports — the module is a contract, not an operation shell, so it takes the ordinary kebab-case filename rather than an architecture-name exemption) |
 | Series execution and retry routing | src/query-engine/write-engine/OperationExecutor.ts |
 | Pending direct/batch refusal | src/query-engine/write-engine/PendingOperationV2.ts and the live PendingOperation owner |
 | Root relation-bearing createMany shell | New src/query-engine/write-engine/CreateManyRecordSeries.ts |
@@ -486,7 +490,26 @@ Rules:
 - One member may observe the completed effects of an earlier member.
 - Every member is constructed and all N-dependent capability checks run before the first write.
 
-For more than one captured root, retain a pre-write refusal for child-held connect, connectOrCreate, and set. One child stores one parent membership; sequential last-parent-wins behavior does not satisfy “apply this update to every selected root.” M2M and parent-held equivalents remain meaningful and may execute.
+For more than one captured root, **create** a pre-write refusal for child-held connect, connectOrCreate, and set. (The draft said "retain": there was nothing to retain. Scalar-only `updateMany` could not express those shapes at all, so Package K minted this refusal — `UpdateManyRecordSeries.assertMembershipAppliesToEveryRoot`, the package's one census site.) One child stores one parent membership; sequential last-parent-wins behavior does not satisfy “apply this update to every selected root.” M2M and parent-held equivalents remain meaningful and may execute.
+
+Three boundaries of that refusal, each measured rather than inferred:
+
+- The EMPTY spellings (`set: []`, `connect: []`, `connectOrCreate: []`) are NOT
+  refused. They name no existing target, so there is no contention: `set: []`
+  at N=1 clears that row's children, and at N rows it clears each row's own.
+- It covers the ROOT's own relation keys only. The same arithmetic one level
+  down — `{ posts: { create: { comments: { connect } } } }` — runs unrefused,
+  leaving the shared target under the last root's fresh child. Refusing it would
+  make the bulk spelling reject what N ordinary `update` calls execute, which is
+  the kind-gated incoherence Package D removed. Pinned as behavior. Adding depth
+  here needs a plan amendment, and it is Package L's neighborhood.
+- Rule 4's "deterministic engine order" holds PER DEPLOYMENT, not across
+  providers. Measured on a `bigInt` row key: node-postgres decodes it as the
+  string `"9"`, PGlite as the number `9`, better-sqlite3 as `9n` — different
+  comparator ranks, so `["10","9"]` against `[9,10]`. Visible in the `select`
+  arm's row order. Teaching the comparator a column's declared type would make
+  it a second reader of provider decoding, so it was left stated rather than
+  fixed.
 
 ### 5.3 Nested bulk relation operations
 
@@ -503,6 +526,46 @@ Keep the nested prototype only if:
 - No existing scalar nested createMany/updateMany path changes.
 
 If any condition fails, remove the prototype and retain a focused nested-only refusal. Report it as the remaining architectural boundary rather than pretending root support implies nested support.
+
+**OUTCOME (Package L, 2026-08-10): BOTH prototypes REJECTED, no commit.** The
+nested walls stand, unchanged and truthful, and the four census sites that
+express them are byte-identical to their pre-L text.
+
+The boundary, stated once and verbatim:
+
+> The fragment atom's single planning phase is the wall; a record series is
+> operation-level, so a nested capture has no home.
+
+Per prototype:
+
+- **L1 (nested `createMany`)** — the head clause is unsatisfiable, not merely
+  unmet. A nested `createMany` row list has a CONSTRUCTION-TIME count: no
+  capture, no data-dependent member count, no per-member planning, so the series
+  buys nothing. Confirmed three ways at HEAD: Parts emit `OperationStep` only
+  and the executor is reachable from five operation-level sites and never from a
+  Part (both escapes are banned by name); §6 L1's `FinalReferenceSource`
+  precondition holds only for literal and planning-field parents, never for a
+  produced identity; and widening validation ALONE is silent data loss, because
+  the nested insert path iterates `scalarFieldNames` with no unknown-key guard —
+  the nested twin of Package J's `relationBearingRow` hazard.
+- **L2 (nested `updateMany`)** — three keep-gate clauses fail provably. N
+  per-child target reads need a planning phase whose rows are a precondition,
+  while N is unknown at construction and planning is already spent (a second
+  planning round inside `compile`, and per-member callbacks, are both banned by
+  name). A Part carries no transaction or executor handle, while a series is
+  `mode: "transaction"` and needs an interactive scope. And a nested series on an
+  open scope emits SAVEPOINT/RELEASE pairs with crypto-random names, which
+  diverges from repeated ordinary nested updates in any statement oracle;
+  waiving the scope reintroduces the HIGH defect Package I's gate fixed.
+
+**The future path is a DESUGAR, not a series.** It already exists on the
+junction leg — `RelationJunctionPart` compiles a nested `createMany` case as a
+per-row `freshTargetFold`, identical to its `create` case, and
+`nested-target-parts.ts` does the same with `createFresh` +
+`bindRelationMembership` — and it is extendable to the other three legs. That is
+a NEW capability outside this plan's Package L, which tested series REUSE and
+answered the question it was asked. Recorded here so the rejection is not read
+as "nested relation-bearing bulk is impossible".
 
 ## 6. Ordered work packages
 
@@ -581,7 +644,11 @@ records that the ledger agrees with them:
   limitation; Package K's unit K6 (Results) is a different thing with the same
   label.
 - Compound many-to-many is a future capability, not a validation seal — §7.4
-  and Package N2 own it. Its live refusal is CreateOperation.ts:1998.
+  and Package N2 own it. Its live refusal is
+  `builders/correlation-utils.ts:149` (`getRequiredSinglePrimaryKeyField`), with
+  a second owner in `src/migrations/serializer.ts:661`; the
+  `CreateOperation.ts:1998` coordinate this line used to carry was wrong on both
+  counts and is corrected at §7.4.
 
 Add parity witnesses before each later production lift. A parity witness compares:
 
@@ -798,7 +865,10 @@ refactor: unify relation transition provenance
 
 ### Package E — Lift shared-primary-key update roots
 
-This package covers L2.
+This package covers the shared-primary-key update root and nothing else. The
+draft said "covers L2"; that is FALSE and was corrected by Package E's own
+measurement (2026-08-10): `L2` labels Package L's nested-`updateMany` unit
+below, which Package E does not touch.
 
 #### E1. Extend the parent-held root fold
 
@@ -929,7 +999,12 @@ refactor: compile inverse upsert updates as selected records
 
 ### Package H — Normalize to-one composition
 
-This package covers L10 and former K6.
+This package covers former K6 (§A2 records that reclassification: the K6 that is
+a *limitation* is the to-one lattice, and Package K's own unit K6 is a different
+thing wearing the same label). The draft also said "L10". No `L10` entry exists
+in this plan, in the forbidden-shapes reference, or in the ledger — searched by
+Package H and again by Package N — so the citation is DROPPED rather than
+invented a meaning for.
 
 #### H1. Define the public lattice
 
@@ -1134,7 +1209,11 @@ The capture query:
 - Uses the current where semantics.
 - Uses the provider's current limit semantics.
 - Locks rows when the existing transaction/provider substrate supports the required lock.
-- Selects every primary-key member and any root field needed to derive final identity.
+- Selects every primary-key member. **Corrected as landed:** "and any root
+  field needed to derive final identity" was over-specified. A primary-key-only
+  projection is sufficient, because each member's own locate publishes that
+  root's final key through `TargetProjection`; widening the capture would make
+  it a SECOND owner of final-identity derivation (Package K, measured).
 - Applies limit before deterministic in-memory sorting.
 - Never evaluates the public where a second time.
 
@@ -1157,7 +1236,16 @@ and rolls back the complete series.
 Use an internal parsed/captured input of UpdateOperation:
 
 - Target is the captured complete primary key.
-- Parsed data is shared immutable ParsedRecordPrograms.
+- ~~Parsed data is shared immutable ParsedRecordPrograms.~~ **AMENDED as
+  landed (Package K, measured):** each member parses the shared RAW `data`
+  itself. Client-side defaults are thunks the object primitive runs on every
+  parse of an absent key, so one shared parse hands every root's nested `create`
+  the SAME generated id — a unique violation on member 1 for a payload as
+  ordinary as `updateMany({ data: { tickets: { create: { note } } } })`.
+  Witnessed with `s.string().id().ulid()`: two roots, two distinct ids, one
+  call. What is NOT redone per member is the ENVELOPE (`where`, `select`,
+  `limit`, and `assertPortablePrimaryKeyUpdateInput`, which runs once under the
+  public name `updateMany`) — one guard per invariant.
 - Each member owns its full scalar root UPDATE, parent-held folds, transitions, descendants, guards, and failures.
 - Member result publishes the final complete root identity.
 
@@ -1230,6 +1318,12 @@ feat: compose nested record series
 
 No commit is created for a rejected prototype.
 
+**OUTCOME: both units REJECTED, no commit exists.** The reasons, the boundary
+sentence and the desugar future path are recorded once, in §5.3, so the two do
+not drift apart. Retention was verified rather than assumed: the four census
+sites carrying the nested walls, and the ATOM section that states them, are
+byte-identical to their pre-L text.
+
 ### Package M — Add PostgreSQL dependency-aware CTE folding
 
 #### M1. Pure create DAG witness
@@ -1291,6 +1385,26 @@ perf: fold PostgreSQL create dependencies through CTEs
 Build nested update data from the existing omitted-FK schema owner. Retain the engine guard until every public and internal construction route proves the field unreachable.
 
 Delete the engine guard only when its falsifier can no longer construct the invalid program through any trusted internal boundary.
+
+Three corrections this unit needed, all from Package N's own measurements:
+
+- **Retention is MANDATORY, not merely cautious.** The unit's implicit premise —
+  that the omission can make the field unreachable everywhere — is false as
+  written. `getInverseRelationMap` tests `state.fields` for TRUTHINESS where
+  `bindRelation` tests `fields && fields.length > 0`, so a relation spelled
+  `.fields()` with zero arguments binds child-held in the engine while the parse
+  boundary omits nothing. That schema is publicly constructible, and it is the
+  guard's one live route.
+- **The upsert arms must be SPLIT.** Omitting at the CREATE root's to-many
+  `upsert.update` destroys an accepted payload — only a `literal` parent source
+  is comparable, so that is the one position where the absorb branch can accept —
+  while omitting at the UPDATE root's same arm removes only refusals.
+- **The nested `updateMany` arm belongs in this list and was missing.** It was
+  the one position with NO engine guard: measured on PGlite through the public
+  client, `posts: { updateMany: { where, data: { userId: "thief" } } }` was
+  ACCEPTED and silently reparented the row. Package N closed it at the parse and
+  its gate wired the engine owner's fourth call position. Both halves are pinned
+  in `nested-update-owned-fk.test.ts`.
 
 #### N2. Do not seal compound M2M
 
@@ -1496,23 +1610,51 @@ These restrictions have a concrete reason and must not be removed by weakening a
 ### 7.3 Duplicate skipping without identity
 
 - skipDuplicates when no exact unique identifies which existing row caused the skip.
-- skipDuplicates plus nested effects until the public contract chooses suppress-effects or adopt-and-apply.
+- skipDuplicates plus nested effects until the public contract chooses
+  suppress-effects or adopt-and-apply. As of Package J this is an implemented
+  refusal with an owner: `CreateManyRecordSeries.ts:126`, raised at construction
+  before the series shell runs anything. It is an `UnsupportedOperationError`
+  rather than the substrate refusals' `TransactionError` because no driver
+  capability would change the answer — it is a product gap.
 
 ### 7.4 Topology features not implemented here
 
 - Compound many-to-many join sides. This is an unimplemented future capability,
-  not a semantic seal: the engine refusal stands at CreateOperation.ts:1998 and
-  Package N2 fixes its future topology as two ordered `JunctionSide` reference
-  keys and records the schema, migration, join-SQL, OwnWrite, and engine work it
-  waits on. Do not restate it as a validation rule merely to move the error
-  earlier.
+  not a semantic seal, and Package N2 fixes its future topology as two ordered
+  `JunctionSide` reference keys and records the schema, migration, join-SQL,
+  OwnWrite, and engine work it waits on. Do not restate it as a validation rule
+  merely to move the error earlier.
+
+  **Coordinate corrected (Packages N and O, both by measurement).** The draft
+  named `CreateOperation.ts:1998`, which is wrong twice over: the coordinate
+  moved, and that site was never the fact's owner. Driven through the public
+  client with a compound-primary-key model carrying a many-to-many relation, the
+  answer comes from `builders/correlation-utils.ts:149`
+  (`getRequiredSinglePrimaryKeyField`), reached through
+  `many-to-many-utils.getManyToManyJoinInfo` ←
+  `RelationMembership.getRelationMembershipScope` ← `OwnWriteRelation.create` ←
+  `OwnWriteAnalyzer.analyze` — the record-program boundary, before
+  `CreateOperation` interprets any relation. The migration layer holds the
+  second owner of the same fact at `src/migrations/serializer.ts:661`. The old
+  `CreateOperation` site never reached it and Package O converted it to a
+  `QueryEngineError` naming the structural invariant.
+
+  One consequence is recorded rather than fixed: `getRequiredSinglePrimaryKeyField`
+  raises a bare `QueryEngineError`, which `classifyFailure` reports as a DEFECT
+  (`V9001 INTERNAL_ERROR`) rather than as a capability refusal. That is this
+  section's own subject — an unimplemented capability — so it should reach
+  callers as a refusal. See the ledger's named-future-work list.
 - Any new polymorphic cardinality or identity form outside current relation contracts.
 
 ### 7.5 Substrate boundaries
 
 - RecordSeriesOperation on a batch-only provider with no interactive transaction.
-- Nested relation-bearing bulk if Package L fails its objective reuse gate.
-- Child-held connect, connectOrCreate, or set across more than one updateMany root.
+- Nested relation-bearing bulk. No longer conditional: Package L ran both
+  prototypes and REJECTED both, so this is a standing boundary with a recorded
+  reason and a recorded future path (§5.3).
+- Child-held connect, connectOrCreate, or set across more than one updateMany
+  root — at the ROOT's own relation keys, and only when the entry names an
+  existing target (§5.2).
 
 ## 8. Validation matrix
 
@@ -1565,6 +1707,21 @@ pnpm test
 pnpm test:all
 pnpm test:coverage:write-engine
 ~~~
+
+`pnpm test` does NOT include the `extended-local` project (the workspace defines
+it as `tests/**/*.test.ts` minus `*.core.test.ts`), so run it by name —
+`vitest run --project=extended-local` — or rely on `pnpm test:all`, which chains
+it. Package N's gate found a file that had been red there since Package J while
+every "all gates green" claim in that window was made from `pnpm test` alone.
+
+Two harness facts, both measured and neither a test failure:
+
+- Every `pnpm test:layer:*` launcher exits `FATAL ERROR: Ineffective
+  mark-compacts near heap limit` AFTER printing an all-passed line. Reproduced
+  on layers no package touched. Record the COUNTS, not the exit codes.
+- `pnpm test:coverage:write-engine` ships `--wall-limit-ms=300000` and now runs
+  at ~297s on the reference machine. A wall-kill with every visible file green
+  is a harness budget, not a red suite; re-run at a higher limit for the count.
 
 Run provider contracts when services are available:
 
@@ -1643,6 +1800,9 @@ docs: document lifted query engine limits
 
 Skip the nested-series commit when Package L is rejected. Skip the CTE commit when its objective keep gate fails. Never keep a partial prototype.
 
+As executed, `feat: compose nested record series` was skipped (Package L
+rejected, §5.3) and every other line landed in the order above.
+
 ## 11. Final doctrine
 
 The engine should gain capability by making its existing atoms more truthful:
@@ -1662,3 +1822,34 @@ The engine should gain capability by making its existing atoms more truthful:
 - A PostgreSQL CTE fold owns only lowering a proven write-value dependency graph.
 
 That division keeps the portable semantics simple and lets PostgreSQL compress eligible work without turning provider-specific SQL into a second query engine.
+
+## 12. §3.1 deviations, ratified
+
+§3.1 says every payload accepted before this work keeps its result, its
+validation timing, its statement count and its error class. Six packages
+deviated from that, each measured first, each ratified by the coordinator, and
+each reversible by a deliberate decision rather than by a patch. They are listed
+here rather than left in package reports so a reader of the contract can find
+what the contract did not survive.
+
+| Package | The deviation | What it replaced | Why it was ratified | Measurement |
+|---|---|---|---|---|
+| **D** | A NEW refusal (`NestedWriteError`, nothing written) on a selected update whose root rewrites a referenced column over an ordinary child-held non-cascading edge, with a compound / non-PK / unpinned reference, nested kinds all `create`/`createMany`, and the old slot OCCUPIED. | The payload SUCCEEDED, by a regime-ordering accident: the old `pastSurface` branch returned before the occupied guard was pushed. The root moved and `ON UPDATE SET NULL` silently orphaned the old child. | The accepted outcome was a silent orphan — the class this project refuses by precedent — and the accident contradicted its own pinned single-member twin, which refused throughout. Reverting means restoring the kind-gated incoherence D2 removed. | `compiled-key-transition-behavior.ts` (all legs), `parity-d-transition.test.ts` (the block that replaced the `pastSurface` pins, with the deleted messages quoted) |
+| **G** | Validation TIMING: the inverse-to-one upsert found arm's primary-key portability and relation-key legality moved from construction to the deferred found-arm closure, after the planning probe. Payloads that name a missing arm now succeed. | Both checks ran at construction, so an untaken arm's shape could fail the call. | Plan-mandated — §6 G rule 2 verbatim, and §4.4's "do not eagerly analyze untaken arms". The untaken-arm inertness IS the lift. Same retarget class as D's two. | `upsert-untaken-arm-legality.test.ts`, `inverse-to-one-update-depth.test.ts` |
+| **E** | The shared-primary-key lift lands per SELECTED RECORD, not per update ROOT: `RecordUpdateCompiler` serves the root, parent-held targets, upsert found arms and G's inverse seam, so nested selected records gained it too. Separately, shared-PK `connect` by lookup now refuses at CONSTRUCTION with zero statements. | §6 E1 is written for "an update root". The lookup refusal previously arrived as a compile-time `QueryEngineError` AFTER one statement had been issued. | Root-only would need a positional switch (banned) and would re-create the incoherence: the relation spelling and the scalar spelling of the same nested move now AGREE on both edges. The retarget is strictly more truthful and strictly earlier. | `parity-e-shared-pk.test.ts`, `shared-pk-update-root.test.ts`, `shared-pk-connect-or-create.test.ts` |
+| **F** | `targetGeneratesReferencedKey` split into `targetProducesKey`, lifting the create arm for DB-PRODUCED values while preserving the refusal everywhere it is not lifting; one refusal-to-refusal retarget recorded at its call site. | One predicate answered two questions, so the refusal covered values the engine could in fact publish. | Refusal-preserving where it does not lift, and the lifted half is exactly §4.3's demand publication. The retarget changes which sentence a refused payload gets, not whether it is refused. | `parity-f-fresh-field.test.ts`, `fresh-produced-field.test.ts` |
+| **K** | A relation key in `updateMany.data` no longer raises `ValidationError: Unknown key` — it routes to the series. On the relation arm `count` is the captured root count, while the scalar arm still reports the provider's affected rows: one operation name, two count contracts. §6 K5's shared-parse and §6 K3's capture width were both amended (see those units). | The parse boundary rejected the key outright; `count` had one meaning. | The refusal was the limitation being lifted. The count divergence is §5.2's own mandate — a provider that counts changed rather than matched rows answers zero for a no-op assignment — and both halves are witnessed. | `parity-k-update-many.test.ts`, `update-many-relation-series.test.ts`, ATOM §17 |
+| **N** | Three previously-ACCEPTED payload classes now refuse: (1) nested `updateMany` data spelling the relation's owned FK, refused at the parse on ordinary schemas; (2) the same spelling on the two-scanner-divergent schema, refused in the engine; (3) `{ <ownedFk>: undefined }` in nested update data. | (1) and (2) SUCCEEDED and silently reparented the row — measured on PGlite through the public client. (3) executed, because the engine guard keyed on what survived absence classification. | (1) and (2) are the silent-wrong-row class, and Prisma's own generated inputs omit the key there. (3) makes nested update data agree with nested create data, which has refused the identical spelling since it was written; it does bite the spread idiom, which is why it is recorded rather than buried. | `nested-update-owned-fk.test.ts` — every class pinned with before/after state |
+
+Two further ratifications that are NOT §3.1 changes, recorded here so the set is
+complete: Package C's `capturedTargetValues`-family signature takes
+`(model, projection, captured)` rather than the amendment's
+`(projection, captured)`, because the existing `buildPrimaryKeyWhereUnique` needs
+the model and storing a `Model` inside the projection would be worse; and
+Package H's R3 — an order for a normalized composition entry — was REJECTED on
+measurement, because such an entry does not reach the child-held obstacle, which
+is the locator rather than the entry (§5.3's neighbour: planning precedes every
+write).
+
+Named future work — the units this lift measured and deliberately did not do —
+has one home: `docs/architecture/guard-ownership-ledger.md`, "Named future units".

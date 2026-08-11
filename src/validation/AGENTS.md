@@ -102,6 +102,15 @@ const userCreate = registry.getModelSchemas(user).args.create;
 
 **Why:** operation schemas need full model graph context. A relation schema must know the source model, target model, and inverse FK fields to validate nested creates correctly.
 
+### Pay-Per-Use Schema Materialization
+
+Registry schemas stay lazy through the scalar-variant boundary. Reading a
+scalar `filter` must not construct its `create` or `update` schema. Build the
+four scalar records with `lazyScalarSchemas`; it uses shared accessor functions
+and releases each factory after that variant resolves. General lazy records and
+`v.lazy`/`v.lazyRef` also release a successful factory while retaining the
+resolved value.
+
 ---
 
 ## Core Rules
@@ -124,6 +133,24 @@ No domain-specific logic here. `v.email()` or `v.url()` belong in the scalar lay
 
 ### Rule 4: Immutable Schemas
 Schemas are immutable after creation. No methods that modify the schema in place.
+
+A schema that WRAPS another schema builds its validator **inside its factory**,
+before the wrapper object exists, and composes it into a fresh `~standard`
+literal. Never construct the inner schema and then redefine a property on it.
+The reason is capture, not style: `v.union` reads each option's
+`~standard.validate` AT CONSTRUCTION (`primitives/union.ts`) and holds that
+function reference for the life of the union. A validator patched onto a schema
+after that schema was handed to a union is a validator the union still has the
+un-patched version of — the wrapper's extra rule silently does not run on that
+path, and nothing about the wrapper looks wrong. Assume any composer may capture;
+only building in the factory makes the question moot.
+
+A wrapper's JSON-Schema converter **delegates to the schema it wraps** rather
+than rebuilding one. Reach it through a getter so it stays lazy: rebuilding it
+eagerly walks a self-referential relation graph at construction time, which is
+what the pay-per-use boundary above exists to avoid. If the wrapper's own rule
+is not expressible in JSON Schema, say so at the getter — a converter that
+silently drops a rule is worse than one that documents the gap.
 
 ### Rule 5: Operation Schemas Need Registry Context
 Do not rebuild operation schemas inside scalar definitions, relation definitions, or models. Use `SchemaRegistry` so relation thunks and inverse FK omission are resolved from the full schema graph.
