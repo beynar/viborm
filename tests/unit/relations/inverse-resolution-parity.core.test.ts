@@ -1,56 +1,64 @@
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { QueryEngineError } from "@errors";
-import {
-  bindRelation,
-  findInverseRelationState,
-} from "@query-engine/builders/relation-data-builder";
+import { bindRelation } from "@query-engine/builders/relation-data-builder";
 import { createQueryScope, getRelationInfo } from "@query-engine/context";
 import { s } from "@schema";
 import { hydrateSchemaNames } from "@schema/hydration";
-import type { Model } from "@schema/model";
-import { getPolymorphicInverseBinding } from "@schema/relation";
+import type { AnyModel, Model } from "@schema/model";
+import {
+  collectInverseCandidates,
+  getPolymorphicInverseBinding,
+  resolveInverseRelation,
+  resolveOrdinaryInverse,
+} from "@schema/relation";
 import { getInverseRelationMap } from "@schema/relation/types";
 import { describe, expect, test } from "vitest";
 
 /**
- * **Unit 2.1 — the pre-change parity pin for inverse resolution.**
+ * **Unit 2.2 — the resolver-parity contract for inverse resolution.**
  *
- * Two independent runtime scanners answer "which back-reference on the target model
- * carries this relation's foreign key", and Phase 2 is about to give that question one
- * owner:
+ * ONE runtime owner now answers "which back-reference on the target model carries this
+ * relation's foreign key" — `resolveInverseRelation` / `resolveOrdinaryInverse` /
+ * `collectInverseCandidates` in `src/schema/relation/inverse.ts`. It THROWS NOTHING:
+ * `missing` and `ambiguous` are answers, and each consumer translates them by its own
+ * established policy. This file asserts the resolver's verdict beside every surviving
+ * consumer's translation of it, on one fixture at a time:
  *
- *  · `getInverseRelationMap` (`src/schema/relation/types.ts`) — the OPERATION-SCHEMA
- *    scanner. Its answer is the key set a nested `create`/`update` omits, so it decides
- *    what a caller may spell;
- *  · `findInverseRelationState` (`src/query-engine/builders/relation-data-builder.ts`) —
- *    the ENGINE scanner, reached through `bindRelation`. Its answer is the column the
- *    engine writes and correlates on.
+ *  · `getInverseRelationMap` (`src/schema/relation/types.ts`) — the FK-OMISSION VIEW of
+ *    the same scan. Its answer is the key set a nested `create`/`update` omits, so it
+ *    decides what a caller may spell. It keeps its historical candidate policy exactly
+ *    (sole candidate wins whatever either side is named; among several `.name()` picks,
+ *    an unnamed source takes the FIRST declared candidate and a name matching none
+ *    answers `undefined`) and it deliberately never consults the polymorphic arm;
+ *  · `getPolymorphicInverseBinding` — the polymorphic-only projection of the same
+ *    verdict, `undefined` for `ordinary`, `ambiguous` and `missing` alike;
+ *  · `bindRelation` (`src/query-engine/builders/relation-data-builder.ts`) — the ENGINE's
+ *    consumer. It owns the TWO error translations the deleted `findInverseRelationState`
+ *    used to raise from inside the scan (`Ambiguous relation …` and `Cannot determine FK
+ *    fields …`), and it chooses which resolution to ask for: the composed one for a
+ *    `oneToOne`/`oneToMany` inverse, the ordinary-only one for the retained fields-less
+ *    `manyToOne` compatibility form, where a named polymorphic pairing must not shadow a
+ *    physical back-reference.
  *
- * Every case below asserts BOTH answers side by side, including the cases where they
- * DISAGREE. The disagreements are pinned deliberately: they are the pre-change truth, so
- * that Phase 2's resolver migration (which must preserve every answer) and Phase 2's
- * later, isolated behaviour commit (which changes some of them on purpose) are told apart
- * by which of these pins move. A pin that changes without a commit that says it will is
- * the failure this file exists to make loud.
+ * WHAT MOVED. The empty-`.fields()` axis is CLOSED: `getInverseRelationMap`'s owner-side
+ * short-circuit and the candidate filter now LENGTH-TEST `.fields()` (`fields.length > 0`,
+ * the reading the engine always applied), so a relation spelled `.fields()` with zero
+ * arguments is fields-LESS to every reader. Cases 9, 10 and 12's third fixture are the
+ * ones whose answers changed; each says at the case what it used to answer. **Commit
+ * 40e50057 holds the before-pins** (unit 2.1's file, which asserted the two scanners side
+ * by side and named their disagreements). That alignment is what retired guard-ledger
+ * site 11 (`RelationWritePart.assertOwnedFkAbsentFromUpdateData`), whose falsifiers are
+ * re-authored in `tests/contracts/engine/write/nested-update-owned-fk.test.ts`.
  *
- * The two open axes, as measured at this HEAD:
+ * WHAT DID NOT MOVE. The ambiguity axis is unchanged and stays pinned: with two or more
+ * fields-bearing back-references and no `.name()` that picks one, the map view answers
+ * silently with the first declared candidate while `bindRelation` refuses. It is not a
+ * disagreement between two scanners any more — it is ONE verdict (`ambiguous`, carrying
+ * the full ordered candidate list) translated two ways on purpose.
  *
- *  1. **empty `.fields()`** — `getInverseRelationMap` tests `state.fields` for TRUTHINESS
- *     (`[]` is truthy) at both the owner-side short-circuit and the candidate filter,
- *     while `bindRelation`/`findInverseRelationState` test `fields.length > 0`. Cases 9,
- *     10 and the second half of case 12. This is the plan's named axis and the recorded
- *     retirement condition of the owned-FK guard.
- *  2. **ambiguity** — with two or more fields-bearing back-references and no `.name()`
- *     that picks one, `getInverseRelationMap` silently answers with the FIRST declared
- *     candidate (or `undefined` when a name matches none) while the engine scanner throws
- *     `QueryEngineError: Ambiguous relation …`. Cases 4 and 6. The plan preamble records
- *     that this axis was found at Phase 0 and is not named by §4.6's sketch.
- *
- * The engine scanner is only ever consulted for a relation that does NOT hold its own
- * `.fields()`; `bindRelation` short-circuits owner-side relations before reaching it
- * (`relation-data-builder.ts:124`). Where an owner-side `findInverseRelationState` answer
- * is pinned below it is labelled as unreachable-in-production, because a resolver that
- * "fixes" it would be changing something nothing reads.
+ * COVERAGE. `src/schema/relation/**` is gated at 100% (`pnpm test:coverage:relations`,
+ * whose project is `tests/unit/relations/**`), so this file also carries the resolver arms
+ * no schema in the thirteen-case matrix reaches — sections 14 and 15.
  */
 
 const adapter = new PostgresAdapter();
@@ -64,20 +72,35 @@ const relationInfoOf = (model: Model<any>, relationKey: string) => {
   return { scope, relationInfo };
 };
 
-/** The operation-schema scanner's answer for one relation key. */
-const scanMap = (model: Model<any>, relationKey: string) =>
-  getInverseRelationMap(
-    model["~"].state.relations[relationKey]["~"].state,
-    model
-  );
+const stateOf = (model: Model<any>, relationKey: string) =>
+  model["~"].state.relations[relationKey]["~"].state;
 
-/** The engine scanner's answer for the same relation key. */
-const scanEngine = (model: Model<any>, relationKey: string) => {
-  const { relationInfo } = relationInfoOf(model, relationKey);
-  return findInverseRelationState(model, relationInfo);
+/** The FK-omission view's answer for one relation key. */
+const scanMap = (model: Model<any>, relationKey: string) =>
+  getInverseRelationMap(stateOf(model, relationKey), model);
+
+/** The composed resolution, asked the way `bindRelation` asks it for a to-one/to-many
+ *  inverse: the relation's target, the model it must point back to, and the asking
+ *  relation's own `.name()`. */
+const resolveComposed = (model: Model<any>, relationKey: string) => {
+  const state = stateOf(model, relationKey);
+  return resolveInverseRelation(state.getter(), model, state.name);
 };
 
-/** What the engine actually binds — the scanner's only production consumer. */
+/** The ordinary-only resolution — `bindRelation`'s arm for a relation that can never
+ *  bind a polymorphic inverse. */
+const resolveOrdinary = (model: Model<any>, relationKey: string) => {
+  const state = stateOf(model, relationKey);
+  return resolveOrdinaryInverse(state.getter(), model, state.name);
+};
+
+/** The candidate list itself, in the target model's declaration order. */
+const candidateKeys = (targetModel: AnyModel, sourceModel: unknown) =>
+  collectInverseCandidates(targetModel, sourceModel).map(
+    (candidate) => candidate.relationKey
+  );
+
+/** What the engine actually binds — the resolver's only query-time consumer. */
 const bind = (model: Model<any>, relationKey: string) => {
   const { scope, relationInfo } = relationInfoOf(model, relationKey);
   return bindRelation(scope, relationInfo);
@@ -99,12 +122,15 @@ describe("inverse resolution parity", () => {
         .name("author"),
     });
 
-    test("both scanners resolve the matched pair", () => {
+    test("the resolver, the omission view and the binding agree on the matched pair", () => {
       expect(scanMap(user, "posts")).toEqual(["authorId"]);
-      expect(scanEngine(user, "posts")).toEqual({
+      expect(resolveComposed(user, "posts")).toEqual({
+        kind: "ordinary",
+        relationKey: "author",
         fields: ["authorId"],
         references: ["id"],
         onUpdate: undefined,
+        pairingName: "author",
       });
       expect(bind(user, "posts")).toMatchObject({
         kind: "childHeldToMany",
@@ -121,10 +147,11 @@ describe("inverse resolution parity", () => {
         referencedFields: ["id"],
       });
 
-      // The engine's owner-side answer lives in `bindRelation`'s own short-circuit, so
-      // the scanner is never asked here. Asked anyway, it looks for a fields-bearing
-      // to-one on `user` pointing back at `post` and finds none.
-      expect(scanEngine(post, "author")).toBeUndefined();
+      // `bindRelation` short-circuits an owner-side relation on its own `.fields()`
+      // before asking anything, so this resolution is unreachable in production. Asked
+      // anyway, it looks for a fields-bearing to-one on `user` pointing back at `post`
+      // and finds none — pinned so a resolver change does not move it by accident.
+      expect(resolveOrdinary(post, "author")).toEqual({ kind: "missing" });
     });
   });
 
@@ -159,11 +186,19 @@ describe("inverse resolution parity", () => {
 
     test("a named source resolves an unnamed sole candidate (D5/TH, aligned)", () => {
       expect(scanMap(author, "books")).toEqual(["authorId"]);
-      expect(scanEngine(author, "books")).toEqual({
+      expect(resolveComposed(author, "books")).toEqual({
+        kind: "ordinary",
+        relationKey: "author",
         fields: ["authorId"],
         references: ["id"],
         onUpdate: undefined,
+        pairingName: undefined,
       });
+      // The ordinary-only entry point states the single-candidate rule in its own body,
+      // so both copies are asked on the same edge.
+      expect(resolveOrdinary(author, "books")).toEqual(
+        resolveComposed(author, "books")
+      );
       expect(bind(author, "books")).toMatchObject({
         kind: "childHeldToMany",
         foreignFields: ["authorId"],
@@ -173,10 +208,13 @@ describe("inverse resolution parity", () => {
 
     test("an unnamed source resolves a named sole candidate", () => {
       expect(scanMap(shelf, "volumes")).toEqual(["shelfId"]);
-      expect(scanEngine(shelf, "volumes")).toEqual({
+      expect(resolveComposed(shelf, "volumes")).toEqual({
+        kind: "ordinary",
+        relationKey: "shelf",
         fields: ["shelfId"],
         references: ["id"],
         onUpdate: undefined,
+        pairingName: "stack",
       });
     });
   });
@@ -191,9 +229,16 @@ describe("inverse resolution parity", () => {
       targets: s.oneToMany(() => orphanTarget),
     });
 
-    test("both scanners answer undefined and the binding refuses", () => {
+    test("every reader answers nothing and the binding refuses", () => {
       expect(scanMap(orphanSource, "targets")).toBeUndefined();
-      expect(scanEngine(orphanSource, "targets")).toBeUndefined();
+      expect(collectInverseCandidates(orphanTarget, orphanSource)).toEqual([]);
+      expect(resolveComposed(orphanSource, "targets")).toEqual({
+        kind: "missing",
+      });
+      // The polymorphic-only view declines a `missing` verdict.
+      expect(
+        getPolymorphicInverseBinding(orphanTarget, orphanSource, undefined)
+      ).toBeUndefined();
 
       expect(() => bind(orphanSource, "targets")).toThrow(QueryEngineError);
       expect(() => bind(orphanSource, "targets")).toThrow(
@@ -203,11 +248,11 @@ describe("inverse resolution parity", () => {
   });
 
   describe("4. ambiguous with no name on the source relation", () => {
-    // THE DISAGREEMENT, held deliberately: `getInverseRelationMap` never reports
-    // ambiguity. With `state.name` unset its `!state.name` arm takes the FIRST candidate
-    // in the target's declaration order and answers silently; the engine scanner throws.
-    // Both answers are pinned so Phase 2's migration can preserve them and Phase 2's
-    // behaviour commit has to move a witness to change either.
+    // ONE verdict, translated two ways ON PURPOSE. The resolver answers `ambiguous` with
+    // the full ordered candidate list; the omission view keeps its historical
+    // first-declared-candidate policy (so the parse omits SOMETHING) and `bindRelation`
+    // refuses. Unchanged by the alignment — 40e50057 pinned the same two answers when
+    // they came from two independent scanners.
     const user = s.model({
       id: s.string().id(),
       posts: s.oneToMany(() => post),
@@ -248,22 +293,53 @@ describe("inverse resolution parity", () => {
     });
     hydrateSchemaNames({ flippedUser, flippedPost });
 
-    test("the operation-schema scanner silently takes the first declared candidate", () => {
+    test("the omission view silently takes the first declared candidate", () => {
       expect(scanMap(user, "posts")).toEqual(["authorId"]);
       // Declaration order is the whole rule: swapping the two back-references swaps the
       // answer, and neither model says which one the author meant.
       expect(scanMap(flippedUser, "posts")).toEqual(["editorId"]);
     });
 
-    test("the engine scanner refuses the same edge", () => {
-      expect(() => scanEngine(user, "posts")).toThrow(QueryEngineError);
-      expect(() => scanEngine(user, "posts")).toThrow(
+    test("the resolver ANSWERS ambiguous, in declaration order, and throws nothing", () => {
+      const resolved = resolveComposed(user, "posts");
+      expect(resolved).toEqual({
+        kind: "ambiguous",
+        candidates: [
+          {
+            relationKey: "author",
+            fields: ["authorId"],
+            references: ["id"],
+            onUpdate: undefined,
+            pairingName: undefined,
+          },
+          {
+            relationKey: "editor",
+            fields: ["editorId"],
+            references: ["id"],
+            onUpdate: undefined,
+            pairingName: undefined,
+          },
+        ],
+      });
+      expect(candidateKeys(post, user)).toEqual(["author", "editor"]);
+      expect(candidateKeys(flippedPost, flippedUser)).toEqual([
+        "editor",
+        "author",
+      ]);
+      // The ordinary-only entry point reports the same verdict from its own body…
+      expect(resolveOrdinary(user, "posts")).toEqual(resolved);
+      // …and the polymorphic-only view declines an `ambiguous` one.
+      expect(
+        getPolymorphicInverseBinding(post, user, undefined)
+      ).toBeUndefined();
+    });
+
+    test("bindRelation owns the refusal, with the message the scan used to raise", () => {
+      expect(() => bind(user, "posts")).toThrow(QueryEngineError);
+      expect(() => bind(user, "posts")).toThrow(
         "Ambiguous relation 'posts' on model 'user': multiple relations on 'post' point back to it. Add .name() to both sides of each relation to disambiguate."
       );
-      expect(() => bind(user, "posts")).toThrow(
-        "Ambiguous relation 'posts' on model 'user'"
-      );
-      expect(() => scanEngine(flippedUser, "posts")).toThrow(QueryEngineError);
+      expect(() => bind(flippedUser, "posts")).toThrow(QueryEngineError);
     });
   });
 
@@ -289,20 +365,26 @@ describe("inverse resolution parity", () => {
         .name("editor"),
     });
 
-    test("both scanners let the name pick, per relation", () => {
+    test("the name picks, per relation, in every reader", () => {
       expect(scanMap(user, "authored")).toEqual(["authorId"]);
       expect(scanMap(user, "edited")).toEqual(["editorId"]);
 
-      expect(scanEngine(user, "authored")).toEqual({
+      expect(resolveComposed(user, "authored")).toMatchObject({
+        kind: "ordinary",
+        relationKey: "author",
         fields: ["authorId"],
-        references: ["id"],
-        onUpdate: undefined,
+        pairingName: "author",
       });
-      expect(scanEngine(user, "edited")).toEqual({
+      expect(resolveComposed(user, "edited")).toMatchObject({
+        kind: "ordinary",
+        relationKey: "editor",
         fields: ["editorId"],
-        references: ["id"],
-        onUpdate: undefined,
+        pairingName: "editor",
       });
+      // The named arm of the ordinary-only entry point, on the same edge.
+      expect(resolveOrdinary(user, "authored")).toEqual(
+        resolveComposed(user, "authored")
+      );
 
       expect(bind(user, "authored")).toMatchObject({
         kind: "childHeldToMany",
@@ -316,9 +398,8 @@ describe("inverse resolution parity", () => {
   });
 
   describe("6. a name matching none of several candidates", () => {
-    // The second half of the ambiguity disagreement: the map falls out of its loop with
-    // `undefined` (so the parse omits nothing) where the engine throws. Pinned as the
-    // pre-change truth for the same reason as case 4.
+    // The second half of the ambiguity translation: the omission view falls out of its
+    // loop with `undefined` (so the parse omits nothing) where `bindRelation` refuses.
     const user = s.model({
       id: s.string().id(),
       posts: s.oneToMany(() => post).name("ghostwriter"),
@@ -340,16 +421,24 @@ describe("inverse resolution parity", () => {
     });
     hydrateSchemaNames({ user, post });
 
-    test("the operation-schema scanner answers undefined", () => {
+    test("the omission view answers undefined", () => {
       expect(scanMap(user, "posts")).toBeUndefined();
     });
 
-    test("the engine scanner refuses instead", () => {
-      expect(() => scanEngine(user, "posts")).toThrow(QueryEngineError);
-      expect(() => scanEngine(user, "posts")).toThrow(
+    test("the resolver answers ambiguous and the binding refuses", () => {
+      expect(resolveComposed(user, "posts")).toMatchObject({
+        kind: "ambiguous",
+        candidates: [{ relationKey: "author" }, { relationKey: "editor" }],
+      });
+      // A name that matches no candidate does not select in either entry point.
+      expect(resolveOrdinary(user, "posts")).toMatchObject({
+        kind: "ambiguous",
+      });
+
+      expect(() => bind(user, "posts")).toThrow(QueryEngineError);
+      expect(() => bind(user, "posts")).toThrow(
         "Ambiguous relation 'posts' on model 'user': multiple relations on 'post' point back to it. Add .name() to both sides of each relation to disambiguate."
       );
-      expect(() => bind(user, "posts")).toThrow(QueryEngineError);
     });
   });
 
@@ -366,12 +455,18 @@ describe("inverse resolution parity", () => {
       children: s.oneToMany(() => node).name("tree"),
     });
 
-    test("both scanners resolve the inverse side of a model onto itself", () => {
+    test("the inverse side of a model onto itself resolves to the parent edge", () => {
       expect(scanMap(node, "children")).toEqual(["parentId"]);
-      expect(scanEngine(node, "children")).toEqual({
+      // The to-MANY relation on the same model is dropped by the candidate scan's TYPE
+      // filter, which is why one model pointing at itself is not ambiguous.
+      expect(candidateKeys(node, node)).toEqual(["parent"]);
+      expect(resolveComposed(node, "children")).toEqual({
+        kind: "ordinary",
+        relationKey: "parent",
         fields: ["parentId"],
         references: ["id"],
         onUpdate: undefined,
+        pairingName: "tree",
       });
       expect(bind(node, "children")).toMatchObject({
         kind: "childHeldToMany",
@@ -388,13 +483,13 @@ describe("inverse resolution parity", () => {
         referencedFields: ["id"],
       });
 
-      // Neither scanner excludes the ASKING relation, so on a self-relation the owner
-      // side's scan finds itself. Unreachable in production (`bindRelation` answers from
+      // The scan does not exclude the ASKING relation, so on a self-relation the owner
+      // side finds itself. Unreachable in production (`bindRelation` answers from
       // `.fields()` first), pinned so a resolver does not change it by accident.
-      expect(scanEngine(node, "parent")).toEqual({
+      expect(resolveOrdinary(node, "parent")).toMatchObject({
+        kind: "ordinary",
+        relationKey: "parent",
         fields: ["parentId"],
-        references: ["id"],
-        onUpdate: undefined,
       });
     });
   });
@@ -425,20 +520,24 @@ describe("inverse resolution parity", () => {
         .optional(),
     });
 
-    test("each pair resolves to its own foreign key on both scanners", () => {
+    test("each pair resolves to its own foreign key", () => {
       expect(scanMap(org, "staff")).toEqual(["employerId"]);
       expect(scanMap(org, "founder")).toEqual(["foundedOrgId"]);
 
-      expect(scanEngine(org, "staff")).toEqual({
+      expect(candidateKeys(member, org)).toEqual(["employer", "foundedOrg"]);
+      expect(resolveComposed(org, "staff")).toMatchObject({
+        kind: "ordinary",
+        relationKey: "employer",
         fields: ["employerId"],
-        references: ["id"],
-        onUpdate: undefined,
       });
-      expect(scanEngine(org, "founder")).toEqual({
+      expect(resolveComposed(org, "founder")).toMatchObject({
+        kind: "ordinary",
+        relationKey: "foundedOrg",
         fields: ["foundedOrgId"],
-        references: ["id"],
-        onUpdate: undefined,
       });
+      expect(resolveOrdinary(org, "founder")).toEqual(
+        resolveComposed(org, "founder")
+      );
 
       // The arity of each pair survives the shared target model.
       expect(bind(org, "staff")).toMatchObject({
@@ -465,13 +564,16 @@ describe("inverse resolution parity", () => {
     });
   });
 
-  describe("9. zero-argument .fields() on the source to-one", () => {
+  describe("9. zero-argument .fields() on the source to-one (ALIGNED)", () => {
     // The shape of `splitScannerSchema` in
-    // `tests/contracts/engine/write/nested-update-owned-fk.test.ts`, reduced to the two
-    // scanners. `[]` is truthy, so the map short-circuits on the OWNER-side arm and
-    // answers `[]` — the parse omits nothing — while the engine drops the same relation
-    // on `fields.length > 0` and resolves the target's real back-reference. That gap is
-    // guard-ledger site 11's only route; it is pinned here, not fixed.
+    // `tests/contracts/engine/write/nested-update-owned-fk.test.ts`.
+    //
+    // BEFORE THE ALIGNMENT (pinned at 40e50057): `[]` was truthy, so the omission view
+    // short-circuited on its OWNER-side arm and answered `[]` — the parse omitted
+    // nothing and admitted a spelled `userId` — while the engine dropped the same
+    // relation on `fields.length > 0` and resolved `profile.user`. That gap was
+    // guard-ledger site 11's only route. The view now length-tests too, so it falls to
+    // the same scan and answers the same key.
     const user = s.model({
       id: s.string().id(),
       name: s.string(),
@@ -491,12 +593,16 @@ describe("inverse resolution parity", () => {
         .optional(),
     });
 
-    test("the map answers the empty tuple and the engine answers the real key", () => {
-      expect(scanMap(user, "profile")).toEqual([]);
-      expect(scanEngine(user, "profile")).toEqual({
+    test("the omission view answers the real key the engine binds", () => {
+      // Was `[]`.
+      expect(scanMap(user, "profile")).toEqual(["userId"]);
+      expect(resolveComposed(user, "profile")).toEqual({
+        kind: "ordinary",
+        relationKey: "user",
         fields: ["userId"],
         references: ["id"],
         onUpdate: undefined,
+        pairingName: undefined,
       });
       expect(bind(user, "profile")).toMatchObject({
         kind: "childHeldToOne",
@@ -506,11 +612,15 @@ describe("inverse resolution parity", () => {
     });
   });
 
-  describe("10. zero-argument .fields() on a candidate back-reference", () => {
+  describe("10. zero-argument .fields() on a candidate back-reference (ALIGNED)", () => {
     // The shape of `splitToManySchema` in the same file: the same axis, the other
-    // position. `ghost` is declared FIRST, so the map counts it a candidate, meets two
-    // candidates, takes `candidates[0]` and answers `[]`; the engine drops it before
-    // counting, so exactly one candidate remains and there is no ambiguity to report.
+    // position.
+    //
+    // BEFORE THE ALIGNMENT (pinned at 40e50057): the view counted `ghost` a candidate
+    // (its filter was `!state.fields`, and `[]` is truthy), met TWO candidates, took
+    // `candidates[0]` and answered `[]`. The candidate scan now drops `ghost` before
+    // counting, so exactly one candidate remains — there is no ambiguity to report and
+    // the view answers the key the engine binds.
     const user = s.model({
       id: s.string().id(),
       name: s.string(),
@@ -527,12 +637,17 @@ describe("inverse resolution parity", () => {
         .references("id"),
     });
 
-    test("the map answers the ghost's empty tuple, the engine the real key", () => {
-      expect(scanMap(user, "posts")).toEqual([]);
-      expect(scanEngine(user, "posts")).toEqual({
+    test("the ghost is not a candidate, so one edge has one answer", () => {
+      // Was `[]` — the ghost's own empty tuple.
+      expect(scanMap(user, "posts")).toEqual(["userId"]);
+      expect(candidateKeys(post, user)).toEqual(["author"]);
+      expect(resolveComposed(user, "posts")).toEqual({
+        kind: "ordinary",
+        relationKey: "author",
         fields: ["userId"],
         references: ["id"],
         onUpdate: undefined,
+        pairingName: undefined,
       });
       expect(bind(user, "posts")).toMatchObject({
         kind: "childHeldToMany",
@@ -541,9 +656,12 @@ describe("inverse resolution parity", () => {
       });
     });
 
-    test("the ghost relation itself is answerable to the map and unbindable to the engine", () => {
-      expect(scanMap(post, "ghost")).toEqual([]);
-      expect(scanEngine(post, "ghost")).toBeUndefined();
+    test("the ghost relation itself is fields-less to every reader", () => {
+      // Was `[]`; the view now falls to the scan, which finds no to-one back-reference
+      // on `user` at all (`posts` is dropped by the TYPE filter).
+      expect(scanMap(post, "ghost")).toBeUndefined();
+      // `bindRelation` asks the ordinary-only resolution for a `manyToOne`.
+      expect(resolveOrdinary(post, "ghost")).toEqual({ kind: "missing" });
       expect(() => bind(post, "ghost")).toThrow(
         "Cannot determine FK fields for relation 'ghost'."
       );
@@ -559,7 +677,7 @@ describe("inverse resolution parity", () => {
     const membership = s.model({
       id: s.string().id(),
       // Declared in the REVERSE of the `.fields()` argument order, so the pins below
-      // record which order the scanners preserve.
+      // record which order the readers preserve.
       tenantSlug: s.string(),
       tenantRegion: s.string(),
       tenant: s
@@ -569,15 +687,18 @@ describe("inverse resolution parity", () => {
         .onUpdate("cascade"),
     });
 
-    test("both scanners preserve the declared argument order, not the shape order", () => {
+    test("the declared argument order survives, not the shape order", () => {
       expect(scanMap(tenant, "memberships")).toEqual([
         "tenantRegion",
         "tenantSlug",
       ]);
-      expect(scanEngine(tenant, "memberships")).toEqual({
+      expect(resolveComposed(tenant, "memberships")).toEqual({
+        kind: "ordinary",
+        relationKey: "tenant",
         fields: ["tenantRegion", "tenantSlug"],
         references: ["region", "slug"],
         onUpdate: "cascade",
+        pairingName: undefined,
       });
       expect(scanMap(membership, "tenant")).toEqual([
         "tenantRegion",
@@ -642,41 +763,56 @@ describe("inverse resolution parity", () => {
     });
 
     test("a physical foreign key declines the polymorphic binding unless a name pairs", () => {
+      // Precedence step 2 answers `ordinary`, so the polymorphic view declines…
       expect(
         getPolymorphicInverseBinding(child, parent, undefined)
       ).toBeUndefined();
+      // …and precedence step 1 — an exact pairing `.name()` — beats the physical
+      // candidate outright.
       expect(getPolymorphicInverseBinding(child, parent, "subject")).toEqual({
         relationKey: "subject",
         publicType: "parent",
         storedType: "parent.v1",
       });
+      expect(resolveComposed(parent, "subjects")).toEqual({
+        kind: "polymorphic",
+        relationKey: "subject",
+        publicType: "parent",
+        storedType: "parent.v1",
+      });
+      // The candidate scan itself matches on the SOURCE MODEL: `child.parent` points at
+      // `parent`, so it is no candidate for an edge coming from `other`.
+      expect(collectInverseCandidates(child, other)).toEqual([]);
     });
 
-    test("the ordinary scanners answer the physical key for both source relations", () => {
-      // Neither ordinary scanner knows the polymorphic edge exists: with one ordinary
-      // candidate both short-circuit on it, and the pairing `.name()` does not redirect
-      // them. `bindRelation` is what consults `getPolymorphicInverseBinding` first, and
-      // binding `subjects` needs the private storage only full schema validation
-      // materializes — so the precedence itself is pinned at the resolver level here.
+    test("the ordinary readers answer the physical key for both source relations", () => {
+      // The omission view never consults the polymorphic arm: it answers "which fields
+      // might the enclosing edge supply to nested data", and a name-paired polymorphic
+      // edge does not stop the physical foreign key from being the omitted one.
       expect(scanMap(parent, "children")).toEqual(["parentId"]);
       expect(scanMap(parent, "subjects")).toEqual(["parentId"]);
-      expect(scanEngine(parent, "children")).toEqual({
+      expect(resolveComposed(parent, "children")).toMatchObject({
+        kind: "ordinary",
+        relationKey: "parent",
         fields: ["parentId"],
-        references: ["id"],
-        onUpdate: undefined,
       });
-      expect(scanEngine(parent, "subjects")).toEqual({
+      // The ordinary-only entry point is the one `bindRelation` asks for a relation that
+      // can never bind a polymorphic inverse — the pairing name does not redirect it.
+      expect(resolveOrdinary(parent, "subjects")).toMatchObject({
+        kind: "ordinary",
+        relationKey: "parent",
         fields: ["parentId"],
-        references: ["id"],
-        onUpdate: undefined,
       });
     });
 
-    test("a zero-argument .fields() back-reference splits all three resolvers", () => {
-      // The empty-`.fields()` axis, third position: the polymorphic selector already
-      // reads `fields.length > 0` (so it does NOT decline), the map still reads
-      // truthiness (so it answers the empty tuple), and the engine drops the candidate
-      // entirely (so it answers nothing). One edge, three answers.
+    test("a zero-argument .fields() back-reference is fields-less to all three (ALIGNED)", () => {
+      // BEFORE THE ALIGNMENT (pinned at 40e50057) this edge had THREE answers: the
+      // polymorphic selector already read `fields.length > 0` (so it did not decline),
+      // the omission view read truthiness (so it answered the empty tuple `[]`), and the
+      // engine dropped the candidate (so it answered nothing). Now all three read the
+      // zero-argument `.fields()` the same way — there is no physical candidate — so the
+      // two polymorphic-aware readers agree on the SAME `subject` binding and the two
+      // ordinary ones agree that no foreign key is omitted here.
       expect(
         getPolymorphicInverseBinding(ghostChild, ghostParent, undefined)
       ).toEqual({
@@ -684,8 +820,18 @@ describe("inverse resolution parity", () => {
         publicType: "parent",
         storedType: "parent.v1",
       });
-      expect(scanMap(ghostParent, "children")).toEqual([]);
-      expect(scanEngine(ghostParent, "children")).toBeUndefined();
+      expect(resolveComposed(ghostParent, "children")).toEqual({
+        kind: "polymorphic",
+        relationKey: "subject",
+        publicType: "parent",
+        storedType: "parent.v1",
+      });
+      expect(collectInverseCandidates(ghostChild, ghostParent)).toEqual([]);
+      expect(resolveOrdinary(ghostParent, "children")).toEqual({
+        kind: "missing",
+      });
+      // Was `[]`.
+      expect(scanMap(ghostParent, "children")).toBeUndefined();
     });
   });
 
@@ -714,14 +860,14 @@ describe("inverse resolution parity", () => {
     test("neither definition nor hydration forces a target getter, and resolution still works", () => {
       // Mutually recursive model consts only stay definable because the getters are
       // thunks. Any resolver that runs eagerly at model construction breaks this, so the
-      // counters are asserted BEFORE the scanners run.
+      // counters are asserted BEFORE anything is asked.
       expect(getterCalls).toEqual({ post: 0, user: 0 });
 
       expect(scanMap(lazyUser, "posts")).toEqual(["authorId"]);
-      expect(scanEngine(lazyUser, "posts")).toEqual({
+      expect(resolveComposed(lazyUser, "posts")).toMatchObject({
+        kind: "ordinary",
+        relationKey: "author",
         fields: ["authorId"],
-        references: ["id"],
-        onUpdate: undefined,
       });
       expect(bind(lazyUser, "posts")).toMatchObject({
         kind: "childHeldToMany",
@@ -730,9 +876,138 @@ describe("inverse resolution parity", () => {
       });
       expect(scanMap(lazyPost, "author")).toEqual(["authorId"]);
 
-      // Resolved only when a scanner asked.
+      // Resolved only when a reader asked.
       expect(getterCalls.post).toBeGreaterThan(0);
       expect(getterCalls.user).toBeGreaterThan(0);
+    });
+  });
+
+  describe("14. resolver arms the thirteen-case matrix does not reach", () => {
+    // The precedence's polymorphic selection has arms no ordinary parity fixture
+    // produces. They are answers, not errors — every one of them ends in `missing`,
+    // which is what makes the convenience rules SAFE: an unclear polymorphic edge never
+    // guesses a binding.
+
+    test("a fields-less manyToOne (no .fields() at all) is not a candidate", () => {
+      // The retained FK004-warned compatibility form, and the reason `bindRelation` has
+      // an ordinary-only arm at all. Distinct from case 10's `.fields()`: there the
+      // tuple exists and is empty, here there is no tuple.
+      const looseSource = s.model({
+        id: s.string().id(),
+        targets: s.oneToMany(() => looseTarget),
+      });
+      const looseTarget = s.model({
+        id: s.string().id(),
+        source: s.manyToOne(() => looseSource),
+      });
+
+      expect(collectInverseCandidates(looseTarget, looseSource)).toEqual([]);
+      expect(scanMap(looseSource, "targets")).toBeUndefined();
+      expect(resolveComposed(looseSource, "targets")).toEqual({
+        kind: "missing",
+      });
+      expect(() => bind(looseTarget, "source")).toThrow(
+        "Cannot determine FK fields for relation 'source'."
+      );
+    });
+
+    test("two polymorphic groups sharing one pairing name select neither", () => {
+      const twinSource = s.model({ id: s.string().id() });
+      const twinChild = s.model({
+        id: s.string().id(),
+        first: s
+          .polymorphic(
+            { source: () => twinSource },
+            { values: { source: "source.first.v1" } }
+          )
+          .name("subject"),
+        second: s
+          .polymorphic(
+            { source: () => twinSource },
+            { values: { source: "source.second.v1" } }
+          )
+          .name("subject"),
+      });
+
+      // The name matches TWO groups, so the exact-pairing arm selects nothing; the
+      // sole-group convenience rule then has two groups and also selects nothing.
+      expect(resolveInverseRelation(twinChild, twinSource, "subject")).toEqual({
+        kind: "missing",
+      });
+      expect(resolveInverseRelation(twinChild, twinSource, undefined)).toEqual({
+        kind: "missing",
+      });
+      expect(
+        getPolymorphicInverseBinding(twinChild, twinSource, "subject")
+      ).toBeUndefined();
+    });
+
+    test("a selected group that does not name this source exactly once selects nothing", () => {
+      const pairSource = s.model({ id: s.string().id() });
+      // ONE group, naming the same source TWICE: the group is selected and then yields
+      // two candidates, which is not a binding.
+      const pairChild = s.model({
+        id: s.string().id(),
+        subject: s.polymorphic(
+          { primary: () => pairSource, backup: () => pairSource },
+          {
+            values: {
+              primary: "source.primary.v1",
+              backup: "source.backup.v1",
+            },
+          }
+        ),
+      });
+      // ONE group naming a DIFFERENT model: the group is selected and yields none.
+      const strangerSource = s.model({ id: s.string().id() });
+      const strangerOther = s.model({ id: s.string().id() });
+      const strangerChild = s.model({
+        id: s.string().id(),
+        subject: s.polymorphic(
+          { other: () => strangerOther },
+          { values: { other: "other.v1" } }
+        ),
+      });
+
+      expect(resolveInverseRelation(pairChild, pairSource, undefined)).toEqual({
+        kind: "missing",
+      });
+      expect(
+        resolveInverseRelation(strangerChild, strangerSource, undefined)
+      ).toEqual({ kind: "missing" });
+    });
+  });
+
+  describe("15. coverage low value — the resolver's defensive readings", () => {
+    // Neither shape is producible through `s.model()`, whose state always carries both
+    // relation maps and whose relations always carry a getter. They are asserted because
+    // `src/schema/relation/**` is gated at 100% and a defensive read that nothing
+    // executes is indistinguishable from a broken one.
+
+    test("a carrier with no ordinary relation map yields no candidates", () => {
+      // Only the ordinary-map read is defensive (`relations ?? {}`, inherited
+      // from the deleted engine scanner). The polymorphic-map read is
+      // deliberately UNGUARDED, matching `getPolymorphicInverseCandidates`'s
+      // own read — every `s.model()` carries the map, so a carrier without one
+      // is not a state the resolver defends against.
+      const carrier = { "~": { state: {} } } as unknown as AnyModel;
+      expect(collectInverseCandidates(carrier, carrier)).toEqual([]);
+    });
+
+    test("a relation carrying no target getter is not a candidate", () => {
+      const source = s.model({ id: s.string().id() });
+      const carrier = {
+        "~": {
+          state: {
+            relations: {
+              orphan: {
+                "~": { state: { type: "manyToOne", fields: ["sourceId"] } },
+              },
+            },
+          },
+        },
+      } as unknown as AnyModel;
+      expect(collectInverseCandidates(carrier, source)).toEqual([]);
     });
   });
 });

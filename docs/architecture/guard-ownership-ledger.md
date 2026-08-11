@@ -16,6 +16,31 @@ disagreements at the end.
 The gate (unit O4) then re-measured the lane rather than accepting it, ran the
 architecture review §O4 requires above the band, and recorded both here.
 
+> **DISTINCT-TRUTH PHASE 2 (2026-08-11, after this ledger closed).** Site 11
+> (`RelationWritePart.assertOwnedFkAbsentFromUpdateData`, cluster 3) is DELETED,
+> by its own recorded retirement path (named future unit 1): the two inverse
+> scanners' candidate filters are aligned on `fields.length > 0` and one
+> schema-layer resolver (`src/schema/relation/inverse.ts`) owns candidate
+> discovery, so the zero-argument `.fields()` divergence — the site's only
+> route — is unrepresentable and the parse omission refuses the spelled owned
+> FK as `Unknown key` on EVERY schema. Measured before deletion: all four
+> degenerate payloads now refuse at validation with zero statements
+> (re-authored in `nested-update-owned-fk.test.ts`). The invariant count is
+> unchanged — site 12 still owns cluster 3's adopt-seam half — so the estate is
+> now **14 write-engine sites / 10 invariants** (query-engine 16/12, src 18/14),
+> and `operation-construction-inventory.test.ts` pins the new counts.
+>
+> Two more facts of the same change, both reviewed and ratified: (a) the
+> alignment rides a SECOND, inert axis — candidates are now filtered to
+> `manyToOne`/`oneToOne` everywhere, where the deleted engine scanners accepted
+> any fields-bearing relation; no public builder can construct the divergent
+> shape. (b) On the degenerate fields-less to-one over a NULLABLE foreign key,
+> the aligned omission also makes `disconnect` AVAILABLE where the old schema
+> refused it as `Unknown key` — the degenerate spelling now behaves exactly
+> like its ordinary equivalent, witnessed in `nested-update-owned-fk.test.ts`.
+> Cluster 3's disposition text and the future-unit list below are left as the
+> lift wrote them; this note is the correction of record.
+
 **Start here:** [What O2/O3 executed](#what-o2o3-executed) ·
 [the §O3 audit](#o3-the-five-question-audit-on-every-survivor) ·
 [disagreements](#disagreements-with-o1s-analysis-measured-in-o2o3) ·

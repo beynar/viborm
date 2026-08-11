@@ -276,13 +276,13 @@ export const toOneUpdateFactory = <
   // N1 — the same owner, applied to nested UPDATE data. See
   // {@link UpdateWithOmittedFk} for why the two contexts share one rule.
   //
-  // The engine keeps its own refusal for ONE measured reason, stated once, at the
-  // guard (`RelationWritePart.assertOwnedFkAbsentFromUpdateData`): a relation spelled
-  // `.fields()` with ZERO arguments carries `[]`, which this scanner treats as truthy
-  // and the engine's `bindRelation` treats as absent, so the omission removes nothing
-  // while the engine still knows a foreign key. The other candidate — several
-  // back-references matching no `.name()` — is NOT that reason: the engine's
-  // `findInverseRelationState` raises `Ambiguous relation …` before any guard runs.
+  // This omission is the SINGLE owner of the spelled-owned-FK refusal on every
+  // schema. The engine guard that once backed it up
+  // (`assertOwnedFkAbsentFromUpdateData`, guard-ledger site 11) is deleted: its
+  // only route was a zero-argument `.fields()` this scanner read as truthy while
+  // the engine read length, and the Phase 2 alignment gave both readings to one
+  // resolver (`@schema/relation/inverse`), so the divergent payload now refuses
+  // here, as `Unknown key`, like every other schema's.
   const getUpdateSchema = () => {
     const fkFields = targetHoldsInverseFk(state)
       ? getInverseRelationMapRuntime(state, source)

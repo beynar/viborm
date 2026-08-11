@@ -20,10 +20,8 @@ export {
 } from "./update";
 
 import type { AnyModel } from "@schema/model";
-import {
-  type GetPolymorphicInverseBinding,
-  getPolymorphicInverseBinding,
-} from "@schema/relation/polymorphic";
+import { getPolymorphicInverseBinding } from "@schema/relation/inverse";
+import type { GetPolymorphicInverseBinding } from "@schema/relation/polymorphic";
 import v, { type V } from "..";
 import { lazyRecord } from "../lazy";
 import type { ScalarSchemas } from "../model";

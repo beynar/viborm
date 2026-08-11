@@ -6,10 +6,11 @@
 
 import type { Model } from "@schema/model";
 import {
-  type AnyRelation,
-  getPolymorphicInverseBinding,
   type PolymorphicStorage,
   type ReferentialAction,
+  type ResolvedInverseRelation,
+  resolveInverseRelation,
+  resolveOrdinaryInverse,
 } from "@schema/relation";
 import { type Sql, sql } from "@sql";
 import {
@@ -132,11 +133,43 @@ export function bindRelation(
     };
   }
 
-  const polymorphicInverse = bindPolymorphicInverse(ctx, relationInfo);
-  if (polymorphicInverse) return polymorphicInverse;
+  // The one candidate scan lives in the schema layer (`@schema/relation`'s
+  // resolver); this binder only translates its verdicts into the engine's
+  // established errors and bound shapes. A fields-less `manyToOne` (the
+  // FK004-warned compatibility form) can never bind a polymorphic inverse, so
+  // it asks for the ordinary-only resolution — the same gate the deleted
+  // `bindPolymorphicInverse` kept.
+  const relationName = relationInfo.relation["~"].state.name;
+  const resolved =
+    relationInfo.type === "oneToOne" || relationInfo.type === "oneToMany"
+      ? resolveInverseRelation(
+          relationInfo.targetModel,
+          ctx.model,
+          relationName
+        )
+      : resolveOrdinaryInverse(
+          relationInfo.targetModel,
+          ctx.model,
+          relationName
+        );
 
-  const inverse = findInverseRelationState(ctx.model, relationInfo);
-  if (!inverse) {
+  if (resolved.kind === "polymorphic") {
+    return bindResolvedPolymorphicInverse(ctx, relationInfo, resolved);
+  }
+  if (resolved.kind === "ambiguous") {
+    const sourceName =
+      ctx.model["~"].names.ts ?? ctx.model["~"].state.tableName ?? "unknown";
+    const targetName =
+      relationInfo.targetModel["~"].names.ts ??
+      relationInfo.targetModel["~"].state.tableName ??
+      "unknown";
+    throw new QueryEngineError(
+      `Ambiguous relation '${relationInfo.name}' on model '${sourceName}': ` +
+        `multiple relations on '${targetName}' point back to it. ` +
+        "Add .name() to both sides of each relation to disambiguate."
+    );
+  }
+  if (resolved.kind === "missing") {
     throw new QueryEngineError(
       `Cannot determine FK fields for relation '${relationInfo.name}'. ` +
         "Define the inverse relation with .fields([...]) or use explicit FK fields."
@@ -146,12 +179,12 @@ export function bindRelation(
   const foreignKey = {
     relationInfo,
     sourceModel: ctx.model,
-    foreignFields: inverse.fields,
+    foreignFields: resolved.fields as readonly string[] as string[],
     referencedFields:
-      inverse.references && inverse.references.length > 0
-        ? inverse.references
+      resolved.references && resolved.references.length > 0
+        ? (resolved.references as readonly string[] as string[])
         : getPrimaryKeyFields(ctx.model),
-    onUpdate: inverse.onUpdate,
+    onUpdate: resolved.onUpdate,
   };
 
   if (relationInfo.isToOne) {
@@ -160,24 +193,15 @@ export function bindRelation(
   return { kind: "childHeldToMany", ...foreignKey };
 }
 
-function bindPolymorphicInverse(
+function bindResolvedPolymorphicInverse(
   ctx: QueryScope,
-  relationInfo: RelationInfo
-): PolymorphicChildHeldToOne | PolymorphicChildHeldToMany | undefined {
-  if (relationInfo.type !== "oneToOne" && relationInfo.type !== "oneToMany") {
-    return undefined;
-  }
-  const binding = getPolymorphicInverseBinding(
-    relationInfo.targetModel,
-    ctx.model,
-    relationInfo.relation["~"].state.name
-  );
-  if (!binding) return undefined;
-
+  relationInfo: RelationInfo,
+  resolved: Extract<ResolvedInverseRelation, { kind: "polymorphic" }>
+): PolymorphicChildHeldToOne | PolymorphicChildHeldToMany {
   const storage = relationInfo.targetModel["~"].getPolymorphicStorage(
-    binding.relationKey
+    resolved.relationKey
   );
-  const member = storage?.members.get(binding.publicType);
+  const member = storage?.members.get(resolved.publicType);
   if (!(storage && member)) {
     throw new QueryEngineError(
       `Polymorphic inverse '${relationInfo.name}' has no resolved storage binding.`
@@ -194,80 +218,8 @@ function bindPolymorphicInverse(
     referencedFields: [member.referencedField],
     onUpdate: undefined,
     storage,
-    storedType: binding.storedType,
+    storedType: resolved.storedType,
   };
-}
-
-/**
- * Find the ordinary inverse relation on the target model that owns the FK.
- * An explicit relation name disambiguates multiple back-references.
- */
-export function findInverseRelationState(
-  sourceModel: Model<any>,
-  relationInfo: RelationInfo
-):
-  | {
-      fields: string[];
-      references: string[] | undefined;
-      onUpdate: ReferentialAction | undefined;
-    }
-  | undefined {
-  const { targetModel } = relationInfo;
-  const currentRelationName = relationInfo.relation["~"].state.name;
-  const potentialInverses: Array<{
-    relationName?: string;
-    fields: string[];
-    references: string[] | undefined;
-    onUpdate: ReferentialAction | undefined;
-  }> = [];
-  const targetRelations: Record<string, AnyRelation> =
-    targetModel["~"].state.relations ?? {};
-
-  for (const relation of Object.values(targetRelations)) {
-    const state = relation["~"].state;
-    const fields = state.fields;
-    if (state.getter?.() === sourceModel && fields && fields.length > 0) {
-      potentialInverses.push({
-        relationName: state.name,
-        fields,
-        references: state.references,
-        onUpdate: state.onUpdate,
-      });
-    }
-  }
-
-  if (potentialInverses.length === 0) return undefined;
-  if (potentialInverses.length === 1) {
-    const inverse = potentialInverses[0]!;
-    return {
-      fields: inverse.fields,
-      references: inverse.references,
-      onUpdate: inverse.onUpdate,
-    };
-  }
-
-  if (currentRelationName) {
-    const inverse = potentialInverses.find(
-      (candidate) => candidate.relationName === currentRelationName
-    );
-    if (inverse) {
-      return {
-        fields: inverse.fields,
-        references: inverse.references,
-        onUpdate: inverse.onUpdate,
-      };
-    }
-  }
-
-  const sourceName =
-    sourceModel["~"].names.ts ?? sourceModel["~"].state.tableName ?? "unknown";
-  const targetName =
-    targetModel["~"].names.ts ?? targetModel["~"].state.tableName ?? "unknown";
-  throw new QueryEngineError(
-    `Ambiguous relation '${relationInfo.name}' on model '${sourceName}': ` +
-      `multiple relations on '${targetName}' point back to it. ` +
-      "Add .name() to both sides of each relation to disambiguate."
-  );
 }
 
 /**

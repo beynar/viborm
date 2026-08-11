@@ -140,8 +140,8 @@ type ScalarsForRelationKey<
  * The scan that resolves which columns a nested create/createMany must NOT ask the
  * caller for, because the enclosing relation owns them.
  *
- * TH — the relation name DISAMBIGUATES; it does not reject. This is the rule the runtime
- * `getInverseRelationMap` and the engine's `findInverseRelationState` both apply, and
+ * TH — the relation name DISAMBIGUATES; it does not reject. This is the rule the one
+ * candidate scan (`@schema/relation/inverse`) applies for every consumer, and
  * this twin used to apply it the rejecting way: on a schema whose SOLE back-reference
  * does not echo the source relation's `.name()`, the scan answered `never`, so
  * {@link CreateManyDataSchema} kept the foreign key REQUIRED while the runtime schema had
@@ -161,7 +161,12 @@ type ScannedCandidateKeys<S extends RelationState, Source extends AnyModel> = {
     getter: () => Source;
     fields: readonly string[];
   }
-    ? K
+    ? // The aligned reading, in the SAME idiom as `InverseCandidateKeys`
+      // (types.ts): only the known-empty tuple is excluded, so a widened
+      // `string[]` stays a candidate exactly as the runtime keeps it.
+      TargetModel<S>["~"]["state"]["relations"][K]["~"]["state"]["fields"] extends readonly []
+      ? never
+      : K
     : never;
 }[KnownKeys<TargetModel<S>["~"]["state"]["relations"]>];
 
@@ -177,11 +182,13 @@ type NamedScannedCandidateKeys<
         getter: () => Source;
         fields: readonly string[];
       }
-      ? S extends { name: infer RelationName extends string }
-        ? InverseState extends { name: RelationName }
-          ? K
-          : never
-        : K
+      ? InverseState["fields"] extends readonly []
+        ? never
+        : S extends { name: infer RelationName extends string }
+          ? InverseState extends { name: RelationName }
+            ? K
+            : never
+          : K
       : never
     : never;
 }[KnownKeys<TargetModel<S>["~"]["state"]["relations"]>];

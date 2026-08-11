@@ -1,6 +1,7 @@
 import { isValidSchemaIdentifier } from "../../identifier";
 import { Model } from "../../model";
 import {
+  collectInverseCandidates,
   generateJunctionFieldName,
   generateJunctionTableName,
   getPolymorphicInverseBinding,
@@ -258,14 +259,12 @@ function validateInverseBindings(
     if (candidates.length === 0) continue;
     const relationGroups = getPolymorphicRelations(target);
     const pairingName = relationState.name;
-    const ordinaryInverses = getRelations(target).filter(([, candidate]) => {
-      const state = candidate["~"].state;
-      return (
-        state.getter() === model &&
-        state.fields !== undefined &&
-        state.fields.length > 0
-      );
-    });
+    // The ONE ordinary-candidate scan (`@schema/relation/inverse`). What
+    // follows is NOT a second resolution: the resolver answers WHICH edge
+    // wins, while this rule enumerates the ways a polymorphic pairing can be
+    // ill-formed (P004/P005/P010) — reasons a bare `missing` verdict cannot
+    // carry. The two agree by construction on the atoms they share.
+    const ordinaryInverses = collectInverseCandidates(target, model);
     const namedPolymorphic =
       pairingName === undefined
         ? []
@@ -276,7 +275,7 @@ function validateInverseBindings(
       pairingName === undefined
         ? []
         : ordinaryInverses.filter(
-            ([, candidate]) => candidate["~"].state.name === pairingName
+            (candidate) => candidate.pairingName === pairingName
           );
     if (namedPolymorphic.length > 0 && namedOrdinary.length > 0) {
       issues.push(

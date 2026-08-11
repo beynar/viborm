@@ -10,11 +10,18 @@ export {
   getJunctionFieldNames,
   getJunctionTableName,
 } from "./helpers";
+export {
+  collectInverseCandidates,
+  getPolymorphicInverseBinding,
+  type ResolvedInverseCandidate,
+  type ResolvedInverseRelation,
+  resolveInverseRelation,
+  resolveOrdinaryInverse,
+} from "./inverse";
 export { ManyToManyRelation, manyToMany } from "./many-to-many";
 export {
   type AnyPolymorphicRelation,
   type GetPolymorphicInverseBinding,
-  getPolymorphicInverseBinding,
   getPolymorphicInverseCandidates,
   isPolymorphicRelation,
   type PolymorphicInverseBinding,

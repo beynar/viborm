@@ -497,10 +497,10 @@ describe("one record, one compiler parity", () => {
      * payload on both kinds is what makes "the upsert now agrees with the update" a
      * measured fact instead of an assertion. (`userId: "u2"` spelled directly stays
      * refused — since Package N1 by the PARSE BOUNDARY, which omits the key from
-     * nested update data, rather than by `assertOwnedFkAbsentFromUpdateData` one layer
-     * down. Either way the asymmetry is the relation schema's, not this seam's, and
-     * `nested-update-owned-fk.test.ts` owns it — including the one schema shape that
-     * still reaches the engine guard.)
+     * nested update data; the engine guard that once backed it up is deleted
+     * (distinct-truth Phase 2 aligned the two inverse scanners, closing its only
+     * route). Either way the asymmetry is the relation schema's, not this seam's,
+     * and `nested-update-owned-fk.test.ts` owns it on every schema.)
      */
     test(`inverse child-held to-one upsert compiles relation-bearing update data as one selected record (${substrate.name})`, () => {
       const driver = substrate.createDriver();

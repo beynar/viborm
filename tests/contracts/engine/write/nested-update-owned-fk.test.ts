@@ -4,7 +4,6 @@ import { PGliteDriver } from "@drivers/pglite";
 import type { PGlite, Transaction } from "@electric-sql/pglite";
 import { ValidationError } from "@errors";
 import { hydrateSchemaNames, s } from "@schema";
-import { UnsupportedOperationError } from "@src/query-engine/write-engine/shared";
 import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import { describe, expect, test } from "vitest";
 
@@ -26,9 +25,11 @@ import { describe, expect, test } from "vitest";
  * PR #20 answered 1–3 in the ENGINE. Position 4 was never reached by that guard
  * (`buildToManyUpdateManyParts` called it from nowhere) and stayed live until Package N1;
  * measured at e52c93de it returned success and moved `po1` to the thief. The Package N
- * GATE then wired position 4 to the same guard as the other three, because the parse
- * closes it only where the two scanners agree and the divergent schema at the bottom of
- * this file measured it still reparenting the row.
+ * GATE then wired position 4 to the same guard as the other three, because at that HEAD
+ * the parse closed the family only where the two inverse scanners AGREED, and the
+ * degenerate schema at the bottom of this file measured it still reparenting the row.
+ * Phase 2 of the distinct-truth compression made the scanners agree everywhere and the
+ * guard went with its last route (see below).
  *
  * **Package N1 moved the whole family to the parse boundary.** Nested update data is now
  * built from the same omitted-FK owner nested create data has always been built from
@@ -54,10 +55,14 @@ import { describe, expect, test } from "vitest";
  *  · **The provenance.** A decoy parent holds the id the payload tried to spell; after the
  *    refusal the child is still its own parent's.
  *
- * The ENGINE guard (`RelationWritePart.assertOwnedFkAbsentFromUpdateData`) is RETAINED,
- * and the last two sections of this file are why: publicly constructible schemas still
- * get a spelled owned FK past the parse, because the validation scanner and the engine
- * scanner read `.fields()` differently. Those sections are the guard's falsifier.
+ * The ENGINE guard (`RelationWritePart.assertOwnedFkAbsentFromUpdateData`) is now DELETED.
+ * It was retained by N1 for one reason — the two inverse scanners read `.fields()`
+ * differently, so a publicly constructible schema still got a spelled owned FK past the
+ * omission — and Phase 2 of the distinct-truth compression closed exactly that: both
+ * readers now length-test `.fields()`, so the parse omits the owned FK on EVERY schema and
+ * the guard's only route stopped existing. The last two sections of this file are the
+ * witnesses: the same two degenerate schemas, the same payloads, now refused at the same
+ * boundary as every position above.
  *
  * TWO deliberate consequences of moving the boundary, both measured and both making the
  * update context agree with the create context, which has behaved this way since it was
@@ -408,23 +413,30 @@ describe("M12 nested update data may not spell the relation's own foreign key", 
 });
 
 /**
- * **The engine guard's falsifier, and the reason Package N1 RETAINED it.**
+ * **The schema that used to escape the omission — now a witness that nothing does.**
  *
- * `assertOwnedFkAbsentFromUpdateData` is not made unreachable by the parse boundary,
- * because the two scanners that answer "which column does this relation own" do not read
- * `.fields()` the same way:
+ * This schema is why `assertOwnedFkAbsentFromUpdateData` was RETAINED by Package N1 and
+ * why it is DELETED now. The two runtime readers of "which column does this relation own"
+ * disagreed about a relation spelled `.fields()` with ZERO arguments:
  *
- *  · `getInverseRelationMap` (validation, `src/schema/relation/types.ts`) tests
- *    `state.fields` for TRUTHINESS. A relation spelled `.fields()` with zero arguments
- *    carries `[]`, which is truthy, so the scan short-circuits and answers `[]` — the
- *    omission removes nothing and the column stays a legal key.
- *  · `bindRelation` (engine, `src/query-engine/builders/relation-data-builder.ts`) tests
- *    `fields && fields.length > 0`. The same relation is therefore CHILD-HELD, and
- *    `findInverseRelationState` resolves the target's real back-reference — so the engine
- *    knows a foreign key the parse did not omit.
+ *  · `getInverseRelationMap` (validation, `src/schema/relation/types.ts`) tested
+ *    `state.fields` for TRUTHINESS. `[]` is truthy, so the scan short-circuited on its
+ *    owner-side arm and answered `[]` — the omission removed nothing and `userId` stayed
+ *    a legal key, which the engine guard then had to catch.
+ *  · `bindRelation` (engine) tested `fields && fields.length > 0`, so the same relation
+ *    was CHILD-HELD and the engine resolved the target's real back-reference.
  *
- * Both call positions reachable through this TO-ONE schema are asserted here; the
- * to-MANY half of the same divergence has its own schema and its own section below.
+ * PHASE 2 OF THE DISTINCT-TRUTH COMPRESSION ALIGNED THEM: the omission view length-tests
+ * `.fields()` too (`src/schema/relation/types.ts`, both the owner-side short-circuit and
+ * the candidate filter), and one resolver — `src/schema/relation/inverse.ts` — now owns
+ * candidate discovery for every consumer. A zero-argument `.fields()` is fields-LESS
+ * everywhere, so on THIS schema the parse omits `userId` exactly as it does on the
+ * ordinary one at the top of the file, and the guard's only route is gone.
+ *
+ * The schema is KEPT, unchanged, because it is the falsifier for that claim: if either
+ * reader ever goes back to reading truthiness, these two tests stop refusing. The
+ * before-truth — the engine's `UnsupportedOperationError: Relation 'profile' owns
+ * 'userId'; …`, with the same payloads — is at commit 40e50057 and in this file's history.
  */
 const splitScannerSchema = (() => {
   const user = s
@@ -455,10 +467,11 @@ const splitScannerSchema = (() => {
 hydrateSchemaNames(splitScannerSchema);
 const getSplitFamily = usePGliteSchemaFamily(splitScannerSchema);
 
-const SPLIT_OWNED_FK =
-  "Relation 'profile' owns 'userId'; omit it from nested create and update data.";
+/** The aligned parse's own sentence on this schema — `v.omit(core.update, ["userId"])`
+ *  makes the column an unknown key, exactly as on the ordinary schema above. */
+const SPLIT_UNKNOWN_FK = "Validation failed for update: Unknown key: userId";
 
-describe("M12 the retained engine guard still catches what the parse cannot omit", () => {
+describe("M12 the parse boundary owns the degenerate to-one schema too", () => {
   async function splitSetup() {
     const family = getSplitFamily();
     await family.reset();
@@ -473,23 +486,22 @@ describe("M12 the retained engine guard still catches what the parse cannot omit
   }
 
   test(
-    "buildToOneUpdatePart — the to-one update arm",
+    "the to-one update arm refuses at the parse, not at the engine",
     { timeout: 30_000 },
     async () => {
       const { client, driver } = await splitSetup();
       driver.recording = true;
-      await expect(
+      // Was `UnsupportedOperationError: Relation 'profile' owns 'userId'; …`, raised by
+      // the engine guard after the omission had admitted the key. The payload is
+      // un-typed at the call for the same reason as every refusal above: the alignment
+      // removes the key from the TYPES on this schema too.
+      const call = () =>
         client.user.update({
           where: { id: "owner" },
-          data: { profile: { update: { bio: "x", userId: "thief" } } },
-        })
-      ).rejects.toThrow(UnsupportedOperationError);
-      await expect(
-        client.user.update({
-          where: { id: "owner" },
-          data: { profile: { update: { bio: "x", userId: "thief" } } },
-        })
-      ).rejects.toThrow(SPLIT_OWNED_FK);
+          data: { profile: { update: { bio: "x", userId: "thief" } } } as never,
+        });
+      await expect(call()).rejects.toThrow(ValidationError);
+      await expect(call()).rejects.toThrow(SPLIT_UNKNOWN_FK);
       driver.recording = false;
       expect(driver.statements).toEqual([]);
       await expect(
@@ -499,12 +511,12 @@ describe("M12 the retained engine guard still catches what the parse cannot omit
   );
 
   test(
-    "buildInverseToOneUpsertPart — the to-one upsert UPDATE arm",
+    "the to-one upsert UPDATE arm refuses at the parse, not at the engine",
     { timeout: 30_000 },
     async () => {
       const { client, driver } = await splitSetup();
       driver.recording = true;
-      await expect(
+      const call = () =>
         client.user.update({
           where: { id: "owner" },
           data: {
@@ -514,11 +526,37 @@ describe("M12 the retained engine guard still catches what the parse cannot omit
                 update: { bio: "x", userId: "thief" },
               },
             },
-          },
-        })
-      ).rejects.toThrow(SPLIT_OWNED_FK);
+          } as never,
+        });
+      await expect(call()).rejects.toThrow(ValidationError);
+      await expect(call()).rejects.toThrow(SPLIT_UNKNOWN_FK);
       driver.recording = false;
       expect(driver.statements).toEqual([]);
+      await expect(
+        client.profile.findUnique({ where: { id: "p1" } })
+      ).resolves.toEqual({ id: "p1", bio: "bio", userId: "owner" });
+    }
+  );
+
+  test(
+    "RATIFIED WIDENING — disconnect is now AVAILABLE on this schema, like its ordinary twin",
+    { timeout: 30_000 },
+    async () => {
+      // Before the alignment the degenerate map answered `[]`, so
+      // `inverseMembershipCanBeCleared` was false and `disconnect` was an
+      // `Unknown key` here — a refusal the ordinary spelling of the SAME
+      // physical schema never had (profile.userId is nullable). The aligned
+      // scan resolves the real back-reference, so the degenerate spelling now
+      // behaves exactly like the ordinary one: disconnect nulls the FK.
+      // Reviewed and ratified with the Phase 2 alignment (ledger addendum).
+      const { client } = await splitSetup();
+      await client.user.update({
+        where: { id: "owner" },
+        data: { profile: { disconnect: true } } as never,
+      });
+      await expect(
+        client.profile.findUnique({ where: { id: "p1" } })
+      ).resolves.toEqual({ id: "p1", bio: "bio", userId: null });
     }
   );
 
@@ -539,31 +577,36 @@ describe("M12 the retained engine guard still catches what the parse cannot omit
 });
 
 /**
- * **The to-many half of the same divergence — and position 4's owner.**
+ * **The to-many half of the same schema class — and position 4's owner.**
  *
- * The split above needs the target to carry the zero-argument `.fields()` relation for a
+ * The split needs the target to carry the zero-argument `.fields()` relation for a
  * to-many edge, so `post` holds TWO back-references to `user`: `ghost`, spelled
  * `.fields()` with no arguments and DECLARED FIRST, and the real `author`.
  *
- *  · `getInverseRelationMap` keeps `ghost` as a candidate (its filter is `!state.fields`,
- *    and `[]` is truthy), finds two candidates, takes the first whose `.name()` does not
- *    disagree — `ghost` — and answers `[]`. The omission removes nothing.
- *  · `bindRelation` DROPS `ghost` (`fields && fields.length > 0`), leaving exactly one
- *    potential inverse, so `posts` binds child-held on the real `userId`.
+ * BEFORE THE ALIGNMENT: `getInverseRelationMap` kept `ghost` as a candidate (its filter
+ * was `!state.fields`, and `[]` is truthy), met two candidates, took the first whose
+ * `.name()` did not disagree — `ghost` — and answered `[]`, so the omission removed
+ * nothing; `bindRelation` DROPPED `ghost` (`fields && fields.length > 0`), leaving one
+ * potential inverse, so `posts` bound child-held on the real `userId`. Measured at the
+ * Package N implementer's HEAD, through the public client, `posts.updateMany.data.userId`
+ * returned SUCCESS and left `po1` under `thief` — the silent reparent the Package N gate
+ * then wired to the engine guard.
  *
- * Measured at the Package N implementer's HEAD, through the public client:
- * `posts.updateMany.data.userId` returned SUCCESS and left `po1` under `thief` — the
- * silent reparent, still live, on the one arm the guard had never been wired to. The gate
- * wired it. The first test below is that guard's falsifier: delete the
- * `assertOwnedFkAbsentFromUpdateData` call in `buildToManyUpdateManyParts` and it goes
- * red with a reparented row.
+ * AFTER IT: one candidate scan (`src/schema/relation/inverse.ts`) drops `ghost` for both
+ * readers, so the omission view answers the real `["userId"]`, the parse omits it, and
+ * BOTH to-many arms refuse before an operation is constructed. The bulk refusal below is
+ * the alignment's falsifier: restore the truthiness reading in either place and — with no
+ * engine guard behind it any more — that payload reparents `po1` onto `thief` again.
  *
- * The TARGETED `update` arm (`buildToManyUpdateParts`) is measured NOT reachable on this
- * same schema, and the second test pins why rather than asserting a guard that does not
- * run: a targeted to-many update binds the target's own relations, so `ghost` — which
- * cannot be bound at all — raises `Cannot determine FK fields for relation 'ghost'` from
- * the engine's scanner first. That asymmetry is the whole reason position 4 stood open:
- * the bulk arm binds nothing, so it is the arm that arrives.
+ * The second test is the one that changed shape as well as class. The targeted `update`
+ * arm used to die EARLIER than any guard, in the engine's own scanner
+ * (`Cannot determine FK fields for relation 'ghost'`), because a targeted to-many update
+ * binds the target's own relations and the zero-argument side cannot be bound — the
+ * asymmetry with `updateMany`, which binds nothing, is precisely why position 4 stood
+ * open. That route is now UNREACHABLE FROM THIS PAYLOAD: the parse refuses the spelled
+ * key before the engine binds anything. `ghost` itself is still unbindable, and that fact
+ * keeps its own pin at the resolver level in
+ * `tests/unit/relations/inverse-resolution-parity.core.test.ts` (case 10).
  */
 const splitToManySchema = (() => {
   const user = s
@@ -592,14 +635,12 @@ const splitToManySchema = (() => {
 hydrateSchemaNames(splitToManySchema);
 const getSplitToManyFamily = usePGliteSchemaFamily(splitToManySchema);
 
-const SPLIT_MANY_OWNED_FK =
-  "Relation 'posts' owns 'userId'; omit it from nested create and update data.";
+/** Both to-many arms are `v.singleOrArray(...)`, so the unknown key surfaces through the
+ *  union's own sentence: member 1 is the `{ where, data }` object, member 2 the array. */
+const SPLIT_MANY_UNKNOWN_FK =
+  "Validation failed for update: Value did not match any union member: Unknown key: userId, Expected array";
 
-/** The engine scanner's OWN refusal, raised before any guard runs — the reason the
- *  targeted arm is not a route into this family on the divergent schema. */
-const UNBINDABLE_GHOST = /Cannot determine FK fields for relation 'ghost'/;
-
-describe("M12 the retained engine guard owns the bulk arm too", () => {
+describe("M12 the parse boundary owns the degenerate to-many schema's arms", () => {
   async function splitManySetup() {
     const family = getSplitToManyFamily();
     await family.reset();
@@ -614,7 +655,7 @@ describe("M12 the retained engine guard owns the bulk arm too", () => {
   }
 
   test(
-    "buildToManyUpdateManyParts — the bulk arm the parse cannot omit",
+    "the bulk arm — the one that was silently reparenting — refuses at the parse",
     { timeout: 30_000 },
     async () => {
       const { client, driver } = await splitManySetup();
@@ -629,12 +670,14 @@ describe("M12 the retained engine guard owns the bulk arm too", () => {
                 data: { title: "x", userId: "thief" },
               },
             },
-          },
+          } as never,
         });
-      await expect(call()).rejects.toThrow(UnsupportedOperationError);
-      await expect(call()).rejects.toThrow(SPLIT_MANY_OWNED_FK);
+      // Was a SUCCESS before the Package N gate, then the engine guard's
+      // `UnsupportedOperationError: Relation 'posts' owns 'userId'; …`.
+      await expect(call()).rejects.toThrow(ValidationError);
+      await expect(call()).rejects.toThrow(SPLIT_MANY_UNKNOWN_FK);
       driver.recording = false;
-      // Refused while the Parts are BUILT, so nothing was sent.
+      // Refused while the payload is PARSED, so nothing was sent.
       expect(driver.statements).toEqual([]);
       // `thief` exists and would have accepted the row — this is the provenance that
       // makes the refusal load-bearing rather than incidental.
@@ -645,11 +688,12 @@ describe("M12 the retained engine guard owns the bulk arm too", () => {
   );
 
   test(
-    "the targeted update arm dies in the engine's own scanner, before the guard",
+    "the targeted update arm refuses at the parse, before the engine scanner",
     { timeout: 30_000 },
     async () => {
-      const { client } = await splitManySetup();
-      await expect(
+      const { client, driver } = await splitManySetup();
+      driver.recording = true;
+      const call = () =>
         client.user.update({
           where: { id: "owner" },
           data: {
@@ -659,9 +703,15 @@ describe("M12 the retained engine guard owns the bulk arm too", () => {
                 data: { title: "y", userId: "thief" },
               },
             },
-          },
-        })
-      ).rejects.toThrow(UNBINDABLE_GHOST);
+          } as never,
+        });
+      // Was `Cannot determine FK fields for relation 'ghost'` — the engine's own scanner,
+      // reached because a targeted to-many update binds the target's relations. The parse
+      // now answers first, so that route is unreachable from this payload.
+      await expect(call()).rejects.toThrow(ValidationError);
+      await expect(call()).rejects.toThrow("Unknown key: userId");
+      driver.recording = false;
+      expect(driver.statements).toEqual([]);
       await expect(
         client.post.findUnique({ where: { id: "po1" } })
       ).resolves.toEqual({ id: "po1", title: "title", userId: "owner" });

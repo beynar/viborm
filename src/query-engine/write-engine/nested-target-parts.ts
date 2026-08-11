@@ -96,8 +96,7 @@ export function buildJunctionTargetRelationParts(
   // The bulk-leaf wall, at its ONE owner (`relation-key-legality`), applied here for
   // the same reason it is applied at the other three positions that build bulk leaves:
   // one owner, one message, one decision, called wherever the decision is due. This is
-  // a CALL POSITION, not a second guard — the pattern site 11
-  // (`assertOwnedFkAbsentFromUpdateData`) already uses at four positions.
+  // a CALL POSITION, not a second guard.
   //
   // MEASURED, and stated plainly because the first version of this comment claimed the
   // opposite: this position has NO live route today. `RecordUpdateCompiler`'s two

@@ -10,43 +10,56 @@ import { beforeAll, expect, expectTypeOf, test } from "vitest";
 /**
  * M8(b) — **the two inverse scanners must answer the same question the same way.**
  *
- * Two independent scanners walk the target model looking for the to-one back-reference
- * that carries a child-held relation's foreign key:
+ * Two independent scanners used to walk the target model looking for the to-one
+ * back-reference that carries a child-held relation's foreign key:
  *
  *   · `getInverseRelationMap` (`schema/relation/types.ts`) decides which columns the
  *     PARSE omits from a nested `create` — the user must not spell a FK the engine owns;
- *   · `findInverseRelationState` (`query-engine/builders/correlation-utils.ts`) decides
- *     which columns the ENGINE resolves — the read path's correlation and the
- *     nested-write FK direction both go through it.
+ *   · `findInverseRelationState` (`query-engine/builders/relation-data-builder.ts`, since
+ *     DELETED) decided which columns the ENGINE resolves — the read path's correlation
+ *     and the nested-write FK direction both go through it.
  *
- * They disagreed on ONE axis: what `.name()` means when the SOLE back-reference does not
- * echo it. The schema scanner treated a name mismatch as a REJECTION (returning
- * undefined, so the parse omitted nothing); the engine treated the name as a
- * DISAMBIGUATOR consulted only when several back-references compete, so it resolved the
- * edge anyway. Measured at 330d43c on the schema below: the parse ADMITTED a spelled
- * `authorId`, and `emitRecord`'s `{ ...scalarData, ...inject }` then OVERWROTE it — a
- * user-supplied identity discarded with no diagnostic.
+ * They disagreed on TWO axes. BOTH ARE NOW CLOSED, and there is no second scanner left to
+ * disagree with: one resolver — `resolveInverseRelation` / `resolveOrdinaryInverse` /
+ * `collectInverseCandidates` in `src/schema/relation/inverse.ts` — owns candidate
+ * discovery, `getInverseRelationMap` is its FK-OMISSION VIEW, and `bindRelation`
+ * (`query-engine/builders/relation-data-builder.ts`) is its query-time consumer, owning
+ * the two error translations (`Ambiguous relation …`, `Cannot determine FK fields …`) the
+ * deleted scanner used to raise from inside the scan. Three deliberate NON-consumers
+ * survive with distinct responsibilities: `validateInverseBindings`
+ * (`schema/validation/rules/polymorphic.ts`) keeps its own DIAGNOSTIC tree — it
+ * enumerates the ways a polymorphic pairing is ill-formed (P004/P005/P010), reasons a
+ * bare `missing` verdict cannot carry, over the same collector; `findPairedManyToManyState`
+ * pairs m2m sides (a different fact); and `hasInverse` (rules/relation.ts) asks
+ * reciprocal-of-expected-type existence with no fields test. The resolver-level parity contract
+ * is `tests/unit/relations/inverse-resolution-parity.core.test.ts`.
  *
- * The scanners are aligned on the ENGINE's reading, because the engine's is the one two
- * live callers depend on for a schema the validator accepts (see the file's second half):
- * a sole back-reference IS the edge whatever either side spelled. So the parse now omits
+ * AXIS 1 — what `.name()` means when the SOLE back-reference does not echo it. The schema
+ * scanner treated a name mismatch as a REJECTION (returning undefined, so the parse
+ * omitted nothing); the engine treated the name as a DISAMBIGUATOR consulted only when
+ * several back-references compete, so it resolved the edge anyway. Measured at 330d43c on
+ * the schema below: the parse ADMITTED a spelled `authorId`, and `emitRecord`'s
+ * `{ ...scalarData, ...inject }` then OVERWROTE it — a user-supplied identity discarded
+ * with no diagnostic.
+ *
+ * It was aligned on the ENGINE's reading, because the engine's is the one two live callers
+ * depend on for a schema the validator accepts (see the file's second half): a sole
+ * back-reference IS the edge whatever either side spelled. So the parse now omits
  * `authorId` and refuses to be told it — a typed `ValidationError` where a silent
- * overwrite used to be.
+ * overwrite used to be. That is what every assertion in this file exercises.
  *
- * **A SECOND AXIS IS STILL OPEN, and this file may not imply otherwise.** Measured by the
- * Package N gate (2026-08-11): the two scanners also read a relation spelled `.fields()`
- * with ZERO arguments differently. `getInverseRelationMap` filters candidates on
- * `!relState.fields`, and `[]` is truthy, so such a relation stays a candidate and can be
- * answered as the edge's field list — omitting nothing. `bindRelation`
- * (`query-engine/builders/relation-data-builder.ts`) filters on
- * `fields && fields.length > 0`, so it DROPS the same relation and resolves the target's
- * real back-reference. The parse therefore admits a foreign key the engine owns, which is
- * why `RelationWritePart.assertOwnedFkAbsentFromUpdateData` is RETAINED rather than
- * deleted by Package N1, and it is pinned — with the reparented row as the failure — in
- * `nested-update-owned-fk.test.ts` (its last two describe blocks, one to-one and one
- * to-many). Closing this axis means making the two filters agree, which is a schema-layer
- * change with its own blast radius (the scan feeds read correlation too) and its own
- * measurement; it is a Package O ledger item, not something this file asserts today.
+ * AXIS 2 — a relation spelled `.fields()` with ZERO arguments. Found open by the Package N
+ * gate (2026-08-11) and CLOSED by Phase 2 of the distinct-truth compression: the omission
+ * view filtered candidates on `!relState.fields`, and `[]` is truthy, so such a relation
+ * stayed a candidate and could be answered as the edge's field list — omitting nothing —
+ * while the engine dropped it on `fields && fields.length > 0` and resolved the target's
+ * real back-reference. Both the runtime filter and its type twin now length-test, so a
+ * zero-argument `.fields()` is fields-LESS to every reader. Its consequence is recorded
+ * here because a census cannot show it: `RelationWritePart.assertOwnedFkAbsentFromUpdateData`
+ * — guard-ledger site 11, RETAINED by Package N1 for exactly this axis — is DELETED, its
+ * only route having stopped existing, and the two degenerate schemas that used to escape
+ * the omission are now witnesses that nothing does (`nested-update-owned-fk.test.ts`, its
+ * last two describe blocks, one to-one and one to-many).
  */
 
 // =============================================================================

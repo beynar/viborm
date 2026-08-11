@@ -946,6 +946,36 @@ describe("write engine route inventory (P6 accounting)", () => {
   //     without consuming it, Package O deletes it"; Package D refused it on SHAPE and
   //     recorded why at its owner. Deleted with its unit test, which was its only caller
   //     in the repository.
+  //
+  // 15 -> 14 (DISTINCT-TRUTH COMPRESSION, PHASE 2 — "give inverse resolution a schema
+  // owner"). ONE SITE DELETED, none added, and no limitation left with it, because the
+  // invalid program it refused can no longer be CONSTRUCTED — which is this estate's only
+  // licence to delete a guard rather than convert it.
+  //   · **-1, site 11** (`RelationWritePart.assertOwnedFkAbsentFromUpdateData`, together
+  //     with all FOUR of its call positions) — "a second provenance for the relation-owned
+  //     foreign key". Package N1 moved that family to the parse boundary and RETAINED this
+  //     site for ONE reason, the one the closing narrative below states: the two runtime
+  //     scanners that answer "which column does this relation own" read `.fields()`
+  //     differently, so a relation spelled `.fields()` with ZERO arguments answered `[]`
+  //     from the validation scanner (`[]` is truthy, the omission removed nothing) and was
+  //     DROPPED by the engine scanner (`fields && fields.length > 0`, so the engine knew a
+  //     foreign key the parse had admitted). PHASE 2 ALIGNED THEM on the engine's reading
+  //     and gave candidate discovery one owner — `src/schema/relation/inverse.ts`, with
+  //     `getInverseRelationMap` as its FK-OMISSION VIEW and `bindRelation` as its
+  //     query-time consumer (which also took over the two error translations the deleted
+  //     `findInverseRelationState` used to raise). The parse now omits the owned FK on
+  //     EVERY schema, so the guard's only route stopped existing.
+  //   · THE FALSIFIERS ARE RE-AUTHORED, not deleted, which is what makes this a deletion
+  //     and not a hole: `nested-update-owned-fk.test.ts` keeps BOTH degenerate schemas —
+  //     the zero-argument `.fields()` to-one and the ghost-candidate to-many — and all
+  //     four payloads, and pins their new answers (`ValidationError: … Unknown key:
+  //     userId` at the parse, zero statements recorded, the child still under its own
+  //     parent). Restore either truthiness reading and the bulk `updateMany` arm reparents
+  //     the row again, with no engine guard behind it any more.
+  //   · THE INVARIANT SURVIVES with one site: `RelationUpsertPart.withoutAgreeingOwnedFk`
+  //     (site 12) still owns "a second provenance for the owned FK" on the upsert seam,
+  //     where the engine ABSORBS an agreeing spelling instead of refusing it. So the
+  //     distinct-invariant count does not move; only the position count does.
   test("no UnsupportedOperationError throw site exists outside the reviewed set", async () => {
     const { readdir, readFile } = await import("node:fs/promises");
     const { join } = await import("node:path");
@@ -956,11 +986,11 @@ describe("write engine route inventory (P6 accounting)", () => {
       const source = await readFile(join(dir, file), "utf8");
       sites += source.split("new UnsupportedOperationError(").length - 1;
     }
-    expect(sites).toBe(15);
+    expect(sites).toBe(14);
   });
 
   /**
-   * The classification names 19 throw coordinates and 18 owner declarations. Package N3
+   * The classification names 18 throw coordinates and 17 owner declarations. Package N3
    * deleted the previous generation of line-number claims because they had decayed — 18
    * of 22 doc coordinates no longer resolved — and then wrote fresh ones, which decay
    * exactly the same way unless something executes them. This is that something: it
@@ -982,6 +1012,10 @@ describe("write engine route inventory (P6 accounting)", () => {
    *     conversion law demands (`operation-construction-witnesses.test.ts`, "a compound
    *     primary key carrying a many-to-many relation"): the OwnWrite analyzer's m2m
    *     resolution answers that payload first, so the site refused nothing.
+   *   · 11 — the owned-FK guard, DELETED by Phase 2 of the distinct-truth compression
+   *     (the count-evolution block's last entry). Not folded into another owner and not
+   *     converted: aligning the two inverse scanners made its only route unconstructible,
+   *     and its falsifiers were re-authored against the parse boundary that now answers.
    *
    * Sites 25 and 26 build the error and `return` it to a thrower, so the assertion is
    * on the CONSTRUCTION token, which is what the census counts.
@@ -1003,8 +1037,9 @@ describe("write engine route inventory (P6 accounting)", () => {
       [
         1,
         "query-engine/write-engine/UpdateManyRecordSeries.ts",
-        348,
-        337,
+        // Shifted -1 when unit 9.6 deleted the series' unread `mode` line.
+        347,
+        336,
         "assertMembershipAppliesToEveryRoot",
       ],
       [
@@ -1045,7 +1080,8 @@ describe("write engine route inventory (P6 accounting)", () => {
       [
         7,
         "query-engine/write-engine/CreateManyRecordSeries.ts",
-        126,
+        // Shifted -1 by unit 9.6 (mode deletion).
+        125,
         null,
         null,
       ],
@@ -1055,13 +1091,6 @@ describe("write engine route inventory (P6 accounting)", () => {
         1374,
         1362,
         "resolveCreatePk",
-      ],
-      [
-        11,
-        "query-engine/write-engine/RelationWritePart.ts",
-        1250,
-        1240,
-        "assertOwnedFkAbsentFromUpdateData",
       ],
       [
         12,
@@ -1159,7 +1188,7 @@ describe("write engine route inventory (P6 accounting)", () => {
     }
     expect(misses).toEqual([]);
     // The list itself must stay complete, or a site could be dropped to keep it green.
-    expect(CLASSIFIED.length).toBe(19);
+    expect(CLASSIFIED.length).toBe(18);
   });
 });
 
@@ -1316,8 +1345,9 @@ describe("write engine full client operation surface (P6 precondition)", () => {
  *                                        the work it waits on.
  *
  * THE WRITE-ENGINE SITES (the number this file pins: 21 when N3 wrote this section,
- * 15 after Package O — the per-site rows below keep N3's numbering, and the seven
- * numbers Package O retired are named in the count-evolution block)
+ * 15 after Package O, 14 after Phase 2 of the distinct-truth compression deleted site 11
+ * — the per-site rows below keep N3's numbering, and the eight numbers those two rounds
+ * retired are named in the count-evolution block)
  *
  * TWO COORDINATE COLUMNS, because one of them is history. "N3" is where the site stood
  * when this section was written; "HEAD" is where it stands now, and is what the
@@ -1336,7 +1366,7 @@ describe("write engine full client operation surface (P6 precondition)", () => {
  *  8  RelationJunctionPart.ts:1374    resolveCreatePk:1362                    MSI  :1374 / :1362
  *  9  RelationJunctionPart.ts:2354    scalarOnly:2343                         MSI  RETIRED → 22
  * 10  RelationWritePart.ts:691        parseScalarUpdateData:676               MSI  RETIRED → 22
- * 11  RelationWritePart.ts:1244       assertOwnedFkAbsentFromUpdateData:1234  SC   :1250 / :1240
+ * 11  RelationWritePart.ts:1244       assertOwnedFkAbsentFromUpdateData:1234  SC   RETIRED (deleted)
  * 12  RelationUpsertPart.ts:754       withoutAgreeingOwnedFk:743              SC   :754 / :743
  * 13  RelationUpsertPart.ts:1211      assertArmEdgeIsChildHeld:1204           SC   :1211 / :1204
  * 14  CreateOperation.ts:991          interpretPolymorphicRelation:961        MSI  RETIRED → 15
@@ -1382,7 +1412,10 @@ describe("write engine full client operation surface (P6 precondition)", () => {
  *   1. an unresolvable referenced value            8 (2,3,5,14,15,      4 (2,3,5,15)
  *                                                     16,18,20)
  *   2. nested bulk data carries relation writes    4 (9,10,22,23)      1 (22)
- *   3. a second provenance for the owned FK        2 (11,12)           2 (11,12)
+ *   3. a second provenance for the owned FK        2 (11,12)           2 (11,12),
+ *      then 1 (12) after Phase 2 of the distinct-truth compression deleted site 11. The
+ *      invariant is UNCHANGED — the upsert seam still owns it, and the nested-update
+ *      family is owned by the parse boundary on every schema.
  *   4. skipDuplicates without an identity          2 (7,8) — TWO       2 (7,8) — TWO
  *      contracts: 7 is DPC (the public meaning is unchosen) and 8 is MSI (a skipped
  *      row produces no identity). One PHRASE, two invariants; counted as two.
@@ -1404,6 +1437,10 @@ describe("write engine full client operation surface (P6 precondition)", () => {
  * `UnsupportedOperationError` and 13 still engine-owned. Nothing became legal; one
  * invariant changed error class. By scope, as §O4 asks them to be reported:
  * write-engine 15 sites / 10 invariants · query-engine 17 / 12 · whole `src` 19 / 14.
+ *
+ * AFTER PHASE 2 of the distinct-truth compression (site 11 deleted, an SC row whose
+ * invariant keeps site 12): write-engine 14 sites / 10 invariants · query-engine 16 / 12 ·
+ * whole `src` 18 / 14. Sites move, invariants do not — which is the shape §O4 asks for.
  *
  * WHAT THAT DOES AND DOES NOT SETTLE, stated exactly, because the first version of
  * this paragraph got it wrong. §O4's 8–12 band is a gate on CONSTRUCTION SITES
@@ -1439,6 +1476,10 @@ describe("write engine full client operation surface (P6 precondition)", () => {
  *   over all 19: MSI 9 · SC 5 · PSI 3 · UFF 1 · DPC 1 (= 19).
  *   over the 17 query-engine sites: MSI 9 · SC 4 · PSI 2 · UFF 1 · DPC 1 (= 17).
  *   over the 15 write-engine sites: MSI 8 · SC 4 · PSI 1 · UFF 1 · DPC 1 (= 15).
+ * AFTER DISTINCT-TRUTH PHASE 2 (one SC row, site 11, deleted):
+ *   over all 18: MSI 9 · SC 4 · PSI 3 · UFF 1 · DPC 1 (= 18).
+ *   over the 16 query-engine sites: MSI 9 · SC 3 · PSI 2 · UFF 1 · DPC 1 (= 16).
+ *   over the 14 write-engine sites: MSI 8 · SC 3 · PSI 1 · UFF 1 · DPC 1 (= 14).
  * Six MSI positions left (9, 10, 14, 16, 18, 23) and one UFF changed class (17).
  * Each line is stated with its total because the first version of the first line summed
  * to 25 and nobody noticed until it was added up.
@@ -1539,4 +1580,15 @@ describe("write engine full client operation surface (P6 precondition)", () => {
  * raises `Cannot determine FK fields …` from the engine's scanner first, while the bulk
  * arm binds nothing and therefore arrives. Package O must re-measure an arm's binding
  * behaviour before reading "no live route" as licence to delete a call position.
+ *
+ * WHAT PHASE 2 OF THE DISTINCT-TRUTH COMPRESSION DID TO BOTH PARAGRAPHS ABOVE: it
+ * discharged the retention condition they state. N1's reason for keeping site 11 was the
+ * `.fields()` disagreement itself, so aligning the two scanners on `fields.length > 0` —
+ * and giving candidate discovery ONE owner in `src/schema/relation/inverse.ts` — removed
+ * the guard's only route, and the site is DELETED with all four call positions. Census
+ * 15 → 14. The gate's warning survives its own subject and is the reason this was allowed:
+ * the four positions were not deleted for having "no live route", they were deleted
+ * because the parse now omits the owned FK on EVERY schema, and each position's payload
+ * was re-measured through the public client and re-pinned at the boundary that answers it
+ * (`nested-update-owned-fk.test.ts`, both degenerate schemas kept as the falsifiers).
  */

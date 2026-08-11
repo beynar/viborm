@@ -12,10 +12,7 @@ import type {
   NormalizedRelationUpsert,
   RelationMutationEntry,
 } from "../builders/relation-mutation-parser";
-import {
-  buildParsedRelationPrograms,
-  partitionModelData,
-} from "../builders/relation-mutation-parser";
+import { buildParsedRelationPrograms } from "../builders/relation-mutation-parser";
 import { getWhereUniqueEntries } from "../builders/where-unique-builder";
 import { getTableName } from "../context/query-scope";
 import {
@@ -39,7 +36,6 @@ import {
   presenceGuard,
 } from "./fragment-builders";
 import {
-  relationOwnsForeignKey,
   relationTargetNotFound,
   setRequiredOrphan,
   upsertPremiseChanged,
@@ -74,7 +70,6 @@ import type { StepScope } from "./StepScope";
 import {
   isRecord,
   pinnedTargetValues,
-  UnsupportedOperationError,
   uniqueSelectorConjuncts,
 } from "./shared";
 import {
@@ -1182,80 +1177,6 @@ interface WritePartBase {
   readonly recordCompilers: RecordCompilerSeam;
 }
 
-/**
- * Reject a nested update that assigns the relation-owned FK. Correlation derives
- * that column from the enclosing record; a second value source could move the
- * selected child away after it was located. The parse boundary normalizes scalar
- * shorthand, so checking the partitioned field name covers both spellings.
- *
- * RETAINED, and this is the route that keeps it (Package N1 enumerated the others and
- * measured each one closed). N1 built every nested update schema from the omitted-FK
- * owner — `v.omit(core.update, fkFields)`, `UpdateWithOmittedFk` in
- * `src/validation/relations/create.ts` — so the ordinary payload no longer arrives.
- * What still arrives is a schema on which the two scanners DISAGREE about which column
- * the relation owns:
- *
- *  · `getInverseRelationMap` (validation) tests `state.fields` for TRUTHINESS, so a
- *    relation spelled `.fields()` with zero arguments answers `[]` and the omission
- *    removes nothing;
- *  · `bindRelation` (this layer) tests `fields && fields.length > 0`, so the SAME
- *    relation is child-held and `findInverseRelationState` resolves the target's real
- *    back-reference.
- *
- * THREE of the four call positions below are reachable that way and are pinned in
- * `tests/contracts/engine/write/nested-update-owned-fk.test.ts` ("the retained engine
- * guard still catches what the parse cannot omit"); deleting the condition turns them
- * red.
- *
- * The fourth call — `buildToManyUpdateManyParts` — was added by the Package N gate, and
- * the reason is the one measurement that matters here. `updateMany` was position 4 of
- * this family and the ONLY position the guard never covered; before N1 it accepted the
- * spelled key on every schema and reparented the row. N1's omission closed it wherever
- * the two scanners agree, but on the divergent schema they do not, and the arm had no
- * owner at all: measured through the public client, `posts.updateMany.data.userId`
- * returned success and left `po1` under `thief`. One invariant, one guard, every
- * position that can violate it — not three of four.
- *
- * `buildToManyUpdateParts` has no measured live route: on the same divergent schema the
- * targeted `update` arm dies earlier, in the engine's own scanner
- * (`Cannot determine FK fields for relation 'ghost'`), because a targeted to-many update
- * binds the target's relations and the zero-argument side cannot be bound. That
- * asymmetry with `updateMany` — which binds nothing and therefore arrives — is why the
- * position that looked safest was the one standing open. It stays a guard-ownership-
- * ledger note, not licence to split one rule across two owners.
- *
- * Junction and polymorphic child-held relations never reach any of these four calls
- * (`RecordUpdateCompiler.interpretRelation` returns for both before this dispatch), so
- * the guard cannot see a `manyToMany` arm — which is the same edge `UpdateWithOmittedFk`
- * declines to omit, from the other side.
- *
- * ROUTES MEASURED CLOSED by the omission, each through the public client: nesting depth
- * ≥ 2 (`buildParsedRelationPrograms` re-validates nothing, but `core.update` recurses
- * into the target's own relation update schemas); `UpdateManyRecordSeries` members, which
- * are handed the RAW constructor args (the envelope is validated once at the series and
- * each member re-parses `data`); `CreateManyRecordSeries` rows; the composed
- * supplier+modify path with its `suppliedWhere` locator; the X1c whole-target delegation;
- * and the inverse-upsert seam's update arm.
- */
-function assertOwnedFkAbsentFromUpdateData(
-  base: WritePartBase,
-  data: Record<string, unknown>
-): void {
-  const { scalarData } = partitionModelData(base.childScope, data);
-  if (
-    base.relation.foreignFields.some((foreignField) =>
-      Object.hasOwn(scalarData, foreignField)
-    )
-  ) {
-    throw new UnsupportedOperationError(
-      relationOwnsForeignKey(
-        base.relation.relationInfo.name,
-        base.relation.foreignFields
-      )
-    );
-  }
-}
-
 /** `update`: one targeted correlated Part per `{ where, data }` item. The Part owns
  * target selection and failure semantics; its `RecordUpdateCompiler` owns the selected
  * row's scalar and descendant mutations. */
@@ -1271,7 +1192,6 @@ export function buildToManyUpdateParts(
       );
     }
     // Refuse a second value source for the FK before record compilation forks.
-    assertOwnedFkAbsentFromUpdateData(base, item.data);
     return new RelationWritePart(base.scope, {
       ...partConfig(base, "update"),
       where: item.target.where,
@@ -1313,7 +1233,6 @@ export function buildToOneUpdatePart(
   // The relation owns this FK, so it is never update data — whether the locator is the
   // FK correlation (a lone modify) or `suppliedWhere` (one composed with a supplier,
   // whose own assignment writes the same column).
-  assertOwnedFkAbsentFromUpdateData(base, target.data);
   return new RelationWritePart(base.scope, {
     ...partConfig(base, "update"),
     data: target.data,
@@ -1342,7 +1261,6 @@ export function buildInverseToOneUpsertPart(
   }
   const createData = input.create;
   // The found arm cannot move the child away by assigning its relation-owned FK.
-  assertOwnedFkAbsentFromUpdateData(base, input.update);
   // A relation-bearing create arm uses the ordinary fresh-record compiler; its
   // incoming membership is injected into the subtree's root INSERT.
   const subtree = base.recordCompilers.createFresh({
@@ -1368,7 +1286,6 @@ export function buildToManyUpdateManyParts(
     // The bulk arm derives the same correlation the targeted one does — `WHERE fk =
     // <parent>` — so a spelled FK is the same second value source, and it rides the
     // bulk SET that lands after the correlation chose the rows.
-    assertOwnedFkAbsentFromUpdateData(base, item.data);
     return new RelationWritePart(base.scope, {
       ...partConfig(base, "updateMany"),
       filter: item.where ?? {},
