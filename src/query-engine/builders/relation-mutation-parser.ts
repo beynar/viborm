@@ -400,7 +400,7 @@ function parseNormalizedUpdates(
   relationInfo: RelationInfo,
   value: unknown
 ): NormalizedRelationUpdate[] {
-  if (relationInfo.isToOne) {
+  if (relationInfo.cardinality === "one") {
     // `parsedPayload` is deliberately an unknown carrier, but the to-one update
     // schema has already normalized this branch to its canonical envelope.
     const target = splitToOneUpdateTarget(value as ToOneUpdateEnvelope);
@@ -460,7 +460,7 @@ function parseNormalizedUpserts(
   relationInfo: RelationInfo,
   value: unknown
 ): NormalizedRelationUpsert[] {
-  if (relationInfo.isToOne && Array.isArray(value)) {
+  if (relationInfo.cardinality === "one" && Array.isArray(value)) {
     throw new NestedWriteError(
       `Malformed nested 'upsert' operation on relation '${relationInfo.name}': expected a single object envelope for to-one relations.`,
       relationInfo.name,
@@ -470,12 +470,13 @@ function parseNormalizedUpserts(
 
   return parseSingleOrArrayRecord(value, relationInfo, "upsert").map(
     (input) => ({
-      target: relationInfo.isToOne
-        ? { kind: "correlated" }
-        : {
-            kind: "unique",
-            where: requireRecordField(relationInfo, "upsert", input, "where"),
-          },
+      target:
+        relationInfo.cardinality === "one"
+          ? { kind: "correlated" }
+          : {
+              kind: "unique",
+              where: requireRecordField(relationInfo, "upsert", input, "where"),
+            },
       create: requireRecordField(relationInfo, "upsert", input, "create"),
       update: requireRecordField(relationInfo, "upsert", input, "update"),
     })
@@ -539,7 +540,7 @@ function rejectToOneOperation(
   relationInfo: RelationInfo,
   operation: string
 ): void {
-  if (!relationInfo.isToOne) return;
+  if (relationInfo.cardinality !== "one") return;
   throw new NestedWriteError(
     `Nested operation '${operation}' is not supported for to-one relation '${relationInfo.name}'.`,
     relationInfo.name,

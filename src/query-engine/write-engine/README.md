@@ -43,7 +43,7 @@ outer shell. `write-engine/*Operation.ts` contains these owners;
 ordering helpers.
 
 In relation code, parent means the current source record and child means its
-target at that edge. `parentHeldToOne` means the source stores the FK; it is not
+target at that edge. `position: "parentHeld"` means the source stores the FK; it is not
 a global model hierarchy.
 
 ## Three independent facts
@@ -57,10 +57,11 @@ Execution-specific deduplication stays with the consumer that owns it.
 
 ### Relation position
 
-`BoundRelation` classifies an edge as `parentHeldToOne`, `childHeldToOne`,
-`childHeldToMany`, `polymorphicChildHeldToOne`,
-`polymorphicChildHeldToMany`, or `junction`. It stores
-topology only: source model, ordered storage fields, referenced fields, and the
+`BoundRelation` classifies an edge on three orthogonal axes — `position`
+(`parentHeld`/`childHeld`/`junction`), `cardinality` (`one`/`many`), and
+`membership.kind` (`foreignKey`/`polymorphic`/`junction`) — with impossible
+combinations unrepresentable. It stores topology only: source model and one
+membership carrying ordered storage fields, referenced fields, and the
 schema-fixed discriminator needed by a polymorphic inverse. It does not store
 scopes, runtime identities, value sources, transition state, SQL, or branch
 policy.
@@ -84,7 +85,7 @@ order. The projection keeps public model fields and private physical columns in
 one captured-row contract. A true no-op returns no compiler before allocating
 an ID.
 
-For `parentHeldToOne`, the record compiler owns the inline FK fold and the branch
+For a parent-held edge, the record compiler owns the inline FK fold and the branch
 needed to construct its own INSERT or UPDATE. Child-held and junction relation
 owners keep target selection, correlation, membership, found/missing decisions,
 guards, race pins, not-found messages, and standalone edge effects. The routed

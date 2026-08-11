@@ -1,8 +1,5 @@
 import { NestedWriteError, UnsupportedOperationError } from "@errors";
-import {
-  bindRelation,
-  isChildHeldRelation,
-} from "./builders/relation-data-builder";
+import { bindRelation } from "./builders/relation-data-builder";
 import {
   buildParsedRelationPrograms,
   type ParsedRecordPrograms,
@@ -105,7 +102,7 @@ export function findSingleTargetMembershipMove(
   relations: Readonly<Record<string, RelationMutationProgram>>
 ): { readonly relationName: string; readonly kind: string } | undefined {
   for (const program of Object.values(relations)) {
-    if (!isChildHeldRelation(bindRelation(source, program.relationInfo))) {
+    if (bindRelation(source, program.relationInfo).position !== "childHeld") {
       continue;
     }
     for (const entry of program.entries) {
@@ -189,8 +186,9 @@ export function assertSelectedUpdateManyDataIsScalar(
  * row supplies every member's OLD value and `postTransitionReference` derives every
  * member's NEW value — so the refusal has a compiling answer and its five eager arm-side
  * call sites are gone with it. Its domain was also strictly NARROWER than the compiler's
- * (row-key members only, and it matched `parentHeldToOne.referencedFields`, which name
- * the TARGET's columns rather than the selected model's, by name across two models).
+ * (row-key members only, and it matched a parent-held membership's
+ * `referencedFields`, which name the TARGET's columns rather than the selected
+ * model's, by name across two models).
  */
 
 function findRelationBearingUpdateManyData(
@@ -219,7 +217,7 @@ function findRelationBearingUpdateManyData(
           return {
             relationName: program.relationInfo.name,
             relationKeys: nested,
-            isJunction: relation.kind === "junction",
+            isJunction: relation.position === "junction",
           };
         }
       }
@@ -243,14 +241,14 @@ export function assertRelationKeyUpdatesAreCompilable(
 
   for (const mutation of Object.values(relations)) {
     const relation = bindRelation(ctx, mutation.relationInfo);
-    if (relation.kind === "junction") continue;
+    if (relation.position === "junction") continue;
     const relationKeyFields =
-      relation.kind === "parentHeldToOne"
-        ? relation.foreignFields
-        : relation.referencedFields;
+      relation.position === "parentHeld"
+        ? relation.membership.foreignFields
+        : relation.membership.referencedFields;
     for (const field of relationKeyFields) {
       if (scalarData[field] === undefined) continue;
-      if (primaryKeyFields.has(field) && relation.kind !== "parentHeldToOne") {
+      if (primaryKeyFields.has(field) && relation.position !== "parentHeld") {
         continue;
       }
       if (classifyRelationKeyScalarUpdate(scalarData[field]).resolved) continue;

@@ -213,7 +213,10 @@ interface ClassificationCase {
   readonly label: string;
   readonly source: Model<any>;
   readonly relationName: string;
-  readonly kind: BoundRelation["kind"];
+  /** The three orthogonal axes, pinned one by one. */
+  readonly position: BoundRelation["position"];
+  readonly cardinality: BoundRelation["cardinality"];
+  readonly membership: BoundRelation["membership"]["kind"];
   readonly foreignFields?: readonly string[];
   readonly referencedFields?: readonly string[];
   readonly onUpdate?: "cascade" | "setNull";
@@ -224,7 +227,9 @@ const cases: readonly ClassificationCase[] = [
     label: "an explicit FK is parent-held to-one",
     source: member,
     relationName: "team",
-    kind: "parentHeldToOne",
+    position: "parentHeld",
+    cardinality: "one",
+    membership: "foreignKey",
     foreignFields: ["teamId"],
     referencedFields: ["id"],
   },
@@ -232,7 +237,9 @@ const cases: readonly ClassificationCase[] = [
     label: "an unnamed one-to-many inverse is child-held to-many",
     source: team,
     relationName: "members",
-    kind: "childHeldToMany",
+    position: "childHeld",
+    cardinality: "many",
+    membership: "foreignKey",
     foreignFields: ["teamId"],
     referencedFields: ["id"],
   },
@@ -240,7 +247,9 @@ const cases: readonly ClassificationCase[] = [
     label: "an explicit compound FK is parent-held to-one",
     source: membership,
     relationName: "tenant",
-    kind: "parentHeldToOne",
+    position: "parentHeld",
+    cardinality: "one",
+    membership: "foreignKey",
     foreignFields: ["tenantRegion", "tenantSlug"],
     referencedFields: ["region", "slug"],
     onUpdate: "cascade",
@@ -249,7 +258,9 @@ const cases: readonly ClassificationCase[] = [
     label: "the inverse compound edge is child-held to-many",
     source: tenant,
     relationName: "memberships",
-    kind: "childHeldToMany",
+    position: "childHeld",
+    cardinality: "many",
+    membership: "foreignKey",
     foreignFields: ["tenantRegion", "tenantSlug"],
     referencedFields: ["region", "slug"],
     onUpdate: "cascade",
@@ -258,7 +269,9 @@ const cases: readonly ClassificationCase[] = [
     label: "a fields-less one-to-one is child-held to-one",
     source: user,
     relationName: "profile",
-    kind: "childHeldToOne",
+    position: "childHeld",
+    cardinality: "one",
+    membership: "foreignKey",
     foreignFields: ["userId"],
     referencedFields: ["id"],
     onUpdate: "setNull",
@@ -267,7 +280,9 @@ const cases: readonly ClassificationCase[] = [
     label: "a fields-less many-to-one is child-held to-one",
     source: left,
     relationName: "inverse",
-    kind: "childHeldToOne",
+    position: "childHeld",
+    cardinality: "one",
+    membership: "foreignKey",
     foreignFields: ["leftId"],
     referencedFields: ["id"],
   },
@@ -275,7 +290,9 @@ const cases: readonly ClassificationCase[] = [
     label: "a named inverse selects the matching FK",
     source: namedParent,
     relationName: "edited",
-    kind: "childHeldToMany",
+    position: "childHeld",
+    cardinality: "many",
+    membership: "foreignKey",
     foreignFields: ["editorId"],
     referencedFields: ["id"],
   },
@@ -283,7 +300,9 @@ const cases: readonly ClassificationCase[] = [
     label: "a self-relation keeps its parent-held position",
     source: selfNode,
     relationName: "parent",
-    kind: "parentHeldToOne",
+    position: "parentHeld",
+    cardinality: "one",
+    membership: "foreignKey",
     foreignFields: ["parentId"],
     referencedFields: ["id"],
   },
@@ -291,7 +310,9 @@ const cases: readonly ClassificationCase[] = [
     label: "a non-primary unique reference keeps the referenced field",
     source: organization,
     relationName: "workers",
-    kind: "childHeldToMany",
+    position: "childHeld",
+    cardinality: "many",
+    membership: "foreignKey",
     foreignFields: ["organizationCode"],
     referencedFields: ["code"],
   },
@@ -299,7 +320,9 @@ const cases: readonly ClassificationCase[] = [
     label: "many-to-many is a junction without FK direction",
     source: article,
     relationName: "tags",
-    kind: "junction",
+    position: "junction",
+    cardinality: "many",
+    membership: "junction",
   },
 ];
 
@@ -315,19 +338,25 @@ describe("bound relation classification", () => {
 
     const relation = bindRelation(scope, relationInfo);
 
-    expect(relation.kind).toBe(classification.kind);
+    expect(relation.position).toBe(classification.position);
+    expect(relation.cardinality).toBe(classification.cardinality);
+    expect(relation.membership.kind).toBe(classification.membership);
     expect(relation.sourceModel).toBe(classification.source);
     expect(relation.relationInfo).toBe(relationInfo);
 
-    if (relation.kind === "junction") {
+    if (relation.position === "junction") {
       expect(classification.foreignFields).toBeUndefined();
       expect(classification.referencedFields).toBeUndefined();
       return;
     }
 
-    expect(relation.foreignFields).toEqual(classification.foreignFields);
-    expect(relation.referencedFields).toEqual(classification.referencedFields);
-    expect(relation.onUpdate).toBe(classification.onUpdate);
+    expect(relation.membership.foreignFields).toEqual(
+      classification.foreignFields
+    );
+    expect(relation.membership.referencedFields).toEqual(
+      classification.referencedFields
+    );
+    expect(relation.membership.onUpdate).toBe(classification.onUpdate);
   });
 
   test("a relation without an inverse keeps the existing direction error", () => {
@@ -372,51 +401,55 @@ describe("bound relation classification", () => {
   });
 });
 
-function bindJunction(source: Model<any>, relationName: string) {
+/** The bound junction's MEMBERSHIP — the two sides and the table they join. */
+function bindJunctionMembership(source: Model<any>, relationName: string) {
   const scope = createQueryScope(adapter, source);
   const relationInfo = getRelationInfo(scope, relationName);
   if (!relationInfo) {
     throw new Error(`Expected relation '${relationName}' on the test model.`);
   }
   const relation = bindRelation(scope, relationInfo);
-  if (relation.kind !== "junction") {
+  if (relation.position !== "junction") {
     throw new Error(`Expected relation '${relationName}' to bind a junction.`);
   }
-  return relation;
+  return relation.membership;
 }
 
 describe("bound junction sides", () => {
   test("both sides carry their model, column and referenced field", () => {
-    const relation = bindJunction(junctionSchema.post, "labels");
+    const membership = bindJunctionMembership(junctionSchema.post, "labels");
 
-    expect(relation.table).toBe("label_post");
-    expect(relation.source.model).toBe(junctionSchema.post);
-    expect(relation.source.members).toEqual([
+    expect(membership.table).toBe("label_post");
+    expect(membership.source.model).toBe(junctionSchema.post);
+    expect(membership.source.members).toEqual([
       { junctionField: "postId", referencedField: "id" },
     ]);
-    expect(relation.target.model).toBe(junctionSchema.label);
-    expect(relation.target.members).toEqual([
+    expect(membership.target.model).toBe(junctionSchema.label);
+    expect(membership.target.members).toEqual([
       { junctionField: "labelId", referencedField: "id" },
     ]);
   });
 
   test("the paired relation reverses the sides and keeps the table", () => {
-    const relation = bindJunction(junctionSchema.label, "posts");
+    const membership = bindJunctionMembership(junctionSchema.label, "posts");
 
-    expect(relation.table).toBe("label_post");
-    expect(relation.source.model).toBe(junctionSchema.label);
-    expect(relation.source.members).toEqual([
+    expect(membership.table).toBe("label_post");
+    expect(membership.source.model).toBe(junctionSchema.label);
+    expect(membership.source.members).toEqual([
       { junctionField: "labelId", referencedField: "id" },
     ]);
-    expect(relation.target.model).toBe(junctionSchema.post);
-    expect(relation.target.members).toEqual([
+    expect(membership.target.model).toBe(junctionSchema.post);
+    expect(membership.target.members).toEqual([
       { junctionField: "postId", referencedField: "id" },
     ]);
   });
 
   test("a self-relation's two ends reverse orientation on one table", () => {
-    const follows = bindJunction(junctionSchema.follower, "follows");
-    const followedBy = bindJunction(junctionSchema.follower, "followedBy");
+    const follows = bindJunctionMembership(junctionSchema.follower, "follows");
+    const followedBy = bindJunctionMembership(
+      junctionSchema.follower,
+      "followedBy"
+    );
 
     expect(follows.table).toBe("follower_follower");
     expect(followedBy.table).toBe("follower_follower");
@@ -447,16 +480,18 @@ describe("bound junction sides", () => {
     if (!relationInfo) throw new Error("Expected relation 'labels'.");
 
     const relation = bindRelation(scope, relationInfo);
-    expect(relation.kind).toBe("junction");
-    if (relation.kind !== "junction") throw new Error("Expected a junction.");
+    expect(relation.position).toBe("junction");
+    if (relation.position !== "junction") {
+      throw new Error("Expected a junction.");
+    }
 
-    expect(() => relation.source).toThrow(
+    expect(() => relation.membership.source).toThrow(
       'Model "compoundDoc" uses a compound primary key. Many-to-many relations with compound PKs are not supported. Use a single-field surrogate key (e.g., s.string().id().ulid()) instead.'
     );
     // The refusal belongs to the junction resolution, not to one side: the other
     // end of the same pair meets it too, naming the compound model.
     expect(
-      () => bindJunction(junctionSchema.compoundLabel, "docs").target
+      () => bindJunctionMembership(junctionSchema.compoundLabel, "docs").target
     ).toThrow('Model "compoundDoc" uses a compound primary key.');
   });
 });

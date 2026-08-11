@@ -84,14 +84,15 @@ expose an arbitrary physical-column escape in `values-builder.ts` or
 
 `relation-data-builder.ts` owns `bindRelation` and `BoundRelation`.
 
-Classification is:
+Classification (distinct-truth Phase 4 — three orthogonal axes):
 
-1. many-to-many → `junction`;
-2. current model holds FK → `parentHeldToOne`;
-3. resolved polymorphic inverse → `polymorphicChildHeldToOne` or
-   `polymorphicChildHeldToMany`;
-4. ordinary child-held to-one → `childHeldToOne`;
-5. remaining ordinary child-held edge → `childHeldToMany`.
+1. many-to-many → position `junction` (cardinality `many`, junction membership);
+2. current model holds FK → position `parentHeld` (cardinality `one`,
+   foreign-key membership);
+3. resolved polymorphic inverse → position `childHeld`, polymorphic membership,
+   cardinality from the public relation;
+4. remaining ordinary child-held edge → position `childHeld`, foreign-key
+   membership, cardinality from the public relation.
 
 The bound value contains the source model, ordered foreign and referenced
 fields, and update action. It does not contain scopes, aliases, identity

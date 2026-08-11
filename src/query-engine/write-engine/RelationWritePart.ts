@@ -1,12 +1,7 @@
 // biome-ignore-all lint/style/useFilenamingConvention: RelationWritePart is the architecture name.
 import { NestedWriteError, QueryEngineError } from "@errors";
 import type { Sql } from "@sql";
-import type {
-  ChildHeldToMany,
-  ChildHeldToOne,
-  PolymorphicChildHeldToMany,
-  PolymorphicChildHeldToOne,
-} from "../builders/relation-data-builder";
+import type { ChildHeldRelation } from "../builders/relation-data-builder";
 import type {
   NestedUpdateManyInput,
   NormalizedRelationUpsert,
@@ -103,12 +98,6 @@ import {
  * §3 corollary): the located parent id is inlined at compile as a literal, and
  * every correlation is expressed in SQL.
  */
-type ChildHeldRelation =
-  | ChildHeldToOne
-  | ChildHeldToMany
-  | PolymorphicChildHeldToOne
-  | PolymorphicChildHeldToMany;
-
 interface RelationWriteContext {
   readonly engine: QueryEngine;
   readonly childScope: QueryScope;

@@ -9,7 +9,7 @@ import { type Sql, sql } from "@sql";
 import { createChildScope, getColumnName, getTableName } from "../context";
 import { NestedWriteError, type QueryScope } from "../types";
 import {
-  type JunctionRelation,
+  type JunctionBoundRelation,
   junctionSideMember,
 } from "./relation-data-builder";
 import { buildScalarSqlValue } from "./values-builder";
@@ -28,7 +28,7 @@ import { buildWhereUnique } from "./where-unique-builder";
  */
 export function buildManyToManyJoinParts(
   ctx: QueryScope,
-  junction: JunctionRelation,
+  junction: JunctionBoundRelation,
   parentAlias: string,
   junctionAlias: string,
   targetAlias: string
@@ -38,7 +38,7 @@ export function buildManyToManyJoinParts(
   fromClause: Sql;
 } {
   const { adapter } = ctx;
-  const { source, target } = junction;
+  const { table, source, target } = junction.membership;
 
   // 1. Correlation: jt.sourceId = parent.id
   const correlationCondition = adapter.operators.and(
@@ -67,7 +67,7 @@ export function buildManyToManyJoinParts(
   );
 
   // 3. FROM clause
-  const fromClause = sql`${adapter.identifiers.table(junction.table, junctionAlias)}, ${adapter.identifiers.table(getTableName(target.model), targetAlias)}`;
+  const fromClause = sql`${adapter.identifiers.table(table, junctionAlias)}, ${adapter.identifiers.table(getTableName(target.model), targetAlias)}`;
 
   return { correlationCondition, joinCondition, fromClause };
 }
@@ -85,12 +85,12 @@ export function buildManyToManyJoinParts(
  */
 export function buildJunctionParentValue(
   ctx: QueryScope,
-  junction: JunctionRelation,
+  junction: JunctionBoundRelation,
   parentData: Record<string, unknown>,
   relationName: string
 ): Sql {
-  const { model } = junction.source;
-  const { referencedField } = junctionSideMember(junction.source);
+  const { model } = junction.membership.source;
+  const { referencedField } = junctionSideMember(junction.membership.source);
   const raw =
     parentData[referencedField] ??
     parentData[getColumnName(model, referencedField)];
@@ -108,12 +108,12 @@ export function buildJunctionParentValue(
  */
 export function buildJunctionTargetValue(
   ctx: QueryScope,
-  junction: JunctionRelation,
+  junction: JunctionBoundRelation,
   targetRecord: Record<string, unknown>,
   relationName: string
 ): Sql {
-  const { model } = junction.target;
-  const { referencedField } = junctionSideMember(junction.target);
+  const { model } = junction.membership.target;
+  const { referencedField } = junctionSideMember(junction.membership.target);
   const raw =
     targetRecord[referencedField] ??
     targetRecord[getColumnName(model, referencedField)];
@@ -132,7 +132,7 @@ export function buildJunctionTargetValue(
  */
 export function buildJunctionInsert(
   ctx: QueryScope,
-  junction: JunctionRelation,
+  junction: JunctionBoundRelation,
   parentValue: Sql,
   targetValue: Sql
 ): Sql {
@@ -142,14 +142,15 @@ export function buildJunctionInsert(
 /** INSERT junction rows in one portable duplicate-skipping statement. */
 export function buildJunctionInsertMany(
   ctx: QueryScope,
-  junction: JunctionRelation,
+  junction: JunctionBoundRelation,
   parentValue: Sql,
   targetValues: readonly Sql[]
 ): Sql {
   const { adapter } = ctx;
-  const sourceField = junctionSideMember(junction.source).junctionField;
-  const targetField = junctionSideMember(junction.target).junctionField;
-  const table = adapter.identifiers.escape(junction.table);
+  const membership = junction.membership;
+  const sourceField = junctionSideMember(membership.source).junctionField;
+  const targetField = junctionSideMember(membership.target).junctionField;
+  const table = adapter.identifiers.escape(membership.table);
   const { prefix, suffix } = adapter.mutations.skipDuplicates(sourceField);
   const insertSql = adapter.mutations.insert(
     table,
@@ -163,12 +164,12 @@ export function buildJunctionInsertMany(
 /** Condition: junction.source = parentValue (unqualified, for junction DML). */
 export function buildJunctionSourceMatch(
   ctx: QueryScope,
-  junction: JunctionRelation,
+  junction: JunctionBoundRelation,
   parentValue: Sql
 ): Sql {
   return ctx.adapter.operators.eq(
     ctx.adapter.identifiers.escape(
-      junctionSideMember(junction.source).junctionField
+      junctionSideMember(junction.membership.source).junctionField
     ),
     parentValue
   );
@@ -177,12 +178,12 @@ export function buildJunctionSourceMatch(
 /** Condition: junction.target IN (values | subquery) (for junction DML). */
 export function buildJunctionTargetIn(
   ctx: QueryScope,
-  junction: JunctionRelation,
+  junction: JunctionBoundRelation,
   targetValues: Sql
 ): Sql {
   return ctx.adapter.operators.in(
     ctx.adapter.identifiers.escape(
-      junctionSideMember(junction.target).junctionField
+      junctionSideMember(junction.membership.target).junctionField
     ),
     targetValues
   );
@@ -194,17 +195,18 @@ export function buildJunctionTargetIn(
  */
 export function buildTargetPkSubquery(
   ctx: QueryScope,
-  junction: JunctionRelation,
+  junction: JunctionBoundRelation,
   whereUnique: Record<string, unknown>
 ): Sql {
   const { adapter } = ctx;
-  const { model } = junction.target;
+  const target = junction.membership.target;
+  const { model } = target;
   const targetTableName = getTableName(model);
   const childCtx = createChildScope(ctx, model, ctx.nextAlias());
   const whereClause = buildWhereUnique(childCtx, whereUnique, targetTableName);
   const pkCol = adapter.identifiers.column(
     targetTableName,
-    getColumnName(model, junctionSideMember(junction.target).referencedField)
+    getColumnName(model, junctionSideMember(target).referencedField)
   );
   return sql`(SELECT ${pkCol} FROM ${adapter.identifiers.escape(targetTableName)} WHERE ${whereClause})`;
 }
@@ -215,18 +217,19 @@ export function buildTargetPkSubquery(
  */
 export function buildJunctionMembership(
   ctx: QueryScope,
-  junction: JunctionRelation,
+  junction: JunctionBoundRelation,
   parentValue: Sql,
   targetTableOrAlias: string
 ): Sql {
   const { adapter } = ctx;
-  const targetMember = junctionSideMember(junction.target);
+  const target = junction.membership.target;
+  const targetMember = junctionSideMember(target);
   const childPkCol = adapter.identifiers.column(
     targetTableOrAlias,
-    getColumnName(junction.target.model, targetMember.referencedField)
+    getColumnName(target.model, targetMember.referencedField)
   );
   const targetCol = adapter.identifiers.escape(targetMember.junctionField);
-  const junctionTable = adapter.identifiers.escape(junction.table);
+  const junctionTable = adapter.identifiers.escape(junction.membership.table);
   const sourceMatch = buildJunctionSourceMatch(ctx, junction, parentValue);
   return sql`${childPkCol} IN (SELECT ${targetCol} FROM ${junctionTable} WHERE ${sourceMatch})`;
 }
@@ -239,18 +242,18 @@ export function buildJunctionMembership(
  */
 export function buildJunctionDeleteCondition(
   ctx: QueryScope,
-  junction: JunctionRelation,
+  junction: JunctionBoundRelation,
   targetPks: Sql
 ): Sql {
   const condition = buildJunctionTargetIn(ctx, junction, targetPks);
-  if (junction.target.model !== ctx.model) {
+  if (junction.membership.target.model !== ctx.model) {
     return condition;
   }
   return ctx.adapter.operators.or(
     condition,
     ctx.adapter.operators.in(
       ctx.adapter.identifiers.escape(
-        junctionSideMember(junction.source).junctionField
+        junctionSideMember(junction.membership.source).junctionField
       ),
       targetPks
     )

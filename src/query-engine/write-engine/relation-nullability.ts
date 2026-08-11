@@ -1,40 +1,29 @@
 import { NestedWriteError } from "@errors";
 import type {
-  ChildHeldToMany,
-  ChildHeldToOne,
-  ParentHeldToOne,
-  PolymorphicChildHeldRelation,
+  ChildHeldRelation,
+  ParentHeldRelation,
 } from "../builders/relation-data-builder";
 
-type ForeignKeyRelation =
-  | ParentHeldToOne
-  | ChildHeldToOne
-  | ChildHeldToMany
-  | PolymorphicChildHeldRelation;
+/** A relation whose membership is columns on a row — i.e. not a junction. */
+type RowHeldRelation = ParentHeldRelation | ChildHeldRelation;
 
-export function requiredForeignKeyFields(
-  relation: ForeignKeyRelation
-): string[] {
-  if (
-    relation.kind === "polymorphicChildHeldToOne" ||
-    relation.kind === "polymorphicChildHeldToMany"
-  ) {
-    return [relation.storage.typeColumn, relation.storage.idColumn]
+export function requiredForeignKeyFields(relation: RowHeldRelation): string[] {
+  const { membership } = relation;
+  if (membership.kind === "polymorphic") {
+    return [membership.storage.typeColumn, membership.storage.idColumn]
       .filter((column) => !column.nullable)
       .map((column) => column.name);
   }
   const holder =
-    relation.kind === "parentHeldToOne"
+    relation.position === "parentHeld"
       ? relation.sourceModel
       : relation.relationInfo.targetModel;
-  return relation.foreignFields.filter(
+  return membership.foreignFields.filter(
     (field) => holder["~"].state.scalars[field]?.["~"].state.nullable !== true
   );
 }
 
-export function assertRelationCanDisconnect(
-  relation: ForeignKeyRelation
-): void {
+export function assertRelationCanDisconnect(relation: RowHeldRelation): void {
   const requiredFields = requiredForeignKeyFields(relation);
   if (requiredFields.length === 0) return;
 

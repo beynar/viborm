@@ -1,12 +1,7 @@
 // biome-ignore-all lint/style/useFilenamingConvention: RelationLinkPart is the architecture name.
 import { NestedWriteError, QueryEngineError } from "@errors";
 import type { Sql } from "@sql";
-import type {
-  ChildHeldToMany,
-  ChildHeldToOne,
-  PolymorphicChildHeldToMany,
-  PolymorphicChildHeldToOne,
-} from "../builders/relation-data-builder";
+import type { ChildHeldRelation } from "../builders/relation-data-builder";
 import type { RelationMutationEntry } from "../builders/relation-mutation-parser";
 import { getWhereUniqueEntries } from "../builders/where-unique-builder";
 import { getTableName } from "../context/query-scope";
@@ -48,11 +43,6 @@ import {
 } from "./target-projection";
 
 export type LinkKind = "connect" | "disconnect";
-type LinkedRelation =
-  | ChildHeldToOne
-  | ChildHeldToMany
-  | PolymorphicChildHeldToOne
-  | PolymorphicChildHeldToMany;
 
 interface RelationLinkConfigBase {
   readonly engine: QueryEngine;
@@ -470,7 +460,7 @@ export class RelationLinkPart implements Part {
 export function buildToManyLinkParts(
   scope: StepScope,
   engine: QueryEngine,
-  relation: LinkedRelation,
+  relation: ChildHeldRelation,
   childName: string,
   childScope: QueryScope,
   targetProjection: TargetProjection,

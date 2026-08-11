@@ -9,16 +9,14 @@ import {
 import { isMissingGeneratedIncrement } from "../builders/generated-scalar";
 import type { PolymorphicStorageValue } from "../builders/polymorphic-mutation";
 import {
-  type BoundPolymorphicChildHeldRelation,
   type BoundRelation,
   bindRelation,
   buildConnectSubqueryForField,
-  type ChildHeldToMany,
-  type ChildHeldToOne,
-  isPolymorphicChildHeldRelation,
-  type ParentHeldToOne,
-  type PolymorphicChildHeldToMany,
-  type PolymorphicChildHeldToOne,
+  type ChildHeldRelation,
+  hasPolymorphicMembership,
+  type OrdinaryChildHeldRelation,
+  type ParentHeldRelation,
+  type PolymorphicChildHeldRelation,
 } from "../builders/relation-data-builder";
 import {
   buildParsedRelationPrograms,
@@ -118,11 +116,6 @@ import {
 } from "./shared";
 
 type ExecutionMode = "transaction" | "batch";
-type ChildHeldRelation =
-  | ChildHeldToOne
-  | ChildHeldToMany
-  | PolymorphicChildHeldToOne
-  | PolymorphicChildHeldToMany;
 
 export interface FreshRecordPart extends Part {
   readonly rootWriteId: string;
@@ -1203,9 +1196,8 @@ export class CreateOperation {
     for (const [relationName, program] of Object.entries(relations)) {
       if (polymorphic[relationName]?.kind === "targeted") continue;
       const relation = bindRelation(childScope, program.relationInfo);
-      if (isPolymorphicChildHeldRelation(relation)) continue;
-      if (relation.kind !== "parentHeldToOne") continue;
-      const sharedForeignFields = relation.foreignFields.filter(
+      if (relation.position !== "parentHeld") continue;
+      const sharedForeignFields = relation.membership.foreignFields.filter(
         (foreignField) => recordPk.includes(foreignField)
       );
       if (sharedForeignFields.length === 0) continue;
@@ -1244,9 +1236,10 @@ export class CreateOperation {
         assertSharedPkResolved(childScope, entry.kind, relation, {});
         continue;
       }
-      for (let index = 0; index < relation.foreignFields.length; index += 1) {
-        const foreignField = relation.foreignFields[index]!;
-        const referenced = relation.referencedFields[index]!;
+      const { foreignFields, referencedFields } = relation.membership;
+      for (let index = 0; index < foreignFields.length; index += 1) {
+        const foreignField = foreignFields[index]!;
+        const referenced = referencedFields[index]!;
         if (!recordPk.includes(foreignField)) continue;
         // The literal the fold SPELLS. `isMissingGeneratedIncrement` is the same
         // question `planNestedCreateIdentity` asks one line later: a create payload
@@ -1339,8 +1332,7 @@ export class CreateOperation {
         continue;
       }
       const relation = bindRelation(childScope, program.relationInfo);
-      if (isPolymorphicChildHeldRelation(relation)) continue;
-      if (relation.kind !== "parentHeldToOne") continue;
+      if (relation.position !== "parentHeld") continue;
       const createEntry = program.entries.find(
         (entry) => entry.kind === "create"
       );
@@ -1351,7 +1343,7 @@ export class CreateOperation {
       if (!createData) continue;
       const key: Record<string, unknown> = {};
       let hasAny = false;
-      for (const referenced of relation.referencedFields) {
+      for (const referenced of relation.membership.referencedFields) {
         if (Object.hasOwn(createData, referenced)) {
           key[referenced] = createData[referenced];
           hasAny = true;
@@ -1403,7 +1395,7 @@ export class CreateOperation {
     const relationName = relationInfo.name;
     const entries = program.entries;
 
-    if (relation.kind === "junction") {
+    if (relation.position === "junction") {
       // The junction composes as ordinary Parts. A
       // fresh parent has no existing memberships, so every kind the parse boundary
       // admits here — create/createMany/connect/connectOrCreate/upsert — only ADDS
@@ -1469,7 +1461,7 @@ export class CreateOperation {
       return;
     }
 
-    if (relation.kind === "parentHeldToOne") {
+    if (relation.position === "parentHeld") {
       this.interpretParentHeld(input, relation, entries);
       return;
     }
@@ -1517,7 +1509,7 @@ export class CreateOperation {
    */
   private interpretParentHeld(
     input: Parameters<CreateOperation["interpretRelation"]>[0],
-    relation: ParentHeldToOne,
+    relation: ParentHeldRelation,
     entries: readonly RelationMutationEntry[]
   ): void {
     const { relationInfo } = relation;
@@ -1579,7 +1571,7 @@ export class CreateOperation {
    *  assign, no probe) or an uncovered global existence probe + pin. */
   private interpretParentHeldConnect(
     input: Parameters<CreateOperation["interpretRelation"]>[0],
-    relation: ParentHeldToOne,
+    relation: ParentHeldRelation,
     childScope: QueryScope,
     entry: Extract<RelationMutationEntry, { kind: "connect" }>
   ): void {
@@ -1597,7 +1589,7 @@ export class CreateOperation {
         input.coverage,
         relationInfo.targetModel,
         where,
-        relation.referencedFields
+        relation.membership.referencedFields
       )
     ) {
       // The incident's create-then-connect: a sibling before-parent create writes
@@ -1610,7 +1602,7 @@ export class CreateOperation {
     const probeId = this.scope.allocate(`${childName}.find`);
     const guardId = this.scope.allocate(`${childName}.guard.exists`);
     const pkSelect = Object.fromEntries(
-      relation.referencedFields.map((field) => [field, true])
+      relation.membership.referencedFields.map((field) => [field, true])
     );
     const probe: ReadStep = {
       id: probeId,
@@ -1637,7 +1629,7 @@ export class CreateOperation {
    *  referencing the target's (possibly generated) identity by a backward `Ref`. */
   private interpretParentHeldCreate(
     input: Parameters<CreateOperation["interpretRelation"]>[0],
-    relation: ParentHeldToOne,
+    relation: ParentHeldRelation,
     childScope: QueryScope,
     entry: Extract<RelationMutationEntry, { kind: "create" }>
   ): void {
@@ -1668,7 +1660,7 @@ export class CreateOperation {
    *  missing (create the target before the parent, `racePin`ned). */
   private interpretParentHeldConnectOrCreate(
     input: Parameters<CreateOperation["interpretRelation"]>[0],
-    relation: ParentHeldToOne,
+    relation: ParentHeldRelation,
     childScope: QueryScope,
     entry: Extract<RelationMutationEntry, { kind: "connectOrCreate" }>
   ): void {
@@ -1688,7 +1680,7 @@ export class CreateOperation {
     const probeId = this.scope.allocate(`${childName}.find`);
     const guardId = this.scope.allocate(`${childName}.guard.exists`);
     const pkSelect = Object.fromEntries(
-      relation.referencedFields.map((field) => [field, true])
+      relation.membership.referencedFields.map((field) => [field, true])
     );
     input.parentHeldArms.push({
       kind: "connectOrCreate",
@@ -1730,16 +1722,17 @@ export class CreateOperation {
    */
   private toOneFkAssign(
     recordModel: Model<any>,
-    relation: ParentHeldToOne,
+    relation: ParentHeldRelation,
     where: Record<string, unknown>
   ): Record<string, unknown> {
     const { relationInfo } = relation;
     const relationName = relationInfo.name;
     const recordScope = createQueryScope(this.engine.adapter, recordModel);
     const fkAssign: Record<string, unknown> = {};
-    for (let index = 0; index < relation.foreignFields.length; index += 1) {
-      const referenced = relation.referencedFields[index]!;
-      const foreignField = relation.foreignFields[index]!;
+    const { foreignFields, referencedFields } = relation.membership;
+    for (let index = 0; index < foreignFields.length; index += 1) {
+      const referenced = referencedFields[index]!;
+      const foreignField = foreignFields[index]!;
       const member: ForeignKeyMember = {
         foreignField,
         referencedField: referenced,
@@ -1769,13 +1762,14 @@ export class CreateOperation {
    *  (a `Ref` to a captured generated id, or a known literal). */
   private beforeParentFkAssign(
     recordModel: Model<any>,
-    relation: ParentHeldToOne,
+    relation: ParentHeldRelation,
     target: RecordPlan
   ): Record<string, unknown> {
     const relationName = relation.relationInfo.name;
     const fkAssign: Record<string, unknown> = {};
-    for (let index = 0; index < relation.foreignFields.length; index += 1) {
-      const foreignField = relation.foreignFields[index]!;
+    const { foreignFields, referencedFields } = relation.membership;
+    for (let index = 0; index < foreignFields.length; index += 1) {
+      const foreignField = foreignFields[index]!;
       fkAssign[foreignField] = referenceSql(
         this.engine,
         recordModel,
@@ -1783,7 +1777,7 @@ export class CreateOperation {
         this.targetReferencedValue(
           target,
           foreignField,
-          relation.referencedFields[index]!,
+          referencedFields[index]!,
           relationName
         )
       );
@@ -1835,11 +1829,7 @@ export class CreateOperation {
     // `> 1`, not `!== 1`: a payload naming NO kind (`{ card: {} }`) asks for nothing and
     // is Prisma's no-op, which this loop already answers by building nothing — the same
     // reading `RecordUpdateCompiler.interpretRelation` spells out for its empty payload.
-    if (
-      (relation.kind === "childHeldToOne" ||
-        relation.kind === "polymorphicChildHeldToOne") &&
-      entries.length > 1
-    ) {
+    if (relation.cardinality === "one" && entries.length > 1) {
       throw new QueryEngineError(
         `query-engine-v2 internal: an uncomposable child-held to-one payload reached the create dispatch on relation '${relationName}'; it has ${entries.map((entry) => entry.kind).join(", ")}.`
       );
@@ -1871,7 +1861,7 @@ export class CreateOperation {
                 wheres,
                 txMode,
               };
-              return isPolymorphicChildHeldRelation(relation)
+              return hasPolymorphicMembership(relation)
                 ? new ChildConnectPart(this.scope, {
                     ...common,
                     relation,
@@ -1898,12 +1888,12 @@ export class CreateOperation {
               this.scope,
               this.engine,
               entry.items,
-              isPolymorphicChildHeldRelation(relation)
+              hasPolymorphicMembership(relation)
                 ? bindRelationMembership(
                     relation,
                     this.referencedParentSource(
                       input.self,
-                      relation.referencedFields[0],
+                      relation.membership.referencedFields[0],
                       relationName
                     )
                   )
@@ -1923,12 +1913,12 @@ export class CreateOperation {
               this.scope,
               this.engine,
               entry.items,
-              isPolymorphicChildHeldRelation(relation)
+              hasPolymorphicMembership(relation)
                 ? bindRelationMembership(
                     relation,
                     this.referencedParentSource(
                       input.self,
-                      relation.referencedFields[0],
+                      relation.membership.referencedFields[0],
                       relationName
                     )
                   )
@@ -1963,10 +1953,10 @@ export class CreateOperation {
     relation: ChildHeldRelation,
     items: readonly Record<string, unknown>[]
   ): void {
-    const inject = isPolymorphicChildHeldRelation(relation)
+    const inject = hasPolymorphicMembership(relation)
       ? {}
       : this.childFkAssign(input.self, relation, childScope.model);
-    const polymorphicStorage = isPolymorphicChildHeldRelation(relation)
+    const polymorphicStorage = hasPolymorphicMembership(relation)
       ? [this.childPolymorphicStorage(input.self, relation)]
       : undefined;
     for (const item of items) {
@@ -2004,7 +1994,7 @@ export class CreateOperation {
         groups.some((group) => group.columns.length === 0)
       );
     }
-    const inject = isPolymorphicChildHeldRelation(relation)
+    const inject = hasPolymorphicMembership(relation)
       ? {}
       : this.childFkAssign(input.self, relation, childScope.model);
     const rows = userRows.map((row) => ({ ...row, ...inject }));
@@ -2017,7 +2007,7 @@ export class CreateOperation {
     // statement; a `recoverableUniqueError` dialect (MySQL) has no leaf, so each
     // per-row statement carries the savepoint-wrapped `onUniqueConflict: "skip"`
     // executor effect — exactly as the root `createMany` (ATOM “Bulk specializations”).
-    const sharedPolymorphicStorage = isPolymorphicChildHeldRelation(relation)
+    const sharedPolymorphicStorage = hasPolymorphicMembership(relation)
       ? resolvePolymorphicStorageValue(
           this.engine,
           this.childPolymorphicStorage(input.self, relation),
@@ -2069,13 +2059,14 @@ export class CreateOperation {
   /** The FK columns a child edge writes ← its referenced parent columns. */
   private childFkAssign(
     self: RecordIdentity,
-    relation: ChildHeldToOne | ChildHeldToMany,
+    relation: OrdinaryChildHeldRelation,
     childModel: Model<any>
   ): Record<string, unknown> {
     const relationName = relation.relationInfo.name;
     const assign: Record<string, unknown> = {};
-    for (let index = 0; index < relation.foreignFields.length; index += 1) {
-      const foreignField = relation.foreignFields[index]!;
+    const { foreignFields, referencedFields } = relation.membership;
+    for (let index = 0; index < foreignFields.length; index += 1) {
+      const foreignField = foreignFields[index]!;
       assign[foreignField] = referenceSql(
         this.engine,
         childModel,
@@ -2083,7 +2074,7 @@ export class CreateOperation {
         this.referencedValue(
           self,
           foreignField,
-          relation.referencedFields[index]!,
+          referencedFields[index]!,
           relationName
         )
       );
@@ -2093,19 +2084,20 @@ export class CreateOperation {
 
   private childPolymorphicStorage(
     self: RecordIdentity,
-    relation: BoundPolymorphicChildHeldRelation
+    relation: PolymorphicChildHeldRelation
   ): Extract<
     PolymorphicStorageValue<FinalReferenceSource>,
     { kind: "linked" }
   > {
+    const { storage, storedType, referencedFields } = relation.membership;
     return {
       kind: "linked",
-      storage: relation.storage,
-      storedType: relation.storedType,
-      referencedField: relation.referencedFields[0],
+      storage,
+      storedType,
+      referencedField: referencedFields[0],
       id: this.referencedParentSource(
         self,
-        relation.referencedFields[0],
+        referencedFields[0],
         relation.relationInfo.name
       ),
     };
@@ -2197,17 +2189,14 @@ export class CreateOperation {
    */
   private childEdgeMembers(
     self: RecordIdentity,
-    relation: ChildHeldToOne | ChildHeldToMany
+    relation: OrdinaryChildHeldRelation
   ): ForeignKeyMember[] {
     const relationName = relation.relationInfo.name;
-    const sources = relation.referencedFields.map((referenced) =>
+    const { foreignFields, referencedFields } = relation.membership;
+    const sources = referencedFields.map((referenced) =>
       this.referencedParentSource(self, referenced, relationName)
     );
-    return pairForeignKeyMembers(
-      relation.foreignFields,
-      relation.referencedFields,
-      sources
-    );
+    return pairForeignKeyMembers(foreignFields, referencedFields, sources);
   }
 
   /** One referenced column of this fresh record, as a whole-value parent source. */
@@ -3139,19 +3128,19 @@ function insertTakesDatabaseAssignedValue(
 function assertSharedPkResolved(
   childScope: QueryScope,
   kind: string | undefined,
-  relation: ParentHeldToOne,
+  relation: ParentHeldRelation,
   identity: Record<string, unknown>
 ): void {
   const relationName = relation.relationInfo.name;
   const recordPk = getPrimaryKeyFields(childScope.model);
-  const shared = relation.foreignFields.filter((foreignField) =>
+  const shared = relation.membership.foreignFields.filter((foreignField) =>
     recordPk.includes(foreignField)
   );
   if (shared.every((foreignField) => Object.hasOwn(identity, foreignField))) {
     return;
   }
   throw new UnsupportedOperationError(
-    `query-engine-v2 create does not support a shared-primary-key ${kind} on relation '${relationName}' whose foreign key '${relation.foreignFields.join(", ")}' (this record's primary key) is not a compile-time literal.`
+    `query-engine-v2 create does not support a shared-primary-key ${kind} on relation '${relationName}' whose foreign key '${relation.membership.foreignFields.join(", ")}' (this record's primary key) is not a compile-time literal.`
   );
 }
 
@@ -3215,11 +3204,11 @@ interface ChildConnectContext {
 type ChildConnectConfig = ChildConnectContext &
   (
     | {
-        readonly relation: ChildHeldToOne | ChildHeldToMany;
+        readonly relation: OrdinaryChildHeldRelation;
         readonly fkAssign: Record<string, unknown>;
       }
     | {
-        readonly relation: BoundPolymorphicChildHeldRelation;
+        readonly relation: PolymorphicChildHeldRelation;
         readonly polymorphicStorage: Extract<
           PolymorphicStorageValue<FinalReferenceSource>,
           { kind: "linked" }

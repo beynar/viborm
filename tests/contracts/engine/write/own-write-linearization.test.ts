@@ -22,8 +22,7 @@ describe("N6-U3 — one order, one derivation (ATOM §4.1)", () => {
     const relationInfo = {
       name: "notes",
       targetModel: linearizationSchema.note,
-      isToOne: false,
-      isToMany: true,
+      cardinality: "many",
       type: "oneToMany",
     };
     const program = buildRelationMutationProgram(

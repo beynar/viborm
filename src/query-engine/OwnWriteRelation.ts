@@ -178,7 +178,9 @@ export class OwnWriteRelation {
     operation: OwnWriteCreateSummary["operation"],
     data: Readonly<Record<string, unknown>>
   ): OwnWriteCreateSummary | undefined {
-    return this.isRelatedHeldRelation() ? { operation, data } : undefined;
+    return this.boundRelation.position === "childHeld"
+      ? { operation, data }
+      : undefined;
   }
 
   assertTargetAndMembershipRead(
@@ -223,12 +225,7 @@ export class OwnWriteRelation {
   assertUpsertDecision(
     where: Record<string, unknown> | undefined
   ): TargetConstraint {
-    if (
-      this.boundRelation.kind === "parentHeldToOne" ||
-      this.boundRelation.kind === "childHeldToOne" ||
-      this.boundRelation.kind === "polymorphicChildHeldToOne" ||
-      !where
-    ) {
+    if (this.boundRelation.cardinality === "one" || !where) {
       const unknown = unknownConstraint(this.target);
       this.assertMembershipRead("upsert", unknown);
       return unknown;
@@ -317,23 +314,13 @@ export class OwnWriteRelation {
     return this.node.family;
   }
 
-  private isRelatedHeldRelation(): boolean {
-    return (
-      this.boundRelation.kind === "childHeldToOne" ||
-      this.boundRelation.kind === "childHeldToMany" ||
-      this.boundRelation.kind === "polymorphicChildHeldToOne" ||
-      this.boundRelation.kind === "polymorphicChildHeldToMany"
-    );
-  }
-
   private membershipEndpoints(
     targetConstraint: TargetConstraint,
     access: "read" | "write"
   ): ReturnType<typeof getRelationMembershipEndpoints> {
     const currentConstraint =
       access === "read" &&
-      (this.boundRelation.kind === "polymorphicChildHeldToOne" ||
-        this.boundRelation.kind === "polymorphicChildHeldToMany")
+      this.boundRelation.membership.kind === "polymorphic"
         ? this.node.currentReadConstraint
         : this.node.currentConstraint;
     return getRelationMembershipEndpoints(
@@ -363,11 +350,7 @@ function resolveComposedSupplierSelector(
   boundRelation: BoundRelation,
   program: RelationMutationProgram
 ): Record<string, unknown> | undefined {
-  if (
-    boundRelation.kind !== "childHeldToOne" &&
-    boundRelation.kind !== "polymorphicChildHeldToOne" &&
-    boundRelation.kind !== "parentHeldToOne"
-  ) {
+  if (boundRelation.cardinality !== "one") {
     return undefined;
   }
   if (!program.entries.some((entry) => entry.kind === "update")) {

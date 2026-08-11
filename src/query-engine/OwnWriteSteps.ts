@@ -2,7 +2,7 @@
 import { getModelKeyCatalog, type Model } from "@schema/model";
 import type {
   BoundRelation,
-  ParentHeldToOne,
+  ParentHeldRelation,
 } from "./builders/relation-data-builder";
 import type { RelationMutationEntry } from "./builders/relation-mutation-parser";
 import type { OwnWriteFootprint, OwnWriteLedger } from "./OwnWriteLedger";
@@ -157,7 +157,7 @@ export class OwnWriteSteps {
       const selector = selectorConstraint(this.relation.target, where);
       if (
         this.relation.family.kind === "update" &&
-        this.relation.boundRelation.kind === "parentHeldToOne"
+        this.relation.boundRelation.position === "parentHeld"
       ) {
         this.relation.ledger.assertTargetRead(
           this.relation.relationName,
@@ -176,7 +176,7 @@ export class OwnWriteSteps {
       entry.target.kind === "selectors" ? entry.target.targets : []
     ).map((where) => selectorConstraint(this.relation.target, where));
 
-    if (this.relation.boundRelation.kind !== "junction") {
+    if (this.relation.boundRelation.position !== "junction") {
       for (const constraint of constraints) {
         this.relation.assertTargetAndMembershipRead("disconnect", constraint);
       }
@@ -207,7 +207,7 @@ export class OwnWriteSteps {
     const constraints = entry.target.targets.map((where) =>
       selectorConstraint(this.relation.target, where)
     );
-    if (this.relation.boundRelation.kind === "junction") {
+    if (this.relation.boundRelation.position === "junction") {
       for (const constraint of constraints) {
         this.relation.ledger.assertTargetRead(
           this.relation.relationName,
@@ -239,7 +239,7 @@ export class OwnWriteSteps {
         "set",
         constraint
       );
-      if (this.relation.boundRelation.kind !== "junction") {
+      if (this.relation.boundRelation.position !== "junction") {
         this.relation.assertMembershipRead("set", constraint);
       }
     }
@@ -252,11 +252,7 @@ export class OwnWriteSteps {
   private processUpdate(
     entry: Extract<RelationMutationEntry, { kind: "update" }>
   ): void {
-    if (
-      this.relation.boundRelation.kind === "parentHeldToOne" ||
-      this.relation.boundRelation.kind === "childHeldToOne" ||
-      this.relation.boundRelation.kind === "polymorphicChildHeldToOne"
-    ) {
+    if (this.relation.boundRelation.cardinality === "one") {
       const [input] = entry.items;
       if (!input) return;
       const footprint = buildToOneUpdateFootprint(
@@ -350,7 +346,7 @@ export class OwnWriteSteps {
     entry: Extract<RelationMutationEntry, { kind: "deleteMany" }>
   ): void {
     const unknown = unknownConstraint(this.relation.target);
-    if (this.relation.boundRelation.kind === "junction") {
+    if (this.relation.boundRelation.position === "junction") {
       for (const filter of entry.filters) {
         const constraint = getFilterTargetConstraint(
           this.relation.target,
@@ -511,14 +507,14 @@ function buildToOneUpdateFootprint(
   const target = relationInfo.targetModel;
   const scalarData = getScalarData(target, updateData);
   const changedFields = new Set(Object.keys(scalarData));
-  if (relation.kind === "junction") {
+  if (relation.position === "junction") {
     throw new QueryEngineError(
       `Relation '${relationInfo.name}' is many-to-many and has no FK direction. ` +
         "Many-to-many writes must go through the junction table handlers."
     );
   }
   const readConstraint =
-    relation.kind === "parentHeldToOne" && rootScalarData
+    relation.position === "parentHeld" && rootScalarData
       ? buildReboundTargetConstraint(target, relation, rootScalarData)
       : unknownConstraint(target);
   const resultConstraints: TargetConstraint[] = [];
@@ -534,17 +530,17 @@ function buildToOneUpdateFootprint(
   }
 
   const membershipFields = new Set(
-    relation.kind === "parentHeldToOne"
-      ? relation.referencedFields
-      : relation.foreignFields
+    relation.position === "parentHeld"
+      ? relation.membership.referencedFields
+      : relation.membership.foreignFields
   );
   if (
     relation.sourceModel === target &&
     relation.relationInfo.targetModel === target
   ) {
     for (const field of [
-      ...relation.foreignFields,
-      ...relation.referencedFields,
+      ...relation.membership.foreignFields,
+      ...relation.membership.referencedFields,
     ]) {
       membershipFields.add(field);
     }
@@ -646,19 +642,20 @@ function assertConnectOrCreateDecision(
 
 function buildReboundTargetConstraint(
   target: Model<any>,
-  relation: ParentHeldToOne,
+  relation: ParentHeldRelation,
   rootScalarData: Readonly<Record<string, unknown>>
 ): TargetConstraint {
   const values: Record<string, unknown> = {};
-  for (const [index, fkField] of relation.foreignFields.entries()) {
-    const referencedField = relation.referencedFields[index];
+  const { foreignFields, referencedFields } = relation.membership;
+  for (const [index, fkField] of foreignFields.entries()) {
+    const referencedField = referencedFields[index];
     if (!(referencedField && Object.hasOwn(rootScalarData, fkField))) continue;
     const update = classifyRelationKeyScalarUpdate(rootScalarData[fkField]);
     if (update.resolved && update.value !== null) {
       values[referencedField] = update.value;
     }
   }
-  return normalizeTargetConstraint(target, relation.referencedFields, values);
+  return normalizeTargetConstraint(target, referencedFields, values);
 }
 
 function getScalarData(

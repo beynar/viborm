@@ -51,7 +51,7 @@ export function buildRelationOrders(
     );
   }
 
-  if (relationInfo.isToOne) {
+  if (relationInfo.cardinality === "one") {
     return buildToOneRelationOrders(
       ctx,
       relationInfo,
@@ -63,7 +63,7 @@ export function buildRelationOrders(
     );
   }
 
-  if (relationInfo.isToMany) {
+  if (relationInfo.cardinality === "many") {
     return buildToManyRelationOrders(ctx, relationInfo, value, parentAlias);
   }
 
@@ -116,13 +116,13 @@ function buildToOneRelationOrders(
         );
       }
 
-      if (nestedRelationInfo.isToMany) {
+      if (nestedRelationInfo.cardinality === "many") {
         throw new QueryEngineError(
           `Relation orderBy '${fieldPath}' cannot order through a to-many relation; use '_count'.`
         );
       }
 
-      if (!nestedRelationInfo.isToOne) {
+      if (nestedRelationInfo.cardinality !== "one") {
         throw new QueryEngineError(
           `Unsupported relation orderBy '${fieldPath}'.`
         );

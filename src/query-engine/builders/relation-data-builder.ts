@@ -35,45 +35,31 @@ interface BoundRelationBase {
   readonly sourceModel: Model<any>;
 }
 
-export interface BoundForeignKeyRelation extends BoundRelationBase {
+/**
+ * Membership stored as ordinary foreign-key columns: the holder's columns in
+ * schema order, and the columns they reference, member for member.
+ */
+export interface BoundForeignKeyMembership {
+  readonly kind: "foreignKey";
   readonly foreignFields: readonly string[];
   readonly referencedFields: readonly string[];
   readonly onUpdate: ReferentialAction | undefined;
 }
 
-export interface ParentHeldToOne extends BoundForeignKeyRelation {
-  readonly kind: "parentHeldToOne";
-}
-
-export interface ChildHeldToOne extends BoundForeignKeyRelation {
-  readonly kind: "childHeldToOne";
-}
-
-export interface ChildHeldToMany extends BoundForeignKeyRelation {
-  readonly kind: "childHeldToMany";
-}
-
-export interface BoundPolymorphicChildHeldRelation
-  extends BoundForeignKeyRelation {
+/**
+ * Membership stored in a polymorphic `(type, id)` column pair. The stored type is
+ * a FIXED QUALIFIER of the membership rather than a referenced key member, so the
+ * reference itself is the single id column — hence the one-member tuples.
+ */
+export interface BoundPolymorphicMembership {
+  readonly kind: "polymorphic";
   readonly foreignFields: readonly [string];
   readonly referencedFields: readonly [string];
+  /** A private polymorphic column pair declares no referential action. */
+  readonly onUpdate: undefined;
   readonly storage: PolymorphicStorage;
   readonly storedType: string;
 }
-
-export interface PolymorphicChildHeldToOne
-  extends BoundPolymorphicChildHeldRelation {
-  readonly kind: "polymorphicChildHeldToOne";
-}
-
-export interface PolymorphicChildHeldToMany
-  extends BoundPolymorphicChildHeldRelation {
-  readonly kind: "polymorphicChildHeldToMany";
-}
-
-export type PolymorphicChildHeldRelation =
-  | PolymorphicChildHeldToOne
-  | PolymorphicChildHeldToMany;
 
 /**
  * One junction column and the field it references on the side's own model. The
@@ -96,7 +82,8 @@ export interface JunctionSide {
   readonly members: readonly JunctionReferenceMember[];
 }
 
-export interface JunctionRelation extends BoundRelationBase {
+/** Membership stored in a junction table: two complete ordered references. */
+export interface BoundJunctionMembership {
   readonly kind: "junction";
   /** Junction table name — explicit `.through()` or the generated pair name. */
   readonly table: string;
@@ -106,37 +93,78 @@ export interface JunctionRelation extends BoundRelationBase {
   readonly target: JunctionSide;
 }
 
-export type BoundRelation =
-  | ParentHeldToOne
-  | ChildHeldToOne
-  | ChildHeldToMany
-  | PolymorphicChildHeldToOne
-  | PolymorphicChildHeldToMany
-  | JunctionRelation;
+/*
+ * A bound relation answers THREE ORTHOGONAL questions, and each consumer asks
+ * exactly the one it needs:
+ *
+ * - `position` — which row stores the membership. It decides placement and
+ *   ownership: whether one membership can be shared by several source rows.
+ * - `cardinality` — how many targets the public slot admits. It decides arity and
+ *   public payload shape, nothing about storage.
+ * - `membership` — how the membership is physically stored. It decides lowering:
+ *   which columns are written, read and compared.
+ *
+ * The union still forbids the impossible combinations: a parent-held edge holds
+ * one foreign-key tuple per source row and so is always to-one, and a junction row
+ * set is always to-many. Both child-held storages admit either arity.
+ *
+ * Child-held is spelled as TWO ARMS rather than one arm with a union-typed
+ * membership so that the membership axis narrows the relation as well as the
+ * membership (a nested discriminant narrows only the reference it is read
+ * through); the two arms are the axis intersections below, not cross-product
+ * names, and nothing but the membership type distinguishes them.
+ */
+export type ParentHeldRelation = BoundRelationBase & {
+  readonly position: "parentHeld";
+  readonly cardinality: "one";
+  readonly membership: BoundForeignKeyMembership;
+};
 
-export function isPolymorphicChildHeldRelation(
-  relation: BoundRelation
-): relation is PolymorphicChildHeldRelation {
-  return (
-    relation.kind === "polymorphicChildHeldToOne" ||
-    relation.kind === "polymorphicChildHeldToMany"
-  );
-}
+export type OrdinaryChildHeldRelation = BoundRelationBase & {
+  readonly position: "childHeld";
+  readonly cardinality: "one" | "many";
+  readonly membership: BoundForeignKeyMembership;
+};
+
+export type PolymorphicChildHeldRelation = BoundRelationBase & {
+  readonly position: "childHeld";
+  readonly cardinality: "one" | "many";
+  readonly membership: BoundPolymorphicMembership;
+};
 
 /**
- * Does the TARGET row store this membership? True for both ordinary child-held
- * arities and both polymorphic ones; false for a parent-held edge (the source row
- * stores it) and for a junction (a third table does, and it admits many parents).
- *
- * The distinction is what decides whether one membership can be shared by several
- * source rows, so it belongs to relation topology rather than to any one operation.
+ * A relation the TARGET row stores the membership for, either way it is stored —
+ * as opposed to a parent-held edge (the source row stores it) or a junction (a
+ * third table does, and it admits many parents).
  */
-export function isChildHeldRelation(relation: BoundRelation): boolean {
-  return (
-    relation.kind === "childHeldToOne" ||
-    relation.kind === "childHeldToMany" ||
-    isPolymorphicChildHeldRelation(relation)
-  );
+export type ChildHeldRelation =
+  | OrdinaryChildHeldRelation
+  | PolymorphicChildHeldRelation;
+
+export type JunctionBoundRelation = BoundRelationBase & {
+  readonly position: "junction";
+  readonly cardinality: "many";
+  readonly membership: BoundJunctionMembership;
+};
+
+export type BoundRelation =
+  | ParentHeldRelation
+  | ChildHeldRelation
+  | JunctionBoundRelation;
+
+/**
+ * The NARROWING spelling of `relation.membership.kind === "polymorphic"`, for the
+ * callers that must pass the relation itself into a polymorphic-only slot.
+ *
+ * It is not a second owner of the question: its body is that one test, and every
+ * caller that only needs the answer asks `membership.kind` inline. It exists
+ * because the membership axis is a nested discriminant — testing it narrows the
+ * membership reference, never the relation holding it.
+ */
+export function hasPolymorphicMembership(
+  relation: BoundRelation
+): relation is PolymorphicChildHeldRelation {
+  return relation.membership.kind === "polymorphic";
 }
 
 /**
@@ -210,41 +238,46 @@ function resolveJunctionTopology(
  * `ManyToManyStatements`' guard. One construction, reached two ways; no second
  * classification and no narrowing cast at the call sites.
  *
- * EXPIRY: Phase 4 unit 4.1 ("make bindRelation the only constructor") absorbs
- * this entry point when the read builders migrate onto bound dispatch.
+ * EXPIRY: Phase 7 absorbs this entry point when the read builders migrate onto
+ * bound dispatch; until the traversal phase measures error ORDER, they keep
+ * classifying on `relationInfo` and reach the one construction through here.
  */
 export function bindJunctionRelation(
   ctx: QueryScope,
   relationInfo: RelationInfo
-): JunctionRelation {
+): JunctionBoundRelation {
   let topology: JunctionTopology | undefined;
   const resolve = (): JunctionTopology => {
     topology ??= resolveJunctionTopology(ctx, relationInfo);
     return topology;
   };
   return {
-    kind: "junction",
+    position: "junction",
+    cardinality: "many",
     relationInfo,
     sourceModel: ctx.model,
-    // LAZY AND MEMOIZED, deliberately — not an optimization. Resolving a side asks
-    // each model for its single-field row key, and that ask is where the engine's
-    // compound-many-to-many limitation is refused. Today the refusal fires when JOIN
-    // INFO IS REQUESTED, and `bindRelation` runs at many sites that never request it
-    // (relation-key legality, the OwnWrite entry grouping, the create/update
-    // dispatchers, the junction fold's own child scan). Resolving eagerly here would
-    // move that refusal — and the schema helpers' junction-naming errors — strictly
-    // earlier in the estate's error ordering. Its class, message AND the frames its
-    // stack must contain are pinned (`operation-construction-witnesses.test.ts`:
-    // `getRequiredSinglePrimaryKeyField` reached through an `OwnWrite` frame), so the
-    // laziness is part of the observable contract, not an implementation detail.
-    get table() {
-      return resolve().table;
-    },
-    get source() {
-      return resolve().source;
-    },
-    get target() {
-      return resolve().target;
+    membership: {
+      kind: "junction",
+      // LAZY AND MEMOIZED, deliberately — not an optimization. Resolving a side asks
+      // each model for its single-field row key, and that ask is where the engine's
+      // compound-many-to-many limitation is refused. Today the refusal fires when JOIN
+      // INFO IS REQUESTED, and `bindRelation` runs at many sites that never request it
+      // (relation-key legality, the OwnWrite entry grouping, the create/update
+      // dispatchers, the junction fold's own child scan). Resolving eagerly here would
+      // move that refusal — and the schema helpers' junction-naming errors — strictly
+      // earlier in the estate's error ordering. Its class, message AND the frames its
+      // stack must contain are pinned (`operation-construction-witnesses.test.ts`:
+      // `getRequiredSinglePrimaryKeyField` reached through an `OwnWrite` frame), so the
+      // laziness is part of the observable contract, not an implementation detail.
+      get table() {
+        return resolve().table;
+      },
+      get source() {
+        return resolve().source;
+      },
+      get target() {
+        return resolve().target;
+      },
     },
   };
 }
@@ -320,12 +353,16 @@ export function bindRelation(
   const { fields, references, targetModel } = relationInfo;
   if (fields && fields.length > 0) {
     return {
-      kind: "parentHeldToOne",
+      position: "parentHeld",
+      cardinality: "one",
       relationInfo,
       sourceModel: ctx.model,
-      foreignFields: fields,
-      referencedFields: references ?? getPrimaryKeyFields(targetModel),
-      onUpdate: relationInfo.relation["~"].state.onUpdate,
+      membership: {
+        kind: "foreignKey",
+        foreignFields: fields,
+        referencedFields: references ?? getPrimaryKeyFields(targetModel),
+        onUpdate: relationInfo.relation["~"].state.onUpdate,
+      },
     };
   }
 
@@ -372,28 +409,28 @@ export function bindRelation(
     );
   }
 
-  const foreignKey = {
+  return {
+    position: "childHeld",
+    cardinality: relationInfo.cardinality,
     relationInfo,
     sourceModel: ctx.model,
-    foreignFields: resolved.fields as readonly string[] as string[],
-    referencedFields:
-      resolved.references && resolved.references.length > 0
-        ? (resolved.references as readonly string[] as string[])
-        : getPrimaryKeyFields(ctx.model),
-    onUpdate: resolved.onUpdate,
+    membership: {
+      kind: "foreignKey",
+      foreignFields: resolved.fields as readonly string[] as string[],
+      referencedFields:
+        resolved.references && resolved.references.length > 0
+          ? (resolved.references as readonly string[] as string[])
+          : getPrimaryKeyFields(ctx.model),
+      onUpdate: resolved.onUpdate,
+    },
   };
-
-  if (relationInfo.isToOne) {
-    return { kind: "childHeldToOne", ...foreignKey };
-  }
-  return { kind: "childHeldToMany", ...foreignKey };
 }
 
 function bindResolvedPolymorphicInverse(
   ctx: QueryScope,
   relationInfo: RelationInfo,
   resolved: Extract<ResolvedInverseRelation, { kind: "polymorphic" }>
-): PolymorphicChildHeldToOne | PolymorphicChildHeldToMany {
+): PolymorphicChildHeldRelation {
   const storage = relationInfo.targetModel["~"].getPolymorphicStorage(
     resolved.relationKey
   );
@@ -405,16 +442,18 @@ function bindResolvedPolymorphicInverse(
   }
 
   return {
-    kind: relationInfo.isToOne
-      ? "polymorphicChildHeldToOne"
-      : "polymorphicChildHeldToMany",
+    position: "childHeld",
+    cardinality: relationInfo.cardinality,
     relationInfo,
     sourceModel: ctx.model,
-    foreignFields: [storage.idColumn.name],
-    referencedFields: [member.referencedField],
-    onUpdate: undefined,
-    storage,
-    storedType: resolved.storedType,
+    membership: {
+      kind: "polymorphic",
+      foreignFields: [storage.idColumn.name],
+      referencedFields: [member.referencedField],
+      onUpdate: undefined,
+      storage,
+      storedType: resolved.storedType,
+    },
   };
 }
 

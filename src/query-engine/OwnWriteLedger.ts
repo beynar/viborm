@@ -40,9 +40,9 @@ export function getRelationMembershipEndpoints(
   targetConstraint: TargetConstraint
 ): MembershipEndpoints {
   const currentIsFirst =
-    relation.kind === "junction"
-      ? junctionSourceIsFirst(relation)
-      : relation.kind === "parentHeldToOne";
+    relation.position === "junction"
+      ? junctionSourceIsFirst(relation.membership)
+      : relation.position === "parentHeld";
   return currentIsFirst
     ? { first: currentConstraint, second: targetConstraint }
     : { first: targetConstraint, second: currentConstraint };
@@ -266,8 +266,8 @@ export class OwnWriteLedger {
 export function getMembershipReadOrientation(
   relation: BoundRelation
 ): MembershipReadOrientation {
-  if (relation.kind === "junction") return "manyToMany";
-  return relation.kind === "parentHeldToOne" ? "direct" : "inverse";
+  if (relation.position === "junction") return "manyToMany";
+  return relation.position === "parentHeld" ? "direct" : "inverse";
 }
 
 function writeCanAffectRead(

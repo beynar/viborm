@@ -54,13 +54,15 @@ describe("named inverse relations", () => {
       coAuthoredPosts.relationInfo
     );
     if (
-      postsRelation.kind === "junction" ||
-      coAuthoredPostsRelation.kind === "junction"
+      postsRelation.position === "junction" ||
+      coAuthoredPostsRelation.position === "junction"
     ) {
       throw new Error("Expected foreign-key relations");
     }
 
-    expect(postsRelation.foreignFields).toEqual(["authorId"]);
-    expect(coAuthoredPostsRelation.foreignFields).toEqual(["coAuthorId"]);
+    expect(postsRelation.membership.foreignFields).toEqual(["authorId"]);
+    expect(coAuthoredPostsRelation.membership.foreignFields).toEqual([
+      "coAuthorId",
+    ]);
   });
 });

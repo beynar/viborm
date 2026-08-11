@@ -3,11 +3,9 @@ import { getPrimaryKeyFields } from "../builders/correlation-utils";
 import type { PolymorphicStorageValue } from "../builders/polymorphic-mutation";
 import {
   bindRelation,
-  type ChildHeldToMany,
-  type ChildHeldToOne,
+  type ChildHeldRelation,
+  hasPolymorphicMembership,
   type PolymorphicChildHeldRelation,
-  type PolymorphicChildHeldToMany,
-  type PolymorphicChildHeldToOne,
 } from "../builders/relation-data-builder";
 import type {
   RelationMutationEntry,
@@ -169,7 +167,7 @@ function foldJunctionTargetRelation(input: {
       deeperCorrelationParentId
     );
 
-  if (relation.kind === "junction") {
+  if (relation.position === "junction") {
     // Junction targets recurse through the same relation builder.
     input.parts.push(
       ...buildJunctionParts({
@@ -188,7 +186,7 @@ function foldJunctionTargetRelation(input: {
     return;
   }
 
-  if (relation.kind === "parentHeldToOne") {
+  if (relation.position === "parentHeld") {
     // A parent-held edge must already have folded into the selected record's SET.
     throw new QueryEngineError(
       `query-engine-v2 internal: a parent-held to-one on relation '${relationName}' reached the junction target relation builder; it requires the whole fresh-record compiler.`
@@ -200,8 +198,8 @@ function foldJunctionTargetRelation(input: {
   const targetPrimaryKeys = getPrimaryKeyFields(targetScope.model);
   const referencesTargetPk =
     targetPrimaryKeys.length === 1 &&
-    relation.referencedFields.length === 1 &&
-    relation.referencedFields[0] === targetPrimaryKeys[0];
+    relation.membership.referencedFields.length === 1 &&
+    relation.membership.referencedFields[0] === targetPrimaryKeys[0];
   if (!referencesTargetPk) {
     throw new QueryEngineError(
       `query-engine-v2 internal: a non-primary-key referenced edge on relation '${relationName}' reached the junction target relation builder; it requires the whole fresh-record compiler.`
@@ -248,11 +246,7 @@ function foldJunctionChildHeldEntry(args: {
   recordCompilers: RecordCompilerSeam;
   childScope: QueryScope;
   childName: string;
-  relation:
-    | ChildHeldToOne
-    | ChildHeldToMany
-    | PolymorphicChildHeldToOne
-    | PolymorphicChildHeldToMany;
+  relation: ChildHeldRelation;
   writeBase: Parameters<typeof buildToManyUpdateParts>[0];
   scope: StepScope;
   engine: QueryEngine;
@@ -273,9 +267,7 @@ function foldJunctionChildHeldEntry(args: {
     txMode,
     parts,
   } = args;
-  const isInverseToOne =
-    relation.kind === "childHeldToOne" ||
-    relation.kind === "polymorphicChildHeldToOne";
+  const isInverseToOne = relation.cardinality === "one";
   const relationName = relation.relationInfo.name;
   const push = (built: readonly Part[]) => parts.push(...built);
 
@@ -319,7 +311,7 @@ function foldJunctionChildHeldEntry(args: {
         parts.push(buildInverseToOneUpsertPart(writeBase, item));
         return;
       }
-      if (relation.kind === "polymorphicChildHeldToMany") {
+      if (hasPolymorphicMembership(relation)) {
         // A GLOBAL adopt, not a correlated one: every target this builder folds under
         // is a row the enclosing statement is INSERTing, so there is no committed
         // membership for a correlated probe to find. That is the documented rule for a
@@ -344,13 +336,14 @@ function foldJunctionChildHeldEntry(args: {
         );
         return;
       }
+      const { foreignFields, referencedFields } = relation.membership;
       const members = pairCorrelatedForeignKeyMembers(
-        relation.foreignFields,
-        relation.referencedFields,
-        relation.referencedFields.map(() =>
+        foreignFields,
+        referencedFields,
+        referencedFields.map(() =>
           planningSourceFromFinal(parentId, relationName, "upsert")
         ),
-        relation.referencedFields.map(() => parentId)
+        referencedFields.map(() => parentId)
       );
       push(
         buildCorrelatedToManyUpsertParts(
@@ -413,10 +406,7 @@ function foldJunctionChildHeldEntry(args: {
     case "createMany": {
       // Literal parents inject now; planned parents inject the captured value at
       // compile. Skip semantics are independent of that provenance.
-      if (
-        relation.kind === "polymorphicChildHeldToOne" ||
-        relation.kind === "polymorphicChildHeldToMany"
-      ) {
+      if (hasPolymorphicMembership(relation)) {
         parts.push(
           buildPolymorphicParentCreateManyPart({
             scope,
@@ -431,9 +421,9 @@ function foldJunctionChildHeldEntry(args: {
         return;
       }
       const members = pairForeignKeyMembers(
-        relation.foreignFields,
-        relation.referencedFields,
-        relation.referencedFields.map(() => parentId)
+        relation.membership.foreignFields,
+        relation.membership.referencedFields,
+        relation.membership.referencedFields.map(() => parentId)
       );
       parts.push(
         literalReferenceSource(parentId)
@@ -665,8 +655,8 @@ export function buildPolymorphicParentCreateManyPart(input: {
     ...linkedPolymorphicStorage(relation, parentId),
     id: referenceScalarSql(
       engine,
-      relation.storage.idColumn.scalar,
-      relation.storage.idColumn.name,
+      relation.membership.storage.idColumn.scalar,
+      relation.membership.storage.idColumn.name,
       null
     ),
   };

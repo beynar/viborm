@@ -14,7 +14,7 @@ import {
 } from "./builders/many-to-many-utils";
 import {
   bindJunctionRelation,
-  type JunctionRelation,
+  type JunctionBoundRelation,
   junctionSideMember,
 } from "./builders/relation-data-builder";
 import { buildSelect } from "./builders/select-builder";
@@ -62,7 +62,8 @@ export class ManyToManyStatements {
       this.ctx,
       junction,
       {
-        [junctionSideMember(junction.source).referencedField]: args.parentValue,
+        [junctionSideMember(junction.membership.source).referencedField]:
+          args.parentValue,
       },
       relation.name
     );
@@ -103,7 +104,7 @@ export class ManyToManyStatements {
             )
           : source;
         return this.ctx.adapter.mutations.delete(
-          this.ctx.adapter.identifiers.escape(junction.table),
+          this.ctx.adapter.identifiers.escape(junction.membership.table),
           where
         );
       }
@@ -119,7 +120,7 @@ export class ManyToManyStatements {
                 sql`(${sql.join(values, ", ")})`
               );
         return this.ctx.adapter.mutations.delete(
-          this.ctx.adapter.identifiers.escape(junction.table),
+          this.ctx.adapter.identifiers.escape(junction.membership.table),
           condition
         );
       }
@@ -139,16 +140,16 @@ export class ManyToManyStatements {
   }
 
   private membershipRead(
-    junction: JunctionRelation,
+    junction: JunctionBoundRelation,
     parentValue: Sql,
     args: Record<string, unknown>
   ): Sql {
     const child = createChildScope(
       this.ctx,
-      junction.target.model,
+      junction.membership.target.model,
       this.ctx.nextAlias()
     );
-    const table = getTableName(junction.target.model);
+    const table = getTableName(junction.membership.target.model);
     const membership = buildJunctionMembership(
       this.ctx,
       junction,
@@ -201,14 +202,14 @@ export class ManyToManyStatements {
   }
 
   private membershipDifference(
-    junction: JunctionRelation,
+    junction: JunctionBoundRelation,
     parentValue: Sql,
     args: Record<string, unknown>
   ): Sql {
-    const table = getTableName(junction.target.model);
+    const table = getTableName(junction.membership.target.model);
     const child = createChildScope(
       this.ctx,
-      junction.target.model,
+      junction.membership.target.model,
       this.ctx.nextAlias()
     );
     const membership = buildJunctionMembership(
@@ -228,8 +229,8 @@ export class ManyToManyStatements {
     const pk = this.ctx.adapter.identifiers.column(
       table,
       getColumnName(
-        junction.target.model,
-        junctionSideMember(junction.target).referencedField
+        junction.membership.target.model,
+        junctionSideMember(junction.membership.target).referencedField
       )
     );
     const difference = args.difference;
@@ -270,16 +271,16 @@ export class ManyToManyStatements {
   }
 
   private membershipUpdateMany(
-    junction: JunctionRelation,
+    junction: JunctionBoundRelation,
     parentValue: Sql,
     args: Record<string, unknown>
   ): Sql {
     const child = createChildScope(
       this.ctx,
-      junction.target.model,
+      junction.membership.target.model,
       this.ctx.nextAlias()
     );
-    const table = getTableName(junction.target.model);
+    const table = getTableName(junction.membership.target.model);
     const membership = buildJunctionMembership(
       this.ctx,
       junction,
@@ -298,7 +299,7 @@ export class ManyToManyStatements {
   }
 
   private targetValue(
-    junction: JunctionRelation,
+    junction: JunctionBoundRelation,
     args: Record<string, unknown>
   ): Sql {
     const relationName = junction.relationInfo.name;
@@ -307,7 +308,7 @@ export class ManyToManyStatements {
         this.ctx,
         junction,
         {
-          [junctionSideMember(junction.target).referencedField]:
+          [junctionSideMember(junction.membership.target).referencedField]:
             args.targetValue,
         },
         relationName
@@ -321,12 +322,17 @@ export class ManyToManyStatements {
     );
   }
 
-  private targetValues(junction: JunctionRelation, values: unknown[]): Sql[] {
-    const referencedField = junctionSideMember(junction.target).referencedField;
+  private targetValues(
+    junction: JunctionBoundRelation,
+    values: unknown[]
+  ): Sql[] {
+    const referencedField = junctionSideMember(
+      junction.membership.target
+    ).referencedField;
     return values.map((value) =>
       buildScalarSqlValue(
         this.ctx,
-        junction.target.model,
+        junction.membership.target.model,
         referencedField,
         value
       )

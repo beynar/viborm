@@ -120,7 +120,7 @@ export function buildSubqueryInclude(
   const relatedTableName = getTableName(relationInfo.targetModel);
   const fromTable = adapter.identifiers.table(relatedTableName, relatedAlias);
 
-  if (relationInfo.isToMany) {
+  if (relationInfo.cardinality === "many") {
     const window = buildNestedReadWindow(childCtx, options, relatedAlias, [
       correlation,
     ]);
@@ -188,7 +188,7 @@ export function buildLateralInclude(
 
   const resultColAlias = "_result";
 
-  if (relationInfo.isToMany) {
+  if (relationInfo.cardinality === "many") {
     const window = buildNestedReadWindow(childCtx, options, relatedAlias, [
       correlation,
     ]);

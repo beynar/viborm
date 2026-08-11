@@ -6,8 +6,8 @@ import { isRecord } from "@validation/value-guards";
 import { getPrimaryKeyFields } from "../builders/correlation-utils";
 import {
   bindRelation,
+  type JunctionBoundRelation,
   type JunctionReferenceMember,
-  type JunctionRelation,
   junctionSideMember,
 } from "../builders/relation-data-builder";
 import {
@@ -100,7 +100,7 @@ import {
 interface JunctionContext {
   readonly engine: QueryEngine;
   readonly parentScope: QueryScope;
-  readonly relation: JunctionRelation;
+  readonly relation: JunctionBoundRelation;
   readonly parentId: FinalReferenceSource;
   readonly membershipReadSource: FinalReferenceSource;
   readonly txMode: boolean;
@@ -364,8 +364,8 @@ export class RelationJunctionPart implements Part {
     // constructor keeps every junction-naming refusal — the compound row key and the
     // schema helpers' ambiguous/disagreeing junction columns — firing at Part
     // construction rather than at the first field read.
-    this.targetReference = junctionSideMember(input.relation.target);
-    this.sourceReference = junctionSideMember(input.relation.source);
+    this.targetReference = junctionSideMember(input.relation.membership.target);
+    this.sourceReference = junctionSideMember(input.relation.membership.source);
     this.childScope = createQueryScope(
       input.engine.adapter,
       input.relation.relationInfo.targetModel
@@ -1746,7 +1746,7 @@ export function buildJunctionParts(input: {
   scope: StepScope;
   engine: QueryEngine;
   parentScope: QueryScope;
-  relation: JunctionRelation;
+  relation: JunctionBoundRelation;
   program: RelationMutationProgram;
   parentId: FinalReferenceSource;
   /** Parent value carried by existing membership rows before a key transition. */
@@ -1775,7 +1775,7 @@ export function buildJunctionParts(input: {
    *  a target whose row key is one member by construction (a compound-keyed one is
    *  refused by `getRequiredSinglePrimaryKeyField` before this builder runs), and
    *  nothing new may read a row key through it. */
-  const targetReference = junctionSideMember(relation.target);
+  const targetReference = junctionSideMember(relation.membership.target);
   const base = {
     engine,
     parentScope,
@@ -1791,12 +1791,12 @@ export function buildJunctionParts(input: {
     const targetPrimaryKeys = getPrimaryKeyFields(childScope.model);
     for (const mutation of Object.values(relations)) {
       const bound = bindRelation(childScope, mutation.relationInfo);
-      if (bound.kind === "junction") continue;
-      if (bound.kind === "parentHeldToOne") return true;
+      if (bound.position === "junction") continue;
+      if (bound.position === "parentHeld") return true;
       const referencesTargetPk =
         targetPrimaryKeys.length === 1 &&
-        bound.referencedFields.length === 1 &&
-        bound.referencedFields[0] === targetPrimaryKeys[0];
+        bound.membership.referencedFields.length === 1 &&
+        bound.membership.referencedFields[0] === targetPrimaryKeys[0];
       if (!referencesTargetPk) return true;
     }
     return false;

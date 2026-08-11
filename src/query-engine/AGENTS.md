@@ -71,8 +71,9 @@ identity, and ordering helpers; their historical directory name does not make
 them operation shells.
 
 Within relation compilation, **parent** means the current source record at that
-edge and **child** means its relation target. `parentHeldToOne` says that the
-source record stores the FK. It does not claim a global model hierarchy.
+edge and **child** means its relation target. `position: "parentHeld"` says
+that the source record stores the FK. It does not claim a global model
+hierarchy.
 
 ### Payload meaning
 
@@ -87,9 +88,11 @@ once at its trust boundary and pass transformed meaning downstream.
 
 ### Relation topology
 
-`bindRelation` classifies an edge as `parentHeldToOne`, `childHeldToOne`,
-`childHeldToMany`, `polymorphicChildHeldToOne`,
-`polymorphicChildHeldToMany`, or `junction`.
+`bindRelation` classifies an edge on THREE ORTHOGONAL AXES (distinct-truth
+Phase 4): `position` (`parentHeld` | `childHeld` | `junction`), `cardinality`
+(`one` | `many`), and `membership.kind` (`foreignKey` | `polymorphic` |
+`junction`), with impossible combinations unrepresentable (parent-held is
+always to-one; a junction is always to-many).
 `BoundRelation` carries ordered topology only. It does not carry scopes,
 runtime identities, value sources, transition state, SQL, or branch policy.
 Bind at the first topology decision so error order and untaken arm behavior do
@@ -123,7 +126,7 @@ The update compiler owns scalar SET data, an optional incoming membership,
 nested relations, the target projection, primary-key transitions, the root
 UPDATE, and descendant ordering. `TargetProjection` groups the public fields
 and private physical columns consumed from the located row. For a
-`parentHeldToOne` edge, the record
+parent-held edge, the record
 compiler also owns the inline FK fold and the branch needed to construct its
 root statement.
 For child-held and junction edges, relation owners keep the target read,

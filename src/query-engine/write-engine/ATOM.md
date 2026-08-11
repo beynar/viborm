@@ -62,7 +62,7 @@ outer shell. `*Operation.ts` files contain these owners;
 ordering helpers.
 
 At one relation edge, **parent** is the current source record and **child** is
-its target. `parentHeldToOne` means that source record stores the FK; neither
+its target. `position: "parentHeld"` means that source record stores the FK; neither
 word establishes a global model hierarchy.
 
 ## 2. The execution vocabulary
@@ -217,40 +217,54 @@ It can change locks, error attribution, race exposure, and sibling visibility.
 
 ## 7. Bound relation position
 
-`bindRelation` turns schema relation metadata into one topology fact:
+`bindRelation` turns schema relation metadata into one topology fact, carrying
+three ORTHOGONAL axes:
 
 ```ts
 type BoundRelation =
-  | ParentHeldToOne
-  | ChildHeldToOne
-  | ChildHeldToMany
-  | PolymorphicChildHeldToOne
-  | PolymorphicChildHeldToMany
-  | JunctionRelation;
+  | ParentHeldRelation // position "parentHeld", cardinality "one"
+  | ChildHeldRelation // position "childHeld", cardinality "one" | "many"
+  | JunctionBoundRelation; // position "junction", cardinality "many"
+
+type ChildHeldRelation =
+  | OrdinaryChildHeldRelation // membership: BoundForeignKeyMembership
+  | PolymorphicChildHeldRelation; // membership: BoundPolymorphicMembership
 ```
+
+- `position` is which row stores the membership, and decides placement and
+  ownership;
+- `cardinality` is how many targets the public slot admits, and decides arity;
+- `membership.kind` (`foreignKey` / `polymorphic` / `junction`) is how the
+  membership is physically stored, and decides lowering.
+
+Each consumer branches on exactly the axis its question names. The union still
+forbids the impossible combinations: parent-held is always to-one, junction is
+always to-many, and both child-held storages admit either arity.
 
 Classification is ordered:
 
 1. `manyToMany` is `junction`;
-2. a relation whose current model holds the FK is `parentHeldToOne`;
-3. a resolved polymorphic inverse is `polymorphicChildHeldToOne` for a
-   fields-less `oneToOne`, otherwise `polymorphicChildHeldToMany`;
-4. an ordinary child-held to-one is `childHeldToOne`;
-5. the remaining ordinary child-held relation is `childHeldToMany`.
+2. a relation whose current model holds the FK is `parentHeld`, cardinality
+   `one`;
+3. a resolved polymorphic inverse is `childHeld` with polymorphic membership,
+   cardinality `one` for a fields-less `oneToOne`, otherwise `many`;
+4. the remaining child-held relation carries foreign-key membership, cardinality
+   `one` for a to-one relation, otherwise `many`.
 
 A fields-less `manyToOne` is therefore child-held to-one from the current
 source position.
 
-A bound FK relation carries:
+A bound relation carries the source model and its `relationInfo`; its membership
+carries the physical storage. A foreign-key membership carries:
 
-- the source model;
 - ordered foreign fields;
 - ordered referenced fields;
 - the `onUpdate` action.
 
-The polymorphic child-held variants additionally carry their private storage and
-fixed stored discriminator. Its one identity field references the parent field
-at the same index. It expresses a conjunction, not two independent links:
+A polymorphic membership carries the same two one-member tuples plus its private
+storage and fixed stored discriminator (and no referential action). Its one
+identity field references the parent field at the same index. It expresses a
+conjunction, not two independent links:
 
 ```text
 child.privateIdentity = parent.referenced
@@ -261,19 +275,18 @@ The discriminator participates in membership scope equality, OwnWrite
 footprints, read correlation, target probes, set departure, and bulk predicates.
 A same-id row with another discriminator is a different membership.
 
-Cardinality remains an ordinary relation concern. The singular variant selects
-one member, uses to-one operation arity, and relies on the relation-wide unique
-storage index for occupied-slot enforcement. The storage predicate and value
-lowering remain shared with the to-many variant.
+Cardinality remains an ordinary relation concern, and an axis of its own: the
+singular case selects one member, uses to-one operation arity, and relies on the
+relation-wide unique storage index for occupied-slot enforcement. The storage
+predicate and value lowering are the membership's, shared across both arities.
 
-It does not carry:
+A bound relation does not carry:
 
 - query scopes or aliases;
 - parent identity values;
 - planning or final sources;
 - fresh or located state;
 - transition values;
-- junction mapping metadata;
 - SQL;
 - branch or execution policy.
 
@@ -468,7 +481,7 @@ The caller owns the target read and its batch premise. If the projection contain
 private physical columns, that same guard reasserts their captured values before
 the compiler's writes. No additional guard step is introduced.
 
-For `parentHeldToOne`, it does own the inline FK fold and the branch required to
+For a parent-held edge, it does own the inline FK fold and the branch required to
 construct the root UPDATE. Moving that decision out would require a lifecycle
 protocol or an extra statement.
 

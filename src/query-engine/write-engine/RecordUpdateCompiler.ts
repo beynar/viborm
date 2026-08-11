@@ -12,14 +12,13 @@ import type {
   ResolvedPolymorphicMutation,
 } from "../builders/polymorphic-mutation";
 import {
-  type BoundPolymorphicChildHeldRelation,
   bindRelation,
   buildConnectSubqueryForField,
-  type ChildHeldToMany,
-  type ChildHeldToOne,
-  type ParentHeldToOne,
-  type PolymorphicChildHeldToMany,
-  type PolymorphicChildHeldToOne,
+  type ChildHeldRelation,
+  hasPolymorphicMembership,
+  type OrdinaryChildHeldRelation,
+  type ParentHeldRelation,
+  type PolymorphicChildHeldRelation,
 } from "../builders/relation-data-builder";
 import type {
   NormalizedRelationUpsert,
@@ -152,11 +151,6 @@ import {
 } from "./target-projection";
 
 type ExecutionMode = "transaction" | "batch";
-type ChildHeldRelation =
-  | OrdinaryChildHeldRelation
-  | PolymorphicChildHeldToOne
-  | PolymorphicChildHeldToMany;
-type OrdinaryChildHeldRelation = ChildHeldToOne | ChildHeldToMany;
 
 export interface RecordUpdateCompiler {
   readonly targetReadId: string;
@@ -272,13 +266,13 @@ interface BeforeTarget {
 type ParentHeldTarget =
   | {
       readonly kind: "create";
-      readonly relation: ParentHeldToOne;
+      readonly relation: ParentHeldRelation;
       readonly before: BeforeTarget;
       readonly fkAssign: Record<string, unknown>;
     }
   | {
       readonly kind: "connectOrCreate";
-      readonly relation: ParentHeldToOne;
+      readonly relation: ParentHeldRelation;
       readonly probeId: string;
       readonly guardId: string;
       readonly guardProbe: Sql;
@@ -295,7 +289,7 @@ type ParentHeldTarget =
   // final FK values. Its batch guard pins that correlation before the child write.
   | {
       readonly kind: "update";
-      readonly relation: ParentHeldToOne;
+      readonly relation: ParentHeldRelation;
       readonly childScope: QueryScope;
       readonly probeId: string;
       readonly guardId: string;
@@ -312,7 +306,7 @@ type ParentHeldTarget =
   // It is idempotent, so zero matched rows need no probe or failure.
   | {
       readonly kind: "delete";
-      readonly relation: ParentHeldToOne;
+      readonly relation: ParentHeldRelation;
       readonly childScope: QueryScope;
       /**
        * H3/R2 — ABSENT when a sibling supplier in the same payload rebinds every one
@@ -333,7 +327,7 @@ type ParentHeldTarget =
   // target; absent creates it and rebinds the parent FK.
   | {
       readonly kind: "upsert";
-      readonly relation: ParentHeldToOne;
+      readonly relation: ParentHeldRelation;
       readonly childScope: QueryScope;
       readonly probeId: string;
       readonly guardId: string;
@@ -876,7 +870,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       const relationName = guard.relation.relationInfo.name;
       const message = relationKeyOccupiedMessage(
         relationName,
-        guard.relation.onUpdate ?? "restrict"
+        guard.relation.membership.onUpdate ?? "restrict"
       );
       if (this.mode === "batch") {
         // V1's `notExistsWhenChanged` premise: assert the OLD slot is EMPTY; the batch
@@ -1290,7 +1284,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       return;
     }
 
-    if (relation.kind === "junction") {
+    if (relation.position === "junction") {
       // A junction composes as ordinary Parts. Each
       // membership kind is a leaf feeding the same step vocabulary; the whole
       // family lives in one file, never an `M2M*` subsystem.
@@ -1341,7 +1335,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       return;
     }
 
-    if (relation.kind === "parentHeldToOne") {
+    if (relation.position === "parentHeld") {
       // A parent-held FK is a same-row change. `connect`/`disconnect` fold their
       // (construction-known) FK literal into the root SET; `create`/`connectOrCreate`
       // write the target before the root UPDATE and reference its identity from the
@@ -1359,10 +1353,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       return;
     }
 
-    if (
-      relation.kind === "polymorphicChildHeldToOne" ||
-      relation.kind === "polymorphicChildHeldToMany"
-    ) {
+    if (hasPolymorphicMembership(relation)) {
       this.interpretPolymorphicChildHeld(input, relation, entries);
       return;
     }
@@ -1373,7 +1364,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     // payload spelling (`update: <data>` with no selector, `disconnect: true`).
     // The parent exists, so no fresh-parent elision: every probe reads committed
     // state, exactly as the to-many family already does under update.
-    const isInverseToOne = relation.kind === "childHeldToOne";
+    const isInverseToOne = relation.cardinality === "one";
     // Compound foreign keys are per-field (ATOM “Field-bound foreign-key provenance”): every referenced parent
     // column — the PK, a subset of it, or a non-PK unique (D4-style) — is added
     // to the locate read's select/outputs so a per-field child part reads or refs
@@ -1391,7 +1382,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
         mutationKind !== "create" && mutationKind !== "createMany"
     );
     if (needsLocatedReference) {
-      for (const field of relation.referencedFields) {
+      for (const field of relation.membership.referencedFields) {
         input.locateFields.add(field);
       }
     }
@@ -1489,11 +1480,11 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
 
   private interpretPolymorphicChildHeld(
     input: Parameters<RecordUpdateCompilerState["interpretRelation"]>[0],
-    relation: PolymorphicChildHeldToOne | PolymorphicChildHeldToMany,
+    relation: PolymorphicChildHeldRelation,
     entries: readonly RelationMutationEntry[]
   ): void {
     const relationName = relation.relationInfo.name;
-    const isInverseToOne = relation.kind === "polymorphicChildHeldToOne";
+    const isInverseToOne = relation.cardinality === "one";
     // H3 — the fixed inverse topology takes the SAME composition as the ordinary
     // child-held to-one: it is the same lattice owner (`to-one-mutation-schema.ts` via
     // the polymorphic relation input), the same `buildToOneUpdatePart` leaf, and the same
@@ -1699,13 +1690,13 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
 
   private resolvePolymorphicParent(
     input: Parameters<RecordUpdateCompilerState["interpretRelation"]>[0],
-    relation: BoundPolymorphicChildHeldRelation
+    relation: PolymorphicChildHeldRelation
   ): {
     readonly read: FinalReferenceSource;
     readonly write: FinalReferenceSource;
     readonly afterRoot: boolean;
   } {
-    const field = relation.referencedFields[0];
+    const field = relation.membership.referencedFields[0];
     const pinned = this.pinnedTargetValue(field);
     const read = pinned
       ? literalParentId(pinned.value)
@@ -1913,7 +1904,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     relation: OrdinaryChildHeldRelation
   ): { members: ForeignKeyMember[]; afterRoot: boolean } {
     const relationName = relation.relationInfo.name;
-    const referencedFields = relation.referencedFields;
+    const referencedFields = relation.membership.referencedFields;
     // E1 — a shared-primary-key fold rewrites a referenced column exactly as the scalar
     // SET does; only the channel differs. Asking one and not the other is what would
     // let a fresh child reference the key the fold has just vacated.
@@ -1934,7 +1925,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     // it per field exactly as N1-U2 made it. This is checked BEFORE the arity and
     // pinned-value branches below, because both of those exist only to derive a
     // POST-transition value, and a cascading edge never needs one.
-    if (relation.onUpdate === "cascade") {
+    if (relation.membership.onUpdate === "cascade") {
       return this.locatedCreateParent(input, relation);
     }
     if (referencedFields.length !== 1) {
@@ -1985,7 +1976,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       );
       return {
         members: pairForeignKeyMembers(
-          relation.foreignFields,
+          relation.membership.foreignFields,
           referencedFields,
           [literalParentId(transitioned)]
         ),
@@ -2019,9 +2010,11 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       );
     }
     return {
-      members: pairForeignKeyMembers(relation.foreignFields, referencedFields, [
-        literalParentId(literal),
-      ]),
+      members: pairForeignKeyMembers(
+        relation.membership.foreignFields,
+        referencedFields,
+        [literalParentId(literal)]
+      ),
       afterRoot: false,
     };
   }
@@ -2048,7 +2041,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     input: Parameters<RecordUpdateCompilerState["interpretRelation"]>[0],
     relation: OrdinaryChildHeldRelation
   ): { members: ForeignKeyMember[]; afterRoot: boolean } {
-    const referencedFields = relation.referencedFields;
+    const referencedFields = relation.membership.referencedFields;
     for (const field of referencedFields) {
       input.parentFkLocateFields.add(field);
     }
@@ -2059,7 +2052,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     );
     return {
       members: pairForeignKeyMembers(
-        relation.foreignFields,
+        relation.membership.foreignFields,
         referencedFields,
         referencedFields.map(() => write)
       ),
@@ -2089,7 +2082,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     input: Parameters<RecordUpdateCompilerState["interpretRelation"]>[0],
     relation: OrdinaryChildHeldRelation
   ): { members: ForeignKeyMember[]; afterRoot: boolean } {
-    const referencedFields = relation.referencedFields;
+    const referencedFields = relation.membership.referencedFields;
     // The shortcut asks the CALLER'S unique `where` whether it pins this column to a
     // literal. A nested target located by correlation alone has no such `where` (`{}`
     // — see `parentWhere`), so there is no asker and nothing to pin; reached through
@@ -2101,7 +2094,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       if (pinned) {
         return {
           members: pairForeignKeyMembers(
-            relation.foreignFields,
+            relation.membership.foreignFields,
             referencedFields,
             [literalParentId(pinned.value)]
           ),
@@ -2112,7 +2105,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     for (const field of referencedFields) input.locateFields.add(field);
     return {
       members: pairForeignKeyMembers(
-        relation.foreignFields,
+        relation.membership.foreignFields,
         referencedFields,
         referencedFields.map(() => plannedParentId(this.targetReadId))
       ),
@@ -2122,7 +2115,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
 
   private interpretToManyKind(args: {
     entry: RelationMutationEntry;
-    relation: ChildHeldToMany;
+    relation: OrdinaryChildHeldRelation;
     childScope: QueryScope;
     childName: string;
     writeBase: Parameters<typeof buildToManyUpdateParts>[0];
@@ -2138,7 +2131,8 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
   }): void {
     const { entry, relation, childScope, childName, writeBase, input, adopt } =
       args;
-    const { relationInfo, foreignFields, referencedFields } = relation;
+    const { relationInfo } = relation;
+    const { foreignFields, referencedFields } = relation.membership;
     const relationName = relationInfo.name;
     const push = (parts: readonly Part[]) => input.childParts.push(...parts);
     // N5-U1: an adopt kind writes the POST-transition value and is held back until
@@ -2293,7 +2287,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
    */
   private interpretInverseToOneComposition(args: {
     entries: readonly RelationMutationEntry[];
-    relation: ChildHeldToOne;
+    relation: OrdinaryChildHeldRelation;
     childScope: QueryScope;
     childName: string;
     writeBase: Parameters<typeof buildToManyUpdateParts>[0];
@@ -2334,7 +2328,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
    */
   private interpretInverseToOneKind(args: {
     entry: RelationMutationEntry;
-    relation: ChildHeldToOne;
+    relation: OrdinaryChildHeldRelation;
     childScope: QueryScope;
     childName: string;
     writeBase: Parameters<typeof buildToManyUpdateParts>[0];
@@ -2355,7 +2349,8 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       keyTransition,
       adopt,
     } = args;
-    const { relationInfo, foreignFields, referencedFields } = relation;
+    const { relationInfo } = relation;
+    const { foreignFields, referencedFields } = relation.membership;
     const relationName = relationInfo.name;
     const push = (parts: readonly Part[]) => input.childParts.push(...parts);
     // N5-U1 — the arity-1 case of the to-many adopt ordering (see interpretToManyKind).
@@ -2561,9 +2556,9 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     childName: string;
   }): { regime: "none" } | { regime: "guarded"; write: FinalReferenceSource } {
     const { input, relation, childScope, childName } = args;
-    const { foreignFields, referencedFields } = relation;
+    const { foreignFields, referencedFields } = relation.membership;
     const relationName = relation.relationInfo.name;
-    if (relation.onUpdate === "cascade") return { regime: "none" };
+    if (relation.membership.onUpdate === "cascade") return { regime: "none" };
     // Does the root SET rewrite a referenced parent column — or, E1, does a
     // shared-primary-key arm fold a new value into one? Both are the same fact about
     // the same column, and a transition that only ONE of them can see is the silent
@@ -2764,7 +2759,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
    *  for an invariant that already has one. */
   private rerouteTransitionedUpsertCreateArm(args: {
     input: Parameters<RecordUpdateCompilerState["interpretRelation"]>[0];
-    relation: ChildHeldToOne;
+    relation: OrdinaryChildHeldRelation;
     childScope: QueryScope;
     upsertInput: NormalizedRelationUpsert;
     write: FinalReferenceSource;
@@ -2772,10 +2767,11 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     const { input, relation, childScope, upsertInput, write } = args;
     const relationName = relation.relationInfo.name;
     const createData = upsertInput.create;
+    const { foreignFields, referencedFields } = relation.membership;
     const members = pairForeignKeyMembers(
-      relation.foreignFields,
-      relation.referencedFields,
-      relation.referencedFields.map(() => write)
+      foreignFields,
+      referencedFields,
+      referencedFields.map(() => write)
     );
     input.afterRootParts.push(
       this.createFresh({
@@ -2811,7 +2807,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
    */
   private interpretParentHeldComposition(
     input: Parameters<RecordUpdateCompilerState["interpretRelation"]>[0],
-    relation: ParentHeldToOne,
+    relation: ParentHeldRelation,
     entries: readonly RelationMutationEntry[]
   ): void {
     const relationName = relation.relationInfo.name;
@@ -2874,7 +2870,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
   /** Compile one parent-held to-one mutation at its required position. */
   private interpretParentHeldToOne(
     input: Parameters<RecordUpdateCompilerState["interpretRelation"]>[0],
-    relation: ParentHeldToOne,
+    relation: ParentHeldRelation,
     entry: RelationMutationEntry
   ): void {
     const { relationInfo } = relation;
@@ -2963,10 +2959,10 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
    */
   private parentHeldCorrelation(
     input: Parameters<RecordUpdateCompilerState["interpretRelation"]>[0],
-    relation: ParentHeldToOne,
+    relation: ParentHeldRelation,
     suppliedTarget?: Record<string, unknown>
   ): ParentHeldCorrelation {
-    const { foreignFields, referencedFields } = relation;
+    const { foreignFields, referencedFields } = relation.membership;
     if (suppliedTarget) {
       // H3/R2 — the incoming member is named by the supplier's own unique selector, so
       // this arm reads none of the parent's foreign-key columns: adding them to the
@@ -2998,7 +2994,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
    *  captured primary key. */
   private interpretParentHeldUpdate(
     input: Parameters<RecordUpdateCompilerState["interpretRelation"]>[0],
-    relation: ParentHeldToOne,
+    relation: ParentHeldRelation,
     target: ToOneUpdateTarget,
     /** H3/R2 — the sibling supplier's selector, when this modify composes with one. */
     suppliedTarget?: Record<string, unknown>
@@ -3088,7 +3084,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
    *  is Prisma's no-op, dropped from the kind list (N7-U-B). */
   private interpretParentHeldDelete(
     input: Parameters<RecordUpdateCompilerState["interpretRelation"]>[0],
-    relation: ParentHeldToOne,
+    relation: ParentHeldRelation,
     /**
      * H3/R2 — a sibling supplier rebinds this edge's foreign-key columns in the same
      * root UPDATE, so the slot's FINAL assignment is that supplier's value.
@@ -3123,7 +3119,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
    *  INSERT it (before root) and rebind the parent FK to the created identity. */
   private interpretParentHeldUpsert(
     input: Parameters<RecordUpdateCompilerState["interpretRelation"]>[0],
-    relation: ParentHeldToOne,
+    relation: ParentHeldRelation,
     entry: Extract<RelationMutationEntry, { kind: "upsert" }>
   ): ParentHeldTarget {
     const { relationInfo } = relation;
@@ -3333,7 +3329,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
    *  INSERT, the root UPDATE's FK column referencing its identity by a `Ref`. */
   private interpretParentHeldCreate(
     input: Parameters<RecordUpdateCompilerState["interpretRelation"]>[0],
-    relation: ParentHeldToOne,
+    relation: ParentHeldRelation,
     entry: Extract<RelationMutationEntry, { kind: "create" }>
   ): ParentHeldTarget {
     const { relationInfo } = relation;
@@ -3376,10 +3372,11 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
    *  missing → before-root target INSERT (racePin) + FK ← its `Ref`. */
   private interpretParentHeldConnectOrCreate(
     input: Parameters<RecordUpdateCompilerState["interpretRelation"]>[0],
-    relation: ParentHeldToOne,
+    relation: ParentHeldRelation,
     entry: Extract<RelationMutationEntry, { kind: "connectOrCreate" }>
   ): ParentHeldTarget {
-    const { relationInfo, referencedFields } = relation;
+    const { relationInfo } = relation;
+    const { referencedFields } = relation.membership;
     const relationName = relationInfo.name;
     const spec = entry.items[0];
     if (!spec) {
@@ -3512,12 +3509,12 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
    */
   private recordSharedKeyFold(
     input: Parameters<RecordUpdateCompilerState["interpretRelation"]>[0],
-    relation: ParentHeldToOne,
+    relation: ParentHeldRelation,
     kind: string,
     resolve: (foreignField: string, referencedField: string) => unknown
   ): void {
     const recordPk = getPrimaryKeyFields(this.model);
-    const { foreignFields, referencedFields } = relation;
+    const { foreignFields, referencedFields } = relation.membership;
     for (let index = 0; index < foreignFields.length; index += 1) {
       const foreignField = foreignFields[index]!;
       if (!recordPk.includes(foreignField)) continue;
@@ -3568,10 +3565,11 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
   /** The record FK columns ← a before-root target's referenced values (a `Ref` to
    *  a captured generated id, or a known literal) — for the root UPDATE's SET. */
   private beforeTargetFkAssign(
-    relation: ParentHeldToOne,
+    relation: ParentHeldRelation,
     before: BeforeTarget
   ): Record<string, unknown> {
-    const { relationInfo, foreignFields, referencedFields } = relation;
+    const { relationInfo } = relation;
+    const { foreignFields, referencedFields } = relation.membership;
     const fkAssign: Record<string, unknown> = {};
     for (let index = 0; index < foreignFields.length; index += 1) {
       fkAssign[foreignFields[index]!] = referenceSql(
@@ -3643,10 +3641,11 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
    * arm by taking its create arm.
    */
   private toOneFkAssign(
-    relation: ParentHeldToOne,
+    relation: ParentHeldRelation,
     where: Record<string, unknown>
   ): Record<string, unknown> {
-    const { relationInfo, foreignFields, referencedFields } = relation;
+    const { relationInfo } = relation;
+    const { foreignFields, referencedFields } = relation.membership;
     const recordScope = {
       ...createQueryScope(this.engine.adapter, this.model),
       mutationTable: getTableName(this.model),
@@ -4072,7 +4071,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       this.assertLookupKeyPresent(
         rows,
         relationInfo,
-        target.relation.referencedFields,
+        target.relation.membership.referencedFields,
         target.where
       );
       Object.assign(extraSet, target.foundFkAssign);
@@ -4163,7 +4162,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
           {
             where: this.parentPrimaryKeyWhere(locatedRow),
             data: Object.fromEntries(
-              target.relation.foreignFields.map((field) => [
+              target.relation.membership.foreignFields.map((field) => [
                 field,
                 { set: null },
               ])
@@ -4325,11 +4324,12 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
 
   private interpretToOneLink(
     input: Parameters<RecordUpdateCompilerState["interpretRelation"]>[0],
-    relation: ParentHeldToOne,
+    relation: ParentHeldRelation,
     entry: Extract<RelationMutationEntry, { kind: "connect" | "disconnect" }>
   ): ToOneLink {
     const scope = input.scope;
-    const { relationInfo, foreignFields, referencedFields } = relation;
+    const { relationInfo } = relation;
+    const { foreignFields, referencedFields } = relation.membership;
     const relationName = relationInfo.name;
     if (entry.kind === "disconnect") {
       // V1-verbatim rejection when a required FK cannot be nulled.
@@ -4599,7 +4599,7 @@ function resolveSharedKeyMembers(
     // {@link RecordUpdateCompilerState.updatedPrimaryKeyWhere}).
     if (polymorphic?.[relationName]?.kind === "targeted") continue;
     const relation = bindRelation(targetScope, program.relationInfo);
-    if (relation.kind !== "parentHeldToOne") continue;
+    if (relation.position !== "parentHeld") continue;
     // H — the question is "does any entry FOLD", never "is there exactly one entry".
     // A multi-kind to-one payload used to be refused before any of this mattered, by
     // `interpretRelation`'s OWN parent-held dispatch guard (`kinds.length !== 1`), and
@@ -4621,7 +4621,7 @@ function resolveSharedKeyMembers(
       }
     }
     if (!foldsThisRecordsKey) continue;
-    for (const foreignField of relation.foreignFields) {
+    for (const foreignField of relation.membership.foreignFields) {
       if (recordPk.includes(foreignField)) members.add(foreignField);
     }
   }

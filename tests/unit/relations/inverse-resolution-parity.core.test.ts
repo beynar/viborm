@@ -133,18 +133,26 @@ describe("inverse resolution parity", () => {
         pairingName: "author",
       });
       expect(bind(user, "posts")).toMatchObject({
-        kind: "childHeldToMany",
-        foreignFields: ["authorId"],
-        referencedFields: ["id"],
+        position: "childHeld",
+        cardinality: "many",
+        membership: {
+          kind: "foreignKey",
+          foreignFields: ["authorId"],
+          referencedFields: ["id"],
+        },
       });
     });
 
     test("the owner side answers from its own fields", () => {
       expect(scanMap(post, "author")).toEqual(["authorId"]);
       expect(bind(post, "author")).toMatchObject({
-        kind: "parentHeldToOne",
-        foreignFields: ["authorId"],
-        referencedFields: ["id"],
+        position: "parentHeld",
+        cardinality: "one",
+        membership: {
+          kind: "foreignKey",
+          foreignFields: ["authorId"],
+          referencedFields: ["id"],
+        },
       });
 
       // `bindRelation` short-circuits an owner-side relation on its own `.fields()`
@@ -200,9 +208,13 @@ describe("inverse resolution parity", () => {
         resolveComposed(author, "books")
       );
       expect(bind(author, "books")).toMatchObject({
-        kind: "childHeldToMany",
-        foreignFields: ["authorId"],
-        referencedFields: ["id"],
+        position: "childHeld",
+        cardinality: "many",
+        membership: {
+          kind: "foreignKey",
+          foreignFields: ["authorId"],
+          referencedFields: ["id"],
+        },
       });
     });
 
@@ -387,12 +399,20 @@ describe("inverse resolution parity", () => {
       );
 
       expect(bind(user, "authored")).toMatchObject({
-        kind: "childHeldToMany",
-        foreignFields: ["authorId"],
+        position: "childHeld",
+        cardinality: "many",
+        membership: {
+          kind: "foreignKey",
+          foreignFields: ["authorId"],
+        },
       });
       expect(bind(user, "edited")).toMatchObject({
-        kind: "childHeldToMany",
-        foreignFields: ["editorId"],
+        position: "childHeld",
+        cardinality: "many",
+        membership: {
+          kind: "foreignKey",
+          foreignFields: ["editorId"],
+        },
       });
     });
   });
@@ -469,18 +489,26 @@ describe("inverse resolution parity", () => {
         pairingName: "tree",
       });
       expect(bind(node, "children")).toMatchObject({
-        kind: "childHeldToMany",
-        foreignFields: ["parentId"],
-        referencedFields: ["id"],
+        position: "childHeld",
+        cardinality: "many",
+        membership: {
+          kind: "foreignKey",
+          foreignFields: ["parentId"],
+          referencedFields: ["id"],
+        },
       });
     });
 
     test("the owning side keeps its own fields and its parent-held position", () => {
       expect(scanMap(node, "parent")).toEqual(["parentId"]);
       expect(bind(node, "parent")).toMatchObject({
-        kind: "parentHeldToOne",
-        foreignFields: ["parentId"],
-        referencedFields: ["id"],
+        position: "parentHeld",
+        cardinality: "one",
+        membership: {
+          kind: "foreignKey",
+          foreignFields: ["parentId"],
+          referencedFields: ["id"],
+        },
       });
 
       // The scan does not exclude the ASKING relation, so on a self-relation the owner
@@ -541,12 +569,20 @@ describe("inverse resolution parity", () => {
 
       // The arity of each pair survives the shared target model.
       expect(bind(org, "staff")).toMatchObject({
-        kind: "childHeldToMany",
-        foreignFields: ["employerId"],
+        position: "childHeld",
+        cardinality: "many",
+        membership: {
+          kind: "foreignKey",
+          foreignFields: ["employerId"],
+        },
       });
       expect(bind(org, "founder")).toMatchObject({
-        kind: "childHeldToOne",
-        foreignFields: ["foundedOrgId"],
+        position: "childHeld",
+        cardinality: "one",
+        membership: {
+          kind: "foreignKey",
+          foreignFields: ["foundedOrgId"],
+        },
       });
     });
 
@@ -554,12 +590,20 @@ describe("inverse resolution parity", () => {
       expect(scanMap(member, "employer")).toEqual(["employerId"]);
       expect(scanMap(member, "foundedOrg")).toEqual(["foundedOrgId"]);
       expect(bind(member, "employer")).toMatchObject({
-        kind: "parentHeldToOne",
-        foreignFields: ["employerId"],
+        position: "parentHeld",
+        cardinality: "one",
+        membership: {
+          kind: "foreignKey",
+          foreignFields: ["employerId"],
+        },
       });
       expect(bind(member, "foundedOrg")).toMatchObject({
-        kind: "parentHeldToOne",
-        foreignFields: ["foundedOrgId"],
+        position: "parentHeld",
+        cardinality: "one",
+        membership: {
+          kind: "foreignKey",
+          foreignFields: ["foundedOrgId"],
+        },
       });
     });
   });
@@ -605,9 +649,13 @@ describe("inverse resolution parity", () => {
         pairingName: undefined,
       });
       expect(bind(user, "profile")).toMatchObject({
-        kind: "childHeldToOne",
-        foreignFields: ["userId"],
-        referencedFields: ["id"],
+        position: "childHeld",
+        cardinality: "one",
+        membership: {
+          kind: "foreignKey",
+          foreignFields: ["userId"],
+          referencedFields: ["id"],
+        },
       });
     });
   });
@@ -650,9 +698,13 @@ describe("inverse resolution parity", () => {
         pairingName: undefined,
       });
       expect(bind(user, "posts")).toMatchObject({
-        kind: "childHeldToMany",
-        foreignFields: ["userId"],
-        referencedFields: ["id"],
+        position: "childHeld",
+        cardinality: "many",
+        membership: {
+          kind: "foreignKey",
+          foreignFields: ["userId"],
+          referencedFields: ["id"],
+        },
       });
     });
 
@@ -708,16 +760,24 @@ describe("inverse resolution parity", () => {
 
     test("the binding carries both ordered arrays and the referential action", () => {
       expect(bind(tenant, "memberships")).toMatchObject({
-        kind: "childHeldToMany",
-        foreignFields: ["tenantRegion", "tenantSlug"],
-        referencedFields: ["region", "slug"],
-        onUpdate: "cascade",
+        position: "childHeld",
+        cardinality: "many",
+        membership: {
+          kind: "foreignKey",
+          foreignFields: ["tenantRegion", "tenantSlug"],
+          referencedFields: ["region", "slug"],
+          onUpdate: "cascade",
+        },
       });
       expect(bind(membership, "tenant")).toMatchObject({
-        kind: "parentHeldToOne",
-        foreignFields: ["tenantRegion", "tenantSlug"],
-        referencedFields: ["region", "slug"],
-        onUpdate: "cascade",
+        position: "parentHeld",
+        cardinality: "one",
+        membership: {
+          kind: "foreignKey",
+          foreignFields: ["tenantRegion", "tenantSlug"],
+          referencedFields: ["region", "slug"],
+          onUpdate: "cascade",
+        },
       });
     });
   });
@@ -870,9 +930,13 @@ describe("inverse resolution parity", () => {
         fields: ["authorId"],
       });
       expect(bind(lazyUser, "posts")).toMatchObject({
-        kind: "childHeldToMany",
-        foreignFields: ["authorId"],
-        referencedFields: ["id"],
+        position: "childHeld",
+        cardinality: "many",
+        membership: {
+          kind: "foreignKey",
+          foreignFields: ["authorId"],
+          referencedFields: ["id"],
+        },
       });
       expect(scanMap(lazyPost, "author")).toEqual(["authorId"]);
 

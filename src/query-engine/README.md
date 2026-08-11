@@ -97,7 +97,7 @@ identities, value sources, transition state, SQL, or branch policy.
 
 Parent and child are edge-relative roles. Parent is the enclosing source record
 whose relation field is being compiled; child is its target. A
-`parentHeldToOne` edge means that source record stores the FK.
+parent-held edge (`position: "parentHeld"`) means that source record stores the FK.
 
 `CreateOperation` compiles non-bulk fresh record subtrees.
 `RecordUpdateCompiler` compiles non-bulk updates for an already-selected record.

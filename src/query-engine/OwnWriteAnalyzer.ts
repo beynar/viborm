@@ -199,7 +199,7 @@ export class OwnWriteNode {
         {
           first: footprint.constraint,
           second: unknownConstraint(
-            relation.kind === "parentHeldToOne"
+            relation.position === "parentHeld"
               ? relation.relationInfo.targetModel
               : relation.sourceModel
           ),
@@ -388,7 +388,7 @@ function getRelationEntryGroups(
         polymorphic[relationName]
       ),
     };
-    if (boundRelation.kind === "parentHeldToOne") {
+    if (boundRelation.position === "parentHeld") {
       currentHoldsFk.push(entry);
     } else {
       relatedHoldsFk.push(entry);

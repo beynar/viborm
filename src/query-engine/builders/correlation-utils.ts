@@ -10,9 +10,9 @@ import type { Sql } from "@sql";
 import { getColumnName, getCompoundIdConstraint } from "../context";
 import { QueryEngineError, type QueryScope, type RelationInfo } from "../types";
 import {
-  type BoundPolymorphicChildHeldRelation,
   bindRelation,
-  isPolymorphicChildHeldRelation,
+  hasPolymorphicMembership,
+  type PolymorphicChildHeldRelation,
 } from "./relation-data-builder";
 
 export { getCompoundIdConstraint, getPrimaryKeyFields } from "../context";
@@ -40,10 +40,10 @@ export function buildCorrelation(
 ): Sql {
   const { adapter } = ctx;
   const relation = bindRelation(ctx, relationInfo);
-  if (isPolymorphicChildHeldRelation(relation)) {
+  if (hasPolymorphicMembership(relation)) {
     const parentIdentity = adapter.identifiers.column(
       parentAlias,
-      getColumnName(ctx.model, relation.referencedFields[0])
+      getColumnName(ctx.model, relation.membership.referencedFields[0])
     );
     return buildPolymorphicMembershipPredicate(
       ctx,
@@ -53,7 +53,7 @@ export function buildCorrelation(
     );
   }
 
-  if (relation.kind === "junction") {
+  if (relation.position === "junction") {
     throw new QueryEngineError(
       `Many-to-many relation '${relationInfo.name}' cannot use buildCorrelation directly. ` +
         "Use the bound junction's sides and buildManyToManyJoinParts() from many-to-many-utils.ts instead."
@@ -61,13 +61,13 @@ export function buildCorrelation(
   }
 
   const parentFields =
-    relation.kind === "parentHeldToOne"
-      ? relation.foreignFields
-      : relation.referencedFields;
+    relation.position === "parentHeld"
+      ? relation.membership.foreignFields
+      : relation.membership.referencedFields;
   const relatedFields =
-    relation.kind === "parentHeldToOne"
-      ? relation.referencedFields
-      : relation.foreignFields;
+    relation.position === "parentHeld"
+      ? relation.membership.referencedFields
+      : relation.membership.foreignFields;
 
   if (parentFields.length !== relatedFields.length) {
     throw new QueryEngineError(
@@ -98,23 +98,24 @@ export function buildCorrelation(
 
 export function buildPolymorphicMembershipPredicate(
   ctx: QueryScope,
-  relation: BoundPolymorphicChildHeldRelation,
+  relation: PolymorphicChildHeldRelation,
   childQualifier: string,
   parentIdentity: Sql
 ): Sql {
+  const { storage, storedType } = relation.membership;
   const childId = ctx.adapter.identifiers.column(
     childQualifier,
-    relation.storage.idColumn.name
+    storage.idColumn.name
   );
   const childType = ctx.adapter.identifiers.column(
     childQualifier,
-    relation.storage.typeColumn.name
+    storage.typeColumn.name
   );
   return ctx.adapter.operators.and(
     ctx.adapter.operators.eq(childId, parentIdentity),
     ctx.adapter.operators.exactTextEq(
       childType,
-      ctx.adapter.literals.value(relation.storedType)
+      ctx.adapter.literals.value(storedType)
     )
   );
 }

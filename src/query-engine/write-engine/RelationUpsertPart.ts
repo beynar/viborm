@@ -848,15 +848,7 @@ function buildUpsertParts(
   const relation = parent.membership.relation;
   const { relationInfo } = relation;
   const relationName = relationInfo.name;
-  if (
-    relation.kind !== "childHeldToMany" &&
-    relation.kind !== "polymorphicChildHeldToMany" &&
-    !(
-      (relation.kind === "childHeldToOne" ||
-        relation.kind === "polymorphicChildHeldToOne") &&
-      family === "connectOrCreate"
-    )
-  ) {
+  if (relation.cardinality === "one" && family !== "connectOrCreate") {
     // Callers bind and dispatch topology before this builder. Only a child-held to-many,
     // or the child-held to-one `connectOrCreate` case, can reach this point.
     throw new QueryEngineError(
@@ -1009,7 +1001,8 @@ function buildOneUpsertPart(
   const relation = parent.membership.relation;
   const { relationInfo } = relation;
   const relationName = relationInfo.name;
-  if (relation.foreignFields.length !== relation.referencedFields.length) {
+  const { foreignFields, referencedFields } = relation.membership;
+  if (foreignFields.length !== referencedFields.length) {
     // The child must hold the foreign key referencing the parent (one column, or an
     // index-aligned compound key — ATOM “Field-bound foreign-key provenance”).
     //
@@ -1207,7 +1200,7 @@ function assertArmEdgeIsChildHeld(
   mutation: RelationMutationProgram
 ): void {
   const relation = bindRelation(child, mutation.relationInfo);
-  if (relation.kind !== "parentHeldToOne") return;
+  if (relation.position !== "parentHeld") return;
   throw new UnsupportedOperationError(
     `query-engine-v2 does not support a parent-held to-one write on relation '${relationName}' one level deeper on the update arm; the arm's row holds that foreign key, so the write belongs in the arm's own UPDATE SET, which already carries this relation's reparent.`
   );

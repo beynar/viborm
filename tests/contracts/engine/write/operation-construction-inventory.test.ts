@@ -1045,29 +1045,33 @@ describe("write engine route inventory (P6 accounting)", () => {
       [
         2,
         "query-engine/write-engine/RecordUpdateCompiler.ts",
-        1800,
-        1772,
+        // Shifted by Phase 4 (axis migration reshaped the file above).
+        1791,
+        1763,
         "postTransitionReference",
       ],
       [
         3,
         "query-engine/write-engine/RecordUpdateCompiler.ts",
-        2017,
-        1911,
+        // Shifted by Phase 4.
+        2008,
+        1902,
         "resolveCreateParent",
       ],
       [
         4,
         "query-engine/write-engine/RecordUpdateCompiler.ts",
-        3533,
-        3513,
+        // Shifted by Phase 4.
+        3530,
+        3510,
         "recordSharedKeyFold",
       ],
       [
         5,
         "query-engine/write-engine/RecordUpdateCompiler.ts",
-        3612,
-        3604,
+        // Shifted by Phase 4.
+        3610,
+        3602,
         "beforeTargetReferencedValue",
       ],
       [
@@ -1105,32 +1109,33 @@ describe("write engine route inventory (P6 accounting)", () => {
       [
         13,
         "query-engine/write-engine/RelationUpsertPart.ts",
-        1211,
+        // Shifted by Phase 4.
         1204,
+        1197,
         "assertArmEdgeIsChildHeld",
       ],
       [
         15,
         "query-engine/write-engine/CreateOperation.ts",
-        // Shifted -1 by unit 9.1 (CreateOperation planning literal).
-        2771,
-        2763,
+        // Shifted by unit 9.1, then Phase 4.
+        2760,
+        2752,
         "requireRecordReferenced",
       ],
       [
         19,
         "query-engine/write-engine/CreateOperation.ts",
-        // Shifted -1 by unit 9.1.
-        2849,
+        // Shifted by unit 9.1, then Phase 4.
         2838,
+        2827,
         "producedReference",
       ],
       [
         20,
         "query-engine/write-engine/CreateOperation.ts",
-        // Shifted -1 by unit 9.1.
-        3153,
-        3139,
+        // Shifted by unit 9.1, then Phase 4.
+        3142,
+        3128,
         "assertSharedPkResolved",
       ],
       [
@@ -1143,8 +1148,9 @@ describe("write engine route inventory (P6 accounting)", () => {
       [
         22,
         "query-engine/relation-key-legality.ts",
-        173,
-        167,
+        // Shifted by Phase 4.
+        170,
+        164,
         "assertSelectedUpdateManyDataIsScalar",
       ],
       [
@@ -1500,7 +1506,7 @@ describe("write engine full client operation surface (P6 precondition)", () => {
  *     Package N2 re-verified that NOTHING has sealed it: no rule in `src/validation`
  *     or `src/schema/validation` reads a junction's compound primary key, the two
  *     carve-outs in `RelationJunctionPart` still name `JunctionSide` by name, and
- *     `JunctionRelation` now CARRIES the two-sides topology (distinct-truth Phase 3: table/source/target, lazily resolved).
+ *     `JunctionBoundRelation` now CARRIES the two-sides topology (distinct-truth Phase 3: table/source/target, lazily resolved).
  *   · Sites 9, 10, 22 and 23 get NO expiry. Package L prototyped both lifts and BOTH
  *     were REJECTED, so nothing in this lift lifts the nested-bulk wall and a comment
  *     promising otherwise would be promising unscheduled work. L's boundary, verbatim:

@@ -2,11 +2,10 @@
 import type { Model } from "@schema/model";
 import type { PolymorphicStorage } from "@schema/relation";
 import {
+  type BoundJunctionMembership,
   type BoundRelation,
   bindRelation,
-  isPolymorphicChildHeldRelation,
   type JunctionReferenceMember,
-  type JunctionRelation,
   junctionSideMember,
 } from "./builders/relation-data-builder";
 import type { RelationMutationProgram } from "./builders/relation-mutation-parser";
@@ -80,10 +79,12 @@ export function getPolymorphicMembershipScope(
  * still needs it, so it is answered here — from the one comparison that erased it —
  * instead of re-deriving the junction topology a second time.
  */
-export function junctionSourceIsFirst(relation: JunctionRelation): boolean {
+export function junctionSourceIsFirst(
+  membership: BoundJunctionMembership
+): boolean {
   return (
-    junctionSideMember(relation.source).junctionField.localeCompare(
-      junctionSideMember(relation.target).junctionField
+    junctionSideMember(membership.source).junctionField.localeCompare(
+      junctionSideMember(membership.target).junctionField
     ) <= 0
   );
 }
@@ -91,29 +92,33 @@ export function junctionSourceIsFirst(relation: JunctionRelation): boolean {
 export function getRelationMembershipScope(
   relation: BoundRelation
 ): RelationMembershipScope {
-  const { relationInfo } = relation;
-  if (relation.kind === "junction") {
-    const sourceIsFirst = junctionSourceIsFirst(relation);
+  const { relationInfo, membership } = relation;
+  if (membership.kind === "junction") {
+    const sourceIsFirst = junctionSourceIsFirst(membership);
     return {
       kind: "manyToMany",
-      junctionTable: relation.table,
-      first: sourceIsFirst ? relation.source.members : relation.target.members,
-      second: sourceIsFirst ? relation.target.members : relation.source.members,
+      junctionTable: membership.table,
+      first: sourceIsFirst
+        ? membership.source.members
+        : membership.target.members,
+      second: sourceIsFirst
+        ? membership.target.members
+        : membership.source.members,
     };
   }
-  if (isPolymorphicChildHeldRelation(relation)) {
+  if (membership.kind === "polymorphic") {
     return getPolymorphicMembershipScope(
       relation.relationInfo.targetModel,
       relation.sourceModel,
-      relation.storage,
-      relation.storedType,
-      relation.referencedFields[0]
+      membership.storage,
+      membership.storedType,
+      membership.referencedFields[0]
     );
   }
 
   const fields: Array<{ foreignKey: string; referencedKey: string }> = [];
-  for (const [index, foreignKey] of relation.foreignFields.entries()) {
-    const referencedKey = relation.referencedFields[index];
+  for (const [index, foreignKey] of membership.foreignFields.entries()) {
+    const referencedKey = membership.referencedFields[index];
     if (referencedKey === undefined) {
       throw new NestedWriteError(
         `Relation '${relationInfo.name}' has mismatched foreign-key metadata.`,
@@ -130,11 +135,11 @@ export function getRelationMembershipScope(
   return {
     kind: "foreignKey",
     holder:
-      relation.kind === "parentHeldToOne"
+      relation.position === "parentHeld"
         ? relation.sourceModel
         : relation.relationInfo.targetModel,
     referenced:
-      relation.kind === "parentHeldToOne"
+      relation.position === "parentHeld"
         ? relation.relationInfo.targetModel
         : relation.sourceModel,
     fields,
@@ -209,11 +214,11 @@ export function buildRootUpdateMembershipFootprints(
   for (const mutation of Object.values(relations)) {
     const relationInfo = mutation.relationInfo;
     const relation = bindRelation(ctx, relationInfo);
-    if (relation.kind === "junction") continue;
+    if (relation.position === "junction") continue;
     if (
-      relation.kind === "parentHeldToOne" ||
+      relation.position === "parentHeld" ||
       relation.relationInfo.targetModel !== ctx.model ||
-      !hasChangedForeignKey(relation.foreignFields, scalarData)
+      !hasChangedForeignKey(relation.membership.foreignFields, scalarData)
     ) {
       continue;
     }
@@ -235,11 +240,11 @@ export function buildTransitiveUpdateMembershipFootprints(
     const relationInfo = getRelationInfo(ctx, relationName);
     if (!relationInfo) continue;
     const relation = bindRelation(ctx, relationInfo);
-    if (relation.kind === "junction") continue;
+    if (relation.position === "junction") continue;
     if (
-      (relation.kind !== "parentHeldToOne" &&
+      (relation.position !== "parentHeld" &&
         relation.relationInfo.targetModel !== ctx.model) ||
-      !hasChangedForeignKey(relation.foreignFields, scalarData)
+      !hasChangedForeignKey(relation.membership.foreignFields, scalarData)
     ) {
       continue;
     }

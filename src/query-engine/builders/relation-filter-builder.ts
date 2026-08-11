@@ -48,7 +48,7 @@ export function buildRelationFilterSql(
   // We must check for !== undefined, not just "key in filter".
 
   // To-many relations use some/every/none (normalized by schema validation)
-  if (relationInfo.isToMany) {
+  if (relationInfo.cardinality === "many") {
     const conditions: Sql[] = [];
     let hasOperator = false;
 
@@ -97,7 +97,7 @@ export function buildRelationFilterSql(
   }
 
   // To-one relations use is/isNot (normalized by schema validation)
-  if (relationInfo.isToOne) {
+  if (relationInfo.cardinality === "one") {
     const conditions: Sql[] = [];
     let hasOperator = false;
 
@@ -454,8 +454,8 @@ class RelationFilterSubqueries {
 
     const subquery = adapter.subqueries.existsCheck(fromClause, whereClause);
     return this.wrapMutationTarget(ctx, subquery, [
-      junction.table,
-      getTableName(junction.target.model),
+      junction.membership.table,
+      getTableName(junction.membership.target.model),
     ]);
   }
 }

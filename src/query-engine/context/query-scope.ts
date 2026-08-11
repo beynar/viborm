@@ -82,8 +82,10 @@ export function getRelationInfo(
     relation,
     targetModel,
     type: state.type,
-    isToMany: state.type === "oneToMany" || state.type === "manyToMany",
-    isToOne: state.type === "oneToOne" || state.type === "manyToOne",
+    cardinality:
+      state.type === "oneToMany" || state.type === "manyToMany"
+        ? "many"
+        : "one",
     isOptional: state.optional ?? false,
     fields: state.fields,
     references: state.references,

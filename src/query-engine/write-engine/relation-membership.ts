@@ -2,10 +2,11 @@ import { NestedWriteError, QueryEngineError } from "@errors";
 import type { Sql } from "@sql";
 import { buildPolymorphicMembershipPredicate } from "../builders/correlation-utils";
 import type { PolymorphicStorageValue } from "../builders/polymorphic-mutation";
-import type {
-  ChildHeldToMany,
-  ChildHeldToOne,
-  PolymorphicChildHeldRelation,
+import {
+  type ChildHeldRelation,
+  hasPolymorphicMembership,
+  type OrdinaryChildHeldRelation,
+  type PolymorphicChildHeldRelation,
 } from "../builders/relation-data-builder";
 import type { QueryEngine } from "../query-engine";
 import type { QueryScope, ResolvedPolymorphicEdge } from "../types";
@@ -51,7 +52,7 @@ export interface CorrelatedForeignKeyMember extends ForeignKeyMember {
 export type RelationMembershipBinding =
   | {
       readonly kind: "foreignKey";
-      readonly relation: ChildHeldToOne | ChildHeldToMany;
+      readonly relation: OrdinaryChildHeldRelation;
       readonly members: readonly ForeignKeyMember[];
     }
   | {
@@ -63,7 +64,7 @@ export type RelationMembershipBinding =
 export type CorrelatedRelationMembershipBinding =
   | {
       readonly kind: "foreignKey";
-      readonly relation: ChildHeldToOne | ChildHeldToMany;
+      readonly relation: OrdinaryChildHeldRelation;
       readonly members: readonly CorrelatedForeignKeyMember[];
     }
   | {
@@ -145,22 +146,20 @@ export function fkEquals(left: unknown, right: unknown): boolean {
 }
 
 export function bindRelationMembership(
-  relation: ChildHeldToOne | ChildHeldToMany | PolymorphicChildHeldRelation,
+  relation: ChildHeldRelation,
   writeSource: FinalReferenceSource
 ): RelationMembershipBinding {
-  if (
-    relation.kind === "polymorphicChildHeldToOne" ||
-    relation.kind === "polymorphicChildHeldToMany"
-  ) {
+  if (hasPolymorphicMembership(relation)) {
     return { kind: "polymorphic", relation, writeSource };
   }
+  const { foreignFields, referencedFields } = relation.membership;
   return {
     kind: "foreignKey",
     relation,
     members: pairForeignKeyMembers(
-      relation.foreignFields,
-      relation.referencedFields,
-      relation.referencedFields.map(() => writeSource)
+      foreignFields,
+      referencedFields,
+      referencedFields.map(() => writeSource)
     ),
   };
 }
@@ -177,24 +176,22 @@ export function bindRelationMembership(
  * {@link pairCorrelatedForeignKeyMembers}.
  */
 export function bindCorrelatedRelationMembership(
-  relation: ChildHeldToOne | ChildHeldToMany | PolymorphicChildHeldRelation,
+  relation: ChildHeldRelation,
   readSource: PlanningReferenceSource,
   writeSource: FinalReferenceSource
 ): CorrelatedRelationMembershipBinding {
-  if (
-    relation.kind === "polymorphicChildHeldToOne" ||
-    relation.kind === "polymorphicChildHeldToMany"
-  ) {
+  if (hasPolymorphicMembership(relation)) {
     return { kind: "polymorphic", relation, readSource, writeSource };
   }
+  const { foreignFields, referencedFields } = relation.membership;
   return {
     kind: "foreignKey",
     relation,
     members: pairCorrelatedForeignKeyMembers(
-      relation.foreignFields,
-      relation.referencedFields,
-      relation.referencedFields.map(() => readSource),
-      relation.referencedFields.map(() => writeSource)
+      foreignFields,
+      referencedFields,
+      referencedFields.map(() => readSource),
+      referencedFields.map(() => writeSource)
     ),
   };
 }
@@ -214,9 +211,9 @@ export function lowerMembershipWrite(
           engine,
           {
             kind: "linked",
-            storage: binding.relation.storage,
-            storedType: binding.relation.storedType,
-            referencedField: binding.relation.referencedFields[0],
+            storage: binding.relation.membership.storage,
+            storedType: binding.relation.membership.storedType,
+            referencedField: binding.relation.membership.referencedFields[0],
             id: binding.writeSource,
           },
           known,
@@ -249,7 +246,7 @@ export function lowerEmptyMembership(
     return {
       data: {},
       polymorphicStorage: [
-        { kind: "empty", storage: binding.relation.storage },
+        { kind: "empty", storage: binding.relation.membership.storage },
       ],
     };
   }
@@ -277,11 +274,12 @@ export function planningMembershipCondition(
     };
   }
   const relation = binding.relation;
+  const { membership } = relation;
   const identity = referenceScalarSql(
     engine,
-    relation.storage.idColumn.scalar,
-    relation.storage.idColumn.name,
-    planningReferenceValue(binding.readSource, relation.referencedFields[0])
+    membership.storage.idColumn.scalar,
+    membership.storage.idColumn.name,
+    planningReferenceValue(binding.readSource, membership.referencedFields[0])
   );
   return {
     filters: [],
@@ -318,13 +316,14 @@ export function finalMembershipCondition(
     };
   }
   const relation = binding.relation;
+  const { membership } = relation;
   const identity = referenceScalarSql(
     engine,
-    relation.storage.idColumn.scalar,
-    relation.storage.idColumn.name,
+    membership.storage.idColumn.scalar,
+    membership.storage.idColumn.name,
     resolvedPlanningReferenceValue(
       binding.readSource,
-      relation.referencedFields[0],
+      membership.referencedFields[0],
       known,
       relationName,
       operation
@@ -355,8 +354,8 @@ export function membershipProjection(
   return {
     fields: [],
     additionalColumns: [
-      binding.relation.storage.typeColumn,
-      binding.relation.storage.idColumn,
+      binding.relation.membership.storage.typeColumn,
+      binding.relation.membership.storage.idColumn,
     ].map((column) =>
       adapter.identifiers.aliased(
         adapter.identifiers.column(rootAlias, column.name),
@@ -381,14 +380,14 @@ export function recordHasMembership(
       )
     );
   }
-  const relation = binding.relation;
+  const { membership } = binding.relation;
   return (
-    record?.[relation.storage.typeColumn.name] === relation.storedType &&
+    record?.[membership.storage.typeColumn.name] === membership.storedType &&
     fkEquals(
-      record?.[relation.storage.idColumn.name],
+      record?.[membership.storage.idColumn.name],
       resolvedPlanningReferenceValue(
         binding.readSource,
-        relation.referencedFields[0],
+        membership.referencedFields[0],
         known,
         relationName,
         operation
@@ -533,15 +532,21 @@ export function linkedPolymorphicStorage(
   relation: PolymorphicChildHeldRelation | ResolvedPolymorphicEdge,
   id: FinalReferenceSource
 ): Extract<PolymorphicStorageValue<FinalReferenceSource>, { kind: "linked" }> {
-  const referencedField =
-    "referencedField" in relation
-      ? relation.referencedField
-      : relation.referencedFields[0];
+  if ("referencedField" in relation) {
+    return {
+      kind: "linked",
+      storage: relation.storage,
+      storedType: relation.storedType,
+      referencedField: relation.referencedField,
+      id,
+    };
+  }
+  const { membership } = relation;
   return {
     kind: "linked",
-    storage: relation.storage,
-    storedType: relation.storedType,
-    referencedField,
+    storage: membership.storage,
+    storedType: membership.storedType,
+    referencedField: membership.referencedFields[0],
     id,
   };
 }
