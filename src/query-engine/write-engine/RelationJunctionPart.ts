@@ -13,7 +13,9 @@ import {
 } from "../builders/relation-data-builder";
 import {
   buildParsedRelationPrograms,
+  type ParsedRelationMutation,
   type RelationMutationProgram,
+  relationMutationPrograms,
 } from "../builders/relation-mutation-parser";
 import { buildInsert } from "../builders/values-builder";
 import { createQueryScope, getTableName } from "../context/query-scope";
@@ -1802,10 +1804,10 @@ export function buildJunctionParts(input: {
   } as const;
 
   const requiresWholeFreshRecordCompiler = (
-    relations: Readonly<Record<string, RelationMutationProgram>>
+    relations: readonly ParsedRelationMutation[]
   ): boolean => {
     const targetPrimaryKeys = getPrimaryKeyFields(childScope.model);
-    for (const mutation of Object.values(relations)) {
+    for (const mutation of relationMutationPrograms(relations)) {
       const bound = bindRelation(childScope, mutation.relationInfo);
       if (bound.position === "junction") continue;
       if (bound.position === "parentHeld") return true;
@@ -1832,7 +1834,10 @@ export function buildJunctionParts(input: {
     );
     const spelledPk = create[targetReference.referencedField];
     const pkIsLiteral = spelledPk !== undefined && spelledPk !== null;
-    if (Object.keys(relations).length === 0) {
+    // CREATE-context data: `ToManyCreateSchema` spells no `disconnect`, so this
+    // count is the same question it asked of the program map — the collection has
+    // no entry here the map did not have.
+    if (relations.length === 0) {
       return {
         kind: "inline",
         data: scalarData,
@@ -2057,7 +2062,6 @@ export function buildJunctionParts(input: {
             targetScope: childScope,
             scalarData: parsed.scalarData,
             relations: parsed.relations,
-            polymorphic: parsed.polymorphic,
             targetRead: { label: `${childName}.find` },
             rootWrite: { label: `${childName}.update` },
             relationName,
@@ -2216,10 +2220,7 @@ export function buildJunctionParts(input: {
           const parsed = buildParsedRelationPrograms(childScope, item.update);
           const pinnedTarget = pinnedTargetValues(childScope, item.where);
           const hasUpdate =
-            Object.keys(parsed.scalarData).length +
-              Object.keys(parsed.relations).length +
-              Object.keys(parsed.polymorphic).length >
-            0;
+            Object.keys(parsed.scalarData).length + parsed.relations.length > 0;
           const compiler = hasUpdate
             ? input.recordCompilers.updateSelected({
                 scope,
@@ -2227,7 +2228,6 @@ export function buildJunctionParts(input: {
                 targetScope: childScope,
                 scalarData: parsed.scalarData,
                 relations: parsed.relations,
-                polymorphic: parsed.polymorphic,
                 targetRead: {
                   id: input.freshParent
                     ? item.probes.global

@@ -22,6 +22,7 @@ import {
 import {
   buildParsedRelationPrograms,
   type ParsedRecordPrograms,
+  type ParsedRelationMutation,
   type RelationMutationEntry,
   type RelationMutationProgram,
 } from "../builders/relation-mutation-parser";
@@ -555,8 +556,7 @@ export class CreateOperation {
       assertCreateOwnWriteSafety(
         parent,
         parsedData.scalarData,
-        parsedData.relations,
-        parsedData.polymorphic
+        parsedData.relations
       );
     };
     this.annotatedByEnclosingOwner =
@@ -867,8 +867,7 @@ export class CreateOperation {
     // read addresses the inserted row; unresolved sources fail at that ownership seam.
     const sharedPk = this.resolveSharedPkIdentity(
       childScope,
-      parsedData.relations,
-      parsedData.polymorphic
+      parsedData.relations
     );
     const { identity, generatedField } = planNestedCreateIdentity(model, {
       ...parsedData.scalarData,
@@ -900,20 +899,22 @@ export class CreateOperation {
     // arms so coverage is order-insensitive, exactly as V1's group-0 analysis.
     const coverage = this.beforeParentCoverage(
       childScope,
-      parsedData.relations,
-      parsedData.polymorphic
+      parsedData.relations
     );
 
-    for (const [relationName, program] of Object.entries(
-      parsedData.relations
-    )) {
-      const polymorphic = parsedData.polymorphic[relationName];
-      if (polymorphic?.kind === "targeted") {
+    for (const parsed of parsedData.relations) {
+      // A create input spells no `disconnect`, so a targetless polymorphic
+      // disconnect has no route into this record; it is skipped here exactly as it
+      // was invisible to the former program map. Refusing it would be a new refusal
+      // on a shape with no public spelling.
+      if (parsed.kind === "polymorphicDisconnect") continue;
+      const { name: relationName, program } = parsed;
+      if (parsed.kind === "polymorphicTarget") {
         this.interpretPolymorphicRelation({
           childScope,
           self,
           program,
-          edge: polymorphic.edge,
+          edge: parsed.edge,
           txMode,
           coverage,
           parentHeldArms,
@@ -1200,14 +1201,17 @@ export class CreateOperation {
    */
   private resolveSharedPkIdentity(
     childScope: QueryScope,
-    relations: Record<string, RelationMutationProgram>,
-    polymorphic: ParsedRecordPrograms["polymorphic"]
+    relations: readonly ParsedRelationMutation[]
   ): SharedPkIdentity {
     const recordPk = getPrimaryKeyFields(childScope.model);
     const identity: Record<string, unknown> = {};
     const producedBy = new Map<string, string>();
-    for (const [relationName, program] of Object.entries(relations)) {
-      if (polymorphic[relationName]?.kind === "targeted") continue;
+    for (const parsed of relations) {
+      // A direct polymorphic edge writes its private `(type, id)` pair, never the
+      // relation's `foreignFields`, and a storage column is not a declared scalar —
+      // so it can never be a member of this record's row key.
+      if (parsed.kind !== "ordinary") continue;
+      const { name: relationName, program } = parsed;
       const relation = bindRelation(childScope, program.relationInfo);
       if (relation.position !== "parentHeld") continue;
       const sharedForeignFields = relation.membership.foreignFields.filter(
@@ -1325,20 +1329,22 @@ export class CreateOperation {
    */
   private beforeParentCoverage(
     childScope: QueryScope,
-    relations: Record<string, RelationMutationProgram>,
-    polymorphic: ParsedRecordPrograms["polymorphic"]
+    relations: readonly ParsedRelationMutation[]
   ): CreatedTarget[] {
     const targets: CreatedTarget[] = [];
-    for (const [relationName, program] of Object.entries(relations)) {
-      const direct = polymorphic[relationName];
-      if (direct?.kind === "targeted") {
+    for (const parsed of relations) {
+      // No create route (see `buildRecord`), and a disconnect produces no target.
+      if (parsed.kind === "polymorphicDisconnect") continue;
+      const { program } = parsed;
+      if (parsed.kind === "polymorphicTarget") {
+        const edge = parsed.edge;
         const create = program.entries.find((entry) => entry.kind === "create");
         const data = create?.items[0];
-        if (data && Object.hasOwn(data, direct.edge.referencedField)) {
+        if (data && Object.hasOwn(data, edge.referencedField)) {
           targets.push({
-            model: direct.edge.targetModel,
+            model: edge.targetModel,
             key: {
-              [direct.edge.referencedField]: data[direct.edge.referencedField],
+              [edge.referencedField]: data[edge.referencedField],
             },
           });
         }

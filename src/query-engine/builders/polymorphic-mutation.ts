@@ -65,16 +65,15 @@ export function polymorphicStorageMembers<Id>(
   return members;
 }
 
-export type ResolvedPolymorphicMutation =
-  | {
-      readonly kind: "targeted";
-      readonly edge: ResolvedPolymorphicEdge;
-    }
-  | {
-      readonly kind: "disconnect";
-      readonly storage: PolymorphicStorage;
-    };
-
+/**
+ * What one direct payload MEANS, before it becomes a parsed relation entry: a
+ * resolved edge plus the operation vocabulary the concrete relation program is
+ * built from, or a targetless disconnect that clears the private pair.
+ *
+ * The two arms used to survive past this boundary as a companion map beside the
+ * relation programs; they are now the two polymorphic arms of
+ * `ParsedRelationMutation`, so this type ends where the parse ends.
+ */
 type ResolvedPolymorphicMutationIntent =
   | {
       readonly kind: "targeted";
@@ -88,7 +87,10 @@ type ResolvedPolymorphicMutationIntent =
         | "delete";
       readonly payload: unknown;
     }
-  | Extract<ResolvedPolymorphicMutation, { kind: "disconnect" }>;
+  | {
+      readonly kind: "disconnect";
+      readonly storage: PolymorphicStorage;
+    };
 
 /**
  * Resolve one already schema-transformed direct payload. The validation boundary

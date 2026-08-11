@@ -1046,40 +1046,40 @@ describe("write engine route inventory (P6 accounting)", () => {
         2,
         "query-engine/write-engine/RecordUpdateCompiler.ts",
         // Shifted by Phase 4 (axis migration reshaped the file above), then Phase 5.
-        1791,
-        1763,
+        1785,
+        1757,
         "postTransitionReference",
       ],
       [
         3,
         "query-engine/write-engine/RecordUpdateCompiler.ts",
         // Shifted by Phase 4, then Phase 5.
-        2006,
-        1902,
+        2000,
+        1896,
         "resolveCreateParent",
       ],
       [
         4,
         "query-engine/write-engine/RecordUpdateCompiler.ts",
         // Shifted by Phase 4, then Phase 5.
-        3528,
-        3508,
+        3519,
+        3499,
         "recordSharedKeyFold",
       ],
       [
         5,
         "query-engine/write-engine/RecordUpdateCompiler.ts",
         // Shifted by Phase 4, then Phase 5.
-        3608,
-        3600,
+        3599,
+        3591,
         "beforeTargetReferencedValue",
       ],
       [
         6,
         "query-engine/write-engine/RecordUpdateCompiler.ts",
         // Shifted by Phase 5.
-        4765,
-        4726,
+        4756,
+        4717,
         "composeToOneEntries",
       ],
       [
@@ -1097,63 +1097,63 @@ describe("write engine route inventory (P6 accounting)", () => {
         // class's junction carve-out shrank by three lines and the target
         // reference read wraps. Coordinates only — the site is unchanged.
         // Shifted again by Phase 4, then Phase 5.
-        1383,
-        1368,
+        1385,
+        1370,
         "resolveCreatePk",
       ],
       [
         12,
         "query-engine/write-engine/RelationUpsertPart.ts",
         // Shifted by Phase 5.
-        757,
-        746,
+        759,
+        748,
         "withoutAgreeingOwnedFk",
       ],
       [
         13,
         "query-engine/write-engine/RelationUpsertPart.ts",
         // Shifted by Phase 4, then Phase 5.
-        1210,
-        1203,
+        1209,
+        1202,
         "assertArmEdgeIsChildHeld",
       ],
       [
         15,
         "query-engine/write-engine/CreateOperation.ts",
         // Shifted by unit 9.1, then Phase 4, then Phase 5.
-        2773,
-        2765,
+        2779,
+        2771,
         "requireRecordReferenced",
       ],
       [
         19,
         "query-engine/write-engine/CreateOperation.ts",
         // Shifted by unit 9.1, then Phase 4, then Phase 5.
-        2851,
-        2840,
+        2857,
+        2846,
         "producedReference",
       ],
       [
         20,
         "query-engine/write-engine/CreateOperation.ts",
         // Shifted by unit 9.1, then Phase 4, then Phase 5.
-        3155,
-        3141,
+        3161,
+        3147,
         "assertSharedPkResolved",
       ],
       [
         21,
         "query-engine/write-engine/UpsertOperation.ts",
-        1147,
-        1103,
+        1153,
+        1109,
         "createArmIdentity",
       ],
       [
         22,
         "query-engine/relation-key-legality.ts",
         // Shifted by Phase 4, then Phase 5.
-        173,
-        167,
+        170,
+        164,
         "assertSelectedUpdateManyDataIsScalar",
       ],
       [

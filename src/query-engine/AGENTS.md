@@ -109,12 +109,14 @@ membership is exactly `child.id = parent.referenced AND child.type = storedType`
 The `ToOne` variant changes public arity and operation shape; it does not create
 another storage or execution owner.
 
-Direct polymorphic payloads remain separate. After schema transformation,
-`ResolvedPolymorphicMutation` selects one concrete direct target or a targetless
-disconnect. `ResolvedPolymorphicEdge` reuses ordinary target lookup/create
-semantics, while `PolymorphicStorageValue` owns the atomic private `(type, id)`
-assignment. A payload-selected direct edge and a schema-fixed inverse topology
-are different facts and must not be coerced into one carrier.
+Direct polymorphic payloads remain a distinct FACT, carried in the one parsed
+relation collection rather than a companion map. After schema transformation the
+payload resolves to one concrete direct target or a targetless disconnect, and
+becomes a `polymorphicTarget` or `polymorphicDisconnect` entry of
+`ParsedRelationMutation`. `ResolvedPolymorphicEdge` reuses ordinary target
+lookup/create semantics, while `PolymorphicStorageValue` owns the atomic private
+`(type, id)` assignment. A payload-selected direct edge and a schema-fixed
+inverse topology are different facts and must not be coerced into one carrier.
 
 ### Record compilers
 

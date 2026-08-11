@@ -215,9 +215,10 @@ export class RelationWritePart implements Part {
       this.updateScalarData = this.parseScalarUpdateData();
       this.isNoOpUpdate = Object.keys(this.updateScalarData).length === 0;
     } else if (config.kind === "inverseUpsert") {
-      // G1 — ONE parse of the complete record boundary. Dropping `polymorphic` here
-      // used to discard a direct polymorphic mutation whose intent carries no
-      // program (a disconnect), so the found arm silently wrote nothing.
+      // G1 — ONE parse of the complete record boundary, forwarded whole. This seam
+      // used to hand on the program map alone, discarding a direct polymorphic
+      // mutation that carries no program (a disconnect), so the found arm silently
+      // wrote nothing; one collection leaves nothing to drop.
       const parsed = buildParsedRelationPrograms(
         config.childScope,
         config.data
@@ -228,7 +229,6 @@ export class RelationWritePart implements Part {
         targetScope: config.childScope,
         scalarData: parsed.scalarData,
         relations: parsed.relations,
-        polymorphic: parsed.polymorphic,
         // No `incomingMembership`: the correlated probe found the row BY the
         // membership, so this arm never reparents. No `pinnedTarget`: a correlated
         // inverse to-one has no unique `where`, so nothing is construction-known —
@@ -638,7 +638,6 @@ export class RelationWritePart implements Part {
       targetScope: this.config.childScope,
       scalarData: parsed.scalarData,
       relations: parsed.relations,
-      polymorphic: parsed.polymorphic,
       targetRead: { label: `${this.config.childName}.find` },
       rootWrite: { label: `${this.config.childName}.update` },
       relationName: this.relationName,

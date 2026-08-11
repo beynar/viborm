@@ -63,7 +63,9 @@ function relationMutation(
   const relations = buildParsedRelationPrograms(ctx, {
     targets: input,
   }).relations;
-  if (!relations.targets) throw new Error("Expected targets relation mutation");
+  if (!relations.some((entry) => entry.name === "targets")) {
+    throw new Error("Expected targets relation mutation");
+  }
   return { ctx, relations };
 }
 
@@ -82,8 +84,11 @@ function summarizeSelfChildrenStep(
   kind: "connect" | "createMany"
 ) {
   const plan = selfRelationMutation({ children: input });
-  const relation = plan.relations.children;
-  if (!relation) throw new Error("Expected children relation mutation");
+  const parsed = plan.relations.find((entry) => entry.name === "children");
+  if (parsed?.kind !== "ordinary") {
+    throw new Error("Expected children relation mutation");
+  }
+  const relation = parsed.program;
   const step = relation.entries.find((candidate) => candidate.kind === kind);
   if (!step) throw new Error(`Expected ${kind} step`);
 

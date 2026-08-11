@@ -67,12 +67,17 @@ no-ops. It does not contain execution deduplication.
 Downstream code consumes `program.entries`. Do not inspect the raw payload,
 normalize arrays again, or recreate a per-kind optional mutation bag.
 
-Polymorphic relation payloads use a companion map instead of changing
-`RelationMutationProgram`. A targeted `connect` or `create` appears in the
-ordinary program map after its public discriminator resolves to one concrete
-edge; the companion supplies its storage/discriminator fact. A targetless
-`disconnect` appears only in the companion and becomes an empty private storage
-assignment. The record compiler must count that companion as root work.
+Polymorphic relation payloads ride in the one parsed collection instead of
+changing `RelationMutationProgram`. `buildParsedRelationPrograms` returns
+`{ scalarData, relations }`, and `relations` is an ordered
+`ParsedRelationMutation[]` with one entry per relation key the payload writes:
+`ordinary` (program), `polymorphicTarget` (program plus the resolved edge, once
+the public discriminator names one concrete target), or `polymorphicDisconnect`
+(storage only — a targetless disconnect builds no program and becomes an empty
+private storage assignment). Collection order is every ordinary relation in
+payload key order, then every polymorphic one; it is a behavior surface, so keep
+the two passes. Consumers walk the collection and switch on `kind`; do not
+rebuild a name-keyed map or a companion map beside it.
 
 `PolymorphicStorageValue` is the only write representation for the private
 columns. Its linked and empty variants always lower type and id together. Never

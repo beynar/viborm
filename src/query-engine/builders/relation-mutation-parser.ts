@@ -1,3 +1,4 @@
+import type { PolymorphicStorage } from "@schema/relation";
 import {
   splitToOneUpdateTarget,
   type ToOneUpdateEnvelope,
@@ -9,11 +10,13 @@ import {
   isPolymorphicRelation,
   isRelation,
 } from "../context";
-import { NestedWriteError, type QueryScope, type RelationInfo } from "../types";
 import {
-  type ResolvedPolymorphicMutation,
-  resolvePolymorphicMutationIntent,
-} from "./polymorphic-mutation";
+  NestedWriteError,
+  type QueryScope,
+  type RelationInfo,
+  type ResolvedPolymorphicEdge,
+} from "../types";
+import { resolvePolymorphicMutationIntent } from "./polymorphic-mutation";
 
 export interface ConnectOrCreateInput {
   readonly where: Record<string, unknown>;
@@ -309,22 +312,101 @@ export function buildRelationMutationProgram(
   return entries.length > 0 ? { relationInfo, entries } : undefined;
 }
 
+/**
+ * ONE relation key's parsed mutation — the whole truth about that key, in one value.
+ *
+ * The three arms are the three things a record's `data` can say about a relation:
+ * an ordinary program, a direct polymorphic payload whose public discriminator
+ * resolved to one concrete edge (program AND edge — the edge is what lowers the
+ * private `(type, id)` pair), and a targetless direct disconnect, which names no
+ * target and so has NO program at all: it is one empty private storage assignment.
+ *
+ * The third arm is why this is a union rather than a program map. A targetless
+ * disconnect used to live in a companion map keyed by the same names, and every
+ * reader that consulted programs alone silently dropped it (the measured defect
+ * quoted in `relation-key-legality.relationWriteKeys`). A reader can still ignore
+ * it — but only by naming it, because the compiler makes the arm visible.
+ *
+ * `name` is the key the payload spelled. For both program-carrying arms it equals
+ * `program.relationInfo.name`: a resolved edge keeps the polymorphic relation's own
+ * name (`resolvePolymorphicEdge`), so the concrete manyToOne it synthesizes is not a
+ * second name.
+ */
+export type ParsedRelationMutation =
+  | {
+      readonly kind: "ordinary";
+      readonly name: string;
+      readonly program: RelationMutationProgram;
+    }
+  | {
+      readonly kind: "polymorphicTarget";
+      readonly name: string;
+      readonly program: RelationMutationProgram;
+      readonly edge: ResolvedPolymorphicEdge;
+    }
+  | {
+      readonly kind: "polymorphicDisconnect";
+      readonly name: string;
+      readonly storage: PolymorphicStorage;
+    };
+
+/** The program-carrying arms — everything a `RelationMutationProgram` reader sees. */
+export type ProgramRelationMutation = Exclude<
+  ParsedRelationMutation,
+  { kind: "polymorphicDisconnect" }
+>;
+
+/**
+ * One record's parsed `data`: its scalars, and ONE ordered collection of every
+ * relation key it writes.
+ *
+ * COLLECTION ORDER is a behavior surface: every ordinary relation in payload key
+ * order, THEN every polymorphic relation in payload key order. It is the grouping
+ * {@link buildParsedRelationPrograms} and the two root constructors have always
+ * produced, and it decides step-id allocation order (and therefore `#1` suffixes),
+ * planning order, guard order and OwnWrite append order. Payload key order is NOT
+ * this order; pinned by `polymorphic-write-plan.core.test.ts` ("collection order is
+ * ordinary-then-polymorphic, NOT payload key order").
+ */
 export interface ParsedRecordPrograms {
   readonly scalarData: Record<string, unknown>;
-  readonly relations: Record<string, RelationMutationProgram>;
-  readonly polymorphic: Readonly<Record<string, ResolvedPolymorphicMutation>>;
+  readonly relations: readonly ParsedRelationMutation[];
+}
+
+/**
+ * Every entry that carries a program, in collection order.
+ *
+ * A targetless polymorphic disconnect is absent — it has no program, exactly as it
+ * was absent from the former program map — so a walk that asks a program's question
+ * (position, entries, foreign fields) keeps its current domain. A reader that must
+ * see the disconnect walks the collection itself.
+ */
+export function relationMutationPrograms(
+  relations: readonly ParsedRelationMutation[]
+): readonly RelationMutationProgram[] {
+  const programs: RelationMutationProgram[] = [];
+  for (const entry of relations) {
+    if (entry.kind !== "polymorphicDisconnect") programs.push(entry.program);
+  }
+  return programs;
 }
 
 export function buildPolymorphicMutationProgram(
   ctx: QueryScope,
   relation: NonNullable<ReturnType<typeof getPolymorphicRelationInfo>>,
   parsedPayload: unknown
-): {
-  readonly program?: RelationMutationProgram;
-  readonly mutation: ResolvedPolymorphicMutation;
-} {
+): Extract<
+  ParsedRelationMutation,
+  { kind: "polymorphicTarget" | "polymorphicDisconnect" }
+> {
   const intent = resolvePolymorphicMutationIntent(ctx, relation, parsedPayload);
-  if (intent.kind === "disconnect") return { mutation: intent };
+  if (intent.kind === "disconnect") {
+    return {
+      kind: "polymorphicDisconnect",
+      name: relation.name,
+      storage: intent.storage,
+    };
+  }
   const program = buildRelationMutationProgram(intent.edge.relationInfo, {
     [intent.operation]: intent.payload,
   });
@@ -335,8 +417,10 @@ export function buildPolymorphicMutationProgram(
     );
   }
   return {
+    kind: "polymorphicTarget",
+    name: relation.name,
     program,
-    mutation: { kind: "targeted", edge: intent.edge },
+    edge: intent.edge,
   };
 }
 
@@ -346,22 +430,23 @@ export function buildParsedRelationPrograms(
 ): ParsedRecordPrograms {
   const { scalarData, relationPayloads, polymorphicPayloads } =
     partitionModelData(ctx, parsedData);
-  const relations: Record<string, RelationMutationProgram> = {};
+  // TWO PASSES, and the grouping is the contract (see {@link ParsedRecordPrograms}):
+  // every ordinary relation before every polymorphic one. The root update/upsert
+  // constructors spell the same two passes because their per-relation transforms
+  // must keep that validation order (ATOM §19).
+  const relations: ParsedRelationMutation[] = [];
   for (const [relationName, { relationInfo, payload }] of Object.entries(
     relationPayloads
   )) {
     const program = buildRelationMutationProgram(relationInfo, payload);
-    if (program) relations[relationName] = program;
+    if (program) {
+      relations.push({ kind: "ordinary", name: relationName, program });
+    }
   }
-  const polymorphic: Record<string, ResolvedPolymorphicMutation> = {};
-  for (const [relationName, { relation, payload }] of Object.entries(
-    polymorphicPayloads
-  )) {
-    const built = buildPolymorphicMutationProgram(ctx, relation, payload);
-    if (built.program) relations[relationName] = built.program;
-    polymorphic[relationName] = built.mutation;
+  for (const { relation, payload } of Object.values(polymorphicPayloads)) {
+    relations.push(buildPolymorphicMutationProgram(ctx, relation, payload));
   }
-  return { scalarData, relations, polymorphic };
+  return { scalarData, relations };
 }
 
 function hasRelationMutationInput(

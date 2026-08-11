@@ -307,6 +307,17 @@ function returnsRows(args: Record<string, unknown>): boolean {
  * `data` that is not an array, a row that is not a record, a relation key holding
  * garbage — falls back to the existing owner, so every malformed payload keeps its
  * current error verbatim, including which of the two arms' issue paths it carries.
+ *
+ * WHAT THIS IS, precisely, so it is not mistaken for a second parser: a ONE-SIDED
+ * over-approximation of the parser's answer. It asks raw KEY PRESENCE; the parser
+ * asks whether a PROGRAM was built. Over-approximation is reachable — `{ posts: {} }`
+ * builds no program — and it costs a transaction that writes nothing extra. The other
+ * direction, raw-false while the parser builds a program, would send a relation-bearing
+ * payload to the grouped INSERT and silently drop it; it requires a relation schema
+ * that renames or invents a key, and none does. The hazard is asymmetric and this
+ * predicate is safe on it, which is why the duplication stays rather than merging into
+ * a parse-once routing envelope (that would move validation timing and error text).
+ * The same property, one key set wider, holds for {@link relationBearingData}.
  */
 function relationBearingRow(model: Model<any>, data: unknown): boolean {
   if (!Array.isArray(data)) return false;

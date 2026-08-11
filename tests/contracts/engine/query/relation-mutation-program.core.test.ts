@@ -217,7 +217,14 @@ describe("relation mutation program", () => {
     });
 
     expect(parsed.scalarData).toEqual({ id: 1 });
-    expect(parsed.relations.posts?.entries).toEqual([
+    // ONE collection, one entry per relation key, each entry naming its own kind —
+    // so the shape assertion covers the arm and the name, not just the entries.
+    expect(parsed.relations.map((entry) => [entry.kind, entry.name])).toEqual([
+      ["ordinary", "posts"],
+    ]);
+    const posts = parsed.relations.find((entry) => entry.name === "posts");
+    if (posts?.kind !== "ordinary") throw new Error("Expected posts program");
+    expect(posts.program.entries).toEqual([
       {
         kind: "update",
         items: [

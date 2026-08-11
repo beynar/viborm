@@ -16,10 +16,9 @@ import {
   type OwnWriteLedger,
 } from "./OwnWriteLedger";
 import { OwnWriteSteps } from "./OwnWriteSteps";
-import type { RootMembershipFootprint } from "./RelationMembership";
-import {
-  getRelationMembershipScope,
-  type RelationMembershipScope,
+import type {
+  RelationMembershipScope,
+  RootMembershipFootprint,
 } from "./RelationMembership";
 import type { PredicateFieldSet, TargetConstraint } from "./TargetConstraint";
 import {
@@ -96,7 +95,12 @@ export class OwnWriteRelation {
     boundRelation: BoundRelation,
     rootMembershipFootprints: readonly RootMembershipFootprint[],
     membershipLedger: OwnWriteLedger | undefined,
-    membershipScope = getRelationMembershipScope(boundRelation)
+    /** The analyser states it from the parsed entry: an ordinary edge's bound
+     *  topology, or the membership a resolved direct polymorphic edge builds. It is
+     *  required rather than defaulted, because a default here is an exact-membership
+     *  override channel — a second answer to "which membership is this" living one
+     *  argument away from the first. */
+    membershipScope: RelationMembershipScope
   ): OwnWriteRelation {
     const ledger = node.ledger.fork();
     for (const footprint of rootMembershipFootprints) {

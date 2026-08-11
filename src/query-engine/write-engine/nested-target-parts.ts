@@ -8,9 +8,11 @@ import {
   membershipReferencedFields,
   type PolymorphicChildHeldRelation,
 } from "../builders/relation-data-builder";
-import type {
-  RelationMutationEntry,
-  RelationMutationProgram,
+import {
+  type ParsedRelationMutation,
+  type RelationMutationEntry,
+  type RelationMutationProgram,
+  relationMutationPrograms,
 } from "../builders/relation-mutation-parser";
 import { buildValueGroups } from "../builders/values-builder";
 import { createQueryScope } from "../context/query-scope";
@@ -76,7 +78,7 @@ import { buildTargetProjection } from "./target-projection";
 export type JunctionTargetRelationsBuilder = (
   targetScope: QueryScope,
   parentId: FinalReferenceSource,
-  relations: Record<string, RelationMutationProgram>,
+  relations: readonly ParsedRelationMutation[],
   txMode: boolean,
   membershipReadSource: FinalReferenceSource
 ) => readonly Part[];
@@ -91,7 +93,7 @@ export function buildJunctionTargetRelationParts(
   scope: StepScope,
   engine: QueryEngine,
   targetScope: QueryScope,
-  relations: Record<string, RelationMutationProgram>,
+  relations: readonly ParsedRelationMutation[],
   parentId: FinalReferenceSource,
   txMode: boolean,
   recordCompilers: RecordCompilerSeam,
@@ -118,7 +120,7 @@ export function buildJunctionTargetRelationParts(
   // move the decision.
   assertSelectedUpdateManyDataIsScalar(targetScope, relations);
   const parts: Part[] = [];
-  for (const program of Object.values(relations)) {
+  for (const program of relationMutationPrograms(relations)) {
     foldJunctionTargetRelation({
       scope,
       engine,

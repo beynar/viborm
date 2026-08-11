@@ -5,12 +5,11 @@ import {
   buildPrimaryKeyWhereUnique,
   getPrimaryKeyFields,
 } from "../builders/correlation-utils";
-import type { ResolvedPolymorphicMutation } from "../builders/polymorphic-mutation";
 import {
   buildPolymorphicMutationProgram,
   buildRelationMutationProgram,
+  type ParsedRelationMutation,
   partitionModelData,
-  type RelationMutationProgram,
 } from "../builders/relation-mutation-parser";
 import { buildInsert } from "../builders/values-builder";
 import {
@@ -362,8 +361,11 @@ export class UpsertOperation {
           subOptions
         )
       : undefined;
-    const updateRelations: Record<string, RelationMutationProgram> = {};
-    const updatePolymorphic: Record<string, ResolvedPolymorphicMutation> = {};
+    // TWO PASSES, exactly as the root update spells them: the collection's order is
+    // ordinary keys then polymorphic keys, and that is also the order the arm's
+    // per-relation transforms run in, so a mixed malformed arm keeps its first
+    // `ValidationError` (ATOM §19).
+    const updateRelations: ParsedRelationMutation[] = [];
     if (updateHasRelations) {
       for (const [relationName, relationPayload] of Object.entries(
         updatePartition.relationPayloads
@@ -384,7 +386,13 @@ export class UpsertOperation {
           relationPayload.relationInfo,
           parsedRelation
         );
-        if (program) updateRelations[relationName] = program;
+        if (program) {
+          updateRelations.push({
+            kind: "ordinary",
+            name: relationName,
+            program,
+          });
+        }
       }
       for (const [relationName, relationPayload] of Object.entries(
         updatePartition.polymorphicPayloads
@@ -401,13 +409,13 @@ export class UpsertOperation {
           "update",
           `data.${relationName}`
         );
-        const built = buildPolymorphicMutationProgram(
-          parent,
-          relationPayload.relation,
-          parsedRelation
+        updateRelations.push(
+          buildPolymorphicMutationProgram(
+            parent,
+            relationPayload.relation,
+            parsedRelation
+          )
         );
-        if (built.program) updateRelations[relationName] = built.program;
-        updatePolymorphic[relationName] = built.mutation;
       }
     }
     const createFresh: FreshRecordBuilder = (input) =>
@@ -420,7 +428,6 @@ export class UpsertOperation {
             targetScope: parent,
             scalarData: this.updateData,
             relations: updateRelations,
-            polymorphic: updatePolymorphic,
             targetRead: { id: locateId },
             rootWrite: { id: this.updateId },
             relationName: "record",
@@ -454,7 +461,6 @@ export class UpsertOperation {
             parent,
             partitionModelData(parent, parsedArgs.data).scalarData,
             updateRelations,
-            updatePolymorphic,
             where
           );
         }

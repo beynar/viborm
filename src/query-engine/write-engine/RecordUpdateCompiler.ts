@@ -7,10 +7,7 @@ import {
   buildPrimaryKeyWhereUnique,
   getPrimaryKeyFields,
 } from "../builders/correlation-utils";
-import type {
-  PolymorphicStorageValue,
-  ResolvedPolymorphicMutation,
-} from "../builders/polymorphic-mutation";
+import type { PolymorphicStorageValue } from "../builders/polymorphic-mutation";
 import { directPolymorphicMembership } from "../builders/polymorphic-relation";
 import {
   bindRelation,
@@ -24,6 +21,7 @@ import {
 } from "../builders/relation-data-builder";
 import type {
   NormalizedRelationUpsert,
+  ParsedRelationMutation,
   RelationMutationEntry,
   RelationMutationProgram,
 } from "../builders/relation-mutation-parser";
@@ -172,8 +170,7 @@ export interface RecordUpdateCompilerInput {
   readonly engine: QueryEngine;
   readonly targetScope: QueryScope;
   readonly scalarData: Record<string, unknown>;
-  readonly relations: Readonly<Record<string, RelationMutationProgram>>;
-  readonly polymorphic?: Readonly<Record<string, ResolvedPolymorphicMutation>>;
+  readonly relations: readonly ParsedRelationMutation[];
   readonly targetRead: StepAddress;
   readonly rootWrite: StepAddress;
   readonly incomingMembership?: RelationMembershipBinding;
@@ -195,10 +192,12 @@ export function buildRecordUpdateCompiler(
   input: RecordUpdateCompilerInput,
   createFresh: FreshRecordBuilder
 ): RecordUpdateCompiler | undefined {
+  // Emptiness is ONE count now: the parsed collection carries a targetless
+  // polymorphic disconnect as its own entry, so "this record has work" no longer
+  // depends on remembering a second map (ATOM §20).
   if (
     Object.keys(input.scalarData).length === 0 &&
-    Object.keys(input.relations).length === 0 &&
-    Object.keys(input.polymorphic ?? {}).length === 0 &&
+    input.relations.length === 0 &&
     input.incomingMembership === undefined
   ) {
     return undefined;
@@ -554,16 +553,19 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     this.sharedKeyMembers = resolveSharedKeyMembers(
       input.targetScope,
       parentPrimaryKeys,
-      input.relations,
-      input.polymorphic
+      input.relations
     );
     const locateFields = new Set<string>(parentPrimaryKeys);
     const parentFkLocateFields = new Set<string>();
     const targetColumns = new Map<string, PolymorphicStorageColumn>();
     const txMode = this.mode === "transaction";
-    for (const program of Object.values(input.relations)) {
-      const polymorphic = input.polymorphic?.[program.relationInfo.name];
-      if (polymorphic?.kind === "targeted") {
+    for (const parsed of input.relations) {
+      // The targetless disconnects are lowered in their own pass below, after every
+      // target mutation has been interpreted — the order the two former maps
+      // produced, and the order the private columns are assembled in.
+      if (parsed.kind === "polymorphicDisconnect") continue;
+      const { program } = parsed;
+      if (parsed.kind === "polymorphicTarget") {
         const entry = program.entries[0];
         if (
           entry?.kind === "update" ||
@@ -571,15 +573,15 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
           entry?.kind === "upsert"
         ) {
           for (const column of [
-            polymorphic.edge.storage.typeColumn,
-            polymorphic.edge.storage.idColumn,
+            parsed.edge.storage.typeColumn,
+            parsed.edge.storage.idColumn,
           ]) {
             targetColumns.set(column.name, column);
           }
         }
         this.interpretPolymorphicRelation({
           scope: input.scope,
-          mutation: polymorphic,
+          edge: parsed.edge,
           program,
           txMode,
           toOneLinks,
@@ -604,11 +606,11 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
         rootScalarData: input.scalarData,
       });
     }
-    for (const mutation of Object.values(input.polymorphic ?? {})) {
-      if (mutation.kind !== "disconnect") continue;
+    for (const parsed of input.relations) {
+      if (parsed.kind !== "polymorphicDisconnect") continue;
       polymorphicStorage.push({
         kind: "empty",
-        storage: mutation.storage,
+        storage: parsed.storage,
       });
     }
     this.childParts = childParts;
@@ -879,18 +881,14 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
 
   private interpretPolymorphicRelation(input: {
     readonly scope: StepScope;
-    readonly mutation: Extract<
-      ResolvedPolymorphicMutation,
-      { kind: "targeted" }
-    >;
+    readonly edge: ResolvedPolymorphicEdge;
     readonly program: RelationMutationProgram;
     readonly txMode: boolean;
     readonly toOneLinks: ToOneLink[];
     readonly parentHeldTargets: ParentHeldTarget[];
     readonly polymorphicStorage: PolymorphicStorageValue<FinalReferenceSource>[];
   }): void {
-    const { edge } = input.mutation;
-    const { program } = input;
+    const { edge, program } = input;
     const relationName = edge.relationInfo.name;
     const childScope = createQueryScope(this.engine.adapter, edge.targetModel);
     const entry = program.entries[0];
@@ -1104,7 +1102,6 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       targetScope: childScope,
       scalarData: parsed.scalarData,
       relations: parsed.relations,
-      polymorphic: parsed.polymorphic,
       targetRead: { label: `${childName}.find` },
       rootWrite: { label: `${childName}.update` },
       relationName,
@@ -1149,9 +1146,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     }
     const parsed = buildParsedRelationPrograms(childScope, update);
     const hasUpdate =
-      Object.keys(parsed.scalarData).length > 0 ||
-      Object.keys(parsed.relations).length > 0 ||
-      Object.keys(parsed.polymorphic).length > 0;
+      Object.keys(parsed.scalarData).length > 0 || parsed.relations.length > 0;
     const childName = getStepModelName(edge.targetModel, relationName);
     const compiler = hasUpdate
       ? this.recordCompilers.updateSelected({
@@ -1160,7 +1155,6 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
           targetScope: childScope,
           scalarData: parsed.scalarData,
           relations: parsed.relations,
-          polymorphic: parsed.polymorphic,
           targetRead: { label: `${childName}.find` },
           rootWrite: { label: `${childName}.update` },
           relationName,
@@ -3024,7 +3018,6 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       targetScope: childScope,
       scalarData: childUpdate.scalarData,
       relations: childUpdate.relations,
-      polymorphic: childUpdate.polymorphic,
       targetRead: { label: `${childName}.find` },
       rootWrite: { label: `${childName}.update` },
       relationName,
@@ -3162,8 +3155,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     const childUpdate = buildParsedRelationPrograms(childScope, spec.update);
     const hasUpdate =
       Object.keys(childUpdate.scalarData).length > 0 ||
-      Object.keys(childUpdate.relations).length > 0 ||
-      Object.keys(childUpdate.polymorphic).length > 0;
+      childUpdate.relations.length > 0;
     const compiler = hasUpdate
       ? this.recordCompilers.updateSelected({
           scope: input.scope,
@@ -3171,7 +3163,6 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
           targetScope: childScope,
           scalarData: childUpdate.scalarData,
           relations: childUpdate.relations,
-          polymorphic: childUpdate.polymorphic,
           targetRead: { label: `${childName}.find` },
           rootWrite: { label: `${childName}.update` },
           relationName,
@@ -4583,19 +4574,19 @@ const SHARED_KEY_FOLD_KINDS: ReadonlySet<string> = new Set([
 function resolveSharedKeyMembers(
   targetScope: QueryScope,
   recordPk: readonly string[],
-  relations: Readonly<Record<string, RelationMutationProgram>>,
-  polymorphic: Readonly<Record<string, ResolvedPolymorphicMutation>> | undefined
+  relations: readonly ParsedRelationMutation[]
 ): ReadonlySet<string> {
   const members = new Set<string>();
-  for (const [relationName, program] of Object.entries(relations)) {
-    // A targeted polymorphic edge writes its `polymorphicStorage` columns, never the
+  for (const parsed of relations) {
+    // A direct polymorphic edge writes its `polymorphicStorage` columns, never the
     // relation's `foreignFields`, and a storage column is private to that edge — it is
-    // not a declared scalar and so is never a row-key member. Both maps are blind to it
-    // together, which is the only reason this skip is safe; the day a storage id column
-    // becomes addressable as a row key, this function is one of the four readers that
-    // has to learn about it (with the transition regime, the reorder, and
-    // {@link RecordUpdateCompilerState.updatedPrimaryKeyWhere}).
-    if (polymorphic?.[relationName]?.kind === "targeted") continue;
+    // not a declared scalar and so is never a row-key member. The entry says which
+    // kind it is, so this skip no longer depends on two maps agreeing; the day a
+    // storage id column becomes addressable as a row key, this function is one of the
+    // four readers that has to learn about it (with the transition regime, the
+    // reorder, and {@link RecordUpdateCompilerState.updatedPrimaryKeyWhere}).
+    if (parsed.kind !== "ordinary") continue;
+    const program = parsed.program;
     const relation = bindRelation(targetScope, program.relationInfo);
     if (relation.position !== "parentHeld") continue;
     // H — the question is "does any entry FOLD", never "is there exactly one entry".

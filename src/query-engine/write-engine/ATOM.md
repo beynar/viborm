@@ -24,7 +24,7 @@ untrusted arguments
 operation schema and relation transforms
         │
         ▼
-scalar data + RelationMutationProgram map
+scalar data + one ordered parsed relation collection
         │
         ▼
 OwnWrite legality
@@ -156,8 +156,11 @@ not inspect mutation kinds.
 already parsed.
 
 Root update keeps its established one-transform sites so error order does not
-move. Nested record compilers receive transformed data and do not reopen the
-public schema.
+move. It therefore spells its own two passes — every ordinary relation payload
+transformed before any polymorphic one — rather than delegating to the general
+constructor; the upsert update arm spells the same two. Both produce the one
+parsed collection described in §5. Nested record compilers receive transformed
+data and do not reopen the public schema.
 
 ## 5. Relation mutation programs
 
@@ -199,6 +202,44 @@ keep any deduplication that belongs to their own rule.
 
 Emitters iterate `program.entries`. They do not index an optional per-kind bag,
 normalize arrays again, or inspect the original payload.
+
+One record's parsed `data` is its scalars plus ONE ordered collection:
+
+```ts
+type ParsedRelationMutation =
+  | {
+      readonly kind: "ordinary";
+      readonly name: string;
+      readonly program: RelationMutationProgram;
+    }
+  | {
+      readonly kind: "polymorphicTarget";
+      readonly name: string;
+      readonly program: RelationMutationProgram;
+      readonly edge: ResolvedPolymorphicEdge;
+    }
+  | {
+      readonly kind: "polymorphicDisconnect";
+      readonly name: string;
+      readonly storage: PolymorphicStorage;
+    };
+
+interface ParsedRecordPrograms {
+  readonly scalarData: Record<string, unknown>;
+  readonly relations: readonly ParsedRelationMutation[];
+}
+```
+
+Every relation key the payload writes is one entry. A targetless direct
+polymorphic `disconnect` has no program — it is one empty private storage
+assignment — and is its own arm rather than a companion map, because a reader
+that consulted programs alone dropped it silently (§17).
+
+The collection's ORDER is behavior: every ordinary relation in payload key
+order, then every polymorphic relation in payload key order. It decides step-id
+allocation and therefore duplicate suffixes, planning and guard order, and
+OwnWrite append order. Payload key order is not that order, and this
+representation does not normalize execution to model declaration order.
 
 ## 6. Mutation order
 
@@ -301,9 +342,11 @@ move malformed-metadata errors ahead of schema errors or into an untaken upsert
 arm.
 
 Direct polymorphic mutation intent is not a bound inverse. It chooses a target
-variant per payload and lowers to `ResolvedPolymorphicMutation` plus one atomic
-private storage assignment. Fresh record compilation accepts connect, create,
-and connect-or-create. Selected record compilation also accepts correlated
+variant per payload, and lowers to the parsed collection's polymorphic arms — a
+resolved edge beside its program, or a targetless disconnect — plus one atomic
+private storage assignment. Its resolution is eager, at program construction, for
+every polymorphic payload including an untaken upsert arm. Fresh record
+compilation accepts connect, create, and connect-or-create. Selected record compilation also accepts correlated
 update and upsert; optional storage accepts disconnect and typed target delete.
 The locate exposes private storage columns only for verbs whose branch depends
 on current membership.
@@ -853,9 +896,12 @@ ABSENCE, not its replacement.
 Nested relation-level `updateMany` still rejects relation-bearing data before
 SQL, and that check remains deferred so an untaken top-level upsert update arm
 is inert. "Relation-bearing" there means ordinary AND direct polymorphic keys,
-read through one shared predicate: a targetless polymorphic disconnect carries
-no relation program, and a reader that looked only at relation programs let it
-past the wall and then dropped it. Relation `set` is independent of membership
+read through one shared predicate over the parsed collection: a targetless
+polymorphic disconnect carries no relation program, and a reader that looked
+only at relation programs let it past the wall and then dropped it. The
+collection now carries that disconnect as its own entry, so the predicate is one
+key per entry; what the measured defect leaves behind is the ownership, not a
+union of two maps. Relation `set` is independent of membership
 clearability: optional storage emits departures, while required storage guards
 that the departing set is empty.
 
@@ -900,6 +946,11 @@ For root update, preserve whole-argument validation, portable primary-key
 validation, relation-key legality, update-many relation legality, OwnWrite, then
 planning and execution, in that order.
 
+Within the relation transforms themselves, preserve the two passes: every
+ordinary relation payload is transformed before any polymorphic one, so a mixed
+malformed payload reports the same `ValidationError` first. That grouping is
+also the parsed collection's order (§5), so one fact serves both.
+
 Do not bind relation topology or run arm-specific legality early enough to
 overtake an earlier error.
 
@@ -918,6 +969,9 @@ No-op behavior depends on ownership.
 - An upsert with an empty found update still performs its branch decision,
   because the missing arm can create.
 - Incoming FK assignments make a selected-record update non-empty.
+- A targetless direct polymorphic `disconnect` alone makes a selected-record
+  update non-empty: it is an entry in the parsed collection, so the emptiness
+  gate counts it without consulting a second map.
 - `set: []` is not erased; it means clear the relation where legal.
 - `disconnect: false` and `delete: false` are erased at program construction.
 

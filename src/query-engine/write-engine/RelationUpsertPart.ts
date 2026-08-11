@@ -9,7 +9,9 @@ import {
   buildParsedRelationPrograms,
   type ConnectOrCreateInput,
   type NormalizedRelationUpsert,
+  type ParsedRecordPrograms,
   type RelationMutationProgram,
+  relationMutationPrograms,
 } from "../builders/relation-mutation-parser";
 import { createQueryScope } from "../context/query-scope";
 import { buildFind, buildFindUnique, buildUpdate } from "../operations";
@@ -1060,18 +1062,16 @@ function buildOneUpsertPart(
               })
             : rawUpdate;
         })();
-  const childUpdate =
+  const childUpdate: ParsedRecordPrograms =
     update === undefined
-      ? { scalarData: {}, relations: {}, polymorphic: {} }
+      ? { scalarData: {}, relations: [] }
       : buildParsedRelationPrograms(child, update);
   // The probe publishes the child's complete row key and every found-arm write
   // addresses all of it, so an adopt target keys on however many members it has.
   const targetProjection = buildTargetProjection(child.model);
   const childName = getStepModelName(relationInfo.targetModel, relationName);
-  for (const [childRelationName, program] of Object.entries(
-    childUpdate.relations
-  )) {
-    assertArmEdgeIsChildHeld(child, childRelationName, program);
+  for (const program of relationMutationPrograms(childUpdate.relations)) {
+    assertArmEdgeIsChildHeld(child, program.relationInfo.name, program);
   }
   const parentId =
     parent.membership.kind === "foreignKey"
@@ -1093,7 +1093,6 @@ function buildOneUpsertPart(
         targetScope: child,
         scalarData: childUpdate.scalarData,
         relations: childUpdate.relations,
-        polymorphic: childUpdate.polymorphic,
         targetRead: { label: `${childName}.find` },
         rootWrite: { label: `${childName}.update` },
         ...(incomingMembership.kind === "foreignKey" ||

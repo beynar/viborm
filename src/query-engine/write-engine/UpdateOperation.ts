@@ -5,12 +5,11 @@ import {
   buildPrimaryKeyWhereUnique,
   getPrimaryKeyFields,
 } from "../builders/correlation-utils";
-import type { ResolvedPolymorphicMutation } from "../builders/polymorphic-mutation";
 import {
   buildPolymorphicMutationProgram,
   buildRelationMutationProgram,
+  type ParsedRelationMutation,
   partitionModelData,
-  type RelationMutationProgram,
 } from "../builders/relation-mutation-parser";
 import { getWhereUniqueEntries } from "../builders/where-unique-builder";
 import {
@@ -147,8 +146,11 @@ export class UpdateOperation {
     }
 
     const partitioned = partitionModelData(parent, data);
-    const relations: Record<string, RelationMutationProgram> = {};
-    const polymorphic: Record<string, ResolvedPolymorphicMutation> = {};
+    // TWO PASSES, and the grouping is normative twice over: it is the parsed
+    // collection's order (ordinary keys, then polymorphic — `ParsedRecordPrograms`),
+    // and it is the order these per-relation transforms run in, which decides which
+    // `ValidationError` a mixed malformed payload reports first (ATOM §19).
+    const relations: ParsedRelationMutation[] = [];
     for (const [relationName, relationPayload] of Object.entries(
       partitioned.relationPayloads
     )) {
@@ -168,7 +170,9 @@ export class UpdateOperation {
         relationPayload.relationInfo,
         parsedRelation
       );
-      if (program) relations[relationName] = program;
+      if (program) {
+        relations.push({ kind: "ordinary", name: relationName, program });
+      }
     }
     for (const [relationName, relationPayload] of Object.entries(
       partitioned.polymorphicPayloads
@@ -185,13 +189,13 @@ export class UpdateOperation {
         "update",
         `data.${relationName}`
       );
-      const built = buildPolymorphicMutationProgram(
-        parent,
-        relationPayload.relation,
-        parsedRelation
+      relations.push(
+        buildPolymorphicMutationProgram(
+          parent,
+          relationPayload.relation,
+          parsedRelation
+        )
       );
-      if (built.program) relations[relationName] = built.program;
-      polymorphic[relationName] = built.mutation;
     }
 
     assertRelationKeyUpdatesAreCompilable(
@@ -237,13 +241,7 @@ export class UpdateOperation {
     // this operation's own writes, and for root selection the capture already spent
     // the public `where` ONCE, before any effect, so no later write can move which
     // roots were chosen.
-    assertUpdateOwnWriteSafety(
-      parent,
-      parsedScalarData,
-      relations,
-      polymorphic,
-      where
-    );
+    assertUpdateOwnWriteSafety(parent, parsedScalarData, relations, where);
 
     const scalarData =
       Object.keys(partitioned.scalarData).length === 0
@@ -276,8 +274,7 @@ export class UpdateOperation {
     );
     const writeIsOneStatement =
       engine.adapter.capabilities.supportsReturning &&
-      Object.keys(relations).length === 0 &&
-      Object.keys(polymorphic).length === 0 &&
+      relations.length === 0 &&
       Object.keys(scalarData).length > 0;
     const cteProjectionFold =
       engine.adapter.capabilities.supportsCteWithMutations &&
@@ -338,7 +335,6 @@ export class UpdateOperation {
             targetScope: parent,
             scalarData,
             relations,
-            polymorphic,
             targetRead: { id: locateId },
             rootWrite: { id: this.updateId },
             relationName: "record",

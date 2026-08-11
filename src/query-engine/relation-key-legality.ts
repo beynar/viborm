@@ -6,8 +6,9 @@ import {
 import {
   buildParsedRelationPrograms,
   type ParsedRecordPrograms,
+  type ParsedRelationMutation,
   type RelationMutationEntry,
-  type RelationMutationProgram,
+  relationMutationPrograms,
 } from "./builders/relation-mutation-parser";
 import { createQueryScope, getPrimaryKeyFields } from "./context/query-scope";
 import { classifyRelationKeyScalarUpdate } from "./TargetConstraint";
@@ -15,14 +16,15 @@ import type { QueryScope } from "./types";
 
 /**
  * EVERY relation key one parsed record `data` writes — ordinary and polymorphic
- * alike — in the order the parser produced them.
+ * alike — in the order the parser produced them (ordinary keys, then polymorphic).
  *
- * THE ONE OWNER of the question "does this data carry relation writes", because
- * asking it of `relations` ALONE is a measured silent wrong answer. A DIRECT
- * polymorphic mutation whose resolved intent is a targetless `disconnect` produces
- * NO relation program (`buildPolymorphicMutationProgram` returns `{ mutation }`
- * with no `program`), so it lives only in `polymorphic` — and three readers used
- * to look past it. Measured at HEAD on PGlite, before this predicate existed:
+ * THE ONE OWNER of the question "does this data carry relation writes", and the
+ * reason it is a named function rather than an inline key count is a measured
+ * defect. A DIRECT polymorphic mutation whose resolved intent is a targetless
+ * `disconnect` produces NO relation program — it is one empty private storage
+ * assignment — so when it travelled in a companion map beside the programs, three
+ * readers asking the program map alone looked straight past it. Measured at HEAD on
+ * PGlite, before this predicate existed:
  *
  *   author.update({ data: { posts: { updateMany: {
  *     where: { draft: true }, data: { body: "x", subject: { disconnect: true } },
@@ -32,24 +34,19 @@ import type { QueryScope } from "./types";
  *
  * The wall did not fire, the private `(type, id)` pair was left in place, and the
  * call SUCCEEDED having cleared nothing. The ordinary spelling of the same shape
- * (`author: { disconnect: true }`) refuses at the schema. So this function reads
- * BOTH maps, and every site that decides "relation-bearing" reads it rather than a
- * map of its own — the blind spot was three copies of one question, not three
- * independent judgements.
+ * (`author: { disconnect: true }`) refuses at the schema.
  *
- * A `polymorphic` entry always means the data named a polymorphic relation key:
- * the parser adds one per polymorphic payload, targeted or disconnecting. The
- * targeted ones ALSO appear in `relations`, hence the de-duplication.
+ * The parsed collection now carries that disconnect as its own arm, so this is one
+ * key per entry with no union and no de-duplication to forget. What survives from
+ * the defect is the OWNERSHIP: every site that decides "relation-bearing" asks this
+ * function, because the blind spot was three copies of one question, not three
+ * independent judgements. The returned ORDER is public — it is the `relations` meta
+ * of {@link assertUpdateManyRelationsAreCompilable}'s error.
  */
 export function relationWriteKeys(
   parsed: ParsedRecordPrograms
 ): readonly string[] {
-  return [
-    ...new Set([
-      ...Object.keys(parsed.relations),
-      ...Object.keys(parsed.polymorphic),
-    ]),
-  ];
+  return parsed.relations.map((entry) => entry.name);
 }
 
 /**
@@ -102,9 +99,9 @@ export function assertUpdateManyRelationsAreCompilable(
  */
 export function findSingleTargetMembershipMove(
   source: QueryScope,
-  relations: Readonly<Record<string, RelationMutationProgram>>
+  relations: readonly ParsedRelationMutation[]
 ): { readonly relationName: string; readonly kind: string } | undefined {
-  for (const program of Object.values(relations)) {
+  for (const program of relationMutationPrograms(relations)) {
     if (bindRelation(source, program.relationInfo).position !== "childHeld") {
       continue;
     }
@@ -141,7 +138,7 @@ function namedTargetCount(entry: RelationMutationEntry): number {
  */
 export function assertUpdateManyDataRelationsAreCompilable(
   source: QueryScope,
-  relations: Readonly<Record<string, RelationMutationProgram>>
+  relations: readonly ParsedRelationMutation[]
 ): void {
   const invalid = findRelationBearingUpdateManyData(source, relations);
   if (!invalid) return;
@@ -166,7 +163,7 @@ export function assertUpdateManyDataRelationsAreCompilable(
  */
 export function assertSelectedUpdateManyDataIsScalar(
   source: QueryScope,
-  relations: Readonly<Record<string, RelationMutationProgram>>
+  relations: readonly ParsedRelationMutation[]
 ): void {
   const invalid = findRelationBearingUpdateManyData(source, relations);
   if (!invalid) return;
@@ -196,7 +193,7 @@ export function assertSelectedUpdateManyDataIsScalar(
 
 function findRelationBearingUpdateManyData(
   source: QueryScope,
-  relations: Readonly<Record<string, RelationMutationProgram>>
+  relations: readonly ParsedRelationMutation[]
 ):
   | {
       readonly relationName: string;
@@ -204,7 +201,7 @@ function findRelationBearingUpdateManyData(
       readonly isJunction: boolean;
     }
   | undefined {
-  for (const program of Object.values(relations)) {
+  for (const program of relationMutationPrograms(relations)) {
     const relation = bindRelation(source, program.relationInfo);
     const target = createQueryScope(
       source.adapter,
@@ -238,11 +235,11 @@ function findRelationBearingUpdateManyData(
 export function assertRelationKeyUpdatesAreCompilable(
   ctx: QueryScope,
   scalarData: Record<string, unknown>,
-  relations: Record<string, RelationMutationProgram>
+  relations: readonly ParsedRelationMutation[]
 ): void {
   const primaryKeyFields = new Set(getPrimaryKeyFields(ctx.model));
 
-  for (const mutation of Object.values(relations)) {
+  for (const mutation of relationMutationPrograms(relations)) {
     const relation = bindRelation(ctx, mutation.relationInfo);
     if (relation.position === "junction") continue;
     // POSITION, not holder identity — a self-relation holds both ends. This must

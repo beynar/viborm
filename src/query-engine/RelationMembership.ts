@@ -10,7 +10,10 @@ import {
   junctionSideMember,
   type ParentHeldRelation,
 } from "./builders/relation-data-builder";
-import type { RelationMutationProgram } from "./builders/relation-mutation-parser";
+import {
+  type ParsedRelationMutation,
+  relationMutationPrograms,
+} from "./builders/relation-mutation-parser";
 import { getRelationInfo, getRelationNames } from "./context";
 import {
   buildScalarUpdatePredicateFootprints,
@@ -200,13 +203,13 @@ export interface RootMembershipFootprint {
 
 export function buildRootUpdateMembershipFootprints(
   ctx: QueryScope,
-  relations: Readonly<Record<string, RelationMutationProgram>>,
+  relations: readonly ParsedRelationMutation[],
   scalarData: Readonly<Record<string, unknown>>,
   selector: Readonly<Record<string, unknown>> | undefined
 ): RootMembershipFootprint[] {
   const constraints = getUpdateConstraints(ctx, scalarData, selector);
   const footprints: RootMembershipFootprint[] = [];
-  for (const mutation of Object.values(relations)) {
+  for (const mutation of relationMutationPrograms(relations)) {
     const relationInfo = mutation.relationInfo;
     const relation = bindRelation(ctx, relationInfo);
     if (relation.position === "junction") continue;
