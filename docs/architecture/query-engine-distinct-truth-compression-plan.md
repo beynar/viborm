@@ -151,7 +151,7 @@ Those questions should not require decoding one combined name.
 ### 2.4 Look for empty owners and second binders
 
 `JunctionRelation` currently carries little junction topology, while
-`getManyToManyJoinInfo()` reconstructs it for approximately 16 query-engine call
+`getManyToManyJoinInfo()` reconstructs it for 14 query-engine call
 sites. That is evidence that the nominal topology owner is incomplete and a
 second owner has formed around it.
 
@@ -986,6 +986,14 @@ validation treats an existing empty tuple as fields-bearing while the engine
 requires `fields.length > 0`. The retained owned-FK guard exists because that
 disagreement leaves one trusted bypass. Aligning the filters is the concrete
 retirement condition; do not delete the guard first.
+
+Measured at Phase 0 (live code differs from the paragraph above in one more
+place): with two or more unnamed back-references the two scanners also disagree
+on AMBIGUITY — `findInverseRelationState` throws `Ambiguous relation …` while
+`getInverseRelationMap` silently returns the first candidate
+(`schema/relation/types.ts:295-302`), and with a `.name()` matching no candidate
+the map returns `undefined` where the engine throws. Unit 2.1's "ambiguous
+inverse" pin must cover both spellings before any filter changes.
 
 #### Unit 2.1 — Pin inverse-resolution parity
 
