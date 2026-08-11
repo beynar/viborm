@@ -13,7 +13,7 @@ import {
   buildTargetPkSubquery,
 } from "./builders/many-to-many-utils";
 import {
-  bindJunctionRelation,
+  classifyRelation,
   type JunctionBoundRelation,
   junctionSideMember,
 } from "./builders/relation-data-builder";
@@ -50,14 +50,19 @@ export class ManyToManyStatements {
     operation: ManyToManyOperation,
     args: Record<string, unknown>
   ): Sql {
-    if (relation.type !== "manyToMany") {
+    // This guard IS the classification: it asks the engine's one classifier the
+    // question it used to ask of `relation.type` itself, and refuses the same shape
+    // with the same sentence. Classifying binds nothing, so a junction's sides are
+    // still resolved where they are read, below.
+    const classified = classifyRelation(this.ctx, relation);
+    if (classified.kind !== "junction") {
       throw new QueryEngineError(
         `Relation statement references unknown many-to-many relation '${relation.name}'.`
       );
     }
-    // The guard above is the premise this binding needs; one bound junction serves
-    // every statement below, where each used to re-derive the same topology.
-    const junction = bindJunctionRelation(this.ctx, relation);
+    // One bound junction serves every statement below, where each used to
+    // re-derive the same topology.
+    const junction = classified.bind();
     const parentValue = buildJunctionParentValue(
       this.ctx,
       junction,

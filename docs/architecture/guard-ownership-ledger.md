@@ -795,3 +795,45 @@ through the row-held `membershipReferencedFields` projection, because polymorphi
 membership carries one referenced FIELD rather than a one-element list).
 `CreateOperation.edgeParentId`'s compound-row-key refusal is unchanged in text,
 class and reachability.
+
+## Addendum — distinct-truth Phase 7 (centralize read-side physical traversal)
+
+One deletion, one replacement, one guard re-verified in place.
+
+**`buildCorrelation`'s junction refusal — DELETED (`correlation-utils.ts:56-61`,
+`QueryEngineError`, "Many-to-many relation '<n>' cannot use buildCorrelation
+directly. …").** What is impossible now: reaching that function with a junction
+relation. `buildCorrelation` no longer takes a `RelationInfo` and binds it — it
+takes the BOUND row-held relation (`ParentHeldRelation | ChildHeldRelation`), and
+its single caller is `relation-traversal.ts`'s row-held arm, which exists only
+under the one classification (`classifyRelation`). The junction answer constructs
+the other arm and calls `buildManyToManyJoinParts`. So the gate is the union type
+plus one classification, not a green run — which matters, because the refusal was
+UNREACHABLE and UNCOVERED at Phase 0 and the baseline record said so explicitly:
+"the honest gate is those four dispatch coordinates, not a green run"
+(`distinct-truth-baseline-phase0.md:102-105`). Those four dispatch coordinates
+(`include-builder.ts:86,151`, `relation-filter-builder.ts:339`,
+`relation-count-builder.ts:45`) are themselves gone, replaced by the traversal's
+one classification — the same predicate, in one place, now expressed in the type
+of what it returns.
+
+**`ManyToManyStatements.materialize`'s guard — REPLACED, not added
+(`ManyToManyStatements.ts:53`).** Same class (`QueryEngineError`), byte-identical
+sentence ("Relation statement references unknown many-to-many relation '<n>'."),
+same position in time: it now asks `classifyRelation(...).kind !== "junction"`
+instead of `relation.type !== "manyToMany"`. Classifying binds nothing, so the
+guard still runs before any topology resolution — the compound-M2M refusal and the
+junction-naming errors still fire when a side is READ, with the stack frames
+Package O pinned. This is what let `bindJunctionRelation`'s second exported entry
+point be absorbed: every caller now reaches the one construction through the one
+classifier.
+
+**Guard #3 — `correlation-utils.ts` mismatched fields/references — KEPT, VERBATIM.**
+Class, sentence and position are unchanged, and its second stated job is unchanged
+with it: it still runs BEFORE the first read of `membership.members`, so guard #1's
+`NestedWriteError` cannot displace it. Phase 7 moved the bind out of the function
+(the traversal binds and passes the bound value in) but not the order of these two
+reads — the arity comparison reads `foreignFields`/`referencedFields`, which are
+eager fields, and `.members` is still touched only below it. The code says so in a
+comment, because neither message has a test witness and a silent displacement
+would pass the whole suite.

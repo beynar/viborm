@@ -139,6 +139,7 @@ operation shells.
 | mutation assignments | `set-builder.ts` |
 | relation payload meaning | `relation-mutation-parser.ts` |
 | relation topology | `relation-data-builder.ts` |
+| physical read traversal of a relation | `relation-traversal.ts` |
 | many-to-many junction SQL | `many-to-many-utils.ts`, `ManyToManyStatements.ts` |
 
 The golden rule is absolute: query-engine code decides what a query means;

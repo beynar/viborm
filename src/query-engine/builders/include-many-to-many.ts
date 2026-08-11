@@ -3,9 +3,8 @@ import { createChildScope } from "../context";
 import type { QueryScope, RelationInfo } from "../types";
 import type { BuildNestedSelection, IncludeResult } from "./include-builder";
 import { assembleInnerQuery, type IncludeOptions } from "./include-query";
-import { buildManyToManyJoinParts } from "./many-to-many-utils";
 import { buildNestedReadWindow } from "./nested-read-window";
-import { bindJunctionRelation } from "./relation-data-builder";
+import type { JunctionRelationTraversal } from "./relation-traversal";
 
 /**
  * Build include for manyToMany relation using LATERAL join.
@@ -25,25 +24,20 @@ export function buildManyToManyLateralInclude(
   buildNestedSelection: BuildNestedSelection,
   ctx: QueryScope,
   relationInfo: RelationInfo,
-  includeValue: Record<string, unknown>
+  includeValue: Record<string, unknown>,
+  traversal: JunctionRelationTraversal
 ): IncludeResult {
   const { adapter } = ctx;
   const options = includeValue as IncludeOptions;
   const { select, include } = options;
 
-  const junctionAlias = ctx.nextAlias();
-  const targetAlias = ctx.nextAlias();
+  // The junction and target aliases are the traversal's; the lateral wrap is this
+  // builder's own and follows them.
+  const { targetAlias } = traversal;
   const lateralAlias = ctx.nextAlias();
 
-  const junction = bindJunctionRelation(ctx, relationInfo);
-  const { correlationCondition, joinCondition, fromClause } =
-    buildManyToManyJoinParts(
-      ctx,
-      junction,
-      ctx.rootAlias,
-      junctionAlias,
-      targetAlias
-    );
+  const baseConditions = traversal.conditions();
+  const fromClause = traversal.from();
 
   // Create child context for target
   const childCtx = createChildScope(ctx, relationInfo.targetModel, targetAlias);
@@ -54,10 +48,12 @@ export function buildManyToManyLateralInclude(
   const nestedJoins = selectResult.lateralJoins;
 
   // Correlation, junction join, relation filter, cursor and window in one place
-  const window = buildNestedReadWindow(childCtx, options, targetAlias, [
-    correlationCondition,
-    joinCondition,
-  ]);
+  const window = buildNestedReadWindow(
+    childCtx,
+    options,
+    targetAlias,
+    baseConditions
+  );
   const innerJoins = [...nestedJoins, ...window.joins];
 
   // Build inner query using shared helper
@@ -115,24 +111,16 @@ export function buildManyToManyInclude(
   buildNestedSelection: BuildNestedSelection,
   ctx: QueryScope,
   relationInfo: RelationInfo,
-  includeValue: Record<string, unknown>
+  includeValue: Record<string, unknown>,
+  traversal: JunctionRelationTraversal
 ): Sql {
   const { adapter } = ctx;
   const options = includeValue as IncludeOptions;
   const { select, include } = options;
 
-  const junctionAlias = ctx.nextAlias();
-  const targetAlias = ctx.nextAlias();
-
-  const junction = bindJunctionRelation(ctx, relationInfo);
-  const { correlationCondition, joinCondition, fromClause } =
-    buildManyToManyJoinParts(
-      ctx,
-      junction,
-      ctx.rootAlias,
-      junctionAlias,
-      targetAlias
-    );
+  const { targetAlias } = traversal;
+  const baseConditions = traversal.conditions();
+  const fromClause = traversal.from();
 
   // Create child context for target
   const childCtx = createChildScope(ctx, relationInfo.targetModel, targetAlias);
@@ -141,10 +129,12 @@ export function buildManyToManyInclude(
   const jsonExpr = buildNestedSelection(childCtx, select, include).sql;
 
   // Correlation, junction join, relation filter, cursor and window in one place
-  const window = buildNestedReadWindow(childCtx, options, targetAlias, [
-    correlationCondition,
-    joinCondition,
-  ]);
+  const window = buildNestedReadWindow(
+    childCtx,
+    options,
+    targetAlias,
+    baseConditions
+  );
 
   // Build inner query using shared helper
   const jsonColAlias = "_json";

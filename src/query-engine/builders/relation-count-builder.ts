@@ -6,11 +6,9 @@
 
 import { type Sql, sql } from "@sql";
 import { isRecord } from "@validation/value-guards";
-import { createChildScope, getTableName } from "../context";
+import { createChildScope } from "../context";
 import { QueryEngineError, type QueryScope, type RelationInfo } from "../types";
-import { buildCorrelation } from "./correlation-utils";
-import { buildManyToManyJoinParts } from "./many-to-many-utils";
-import { bindJunctionRelation } from "./relation-data-builder";
+import { buildRelationTraversal } from "./relation-traversal";
 import { buildWhere } from "./where-builder";
 
 const getWhereConfig = (
@@ -42,68 +40,13 @@ export function buildRelationCount(
   config: unknown,
   parentAlias: string
 ): Sql {
-  if (relationInfo.type === "manyToMany") {
-    return buildManyToManyCount(ctx, relationInfo, config, parentAlias);
-  }
-
   const { adapter } = ctx;
-  const targetAlias = ctx.nextAlias();
-  const targetTableName = getTableName(relationInfo.targetModel);
-  const targetTable = adapter.identifiers.table(targetTableName, targetAlias);
-  const correlation = buildCorrelation(
-    ctx,
-    relationInfo,
-    parentAlias,
-    targetAlias
-  );
 
-  let whereCondition = correlation;
-
-  const rawWhere = getWhereConfig(config);
-  if (rawWhere) {
-    const childCtx = createChildScope(
-      ctx,
-      relationInfo.targetModel,
-      targetAlias
-    );
-    const innerWhere = buildWhere(childCtx, rawWhere, targetAlias);
-    if (innerWhere) {
-      whereCondition = adapter.operators.and(correlation, innerWhere);
-    }
-  }
-
-  return adapter.subqueries.scalar(
-    sql.join(
-      [
-        adapter.clauses.select(adapter.aggregates.count()),
-        adapter.clauses.from(targetTable),
-        adapter.clauses.where(whereCondition),
-      ],
-      " "
-    )
-  );
-}
-
-function buildManyToManyCount(
-  ctx: QueryScope,
-  relationInfo: RelationInfo,
-  config: unknown,
-  parentAlias: string
-): Sql {
-  const { adapter } = ctx;
-  const junctionAlias = ctx.nextAlias();
-  const targetAlias = ctx.nextAlias();
-  const junction = bindJunctionRelation(ctx, relationInfo);
-  const { correlationCondition, joinCondition, fromClause } =
-    buildManyToManyJoinParts(
-      ctx,
-      junction,
-      parentAlias,
-      junctionAlias,
-      targetAlias
-    );
-
-  const conditions: Sql[] = [correlationCondition, joinCondition];
+  // One traversal counts either shape: a junction count reads junction + target
+  // and carries the junction join as its own conjunct.
+  const traversal = buildRelationTraversal(ctx, relationInfo, parentAlias);
+  const { targetAlias } = traversal;
+  const conditions: Sql[] = [...traversal.conditions()];
 
   const rawWhere = getWhereConfig(config);
   if (rawWhere) {
@@ -124,7 +67,7 @@ function buildManyToManyCount(
     sql.join(
       [
         adapter.clauses.select(adapter.aggregates.count()),
-        adapter.clauses.from(fromClause),
+        adapter.clauses.from(traversal.from()),
         adapter.clauses.where(whereCondition),
       ],
       " "

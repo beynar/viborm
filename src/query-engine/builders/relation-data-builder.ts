@@ -290,16 +290,11 @@ function resolveJunctionTopology(
 }
 
 /**
- * Bind the junction arm of {@link bindRelation}, for the callers that have ALREADY
- * established the relation is many-to-many — the read builders' own dispatch and
- * `ManyToManyStatements`' guard. One construction, reached two ways; no second
- * classification and no narrowing cast at the call sites.
- *
- * EXPIRY: Phase 7 absorbs this entry point when the read builders migrate onto
- * bound dispatch; until the traversal phase measures error ORDER, they keep
- * classifying on `relationInfo` and reach the one construction through here.
+ * Bind the junction arm of {@link bindRelation}. Module-private: every caller
+ * reaches it through {@link classifyRelation}, which is the one place that decides
+ * a relation is many-to-many.
  */
-export function bindJunctionRelation(
+function bindJunctionRelation(
   ctx: QueryScope,
   relationInfo: RelationInfo
 ): JunctionBoundRelation {
@@ -470,15 +465,60 @@ export function buildPolymorphicMembership(
   };
 }
 
+/**
+ * The engine's ONE classification of a relation's physical shape, handed back as a
+ * value: which arm it is, and the bind whose TYPE is that arm's bound relation.
+ *
+ * `RelationInfo` is not a discriminated union, so `type === "manyToMany"` narrows
+ * nothing on its own. Returning the answer as a discriminated pair is what lets a
+ * caller reach the narrowed construction with no second test, no cast and no
+ * guard — {@link bindRelation} is itself defined through it, so the estate holds
+ * exactly one spelling of the test.
+ *
+ * The bind is a THUNK because classification answers a question that must be asked
+ * EARLIER than topology may be resolved: a read traversal classifies to know how
+ * many aliases it spends, while binding a row-held relation resolves its inverse
+ * eagerly (and can refuse), and a junction's sides refuse a compound row key when
+ * they are READ. Callers that classify to place aliases must not pay those
+ * refusals; callers that need the bound value call the thunk where they need it.
+ */
+export type ClassifiedRelation =
+  | { readonly kind: "junction"; readonly bind: () => JunctionBoundRelation }
+  | {
+      readonly kind: "rowHeld";
+      readonly bind: () => ParentHeldRelation | ChildHeldRelation;
+    };
+
+/** Classify one relation's physical shape relative to the current model. */
+export function classifyRelation(
+  ctx: QueryScope,
+  relationInfo: RelationInfo
+): ClassifiedRelation {
+  if (relationInfo.type === "manyToMany") {
+    return {
+      kind: "junction",
+      bind: () => bindJunctionRelation(ctx, relationInfo),
+    };
+  }
+  return {
+    kind: "rowHeld",
+    bind: () => bindRowHeldRelation(ctx, relationInfo),
+  };
+}
+
 /** Bind one relation to its structural position relative to the current model. */
 export function bindRelation(
   ctx: QueryScope,
   relationInfo: RelationInfo
 ): BoundRelation {
-  if (relationInfo.type === "manyToMany") {
-    return bindJunctionRelation(ctx, relationInfo);
-  }
+  return classifyRelation(ctx, relationInfo).bind();
+}
 
+/** Bind the arm whose membership one of the two ROWS stores. */
+function bindRowHeldRelation(
+  ctx: QueryScope,
+  relationInfo: RelationInfo
+): ParentHeldRelation | ChildHeldRelation {
   const { fields, references, targetModel } = relationInfo;
   if (fields && fields.length > 0) {
     return {

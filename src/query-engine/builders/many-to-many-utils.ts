@@ -2,7 +2,8 @@
  * Many-to-Many Junction Utilities
  *
  * Shared logic for building M2M join conditions.
- * Used by: select-builder, relation-filter-builder, include-builder
+ * Read consumer: relation-traversal (the one traversal source — byte changes here
+ * propagate through it to every read builder). Write consumer: ManyToManyStatements.
  */
 
 import { type Sql, sql } from "@sql";

@@ -24,6 +24,7 @@ adapter methods for dialect syntax and keep values parameterized.
 | `relation-filter-builder.ts` | relation `some`/`every`/`none` and `is`/`isNot` |
 | `include-builder.ts` | nested relation reads and JSON projection |
 | `select-builder.ts` | selected columns and result pairs |
+| `relation-traversal.ts` | the physical read traversal of one relation occurrence |
 | `correlation-utils.ts` | ordinary/polymorphic correlation predicates and model keys |
 | `many-to-many-utils.ts` | junction identity and joins |
 | `values-builder.ts` | INSERT values and destination scalar conversion |
@@ -89,6 +90,13 @@ expose an arbitrary physical-column escape in `values-builder.ts` or
 
 `relation-data-builder.ts` owns `bindRelation` and `BoundRelation`.
 
+`classifyRelation` is that classification handed back as a value — the arm, plus a
+lazy bind typed to that arm — and `bindRelation` is defined through it, so the
+estate holds one spelling of the test. Classify when the physical shape must be
+known before topology may be resolved (a read traversal placing its aliases, a
+junction statement refusing a non-junction relation); bind when the bound value
+itself is needed. There is no second entry point per arm.
+
 Classification (distinct-truth Phase 4 — three orthogonal axes):
 
 1. many-to-many → position `junction` (cardinality `many`, junction membership);
@@ -112,6 +120,41 @@ memoized (like the junction sides): it owns the mismatched-foreign-key-metadata
 refusal, which must stay behind the relation-key legality boundary. Attaching
 VALUE sources to those members, source resolution, and membership lowering stay in
 `write-engine/relation-membership.ts` after existing legality checks.
+
+## Physical read traversal
+
+`relation-traversal.ts` owns `buildRelationTraversal`, the one answer to "how does
+a read reach this relation's rows": the aliases it spends, the FROM source, the
+conditions tying those rows to the parent row, and the tables it reads. Include
+(correlated and lateral), relation filters, relation counts and to-one order
+chains all construct one traversal per relation occurrence and keep only their own
+statement shape. Nothing else classifies a relation as many-to-many to pick a
+physical shape, and nothing else copies a target FROM source.
+
+The traversal builder calls the two arm owners rather than reimplementing them:
+`buildCorrelation` for a row-held edge, `buildManyToManyJoinParts` for a junction.
+
+Three properties are load-bearing:
+
+- classification and alias allocation are EAGER, and a traversal allocates exactly
+  its junction and target aliases. Alias numbers are SQL bytes, so it is
+  constructed where its builder used to allocate them — before any lateral alias
+  and before nested selection or nested where. Lateral, inner, sub and
+  mutation-hide aliases belong to the builders that wrap;
+- topology is LAZY and memoized. Binding resolves inverses and junction sides and
+  can refuse, so a builder that classifies and then short-circuits (an `every`
+  quantifier with no inner condition) must still leave silently;
+- the row-held arm contributes EXACTLY ONE, already-folded condition. A compound
+  foreign key and a polymorphic inverse compare several columns as one group, and
+  splitting that group flattens the statement once an inner `where` is appended.
+  The junction arm contributes its two conjuncts flat, which is the junction
+  read's own shape.
+
+The traversal owns no meaning: selection, aggregation, lateral strategy, windows,
+filter quantifiers, negation, ordering, result parsing and mutation-target hiding
+stay with their builders — it only supplies the table list the hiding rule tests.
+Direct polymorphic reads stay outside it: `polymorphic-read-builder.ts` traverses
+a payload-selected variant target-first, and such a field is not a bound relation.
 
 ## Parse-once rule
 
