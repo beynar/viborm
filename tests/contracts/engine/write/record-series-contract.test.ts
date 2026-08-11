@@ -588,15 +588,12 @@ describe("I3 — the transactional record series through the real executor", () 
     expect(executor.singleStatementPlan(series)).toBeUndefined();
     expect(executor.buildStatement(series)).toBeUndefined();
     await expect(
-      executor.prepareBatch(series, driver, seriesContext())
-    ).resolves.toBeUndefined();
-    await expect(
       executor.prepareSharedBatch(series, driver, seriesContext(), "createMany")
     ).resolves.toBeUndefined();
     // `PendingOperation.prepare()` is this same decline: it asks the executor for
     // `singleStatementPlan` and returns what it answers, which is what lets the
     // `$transaction([...])` merge break to its typed refusal with no new client
-    // code. No capture, no member, no statement was reached by any of the four.
+    // code. No capture, no member, no statement was reached by any of the three.
     expect(events).toEqual([]);
   }, 60_000);
 

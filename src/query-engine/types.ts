@@ -73,8 +73,6 @@ export type QueryMetadata<T> =
  */
 export interface PreparedBatchOperation<T = unknown> {
   queries: PreparedQuery[];
-  setupQueries?: PreparedQuery[];
-  cleanupQueries?: PreparedQuery[];
   guards?: PreparedBatchGuard[];
   parseResult: (results: QueryResult<unknown>[]) => T;
 }

@@ -285,16 +285,9 @@ describe("native batch logical attribution", () => {
     expect(driver.submitted).toHaveLength(0);
   });
 
-  it.each([
-    { failedSql: "setup", expected: "outer" },
-    { failedSql: "operation-two", expected: "second" },
-    { failedSql: "cleanup", expected: "outer" },
-  ])("attributes $failedSql failures to the correct logical scope", async ({
-    failedSql,
-    expected,
-  }) => {
+  it("attributes a merged-batch member failure to its own logical operation", async () => {
     const driver = new NativeAttributionDriver();
-    driver.failSql = failedSql;
+    driver.failSql = "operation-two";
     const { client } = createInstrumentedClient(driver);
     const firstSeed = client.user.findMany();
     const secondSeed = client.post.findMany();
@@ -306,25 +299,18 @@ describe("native batch logical attribution", () => {
       .catch((caught) => caught);
     if (!isVibORMError(error)) throw new Error("expected a VibORMError");
 
-    if (expected === "second") {
-      const secondContext = second.getExecutionContext();
-      expect(error.meta).toMatchObject({
-        model: secondContext.model,
-        operation: secondContext.operation,
-        correlationId: secondContext.correlationId,
-      });
-    } else {
-      expect(error.meta).toMatchObject({
-        model: "$transaction",
-        operation: "$transaction([...])",
-        correlationId: expect.any(String),
-      });
-    }
+    const secondContext = second.getExecutionContext();
+    expect(error.meta).toMatchObject({
+      model: secondContext.model,
+      operation: secondContext.operation,
+      correlationId: secondContext.correlationId,
+    });
+    // Every query in the merged batch carries its own operation's context —
+    // the batch has no outer-scoped setup/cleanup entries (that channel had no
+    // production writer and was deleted by distinct-truth unit 9.3).
     expect(driver.submitted.map((query) => query.context?.model)).toEqual([
-      "$transaction",
       "user",
       "post",
-      "$transaction",
     ]);
   });
 });
@@ -335,9 +321,7 @@ function createPlannedOperation(
 ): PendingOperation<unknown> {
   const context = seed.getExecutionContext();
   const prepared: PreparedBatchOperation<unknown> = {
-    setupQueries: [{ sql: "setup", params: [], context }],
     queries: [{ sql, params: [], context }],
-    cleanupQueries: [{ sql: "cleanup", params: [], context }],
     parseResult: () => undefined,
   };
   vi.spyOn(seed, "prepare").mockReturnValue(undefined);

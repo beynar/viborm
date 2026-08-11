@@ -287,10 +287,7 @@ export type NoExtraInstrumentationKeys<Config> = Config extends {
   instrumentation: infer I;
 }
   ? {
-      instrumentation: NoExtraNestedKeys<
-        I,
-        InstrumentationConfig
-      > & {
+      instrumentation: NoExtraNestedKeys<I, InstrumentationConfig> & {
         [K in keyof I]: K extends "tracing"
           ? NoExtraNestedKeys<I[K], TracingConfig>
           : K extends "logging"
@@ -718,9 +715,6 @@ export class VibORM<C extends VibORMConfig> {
               // This provides atomicity for operations that can be batched
               if (!supportsTransactions && supportsBatch) {
                 const operationQueries: BatchQuery[] = [];
-                let setupQueries: BatchQuery[] = [];
-                let cleanupQueries: BatchQuery[] = [];
-                let hasProgramBatchState = false;
                 const batchGuards: PreparedBatchGuard[] = [];
                 const parsers: Array<{
                   start: number;
@@ -779,20 +773,6 @@ export class VibORM<C extends VibORMConfig> {
                     break;
                   }
 
-                  hasProgramBatchState = true;
-                  setupQueries = (
-                    preparedBatch.setupQueries ?? setupQueries
-                  ).map((query) => ({
-                    ...query,
-                    context: transactionContext,
-                  }));
-                  cleanupQueries = (
-                    preparedBatch.cleanupQueries ?? cleanupQueries
-                  ).map((query) => ({
-                    ...query,
-                    context: transactionContext,
-                  }));
-
                   const start = operationQueries.length;
                   operationQueries.push(...preparedBatch.queries);
                   for (const guard of preparedBatch.guards ?? []) {
@@ -812,12 +792,6 @@ export class VibORM<C extends VibORMConfig> {
                 }
 
                 if (parsers.length === operations.length) {
-                  const setupOffset = hasProgramBatchState
-                    ? setupQueries.length
-                    : 0;
-                  const batchQueries = hasProgramBatchState
-                    ? [...setupQueries, ...operationQueries, ...cleanupQueries]
-                    : operationQueries;
                   // A merged batch can be EMPTY: `limit: 0` is the bulk write
                   // that affects nothing, so a transaction of nothing but those
                   // has nothing to send. Skipping the round-trip lets each such
@@ -828,23 +802,19 @@ export class VibORM<C extends VibORMConfig> {
                   // sibling. Atomicity is unaffected: a MIXED batch still goes
                   // to the driver as one unit, and an empty one runs nothing.
                   let batchResults: QueryResult<unknown>[] = [];
-                  if (batchQueries.length > 0) {
+                  if (operationQueries.length > 0) {
                     try {
                       batchResults = await driver._executeBatch(
-                        batchQueries,
+                        operationQueries,
                         options as BatchTransactionOptions | undefined,
                         transactionContext
                       );
                     } catch (error) {
-                      const guards = batchGuards.map((guard) => ({
-                        ...guard,
-                        queryIndex: setupOffset + guard.queryIndex,
-                      }));
                       throw await attributeOperationBatchError(
                         error,
-                        guards,
+                        batchGuards,
                         driver,
-                        batchQueries
+                        operationQueries
                       );
                     }
                   }
@@ -864,15 +834,15 @@ export class VibORM<C extends VibORMConfig> {
                   };
                   assertNormalizedBatchResults(
                     batchResults,
-                    batchQueries.length,
+                    operationQueries.length,
                     resultContext
                   );
 
                   const results: unknown[] = [];
                   for (const parser of parsers) {
                     const resultWindow = batchResults.slice(
-                      setupOffset + parser.start,
-                      setupOffset + parser.start + parser.length
+                      parser.start,
+                      parser.start + parser.length
                     );
                     assertNormalizedBatchResults(
                       resultWindow,

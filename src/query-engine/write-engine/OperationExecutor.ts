@@ -66,7 +66,7 @@ export interface ExecutableOperation {
   parse<T>(outputs: Readonly<Record<string, unknown>>): T;
   /**
    * Optional execution-context gate, invoked ONLY on the `$transaction([...])`
-   * array batch-preparation seams ({@link prepareBatch}/{@link prepareSharedBatch}),
+   * array batch-preparation seam ({@link prepareSharedBatch}),
    * never on the direct linear path. An operation whose direct result is a
    * documented no-op but whose batch-preparation V1 rejects — V1 builds its batch
    * plan eagerly and raises where the payload has nothing to lower — surfaces that
@@ -329,34 +329,6 @@ export class OperationExecutor {
       context
     );
     return operation.parse<T>(outputs);
-  }
-
-  /**
-   * The `prepareBatch` seam of the PendingOperation contract: run
-   * planning, compile the taken fragment, and RETURN the atomic-batch entries
-   * plus a `parseResult` closure — consumable by the client's shared batch
-   * protocol (the `$transaction([...])` array path), which merges entries from
-   * several operations into one driver batch. It never executes them itself.
-   */
-  async prepareBatch<T>(
-    operation: RoutedExecutableOperation,
-    driver: AnyDriver,
-    context: QueryExecutionContext
-  ): Promise<
-    | {
-        readonly queries: readonly Sql[];
-        parseResult(results: readonly QueryResult<unknown>[]): T;
-      }
-    | undefined
-  > {
-    if (isRecordSeries(operation)) return undefined;
-    operation.assertBatchPreparable?.();
-    const plan = await this.buildAtomicPlan(operation, driver, context);
-    return {
-      queries: plan.entries.map((entry) => entry.statement),
-      parseResult: (results) =>
-        operation.parse<T>(assembleOutputs(plan, results)),
-    };
   }
 
   /**
@@ -782,7 +754,7 @@ export class OperationExecutor {
 
 /**
  * Assemble a fragment's declared outputs from one atomic batch's results —
- * shared by the executed path and the `prepareBatch` seam so a returned plan
+ * shared by the executed path and the `prepareSharedBatch` seam so a returned plan
  * parses identically to an executed one.
  */
 function assembleOutputs(

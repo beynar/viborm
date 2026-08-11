@@ -1,10 +1,8 @@
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite } from "@electric-sql/pglite";
 import { push } from "@migrations";
-import { createOperationExecutionContext } from "@query-engine/execution-context";
+import { PendingOperation } from "@query-engine/pending-operation";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
-import { PendingOperationV2 } from "@src/query-engine/write-engine/PendingOperationV2";
-import { UpdateOperation } from "@src/query-engine/write-engine/UpdateOperation";
 import {
   correlatedUpsertArgs,
   updateSliceSchema,
@@ -24,13 +22,12 @@ function engineFor(driver: PGliteDriver) {
 }
 
 function pendingFor(engine: QueryEngine, args: Record<string, unknown>) {
-  const operation = new UpdateOperation(engine, updateSliceSchema.user, args);
-  const context = createOperationExecutionContext(
-    "user",
+  return PendingOperation.create<unknown>(
+    engine,
+    updateSliceSchema.user,
     "update",
-    engine.instrumentation
+    args
   );
-  return new PendingOperationV2(engine, operation, context);
 }
 
 const expected = {
@@ -85,12 +82,14 @@ describe("write engine PendingOperation contract (PLAN P1.5)", () => {
     // lowering; this fixture holds one fragment atom, which always has one.
     if (!prepared) throw new Error("the composed operation prepared no batch");
 
-    // The seam RETURNS the entries; the caller executes them as one batch.
-    const queries = prepared.queries.map((statement) =>
-      driver._prepare(statement)
+    // The seam RETURNS the prepared entries; the caller executes them as one
+    // batch — exactly what the client's `$transaction([...])` merge does.
+    const results = await driver._executeBatch(
+      prepared.queries,
+      undefined,
+      undefined
     );
-    const results = await driver._executeBatch(queries, undefined, undefined);
-    const parsed = prepared.parseResult(results);
+    const parsed = prepared.parseResult([...results]);
     expect(parsed).toEqual(expected);
     await client.$disconnect();
   });

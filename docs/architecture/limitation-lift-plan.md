@@ -412,7 +412,7 @@ Use these exact owners:
 | Relation target/membership orchestration | Existing RelationWritePart, RelationUpsertPart, RelationJunctionPart, and nested-target-parts modules |
 | Record-series contract | src/query-engine/write-engine/record-series.ts (landed name; this row drafted it as `RecordSeriesOperation.ts`. `RecordSeriesOperation` is the *type* this module exports — the module is a contract, not an operation shell, so it takes the ordinary kebab-case filename rather than an architecture-name exemption) |
 | Series execution and retry routing | src/query-engine/write-engine/OperationExecutor.ts |
-| Pending direct/batch refusal | src/query-engine/write-engine/PendingOperationV2.ts and the live PendingOperation owner |
+| Pending direct/batch refusal | The live PendingOperation owner (src/query-engine/pending-operation.ts; the PendingOperationV2 contract fixture this row also named was test-only and was deleted by distinct-truth unit 9.3 — its contract tests moved onto the live class) |
 | Root relation-bearing createMany shell | New src/query-engine/write-engine/CreateManyRecordSeries.ts |
 | Root relation-bearing updateMany shell | New src/query-engine/write-engine/UpdateManyRecordSeries.ts |
 | Existing scalar createMany fast path | src/query-engine/write-engine/CreateManyOperation.ts |
