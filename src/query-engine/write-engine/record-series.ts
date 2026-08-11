@@ -32,15 +32,12 @@ import type { PlanningFragment } from "./OperationFragment";
  *   a returning projection.
  * - {@link parseSeries} produces the public result.
  *
- * The CAPTURED RECORD holds one key per output the fragment returned by
- * {@link capture} declared, and `compileMembers` / `compileResultReads` read
- * exactly those keys. The executor imposes no naming of its own: it hands back
- * whatever that fragment's `outputs` map declared. So every capture MUST build
- * that map with `planningOutputs` (`Part.ts`), which spells each key
- * `planningKey(stepId, output)` — that is `` `${step}.${output}` `` — the stable,
- * collision-free address the rest of the engine already reads planning outputs
- * at. A capture that declares bare names instead is not caught by any gate; it
- * simply lands its members on a different address than they expect.
+ * The CAPTURED RECORD holds one key per declared output of every capture step,
+ * DERIVED by the executor under `planningKey(stepId, output)` — that is
+ * `` `${step}.${output}` `` — the stable, collision-free address the rest of
+ * the engine reads planning outputs at (Phase 9.1: planning publication has no
+ * hand-built map to mis-spell, so the old bare-names hazard is structurally
+ * gone). `compileMembers` / `compileResultReads` read exactly those keys.
  *
  * The series is transaction-only BY ITS FORM, not by a mode field:
  * `executionKind: "recordSeries"` alone selects the series executor, which opens

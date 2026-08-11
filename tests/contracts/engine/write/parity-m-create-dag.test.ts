@@ -11,6 +11,7 @@ import {
   type OperationFragment,
   type PlanningFragment,
 } from "@src/query-engine/write-engine/OperationFragment";
+import { publishedOutputs } from "@tests/fixtures/planning-published";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
 
@@ -172,7 +173,7 @@ function fragmentContract(
           current.kind === "write" ? (current.onUniqueConflict ?? null) : null,
       };
     }),
-    outputs: normalized(fragment.outputs),
+    outputs: normalized(publishedOutputs(fragment)),
   };
 }
 

@@ -85,7 +85,7 @@ export class BulkCountOperation {
   }
 
   planning(): PlanningFragment {
-    return { steps: [], outputs: {} };
+    return { steps: [] };
   }
 
   compile(_known: Readonly<Record<string, unknown>>): OperationFragment {

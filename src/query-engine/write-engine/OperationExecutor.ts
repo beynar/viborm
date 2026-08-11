@@ -36,9 +36,11 @@ import {
   type OperationValueReference,
   type PlanningFragment,
   type ReadStep,
+  ref,
   type StatementOutputSource,
   type StatementStep,
 } from "./OperationFragment";
+import { planningKey } from "./Part";
 import { markRaceable, markRaceIfPinned, racePinMatches } from "./race-retry";
 import {
   isRecordSeries,
@@ -555,7 +557,7 @@ export class OperationExecutor {
       }
       await this.runPlanningLevel(level, driver, values, context);
     }
-    return resolveFragmentOutputs(fragment, values);
+    return derivePlanningKnown(fragment, values);
   }
 
   /**
@@ -588,7 +590,7 @@ export class OperationExecutor {
   }
 
   private async executeLinear(
-    fragment: OperationFragment,
+    fragment: OperationFragment | PlanningFragment,
     driver: AnyDriver,
     values: RuntimeValues,
     context: QueryExecutionContext
@@ -596,7 +598,9 @@ export class OperationExecutor {
     for (const step of fragment.steps) {
       await this.runLinearStep(step, driver, values, context);
     }
-    return resolveFragmentOutputs(fragment, values);
+    return "outputs" in fragment
+      ? resolveFragmentOutputs(fragment, values)
+      : derivePlanningKnown(fragment, values);
   }
 
   /** One step on its own round trip, its output threaded into `values`. */
@@ -997,6 +1001,29 @@ function mergeBatchOutputs(
       extractOutput(step.id, source, result)
     );
   }
+}
+
+/**
+ * The DERIVED planning publication: every declared output of every planning
+ * statement, under its stable `planningKey(step.id, name)` address. Planning
+ * has no explicit outputs map to under-publish through — the steps ARE the
+ * declaration (distinct-truth Phase 9.1).
+ */
+function derivePlanningKnown(
+  fragment: PlanningFragment,
+  values: RuntimeValues
+): Readonly<Record<string, unknown>> {
+  const outputs: Record<string, unknown> = {};
+  for (const step of fragment.steps) {
+    for (const name of Object.keys(step.outputs)) {
+      outputs[planningKey(step.id, name)] = resolveSingleOutput(
+        planningKey(step.id, name),
+        ref(step.id, name),
+        values
+      );
+    }
+  }
+  return outputs;
 }
 
 function resolveFragmentOutputs(

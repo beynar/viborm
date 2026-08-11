@@ -53,7 +53,7 @@ import {
   type StatementStep,
   type WriteStep,
 } from "./OperationFragment";
-import { planningKey, planningOutputs } from "./Part";
+import { planningKey } from "./Part";
 import { parseValidated } from "./parse-boundary";
 import {
   buildRecordUpdateCompiler,
@@ -387,12 +387,12 @@ export class UpdateOperation {
   }
 
   planning(): PlanningFragment {
-    if (this.directWrite) return { steps: [], outputs: {} };
+    if (this.directWrite) return { steps: [] };
     const steps: StatementStep[] = [
       this.locate,
       ...(this.compiler?.planning() ?? []),
     ];
-    return { steps, outputs: planningOutputs(steps) };
+    return { steps };
   }
 
   compile(known: Readonly<Record<string, unknown>>): OperationFragment {

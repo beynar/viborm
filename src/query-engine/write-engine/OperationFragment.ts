@@ -139,8 +139,12 @@ export interface OperationFragment {
 }
 
 export interface PlanningFragment {
+  // No outputs map: planning publication is DERIVED — the executor exposes
+  // every declared statement output under `planningKey(step.id, name)`, so a
+  // producer cannot under-publish (the old hand-built maps could) and a
+  // capture cannot land its members on a different address than they expect.
+  // Final `OperationFragment` output selection stays explicit.
   readonly steps: readonly StatementStep[];
-  readonly outputs: Readonly<Record<string, FragmentOutputSource>>;
 }
 
 export function bucketOperationSteps(

@@ -138,7 +138,7 @@ export class CreateManyRecordSeries implements RecordSeriesOperation {
    * this case explicitly: "For createMany it is an empty planning fragment."
    */
   capture(): PlanningFragment {
-    return { steps: [], outputs: {} };
+    return { steps: [] };
   }
 
   compileMembers(): readonly ExecutableOperation[] {
@@ -254,7 +254,7 @@ class FinalRootRead implements ExecutableOperation {
   }
 
   planning(): PlanningFragment {
-    return { steps: [], outputs: {} };
+    return { steps: [] };
   }
 
   compile(): OperationFragment {

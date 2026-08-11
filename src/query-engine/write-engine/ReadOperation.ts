@@ -119,7 +119,7 @@ export class ReadOperation {
 
   planning(): PlanningFragment {
     // A read makes no decision, so planning is empty.
-    return { steps: [], outputs: {} };
+    return { steps: [] };
   }
 
   compile(_known: Readonly<Record<string, unknown>>): OperationFragment {

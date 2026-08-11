@@ -1112,22 +1112,25 @@ describe("write engine route inventory (P6 accounting)", () => {
       [
         15,
         "query-engine/write-engine/CreateOperation.ts",
-        2772,
-        2764,
+        // Shifted -1 by unit 9.1 (CreateOperation planning literal).
+        2771,
+        2763,
         "requireRecordReferenced",
       ],
       [
         19,
         "query-engine/write-engine/CreateOperation.ts",
-        2850,
-        2839,
+        // Shifted -1 by unit 9.1.
+        2849,
+        2838,
         "producedReference",
       ],
       [
         20,
         "query-engine/write-engine/CreateOperation.ts",
-        3154,
-        3140,
+        // Shifted -1 by unit 9.1.
+        3153,
+        3139,
         "assertSharedPkResolved",
       ],
       [

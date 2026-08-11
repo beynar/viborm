@@ -20,7 +20,6 @@ import type {
   WriteStep,
 } from "@src/query-engine/write-engine/OperationFragment";
 import { ref } from "@src/query-engine/write-engine/OperationFragment";
-import { planningOutputs } from "@src/query-engine/write-engine/Part";
 import type { RecordSeriesOperation } from "@src/query-engine/write-engine/record-series";
 import { isRecordSeries } from "@src/query-engine/write-engine/record-series";
 import { executeRoutedOperation } from "@src/query-engine/write-engine/routing";
@@ -205,7 +204,7 @@ function memberOperation(
     mode: "transaction",
     planning(): PlanningFragment {
       events.push(`plan:${spec.id}`);
-      return { steps: [probe], outputs: planningOutputs([probe]) };
+      return { steps: [probe] };
     },
     compile(known): OperationFragment {
       events.push(
@@ -230,7 +229,7 @@ function memberOperation(
 function resultReadOperation(events: string[]): ExecutableOperation {
   return {
     mode: "transaction",
-    planning: (): PlanningFragment => ({ steps: [], outputs: {} }),
+    planning: (): PlanningFragment => ({ steps: [] }),
     compile(): OperationFragment {
       events.push("compile:resultRead");
       const read: ReadStep = {
@@ -263,7 +262,7 @@ function seriesOperation(
         statement: sql`SELECT "id" FROM "rs_ledger" ORDER BY "id" ASC`,
         outputs: { rows: { kind: "rows" } },
       };
-      return { steps: [step], outputs: planningOutputs([step]) };
+      return { steps: [step] };
     },
     compileMembers(captured): readonly ExecutableOperation[] {
       const specs = shape.members(attempt, captured);

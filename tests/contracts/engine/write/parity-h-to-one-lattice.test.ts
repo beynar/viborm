@@ -16,6 +16,7 @@ import {
 } from "@src/query-engine/write-engine/OperationFragment";
 import { UpdateOperation } from "@src/query-engine/write-engine/UpdateOperation";
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
+import { publishedOutputs } from "@tests/fixtures/planning-published";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
 
@@ -203,7 +204,7 @@ function fragmentContract(
 ): unknown {
   return {
     steps: fragment.steps.map((current) => stepContract(driver, current)),
-    outputs: normalized(fragment.outputs),
+    outputs: normalized(publishedOutputs(fragment)),
   };
 }
 

@@ -82,7 +82,7 @@ import {
   type WriteStep,
 } from "./OperationFragment";
 import type { Part, PlanningKnown } from "./Part";
-import { planningKey, planningOutputs } from "./Part";
+import { planningKey } from "./Part";
 import { parseValidated } from "./parse-boundary";
 import {
   buildRecordUpdateCompiler,
@@ -651,10 +651,9 @@ export class CreateOperation {
   }
 
   planning(): PlanningFragment {
-    if (this.foldStep) return { steps: [], outputs: {} };
+    if (this.foldStep) return { steps: [] };
     return {
       steps: this.planningSteps,
-      outputs: planningOutputs(this.planningSteps),
     };
   }
 
@@ -2143,10 +2142,10 @@ export class CreateOperation {
    * migration, join-SQL, OwnWrite and engine work it waits on).
    *
    * PACKAGE O — this was an `UnsupportedOperationError` claiming to reach that fact
-   * ONE STATEMENT EARLIER than `getManyToManyJoinInfo`'s
+   * ONE STATEMENT EARLIER than the junction resolution's
    * `getRequiredSinglePrimaryKeyField`. MEASURED, and the claim is false: a junction
    * program on a compound-primary-key model is answered by `OwnWriteAnalyzer` →
-   * `getRelationMembershipScope` → `getManyToManyJoinInfo` → that function, which
+   * `getRelationMembershipScope` → the bound junction's sides → that function, which
    * runs at the record-program boundary BEFORE any relation is interpreted here. The
    * witness is `operation-construction-witnesses.test.ts` ("a compound primary key
    * carrying a many-to-many relation"), which pins the answering owner, its class and

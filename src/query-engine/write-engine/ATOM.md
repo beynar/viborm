@@ -114,7 +114,6 @@ Planning has a smaller type than final compilation:
 ```ts
 interface PlanningFragment {
   readonly steps: readonly StatementStep[];
-  readonly outputs: Readonly<Record<string, FragmentOutputSource>>;
 }
 ```
 
@@ -128,8 +127,10 @@ the final fragment. The executor must retain its non-read planning fallback.
 Nested `Part.planning()` normally contributes reads. This is a current
 implementation fact, not a stronger type invariant than `PlanningFragment`.
 
-Planning output keys use the step ID plus output name. Two sibling probes for
-the same model therefore cannot overwrite each other.
+Planning publication is DERIVED: the executor exposes every declared statement
+output under `planningKey(step.id, name)`, so a producer cannot under-publish
+and two sibling probes for the same model cannot overwrite each other. Final
+fragments keep explicit output selection.
 
 Final fragments contain only the selected arm. Atomic-batch execution evaluates
 guards before writes while preserving relative order inside both buckets.
@@ -661,10 +662,12 @@ only source a captured record is addressed by: no such owner is handed one
 primary-key field beside a projection, and no parallel row-key field survives
 next to one. Two scalar names sit deliberately outside that rule:
 
-- `RelationJunctionPart`'s `targetPkField` (and `sourcePkField`) — the junction's
+- `RelationJunctionPart`'s stored side references (`targetReference`,
+  `sourceReference` — the bound junction sides' single members) — the junction's
   stored reference to a target `getRequiredSinglePrimaryKeyField` already refused
-  to key on more than one field. The carve-out is documented at both of its
-  declarations, and nothing new may read a row key through it.
+  to key on more than one field. The carve-out is documented at
+  `junctionSideMember` and both stored-reference declarations, and nothing new
+  may read a row key through it.
 - The root operations' own `parentPrimaryKeys` (`UpsertOperation`,
   `DeleteOperation`) — the row key of the record their public `where` names, not
   of a captured target handed to a compiler.

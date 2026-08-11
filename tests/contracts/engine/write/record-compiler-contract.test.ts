@@ -25,6 +25,7 @@ import {
 } from "@tests/contracts/engine/write/update-nested-upsert-behavior";
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { nestedWriteBehaviorSchema } from "@tests/fixtures/nested-write-behavior-schema";
+import { publishedOutputs } from "@tests/fixtures/planning-published";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
 
@@ -236,14 +237,14 @@ function fragmentContract(
             ...effects(current),
           }
     ),
-    outputs: normalized(fragment.outputs),
+    outputs: normalized(publishedOutputs(fragment)),
   };
 }
 
 function outputContract(
   fragment: PlanningFragment | OperationFragment
 ): unknown {
-  return normalized(fragment.outputs);
+  return normalized(publishedOutputs(fragment));
 }
 
 const terminalExpectation = (operation: "create" | "update") => ({

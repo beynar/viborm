@@ -68,7 +68,7 @@ import {
   type StatementStep,
   type WriteStep,
 } from "./OperationFragment";
-import { conditionalArmPlanning, planningKey, planningOutputs } from "./Part";
+import { conditionalArmPlanning, planningKey } from "./Part";
 import { parseValidated } from "./parse-boundary";
 import {
   buildRecordUpdateCompiler,
@@ -514,7 +514,7 @@ export class UpsertOperation {
     // IS the create-vs-update decision. Empty planning is also what routes the
     // operation through the direct single-statement policy — one round trip,
     // no transaction envelope.
-    if (this.onConflictFold) return { steps: [], outputs: {} };
+    if (this.onConflictFold) return { steps: [] };
     const steps: StatementStep[] = [this.locate];
     for (const conditional of this.conditionals) steps.push(conditional.probe);
     // Both relation-bearing arms contribute planning reads to the guard-free superset;
@@ -523,7 +523,7 @@ export class UpsertOperation {
       steps.push(...conditionalArmPlanning(this.updateCompiler.planning()));
     }
     if (this.createArmOp) steps.push(...this.createArmOp.planning().steps);
-    return { steps, outputs: planningOutputs(steps) };
+    return { steps };
   }
 
   compile(known: Readonly<Record<string, unknown>>): OperationFragment {

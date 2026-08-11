@@ -19,7 +19,7 @@ import {
   type ReadStep,
   ref,
 } from "./OperationFragment";
-import { planningKey, planningOutputs } from "./Part";
+import { planningKey } from "./Part";
 import type { RecordSeriesOperation } from "./record-series";
 import { StepScope } from "./StepScope";
 import { getStepModelName, isRecord } from "./shared";
@@ -162,7 +162,7 @@ export class UpdateManyRecordSeries implements RecordSeriesOperation {
    */
   capture(): PlanningFragment {
     const steps = [this.captureRead];
-    return { steps, outputs: planningOutputs(steps) };
+    return { steps };
   }
 
   compileMembers(
@@ -422,7 +422,7 @@ class FinalRootRead implements ExecutableOperation {
   }
 
   planning(): PlanningFragment {
-    return { steps: [], outputs: {} };
+    return { steps: [] };
   }
 
   compile(): OperationFragment {

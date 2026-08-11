@@ -1,10 +1,8 @@
 // biome-ignore-all lint/style/useFilenamingConvention: Part is the architecture name.
-import {
-  type FragmentOutputSource,
-  type OperationStep,
-  ref,
-  type StatementOutputSource,
-  type StatementStep,
+import type {
+  OperationStep,
+  StatementOutputSource,
+  StatementStep,
 } from "./OperationFragment";
 import type { StepScope } from "./StepScope";
 
@@ -33,26 +31,6 @@ export interface Part {
 /** Stable address of a planning read's output inside {@link PlanningKnown}. */
 export function planningKey(step: string, output: string): string {
   return `${step}.${output}`;
-}
-
-/**
- * Derive a planning fragment's outputs from its read steps: every declared
- * output of every planning read is exposed under its {@link planningKey}, so
- * `compile` receives each probe's and locate read's rows at a stable, collision-
- * free address — the mechanism that lets one planning read feed another's
- * decision (ATOM's `Planning fragments`) across any number of same-model
- * children.
- */
-export function planningOutputs(
-  steps: readonly StatementStep[]
-): Record<string, FragmentOutputSource> {
-  const outputs: Record<string, FragmentOutputSource> = {};
-  for (const step of steps) {
-    for (const name of Object.keys(step.outputs)) {
-      outputs[planningKey(step.id, name)] = ref(step.id, name);
-    }
-  }
-  return outputs;
 }
 
 /**

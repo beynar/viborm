@@ -7,6 +7,7 @@ import {
   type OperationFragment,
   type OperationStep,
   type OperationValueReference,
+  type PlanningFragment,
 } from "./OperationFragment";
 
 interface StepRecord {
@@ -21,10 +22,16 @@ interface StepRecord {
  * fragment is a typed error, never a silent execution. This is a check on
  * compiler output — cheap enough to run every time — not a defensive parser.
  */
-export function validateFragment(fragment: OperationFragment): void {
+export function validateFragment(
+  fragment: OperationFragment | PlanningFragment
+): void {
   const records = indexSteps(fragment.steps);
   assertBackwardLocalReferences(fragment.steps, records);
-  assertOutputsResolvable(fragment, records);
+  // A planning fragment declares no outputs — its publication is derived from
+  // the steps themselves, so there is nothing that could fail to resolve.
+  if ("outputs" in fragment) {
+    assertOutputsResolvable(fragment, records);
+  }
   assertGuardPinRule(fragment.steps);
 }
 

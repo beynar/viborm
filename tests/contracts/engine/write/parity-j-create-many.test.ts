@@ -16,6 +16,7 @@ import {
 import { isRecordSeries } from "@src/query-engine/write-engine/record-series";
 import { constructRoutedOperation } from "@src/query-engine/write-engine/routing";
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
+import { publishedOutputs } from "@tests/fixtures/planning-published";
 import { fragmentAtom } from "@tests/fixtures/routed-fragment-atom";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
@@ -220,7 +221,7 @@ function fragmentContract(
 ): unknown {
   return {
     steps: fragment.steps.map((current) => stepContract(driver, current)),
-    outputs: normalized(fragment.outputs),
+    outputs: normalized(publishedOutputs(fragment)),
   };
 }
 

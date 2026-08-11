@@ -15,6 +15,7 @@ import { UnsupportedOperationError } from "@src/query-engine/write-engine/shared
 import { UpdateOperation } from "@src/query-engine/write-engine/UpdateOperation";
 import { compileTransitionSchema } from "@tests/contracts/engine/write/compiled-key-transition-behavior";
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
+import { publishedOutputs } from "@tests/fixtures/planning-published";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
 
@@ -278,7 +279,7 @@ function fragmentContract(
                 : null,
           }
     ),
-    outputs: normalized(fragment.outputs),
+    outputs: normalized(publishedOutputs(fragment)),
   };
 }
 

@@ -40,7 +40,7 @@ import {
   ref,
   type WriteStep,
 } from "./OperationFragment";
-import { planningKey, planningOutputs } from "./Part";
+import { planningKey } from "./Part";
 import { StepScope } from "./StepScope";
 import { isRecord, selectExecutionMode } from "./shared";
 
@@ -347,19 +347,19 @@ export class ManyAndReturnOperation {
   planning(): PlanningFragment {
     if (this.bulkPolymorphic?.probes.length) {
       const steps = this.bulkPolymorphic.probes;
-      return { steps, outputs: planningOutputs(steps) };
+      return { steps };
     }
     if (this.skipInserts) {
       // E6.9: the capture is the WRITES, and what crosses into `compile` is each one's own
       // outcome — see {@link buildCreateManySkipCapture} for why that is this phase.
       const steps = [...this.skipInserts];
-      return { steps, outputs: planningOutputs(steps) };
+      return { steps };
     }
     if (this.captureRead) {
       const steps = [this.captureRead];
-      return { steps, outputs: planningOutputs(steps) };
+      return { steps };
     }
-    return { steps: [], outputs: {} };
+    return { steps: [] };
   }
 
   compile(known: Readonly<Record<string, unknown>>): OperationFragment {

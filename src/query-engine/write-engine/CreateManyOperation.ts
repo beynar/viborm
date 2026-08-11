@@ -17,7 +17,6 @@ import {
   ref,
   type WriteStep,
 } from "./OperationFragment";
-import { planningOutputs } from "./Part";
 import { parseValidated } from "./parse-boundary";
 import { StepScope } from "./StepScope";
 import { getStepModelName, selectExecutionMode } from "./shared";
@@ -154,7 +153,7 @@ export class CreateManyOperation {
 
   planning(): PlanningFragment {
     const steps = this.polymorphic.probes;
-    return { steps, outputs: planningOutputs(steps) };
+    return { steps };
   }
 
   compile(known: Readonly<Record<string, unknown>>): OperationFragment {

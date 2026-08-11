@@ -16,6 +16,7 @@ import {
 import { UnsupportedOperationError } from "@src/query-engine/write-engine/shared";
 import { UpdateOperation } from "@src/query-engine/write-engine/UpdateOperation";
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
+import { publishedOutputs } from "@tests/fixtures/planning-published";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
 
@@ -303,7 +304,7 @@ function fragmentContract(
                 : null,
           }
     ),
-    outputs: normalized(fragment.outputs),
+    outputs: normalized(publishedOutputs(fragment)),
   };
 }
 

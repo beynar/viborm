@@ -14,16 +14,12 @@ import { NestedWriteError, QueryError, UniqueConstraintError } from "@errors";
 import { createInstrumentationContext } from "@instrumentation/context";
 import { push } from "@migrations";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
-import { createSchemaRegistry } from "@validation";
-import { describe, expect, test } from "vitest";
 import { CreateOperation } from "@src/query-engine/write-engine/CreateOperation";
 import {
   isOperationValueReference,
   ref,
   type TargetConstraintPin,
 } from "@src/query-engine/write-engine/OperationFragment";
-import { batchIsAtomicUnit } from "@tests/fixtures/atomic-unit-batch";
-import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import {
   createNestedUpsertArgs,
   createOperationExecutor,
@@ -31,6 +27,11 @@ import {
   operationFragmentSchema,
   runCreateNestedUpsertBehavior,
 } from "@tests/contracts/engine/write/create-nested-upsert-behavior";
+import { batchIsAtomicUnit } from "@tests/fixtures/atomic-unit-batch";
+import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
+import { publishedOutputs } from "@tests/fixtures/planning-published";
+import { createSchemaRegistry } from "@validation";
+import { describe, expect, test } from "vitest";
 
 class BatchCountingPGliteDriver extends BatchOnlyPGliteDriver {
   batchCalls = 0;
@@ -224,7 +225,9 @@ describe("write engine linear operation fragments", () => {
 
     expect(operation.mode).toBe("transaction");
     expect(planning.steps.map((step) => step.id)).toEqual(["post.find"]);
-    expect(planning.outputs).toEqual({
+    // Planning publication is derived from the steps (Phase 9.1): the declared
+    // outputs ARE the published addresses, spelled `<step>.<name>`.
+    expect(publishedOutputs(planning)).toEqual({
       "post.find.rows": ref("post.find", "rows"),
       "post.find.id": ref("post.find", "id"),
     });
