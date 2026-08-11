@@ -39,6 +39,8 @@ import {
   ref,
   type StatementOutputSource,
   type StatementStep,
+  statementHasReferences,
+  statementReferences,
 } from "./OperationFragment";
 import { planningKey } from "./Part";
 import { markRaceable, markRaceIfPinned, racePinMatches } from "./race-retry";
@@ -129,7 +131,7 @@ function canExecuteDirectly(candidate: SingleStatementCandidate): boolean {
   const { step } = candidate;
   return !(
     (step.kind === "write" && step.onUniqueConflict) ||
-    step.statement.values.some(isOperationValueReference) ||
+    statementHasReferences(step.statement) ||
     stepUsesInsertIdScratch(step)
   );
 }
@@ -142,7 +144,7 @@ function canBuildStatement(candidate: SingleStatementCandidate): boolean {
   const { step } = candidate;
   return !(
     (step.kind === "write" && step.onUniqueConflict) ||
-    step.statement.values.some(isOperationValueReference)
+    statementHasReferences(step.statement)
   );
 }
 
@@ -830,8 +832,7 @@ function planningLevel(
   unorderableLevel: number
 ): number {
   let level = 0;
-  for (const value of step.statement.values) {
-    if (!isOperationValueReference(value)) continue;
+  for (const value of statementReferences(step.statement)) {
     const producer = levelOf.get(value.step);
     // A reference this pass cannot place — a producer the fragment does not
     // carry — is not something grouping may guess at. Keep the step strictly

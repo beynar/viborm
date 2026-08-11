@@ -37,6 +37,7 @@ import { getPolymorphicRelationInfo, getScalarFieldNames } from "../context";
 import type { QueryScope } from "../types";
 import {
   isOperationValueReference,
+  statementHasReferences,
   type WriteStep,
 } from "../write-engine/OperationFragment";
 
@@ -227,7 +228,7 @@ function lowerArmReferences(
   step: WriteStep
 ): Sql | undefined {
   const values = step.statement.values;
-  if (!values.some(isOperationValueReference)) return step.statement;
+  if (!statementHasReferences(step.statement)) return step.statement;
   const lowered: unknown[] = [];
   for (const value of values) {
     if (!isOperationValueReference(value)) {

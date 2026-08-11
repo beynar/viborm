@@ -1,13 +1,11 @@
 // biome-ignore-all lint/style/useFilenamingConvention: FragmentValidator is the architecture name.
 import { QueryEngineError } from "@errors";
-import type { Sql } from "@sql";
 import {
   type GuardStep,
-  isOperationValueReference,
   type OperationFragment,
   type OperationStep,
-  type OperationValueReference,
   type PlanningFragment,
+  statementReferences,
 } from "./OperationFragment";
 
 interface StepRecord {
@@ -61,7 +59,7 @@ function assertBackwardLocalReferences(
   steps.forEach((step, index) => {
     const statement =
       step.kind === "guard" ? step.premise.statement : step.statement;
-    for (const reference of collectReferences(statement)) {
+    for (const reference of statementReferences(statement)) {
       const producer = records.get(reference.step);
       if (!producer) {
         throw new QueryEngineError(
@@ -122,8 +120,4 @@ function assertGuardRaceability(guard: GuardStep): void {
       `Guard '${guard.id}' is a raceable: false notExists guard — the production-FATAL create-branch pin the Pin Rule forbids.`
     );
   }
-}
-
-function collectReferences(statement: Sql): OperationValueReference[] {
-  return statement.values.filter(isOperationValueReference);
 }

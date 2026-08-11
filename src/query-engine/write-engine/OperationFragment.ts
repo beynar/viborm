@@ -209,3 +209,23 @@ export function createFailureError(
   }
   return error;
 }
+
+/**
+ * The ONE statement-reference discovery (distinct-truth Phase 9.5): a
+ * statement's dependencies are exactly the {@link OperationValueReference}
+ * values in its `Sql.values`. Fragment validation, planning dependency
+ * levels, the single-statement policies, and the PostgreSQL dependency-fold
+ * eligibility all consume these two views; only per-value SUBSTITUTION (the
+ * two materializers, the CTE lowerer) stays local, because what replaces a
+ * reference is each consumer's own fact.
+ */
+export function statementReferences(
+  statement: Sql
+): readonly OperationValueReference[] {
+  return statement.values.filter(isOperationValueReference);
+}
+
+/** Discovery-only fast view: does the statement hold ANY reference? */
+export function statementHasReferences(statement: Sql): boolean {
+  return statement.values.some(isOperationValueReference);
+}
