@@ -2049,7 +2049,7 @@ export function buildJunctionParts(input: {
             kind: "updateMany",
             items: entry.items.map((item) => ({
               where: item.where ?? {},
-              data: scalarOnly(childScope, item.data, relationName, entry.kind),
+              data: scalarOnly(childScope, item.data),
             })),
           })
         );
@@ -2338,22 +2338,21 @@ function stableKey(record: Record<string, unknown>): string {
   );
 }
 
-/** `updateMany` remains scalar because its set-based write exposes no per-row identity
- * for deeper relation effects. */
+/**
+ * The scalar half of a junction `updateMany` entry's data.
+ *
+ * A refusal stood here (Package O cluster 2, site 9) and is DELETED. It restated
+ * `assertSelectedUpdateManyDataIsScalar`'s decision — which the enclosing selected
+ * record's data has already answered on every route into this builder — and it read
+ * `Object.keys(relations)` alone, the map-only question Package K proved is a
+ * measured SILENT WRONG ANSWER for a direct polymorphic key (it carries no relation
+ * program, so a `disconnect` walked past a map-only wall and was dropped on the
+ * floor). It was the fourth such reader; deleting it removes the blind spot rather
+ * than teaching a duplicate to see.
+ */
 function scalarOnly(
   childScope: QueryScope,
-  data: Record<string, unknown>,
-  relationName: string,
-  kind: string
+  data: Record<string, unknown>
 ): Record<string, unknown> {
-  const { scalarData, relations } = buildParsedRelationPrograms(
-    childScope,
-    data
-  );
-  if (Object.keys(relations).length > 0) {
-    throw new UnsupportedOperationError(
-      `query-engine-v2 nested '${kind}' on many-to-many relation '${relationName}' does not support nested relation writes in its data.`
-    );
-  }
-  return scalarData;
+  return buildParsedRelationPrograms(childScope, data).scalarData;
 }

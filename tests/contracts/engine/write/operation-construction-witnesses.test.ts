@@ -971,3 +971,76 @@ describe("N7-U-A — the TWO (c-i) claims that failed re-verification", () => {
     expect((refusal as Error).message).toMatch(ARM_EDGE_IS_PARENT_HELD);
   });
 });
+
+/**
+ * PACKAGE O — the conversion law applied to the compound many-to-many refusal.
+ *
+ * `CreateOperation.edgeParentId` carried an `UnsupportedOperationError` whose docblock
+ * claimed it reached the compound-primary-key fact "one statement earlier" than
+ * `getManyToManyJoinInfo`'s `getRequiredSinglePrimaryKeyField`. The guard ownership
+ * ledger (`docs/architecture/guard-ownership-ledger.md`, cluster 9) recorded it as the
+ * one survivor kept AGAINST §O3 clause 1 by the plan's §N2 mandate, with no falsifier,
+ * and asked this lane to write one.
+ *
+ * The witness could not be written, because the claim was false — which this test now
+ * pins instead. A junction program on a compound-primary-key model is answered by the
+ * OwnWrite analyzer at the record-program boundary, BEFORE `CreateOperation` interprets
+ * any relation, so no payload ever reached the site. Its refusal became a
+ * `QueryEngineError` naming the structural invariant (§7.4's limitation keeps its engine
+ * owner — a better-worded one, since this message names the surrogate-key remedy).
+ *
+ * What this asserts is therefore what the census needs: the shape is still REFUSED, at
+ * CONSTRUCTION, with a typed error and no I/O, and the owner that answers is the m2m
+ * resolution every other m2m shape already meets. §7.4's rule is intact: the fact is
+ * refused in the ENGINE and has NOT been restated as a validation rule to move the error
+ * earlier — the parse boundary accepts this payload.
+ */
+describe("Package O — the compound many-to-many owner", () => {
+  const compoundJunctionSchema = (() => {
+    const doc = s
+      .model({
+        tenantId: s.string(),
+        id: s.string(),
+        title: s.string(),
+        labels: s.manyToMany(() => label),
+      })
+      .id(["tenantId", "id"])
+      .map("o_compound_docs");
+
+    const label = s
+      .model({
+        id: s.string().id(),
+        name: s.string(),
+        docs: s.manyToMany(() => doc),
+      })
+      .map("o_compound_labels");
+
+    return { doc, label };
+  })();
+
+  test("a compound primary key carrying a many-to-many relation", async () => {
+    const client = publicClient(compoundJunctionSchema);
+    const error = await refusalOf(() =>
+      client.doc.create({
+        data: {
+          tenantId: "t1",
+          id: "d1",
+          title: "x",
+          labels: { connect: { id: "l1" } },
+        },
+      })
+    );
+    // NOT the parse boundary: §N2 forbids sealing the future topology in validation,
+    // and nothing has.
+    expect(error).not.toBeInstanceOf(ValidationError);
+    // The m2m resolution owner, reached through OwnWrite — one statement EARLIER than
+    // the site that used to claim primacy.
+    expect(error.message).toContain(
+      'Model "doc" uses a compound primary key. Many-to-many relations with compound PKs are not supported.'
+    );
+    expect(error.stack).toContain("getRequiredSinglePrimaryKeyField");
+    expect(error.stack).toContain("OwnWrite");
+    // And the site that used to answer here is not what the caller meets.
+    expect(error.message).not.toContain("compound child edge");
+  });
+});

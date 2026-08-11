@@ -986,12 +986,16 @@ export class CreateOperation {
         );
       }
       const before = this.buildRecord(childScope, createData, input.txMode);
-      const source = this.recordReferenced(before, input.edge.referencedField);
-      if (!source) {
-        throw new UnsupportedOperationError(
-          `query-engine create cannot resolve referenced field '${input.edge.referencedField}' for the before-parent target of relation '${relationName}': it is neither that record's primary key nor a knowable value in its own create data.`
-        );
-      }
+      // Package O, cluster 1: the direct-polymorphic arm asks the publication owner
+      // the same question its three ordinary siblings do. The sentence it used to
+      // build inline said `query-engine` where they say `query-engine-v2`; nothing
+      // pinned that difference and it was not a distinction.
+      const source = this.requireRecordReferenced(
+        before,
+        input.edge.referencedField,
+        relationName,
+        "beforeParentTarget"
+      );
       input.parentHeldArms.push({
         kind: "polymorphic-create",
         before,
@@ -1012,8 +1016,20 @@ export class CreateOperation {
         input.edge.referencedField
       );
       if (!missingSource) {
+        // ONE SENTENCE, TWO CLASSES — the estate's oldest instance of it, and the
+        // one thing Package O did NOT resolve. This is the `connectOrCreate` twin of
+        // the `create` arm above: same position, same question, same words, but an
+        // engine-fault class instead of a refusal. It shares the owner's message
+        // builder so the two cannot drift again; it does not share the owner's
+        // THROW, because reclassifying a shipped error owes a behavioral witness of
+        // the shape (this file's census-discipline rule), and no test reaches either
+        // polymorphic position today. Whoever writes that witness converts this.
         throw new QueryEngineError(
-          `query-engine create cannot resolve referenced field '${input.edge.referencedField}' for the before-parent target of relation '${relationName}': it is neither that record's primary key nor a knowable value in its own create data.`
+          unresolvedFreshReferenceMessage(
+            "beforeParentTarget",
+            input.edge.referencedField,
+            relationName
+          )
         );
       }
       const childName = getStepModelName(input.edge.targetModel, relationName);
@@ -1784,12 +1800,12 @@ export class CreateOperation {
     referencedField: string,
     relationName: string
   ): unknown {
-    const resolved = this.recordReferenced(target, referencedField);
-    if (resolved === undefined) {
-      throw new UnsupportedOperationError(
-        `query-engine-v2 create cannot resolve referenced field '${referencedField}' for the before-parent target of relation '${relationName}': it is neither that record's primary key nor a knowable value in its own create data.`
-      );
-    }
+    const resolved = this.requireRecordReferenced(
+      target,
+      referencedField,
+      relationName,
+      "beforeParentTarget"
+    );
     return foreignKeyWriteValue(
       { foreignField, referencedField, writeSource: resolved },
       undefined,
@@ -2104,12 +2120,12 @@ export class CreateOperation {
     referencedField: string,
     relationName: string
   ): unknown {
-    const resolved = this.recordReferenced(self, referencedField);
-    if (resolved === undefined) {
-      throw new UnsupportedOperationError(
-        `query-engine-v2 create cannot resolve referenced field '${referencedField}' for relation '${relationName}': it is neither this record's primary key nor a knowable value in its own create data.`
-      );
-    }
+    const resolved = this.requireRecordReferenced(
+      self,
+      referencedField,
+      relationName,
+      "childEdge"
+    );
     return foreignKeyWriteValue(
       { foreignField, referencedField, writeSource: resolved },
       undefined,
@@ -2121,14 +2137,27 @@ export class CreateOperation {
   /**
    * The single parent value a many-to-many junction Part consumes.
    *
-   * The junction row keys its parent half with ONE column — `getManyToManyJoinInfo`
-   * resolves it through `getRequiredSinglePrimaryKeyField`, which is where a compound
-   * primary key is answered for every other m2m shape (N3-U3). This refusal reaches the
-   * same fact one statement earlier, because the parent source is an ARGUMENT to
-   * `buildJunctionParts` and so is built before that resolution runs. It is not the
-   * child-edge arity boundary any more: E4-U2 gave the child-held adopt kinds a source
-   * with one value per referenced column ({@link childEdgeParentSource}), and they no
-   * longer come here.
+   * The junction row keys its parent half with ONE column, so a compound parent row
+   * key has no junction representation today (plan §7.4; §6 N2 fixes the future
+   * topology as two ordered `JunctionSide` reference keys and enumerates the schema,
+   * migration, join-SQL, OwnWrite and engine work it waits on).
+   *
+   * PACKAGE O — this was an `UnsupportedOperationError` claiming to reach that fact
+   * ONE STATEMENT EARLIER than `getManyToManyJoinInfo`'s
+   * `getRequiredSinglePrimaryKeyField`. MEASURED, and the claim is false: a junction
+   * program on a compound-primary-key model is answered by `OwnWriteAnalyzer` →
+   * `getRelationMembershipScope` → `getManyToManyJoinInfo` → that function, which
+   * runs at the record-program boundary BEFORE any relation is interpreted here. The
+   * witness is `operation-construction-witnesses.test.ts` ("a compound primary key
+   * carrying a many-to-many relation"), which pins the answering owner, its class and
+   * its message — the behavioral witness this estate's conversion law demands.
+   *
+   * So the user-facing limitation keeps its engine owner (a better-worded one: it
+   * names the surrogate-key remedy) and this becomes what it actually is — a
+   * structural invariant of the argument `buildJunctionParts` receives. It is not the
+   * child-edge arity boundary any more either: E4-U2 gave the child-held adopt kinds
+   * a source with one value per referenced column ({@link childEdgeParentSource}),
+   * and they no longer come here.
    */
   private edgeParentId(
     self: RecordIdentity,
@@ -2136,8 +2165,8 @@ export class CreateOperation {
     relationName: string
   ): FinalReferenceSource {
     if (referencedFields.length !== 1) {
-      throw new UnsupportedOperationError(
-        `query-engine-v2 create does not support a compound child edge on relation '${relationName}'.`
+      throw new QueryEngineError(
+        `query-engine-v2 internal: a compound parent row key reached the junction parent source for relation '${relationName}'; many-to-many resolution answers that shape first.`
       );
     }
     return this.referencedParentSource(
@@ -2188,13 +2217,12 @@ export class CreateOperation {
     referenced: string,
     relationName: string
   ): FinalReferenceSource {
-    const resolved = this.recordReferenced(self, referenced);
-    if (resolved === undefined) {
-      throw new UnsupportedOperationError(
-        `query-engine-v2 create cannot resolve the parent id for relation '${relationName}': referenced field '${referenced}' is neither this record's primary key nor a knowable value in its own create data.`
-      );
-    }
-    return resolved;
+    return this.requireRecordReferenced(
+      self,
+      referenced,
+      relationName,
+      "parentId"
+    );
   }
 
   // -------------------------------------------------------------------------
@@ -2712,6 +2740,40 @@ export class CreateOperation {
    * The other registrar is {@link CreateOperation.resolveSharedPkIdentity}; see
    * {@link CreateOperation.publishedFields} for why it cannot come through here.
    */
+  /**
+   * THE owner of "a fresh record cannot publish the referenced column this edge
+   * needs" (Package O, cluster 1; plan §O2 row 2, "fresh referenced field
+   * publication → CreateOperation demand publication").
+   *
+   * Four construction sites used to spell this decision — the polymorphic
+   * before-parent target, the ordinary before-parent target, this record's own
+   * child-edge column, and the whole-value parent source. All four asked
+   * {@link recordReferenced} the same question, refused on the same answer, and
+   * differed only in the NOUN their sentence uses for the position. A noun is not a
+   * decision, so the decision lives here once and the position picks the wording;
+   * every shipped sentence survives byte-identically, and the only text that moved
+   * is the polymorphic one, which said `query-engine` where its three siblings said
+   * `query-engine-v2` and which no test pins.
+   *
+   * This is not a shared "unsupported" helper: it does not take an error, a class or
+   * a message from its callers, and there is exactly one condition under it. A
+   * caller that needs a DIFFERENT decision about a fresh reference does not come
+   * here — it calls {@link recordReferenced} and answers for itself, which is what
+   * the update root's own owner does one file over.
+   */
+  private requireRecordReferenced(
+    record: RecordIdentity,
+    referencedField: string,
+    relationName: string,
+    position: FreshReferencePosition
+  ): FinalReferenceSource {
+    const resolved = this.recordReferenced(record, referencedField);
+    if (resolved !== undefined) return resolved;
+    throw new UnsupportedOperationError(
+      unresolvedFreshReferenceMessage(position, referencedField, relationName)
+    );
+  }
+
   private recordReferenced(
     record: RecordIdentity,
     referencedField: string
@@ -2923,7 +2985,8 @@ function producedKey(field: string): string {
  * a SECOND time for the foreign key, and two evaluations of one expression are two
  * values (`gen_random_uuid()`, `now()`), so the child would reference a row that does
  * not exist. `null`/absent likewise resolves nothing — an FK equal to NULL references
- * no row. Both fall through to the caller's typed refusal.
+ * no row. Both fall through to the typed refusal in
+ * {@link CreateOperation.requireRecordReferenced}.
  */
 function freshReferenced(
   record: {
@@ -3302,6 +3365,33 @@ function terminalFailure() {
     message: "query-engine-v2 create terminal read expected exactly one row.",
     raceable: false,
   };
+}
+
+/**
+ * Which edge demanded the column {@link CreateOperation.requireRecordReferenced}
+ * could not publish. It selects a noun, never a decision.
+ *
+ * · `beforeParentTarget` — a target this record's own INSERT depends on, so it is
+ *   written FIRST and the value must come out of its create data or its INSERT.
+ *   Both the ordinary and the direct-polymorphic parent-held arms are here.
+ * · `childEdge` — a child's foreign key must carry THIS record's referenced column.
+ * · `parentId` — the same column consumed as one whole-value parent source (adopt,
+ *   junction and polymorphic child edges).
+ */
+type FreshReferencePosition = "beforeParentTarget" | "childEdge" | "parentId";
+
+function unresolvedFreshReferenceMessage(
+  position: FreshReferencePosition,
+  referencedField: string,
+  relationName: string
+): string {
+  if (position === "beforeParentTarget") {
+    return `query-engine-v2 create cannot resolve referenced field '${referencedField}' for the before-parent target of relation '${relationName}': it is neither that record's primary key nor a knowable value in its own create data.`;
+  }
+  if (position === "parentId") {
+    return `query-engine-v2 create cannot resolve the parent id for relation '${relationName}': referenced field '${referencedField}' is neither this record's primary key nor a knowable value in its own create data.`;
+  }
+  return `query-engine-v2 create cannot resolve referenced field '${referencedField}' for relation '${relationName}': it is neither this record's primary key nor a knowable value in its own create data.`;
 }
 
 function defaultSelect(model: Model<any>): Record<string, unknown> | undefined {

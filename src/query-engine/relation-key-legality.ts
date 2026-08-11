@@ -151,20 +151,29 @@ export function assertUpdateManyDataRelationsAreCompilable(
   );
 }
 
-/** Preserve the selected-record compiler's existing refusal and message. */
+/**
+ * THE owner of "nested bulk data carries relation writes" (Package O, cluster 2).
+ *
+ * A set-based UPDATE publishes no per-row identity a descendant write can correlate
+ * to, so a nested `updateMany` accepts scalar data only (ATOM §17; Package L
+ * measured both lifts and both were rejected, so this wall stands).
+ *
+ * ONE construction site, TWO nouns. The junction and ordinary wordings used to be
+ * two throw tokens of the same decision, and two more copies stood downstream in
+ * `RelationJunctionPart.scalarOnly` and `RelationWritePart.parseScalarUpdateData`.
+ * All three are gone; both shipped sentences survive here byte-identically, chosen
+ * from `invalid.isJunction`, because a message noun is not a second decision.
+ */
 export function assertSelectedUpdateManyDataIsScalar(
   source: QueryScope,
   relations: Readonly<Record<string, RelationMutationProgram>>
 ): void {
   const invalid = findRelationBearingUpdateManyData(source, relations);
   if (!invalid) return;
-  if (invalid.isJunction) {
-    throw new UnsupportedOperationError(
-      `query-engine-v2 nested 'updateMany' on many-to-many relation '${invalid.relationName}' does not support nested relation writes in its data.`
-    );
-  }
   throw new UnsupportedOperationError(
-    `query-engine-v2 updateMany for relation '${invalid.relationName}' does not support nested relation writes in its data.`
+    invalid.isJunction
+      ? `query-engine-v2 nested 'updateMany' on many-to-many relation '${invalid.relationName}' does not support nested relation writes in its data.`
+      : `query-engine-v2 updateMany for relation '${invalid.relationName}' does not support nested relation writes in its data.`
   );
 }
 

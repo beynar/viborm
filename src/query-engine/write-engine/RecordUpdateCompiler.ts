@@ -559,12 +559,12 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     // publishes every member; the projection built from it at the end of this
     // constructor is then the ONE thing every write, guard and re-address reads the
     // key back from (ATOM "Wrong-row protection"). No field survives beside it.
+    //
+    // An `parentPrimaryKeys.length === 0` refusal stood here and is DELETED
+    // (Package O): `getPrimaryKeyFields` is total — a model with no declared id
+    // answers `["id"]` — so the empty list was unreachable. Same dead shape as
+    // `ManyAndReturnOperation.pkSelect`'s, deleted with it.
     const parentPrimaryKeys = getPrimaryKeyFields(this.model);
-    if (parentPrimaryKeys.length === 0) {
-      throw new QueryEngineError(
-        "query-engine-v2 internal: selected update reached a model with no primary key."
-      );
-    }
     this.targetReadId = resolveStepAddress(input.scope, input.targetRead);
     this.writeId = resolveStepAddress(input.scope, input.rootWrite);
 

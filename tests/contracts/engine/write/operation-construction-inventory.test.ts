@@ -867,6 +867,85 @@ describe("write engine route inventory (P6 accounting)", () => {
   //     keeps it on the existing owner, which already compiles a zero cap to the
   //     empty plan. So the `{ count: 0 }` answer needs no transaction and stays
   //     available on batch-only drivers.
+  //
+  // 21 -> 15 (LIMITATION LIFT, PACKAGE O — "give every surviving guard one owner").
+  // SIX sites left the write engine and NOT ONE limitation left with them: every shape
+  // below is still refused, still at construction, still typed, and now says so in one
+  // place. The full ownership analysis — first-knowable boundary, unique reachable
+  // failure, falsifier and §O3 answers for every survivor — is
+  // `docs/architecture/guard-ownership-ledger.md`; what follows is the delta.
+  //   · **-3, cluster 2** (`RelationJunctionPart.scalarOnly`,
+  //     `RelationWritePart.parseScalarUpdateData`, and the ordinary arm of
+  //     `relation-key-legality.assertSelectedUpdateManyDataIsScalar`) — ONE invariant,
+  //     "nested bulk data carries relation writes", had FOUR expressions. The junction
+  //     and ordinary wordings were two throw tokens of one decision and are now one
+  //     construction site choosing its noun from `invalid.isJunction`; both sentences
+  //     survive byte-identically. The two Part-level copies were dominated on every
+  //     measured route — `RecordUpdateCompiler`'s two positions do not even BUILD the
+  //     Part when `updateManyCarriesRelations`, and the third producer,
+  //     `nested-target-parts.buildJunctionTargetRelationParts`, now calls the owner at
+  //     its seam — a CALL POSITION of the one owner, not a second guard, and one with
+  //     no measured live route (that fold's only producer is create-context data, whose
+  //     schema has no `updateMany` key). It is kept for the reason the Package N gate
+  //     recorded at the bottom of this file: on a bulk arm, "no measured live route" is
+  //     not licence, because the arm N's implementer note had called dead was the one
+  //     silently reparenting rows. The junction copy was also the FOURTH reader of `Object.keys(relations)`
+  //     alone — the map-only question Package K proved is a measured silent wrong answer
+  //     for a direct polymorphic key — so deleting it removed a blind spot rather than
+  //     teaching a duplicate to see.
+  //   · **-3, cluster 1** (`interpretPolymorphicRelation`, `targetReferencedValue`,
+  //     `referencedValue`, `referencedParentSource`) — ONE invariant, "a fresh record
+  //     cannot publish the referenced column this edge needs", asked
+  //     `recordReferenced` the same question four times and differed only in the noun
+  //     for the position. `CreateOperation.requireRecordReferenced` is now the owner
+  //     (§O2 row 2's "CreateOperation demand publication"); it takes a position and
+  //     builds the sentence, and every pinned message is byte-identical
+  //     (`parity-f-fresh-field` :813/:819/:830/:842, `fresh-produced-field` :481,
+  //     `compound-relation-adoption-behavior` :318 all pass unchanged). The one text
+  //     that moved is the direct-polymorphic one, which said `query-engine` where its
+  //     three siblings said `query-engine-v2` and which nothing pinned. Its
+  //     `connectOrCreate` twin keeps its `QueryEngineError` class — one sentence in two
+  //     classes, the estate's oldest instance — but now shares the owner's message
+  //     builder so the two cannot drift; converting it owes a behavioral witness of the
+  //     shape and MEASUREMENT SAYS NO PAYLOAD REACHES EITHER: a direct polymorphic
+  //     edge's referenced field is always the target's PRIMARY KEY, and the three
+  //     spellings that would make it unresolvable (absent, `null`, an `Sql` operand) are
+  //     all refused by the parse boundary first.
+  //   · **-1, site 17 CONVERTED, not absorbed** (`CreateOperation.edgeParentId`) — its
+  //     docblock claimed it reached the compound-primary-key m2m fact "one statement
+  //     earlier" than `getRequiredSinglePrimaryKeyField`. MEASURED FALSE: a junction
+  //     program on a compound-PK model is answered by `OwnWriteAnalyzer` ->
+  //     `getRelationMembershipScope` -> `getManyToManyJoinInfo` -> that function, at the
+  //     record-program boundary, BEFORE any relation is interpreted. The shape is still
+  //     refused in the ENGINE (plan §7.4 / §6 N2 forbid sealing it in validation, and
+  //     nothing has), by an owner whose message names the surrogate-key remedy. The
+  //     conversion's behavioral witness is in `operation-construction-witnesses.test.ts`,
+  //     which pins the answering owner, its stack, and the fact that the parse boundary
+  //     does NOT answer.
+  //
+  // NOT A SITE, but deleted by Package O and recorded here:
+  //   · `ManyAndReturnOperation.pkSelect` and `RecordUpdateCompiler`'s
+  //     `parentPrimaryKeys.length === 0` — the two pre-existing dead PK guards Package K
+  //     handed on (K's own handoff names exactly these two). `getPrimaryKeyFields` is
+  //     total, deleting them turns nothing red, and that IS the falsification for this
+  //     class.
+  //     THE CLASS HAS FIVE MEMBERS, NOT TWO, and the first version of this entry read
+  //     as though it were exhaustive. The other three — `DeleteOperation.ts:105`,
+  //     `UpdateOperation.ts:259`, `UpsertOperation.ts:223` — are the same dead
+  //     predicate and they STAY, because they are not the same thing doctrinally:
+  //     each is a member of the N7-U-A converted family, each names the boundary that
+  //     answers instead (the where-unique parse), and each is PINNED by a behavioral
+  //     witness in `operation-construction-witnesses.test.ts` (`:344` for the update
+  //     root, `:796` for upsert and delete) asserting that the parse boundary answers
+  //     FIRST. That is the estate's disposition for an unreachable-by-construction
+  //     branch — convert, name the owner, pin it — and deleting a pinned member of it
+  //     would delete its witness too. The two that went had no witness and named no
+  //     owner. If a future package retires the family, it retires all five together.
+  //   · `target-projection.capturedTargetConstraint` — ZERO production consumers.
+  //     Package C kept it under the plan's mandate with the rule "if Package D lands
+  //     without consuming it, Package O deletes it"; Package D refused it on SHAPE and
+  //     recorded why at its owner. Deleted with its unit test, which was its only caller
+  //     in the repository.
   test("no UnsupportedOperationError throw site exists outside the reviewed set", async () => {
     const { readdir, readFile } = await import("node:fs/promises");
     const { join } = await import("node:path");
@@ -877,17 +956,32 @@ describe("write engine route inventory (P6 accounting)", () => {
       const source = await readFile(join(dir, file), "utf8");
       sites += source.split("new UnsupportedOperationError(").length - 1;
     }
-    expect(sites).toBe(21);
+    expect(sites).toBe(15);
   });
 
   /**
-   * The classification in this file's closing narrative names 26 throw coordinates and
-   * 24 owner declarations. Package N3 deleted the previous generation of line-number
-   * claims because they had decayed — 18 of 22 doc coordinates no longer resolved — and
-   * then wrote fresh ones, which decay exactly the same way unless something executes
-   * them. This is that something: it re-resolves every coordinate against the tree, so
-   * a Package O move that shifts a line turns this red instead of quietly making the
-   * narrative false again.
+   * The classification names 19 throw coordinates and 18 owner declarations. Package N3
+   * deleted the previous generation of line-number claims because they had decayed — 18
+   * of 22 doc coordinates no longer resolved — and then wrote fresh ones, which decay
+   * exactly the same way unless something executes them. This is that something: it
+   * re-resolves every coordinate against the tree, so a move that shifts a line turns
+   * this red instead of quietly making the narrative false again.
+   *
+   * SITE NUMBERS ARE N3's AND ARE NOT RENUMBERED. Package O compressed the census and
+   * seven numbers left it; keeping the survivors' numbers is what lets this file, the
+   * closing narrative, and `docs/architecture/guard-ownership-ledger.md` be read side by
+   * side. The gaps are the record:
+   *
+   *   · 9, 10, 23 — cluster 2, "nested bulk data carries relation writes". FOUR
+   *     expressions became ONE owner (site 22).
+   *   · 14, 16, 18 — cluster 1, "a fresh record cannot publish the referenced column
+   *     this edge needs". FOUR construction sites became ONE owner (site 15,
+   *     `requireRecordReferenced`), which names its position.
+   *   · 17 — the compound many-to-many refusal, CONVERTED to a `QueryEngineError`
+   *     naming a structural invariant, with the behavioral witness this file's
+   *     conversion law demands (`operation-construction-witnesses.test.ts`, "a compound
+   *     primary key carrying a many-to-many relation"): the OwnWrite analyzer's m2m
+   *     resolution answers that payload first, so the site refused nothing.
    *
    * Sites 25 and 26 build the error and `return` it to a thrower, so the assertion is
    * on the CONSTRUCTION token, which is what the census counts.
@@ -898,7 +992,7 @@ describe("write engine route inventory (P6 accounting)", () => {
 
     /** `[site, path under src, throw line, owner declaration line, owner symbol]`.
      *  A `null` owner symbol means the site's owner is not a named declaration
-     *  (site 7 is the constructor; site 23 is a second arm of site 22's function). */
+     *  (site 7 is the constructor). */
     const CLASSIFIED: readonly [
       number,
       string,
@@ -963,24 +1057,10 @@ describe("write engine route inventory (P6 accounting)", () => {
         "resolveCreatePk",
       ],
       [
-        9,
-        "query-engine/write-engine/RelationJunctionPart.ts",
-        2354,
-        2343,
-        "scalarOnly",
-      ],
-      [
-        10,
-        "query-engine/write-engine/RelationWritePart.ts",
-        691,
-        676,
-        "parseScalarUpdateData",
-      ],
-      [
         11,
         "query-engine/write-engine/RelationWritePart.ts",
-        1244,
-        1234,
+        1250,
+        1240,
         "assertOwnedFkAbsentFromUpdateData",
       ],
       [
@@ -998,52 +1078,24 @@ describe("write engine route inventory (P6 accounting)", () => {
         "assertArmEdgeIsChildHeld",
       ],
       [
-        14,
-        "query-engine/write-engine/CreateOperation.ts",
-        991,
-        961,
-        "interpretPolymorphicRelation",
-      ],
-      [
         15,
         "query-engine/write-engine/CreateOperation.ts",
-        1789,
-        1781,
-        "targetReferencedValue",
-      ],
-      [
-        16,
-        "query-engine/write-engine/CreateOperation.ts",
-        2109,
-        2101,
-        "referencedValue",
-      ],
-      [
-        17,
-        "query-engine/write-engine/CreateOperation.ts",
-        2139,
-        2133,
-        "edgeParentId",
-      ],
-      [
-        18,
-        "query-engine/write-engine/CreateOperation.ts",
-        2193,
-        2186,
-        "referencedParentSource",
+        2772,
+        2764,
+        "requireRecordReferenced",
       ],
       [
         19,
         "query-engine/write-engine/CreateOperation.ts",
-        2788,
-        2777,
+        2850,
+        2839,
         "producedReference",
       ],
       [
         20,
         "query-engine/write-engine/CreateOperation.ts",
-        3091,
-        3077,
+        3154,
+        3140,
         "assertSharedPkResolved",
       ],
       [
@@ -1056,11 +1108,10 @@ describe("write engine route inventory (P6 accounting)", () => {
       [
         22,
         "query-engine/relation-key-legality.ts",
-        162,
-        155,
+        173,
+        167,
         "assertSelectedUpdateManyDataIsScalar",
       ],
-      [23, "query-engine/relation-key-legality.ts", 166, null, null],
       [
         24,
         "query-engine/builders/decimal-portability.ts",
@@ -1108,7 +1159,7 @@ describe("write engine route inventory (P6 accounting)", () => {
     }
     expect(misses).toEqual([]);
     // The list itself must stay complete, or a site could be dropped to keep it green.
-    expect(CLASSIFIED.length).toBe(26);
+    expect(CLASSIFIED.length).toBe(19);
   });
 });
 
@@ -1264,41 +1315,52 @@ describe("write engine full client operation surface (P6 precondition)", () => {
  *   UFF  unimplemented future feature   — coherent and wanted; every UFF row states
  *                                        the work it waits on.
  *
- * THE 21 WRITE-ENGINE SITES (the number this file pins)
+ * THE WRITE-ENGINE SITES (the number this file pins: 21 when N3 wrote this section,
+ * 15 after Package O — the per-site rows below keep N3's numbering, and the seven
+ * numbers Package O retired are named in the count-evolution block)
  *
- *  #  site (throw)                        owner (declaration)              bucket
- *  1  UpdateManyRecordSeries.ts:348       assertMembershipAppliesToEveryRoot:337  SC
- *  2  RecordUpdateCompiler.ts:1800        postTransitionReference:1772            MSI
- *  3  RecordUpdateCompiler.ts:2017        resolveCreateParent:1911                MSI
- *  4  RecordUpdateCompiler.ts:3533        recordSharedKeyFold:3513                MSI *
- *  5  RecordUpdateCompiler.ts:3612        beforeTargetReferencedValue:3604        MSI
- *  6  RecordUpdateCompiler.ts:4767        composeToOneEntries:4728                UFF
- *  7  CreateManyRecordSeries.ts:126       the constructor                         DPC
- *  8  RelationJunctionPart.ts:1374        resolveCreatePk:1362                    MSI
- *  9  RelationJunctionPart.ts:2354        scalarOnly:2343                         MSI
- * 10  RelationWritePart.ts:691            parseScalarUpdateData:676               MSI
- * 11  RelationWritePart.ts:1244           assertOwnedFkAbsentFromUpdateData:1234  SC
- * 12  RelationUpsertPart.ts:754           withoutAgreeingOwnedFk:743              SC
- * 13  RelationUpsertPart.ts:1211          assertArmEdgeIsChildHeld:1204           SC
- * 14  CreateOperation.ts:991              interpretPolymorphicRelation:961        MSI
- * 15  CreateOperation.ts:1789             targetReferencedValue:1781              MSI
- * 16  CreateOperation.ts:2109             referencedValue:2101                    MSI
- * 17  CreateOperation.ts:2139             edgeParentId:2133                       UFF
- * 18  CreateOperation.ts:2193             referencedParentSource:2186             MSI
- * 19  CreateOperation.ts:2788             producedReference:2777                  PSI
- * 20  CreateOperation.ts:3091             assertSharedPkResolved:3077             MSI
- * 21  UpsertOperation.ts:1147             createArmIdentity:1103                  MSI
+ * TWO COORDINATE COLUMNS, because one of them is history. "N3" is where the site stood
+ * when this section was written; "HEAD" is where it stands now, and is what the
+ * executable `CLASSIFIED` table below re-resolves. A row marked RETIRED has no HEAD
+ * coordinate — Package O folded it into another owner or converted its class — and is
+ * kept because a coordinate that vanishes teaches nothing.
+ *
+ *  #  site (throw) — N3               owner (declaration) — N3          bucket  HEAD
+ *  1  UpdateManyRecordSeries.ts:348   assertMembershipAppliesToEveryRoot:337  SC   :348 / :337
+ *  2  RecordUpdateCompiler.ts:1800    postTransitionReference:1772            MSI  :1800 / :1772
+ *  3  RecordUpdateCompiler.ts:2017    resolveCreateParent:1911                MSI  :2017 / :1911
+ *  4  RecordUpdateCompiler.ts:3533    recordSharedKeyFold:3513                MSI* :3533 / :3513
+ *  5  RecordUpdateCompiler.ts:3612    beforeTargetReferencedValue:3604        MSI  :3612 / :3604
+ *  6  RecordUpdateCompiler.ts:4767    composeToOneEntries:4728                UFF  :4767 / :4728
+ *  7  CreateManyRecordSeries.ts:126   the constructor                         DPC  :126
+ *  8  RelationJunctionPart.ts:1374    resolveCreatePk:1362                    MSI  :1374 / :1362
+ *  9  RelationJunctionPart.ts:2354    scalarOnly:2343                         MSI  RETIRED → 22
+ * 10  RelationWritePart.ts:691        parseScalarUpdateData:676               MSI  RETIRED → 22
+ * 11  RelationWritePart.ts:1244       assertOwnedFkAbsentFromUpdateData:1234  SC   :1250 / :1240
+ * 12  RelationUpsertPart.ts:754       withoutAgreeingOwnedFk:743              SC   :754 / :743
+ * 13  RelationUpsertPart.ts:1211      assertArmEdgeIsChildHeld:1204           SC   :1211 / :1204
+ * 14  CreateOperation.ts:991          interpretPolymorphicRelation:961        MSI  RETIRED → 15
+ * 15  CreateOperation.ts:1789         targetReferencedValue:1781              MSI  :2772 / :2764
+ *                                     (HEAD owner: requireRecordReferenced)
+ * 16  CreateOperation.ts:2109         referencedValue:2101                    MSI  RETIRED → 15
+ * 17  CreateOperation.ts:2139         edgeParentId:2133                       UFF  RETIRED (converted)
+ * 18  CreateOperation.ts:2193         referencedParentSource:2186             MSI  RETIRED → 15
+ * 19  CreateOperation.ts:2788         producedReference:2777                  PSI  :2850 / :2839
+ * 20  CreateOperation.ts:3091         assertSharedPkResolved:3077             MSI  :3154 / :3140
+ * 21  UpsertOperation.ts:1147         createArmIdentity:1103                  MSI  :1147 / :1103
  *
  * (*) Site 4 is ONE sentence over TWO invariants: "no value" and "NULL" are MSI, but
  *     "a root SET spells the same member the arm folds, DISAGREEING" is SC. Recorded,
- *     not split — splitting a shipped message is Package O's call.
+ *     not split — Package O sustained the flag and DECLINED the split: splitting one
+ *     shipped sentence would create a second owner for one fact seen from two sides.
  *
- * THE 3 QUERY-ENGINE SITES OUTSIDE THIS DIRECTORY (invisible to the tripwire, which
- * reads only `write-engine/`, and therefore worth naming here)
+ * THE QUERY-ENGINE SITES OUTSIDE THIS DIRECTORY (invisible to the tripwire, which
+ * reads only `write-engine/`, and therefore worth naming here). THREE when N3 wrote
+ * this; TWO after Package O merged 22 and 23 into one construction site.
  *
- * 22  relation-key-legality.ts:162        assertSelectedUpdateManyDataIsScalar:155  MSI
- * 23  relation-key-legality.ts:166        the same function, ordinary arm            MSI
- * 24  builders/decimal-portability.ts:56  assertExactDecimalOperation:48             PSI
+ * 22  relation-key-legality.ts:162    assertSelectedUpdateManyDataIsScalar:155  MSI  :173 / :167
+ * 23  relation-key-legality.ts:166    the same function, ordinary arm           MSI  RETIRED → 22
+ * 24  builders/decimal-portability.ts:56  assertExactDecimalOperation:48        PSI  :56 / :48
  *
  * THE 2 `src` SITES OUTSIDE THE QUERY ENGINE
  *
@@ -1307,25 +1369,41 @@ describe("write engine full client operation surface (P6 precondition)", () => {
  *
  * DISTINCT INVARIANTS — the measure §O4 calls the more important one.
  *
- * The 24 query-engine sites collapse to TWELVE invariants:
+ * The 24 query-engine sites collapsed to TWELVE cluster HEADINGS — and to THIRTEEN
+ * invariants, because cluster 4 is one phrase over two of them. N3 wrote both numbers
+ * and left the choice open; PACKAGE O RESOLVED IT ON THE EVIDENCE IN CLUSTER 4's OWN
+ * ROW (two different invalid states, two different first-knowable boundaries, two
+ * different buckets — DPC and MSI — and two falsifiers that do not answer each other),
+ * so 13 is the base number and the "12" this paragraph used to headline was an
+ * undercount. The same correction applies to `guard-ownership-ledger.md`, which had
+ * carried it through as 11/13, and to `forbidden-shapes-reference.md` §12.
  *
- *   1. an unresolvable referenced value ......... 8 sites (2,3,5,14,15,16,18,20)
- *   2. nested bulk data carries relation writes . 4 sites (9,10,22,23)
- *   3. a second provenance for the owned FK ..... 2 sites (11,12)
- *   4. skipDuplicates without an identity ....... 2 sites (7,8) — but TWO contracts:
- *      7 is DPC (the meaning is unchosen) and 8 is MSI (there is no identity), so
- *      this is one PHRASE over two invariants rather than one invariant over two sites
- *   5. an upsert create arm with no readable-back row .. 21
- *   6. a shared primary key with no one final value .... 4
- *   7. a single-target membership move across N>1 roots  1
- *   8. a composed producing supplier + modify .......... 6
- *   9. a compound child edge into a junction ........... 17
- *  10. depth on an upsert's update arm ................. 13
- *  11. publication on a batch substrate ................ 19
- *  12. decimal portability ............................. 24
+ *   #  invariant                                   N3 sites            after O
+ *   1. an unresolvable referenced value            8 (2,3,5,14,15,      4 (2,3,5,15)
+ *                                                     16,18,20)
+ *   2. nested bulk data carries relation writes    4 (9,10,22,23)      1 (22)
+ *   3. a second provenance for the owned FK        2 (11,12)           2 (11,12)
+ *   4. skipDuplicates without an identity          2 (7,8) — TWO       2 (7,8) — TWO
+ *      contracts: 7 is DPC (the public meaning is unchosen) and 8 is MSI (a skipped
+ *      row produces no identity). One PHRASE, two invariants; counted as two.
+ *   5. an upsert create arm with no readable-back row .. 21             21
+ *   6. a shared primary key with no one final value .... 4 (+20, which  4, 20
+ *      N3 filed under cluster 1 and the ledger moves here: same invariant, create
+ *      root instead of update root, a genuinely different trust boundary)
+ *   7. a single-target membership move across N>1 roots  1              1
+ *   8. a composed producing supplier + modify .......... 6              6
+ *   9. a compound child edge into a junction ........... 17             NONE — the
+ *      site was CONVERTED (see the count-evolution block); the invariant is still
+ *      engine-owned, by `getRequiredSinglePrimaryKeyField`, and still refused before
+ *      any I/O, but a census grep can no longer see it
+ *  10. depth on an upsert's update arm ................. 13             13
+ *  11. publication on a batch substrate ................ 19             19
+ *  12. decimal portability ............................. 24             24
  *
- * So the SITE count is 24 and the INVARIANT count is 12 — or 13 counting cluster 4 the
- * way its own row argues, since a phrase covering two contracts is two invariants.
+ * So: SITES 24 → 17 in the query-engine scope, INVARIANTS 13 → 12 as an
+ * `UnsupportedOperationError` and 13 still engine-owned. Nothing became legal; one
+ * invariant changed error class. By scope, as §O4 asks them to be reported:
+ * write-engine 15 sites / 10 invariants · query-engine 17 / 12 · whole `src` 19 / 14.
  *
  * WHAT THAT DOES AND DOES NOT SETTLE, stated exactly, because the first version of
  * this paragraph got it wrong. §O4's 8–12 band is a gate on CONSTRUCTION SITES
@@ -1337,18 +1415,31 @@ describe("write engine full client operation surface (P6 precondition)", () => {
  * the raw site count and the number of distinct invariants"), not a second gate that can
  * be met instead — 12 is a good number to walk in with, not a pass.
  *
- * Cluster 1 alone is eight sites saying one thing, and it is exactly §O2's "fresh
+ * Cluster 1 alone was eight sites saying one thing, and it is exactly §O2's "fresh
  * referenced field publication" group: the largest single compression opportunity in
- * Package O, and arithmetic rather than judgement. It is also measured over ONE error
- * class: `CreateOperation.ts:1015` states site 14's sentence BYTE-IDENTICALLY as a
- * `QueryEngineError`, and `RecordUpdateCompiler.ts:939`, `:964` and `:1164` express the
- * same invariant in that class too. Package F recorded the first pair as a For-O item;
- * all four are named here because the header above warns that changing the class removes
- * a site from the grep, and cluster 1 is where that warning actually bites.
+ * Package O, and arithmetic rather than judgement. IT IS NOW FOUR — sites 14, 16 and 18
+ * fold into 15, and 20 belongs to cluster 6. It is also measured over ONE error class:
+ * `CreateOperation.ts:1027` (N3 read it at `:1015`) states site 14's sentence
+ * BYTE-IDENTICALLY as a `QueryEngineError`, and `RecordUpdateCompiler.ts:939`, `:964`
+ * and `:1164` express the same invariant in that class too. Package F recorded the
+ * first pair as a For-O item; all four are named here because the header above warns
+ * that changing the class removes a site from the grep, and cluster 1 is where that
+ * warning actually bites. Package O made the twin share the owner's MESSAGE BUILDER so
+ * the two sentences cannot drift, and did NOT convert its class: the conversion law
+ * ("a conversion owes a behavioral witness of the shape") cannot be paid when no
+ * payload reaches either polymorphic position — a direct polymorphic edge's referenced
+ * field is always the target's primary key, and the three spellings that would make it
+ * unresolvable are refused by the parse boundary first.
  *
- * Bucket distribution over all 26: MSI 15 · SC 5 · PSI 3 · UFF 2 · DPC 1 (= 26).
- * Over the 24 query-engine sites: MSI 15 · SC 4 · PSI 2 · UFF 2 · DPC 1 (= 24).
- * Over the 21 write-engine sites: MSI 13 · SC 4 · PSI 1 · UFF 2 · DPC 1 (= 21).
+ * Bucket distribution, N3's (before Package O):
+ *   over all 26: MSI 15 · SC 5 · PSI 3 · UFF 2 · DPC 1 (= 26).
+ *   over the 24 query-engine sites: MSI 15 · SC 4 · PSI 2 · UFF 2 · DPC 1 (= 24).
+ *   over the 21 write-engine sites: MSI 13 · SC 4 · PSI 1 · UFF 2 · DPC 1 (= 21).
+ * AFTER PACKAGE O:
+ *   over all 19: MSI 9 · SC 5 · PSI 3 · UFF 1 · DPC 1 (= 19).
+ *   over the 17 query-engine sites: MSI 9 · SC 4 · PSI 2 · UFF 1 · DPC 1 (= 17).
+ *   over the 15 write-engine sites: MSI 8 · SC 4 · PSI 1 · UFF 1 · DPC 1 (= 15).
+ * Six MSI positions left (9, 10, 14, 16, 18, 23) and one UFF changed class (17).
  * Each line is stated with its total because the first version of the first line summed
  * to 25 and nobody noticed until it was added up.
  *
@@ -1383,8 +1474,11 @@ describe("write engine full client operation surface (P6 precondition)", () => {
  *     `builders/correlation-utils.ts:154` (`getRequiredSinglePrimaryKeyField`, a
  *     `QueryEngineError`) and `migrations/serializer.ts:661` (a raw `Error`). Their
  *     sentences are near-identical but not byte-identical — "uses a compound primary
- *     key" against "uses compound primary key". Site 17 reaches the same fact one
- *     statement earlier and is the only one a census grep can see.
+ *     key" against "uses compound primary key". N3 wrote here that site 17 reached the
+ *     same fact "one statement earlier" and was the only one a census grep could see;
+ *     PACKAGE O MEASURED THAT FALSE — site 17 never reached the fact at all, the first
+ *     of the two answers every public payload, and site 17 is now a `QueryEngineError`
+ *     itself. So the grep sees none of the three, which is the honest state of it.
  *   · Package K's PK-less-model refusal was DEAD (`getPrimaryKeyFields` is total) and
  *     was deleted at its gate rather than becoming a 22nd site.
  *   · Package J's gate fix rides the existing Failure/TransactionError channel.
@@ -1401,6 +1495,28 @@ describe("write engine full client operation surface (P6 precondition)", () => {
  *     node-postgres decodes an int8 row key as the string "9", PGlite as the number 9,
  *     better-sqlite3 as 9n, which rank differently. Visible in the `select` arm's row
  *     order. A documented determinism boundary, not a refusal.
+ *
+ * WHAT PACKAGE O DID TO THIS NUMBER: 21 → 15, and the classification above is now
+ * READ THROUGH `docs/architecture/guard-ownership-ledger.md`, which is this census's
+ * companion document. That ledger carries, for every surviving construction site, the
+ * §6 O1 columns (first-knowable boundary, unique reachable failure, falsifier, bucket,
+ * disposition) plus the §O3 five-question audit and the non-census near-guards the
+ * packages found. THIS file stays the executable owner — it counts the positions and
+ * re-resolves every coordinate; the ledger stays the reasoning owner. When they
+ * disagree, this file is right about WHAT IS THERE and the ledger is right about WHY.
+ *
+ * The six deltas are itemised in the count-evolution block above. What the buckets
+ * below lose: cluster 2's MSI sites 9, 10 and 23 fold into site 22; cluster 1's MSI
+ * sites 14, 16 and 18 fold into site 15; and site 17, the ONE UFF row that failed §O3
+ * clause 1 and was kept by plan mandate, turned out to fail clause 3 as well and became
+ * a `QueryEngineError`. The honest distinct-invariant arithmetic, which §O4 calls the
+ * more important measure: twelve of the thirteen are untouched, and the thirteenth —
+ * the compound many-to-many topology — is still refused by the engine before any I/O,
+ * just not by an `UnsupportedOperationError` any more. So this census now covers 12
+ * distinct invariants in the query-engine scope; the engine owns 13. Nothing became
+ * legal. (The base was 13, not 12: cluster 4 is one phrase over two invariants, which
+ * N3's own row argued and Package O settled — see the DISTINCT INVARIANTS block above.
+ * An earlier Package O draft carried the undercount forward as 11/12.)
  *
  * WHAT PACKAGE N ITSELF DID TO THIS NUMBER: nothing. N1 moved the owned-FK refusal to
  * the parse boundary at five nested positions (one of which — nested `updateMany` —

@@ -825,11 +825,25 @@ describe("parity D — the shapes D2 lifted", () => {
         "pad.transition.find.rows": [],
       },
       "compile",
-      // NON-DISCRIMINATING no longer: after D1 this sentence has ONE emitter,
-      // `RecordUpdateCompiler.postTransitionReference`, whose `position` argument is
-      // the only thing that varies ("nested create" here, "membership" on the adopt
-      // path). The three near-duplicate spellings it replaced — including one that
-      // differed only by a missing `-v2` prefix — are gone.
+      // NON-DISCRIMINATING no longer — but NOT because the sentence has one emitter.
+      // CORRECTED BY PACKAGE O (the previous text claimed "ONE emitter" and was false
+      // at its own HEAD). This sentence has TWO emitters and they are two different
+      // decisions:
+      //   · `RecordUpdateCompiler.postTransitionReference` (:1800), the per-member
+      //     derivation, whose `position` argument is the only thing that varies
+      //     ("nested create" here, "membership" on the adopt path). It refuses on
+      //     `literal === null || isSql(literal)`.
+      //   · `RecordUpdateCompiler.resolveCreateParent` (:2017), the arity-1
+      //     NON-primary-key branch, which spells "nested create" literally and refuses
+      //     the strictly WIDER `!isConstructionLiteral(literal)` — also an arithmetic
+      //     envelope and a batch-value `Ref` — and whose accepted arm returns
+      //     `afterRoot: false` where this one's returns `afterRoot: true`.
+      // THIS payload reaches the first: `(area, slot)` is a COMPOUND reference, so the
+      // arity-1 branch is never entered. Package O measured the pair and KEPT both
+      // (guard-ownership-ledger.md, disagreement 1); collapsing them would accept
+      // operands that are refused today. The three near-duplicate spellings D1
+      // replaced — including one that differed only by a missing `-v2` prefix — are
+      // still gone.
       "query-engine-v2 update nested create on relation 'pads' references a non-literal rewritten column 'slot'.",
     ],
   ])("%s refuses typed", (_label, build, known, phase, message) => {

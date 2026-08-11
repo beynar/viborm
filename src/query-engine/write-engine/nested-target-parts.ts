@@ -18,6 +18,7 @@ import { createQueryScope } from "../context/query-scope";
 import { buildCreateManyPlan } from "../operations/create";
 import { assertPortableCreateManySkip } from "../operations/create-many-portability";
 import type { QueryEngine } from "../query-engine";
+import { assertSelectedUpdateManyDataIsScalar } from "../relation-key-legality";
 import type { QueryScope } from "../types";
 import { referenceScalarSql, referenceSql } from "./fragment-builders";
 import type { OperationStep, StatementStep } from "./OperationFragment";
@@ -92,6 +93,27 @@ export function buildJunctionTargetRelationParts(
   recordCompilers: RecordCompilerSeam,
   membershipReadSource: FinalReferenceSource
 ): readonly Part[] {
+  // The bulk-leaf wall, at its ONE owner (`relation-key-legality`), applied here for
+  // the same reason it is applied at the other three positions that build bulk leaves:
+  // one owner, one message, one decision, called wherever the decision is due. This is
+  // a CALL POSITION, not a second guard — the pattern site 11
+  // (`assertOwnedFkAbsentFromUpdateData`) already uses at four positions.
+  //
+  // MEASURED, and stated plainly because the first version of this comment claimed the
+  // opposite: this position has NO live route today. `RecordUpdateCompiler`'s two
+  // positions skip building the Part when `updateManyCarriesRelations`, so a
+  // relation-bearing nested `updateMany` reaches its deferred legality closure there;
+  // this fold pushes its bulk parts unconditionally (the `updateMany` arm of
+  // {@link foldJunctionChildHeldEntry}) but its only producer is
+  // `RelationJunctionPart.freshTargetFold`, i.e. CREATE-context data, and
+  // `ToManyCreateSchema` has no `updateMany` key to carry. The call stays anyway: the
+  // Package N gate measured `buildToManyUpdateManyParts` — the arm its own implementer
+  // note had recorded as needing no guard — SILENTLY REPARENTING rows one schema over,
+  // and left the standing instruction not to read "no measured live route" as licence
+  // on a bulk arm. Package O deleted the Part-level RESTATEMENT this seam used to rely
+  // on (a second construction site with its own byte-identical sentence); it did not
+  // move the decision.
+  assertSelectedUpdateManyDataIsScalar(targetScope, relations);
   const parts: Part[] = [];
   for (const program of Object.values(relations)) {
     foldJunctionTargetRelation({

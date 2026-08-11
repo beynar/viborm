@@ -3,7 +3,6 @@ import type { Model } from "@schema/model";
 import type { PolymorphicStorageColumn } from "@schema/relation";
 import {
   buildTargetProjection,
-  capturedTargetConstraint,
   capturedTargetFilters,
   capturedTargetValues,
   capturedTargetWhere,
@@ -185,20 +184,15 @@ describe("captured row-key selectors", () => {
     ]);
   });
 
-  test("the captured constraint is exact over the row key alone", () => {
-    const projection = buildTargetProjection(compoundPk, ["note"]);
-    const constraint = capturedTargetConstraint(compoundPk, projection, {
-      tenantId: "t1",
-      slot: "s1",
-      note: "n",
-    });
-    expect(constraint.certainty).toBe("exact");
-    expect([...constraint.fields.keys()]).toEqual(["slot", "tenantId"]);
-    expect(constraint.fields.get("tenantId")?.value).toEqual({
-      kind: "string",
-      value: "t1",
-    });
-  });
+  /*
+   * "the captured constraint is exact over the row key alone" stood here and is
+   * DELETED with `capturedTargetConstraint` itself (Package O). It was the owner's
+   * ONLY caller in the whole repository — a unit test written to reach an export
+   * nothing else consumed — so keeping it would have been the exact shape AGENTS.md
+   * bans: a check reachable only by the test written to reach it. Package D's
+   * refusal-on-shape is recorded at the deleted owner's grave in
+   * `target-projection.ts`.
+   */
 
   test("the projection names the members read, and an unpublished one raises", () => {
     // `TargetProjection` is an exported interface, so `buildTargetProjection` is

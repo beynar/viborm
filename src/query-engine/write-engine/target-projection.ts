@@ -7,10 +7,6 @@ import {
 } from "../builders/correlation-utils";
 import { buildScalarSqlValueForScalar } from "../builders/values-builder";
 import { getPrimaryKeyValuesFromRecord } from "../operations/mutation-identity";
-import {
-  normalizeTargetConstraint,
-  type TargetConstraint,
-} from "../TargetConstraint";
 import type { QueryScope } from "../types";
 import type { StatementOutputSource } from "./OperationFragment";
 
@@ -166,48 +162,25 @@ export function capturedTargetFilters(
   );
 }
 
-/**
- * The captured row key as an exact target constraint.
+/*
+ * `capturedTargetConstraint` stood here and is DELETED (Package O, §O2/§O3).
  *
- * It normalizes the ROW KEY, not `getTargetIdentityFields`' wider addressable-key
- * set: those answer different questions (CONTEXT.md, "Row key" vs "Addressable
- * key"), and what a probe captured and a write will address is the row key.
+ * Package C kept it with ZERO production consumers under the plan's mandate, with
+ * the explicit rule "if Package D lands without consuming it, Package O deletes
+ * it". Package D landed and refused it on SHAPE, not by oversight: an occupied-slot
+ * predicate is a `where` over the CHILD scope whose conjuncts pair the child's
+ * FOREIGN fields with the PARENT's pre-transition referenced values, and a
+ * `TargetConstraint` binds ONE model's own field names to values, so the
+ * cross-model pairing the relation topology owns had nowhere to live in it. It also
+ * asked the wrong question — "do these two static targets overlap", not "does any
+ * row exist here" — and there is no captured child row to normalize, since
+ * discovering whether one exists is that guard's entire purpose.
  *
- * A `TargetConstraint` is a canonical SET for overlap comparison — every builder
- * of one sorts its members — so read the row key's order from `identityFields`,
- * never from the returned map.
- *
- * STILL NO PRODUCTION CONSUMER, and Package D was the named candidate. §6 D3
- * ("generalize occupied guards") was expected to consume it; it does not, and the
- * reason is a shape mismatch rather than a missed opportunity, recorded here so
- * Package O deletes it on evidence:
- *
- *  · an occupied-slot predicate is a `where` over the CHILD scope whose conjuncts
- *    pair the child's FOREIGN fields with the PARENT's pre-transition referenced
- *    values. A `TargetConstraint` binds one model's own field names to values, so
- *    the cross-model pairing the relation topology owns has nowhere to live in it;
- *  · it asks "does any row exist here", not "do these two static targets overlap",
- *    which is the only question `classifyTargetConstraintOverlap` /
- *    `exactTargetConstraintKey` / `getTargetConstraintPredicateFields` answer;
- *  · there is no captured child row to normalize. Discovering whether one exists
- *    is the guard's entire purpose.
- *
- * The guard's conjuncts come from the correlated membership binding through
- * `planningMembershipCondition` / `finalMembershipCondition` instead — the same
- * owner every other membership predicate already uses. Where a captured row key
- * DOES belong beside a selector, `capturedTargetFilters` above is the live shape.
+ * The occupied guard's conjuncts come from the correlated membership binding
+ * through `planningMembershipCondition` / `finalMembershipCondition`, the owner
+ * every other membership predicate already uses. Where a captured row key DOES
+ * belong beside a selector, `capturedTargetFilters` above is the live shape.
  */
-export function capturedTargetConstraint(
-  model: Model<any>,
-  projection: TargetProjection,
-  captured: Readonly<Record<string, unknown>>
-): TargetConstraint {
-  return normalizeTargetConstraint(
-    model,
-    projection.identityFields,
-    capturedTargetValues(model, projection, captured)
-  );
-}
 
 /**
  * ORDER a captured root set deterministically, by complete row key (plan §5.2

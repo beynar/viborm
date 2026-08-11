@@ -663,15 +663,26 @@ export class RelationWritePart implements Part {
   }
 
   /**
-   * Bulk updates accept scalar data only: a set-based UPDATE has no per-row captured
-   * identity for a descendant write to correlate to (ATOM §17). The inverse-upsert
-   * found arm was the other caller until Package G routed it through the record
-   * compiler; what remains here is the nested `updateMany` leaf.
+   * The scalar data of the nested `updateMany` leaf (this runs for that kind alone;
+   * the inverse-upsert found arm was the other caller until Package G routed it
+   * through the record compiler).
    *
-   * The refusal reads {@link relationWriteKeys}, not `relations` alone: a direct
-   * polymorphic `disconnect` carries no relation program, so reading one map used to
-   * let it past this wall and then drop it on the floor (the measured silent wrong
-   * answer recorded at that function). One question, one owner, three readers.
+   * A refusal stood here (Package O cluster 2, site 10) and is DELETED. Bulk data
+   * still accepts scalar keys only — a set-based UPDATE has no per-row captured
+   * identity for a descendant write to correlate to (ATOM §17) — but
+   * `assertSelectedUpdateManyDataIsScalar` is the ONE owner of that decision, and
+   * this restated it with a byte-identical sentence.
+   *
+   * MEASURED before deleting: every producer of a relation-bearing bulk leaf is
+   * already answered by that owner. `RecordUpdateCompiler`'s two positions skip
+   * building the Part entirely when `updateManyCarriesRelations` (so the deferred
+   * legality closure keeps an untaken arm inert); the third,
+   * `nested-target-parts.buildJunctionTargetRelationParts`, was ungated and now
+   * calls the owner at its seam. That fold's only producer is
+   * `RelationJunctionPart`'s `freshTargetFold`, i.e. CREATE-context data, whose
+   * `ToManyCreateSchema` has no `updateMany` key at all — so the position it
+   * uniquely covered has no public route, and a guard whose unique coverage cannot
+   * be named does not stay (AGENTS.md, "one guard per invariant").
    */
   private parseScalarUpdateData(): Record<string, unknown> {
     const { data, childScope } = this.config;
@@ -687,11 +698,6 @@ export class RelationWritePart implements Part {
       data: scalarData,
     });
     assertRelationKeyUpdatesAreCompilable(childScope, scalarData, relations);
-    if (relationWriteKeys(parsed).length > 0) {
-      throw new UnsupportedOperationError(
-        `query-engine-v2 ${kind} for relation '${this.relationName}' does not support nested relation writes in its data.`
-      );
-    }
     return scalarData;
   }
 

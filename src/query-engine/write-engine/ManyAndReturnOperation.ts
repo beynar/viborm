@@ -815,14 +815,28 @@ export class ManyAndReturnOperation {
     return this.model["~"].names.ts ?? "unknown";
   }
 
+  /**
+   * `getPrimaryKeyFields` is TOTAL — a model with no declared id answers `["id"]`
+   * — so the empty-list refusal that stood here could not fire. Package K met the
+   * same shape while drafting its own copy and deleted it at the gate rather than
+   * keep a check whose unique coverage cannot be named; Package O deletes the two
+   * instances K handed on (here and `RecordUpdateCompiler`) on the same evidence.
+   * Deleting turns nothing red, which IS the falsification for this class.
+   *
+   * NOT THE WHOLE CLASS, and the Package O gate corrected the record: the same
+   * dead predicate also stands at `DeleteOperation`, `UpdateOperation` and
+   * `UpsertOperation`. Those three STAY — they are members of the N7-U-A
+   * converted family, each names the boundary that answers instead (the
+   * where-unique parse) and each is pinned by a behavioral witness in
+   * `operation-construction-witnesses.test.ts`. That is this estate's disposition
+   * for a branch unreachable by construction: convert, name the owner, pin it.
+   * These two had no witness and named no owner. Retire the family as five, or
+   * not at all.
+   */
   private pkSelect(): Record<string, true> {
-    const fields = getPrimaryKeyFields(this.model);
-    if (fields.length === 0) {
-      throw new QueryEngineError(
-        `Cannot execute an atomic non-returning mutation for model '${this.modelName()}' because it has no primary key.`
-      );
-    }
-    return Object.fromEntries(fields.map((field) => [field, true]));
+    return Object.fromEntries(
+      getPrimaryKeyFields(this.model).map((field) => [field, true])
+    );
   }
 }
 
