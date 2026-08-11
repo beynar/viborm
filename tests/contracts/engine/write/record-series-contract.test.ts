@@ -254,7 +254,6 @@ function seriesOperation(
   let attempt = 0;
   return {
     executionKind: "recordSeries",
-    mode: "transaction",
     capture(): PlanningFragment {
       attempt += 1;
       events.push(`capture:${attempt}`);

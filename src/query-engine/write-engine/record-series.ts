@@ -42,17 +42,15 @@ import type { PlanningFragment } from "./OperationFragment";
  * at. A capture that declares bare names instead is not caught by any gate; it
  * simply lands its members on a different address than they expect.
  *
- * `mode` is a fact about the substrate, not a preference: a series needs an
- * interactive transaction because member N is planned against the effects member
- * N-1 already applied inside the scope. There is no atomic-batch lowering, which
- * is why every prepared-statement and prepared-batch seam declines this form. It
- * is declared, never read: the executor opens the scope for this form
- * unconditionally, and `mode` is here so that it stays total across
- * {@link RoutedExecutableOperation} rather than to select a path.
+ * The series is transaction-only BY ITS FORM, not by a mode field:
+ * `executionKind: "recordSeries"` alone selects the series executor, which opens
+ * an interactive scope unconditionally because member N is planned against the
+ * effects member N-1 already applied inside it. There is no atomic-batch
+ * lowering, which is why every prepared-statement and prepared-batch seam
+ * declines this form before fragment compilation.
  */
 export interface RecordSeriesOperation {
   readonly executionKind: "recordSeries";
-  readonly mode: "transaction";
 
   capture(): PlanningFragment;
 

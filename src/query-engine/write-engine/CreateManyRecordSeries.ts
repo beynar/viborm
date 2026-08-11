@@ -78,7 +78,6 @@ import { getStepModelName, isRecord } from "./shared";
  */
 export class CreateManyRecordSeries implements RecordSeriesOperation {
   readonly executionKind = "recordSeries" as const;
-  readonly mode = "transaction" as const;
 
   private readonly engine: QueryEngine;
   private readonly model: Model<any>;
