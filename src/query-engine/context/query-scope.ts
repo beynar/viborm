@@ -1,6 +1,9 @@
 import type { DatabaseAdapter } from "@adapters";
 import { getModelKeyCatalog, type Model } from "@schema/model";
-import type { AnyPolymorphicRelation } from "@schema/relation";
+import {
+  type AnyPolymorphicRelation,
+  relationCardinality,
+} from "@schema/relation";
 import type {
   PolymorphicRelationInfo,
   QueryScope,
@@ -82,10 +85,7 @@ export function getRelationInfo(
     relation,
     targetModel,
     type: state.type,
-    cardinality:
-      state.type === "oneToMany" || state.type === "manyToMany"
-        ? "many"
-        : "one",
+    cardinality: relationCardinality(state),
     isOptional: state.optional ?? false,
     fields: state.fields,
     references: state.references,

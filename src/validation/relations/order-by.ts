@@ -1,16 +1,17 @@
 import type { AnyModel } from "@schema/model";
 import type { StringKeyOf } from "@schema/model/helper";
+import { relationCardinality } from "@schema/relation/cardinality";
 import type { RelationState } from "@schema/relation/types";
 import type { ScalarState } from "@schema/scalars";
-import v, { type V } from "../primitives/v";
-import { createSchema, fail } from "../primitives/helpers";
-import type { VibSchema } from "../types";
 import {
   type SortOrderSchema,
-  type VectorSortOrderSchema,
   sortOrderSchema,
+  type VectorSortOrderSchema,
   vectorSortOrderSchema,
 } from "@validation/model/core/orderby";
+import { createSchema, fail } from "../primitives/helpers";
+import v, { type V } from "../primitives/v";
+import type { VibSchema } from "../types";
 import type { SchemaGetter, TargetModel } from "./helpers";
 
 type ModelStateOf<M extends AnyModel> = M["~"]["state"];
@@ -123,9 +124,8 @@ type ToOneModelOrderBySchema<
 
 type ToOneOrderByRemainingDepth = ConsumeRelationHop<RelationOrderDepth>;
 
-const isToOneRelation = (state: RelationState): boolean => {
-  return state.type === "oneToOne" || state.type === "manyToOne";
-};
+const isToOneRelation = (state: RelationState): boolean =>
+  relationCardinality(state) === "one";
 
 type ToManyRelationOrderByFailureSchema = VibSchema<never, never>;
 type RuntimeToOneRelationOrderByEntry =

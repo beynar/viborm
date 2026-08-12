@@ -1,5 +1,5 @@
 import type { Model } from "@schema/model";
-import type { AnyRelation } from "@schema/relation";
+import { type AnyRelation, relationCardinality } from "@schema/relation";
 import type { ExpectedResultShape, Operation } from "../types";
 import type { ResultParser } from "./ResultParser";
 import {
@@ -21,8 +21,7 @@ export function parseRelationValueDefault(
   parsers: RowValueParsers
 ): unknown {
   const relationState = relation["~"].state;
-  const isToMany =
-    relationState.type === "oneToMany" || relationState.type === "manyToMany";
+  const isToMany = relationCardinality(relationState) === "many";
 
   if (value === undefined) {
     return malformedResult(
@@ -106,12 +105,5 @@ function deserializeWithSchema(
   parsers: RowValueParsers
 ): Record<string, unknown> {
   const keys = Object.keys(obj);
-  return createRowParser(
-    ctx,
-    operation,
-    keys,
-    model,
-    shape,
-    parsers
-  )(obj);
+  return createRowParser(ctx, operation, keys, model, shape, parsers)(obj);
 }

@@ -1,5 +1,6 @@
 // Relation Schema Factories
 // Builds filter, create, update schemas for relations using Valibot
+import { relationCardinality } from "@schema/relation/cardinality";
 import type { RelationState } from "@schema/relation/types";
 
 export { countFilterFactory } from "./count-filter";
@@ -161,7 +162,7 @@ export const getRelationSchemas = <
   source: Source,
   targetSchemas: T
 ) => {
-  const isToMany = state.type === "manyToMany" || state.type === "oneToMany";
+  const isToMany = relationCardinality(state) === "many";
   return (
     isToMany
       ? toManySchemas(state, source, targetSchemas)

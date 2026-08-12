@@ -178,6 +178,17 @@ export function pinnedTargetValues(
  * is why a child table without an `id` column would have looked correct. Answer "yes,
  * a relation" here and the gate declines the fold; the unfolded path reads the
  * projection through an aliased SELECT, which correlates and answers the truth.
+ *
+ * WHY THIS IS NOT DERIVED FROM A COMPILED SELECTION FACT (the distinct-truth
+ * Phase 10 prototype tried exactly that and was rejected at its gate): the four
+ * gates ask BEFORE any SQL exists, in their operation constructors, and the
+ * selection traversal that could compile such a fact spends
+ * `QueryScope.nextAlias()` per relation. Asking it here would either renumber
+ * every alias in the statement this gate has not built yet, or pay a second
+ * speculative traversal per parse — the measured e2e cost that rejected the
+ * prototype. A pure predicate over `(model, select)` is the cheaper truth, and
+ * it is a different question anyway: "may this projection ride a RETURNING
+ * list", not "what will the rows contain".
  */
 export function selectProjectsRelation(
   model: Model<any>,
@@ -280,6 +291,21 @@ export function projectionNamesNoRelation(
  * without the key. A guard for `_count: true` here therefore declines folds that
  * are legal and covers nothing — removing it leaves the `_count` shorthand
  * witness below green, which is what says the coverage was not its own.
+ *
+ * ### Why this walk is not the selection traversal
+ *
+ * The select builder walks the same payload and emits the projection, so folding
+ * this question into it looks like one walk where there are two. It is not the
+ * same walk, in two ways that both matter:
+ *
+ *  · REACH. That traversal walks PROJECTION keys and hands `where`/`orderBy`/
+ *    `cursor` opaquely to the filter builders. This one must descend INTO them —
+ *    the measured counterexample above is a relation `where`, and the fold it
+ *    caught was legal by every projection reading. Deriving this from the
+ *    projection walk means widening the projection walk into a whole-payload
+ *    walker, which is a bigger builder, not a smaller estate.
+ *  · TIME. This answers in an operation CONSTRUCTOR, before the statement it
+ *    guards exists. See the note on {@link selectProjectsRelation}.
  */
 export function projectionReadsMutatedModel(
   scope: QueryScope,

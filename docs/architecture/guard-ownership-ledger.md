@@ -925,3 +925,28 @@ ordinary edge they diverge, and an optional slot with a non-nullable child forei
 is a legal schema whose to-one surface offers `delete` without `disconnect`. That
 divergence is what item 1 above is made of, and the plan (§8.2) explicitly leaves any
 rule forcing the two to agree as a separate, source-breaking product decision.
+
+## Distinct-truth Phase 10 — prototype REJECTED at its own gate (falsifier record)
+
+The compiled-selection prototype (plan Phase 10) was implemented in its only
+byte-safe form and rejected at the 10.3 gate. The record, so it is not re-run
+on the same evidence:
+
+- Every threading route from the selection traversal to the operation object is
+  closed at this estate's shape: hoisting the compile renumbers aliases (the
+  find path spends up to three pagination aliases before the projection; every
+  write builder compiles its WHERE first, and an extended-unique where spends a
+  hide alias); the two find builders have 67 call sites of which ~63 never
+  parse; a shape-only mode duplicates the branch structure it claims to unify;
+  an out-parameter capture is a context bag.
+- The one byte-safe variant — the parser-side shape delegating to the select
+  traversal over a throwaway scope — was built whole and measured: SQL bytes
+  exact, parsing exact, CTE eligibility unchanged, tsc within budget, but
+  e2e overhead regressed 6–9% on findUnique/include/create (the discarded SQL
+  build per parse), and physical production LOC rose (+101). Rejected; the
+  five explicit owners stand, with the two pre-SQL predicates now carrying the
+  structural reason they cannot consume a compiled fact.
+- Permanent value kept: the five projection-interpretation pins (commit
+  92c9397c), and `relationCardinality(state)` as the one owner of the
+  type→cardinality derivation (four former inline spellings).
+- Consequence: plan Phase 11 (conditional on a retained Phase 10) does not run.
