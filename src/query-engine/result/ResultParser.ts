@@ -1,19 +1,19 @@
 // biome-ignore-all lint/style/useFilenamingConvention: File matches its primary class export.
 import type { DatabaseAdapter } from "@adapters";
+import type { RelationResultKind } from "@adapters/adapter-result-parser";
 import type { AnyDriver } from "@drivers";
 import { isVibORMError } from "@errors";
 import type { Model } from "@schema/model";
 import type { AnyPolymorphicRelation, AnyRelation } from "@schema/relation";
-import type { RelationResultKind } from "@adapters/adapter-result-parser";
 import type { Scalar } from "@schema/scalars";
 import {
-  type ExpectedResultShape,
   type ExpectedPolymorphicResultShape,
+  type ExpectedResultShape,
   isBatchOperation,
   type Operation,
 } from "../types";
-import { parseRelationValueDefault } from "./relation-result-parser";
 import { parsePolymorphicValueDefault } from "./polymorphic-result-parser";
+import { parseRelationValueDefault } from "./relation-result-parser";
 import { parseAggregateResult } from "./result-aggregate-parser";
 import {
   isResultRow,
@@ -58,7 +58,7 @@ export class ResultParser {
   private resultChain: ResultParserChain | undefined;
 
   /**
-   * TRANSITIONAL (W6-U1). `"number"` re-applies the pre-W6 lossy decode to
+   * TRANSITIONAL. `"number"` re-applies the legacy lossy decode to
    * decimal fields after the exact parse. See {@link QueryEngine.decimalDecode}.
    */
   readonly decimalDecode: "string" | "number";
@@ -334,7 +334,7 @@ export class ResultParser {
           )
       : (value: unknown) => adapterDecode(value, scalarType);
 
-    // TRANSITIONAL (W6-U1): the legacy `decimal: "number"` hatch. It runs AFTER
+    // TRANSITIONAL: the legacy `decimal: "number"` hatch. It runs AFTER
     // the exact parse, so the lossy step is one clearly-marked conversion at the
     // very edge rather than a second decode path threaded through the parser.
     // It is a re-lossification of a value we already have exactly — which is

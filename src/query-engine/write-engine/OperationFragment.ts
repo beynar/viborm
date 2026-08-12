@@ -1,4 +1,5 @@
 // biome-ignore-all lint/style/useFilenamingConvention: OperationFragment is the architecture name.
+import { NestedWriteError, NotFoundError, TransactionError } from "@errors";
 import type { Sql } from "@sql";
 
 export const OPERATION_VALUE_REFERENCE = Symbol(
@@ -138,8 +139,12 @@ export interface OperationFragment {
 }
 
 export interface PlanningFragment {
+  // No outputs map: planning publication is DERIVED — the executor exposes
+  // every declared statement output under `planningKey(step.id, name)`, so a
+  // producer cannot under-publish (the old hand-built maps could) and a
+  // capture cannot land its members on a different address than they expect.
+  // Final `OperationFragment` output selection stays explicit.
   readonly steps: readonly StatementStep[];
-  readonly outputs: Readonly<Record<string, FragmentOutputSource>>;
 }
 
 export function bucketOperationSteps(
@@ -169,4 +174,58 @@ export function isOperationValueReference(
     "output" in value &&
     typeof value.output === "string"
   );
+}
+
+/**
+ * Materialize a step's declared {@link Failure} as its typed error — the ONE
+ * Failure→Error construction, shared by normal execution and merged-batch
+ * attribution (their ATTRIBUTION algorithms stay separate; only what a failure
+ * becomes is one fact).
+ */
+export function createFailureError(
+  failure: Failure,
+  model: string,
+  operation: string
+): Error {
+  if (failure.kind === "nestedWrite") {
+    const error = new NestedWriteError(failure.message, failure.relation ?? "");
+    if (failure.raceable) {
+      error.meta.raceable = true;
+    }
+    return error;
+  }
+  if (failure.kind === "notFound") {
+    return new NotFoundError(model, operation);
+  }
+  const error = new TransactionError(failure.message, {
+    meta: { model, operation },
+  });
+  // A `query` guard abort can be raceable too — the sole producer is the
+  // retained notExists skip-premise pin (`raceableQueryFailure`, ATOM "Branch
+  // premises and pins"). The mark is what lets the routed retry re-plan and
+  // converge; dropping it here strands the flag the fragment validator required.
+  if (failure.raceable) {
+    error.meta.raceable = true;
+  }
+  return error;
+}
+
+/**
+ * The ONE statement-reference discovery: a
+ * statement's dependencies are exactly the {@link OperationValueReference}
+ * values in its `Sql.values`. Fragment validation, planning dependency
+ * levels, the single-statement policies, and the PostgreSQL dependency-fold
+ * eligibility all consume these two views; only per-value SUBSTITUTION (the
+ * two materializers, the CTE lowerer) stays local, because what replaces a
+ * reference is each consumer's own fact.
+ */
+export function statementReferences(
+  statement: Sql
+): readonly OperationValueReference[] {
+  return statement.values.filter(isOperationValueReference);
+}
+
+/** Discovery-only fast view: does the statement hold ANY reference? */
+export function statementHasReferences(statement: Sql): boolean {
+  return statement.values.some(isOperationValueReference);
 }

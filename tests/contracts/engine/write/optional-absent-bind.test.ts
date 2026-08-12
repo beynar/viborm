@@ -5,8 +5,6 @@ import { TransactionError } from "@errors";
 import { createOperationExecutionContext } from "@query-engine/execution-context";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { sql } from "@sql";
-import { createSchemaRegistry } from "@validation";
-import { describe, expect, test } from "vitest";
 import {
   type ExecutableOperation,
   OperationExecutor,
@@ -20,6 +18,8 @@ import {
   optionalAbsentBindSchema,
   runOptionalAbsentBindBehavior,
 } from "@tests/contracts/engine/write/optional-absent-bind-behavior";
+import { createSchemaRegistry } from "@validation";
+import { describe, expect, test } from "vitest";
 
 // The no-regression control: PostgreSQL's binder coerces `undefined` to NULL, so
 // this shape already worked here before M5 and must keep working after it.
@@ -92,9 +92,12 @@ function absentFieldOperation(optional: boolean): ExecutableOperation {
   } as const;
   return {
     mode: "transaction",
+    // Planning publication is derived (Phase 9.1): every declared statement
+    // output is exposed under `<step>.<name>`. This fixture's old hand-named
+    // subset (`rows`) is gone with the map; the executor path under test — the
+    // absent-optional bind INSIDE the consumer's own statement — is untouched.
     planning: (): PlanningFragment => ({
       steps: [probe, consumer],
-      outputs: { rows: ref("consumer", "rows") },
     }),
     compile: (): OperationFragment => ({
       steps: [

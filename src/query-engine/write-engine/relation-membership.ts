@@ -2,13 +2,16 @@ import { NestedWriteError, QueryEngineError } from "@errors";
 import type { Sql } from "@sql";
 import { buildPolymorphicMembershipPredicate } from "../builders/correlation-utils";
 import type { PolymorphicStorageValue } from "../builders/polymorphic-mutation";
-import type {
-  ChildHeldToMany,
-  ChildHeldToOne,
-  PolymorphicChildHeldRelation,
+import {
+  type BoundPolymorphicMembership,
+  type ChildHeldRelation,
+  type ForeignKeyMemberPair,
+  hasPolymorphicMembership,
+  type OrdinaryChildHeldRelation,
+  type PolymorphicChildHeldRelation,
 } from "../builders/relation-data-builder";
 import type { QueryEngine } from "../query-engine";
-import type { QueryScope, ResolvedPolymorphicEdge } from "../types";
+import type { QueryScope } from "../types";
 import { referenceScalarSql, referenceSql } from "./fragment-builders";
 import type { OperationValueReference } from "./OperationFragment";
 import { ref } from "./OperationFragment";
@@ -26,7 +29,15 @@ export type FinalReferenceSource =
   | {
       readonly kind: "transitionedPlanningField";
       readonly step: string;
-      readonly apply: (before: unknown) => unknown;
+      /**
+       * The transformation is FIELD-AGNOSTIC and the field comes from the
+       * member it is bound to, so one source stays per-member correct however many
+       * members it is bound across. A source that closed its field in was correct
+       * only when built inside a per-member `map`, which made every broadcast site
+       * (`bindRelationMembership`, `bindCorrelatedRelationMembership`, every
+       * `referencedFields.map(() => source)`) a latent compound collapse.
+       */
+      readonly apply: (before: unknown, referencedField: string) => unknown;
     }
   | { readonly kind: "lookup"; readonly statement: Sql };
 
@@ -43,7 +54,7 @@ export interface CorrelatedForeignKeyMember extends ForeignKeyMember {
 export type RelationMembershipBinding =
   | {
       readonly kind: "foreignKey";
-      readonly relation: ChildHeldToOne | ChildHeldToMany;
+      readonly relation: OrdinaryChildHeldRelation;
       readonly members: readonly ForeignKeyMember[];
     }
   | {
@@ -55,7 +66,7 @@ export type RelationMembershipBinding =
 export type CorrelatedRelationMembershipBinding =
   | {
       readonly kind: "foreignKey";
-      readonly relation: ChildHeldToOne | ChildHeldToMany;
+      readonly relation: OrdinaryChildHeldRelation;
       readonly members: readonly CorrelatedForeignKeyMember[];
     }
   | {
@@ -70,29 +81,30 @@ export interface LoweredMembershipWrite {
   readonly polymorphicStorage: readonly PolymorphicStorageValue<unknown>[];
 }
 
+/**
+ * Attach one write source per BOUND member. The binder paired the fields, and every
+ * caller derives its source list from that same member list, so the source arrays
+ * cannot disagree with it in arity.
+ */
 export function pairForeignKeyMembers(
-  foreignFields: readonly string[],
-  referencedFields: readonly string[],
+  members: readonly ForeignKeyMemberPair[],
   writeSources: readonly FinalReferenceSource[]
 ): ForeignKeyMember[] {
-  assertEqualArity(foreignFields, referencedFields, writeSources);
-  return foreignFields.map((foreignField, index) => ({
+  return members.map(({ foreignField, referencedField }, index) => ({
     foreignField,
-    referencedField: referencedFields[index]!,
+    referencedField,
     writeSource: writeSources[index]!,
   }));
 }
 
 export function pairCorrelatedForeignKeyMembers(
-  foreignFields: readonly string[],
-  referencedFields: readonly string[],
+  members: readonly ForeignKeyMemberPair[],
   readSources: readonly PlanningReferenceSource[],
   writeSources: readonly FinalReferenceSource[]
 ): CorrelatedForeignKeyMember[] {
-  assertEqualArity(foreignFields, referencedFields, readSources, writeSources);
-  return foreignFields.map((foreignField, index) => ({
+  return members.map(({ foreignField, referencedField }, index) => ({
     foreignField,
-    referencedField: referencedFields[index]!,
+    referencedField,
     readSource: readSources[index]!,
     writeSource: writeSources[index]!,
   }));
@@ -106,15 +118,22 @@ export function literalParentId(value: unknown): FinalReferenceSource {
   return { kind: "literal", value };
 }
 
+/**
+ * The post-transition value of whichever reference-key member this source is bound
+ * to: `transition` receives the located (pre-transition) value together with the
+ * member's own referenced field, so one source binds correctly across a compound
+ * reference in schema order. It is applied exactly once per member, at the single
+ * resolution point in {@link finalReferenceValue}; transitioned sources are never
+ * chained.
+ */
 export function transitionedParentId(
   readStep: string,
-  field: string,
   transition: (before: unknown, field: string) => unknown
 ): FinalReferenceSource {
   return {
     kind: "transitionedPlanningField",
     step: readStep,
-    apply: (before) => transition(before, field),
+    apply: transition,
   };
 }
 
@@ -130,45 +149,50 @@ export function fkEquals(left: unknown, right: unknown): boolean {
 }
 
 export function bindRelationMembership(
-  relation: ChildHeldToOne | ChildHeldToMany | PolymorphicChildHeldRelation,
+  relation: ChildHeldRelation,
   writeSource: FinalReferenceSource
 ): RelationMembershipBinding {
-  if (
-    relation.kind === "polymorphicChildHeldToOne" ||
-    relation.kind === "polymorphicChildHeldToMany"
-  ) {
+  if (hasPolymorphicMembership(relation)) {
     return { kind: "polymorphic", relation, writeSource };
   }
+  const { members } = relation.membership;
   return {
     kind: "foreignKey",
     relation,
     members: pairForeignKeyMembers(
-      relation.foreignFields,
-      relation.referencedFields,
-      relation.referencedFields.map(() => writeSource)
+      members,
+      members.map(() => writeSource)
     ),
   };
 }
 
+/**
+ * Bind one old-read and one new-write source across every referenced member in
+ * schema order. Fanning ONE source out is exact — never a compound collapse —
+ * because every source kind is resolved against the member it lands on: a
+ * `planningField` reads `row[member.referencedField]` and a
+ * `transitionedPlanningField` transforms that member's own value
+ * ({@link finalReferenceValue}). A caller whose members need DIFFERENT sources —
+ * the occupied guard, whose pre-value is a `where` literal for the members the
+ * locator pins and a located-row read for the rest — pairs them itself with
+ * {@link pairCorrelatedForeignKeyMembers}.
+ */
 export function bindCorrelatedRelationMembership(
-  relation: ChildHeldToOne | ChildHeldToMany | PolymorphicChildHeldRelation,
+  relation: ChildHeldRelation,
   readSource: PlanningReferenceSource,
   writeSource: FinalReferenceSource
 ): CorrelatedRelationMembershipBinding {
-  if (
-    relation.kind === "polymorphicChildHeldToOne" ||
-    relation.kind === "polymorphicChildHeldToMany"
-  ) {
+  if (hasPolymorphicMembership(relation)) {
     return { kind: "polymorphic", relation, readSource, writeSource };
   }
+  const { members } = relation.membership;
   return {
     kind: "foreignKey",
     relation,
     members: pairCorrelatedForeignKeyMembers(
-      relation.foreignFields,
-      relation.referencedFields,
-      relation.referencedFields.map(() => readSource),
-      relation.referencedFields.map(() => writeSource)
+      members,
+      members.map(() => readSource),
+      members.map(() => writeSource)
     ),
   };
 }
@@ -188,9 +212,9 @@ export function lowerMembershipWrite(
           engine,
           {
             kind: "linked",
-            storage: binding.relation.storage,
-            storedType: binding.relation.storedType,
-            referencedField: binding.relation.referencedFields[0],
+            storage: binding.relation.membership.storage,
+            storedType: binding.relation.membership.storedType,
+            referencedField: binding.relation.membership.referencedField,
             id: binding.writeSource,
           },
           known,
@@ -223,7 +247,7 @@ export function lowerEmptyMembership(
     return {
       data: {},
       polymorphicStorage: [
-        { kind: "empty", storage: binding.relation.storage },
+        { kind: "empty", storage: binding.relation.membership.storage },
       ],
     };
   }
@@ -251,11 +275,12 @@ export function planningMembershipCondition(
     };
   }
   const relation = binding.relation;
+  const { membership } = relation;
   const identity = referenceScalarSql(
     engine,
-    relation.storage.idColumn.scalar,
-    relation.storage.idColumn.name,
-    planningReferenceValue(binding.readSource, relation.referencedFields[0])
+    membership.storage.idColumn.scalar,
+    membership.storage.idColumn.name,
+    planningReferenceValue(binding.readSource, membership.referencedField)
   );
   return {
     filters: [],
@@ -292,13 +317,14 @@ export function finalMembershipCondition(
     };
   }
   const relation = binding.relation;
+  const { membership } = relation;
   const identity = referenceScalarSql(
     engine,
-    relation.storage.idColumn.scalar,
-    relation.storage.idColumn.name,
+    membership.storage.idColumn.scalar,
+    membership.storage.idColumn.name,
     resolvedPlanningReferenceValue(
       binding.readSource,
-      relation.referencedFields[0],
+      membership.referencedField,
       known,
       relationName,
       operation
@@ -329,8 +355,8 @@ export function membershipProjection(
   return {
     fields: [],
     additionalColumns: [
-      binding.relation.storage.typeColumn,
-      binding.relation.storage.idColumn,
+      binding.relation.membership.storage.typeColumn,
+      binding.relation.membership.storage.idColumn,
     ].map((column) =>
       adapter.identifiers.aliased(
         adapter.identifiers.column(rootAlias, column.name),
@@ -355,14 +381,14 @@ export function recordHasMembership(
       )
     );
   }
-  const relation = binding.relation;
+  const { membership } = binding.relation;
   return (
-    record?.[relation.storage.typeColumn.name] === relation.storedType &&
+    record?.[membership.storage.typeColumn.name] === membership.storedType &&
     fkEquals(
-      record?.[relation.storage.idColumn.name],
+      record?.[membership.storage.idColumn.name],
       resolvedPlanningReferenceValue(
         binding.readSource,
-        relation.referencedFields[0],
+        membership.referencedField,
         known,
         relationName,
         operation
@@ -440,7 +466,7 @@ function finalReferenceValue(
   }
   const before = (row as Record<string, unknown>)[referencedField];
   return source.kind === "transitionedPlanningField"
-    ? source.apply(before)
+    ? source.apply(before, referencedField)
     : before;
 }
 
@@ -470,6 +496,49 @@ export function foreignKeyWriteValue(
     relationName,
     kind
   );
+}
+
+/**
+ * THE assignment a root membership makes when the ROOT ROW ITSELF holds it: an
+ * ordinary foreign key's columns, which ride in the record's own INSERT/UPDATE data,
+ * or one atomic private `(type, id)` pair, which rides in its polymorphic storage.
+ *
+ * ONE union, because "which storage does this arm write" is the ONLY thing that
+ * differed between the parent-held arms of the two memberships. Everything else a
+ * parent-held arm owns — the probe, the guard, the branch decision, the before-parent
+ * target, the race pin — is the same question with the same answer on both sides, so
+ * they share the arms and this rides as a field.
+ */
+export type RootMembershipAssignment =
+  | {
+      readonly kind: "foreignKey";
+      readonly data: Record<string, unknown>;
+    }
+  | {
+      readonly kind: "polymorphic";
+      readonly storage: PolymorphicStorageValue<FinalReferenceSource>;
+    };
+
+/**
+ * Apply one root-membership assignment to the record's two sinks. The caller owns both
+ * sinks and passes both; which one receives the value is this function's whole
+ * decision, and it is the only place that decision is made.
+ */
+export function applyRootMembershipAssignment(
+  engine: QueryEngine,
+  assignment: RootMembershipAssignment,
+  known: PlanningKnown | undefined,
+  kind: string,
+  data: Record<string, unknown>,
+  polymorphicStorage: PolymorphicStorageValue<unknown>[]
+): void {
+  if (assignment.kind === "polymorphic") {
+    polymorphicStorage.push(
+      resolvePolymorphicStorageValue(engine, assignment.storage, known, kind)
+    );
+    return;
+  }
+  Object.assign(data, assignment.data);
 }
 
 /** Resolve and destination-lower the id member of one atomic private edge. */
@@ -502,20 +571,16 @@ export function resolvePolymorphicStorageValue(
   };
 }
 
-/** Bind a value to one resolved private polymorphic edge. */
+/** Bind a value to one bound private polymorphic membership. */
 export function linkedPolymorphicStorage(
-  relation: PolymorphicChildHeldRelation | ResolvedPolymorphicEdge,
+  membership: BoundPolymorphicMembership,
   id: FinalReferenceSource
 ): Extract<PolymorphicStorageValue<FinalReferenceSource>, { kind: "linked" }> {
-  const referencedField =
-    "referencedField" in relation
-      ? relation.referencedField
-      : relation.referencedFields[0];
   return {
     kind: "linked",
-    storage: relation.storage,
-    storedType: relation.storedType,
-    referencedField,
+    storage: membership.storage,
+    storedType: membership.storedType,
+    referencedField: membership.referencedField,
     id,
   };
 }
@@ -569,18 +634,5 @@ export function planningSourceFromFinal(
   }
   throw new QueryEngineError(
     `query-engine-v2 ${kind} for relation '${relationName}' requires a planned or literal parent id to correlate its probe.`
-  );
-}
-
-function assertEqualArity(
-  foreignFields: readonly string[],
-  referencedFields: readonly string[],
-  ...sources: readonly (readonly unknown[])[]
-): void {
-  const arities = [foreignFields.length, referencedFields.length];
-  for (const source of sources) arities.push(source.length);
-  if (arities.every((arity) => arity === arities[0])) return;
-  throw new QueryEngineError(
-    `query-engine-v2 internal: foreign-key member arity mismatch (${arities.join(", ")}).`
   );
 }

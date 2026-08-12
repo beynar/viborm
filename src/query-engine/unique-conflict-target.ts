@@ -1,3 +1,4 @@
+import { getModelKeyCatalog } from "@schema/model";
 import { getPrimaryKeyFields } from "./builders/correlation-utils";
 import { partitionWhereUnique } from "./builders/where-unique-builder";
 import { getTableName } from "./context";
@@ -30,10 +31,20 @@ export function uniqueConflictTarget(
     primaryKeys.length === entries.length &&
     primaryKeys.every((field, index) => field === entries[index]?.fieldName);
   const [selector] = Object.keys(discriminator);
+  // Deliberately NOT findAddressableKey: on a name collision between a scalar
+  // unique and a compound unique, the resolver answers the scalar while this
+  // constraint-name branch has always keyed on the compound's existence — using
+  // the resolver would change the emitted constraint from
+  // `${table}_${selector}_key` to `${table}_${column}_key`.
+  const selectorIsCompoundUnique =
+    selector !== undefined &&
+    getModelKeyCatalog(ctx.model).addressableKeys.some(
+      (key) => key.kind === "compoundUnique" && key.name === selector
+    );
   let constraints: string[];
   if (isPrimary) {
     constraints = [`${table}_pkey`, "PRIMARY"];
-  } else if (selector && ctx.model["~"].state.compoundUniques?.[selector]) {
+  } else if (selectorIsCompoundUnique) {
     constraints = [`${table}_${selector}_key`];
   } else {
     const [column] = columns;

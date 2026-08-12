@@ -43,7 +43,7 @@ outer shell. `write-engine/*Operation.ts` contains these owners;
 ordering helpers.
 
 In relation code, parent means the current source record and child means its
-target at that edge. `parentHeldToOne` means the source stores the FK; it is not
+target at that edge. `position: "parentHeld"` means the source stores the FK; it is not
 a global model hierarchy.
 
 ## Three independent facts
@@ -57,13 +57,19 @@ Execution-specific deduplication stays with the consumer that owns it.
 
 ### Relation position
 
-`BoundRelation` classifies an edge as `parentHeldToOne`, `childHeldToOne`,
-`childHeldToMany`, `polymorphicChildHeldToOne`,
-`polymorphicChildHeldToMany`, or `junction`. It stores
-topology only: source model, ordered storage fields, referenced fields, and the
-schema-fixed discriminator needed by a polymorphic inverse. It does not store
-scopes, runtime identities, value sources, transition state, SQL, or branch
-policy.
+One stored topology, several derived views. `BoundRelation` classifies an edge on
+three orthogonal axes — `position` (`parentHeld`/`childHeld`/`junction`),
+`cardinality` (`one`/`many`), and `membership.kind`
+(`foreignKey`/`polymorphic`/`junction`) — with impossible combinations
+unrepresentable, and every downstream view of the edge derived from that one
+stored fact rather than stored beside it. It stores topology only: source model and one
+membership carrying the holder and referenced models, ordered storage fields,
+referenced fields, those fields paired member for member, and the schema-fixed
+discriminator needed by a polymorphic membership. It does not store scopes,
+runtime identities, value sources, transition state, SQL, or branch policy.
+The field pairing is lazy: it owns the mismatched-metadata refusal and must not
+move it earlier. It is also the only pairing — consumers read `membership.members`
+instead of re-pairing the two field lists by index.
 
 The polymorphic child-held variant means one exact physical membership:
 private identity equals the parent referenced value and private type equals the
@@ -84,7 +90,7 @@ order. The projection keeps public model fields and private physical columns in
 one captured-row contract. A true no-op returns no compiler before allocating
 an ID.
 
-For `parentHeldToOne`, the record compiler owns the inline FK fold and the branch
+For a parent-held edge, the record compiler owns the inline FK fold and the branch
 needed to construct its own INSERT or UPDATE. Child-held and junction relation
 owners keep target selection, correlation, membership, found/missing decisions,
 guards, race pins, not-found messages, and standalone edge effects. The routed
@@ -111,8 +117,12 @@ optional, so delete is available, while disconnect still requires clearable
 child storage. Nested createMany applies one shared pair to every grouped row.
 
 Direct polymorphic fields stay with the record compilers because their private
-pair is part of the owner record's INSERT or UPDATE. Fresh owners support
-connect, create, and connect-or-create. Selected owners also support correlated
+pair is part of the owner record's INSERT or UPDATE — and, for every fresh-owner
+verb plus a selected owner's create and connect-or-create, they share the SAME
+arms as an ordinary foreign key, carrying a root-membership assignment that names
+which storage the arm writes. A selected owner's polymorphic update, upsert and
+delete keep parallel arms until the parent-held locator union lands. Fresh owners
+support connect, create, and connect-or-create. Selected owners also support correlated
 update and upsert; optional storage supports disconnect and typed target delete.
 When a selected verb depends on current membership, the locate projects the
 private pair as internal columns and the compiler addresses the captured target.
@@ -182,9 +192,18 @@ First-create-wins is local to connect-or-create. Do not generalize it to upsert.
 ## Kept specializations
 
 `createMany`, `updateMany`, `deleteMany`, relation `set`, skip-duplicate capture,
-and many-and-return folds remain specialized. `ManyToManyStatements` remains
-the junction SQL owner. Keep adapter `batchRefs` and the type-only
-`QueryMetadata` compatibility export; the latter is not a runtime boundary.
+and many-and-return folds remain specialized OVER THE PAYLOADS THE BULK PATH
+EXPRESSES. For the two root bulk writes that is the scalar shape: scalar
+`createMany` rows (plus a direct polymorphic `connect`) and scalar `updateMany`
+data. A root `createMany` row carrying a general relation program, or root
+`updateMany` data carrying one, routes the whole operation to a record series
+whose members are ordinary `CreateOperation` / `UpdateOperation` instances —
+`CreateManyRecordSeries.ts` and `UpdateManyRecordSeries.ts`, which parse the bulk
+envelope, construct ordinary record operations, and shape the public bulk result.
+They contain no relation-kind switches and are not record compilers. See ATOM §17
+for why the semantics require it. `ManyToManyStatements` remains the junction SQL
+owner. Keep adapter `batchRefs` and the type-only `QueryMetadata` compatibility
+export; the latter is not a runtime boundary.
 
 Nested `createMany` stays with the owner of its set-shaped placement: a fresh
 parent records post-insert groups in `CreateOperation`; a selected parent uses

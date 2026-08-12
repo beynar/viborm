@@ -214,7 +214,7 @@
   "dependencies": {
     "@clack/prompts": "^0.7.0",
     "@opentelemetry/semantic-conventions": "^1.39.0",
-    "@paralleldrive/cuid2": "^3.0.4",
+    "@paralleldrive/cuid2": "^3.3.0",
     "@standard-schema/spec": "^1.0.0",
     "arktype": "^2.2.3",
     "commander": "^12.0.0",

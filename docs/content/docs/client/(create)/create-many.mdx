@@ -17,14 +17,63 @@ const result = await client.user.createMany({
 // Result: { count: 3 }
 ```
 
-`createMany` returns a `{ count }`. It does not accept general nested relation
-writes — use [`create`](/docs/client/create) for nested create, update, or
-delete operations.
+`createMany` returns a `{ count }`. Each row takes the same data a single
+[`create`](/docs/client/create) takes, nested relation writes included — see
+[Writing relations](#writing-relations) below.
 
-A direct polymorphic field is the one relation exception: each row may provide
-`connect`, which VibORM resolves into that row's private type-and-identity
-membership. A required polymorphic field must provide it. See
+A direct polymorphic field is the one relation that stays connect-only in a bulk
+row: each row may provide `connect`, which VibORM resolves into that row's
+private type-and-identity membership, and a required polymorphic field must
+provide it. See
 [Root createMany with polymorphic relations](/docs/schema/relations/polymorphic#root-createmany).
+
+## Writing relations
+
+```ts
+await client.user.createMany({
+  data: [
+    {
+      email: "alice@example.com",
+      profile: { create: { bio: "Hi" } },        // one fresh child for this row
+      team: { connectOrCreate: {                  // resolved per row, in order
+        where: { name: "core" },
+        create: { name: "core" },
+      } },
+    },
+    {
+      email: "bob@example.com",
+      team: { connectOrCreate: {                  // the same team as row 1
+        where: { name: "core" },
+        create: { name: "core" },
+      } },
+    },
+  ],
+});
+// Result: { count: 2 } — and one team, not two.
+```
+
+Rows run **left to right inside a single transaction**, each one exactly as if
+you had called `create` with it. That order is the contract, not an artifact:
+row 2 sees what row 1 committed, which is why two rows naming the same
+`connectOrCreate` target converge on one row instead of racing to create two.
+
+What follows from it:
+
+- **`count` is the number of root rows inserted** — nested children are not
+  counted.
+- **Everything rolls back together.** A failure in any row undoes every row.
+- **The call needs a real transaction**, so a driver that only supports batches
+  (D1, PlanetScale, Neon HTTP) rejects this form. Rows that stay on the grouped
+  `INSERT` path — scalar rows, and the direct polymorphic `connect` above — are
+  unaffected, because they never become a per-row sequence.
+
+:::warning
+`skipDuplicates` cannot be combined with nested relation writes, and the call is
+  refused before anything is written. A skipped root has two defensible meanings
+  for its nested effects — suppress them, or apply them to the row that already
+  exists — and VibORM will not pick one silently. Drop `skipDuplicates`, or
+  write the relations in a separate call.
+:::
 
 ## Skip duplicates
 
@@ -46,6 +95,9 @@ the whole operation on every supported database.
 A row containing only database-owned defaults cannot use `skipDuplicates`.
 VibORM rejects that shape before writing because no supported database shares a
 duplicate-only `DEFAULT VALUES` primitive.
+
+`skipDuplicates` also cannot be combined with nested relation writes — see
+[Writing relations](#writing-relations) for why.
 
 ## Getting the rows back
 
@@ -79,12 +131,42 @@ refused with a typed error rather than guessed at, because a skipped insert
 cannot be told apart from a fresh one — drop `select` to get `{ count }`, or
 drop `skipDuplicates`.
 
+When the rows carry relations, the returned rows are read **after every row has
+finished**, in input order, so a child written by a later row cannot leave an
+earlier row's projection stale. If a later row moved an earlier row's primary
+key — legal whenever a key member is also a foreign key — that read finds
+nothing, and the call **fails rather than hand back a shorter list**. The
+`{ count }` form of the same payload succeeds.
+
+## What it costs
+
+The scalar path is unchanged: one grouped `INSERT` (plus the skip-duplicate
+preparation it always used).
+
+A relation-bearing call costs one transaction plus, per row, exactly what that
+row would have cost as a single `create` — the same target probes, the same
+child writes, in the same order. Ten rows that each `connect` a target issue ten
+probes, because that is what ten `create` calls issue. Adding a `select` adds
+one read per row at the end.
+
+On PostgreSQL a row whose relation work is nested `create` / `createMany` only —
+no `connect`, `connectOrCreate` or `upsert`, each of which has to look a target
+up first — collapses into **one** statement: the parent `INSERT` and its child
+`INSERT`s become a single `WITH … RETURNING` command instead of one statement
+each, with a database-generated parent key travelling between them inside that
+statement. Measured: a parent plus two children went from four statements to
+one. It is an optimization with no semantic surface — same rows, same order,
+same errors — and it applies to a plain `create` too. Other providers run the
+portable statement series.
+
 ## Options
 
 ```ts
 await client.user.createMany({
-  data: [{ ... }],      // Required: array of records
+  data: [{ ... }],      // Required: array of records — the ordinary create data
+                        // shape, nested relation writes included
   skipDuplicates: true, // Optional: skip duplicate-key conflicts
+                        // (not combinable with nested relation writes)
   select: { ... },      // Optional (scalar fields only): return the created rows
                         // instead of { count }
 });

@@ -1,16 +1,23 @@
+import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { PGliteDriver } from "@drivers/pglite";
+import {
+  createQueryScope,
+  getPolymorphicRelationInfo,
+} from "@query-engine/context";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames, s } from "@schema";
 import { validateSchemaOrThrow } from "@schema/validation";
-import { createSchemaRegistry } from "@validation";
-import { expect, test } from "vitest";
+import { resolvePolymorphicEdge } from "@src/query-engine/builders/polymorphic-relation";
 import { CreateOperation } from "@src/query-engine/write-engine/CreateOperation";
 import type {
   OperationFragment,
   PlanningFragment,
   StatementStep,
 } from "@src/query-engine/write-engine/OperationFragment";
+import { UpsertOperation } from "@src/query-engine/write-engine/UpsertOperation";
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
+import { createSchemaRegistry } from "@validation";
+import { expect, test } from "vitest";
 
 const polymorphicPlanSchema = (() => {
   const author = s.model({
@@ -67,6 +74,41 @@ function statement(
   return step;
 }
 
+test("collection order is ordinary-then-polymorphic, NOT payload key order", () => {
+  // The parsed relation collection groups every ordinary relation before every
+  // polymorphic one, each bucket in payload key order. This payload spells the
+  // polymorphic fields FIRST; the plan must still open with the ordinary
+  // author.find. A collector that switched to raw payload order would emit
+  // post.find before author.find and rename the duplicate suffix.
+  const driver = new BatchOnlyPGliteDriver();
+  const registry = createSchemaRegistry(polymorphicPlanSchema);
+  const args = {
+    data: {
+      id: 1,
+      body: "ordered",
+      primary: { connect: { type: "post", where: { id: 10 } } },
+      author: { connect: { id: 10 } },
+      secondary: { connect: { type: "post", where: { id: 11 } } },
+    },
+    select: { id: true },
+  };
+  const engine = new QueryEngine(
+    driver,
+    createModelRegistry(polymorphicPlanSchema, registry)
+  );
+  const operation = new CreateOperation(
+    engine,
+    polymorphicPlanSchema.comment,
+    args
+  );
+
+  expect(ids(operation.planning())).toEqual([
+    "author.find",
+    "post.find",
+    "post.find#1",
+  ]);
+});
+
 test("two same-target polymorphic fields preserve ordered steps and root pairs", () => {
   const driver = new BatchOnlyPGliteDriver();
   const registry = createSchemaRegistry(polymorphicPlanSchema);
@@ -82,10 +124,7 @@ test("two same-target polymorphic fields preserve ordered steps and root pairs",
   };
   const engine = new QueryEngine(
     driver,
-    createModelRegistry(
-      polymorphicPlanSchema,
-      registry
-    )
+    createModelRegistry(polymorphicPlanSchema, registry)
   );
   const operation = new CreateOperation(
     engine,
@@ -94,11 +133,7 @@ test("two same-target polymorphic fields preserve ordered steps and root pairs",
   );
 
   const planning = operation.planning();
-  expect(ids(planning)).toEqual([
-    "author.find",
-    "post.find",
-    "post.find#1",
-  ]);
+  expect(ids(planning)).toEqual(["author.find", "post.find", "post.find#1"]);
   const compiled = operation.compile({
     "author.find.rows": [{ id: 10 }],
     "post.find.rows": [{ id: 10 }],
@@ -126,5 +161,77 @@ test("two same-target polymorphic fields preserve ordered steps and root pairs",
     10,
     "secondary.post.v1",
     11,
+  ]);
+});
+
+test("the direct polymorphic target boundary refuses at construction, eagerly", () => {
+  // §6.1.4's boundary: resolvePolymorphicEdge answers at program construction,
+  // for every polymorphic payload — INCLUDING an upsert arm execution never
+  // takes. Both pins here are timing pins: no execution, no driver round trip.
+  const scope = createQueryScope(
+    new PostgresAdapter(),
+    polymorphicPlanSchema.comment
+  );
+  const info = getPolymorphicRelationInfo(scope, "primary");
+  if (!info) throw new Error("expected polymorphic relation info for primary");
+  // The engine boundary owns this sentence; the validation layer refuses the
+  // public spelling earlier, so this message is an internal contract.
+  expect(() => resolvePolymorphicEdge(scope, info, "bogus")).toThrow(
+    "Unknown polymorphic target 'bogus' for relation 'primary'."
+  );
+
+  // Public timing half: a malformed polymorphic envelope on the UPDATE arm of
+  // an upsert refuses at construction even though no arm has been selected.
+  const registry = createSchemaRegistry(polymorphicPlanSchema);
+  const engine = new QueryEngine(
+    new BatchOnlyPGliteDriver(),
+    createModelRegistry(polymorphicPlanSchema, registry)
+  );
+  expect(() => {
+    const operation = new UpsertOperation(
+      engine,
+      polymorphicPlanSchema.comment,
+      {
+        where: { id: 1 },
+        create: { id: 1, body: "b", author: { connect: { id: 10 } } },
+        update: {
+          primary: { connect: { type: "bogus", where: { id: 10 } } },
+        },
+      }
+    );
+    operation.planning();
+  }).toThrow(/Validation failed|Unknown polymorphic target/);
+});
+
+test("a tree carrying a direct-polymorphic create arm DECLINES the CTE fold", () => {
+  // The fold's order-insensitivity claim was measured for ordinary FK arms
+  // only. A polymorphic-storage create arm stays unclassified, so the tree
+  // keeps its multi-statement shape — statement count is a pinned surface.
+  const registry = createSchemaRegistry(polymorphicPlanSchema);
+  const engine = new QueryEngine(
+    new PGliteDriver(),
+    createModelRegistry(polymorphicPlanSchema, registry)
+  );
+  const operation = new CreateOperation(engine, polymorphicPlanSchema.author, {
+    data: {
+      id: 5,
+      name: "n",
+      comments: {
+        create: {
+          id: 6,
+          body: "b",
+          primary: { create: { type: "post", data: { id: 7, title: "t" } } },
+        },
+      },
+    },
+    select: { id: true },
+  });
+  expect(ids(operation.planning())).toEqual([]);
+  const compiled = operation.compile({});
+  expect(ids(compiled)).toEqual([
+    "author.create",
+    "post.create",
+    "comment.create",
+    "author.select",
   ]);
 });

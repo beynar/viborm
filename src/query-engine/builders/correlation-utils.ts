@@ -8,11 +8,12 @@
 import type { Model } from "@schema/model";
 import type { Sql } from "@sql";
 import { getColumnName, getCompoundIdConstraint } from "../context";
-import { QueryEngineError, type QueryScope, type RelationInfo } from "../types";
+import { QueryEngineError, type QueryScope } from "../types";
 import {
-  type BoundPolymorphicChildHeldRelation,
-  bindRelation,
-  isPolymorphicChildHeldRelation,
+  type ChildHeldRelation,
+  hasPolymorphicMembership,
+  type ParentHeldRelation,
+  type PolymorphicChildHeldRelation,
 } from "./relation-data-builder";
 
 export { getCompoundIdConstraint, getPrimaryKeyFields } from "../context";
@@ -20,13 +21,19 @@ export { getCompoundIdConstraint, getPrimaryKeyFields } from "../context";
 /**
  * Build correlation condition between parent and related table.
  *
- * For manyToOne relations: uses fields/references directly
- * For oneToMany/oneToOne: finds inverse relation on target model to get FK info
+ * For a parent-held edge: uses the membership's own foreign/referenced columns
+ * For a child-held edge: uses the inverse the binder resolved on the target model
  * For a resolved polymorphic inverse: binds its private id and fixed stored type
- * For manyToMany: rejects direct use because the junction owner builds it
+ *
+ * A junction relation cannot reach here: it is a THIRD table's membership, it has
+ * no parent/target column pair to compare, and the one classification
+ * (`classifyRelation`, consumed by `relation-traversal.ts`) hands junctions to
+ * `buildManyToManyJoinParts` instead. The bound union spells that out — this
+ * signature admits only the two row-held arms — which is why the refusal this
+ * function used to carry is gone rather than moved.
  *
  * @param ctx - Query context
- * @param relationInfo - Relation metadata
+ * @param relation - The bound row-held relation being traversed
  * @param parentAlias - Parent table alias
  * @param relatedAlias - Related table alias
  * @returns SQL condition for correlation
@@ -34,16 +41,16 @@ export { getCompoundIdConstraint, getPrimaryKeyFields } from "../context";
  */
 export function buildCorrelation(
   ctx: QueryScope,
-  relationInfo: RelationInfo,
+  relation: ParentHeldRelation | ChildHeldRelation,
   parentAlias: string,
   relatedAlias: string
 ): Sql {
   const { adapter } = ctx;
-  const relation = bindRelation(ctx, relationInfo);
-  if (isPolymorphicChildHeldRelation(relation)) {
+  const { relationInfo } = relation;
+  if (hasPolymorphicMembership(relation)) {
     const parentIdentity = adapter.identifiers.column(
       parentAlias,
-      getColumnName(ctx.model, relation.referencedFields[0])
+      getColumnName(ctx.model, relation.membership.referencedField)
     );
     return buildPolymorphicMembershipPredicate(
       ctx,
@@ -53,43 +60,40 @@ export function buildCorrelation(
     );
   }
 
-  if (relation.kind === "junction") {
-    throw new QueryEngineError(
-      `Many-to-many relation '${relationInfo.name}' cannot use buildCorrelation directly. ` +
-        "Use getManyToManyJoinInfo() and buildManyToManyJoinParts() from many-to-many-utils.ts instead."
-    );
-  }
+  // POSITION, not holder identity: a self-relation holds both ends, and this asks
+  // which END the parent alias addresses.
+  const parentHeld = relation.position === "parentHeld";
+  const { foreignFields, referencedFields } = relation.membership;
+  const parentFields = parentHeld ? foreignFields : referencedFields;
+  const relatedFields = parentHeld ? referencedFields : foreignFields;
 
-  const parentFields =
-    relation.kind === "parentHeldToOne"
-      ? relation.foreignFields
-      : relation.referencedFields;
-  const relatedFields =
-    relation.kind === "parentHeldToOne"
-      ? relation.referencedFields
-      : relation.foreignFields;
-
+  // This read path's OWN refusal, with its own sentence — and, because it proves the
+  // two lists have equal arity, the reason the member pairing below cannot refuse
+  // here and displace it. It must therefore stay AHEAD of the first read of
+  // `membership.members`: that getter owns a different refusal (guard #1's
+  // NestedWriteError) which would otherwise displace this one.
   if (parentFields.length !== relatedFields.length) {
     throw new QueryEngineError(
       `Relation '${relationInfo.name}' has mismatched fields (${parentFields.length}) and references (${relatedFields.length}).`
     );
   }
 
-  // Build equality conditions for each field/reference pair
-  const conditions: Sql[] = [];
-  for (let i = 0; i < parentFields.length; i++) {
-    const parentColumnName = getColumnName(ctx.model, parentFields[i]!);
+  const conditions: Sql[] = relation.membership.members.map((member) => {
+    const parentColumnName = getColumnName(
+      ctx.model,
+      parentHeld ? member.foreignField : member.referencedField
+    );
     const relatedColumnName = getColumnName(
       relationInfo.targetModel,
-      relatedFields[i]!
+      parentHeld ? member.referencedField : member.foreignField
     );
     const parentCol = adapter.identifiers.column(parentAlias, parentColumnName);
     const relatedCol = adapter.identifiers.column(
       relatedAlias,
       relatedColumnName
     );
-    conditions.push(adapter.operators.eq(parentCol, relatedCol));
-  }
+    return adapter.operators.eq(parentCol, relatedCol);
+  });
 
   return conditions.length === 1
     ? conditions[0]!
@@ -98,32 +102,26 @@ export function buildCorrelation(
 
 export function buildPolymorphicMembershipPredicate(
   ctx: QueryScope,
-  relation: BoundPolymorphicChildHeldRelation,
+  relation: PolymorphicChildHeldRelation,
   childQualifier: string,
   parentIdentity: Sql
 ): Sql {
+  const { storage, storedType } = relation.membership;
   const childId = ctx.adapter.identifiers.column(
     childQualifier,
-    relation.storage.idColumn.name
+    storage.idColumn.name
   );
   const childType = ctx.adapter.identifiers.column(
     childQualifier,
-    relation.storage.typeColumn.name
+    storage.typeColumn.name
   );
   return ctx.adapter.operators.and(
     ctx.adapter.operators.eq(childId, parentIdentity),
     ctx.adapter.operators.exactTextEq(
       childType,
-      ctx.adapter.literals.value(relation.storedType)
+      ctx.adapter.literals.value(storedType)
     )
   );
-}
-
-/**
- * Get model name for error messages
- */
-function getModelName(model: Model<any>): string {
-  return model["~"].names.ts ?? model["~"].state.tableName ?? "unknown";
 }
 
 /**
@@ -138,34 +136,4 @@ export function buildPrimaryKeyWhereUnique(
 ): Record<string, unknown> {
   const compound = getCompoundIdConstraint(model);
   return compound ? { [compound.name]: values } : values;
-}
-
-/**
- * Get the single primary key field of a model, or throw.
- *
- * Junction tables key on one PK column per side, so many-to-many requires a
- * single-field PK on both models.
- */
-export function getRequiredSinglePrimaryKeyField(model: Model<any>): string {
-  const modelName = getModelName(model);
-
-  const compoundId = model["~"].state.compoundId;
-  if (compoundId && Object.keys(compoundId).length > 0) {
-    throw new QueryEngineError(
-      `Model "${modelName}" uses a compound primary key. ` +
-        "Many-to-many relations with compound PKs are not supported. " +
-        "Use a single-field surrogate key (e.g., s.string().id().ulid()) instead."
-    );
-  }
-
-  for (const [name, field] of Object.entries(model["~"].state.scalars)) {
-    if ((field as any)["~"].state.isId) {
-      return name;
-    }
-  }
-
-  throw new QueryEngineError(
-    `Model "${modelName}" has no primary key field. ` +
-      "Many-to-many relations require a single-field primary key."
-  );
 }

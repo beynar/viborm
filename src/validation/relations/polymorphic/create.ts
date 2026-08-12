@@ -1,91 +1,91 @@
 import type { PolymorphicRelationState } from "@schema/relation";
 import v from "@validation/primitives/v";
+import type { InferInput, InferOutput, VibSchema } from "@validation/types";
+import {
+  type ToOneMutationSchema,
+  toOneMutationSchema,
+} from "../to-one-mutation-schema";
 import type {
   CoreInputAt,
   CoreOutputAt,
   ExactPolymorphicTargetSchemaGetters,
-  PolymorphicSchema,
   PolymorphicTargetSchemaGetters,
 } from "./types";
 import { polymorphicPublicTypes } from "./types";
 
-type CreateInputFor<
-  Getters,
-  PublicType extends Extract<keyof Getters, string>,
-> =
-  | {
-      readonly connect: {
-        readonly type: PublicType;
-        readonly where: CoreInputAt<Getters, PublicType, "whereUnique">;
-      };
-      readonly create?: never;
-      readonly connectOrCreate?: never;
-    }
-  | {
-      readonly connect?: never;
-      readonly create: {
-        readonly type: PublicType;
-        readonly data: CoreInputAt<Getters, PublicType, "create">;
-      };
-      readonly connectOrCreate?: never;
-    }
-  | {
-      readonly connect?: never;
-      readonly create?: never;
-      readonly connectOrCreate: {
-        readonly type: PublicType;
-        readonly where: CoreInputAt<Getters, PublicType, "whereUnique">;
-        readonly create: CoreInputAt<Getters, PublicType, "create">;
-      };
-    };
-
-type CreateOutputFor<
-  Getters,
-  PublicType extends Extract<keyof Getters, string>,
-> =
-  | {
-      readonly connect: {
-        readonly type: PublicType;
-        readonly where: CoreOutputAt<Getters, PublicType, "whereUnique">;
-      };
-      readonly create?: never;
-      readonly connectOrCreate?: never;
-    }
-  | {
-      readonly connect?: never;
-      readonly create: {
-        readonly type: PublicType;
-        readonly data: CoreOutputAt<Getters, PublicType, "create">;
-      };
-      readonly connectOrCreate?: never;
-    }
-  | {
-      readonly connect?: never;
-      readonly create?: never;
-      readonly connectOrCreate: {
-        readonly type: PublicType;
-        readonly where: CoreOutputAt<Getters, PublicType, "whereUnique">;
-        readonly create: CoreOutputAt<Getters, PublicType, "create">;
-      };
-    };
-
-export type PolymorphicCreateInput<Getters> = {
-  [PublicType in Extract<keyof Getters, string>]: CreateInputFor<
-    Getters,
-    PublicType
-  >;
+/**
+ * A direct polymorphic payload carries its discriminator INSIDE each verb, so a verb
+ * schema is a union over the configured public types and the type-to-selector
+ * correlation is a property of that union — not of a projection the enclosing edge
+ * applies (that owner, `nested-data-projection`, is for INVERSE edges).
+ */
+type ConnectInput<Getters> = {
+  [PublicType in Extract<keyof Getters, string>]: {
+    readonly type: PublicType;
+    readonly where: CoreInputAt<Getters, PublicType, "whereUnique">;
+  };
 }[Extract<keyof Getters, string>];
 
-export type PolymorphicCreateOutput<Getters> = {
-  [PublicType in Extract<keyof Getters, string>]: CreateOutputFor<
-    Getters,
-    PublicType
-  >;
+type ConnectOutput<Getters> = {
+  [PublicType in Extract<keyof Getters, string>]: {
+    readonly type: PublicType;
+    readonly where: CoreOutputAt<Getters, PublicType, "whereUnique">;
+  };
 }[Extract<keyof Getters, string>];
 
-export type PolymorphicCreateSchema<Getters> = PolymorphicSchema<
-  PolymorphicCreateInput<Getters>,
-  PolymorphicCreateOutput<Getters>
+type CreateInput<Getters> = {
+  [PublicType in Extract<keyof Getters, string>]: {
+    readonly type: PublicType;
+    readonly data: CoreInputAt<Getters, PublicType, "create">;
+  };
+}[Extract<keyof Getters, string>];
+
+type CreateOutput<Getters> = {
+  [PublicType in Extract<keyof Getters, string>]: {
+    readonly type: PublicType;
+    readonly data: CoreOutputAt<Getters, PublicType, "create">;
+  };
+}[Extract<keyof Getters, string>];
+
+type ConnectOrCreateInput<Getters> = {
+  [PublicType in Extract<keyof Getters, string>]: {
+    readonly type: PublicType;
+    readonly where: CoreInputAt<Getters, PublicType, "whereUnique">;
+    readonly create: CoreInputAt<Getters, PublicType, "create">;
+  };
+}[Extract<keyof Getters, string>];
+
+type ConnectOrCreateOutput<Getters> = {
+  [PublicType in Extract<keyof Getters, string>]: {
+    readonly type: PublicType;
+    readonly where: CoreOutputAt<Getters, PublicType, "whereUnique">;
+    readonly create: CoreOutputAt<Getters, PublicType, "create">;
+  };
+}[Extract<keyof Getters, string>];
+
+/** The supply verbs a fresh parent can name. Declaration order is the message order. */
+export type PolymorphicCreateEntries<Getters> = {
+  connect: VibSchema<ConnectInput<Getters>, ConnectOutput<Getters>>;
+  create: VibSchema<CreateInput<Getters>, CreateOutput<Getters>>;
+  connectOrCreate: VibSchema<
+    ConnectOrCreateInput<Getters>,
+    ConnectOrCreateOutput<Getters>
+  >;
+};
+
+export type PolymorphicCreateSchema<Getters> = ToOneMutationSchema<
+  PolymorphicCreateEntries<Getters>,
+  undefined,
+  false,
+  "exactlyOne"
+>;
+
+export type PolymorphicCreateInput<Getters> = InferInput<
+  PolymorphicCreateSchema<Getters>
+>;
+
+export type PolymorphicCreateOutput<Getters> = InferOutput<
+  PolymorphicCreateSchema<Getters>
 >;
 
 export function polymorphicCreateFactory<
@@ -96,47 +96,46 @@ export function polymorphicCreateFactory<
   targetSchemas: ExactPolymorphicTargetSchemaGetters<State, Getters>
 ): PolymorphicCreateSchema<Getters> {
   const schemaGetters: PolymorphicTargetSchemaGetters<State> = targetSchemas;
-  const members = polymorphicPublicTypes(state).flatMap((publicType) => {
-    const schemas = schemaGetters[publicType];
-    return [
-      v.object(
-        {
-          connect: v.object(
+  const publicTypes = polymorphicPublicTypes(state);
+  return toOneMutationSchema(
+    {
+      connect: v.union(
+        publicTypes.map((publicType) =>
+          v.object(
             {
               type: v.literal(publicType),
-              where: () => schemas().core.whereUnique,
+              where: () => schemaGetters[publicType]().core.whereUnique,
             },
             { partial: false }
-          ),
-        },
-        { partial: false }
+          )
+        )
       ),
-      v.object(
-        {
-          create: v.object(
+      create: v.union(
+        publicTypes.map((publicType) =>
+          v.object(
             {
               type: v.literal(publicType),
-              data: () => schemas().core.create,
+              data: () => schemaGetters[publicType]().core.create,
             },
             { partial: false }
-          ),
-        },
-        { partial: false }
+          )
+        )
       ),
-      v.object(
-        {
-          connectOrCreate: v.object(
+      connectOrCreate: v.union(
+        publicTypes.map((publicType) =>
+          v.object(
             {
               type: v.literal(publicType),
-              where: () => schemas().core.whereUnique,
-              create: () => schemas().core.create,
+              where: () => schemaGetters[publicType]().core.whereUnique,
+              create: () => schemaGetters[publicType]().core.create,
             },
             { partial: false }
-          ),
-        },
-        { partial: false }
+          )
+        )
       ),
-    ];
-  });
-  return v.union(members) as unknown as PolymorphicCreateSchema<Getters>;
+    },
+    undefined,
+    false,
+    "exactlyOne"
+  ) as unknown as PolymorphicCreateSchema<Getters>;
 }

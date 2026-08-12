@@ -24,7 +24,7 @@ untrusted arguments
 operation schema and relation transforms
         │
         ▼
-scalar data + RelationMutationProgram map
+scalar data + one ordered parsed relation collection
         │
         ▼
 OwnWrite legality
@@ -62,7 +62,7 @@ outer shell. `*Operation.ts` files contain these owners;
 ordering helpers.
 
 At one relation edge, **parent** is the current source record and **child** is
-its target. `parentHeldToOne` means that source record stores the FK; neither
+its target. `position: "parentHeld"` means that source record stores the FK; neither
 word establishes a global model hierarchy.
 
 ## 2. The execution vocabulary
@@ -114,7 +114,6 @@ Planning has a smaller type than final compilation:
 ```ts
 interface PlanningFragment {
   readonly steps: readonly StatementStep[];
-  readonly outputs: Readonly<Record<string, FragmentOutputSource>>;
 }
 ```
 
@@ -128,8 +127,10 @@ the final fragment. The executor must retain its non-read planning fallback.
 Nested `Part.planning()` normally contributes reads. This is a current
 implementation fact, not a stronger type invariant than `PlanningFragment`.
 
-Planning output keys use the step ID plus output name. Two sibling probes for
-the same model therefore cannot overwrite each other.
+Planning publication is DERIVED: the executor exposes every declared statement
+output under `planningKey(step.id, name)`, so a producer cannot under-publish
+and two sibling probes for the same model cannot overwrite each other. Final
+fragments keep explicit output selection.
 
 Final fragments contain only the selected arm. Atomic-batch execution evaluates
 guards before writes while preserving relative order inside both buckets.
@@ -155,8 +156,11 @@ not inspect mutation kinds.
 already parsed.
 
 Root update keeps its established one-transform sites so error order does not
-move. Nested record compilers receive transformed data and do not reopen the
-public schema.
+move. It therefore spells its own two passes — every ordinary relation payload
+transformed before any polymorphic one — rather than delegating to the general
+constructor; the upsert update arm spells the same two. Both produce the one
+parsed collection described in §5. Nested record compilers receive transformed
+data and do not reopen the public schema.
 
 ## 5. Relation mutation programs
 
@@ -199,6 +203,44 @@ keep any deduplication that belongs to their own rule.
 Emitters iterate `program.entries`. They do not index an optional per-kind bag,
 normalize arrays again, or inspect the original payload.
 
+One record's parsed `data` is its scalars plus ONE ordered collection:
+
+```ts
+type ParsedRelationMutation =
+  | {
+      readonly kind: "ordinary";
+      readonly name: string;
+      readonly program: RelationMutationProgram;
+    }
+  | {
+      readonly kind: "polymorphicTarget";
+      readonly name: string;
+      readonly program: RelationMutationProgram;
+      readonly edge: ResolvedPolymorphicEdge;
+    }
+  | {
+      readonly kind: "polymorphicDisconnect";
+      readonly name: string;
+      readonly storage: PolymorphicStorage;
+    };
+
+interface ParsedRecordPrograms {
+  readonly scalarData: Record<string, unknown>;
+  readonly relations: readonly ParsedRelationMutation[];
+}
+```
+
+Every relation key the payload writes is one entry. A targetless direct
+polymorphic `disconnect` has no program — it is one empty private storage
+assignment — and is its own arm rather than a companion map, because a reader
+that consulted programs alone dropped it silently (§17).
+
+The collection's ORDER is behavior: every ordinary relation in payload key
+order, then every polymorphic relation in payload key order. It decides step-id
+allocation and therefore duplicate suffixes, planning and guard order, and
+OwnWrite append order. Payload key order is not that order, and this
+representation does not normalize execution to model declaration order.
+
 ## 6. Mutation order
 
 Relation entries use one semantic order:
@@ -216,40 +258,77 @@ It can change locks, error attribution, race exposure, and sibling visibility.
 
 ## 7. Bound relation position
 
-`bindRelation` turns schema relation metadata into one topology fact:
+ONE STORED TOPOLOGY, SEVERAL DERIVED VIEWS. `bindRelation` turns schema relation
+metadata into one topology fact, carrying three ORTHOGONAL axes. Every other
+statement about the edge — its arity, whether its slot may empty, whether its
+membership can be cleared, how it correlates — is DERIVED from that one fact by
+one named owner, and is never stored a second time:
 
 ```ts
 type BoundRelation =
-  | ParentHeldToOne
-  | ChildHeldToOne
-  | ChildHeldToMany
-  | PolymorphicChildHeldToOne
-  | PolymorphicChildHeldToMany
-  | JunctionRelation;
+  | ParentHeldRelation // position "parentHeld", cardinality "one"
+  | ChildHeldRelation // position "childHeld", cardinality "one" | "many"
+  | JunctionBoundRelation; // position "junction", cardinality "many"
+
+type ChildHeldRelation =
+  | OrdinaryChildHeldRelation // membership: BoundForeignKeyMembership
+  | PolymorphicChildHeldRelation; // membership: BoundPolymorphicMembership
 ```
+
+- `position` is which row stores the membership, and decides placement and
+  ownership;
+- `cardinality` is how many targets the public slot admits, and decides arity;
+- `membership.kind` (`foreignKey` / `polymorphic` / `junction`) is how the
+  membership is physically stored, and decides lowering.
+
+Each consumer branches on exactly the axis its question names. The union still
+forbids the impossible combinations: parent-held is always to-one, junction is
+always to-many, and both child-held storages admit either arity.
+
+ONE dispatcher per position, not one per position × membership. A child-held
+entry is compiled once for both storages, with the parent's read source, its
+write source and each half's placement resolved BEFORE the dispatch; a
+parent-held arm names its verb, and which storage it assigns rides as a
+root-membership assignment on that arm — everywhere the fresh-record compiler
+owns, and for a selected record's create and connect-or-create; the selected
+record's polymorphic update, upsert and delete still hold parallel arms until a
+parent-held locator union lands (the blocker is stated at those arms). What
+stays inside an arm is only a
+difference that is real — a fresh child's foreign-key provenance, a guard that
+must be rebuilt from a captured row, a discriminator premise on the located row.
 
 Classification is ordered:
 
 1. `manyToMany` is `junction`;
-2. a relation whose current model holds the FK is `parentHeldToOne`;
-3. a resolved polymorphic inverse is `polymorphicChildHeldToOne` for a
-   fields-less `oneToOne`, otherwise `polymorphicChildHeldToMany`;
-4. an ordinary child-held to-one is `childHeldToOne`;
-5. the remaining ordinary child-held relation is `childHeldToMany`.
+2. a relation whose current model holds the FK is `parentHeld`, cardinality
+   `one`;
+3. a resolved polymorphic inverse is `childHeld` with polymorphic membership,
+   cardinality `one` for a fields-less `oneToOne`, otherwise `many`;
+4. the remaining child-held relation carries foreign-key membership, cardinality
+   `one` for a to-one relation, otherwise `many`.
 
 A fields-less `manyToOne` is therefore child-held to-one from the current
 source position.
 
-A bound FK relation carries:
+A bound relation carries the source model and its `relationInfo`; its membership
+carries the physical storage and the two models it spans. A foreign-key membership
+carries:
 
-- the source model;
+- the holder model and the referenced model (equal on a self-relation);
 - ordered foreign fields;
 - ordered referenced fields;
+- those two lists paired member for member, LAZILY: pairing is where mismatched
+  foreign-key metadata is refused, and binding must not move that refusal ahead of
+  the relation-key legality error that answers first. That pairing is the ONE
+  pairing — a consumer needing both halves of a member reads `members`, never
+  `foreignFields[i]` beside `referencedFields[i]`;
 - the `onUpdate` action.
 
-The polymorphic child-held variants additionally carry their private storage and
-fixed stored discriminator. Its one identity field references the parent field
-at the same index. It expresses a conjunction, not two independent links:
+A polymorphic membership carries the same holder and referenced models, its
+one-member foreign tuple and the SINGLE field it references, plus its private
+storage and fixed stored discriminator (and no referential action). Its one
+identity field references the parent's single named field. It expresses a
+conjunction, not two independent links:
 
 ```text
 child.privateIdentity = parent.referenced
@@ -260,38 +339,49 @@ The discriminator participates in membership scope equality, OwnWrite
 footprints, read correlation, target probes, set departure, and bulk predicates.
 A same-id row with another discriminator is a different membership.
 
-Cardinality remains an ordinary relation concern. The singular variant selects
-one member, uses to-one operation arity, and relies on the relation-wide unique
-storage index for occupied-slot enforcement. The storage predicate and value
-lowering remain shared with the to-many variant.
+Cardinality remains an ordinary relation concern, and an axis of its own: the
+singular case selects one member, uses to-one operation arity, and relies on the
+relation-wide unique storage index for occupied-slot enforcement. The storage
+predicate and value lowering are the membership's, shared across both arities.
 
-It does not carry:
+A bound relation does not carry:
 
 - query scopes or aliases;
 - parent identity values;
 - planning or final sources;
 - fresh or located state;
 - transition values;
-- junction mapping metadata;
 - SQL;
 - branch or execution policy.
 
 Bind at the first topology decision. Do not bind all relations early: that can
 move malformed-metadata errors ahead of schema errors or into an untaken upsert
-arm.
+arm. Lateness protects exactly what is lazy — the paired FK members and the
+junction sides. The row-held bind itself resolves the inverse EAGERLY, so a
+missing, ambiguous, or storage-less inverse refuses at construction even from
+an untaken arm (pinned by the construction-eagerness witnesses); that is the
+deliberate boundary, not a leak.
 
 Direct polymorphic mutation intent is not a bound inverse. It chooses a target
-variant per payload and lowers to `ResolvedPolymorphicMutation` plus one atomic
-private storage assignment. Fresh record compilation accepts connect, create,
-and connect-or-create. Selected record compilation also accepts correlated
+variant per payload, and lowers to the parsed collection's polymorphic arms — a
+resolved edge beside its program, or a targetless disconnect — plus one atomic
+private storage assignment. Its resolution is eager, at program construction, for
+every polymorphic payload including an untaken upsert arm. Fresh record
+compilation accepts connect, create, and connect-or-create. Selected record compilation also accepts correlated
 update and upsert; optional storage accepts disconnect and typed target delete.
 The locate exposes private storage columns only for verbs whose branch depends
 on current membership.
 
-Root createMany accepts connect-only polymorphic memberships per row. Its bulk
-preparation groups selectors by relation and stored discriminator, resolves the
-private pair once per row, and preserves the existing contiguous row-shape
-grouping. Count and returning operations use this same owner.
+Root createMany's BULK path accepts connect-only polymorphic memberships per
+row. Its bulk preparation groups selectors by relation and stored discriminator,
+resolves the private pair once per row, and preserves the existing contiguous
+row-shape grouping. Count and returning operations use this same owner.
+
+A row that also names an ordinary relation leaves that path entirely: the whole
+operation becomes a record series (§9, §17), and the membership is then owned by
+the member's own fresh-record compilation above — a different plan for the same
+stored pair, correctly so, because a series member is one row and has nothing to
+group across.
 
 ## 8. Source-bound relation membership
 
@@ -330,8 +420,14 @@ The source owner enforces these boundaries:
 - compound members preserve schema field order;
 - read and write sources are never inferred from each other.
 
-Field arity is checked when fields and values are paired, after the existing
-legality boundary. Binding topology does not perform that check early.
+Field arity is checked when the membership's FIELDS are paired — the one owner —
+and that pairing is lazy, so it still lands after the existing legality boundary.
+Binding topology does not perform that check early. Attaching VALUES to already
+paired members adds no second arity check: a source list is built by mapping the
+members themselves, or over a reference list the pairing has already proven at
+least member-length, so no member can bind a missing source. (An over-long
+reference list — schema-invalid, unreachable through validation — binds its
+paired prefix; correlated reads still refuse it.)
 
 ## 9. Fresh-record compiler
 
@@ -350,8 +446,10 @@ The compiler owns:
 - incoming membership assignment;
 - parent-held before-writes;
 - child-held descendants;
-- generated identity capture when requested;
+- database-produced field capture when requested;
 - root insert construction;
+- the one focused post-insert read a non-returning substrate needs to publish
+  those fields;
 - descendant order.
 
 The nested fresh-record Part exposes:
@@ -364,15 +462,57 @@ The nested fresh-record Part exposes:
 It does not own the incoming relation's membership or found/missing decision.
 The explicit inline junction-target insert remains local to the junction owner.
 
-Generated identity capture is demand-driven. A generated value is requested
-when a descendant, an incoming edge consumer, a junction, or a terminal result
-needs it. An unused generated identity does not force a different insert shape.
+Database-produced field publication is demand-driven. A produced value is
+requested when a descendant, an incoming edge consumer, a junction, or a terminal
+result needs it, and requesting it is the ONLY way it is published: the request is
+`rootReferenced(field)` and there is no flag, no source kind, and no second
+record-reference abstraction beside it. An unrequested produced value does not
+force a different insert shape.
 
-`createMany` remains specialized because row grouping, skip semantics, and
-multi-row output folding are not one-record compilation. A fresh parent stores
-post-insert groups in `CreateOperation`; a selected parent delegates to
-`nested-target-parts.ts`; a junction retains target-row and join ordering in
-`RelationJunctionPart`.
+A produced value is an absent `increment` column, which is the whole of what this
+schema language leaves to the database — every other `autoGenerate` carries an
+application default the parse boundary materializes. The generated primary key is
+one such column and keeps its historical output name; any other takes its own
+channel, so two produced columns of one record never share a value.
+
+How the value travels is a substrate fact, decided once, at the demand:
+
+- a returning provider in a transaction adds the column to the insert's own
+  `RETURNING` list;
+- a non-returning provider in a transaction keeps the insert and adds ONE focused
+  read of every demanded field of that record, by the created-row selector the
+  compiler already owns for its terminal read; the driver's insert id may NAME the
+  row for that read and is never substituted for a non-identity value;
+- an atomic batch refuses: no statement's rows are addressable and the reference
+  scratch carries the generated identity alone.
+
+Which providers can hold a produced NON-primary column is narrower than which
+can publish one, and the engine does not decide it: PostgreSQL takes any number
+per table, MySQL takes one and requires it to be a key, and the SQLite family
+takes none, because its migration driver spells every auto-increment column as
+the table's primary key. So the focused post-insert read is MySQL's path alone,
+and on MySQL it always addresses its row by that row's own primary key — a
+record with a generated key AND another produced column is a table with two auto
+columns, which MySQL rejects.
+
+Destination scalar casts are untouched by publication. They belong to the
+consuming column, which sees a reference exactly as it saw the generated
+identity's.
+
+`createMany` keeps a specialized FAST PATH because row grouping, skip semantics,
+and multi-row output folding are not one-record compilation. That path covers a
+row whose data is scalars, and a row whose only relation work is a direct
+polymorphic `connect` — the shape whose target probes group across rows.
+
+A row carrying a general relation program is not compiled here at all. The whole
+operation routes to `CreateManyRecordSeries`, whose members are ordinary
+`CreateOperation` instances run left to right in one transaction, so a bulk row's
+relation semantics are the single-record ones by construction rather than by a
+second implementation. See §17 and plan §5.1.
+
+A fresh parent stores post-insert groups in `CreateOperation`; a selected parent
+delegates to `nested-target-parts.ts`; a junction retains target-row and join
+ordering in `RelationJunctionPart`.
 
 ## 10. Selected-record compiler
 
@@ -417,7 +557,7 @@ The caller owns the target read and its batch premise. If the projection contain
 private physical columns, that same guard reasserts their captured values before
 the compiler's writes. No additional guard step is introduced.
 
-For `parentHeldToOne`, it does own the inline FK fold and the branch required to
+For a parent-held edge, it does own the inline FK fold and the branch required to
 construct the root UPDATE. Moving that decision out would require a lifecycle
 protocol or an extra statement.
 
@@ -553,6 +693,44 @@ The ordering rule is not “always parent first” or “always child first.” 
 
 A no-op transition keeps the ordinary order. Compound members stay ordered.
 
+Neither value depends on the locator. The old value of every reference-key
+member comes from the `where` when it pins that member and from the located row
+otherwise; the new value is derived from whichever one arrived, per member, at
+compile when it cannot be spelled at construction. A locator that names some
+other unique, a compound reference, and a non-primary-key referenced unique are
+therefore the same shape as the pinned single member, not a separate surface.
+
+A primary-key transition is not always a scalar write. When a parent-held
+relation's foreign key is the selected record's own row key, the arm that
+supplies that foreign key moves the record's key, and the payload names no
+scalar. That fold is a transition like any other: it enters the same regime
+decision, the same occupied guard, the same before/after ordering, and the same
+terminal identity. The record compiler therefore answers "does this update move
+the record's own key" from both channels — the scalar SET and the fold — and an
+arm that resolves a row-key member to no single value is refused instead of
+folded.
+
+The read source is a required field of every membership-bearing config, never a
+default that falls back to the write source. One construction site can then be
+wrong about one edge, instead of every site being silently right only while no
+transition reaches it.
+
+Existing memberships the payload does not name are left alone. Where a real
+foreign key with `ON UPDATE CASCADE` owns the effect — including both sides of an
+implicit junction — the database carries them and the compiler orders the edge
+writes before the root UPDATE so it can. Where the action does not cascade, an
+occupied old slot is refused before any write rather than stranded. That refusal
+belongs to the relation, not to the nested kind: it is the same verdict for a
+`create` as for a `connect`, and it is the same verdict whichever unique the
+locator named.
+
+Occupancy is asked of a reference tuple that addresses a row. A tuple with a NULL
+member addresses none — a foreign key compares under MATCH SIMPLE — so the guard
+does not fire for it, and that is decided once rather than per substrate: a
+planning probe binds a null pre-value as a parameter and an atomic unit's premise
+resolves it to a literal `IS NULL`, and one payload must not get two verdicts for
+the substrate it ran on.
+
 ## 15. Wrong-row protection
 
 Selectors can include filters or values that the operation itself changes.
@@ -561,13 +739,37 @@ Re-evaluating that selector after planning can select a different row.
 Therefore `RecordUpdateCompiler`, and every owner that passes it a captured
 target:
 
-1. captures the target primary key in its owner read;
-2. carries that captured value through planning outputs;
-3. writes by the captured primary key;
-4. gives descendants and any outer post-write read that same identity.
+1. captures the target's row key — every member of its primary key, in schema
+   order — in its owner read;
+2. carries those captured values through planning outputs;
+3. writes, guards, and re-addresses by every captured member;
+4. gives descendants and any outer post-write read that same row key.
+
+`TargetProjection.identityFields` is that row key, and within this doctrine's
+subject — `RecordUpdateCompiler` and the relation owners it serves — it is the
+only source a captured record is addressed by: no such owner is handed one
+primary-key field beside a projection, and no parallel row-key field survives
+next to one. Two scalar names sit deliberately outside that rule:
+
+- `RelationJunctionPart`'s stored side references (`targetReference`,
+  `sourceReference` — the bound junction sides' single members) — the junction's
+  stored reference to a target `getRequiredSinglePrimaryKeyField` already refused
+  to key on more than one field. The carve-out is documented at
+  `junctionSideMember` and both stored-reference declarations, and nothing new
+  may read a row key through it.
+- The root operations' own `parentPrimaryKeys` (`UpsertOperation`,
+  `DeleteOperation`) — the row key of the record their public `where` names, not
+  of a captured target handed to a compiler.
+
+Asking the SCHEMA whether a field belongs to a model's key is a third question
+again — topological, answered before any probe has published anything — and it
+stays with `getPrimaryKeyFields`. A reference key the relation points at is a
+different ordered key: it rides in `fields`, and bound relation topology — not
+the projection — maps storage members onto it.
 
 The wrong-row decoy tests are not optional detail. They prove that replacement
-or selector drift cannot redirect an update.
+or selector drift cannot redirect an update. A compound row key needs decoys
+that agree on ONE member, or a narrowing to the first member passes them.
 
 Top-level `UpsertOperation` has three distinct paths:
 
@@ -626,8 +828,9 @@ The one-record compilers do not absorb set-oriented operations.
 
 These remain specialized:
 
-- `createMany`;
-- `updateMany`;
+- `createMany` over rows the bulk path expresses — scalar rows, and rows whose
+  only relation work is a direct polymorphic `connect`;
+- `updateMany` over data the bulk path expresses — scalar-only data;
 - `deleteMany`;
 - relation `set`;
 - skip-duplicate grouping and capture;
@@ -637,11 +840,91 @@ Bulk semantics include row grouping, optional zero matches, membership sets,
 and output concatenation. A generic record compiler would hide those facts
 rather than compress them.
 
-`updateMany` never delegates each row to `RecordUpdateCompiler`. Its selected
-arm legality rejects relation-bearing data before SQL; that check remains
-deferred so an untaken top-level upsert update arm is inert. Relation `set` is
-independent of membership clearability: optional storage emits departures,
-while required storage guards that the departing set is empty.
+What is NOT specialized is a `createMany` row carrying a general relation
+program. Routing sends the whole operation to `CreateManyRecordSeries`, a record
+series whose members are ordinary `CreateOperation` instances (plan §4.4, §5.1).
+The reason is semantic, not architectural taste: row N may observe what row N-1
+committed inside the transaction, which is what makes duplicate
+`connectOrCreate` targets converge on one row. A pre-planned bulk form cannot
+express that, and a second relation compiler for bulk rows would be the thing
+this document exists to prevent. The empty payload and the two bulk shapes above
+never reach the series, so their plans are unchanged.
+
+`skipDuplicates` beside a general nested effect is refused at construction: a
+skipped root has two defensible meanings for its nested effects (suppress them,
+or apply them to the row that already exists) and the product has not chosen
+one.
+
+What is also NOT specialized is root `updateMany` whose data carries a general
+relation program. Routing sends the whole operation to `UpdateManyRecordSeries`,
+a record series that evaluates the public `where` and the provider `limit` ONCE,
+locks and captures the complete root row keys, sorts them into a deterministic
+engine order, and runs one ordinary `UpdateOperation` per captured root (plan
+§4.4, §5.2). The reason is semantic: a parent-held fold belongs inside each
+root's own `UPDATE`, a key transition needs that root's old value to address its
+descendants and its new value to write them, descendant ordering is decided per
+root, and a failure must be attributable to one captured root. One set-based
+scalar `UPDATE` followed by relation Parts expresses none of that, which is why
+the shape is forbidden here even though the returning bulk arm uses it correctly
+for scalar-only data. Scalar-only data never reaches the series, so its plan is
+unchanged, and neither does `limit: 0` — a cap of no rows writes nothing, so the
+existing owner's empty plan is still the whole answer and it needs no
+transaction.
+
+`count` diverges by arm, deliberately. Scalar-only `updateMany` reports the
+provider's affected-row total; the series reports the CAPTURED ROOT COUNT,
+because members' writes are not one statement and a provider that counts changed
+rows rather than matched rows (MySQL, which sets no `CLIENT_FOUND_ROWS`) would
+otherwise answer zero for a no-op assignment.
+
+A root membership that lives on the TARGET row and NAMES AN EXISTING TARGET —
+child-held `connect`, `connectOrCreate`, `set`, including a supplier composed
+with a modifier — is refused before the first write when the capture found more
+than one root, naming the observed count. One target holds one parent, so
+applying it to N roots in sequence would leave the last root owning the child and
+the rest silently not. Junction and parent-held equivalents are meaningful for
+every root and execute; so does `create`, which makes one fresh child per root,
+and so do the EMPTY spellings of the three verbs (`set: []` means "this root
+keeps no targets", a per-root fact with no contention in it). Which shapes
+qualify is the relation legality owner's question, not the series shell's; the
+shell knows only the count.
+
+The refusal covers the ROOT's own relation keys. A membership move a fresh
+DESCENDANT carries — `{ posts: { create: { comments: { connect } } } }` — runs
+once per root and leaves the shared target under the last root's fresh child.
+That is not refused, because at that depth the series does exactly what the same
+payload spelled as N ordinary `update` calls does; refusing it would make the
+bulk spelling reject what the single spelling executes. Measured and pinned as
+behavior rather than inferred.
+
+Both series' returning arms read each member's final root row key after every
+member finishes, and each of those reads carries an `exactlyOneRow`
+postcondition. It is the ordinal contract of an ordered source list whose rows
+concatenate: without it a read that matched nothing would shorten the public
+answer instead of failing. On the create side one thing reaches it — a later
+member moving an earlier member's row key, which is legal whenever a row-key
+member is also a foreign key. On the update side a later member's nested effects
+can also DELETE a captured root. Both answer with a refusal. The alternative,
+returning the rows that survived, was rejected for ONE reason: the engine already
+fails loudly with `NotFoundError` when the same removal happens before the
+victim's own member runs, so a legal-empty read would make the public answer
+depend on capture order alone. It was not rejected for making the arms disagree —
+they disagree either way, and deliberately: the `{ count }` arm of the very
+payload the `select` arm refuses answers the captured root count and succeeds.
+The postcondition is cardinality at the reported key, so it detects a root's
+ABSENCE, not its replacement.
+
+Nested relation-level `updateMany` still rejects relation-bearing data before
+SQL, and that check remains deferred so an untaken top-level upsert update arm
+is inert. "Relation-bearing" there means ordinary AND direct polymorphic keys,
+read through one shared predicate over the parsed collection: a targetless
+polymorphic disconnect carries no relation program, and a reader that looked
+only at relation programs let it past the wall and then dropped it. The
+collection now carries that disconnect as its own entry, so the predicate is one
+key per entry; what the measured defect leaves behind is the ownership, not a
+union of two maps. Relation `set` is independent of membership
+clearability: optional storage emits departures, while required storage guards
+that the departing set is empty.
 
 Skip-duplicate preparation writes remain in planning. Adapter `batchRefs` and executor
 `insertId` handling remain because they express real substrate capabilities.
@@ -684,6 +967,11 @@ For root update, preserve whole-argument validation, portable primary-key
 validation, relation-key legality, update-many relation legality, OwnWrite, then
 planning and execution, in that order.
 
+Within the relation transforms themselves, preserve the two passes: every
+ordinary relation payload is transformed before any polymorphic one, so a mixed
+malformed payload reports the same `ValidationError` first. That grouping is
+also the parsed collection's order (§5), so one fact serves both.
+
 Do not bind relation topology or run arm-specific legality early enough to
 overtake an earlier error.
 
@@ -702,6 +990,9 @@ No-op behavior depends on ownership.
 - An upsert with an empty found update still performs its branch decision,
   because the missing arm can create.
 - Incoming FK assignments make a selected-record update non-empty.
+- A targetless direct polymorphic `disconnect` alone makes a selected-record
+  update non-empty: it is an entry in the parsed collection, so the emptiness
+  gate counts it without consulting a second map.
 - `set: []` is not erased; it means clear the relation where legal.
 - `disconnect: false` and `delete: false` are erased at program construction.
 

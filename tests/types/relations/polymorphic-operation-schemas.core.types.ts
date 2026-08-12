@@ -639,14 +639,26 @@ const ordinaryToOneOperationCompatibility = () => {
     data: { child: replacement },
   });
 
-  const contradictory = {
+  // LATTICE CHANGE (Package H): supply-then-modify. A child-held `connect` beside an
+  // `update` names one target and then modifies it, so this is now an accepted
+  // composition rather than two contradictory operations. Two SUPPLIERS still are.
+  const supplyThenModify = {
     connect: { id: "child-1" },
     update: { id: "child-2" },
   } as const;
   ordinaryInverseClient.ordinaryOptionalParent.update({
     where: { id: "parent-1" },
+    data: { child: supplyThenModify },
+  });
+
+  const contradictory = {
+    connect: { id: "child-1" },
+    create: { id: "child-2" },
+  } as const;
+  ordinaryInverseClient.ordinaryOptionalParent.update({
+    where: { id: "parent-1" },
     data: {
-      // @ts-expect-error - a to-one payload cannot carry two active operations
+      // @ts-expect-error - a to-one payload cannot name two suppliers for one slot
       child: contradictory,
     },
   });
@@ -881,6 +893,218 @@ const singularInverseRefusals = () => {
   } satisfies OperationPayload<"create", typeof featuredPost>);
 };
 
+/**
+ * PHASE 8.1 — the polymorphic-inverse to-one surface IS the ordinary to-one surface,
+ * so the composition lattice it publishes is the same one, decided from the same
+ * direction flag. These rows are the lattice's own decisions read through the public
+ * client: every refused row spells TWO real keys, because a single unknown key on a
+ * weak to-one type is refused by weak-type detection instead of by the lattice.
+ */
+const polymorphicInverseToOneLatticeSurface = () => {
+  singularInverseClient.featuredPost.update({
+    where: { id: "post-1" },
+    data: {
+      featuredComment: {
+        connect: { id: "comment-1" },
+        update: { body: "changed" },
+      },
+    },
+  } satisfies OperationPayload<"update", typeof featuredPost>);
+  singularInverseClient.featuredPost.update({
+    where: { id: "post-1" },
+    data: {
+      featuredComment: {
+        disconnect: true,
+        connectOrCreate: {
+          where: { id: "comment-2" },
+          create: { id: "comment-2", body: "second" },
+        },
+      },
+    },
+  });
+  singularInverseClient.featuredPost.update({
+    where: { id: "post-1" },
+    data: {
+      featuredComment: {
+        delete: true,
+        create: { id: "comment-3", body: "third" },
+        update: { body: "changed" },
+      },
+    },
+  });
+};
+
+// The marker sits where the ORDINARY lattice probe file measured TypeScript to report
+// each shape (`to-one-composition-lattice.core.types.ts`): on the payload itself when
+// no arm is a best match, on the offending key when one arm is.
+const polymorphicInverseToOneLatticeRefusals = () => {
+  singularInverseClient.featuredPost.update({
+    where: { id: "post-1" },
+    data: {
+      featuredComment: {
+        connect: { id: "comment-1" },
+        // @ts-expect-error - two suppliers name two identities for one slot
+        create: { id: "comment-2", body: "second" },
+      },
+    },
+  });
+  singularInverseClient.featuredPost.update({
+    where: { id: "post-1" },
+    data: {
+      // @ts-expect-error - one slot cannot be vacated twice
+      featuredComment: { disconnect: true, delete: true },
+    },
+  });
+  singularInverseClient.featuredPost.update({
+    where: { id: "post-1" },
+    data: {
+      featuredComment: {
+        upsert: {
+          create: { id: "comment-1", body: "first" },
+          update: { body: "changed" },
+        },
+        // @ts-expect-error - `upsert` already decides the target with its own two arms
+        connect: { id: "comment-2" },
+      },
+    },
+  });
+  singularInverseClient.featuredPost.update({
+    where: { id: "post-1" },
+    data: {
+      featuredComment: {
+        delete: true,
+        // @ts-expect-error - `delete` + `connectOrCreate` is not an accepted replacement
+        connectOrCreate: {
+          where: { id: "comment-2" },
+          create: { id: "comment-2", body: "second" },
+        },
+      },
+    },
+  });
+};
+
+/**
+ * The NON-FRESH half of the pair above: a payload built as a variable gets no
+ * excess-property check, so its exclusivity is carried by the `?: never` siblings of
+ * each accepted arm rather than by freshness.
+ */
+const nonFreshPolymorphicInverseToOne = {
+  disconnect: true,
+  connect: { id: "comment-1" },
+} as const;
+
+const nonFreshPolymorphicInverseToMany = {
+  connect: { id: "comment-1" },
+  set: [{ id: "comment-2" }],
+};
+
+const polymorphicInverseNonFreshSurface = () => {
+  singularInverseClient.featuredPost.update({
+    where: { id: "post-1" },
+    data: { featuredComment: nonFreshPolymorphicInverseToOne },
+  });
+  inverseClient.optionalArticle.update({
+    where: { id: "article-1" },
+    data: { comments: nonFreshPolymorphicInverseToMany },
+  });
+};
+
+const nonFreshPolymorphicInverseToOneRefusal = {
+  connect: { id: "comment-1" },
+  create: { id: "comment-2", body: "second" },
+} as const;
+
+const polymorphicInverseNonFreshRefusal = () =>
+  singularInverseClient.featuredPost.update({
+    where: { id: "post-1" },
+    data: {
+      // @ts-expect-error - a non-fresh payload cannot name two suppliers either
+      featuredComment: nonFreshPolymorphicInverseToOneRefusal,
+    },
+  });
+
+// The nesting level where the projection has to be decided PER RELATION: one payload
+// carrying an ordinary inverse (the child holds a foreign-key scalar) and a
+// polymorphic one (the child holds a direct relation key) side by side.
+const dualParent = s.model({
+  id: s.string().id(),
+  ordinaryChildren: s.oneToMany(() => dualOrdinaryChild),
+  taggedChildren: s.oneToMany(() => dualTaggedChild).name("dualTagged"),
+});
+const dualOrdinaryChild = s.model({
+  id: s.string().id(),
+  label: s.string(),
+  parentId: s.string(),
+  parent: s
+    .manyToOne(() => dualParent)
+    .fields("parentId")
+    .references("id"),
+});
+const dualTaggedChild = s.model({
+  id: s.string().id(),
+  label: s.string(),
+  owner: s
+    .polymorphic(
+      { parent: () => dualParent },
+      { values: { parent: "dual.parent.v1" } }
+    )
+    .name("dualTagged"),
+});
+const dualClient = createClient({
+  schema: { dualParent, dualOrdinaryChild, dualTaggedChild },
+  driver: new PGliteDriver(),
+});
+
+const dualInverseNestingSurface = () => {
+  dualClient.dualParent.create({
+    data: {
+      id: "parent-1",
+      ordinaryChildren: { create: { id: "ordinary-1", label: "a" } },
+      taggedChildren: { create: { id: "tagged-1", label: "b" } },
+    },
+  } satisfies OperationPayload<"create", typeof dualParent>);
+  dualClient.dualParent.update({
+    where: { id: "parent-1" },
+    data: {
+      ordinaryChildren: {
+        update: { where: { id: "ordinary-1" }, data: { label: "a2" } },
+      },
+      taggedChildren: {
+        update: { where: { id: "tagged-1" }, data: { label: "b2" } },
+      },
+    },
+  } satisfies OperationPayload<"update", typeof dualParent>);
+};
+
+const dualInverseNestingRefusals = () => {
+  dualClient.dualParent.create({
+    data: {
+      id: "parent-1",
+      ordinaryChildren: {
+        create: {
+          id: "ordinary-1",
+          label: "a",
+          // @ts-expect-error - the enclosing ordinary edge derives this foreign key
+          parentId: "parent-1",
+        },
+      },
+    },
+  } satisfies OperationPayload<"create", typeof dualParent>);
+  dualClient.dualParent.create({
+    data: {
+      id: "parent-1",
+      taggedChildren: {
+        create: {
+          id: "tagged-1",
+          label: "b",
+          // @ts-expect-error - the enclosing polymorphic edge supplies this membership
+          owner: { connect: { type: "parent", where: { id: "parent-2" } } },
+        },
+      },
+    },
+  } satisfies OperationPayload<"create", typeof dualParent>);
+};
+
 const _publicSurfaceProbes = [
   inverseCreateSurface,
   inverseUpdateSurface,
@@ -904,4 +1128,10 @@ const _publicSurfaceProbes = [
   ordinaryInverseAbsenceSurface,
   ordinaryToOneOperationCompatibility,
   ordinaryToManyCapabilitySurface,
+  polymorphicInverseToOneLatticeSurface,
+  polymorphicInverseToOneLatticeRefusals,
+  polymorphicInverseNonFreshSurface,
+  polymorphicInverseNonFreshRefusal,
+  dualInverseNestingSurface,
+  dualInverseNestingRefusals,
 ];

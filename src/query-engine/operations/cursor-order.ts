@@ -5,6 +5,7 @@
  * the same direction, null placement, and deterministic tie-break vector.
  */
 
+import { getModelKeyCatalog } from "@schema/model";
 import { type Sql, sql } from "@sql";
 import { isRecord } from "@validation/value-guards";
 import { assertExactDecimalOperation } from "../builders/decimal-portability";
@@ -62,7 +63,7 @@ export function normalizeCursorOrder(
 
   const normalized = [...requested];
   const orderedFields = new Set(normalized.map(({ field }) => field));
-  const identityFields = getCanonicalIdentityFields(ctx);
+  const identityFields = getCursorIdentityFields(ctx);
   if (identityFields.length === 0) {
     throw new QueryEngineError(
       "Paginated scalar ordering requires a primary model identifier."
@@ -261,36 +262,36 @@ function appendTieBreakers(
   }
 }
 
-function getCanonicalIdentityFields(ctx: QueryScope): string[] {
-  const state = ctx.model["~"].state;
-  const scalarNames = Object.keys(state.scalars);
-  const scalarId = scalarNames.find(
-    (field) => state.scalars[field]?.["~"].state.isId === true
+/**
+ * The cursor's tie-breaker identity — a consumer-local projection of the key
+ * catalog, PARTIAL (no `["id"]` fallback: a model with no declared key cannot
+ * paginate, and the caller turns the empty answer into its established error).
+ *
+ * Two deliberate divergences from `catalog.rowKey`, both preserved from the
+ * deleted `getCanonicalIdentityFields`:
+ * - a bare scalar `.id()` wins over a compound `.id([...])` when a schema
+ *   spells both. F002 refuses that schema at PUSH time only, never at
+ *   `createClient`, and a live fixture shape exists — following the catalog's
+ *   compound-first reading here would tie-break on NULLABLE compound members,
+ *   breaking this module's NOT-NULL tie-breaker invariant and letting cursor
+ *   pages repeat or skip rows.
+ * - a compound key is re-sorted to shape order, because that is what cursor
+ *   SQL has always emitted; the catalog's constraint order stays the
+ *   row-addressing truth.
+ */
+function getCursorIdentityFields(ctx: QueryScope): string[] {
+  const catalog = getModelKeyCatalog(ctx.model);
+  const bareScalarId = catalog.addressableKeys.find(
+    (key) => key.kind === "primary" && key.name === undefined
   );
-  if (scalarId) {
-    return [scalarId];
+  if (bareScalarId) {
+    return [...bareScalarId.fields];
   }
-
-  const compoundId = getFirstCompoundConstraint(state.compoundId);
-  if (compoundId) {
-    return sortFieldsByModelKey(ctx, Object.keys(compoundId.entries));
+  const rowKey = catalog.rowKey;
+  if (!rowKey) {
+    return [];
   }
-
-  return [];
-}
-
-function getFirstCompoundConstraint(
-  constraints: Record<string, { entries: Record<string, unknown> }> | undefined
-): { entries: Record<string, unknown> } | undefined {
-  if (!constraints) {
-    return undefined;
-  }
-
-  for (const constraint of Object.values(constraints)) {
-    return constraint;
-  }
-
-  return undefined;
+  return sortFieldsByModelKey(ctx, [...rowKey.fields]);
 }
 
 function sortFieldsByModelKey(ctx: QueryScope, fields: string[]): string[] {

@@ -26,7 +26,7 @@ import {
   ref,
   type WriteStep,
 } from "./OperationFragment";
-import { planningKey, planningOutputs } from "./Part";
+import { planningKey } from "./Part";
 import { parseValidated } from "./parse-boundary";
 import { StepScope } from "./StepScope";
 import {
@@ -103,7 +103,7 @@ export class DeleteOperation {
 
     const parentPrimaryKeys = getPrimaryKeyFields(model);
     if (parentPrimaryKeys.length === 0) {
-      // Unreachable by construction (N7-U-A, the X1c disposition): the whole-args
+      // Unreachable by construction: the whole-args
       // `args.delete` parse below validates `where` against a PK-less model's
       // discriminator-free whereUnique, which answers first with
       // `ValidationError: Missing required field: one of …` — measured. §3.A A16 states
@@ -244,9 +244,9 @@ export class DeleteOperation {
   planning(): PlanningFragment {
     // The RETURNING fold is a single self-contained statement — it consumes no
     // planning value, and empty planning is what makes it statement-atomic.
-    if (this.foldStep) return { steps: [], outputs: {} };
+    if (this.foldStep) return { steps: [] };
     const steps = [this.locate];
-    return { steps, outputs: planningOutputs(steps) };
+    return { steps };
   }
 
   compile(known: Readonly<Record<string, unknown>>): OperationFragment {

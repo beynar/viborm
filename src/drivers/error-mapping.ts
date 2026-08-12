@@ -4,6 +4,7 @@ import {
   type DiagnosticDisclosure,
   ForeignKeyError,
   isVibORMError,
+  NESTED_WRITE_ASSERTION_FLOOR_MESSAGE,
   NestedWriteAssertionError,
   NotNullConstraintError,
   QueryError,
@@ -99,7 +100,7 @@ function isAssertionFailure(
  * Every error class {@link mapProviderError} constructs — the driver layer's failure
  * vocabulary, named so it is visible at the call sites instead of erased to `Error`.
  *
- * The members are disjoint by `code` (T1-U1 gave each class its literal), so this union is a
+ * The members are disjoint by `code` — each class carries its literal — so this union is a
  * discriminated union: `if (failure.code === VibORMErrorCode.UNIQUE_CONSTRAINT)` selects
  * `UniqueConstraintError`, and an exhaustive `switch` over the codes bottoms out at `never`.
  *
@@ -165,10 +166,11 @@ function mapProviderError(
     context.query?.includes(ASSERTION_MARKER) &&
     isAssertionFailure(code, errno, rawMessage)
   ) {
-    return new NestedWriteAssertionError(
-      "Nested write assertion failed: a batch precondition (e.g. a connect/disconnect target or ownership check) did not hold.",
-      { cause, diagnostics, meta }
-    );
+    return new NestedWriteAssertionError(NESTED_WRITE_ASSERTION_FLOOR_MESSAGE, {
+      cause,
+      diagnostics,
+      meta,
+    });
   }
 
   if (code === POSTGRES_UNIQUE || code === "SQLITE_CONSTRAINT_UNIQUE") {

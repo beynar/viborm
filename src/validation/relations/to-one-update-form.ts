@@ -1,4 +1,4 @@
-// The two spellings of a to-one nested `update` payload (Prisma 5) — W4-U3.
+// The two spellings of a to-one nested `update` payload (Prisma 5).
 
 import { isRecord } from "../value-guards";
 
@@ -51,7 +51,7 @@ import { isRecord } from "../value-guards";
  * `{ data: 7 }` into `{ data: { set: 7 } }`, which has the envelope's shape. The
  * engine sees only outputs one level deep (the enclosing whole-args parse already
  * normalized the tree), so a second application of the rule there necessarily
- * DISAGREED with the schema's — the depth regression W4-U3's fix round closed. One
+ * DISAGREED with the schema's — a measured depth regression. One
  * home, one application, at the parse boundary.
  *
  * RESIDUAL, documented: a target owning a field named `where` cannot use the bare
@@ -127,7 +127,7 @@ export function toOneUpdateEnvelope(
 
 /** A to-one `update` payload resolved to its two halves: the update `data`, and the
  *  optional non-unique `filter` the connected record must satisfy. The bare spelling
- *  yields no filter — byte-identical to the pre-W4-U3 reading. An empty wrapper
+ *  yields no filter — byte-identical to the bare-payload reading. An empty wrapper
  *  `where` (`{}`) constrains nothing, so it is dropped rather than compiled into a
  *  vacuous `AND` term. */
 export interface ToOneUpdateTarget {

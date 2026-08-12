@@ -170,19 +170,36 @@ export const getUpdateArgs = <M extends AnyModel, F extends ScalarSchemas<M>>(
 // =============================================================================
 
 /**
- * UpdateMany args: { where?, data: scalarUpdate, select? }
+ * UpdateMany args: { where?, data: update, select? }
  *
- * `data` binds to the SCALAR-ONLY update schema (Prisma parity:
- * UpdateManyMutationInput excludes relation fields). A bulk UPDATE cannot
- * express nested relation writes, so a relation key in `data` must reject
- * loudly at the parse boundary (strict object → "Unknown key: <relation>")
- * instead of ever reaching the SET builder, which skips relations.
+ * `data` binds to the model's ORDINARY update schema — the SAME instance
+ * `getUpdateArgs` binds (`core.update`, memoized once per model in the registry),
+ * so relation and polymorphic keys mean here exactly what they mean on a single
+ * `update` and cannot drift into a second dialect of the same surface. It is the
+ * ordinary update schema rather than a scalar-only one: a relation-bearing `data`
+ * routes to a record series that applies one ordinary selected-record update per
+ * captured root.
+ *
+ * WHAT THE SCHEMA DELIBERATELY DOES NOT DECIDE. Which of those shapes the ENGINE
+ * can apply to N roots at once is not a parse-boundary question: "this child-held
+ * `connect` names one child, and N roots cannot each own it" depends on the
+ * captured root count, which no schema can see. That refusal lives in
+ * `UpdateManyRecordSeries`, pre-write, naming the observed N — and the existing
+ * nested-relation-inside-`updateMany`-data legality stays with its engine owner
+ * too (`relation-key-legality.ts`). The schema's job here is only that the key
+ * EXISTS and its payload is well-formed.
+ *
+ * `core.update` carries no `atLeast` and no `requiresOneOfKeySets` (unlike
+ * `create`), so nothing about the envelope's own `atLeast: ["data"]` changes.
  *
  * IMPLICIT RETURNING (the replacement for the removed `updateManyAndReturn`):
  * `select` is optional, and its PRESENCE is what makes the operation return the
- * updated rows instead of `{ count }`. That `select` is SCALAR-ONLY and
+ * updated rows instead of `{ count }`. That `select` stays SCALAR-ONLY and
  * `include` is refused, exactly as on `createMany` (see
- * `restrictToScalarProjection`).
+ * `restrictToScalarProjection`) — a deliberate asymmetry with `data`, which now
+ * accepts relations: what a bulk write may WRITE and what it may PROJECT are
+ * different questions, and the projection one is answered by whether a relation
+ * subquery in a `RETURNING` list can correlate (it cannot).
  *
  * `limit` (Prisma 6.x) caps how many rows the UPDATE affects — including on the
  * returning arm, where exactly the capped rows come back. WHICH rows is
@@ -194,7 +211,7 @@ export type UpdateManyArgs<
 > = V.Object<
   {
     where: CoreSchemas<M, F>["where"];
-    data: CoreSchemas<M, F>["scalarUpdate"];
+    data: CoreSchemas<M, F>["update"];
     select: CoreSchemas<M, F>["scalarSelect"];
     omit: OmitSchema<M>;
     limit: BulkWriteLimitSchema;
@@ -214,7 +231,7 @@ export const getUpdateManyArgs = <
       v.object(
         {
           where: v.lazyRef(() => core.where),
-          data: v.lazyRef(() => core.scalarUpdate),
+          data: v.lazyRef(() => core.update),
           select: v.lazyRef(() => core.scalarSelect),
           omit: v.lazyRef(() => core.omit),
           limit: bulkWriteLimit(),

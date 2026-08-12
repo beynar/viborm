@@ -10,9 +10,8 @@
  */
 
 import { type Sql, sql } from "@sql";
-import { createChildScope, getTableName } from "../context";
+import { createChildScope } from "../context";
 import type { QueryScope, RelationInfo } from "../types";
-import { buildCorrelation } from "./correlation-utils";
 import {
   buildManyToManyInclude,
   buildManyToManyLateralInclude,
@@ -22,6 +21,7 @@ import {
   buildNestedReadWindow,
   type NestedReadWindow,
 } from "./nested-read-window";
+import { buildRelationTraversal } from "./relation-traversal";
 import { buildWhere } from "./where-builder";
 
 export { assembleInnerQuery } from "./include-query";
@@ -82,14 +82,17 @@ export function buildSubqueryInclude(
   relationInfo: RelationInfo,
   includeValue: Record<string, unknown>
 ): IncludeResult {
-  // Handle manyToMany specially - requires junction table
-  if (relationInfo.type === "manyToMany") {
+  // The one classification, which also spends this include's target (and, for a
+  // junction, junction) alias — the dedicated junction builder takes it from here.
+  const traversal = buildRelationTraversal(ctx, relationInfo, ctx.rootAlias);
+  if (traversal.kind === "junction") {
     return {
       column: buildManyToManyInclude(
         buildNestedSelection,
         ctx,
         relationInfo,
-        includeValue
+        includeValue,
+        traversal
       ),
     };
   }
@@ -98,7 +101,7 @@ export function buildSubqueryInclude(
   const options = includeValue as IncludeOptions;
   const { select, include, where } = options;
 
-  const relatedAlias = ctx.nextAlias();
+  const relatedAlias = traversal.targetAlias;
   const childCtx = createChildScope(
     ctx,
     relationInfo.targetModel,
@@ -108,32 +111,33 @@ export function buildSubqueryInclude(
   // Build the JSON object for selected fields (using asJson: true)
   const jsonExpr = buildNestedSelection(childCtx, select, include).sql;
 
-  // Build WHERE with correlation
-  const correlation = buildCorrelation(
-    ctx,
-    relationInfo,
-    ctx.rootAlias,
-    relatedAlias
-  );
+  // Correlation and FROM source, from the one traversal
+  const baseConditions = traversal.conditions();
+  const fromTable = traversal.from();
 
-  // Build FROM table
-  const relatedTableName = getTableName(relationInfo.targetModel);
-  const fromTable = adapter.identifiers.table(relatedTableName, relatedAlias);
-
-  if (relationInfo.isToMany) {
-    const window = buildNestedReadWindow(childCtx, options, relatedAlias, [
-      correlation,
-    ]);
+  if (traversal.relation().cardinality === "many") {
+    const window = buildNestedReadWindow(
+      childCtx,
+      options,
+      relatedAlias,
+      baseConditions
+    );
     return {
       column: buildToManySubquery(ctx, jsonExpr, fromTable, window),
     };
   }
+  const conditions = [...baseConditions];
   const innerWhere = buildWhere(childCtx, where, relatedAlias);
-  const whereCondition = innerWhere
-    ? adapter.operators.and(correlation, innerWhere)
-    : correlation;
+  if (innerWhere) {
+    conditions.push(innerWhere);
+  }
   return {
-    column: buildToOneSubquery(ctx, jsonExpr, fromTable, whereCondition),
+    column: buildToOneSubquery(
+      ctx,
+      jsonExpr,
+      fromTable,
+      adapter.operators.and(...conditions)
+    ),
   };
 }
 
@@ -147,13 +151,16 @@ export function buildLateralInclude(
   relationInfo: RelationInfo,
   includeValue: Record<string, unknown>
 ): IncludeResult {
-  // Handle manyToMany via dedicated lateral builder
-  if (relationInfo.type === "manyToMany") {
+  // The one classification, ahead of the lateral alias: the traversal's aliases
+  // come first, exactly as the junction builder's prologue allocated them.
+  const traversal = buildRelationTraversal(ctx, relationInfo, ctx.rootAlias);
+  if (traversal.kind === "junction") {
     return buildManyToManyLateralInclude(
       buildNestedSelection,
       ctx,
       relationInfo,
-      includeValue
+      includeValue,
+      traversal
     );
   }
 
@@ -161,7 +168,7 @@ export function buildLateralInclude(
   const options = includeValue as IncludeOptions;
   const { select, include, where } = options;
 
-  const relatedAlias = ctx.nextAlias();
+  const relatedAlias = traversal.targetAlias;
   const lateralAlias = ctx.nextAlias();
   const childCtx = createChildScope(
     ctx,
@@ -174,24 +181,19 @@ export function buildLateralInclude(
   const jsonExpr = selectResult.sql;
   const nestedJoins = selectResult.lateralJoins;
 
-  // Build WHERE with correlation
-  const correlation = buildCorrelation(
-    ctx,
-    relationInfo,
-    ctx.rootAlias,
-    relatedAlias
-  );
-
-  // Build FROM table
-  const relatedTableName = getTableName(relationInfo.targetModel);
-  const fromTable = adapter.identifiers.table(relatedTableName, relatedAlias);
+  // Correlation and FROM source, from the one traversal
+  const baseConditions = traversal.conditions();
+  const fromTable = traversal.from();
 
   const resultColAlias = "_result";
 
-  if (relationInfo.isToMany) {
-    const window = buildNestedReadWindow(childCtx, options, relatedAlias, [
-      correlation,
-    ]);
+  if (traversal.relation().cardinality === "many") {
+    const window = buildNestedReadWindow(
+      childCtx,
+      options,
+      relatedAlias,
+      baseConditions
+    );
     const innerJoins = [...nestedJoins, ...window.joins];
 
     // To-many: build lateral subquery with JSON aggregation
@@ -236,16 +238,17 @@ export function buildLateralInclude(
   }
 
   // To-one: build lateral subquery returning single JSON object or null
+  const conditions = [...baseConditions];
   const innerWhere = buildWhere(childCtx, where, relatedAlias);
-  const whereCondition = innerWhere
-    ? adapter.operators.and(correlation, innerWhere)
-    : correlation;
+  if (innerWhere) {
+    conditions.push(innerWhere);
+  }
   const aliasedJsonExpr = adapter.identifiers.aliased(jsonExpr, resultColAlias);
   const lateralSubquery = assembleInnerQuery(adapter, {
     selectExpr: aliasedJsonExpr,
     from: fromTable,
     joins: nestedJoins,
-    where: whereCondition,
+    where: adapter.operators.and(...conditions),
     take: 1, // LIMIT 1 for to-one
   });
 

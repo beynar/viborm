@@ -24,7 +24,8 @@ adapter methods for dialect syntax and keep values parameterized.
 | `relation-filter-builder.ts` | relation `some`/`every`/`none` and `is`/`isNot` |
 | `include-builder.ts` | nested relation reads and JSON projection |
 | `select-builder.ts` | selected columns and result pairs |
-| `correlation-utils.ts` | ordinary/polymorphic correlation predicates and model keys |
+| `relation-traversal.ts` | the physical read traversal of one relation occurrence |
+| `correlation-utils.ts` | ordinary/polymorphic correlation predicates and primary-key selectors |
 | `many-to-many-utils.ts` | junction identity and joins |
 | `values-builder.ts` | INSERT values and destination scalar conversion |
 | `set-builder.ts` | UPDATE assignments |
@@ -67,12 +68,17 @@ no-ops. It does not contain execution deduplication.
 Downstream code consumes `program.entries`. Do not inspect the raw payload,
 normalize arrays again, or recreate a per-kind optional mutation bag.
 
-Polymorphic relation payloads use a companion map instead of changing
-`RelationMutationProgram`. A targeted `connect` or `create` appears in the
-ordinary program map after its public discriminator resolves to one concrete
-edge; the companion supplies its storage/discriminator fact. A targetless
-`disconnect` appears only in the companion and becomes an empty private storage
-assignment. The record compiler must count that companion as root work.
+Polymorphic relation payloads ride in the one parsed collection instead of
+changing `RelationMutationProgram`. `buildParsedRelationPrograms` returns
+`{ scalarData, relations }`, and `relations` is an ordered
+`ParsedRelationMutation[]` with one entry per relation key the payload writes:
+`ordinary` (program), `polymorphicTarget` (program plus the resolved edge, once
+the public discriminator names one concrete target), or `polymorphicDisconnect`
+(storage only — a targetless disconnect builds no program and becomes an empty
+private storage assignment). Collection order is every ordinary relation in
+payload key order, then every polymorphic one; it is a behavior surface, so keep
+the two passes. Consumers walk the collection and switch on `kind`; do not
+rebuild a name-keyed map or a companion map beside it.
 
 `PolymorphicStorageValue` is the only write representation for the private
 columns. Its linked and empty variants always lower type and id together. Never
@@ -84,24 +90,76 @@ expose an arbitrary physical-column escape in `values-builder.ts` or
 
 `relation-data-builder.ts` owns `bindRelation` and `BoundRelation`.
 
-Classification is:
+`classifyRelation` is that classification handed back as a value — the arm, plus a
+lazy bind typed to that arm — and `bindRelation` is defined through it, so the
+estate holds one spelling of the test. Classify when the physical shape must be
+known before topology may be resolved (a read traversal placing its aliases, a
+junction statement refusing a non-junction relation); bind when the bound value
+itself is needed. There is no second entry point per arm.
 
-1. many-to-many → `junction`;
-2. current model holds FK → `parentHeldToOne`;
-3. resolved polymorphic inverse → `polymorphicChildHeldToOne` or
-   `polymorphicChildHeldToMany`;
-4. ordinary child-held to-one → `childHeldToOne`;
-5. remaining ordinary child-held edge → `childHeldToMany`.
+ONE STORED TOPOLOGY, SEVERAL DERIVED VIEWS. The classification answers three
+orthogonal axes over a single stored membership; nothing downstream stores a
+second copy of any of them, and every question about an edge is asked of the axis
+that owns it:
 
-The bound value contains the source model, ordered foreign and referenced
-fields, and update action. It does not contain scopes, aliases, identity
-values, reference sources, transition state, junction metadata, SQL, or
-execution policy.
+1. many-to-many → position `junction` (cardinality `many`, junction membership);
+2. current model holds FK → position `parentHeld` (cardinality `one`,
+   foreign-key membership);
+3. resolved polymorphic inverse → position `childHeld`, polymorphic membership,
+   cardinality from the public relation;
+4. remaining ordinary child-held edge → position `childHeld`, foreign-key
+   membership, cardinality from the public relation.
+
+The bound value contains the relation declaration, the source model, and the
+membership: its holder and referenced models, ordered foreign and referenced
+fields, those fields PAIRED member for member, and the update action. Consumers
+read `membership.members` rather than re-pairing the two field lists by index —
+the pairing has one owner because it owns a refusal. A polymorphic membership carries one referenced
+FIELD, not a list — its discriminator is a fixed qualifier, not a member. The bound
+value does not contain scopes, aliases, identity values, reference sources,
+transition state, junction metadata, SQL, or execution policy.
 
 Bind at the first topology decision. Early binding can change which schema or
-arm-specific failure surfaces first. Field/value pairing, source resolution,
-and membership lowering stay in `write-engine/relation-membership.ts` after
-existing legality checks.
+arm-specific failure surfaces first. The FIELD pairing is therefore lazy and
+memoized (like the junction sides): it owns the mismatched-foreign-key-metadata
+refusal, which must stay behind the relation-key legality boundary. Attaching
+VALUE sources to those members, source resolution, and membership lowering stay in
+`write-engine/relation-membership.ts` after existing legality checks.
+
+## Physical read traversal
+
+`relation-traversal.ts` owns `buildRelationTraversal`, the one answer to "how does
+a read reach this relation's rows": the aliases it spends, the FROM source, the
+conditions tying those rows to the parent row, and the tables it reads. Include
+(correlated and lateral), relation filters, relation counts and to-one order
+chains all construct one traversal per relation occurrence and keep only their own
+statement shape. Nothing else classifies a relation as many-to-many to pick a
+physical shape, and nothing else copies a target FROM source.
+
+The traversal builder calls the two arm owners rather than reimplementing them:
+`buildCorrelation` for a row-held edge, `buildManyToManyJoinParts` for a junction.
+
+Three properties are load-bearing:
+
+- classification and alias allocation are EAGER, and a traversal allocates exactly
+  its junction and target aliases. Alias numbers are SQL bytes, so it is
+  constructed where its builder used to allocate them — before any lateral alias
+  and before nested selection or nested where. Lateral, inner, sub and
+  mutation-hide aliases belong to the builders that wrap;
+- topology is LAZY and memoized. Binding resolves inverses and junction sides and
+  can refuse, so a builder that classifies and then short-circuits (an `every`
+  quantifier with no inner condition) must still leave silently;
+- the row-held arm contributes EXACTLY ONE, already-folded condition. A compound
+  foreign key and a polymorphic inverse compare several columns as one group, and
+  splitting that group flattens the statement once an inner `where` is appended.
+  The junction arm contributes its two conjuncts flat, which is the junction
+  read's own shape.
+
+The traversal owns no meaning: selection, aggregation, lateral strategy, windows,
+filter quantifiers, negation, ordering, result parsing and mutation-target hiding
+stay with their builders — it only supplies the table list the hiding rule tests.
+Direct polymorphic reads stay outside it: `polymorphic-read-builder.ts` traverses
+a payload-selected variant target-first, and such a field is not a bound relation.
 
 ## Parse-once rule
 

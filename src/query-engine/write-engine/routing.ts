@@ -1,19 +1,24 @@
 import type { AnyDriver, QueryExecutionContext } from "@drivers";
 import { TransactionError } from "@errors";
 import type { Model } from "@schema/model";
+import { isPolymorphicRelation, isRelation } from "../context/query-scope";
 import type { QueryEngine } from "../query-engine";
 import { BulkCountOperation } from "./BulkCountOperation";
 import { CreateManyOperation } from "./CreateManyOperation";
+import { CreateManyRecordSeries } from "./CreateManyRecordSeries";
 import { CreateOperation } from "./CreateOperation";
 import { DeleteOperation } from "./DeleteOperation";
-import { ManyAndReturnOperation } from "./ManyAndReturnOperation";
-import type {
-  ExecutableOperation,
-  OperationExecutor,
-} from "./OperationExecutor";
+import {
+  ManyAndReturnOperation,
+  refusesRowReturningSubstrate,
+} from "./ManyAndReturnOperation";
+import type { OperationExecutor } from "./OperationExecutor";
 import { parseValidated, upsertEnvelopeSchema } from "./parse-boundary";
 import { ReadOperation } from "./ReadOperation";
 import { isRetryableRace } from "./race-retry";
+import type { RoutedExecutableOperation } from "./record-series";
+import { isRecord } from "./shared";
+import { UpdateManyRecordSeries } from "./UpdateManyRecordSeries";
 import { UpdateOperation } from "./UpdateOperation";
 import { UpsertOperation } from "./UpsertOperation";
 
@@ -68,7 +73,7 @@ export function constructRoutedOperation(
   model: Model<any>,
   operation: string,
   args: Record<string, unknown>
-): ExecutableOperation | undefined {
+): RoutedExecutableOperation | undefined {
   if (!ROUTED_OPERATIONS.has(operation)) return undefined;
   // The `requiresAtomicResolution` refusal (ATOM “Error-order rules”), reproduced at the ROUTED
   // layer only. A batch-only, non-returning driver cannot resolve a single-row
@@ -133,10 +138,16 @@ function assertRoutedAtomicResolution(
  * operation ONCE. Re-planning re-reads committed state, so the loser now takes
  * its adopt arm and converges; a second failure propagates. A violation matching
  * no racePin and not `meta.raceable` never retries.
+ *
+ * A transactional record series retries here as ONE unit — its capture and every
+ * one of its members run again — because a member has no scope of its own to be
+ * retried in: its predecessors' effects rolled back with the series' own
+ * transaction scope, so only the whole series can be re-planned against the state
+ * that actually survived.
  */
 export async function executeRoutedOperation<T>(
   executor: OperationExecutor,
-  operation: ExecutableOperation,
+  operation: RoutedExecutableOperation,
   context: QueryExecutionContext,
   driverOverride?: AnyDriver
 ): Promise<T> {
@@ -153,7 +164,7 @@ function constructOperation(
   model: Model<any>,
   operation: string,
   args: Record<string, unknown>
-): ExecutableOperation | undefined {
+): RoutedExecutableOperation | undefined {
   if (READ_OPERATIONS.has(operation)) {
     return new ReadOperation(engine, model, operation, args);
   }
@@ -165,7 +176,7 @@ function constructOperation(
     case "delete":
       return new DeleteOperation(engine, model, args);
     case "upsert":
-      // E5-U3 — the ENVELOPE is validated HERE, at the one construction path a client
+      // The ENVELOPE is validated HERE, at the one construction path a client
       // payload takes (a nested upsert never builds an `UpsertOperation`; it is a
       // relation payload the enclosing operation's schema already validated). The
       // envelope owns the three required keys, the five optional names, and the
@@ -184,10 +195,63 @@ function constructOperation(
     // itself is validated by the ONE arg schema inside whichever arm is built,
     // so a malformed `select` still rejects with a typed ValidationError.
     case "createMany":
+      // THREE DESTINATIONS, one discriminant each, in this order.
+      //
+      // (1) The row-returning owner comes FIRST when the substrate is the one it
+      //     refuses on. A bulk write with `select` on a batch-only, non-returning
+      //     driver is refused by `ManyAndReturnOperation` with a typed sentence
+      //     naming `createMany` and `select`; a series on that substrate would
+      //     instead inherit `withTransaction`'s generic "does not support callback
+      //     transactions". Reaching for the existing owner keeps the specific
+      //     message without minting a second copy of it.
+      // (2) Any row carrying a general relation program routes the WHOLE operation
+      //     to the record series (§5.1). Empty data has no row, so it never reaches
+      //     here — and that matters more than it looks: a series REQUIRES an
+      //     interactive transaction, so `createMany({ data: [] })` (what every caller
+      //     spreading a possibly-empty array sends) would turn from `{ count: 0 }`
+      //     into a TransactionError on every batch-only driver. Measured: the cost
+      //     is NOT an extra BEGIN/COMMIT — the existing
+      //     empty arm already opens one, because its plan is not a single statement.
+      // (3) Otherwise the two existing owners, constructed unchanged.
+      if (
+        relationBearingRow(model, args.data) &&
+        !refusesReturningHere(engine, args, "createManyAndReturn")
+      ) {
+        return new CreateManyRecordSeries(engine, model, args);
+      }
       return returnsRows(args)
         ? new ManyAndReturnOperation(engine, model, "createManyAndReturn", args)
         : new CreateManyOperation(engine, model, args);
     case "updateMany":
+      // PACKAGE K2 — the same three destinations J gave `createMany`, one
+      // discriminant each, in the same order and for the same reasons.
+      //
+      // (1) The row-returning owner comes FIRST when the substrate is the one it
+      //     refuses on, so its specific sentence ("cannot execute 'updateMany' with
+      //     'select' because public result parsing cannot be rolled back") survives
+      //     rather than degrading into `withTransaction`'s generic "does not support
+      //     callback transactions". The `{ count }` arm of a relation-bearing payload
+      //     DOES inherit that generic sentence on a batch-only driver — accepted, and
+      //     the same trade J made: a record series needs an interactive transaction,
+      //     full stop, and no typed copy of that fact would tell the caller anything
+      //     the substrate error does not.
+      // (2) Relation-bearing `data` routes the WHOLE operation to the record series
+      //     (§5.2). Data with no relation VALUE never reaches it, so an
+      //     `updateMany({ data: { name } })` keeps its one statement and its provider
+      //     count exactly as before. Neither does `limit: 0`, for J's reason one
+      //     operation name over: a cap of zero rows writes nothing, so no relation
+      //     effect exists to be lost by answering it on the existing owner — which
+      //     answers `{ count: 0 }` (or `[]`) with NO statement, where a series would
+      //     open an interactive transaction and hand every batch-only driver a
+      //     `TransactionError` for a call that does nothing.
+      // (3) Otherwise the two existing owners, constructed unchanged.
+      if (
+        relationBearingData(model, args.data) &&
+        !capsAtZeroRows(args) &&
+        !refusesReturningHere(engine, args, "updateManyAndReturn")
+      ) {
+        return new UpdateManyRecordSeries(engine, model, args);
+      }
       return returnsRows(args)
         ? new ManyAndReturnOperation(engine, model, "updateManyAndReturn", args)
         : new BulkCountOperation(engine, model, operation, args);
@@ -222,4 +286,111 @@ function constructOperation(
  */
 function returnsRows(args: Record<string, unknown>): boolean {
   return args.select !== undefined || args.omit !== undefined;
+}
+
+/**
+ * J2 — does this raw `createMany` payload carry a GENERAL relation program, the
+ * thing the grouped bulk INSERT cannot express?
+ *
+ * It reads the RAW rows, before any parse, because §6 J2 requires the two existing
+ * owners to be constructed unchanged: routing cannot hand them a pre-parsed payload,
+ * and re-parsing a schema's own transformed output is measured non-idempotent (X2,
+ * `parse-boundary.ts`). Raw key presence is exact here — neither the relation `create`
+ * schema nor the polymorphic `createMany` union renames a key, and `undefined` is
+ * absent on every path — so this agrees with what `partitionModelData` will later see.
+ *
+ * `isRelation` is the ORDINARY relation set: a direct polymorphic membership is a
+ * different set and stays bulk-compatible, which is what keeps the grouped
+ * cross-row probe route in `bulk-polymorphic-connect.ts` reachable (§5.1).
+ *
+ * Total and non-throwing by construction. Anything it cannot see with certainty — a
+ * `data` that is not an array, a row that is not a record, a relation key holding
+ * garbage — falls back to the existing owner, so every malformed payload keeps its
+ * current error verbatim, including which of the two arms' issue paths it carries.
+ *
+ * WHAT THIS IS, precisely, so it is not mistaken for a second parser: a ONE-SIDED
+ * over-approximation of the parser's answer. It asks raw KEY PRESENCE; the parser
+ * asks whether a PROGRAM was built. Over-approximation is reachable — `{ posts: {} }`
+ * builds no program — and it costs a transaction that writes nothing extra. The other
+ * direction, raw-false while the parser builds a program, would send a relation-bearing
+ * payload to the grouped INSERT and silently drop it; it requires a relation schema
+ * that renames or invents a key, and none does. The hazard is asymmetric and this
+ * predicate is safe on it, which is why the duplication stays rather than merging into
+ * a parse-once routing envelope (that would move validation timing and error text).
+ * The same property, one key set wider, holds for {@link relationBearingData}.
+ */
+function relationBearingRow(model: Model<any>, data: unknown): boolean {
+  if (!Array.isArray(data)) return false;
+  for (const row of data) {
+    if (!isRecord(row)) continue;
+    for (const key of Object.keys(row)) {
+      if (row[key] !== undefined && isRelation(model, key)) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * K2 — does this raw `updateMany` payload's `data` name a relation at all?
+ *
+ * The sibling above deliberately asks about ORDINARY relations only, because a
+ * direct polymorphic `connect` inside `createMany` has a grouped bulk route that must
+ * stay reachable. There is NO such route for `updateMany`: `bulk-polymorphic-connect`
+ * is imported by the two create owners alone. So this predicate must include
+ * polymorphic keys, and the difference is not cosmetic — `buildSet` (the SET builder
+ * behind `buildUpdateMany`) SKIPS any key that is not a scalar, so a polymorphic key
+ * that failed this test would be routed to the one-statement owner and then silently
+ * dropped from the UPDATE. Same shape of hazard as its sibling's, one key set wider.
+ *
+ * It reads the RAW `data`, before any parse, because §6 K2 requires the two existing
+ * owners to be constructed unchanged: routing cannot hand them a pre-parsed payload,
+ * and re-parsing a schema's transformed output is measured non-idempotent (X2). Raw
+ * key presence is exact here — the relation update schemas rename no key, and
+ * `undefined` is absent on every path — so this agrees with what `partitionModelData`
+ * will later see.
+ *
+ * Total and non-throwing by construction: a `data` that is not a record falls back to
+ * the existing owner, so every malformed payload keeps its current error verbatim.
+ */
+function relationBearingData(model: Model<any>, data: unknown): boolean {
+  if (!isRecord(data)) return false;
+  for (const key of Object.keys(data)) {
+    if (data[key] === undefined) continue;
+    if (isRelation(model, key) || isPolymorphicRelation(model, key))
+      return true;
+  }
+  return false;
+}
+
+/**
+ * Does this bulk payload cap itself at no rows at all?
+ *
+ * `limit: 0` is the one public spelling of "affect nothing", and both existing bulk
+ * owners already compile it to the EMPTY plan (`BulkCountOperation` answers
+ * `{ count: 0 }`, `ManyAndReturnOperation` answers `[]`, neither issues a statement).
+ * Reading it RAW is exact for the same reason the two data predicates above read raw:
+ * the schema neither renames nor derives `limit`, so a validated `0` is a raw `0`, and
+ * any other spelling falls through to the owner that rejects it with its own message.
+ */
+function capsAtZeroRows(args: Record<string, unknown>): boolean {
+  return args.limit === 0;
+}
+
+/**
+ * Would the row-returning owner refuse this payload on this substrate? That refusal
+ * ("cannot execute '<operation>' with 'select' because public result parsing cannot be
+ * rolled back") is the specific answer for a batch-only non-returning driver, and it
+ * must survive the series destinations J and K added — so the series is skipped when
+ * it applies and the existing owner answers instead.
+ *
+ * The substrate half is that owner's OWN exported predicate, not a copy of it: this
+ * file adds only the question the router alone can answer, which is whether the
+ * payload asks for rows at all.
+ */
+function refusesReturningHere(
+  engine: QueryEngine,
+  args: Record<string, unknown>,
+  kind: "createManyAndReturn" | "updateManyAndReturn"
+): boolean {
+  return returnsRows(args) && refusesRowReturningSubstrate(engine, kind);
 }

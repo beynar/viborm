@@ -101,7 +101,7 @@ export function nestedReplacement(
 // ---------------------------------------------------------------------------
 /**
  * CLASS IV (T4c) — V1's `relationFailure` occupied-slot message, verbatim: a root
- * update (or, since N5-U1, a nested update TARGET) transitions a key a child-held,
+ * update (or a nested update TARGET) transitions a key a child-held,
  * non-cascade relation references while that relation's old slot still holds rows.
  * Both askers say it identically because it is one rule at two depths.
  */
@@ -116,10 +116,10 @@ export function relationKeyOccupiedMessage(
  * The owned-foreign-key refusal: a nested payload spells, as a scalar assignment, the
  * very column the enclosing relation OWNS. The engine derives that column from the row
  * the enclosing step acted on; a spelled value is a second, contradicting provenance for
- * it. One rule, so one string — the adopt family's seam
- * (`RelationUpsertPart.buildOneUpsertPart`) and the nested-update seam
- * (`RelationWritePart.assertOwnedFkAbsentFromUpdateData`, M12) both say it from here, so
- * the two can never drift and the census keys ONE message family.
+ * it. One rule, so one string. Its remaining engine consumer is the adopt family's seam
+ * (`RelationUpsertPart.withoutAgreeingOwnedFk`) — the nested-update guard that shared it
+ * (site 11) is deleted, its invariant now impossible upstream: the aligned parse
+ * omission refuses the spelling as `Unknown key` on every schema.
  */
 export function relationOwnsForeignKey(
   relationName: string,
@@ -166,13 +166,3 @@ export function upsertSkipPremiseChanged(
 ): string {
   return `query-engine-v2 top-level upsert ${field} skip premise changed before the atomic batch.`;
 }
-
-/**
- * The step-4 abort floor (V1's `attributeOperationBatchError`, byte-identical): a
- * batch assertion aborted with no guard to attribute or re-probe against — a
- * guard-free write ladder. Surfaced as the typed non-raceable V7006 floor. Lives
- * here (not the executor) so the executor stays free of operation-noun tokens
- * (structural gate a); the wording matches V1's frozen runtime verbatim.
- */
-export const NESTED_WRITE_ASSERTION_FLOOR_MESSAGE =
-  "Nested write assertion failed: a batch precondition (e.g. a connect/disconnect target or ownership check) did not hold.";

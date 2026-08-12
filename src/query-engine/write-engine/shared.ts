@@ -1,5 +1,5 @@
 import { TransactionError } from "@errors";
-import type { Model } from "@schema/model";
+import { getModelKeyCatalog, type Model } from "@schema/model";
 import { isSql } from "@sql";
 import { isRecord as isRecordValue } from "@validation/value-guards";
 
@@ -49,7 +49,7 @@ export interface SubOperationOptions {
     readonly incomingMembership?: RelationMembershipBinding;
     readonly relationName: string;
     /**
-     * N4-U2 — the raceable missing-premise pin of an enclosing adopt arm. A nested
+     * The raceable missing-premise pin of an enclosing adopt arm. A nested
      * `upsert`/`connectOrCreate` whose probe found nothing takes its CREATE arm, and
      * that arm's missing premise is enforced by the fresh row's own unique constraint
      * (the Pin Rule, `whenMissing: "constraint"`): a concurrent writer that created
@@ -61,6 +61,75 @@ export interface SubOperationOptions {
      * `create` is unconditional: its violation is a genuine error, never a race).
      */
     readonly rootRacePin?: TargetConstraintPin;
+  };
+  /**
+   * PACKAGE J3 — an INDEPENDENT ROOT create whose data a caller has already
+   * validated: one row of a relation-bearing root `createMany`, handed to
+   * `CreateOperation` as a series member (`CreateManyRecordSeries`).
+   *
+   * It is a discriminated CONSTRUCTOR INPUT, not a second create compiler: the only
+   * thing it replaces is the whole-args parse, because the `createMany` args schema
+   * already validated this row (each row is parsed exactly once, plan §5.1) and
+   * re-parsing a schema's transformed output is non-idempotent (X2). Everything
+   * downstream — the tree walk, the own-write preflight, the terminal read, the
+   * result parse — is the public route's, unchanged.
+   *
+   * It is deliberately NOT {@link nestedFresh}, which is the other already-validated
+   * input route and answers a different question. A nested fresh subtree is spliced
+   * under an enclosing record: it suppresses its terminal read (the enclosing
+   * operation owns the result) and defers its own-write preflight to the enclosing
+   * whole-tree walk. A series member is nobody's subtree — it must produce a result
+   * for its caller and it must run its OWN preflight, because there is no enclosing
+   * tree that ran one.
+   *
+   * `select` is the projection the member answers with. The series asks for the
+   * complete final root row key and nothing else (plan §6 J3 step 4); the public
+   * returning projection is read later, by {@link file://./CreateManyRecordSeries.ts},
+   * after every member's effects have landed.
+   */
+  readonly parsedRoot?: {
+    readonly data: Record<string, unknown>;
+    readonly select: Record<string, unknown>;
+  };
+  /**
+   * PACKAGE K5 — an INDEPENDENT ROOT update of ONE CAPTURED ROW: one member of a
+   * relation-bearing root `updateMany` (`UpdateManyRecordSeries`).
+   *
+   * It is the update family's sibling of {@link parsedRoot}, and it differs in the
+   * one way the two families differ: a create names its own row by writing it, while
+   * an update must be TOLD which row it is about. So this carries a `where` — the
+   * complete captured row key, already a `whereUnique` — and the member addresses
+   * exactly that row. Nothing about the located row, its projection, its transitions
+   * or its descendants changes: those are `RecordUpdateCompiler`'s, reached through
+   * the ordinary constructor path.
+   *
+   * `data` IS RAW, DELIBERATELY, AND EACH MEMBER PARSES IT ITSELF. Plan §6 K5 said
+   * "parsed data is shared immutable ParsedRecordPrograms"; that was measured wrong
+   * and this is the amendment. Client-side scalar defaults are THUNKS evaluated at
+   * parse time (`defaultUlid` / `defaultCuid` / `@now`, applied by the object
+   * primitive on every absent key), so a nested `create` parsed ONCE and shared
+   * across N members would give N children the SAME primary key — a unique violation
+   * on member 1 that rolls the whole series back, for the ordinary payload
+   * `updateMany({ data: { posts: { create: { title } } } })` on any model whose id is
+   * generated client-side. Re-materializing the defaults per member would be a second
+   * owner of default application; refusing nested `create` under N>1 is a refusal
+   * §5.2 does not authorize. Parsing the RAW data per member is the only shape that
+   * keeps identities distinct, and it is not a new cost: the public `update` route
+   * already parses its relation payloads from raw a second time (the whole-args parse
+   * at the top of this constructor is not what drives the write).
+   *
+   * What is NOT re-done per member is the ENVELOPE: `where`, `select`, `limit` and
+   * the portable-primary-key check belong to the bulk call, ran once, under the
+   * public operation name `updateMany`.
+   *
+   * `select` is the projection the member answers with — its complete FINAL root row
+   * key, after any transition, and nothing else. The public returning projection is
+   * read later, by `UpdateManyRecordSeries`, once every member's effects have landed.
+   */
+  readonly capturedRoot?: {
+    readonly data: Record<string, unknown>;
+    readonly where: Record<string, unknown>;
+    readonly select: Record<string, unknown>;
   };
 }
 
@@ -109,6 +178,18 @@ export function pinnedTargetValues(
  * is why a child table without an `id` column would have looked correct. Answer "yes,
  * a relation" here and the gate declines the fold; the unfolded path reads the
  * projection through an aliased SELECT, which correlates and answers the truth.
+ *
+ * WHY THIS IS NOT DERIVED FROM A COMPILED SELECTION FACT (a prototype that did
+ * exactly that was built whole and rejected on measurement — the falsifier is in
+ * `docs/architecture/guard-ownership-ledger.md`): the four
+ * gates ask BEFORE any SQL exists, in their operation constructors, and the
+ * selection traversal that could compile such a fact spends
+ * `QueryScope.nextAlias()` per relation. Asking it here would either renumber
+ * every alias in the statement this gate has not built yet, or pay a second
+ * speculative traversal per parse — the measured e2e cost that rejected the
+ * prototype. A pure predicate over `(model, select)` is the cheaper truth, and
+ * it is a different question anyway: "may this projection ride a RETURNING
+ * list", not "what will the rows contain".
  */
 export function selectProjectsRelation(
   model: Model<any>,
@@ -211,6 +292,21 @@ export function projectionNamesNoRelation(
  * without the key. A guard for `_count: true` here therefore declines folds that
  * are legal and covers nothing — removing it leaves the `_count` shorthand
  * witness below green, which is what says the coverage was not its own.
+ *
+ * ### Why this walk is not the selection traversal
+ *
+ * The select builder walks the same payload and emits the projection, so folding
+ * this question into it looks like one walk where there are two. It is not the
+ * same walk, in two ways that both matter:
+ *
+ *  · REACH. That traversal walks PROJECTION keys and hands `where`/`orderBy`/
+ *    `cursor` opaquely to the filter builders. This one must descend INTO them —
+ *    the measured counterexample above is a relation `where`, and the fold it
+ *    caught was legal by every projection reading. Deriving this from the
+ *    projection walk means widening the projection walk into a whole-payload
+ *    walker, which is a bigger builder, not a smaller estate.
+ *  · TIME. This answers in an operation CONSTRUCTOR, before the statement it
+ *    guards exists. See the note on {@link selectProjectsRelation}.
  */
 export function projectionReadsMutatedModel(
   scope: QueryScope,
@@ -304,7 +400,7 @@ function polymorphicPayloadReachesTable(
  * A foreign key may only point at a UNIQUE column set, so a `SET` that rewrites
  * no unique-participating field can fire no action at all. That is the test, and
  * `getForeignKeyTargetFields` is the one home for which column sets those are.
- * It asks a WIDER question than `getTargetIdentityFields`, deliberately: a
+ * It asks a WIDER question than the catalog's `uniqueOverlapFields`, deliberately: a
  * `whereUnique` can only address a declared unique CONSTRAINT, but PostgreSQL
  * (and MySQL) accept a unique INDEX as an FK target too, and viborm's migration
  * driver emits `.index([...], { unique: true })` as exactly that. Asking the
@@ -423,21 +519,22 @@ export function createDataUniqueWhere(
   model: Model<any>,
   createData: Record<string, unknown>
 ): Record<string, unknown> | undefined {
-  const state = model["~"].state;
-  for (const field of Object.keys(state.uniques)) {
-    const value = createData[field];
-    if (isAddressableLiteral(value)) return { [field]: value };
+  // Bare scalar selectors first (shape order), then grouped compound uniques —
+  // the compound PRIMARY key is deliberately not consulted: half a compound key
+  // is a filter, never an identity, and the whole one is the row key, which a
+  // create arm addresses through its own identity channel.
+  for (const key of getModelKeyCatalog(model).addressableKeys) {
+    if (key.name === undefined) {
+      const field = key.fields[0] as string;
+      const value = createData[field];
+      if (isAddressableLiteral(value)) return { [field]: value };
+    }
   }
-  // Each compound unique is an ObjectSchema whose `entries` are its columns — the
-  // same shape `where-unique-builder` reads to compile a compound selector.
-  const compoundUniques: Record<string, { entries: Record<string, unknown> }> =
-    state.compoundUniques ?? {};
-  for (const [name, constraint] of Object.entries(compoundUniques)) {
-    const fields = Object.keys(constraint.entries);
-    if (fields.length === 0) continue;
+  for (const key of getModelKeyCatalog(model).addressableKeys) {
+    if (key.kind !== "compoundUnique" || key.fields.length === 0) continue;
     const values: Record<string, unknown> = {};
     let complete = true;
-    for (const field of fields) {
+    for (const field of key.fields) {
       const value = createData[field];
       if (!isAddressableLiteral(value)) {
         complete = false;
@@ -445,7 +542,7 @@ export function createDataUniqueWhere(
       }
       values[field] = value;
     }
-    if (complete) return { [name]: values };
+    if (complete) return { [key.name as string]: values };
   }
   return undefined;
 }

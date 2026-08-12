@@ -465,7 +465,11 @@ describe("Deeply Nested Creates", () => {
       expect(result.issues).toBeDefined();
     });
 
-    test("runtime: rejects relation envelopes in top-level createMany", () => {
+    // PACKAGE J1 (plan §6 J1) — a root `createMany` row is now the ORDINARY create
+    // data shape. This test asserted the opposite ("rejects relation envelopes in
+    // top-level createMany"); the four below are what replaced it, covering the same
+    // schema seam from both sides.
+    test("runtime: a top-level createMany row takes a relation envelope", () => {
       const result = parse(authorSchemas.args.createMany, {
         data: [
           {
@@ -477,7 +481,62 @@ describe("Deeply Nested Creates", () => {
           },
         ],
       });
-      expect(result.issues).toBeDefined();
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        // Normalized exactly as the ordinary `create` normalizes it: a single item
+        // becomes a one-element list and the nested scalar defaults materialize.
+        expect(nestedOutput(result.value).data[0].posts.create).toMatchObject([
+          {
+            id: "post-1",
+            title: "Post",
+            authorId: "author-1",
+            published: false,
+          },
+        ]);
+      }
+    });
+
+    test("runtime: an unknown key BESIDE a real relation key still refuses", () => {
+      // The DX rule (AGENTS.md) wants a typo caught, and inside `data` the type
+      // checker cannot say so (the measured TS2589 boundary recorded in
+      // `tests/types/client/contextual-typing-gate.core.types.ts`). The runtime
+      // strict-object refusal is the one that answers, and it must survive the
+      // widening — a schema that accepted relations by going non-strict would
+      // silently drop the typo.
+      const result = parse(authorSchemas.args.createMany, {
+        data: [
+          {
+            id: "author-1",
+            name: "Alice",
+            posts: { create: { id: "p1", title: "P", authorId: "author-1" } },
+            postz: { create: { id: "p2", title: "Q", authorId: "author-1" } },
+          },
+        ],
+      });
+      expect(result.issues?.[0]?.message).toBe("Unknown key: postz");
+    });
+
+    test("runtime: a createMany row may spell an owned FK as its relation", () => {
+      const result = parse(phase7Schemas.post.args.createMany, {
+        data: [
+          { id: "post-1", title: "Hello", author: { connect: { id: "a1" } } },
+        ],
+      });
+      expect(result.issues).toBeUndefined();
+      if (!result.issues) {
+        expect(nestedOutput(result.value).data[0].author.connect).toEqual({
+          id: "a1",
+        });
+      }
+    });
+
+    test("runtime: a createMany row spelling NEITHER the FK nor the relation refuses with the create family's sentence", () => {
+      const result = parse(phase7Schemas.post.args.createMany, {
+        data: [{ id: "post-1", title: "Hello" }],
+      });
+      expect(result.issues?.[0]?.message).toBe(
+        "Missing required fields: one of authorId or author"
+      );
     });
   });
 

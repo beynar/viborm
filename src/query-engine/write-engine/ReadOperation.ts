@@ -17,8 +17,8 @@ import { validate } from "../validator";
 import {
   type OperationFragment,
   type PlanningFragment,
-  ref,
   type ReadStep,
+  ref,
 } from "./OperationFragment";
 import { isRecord, selectExecutionMode } from "./shared";
 
@@ -84,7 +84,7 @@ export class ReadOperation {
       ? requestedOperation.slice(0, -OR_THROW_SUFFIX.length)
       : requestedOperation;
     if (!isReadBase(base)) {
-      // Unreachable by construction (N7-U-A, the X1c disposition): `constructOperation`
+      // Unreachable by construction: `constructOperation`
       // builds a `ReadOperation` only when `READ_OPERATIONS.has(operation)`, and stripping
       // the `OrThrow` suffix from that set yields exactly the seven `ReadBase` members. A
       // name outside `ROUTED_OPERATIONS` never reaches any operation constructor —
@@ -119,7 +119,7 @@ export class ReadOperation {
 
   planning(): PlanningFragment {
     // A read makes no decision, so planning is empty.
-    return { steps: [], outputs: {} };
+    return { steps: [] };
   }
 
   compile(_known: Readonly<Record<string, unknown>>): OperationFragment {

@@ -10,14 +10,13 @@ import {
   createChildScope,
   getColumnName,
   getRelationInfo,
-  getTableName,
   isRelation,
   isScalarField,
 } from "../context";
 import { QueryEngineError, type QueryScope, type RelationInfo } from "../types";
-import { buildCorrelation } from "./correlation-utils";
 import { assertExactDecimalOperation } from "./decimal-portability";
 import { buildRelationCount } from "./relation-count-builder";
+import { buildRelationTraversal } from "./relation-traversal";
 import { buildSingleOrder } from "./sort-order-builder";
 
 export interface RelationOrderAlias {
@@ -51,7 +50,7 @@ export function buildRelationOrders(
     );
   }
 
-  if (relationInfo.isToOne) {
+  if (relationInfo.cardinality === "one") {
     return buildToOneRelationOrders(
       ctx,
       relationInfo,
@@ -63,13 +62,7 @@ export function buildRelationOrders(
     );
   }
 
-  if (relationInfo.isToMany) {
-    return buildToManyRelationOrders(ctx, relationInfo, value, parentAlias);
-  }
-
-  throw new QueryEngineError(
-    `Unsupported relation orderBy '${relationInfo.name}'.`
-  );
+  return buildToManyRelationOrders(ctx, relationInfo, value, parentAlias);
 }
 
 function buildToOneRelationOrders(
@@ -116,15 +109,9 @@ function buildToOneRelationOrders(
         );
       }
 
-      if (nestedRelationInfo.isToMany) {
+      if (nestedRelationInfo.cardinality === "many") {
         throw new QueryEngineError(
           `Relation orderBy '${fieldPath}' cannot order through a to-many relation; use '_count'.`
-        );
-      }
-
-      if (!nestedRelationInfo.isToOne) {
-        throw new QueryEngineError(
-          `Unsupported relation orderBy '${fieldPath}'.`
         );
       }
 
@@ -191,19 +178,17 @@ function getRelationOrderAlias(
     return existing;
   }
 
-  const relatedAlias = ctx.nextAlias();
-  const relatedTableName = getTableName(relationInfo.targetModel);
-  const relatedTable = ctx.adapter.identifiers.table(
-    relatedTableName,
-    relatedAlias
+  // The same physical traversal every other read builder takes, joined instead of
+  // selected from: a to-one chain hops through a LEFT JOIN so an absent related
+  // row still yields a row. Only to-one relations reach here (`buildRelationOrders`
+  // sends to-many chains to `buildRelationCount`), so the fold below always folds
+  // the ordinary arm's single pre-folded correlation and leaves it unchanged.
+  const traversal = buildRelationTraversal(ctx, relationInfo, parentAlias);
+  const relatedAlias = traversal.targetAlias;
+  const join = ctx.adapter.joins.left(
+    traversal.from(),
+    ctx.adapter.operators.and(...traversal.conditions())
   );
-  const condition = buildCorrelation(
-    ctx,
-    relationInfo,
-    parentAlias,
-    relatedAlias
-  );
-  const join = ctx.adapter.joins.left(relatedTable, condition);
   const entry = { alias: relatedAlias, join };
   relationAliases.set(relationPath, entry);
   return entry;

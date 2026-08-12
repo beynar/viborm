@@ -11,14 +11,18 @@ import {
   buildJunctionTargetIn,
   buildJunctionTargetValue,
   buildTargetPkSubquery,
-  getManyToManyJoinInfo,
 } from "./builders/many-to-many-utils";
+import {
+  classifyRelation,
+  type JunctionBoundRelation,
+  junctionSideMember,
+} from "./builders/relation-data-builder";
 import { buildSelect } from "./builders/select-builder";
 import { buildSet } from "./builders/set-builder";
 import { buildScalarSqlValue } from "./builders/values-builder";
 import { buildWhere } from "./builders/where-builder";
 import { buildWhereUnique } from "./builders/where-unique-builder";
-import { createChildScope } from "./context";
+import { createChildScope, getColumnName, getTableName } from "./context";
 import type { QueryScope, RelationInfo } from "./types";
 import { QueryEngineError } from "./types";
 
@@ -46,78 +50,91 @@ export class ManyToManyStatements {
     operation: ManyToManyOperation,
     args: Record<string, unknown>
   ): Sql {
-    if (relation.type !== "manyToMany") {
+    // This guard IS the classification: it asks the engine's one classifier the
+    // question it used to ask of `relation.type` itself, and refuses the same shape
+    // with the same sentence. Classifying binds nothing, so a junction's sides are
+    // still resolved where they are read, below.
+    const classified = classifyRelation(this.ctx, relation);
+    if (classified.kind !== "junction") {
       throw new QueryEngineError(
         `Relation statement references unknown many-to-many relation '${relation.name}'.`
       );
     }
-    const join = getManyToManyJoinInfo(this.ctx, relation);
+    // One bound junction serves every statement below, where each used to
+    // re-derive the same topology.
+    const junction = classified.bind();
     const parentValue = buildJunctionParentValue(
       this.ctx,
-      join,
-      { [join.sourcePkField]: args.parentValue },
+      junction,
+      {
+        [junctionSideMember(junction.membership.source).referencedField]:
+          args.parentValue,
+      },
       relation.name
     );
 
     switch (operation) {
       case "junctionInsert": {
-        const targetValue = this.targetValue(relation, args);
-        return buildJunctionInsert(this.ctx, join, parentValue, targetValue);
+        const targetValue = this.targetValue(junction, args);
+        return buildJunctionInsert(
+          this.ctx,
+          junction,
+          parentValue,
+          targetValue
+        );
       }
       case "junctionInsertMany": {
         const targets = requireArray(args.targetValues, "targetValues");
         return buildJunctionInsertMany(
           this.ctx,
-          join,
+          junction,
           parentValue,
-          this.targetValues(relation, targets)
+          this.targetValues(junction, targets)
         );
       }
       case "junctionDelete": {
-        const source = buildJunctionSourceMatch(this.ctx, join, parentValue);
+        const source = buildJunctionSourceMatch(
+          this.ctx,
+          junction,
+          parentValue
+        );
         const where = isRecord(args.targetWhere)
           ? this.ctx.adapter.operators.and(
               source,
               buildJunctionTargetIn(
                 this.ctx,
-                join,
-                buildTargetPkSubquery(
-                  this.ctx,
-                  relation,
-                  join,
-                  args.targetWhere
-                )
+                junction,
+                buildTargetPkSubquery(this.ctx, junction, args.targetWhere)
               )
             )
           : source;
         return this.ctx.adapter.mutations.delete(
-          this.ctx.adapter.identifiers.escape(join.junctionTableName),
+          this.ctx.adapter.identifiers.escape(junction.membership.table),
           where
         );
       }
       case "junctionDeleteTargets": {
         const targets = requireArray(args.targetValues, "targetValues");
-        const values = this.targetValues(relation, targets);
+        const values = this.targetValues(junction, targets);
         const condition =
           values.length === 0
             ? this.falseCondition()
             : buildJunctionDeleteCondition(
                 this.ctx,
-                relation,
-                join,
+                junction,
                 sql`(${sql.join(values, ", ")})`
               );
         return this.ctx.adapter.mutations.delete(
-          this.ctx.adapter.identifiers.escape(join.junctionTableName),
+          this.ctx.adapter.identifiers.escape(junction.membership.table),
           condition
         );
       }
       case "membershipRead":
-        return this.membershipRead(relation, parentValue, args);
+        return this.membershipRead(junction, parentValue, args);
       case "membershipDifference":
-        return this.membershipDifference(relation, parentValue, args);
+        return this.membershipDifference(junction, parentValue, args);
       case "membershipUpdateMany":
-        return this.membershipUpdateMany(relation, parentValue, args);
+        return this.membershipUpdateMany(junction, parentValue, args);
       default: {
         const exhaustive: never = operation;
         throw new QueryEngineError(
@@ -128,20 +145,19 @@ export class ManyToManyStatements {
   }
 
   private membershipRead(
-    relation: RelationInfo,
+    junction: JunctionBoundRelation,
     parentValue: Sql,
     args: Record<string, unknown>
   ): Sql {
-    const join = getManyToManyJoinInfo(this.ctx, relation);
     const child = createChildScope(
       this.ctx,
-      relation.targetModel,
+      junction.membership.target.model,
       this.ctx.nextAlias()
     );
-    const table = join.targetTableName;
+    const table = getTableName(junction.membership.target.model);
     const membership = buildJunctionMembership(
       this.ctx,
-      join,
+      junction,
       parentValue,
       table
     );
@@ -191,20 +207,19 @@ export class ManyToManyStatements {
   }
 
   private membershipDifference(
-    relation: RelationInfo,
+    junction: JunctionBoundRelation,
     parentValue: Sql,
     args: Record<string, unknown>
   ): Sql {
-    const join = getManyToManyJoinInfo(this.ctx, relation);
-    const table = join.targetTableName;
+    const table = getTableName(junction.membership.target.model);
     const child = createChildScope(
       this.ctx,
-      relation.targetModel,
+      junction.membership.target.model,
       this.ctx.nextAlias()
     );
     const membership = buildJunctionMembership(
       this.ctx,
-      join,
+      junction,
       parentValue,
       table
     );
@@ -215,8 +230,14 @@ export class ManyToManyStatements {
       ? this.ctx.adapter.operators.and(membership, filter)
       : membership;
     const targets = requireArray(args.targetValues, "targetValues");
-    const values = this.targetValues(relation, targets);
-    const pk = this.ctx.adapter.identifiers.column(table, join.targetPkColumn);
+    const values = this.targetValues(junction, targets);
+    const pk = this.ctx.adapter.identifiers.column(
+      table,
+      getColumnName(
+        junction.membership.target.model,
+        junctionSideMember(junction.membership.target).referencedField
+      )
+    );
     const difference = args.difference;
     let where: Sql;
     if (difference === "added") {
@@ -255,66 +276,69 @@ export class ManyToManyStatements {
   }
 
   private membershipUpdateMany(
-    relation: RelationInfo,
+    junction: JunctionBoundRelation,
     parentValue: Sql,
     args: Record<string, unknown>
   ): Sql {
-    const join = getManyToManyJoinInfo(this.ctx, relation);
     const child = createChildScope(
       this.ctx,
-      relation.targetModel,
+      junction.membership.target.model,
       this.ctx.nextAlias()
     );
+    const table = getTableName(junction.membership.target.model);
     const membership = buildJunctionMembership(
       this.ctx,
-      join,
+      junction,
       parentValue,
-      join.targetTableName
+      table
     );
     const filter = isRecord(args.where)
-      ? buildWhere(
-          { ...child, mutationTable: join.targetTableName },
-          args.where,
-          join.targetTableName
-        )
+      ? buildWhere({ ...child, mutationTable: table }, args.where, table)
       : undefined;
     const data = requireRecord(args.data, "data");
     return this.ctx.adapter.mutations.update(
-      this.ctx.adapter.identifiers.escape(join.targetTableName),
+      this.ctx.adapter.identifiers.escape(table),
       buildSet(child, data),
       filter ? this.ctx.adapter.operators.and(membership, filter) : membership
     );
   }
 
   private targetValue(
-    relation: RelationInfo,
+    junction: JunctionBoundRelation,
     args: Record<string, unknown>
   ): Sql {
-    const join = getManyToManyJoinInfo(this.ctx, relation);
+    const relationName = junction.relationInfo.name;
     if (args.targetValue !== undefined) {
       return buildJunctionTargetValue(
         this.ctx,
-        relation,
-        join,
-        { [join.targetPkField]: args.targetValue },
-        relation.name
+        junction,
+        {
+          [junctionSideMember(junction.membership.target).referencedField]:
+            args.targetValue,
+        },
+        relationName
       );
     }
     if (isRecord(args.targetWhere)) {
-      return buildTargetPkSubquery(this.ctx, relation, join, args.targetWhere);
+      return buildTargetPkSubquery(this.ctx, junction, args.targetWhere);
     }
     throw new QueryEngineError(
-      `Junction insert for relation '${relation.name}' has no target.`
+      `Junction insert for relation '${relationName}' has no target.`
     );
   }
 
-  private targetValues(relation: RelationInfo, values: unknown[]): Sql[] {
-    const join = getManyToManyJoinInfo(this.ctx, relation);
+  private targetValues(
+    junction: JunctionBoundRelation,
+    values: unknown[]
+  ): Sql[] {
+    const referencedField = junctionSideMember(
+      junction.membership.target
+    ).referencedField;
     return values.map((value) =>
       buildScalarSqlValue(
         this.ctx,
-        relation.targetModel,
-        join.targetPkField,
+        junction.membership.target.model,
+        referencedField,
         value
       )
     );

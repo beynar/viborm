@@ -29,7 +29,10 @@ export {
 } from "./find-common";
 export { buildFindUnique } from "./find-unique";
 export { buildGroupBy, type GroupByArgs } from "./groupby";
-export { buildMutationProjectionFold } from "./mutation-projection-fold";
+export {
+  buildMutationProjectionFold,
+  compileMutationDependencyFold,
+} from "./mutation-projection-fold";
 export {
   buildUpdate,
   buildUpdateMany,

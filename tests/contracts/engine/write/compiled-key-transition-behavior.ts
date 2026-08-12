@@ -253,5 +253,88 @@ export function registerCompileTransitionBehavior(
         ["west"]
       );
     });
+
+    // -----------------------------------------------------------------------
+    // Package D gate — the two verdicts the lift MOVED, measured on every leg
+    //
+    // FALSIFIED 2026-08-10 against `RecordUpdateCompiler.compileRelationKeyGuards`,
+    // both directions of the one branch these two tests added, each restored from a
+    // scratchpad copy taken first:
+    //   · never skip (`oldReferenceIsAddressable` ignored) — 1 red, and precisely the
+    //     one that names the defect: the null-member test on the ATOMIC BATCH leg
+    //     only, its transaction twin staying green. That asymmetry IS the bug.
+    //   · always skip — 14 red across `compiled-key-transition`, `parity-d-transition`
+    //     and `nested-arm-dispatch`, so the guard the branch stands in front of is
+    //     measured on its own account. `record-compiler-contract` stays green,
+    //     correctly: it pins the guarded regime's SQL and step order, and feeds a
+    //     probe result with no occupant, so no verdict of either sign is reachable
+    //     from it.
+    // -----------------------------------------------------------------------
+
+    test("an OCCUPIED old slot refuses the same nested create the empty slot accepts", async () => {
+      const client = await connect();
+      await resetCompileTransition(client);
+      await client.org.create({ data: { id: "o1", slug: "s1" } });
+      // The only difference from the first test in this file: a seat already sits in
+      // the slot `o1` that the transition is about to vacate.
+      await client.seat.create({ data: { id: "st0", name: "n", orgId: "o1" } });
+
+      // A NEW REFUSAL, and the gate records it as one rather than as a lift. Before
+      // Package D this payload was ACCEPTED: `interpretReferencedKeyTransition`
+      // answered `pastSurface` for an unpinned reference and returned BEFORE it could
+      // emit the occupied guard, and the caller let `create` / `createMany` through
+      // that regime untouched — so the root UPDATE ran, the database's own
+      // `ON UPDATE SET NULL` nulled `st0.orgId`, and nothing said so. The PINNED twin
+      // of this payload (`where: { id: "o1" }`) was refused with this exact message
+      // for the whole of that time. D2's thesis is that the two spellings are one
+      // shape, so the guard is now kind-blind AND locator-blind; what it costs is this
+      // refusal, on the half that used to slip past.
+      await expect(
+        client.org.update({
+          where: { slug: "s1" },
+          data: { id: "o2", seats: { create: { id: "st1", name: "n" } } },
+        })
+      ).rejects.toThrow(
+        "Cannot update relation 'seats' with onUpdate('setNull') while the current relation is occupied."
+      );
+      // Refused before any write, on both substrates: the root never moved and the
+      // occupant still references the key it always did.
+      expect((await client.org.findMany({})).map((row: any) => row.id)).toEqual(
+        ["o1"]
+      );
+      expect(
+        (await client.seat.findMany({})).map(
+          (row: any) => `${row.id}:${row.orgId}`
+        )
+      ).toEqual(["st0:o1"]);
+    });
+
+    test("a NULL member of the OLD reference tuple occupies nothing, on either substrate", async () => {
+      const client = await connect();
+      await resetCompileTransition(client);
+      await client.bay.create({ data: { id: "b1", area: "eu", slot: null } });
+      // `p0` stores the same literal tuple the bay holds, and references NO bay: a
+      // foreign key compares under MATCH SIMPLE, so a NULL member binds nothing.
+      await client.pad.create({
+        data: { id: "p0", bayArea: "eu", baySlot: null },
+      });
+
+      // The transition therefore strands nothing and the occupied guard must not fire.
+      // The claim worth pinning is that BOTH substrates say so: the guard's two
+      // carriers lower a null pre-value differently — the planning probe binds it as a
+      // parameter (`= $n`, never true of NULL), the atomic batch's premise resolves it
+      // to a literal (`IS NULL`, true of NULL) — so before the gate this same payload
+      // resolved on a transaction and threw the occupied error on a batch.
+      await client.bay.update({
+        where: { id: "b1" },
+        data: { slot: "west", pads: { create: { id: "p1" } } },
+      });
+
+      expect(
+        (await client.pad.findMany({})).map(
+          (row: any) => `${row.id}:${row.bayArea}/${row.baySlot}`
+        )
+      ).toEqual(["p0:eu/null", "p1:eu/west"]);
+    });
   });
 }

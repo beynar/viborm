@@ -16,10 +16,9 @@ import {
   type OwnWriteLedger,
 } from "./OwnWriteLedger";
 import { OwnWriteSteps } from "./OwnWriteSteps";
-import type { RootMembershipFootprint } from "./RelationMembership";
-import {
-  getRelationMembershipScope,
-  type RelationMembershipScope,
+import type {
+  RelationMembershipScope,
+  RootMembershipFootprint,
 } from "./RelationMembership";
 import type { PredicateFieldSet, TargetConstraint } from "./TargetConstraint";
 import {
@@ -54,6 +53,16 @@ export class OwnWriteRelation {
   readonly membershipOrientation: MembershipReadOrientation;
   readonly checkpoint: number;
   readonly steps: OwnWriteSteps;
+  /**
+   * H3 — the unique selector of a `connect` this to-one payload composes with an
+   * `update`. When it is present the modify does NOT read membership: the engine
+   * locates the supplied row by exactly this selector, because correlating would
+   * address the OUTGOING member (`RecordUpdateCompiler`'s child-held composition).
+   * Keeping the analyzer's decision read on membership after H would report a
+   * dependency the compiled plan does not have — a `disconnect` beside the pair would
+   * be named as the update's premise while the update never asks about membership.
+   */
+  readonly composedSupplierSelector: Record<string, unknown> | undefined;
 
   private constructor(
     node: OwnWriteNode,
@@ -73,6 +82,10 @@ export class OwnWriteRelation {
     this.membershipScope = membershipScope;
     this.membershipOrientation = getMembershipReadOrientation(boundRelation);
     this.checkpoint = ledger.checkpoint();
+    this.composedSupplierSelector = resolveComposedSupplierSelector(
+      boundRelation,
+      program
+    );
     this.steps = new OwnWriteSteps(this);
   }
 
@@ -82,7 +95,12 @@ export class OwnWriteRelation {
     boundRelation: BoundRelation,
     rootMembershipFootprints: readonly RootMembershipFootprint[],
     membershipLedger: OwnWriteLedger | undefined,
-    membershipScope = getRelationMembershipScope(node.ctx, boundRelation)
+    /** The analyser states it from the parsed entry: an ordinary edge's bound
+     *  topology, or the membership a resolved direct polymorphic edge builds. It is
+     *  required rather than defaulted, because a default here is an exact-membership
+     *  override channel — a second answer to "which membership is this" living one
+     *  argument away from the first. */
+    membershipScope: RelationMembershipScope
   ): OwnWriteRelation {
     const ledger = node.ledger.fork();
     for (const footprint of rootMembershipFootprints) {
@@ -90,7 +108,6 @@ export class OwnWriteRelation {
       ledger.appendMembership(
         node.rootOperation,
         getRelationMembershipEndpoints(
-          node.ctx,
           boundRelation,
           membershipScope,
           node.currentConstraint,
@@ -166,7 +183,9 @@ export class OwnWriteRelation {
     operation: OwnWriteCreateSummary["operation"],
     data: Readonly<Record<string, unknown>>
   ): OwnWriteCreateSummary | undefined {
-    return this.isRelatedHeldRelation() ? { operation, data } : undefined;
+    return this.boundRelation.position === "childHeld"
+      ? { operation, data }
+      : undefined;
   }
 
   assertTargetAndMembershipRead(
@@ -211,12 +230,7 @@ export class OwnWriteRelation {
   assertUpsertDecision(
     where: Record<string, unknown> | undefined
   ): TargetConstraint {
-    if (
-      this.boundRelation.kind === "parentHeldToOne" ||
-      this.boundRelation.kind === "childHeldToOne" ||
-      this.boundRelation.kind === "polymorphicChildHeldToOne" ||
-      !where
-    ) {
+    if (this.boundRelation.cardinality === "one" || !where) {
       const unknown = unknownConstraint(this.target);
       this.assertMembershipRead("upsert", unknown);
       return unknown;
@@ -305,31 +319,50 @@ export class OwnWriteRelation {
     return this.node.family;
   }
 
-  private isRelatedHeldRelation(): boolean {
-    return (
-      this.boundRelation.kind === "childHeldToOne" ||
-      this.boundRelation.kind === "childHeldToMany" ||
-      this.boundRelation.kind === "polymorphicChildHeldToOne" ||
-      this.boundRelation.kind === "polymorphicChildHeldToMany"
-    );
-  }
-
   private membershipEndpoints(
     targetConstraint: TargetConstraint,
     access: "read" | "write"
   ): ReturnType<typeof getRelationMembershipEndpoints> {
     const currentConstraint =
-      access === "read" &&
-      (this.boundRelation.kind === "polymorphicChildHeldToOne" ||
-        this.boundRelation.kind === "polymorphicChildHeldToMany")
+      access === "read" && this.boundRelation.membership.kind === "polymorphic"
         ? this.node.currentReadConstraint
         : this.node.currentConstraint;
     return getRelationMembershipEndpoints(
-      this.ctx,
       this.boundRelation,
       this.membershipScope,
       currentConstraint,
       targetConstraint
     );
   }
+}
+
+/**
+ * H3 — is this to-one payload a composed `connect` + `update`? The engine's own
+ * composition owner (`composeToOneEntries`, in `RecordUpdateCompiler.ts`) admits a
+ * supplier beside a modify only when the supplier is a `connect`, because its unique
+ * selector is the one identity that exists before the fragment's first write; the
+ * analyzer answers the same question the same way so the two cannot disagree about what
+ * the modify reads.
+ *
+ * That agreement is asserted, not enforced — this predicate re-derives the rule rather
+ * than consuming the compiler's answer, because the analyzer runs on the PROGRAM and the
+ * composition is decided during compilation. So the two are one invariant with two
+ * writers: widening the engine's composition without widening this predicate leaves the
+ * analyzer deciding on membership while the plan locates by an identity, which reports a
+ * dependency the plan does not have (or misses one it does). Both sites move together.
+ */
+function resolveComposedSupplierSelector(
+  boundRelation: BoundRelation,
+  program: RelationMutationProgram
+): Record<string, unknown> | undefined {
+  if (boundRelation.cardinality !== "one") {
+    return undefined;
+  }
+  if (!program.entries.some((entry) => entry.kind === "update")) {
+    return undefined;
+  }
+  for (const entry of program.entries) {
+    if (entry.kind === "connect") return entry.targets[0];
+  }
+  return undefined;
 }

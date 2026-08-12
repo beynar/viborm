@@ -1,6 +1,7 @@
 // Relation Types and Shared Interfaces
 
 import type { AnyModel } from "@schema/model";
+import { resolveOrdinaryInverse } from "./inverse";
 
 /** Workaround to allow circular dependencies */
 export type Getter = () => any;
@@ -124,7 +125,9 @@ type InverseCandidateKeys<TTargetModel, TSourceModel> =
         >
           ? State["getter"] extends () => TSourceModel
             ? State extends { fields: string[] }
-              ? K
+              ? State["fields"] extends readonly []
+                ? never
+                : K
               : never
             : never
           : never;
@@ -141,11 +144,13 @@ type NamedInverseCandidateKeys<TTargetModel, TSourceModel, TName> =
         >
           ? State["getter"] extends () => TSourceModel
             ? State extends { fields: string[] }
-              ? TName extends string
-                ? State["name"] extends TName
-                  ? K
-                  : never
-                : K
+              ? State["fields"] extends readonly []
+                ? never
+                : TName extends string
+                  ? State["name"] extends TName
+                    ? K
+                    : never
+                  : K
               : never
             : never
           : never;
@@ -196,22 +201,19 @@ type ExtractInverseFields<TTargetModel, TSourceModel, TName> = [
  *
  * The target model's relations are inferred from S["getter"].
  *
- * The relation name DISAMBIGUATES; it does not reject — the SAME rule the runtime
- * {@link getInverseRelationMap} and the engine's `findInverseRelationState` apply. A SOLE
+ * The relation name DISAMBIGUATES; it does not reject — the SAME rule the one
+ * candidate scan (`./inverse`) applies for every consumer. A SOLE
  * back-reference IS this relation's foreign key whether or not it echoes the name, and
  * the name only picks among SEVERAL competing back-references.
  *
- * TH — the residual D5 left here is closed. The name check used to REJECT at the type
- * level while the runtime demoted it, so on a schema whose lone back-reference does not
- * echo the name the two answered differently about one edge. Measured through the public
- * client at 620a171: a nested `createMany` row DEMANDED the foreign key
- * (`Property 'orgId' is missing … but required`) that the runtime schema had already made
- * optional and the engine derives — a legal call the compiler refused. The alignment is
- * expressible because `.fields()` keeps its literal tuple through the model type and
- * {@link IsSingleMember} answers `candidates.length === 1` over the target's RELATION
- * KEYS (the recorded risk — a `.fields()` collapse to `string[]` fusing two candidates —
- * was measured NOT to occur, and counting keys rather than tuples makes it unreachable
- * either way).
+ * THE TYPE LEVEL AND THE RUNTIME ANSWER THIS IDENTICALLY, and must. The name check
+ * used to REJECT at the type level while the runtime demoted it, so on a schema whose
+ * lone back-reference does not echo the name the two disagreed about one edge and a
+ * legal nested `createMany` row demanded a foreign key the runtime had already made
+ * optional. The alignment is expressible because `.fields()` keeps its literal tuple
+ * through the model type and {@link IsSingleMember} answers `candidates.length === 1`
+ * over the target's RELATION KEYS — counting keys rather than tuples is what keeps a
+ * `.fields()` collapse to `string[]` from fusing two candidates.
  */
 export type GetInverseRelationMap<
   S extends RelationState,
@@ -220,7 +222,13 @@ export type GetInverseRelationMap<
   type: "manyToOne" | "oneToOne";
   fields: readonly string[];
 }
-  ? S["fields"]
+  ? S["fields"] extends readonly []
+    ? // A zero-argument `.fields()` is fields-LESS — the aligned reading — so
+      // the edge falls to the inverse scan exactly as the runtime does.
+      S["getter"] extends () => infer TTargetModel
+      ? ExtractInverseFields<TTargetModel, TSourceModel, S["name"]>
+      : undefined
+    : S["fields"]
   : S["getter"] extends () => infer TTargetModel
     ? ExtractInverseFields<TTargetModel, TSourceModel, S["name"]>
     : undefined;
@@ -228,9 +236,8 @@ export type GetInverseRelationMap<
 /**
  * Get the FK fields from the inverse relation at runtime.
  * - For to-one relations with `.fields()`: returns its own fields
- * - For inverse one-to-one, one-to-many, and many-to-many relations: finds the
- *   inverse to-one relation in the target model, by the SAME rule the engine's
- *   {@link findInverseRelationState} uses (see the note at the scan below): the
+ * - For inverse one-to-one, one-to-many, and many-to-many relations: derives the
+ *   FK-omission projection from the one candidate scan in `./inverse`: the
  *   relation name disambiguates competing back-references, it never rejects the
  *   only one.
  *
@@ -241,65 +248,41 @@ export function getInverseRelationMap<S extends RelationState, TSourceModel>(
   state: S,
   sourceModel: TSourceModel
 ): GetInverseRelationMap<S, TSourceModel> {
-  // To-one relations with explicit fields hold the FK on this side. Inverse
-  // one-to-one relations have no fields and must scan the target model.
+  // To-one relations with explicit NON-EMPTY fields hold the FK on this side —
+  // the aligned reading (`fields.length > 0`) the engine has always applied. A
+  // zero-argument `.fields()` is fields-less and falls to the inverse scan,
+  // which is what retired guard-ledger site 11's only route.
   if (
     (state.type === "manyToOne" || state.type === "oneToOne") &&
-    state.fields
+    state.fields &&
+    state.fields.length > 0
   ) {
     return state.fields as GetInverseRelationMap<S, TSourceModel>;
   }
 
-  // oneToMany/manyToMany - find the inverse relation in target model
-  const targetModel = state.getter() as {
-    "~": { state: { relations: Record<string, AnyRelation> } };
-  };
-  const targetRelations = targetModel["~"].state.relations;
-
-  const candidates: RelationState[] = [];
-  for (const relation of Object.values(targetRelations)) {
-    const relState = relation["~"].state;
-
-    // Must be manyToOne/oneToOne with fields
-    if (
-      (relState.type !== "manyToOne" && relState.type !== "oneToOne") ||
-      !relState.fields
-    ) {
-      continue;
-    }
-
-    // The inverse relation's target must be the source model
-    if (relState.getter() !== sourceModel) {
-      continue;
-    }
-
-    candidates.push(relState);
-  }
-
-  // The relation name DISAMBIGUATES; it does not reject. When several to-one
-  // back-references point at the source model, `.name()` says which one carries THIS
-  // relation's foreign key. When there is exactly one, it IS this relation's foreign key
-  // whatever either side spelled — `.name()` on a single relation pair is legal
-  // decoration (R007 only asks for it when several relations run between two models, and
-  // R003/R004 pair relations by type, never by name).
+  // The FK-OMISSION projection of the one ordinary resolution (`inverse.ts`).
   //
-  // This is the rule `findInverseRelationState` — the ENGINE's scanner, which resolves
-  // the same edge for read correlation and for nested-write FK direction — has always
-  // applied. Rejecting a name-mismatched SOLE back-reference here made the two scanners
-  // answer differently about one edge: the parse omitted nothing, so it ADMITTED a
-  // spelled child foreign key, and `CreateOperation`'s inject then overwrote that value
-  // with the one the engine resolved — a user-supplied identity discarded silently.
-  // Aligned on the engine's reading because two live callers need it: a name-mismatched
-  // schema's reads correlate through that scanner with no parse boundary in front of
-  // them, and its nested writes resolve their FK direction through it.
-  if (candidates.length === 1) {
-    return candidates[0]!.fields as GetInverseRelationMap<S, TSourceModel>;
+  // This view deliberately never consults the polymorphic arms: it answers
+  // "which fields might the enclosing edge supply to nested data", and a
+  // name-paired polymorphic edge does not stop the physical foreign key from
+  // being the fields the child data must omit. What differs from the engine's
+  // consumption of the same resolution is ONE policy, preserved exactly: on an
+  // `ambiguous` verdict with no `.name()` the FIRST declared candidate answers
+  // (the historical omission behavior), where `bindRelation` refuses; with a
+  // `.name()` matching none, this view answers undefined.
+  const resolved = resolveOrdinaryInverse(
+    state.getter() as AnyModel,
+    sourceModel,
+    state.name
+  );
+  if (resolved.kind === "ordinary") {
+    return resolved.fields as GetInverseRelationMap<S, TSourceModel>;
   }
-  for (const candidate of candidates) {
-    if (!state.name || state.name === candidate.name) {
-      return candidate.fields as GetInverseRelationMap<S, TSourceModel>;
-    }
+  if (resolved.kind === "ambiguous" && !state.name) {
+    return resolved.candidates[0]?.fields as GetInverseRelationMap<
+      S,
+      TSourceModel
+    >;
   }
-
   return undefined as GetInverseRelationMap<S, TSourceModel>;
 }

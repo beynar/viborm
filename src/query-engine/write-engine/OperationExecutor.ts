@@ -5,9 +5,9 @@ import {
   assertNormalizedQueryResult,
 } from "@drivers/normalized-result";
 import {
+  NESTED_WRITE_ASSERTION_FLOOR_MESSAGE,
   NestedWriteAssertionError,
   NestedWriteError,
-  NotFoundError,
   QueryEngineError,
   TransactionError,
   UniqueConstraintError,
@@ -24,8 +24,9 @@ import type {
   PreparedQuery,
 } from "../types";
 import { validateFragment } from "./FragmentValidator";
-import { NESTED_WRITE_ASSERTION_FLOOR_MESSAGE } from "./messages";
+
 import {
+  createFailureError,
   type Failure,
   type FragmentOutputSource,
   type GuardStep,
@@ -35,10 +36,19 @@ import {
   type OperationValueReference,
   type PlanningFragment,
   type ReadStep,
+  ref,
   type StatementOutputSource,
   type StatementStep,
+  statementHasReferences,
+  statementReferences,
 } from "./OperationFragment";
+import { planningKey } from "./Part";
 import { markRaceable, markRaceIfPinned, racePinMatches } from "./race-retry";
+import {
+  isRecordSeries,
+  type RecordSeriesOperation,
+  type RoutedExecutableOperation,
+} from "./record-series";
 import { isRecord, noAtomicSubstrateError } from "./shared";
 
 type RuntimeValues = Map<string, Map<string, unknown>>;
@@ -56,7 +66,7 @@ export interface ExecutableOperation {
   parse<T>(outputs: Readonly<Record<string, unknown>>): T;
   /**
    * Optional execution-context gate, invoked ONLY on the `$transaction([...])`
-   * array batch-preparation seams ({@link prepareBatch}/{@link prepareSharedBatch}),
+   * array batch-preparation seam ({@link prepareSharedBatch}),
    * never on the direct linear path. An operation whose direct result is a
    * documented no-op but whose batch-preparation V1 rejects — V1 builds its batch
    * plan eagerly and raises where the payload has nothing to lower — surfaces that
@@ -119,10 +129,10 @@ function compileSingleStatementCandidate(
 
 function canExecuteDirectly(candidate: SingleStatementCandidate): boolean {
   const { step } = candidate;
-  return (
-    !(step.kind === "write" && step.onUniqueConflict) &&
-    !step.statement.values.some(isOperationValueReference) &&
-    !stepUsesInsertIdScratch(step)
+  return !(
+    (step.kind === "write" && step.onUniqueConflict) ||
+    statementHasReferences(step.statement) ||
+    stepUsesInsertIdScratch(step)
   );
 }
 
@@ -132,9 +142,9 @@ function canPrepareSingle(candidate: SingleStatementCandidate): boolean {
 
 function canBuildStatement(candidate: SingleStatementCandidate): boolean {
   const { step } = candidate;
-  return (
-    !(step.kind === "write" && step.onUniqueConflict) &&
-    !step.statement.values.some(isOperationValueReference)
+  return !(
+    (step.kind === "write" && step.onUniqueConflict) ||
+    statementHasReferences(step.statement)
   );
 }
 
@@ -146,10 +156,29 @@ export class OperationExecutor {
   }
 
   execute<T>(
-    operation: ExecutableOperation,
+    operation: RoutedExecutableOperation,
     context: QueryExecutionContext,
     driverOverride?: AnyDriver
   ): Promise<T> {
+    // A SERIES has no single planning-then-compilation fragment, so none of the
+    // seams below it may be entered: it owns an interactive scope in which it
+    // captures, builds its members, and runs them one after another.
+    //
+    // It always opens that scope ITSELF — on the caller's driver when there is
+    // one, where `withTransaction` is a savepoint (the same nesting the client's
+    // callback seam already opens per operation). Borrowing the caller's scope
+    // instead would make the retry above untrue: a member failure would leave its
+    // predecessors' effects standing in a scope it had merely poisoned, so the
+    // second attempt could neither undo them nor run at all. `withTransaction`
+    // also refuses a substrate offering no interactive scope before it reaches the
+    // provider, under that method's own naming.
+    if (isRecordSeries(operation)) {
+      return (driverOverride ?? this.engine.driver).withTransaction(
+        (driver) => this.runSeriesOn<T>(operation, context, driver),
+        undefined,
+        context
+      );
+    }
     // A caller-supplied driver is already inside its own atomic scope (the
     // client's callback-transaction seam); run the fragments on it linearly
     // rather than opening a second envelope.
@@ -192,6 +221,62 @@ export class OperationExecutor {
       return this.runTransaction<T>(operation, context);
     }
     return this.runAtomicBatch<T>(operation, context);
+  }
+
+  /**
+   * Run one series inside an already-open interactive scope: capture, build every
+   * member, run the members one after another on THIS driver, then the result
+   * reads, then parse.
+   *
+   * Members go through {@link execute} with this driver as the override, so each
+   * keeps its own planning, compilation, postconditions and race marking. Linear
+   * execution admits no guard step — and none can reach it: a guard is a
+   * batch-mode lowering, and this scope exists only on a substrate that offers an
+   * interactive transaction, which is exactly the substrate on which every member
+   * compiles in transaction mode.
+   *
+   * Nothing here re-runs anything: the routed boundary above the executor owns the
+   * one retry, and it retries the COMPLETE series (this capture included) rather
+   * than a member on its own — a member that re-ran alone would re-run against
+   * state its predecessors have already changed inside this scope.
+   */
+  private async runSeriesOn<T>(
+    operation: RecordSeriesOperation,
+    context: QueryExecutionContext,
+    driver: AnyDriver
+  ): Promise<T> {
+    const capture = operation.capture();
+    validateFragment(capture);
+    const captured = await this.executeLinear(
+      capture,
+      driver,
+      new Map(),
+      context
+    );
+    // Every member is BUILT before the first one runs a statement: building is
+    // where a member's public envelope is checked, so a shape the engine cannot
+    // express is refused while this scope still has nothing to undo.
+    const members = operation.compileMembers(captured);
+    const memberResults: unknown[] = [];
+    for (const member of members) {
+      memberResults.push(await this.execute<unknown>(member, context, driver));
+    }
+    const resultReads = operation.compileResultReads(captured, memberResults);
+    const resultReadResults: unknown[] = [];
+    for (const resultRead of resultReads) {
+      resultReadResults.push(
+        await this.execute<unknown>(resultRead, context, driver)
+      );
+    }
+    const parsed = operation.parseSeries({
+      captured,
+      memberResults,
+      resultReadResults,
+    });
+    // The series owns its public shape exactly as `parse<T>` does for one
+    // fragment; the generic is the caller's expectation of it, not a second
+    // opinion the executor could hold.
+    return parsed as T;
   }
 
   private runTransaction<T>(
@@ -247,30 +332,6 @@ export class OperationExecutor {
   }
 
   /**
-   * The `prepareBatch` seam of the PendingOperation contract: run
-   * planning, compile the taken fragment, and RETURN the atomic-batch entries
-   * plus a `parseResult` closure — consumable by the client's shared batch
-   * protocol (the `$transaction([...])` array path), which merges entries from
-   * several operations into one driver batch. It never executes them itself.
-   */
-  async prepareBatch<T>(
-    operation: ExecutableOperation,
-    driver: AnyDriver,
-    context: QueryExecutionContext
-  ): Promise<{
-    readonly queries: readonly Sql[];
-    parseResult(results: readonly QueryResult<unknown>[]): T;
-  }> {
-    operation.assertBatchPreparable?.();
-    const plan = await this.buildAtomicPlan(operation, driver, context);
-    return {
-      queries: plan.entries.map((entry) => entry.statement),
-      parseResult: (results) =>
-        operation.parse<T>(assembleOutputs(plan, results)),
-    };
-  }
-
-  /**
    * The `$transaction([...])` array seam: lower this operation
    * into a {@link PreparedBatchOperation} the client's **shared batch protocol**
    * merges with other pending operations into ONE driver batch. It exposes the
@@ -286,11 +347,12 @@ export class OperationExecutor {
    * on batch-only drivers.
    */
   async prepareSharedBatch<T>(
-    operation: ExecutableOperation,
+    operation: RoutedExecutableOperation,
     driver: AnyDriver,
     context: QueryExecutionContext,
     operationName: Operation
-  ): Promise<PreparedBatchOperation<T>> {
+  ): Promise<PreparedBatchOperation<T> | undefined> {
+    if (isRecordSeries(operation)) return undefined;
     operation.assertBatchPreparable?.();
     const plan = await this.buildAtomicPlan(operation, driver, context);
     if (plan.entries.some((entry) => stepUsesInsertIdScratch(entry.step))) {
@@ -361,13 +423,15 @@ export class OperationExecutor {
    * Otherwise `undefined`: the operation runs through the atomic-batch seam.
    */
   singleStatementPlan(
-    operation: ExecutableOperation
+    operation: RoutedExecutableOperation
   ): SingleStatementCandidate | undefined {
+    if (isRecordSeries(operation)) return undefined;
     const candidate = compileSingleStatementCandidate(operation);
     return candidate && canPrepareSingle(candidate) ? candidate : undefined;
   }
 
-  buildStatement(operation: ExecutableOperation): Sql | undefined {
+  buildStatement(operation: RoutedExecutableOperation): Sql | undefined {
+    if (isRecordSeries(operation)) return undefined;
     const candidate = compileSingleStatementCandidate(operation);
     return candidate && canBuildStatement(candidate)
       ? candidate.step.statement
@@ -467,7 +531,7 @@ export class OperationExecutor {
       }
       await this.runPlanningLevel(level, driver, values, context);
     }
-    return resolveFragmentOutputs(fragment, values);
+    return derivePlanningKnown(fragment, values);
   }
 
   /**
@@ -500,7 +564,7 @@ export class OperationExecutor {
   }
 
   private async executeLinear(
-    fragment: OperationFragment,
+    fragment: OperationFragment | PlanningFragment,
     driver: AnyDriver,
     values: RuntimeValues,
     context: QueryExecutionContext
@@ -508,7 +572,9 @@ export class OperationExecutor {
     for (const step of fragment.steps) {
       await this.runLinearStep(step, driver, values, context);
     }
-    return resolveFragmentOutputs(fragment, values);
+    return "outputs" in fragment
+      ? resolveFragmentOutputs(fragment, values)
+      : derivePlanningKnown(fragment, values);
   }
 
   /** One step on its own round trip, its output threaded into `values`. */
@@ -688,7 +754,7 @@ export class OperationExecutor {
 
 /**
  * Assemble a fragment's declared outputs from one atomic batch's results —
- * shared by the executed path and the `prepareBatch` seam so a returned plan
+ * shared by the executed path and the `prepareSharedBatch` seam so a returned plan
  * parses identically to an executed one.
  */
 function assembleOutputs(
@@ -738,8 +804,7 @@ function planningLevel(
   unorderableLevel: number
 ): number {
   let level = 0;
-  for (const value of step.statement.values) {
-    if (!isOperationValueReference(value)) continue;
+  for (const value of statementReferences(step.statement)) {
     const producer = levelOf.get(value.step);
     // A reference this pass cannot place — a producer the fragment does not
     // carry — is not something grouping may guess at. Keep the step strictly
@@ -791,29 +856,11 @@ function enforcePostcondition(
 }
 
 function failureError(failure: Failure, context: QueryExecutionContext): Error {
-  if (failure.kind === "nestedWrite") {
-    const error = new NestedWriteError(failure.message, failure.relation ?? "");
-    if (failure.raceable) error.meta.raceable = true;
-    return error;
-  }
-  if (failure.kind === "notFound") {
-    return new NotFoundError(
-      context.model ?? "record",
-      context.operation ?? "query"
-    );
-  }
-  const error = new TransactionError(failure.message, {
-    meta: {
-      model: context.model ?? "record",
-      operation: context.operation ?? "query",
-    },
-  });
-  // A `query` guard abort can be raceable too — the sole producer is the
-  // retained notExists skip-premise pin (`raceableQueryFailure`, ATOM “Branch premises and pins”). The
-  // mark is what lets the routed retry re-plan and converge; dropping it here
-  // strands the flag the fragment validator required.
-  if (failure.raceable) error.meta.raceable = true;
-  return error;
+  return createFailureError(
+    failure,
+    context.model ?? "record",
+    context.operation ?? "query"
+  );
 }
 
 function materializeLinearSql(statement: Sql, values: RuntimeValues): Sql {
@@ -862,7 +909,7 @@ function extractOutputs(
   // produced no insert id: `executeSkippableWrite` yields the zero-row result and the
   // driver reports nothing to read. That absence is the skip itself, not a driver failure,
   // so the declared output resolves to `undefined` and the consumer decides from the row
-  // count — the only thing that says the skip happened (E6.9). Every OTHER absent insert
+  // count — the only thing that says the skip happened. Every OTHER absent insert
   // id still fails closed below, and no `Ref` can reach this value: it crosses into
   // `compile` as data, where a zero row count is checked first.
   const skipped =
@@ -927,6 +974,29 @@ function mergeBatchOutputs(
       extractOutput(step.id, source, result)
     );
   }
+}
+
+/**
+ * The DERIVED planning publication: every declared output of every planning
+ * statement, under its stable `planningKey(step.id, name)` address. Planning
+ * has no explicit outputs map to under-publish through — the steps ARE the
+ * declaration.
+ */
+function derivePlanningKnown(
+  fragment: PlanningFragment,
+  values: RuntimeValues
+): Readonly<Record<string, unknown>> {
+  const outputs: Record<string, unknown> = {};
+  for (const step of fragment.steps) {
+    for (const name of Object.keys(step.outputs)) {
+      outputs[planningKey(step.id, name)] = resolveSingleOutput(
+        planningKey(step.id, name),
+        ref(step.id, name),
+        values
+      );
+    }
+  }
+  return outputs;
 }
 
 function resolveFragmentOutputs(

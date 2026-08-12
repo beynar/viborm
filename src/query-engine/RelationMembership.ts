@@ -1,26 +1,50 @@
 // biome-ignore-all lint/style/useFilenamingConvention: Architecture names this compiler owner RelationMembership.
 import type { Model } from "@schema/model";
-import type { PolymorphicStorage } from "@schema/relation";
-import { getManyToManyJoinInfo } from "./builders/many-to-many-utils";
 import {
+  type BoundJunctionMembership,
+  type BoundMembership,
   type BoundRelation,
   bindRelation,
-  isPolymorphicChildHeldRelation,
+  type ChildHeldRelation,
+  type JunctionReferenceMember,
+  junctionSideMember,
+  type ParentHeldRelation,
 } from "./builders/relation-data-builder";
-import type { RelationMutationProgram } from "./builders/relation-mutation-parser";
+import {
+  type ParsedRelationMutation,
+  relationMutationPrograms,
+} from "./builders/relation-mutation-parser";
 import { getRelationInfo, getRelationNames } from "./context";
 import {
   buildScalarUpdatePredicateFootprints,
   type TargetConstraint,
 } from "./TargetConstraint";
-import { NestedWriteError, type QueryScope } from "./types";
+import type { QueryScope } from "./types";
 
 export type RelationMembershipScope =
   | {
       readonly kind: "manyToMany";
       readonly junctionTable: string;
-      readonly firstField: string;
-      readonly secondField: string;
+      /**
+       * The junction's two sides in ORIENTATION-ERASED order, so that the two
+       * spellings of one junction — a self-relation read from either end, the
+       * paired A/B relations — produce scopes that compare equal. Which side the
+       * current model is stays a real fact, answered by
+       * {@link junctionSourceIsFirst} from the same comparison.
+       */
+      readonly first: readonly JunctionReferenceMember[];
+      readonly second: readonly JunctionReferenceMember[];
+      /**
+       * Whether the bound relation's SOURCE side landed in `first` — the same
+       * comparison that erased the orientation, carried so the membership ledger
+       * reads it instead of asking a second time.
+       *
+       * It is deliberately NOT compared by {@link relationMembershipScopesEqual}:
+       * a self-junction read from either end is ONE membership, and comparing
+       * orientation would make `follows` and `followedBy` unequal, silently
+       * blinding own-write conflict detection rather than failing loudly.
+       */
+      readonly sourceIsFirst: boolean;
     }
   | {
       readonly kind: "foreignKey";
@@ -41,68 +65,64 @@ export type RelationMembershipScope =
       readonly referencedField: string;
     };
 
-type PolymorphicRelationMembershipScope = Extract<
-  RelationMembershipScope,
-  { kind: "polymorphicForeignKey" }
->;
-
-export function getPolymorphicMembershipScope(
-  holder: Model<any>,
-  referenced: Model<any>,
-  storage: PolymorphicStorage,
-  storedType: string,
-  referencedField: string
-): PolymorphicRelationMembershipScope {
-  return {
-    kind: "polymorphicForeignKey",
-    holder,
-    referenced,
-    typeField: storage.typeColumn.name,
-    storedType,
-    identityField: storage.idColumn.name,
-    referencedField,
-  };
+/**
+ * Does the junction's SOURCE side occupy the scope's canonical first slot?
+ *
+ * The scope erases orientation on purpose; the membership ledger's endpoint order
+ * still needs it, so it is answered here — from the one comparison that erased it —
+ * instead of re-deriving the junction topology a second time.
+ */
+export function junctionSourceIsFirst(
+  membership: BoundJunctionMembership
+): boolean {
+  return (
+    junctionSideMember(membership.source).junctionField.localeCompare(
+      junctionSideMember(membership.target).junctionField
+    ) <= 0
+  );
 }
 
-export function getRelationMembershipScope(
-  ctx: QueryScope,
-  relation: BoundRelation
+/**
+ * The analytical view of one bound physical membership.
+ *
+ * Every fact it reports is carried by the membership: the binder decided holder,
+ * referenced model, member pairing and junction sides once. This reader only
+ * chooses the CANONICAL ORDER equality needs — which is not the schema order the
+ * write path needs, so the two orders coexist on the same data.
+ */
+export function getMembershipScope(
+  membership: BoundMembership
 ): RelationMembershipScope {
-  const { relationInfo } = relation;
-  if (relation.kind === "junction") {
-    const joinInfo = getManyToManyJoinInfo(ctx, relationInfo);
-    const orderedFields: [string, string] =
-      joinInfo.sourceFieldName.localeCompare(joinInfo.targetFieldName) <= 0
-        ? [joinInfo.sourceFieldName, joinInfo.targetFieldName]
-        : [joinInfo.targetFieldName, joinInfo.sourceFieldName];
+  if (membership.kind === "junction") {
+    const sourceIsFirst = junctionSourceIsFirst(membership);
     return {
       kind: "manyToMany",
-      junctionTable: joinInfo.junctionTableName,
-      firstField: orderedFields[0],
-      secondField: orderedFields[1],
+      junctionTable: membership.table,
+      first: sourceIsFirst
+        ? membership.source.members
+        : membership.target.members,
+      second: sourceIsFirst
+        ? membership.target.members
+        : membership.source.members,
+      sourceIsFirst,
     };
   }
-  if (isPolymorphicChildHeldRelation(relation)) {
-    return getPolymorphicMembershipScope(
-      relation.relationInfo.targetModel,
-      relation.sourceModel,
-      relation.storage,
-      relation.storedType,
-      relation.referencedFields[0]
-    );
+  if (membership.kind === "polymorphic") {
+    return {
+      kind: "polymorphicForeignKey",
+      holder: membership.holder,
+      referenced: membership.referenced,
+      typeField: membership.storage.typeColumn.name,
+      storedType: membership.storedType,
+      identityField: membership.storage.idColumn.name,
+      referencedField: membership.referencedField,
+    };
   }
 
-  const fields: Array<{ foreignKey: string; referencedKey: string }> = [];
-  for (const [index, foreignKey] of relation.foreignFields.entries()) {
-    const referencedKey = relation.referencedFields[index];
-    if (referencedKey === undefined) {
-      throw new NestedWriteError(
-        `Relation '${relationInfo.name}' has mismatched foreign-key metadata.`,
-        relationInfo.name
-      );
-    }
-    fields.push({ foreignKey, referencedKey });
-  }
+  const fields = membership.members.map((member) => ({
+    foreignKey: member.foreignField,
+    referencedKey: member.referencedField,
+  }));
   fields.sort((left, right) =>
     left.foreignKey === right.foreignKey
       ? left.referencedKey.localeCompare(right.referencedKey)
@@ -110,16 +130,30 @@ export function getRelationMembershipScope(
   );
   return {
     kind: "foreignKey",
-    holder:
-      relation.kind === "parentHeldToOne"
-        ? relation.sourceModel
-        : relation.relationInfo.targetModel,
-    referenced:
-      relation.kind === "parentHeldToOne"
-        ? relation.relationInfo.targetModel
-        : relation.sourceModel,
+    holder: membership.holder,
+    referenced: membership.referenced,
     fields,
   };
+}
+
+export function getRelationMembershipScope(
+  relation: BoundRelation
+): RelationMembershipScope {
+  return getMembershipScope(relation.membership);
+}
+
+function junctionSidesEqual(
+  left: readonly JunctionReferenceMember[],
+  right: readonly JunctionReferenceMember[]
+): boolean {
+  return (
+    left.length === right.length &&
+    left.every(
+      (member, index) =>
+        member.junctionField === right[index]?.junctionField &&
+        member.referencedField === right[index]?.referencedField
+    )
+  );
 }
 
 export function relationMembershipScopesEqual(
@@ -128,10 +162,11 @@ export function relationMembershipScopesEqual(
 ): boolean {
   if (left.kind !== right.kind) return false;
   if (left.kind === "manyToMany" && right.kind === "manyToMany") {
+    // `sourceIsFirst` is EXCLUDED on purpose — see its declaration.
     return (
       left.junctionTable === right.junctionTable &&
-      left.firstField === right.firstField &&
-      left.secondField === right.secondField
+      junctionSidesEqual(left.first, right.first) &&
+      junctionSidesEqual(left.second, right.second)
     );
   }
   if (
@@ -161,26 +196,27 @@ export function relationMembershipScopesEqual(
 }
 
 export interface RootMembershipFootprint {
-  readonly relation: BoundRelation;
+  /** Row-held only: both builders skip junctions, whose membership has no holder. */
+  readonly relation: ParentHeldRelation | ChildHeldRelation;
   readonly constraint: TargetConstraint;
 }
 
 export function buildRootUpdateMembershipFootprints(
   ctx: QueryScope,
-  relations: Readonly<Record<string, RelationMutationProgram>>,
+  relations: readonly ParsedRelationMutation[],
   scalarData: Readonly<Record<string, unknown>>,
   selector: Readonly<Record<string, unknown>> | undefined
 ): RootMembershipFootprint[] {
   const constraints = getUpdateConstraints(ctx, scalarData, selector);
   const footprints: RootMembershipFootprint[] = [];
-  for (const mutation of Object.values(relations)) {
+  for (const mutation of relationMutationPrograms(relations)) {
     const relationInfo = mutation.relationInfo;
     const relation = bindRelation(ctx, relationInfo);
-    if (relation.kind === "junction") continue;
+    if (relation.position === "junction") continue;
     if (
-      relation.kind === "parentHeldToOne" ||
+      relation.position === "parentHeld" ||
       relation.relationInfo.targetModel !== ctx.model ||
-      !hasChangedForeignKey(relation.foreignFields, scalarData)
+      !hasChangedForeignKey(relation.membership.foreignFields, scalarData)
     ) {
       continue;
     }
@@ -196,21 +232,21 @@ export function buildTransitiveUpdateMembershipFootprints(
   scalarData: Readonly<Record<string, unknown>>,
   selector: Readonly<Record<string, unknown>> | undefined
 ): RootMembershipFootprint[] {
-  const relations: BoundRelation[] = [];
+  const relations: (ParentHeldRelation | ChildHeldRelation)[] = [];
   const membershipScopes: RelationMembershipScope[] = [];
   for (const relationName of getRelationNames(ctx.model)) {
     const relationInfo = getRelationInfo(ctx, relationName);
     if (!relationInfo) continue;
     const relation = bindRelation(ctx, relationInfo);
-    if (relation.kind === "junction") continue;
+    if (relation.position === "junction") continue;
     if (
-      (relation.kind !== "parentHeldToOne" &&
+      (relation.position !== "parentHeld" &&
         relation.relationInfo.targetModel !== ctx.model) ||
-      !hasChangedForeignKey(relation.foreignFields, scalarData)
+      !hasChangedForeignKey(relation.membership.foreignFields, scalarData)
     ) {
       continue;
     }
-    const membershipScope = getRelationMembershipScope(ctx, relation);
+    const membershipScope = getRelationMembershipScope(relation);
     if (
       membershipScopes.some((existingScope) =>
         relationMembershipScopesEqual(existingScope, membershipScope)

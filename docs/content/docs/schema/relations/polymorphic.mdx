@@ -616,9 +616,12 @@ non-empty membership with a missing target into `null`.
 - **Cross-target queries:** `orderBy` and explicit `_count` cannot traverse a
   direct polymorphic relation. Target-specific direct filters must select one
   `type`; optional presence filters are type-free.
-- **Root bulk create:** `createMany` rows accept scalar fields and direct
-  `connect` memberships only. On a driver without `RETURNING`, combining
-  `select`, `skipDuplicates`, and a polymorphic membership is not supported.
+- **Root bulk create:** a polymorphic membership in a `createMany` row is
+  `connect` only — the grouped bulk path has no `create` or `connectOrCreate`
+  arm for one. (Ordinary relations in such a row are unrestricted; a row that
+  carries one simply leaves the grouped path.) On a driver without `RETURNING`,
+  combining `select`, `skipDuplicates`, and a polymorphic membership is not
+  supported.
 - **Referential actions:** the database cannot enforce a cross-table foreign
   key. VibORM does not emulate cascade, restrict, or set-null when a target is
   changed or deleted.

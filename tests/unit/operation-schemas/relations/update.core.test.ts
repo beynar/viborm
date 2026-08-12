@@ -38,10 +38,12 @@ test("to-one updates validate both envelope fields and bare failures", () => {
   ).toBeDefined();
 });
 
-test("to-one create and parent-held update accept at most one operation", () => {
+test("a to-one create accepts at most one operation while its update composes a supplier with a modify", () => {
   expect(parse(requiredManyToOneSchemas.create, {}).issues).toBeUndefined();
   expect(parse(requiredManyToOneSchemas.update, {}).issues).toBeUndefined();
 
+  // The create root owns no `update` key at all, so no composition is spellable there
+  // and two suppliers stay two identities for one slot.
   expect(
     parse(requiredManyToOneSchemas.create, {
       connect: { id: "author-1" },
@@ -53,12 +55,37 @@ test("to-one create and parent-held update accept at most one operation", () => 
     }).issues?.[0]?.message
   ).toBe("Unsupported to-one operation combination: create, connect");
 
+  // LATTICE CHANGE (Package H): supply-then-modify. `Post.author` spells no
+  // `.fields()`, so the update surface treats it as CHILD-HELD, the direction that
+  // composes every supplier with a modify.
   expect(
     parse(requiredManyToOneSchemas.update, {
       connect: { id: "author-1" },
       update: { name: "Changed" },
+    }).issues
+  ).toBeUndefined();
+  expect(
+    parse(requiredManyToOneSchemas.update, {
+      create: { id: "author-2", name: "Second", email: "second@example.com" },
+      update: { name: "Changed" },
+    }).issues
+  ).toBeUndefined();
+
+  // The PARENT-HELD direction (`Profile.user` names `.fields("userId")`) composes only
+  // `connect` with a modify: `create` and `connectOrCreate` beside an `update` would
+  // modify a row the record's own root statement is still producing.
+  expect(
+    parse(optionalOneToOneSchemas.update, {
+      connect: { id: "user-1" },
+      update: { username: "changed" },
+    }).issues
+  ).toBeUndefined();
+  expect(
+    parse(optionalOneToOneSchemas.update, {
+      create: { id: "user-2", username: "second" },
+      update: { username: "changed" },
     }).issues?.[0]?.message
-  ).toBe("Unsupported to-one operation combination: connect, update");
+  ).toBe("Unsupported to-one operation combination: create, update");
 });
 
 test("to-one updates refuse an ambiguous data-field spelling", () => {
@@ -142,6 +169,28 @@ test("inverse to-one delete follows slot absence while disconnect follows FK nul
       connect: { id: "child-1" },
     }).issues
   ).toBeUndefined();
+  expect(
+    parse(optionalMembership, {
+      disconnect: true,
+      connectOrCreate: {
+        where: { id: "child-1" },
+        create: { id: "child-2" },
+      },
+    }).issues
+  ).toBeUndefined();
+  expect(
+    parse(optionalMembership, {
+      disconnect: true,
+      create: { id: "child-2" },
+    }).issues
+  ).toBeUndefined();
+  expect(
+    parse(optionalMembership, {
+      disconnect: true,
+      connect: { id: "child-1" },
+      create: { id: "child-2" },
+    }).issues?.[0]?.message
+  ).toContain("Unsupported to-one operation combination");
   expect(
     parse(optionalMembership, {
       delete: true,
@@ -438,10 +487,24 @@ describe("ToOne Update - Optional (Profile.user)", () => {
           ? true
           : false
       >().toEqualTypeOf<true>();
+      // LATTICE CHANGE (Package H): `Profile.user` is PARENT-HELD, and a vacate
+      // followed by a supplier now folds to one final foreign-key value on the
+      // record's own root statement, so this pair is accepted in both directions.
+      // The `disconnect: false` line above still says what it always said: an
+      // inactive verb is not an active operation. The pair that stays refused in
+      // BOTH directions is two suppliers, pinned below.
       expectTypeOf<
         {
           disconnect: true;
           connect: { id: string };
+        } extends UpdateInput
+          ? true
+          : false
+      >().toEqualTypeOf<true>();
+      expectTypeOf<
+        {
+          connect: { id: string };
+          create: { id: string; username: string };
         } extends UpdateInput
           ? true
           : false
@@ -510,12 +573,22 @@ describe("ToOne Update - Optional (Profile.user)", () => {
           connect: { id: "user-1" },
         }).issues
       ).toBeUndefined();
+      // LATTICE CHANGE (Package H): `Profile.user` is PARENT-HELD, and an ACTIVE
+      // vacate followed by a supplier now folds to one final foreign-key value. The
+      // inactive spelling above is still a different fact — it activates nothing —
+      // and two suppliers still name two identities for one slot.
       expect(
         parse(schema, {
           disconnect: true,
           connect: { id: "user-1" },
+        }).issues
+      ).toBeUndefined();
+      expect(
+        parse(schema, {
+          connect: { id: "user-1" },
+          create: { id: "user-2", username: "second" },
         }).issues?.[0]?.message
-      ).toBe("Unsupported to-one operation combination: connect, disconnect");
+      ).toBe("Unsupported to-one operation combination: create, connect");
     });
 
     test("runtime: accepts disconnect boolean for optional relation", () => {
@@ -1148,5 +1221,195 @@ describe("ToOne Update - Self-Referential (User.manager)", () => {
         });
       }
     });
+  });
+});
+
+/**
+ * N1 — nested update data is built from the omitted-FK owner, and the omission is
+ * SCOPED to the edges whose TARGET row holds the foreign key.
+ *
+ * The scope is the whole content of the claim. `getInverseRelationMap` answers two
+ * different questions under one name: for a to-one with `.fields()` it returns THIS
+ * side's own fields, and for everything else it SCANS the target for a to-one
+ * back-reference. Only the second answer names a column on the row a nested payload
+ * writes, so only the second may be omitted — a `manyToMany` arm and a parent-held
+ * to-one keep every key, because the engine has no fold there for a spelled value to
+ * contradict. Both are measured below against the child-held arm that does omit, in
+ * the same schema, so the difference cannot be read as an accident of fixture choice.
+ */
+describe("N1 the omitted-FK owner applied to nested update data", () => {
+  const n1Schema = (() => {
+    const owner = s.model({
+      id: s.string().id(),
+      label: s.string(),
+      // CHILD-HELD: `item.ownerId` is this relation's own foreign key.
+      items: s.oneToMany(() => item),
+      // JUNCTION: a third table holds membership, so `tag.featuredOwnerId` — which
+      // belongs to a DIFFERENT relation — is not this one's to omit.
+      tags: s.manyToMany(() => tag),
+      // CHILD-HELD TO-ONE (inverse): `profile.ownerId` is this relation's own key,
+      // and it reaches the to-one `update` and `upsert` arms rather than the to-many
+      // ones.
+      profile: s.oneToOne(() => profile).optional(),
+    });
+    const profile = s.model({
+      id: s.string().id(),
+      bio: s.string(),
+      ownerId: s.string().unique().nullable(),
+      owner: s
+        .oneToOne(() => owner)
+        .fields("ownerId")
+        .references("id")
+        .optional(),
+    });
+    const item = s.model({
+      id: s.string().id(),
+      title: s.string(),
+      ownerId: s.string().nullable(),
+      owner: s
+        .manyToOne(() => owner)
+        .fields("ownerId")
+        .references("id")
+        .optional(),
+      // PARENT-HELD, self-referential: `parentId` sits on the row spelling the
+      // payload, never on the target, so a nested `parent: { update }` may name it.
+      parentId: s.string().nullable(),
+      parent: s
+        .manyToOne(() => item)
+        .fields("parentId")
+        .references("id")
+        .optional(),
+      children: s.oneToMany(() => item),
+    });
+    const tag = s.model({
+      id: s.string().id(),
+      name: s.string(),
+      featuredOwnerId: s.string().nullable(),
+      featuredOwner: s
+        .manyToOne(() => owner)
+        .fields("featuredOwnerId")
+        .references("id")
+        .optional(),
+      owners: s.manyToMany(() => owner),
+    });
+    return { owner, item, tag, profile };
+  })();
+  const schemas = createSchemaRegistry(n1Schema).proxy;
+
+  const ownerUpdate = () => schemas.owner.core.update;
+  const itemUpdate = () => schemas.item.core.update;
+
+  test("every child-held nested update arm refuses the owned foreign key", () => {
+    const arms: Record<string, unknown>[] = [
+      { items: { update: { where: { id: "i1" }, data: { ownerId: "x" } } } },
+      { items: { updateMany: { where: {}, data: { ownerId: "x" } } } },
+      {
+        items: {
+          upsert: {
+            where: { id: "i1" },
+            create: { id: "i1", title: "t" },
+            update: { ownerId: "x" },
+          },
+        },
+      },
+    ];
+    for (const arm of arms) {
+      const result = parse(ownerUpdate(), arm);
+      expect(result.issues).toBeDefined();
+      expect(JSON.stringify(result.issues)).toContain("Unknown key: ownerId");
+    }
+  });
+
+  test("the to-one update and upsert arms refuse it too", () => {
+    // `owner.profile` is the inverse side of a 1:1, so its arms are the BARE-data
+    // `update` and the `upsert` UPDATE arm — different schema objects from the
+    // to-many ones above, and each had to be given the owner separately.
+    for (const arm of [
+      { profile: { update: { ownerId: "x" } } },
+      { profile: { update: { where: { bio: "b" }, data: { ownerId: "x" } } } },
+      {
+        profile: {
+          upsert: {
+            create: { id: "p", bio: "b" },
+            update: { ownerId: "x" },
+          },
+        },
+      },
+    ]) {
+      const result = parse(ownerUpdate(), arm);
+      expect(result.issues).toBeDefined();
+      expect(JSON.stringify(result.issues)).toContain("ownerId");
+    }
+    // The control: the same arms parse with the key dropped.
+    expect(
+      parse(ownerUpdate(), { profile: { update: { bio: "b" } } }).issues
+    ).toBeUndefined();
+  });
+
+  test("a junction arm omits NOTHING — the target's unrelated FK stays spellable", () => {
+    // `getInverseRelationMap` scans `tag` for a to-one back-reference to `owner` and
+    // finds `featuredOwner`, which belongs to a different relation entirely. Omitting
+    // it here would refuse a write the engine performs correctly.
+    for (const arm of [
+      {
+        tags: {
+          update: { where: { id: "t1" }, data: { featuredOwnerId: "o" } },
+        },
+      },
+      { tags: { updateMany: { where: {}, data: { featuredOwnerId: "o" } } } },
+      {
+        tags: {
+          upsert: {
+            where: { id: "t1" },
+            create: { id: "t1", name: "n" },
+            update: { featuredOwnerId: "o" },
+          },
+        },
+      },
+    ]) {
+      expect(parse(ownerUpdate(), arm).issues).toBeUndefined();
+    }
+  });
+
+  test("a parent-held to-one arm omits NOTHING — the key is on the source row", () => {
+    // Self-referential, so the name collision is real rather than hypothetical:
+    // `item.parentId` exists on the target model too, and it is still spellable
+    // because `item.parent` stores its membership on the row being updated.
+    expect(
+      parse(itemUpdate(), { parent: { update: { parentId: "gp" } } }).issues
+    ).toBeUndefined();
+    expect(
+      parse(itemUpdate(), {
+        parent: {
+          upsert: {
+            create: { id: "gp", title: "t" },
+            update: { parentId: "ggp" },
+          },
+        },
+      }).issues
+    ).toBeUndefined();
+  });
+
+  test("the child-held twin of that same column IS omitted", () => {
+    // `item.children` owns `item.parentId`, so the identical key refuses one arm over.
+    const result = parse(itemUpdate(), {
+      children: { updateMany: { where: {}, data: { parentId: "x" } } },
+    });
+    expect(result.issues).toBeDefined();
+    expect(JSON.stringify(result.issues)).toContain("Unknown key: parentId");
+  });
+
+  test("ordinary scalars and nested relations still parse in every arm", () => {
+    expect(
+      parse(ownerUpdate(), {
+        items: {
+          update: {
+            where: { id: "i1" },
+            data: { title: "t", children: { create: { id: "c", title: "c" } } },
+          },
+          updateMany: { where: {}, data: { title: "t" } },
+        },
+      }).issues
+    ).toBeUndefined();
   });
 });

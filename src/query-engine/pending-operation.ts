@@ -14,6 +14,10 @@ import type {
 } from "../query-engine/write-engine/OperationExecutor";
 import { OperationExecutor } from "../query-engine/write-engine/OperationExecutor";
 import {
+  isRecordSeries,
+  type RoutedExecutableOperation,
+} from "../query-engine/write-engine/record-series";
+import {
   constructRoutedOperation,
   executeRoutedOperation,
   ROUTED_OPERATIONS,
@@ -60,7 +64,7 @@ export class PendingOperation<T> implements PromiseLike<T> {
   private readonly deferredExecution: DeferredExecution<T> | undefined;
 
   // The V2 operation for this payload, constructed once (lazily, before any I/O).
-  private operationInstance: ExecutableOperation | undefined;
+  private operationInstance: RoutedExecutableOperation | undefined;
   private operationResolved = false;
   private executorInstance: OperationExecutor | undefined;
   // The single-statement plan, memoized: `null` uncomputed, `undefined` when the
@@ -119,7 +123,7 @@ export class PendingOperation<T> implements PromiseLike<T> {
    * the typed client, reachable through an untyped call or a removed method name)
    * is a loud "unknown operation" error rather than a silent no-op.
    */
-  private resolveOperation(): ExecutableOperation {
+  private resolveOperation(): RoutedExecutableOperation {
     if (this.operationResolved && this.operationInstance) {
       return this.operationInstance;
     }
@@ -142,6 +146,19 @@ export class PendingOperation<T> implements PromiseLike<T> {
     this.operationInstance = operation;
     this.operationResolved = true;
     return operation;
+  }
+
+  /**
+   * This payload's operation as ONE fragment atom, or `undefined` when it runs as
+   * a transactional record series — a form with no single planning phase, no
+   * single statement, and no single driver result. The seams that ask the executor
+   * (`prepare`, `buildStatement`, `prepareBatch`) hand it the routed operation and
+   * let the executor decline; the two seams below read the operation themselves
+   * and need the narrower view.
+   */
+  private statementOperation(): ExecutableOperation | undefined {
+    const operation = this.resolveOperation();
+    return isRecordSeries(operation) ? undefined : operation;
   }
 
   private executor(): OperationExecutor {
@@ -194,7 +211,7 @@ export class PendingOperation<T> implements PromiseLike<T> {
    * surfaced through the same observation wrapper.
    */
   private run(driverOverride?: AnyDriver): Promise<T> {
-    let operation: ExecutableOperation;
+    let operation: RoutedExecutableOperation;
     try {
       operation = this.resolveOperation();
     } catch (error) {
@@ -235,10 +252,12 @@ export class PendingOperation<T> implements PromiseLike<T> {
    * key that describes the query that will actually run.
    *
    * Fails loudly rather than falling back to the raw payload: only the read
-   * families are cacheable, and only they carry a validated payload.
+   * families are cacheable, and only they carry a validated payload. A
+   * transactional record series carries none either — it is a write form — and
+   * lands on the same refusal by the same absence.
    */
   cacheKeyArgs(): Record<string, unknown> {
-    const validated = this.resolveOperation().validatedArgs;
+    const validated = this.statementOperation()?.validatedArgs;
     if (!validated) {
       throw new QueryEngineError(
         `Operation '${this.operation}' on model '${this.modelName}' exposes no validated payload to key a cache entry on.`
@@ -330,7 +349,17 @@ export class PendingOperation<T> implements PromiseLike<T> {
   }
 
   parseResult(raw: { rows: unknown[]; rowCount: number }): T {
-    const operation = this.resolveOperation();
+    const operation = this.statementOperation();
+    if (!operation) {
+      // A record series produced no single driver result to be handed back: its
+      // members ran inside their own transaction and it parsed them there. The
+      // array-batch protocol never gets here (its `prepare` and `prepareBatch`
+      // both declined this form, so the merge already refused); a caller reaching
+      // it by another route is naming the wrong seam, and says so.
+      throw new QueryEngineError(
+        `Operation '${this.operation}' on model '${this.modelName}' runs as a transactional record series and parses no single driver result.`
+      );
+    }
     // parseResult pairs with the single-statement `prepare()` seam (the
     // array-batch "single" path calls prepare then parseResult), so resolve the
     // same plan and map the raw result through the fragment's outputs.

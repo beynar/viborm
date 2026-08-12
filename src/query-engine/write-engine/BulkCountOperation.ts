@@ -24,12 +24,16 @@ type BulkCountKind = "updateMany" | "deleteMany";
  * public result is `{ count }` — one write step whose `rowCount` **source**
  * carries the count (ATOM “The execution vocabulary”). There is no planning read and no decision: the
  * `WHERE` filter is a scalar predicate, so the whole operation is one statement,
- * reusing V1's `buildUpdateMany` / `buildDeleteMany` verbatim. `updateMany`
- * `data` binds to the model's SCALAR-ONLY update schema
- * (`core.scalarUpdate`, see `getUpdateManyArgs`), so a relation key in `data`
- * rejects at the parse boundary with a ValidationError naming the key
- * ("Unknown key: <relation>") and never reaches the SET builder, which would
- * silently skip it.
+ * reusing V1's `buildUpdateMany` / `buildDeleteMany` verbatim.
+ *
+ * THIS SHELL SEES SCALAR-ONLY `updateMany` DATA, and the router is what
+ * guarantees it — not the schema. `getUpdateManyArgs` binds `data` to the FULL
+ * `core.update` schema, so a relation key parses; routing
+ * then sends that call to `UpdateManyRecordSeries` instead of here. What this
+ * class must never become is the owner of a relation payload: the SET builder
+ * skips non-scalar keys silently, which is exactly the wrong-success defect the
+ * lift removed. The docblock that used to stand here claimed the parse boundary
+ * rejected relation keys; it did not, and no test was written because of it.
  *
  * `limit` (Prisma 6.x) caps the affected row count, so the returned count is
  * `min(matching, limit)`. `limit: 0` is the one shape with NO statement at all:
@@ -81,7 +85,7 @@ export class BulkCountOperation {
   }
 
   planning(): PlanningFragment {
-    return { steps: [], outputs: {} };
+    return { steps: [] };
   }
 
   compile(_known: Readonly<Record<string, unknown>>): OperationFragment {

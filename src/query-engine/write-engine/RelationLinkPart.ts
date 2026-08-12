@@ -1,12 +1,7 @@
 // biome-ignore-all lint/style/useFilenamingConvention: RelationLinkPart is the architecture name.
 import { NestedWriteError, QueryEngineError } from "@errors";
 import type { Sql } from "@sql";
-import type {
-  ChildHeldToMany,
-  ChildHeldToOne,
-  PolymorphicChildHeldToMany,
-  PolymorphicChildHeldToOne,
-} from "../builders/relation-data-builder";
+import type { ChildHeldRelation } from "../builders/relation-data-builder";
 import type { RelationMutationEntry } from "../builders/relation-mutation-parser";
 import { getWhereUniqueEntries } from "../builders/where-unique-builder";
 import { getTableName } from "../context/query-scope";
@@ -42,13 +37,12 @@ import {
   type RelationMembershipBinding,
 } from "./relation-membership";
 import type { StepScope } from "./StepScope";
+import {
+  type TargetProjection,
+  targetProjectionRowKeySelect,
+} from "./target-projection";
 
 export type LinkKind = "connect" | "disconnect";
-type LinkedRelation =
-  | ChildHeldToOne
-  | ChildHeldToMany
-  | PolymorphicChildHeldToOne
-  | PolymorphicChildHeldToMany;
 
 interface RelationLinkConfigBase {
   readonly engine: QueryEngine;
@@ -64,7 +58,8 @@ interface RelationLinkConfigBase {
   readonly wheres?: readonly Record<string, unknown>[];
   /** `disconnect: true` — null every child currently connected to the parent. */
   readonly disconnectAll?: boolean;
-  readonly childPrimaryKey: string;
+  /** The target's published fields; this Part reads only its complete row key. */
+  readonly targetProjection: TargetProjection;
   readonly txMode: boolean;
 }
 
@@ -155,9 +150,9 @@ export class RelationLinkPart implements Part {
   /** The uncorrelated (connect) / correlated (disconnect) existence probe. */
   private buildProbe(): ReadStep | undefined {
     if (this.config.disconnectAll) return undefined;
-    const { childScope, txMode, childPrimaryKey } = this.config;
+    const { childScope, txMode } = this.config;
     const wheres = this.requiredWheres();
-    const select = { [childPrimaryKey]: true };
+    const select = this.identitySelect();
     if (this.config.kind === "connect") {
       return {
         id: this.probeId,
@@ -225,7 +220,7 @@ export class RelationLinkPart implements Part {
             this.guardIds[index]!,
             buildFindUnique(childScope, {
               where,
-              select: { [this.config.childPrimaryKey]: true },
+              select: this.identitySelect(),
             }),
             this.connectFailure()
           )
@@ -281,7 +276,7 @@ export class RelationLinkPart implements Part {
                     ...membership.filters,
                   ],
                 },
-                select: { [this.config.childPrimaryKey]: true },
+                select: this.identitySelect(),
               },
               {
                 limit: 1,
@@ -323,7 +318,7 @@ export class RelationLinkPart implements Part {
         ...(membership.polymorphicStorage.length > 0
           ? { polymorphicStorage: membership.polymorphicStorage }
           : {}),
-        select: { [this.config.childPrimaryKey]: true },
+        select: this.identitySelect(),
       });
     }
     return buildUpdateMany(childScope, {
@@ -337,6 +332,11 @@ export class RelationLinkPart implements Part {
 
   private groupSelector(): Record<string, unknown> {
     return linkGroupSelector(this.config.childScope, this.requiredWheres());
+  }
+
+  /** Probes, guards, and the one-target write all read the complete row key. */
+  private identitySelect(): Record<string, boolean> {
+    return targetProjectionRowKeySelect(this.config.targetProjection);
   }
 
   /** The selector half of the disconnect probe: the arity-1 spelling verbatim,
@@ -460,10 +460,10 @@ export class RelationLinkPart implements Part {
 export function buildToManyLinkParts(
   scope: StepScope,
   engine: QueryEngine,
-  relation: LinkedRelation,
+  relation: ChildHeldRelation,
   childName: string,
   childScope: QueryScope,
-  childPrimaryKey: string,
+  targetProjection: TargetProjection,
   entry: Extract<RelationMutationEntry, { kind: "connect" | "disconnect" }>,
   parentId: FinalReferenceSource,
   txMode: boolean
@@ -472,7 +472,7 @@ export function buildToManyLinkParts(
     engine,
     childScope,
     childName,
-    childPrimaryKey,
+    targetProjection,
     txMode,
   } as const;
   if (entry.kind === "connect") {

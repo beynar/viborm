@@ -1,5 +1,4 @@
 // biome-ignore-all lint/style/useFilenamingConvention: Architecture names this compiler owner OwnWriteLedger.
-import { getManyToManyJoinInfo } from "./builders/many-to-many-utils";
 import type { BoundRelation } from "./builders/relation-data-builder";
 import type { RelationMutationEntry } from "./builders/relation-mutation-parser";
 import {
@@ -14,7 +13,7 @@ import {
   type TargetConstraint,
   type TargetConstraintOverlap,
 } from "./TargetConstraint";
-import { NestedWriteError, type QueryScope } from "./types";
+import { NestedWriteError } from "./types";
 
 export type DependencyOperation = RelationMutationEntry["kind"];
 export type TargetWriteDimension = "targetExistence" | "targetPredicate";
@@ -27,20 +26,26 @@ export interface MembershipEndpoints {
   readonly second: TargetConstraint;
 }
 
+/**
+ * Which endpoint of a membership the CURRENT model is.
+ *
+ * A junction's answer is the orientation its own scope carries — the scope erases
+ * orientation from what it COMPARES, and records the comparison's verdict beside
+ * it, so this reads the fact rather than asking a second time. Row-held membership
+ * answers by POSITION, not by holder identity: on a self-relation holder and
+ * referenced are the same model, and only the position distinguishes the ends.
+ */
 export function getRelationMembershipEndpoints(
-  ctx: QueryScope,
   relation: BoundRelation,
   scope: RelationMembershipScope,
   currentConstraint: TargetConstraint,
   targetConstraint: TargetConstraint
 ): MembershipEndpoints {
-  if (scope.kind === "manyToMany") {
-    const joinInfo = getManyToManyJoinInfo(ctx, relation.relationInfo);
-    return joinInfo.sourceFieldName === scope.firstField
-      ? { first: currentConstraint, second: targetConstraint }
-      : { first: targetConstraint, second: currentConstraint };
-  }
-  return relation.kind === "parentHeldToOne"
+  const currentIsFirst =
+    scope.kind === "manyToMany"
+      ? scope.sourceIsFirst
+      : relation.position === "parentHeld";
+  return currentIsFirst
     ? { first: currentConstraint, second: targetConstraint }
     : { first: targetConstraint, second: currentConstraint };
 }
@@ -263,8 +268,8 @@ export class OwnWriteLedger {
 export function getMembershipReadOrientation(
   relation: BoundRelation
 ): MembershipReadOrientation {
-  if (relation.kind === "junction") return "manyToMany";
-  return relation.kind === "parentHeldToOne" ? "direct" : "inverse";
+  if (relation.position === "junction") return "manyToMany";
+  return relation.position === "parentHeld" ? "direct" : "inverse";
 }
 
 function writeCanAffectRead(

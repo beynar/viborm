@@ -31,3 +31,9 @@ export {
   model,
   type NameRegistry,
 } from "./model";
+export {
+  findAddressableKey,
+  getModelKeyCatalog,
+  type ModelKeyCatalog,
+  type OrderedModelKey,
+} from "./keys";

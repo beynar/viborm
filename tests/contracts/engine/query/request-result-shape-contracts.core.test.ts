@@ -5,10 +5,7 @@ import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { createClient } from "@client/client";
 import { Driver } from "@drivers";
 import { QueryEngineError, ValidationError } from "@errors";
-import {
-  createModelRegistry,
-  QueryEngine,
-} from "@query-engine/query-engine";
+import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { parseResult, ResultParser } from "@query-engine/result/ResultParser";
 import {
   EMPTY_ROW_RESULT_KEY,
@@ -256,6 +253,55 @@ describe("request-aware result shapes", () => {
         rowCount: 1,
       })
     ).toThrow(QueryEngineError);
+  });
+
+  /**
+   * PLAN 10.1 — the row-key check is SET semantics, and the two owners' orders
+   * already disagree.
+   *
+   * The SQL builder emits scalar columns in the model's DECLARATION order: it
+   * walks `getScalarFieldNames` and takes the ones the select names, so the
+   * request's own key order never reaches the statement. The expected shape
+   * records `rawKeys` in REQUEST order instead — it walks `Object.entries` of the
+   * parsed select, and a fully-partial object schema materializes input keys
+   * first. Nothing observes the difference, because `assertExpectedRowKeys`
+   * compares LENGTH plus MEMBERSHIP and never position.
+   *
+   * Pinned before those two orders can become one fact: a consumer that started
+   * reading `rawKeys` positionally would be depending on an order neither owner
+   * promises, and the failure would be a silently mis-parsed row rather than a
+   * refusal.
+   */
+  test("row keys are checked as a set, not as an order", () => {
+    const select = { _count_children: true, secret: true, id: true };
+    const statement = createEngine()
+      .build(models.parent, "findMany", { select })
+      .toStatement("$n");
+
+    // The SQL list is schema order, though the request asked in the reverse.
+    expect(statement).toContain(
+      '"t0"."id" AS "id", "t0"."secret" AS "secret", "t0"."_count_children" AS "_count_children"'
+    );
+
+    // A row whose keys arrive in a THIRD order parses, and keeps its values.
+    expect(
+      parsePrepared(models.parent, "findMany", { select }, [
+        { secret: "s", _count_children: "c", id: "parent-1" },
+      ])
+    ).toEqual([{ id: "parent-1", secret: "s", _count_children: "c" }]);
+
+    // Both halves of the check are load-bearing: a short row and a long row
+    // fail on LENGTH, and a right-sized row with a wrong key fails on
+    // MEMBERSHIP — which is what makes the order-freedom above non-vacuous.
+    for (const row of [
+      { id: "parent-1", secret: "s" },
+      { id: "parent-1", secret: "s", _count_children: "c", extra: "x" },
+      { id: "parent-1", secret: "s", unexpected: "x" },
+    ]) {
+      expect(() =>
+        parsePrepared(models.parent, "findMany", { select }, [row])
+      ).toThrow(QueryEngineError);
+    }
   });
 
   test("keeps relation-count carriers distinct from same-named scalars", () => {

@@ -37,6 +37,48 @@ await client.product.updateMany({
 });
 ```
 
+## Writing relations
+
+`data` takes the same relation surface a single [`update`](/docs/client/update)
+takes — `connect`, `disconnect`, `create`, `update`, `upsert`, `set`, and the
+rest — applied to every matching row:
+
+```ts
+// Move every guest onto the free plan, and log it on each one
+await client.user.updateMany({
+  where: { role: "GUEST" },
+  data: {
+    role: "USER",
+    plan: { connect: { name: "free" } },   // parent-held: each row gets its own
+    events: { create: { kind: "downgraded" } }, // one fresh child per row
+  },
+});
+```
+
+Three things change when `data` carries a relation, and all three are
+consequences of the same fact — the call becomes one ordinary update per matching
+row, run in order inside a single transaction:
+
+- **`count` is the number of matching rows**, not the database's affected-row
+  total. (Scalar-only `updateMany` still reports the provider's number, which on
+  MySQL is zero for an assignment that changes nothing.)
+- **Everything rolls back together.** If the fifth row's update fails, the first
+  four are undone.
+- **The call needs a real transaction**, so a driver that only supports batches
+  (D1, PlanetScale, Neon HTTP) rejects this form. Scalar-only `updateMany` still
+  works there.
+
+:::warning
+A relation whose membership is stored on the **target** row — `connect`,
+  `connectOrCreate` or `set` on a one-to-many, naming an existing row — is
+  refused when more than one row matches, before anything is written. That target
+  can belong to one parent, so applying it to every matching row would end with
+  the last row taking it from the others. Narrow the filter (or `limit: 1`), or
+  write that relation in its own call. Junction (many-to-many) links,
+  parent-held `connect`s and `create` are all fine for any number of rows,
+  because each row gets its own.
+:::
+
 ## Getting the rows back
 
 Add a `select` and `updateMany` returns the updated rows instead of a count. The
@@ -54,6 +96,13 @@ const updated = await client.post.updateMany({
 
 The rows are read **after** the update, so an atomic operation on the primary key
 returns the new identity, not the old one.
+
+When `data` carries a relation, that read happens once every row has finished,
+by each row's final primary key, in the captured order. If one of those rows is
+gone by then — a later row's nested effects deleted it, or moved its key — the
+call **fails rather than hand back a shorter list**, because a silently shorter
+answer would depend on nothing but capture order. The `{ count }` form of the
+same payload answers the captured row count and succeeds.
 
 :::info
 There is no separate `updateManyAndReturn` method (Prisma has one). Passing
@@ -96,14 +145,37 @@ that were updated, so at most `limit` of them.
   Prisma's `limit` has exactly the same hole. When *which* rows matters, read the
   ids you want with [`findMany`](/docs/client/find-many) (where `orderBy` and
   `take` mean what you expect) and update by those ids.
+
+  One exception, and only because it falls out of how it works: when `data`
+  carries a relation, the rows are captured by primary key first, so `limit: n`
+  takes the `n` lowest primary keys. Do not build on it — it is a consequence of
+  the implementation, not a promise of the API.
 :::
+
+## What it costs
+
+Scalar-only `updateMany` is unchanged: one `UPDATE` statement, or none at all
+for `limit: 0`. A `limit: 0` call stays on that path even when `data` carries a
+relation — a cap of no rows writes nothing, so it needs no transaction and works
+on every driver.
+
+When `data` carries a relation the call opens a transaction and issues one
+`SELECT` of the matching primary keys — locking them where the database supports
+it — evaluating your `where` and `limit` once. Then, per matched row, exactly
+what that row would have cost as a single [`update`](/docs/client/update) — the
+same target probes, the same child writes, in the same order. Ten matched rows
+with a `connect` issue ten probes, because that is what ten `update` calls
+issue. Adding a `select` adds one read per row at the end. Narrow the `where`
+(or use `limit`) when the row count is large; this form is per-row work by
+design, and it is the price of the relation semantics being the same ones a
+single `update` gives you.
 
 ## Options
 
 ```ts
 await client.user.updateMany({
   where: { ... },       // Optional: filter (all rows if empty)
-  data: { ... },        // Required: fields to update
+  data: { ... },        // Required: fields to update, and relations to write
   limit: 100,           // Optional: cap on how many rows are updated
   select: { ... },      // Optional (scalar fields only): return the updated rows
                         // instead of { count }

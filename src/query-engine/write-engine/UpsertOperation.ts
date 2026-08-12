@@ -5,12 +5,11 @@ import {
   buildPrimaryKeyWhereUnique,
   getPrimaryKeyFields,
 } from "../builders/correlation-utils";
-import type { ResolvedPolymorphicMutation } from "../builders/polymorphic-mutation";
 import {
   buildPolymorphicMutationProgram,
   buildRelationMutationProgram,
+  type ParsedRelationMutation,
   partitionModelData,
-  type RelationMutationProgram,
 } from "../builders/relation-mutation-parser";
 import { buildInsert } from "../builders/values-builder";
 import {
@@ -68,7 +67,7 @@ import {
   type StatementStep,
   type WriteStep,
 } from "./OperationFragment";
-import { conditionalArmPlanning, planningKey, planningOutputs } from "./Part";
+import { conditionalArmPlanning, planningKey } from "./Part";
 import { parseValidated } from "./parse-boundary";
 import {
   buildRecordUpdateCompiler,
@@ -362,8 +361,11 @@ export class UpsertOperation {
           subOptions
         )
       : undefined;
-    const updateRelations: Record<string, RelationMutationProgram> = {};
-    const updatePolymorphic: Record<string, ResolvedPolymorphicMutation> = {};
+    // TWO PASSES, exactly as the root update spells them: the collection's order is
+    // ordinary keys then polymorphic keys, and that is also the order the arm's
+    // per-relation transforms run in, so a mixed malformed arm keeps its first
+    // `ValidationError` (ATOM §19).
+    const updateRelations: ParsedRelationMutation[] = [];
     if (updateHasRelations) {
       for (const [relationName, relationPayload] of Object.entries(
         updatePartition.relationPayloads
@@ -384,7 +386,13 @@ export class UpsertOperation {
           relationPayload.relationInfo,
           parsedRelation
         );
-        if (program) updateRelations[relationName] = program;
+        if (program) {
+          updateRelations.push({
+            kind: "ordinary",
+            name: relationName,
+            program,
+          });
+        }
       }
       for (const [relationName, relationPayload] of Object.entries(
         updatePartition.polymorphicPayloads
@@ -401,13 +409,13 @@ export class UpsertOperation {
           "update",
           `data.${relationName}`
         );
-        const built = buildPolymorphicMutationProgram(
-          parent,
-          relationPayload.relation,
-          parsedRelation
+        updateRelations.push(
+          buildPolymorphicMutationProgram(
+            parent,
+            relationPayload.relation,
+            parsedRelation
+          )
         );
-        if (built.program) updateRelations[relationName] = built.program;
-        updatePolymorphic[relationName] = built.mutation;
       }
     }
     const createFresh: FreshRecordBuilder = (input) =>
@@ -420,7 +428,6 @@ export class UpsertOperation {
             targetScope: parent,
             scalarData: this.updateData,
             relations: updateRelations,
-            polymorphic: updatePolymorphic,
             targetRead: { id: locateId },
             rootWrite: { id: this.updateId },
             relationName: "record",
@@ -454,7 +461,6 @@ export class UpsertOperation {
             parent,
             partitionModelData(parent, parsedArgs.data).scalarData,
             updateRelations,
-            updatePolymorphic,
             where
           );
         }
@@ -514,7 +520,7 @@ export class UpsertOperation {
     // IS the create-vs-update decision. Empty planning is also what routes the
     // operation through the direct single-statement policy — one round trip,
     // no transaction envelope.
-    if (this.onConflictFold) return { steps: [], outputs: {} };
+    if (this.onConflictFold) return { steps: [] };
     const steps: StatementStep[] = [this.locate];
     for (const conditional of this.conditionals) steps.push(conditional.probe);
     // Both relation-bearing arms contribute planning reads to the guard-free superset;
@@ -523,7 +529,7 @@ export class UpsertOperation {
       steps.push(...conditionalArmPlanning(this.updateCompiler.planning()));
     }
     if (this.createArmOp) steps.push(...this.createArmOp.planning().steps);
-    return { steps, outputs: planningOutputs(steps) };
+    return { steps };
   }
 
   compile(known: Readonly<Record<string, unknown>>): OperationFragment {
@@ -1014,6 +1020,19 @@ export class UpsertOperation {
   private updatedTerminalWhere(
     locatedRow: Record<string, unknown>
   ): Record<string, unknown> {
+    // E1 — where the update arm carries relations, its selected-record compiler is the
+    // one owner of the row the update leaves behind: it holds the same scalar SET this
+    // arm parsed AND the shared-primary-key fold, which moves a row-key member from a
+    // relation arm and so appears in no scalar payload. On every other shape the two
+    // agree by construction (the compiler's SET is this `updateData` plus assignments on
+    // columns that are not the row key), which is why the branch changes no plan — and
+    // both branches are measured rather than reasoned about, in
+    // `shared-pk-update-root-behavior.ts`: the same row-key move spelled once as a FOLD
+    // (only this branch can see it) and once as a plain scalar with no relation beside it
+    // (only the branch below runs) must land the record in the same place.
+    if (this.updateCompiler) {
+      return this.updateCompiler.updatedPrimaryKeyWhere(locatedRow);
+    }
     const parent = createQueryScope(this.engine.adapter, this.model);
     return getUpdatedPrimaryKeyWhere(
       parent,

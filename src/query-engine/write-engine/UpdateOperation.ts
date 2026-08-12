@@ -5,12 +5,11 @@ import {
   buildPrimaryKeyWhereUnique,
   getPrimaryKeyFields,
 } from "../builders/correlation-utils";
-import type { ResolvedPolymorphicMutation } from "../builders/polymorphic-mutation";
 import {
   buildPolymorphicMutationProgram,
   buildRelationMutationProgram,
+  type ParsedRelationMutation,
   partitionModelData,
-  type RelationMutationProgram,
 } from "../builders/relation-mutation-parser";
 import { getWhereUniqueEntries } from "../builders/where-unique-builder";
 import {
@@ -53,7 +52,7 @@ import {
   type StatementStep,
   type WriteStep,
 } from "./OperationFragment";
-import { planningKey, planningOutputs } from "./Part";
+import { planningKey } from "./Part";
 import { parseValidated } from "./parse-boundary";
 import {
   buildRecordUpdateCompiler,
@@ -66,6 +65,7 @@ import {
   pinnedTargetValues,
   projectionNamesNoRelation,
   projectionReadsMutatedModel,
+  type SubOperationOptions,
   selectExecutionMode,
   setCanFireReferentialAction,
   uniqueSelectorConjuncts,
@@ -105,7 +105,8 @@ export class UpdateOperation {
   constructor(
     engine: QueryEngine,
     model: Model<any>,
-    args: Record<string, unknown>
+    args: Record<string, unknown>,
+    options: SubOperationOptions = {}
   ) {
     this.engine = engine;
     this.model = model;
@@ -116,21 +117,40 @@ export class UpdateOperation {
     const parent = createQueryScope(engine.adapter, model);
     const parentSchemas = engine.schemaRegistry.getModelSchemas(model);
 
+    // K5 — a CAPTURED-ROOT member of a relation-bearing `updateMany`. The bulk
+    // envelope was validated once by the series (`where`, `select`, `limit`, and the
+    // portable-primary-key check, all under the public name `updateMany`), so the
+    // whole-args parse below would be a second, differently-named opinion on it. What
+    // the member still owns — and what makes it an ordinary update rather than a
+    // fragment of one — is everything from `data` down: its own relation parse, its
+    // own own-write preflight, its own locate, compiler, transitions and terminal read.
+    const captured = options.capturedRoot;
     // The whole envelope owns public validation and error ordering. Relation
     // payloads are then transformed exactly once at their existing relation sites.
-    const validatedArgs = parseValidated(
-      parentSchemas.args.update,
-      args,
-      "update",
-      ""
-    );
-    const where = requireRecord(args.where, "update.where");
-    const data = requireRecord(args.data, "update.data");
-    assertPortablePrimaryKeyUpdateInput(model, "update", { data });
+    const validatedArgs = captured
+      ? {
+          data: parseValidated(
+            parentSchemas.core.update,
+            captured.data,
+            "updateMany",
+            "data"
+          ),
+          select: captured.select,
+          include: undefined,
+        }
+      : parseValidated(parentSchemas.args.update, args, "update", "");
+    const where = captured?.where ?? requireRecord(args.where, "update.where");
+    const data = captured?.data ?? requireRecord(args.data, "update.data");
+    if (!captured) {
+      assertPortablePrimaryKeyUpdateInput(model, "update", { data });
+    }
 
     const partitioned = partitionModelData(parent, data);
-    const relations: Record<string, RelationMutationProgram> = {};
-    const polymorphic: Record<string, ResolvedPolymorphicMutation> = {};
+    // TWO PASSES, and the grouping is normative twice over: it is the parsed
+    // collection's order (ordinary keys, then polymorphic — `ParsedRecordPrograms`),
+    // and it is the order these per-relation transforms run in, which decides which
+    // `ValidationError` a mixed malformed payload reports first (ATOM §19).
+    const relations: ParsedRelationMutation[] = [];
     for (const [relationName, relationPayload] of Object.entries(
       partitioned.relationPayloads
     )) {
@@ -150,7 +170,9 @@ export class UpdateOperation {
         relationPayload.relationInfo,
         parsedRelation
       );
-      if (program) relations[relationName] = program;
+      if (program) {
+        relations.push({ kind: "ordinary", name: relationName, program });
+      }
     }
     for (const [relationName, relationPayload] of Object.entries(
       partitioned.polymorphicPayloads
@@ -167,13 +189,13 @@ export class UpdateOperation {
         "update",
         `data.${relationName}`
       );
-      const built = buildPolymorphicMutationProgram(
-        parent,
-        relationPayload.relation,
-        parsedRelation
+      relations.push(
+        buildPolymorphicMutationProgram(
+          parent,
+          relationPayload.relation,
+          parsedRelation
+        )
       );
-      if (built.program) relations[relationName] = built.program;
-      polymorphic[relationName] = built.mutation;
     }
 
     assertRelationKeyUpdatesAreCompilable(
@@ -183,12 +205,21 @@ export class UpdateOperation {
     );
     assertUpdateManyDataRelationsAreCompilable(parent, relations);
 
-    this.parentWhere = parseValidated(
-      parentSchemas.core.whereUniqueExtended,
-      where,
-      "update",
-      "where"
-    );
+    // A member's selector is not user input: it is the complete captured row key,
+    // already built as a `whereUnique` from values this transaction locked and read.
+    // Re-parsing it would apply the scalar schemas' transforms to provider-decoded
+    // values — a second opinion on a value nobody typed — which is exactly why every
+    // other captured-identity consumer in the engine (`ManyAndReturnOperation`'s
+    // captured filter, `CreateManyRecordSeries`' final read) feeds the where builder
+    // directly too.
+    this.parentWhere = captured
+      ? captured.where
+      : parseValidated(
+          parentSchemas.core.whereUniqueExtended,
+          where,
+          "update",
+          "where"
+        );
     const projectedSelect = validatedArgs.select;
     const projectedInclude = validatedArgs.include;
     this.parsedSelect = isRecord(projectedSelect)
@@ -204,13 +235,13 @@ export class UpdateOperation {
 
     const parsedData = requireRecord(validatedArgs.data, "update.data");
     const parsedScalarData = partitionModelData(parent, parsedData).scalarData;
-    assertUpdateOwnWriteSafety(
-      parent,
-      parsedScalarData,
-      relations,
-      polymorphic,
-      where
-    );
+    // A member analyses its OWN selector — the captured row key — which is strictly
+    // narrower than the bulk `where` the caller wrote. That is exact rather than
+    // lenient: the hazard this preflight guards is a decision read that depends on
+    // this operation's own writes, and for root selection the capture already spent
+    // the public `where` ONCE, before any effect, so no later write can move which
+    // roots were chosen.
+    assertUpdateOwnWriteSafety(parent, parsedScalarData, relations, where);
 
     const scalarData =
       Object.keys(partitioned.scalarData).length === 0
@@ -243,8 +274,7 @@ export class UpdateOperation {
     );
     const writeIsOneStatement =
       engine.adapter.capabilities.supportsReturning &&
-      Object.keys(relations).length === 0 &&
-      Object.keys(polymorphic).length === 0 &&
+      relations.length === 0 &&
       Object.keys(scalarData).length > 0;
     const cteProjectionFold =
       engine.adapter.capabilities.supportsCteWithMutations &&
@@ -305,7 +335,6 @@ export class UpdateOperation {
             targetScope: parent,
             scalarData,
             relations,
-            polymorphic,
             targetRead: { id: locateId },
             rootWrite: { id: this.updateId },
             relationName: "record",
@@ -354,12 +383,12 @@ export class UpdateOperation {
   }
 
   planning(): PlanningFragment {
-    if (this.directWrite) return { steps: [], outputs: {} };
+    if (this.directWrite) return { steps: [] };
     const steps: StatementStep[] = [
       this.locate,
       ...(this.compiler?.planning() ?? []),
     ];
-    return { steps, outputs: planningOutputs(steps) };
+    return { steps };
   }
 
   compile(known: Readonly<Record<string, unknown>>): OperationFragment {

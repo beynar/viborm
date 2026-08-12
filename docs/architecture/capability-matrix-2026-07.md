@@ -34,18 +34,31 @@ Three deliverables in one document:
 
 | # | Defect | Class | Who hits it |
 |---|---|---|---|
-| **1** | `updateMany` / `updateManyAndReturn` accept nested relation writes, report success, and **silently discard them** | silent wrong-success | anyone doing a bulk update whose `data` also names a relation |
+| **1** | `updateMany` / `updateManyAndReturn` accept nested relation writes, report success, and **silently discard them** — **FIXED 2026-08-10** (limitation lift, Package K: the writes now execute, one ordinary update per matching row) | silent wrong-success | anyone doing a bulk update whose `data` also names a relation |
 | **2** | `viborm push` discards the interactive **rename** decision and applies DROP + ADD | silent data loss | anyone renaming a column through `push` |
 | **3** | M2M nested `create` with a **database-generated** target PK hard-fails | regression from the V1 deletion | `post.create({ tags: { create: {…} } })` with an autoincrement tag id |
 
-**Defect 1 — verified live `[V]`.**
+**Defect 1 — verified live `[V]`. HISTORICAL as of 2026-08-10: fixed by the
+query-engine limitation lift, Package K, not by a guard but by making the
+payload mean something.** The example below is the state at this matrix's date;
+everything from here to the end of this sub-section describes that state. Today
+the same call updates the user AND creates the post: `data` still binds to
+`core.update`, and a relation-bearing `data` now routes to
+`UpdateManyRecordSeries`, which captures the matching root keys and runs one
+ordinary selected-record update per root inside a transaction. `count` on that
+arm is the captured root count. The `set-builder` skip is no longer reachable
+with a relation key, and `BulkCountOperation`'s docblock — quoted below as the
+false premise it was — has been corrected. See
+[`limitation-lift-plan.md` §5.2](limitation-lift-plan.md) and
+`write-engine/ATOM.md` §17.
 
 ```ts
 client.user.updateMany({
   where: { id: "u1" },
   data: { name: "B", posts: { create: { id: "p-new", title: "…" } } },
 })
-// → { count: 1 }.  users = ["B"].  posts = [].  No error, no warning.
+// 2026-07 → { count: 1 }.  users = ["B"].  posts = [].  No error, no warning.
+// 2026-08 → { count: 1 }.  users = ["B"].  posts = ["p-new"].
 ```
 
 `UpdateManyArgs.data` binds to `core.update` — the **full** schema including every relation's nested-write object — not `core.scalarUpdate`
@@ -53,7 +66,7 @@ client.user.updateMany({
 The payload then reaches [set-builder.ts:34](../../src/query-engine/builders/set-builder.ts:34), which does `if (isRelation(...)) continue; // Skip relations`.
 
 Prisma rejects this shape loudly. viborm accepts it and lies. Worse, the engine documents the opposite as its justification —
-[BulkCountOperation.ts:26](../../src/query-engine/write-engine/BulkCountOperation.ts:26): *"updateMany with relation data is rejected by V1's own validation schema (reused here), so a relation payload never reaches the builder — parity is inherited, not re-derived."* That premise is false, and it is why no test was ever written.
+`BulkCountOperation`'s docblock, as it read at this matrix's date (the text is gone from the file — corrected 2026-08-11): *"updateMany with relation data is rejected by V1's own validation schema (reused here), so a relation payload never reaches the builder — parity is inherited, not re-derived."* That premise is false, and it is why no test was ever written.
 
 Degenerate sub-case: if `data` contains **only** relation keys, the user gets a bare `QueryEngineError: No fields to update` ([set-builder.ts:53](../../src/query-engine/builders/set-builder.ts:53)) that never names the relation.
 
@@ -130,11 +143,11 @@ Defects 1 and `findFirst({ take })` are the same shape: **validation accepts wha
 | `findFirstOrThrow` | ✅ | `types.ts:113-114` |
 | `findMany` | ✅ | `find.ts:107-157` |
 | `create` | ✅ | `mutation.ts:19-45`; `CreateOperation.ts` |
-| `createMany` (+`skipDuplicates`) | ✅ | `mutation.ts:54-79` |
+| `createMany` (+`skipDuplicates`) | ✅. **Two arms since 2026-08-10** (limitation lift, Package J): scalar rows — plus a direct polymorphic `connect`, which stays connect-only — keep the grouped multi-row `INSERT`; a row carrying a general relation program routes the whole call to a record series that runs one ordinary `create` per row, left to right, in a transaction, so row N observes row N−1. `skipDuplicates` beside nested relation writes is refused at construction (the product meaning is unchosen) | `mutation.ts:54-79`; `write-engine/CreateManyRecordSeries.ts` |
 | ~~`createManyAndReturn`~~ | **REMOVED as a name** (W3-B, decision D-1): `createMany` with a `select` IS the returning form. That `select` is **scalar-only** — a relation key, `_count`, or `include` is refused at the parse boundary (W3 fix round: the projection used to be accepted and answered with wrong data). `+skipDuplicates` still refused on non-returning drivers | `mutation.ts` `getCreateManyArgs`; `args/bulk-write-projection.ts`; `ManyAndReturnOperation.ts` |
 | `update` | ✅ unique-`where` enforced | `mutation.ts:126-155` |
-| `updateMany` | ✅ incl. `limit` (W4-U2) — **and see defect 1** | `mutation.ts` `getUpdateManyArgs`; `operations/bulk-limit.ts` |
-| ~~`updateManyAndReturn`~~ | **REMOVED as a name** (W3-B, decision D-1): `updateMany` with a `select`. Same scalar-only projection as `createMany`; `limit` caps this arm too, so the rows returned are the rows affected. `deleteMany` with a `select` is the same shape, past Prisma, which has no returning `deleteMany` | `mutation.ts` `getUpdateManyArgs` / `getDeleteManyArgs`; `args/bulk-write-projection.ts` |
+| `updateMany` | ✅ incl. `limit` (W4-U2). **Two arms since 2026-08-10** (limitation lift, Package K — defect 1 is fixed, not open): scalar-only `data` keeps the single set-based `UPDATE` and the provider's affected-row `count`; `data` carrying a relation routes to a record series that captures the matching root keys and runs one ordinary selected-record update per root in a transaction, reporting the CAPTURED root count. New refusals a caller can hit on that arm: child-held `connect`/`connectOrCreate`/`set` naming an existing target when more than one root matched, and the substrate refusal on a batch-only driver | `mutation.ts` `getUpdateManyArgs`; `operations/bulk-limit.ts`; `write-engine/UpdateManyRecordSeries.ts` |
+| ~~`updateManyAndReturn`~~ | **REMOVED as a name** (W3-B, decision D-1): `updateMany` with a `select`. Same scalar-only projection as `createMany` — scalar-only even when `data` writes relations; `limit` caps this arm too, so the rows returned are the rows affected. On the relation arm the rows are read after every root's effects, by each root's final key, and a root that a later root removed makes the call FAIL rather than return a shorter list (the `{ count }` arm of the same payload succeeds). `deleteMany` with a `select` is the same shape, past Prisma, which has no returning `deleteMany` | `mutation.ts` `getUpdateManyArgs` / `getDeleteManyArgs`; `args/bulk-write-projection.ts` |
 | `upsert` | ✅ **+ superset** (`targetWhere`/`setWhere`) | `mutation.ts:309-346`; probe-first, not `ON CONFLICT` ([UpsertOperation.ts:79](../../src/query-engine/write-engine/UpsertOperation.ts:79)) |
 | `delete` | ✅ unique-`where` enforced | `mutation.ts:236-262` |
 | `deleteMany` | ✅ incl. `limit` (W4-U2) | `mutation.ts` `getDeleteManyArgs`; `operations/bulk-limit.ts` |
@@ -193,7 +206,7 @@ Opening that surface exposed two latent engine bugs, both fixed in review, and b
 | `select` / `include`; empty-or-all-false select throws | ✅ | `core/select.ts:81,158` |
 | `select`+`include` exclusivity | 🟡 enforced at **runtime** everywhere; at the **type** level it resolves the result to `never` rather than erroring | `select-include-exclusivity.ts:23`; `result-types.ts:211-215` |
 | Arbitrary-depth nesting; select↔include alternation | ✅ | `relations/select-include.ts:114-196` |
-| `omit` (query-level + client config) | ✅ (W5-U4) — on every returning operation and on nested relation nodes; exclusive with `select`; an `omit` that empties the projection is refused; on a bulk write it selects the row-returning arm | `validation/model/args/omit.ts`; `client/omit.ts` |
+| `omit` (query-level + client config) | ✅ (W5-U4) — on every returning operation and on nested relation nodes; query-level `omit` subtracts from `select`; an `omit` that empties the projection is refused; on a bulk write either projection key selects the row-returning arm | `validation/model/args/omit.ts`; `client/omit.ts` |
 | `_count: { select: { rel: true } }`, filtered `_count` | ✅ in both select and include | `select.ts:128-133,181-189` |
 | `_count: true` shorthand | ✅ (W1-B unit 2) — desugars in validation to `{ select: { <every to-many relation>: true } }`, in both `select` and `include`; the engine still sees only the object form. A model with no to-many relations expands to `{ select: {} }` (Prisma emits no `_count` field at all there, so there is no runtime behavior to mirror) | `validation/model/core/select.ts` `getCountSchema`; `result-types.ts` `InferRelationCountSelection` |
 | `distinct` | ✅ findMany + `findFirst` + nested relation args, **array or bare-string** (W1-B unit 3 + W3-A unit 3); still not on `groupBy` | `find.ts` `getDistinctSchema`, `builders/distinct-builder.ts`, `relations/select-include.ts` |
@@ -639,7 +652,7 @@ Re-counted on `nested-write-boundaries` @ `6910728` (grep over `src/query-engine
 
 **A16. Every model must have a primary key.** Engine, `push` and `migrate` all refuse.
 
-**A17. Parity refusals inside nested writes** (all match Prisma's own rejections): `update`/`delete`/`set`/`disconnect` inside a `create` payload; M2M `upsert`/`disconnect`/`set`/`delete` under `create`; unsupported combinations of two kinds on one to-one arm (the five documented child-held vacate-then-supply replacements are VibORM extensions); ~~object-form `disconnect: {…}`/`delete: {…}` on a to-one~~ (**N2-U3 — this entry was WRONG, and is retracted**: measured against Prisma 7.9.1's generated `ProfileUpdateOneWithoutUserNestedInput`, both keys are typed `ProfileWhereInput | boolean`, a filter narrowing which connected record is acted on. viborm types them `v.boolean()`, so the object form is refused at the parse boundary — a genuine, narrower surface, not parity. Moved to §3.B); writing a relation's owned FK inside its own nested create; nested create identity must match the unique `where`; M2M `disconnect: true` without a selector; `set` that would orphan a required FK.
+**A17. Parity refusals inside nested writes** (all match Prisma's own rejections): `update`/`delete`/`set`/`disconnect` inside a `create` payload; M2M `upsert`/`disconnect`/`set`/`delete` under `create`; unsupported combinations of two kinds on one to-one arm — **narrowed 2026-08-10** (limitation lift, Package H): a to-one update payload is now one composition `(vacate?, supplier, modify?)`, so the five vacate-then-supply replacements are accepted on the parent-held direction as well as the child-held one, and a `connect` may carry an `update` beside it (VibORM extensions, all of them). What stays refused: two suppliers, `upsert` beside another intent, a vacate with a modify and no supplier, two vacates, `delete + connectOrCreate`, and `create`/`connectOrCreate` beside an `update` — the last refused at the type boundary parent-held and by the engine child-held, naming the missing produced-identity channel rather than an arity; ~~object-form `disconnect: {…}`/`delete: {…}` on a to-one~~ (**N2-U3 — this entry was WRONG, and is retracted**: measured against Prisma 7.9.1's generated `ProfileUpdateOneWithoutUserNestedInput`, both keys are typed `ProfileWhereInput | boolean`, a filter narrowing which connected record is acted on. viborm types them `v.boolean()`, so the object form is refused at the parse boundary — a genuine, narrower surface, not parity. Moved to §3.B); writing a relation's owned FK inside its own nested create; nested create identity must match the unique `where`; M2M `disconnect: true` without a selector; `set` that would orphan a required FK.
 
 **A18. Driver / dialect capability refusals.** `d1`/`neon-http` callback transactions; ~~`$transaction` options~~ (**W5-U3, `812a750`** — no longer a blanket refusal: options are honored per driver, and only the combinations a driver cannot execute are refused, each with a reason); array-form `$transaction` with a non-batchable op on a batch-only driver; insertId-scratch batch merge; PlanetScale cross-shard; `mysql2` `multipleStatements`; SQLite RIGHT/FULL OUTER/LATERAL; MySQL FULL OUTER; JSON path segments with `"` or `\`; nullable vector column in a distance select; compound-PK many-to-many (query **and** migration).
 

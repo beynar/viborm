@@ -2,6 +2,22 @@
 // Re-exports all public types and factory functions
 
 // =============================================================================
+// CARDINALITY
+// =============================================================================
+export {
+  type RelationCardinality,
+  relationCardinality,
+} from "./cardinality";
+// =============================================================================
+// CLEARABILITY
+// =============================================================================
+export {
+  type MembershipCanBeCleared,
+  membershipCanBeCleared,
+  type SlotMayBeEmpty,
+  slotMayBeEmpty,
+} from "./clearability";
+// =============================================================================
 // HELPERS
 // =============================================================================
 export {
@@ -10,11 +26,20 @@ export {
   getJunctionFieldNames,
   getJunctionTableName,
 } from "./helpers";
+export {
+  type CanBindPolymorphicInverse,
+  canBindPolymorphicInverse,
+  collectInverseCandidates,
+  getPolymorphicInverseBinding,
+  type ResolvedInverseCandidate,
+  type ResolvedInverseRelation,
+  resolveInverseRelation,
+  resolveOrdinaryInverse,
+} from "./inverse";
 export { ManyToManyRelation, manyToMany } from "./many-to-many";
 export {
   type AnyPolymorphicRelation,
   type GetPolymorphicInverseBinding,
-  getPolymorphicInverseBinding,
   getPolymorphicInverseCandidates,
   isPolymorphicRelation,
   type PolymorphicInverseBinding,

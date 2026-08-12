@@ -1,8 +1,9 @@
 // biome-ignore-all lint/style/useFilenamingConvention: File matches its primary class export.
-import type { Model } from "@schema/model";
-import type {
-  BoundRelation,
-  ParentHeldToOne,
+import { getModelKeyCatalog, type Model } from "@schema/model";
+import {
+  type ChildHeldRelation,
+  membershipReferencedFields,
+  type ParentHeldRelation,
 } from "./builders/relation-data-builder";
 import type { RelationMutationEntry } from "./builders/relation-mutation-parser";
 import type { OwnWriteFootprint, OwnWriteLedger } from "./OwnWriteLedger";
@@ -13,15 +14,15 @@ import {
   getCreatedWhereUniqueTarget,
   getFilterPredicateFields,
   getFilterTargetConstraint,
-  getTargetIdentityFields,
+  getTargetConstraintPredicateFields,
   normalizeTargetConstraint,
   normalizeWhereUniqueTargetConstraint,
   selectorConstraint,
   type TargetConstraint,
+  unionPredicateFields,
   unknownConstraint,
   updateResultConstraints,
 } from "./TargetConstraint";
-import { QueryEngineError } from "./types";
 
 export class OwnWriteSteps {
   private readonly relation: OwnWriteRelation;
@@ -156,7 +157,7 @@ export class OwnWriteSteps {
       const selector = selectorConstraint(this.relation.target, where);
       if (
         this.relation.family.kind === "update" &&
-        this.relation.boundRelation.kind === "parentHeldToOne"
+        this.relation.boundRelation.position === "parentHeld"
       ) {
         this.relation.ledger.assertTargetRead(
           this.relation.relationName,
@@ -175,7 +176,7 @@ export class OwnWriteSteps {
       entry.target.kind === "selectors" ? entry.target.targets : []
     ).map((where) => selectorConstraint(this.relation.target, where));
 
-    if (this.relation.boundRelation.kind !== "junction") {
+    if (this.relation.boundRelation.position !== "junction") {
       for (const constraint of constraints) {
         this.relation.assertTargetAndMembershipRead("disconnect", constraint);
       }
@@ -206,7 +207,7 @@ export class OwnWriteSteps {
     const constraints = entry.target.targets.map((where) =>
       selectorConstraint(this.relation.target, where)
     );
-    if (this.relation.boundRelation.kind === "junction") {
+    if (this.relation.boundRelation.position === "junction") {
       for (const constraint of constraints) {
         this.relation.ledger.assertTargetRead(
           this.relation.relationName,
@@ -238,7 +239,7 @@ export class OwnWriteSteps {
         "set",
         constraint
       );
-      if (this.relation.boundRelation.kind !== "junction") {
+      if (this.relation.boundRelation.position !== "junction") {
         this.relation.assertMembershipRead("set", constraint);
       }
     }
@@ -251,11 +252,7 @@ export class OwnWriteSteps {
   private processUpdate(
     entry: Extract<RelationMutationEntry, { kind: "update" }>
   ): void {
-    if (
-      this.relation.boundRelation.kind === "parentHeldToOne" ||
-      this.relation.boundRelation.kind === "childHeldToOne" ||
-      this.relation.boundRelation.kind === "polymorphicChildHeldToOne"
-    ) {
+    if (this.relation.boundRelation.cardinality === "one") {
       const [input] = entry.items;
       if (!input) return;
       const footprint = buildToOneUpdateFootprint(
@@ -265,7 +262,38 @@ export class OwnWriteSteps {
           ? this.relation.family.scalarData
           : undefined
       );
-      if (input.target.kind === "correlated" && input.target.filter) {
+      const supplied = this.relation.composedSupplierSelector;
+      if (supplied) {
+        // H3 — a modify composed with a `connect` reads the SUPPLIER's selector, not
+        // membership: that is literally the locator the engine compiles for it. Asking
+        // the membership question here would report the pair's own sibling vacate as
+        // the modify's premise, which is a dependency the plan does not have.
+        //
+        // The wrapper's `where` does NOT go away when the selector arrives: the composed
+        // probe and its batch guard splice the selector's conjuncts and the filter's
+        // together ({@link RelationWritePart.correlatedProbeStatement} appends
+        // `targetFilters()` unconditionally), so the read predicates on BOTH field sets
+        // and must declare both. Declaring the selector alone would let a sibling write
+        // to a filtered field pass `assertIndependent` unseen.
+        const suppliedConstraint = selectorConstraint(
+          this.relation.target,
+          supplied
+        );
+        this.relation.ledger.assertTargetRead(
+          this.relation.relationName,
+          "update",
+          suppliedConstraint,
+          input.target.kind === "correlated" && input.target.filter
+            ? unionPredicateFields(
+                getTargetConstraintPredicateFields(suppliedConstraint),
+                getFilterPredicateFields(
+                  this.relation.target,
+                  input.target.filter
+                )
+              )
+            : undefined
+        );
+      } else if (input.target.kind === "correlated" && input.target.filter) {
         const filterConstraint = getFilterTargetConstraint(
           this.relation.target,
           input.target.filter
@@ -318,7 +346,7 @@ export class OwnWriteSteps {
     entry: Extract<RelationMutationEntry, { kind: "deleteMany" }>
   ): void {
     const unknown = unknownConstraint(this.relation.target);
-    if (this.relation.boundRelation.kind === "junction") {
+    if (this.relation.boundRelation.position === "junction") {
       for (const filter of entry.filters) {
         const constraint = getFilterTargetConstraint(
           this.relation.target,
@@ -470,8 +498,12 @@ interface ToOneUpdateFootprint {
   readonly writesMembership: boolean;
 }
 
+/**
+ * The caller is inside the to-one arm, and a junction row set is always to-many,
+ * so the parameter type is what excludes a junction here.
+ */
 function buildToOneUpdateFootprint(
-  relation: BoundRelation,
+  relation: ParentHeldRelation | ChildHeldRelation,
   updateData: Readonly<Record<string, unknown>>,
   rootScalarData: Readonly<Record<string, unknown>> | undefined
 ): ToOneUpdateFootprint {
@@ -479,21 +511,15 @@ function buildToOneUpdateFootprint(
   const target = relationInfo.targetModel;
   const scalarData = getScalarData(target, updateData);
   const changedFields = new Set(Object.keys(scalarData));
-  if (relation.kind === "junction") {
-    throw new QueryEngineError(
-      `Relation '${relationInfo.name}' is many-to-many and has no FK direction. ` +
-        "Many-to-many writes must go through the junction table handlers."
-    );
-  }
   const readConstraint =
-    relation.kind === "parentHeldToOne" && rootScalarData
+    relation.position === "parentHeld" && rootScalarData
       ? buildReboundTargetConstraint(target, relation, rootScalarData)
       : unknownConstraint(target);
   const resultConstraints: TargetConstraint[] = [];
 
   if (changedFields.size > 0) {
     resultConstraints.push(readConstraint);
-    const identityFields = getTargetIdentityFields(target);
+    const identityFields = getModelKeyCatalog(target).uniqueOverlapFields;
     if (identityFields.some((field) => changedFields.has(field))) {
       resultConstraints.push(
         normalizeTargetConstraint(target, identityFields, scalarData)
@@ -501,18 +527,21 @@ function buildToOneUpdateFootprint(
     }
   }
 
+  // POSITION, not holder identity: a self-relation's holder and referenced are the
+  // same model, and the branch below is exactly that case.
+  const referencedFields = membershipReferencedFields(relation.membership);
   const membershipFields = new Set(
-    relation.kind === "parentHeldToOne"
-      ? relation.referencedFields
-      : relation.foreignFields
+    relation.position === "parentHeld"
+      ? referencedFields
+      : relation.membership.foreignFields
   );
   if (
     relation.sourceModel === target &&
     relation.relationInfo.targetModel === target
   ) {
     for (const field of [
-      ...relation.foreignFields,
-      ...relation.referencedFields,
+      ...relation.membership.foreignFields,
+      ...referencedFields,
     ]) {
       membershipFields.add(field);
     }
@@ -614,19 +643,21 @@ function assertConnectOrCreateDecision(
 
 function buildReboundTargetConstraint(
   target: Model<any>,
-  relation: ParentHeldToOne,
+  relation: ParentHeldRelation,
   rootScalarData: Readonly<Record<string, unknown>>
 ): TargetConstraint {
   const values: Record<string, unknown> = {};
-  for (const [index, fkField] of relation.foreignFields.entries()) {
-    const referencedField = relation.referencedFields[index];
-    if (!(referencedField && Object.hasOwn(rootScalarData, fkField))) continue;
-    const update = classifyRelationKeyScalarUpdate(rootScalarData[fkField]);
+  const { members, referencedFields } = relation.membership;
+  for (const { foreignField, referencedField } of members) {
+    if (!Object.hasOwn(rootScalarData, foreignField)) continue;
+    const update = classifyRelationKeyScalarUpdate(
+      rootScalarData[foreignField]
+    );
     if (update.resolved && update.value !== null) {
       values[referencedField] = update.value;
     }
   }
-  return normalizeTargetConstraint(target, relation.referencedFields, values);
+  return normalizeTargetConstraint(target, referencedFields, values);
 }
 
 function getScalarData(

@@ -3,21 +3,23 @@ import { getPrimaryKeyFields } from "../builders/correlation-utils";
 import type { PolymorphicStorageValue } from "../builders/polymorphic-mutation";
 import {
   bindRelation,
-  type ChildHeldToMany,
-  type ChildHeldToOne,
+  type ChildHeldRelation,
+  hasPolymorphicMembership,
+  membershipReferencedFields,
   type PolymorphicChildHeldRelation,
-  type PolymorphicChildHeldToMany,
-  type PolymorphicChildHeldToOne,
 } from "../builders/relation-data-builder";
-import type {
-  RelationMutationEntry,
-  RelationMutationProgram,
+import {
+  type ParsedRelationMutation,
+  type RelationMutationEntry,
+  type RelationMutationProgram,
+  relationMutationPrograms,
 } from "../builders/relation-mutation-parser";
 import { buildValueGroups } from "../builders/values-builder";
 import { createQueryScope } from "../context/query-scope";
 import { buildCreateManyPlan } from "../operations/create";
 import { assertPortableCreateManySkip } from "../operations/create-many-portability";
 import type { QueryEngine } from "../query-engine";
+import { assertSelectedUpdateManyDataIsScalar } from "../relation-key-legality";
 import type { QueryScope } from "../types";
 import { referenceScalarSql, referenceSql } from "./fragment-builders";
 import type { OperationStep, StatementStep } from "./OperationFragment";
@@ -40,7 +42,6 @@ import {
   buildToOneUpdatePart,
 } from "./RelationWritePart";
 import {
-  bindCorrelatedRelationMembership,
   bindRelationMembership,
   type FinalReferenceSource,
   type ForeignKeyMember,
@@ -53,7 +54,8 @@ import {
   resolvePolymorphicStorageValue,
 } from "./relation-membership";
 import type { StepScope } from "./StepScope";
-import { getStepModelName, UnsupportedOperationError } from "./shared";
+import { getStepModelName } from "./shared";
+import { buildTargetProjection } from "./target-projection";
 
 /** Located-target relation composition below the selected-record compiler. */
 
@@ -62,15 +64,23 @@ import { getStepModelName, UnsupportedOperationError } from "./shared";
  * seam {@link RelationWritePart} calls without importing this module at runtime (an
  * erased type import breaks the cycle).
  *
- * `membershipReadSource` carries the pre-transition key when existing junction rows
- * are read by a different value than new rows are written with.
+ * `membershipReadSource` names the value EXISTING membership is read by, beside the
+ * `parentId` new membership is written with. It is REQUIRED, and every caller
+ * states its own answer: they are the same source wherever the parent's referenced
+ * value is not in transition, and defaulting one to the other is exactly the
+ * old-from-new inference this seam refuses.
+ *
+ * DELIBERATELY TWO POSITIONAL SOURCES rather than one
+ * source-bound membership, for the reason recorded on `WritePartBase.membershipReadSource`:
+ * the read source's narrowing is lazy and kind-named, so binding it once per edge
+ * would move a refusal and rewrite its sentence.
  */
 export type JunctionTargetRelationsBuilder = (
   targetScope: QueryScope,
   parentId: FinalReferenceSource,
-  relations: Record<string, RelationMutationProgram>,
+  relations: readonly ParsedRelationMutation[],
   txMode: boolean,
-  membershipReadSource?: FinalReferenceSource
+  membershipReadSource: FinalReferenceSource
 ) => readonly Part[];
 
 /**
@@ -83,14 +93,33 @@ export function buildJunctionTargetRelationParts(
   scope: StepScope,
   engine: QueryEngine,
   targetScope: QueryScope,
-  relations: Record<string, RelationMutationProgram>,
+  relations: readonly ParsedRelationMutation[],
   parentId: FinalReferenceSource,
   txMode: boolean,
   recordCompilers: RecordCompilerSeam,
-  membershipReadSource?: FinalReferenceSource
+  membershipReadSource: FinalReferenceSource
 ): readonly Part[] {
+  // The bulk-leaf wall, at its ONE owner (`relation-key-legality`), applied here for
+  // the same reason it is applied at the other three positions that build bulk leaves:
+  // one owner, one message, one decision, called wherever the decision is due. This is
+  // a CALL POSITION, not a second guard.
+  //
+  // MEASURED, and stated plainly because the first version of this comment claimed the
+  // opposite: this position has NO live route today. `RecordUpdateCompiler`'s two
+  // positions skip building the Part when `updateManyCarriesRelations`, so a
+  // relation-bearing nested `updateMany` reaches its deferred legality closure there;
+  // this fold pushes its bulk parts unconditionally (the `updateMany` arm of
+  // {@link foldJunctionChildHeldEntry}) but its only producer is
+  // `RelationJunctionPart.freshTargetFold`, i.e. CREATE-context data, and
+  // `ToManyCreateSchema` has no `updateMany` key to carry. The call stays anyway:
+  // `buildToManyUpdateManyParts` — the arm an implementer note had recorded as needing
+  // no guard — was measured SILENTLY REPARENTING rows one schema over, so "no measured
+  // live route" is not licence on a bulk arm. The Part-level RESTATEMENT this seam used
+  // to rely on (a second construction site with its own byte-identical sentence) is
+  // gone; the decision did not move.
+  assertSelectedUpdateManyDataIsScalar(targetScope, relations);
   const parts: Part[] = [];
-  for (const program of Object.values(relations)) {
+  for (const program of relationMutationPrograms(relations)) {
     foldJunctionTargetRelation({
       scope,
       engine,
@@ -113,8 +142,8 @@ function foldJunctionTargetRelation(input: {
   program: RelationMutationProgram;
   parentId: FinalReferenceSource;
   recordCompilers: RecordCompilerSeam;
-  /** Junction-only read source under post-transition ordering. */
-  membershipReadSource?: FinalReferenceSource;
+  /** What EXISTING membership is read by; equal to `parentId` with no transition. */
+  membershipReadSource: FinalReferenceSource;
   txMode: boolean;
   parts: Part[];
 }): void {
@@ -145,7 +174,7 @@ function foldJunctionTargetRelation(input: {
       deeperCorrelationParentId
     );
 
-  if (relation.kind === "junction") {
+  if (relation.position === "junction") {
     // Junction targets recurse through the same relation builder.
     input.parts.push(
       ...buildJunctionParts({
@@ -164,7 +193,7 @@ function foldJunctionTargetRelation(input: {
     return;
   }
 
-  if (relation.kind === "parentHeldToOne") {
+  if (relation.position === "parentHeld") {
     // A parent-held edge must already have folded into the selected record's SET.
     throw new QueryEngineError(
       `query-engine-v2 internal: a parent-held to-one on relation '${relationName}' reached the junction target relation builder; it requires the whole fresh-record compiler.`
@@ -174,10 +203,11 @@ function foldJunctionTargetRelation(input: {
   // Non-PK references require the selected-record compiler's captured projection;
   // this lower builder can consume only the target's single primary key.
   const targetPrimaryKeys = getPrimaryKeyFields(targetScope.model);
+  const referenced = membershipReferencedFields(relation.membership);
   const referencesTargetPk =
     targetPrimaryKeys.length === 1 &&
-    relation.referencedFields.length === 1 &&
-    relation.referencedFields[0] === targetPrimaryKeys[0];
+    referenced.length === 1 &&
+    referenced[0] === targetPrimaryKeys[0];
   if (!referencesTargetPk) {
     throw new QueryEngineError(
       `query-engine-v2 internal: a non-primary-key referenced edge on relation '${relationName}' reached the junction target relation builder; it requires the whole fresh-record compiler.`
@@ -185,12 +215,6 @@ function foldJunctionTargetRelation(input: {
   }
 
   const childScope = createQueryScope(engine.adapter, relationInfo.targetModel);
-  const childPrimaryKeys = getPrimaryKeyFields(childScope.model);
-  if (childPrimaryKeys.length !== 1) {
-    throw new UnsupportedOperationError(
-      `query-engine-v2 update requires a child with one primary key for relation '${relationName}' one level deeper.`
-    );
-  }
   const childName = getStepModelName(relationInfo.targetModel, relationName);
   const writeBase = {
     scope,
@@ -198,8 +222,11 @@ function foldJunctionTargetRelation(input: {
     relation,
     childName,
     childScope,
-    childPrimaryKey: childPrimaryKeys[0]!,
+    // Every targeted arm below addresses its child by the complete row key this
+    // projection publishes, so a compound-keyed child needs no separate route.
+    targetProjection: buildTargetProjection(childScope.model),
     parentId,
+    membershipReadSource: input.membershipReadSource,
     txMode,
     nestedBuilder: deeperBuilder,
     recordCompilers: input.recordCompilers,
@@ -216,7 +243,6 @@ function foldJunctionTargetRelation(input: {
       scope,
       engine,
       parentId,
-      membershipReadSource: input.membershipReadSource,
       txMode,
       parts: input.parts,
     });
@@ -228,16 +254,11 @@ function foldJunctionChildHeldEntry(args: {
   recordCompilers: RecordCompilerSeam;
   childScope: QueryScope;
   childName: string;
-  relation:
-    | ChildHeldToOne
-    | ChildHeldToMany
-    | PolymorphicChildHeldToOne
-    | PolymorphicChildHeldToMany;
+  relation: ChildHeldRelation;
   writeBase: Parameters<typeof buildToManyUpdateParts>[0];
   scope: StepScope;
   engine: QueryEngine;
   parentId: FinalReferenceSource;
-  membershipReadSource?: FinalReferenceSource;
   txMode: boolean;
   parts: Part[];
 }): void {
@@ -251,13 +272,10 @@ function foldJunctionChildHeldEntry(args: {
     scope,
     engine,
     parentId,
-    membershipReadSource,
     txMode,
     parts,
   } = args;
-  const isInverseToOne =
-    relation.kind === "childHeldToOne" ||
-    relation.kind === "polymorphicChildHeldToOne";
+  const isInverseToOne = relation.cardinality === "one";
   const relationName = relation.relationInfo.name;
   const push = (built: readonly Part[]) => parts.push(...built);
 
@@ -271,7 +289,7 @@ function foldJunctionChildHeldEntry(args: {
           relation,
           childName,
           childScope,
-          writeBase.childPrimaryKey,
+          writeBase.targetProjection,
           entry,
           parentId,
           txMode
@@ -301,47 +319,38 @@ function foldJunctionChildHeldEntry(args: {
         parts.push(buildInverseToOneUpsertPart(writeBase, item));
         return;
       }
-      if (relation.kind === "polymorphicChildHeldToMany") {
-        if (membershipReadSource) {
-          push(
-            buildCorrelatedToManyUpsertParts(
-              scope,
-              engine,
-              entry.items,
-              bindCorrelatedRelationMembership(
-                relation,
-                planningSourceFromFinal(
-                  membershipReadSource,
-                  relationName,
-                  "upsert"
-                ),
-                parentId
-              ),
-              txMode,
-              recordCompilers
-            )
-          );
-        } else {
-          push(
-            buildToManyUpsertParts(
-              scope,
-              engine,
-              entry.items,
-              bindRelationMembership(relation, parentId),
-              txMode,
-              recordCompilers
-            )
-          );
-        }
+      if (hasPolymorphicMembership(relation)) {
+        // A GLOBAL adopt, not a correlated one: every target this builder folds under
+        // is a row the enclosing statement is INSERTing, so there is no committed
+        // membership for a correlated probe to find. That is the documented rule for a
+        // fresh parent (query-engine/AGENTS.md, "For inverse writes … A fresh-parent
+        // upsert also adopts globally").
+        // A correlated twin stood here behind `if (membershipReadSource)` and is
+        // deleted. Presence of a read source was never the question
+        // this position asks — freshness is — and with the source now required the
+        // branch would have flipped every fresh polymorphic upsert to a correlated
+        // probe. It had been unreachable since it was written: `nestedBuilder` has one
+        // invocation (`RelationJunctionPart`'s inline fresh-target insert) and it
+        // supplied no read source.
+        push(
+          buildToManyUpsertParts(
+            scope,
+            engine,
+            entry.items,
+            bindRelationMembership(relation, parentId),
+            txMode,
+            recordCompilers
+          )
+        );
         return;
       }
+      const boundMembers = relation.membership.members;
       const members = pairCorrelatedForeignKeyMembers(
-        relation.foreignFields,
-        relation.referencedFields,
-        relation.referencedFields.map(() =>
+        boundMembers,
+        boundMembers.map(() =>
           planningSourceFromFinal(parentId, relationName, "upsert")
         ),
-        relation.referencedFields.map(() => parentId)
+        boundMembers.map(() => parentId)
       );
       push(
         buildCorrelatedToManyUpsertParts(
@@ -369,7 +378,7 @@ function foldJunctionChildHeldEntry(args: {
       if (isInverseToOne) {
         // `delete: true` — the arm's only reachable value at this seam too (the parse
         // boundary types an inverse-side to-one `delete` as `v.boolean()`; `false` is
-        // Prisma's no-op, dropped from the kind list, N7-U-B).
+        // Prisma's no-op, dropped from the kind list).
         push(
           buildToManyDeleteManyParts(writeBase, {
             kind: "deleteMany",
@@ -404,10 +413,7 @@ function foldJunctionChildHeldEntry(args: {
     case "createMany": {
       // Literal parents inject now; planned parents inject the captured value at
       // compile. Skip semantics are independent of that provenance.
-      if (
-        relation.kind === "polymorphicChildHeldToOne" ||
-        relation.kind === "polymorphicChildHeldToMany"
-      ) {
+      if (hasPolymorphicMembership(relation)) {
         parts.push(
           buildPolymorphicParentCreateManyPart({
             scope,
@@ -421,10 +427,10 @@ function foldJunctionChildHeldEntry(args: {
         );
         return;
       }
+      const boundMembers = relation.membership.members;
       const members = pairForeignKeyMembers(
-        relation.foreignFields,
-        relation.referencedFields,
-        relation.referencedFields.map(() => parentId)
+        boundMembers,
+        boundMembers.map(() => parentId)
       );
       parts.push(
         literalReferenceSource(parentId)
@@ -653,11 +659,11 @@ export function buildPolymorphicParentCreateManyPart(input: {
   });
   if (userRows.length === 0) return new LiteralParentWriteParts([]);
   const shapeStorage: PolymorphicStorageValue<unknown> = {
-    ...linkedPolymorphicStorage(relation, parentId),
+    ...linkedPolymorphicStorage(relation.membership, parentId),
     id: referenceScalarSql(
       engine,
-      relation.storage.idColumn.scalar,
-      relation.storage.idColumn.name,
+      relation.membership.storage.idColumn.scalar,
+      relation.membership.storage.idColumn.name,
       null
     ),
   };
@@ -670,7 +676,7 @@ export function buildPolymorphicParentCreateManyPart(input: {
   return new PlannedParentCreatePart((known) => {
     const storage = resolvePolymorphicStorageValue(
       engine,
-      linkedPolymorphicStorage(relation, parentId),
+      linkedPolymorphicStorage(relation.membership, parentId),
       known,
       "create"
     );

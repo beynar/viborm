@@ -2,15 +2,16 @@ import { createClient } from "@client/client";
 import type { QueryExecutionContext, QueryResult } from "@drivers";
 import type { PGlite, Transaction } from "@electric-sql/pglite";
 import { NestedWriteError } from "@errors";
-import { beforeEach, describe, expect, test } from "vitest";
+import { hydrateSchemaNames, s } from "@schema";
 import { UnsupportedOperationError } from "@src/query-engine/write-engine/shared";
-import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import {
   armDispatchSchema,
   armUpdate,
   BatchOnlyRecordingPGliteDriver,
   RecordingPGliteDriver,
 } from "@tests/contracts/engine/write/nested-arm-dispatch-behavior";
+import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
+import { beforeEach, describe, expect, test } from "vitest";
 
 /**
  * E3 — the upsert UPDATE arm's dispatch.
@@ -397,6 +398,51 @@ function runSuite(
     // CARVE-OUTS. Each refuses TYPED, at construction, with an empty statement log.
     // -----------------------------------------------------------------------
 
+    // -----------------------------------------------------------------------
+    // B3 OF THE LIMITATION LIFT ATTEMPTED TO DELETE THIS CARVE-OUT AND WAS FALSIFIED
+    // AT THE PACKAGE GATE. The deletion is not shipped, and the refusal below is the
+    // shipped behaviour again — so this comment records WHY, because the reason is not
+    // the one the guard's own docblock used to give.
+    //
+    // The selected-record compiler the arm delegates to DOES own a parent-held fold:
+    // `interpretParentHeld` puts the target's key into `toOneLinks` /
+    // `parentHeldTargets` and `compileLocatedRecord` merges it into the one root UPDATE
+    // the arm already emits. Measured on both substrates, `owner` — a parent-held
+    // relation the arm did NOT arrive through — folds correctly for connect, create,
+    // connectOrCreate (found and fresh), and disconnect, in a single `UPDATE "e3_teams"`.
+    //
+    // What killed the deletion is the relation the arm ARRIVED THROUGH, which is the
+    // one this refusal's message names. This seam hands the compiler an
+    // `incomingMembership` (the reparent onto the enclosing row) and
+    // `compileLocatedRecord` applies it AFTER the fold, over the same column. Measured
+    // through the public client with `org.update` → `teams.upsert[].update.org`:
+    //
+    //   · connect { id: 'o2' }  → resolves, o2's probe runs, orgId stays 'o1'
+    //   · create  { id: 'o9' }  → o9 INSERTed and committed, orgId stays 'o1' (orphan)
+    //   · disconnect: true      → orgId stays 'o1'
+    //   · the SAME payload on both arms → 'o2' via the create arm, 'o1' via this one
+    //   · delete: true          → deletes the enclosing operation's own root row and
+    //                             fails the terminal read with a bare TransactionError
+    //
+    // None of those refuse. The nested targeted-update seam passes no
+    // `incomingMembership` and lands 'o2' correctly for the same payload, so this is
+    // not parity — the collision is this seam's alone. Lifting it needs the fold and
+    // the incoming reparent reconciled in ONE owner (per-column precedence with a
+    // refusal when they disagree); that is carried forward as a Package D case.
+    //
+    // PACKAGE H — THE SAME CLASS, SECOND INSTANCE, and now with a precedent to point at.
+    // H3's parent-held composition is the same shape of problem: a vacate and a supplier
+    // both assign the edge's foreign-key columns in one root UPDATE, and before H the
+    // winner was whichever assignment `Object.assign(parentSet, link.assignment)` applied
+    // last. `interpretParentHeldComposition` answers it with PER-COLUMN PRECEDENCE
+    // decided before the SET is assembled — the supplier owns the column, so the vacate
+    // contributes no assignment at all — which is exactly the mechanism this carve-out is
+    // waiting for, minus the "refuse when they disagree" half (H's two writers cannot
+    // disagree; a replacement has one meaning). What the seam above still needs is that
+    // half: the incoming reparent and a nested fold CAN name different rows, and no owner
+    // decides between them. ONE ledger row covers both instances for Package O.
+    // -----------------------------------------------------------------------
+
     const PARENT_HELD =
       "query-engine-v2 does not support a parent-held to-one write on relation 'owner' one level deeper on the update arm; the arm's row holds that foreign key, so the write belongs in the arm's own UPDATE SET, which already carries this relation's reparent.";
 
@@ -417,24 +463,159 @@ function runSuite(
         "upsert",
         { upsert: { create: { id: "w1", name: "W" }, update: { name: "W2" } } },
       ],
-    ])("carve-out: a parent-held to-one %s refuses by DIRECTION", async (_label, payload) => {
-      const error = await refusalOf({ owner: payload });
+    ])(
+      "carve-out: a parent-held to-one %s refuses by DIRECTION",
+      async (_label, payload) => {
+        const error = await refusalOf({ owner: payload });
+        expect(error).toBeInstanceOf(UnsupportedOperationError);
+        expect((error as Error).message).toBe(PARENT_HELD);
+        expect(driver.statements).toEqual([]);
+      }
+    );
+
+    test("the carve-out also answers on the relation the arm ARRIVED THROUGH", async () => {
+      // The falsifying case, pinned as a refusal so the collision described above can
+      // never be reached silently: `org` is parent-held on `team` AND is the relation
+      // this upsert traversed, so its fold and the arm's incoming reparent write the
+      // same column. Same guard, same phase, empty log — and the enclosing row keeps
+      // the membership the traversal asserted.
+      const error = await refusalOf({ org: { connect: { id: "o1" } } });
       expect(error).toBeInstanceOf(UnsupportedOperationError);
-      expect((error as Error).message).toBe(PARENT_HELD);
+      expect((error as Error).message).toBe(
+        "query-engine-v2 does not support a parent-held to-one write on relation 'org' one level deeper on the update arm; the arm's row holds that foreign key, so the write belongs in the arm's own UPDATE SET, which already carries this relation's reparent."
+      );
       expect(driver.statements).toEqual([]);
+      expect(
+        (await client.team.findUnique({ where: { id: "t1" } })).orgId
+      ).toBe("o1");
     });
 
-    test("carve-out: moving the arm's own primary key beside a deeper write refuses", async () => {
+    // -----------------------------------------------------------------------
+    // B1 — THE ARM MOVES ITS OWN PRIMARY KEY. Until this package, `assertArmPkStable`
+    // refused the payload below at construction with an empty statement log:
+    //
+    //   query-engine-v2 does not support an update arm that moves the primary key 'id'
+    //   of relation 'teams' while it carries deeper relation writes; those writes
+    //   correlate on the key the arm vacates.
+    //
+    // The selected-record compiler the arm delegates to has owned
+    // that correlation since T4b/T4c/N5-U1: it derives the POST-transition value from
+    // the where-pinned pre-value and the root SET, defers every write that must
+    // reference it until after the root UPDATE, and guards the OLD slot with the
+    // referential-action (CLASS IV) guard. The two witnesses below are the halves the
+    // arm guard was standing in front of: the accept path, and the guard that actually
+    // owns the unsafe half.
+    //
+    // WHAT A DECOY CAN AND CANNOT BE HERE. A primary key the arm still holds cannot be
+    // owned by a second live row, so no decoy can sit on the vacated key while the
+    // payload is built. The wrong-row surface that IS reachable is pinned instead:
+    // `tDecoy` is a sibling arm-row with its own note, `nFreeDecoy` sits beside the
+    // adopted note in the connect's race position, and a write that bound the vacated
+    // key would be a `ForeignKeyError` rather than a silent landing.
+    // -----------------------------------------------------------------------
+
+    const teams = async () =>
+      (await client.team.findMany({
+        orderBy: { id: "asc" },
+        select: { id: true, label: true, orgId: true },
+      })) as { id: string; label: string; orgId: string | null }[];
+
+    test("PK MOVE: the deeper create and connect consume the POST-transition key", async () => {
+      // The old slot must be EMPTY: the CLASS IV guard rejects a transition that would
+      // strand an existing member, and the seeded n1 holds the vacated key. That
+      // rejection is the guard's own behavior and is pinned by the next test.
+      await client.note.delete({ where: { id: "n1" } });
+      await client.note.create({
+        data: { id: "nFree", body: "free", tagName: "ntF", teamId: null },
+      });
+      await client.note.create({
+        data: {
+          id: "nFreeDecoy",
+          body: "spare",
+          tagName: "ntFD",
+          teamId: null,
+        },
+      });
+      await run(
+        {
+          notes: {
+            create: [{ id: "nX", body: "x", tagName: "ntX" }],
+            connect: [{ id: "nFree" }],
+          },
+        },
+        { id: "t1" },
+        { id: "tMoved", label: "T1b" }
+      );
+      // ORDERING is the whole mechanism, so it is pinned and not inferred from the
+      // final state: the arm's root UPDATE writes the new key FIRST, and only then do
+      // the two writes that reference it run. Reversing this pair is what the deleted
+      // guard claimed the arm could not avoid.
+      expect(
+        driver.statements.filter((sql) => !sql.startsWith("SELECT"))
+      ).toEqual([
+        expect.stringContaining('UPDATE "e3_teams"'),
+        expect.stringContaining('UPDATE "e3_notes"'),
+        expect.stringContaining('INSERT INTO "e3_notes"'),
+      ]);
+      expect(await teams()).toEqual([
+        { id: "tDecoy", label: "DECOY", orgId: "o1" },
+        { id: "tMoved", label: "T1b", orgId: "o1" },
+      ]);
+      expect(await notes()).toEqual([
+        // The sibling arm-row's note never moved.
+        { id: "nDecoy", body: "decoy", teamId: "tDecoy" },
+        // Adopted onto the key the root UPDATE had just written, not the one it
+        // vacated — the N5-U1 ordering, reached through the arm.
+        { id: "nFree", body: "free", teamId: "tMoved" },
+        // The decoy in the connect's race position stays free.
+        { id: "nFreeDecoy", body: "spare", teamId: null },
+        // The fresh row's foreign key is the derived post-transition literal.
+        { id: "nX", body: "x", teamId: "tMoved" },
+      ]);
+    });
+
+    test("PK MOVE with an OCCUPIED old slot: the referential-action guard refuses", async () => {
+      // n1 still holds the vacated key. This is the invariant the arm guard was
+      // half-owning; the selected-record compiler's CLASS IV guard owns it whole, with
+      // V1's message, on both substrates, and nothing is written.
       const error = await refusalOf(
         { notes: { create: [{ id: "nX", body: "x", tagName: "ntX" }] } },
         { id: "t1" },
         { id: "tMoved", label: "T1b" }
       );
-      expect(error).toBeInstanceOf(UnsupportedOperationError);
+      expect(error).toBeInstanceOf(NestedWriteError);
       expect((error as Error).message).toBe(
-        "query-engine-v2 does not support an update arm that moves the primary key 'id' of relation 'teams' while it carries deeper relation writes; those writes correlate on the key the arm vacates."
+        "Cannot update relation 'notes' with onUpdate('restrict') while the current relation is occupied."
       );
-      expect(driver.statements).toEqual([]);
+      expect(await teams()).toEqual([
+        { id: "t1", label: "T1", orgId: "o1" },
+        { id: "tDecoy", label: "DECOY", orgId: "o1" },
+      ]);
+      expect(await notes()).toEqual([
+        { id: "n1", body: "old", teamId: "t1" },
+        { id: "nDecoy", body: "decoy", teamId: "tDecoy" },
+      ]);
+    });
+
+    test("a PK-moving arm stays inert on the CREATE branch", async () => {
+      // The update arm's compiler is built EAGERLY for both arms, and a transition
+      // makes it allocate a referential-action probe. On the create branch none of that
+      // may fire: the fresh row is inserted, the occupied slot the guard would have
+      // rejected is left alone, and no deeper write runs.
+      await run(
+        { notes: { create: [{ id: "nX", body: "x", tagName: "ntX" }] } },
+        { id: "tFresh" },
+        { id: "tMoved", label: "T1b" }
+      );
+      expect(await teams()).toEqual([
+        { id: "t1", label: "T1", orgId: "o1" },
+        { id: "tDecoy", label: "DECOY", orgId: "o1" },
+        { id: "tFresh", label: "T1", orgId: "o1" },
+      ]);
+      expect(await notes()).toEqual([
+        { id: "n1", body: "old", teamId: "t1" },
+        { id: "nDecoy", body: "decoy", teamId: "tDecoy" },
+      ]);
     });
 
     test("CONTROL: a SAME-VALUE set of the arm's primary key is not a move", async () => {
@@ -447,6 +628,157 @@ function runSuite(
       );
       const row = (await notes()).find((note) => note.id === "nX");
       expect(row).toEqual({ id: "nX", body: "x", teamId: "t1" });
+    });
+
+    // -----------------------------------------------------------------------
+    // B1's DOMAIN, THE REST OF IT. `assertArmPkStable` filtered on nothing but
+    // "relations is non-empty", so deleting it opened three sub-domains at once. The
+    // accept witness above covers ONE: a primary-key locator beside a child-held edge.
+    // These three cover the others, so no corner of the opened domain is carried on
+    // reasoning alone.
+    // -----------------------------------------------------------------------
+
+    const junction = async () =>
+      (await client.$queryRaw(
+        'SELECT "teamId", "tagId" FROM "tag_team" ORDER BY "teamId", "tagId"'
+      )) as { teamId: string; tagId: string }[];
+
+    test("PK MOVE beside a DEFAULT-CASCADE junction: ordered, then cascaded", async () => {
+      // The common case, and the one with no engine-side transition classification at
+      // all: `interpretRelation` returns for a junction BEFORE it classifies a
+      // referenced-key transition. Correctness rests entirely on two things this pins —
+      // `reorderRootUpdateAfterChildren` putting the join row's INSERT BEFORE the arm's
+      // UPDATE, and the implicit `ON UPDATE CASCADE` that viborm's own junction DDL
+      // emits on both sides — so the join row is written against the key the arm still
+      // holds and the database carries it to the new one. (The opt-OUT pair, which has
+      // no owner at either the arm or the update root, is the "B1 RESIDUE" block at the
+      // bottom of this file.)
+      //
+      // `n1` goes first for the same reason the accept witness above empties the slot:
+      // its `teamId` is an ordinary FK with the default `ON UPDATE NO ACTION`, so it
+      // would refuse the transition at the constraint before the junction is reached.
+      // That is the notes edge's behaviour, not the junction's, and it is pinned by the
+      // occupied-guard witness above.
+      await client.note.delete({ where: { id: "n1" } });
+      await run(
+        { tags: { connect: [{ id: "g1" }] } },
+        { id: "t1" },
+        { id: "tMoved", label: "T1b" }
+      );
+      expect(
+        driver.statements.filter((sql) => !sql.startsWith("SELECT"))
+      ).toEqual([
+        expect.stringContaining('INSERT  INTO "tag_team"'),
+        expect.stringContaining('UPDATE "e3_teams"'),
+      ]);
+      expect(await junction()).toEqual([{ teamId: "tMoved", tagId: "g1" }]);
+      expect(await teams()).toEqual([
+        { id: "tDecoy", label: "DECOY", orgId: "o1" },
+        { id: "tMoved", label: "T1b", orgId: "o1" },
+      ]);
+    });
+
+    test("PK MOVE under a NON-PK locator beside a non-cascading OCCUPIED edge: refused by the occupied guard", async () => {
+      // RETARGETED BY PACKAGE D2. Until D, the second guard standing behind the deleted
+      // `assertArmPkStable` was `assertPinnedTransitionIsCompilable`, refusing at
+      // CONSTRUCTION with zero statements:
+      //
+      //   query-engine-v2 update for relation 'teams' transitions the target primary key
+      //   'id' while writing a deeper edge whose foreign key does not cascade on update;
+      //   it must locate the target by that primary key.
+      //
+      // D2 deleted it, because locating by the primary key is not what this payload
+      // needs: `n1` sits on `t1` with an `ON UPDATE NO ACTION` foreign key, so moving
+      // `t1` strands it under EITHER locator. The arm's own relation-level occupied
+      // guard says so, and says it for the right reason. The two halves of the domain
+      // the old refusal covered — occupied and empty — are this test and the next.
+      //
+      // The PUBLIC SURFACE moved with it, and not only the wording: the class is now
+      // `NestedWriteError` rather than `UnsupportedOperationError`, and the verdict is
+      // no longer construction-time, so the statement log is no longer empty (a
+      // planning probe runs first; on a batch substrate the verdict is an in-unit
+      // absence guard). No partial effect either way, asserted below. Package O's
+      // ledger carries this beside Package C's two ratified message changes.
+      const error = await refusalOf(
+        { notes: { create: [{ id: "nX", body: "x", tagName: "ntX" }] } },
+        { slug: "team-1" },
+        { id: "tMoved", label: "T1b" }
+      );
+      expect(error).toBeInstanceOf(NestedWriteError);
+      expect((error as Error).message).toBe(
+        "Cannot update relation 'notes' with onUpdate('restrict') while the current relation is occupied."
+      );
+      expect(await teams()).toEqual([
+        { id: "t1", label: "T1", orgId: "o1" },
+        { id: "tDecoy", label: "DECOY", orgId: "o1" },
+      ]);
+      expect(await notes()).toEqual([
+        { id: "n1", body: "old", teamId: "t1" },
+        { id: "nDecoy", body: "decoy", teamId: "tDecoy" },
+      ]);
+    });
+
+    test("D2 LIFT: the same payload with an EMPTY old slot compiles, and the fresh note takes the NEW key", async () => {
+      // The half no locator could reach before D2. The arm's pre-transition key lives
+      // only in the row the probe located (`slug` names a different column), and the
+      // fresh note's foreign key is derived from it at COMPILE. The decoy team keeps
+      // its own note, which is what separates this from "the engine wrote something".
+      await client.note.delete({ where: { id: "n1" } });
+      await run(
+        { notes: { create: [{ id: "nX", body: "x", tagName: "ntX" }] } },
+        { slug: "team-1" },
+        { id: "tMoved", label: "T1b" }
+      );
+      expect(await teams()).toEqual([
+        { id: "tDecoy", label: "DECOY", orgId: "o1" },
+        { id: "tMoved", label: "T1b", orgId: "o1" },
+      ]);
+      expect(await notes()).toEqual([
+        { id: "nDecoy", body: "decoy", teamId: "tDecoy" },
+        { id: "nX", body: "x", teamId: "tMoved" },
+      ]);
+    });
+
+    test("PK MOVE under a NON-PK locator beside a junction edge: accepted", async () => {
+      // The guard above `continue`s junction kinds, so this is the one sub-domain B1
+      // genuinely opened with no compile-time pre-value: the transition is derived from
+      // the CAPTURED probe row rather than a `where` literal.
+      await client.note.delete({ where: { id: "n1" } });
+      await run(
+        { tags: { connect: [{ id: "g1" }] } },
+        { slug: "team-1" },
+        { id: "tMoved", label: "T1b" }
+      );
+      expect(await junction()).toEqual([{ teamId: "tMoved", tagId: "g1" }]);
+      expect(await teams()).toEqual([
+        { id: "tDecoy", label: "DECOY", orgId: "o1" },
+        { id: "tMoved", label: "T1b", orgId: "o1" },
+      ]);
+    });
+
+    test("CorruptLocate: a PK move under a NON-PK locator follows the probe row", async () => {
+      // …and because that transition is derived from the captured row, it is wrong-row
+      // sensitive in exactly the way the selector is not. The corrupted probe says the
+      // arm located `tDecoy`; a re-derivation from `slug: team-1` would move `t1`.
+      const corrupted = await corruptedClient();
+      await corrupted.org.update(
+        armUpdate(
+          { tags: { connect: [{ id: "g1" }] } },
+          { slug: "team-1" },
+          { id: "tMoved", label: "T1b" }
+        )
+      );
+      expect(
+        await corrupted.team.findMany({
+          orderBy: { id: "asc" },
+          select: { id: true },
+        })
+      ).toEqual([{ id: "t1" }, { id: "tMoved" }]);
+      expect(
+        await corrupted.$queryRaw(
+          'SELECT "teamId", "tagId" FROM "tag_team" ORDER BY "teamId", "tagId"'
+        )
+      ).toEqual([{ teamId: "tMoved", tagId: "g1" }]);
     });
 
     const ASSERTING_PLANNING_READ = {
@@ -485,6 +817,189 @@ runSuite(
   (database) => new RecordingPGliteDriver({ client: database })
 );
 runSuite(
+  "PGlite atomic batch",
+  (database) => new BatchOnlyRecordingPGliteDriver({ client: database })
+);
+
+/**
+ * B1 RESIDUE — the transition-blind junction, measured rather than guarded.
+ *
+ * `RecordUpdateCompiler.interpretRelation` returns for a junction BEFORE it classifies
+ * a referenced-key transition, so a junction edge never gets an occupied guard and never
+ * gets a post-transition parent value: its join row is written against the LOCATED key
+ * and the root UPDATE is reordered behind it, which is correct precisely because an
+ * implicit junction foreign key is `ON UPDATE CASCADE` (`serializer.ts` defaults both
+ * sides to cascade). A pair that opts OUT with `.onUpdate("restrict")` has no engine
+ * owner for the transition — the deleted `assertArmPkStable` covered it at the arm only
+ * because it filtered on nothing.
+ *
+ * The measurement below is what decides the disposition. The arm and the update ROOT
+ * emit the SAME statements in the SAME order and reach the SAME outcome: the constraint
+ * refuses the transition, atomically, with no partial effect. It does not wrong-row, and
+ * the third case proves the owner is the constraint rather than anything the payload
+ * says — a bare primary-key move with a pre-existing join row and NO relation payload at
+ * all fails identically. So this residue is not the arm's: it is the update root's own
+ * behavior for this topology, and a narrowed refusal at the arm would refuse a payload
+ * the root accepts-and-fails-closed on, which is the asymmetric duplicate the one-guard
+ * rule bans.
+ *
+ * Substrate note, recorded because it is a real boundary: a provider that does not
+ * enforce foreign keys (SQLite with `PRAGMA foreign_keys=OFF`) would strand the join row
+ * on the vacated key instead of raising. That is equally true of the root today; it is
+ * parity, not an exposure this package opened.
+ */
+const junctionResidueSchema = (() => {
+  const org = s
+    .model({
+      id: s.string().id(),
+      name: s.string(),
+      teams: s.oneToMany(() => team),
+    })
+    .map("b1_res_orgs");
+  const team = s
+    .model({
+      id: s.string().id(),
+      label: s.string(),
+      slug: s.string().unique(),
+      orgId: s.string().nullable(),
+      org: s
+        .manyToOne(() => org)
+        .fields("orgId")
+        .references("id")
+        .optional(),
+      // The opt-OUT: both sides must agree, and the pair is serialized with
+      // `ON UPDATE RESTRICT` instead of the implicit cascade.
+      tags: s.manyToMany(() => tag).onUpdate("restrict"),
+    })
+    .map("b1_res_teams");
+  const tag = s
+    .model({
+      id: s.string().id(),
+      name: s.string(),
+      teams: s.manyToMany(() => team).onUpdate("restrict"),
+    })
+    .map("b1_res_tags");
+  return { org, team, tag };
+})();
+
+hydrateSchemaNames(junctionResidueSchema);
+
+function runJunctionResidue(
+  name: string,
+  make: (database: PGlite) => RecordingPGliteDriver
+): void {
+  describe(`B1 residue: a non-cascading junction under a moved key (${name})`, () => {
+    const getFamily = usePGliteSchemaFamily(junctionResidueSchema);
+    let driver: RecordingPGliteDriver;
+    let client: any;
+
+    beforeEach(async () => {
+      driver = make(getFamily().database);
+      client = createClient({ schema: junctionResidueSchema, driver }) as any;
+      await client.org.create({ data: { id: "o1", name: "Org" } });
+      await client.tag.create({ data: { id: "g1", name: "Tag" } });
+      await client.team.create({
+        data: { id: "t1", label: "T1", slug: "team-1", orgId: "o1" },
+      });
+    });
+
+    const outcome = async (run: () => Promise<unknown>) => {
+      driver.statements.length = 0;
+      driver.recording = true;
+      const error = await run().then(
+        () => undefined,
+        (thrown: unknown) => thrown
+      );
+      driver.recording = false;
+      return {
+        error: (error as Error | undefined)?.constructor.name,
+        writes: driver.statements.filter((sql) => !sql.startsWith("SELECT")),
+        junction: await client.$queryRaw('SELECT * FROM "tag_team"'),
+        teams: await client.team.findMany({
+          orderBy: { id: "asc" },
+          select: { id: true },
+        }),
+      };
+    };
+
+    const REFUSED_BY_THE_CONSTRAINT = {
+      error: "ForeignKeyError",
+      writes: [
+        expect.stringContaining('INSERT  INTO "tag_team"'),
+        expect.stringContaining('UPDATE "b1_res_teams"'),
+      ],
+      junction: [],
+      teams: [{ id: "t1" }],
+    };
+
+    test("the ARM's junction edge fails closed at the constraint", async () => {
+      expect(
+        await outcome(() =>
+          client.org.update({
+            where: { id: "o1" },
+            data: {
+              teams: {
+                upsert: [
+                  {
+                    where: { id: "t1" },
+                    create: { id: "t1", label: "T1", slug: "s-t1" },
+                    update: {
+                      id: "tMoved",
+                      label: "T1b",
+                      tags: { connect: [{ id: "g1" }] },
+                    },
+                  },
+                ],
+              },
+            },
+          })
+        )
+      ).toEqual(REFUSED_BY_THE_CONSTRAINT);
+    });
+
+    test("the update ROOT does exactly the same, statement for statement", async () => {
+      expect(
+        await outcome(() =>
+          client.team.update({
+            where: { id: "t1" },
+            data: {
+              id: "tMoved",
+              label: "T1b",
+              tags: { connect: [{ id: "g1" }] },
+            },
+          })
+        )
+      ).toEqual(REFUSED_BY_THE_CONSTRAINT);
+    });
+
+    test("the owner is the constraint: a bare key move with an existing join row fails too", async () => {
+      await client.team.update({
+        where: { id: "t1" },
+        data: { tags: { connect: [{ id: "g1" }] } },
+      });
+      expect(
+        await outcome(() =>
+          client.team.update({
+            where: { id: "t1" },
+            data: { id: "tMoved", label: "T1b" },
+          })
+        )
+      ).toEqual({
+        error: "ForeignKeyError",
+        // No relation payload at all — one statement, and the constraint still owns it.
+        writes: [expect.stringContaining('UPDATE "b1_res_teams"')],
+        junction: [{ tagId: "g1", teamId: "t1" }],
+        teams: [{ id: "t1" }],
+      });
+    });
+  });
+}
+
+runJunctionResidue(
+  "PGlite transaction",
+  (database) => new RecordingPGliteDriver({ client: database })
+);
+runJunctionResidue(
   "PGlite atomic batch",
   (database) => new BatchOnlyRecordingPGliteDriver({ client: database })
 );

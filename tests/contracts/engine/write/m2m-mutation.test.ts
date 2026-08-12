@@ -583,7 +583,8 @@ describe("write boundary many-to-many dual-run oracle (Direct vs Observed)", () 
 // connect must write (follower=parent, followed=target), not the reverse. The
 // dual-run oracle proves the observable follows/followedBy membership; the raw
 // junction-row inspection proves the underlying A/B column orientation Observed's
-// reuse of Direct's `getManyToManyJoinInfo` produces.
+// reuse of Direct's junction sides produces (the era's `getManyToManyJoinInfo`,
+// since Phase 3 the bound junction membership).
 // ---------------------------------------------------------------------------
 
 const selfRefSeed = async (client: ReturnType<typeof makeClient>) => {

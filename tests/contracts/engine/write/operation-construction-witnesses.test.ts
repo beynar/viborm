@@ -12,14 +12,14 @@ import type { RelationInfo } from "@query-engine/types";
 import { s } from "@schema";
 import { hydrateSchemaNames } from "@schema/hydration";
 import type { Model } from "@schema/model";
-import { createSchemaRegistry } from "@validation";
-import { describe, expect, test } from "vitest";
 import {
   constructRoutedOperation,
   ROUTED_OPERATIONS,
 } from "@src/query-engine/write-engine/routing";
 import { manyToManySchema } from "@tests/fixtures/many-to-many-schema";
 import { nestedWriteBehaviorSchema } from "@tests/fixtures/nested-write-behavior-schema";
+import { createSchemaRegistry } from "@validation";
+import { describe, expect, test } from "vitest";
 
 /**
  * N7-U-A — THE CONVERSION WITNESSES.
@@ -49,11 +49,14 @@ import { nestedWriteBehaviorSchema } from "@tests/fixtures/nested-write-behavior
  *     so they are pinned STRUCTURALLY: the invariant that makes them unreachable is
  *     asserted directly, and the assertion fails the day the invariant does.
  *
- * TWO sites are deliberately absent, because their (c-i) claims FAILED re-verification:
+ * TWO sites were deliberately absent, because their (c-i) claims FAILED re-verification:
  * `CreateOperation` :822 and `RelationUpsertPart` :708. Their witnesses are here too, at
- * the bottom — REACHABILITY tests asserting they still throw `UnsupportedOperationError`,
- * pinning the reclassification so the next reader cannot mistake either for a converted
- * site.
+ * the bottom. The first has since been ABSORBED (E4-U1), so its test pins that claim in
+ * its discharged form: the payload the census counted CONSTRUCTS. The second is a
+ * REACHABILITY test asserting the site still throws `UnsupportedOperationError` — B3 of
+ * the limitation lift tried to absorb it too and was falsified at the package gate. The
+ * reclassifying record stays on each test so the next reader cannot mistake either for a
+ * converted site.
  */
 
 // Top-level so Biome's `useTopLevelRegex` rule is satisfied — every witness below matches
@@ -483,11 +486,14 @@ describe("N7-U-A (c-i) conversion witnesses — UpdateOperation", () => {
         ).toBeDefined();
       }
     }
-    // :1202 (and its depth twin, nested-target-parts :308) — the guard asks
-    // `!(isToOne || type === "oneToMany")` on a relation that is neither many-to-many
-    // (dispatched to the junction above) nor parent-held (dispatched to the to-one
-    // family). `RelationInfo["type"]` is a closed four-member union, and every member
-    // that can arrive satisfies the predicate, so the guard is false for all of them.
+    // :1202 (and its depth twin, nested-target-parts :308) — HISTORICAL COORDINATES:
+    // the type-name guard they addressed asked `!(isToOne || type === "oneToMany")` on
+    // a relation that is neither many-to-many (dispatched to the junction above) nor
+    // parent-held (dispatched to the to-one family), and it is gone — the bound
+    // relation's own classification narrows the arm now. The argument it rested on is
+    // what this test still pins, and it is the reason the guard could go:
+    // `RelationInfo["type"]` is a closed four-member union, and every member that can
+    // arrive satisfies the predicate, so the guard was false for all of them.
     const types: RelationInfo["type"][] = [
       "oneToOne",
       "oneToMany",
@@ -921,6 +927,12 @@ describe("N7-U-A — the TWO (c-i) claims that failed re-verification", () => {
    * write belongs in the arm's UPDATE SET. The class assertion below is the load-bearing
    * half: an absorption may not turn a typed refusal into an internal error, and this
    * proves it did not.
+   *
+   * B3 of the limitation lift tried to delete `assertArmEdgeIsChildHeld` and was
+   * FALSIFIED at the package gate: the record compiler's fold is real, but the arm's own
+   * incoming membership silently overwrites it on the relation the upsert traversed —
+   * which is exactly this payload's `author` under `posts`. Measured record in
+   * `nested-arm-dispatch.test.ts`.
    */
   test("the parent-held to-one connectOrCreate on an upsert update arm is refused by DIRECTION", () => {
     const engine = new QueryEngine(
@@ -960,5 +972,79 @@ describe("N7-U-A — the TWO (c-i) claims that failed re-verification", () => {
     }
     expect(refusal).toBeInstanceOf(UnsupportedOperationError);
     expect((refusal as Error).message).toMatch(ARM_EDGE_IS_PARENT_HELD);
+  });
+});
+
+/**
+ * PACKAGE O — the conversion law applied to the compound many-to-many refusal.
+ *
+ * `CreateOperation.edgeParentId` carried an `UnsupportedOperationError` whose docblock
+ * claimed it reached the compound-primary-key fact "one statement earlier" than
+ * `getRequiredSinglePrimaryKeyField` (reached then through `getManyToManyJoinInfo`,
+ * deleted in Phase 3; the junction bind reaches it now). The guard ownership
+ * ledger (`docs/architecture/guard-ownership-ledger.md`, cluster 9) recorded it as the
+ * one survivor kept AGAINST §O3 clause 1 by the plan's §N2 mandate, with no falsifier,
+ * and asked this lane to write one.
+ *
+ * The witness could not be written, because the claim was false — which this test now
+ * pins instead. A junction program on a compound-primary-key model is answered by the
+ * OwnWrite analyzer at the record-program boundary, BEFORE `CreateOperation` interprets
+ * any relation, so no payload ever reached the site. Its refusal became a
+ * `QueryEngineError` naming the structural invariant (§7.4's limitation keeps its engine
+ * owner — a better-worded one, since this message names the surrogate-key remedy).
+ *
+ * What this asserts is therefore what the census needs: the shape is still REFUSED, at
+ * CONSTRUCTION, with a typed error and no I/O, and the owner that answers is the m2m
+ * resolution every other m2m shape already meets. §7.4's rule is intact: the fact is
+ * refused in the ENGINE and has NOT been restated as a validation rule to move the error
+ * earlier — the parse boundary accepts this payload.
+ */
+describe("Package O — the compound many-to-many owner", () => {
+  const compoundJunctionSchema = (() => {
+    const doc = s
+      .model({
+        tenantId: s.string(),
+        id: s.string(),
+        title: s.string(),
+        labels: s.manyToMany(() => label),
+      })
+      .id(["tenantId", "id"])
+      .map("o_compound_docs");
+
+    const label = s
+      .model({
+        id: s.string().id(),
+        name: s.string(),
+        docs: s.manyToMany(() => doc),
+      })
+      .map("o_compound_labels");
+
+    return { doc, label };
+  })();
+
+  test("a compound primary key carrying a many-to-many relation", async () => {
+    const client = publicClient(compoundJunctionSchema);
+    const error = await refusalOf(() =>
+      client.doc.create({
+        data: {
+          tenantId: "t1",
+          id: "d1",
+          title: "x",
+          labels: { connect: { id: "l1" } },
+        },
+      })
+    );
+    // NOT the parse boundary: §N2 forbids sealing the future topology in validation,
+    // and nothing has.
+    expect(error).not.toBeInstanceOf(ValidationError);
+    // The m2m resolution owner, reached through OwnWrite — one statement EARLIER than
+    // the site that used to claim primacy.
+    expect(error.message).toContain(
+      'Model "doc" uses a compound primary key. Many-to-many relations with compound PKs are not supported.'
+    );
+    expect(error.stack).toContain("getRequiredSinglePrimaryKeyField");
+    expect(error.stack).toContain("OwnWrite");
+    // And the site that used to answer here is not what the caller meets.
+    expect(error.message).not.toContain("compound child edge");
   });
 });

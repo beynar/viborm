@@ -29,15 +29,13 @@ Direct polymorphic relations use the same operation meanings but add a target
 [polymorphic write matrices](/docs/schema/relations/polymorphic#write-the-direct-relation)
 for the exact payloads and optionality rules.
 
-To-one create payloads and parent-held to-one updates accept at most one active
-operation. A child-held to-one update may instead replace its member with one
-fixed vacate-then-supply pair, such as
-`{ disconnect: true, connect: { id: "new_profile" } }`. An empty ordinary
-to-one payload is a no-op, and `false` is inactive for boolean operations. A
-supplied direct polymorphic payload must contain exactly one typed intent.
-To-many payloads may combine operation kinds. See the
-[compatibility contract](/docs/client/compatibility#structural-restrictions) for
-the complete replacement-pair list.
+To-one create payloads accept at most one active operation. A to-one **update**
+payload accepts one composition — an optional vacate, one supplier, an optional
+`update` of the supplied row — in either direction; see
+[Combining operations on one to-one relation](#combining-operations-on-one-to-one-relation).
+An empty ordinary to-one payload is a no-op, and `false` is inactive for boolean
+operations. A supplied direct polymorphic payload must contain exactly one typed
+intent. To-many payloads may combine operation kinds.
 
 ## Create Operations
 
@@ -417,6 +415,84 @@ const user = await client.user.update({
 ```
 
 `deleteMany` applies to to-many relations only. For a to-one relation, use `delete: true`.
+
+## Combining operations on one to-one relation
+
+A to-one slot holds exactly one row, so a payload for it is read as one
+composition rather than as a set of independent operations:
+
+```text
+{ vacate?, supplier, modify? }
+```
+
+- **vacate** — `disconnect: true` or `delete: true`
+- **supplier** — `connect`, `connectOrCreate`, or `create`
+- **modify** — `update`, applied to the row the supplier just supplied
+
+The parts always run in that order, whatever order you spell them in, and the
+whole thing is one atomic composition rather than three payloads that happen to
+be applied in sequence:
+
+```ts
+// Replace the badge, and edit the incoming one — one call
+await client.hub.update({
+  where: { id: "h1" },
+  data: {
+    badge: {
+      disconnect: true,
+      connect: { id: "badge_new" },
+      update: { tag: "primary" },
+    },
+  },
+});
+```
+
+```ts
+// Parent-held: the vacate and the supplier fold into ONE foreign-key value
+await client.hub.update({
+  where: { id: "h1" },
+  data: { owner: { delete: true, create: { id: "o9", name: "fresh" } } },
+});
+```
+
+That parent-held example is worth a note: the old row is deleted and the new one
+written, but no transient `NULL` is ever assigned to the foreign key. The final
+value is computed and written once, in the record's own `UPDATE`.
+
+**Which compositions run.** Five replacement pairs are spellable on both
+directions — `disconnect + connect`, `disconnect + connectOrCreate`,
+`disconnect + create`, `delete + connect`, `delete + create`. `delete` beside
+`connectOrCreate` is not an accepted pair, deliberately rather than by
+omission. A `connect` may additionally carry an `update`, on either direction
+and with or without a vacate before it.
+
+:::warning
+`create` or `connectOrCreate` **beside an `update`** is refused, and the error
+  says why: the modify has to address the supplied row through a read that
+  happens before any write in the same statement group, and those two suppliers
+  only produce that row's identity by inserting it. `connect` composes because a
+  unique selector is an identity that already exists.
+
+  Spell it as two steps instead — create (or `connectOrCreate`) the row with the
+  data you wanted, or write the parent first and update the child in a second
+  call. On a parent-held relation the combination is rejected at the type level;
+  on a child-held one the types admit it and the engine refuses it, because only
+  the parent-held direction can see the obstacle from the payload alone.
+
+  Three further combinations are spellable but declined before any write, all
+  for the same reason: `delete: true` names the row currently in the slot, whose
+  identity is not known when the call is analyzed, so it cannot be ruled out that
+  it is the very row a sibling operation reads. They are child-held `delete`
+  beside a supplier **and** an `update`, and parent-held `delete + connect`.
+  Parent-held `delete + create` is fine — nothing has to read the outgoing row.
+:::
+
+Everything else stays refused at the type and validation boundary: two
+suppliers, `upsert` beside another target intent, a vacate with an `update` and
+no supplier, two vacates, and every ambiguous three-intent combination. A
+relation that cannot spell a key simply does not offer it — a required to-one
+has no `disconnect`, and a create root has no `update` — so those compositions
+are not merely rejected there, they are unspellable.
 
 ## What's not allowed
 

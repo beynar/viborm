@@ -2,39 +2,64 @@ import { createClient } from "@client/client";
 import type { BatchQuery, QueryExecutionContext, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
 import type { PGlite, Transaction } from "@electric-sql/pglite";
+import { NestedWriteError } from "@errors";
 import { hydrateSchemaNames, s } from "@schema";
-import { beforeEach, describe, expect, test } from "vitest";
-import { UnsupportedOperationError } from "@src/query-engine/write-engine/shared";
 import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
+import { beforeEach, describe, expect, test } from "vitest";
 
 /**
- * M11 — WHICH COLUMN the upsert update arm's parent value can speak for.
+ * M11 → B2 — WHICH COLUMNS the upsert update arm's parent value speaks for.
  *
- * `buildOneUpsertPart` builds one parent value for its own UPDATE arm: the located
- * child's primary key, as the `where`'s literal or a `planned` read of this part's
- * probe. `fkAssignData` then writes EVERY foreign-key column of a deeper edge from
- * that ONE value. So a grandchild edge that references a compound tuple — or a single
- * non-primary-key column — of the located child used to receive the primary key in all
- * of them, and the row it landed on was whichever row happened to hold that
- * cross-matched tuple.
+ * THE ORIGINAL DEFECT. `buildOneUpsertPart` used to build one parent value for its own
+ * UPDATE arm — the located child's primary key — and `fkAssignData` wrote EVERY foreign
+ * key column of a deeper edge from that ONE value. A grandchild edge referencing a
+ * compound tuple, or a single non-primary-key column, therefore received the primary key
+ * in all of them and landed on whichever row happened to hold the cross-matched tuple.
+ * Measured, through the public client: a grandchild silently adopted, a grandchild
+ * silently reparented onto the decoy, and a bare `ForeignKeyError`. M11 refused all three
+ * at construction with `assertArmEdgeReferencesLocatedPk`, with an empty statement log:
  *
- * The three scenarios below are the measured consequences, all through the public
- * client on PGlite, all with the payload's own `where` naming a real row:
+ *   query-engine-v2 does not support a compound or non-primary-key referenced edge one
+ *   level deeper on the update arm of relation 'members'; the arm's parent value is the
+ *   located row's primary key 'id' alone, and each referenced column needs a per-field
+ *   parent source.
  *
- *  · a grandchild that ALREADY holds the cross-matched tuple is silently taken to be
- *    this parent's child and updated — a wrong-row write with no error anywhere;
- *  · a grandchild that belongs to this parent is silently REPARENTED onto the row
- *    holding the cross-matched tuple;
- *  · with no row holding it, a bare `ForeignKeyError` naming nothing the caller wrote.
+ * WHY THE REFUSAL IS GONE. The arm no longer builds that parent value. It delegates the
+ * found arm to `RecordUpdateCompiler`, which resolves each referenced column BY NAME:
+ * every consumed referenced field joins `locateFields`, the arm's probe publishes them
+ * (`identitySelect` unions `targetProjection.fields`, and `targetProjectionOutputs`
+ * exposes them), and `finalReferenceValue` reads `row[referencedField]` per member. The
+ * broadcast that made the defect possible has no caller left, so the refusal was
+ * refusing a value the engine can no longer construct.
  *
- * All three are now one construction-time typed refusal, and the assertions here are
- * the pair that makes that meaningful: the typed error AND an EMPTY statement log —
- * the refusal happens before a statement exists, so no arm of the tree can have
- * half-landed. The controls prove the refusal is narrow: a single-column
- * primary-key-referenced grandchild edge still composes end to end through the same
- * builder, and the compound edge still works at the UPDATE ROOT, whose locate read
- * unions every referenced column into its own projection and therefore resolves them
- * per-field.
+ * WHAT THE WITNESSES BELOW PROVE, on both substrates, with the decoy still in place —
+ * its `(region, code)` IS the cross-match of the arm's own primary key "t1" and its
+ * `slug` is that key too, so any surviving broadcast lands on a LIVE row rather than
+ * erroring:
+ *
+ *  · a compound-referenced grandchild upsert correlates per field, so the decoy's member
+ *    is NOT this parent's and is refused as uncorrelated — the wrong row is named, not
+ *    written;
+ *  · a global-adopt grandchild lands the arm's own `(eu, alpha)`, never the decoy's
+ *    `(t1, t1)`;
+ *  · both create paths — the deeper upsert's create arm and the bare create leaf — file
+ *    the fresh row against the same located tuple;
+ *  · the arity-1 non-primary-key edge writes the arm's `slug`, not its `id`.
+ *
+ * PROJECTION. One witness reads the arm's probe SQL directly, because "the projection
+ * carries every consumed referenced field" is the precondition for all of the above and
+ * is otherwise only implied by the final state.
+ *
+ * KNOWN, MEASURED, AND NOT WIDENED HERE (B2 hazard 3): in batch mode the arm's found
+ * guard reasserts the selector, the captured primary key, the membership, and the
+ * captured private polymorphic COLUMNS (`capturedTargetColumnPredicate` iterates
+ * `projection.columns`) — but NOT the captured public FIELDS. A concurrent write that
+ * moves `region`/`code` between the probe and the atomic unit is therefore not caught by
+ * that guard, and the deeper edge writes the captured tuple. This is exactly the update
+ * root's behavior for the same shape (`locatedCreateParent` plus the root presence
+ * guard; the CONTROL at the bottom of this file is that root path), so it is parity and
+ * not a regression this package introduces. Widening the guard to the captured fields is
+ * a decision about BOTH owners, recorded rather than taken here.
  */
 
 const armEdgeSchema = (() => {
@@ -152,8 +177,10 @@ class BatchOnlyRecordingPGliteDriver extends RecordingPGliteDriver {
   }
 }
 
-const REFUSAL =
-  "query-engine-v2 does not support a compound or non-primary-key referenced edge one level deeper on the update arm of relation 'members'; the arm's parent value is the located row's primary key 'id' alone, and each referenced column needs a per-field parent source.";
+/** V1's verbatim uncorrelated-target rejection, raised at compile once the per-field
+ *  membership test says the located row is not this parent's. */
+const NOT_THIS_PARENT =
+  "Cannot upsert relation 'members': target record was not found for this parent.";
 
 /** The upsert item wrapping `inner` — an `org.update` whose `teams` upsert is located by
  *  its own primary key "t1", so the update arm's parent value is the literal "t1". */
@@ -218,6 +245,7 @@ function runSuite(
     });
 
     const attempt = async (relations: Record<string, unknown>) => {
+      driver.statements.length = 0;
       driver.recording = true;
       const error = await client.org.update(orgUpdate(relations)).then(
         () => undefined,
@@ -227,8 +255,16 @@ function runSuite(
       return error;
     };
 
-    test("wrong row: a grandchild holding the cross-matched tuple is refused, not adopted", async () => {
-      // m1 genuinely belongs to DECOY — its (mRegion, mCode) is ("t1", "t1").
+    const run = async (relations: Record<string, unknown>) => {
+      const error = await attempt(relations);
+      if (error) throw error;
+    };
+
+    test("the compound edge correlates PER FIELD: the decoy's member is not this parent's", async () => {
+      // m1 genuinely belongs to DECOY — its (mRegion, mCode) is ("t1", "t1"), the
+      // cross-match of the arm's own primary key. The membership test compares the
+      // located member's tuple against the arm's (region, code) = ("eu", "alpha"), so
+      // the row is named as another parent's instead of being silently adopted.
       await client.member.create({
         data: { id: "m1", nick: "decoys-member", mRegion: "t1", mCode: "t1" },
       });
@@ -243,36 +279,37 @@ function runSuite(
           ],
         },
       });
-      expect(error).toBeInstanceOf(UnsupportedOperationError);
-      expect((error as Error).message).toBe(REFUSAL);
-      expect(driver.statements).toEqual([]);
+      expect(error).toBeInstanceOf(NestedWriteError);
+      expect((error as Error).message).toBe(NOT_THIS_PARENT);
       expect(await client.member.findMany({})).toEqual([
         { id: "m1", nick: "decoys-member", mRegion: "t1", mCode: "t1" },
       ]);
     });
 
-    test("silent reparent: a global-adopt grandchild is refused, not moved onto the decoy", async () => {
+    test("a global-adopt grandchild lands the arm's tuple, not the decoy's", async () => {
       await client.member.create({
         data: { id: "m1", nick: "eu-member", mRegion: "eu", mCode: "alpha" },
       });
-      const error = await attempt({
+      await run({
         members: {
           connectOrCreate: [
             { where: { id: "m1" }, create: { id: "m1", nick: "created" } },
           ],
         },
       });
-      expect(error).toBeInstanceOf(UnsupportedOperationError);
-      expect((error as Error).message).toBe(REFUSAL);
-      expect(driver.statements).toEqual([]);
+      // ("t1", "t1") — the decoy's tuple — is what the broadcast used to write here.
       expect(await client.member.findMany({})).toEqual([
         { id: "m1", nick: "eu-member", mRegion: "eu", mCode: "alpha" },
       ]);
+      expect(
+        (await client.team.findUnique({ where: { id: "decoy" } })).label
+      ).toBe("DECOY");
     });
 
-    test("bare ForeignKeyError: the absent-target create arm is refused before the INSERT", async () => {
-      await client.team.delete({ where: { id: "decoy" } });
-      const error = await attempt({
+    test("the deeper upsert's CREATE arm files the fresh row against the located tuple", async () => {
+      // The decoy stays: a broadcast would find ("t1", "t1") on a live row and the
+      // INSERT would succeed silently against the wrong parent.
+      await run({
         members: {
           upsert: [
             {
@@ -283,43 +320,70 @@ function runSuite(
           ],
         },
       });
-      expect(error).toBeInstanceOf(UnsupportedOperationError);
-      expect((error as Error).message).toBe(REFUSAL);
-      expect(driver.statements).toEqual([]);
-      expect(await client.member.findMany({})).toEqual([]);
+      expect(await client.member.findMany({})).toEqual([
+        { id: "mNew", nick: "fresh", mRegion: "eu", mCode: "alpha" },
+      ]);
     });
 
-    test("the create LEAF one level deeper is fed by the same value, and refuses too", async () => {
-      const error = await attempt({
-        members: { create: [{ id: "mNew", nick: "fresh" }] },
-      });
-      expect(error).toBeInstanceOf(UnsupportedOperationError);
-      expect((error as Error).message).toBe(REFUSAL);
-      expect(driver.statements).toEqual([]);
-      expect(await client.member.findMany({})).toEqual([]);
+    test("the create LEAF one level deeper is fed by the same per-field source", async () => {
+      // A create-only relation resolves its foreign key without a located reference
+      // read, through the located-parent Ref per referenced column — the other of the
+      // two per-field paths.
+      await run({ members: { create: [{ id: "mNew", nick: "fresh" }] } });
+      expect(await client.member.findMany({})).toEqual([
+        { id: "mNew", nick: "fresh", mRegion: "eu", mCode: "alpha" },
+      ]);
     });
 
-    test("an arity-1 NON-primary-key referenced edge refuses on identity, not arity", async () => {
-      // badge.bSlug -> team.slug is one column, so an arity check alone would pass it —
-      // and the value written would still be the primary key "t1", which is the DECOY's
-      // slug.
+    test("an arity-1 NON-primary-key referenced edge writes the slug, not the id", async () => {
+      // badge.bSlug -> team.slug is one column, so an arity check alone never described
+      // this case: the value at issue is WHICH column of the located row is read. The
+      // decoy's slug IS "t1", the arm's primary key, so a broadcast lands on a live row.
       await client.badge.create({
-        data: { id: "b1", tag: "gold", bSlug: "team-1" },
+        data: { id: "b1", tag: "gold", bSlug: null },
       });
-      const error = await attempt({
+      await run({
         badges: {
           connectOrCreate: [
             { where: { id: "b1" }, create: { id: "b1", tag: "gold" } },
           ],
         },
       });
-      expect(error).toBeInstanceOf(UnsupportedOperationError);
-      expect((error as Error).message).toBe(
-        REFUSAL.replace("'members'", "'badges'")
-      );
-      expect(driver.statements).toEqual([]);
       expect(await client.badge.findMany({})).toEqual([
         { id: "b1", tag: "gold", bSlug: "team-1" },
+      ]);
+    });
+
+    test("the arm's probe PROJECTION carries every consumed referenced field", async () => {
+      // The precondition for all of the above, read off the statement the arm actually
+      // sent rather than inferred from where the rows landed.
+      await client.member.create({
+        data: { id: "m1", nick: "eu-member", mRegion: "eu", mCode: "alpha" },
+      });
+      await run({
+        members: {
+          upsert: [
+            {
+              where: { id: "m1" },
+              create: { id: "m1", nick: "created" },
+              update: { nick: "updated" },
+            },
+          ],
+        },
+        badges: { create: [{ id: "b9", tag: "silver" }] },
+      });
+      const probe = driver.statements.find(
+        (sql) => sql.startsWith("SELECT") && sql.includes("arm_edge_teams")
+      );
+      expect(probe).toBeDefined();
+      for (const column of ['"id"', '"region"', '"code"', '"slug"']) {
+        expect(probe).toContain(column);
+      }
+      expect(await client.member.findMany({})).toEqual([
+        { id: "m1", nick: "updated", mRegion: "eu", mCode: "alpha" },
+      ]);
+      expect(await client.badge.findMany({})).toEqual([
+        { id: "b9", tag: "silver", bSlug: "team-1" },
       ]);
     });
 

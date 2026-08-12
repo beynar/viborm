@@ -1,6 +1,6 @@
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
-import { buildParsedRelationPrograms } from "@query-engine/builders/relation-mutation-parser";
 import { bindRelation } from "@query-engine/builders/relation-data-builder";
+import { buildParsedRelationPrograms } from "@query-engine/builders/relation-mutation-parser";
 import { createQueryScope } from "@query-engine/context/query-scope";
 import {
   analyzeOwnWriteTree,
@@ -63,7 +63,9 @@ function relationMutation(
   const relations = buildParsedRelationPrograms(ctx, {
     targets: input,
   }).relations;
-  if (!relations.targets) throw new Error("Expected targets relation mutation");
+  if (!relations.some((entry) => entry.name === "targets")) {
+    throw new Error("Expected targets relation mutation");
+  }
   return { ctx, relations };
 }
 
@@ -82,8 +84,11 @@ function summarizeSelfChildrenStep(
   kind: "connect" | "createMany"
 ) {
   const plan = selfRelationMutation({ children: input });
-  const relation = plan.relations.children;
-  if (!relation) throw new Error("Expected children relation mutation");
+  const parsed = plan.relations.find((entry) => entry.name === "children");
+  if (parsed?.kind !== "ordinary") {
+    throw new Error("Expected children relation mutation");
+  }
+  const relation = parsed.program;
   const step = relation.entries.find((candidate) => candidate.kind === kind);
   if (!step) throw new Error(`Expected ${kind} step`);
 
@@ -95,13 +100,12 @@ function summarizeSelfChildrenStep(
   const currentConstraint = selectorConstraint(selfNode, { id: 1 });
   const targetConstraint = selectorConstraint(selfNode, { id: 2 });
   const boundRelation = bindRelation(plan.ctx, relation.relationInfo);
-  const membershipScope = getRelationMembershipScope(plan.ctx, boundRelation);
+  const membershipScope = getRelationMembershipScope(boundRelation);
   return {
     ledger,
     membershipScope,
     membershipOrientation: getMembershipReadOrientation(boundRelation),
     endpoints: getRelationMembershipEndpoints(
-      plan.ctx,
       boundRelation,
       membershipScope,
       currentConstraint,

@@ -1,5 +1,6 @@
-import type { AnyPolymorphicRelation, AnyRelation } from "@schema/relation";
+import { publicOperationName } from "@errors";
 import type { Model } from "@schema/model";
+import type { AnyPolymorphicRelation, AnyRelation } from "@schema/relation";
 import type { Scalar } from "@schema/scalars";
 import type {
   ExpectedAggregateResultShape,
@@ -47,9 +48,11 @@ export function malformedResult(
   reason: string
 ): never {
   const provider = ctx.providerName;
+  // The caller never spelled an internal *AndReturn arm; render the family name.
+  const named = publicOperationName(operation);
   throw new QueryEngineError(
-    `Driver "${provider}" returned a malformed result for operation "${operation}": ${reason}.`,
-    { meta: { driver: provider, operation } }
+    `Driver "${provider}" returned a malformed result for operation "${named}": ${reason}.`,
+    { meta: { driver: provider, operation: named } }
   );
 }
 
@@ -59,9 +62,10 @@ export function malformedScalarValue(
   scalarType: string,
   reason: string
 ): never {
+  const named = publicOperationName(operation);
   throw new QueryEngineError(
-    `Driver "${provider}" returned a malformed ${scalarType} scalar for operation "${operation}": ${reason}.`,
-    { meta: { driver: provider, operation, scalarType } }
+    `Driver "${provider}" returned a malformed ${scalarType} scalar for operation "${named}": ${reason}.`,
+    { meta: { driver: provider, operation: named, scalarType } }
   );
 }
 

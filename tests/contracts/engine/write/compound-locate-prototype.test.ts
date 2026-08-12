@@ -1,25 +1,21 @@
-import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { createClient } from "@client/client";
-import type { BatchQuery, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
-import { PGlite, type Transaction } from "@electric-sql/pglite";
+import { PGlite } from "@electric-sql/pglite";
 import { push } from "@migrations";
 import { createOperationExecutionContext } from "@query-engine/execution-context";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { s } from "@schema";
 import { sql } from "@sql";
-import { createSchemaRegistry } from "@validation";
-import { describe, expect, test } from "vitest";
 import type { ExecutableOperation } from "@src/query-engine/write-engine/OperationExecutor";
 import { OperationExecutor } from "@src/query-engine/write-engine/OperationExecutor";
 import type {
   OperationFragment,
   PlanningFragment,
 } from "@src/query-engine/write-engine/OperationFragment";
-import {
-  planningKey,
-  planningOutputs,
-} from "@src/query-engine/write-engine/Part";
+import { planningKey } from "@src/query-engine/write-engine/Part";
+import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
+import { createSchemaRegistry } from "@validation";
+import { describe, expect, test } from "vitest";
 
 /**
  * E6.4 unit 0 — the hand-built prototype the plan's rule demands before any code in
@@ -97,7 +93,6 @@ function compoundLocateOperation(
     planning(): PlanningFragment {
       return {
         steps: [locateStep],
-        outputs: planningOutputs([locateStep]),
       };
     },
     compile(known): OperationFragment {

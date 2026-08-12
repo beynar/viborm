@@ -696,19 +696,28 @@ model["~"].state.infer      // Phantom type for inference
 ```ts
 const rel = s.manyToOne(() => user).fields("authorId").references("id");
 
-rel["~"].getter          // () => Model (lazy reference)
-rel["~"].relationType    // "manyToOne"
-rel["~"].isToMany        // false
-rel["~"].isToOne         // true
-rel["~"].isOptional      // false
-rel["~"].fields          // FK scalar field keys, e.g. ["authorId"]
-rel["~"].references      // ["id"]
-rel["~"].onDelete        // undefined | ReferentialAction
-rel["~"].onUpdate        // undefined | ReferentialAction
-rel["~"].through         // Junction table (manyToMany only)
-rel["~"].throughA        // Source FK column (manyToMany only)
-rel["~"].throughB        // Target FK column (manyToMany only)
-rel["~"].infer           // Phantom type for inference
+rel["~"].state.type       // "manyToOne"
+rel["~"].state.getter     // () => Model (lazy reference)
+rel["~"].state.name       // undefined | the disambiguating relation name
+rel["~"].state.fields     // FK scalar field keys, e.g. ["authorId"]
+rel["~"].state.references // ["id"]
+rel["~"].state.optional   // undefined | true
+rel["~"].state.onDelete   // undefined | ReferentialAction
+rel["~"].state.onUpdate   // undefined | ReferentialAction
+rel["~"].state.through    // Junction table (manyToMany only)
+rel["~"].state.A          // Source junction column (manyToMany only)
+rel["~"].state.B          // Target junction column (manyToMany only)
+rel["~"].state.source     // The model this relation was declared on
+rel["~"].setSource(model) // Bind that source (called by `model()`)
+```
+
+The state carries the declared edge; every DERIVED view of it has one owner
+beside it, and there is no stored copy of any of them:
+
+```ts
+relationCardinality(rel["~"].state); // "one" | "many" — @schema/relation/cardinality
+slotMayBeEmpty(rel["~"].state); // public optionality — @schema/relation/clearability
+membershipCanBeCleared(rel["~"].state, sourceModel); // physical storage — same module
 ```
 
 ---

@@ -17,9 +17,9 @@ import { buildWhereUnique } from "@query-engine/builders/where-unique-builder";
 import { createQueryScope, getTableName } from "@query-engine/context";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames, s } from "@schema";
+import { sqlGenerationUserPostSchema } from "@tests/fixtures/user-post-schema";
 import { createSchemaRegistry } from "@validation";
 import { beforeAll, describe, expect, test } from "vitest";
-import { sqlGenerationUserPostSchema } from "@tests/fixtures/user-post-schema";
 
 const DESC_SQL = /DESC/i;
 const LEFT_JOIN_SQL = /LEFT JOIN/i;
@@ -1362,9 +1362,12 @@ describe("Multi-step writes", () => {
     // The three shapes around them still reject, and each for its own reason —
     // which is what keeps these from being a blanket "creates are one statement
     // now": a `connect` probes first (below), a relation `select` cannot read
-    // what a sibling arm just wrote (the list case), and a database-generated
-    // parent key is a value no arm can pass to another
-    // (`mutation-projection-cte-fold.test.ts`).
+    // what a sibling arm just wrote (the list case), and TWO database-assigned
+    // keys are two `nextval`s whose order across unread `WITH` arms PostgreSQL
+    // does not specify (`mutation-projection-cte-fold.test.ts`). Package M
+    // amended the third: ONE database-generated parent key is now a value an arm
+    // CAN pass to another, lowered to a CTE column
+    // (`mutation-dependency-fold.test.ts`).
     test("create with nested create builds ONE folded statement", () => {
       const { statement } = getSql(Author, "create", {
         data: {

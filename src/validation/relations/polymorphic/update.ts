@@ -1,168 +1,138 @@
 import type { PolymorphicRelationState } from "@schema/relation";
-import v from "@validation/primitives/v";
+import v, { type V } from "@validation/primitives/v";
+import type { VibSchema } from "@validation/types";
+import {
+  type ToOneMutationSchema,
+  toOneMutationSchema,
+} from "../to-one-mutation-schema";
 import type {
   CoreInputAt,
   CoreOutputAt,
   ExactPolymorphicTargetSchemaGetters,
-  PolymorphicSchema,
   PolymorphicTargetSchemaGetters,
 } from "./types";
 import { polymorphicPublicTypes } from "./types";
 
-type MutationKey =
-  | "connect"
-  | "create"
-  | "connectOrCreate"
-  | "update"
-  | "upsert"
-  | "delete"
-  | "disconnect";
+type ConnectInput<Getters> = {
+  [PublicType in Extract<keyof Getters, string>]: {
+    readonly type: PublicType;
+    readonly where: CoreInputAt<Getters, PublicType, "whereUnique">;
+  };
+}[Extract<keyof Getters, string>];
 
-type ExclusiveMutation<Key extends MutationKey, Payload> = {
-  readonly [Current in Key]: Payload;
-} & {
-  readonly [Other in Exclude<MutationKey, Key>]?: never;
+type ConnectOutput<Getters> = {
+  [PublicType in Extract<keyof Getters, string>]: {
+    readonly type: PublicType;
+    readonly where: CoreOutputAt<Getters, PublicType, "whereUnique">;
+  };
+}[Extract<keyof Getters, string>];
+
+type CreateInput<Getters> = {
+  [PublicType in Extract<keyof Getters, string>]: {
+    readonly type: PublicType;
+    readonly data: CoreInputAt<Getters, PublicType, "create">;
+  };
+}[Extract<keyof Getters, string>];
+
+type CreateOutput<Getters> = {
+  [PublicType in Extract<keyof Getters, string>]: {
+    readonly type: PublicType;
+    readonly data: CoreOutputAt<Getters, PublicType, "create">;
+  };
+}[Extract<keyof Getters, string>];
+
+type ConnectOrCreateInput<Getters> = {
+  [PublicType in Extract<keyof Getters, string>]: {
+    readonly type: PublicType;
+    readonly where: CoreInputAt<Getters, PublicType, "whereUnique">;
+    readonly create: CoreInputAt<Getters, PublicType, "create">;
+  };
+}[Extract<keyof Getters, string>];
+
+type ConnectOrCreateOutput<Getters> = {
+  [PublicType in Extract<keyof Getters, string>]: {
+    readonly type: PublicType;
+    readonly where: CoreOutputAt<Getters, PublicType, "whereUnique">;
+    readonly create: CoreOutputAt<Getters, PublicType, "create">;
+  };
+}[Extract<keyof Getters, string>];
+
+type UpdateInput<Getters> = {
+  [PublicType in Extract<keyof Getters, string>]: {
+    readonly type: PublicType;
+    readonly where?: CoreInputAt<Getters, PublicType, "where">;
+    readonly data: CoreInputAt<Getters, PublicType, "update">;
+  };
+}[Extract<keyof Getters, string>];
+
+type UpdateOutput<Getters> = {
+  [PublicType in Extract<keyof Getters, string>]: {
+    readonly type: PublicType;
+    readonly where?: CoreOutputAt<Getters, PublicType, "where">;
+    readonly data: CoreOutputAt<Getters, PublicType, "update">;
+  };
+}[Extract<keyof Getters, string>];
+
+type UpsertInput<Getters> = {
+  [PublicType in Extract<keyof Getters, string>]: {
+    readonly type: PublicType;
+    readonly create: CoreInputAt<Getters, PublicType, "create">;
+    readonly update: CoreInputAt<Getters, PublicType, "update">;
+  };
+}[Extract<keyof Getters, string>];
+
+type UpsertOutput<Getters> = {
+  [PublicType in Extract<keyof Getters, string>]: {
+    readonly type: PublicType;
+    readonly create: CoreOutputAt<Getters, PublicType, "create">;
+    readonly update: CoreOutputAt<Getters, PublicType, "update">;
+  };
+}[Extract<keyof Getters, string>];
+
+type DeleteTarget<Getters> = {
+  [PublicType in Extract<keyof Getters, string>]: {
+    readonly type: PublicType;
+  };
+}[Extract<keyof Getters, string>];
+
+type PolymorphicTargetedEntries<Getters> = {
+  connect: VibSchema<ConnectInput<Getters>, ConnectOutput<Getters>>;
+  create: VibSchema<CreateInput<Getters>, CreateOutput<Getters>>;
+  connectOrCreate: VibSchema<
+    ConnectOrCreateInput<Getters>,
+    ConnectOrCreateOutput<Getters>
+  >;
+  update: VibSchema<UpdateInput<Getters>, UpdateOutput<Getters>>;
+  upsert: VibSchema<UpsertInput<Getters>, UpsertOutput<Getters>>;
 };
 
-type UpdateInputFor<
-  Getters,
-  PublicType extends Extract<keyof Getters, string>,
-> =
-  | ExclusiveMutation<
-      "connect",
-      {
-        readonly type: PublicType;
-        readonly where: CoreInputAt<Getters, PublicType, "whereUnique">;
-      }
-    >
-  | ExclusiveMutation<
-      "create",
-      {
-        readonly type: PublicType;
-        readonly data: CoreInputAt<Getters, PublicType, "create">;
-      }
-    >
-  | ExclusiveMutation<
-      "connectOrCreate",
-      {
-        readonly type: PublicType;
-        readonly where: CoreInputAt<Getters, PublicType, "whereUnique">;
-        readonly create: CoreInputAt<Getters, PublicType, "create">;
-      }
-    >
-  | ExclusiveMutation<
-      "update",
-      {
-        readonly type: PublicType;
-        readonly where?: CoreInputAt<Getters, PublicType, "where">;
-        readonly data: CoreInputAt<Getters, PublicType, "update">;
-      }
-    >
-  | ExclusiveMutation<
-      "upsert",
-      {
-        readonly type: PublicType;
-        readonly create: CoreInputAt<Getters, PublicType, "create">;
-        readonly update: CoreInputAt<Getters, PublicType, "update">;
-      }
-    >;
+/**
+ * Removal is a SLOT fact: only an optional membership may be emptied, so only there
+ * do `delete` and `disconnect` exist as keys at all. `disconnect` stays a `true`
+ * literal rather than a boolean — `false` is not an inactive spelling of a payload
+ * that must carry exactly one intent, it is a value this verb never had.
+ */
+type PolymorphicRemovalEntries<Getters> = {
+  delete: VibSchema<DeleteTarget<Getters>, DeleteTarget<Getters>>;
+  disconnect: V.Literal<true>;
+};
 
-type UpdateOutputFor<
-  Getters,
-  PublicType extends Extract<keyof Getters, string>,
-> =
-  | ExclusiveMutation<
-      "connect",
-      {
-        readonly type: PublicType;
-        readonly where: CoreOutputAt<Getters, PublicType, "whereUnique">;
-      }
-    >
-  | ExclusiveMutation<
-      "create",
-      {
-        readonly type: PublicType;
-        readonly data: CoreOutputAt<Getters, PublicType, "create">;
-      }
-    >
-  | ExclusiveMutation<
-      "connectOrCreate",
-      {
-        readonly type: PublicType;
-        readonly where: CoreOutputAt<Getters, PublicType, "whereUnique">;
-        readonly create: CoreOutputAt<Getters, PublicType, "create">;
-      }
-    >
-  | ExclusiveMutation<
-      "update",
-      {
-        readonly type: PublicType;
-        readonly where?: CoreOutputAt<Getters, PublicType, "where">;
-        readonly data: CoreOutputAt<Getters, PublicType, "update">;
-      }
-    >
-  | ExclusiveMutation<
-      "upsert",
-      {
-        readonly type: PublicType;
-        readonly create: CoreOutputAt<Getters, PublicType, "create">;
-        readonly update: CoreOutputAt<Getters, PublicType, "update">;
-      }
-    >;
-
-type TargetedInput<Getters> =
-  | {
-      [PublicType in Extract<keyof Getters, string>]: ExclusiveMutation<
-        "delete",
-        { readonly type: PublicType }
-      >;
-    }[Extract<keyof Getters, string>]
-  | {
-      [PublicType in Extract<keyof Getters, string>]: UpdateInputFor<
-        Getters,
-        PublicType
-      >;
-    }[Extract<keyof Getters, string>];
-
-type TargetedOutput<Getters> =
-  | {
-      [PublicType in Extract<keyof Getters, string>]: ExclusiveMutation<
-        "delete",
-        { readonly type: PublicType }
-      >;
-    }[Extract<keyof Getters, string>]
-  | {
-      [PublicType in Extract<keyof Getters, string>]: UpdateOutputFor<
-        Getters,
-        PublicType
-      >;
-    }[Extract<keyof Getters, string>];
-
-type Disconnect<State extends PolymorphicRelationState> =
-  State["optional"] extends true
-    ? ExclusiveMutation<"disconnect", true>
-    : never;
-
-type OptionalTargeted<
+export type PolymorphicUpdateEntries<
   State extends PolymorphicRelationState,
   Getters,
-> = State["optional"] extends true
-  ? TargetedInput<Getters>
-  : Exclude<TargetedInput<Getters>, { readonly delete: unknown }>;
-
-type OptionalTargetedOutput<
-  State extends PolymorphicRelationState,
-  Getters,
-> = State["optional"] extends true
-  ? TargetedOutput<Getters>
-  : Exclude<TargetedOutput<Getters>, { readonly delete: unknown }>;
+> = PolymorphicTargetedEntries<Getters> &
+  (State["optional"] extends true
+    ? PolymorphicRemovalEntries<Getters>
+    : Record<never, never>);
 
 export type PolymorphicUpdateSchema<
   State extends PolymorphicRelationState,
   Getters,
-> = PolymorphicSchema<
-  OptionalTargeted<State, Getters> | Disconnect<State>,
-  OptionalTargetedOutput<State, Getters> | Disconnect<State>
+> = ToOneMutationSchema<
+  PolymorphicUpdateEntries<State, Getters>,
+  undefined,
+  false,
+  "exactlyOne"
 >;
 
 export function polymorphicUpdateFactory<
@@ -173,81 +143,92 @@ export function polymorphicUpdateFactory<
   targetSchemas: ExactPolymorphicTargetSchemaGetters<State, Getters>
 ): PolymorphicUpdateSchema<State, Getters> {
   const schemaGetters: PolymorphicTargetSchemaGetters<State> = targetSchemas;
-  const members = polymorphicPublicTypes(state).flatMap((publicType) => {
-    const schemas = schemaGetters[publicType];
-    const typed = { type: v.literal(publicType) };
-    return [
-      v.object(
-        {
-          connect: v.object(
-            { ...typed, where: () => schemas().core.whereUnique },
-            { partial: false }
-          ),
-        },
-        { partial: false }
-      ),
-      v.object(
-        {
-          create: v.object(
-            { ...typed, data: () => schemas().core.create },
-            { partial: false }
-          ),
-        },
-        { partial: false }
-      ),
-      v.object(
-        {
-          connectOrCreate: v.object(
-            {
-              ...typed,
-              where: () => schemas().core.whereUnique,
-              create: () => schemas().core.create,
-            },
-            { partial: false }
-          ),
-        },
-        { partial: false }
-      ),
-      v.object(
-        {
-          update: v.object(
-            {
-              ...typed,
-              where: () => schemas().core.where,
-              data: () => schemas().core.update,
-            },
-            { atLeast: ["data"] }
-          ),
-        },
-        { partial: false }
-      ),
-      v.object(
-        {
-          upsert: v.object(
-            {
-              ...typed,
-              create: () => schemas().core.create,
-              update: () => schemas().core.update,
-            },
-            { partial: false }
-          ),
-        },
-        { partial: false }
-      ),
-      ...(state.optional === true
-        ? [
-            v.object(
-              { delete: v.object(typed, { partial: false }) },
-              { partial: false }
-            ),
-          ]
-        : []),
-    ];
+  const publicTypes = polymorphicPublicTypes(state);
+  const typed = (publicType: (typeof publicTypes)[number]) => ({
+    type: v.literal(publicType),
   });
-  if (state.optional === true) {
-    members.push(
-      v.object({ disconnect: v.literal(true) }, { partial: false }) as never
-    );
+  const targetedEntries = {
+    connect: v.union(
+      publicTypes.map((publicType) =>
+        v.object(
+          {
+            ...typed(publicType),
+            where: () => schemaGetters[publicType]().core.whereUnique,
+          },
+          { partial: false }
+        )
+      )
+    ),
+    create: v.union(
+      publicTypes.map((publicType) =>
+        v.object(
+          {
+            ...typed(publicType),
+            data: () => schemaGetters[publicType]().core.create,
+          },
+          { partial: false }
+        )
+      )
+    ),
+    connectOrCreate: v.union(
+      publicTypes.map((publicType) =>
+        v.object(
+          {
+            ...typed(publicType),
+            where: () => schemaGetters[publicType]().core.whereUnique,
+            create: () => schemaGetters[publicType]().core.create,
+          },
+          { partial: false }
+        )
+      )
+    ),
+    update: v.union(
+      publicTypes.map((publicType) =>
+        v.object(
+          {
+            ...typed(publicType),
+            where: () => schemaGetters[publicType]().core.where,
+            data: () => schemaGetters[publicType]().core.update,
+          },
+          // `where` FILTERS the one connected record; the discriminator and the data
+          // are what the engine needs to address it at all.
+          { atLeast: ["type", "data"] }
+        )
+      )
+    ),
+    upsert: v.union(
+      publicTypes.map((publicType) =>
+        v.object(
+          {
+            ...typed(publicType),
+            create: () => schemaGetters[publicType]().core.create,
+            update: () => schemaGetters[publicType]().core.update,
+          },
+          { partial: false }
+        )
+      )
+    ),
+  };
+  if (state.optional !== true) {
+    return toOneMutationSchema(
+      targetedEntries,
+      undefined,
+      false,
+      "exactlyOne"
+    ) as unknown as PolymorphicUpdateSchema<State, Getters>;
   }
-  return v.union(members) as unknown as PolymorphicUpdateSchema<State, Getters>;
+  return toOneMutationSchema(
+    {
+      ...targetedEntries,
+      delete: v.union(
+        publicTypes.map((publicType) =>
+          v.object(typed(publicType), { partial: false })
+        )
+      ),
+      disconnect: v.literal(true),
+    },
+    undefined,
+    false,
+    "exactlyOne"
+  ) as unknown as PolymorphicUpdateSchema<State, Getters>;
 }

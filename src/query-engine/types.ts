@@ -73,8 +73,6 @@ export type QueryMetadata<T> =
  */
 export interface PreparedBatchOperation<T = unknown> {
   queries: PreparedQuery[];
-  setupQueries?: PreparedQuery[];
-  cleanupQueries?: PreparedQuery[];
   guards?: PreparedBatchGuard[];
   parseResult: (results: QueryResult<unknown>[]) => T;
 }
@@ -226,8 +224,8 @@ export interface RelationInfo {
   targetModel: Model<any>;
   /** Relation type: oneToOne, oneToMany, manyToOne, manyToMany */
   type: "oneToOne" | "oneToMany" | "manyToOne" | "manyToMany";
-  isToMany: boolean;
-  isToOne: boolean;
+  /** How many targets the public slot admits — the one arity fact. */
+  cardinality: "one" | "many";
   isOptional: boolean;
   /** Foreign key fields on current model */
   fields: string[] | undefined;

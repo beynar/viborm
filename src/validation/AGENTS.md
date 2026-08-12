@@ -40,6 +40,8 @@ The `v.*` primitives solve interop, inference, and runtime validation. `SchemaRe
 | `primitives/` | Standard Schema V1 primitives (`v.*`) | Adding a primitive |
 | `scalars/` | Scalar-state to scalar operation schemas | Adding scalar operation behavior |
 | `relations/` | Relation operation schemas with target-model thunks | Changing nested relation inputs |
+| `relations/nested-data-projection.ts` | Which target schema a nested payload writes into, per edge | Changing what a nesting context omits |
+| `relations/to-one-mutation-schema.ts` | The to-one composition lattice and its `exactlyOne` mode | Changing accepted operation combinations |
 | `model/core/` | where/create/update/select/include/orderBy schemas | Changing model-level query inputs |
 | `model/args/` | Complete operation arg schemas | Adding/changing ORM operations |
 | `builder.ts` | `SchemaRegistry` cache and schema graph builder | Registry contract or lifecycle changes |
@@ -102,6 +104,67 @@ const userCreate = registry.getModelSchemas(user).args.create;
 
 **Why:** operation schemas need full model graph context. A relation schema must know the source model, target model, and inverse FK fields to validate nested creates correctly.
 
+### Pay-Per-Use Schema Materialization
+
+Registry schemas stay lazy through the scalar-variant boundary. Reading a
+scalar `filter` must not construct its `create` or `update` schema. Build the
+four scalar records with `lazyScalarSchemas`; it uses shared accessor functions
+and releases each factory after that variant resolves. General lazy records and
+`v.lazy`/`v.lazyRef` also release a successful factory while retaining the
+resolved value.
+
+### Nested Relation Data Projection
+
+A nested payload never writes into the target model's own `core.create` /
+`core.update`. It writes into the projection of those schemas the ENCLOSING relation
+leaves for the caller, and which columns that removes depends on the edge: an
+ordinary inverse owns the target's foreign-key SCALARS, a polymorphic inverse owns
+the target's direct RELATION KEY. `relations/nested-data-projection.ts` is the one
+place that difference is decided — create, update, createMany-data, the createMany
+"satisfied membership" argument and the create-root `upsert.update` arm, at runtime
+and at the type level together.
+
+Whether that membership can be CLEARED is NOT this module's fact. It is a schema
+fact about storage, owned by `@schema/relation/clearability` (`slotMayBeEmpty` and
+`membershipCanBeCleared`, the two facts that must stay two), and it is read only by
+the update factories — the create surfaces have no removal verb to gate.
+
+The four verb factories (`toOne`/`toMany` × `create`/`update`) consume the projection
+without asking which edge they are on. A polymorphic inverse therefore has no verb
+surface of its own; it is the same factory with a different projection.
+
+Two invariants live here rather than in the factories:
+
+- **Laziness is a non-termination hazard.** The projection resolves `state.getter()`
+  (schema-layer state, cheap) but returns THUNKS for every schema. Call it from
+  inside a verb factory — each is reached through `v.lazy` — never from
+  `getRelationSchemas`. Resolving a target model's schemas while the enclosing
+  model's are still under construction never terminates for a self-referential
+  relation, and the pin is `polymorphic.core.test.ts` "inverse topology stays lazy
+  until create validation", which counts ZERO getter calls after `core.create` is
+  merely read.
+- **The create-root `upsert.update` asymmetry is data, not a decision.** An ordinary
+  edge keeps the target's BARE `core.update` there because the engine absorbs an
+  agreeing owned foreign key (E5-U2); a polymorphic membership has no spellable
+  column to agree with and keeps the projection. The factory reads whichever the
+  projection carries; flipping either direction is a defect.
+
+### To-One Composition Modes
+
+`relations/to-one-mutation-schema.ts` owns which COMBINATIONS of active operations a
+to-one payload may carry, at both levels, and publishes exactly two rules:
+
+- `lattice` (default) — the accepted set: at most one intent, or one of the ordered
+  vacate/supply/modify compositions, gated by the relation DIRECTION;
+- `exactlyOne` — no empty payload and no composition. Used by the direct polymorphic
+  edge, whose payload writes one atomic `(type, id)` pair and whose engine resolver
+  takes one intent per payload, so an empty payload names no target for a membership
+  that may be required and two intents would silently drop one.
+
+Active means `value !== undefined && value !== false` in both modes, and the ACTIVE
+LIST is built by iterating `Object.keys(entries)` — so the declaration order of every
+entries record is baked into the refusal sentences. Do not reorder one.
+
 ---
 
 ## Core Rules
@@ -124,6 +187,24 @@ No domain-specific logic here. `v.email()` or `v.url()` belong in the scalar lay
 
 ### Rule 4: Immutable Schemas
 Schemas are immutable after creation. No methods that modify the schema in place.
+
+A schema that WRAPS another schema builds its validator **inside its factory**,
+before the wrapper object exists, and composes it into a fresh `~standard`
+literal. Never construct the inner schema and then redefine a property on it.
+The reason is capture, not style: `v.union` reads each option's
+`~standard.validate` AT CONSTRUCTION (`primitives/union.ts`) and holds that
+function reference for the life of the union. A validator patched onto a schema
+after that schema was handed to a union is a validator the union still has the
+un-patched version of — the wrapper's extra rule silently does not run on that
+path, and nothing about the wrapper looks wrong. Assume any composer may capture;
+only building in the factory makes the question moot.
+
+A wrapper's JSON-Schema converter **delegates to the schema it wraps** rather
+than rebuilding one. Reach it through a getter so it stays lazy: rebuilding it
+eagerly walks a self-referential relation graph at construction time, which is
+what the pay-per-use boundary above exists to avoid. If the wrapper's own rule
+is not expressible in JSON Schema, say so at the getter — a converter that
+silently drops a rule is worse than one that documents the gap.
 
 ### Rule 5: Operation Schemas Need Registry Context
 Do not rebuild operation schemas inside scalar definitions, relation definitions, or models. Use `SchemaRegistry` so relation thunks and inverse FK omission are resolved from the full schema graph.

@@ -18,9 +18,9 @@ Everything in the API works the same on every database unless noted under [Datab
 | `findFirst` / `findFirstOrThrow` | ✅ | Filtering, ordering, pagination, `select`, `include`. |
 | `findMany` | ✅ | Filters, relation filters, ordering, cursor pagination, negative `take`, `distinct`, `select`, `include`. |
 | `create` | ✅ | Scalar data and nested writes. |
-| `createMany` | Different | Returns `{ count }`, or the created rows when the call carries a `select` — Prisma's separate `createManyAndReturn` does not exist. That `select` is scalar-only (no relation key, no `_count`, no `include`). General relation nesting is unsupported; a direct polymorphic field may provide a connect-only membership per row. |
+| `createMany` | Different | Returns `{ count }`, or the created rows when the call carries a `select` — Prisma's separate `createManyAndReturn` does not exist. That `select` is scalar-only (no relation key, no `_count`, no `include`) even when the rows themselves nest relations. Rows accept the ordinary `create` data shape, including nested relation writes — except a direct polymorphic field, which stays a connect-only membership per row. Relation-bearing rows execute left to right in one transaction, so a later row observes what an earlier one wrote. `skipDuplicates` cannot be combined with nested relation writes, and a `select` refuses rather than answer short when a later row moves an earlier row's primary key. |
 | `update` | ✅ | Requires a unique `where` and throws when missing. Extra scalar and relation filters are allowed in it; an excluded row is a `NotFoundError`, never a silent no-op. |
-| `updateMany` | Different | Returns `{ count }`, or the updated rows when the call carries a `select` — Prisma's separate `updateManyAndReturn` does not exist. That `select` is scalar-only. Prisma 6's `limit` is supported, with Prisma's own caveat: it caps how many rows are affected, not which. |
+| `updateMany` | Different | Returns `{ count }`, or the updated rows when the call carries a `select` — Prisma's separate `updateManyAndReturn` does not exist. That `select` is scalar-only even when `data` writes relations. `data` accepts the ordinary `update` surface, relations included, which Prisma rejects outright. A relation-bearing call becomes one ordinary update per matching row, in one transaction: `count` is then the number of matching rows rather than the provider's affected-row total, a batch-only driver rejects the form, and a child-held `connect`/`connectOrCreate`/`set` naming an existing target is refused before any write when more than one row matched. A `select` refuses rather than answer short when a later row removes an earlier row's key. Prisma 6's `limit` is supported, with Prisma's own caveat: it caps how many rows are affected, not which. |
 | `upsert` | ✅ | Requires unique `where`, `create`, and `update`. An extra filter that excludes an existing row sends the call down the create branch, whose unique violation surfaces unretried. |
 | `delete` | ✅ | Requires a unique `where` and throws when missing. Extra scalar and relation filters are allowed in it; an excluded row is a `NotFoundError` and survives. |
 | `deleteMany` | Extension | Returns `{ count }`, or the deleted rows when the call carries a `select` (scalar-only). Prisma has no returning `deleteMany`. Prisma 6's `limit` is supported. |
@@ -60,7 +60,10 @@ One deliberate divergence, and it covers only the LINK selectors:
 ## Nested writes
 
 Nested writes are supported inside `create`, `update`, and both branches of
-`upsert`. Support also depends on where the relation is stored:
+`upsert`. They are also supported inside the two root bulk writes: a
+`createMany` row takes the create matrix below and `updateMany.data` takes the
+update matrix, since each is compiled as an ordinary record write. Support also
+depends on where the relation is stored:
 
 - **Parent-held to-one:** the current record holds the foreign key.
 - **Child-held to-one:** the related record holds the foreign key and the edge
@@ -151,18 +154,38 @@ The matrices show operation support. These restrictions are independent:
   member.
 - To-one `disconnect` and `delete` use their boolean form. Selector arrays and
   `set` are to-many operations.
-- To-one create payloads and parent-held to-one updates name at most one active
-  operation. Child-held to-one updates additionally accept these replacement
-  pairs: `disconnect + connectOrCreate`, `disconnect + connect`,
-  `disconnect + create`, `delete + connect`, and `delete + create`. The vacate
-  runs before the supplier. Literal `false` is inactive. Other combinations
-  fail at the validation and type boundary. Direct polymorphic payloads contain
-  exactly one typed intent. To-many payloads may combine operation kinds.
-- Nested `createMany` rows are scalar-only. Executable nested
-  `updateMany.data` is also scalar-only, but its parsed/contextual shape remains
-  broad so an invalid relation write in an untaken top-level upsert update arm
-  stays inert. If that arm is selected, the query engine rejects the relation
-  write before SQL. `deleteMany` contains filters, not update data.
+- To-one create payloads name at most one active operation. A to-one **update**
+  payload is read as one composition — an optional vacate, one supplier, an
+  optional `update` of the supplied row — on BOTH directions. The five spellable
+  replacement pairs are `disconnect + connectOrCreate`, `disconnect + connect`,
+  `disconnect + create`, `delete + connect`, and `delete + create`; `delete`
+  beside `connectOrCreate` is excluded deliberately. A `connect` may also carry
+  an `update`, with or without a vacate ahead of it. `create` or
+  `connectOrCreate` beside an `update` is refused — the modify addresses the
+  supplied row through a read that precedes every write, and those suppliers only
+  produce that identity by inserting it — at the type boundary on the
+  parent-held direction and in the engine, with a message naming that obstacle,
+  on the child-held one. Three further spellable compositions are declined before
+  any write by the own-write analyzer, because `delete: true` names a row whose
+  identity is unknown at analysis and may be the one a sibling reads: parent-held
+  `delete + connect`, and child-held `delete` plus a supplier plus an `update`.
+  The vacate always runs before the supplier, whatever order it is
+  spelled in, and a parent-held vacate plus supplier folds to one foreign-key
+  value with no transient `NULL`. Literal `false` is inactive. Other
+  combinations fail at the validation and type boundary. Direct polymorphic
+  payloads contain exactly one typed intent. To-many payloads may combine
+  operation kinds. See
+  [Combining operations on one to-one relation](/docs/client/nested-writes#combining-operations-on-one-to-one-relation).
+- **Nested** (relation-level) `createMany` rows are scalar-only, and so is
+  executable nested `updateMany.data` — which is the one place root and nested
+  bulk differ, since root `createMany`/`updateMany` do take relations. Nested
+  `updateMany.data`'s parsed/contextual shape stays broad so an invalid relation
+  write in an untaken top-level upsert update arm stays inert; if that arm is
+  selected, the query engine rejects the relation write before SQL.
+  "Relation write" there means an ordinary **or** a direct polymorphic key: a
+  targetless polymorphic `disconnect` carries no relation program, and it used to
+  slip past the wall and then be silently ignored. `deleteMany` contains filters,
+  not update data.
 - Relation-link selectors (`connect`, `disconnect`, `set`, and
   `connectOrCreate.where`) require unique discriminators; they do not accept the
   extra filters allowed by nested update and upsert targets.
@@ -275,6 +298,6 @@ there. Prisma behaves the same way.
 | Type generation | Types are inferred from your schema — there's no `prisma generate` step. |
 | Prisma helper types | VibORM doesn't expose `XOR`, `Exact`, `SelectSubset`, or generated model helper types. |
 | Create/update inputs | A single blended input surface rather than Prisma's separate checked/unchecked variants. |
-| Bulk writes that return rows | Implicit: `createMany` / `updateMany` return rows when the call carries a `select`, and `{ count }` otherwise. Prisma's `createManyAndReturn` / `updateManyAndReturn` methods do not exist — migrate `createManyAndReturn(args)` to `createMany({ ...args, select })`, same for `updateManyAndReturn`. `deleteMany` takes `select` too, which Prisma has no form of. On all three the `select` is scalar-only and `include` is rejected: viborm does not project relations into a bulk write's returned rows, and refuses rather than answer wrongly. Prisma does accept relations on `createManyAndReturn`/`updateManyAndReturn`; read them in a separate query instead. |
-| `omit` | Query-level and client-level `omit` match Prisma, including `select`/`omit` exclusivity, the local `{ field: false }` override of a client default, and the refusal of an `omit` that empties the result. Two differences: viborm also has a SCHEMA-level `.omit()` (Prisma has none) which is a HARD exclusion no client or query can undo — the field has neither a `select` nor an `omit` key; and `omit` on a bulk write returns rows, following the implicit-returning rule above. See [Omitting fields](/docs/client/omit). |
+| Bulk writes that return rows | Implicit: `createMany` / `updateMany` return rows when the call carries a `select` or query-level `omit`, and `{ count }` otherwise. Prisma's `createManyAndReturn` / `updateManyAndReturn` methods do not exist — migrate `createManyAndReturn(args)` to `createMany({ ...args, select })`, same for `updateManyAndReturn`. `deleteMany` accepts the same projections, which Prisma has no form of. On all three the projection is scalar-only and `include` is rejected: VibORM does not project relations into a bulk write's returned rows, and refuses rather than answer wrongly. Prisma does accept relations on `createManyAndReturn`/`updateManyAndReturn`; read them in a separate query instead. |
+| `omit` | Query-level and client-level `omit` support Prisma's local `{ field: false }` override and refuse an `omit` that empties the result. Three differences: VibORM lets query-level `omit` subtract from `select` (Prisma rejects the pair); VibORM has a schema-level `.omit()` that is a hard exclusion no client or query can undo; and `omit` on a bulk write returns rows, following the implicit-returning rule above. See [Omitting fields](/docs/client/omit). |
 | Raw SQL | Prisma's shape: tagged `$queryRaw`/`$executeRaw` plus `$queryRawUnsafe`/`$executeRawUnsafe`. `$queryRaw` answers `T[]`, `$executeRaw` answers the affected count. `$queryRaw`/`$executeRaw` still accept the pre-1.0 `(sql: string, params?)` form for one release, with a deprecation notice on the `warning` log channel. `$transaction([...])` takes model operations only — run raw SQL inside the interactive form. See [Raw SQL](/docs/client/raw-sql). |

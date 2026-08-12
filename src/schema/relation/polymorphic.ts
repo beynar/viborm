@@ -1,6 +1,6 @@
 import type { AnyModel } from "@schema/model";
 import type { Scalar } from "@schema/scalars/base";
-import type { AnyRelation, Getter } from "./types";
+import type { Getter } from "./types";
 
 export type PolymorphicTargetGetters = Readonly<Record<string, Getter>>;
 
@@ -172,59 +172,6 @@ export function getPolymorphicInverseCandidates(
     }
   }
   return candidates;
-}
-
-export function getPolymorphicInverseBinding(
-  targetModel: AnyModel,
-  sourceModel: AnyModel,
-  name: string | undefined
-): PolymorphicInverseBinding | undefined {
-  const candidates = getPolymorphicInverseCandidates(targetModel, sourceModel);
-  const polymorphicRelations: Readonly<Record<string, AnyPolymorphicRelation>> =
-    targetModel["~"].state.polymorphicRelations;
-  const relationGroups = Object.entries(polymorphicRelations);
-  const namedMatches =
-    typeof name === "string"
-      ? relationGroups.filter(
-          ([, relation]) => relation["~"].state.name === name
-        )
-      : [];
-  const namedRelation = namedMatches.length === 1 ? namedMatches[0] : undefined;
-  // A child may carry both a real FK back to the source and a polymorphic field
-  // that also targets it. An exact pairing name selects the polymorphic edge;
-  // otherwise the physical FK owns the ordinary inverse. With no ordinary edge,
-  // preserve the convenient single-polymorphic-owner rule.
-  const ordinaryRelations: Readonly<Record<string, AnyRelation>> =
-    targetModel["~"].state.relations;
-  const hasOrdinaryInverse = Object.values(ordinaryRelations).some(
-    (relation) => {
-      const state = relation["~"].state;
-      return (
-        state.getter() === sourceModel &&
-        state.fields !== undefined &&
-        state.fields.length > 0
-      );
-    }
-  );
-  const selectedRelation = namedRelation
-    ? namedRelation
-    : hasOrdinaryInverse
-      ? undefined
-      : relationGroups.length === 1
-        ? relationGroups[0]
-        : undefined;
-  const selected = selectedRelation
-    ? candidates.filter(
-        (candidate) => candidate.relationKey === selectedRelation[0]
-      )
-    : [];
-  const candidate = selected.length === 1 ? selected[0] : undefined;
-  if (!candidate) return undefined;
-  return {
-    relationKey: candidate.relationKey,
-    publicType: candidate.publicType,
-    storedType: candidate.storedType,
-  };
 }
 
 type ValuesFor<Targets extends PolymorphicTargetGetters> = {

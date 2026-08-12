@@ -62,3 +62,8 @@
   deriving capabilities: may the public slot be empty, can stored membership be
   cleared while both records survive, and is non-empty membership valid. Do not
   use one `optional` flag as a proxy for all three.
+- For one dependency repair in a workspace with ranged versions, do not use a
+  broad `pnpm update`: it refreshes unrelated lockfile resolutions.
+  Change the one manifest entry, then run an offline lockfile-only install and
+  verify that the lock diff contains only that package and its required
+  transitive changes before synchronizing `node_modules`.

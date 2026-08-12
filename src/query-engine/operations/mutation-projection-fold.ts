@@ -31,13 +31,15 @@
 
 import type { QueryParts } from "@adapters";
 import { getColumnName } from "@schema/model";
-import { type Sql, sql } from "@sql";
+import { Sql, sql } from "@sql";
 import { buildSelectWithAliases } from "../builders/select-builder";
-import {
-  getPolymorphicRelationInfo,
-  getScalarFieldNames,
-} from "../context";
+import { getPolymorphicRelationInfo, getScalarFieldNames } from "../context";
 import type { QueryScope } from "../types";
+import {
+  isOperationValueReference,
+  statementHasReferences,
+  type WriteStep,
+} from "../write-engine/OperationFragment";
 
 /**
  * The CTE the folded mutation lands in. Reserved-prefixed like every other
@@ -142,4 +144,149 @@ export function buildMutationProjectionFold(
     parts.joins = projection.lateralJoins;
   }
   return sql`${cte} ${adapter.assemble.select(parts)}`;
+}
+
+/**
+ * The write-dependency lowering that amends the sentence on `args.siblings` above: an arm MAY now reference a value another arm
+ * produced, because PostgreSQL's `RETURNING` relation is a channel the shared
+ * snapshot does not close.
+ *
+ * ```sql
+ * WITH "__viborm_mutation" AS (INSERT INTO parent … RETURNING "id", "name"),
+ *      "__viborm_write_0"  AS (INSERT INTO child ("id", "parentId")
+ *                              VALUES ($2, CAST((SELECT "id" FROM "__viborm_mutation") AS INTEGER)))
+ * SELECT "t0"."id" FROM "__viborm_mutation" AS "t0"
+ * ```
+ *
+ * It is a VALUE substitution and nothing else: every `OperationValueReference`
+ * riding in `Sql.values` — the same marker the executor materializes from a
+ * previous statement's result — is replaced by the SQL that reads the producing
+ * arm's CTE column. The surrounding text, including the destination column's
+ * `CAST`, is the statement the portable path already built. This function knows
+ * about steps, outputs and columns; it does not know what a relation is, which
+ * arm is a child, or what verb produced any of them.
+ *
+ * MEASURED on PGlite (PostgreSQL 16) before this was written, because the plan's
+ * canonical form is `INSERT … SELECT c.id FROM c` and the form that falls out of
+ * a value substitution is a scalar subquery inside `VALUES`:
+ *  · both spellings insert the same rows and run each arm exactly once;
+ *  · a chain — root arm, a sibling reading it and publishing its own key, a
+ *    third arm reading THAT — resolves correctly;
+ *  · two arms reading one producer both get its single row, and the producer
+ *    still runs once;
+ *  · an arm reading a LATER arm fails with `relation "…" does not exist`. That
+ *    is a SQL-emission law, not a graph property, and it is why a reference must
+ *    name a STRICTLY EARLIER arm here rather than merely a different one;
+ *  · a producer returning two rows fails with `more than one row returned by a
+ *    subquery used as an expression`, where the multi-statement path would have
+ *    silently taken row 0. Nothing in a foldable tree can be that producer —
+ *    see the note on {@link armColumnSql}.
+ *
+ * @param scope - the ROOT model's scope. Its model names the columns of the
+ *   `__viborm_mutation` arm and its adapter quotes them. It does NOT re-ask
+ *   whether the dialect has data-modifying CTEs: the caller must already have
+ *   established that to build the enclosing `WITH` at all, and one invariant
+ *   gets one owner.
+ * @param writes - the arms in the order {@link buildMutationProjectionFold} will
+ *   place them: `writes[0]` becomes `__viborm_mutation`, the rest become
+ *   `__viborm_write_0…`.
+ * @returns the SIBLING statements (`writes.slice(1)`), index-aligned, with every
+ *   reference lowered — or `undefined` if any reference cannot be spelled, in
+ *   which case the caller keeps its multi-statement series. The root's own
+ *   statement is not returned: the caller rebuilds it with this file's
+ *   all-columns `RETURNING`, and a reference inside it would have to name an arm
+ *   before the first one, which the ordering law above forbids.
+ *
+ * Deviation from §4.5's sketch, recorded rather than silent: the sketch returns
+ * a merged `WriteStep`. Building that step is already `CreateOperation`'s
+ * `buildTreeFold` — id, outputs and postcondition included — so returning one
+ * here would make two owners of one step. This returns the arms; the caller
+ * hands them to `buildMutationProjectionFold` exactly as it hands the arms it
+ * did not have to lower.
+ */
+export function compileMutationDependencyFold(
+  scope: QueryScope,
+  writes: readonly WriteStep[]
+): readonly Sql[] | undefined {
+  const siblings: Sql[] = [];
+  for (const [index, step] of writes.entries()) {
+    const lowered = lowerArmReferences(scope, writes, index, step);
+    if (!lowered) return undefined;
+    if (index > 0) siblings.push(lowered);
+  }
+  return siblings;
+}
+
+/** One arm, with every reference in it replaced. Returns the ORIGINAL `Sql` when
+ *  the arm holds no reference, so an arm the portable path already folded stays
+ *  byte-identical rather than being rebuilt. */
+function lowerArmReferences(
+  scope: QueryScope,
+  writes: readonly WriteStep[],
+  index: number,
+  step: WriteStep
+): Sql | undefined {
+  const values = step.statement.values;
+  if (!statementHasReferences(step.statement)) return step.statement;
+  const lowered: unknown[] = [];
+  for (const value of values) {
+    if (!isOperationValueReference(value)) {
+      lowered.push(value);
+      continue;
+    }
+    const producer = writes.findIndex(
+      (candidate) => candidate.id === value.step
+    );
+    // A reference to an arm that is not in this fold, to the arm itself, or to a
+    // LATER arm: the first has no column to read, and the other two are the
+    // forward reference PostgreSQL rejects. One test, three refusals, because
+    // "strictly earlier in this list" is one fact.
+    if (producer < 0 || producer >= index) return undefined;
+    const column = armColumnSql(scope, writes, producer, value.output);
+    if (!column) return undefined;
+    lowered.push(column);
+  }
+  return new Sql(step.statement.strings, lowered);
+}
+
+/**
+ * `(SELECT <column> FROM <arm>)` for one produced value.
+ *
+ * TWO NAMING CONVENTIONS, and getting them the wrong way round is silent on any
+ * field whose column name matches it. The root arm's `RETURNING` is rebuilt by
+ * {@link returningEveryColumn}, which emits bare COLUMN names, so the root is
+ * addressed by `getColumnName`. A sibling arm keeps the `RETURNING` its own
+ * builder emitted — `"<column>" AS "<field>"` — so a sibling is addressed by the
+ * FIELD name.
+ *
+ * `firstRowField` is the only output kind that has a column at all: `insertId`
+ * is a driver channel, `rows`/`rowCount` are whole results. An `optional` one
+ * belongs to a read whose emptiness picks a branch, and a branch is not
+ * something one statement chooses — both decline here.
+ *
+ * WHY NO SEPARATE "the producer returns exactly one row" CHECK, which §4.5 lists:
+ * requiring the producer to DECLARE this output as `firstRowField` already is
+ * that check. The multi-row writes a create tree can contain are `createMany`
+ * group statements, and they declare `outputs: {}` — so they fail this test by
+ * publishing nothing, not by being multi-row. A guard for the same fact spelled
+ * twice would have no coverage of its own to name.
+ */
+function armColumnSql(
+  scope: QueryScope,
+  writes: readonly WriteStep[],
+  producer: number,
+  output: string
+): Sql | undefined {
+  const source = writes[producer]?.outputs[output];
+  if (source?.kind !== "firstRowField" || source.optional === true) {
+    return undefined;
+  }
+  const arm =
+    producer === 0 ? MUTATION_CTE : `${SIBLING_CTE_PREFIX}${producer - 1}`;
+  const column =
+    producer === 0 ? getColumnName(scope.model, source.field) : source.field;
+  const { identifiers, subqueries } = scope.adapter;
+  return subqueries.scalar(
+    sql`SELECT ${identifiers.escape(column)} FROM ${identifiers.escape(arm)}`
+  );
 }

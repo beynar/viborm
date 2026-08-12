@@ -11,7 +11,7 @@ import { buildSelect } from "../builders/select-builder";
 import { buildSet } from "../builders/set-builder";
 import { buildWhere } from "../builders/where-builder";
 import { buildWhereUnique } from "../builders/where-unique-builder";
-import { getRelationInfo, getTableName, isRelation } from "../context";
+import { getTableName } from "../context";
 import type { QueryScope } from "../types";
 import { buildBulkLimitWhere } from "./bulk-limit";
 
@@ -39,72 +39,6 @@ interface UpdateManyArgs {
 }
 
 /**
- * Process relation operations (connect/disconnect) and convert to FK assignments.
- * For to-one relations where the current model holds the FK, we can translate
- * connect/disconnect to direct FK field updates.
- *
- * @param ctx - Query context
- * @param data - Update data containing scalar and relation fields
- * @returns Processed data with FK assignments from relation operations
- */
-function processRelationOperations(
-  ctx: QueryScope,
-  data: Record<string, unknown>
-): Record<string, unknown> {
-  const result: Record<string, unknown> = {};
-
-  for (const [key, value] of Object.entries(data)) {
-    if (value === undefined) continue;
-
-    // Check if this is a relation field
-    if (isRelation(ctx.model, key)) {
-      const relationInfo = getRelationInfo(ctx, key);
-      if (!relationInfo) continue;
-
-      // Only handle to-one relations where current model holds FK
-      const relState = relationInfo.relation["~"].state;
-      if (
-        (relState.type === "manyToOne" || relState.type === "oneToOne") &&
-        relState.fields &&
-        relState.references
-      ) {
-        const mutation = value as Record<string, unknown>;
-        const fields = Array.isArray(relState.fields)
-          ? relState.fields
-          : [relState.fields];
-        const references = Array.isArray(relState.references)
-          ? relState.references
-          : [relState.references];
-
-        // Handle connect: set FK to target's PK value
-        if (mutation.connect !== undefined) {
-          const connectInput = mutation.connect as Record<string, unknown>;
-          for (let i = 0; i < fields.length; i++) {
-            const fkField = fields[i] as string;
-            const refField = references[i] as string;
-            // Wrap in { set: value } for the set-builder
-            result[fkField] = { set: connectInput[refField] };
-          }
-        }
-
-        // Handle disconnect: set FK to NULL
-        if (mutation.disconnect !== undefined) {
-          for (const fkField of fields) {
-            result[fkField as string] = { set: null };
-          }
-        }
-      }
-      // Skip other relation operations (they need transaction handling)
-    } else {
-      // Pass through scalar fields
-      result[key] = value;
-    }
-  }
-
-  return result;
-}
-
-/**
  * Build SQL for update operation (single record by unique key)
  *
  * @param ctx - Query context
@@ -129,13 +63,15 @@ export function buildUpdateStatement(
   const { adapter } = ctx;
   const tableName = getTableName(ctx.model);
 
-  // Process relation operations (connect/disconnect) to FK assignments
-  const processedData = processRelationOperations(ctx, args.data);
-
-  // Build SET clause with processed data
+  // `data` is COMPILED input: the record compilers lower every relation
+  // mutation into scalar assignments or membership Parts before this leaf, so
+  // the SET clause trusts what it is handed. The relation interpreter that once
+  // sat here re-derived FK assignments below the canonical program boundary and
+  // silently dropped every other relation kind — deleted, with all ten callers
+  // audited scalar-only.
   const setSql = buildSet(
     ctx,
-    processedData,
+    args.data,
     undefined,
     args.polymorphicStorage ?? []
   );

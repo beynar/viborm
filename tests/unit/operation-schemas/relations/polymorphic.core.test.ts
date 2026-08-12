@@ -208,6 +208,17 @@ const _nonFreshTypeExactness = () => {
 const accepts = (schema: Parameters<typeof parse>[0], value: unknown) =>
   parse(schema, value).issues === undefined;
 
+const refusalOf = (schema: Parameters<typeof parse>[0], value: unknown) =>
+  parse(schema, value).issues?.[0]?.message;
+
+/** The two sentences the direct surface now refuses with — the lattice's own. */
+const CREATE_INTENT_MISSING =
+  "Missing to-one operation: expected exactly one of connect, create, connectOrCreate";
+const REQUIRED_UPDATE_INTENT_MISSING =
+  "Missing to-one operation: expected exactly one of connect, create, connectOrCreate, update, upsert";
+const OPTIONAL_UPDATE_INTENT_MISSING =
+  "Missing to-one operation: expected exactly one of connect, create, connectOrCreate, update, upsert, delete, disconnect";
+
 describe("polymorphic operation schema factories", () => {
   test("registry composes direct polymorphic inputs without exposing storage columns", () => {
     expect(
@@ -607,12 +618,16 @@ describe("polymorphic operation schema factories", () => {
         },
       })
     ).toBe(true);
+    // TRANSLATED (Phase 8.3): two intents used to miss every member of a union of
+    // per-(type × verb) objects; they are now counted by the to-one lattice owner in
+    // its `exactlyOne` mode and refused in that owner's voice. Same refusal, one
+    // sentence, and it names the two intents.
     expect(
-      accepts(schema, {
+      refusalOf(schema, {
         connect: { type: "post", where: { id: "p1" } },
         create: { type: "post", data: { id: "p2", title: "second" } },
       })
-    ).toBe(false);
+    ).toBe("Unsupported to-one operation combination: connect, create");
     expect(
       accepts(schema, {
         connect: { type: "post", where: { duration: 12 } },
@@ -630,9 +645,18 @@ describe("polymorphic operation schema factories", () => {
         connect: { type: "video", where: { id: "v1" } },
       })
     ).toBe(true);
-    expect(accepts(required, { disconnect: true })).toBe(false);
+    // TRANSLATED (Phase 8.3): a required membership owns no removal KEY, so its
+    // refusal is now the object's unknown-key answer rather than a union miss.
+    expect(refusalOf(required, { disconnect: true })).toBe(
+      "Unknown key: disconnect"
+    );
     expect(accepts(optional, { disconnect: true })).toBe(true);
-    expect(accepts(optional, { disconnect: false })).toBe(false);
+    // TRANSLATED (Phase 8.3): `false` is inactive for a BOOLEAN verb; direct
+    // polymorphic `disconnect` is a `true` literal, so the payload schema answers
+    // before the lattice ever counts it — as it did under the union.
+    expect(refusalOf(optional, { disconnect: false })).toBe(
+      "Expected literal: true"
+    );
     for (const mutation of [
       { create: { type: "post", data: { id: "p2", title: "new" } } },
       {
@@ -731,6 +755,113 @@ describe("polymorphic operation schema factories", () => {
         video: { select: { id: true }, omit: { duration: true } },
       })
     ).toBe(false);
+  });
+});
+
+/**
+ * PHASE 8.3 — the direct polymorphic surface now composes through the to-one lattice
+ * owner in its `exactlyOne` mode, and these are the sentences that mode owns.
+ *
+ * Both refusals below EXISTED before the mode did; what changed is whose words
+ * state them. The empty payload used to miss every member of a union with no empty
+ * arm — including the presence corner: `requiresOneOfKeySets` is PRESENCE-based, so
+ * `{ subject: {} }` satisfied a required membership, and only the per-verb union's
+ * own refusal stood between it and an internal engine error no test pinned. A
+ * lattice whose empty arm parses clean would have opened that hole; `exactlyOne`
+ * forecloses it, and the second witness here pins the corner in the lattice's voice.
+ */
+describe("direct polymorphic payloads carry exactly one intent", () => {
+  test("an empty payload names no target for a membership that may be required", () => {
+    expect(refusalOf(createInputSchema, {})).toBe(CREATE_INTENT_MISSING);
+    // Prisma parity: an explicitly-undefined key is ABSENT, so it is inactive too.
+    expect(refusalOf(createInputSchema, { connect: undefined })).toBe(
+      CREATE_INTENT_MISSING
+    );
+    expect(
+      refusalOf(polymorphicUpdateFactory(requiredState, targetSchemas), {})
+    ).toBe(REQUIRED_UPDATE_INTENT_MISSING);
+    expect(refusalOf(optionalUpdateInputSchema, {})).toBe(
+      OPTIONAL_UPDATE_INTENT_MISSING
+    );
+  });
+
+  test("the required-membership corner refuses at parse, not in the engine", () => {
+    // `{ subject: {} }` SPELLS the required key, so the model's presence-based
+    // key-set requirement is satisfied and the membership schema is what answers.
+    const refusal = parse(registry.proxy.requiredOwner.core.create, {
+      id: "owner-1",
+      subject: {},
+    });
+    expect(refusal.issues?.[0]?.message).toBe(CREATE_INTENT_MISSING);
+    expect(refusal.issues?.[0]?.path).toEqual(["subject"]);
+    // The membership is still REQUIRED: omitting the key answers with the model's
+    // own sentence, which this change does not touch.
+    expect(
+      accepts(registry.proxy.requiredOwner.core.create, { id: "owner-1" })
+    ).toBe(false);
+  });
+
+  test("two intents are refused wherever the surface can spell two", () => {
+    expect(
+      refusalOf(optionalUpdateInputSchema, {
+        disconnect: true,
+        connect: { type: "post", where: { id: "p1" } },
+      })
+    ).toBe("Unsupported to-one operation combination: connect, disconnect");
+    // A vacate-then-supply and a supply-then-modify are both ACCEPTED compositions
+    // on an ordinary to-one. They are refused here because the engine's resolver
+    // takes one intent per payload: admitting them would silently drop the rest.
+    expect(
+      refusalOf(optionalUpdateInputSchema, {
+        connect: { type: "post", where: { id: "p1" } },
+        update: { type: "post", data: { title: "changed" } },
+      })
+    ).toBe("Unsupported to-one operation combination: connect, update");
+    expect(
+      refusalOf(optionalUpdateInputSchema, {
+        delete: { type: "post" },
+        create: { type: "post", data: { id: "p2", title: "new" } },
+      })
+    ).toBe("Unsupported to-one operation combination: create, delete");
+  });
+
+  test("one intent parses to the single-key envelope the engine reads", () => {
+    // `resolvePolymorphicMutationIntent` finds the operation with `Object.hasOwn`,
+    // so the parsed payload must carry the ONE named verb and no absent siblings.
+    const parsed = parse(optionalUpdateInputSchema, {
+      connect: { type: "post", where: { id: "p1" } },
+    });
+    expect(parsed.issues).toBeUndefined();
+    if (!parsed.issues) {
+      expect(parsed.value).toEqual({
+        connect: { type: "post", where: { id: "p1" } },
+      });
+      expect(Object.keys(parsed.value as object)).toEqual(["connect"]);
+    }
+    const disconnected = parse(optionalUpdateInputSchema, { disconnect: true });
+    expect(disconnected.issues).toBeUndefined();
+    if (!disconnected.issues) {
+      expect(disconnected.value).toEqual({ disconnect: true });
+    }
+  });
+
+  test("the update arm still requires the discriminator its engine step addresses", () => {
+    // Each verb payload is a union over the configured public types, so a shape miss
+    // is answered by that union — the discriminator is required in every member.
+    expect(
+      refusalOf(optionalUpdateInputSchema, {
+        update: { data: { title: "changed" } },
+      })
+    ).toContain("Missing required field: type");
+    expect(
+      accepts(optionalUpdateInputSchema, {
+        update: {
+          type: "post",
+          where: { title: "old" },
+          data: { title: "changed" },
+        },
+      })
+    ).toBe(true);
   });
 });
 

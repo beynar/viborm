@@ -114,7 +114,7 @@ function isConcreteFkValue(value: unknown): boolean {
  * The pinned unique target whose violation is the raceable create-branch signal —
  * present only for a PLAIN unique selector.
  *
- * N6-U1 widened the nested `upsert` selector, which makes the root's rule
+ * The nested `upsert` selector admits an extended target, which makes the root's rule
  * ({@link UpsertOperation.createArmRacePin}) reachable one level down, and the
  * argument is unchanged by depth: a `racePin` claims "the probe proved unique key K
  * was free, so a violation on K means someone else took it between our read and our

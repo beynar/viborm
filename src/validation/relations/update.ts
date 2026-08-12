@@ -1,24 +1,24 @@
 // Relation Update Schemas
 
 import type { AnyModel } from "@schema/model";
-import type {
-  GetInverseRelationMap,
-  RelationState,
-} from "@schema/relation/types";
-import { getInverseRelationMap as getInverseRelationMapRuntime } from "@schema/relation/types";
-import type { ScalarSchemas } from "../model";
-import { getNestedScalarCreateWithOmittedRequiredKeys } from "../model/core/create";
+import {
+  type MembershipCanBeCleared,
+  membershipCanBeCleared,
+  type SlotMayBeEmpty,
+  slotMayBeEmpty,
+} from "@schema/relation/clearability";
+import type { RelationState } from "@schema/relation/types";
 import { createSchema, fail, ok, validateSchema } from "../primitives/helpers";
 import v, { type V } from "../primitives/v";
 import type { VibSchema } from "../types";
-import type {
-  CreateManyDataSchema,
-  CreateWithOmittedFk,
-  InverseRequiredKeys,
-  NestedCreateManySchema,
-} from "./create";
+import type { NestedCreateManySchema } from "./create";
 import { applyCreateManyAvailability } from "./create-many-availability";
 import type { GetTargetSchemas, SchemaGetter, TargetModel } from "./helpers";
+import {
+  nestedRelationDataProjection,
+  type ProjectedNestedCreate,
+  type ProjectedNestedUpdate,
+} from "./nested-data-projection";
 import {
   type ToOneMutationSchema,
   toOneMutationSchema,
@@ -69,13 +69,19 @@ export type ToOneUpdateTargetWithDataSchema<
   UpdateSchema extends V.Object<any, any>,
 > = V.Union<readonly [ToOneUpdateWrapperSchema<S, UpdateSchema>, UpdateSchema]>;
 
-export type ToOneUpdateTargetSchema<S extends RelationState> =
-  ToOneUpdateTargetWithDataSchema<S, GetTargetSchemas<S>["core"]["update"]>;
-
-export function toOneUpdateTargetFactory<
+export type ToOneUpdateTargetSchema<
   S extends RelationState,
-  T extends SchemaGetter<S>,
->(targetSchemas: T): ToOneUpdateTargetSchema<S>;
+  Source extends AnyModel,
+> = ToOneUpdateTargetWithDataSchema<S, ProjectedNestedUpdate<S, Source>>;
+
+/**
+ * `getUpdateSchema` is REQUIRED — nested update data is always built from the
+ * relation's nested-data projection ({@link ProjectedNestedUpdate}: the omitted-FK
+ * schema for an ordinary edge, the omitted-relation-key one for a polymorphic
+ * inverse). The optional parameter this used to take defaulted to the target's bare
+ * `core.update`, which is precisely the schema that let a caller spell the enclosing
+ * relation's foreign key (N1).
+ */
 export function toOneUpdateTargetFactory<
   S extends RelationState,
   T extends SchemaGetter<S>,
@@ -83,16 +89,8 @@ export function toOneUpdateTargetFactory<
 >(
   targetSchemas: T,
   getUpdateSchema: () => UpdateSchema
-): ToOneUpdateTargetWithDataSchema<S, UpdateSchema>;
-export function toOneUpdateTargetFactory<
-  S extends RelationState,
-  T extends SchemaGetter<S>,
-  UpdateSchema extends V.Object<any, any>,
->(
-  targetSchemas: T,
-  getUpdateSchema?: () => UpdateSchema
 ): ToOneUpdateTargetWithDataSchema<S, UpdateSchema> {
-  const updateSchema = () => getUpdateSchema?.() ?? targetSchemas().core.update;
+  const updateSchema = getUpdateSchema;
   const wrapper = v.object(
     {
       where: () => targetSchemas().core.where,
@@ -153,20 +151,20 @@ type ToOneUpdateEntriesBase<
   S extends RelationState,
   Source extends AnyModel,
 > = {
-  create: () => CreateWithOmittedFk<S, Source>;
+  create: () => ProjectedNestedCreate<S, Source>;
   connect: () => GetTargetSchemas<S>["core"]["whereUnique"];
   connectOrCreate: V.Object<
     {
       where: () => GetTargetSchemas<S>["core"]["whereUnique"];
-      create: () => CreateWithOmittedFk<S, Source>;
+      create: () => ProjectedNestedCreate<S, Source>;
     },
     { partial: false }
   >;
-  update: () => ToOneUpdateTargetSchema<S>;
+  update: () => ToOneUpdateTargetSchema<S, Source>;
   upsert: V.Object<
     {
-      create: () => CreateWithOmittedFk<S, Source>;
-      update: () => GetTargetSchemas<S>["core"]["update"];
+      create: () => ProjectedNestedCreate<S, Source>;
+      update: () => ProjectedNestedUpdate<S, Source>;
     },
     { partial: false }
   >;
@@ -179,49 +177,6 @@ type ToOneUpdateSchemaDisconnect = V.Object<{
 type ToOneUpdateSchemaDelete = V.Object<{
   delete: V.Boolean;
 }>;
-
-type NullableScalarKeys<Model extends AnyModel> = {
-  [Key in keyof Model["~"]["state"]["scalars"]]: Model["~"]["state"]["scalars"][Key]["~"]["state"] extends {
-    nullable: true;
-  }
-    ? Key
-    : never;
-}[keyof Model["~"]["state"]["scalars"]];
-
-type InverseMembershipCanBeCleared<
-  S extends RelationState,
-  Source extends AnyModel,
-> = Extract<
-  GetInverseRelationMap<S, Source>,
-  readonly string[]
-> extends infer Fields
-  ? [Fields] extends [never]
-    ? false
-    : Fields extends readonly string[]
-      ? [Fields[number]] extends [never]
-        ? false
-        : Exclude<
-              Fields[number],
-              NullableScalarKeys<TargetModel<S>>
-            > extends never
-          ? true
-          : false
-      : false
-  : false;
-
-function inverseMembershipCanBeCleared(
-  state: RelationState,
-  source: AnyModel
-): boolean {
-  const inverseFields: unknown = getInverseRelationMapRuntime(state, source);
-  if (!Array.isArray(inverseFields) || inverseFields.length === 0) return false;
-  const targetModel = state.getter();
-  return inverseFields.every(
-    (field) =>
-      typeof field === "string" &&
-      targetModel["~"].state.scalars[field]?.["~"].state.nullable === true
-  );
-}
 
 type IsFieldsLessInverseOneToOne<S extends RelationState> =
   S["type"] extends "oneToOne"
@@ -236,30 +191,40 @@ type IsChildHeldToOne<S extends RelationState> = S extends {
   ? false
   : true;
 
+/**
+ * The two facts, read as the two availability rules they are: `delete` follows the
+ * SLOT (this branch is only reached when it may be empty), `disconnect` follows the
+ * MEMBERSHIP. They coincide on every shape except the one this conditional exists
+ * for — a fields-less inverse whose child-side foreign key cannot be nulled.
+ */
 type OptionalToOneUpdateEntries<
   S extends RelationState,
   Source extends AnyModel,
-> = IsFieldsLessInverseOneToOne<S> extends true
-  ? ToOneUpdateSchemaDelete["entries"] &
-      (InverseMembershipCanBeCleared<S, Source> extends true
-        ? ToOneUpdateSchemaDisconnect["entries"]
-        : Record<never, never>)
-  : ToOneUpdateSchemaDisconnect["entries"] & ToOneUpdateSchemaDelete["entries"];
+> =
+  IsFieldsLessInverseOneToOne<S> extends true
+    ? ToOneUpdateSchemaDelete["entries"] &
+        (MembershipCanBeCleared<S, Source> extends true
+          ? ToOneUpdateSchemaDisconnect["entries"]
+          : Record<never, never>)
+    : ToOneUpdateSchemaDisconnect["entries"] &
+        ToOneUpdateSchemaDelete["entries"];
 
 export type ToOneUpdateSchema<
   S extends RelationState,
   Source extends AnyModel,
-> = S["optional"] extends true
-  ? ToOneMutationSchema<
-      OptionalToOneUpdateEntries<S, Source> & ToOneUpdateEntriesBase<S, Source>,
-      undefined,
-      IsChildHeldToOne<S>
-    >
-  : ToOneMutationSchema<
-      ToOneUpdateEntriesBase<S, Source>,
-      undefined,
-      IsChildHeldToOne<S>
-    >;
+> =
+  SlotMayBeEmpty<S> extends true
+    ? ToOneMutationSchema<
+        OptionalToOneUpdateEntries<S, Source> &
+          ToOneUpdateEntriesBase<S, Source>,
+        undefined,
+        IsChildHeldToOne<S>
+      >
+    : ToOneMutationSchema<
+        ToOneUpdateEntriesBase<S, Source>,
+        undefined,
+        IsChildHeldToOne<S>
+      >;
 
 export const toOneUpdateFactory = <
   S extends RelationState,
@@ -270,10 +235,19 @@ export const toOneUpdateFactory = <
   source: Source,
   targetSchemas: T
 ): ToOneUpdateSchema<S, Source> => {
-  const getCreateSchema = () => {
-    const fkFields = getInverseRelationMapRuntime(state, source);
-    return v.omit(targetSchemas().core.create, fkFields);
-  };
+  const projection = nestedRelationDataProjection(state, source, targetSchemas);
+  const getCreateSchema = projection.getCreateSchema;
+  // The same owner, applied to nested UPDATE data. See
+  // {@link ProjectedNestedUpdate} for why the two contexts share one rule.
+  //
+  // This omission is the SINGLE owner of the spelled-owned-FK refusal on every
+  // schema. The engine guard that once backed it up
+  // (`assertOwnedFkAbsentFromUpdateData`, guard-ledger site 11) is deleted: its
+  // only route was a zero-argument `.fields()` this scanner read as truthy while
+  // the engine read length, and both readings now come from one resolver
+  // (`@schema/relation/inverse`), so the divergent payload refuses
+  // here, as `Unknown key`, like every other schema's.
+  const getUpdateSchema = projection.getUpdateSchema;
 
   const connectOrCreateSchema = v.object(
     {
@@ -286,7 +260,7 @@ export const toOneUpdateFactory = <
   const upsertSchema = v.object(
     {
       create: getCreateSchema,
-      update: () => targetSchemas().core.update,
+      update: getUpdateSchema,
     },
     { partial: false }
   );
@@ -295,14 +269,19 @@ export const toOneUpdateFactory = <
     create: getCreateSchema,
     connect: () => targetSchemas().core.whereUnique,
     connectOrCreate: connectOrCreateSchema,
-    // W4-U3: bare data OR `{ where?, data }` — the wrapper's `where` filters the
+    // Bare data OR `{ where?, data }` — the wrapper's `where` filters the
     // currently connected record (see `toOneUpdateTargetFactory`).
-    update: () => toOneUpdateTargetFactory<S, T>(targetSchemas),
+    update: () =>
+      toOneUpdateTargetFactory<S, T, ReturnType<typeof getUpdateSchema>>(
+        targetSchemas,
+        getUpdateSchema
+      ),
     upsert: upsertSchema,
   };
   const isChildHeld = state.fields === undefined || state.fields.length === 0;
 
-  if (state.optional !== true) {
+  // The SLOT fact: a relation that must hold a record owns neither removal verb.
+  if (!slotMayBeEmpty(state)) {
     return toOneMutationSchema(
       baseEntries,
       undefined,
@@ -313,6 +292,12 @@ export const toOneUpdateFactory = <
   const isFieldsLessInverse =
     state.type === "oneToOne" &&
     (state.fields === undefined || state.fields.length === 0);
+  // A PARENT-HELD optional to-one grants `disconnect` from the slot fact alone: the
+  // column that records this membership is on THIS row, which is not what
+  // `membershipCanBeCleared` reads. When that column is not nullable (a shared
+  // primary key is the standing example) the payload is spellable and the engine's
+  // `assertRelationCanDisconnect` is what refuses it — the guard's one public route,
+  // named in the guard-ownership ledger.
   if (!isFieldsLessInverse) {
     return toOneMutationSchema(
       {
@@ -325,8 +310,9 @@ export const toOneUpdateFactory = <
     ) as unknown as ToOneUpdateSchema<S, Source>;
   }
 
-  const membershipCanBeCleared = inverseMembershipCanBeCleared(state, source);
-  return (membershipCanBeCleared
+  // The MEMBERSHIP fact, asked ONLY here: this is the one branch where an empty slot
+  // does not imply a clearable membership.
+  return (membershipCanBeCleared(state, source)
     ? toOneMutationSchema(
         {
           ...baseEntries,
@@ -355,7 +341,7 @@ export const toOneUpdateFactory = <
  */
 
 type ToManyUpdateEntries<S extends RelationState, Source extends AnyModel> = {
-  create: () => V.SingleOrArray<CreateWithOmittedFk<S, Source>>;
+  create: () => V.SingleOrArray<ProjectedNestedCreate<S, Source>>;
   createMany: NestedCreateManySchema<S, Source>;
   connect: () => V.SingleOrArray<GetTargetSchemas<S>["core"]["whereUnique"]>;
   delete: () => V.SingleOrArray<
@@ -365,7 +351,7 @@ type ToManyUpdateEntries<S extends RelationState, Source extends AnyModel> = {
     V.Object<
       {
         where: () => GetTargetSchemas<S>["core"]["whereUnique"];
-        create: () => CreateWithOmittedFk<S, Source>;
+        create: () => ProjectedNestedCreate<S, Source>;
       },
       { partial: false }
     >
@@ -375,7 +361,7 @@ type ToManyUpdateEntries<S extends RelationState, Source extends AnyModel> = {
     V.Object<
       {
         where: () => GetTargetSchemas<S>["core"]["whereUniqueExtended"];
-        data: () => GetTargetSchemas<S>["core"]["update"];
+        data: () => ProjectedNestedUpdate<S, Source>;
       },
       { atLeast: ["where", "data"] }
     >
@@ -384,7 +370,7 @@ type ToManyUpdateEntries<S extends RelationState, Source extends AnyModel> = {
     V.Object<
       {
         where: () => GetTargetSchemas<S>["core"]["where"];
-        data: () => GetTargetSchemas<S>["core"]["update"];
+        data: () => ProjectedNestedUpdate<S, Source>;
       },
       { atLeast: ["data"] }
     >
@@ -393,8 +379,8 @@ type ToManyUpdateEntries<S extends RelationState, Source extends AnyModel> = {
     V.Object<
       {
         where: () => GetTargetSchemas<S>["core"]["whereUniqueExtended"];
-        create: () => CreateWithOmittedFk<S, Source>;
-        update: () => GetTargetSchemas<S>["core"]["update"];
+        create: () => ProjectedNestedCreate<S, Source>;
+        update: () => ProjectedNestedUpdate<S, Source>;
       },
       { partial: false }
     >
@@ -413,7 +399,7 @@ export type ToManyUpdateSchema<
   ToManyUpdateEntries<S, Source> &
     (S["type"] extends "manyToMany"
       ? ToManyDisconnectEntry<S>
-      : InverseMembershipCanBeCleared<S, Source> extends true
+      : MembershipCanBeCleared<S, Source> extends true
         ? ToManyDisconnectEntry<S>
         : Record<never, never>)
 >;
@@ -427,40 +413,21 @@ export const toManyUpdateFactory = <
   source: Source,
   targetSchemas: T
 ): ToManyUpdateSchema<S, Source> => {
-  const getCreateSchema = () => {
-    const fkFields = getInverseRelationMapRuntime(state, source);
-    return v.omit(targetSchemas().core.create, fkFields);
-  };
-
-  const getCreateManyDataSchema = (): CreateManyDataSchema<S, Source> => {
-    const targetModel = state.getter() as TargetModel<S>;
-    const fkFields = (getInverseRelationMapRuntime(state, source) ??
-      []) as InverseRequiredKeys<S, Source>;
-    const schemas = targetSchemas();
-    return getNestedScalarCreateWithOmittedRequiredKeys<
-      TargetModel<S>,
-      ScalarSchemas<TargetModel<S>>,
-      InverseRequiredKeys<S, Source>
-    >(
-      targetModel,
-      {
-        scalars: schemas.scalars,
-        relations: schemas.relations,
-        polymorphic: schemas.polymorphic,
-      },
-      fkFields
-    );
-  };
+  const projection = nestedRelationDataProjection(state, source, targetSchemas);
+  const getCreateSchema = projection.getCreateSchema;
+  // N1 — see the to-one factory above and {@link ProjectedNestedUpdate}.
+  const getUpdateSchema = projection.getUpdateSchema;
 
   const createManySchema = applyCreateManyAvailability(
     state.getter() as TargetModel<S>,
     v.object(
       {
-        data: () => v.array(getCreateManyDataSchema()),
+        data: () => v.array(projection.getCreateManyDataSchema()),
         skipDuplicates: v.boolean({ optional: true }),
       },
       { atLeast: ["data"] }
-    )
+    ),
+    projection.satisfiedPolymorphicRelation
   );
 
   const connectOrCreateSchema = v.object(
@@ -474,7 +441,7 @@ export const toManyUpdateFactory = <
   const updateSchema = v.object(
     {
       where: () => targetSchemas().core.whereUniqueExtended,
-      data: () => targetSchemas().core.update,
+      data: getUpdateSchema,
     },
     { atLeast: ["where", "data"] }
   );
@@ -482,7 +449,7 @@ export const toManyUpdateFactory = <
   const updateManySchema = v.object(
     {
       where: () => targetSchemas().core.where,
-      data: () => targetSchemas().core.update,
+      data: getUpdateSchema,
     },
     { atLeast: ["data"] }
   );
@@ -491,13 +458,16 @@ export const toManyUpdateFactory = <
     {
       where: () => targetSchemas().core.whereUniqueExtended,
       create: getCreateSchema,
-      update: () => targetSchemas().core.update,
+      update: getUpdateSchema,
     },
     { partial: false }
   );
 
+  // A `manyToMany` membership always clears (the junction row goes, no column is
+  // nulled), and every other edge asks the clearability owner. A polymorphic inverse
+  // is never `manyToMany`, so its clearability alone decides — one expression.
   const canDisconnect =
-    state.type === "manyToMany" || inverseMembershipCanBeCleared(state, source);
+    state.type === "manyToMany" || membershipCanBeCleared(state, source);
   const disconnectEntry = canDisconnect
     ? {
         disconnect: () => v.singleOrArray(targetSchemas().core.whereUnique),

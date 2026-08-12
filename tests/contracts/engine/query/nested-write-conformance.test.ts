@@ -4176,7 +4176,11 @@ const numericDependencyScenarios: Scenario<NumericDependencySchema>[] = [
         where: { id: 1 },
         data: {
           profile: {
-            update: { ownerId: null },
+            // N1 — the modify is a plain scalar assignment. It used to be
+            // `{ ownerId: null }`, which the parse boundary now refuses on its own
+            // (the relation owns that column), so the case would no longer reach the
+            // composition rule it exists to measure.
+            update: { bio: "mutated" },
             // @ts-expect-error - a mutator cannot compose with upsert
             upsert: {
               create: { id: 2, bio: "created" },

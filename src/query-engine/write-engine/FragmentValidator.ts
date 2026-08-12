@@ -1,12 +1,11 @@
 // biome-ignore-all lint/style/useFilenamingConvention: FragmentValidator is the architecture name.
 import { QueryEngineError } from "@errors";
-import type { Sql } from "@sql";
 import {
   type GuardStep,
-  isOperationValueReference,
   type OperationFragment,
   type OperationStep,
-  type OperationValueReference,
+  type PlanningFragment,
+  statementReferences,
 } from "./OperationFragment";
 
 interface StepRecord {
@@ -21,10 +20,16 @@ interface StepRecord {
  * fragment is a typed error, never a silent execution. This is a check on
  * compiler output — cheap enough to run every time — not a defensive parser.
  */
-export function validateFragment(fragment: OperationFragment): void {
+export function validateFragment(
+  fragment: OperationFragment | PlanningFragment
+): void {
   const records = indexSteps(fragment.steps);
   assertBackwardLocalReferences(fragment.steps, records);
-  assertOutputsResolvable(fragment, records);
+  // A planning fragment declares no outputs — its publication is derived from
+  // the steps themselves, so there is nothing that could fail to resolve.
+  if ("outputs" in fragment) {
+    assertOutputsResolvable(fragment, records);
+  }
   assertGuardPinRule(fragment.steps);
 }
 
@@ -54,7 +59,7 @@ function assertBackwardLocalReferences(
   steps.forEach((step, index) => {
     const statement =
       step.kind === "guard" ? step.premise.statement : step.statement;
-    for (const reference of collectReferences(statement)) {
+    for (const reference of statementReferences(statement)) {
       const producer = records.get(reference.step);
       if (!producer) {
         throw new QueryEngineError(
@@ -115,8 +120,4 @@ function assertGuardRaceability(guard: GuardStep): void {
       `Guard '${guard.id}' is a raceable: false notExists guard — the production-FATAL create-branch pin the Pin Rule forbids.`
     );
   }
-}
-
-function collectReferences(statement: Sql): OperationValueReference[] {
-  return statement.values.filter(isOperationValueReference);
 }

@@ -367,7 +367,7 @@ const DEFECT: CodeVerdict = { expected: false, retryable: false };
 
 /**
  * The taxonomy's disposition, code by code — the ONE place expected-vs-defect and
- * retryable-vs-not are decided, and the reason the W5-U2 bug class is now a compile error:
+ * retryable-vs-not are decided, and the reason a missing disposition is now a compile error:
  * the `default` arm binds `code` to `never`, so adding a member to {@link VibORMErrorCode}
  * without giving it a disposition does not build.
  *

@@ -1,12 +1,9 @@
-import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
-import type { AnyDriver, BatchQuery, QueryResult } from "@drivers";
+import type { AnyDriver } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
-import type { PGlite, Transaction } from "@electric-sql/pglite";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
-import { hydrateSchemaNames } from "@schema";
+import { hydrateSchemaNames, s } from "@schema";
 import type { Model } from "@schema/model";
-import { createSchemaRegistry } from "@validation";
-import { describe, expect, test } from "vitest";
+import { validateSchemaOrThrow } from "@schema/validation";
 import { CreateOperation } from "@src/query-engine/write-engine/CreateOperation";
 import {
   isOperationValueReference,
@@ -17,7 +14,6 @@ import {
 } from "@src/query-engine/write-engine/OperationFragment";
 import { UpdateOperation } from "@src/query-engine/write-engine/UpdateOperation";
 import { UpsertOperation } from "@src/query-engine/write-engine/UpsertOperation";
-import { nestedWriteBehaviorSchema } from "@tests/fixtures/nested-write-behavior-schema";
 import { createJunctionUpsertSchema } from "@tests/contracts/engine/write/create-junction-upsert-behavior";
 import { producedIdentitySchema as junctionIdentitySchema } from "@tests/contracts/engine/write/junction-produced-identity-behavior";
 import { locatedParentRefSchema } from "@tests/contracts/engine/write/located-parent-ref-behavior";
@@ -27,8 +23,111 @@ import {
   correlatedUpsertArgs,
   updateSliceSchema,
 } from "@tests/contracts/engine/write/update-nested-upsert-behavior";
+import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
+import { nestedWriteBehaviorSchema } from "@tests/fixtures/nested-write-behavior-schema";
+import { publishedOutputs } from "@tests/fixtures/planning-published";
+import { createSchemaRegistry } from "@validation";
+import { describe, expect, test } from "vitest";
 
 hydrateSchemaNames(nestedWriteBehaviorSchema);
+
+/** PACKAGE G — an inverse to-one whose child's ROW KEY has two members and is not the
+ *  correlation, so the found arm's address can only come from the captured row. */
+const compoundUpsertSchema = (() => {
+  const owner = s
+    .model({
+      id: s.string().id(),
+      name: s.string(),
+      slot: s.oneToOne(() => slot).optional(),
+    })
+    .map("g_compound_owners");
+  const slot = s
+    .model({
+      tenantId: s.string(),
+      code: s.string(),
+      note: s.string(),
+      ownerId: s.string().unique().nullable(),
+      owner: s
+        .oneToOne(() => owner)
+        .fields("ownerId")
+        .references("id")
+        .optional(),
+    })
+    .id(["tenantId", "code"])
+    .map("g_compound_slots");
+  return { owner, slot };
+})();
+hydrateSchemaNames(compoundUpsertSchema);
+
+/** PACKAGE G — an inverse to-one whose child's row key is an INT, the only shape that
+ *  can spell a NON-PORTABLE primary-key update operation. This is the schema the §3.1
+ *  timing witness below needs: a string key accepts only `set`, so its single-operation
+ *  rule can never be broken. */
+const portabilityUpsertSchema = (() => {
+  const owner = s
+    .model({
+      id: s.string().id(),
+      name: s.string(),
+      slot: s.oneToOne(() => slot).optional(),
+    })
+    .map("g_portable_owners");
+  const slot = s
+    .model({
+      id: s.int().id(),
+      note: s.string(),
+      ownerId: s.string().unique().nullable(),
+      owner: s
+        .oneToOne(() => owner)
+        .fields("ownerId")
+        .references("id")
+        .optional(),
+    })
+    .map("g_portable_slots");
+  return { owner, slot };
+})();
+hydrateSchemaNames(portabilityUpsertSchema);
+
+/** PACKAGE G — an ORDINARY inverse to-one whose child carries its OWN direct
+ *  polymorphic field. A `disconnect` there resolves to an intent with no relation
+ *  program, so it exists only in the third parsed member. */
+const polymorphicArmSchema = (() => {
+  const owner = s
+    .model({
+      id: s.string().id(),
+      name: s.string(),
+      card: s.oneToOne(() => card).optional(),
+    })
+    .map("g_poly_owners");
+  const article = s
+    .model({ id: s.string().id(), title: s.string() })
+    .map("g_poly_articles");
+  const clip = s
+    .model({ id: s.string().id(), title: s.string() })
+    .map("g_poly_clips");
+  const card = s
+    .model({
+      id: s.string().id(),
+      body: s.string(),
+      ownerId: s.string().unique().nullable(),
+      owner: s
+        .oneToOne(() => owner)
+        .fields("ownerId")
+        .references("id")
+        .optional(),
+      subject: s
+        .polymorphic(
+          { article: () => article, clip: () => clip },
+          { values: { article: "poly.article.v1", clip: "poly.clip.v1" } }
+        )
+        .optional(),
+    })
+    .map("g_poly_cards");
+  return { owner, article, clip, card };
+})();
+hydrateSchemaNames(polymorphicArmSchema);
+// Polymorphic private storage is registered by the schema validation rule, not by
+// hydration; without it the parse never sees a polymorphic payload at all.
+validateSchemaOrThrow(polymorphicArmSchema);
 
 function engineFor(
   driver: AnyDriver,
@@ -138,14 +237,14 @@ function fragmentContract(
             ...effects(current),
           }
     ),
-    outputs: normalized(fragment.outputs),
+    outputs: normalized(publishedOutputs(fragment)),
   };
 }
 
 function outputContract(
   fragment: PlanningFragment | OperationFragment
 ): unknown {
-  return normalized(fragment.outputs);
+  return normalized(publishedOutputs(fragment));
 }
 
 const terminalExpectation = (operation: "create" | "update") => ({
@@ -219,10 +318,12 @@ describe("one record, one compiler parity", () => {
         racePin: null,
         onUniqueConflict: null,
       });
-      expect(prepared(driver, statementStep(planning, "profile.find"))).toEqual({
-        sql: `SELECT "t0"."id" AS "id" FROM "nested_behavior_profiles" AS "t0" WHERE "t0"."userId" = $1 ORDER BY "t0"."id" ASC LIMIT $2${substrate.batch ? "" : " FOR UPDATE"}`,
-        params: [reference("user.locate", "id"), 1],
-      });
+      expect(prepared(driver, statementStep(planning, "profile.find"))).toEqual(
+        {
+          sql: `SELECT "t0"."id" AS "id" FROM "nested_behavior_profiles" AS "t0" WHERE "t0"."userId" = $1 ORDER BY "t0"."id" ASC LIMIT $2${substrate.batch ? "" : " FOR UPDATE"}`,
+          params: [reference("user.locate", "id"), 1],
+        }
+      );
       expect(effects(statementStep(planning, "profile.find"))).toEqual({
         outputs: {
           rows: { kind: "rows" },
@@ -254,22 +355,22 @@ describe("one record, one compiler parity", () => {
           : ["profile.update", "user.select"]
       );
       if (substrate.batch) {
-        expect(
-          guardContract(driver, step(found, "user.guard.exists"))
-        ).toEqual({
-          id: "user.guard.exists",
-          premise: {
-            kind: "exists",
-            sql: 'SELECT "t0"."id" AS "id" FROM "nested_behavior_users" AS "t0" WHERE "t0"."id" = $1 LIMIT 1',
-            params: ["u1"],
-          },
-          failure: {
-            kind: "notFound",
-            message:
-              "query-engine-v2 update located no 'user' row for its unique where.",
-            raceable: false,
-          },
-        });
+        expect(guardContract(driver, step(found, "user.guard.exists"))).toEqual(
+          {
+            id: "user.guard.exists",
+            premise: {
+              kind: "exists",
+              sql: 'SELECT "t0"."id" AS "id" FROM "nested_behavior_users" AS "t0" WHERE "t0"."id" = $1 LIMIT 1',
+              params: ["u1"],
+            },
+            failure: {
+              kind: "notFound",
+              message:
+                "query-engine-v2 update located no 'user' row for its unique where.",
+              raceable: false,
+            },
+          }
+        );
         expect(
           guardContract(driver, step(found, "profile.guard.exists"))
         ).toEqual({
@@ -319,7 +420,9 @@ describe("one record, one compiler parity", () => {
           ? ["user.guard.exists", "profile.create", "user.select"]
           : ["profile.create", "user.select"]
       );
-      expect(prepared(driver, statementStep(missing, "profile.create"))).toEqual({
+      expect(
+        prepared(driver, statementStep(missing, "profile.create"))
+      ).toEqual({
         sql: 'INSERT INTO "nested_behavior_profiles" ("id", "bio", "userId") VALUES ($1, $2, CAST($3 AS TEXT))',
         params: ["pr-new", "fresh", "u1"],
       });
@@ -374,13 +477,328 @@ describe("one record, one compiler parity", () => {
       });
     });
 
-    test(`inverse child-held to-one upsert refuses relation-bearing update data before planning (${substrate.name})`, () => {
+    /**
+     * PACKAGE G — the shape this test used to REFUSE. Until G it threw at construction
+     * with an empty statement log:
+     *
+     *   UnsupportedOperationError: query-engine-v2 upsert for relation 'profile' does
+     *   not support nested relation writes in its data.
+     *
+     * The refusal was the last upsert arm that did not delegate to the record compiler;
+     * every other one (root, to-many, parent-held to-one) already did. So the claim
+     * here is CONVERGENCE, not merely "it compiles": for the same relation-bearing
+     * payload the found arm emits exactly what the sibling nested `update` kind emits —
+     * same ids, same SQL, same parameters — and the only planning difference is the one
+     * the relation owner is supposed to keep, its own found/missing decision.
+     *
+     * The payload is the deleted test's, deliberately: `user: { connect }` is a
+     * parent-held write on the relation this arm ARRIVED THROUGH, so the found arm
+     * reparents the profile off the parent that located it. That is not new to the
+     * upsert — `buildToOneUpdatePart` has always accepted it — and pinning the same
+     * payload on both kinds is what makes "the upsert now agrees with the update" a
+     * measured fact instead of an assertion. (`userId: "u2"` spelled directly stays
+     * refused — since Package N1 by the PARSE BOUNDARY, which omits the key from
+     * nested update data; the engine guard that once backed it up is deleted
+     * (distinct-truth Phase 2 aligned the two inverse scanners, closing its only
+     * route). Either way the asymmetry is the relation schema's, not this seam's,
+     * and `nested-update-owned-fk.test.ts` owns it on every schema.)
+     */
+    test(`inverse child-held to-one upsert compiles relation-bearing update data as one selected record (${substrate.name})`, () => {
       const driver = substrate.createDriver();
+      const armData = { bio: "updated", user: { connect: { id: "u2" } } };
+      const known = {
+        "user.locate.rows": [{ id: "u1" }],
+        "profile.find.rows": [{ id: "pr1", userId: "u1" }],
+        "user.find.rows": [{ id: "u2" }],
+      };
+
+      const operation = inverseToOneUpsert(driver, armData);
+      const planning = operation.planning();
+      expect(ids(planning)).toEqual([
+        "user.locate",
+        "profile.find",
+        "user.find",
+      ]);
+      // The owner keeps the decision: no expectation may reject planning while the
+      // create arm may still be the one taken, and the located row key stays optional.
+      expect(effects(statementStep(planning, "profile.find"))).toEqual({
+        outputs: {
+          rows: { kind: "rows" },
+          id: { kind: "firstRowField", field: "id", optional: true },
+        },
+        expects: null,
+        racePin: null,
+        onUniqueConflict: null,
+      });
+
+      const found = operation.compile(known);
+      // The write addresses the CAPTURED row key, not the correlation it was found by.
+      expect(prepared(driver, statementStep(found, "profile.update"))).toEqual({
+        sql: 'UPDATE "nested_behavior_profiles" SET "bio" = $1, "userId" = CAST($2 AS TEXT) WHERE "nested_behavior_profiles"."id" = $3 RETURNING "id" AS "id"',
+        params: ["updated", "u2", "pr1"],
+      });
+
+      // Convergence with the nested `update` kind: same steps, same SQL, same
+      // parameters. What stays DIFFERENT is exactly what the relation owner owns —
+      // its found/missing failure wording — asserted positively below rather than
+      // excluded silently.
+      const sibling = updateFor(
+        driver,
+        nestedWriteBehaviorSchema,
+        nestedWriteBehaviorSchema.user,
+        {
+          where: { id: "u1" },
+          data: { profile: { update: armData } },
+          select: { id: true },
+        }
+      );
+      const siblingFound = sibling.compile(known);
+      expect(ids(found)).toEqual(ids(siblingFound));
+      for (const current of found.steps) {
+        const twin = step(siblingFound, current.id);
+        expect(current.kind).toBe(twin.kind);
+        if (current.kind === "guard" && twin.kind === "guard") {
+          const premise = (guard: typeof current) => ({
+            kind: guard.premise.kind,
+            sql: driver._prepare(guard.premise.statement).sql,
+            params: normalized(driver._prepare(guard.premise.statement).params),
+          });
+          expect(premise(current)).toEqual(premise(twin));
+          continue;
+        }
+        if (current.kind === "guard" || twin.kind === "guard") {
+          throw new Error(
+            `Step '${current.id}' changed kind across the seams.`
+          );
+        }
+        expect(prepared(driver, current)).toEqual(prepared(driver, twin));
+        const { expects: _armExpects, ...armEffects } = effects(current);
+        const { expects: _twinExpects, ...twinEffects } = effects(twin);
+        expect(armEffects).toEqual(twinEffects);
+      }
+      // The owner's two failure channels keep the upsert family's wording.
+      if (substrate.batch) {
+        expect(
+          guardContract(driver, step(found, "profile.guard.exists"))
+        ).toMatchObject({
+          failure: {
+            message: "Nested upsert premise changed for relation 'profile'.",
+          },
+        });
+      } else {
+        expect(statementStep(found, "profile.update").expects).toEqual({
+          kind: "affectedRows",
+          expected: 1,
+          failure: {
+            kind: "notFound",
+            message:
+              "Nested upsert target for relation 'profile' vanished before its update.",
+            relation: "profile",
+            raceable: false,
+          },
+        });
+      }
+
+      // …and the untaken arm compiles NOTHING of that subtree.
+      const missing = operation.compile({
+        "user.locate.rows": [{ id: "u1" }],
+        "profile.find.rows": [],
+        "user.find.rows": [],
+      });
+      expect(ids(missing)).toEqual(
+        substrate.batch
+          ? ["user.guard.exists", "profile.create", "user.select"]
+          : ["profile.create", "user.select"]
+      );
+    });
+
+    /**
+     * PACKAGE G — the seam parsed the update arm twice over into two of the three
+     * members it needed: `scalarData` and `relations`. A DIRECT polymorphic
+     * `disconnect` resolves to an intent with NO relation program, so it lived only in
+     * the dropped third member. Measured at a8349793 on this exact payload: the found
+     * arm compiled to `["owner.guard.exists", "owner.select"]` — the relation Part
+     * emitted zero steps, the call succeeded, and the membership was never cleared.
+     * The sibling nested `update` kind, which always forwarded all three, emitted
+     * `card.update` for the same data. This asserts the two now agree.
+     */
+    test(`inverse child-held to-one upsert forwards a program-less polymorphic mutation (${substrate.name})`, () => {
+      const driver = substrate.createDriver();
+      const known = {
+        "owner.locate.rows": [{ id: "o1" }],
+        "card.find.rows": [
+          {
+            id: "c1",
+            ownerId: "o1",
+            subjectId: "a1",
+            subjectType: "poly.article.v1",
+          },
+        ],
+      };
+      const armData = { subject: { disconnect: true } };
+      const upsertArm = updateFor(
+        driver,
+        polymorphicArmSchema,
+        polymorphicArmSchema.owner,
+        {
+          where: { id: "o1" },
+          data: {
+            card: {
+              upsert: {
+                create: { id: "c-new", body: "fresh" },
+                update: armData,
+              },
+            },
+          },
+          select: { id: true },
+        }
+      ).compile(known);
+      const updateArm = updateFor(
+        driver,
+        polymorphicArmSchema,
+        polymorphicArmSchema.owner,
+        {
+          where: { id: "o1" },
+          data: { card: { update: armData } },
+          select: { id: true },
+        }
+      ).compile(known);
+
+      expect(ids(upsertArm)).toEqual(ids(updateArm));
+      expect(ids(upsertArm)).toContain("card.update");
+      expect(prepared(driver, statementStep(upsertArm, "card.update"))).toEqual(
+        prepared(driver, statementStep(updateArm, "card.update"))
+      );
+      // Both private columns are cleared atomically, by the captured row key.
+      expect(prepared(driver, statementStep(upsertArm, "card.update"))).toEqual(
+        {
+          sql: 'UPDATE "g_poly_cards" SET "subject_type" = NULL, "subject_id" = NULL WHERE "g_poly_cards"."id" = $1 RETURNING "id" AS "id"',
+          params: ["c1"],
+        }
+      );
+    });
+
+    /**
+     * PACKAGE G — "the root update addresses the captured complete row key" with a row
+     * key that has TWO members and a decoy row that shares neither. An inverse to-one
+     * has no unique `where`, so nothing about the target is construction-known: every
+     * member of the address can only come from the row the probe captured.
+     */
+    test(`inverse child-held to-one upsert addresses a compound captured row key (${substrate.name})`, () => {
+      const driver = substrate.createDriver();
+      const operation = updateFor(
+        driver,
+        compoundUpsertSchema,
+        compoundUpsertSchema.owner,
+        {
+          where: { id: "o1" },
+          data: {
+            slot: {
+              upsert: {
+                create: { tenantId: "t-new", code: "c-new", note: "fresh" },
+                update: { note: "updated" },
+              },
+            },
+          },
+          select: { id: true },
+        }
+      );
+      expect(
+        prepared(driver, statementStep(operation.planning(), "slot.find")).sql
+      ).toBe(
+        `SELECT "t0"."tenantId" AS "tenantId", "t0"."code" AS "code" FROM "g_compound_slots" AS "t0" WHERE "t0"."ownerId" = $1 ORDER BY "t0"."tenantId" ASC, "t0"."code" ASC LIMIT $2${substrate.batch ? "" : " FOR UPDATE"}`
+      );
+      const found = operation.compile({
+        "owner.locate.rows": [{ id: "o1" }],
+        // The decoy: a row whose members are BOTH different from the create arm's and
+        // from anything derivable from the correlation.
+        "slot.find.rows": [{ tenantId: "t9", code: "c9", ownerId: "o1" }],
+      });
+      expect(prepared(driver, statementStep(found, "slot.update"))).toEqual({
+        sql: 'UPDATE "g_compound_slots" SET "note" = $1 WHERE ("g_compound_slots"."tenantId" = $2 AND "g_compound_slots"."code" = $3) RETURNING "tenantId" AS "tenantId", "code" AS "code"',
+        params: ["updated", "t9", "c9"],
+      });
+      if (substrate.batch) {
+        // The batch premise reasserts the correlation AND every captured member.
+        expect(guardContract(driver, step(found, "slot.guard.exists"))).toEqual(
+          {
+            id: "slot.guard.exists",
+            premise: {
+              kind: "exists",
+              sql: 'SELECT "t0"."tenantId" AS "tenantId", "t0"."code" AS "code" FROM "g_compound_slots" AS "t0" WHERE ("t0"."ownerId" = $1 AND "t0"."tenantId" = $2 AND "t0"."code" = $3) ORDER BY "t0"."tenantId" ASC, "t0"."code" ASC LIMIT $4',
+              params: ["o1", "t9", "c9", 1],
+            },
+            failure: {
+              kind: "nestedWrite",
+              message: "Nested upsert premise changed for relation 'slot'.",
+              relation: "slot",
+              raceable: false,
+            },
+          }
+        );
+      }
+    });
+
+    /**
+     * PACKAGE G — the §3.1 timing change itself, on the ONE assert whose timing moved
+     * for a payload class that used to be ACCEPTED in shape.
+     *
+     * Before G this seam parsed its arm through `parseScalarUpdateData`, which ran all
+     * of `assertPortablePrimaryKeyUpdateInput` at CONSTRUCTION, then refused any payload
+     * carrying relations. So for a RELATION-FREE arm — the only kind that got past that
+     * wall — a non-portable primary-key operation threw with an empty statement log
+     * whether or not the found arm was taken. It now runs in the deferred closure: the
+     * missing arm CREATES, and only the found arm refuses.
+     *
+     * This is deliberately not the `updateMany` payload the sibling deferral test uses.
+     * That one's refusal could never have fired before G (the relations wall answered it
+     * first), so deleting this assert from the closure would leave that test green. This
+     * one names the failure THIS assert alone catches at THIS call site, which is what
+     * the house's one-guard-per-invariant rule asks of every member of the closure.
+     */
+    test(`inverse child-held to-one upsert defers primary-key portability to the found arm (${substrate.name})`, () => {
+      const driver = substrate.createDriver();
+      const armData = { id: { increment: 1, multiply: 2 }, note: "x" };
+      const operation = updateFor(
+        driver,
+        portabilityUpsertSchema,
+        portabilityUpsertSchema.owner,
+        {
+          where: { id: "o1" },
+          data: {
+            slot: {
+              upsert: {
+                create: { id: 9, note: "fresh" },
+                update: armData,
+              },
+            },
+          },
+          select: { id: true },
+        }
+      );
+      // Construction and planning both survive: nothing about the arm is judged yet.
+      expect(ids(operation.planning())).toEqual(["owner.locate", "slot.find"]);
+
+      // MISSING: the create arm runs and the update subtree is never judged.
+      expect(
+        ids(
+          operation.compile({
+            "owner.locate.rows": [{ id: "o1" }],
+            "slot.find.rows": [],
+          })
+        )
+      ).toEqual(
+        substrate.batch
+          ? ["owner.guard.exists", "slot.create", "owner.select"]
+          : ["slot.create", "owner.select"]
+      );
+
+      // FOUND: the same payload is refused, by the assert's own message.
       let failure: unknown;
       try {
-        inverseToOneUpsert(driver, {
-          bio: "updated",
-          user: { connect: { id: "u2" } },
+        operation.compile({
+          "owner.locate.rows": [{ id: "o1" }],
+          "slot.find.rows": [{ id: 4, ownerId: "o1" }],
         });
       } catch (error) {
         failure = error;
@@ -390,10 +808,31 @@ describe("one record, one compiler parity", () => {
           ? { name: failure.name, message: failure.message }
           : failure
       ).toEqual({
-        name: "UnsupportedOperationError",
+        name: "QueryEngineError",
         message:
-          "query-engine-v2 upsert for relation 'profile' does not support nested relation writes in its data.",
+          "Primary key field 'id' accepts exactly one update operation; received increment, multiply.",
       });
+
+      // The sibling `update` kind has no untaken arm, so it keeps refusing eagerly —
+      // the divergence is the branch, not the check.
+      let eager: unknown;
+      try {
+        updateFor(
+          driver,
+          portabilityUpsertSchema,
+          portabilityUpsertSchema.owner,
+          {
+            where: { id: "o1" },
+            data: { slot: { update: armData } },
+            select: { id: true },
+          }
+        ).planning();
+      } catch (error) {
+        eager = error;
+      }
+      expect(eager instanceof Error ? eager.message : eager).toBe(
+        "Primary key field 'id' accepts exactly one update operation; received increment, multiply."
+      );
     });
   }
 

@@ -304,3 +304,28 @@ Proof includes both transaction and forced atomic-batch paths, wrong-row decoys,
 same-operation duplicates, generated identities, compound edges, key
 transitions, and junction membership. PostgreSQL and MySQL suites must be
 reported as not run when Docker is unavailable; skipped is not passed.
+
+## Closing note — the distinct-truth plan executed against this audit
+
+**Added 2026-08-12.** The historical body above is unchanged; this note only
+records what happened next.
+
+`query-engine-distinct-truth-compression-plan.md` took this audit as its
+starting statement and ran phases 0 through 12 against it. It did not revisit
+the rejected shapes — no mutation DSL, payload walker, branch-step IR, locator
+or strategy was proposed or added — and it kept every acceptance rule above:
+public APIs, result types, SQL bytes, parameters, step allocation, execution
+order, guards, race pins, errors and transaction behavior.
+
+What it changed is the number of places a single fact is stated. Relation
+topology became one bound value on three orthogonal axes; the read side gained
+one physical traversal; membership views, cardinality and clearability became
+derived rather than stored. Phase 10 (a compiled selection fact) was
+implemented in its only byte-safe form, MEASURED, and REJECTED at its own gate;
+its falsifier is recorded in `guard-ownership-ledger.md` so it is not re-run on
+the same evidence, and Phase 11, which was conditional on it, did not run. The
+census of what the plan deleted and what it left with one owner is
+`distinct-truth-final-census.md`.
+
+The rule the plan ends on, and the one this audit's successors should apply:
+**one stored topology, several derived views**.
