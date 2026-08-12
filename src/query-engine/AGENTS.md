@@ -88,14 +88,19 @@ once at its trust boundary and pass transformed meaning downstream.
 
 ### Relation topology
 
-`bindRelation` classifies an edge on THREE ORTHOGONAL AXES (distinct-truth
-Phase 4): `position` (`parentHeld` | `childHeld` | `junction`), `cardinality`
-(`one` | `many`), and `membership.kind` (`foreignKey` | `polymorphic` |
-`junction`), with impossible combinations unrepresentable (parent-held is
-always to-one; a junction is always to-many).
+ONE STORED TOPOLOGY, SEVERAL DERIVED VIEWS. `bindRelation` classifies an edge on
+THREE ORTHOGONAL AXES: `position` (`parentHeld` | `childHeld` | `junction`),
+`cardinality` (`one` | `many`), and `membership.kind` (`foreignKey` |
+`polymorphic` | `junction`), with impossible combinations unrepresentable
+(parent-held is always to-one; a junction is always to-many). Cardinality,
+clearability and physical membership are DERIVED from that one stored
+declaration, each by one named owner (`@schema/relation/cardinality`,
+`@schema/relation/clearability`, the bound membership itself) — never
+re-derived inline and never stored twice.
 `BoundRelation` carries ordered topology only — including which model HOLDS the
 membership and which it references, and the foreign/referenced fields paired
-member for member. It does not carry scopes, runtime identities, value sources,
+member for member. That pairing (`membership.members`) is the ONE pairing;
+consumers do not re-pair the two field lists by index. It does not carry scopes, runtime identities, value sources,
 transition state, SQL, or branch policy. Bind at the first topology decision so
 error order and untaken arm behavior do not move; the field pairing is lazy for
 the same reason, because it owns the mismatched-metadata refusal.
@@ -381,7 +386,8 @@ the existing guard; it does not add a statement or round trip.
 | `write-engine/OperationExecutor.ts` | generic fragment execution, including series execution and retry routing |
 | `write-engine/OperationFragment.ts` | step and fragment vocabulary |
 | `builders/relation-mutation-parser.ts` | parsed mutation programs |
-| `builders/relation-data-builder.ts` | bound relation topology |
+| `builders/relation-data-builder.ts` | bound relation topology, and the classifier every entry point goes through |
+| `builders/relation-traversal.ts` | the one read-side physical traversal of a relation occurrence |
 | `builders/polymorphic-relation.ts` | direct member resolution |
 | `builders/polymorphic-read-builder.ts` | direct CASE projection and correlated filters |
 | `builders/polymorphic-mutation.ts` | resolved direct intent and atomic private storage value |

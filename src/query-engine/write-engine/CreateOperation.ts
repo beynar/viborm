@@ -317,7 +317,7 @@ interface RecordIdentity {
   readonly generatedField: string | undefined;
   readonly model: Model<any>;
   /**
-   * N4-U4 — the record's own scalar assignments, so a child edge referencing a
+   * The record's own scalar assignments, so a child edge referencing a
    * NON-primary-key column of this fresh record can read the value the record's INSERT
    * is about to write. The primary key is the identity; a referenced unique is still
    * part of what this fresh row IS.
@@ -326,7 +326,7 @@ interface RecordIdentity {
 }
 
 /**
- * N4-U4 — what a shared-primary-key parent-held edge contributes to its record's
+ * What a shared-primary-key parent-held edge contributes to its record's
  * identity: the resolved primary-key values (a literal, or a `Ref` to the producing
  * before-parent INSERT) and, for the produced case, the write-step id that INSERT must
  * use so the `Ref` and the statement agree.
@@ -396,7 +396,7 @@ export class CreateOperation {
    *  the result) and injects the located parent's FK into its root INSERT. */
   private readonly suppressTerminal: boolean;
   private readonly incomingMembership: RelationMembershipBinding | undefined;
-  /** N4-U2 — the enclosing adopt arm's raceable missing-premise pin, carried by this
+  /** The enclosing adopt arm's raceable missing-premise pin, carried by this
    *  subtree's ROOT record INSERT (the statement that was the arm's own create leaf
    *  before the arm became a subtree). */
   private readonly rootRacePin: TargetConstraintPin | undefined;
@@ -415,11 +415,11 @@ export class CreateOperation {
    * cannot see a pin the owner has not attached yet, and the owner cannot tell a
    * merged statement from an unmerged one.
    *
-   * NOT A PACKAGE M HAZARD — A FIX FOR ONE THAT PREDATES IT, and the reason this
-   * line must survive any revert of M's perf lowering. The tree fold has shipped
-   * since Phase 8.2, and its OTHER conjuncts never objected to an upsert create
-   * arm: an arm whose keys are all APPLICATION-KNOWN carried no
-   * `OperationValueReference`, so it satisfied the pre-M value conjunct too and
+   * NOT A HAZARD OF THE DEPENDENCY LOWERING — A FIX FOR ONE THAT PREDATES IT, and
+   * the reason this line must survive any revert of that lowering. The tree fold has
+   * shipped since Phase 8.2, and its OTHER conjuncts never objected to an upsert
+   * create arm: an arm whose keys are all APPLICATION-KNOWN carried no
+   * `OperationValueReference`, so it satisfied the older value conjunct too and
    * folded. MEASURED at 53622b7a's conjunct set, on PGlite, with a SELF-relation
    * so the child's violation carries the same table and constraint the pin names
    * (`racePinMatches` rejects any other attribution — which is also the true
@@ -448,7 +448,7 @@ export class CreateOperation {
    */
   private readonly annotatedByEnclosingOwner: boolean;
   private readonly armLegalityChecks: (() => void) | undefined;
-  /** N4-U2 — the adopt family's fresh-arm seam, bound to this operation's scope and
+  /** The adopt family's fresh-arm seam, bound to this operation's scope and
    *  engine (an arrow field, so `this` survives being passed as a callback). */
   private readonly createFresh: FreshRecordBuilder = (input) =>
     buildFreshRecordPart(this.scope, this.engine, input);
@@ -787,7 +787,7 @@ export class CreateOperation {
       );
     if (!foldable) return undefined;
     const parent = createQueryScope(this.engine.adapter, this.model);
-    // PACKAGE M — offer the arms to the dependency lowerer, which spells each
+    // Offer the arms to the dependency lowerer, which spells each
     // `OperationValueReference` as the producing arm's CTE column. `undefined`
     // is every reference it cannot spell, and the caller's multi-statement
     // fragment is returned untouched. The root's rebuilt INSERT below carries no
@@ -972,7 +972,7 @@ export class CreateOperation {
         );
       }
       const before = this.buildRecord(childScope, createData, input.txMode);
-      // Package O, cluster 1: the direct-polymorphic arm asks the publication owner
+      // The direct-polymorphic arm asks the publication owner
       // the same question its three ordinary siblings do. The sentence it used to
       // build inline said `query-engine` where they say `query-engine-v2`; nothing
       // pinned that difference and it was not a distinction.
@@ -1009,7 +1009,7 @@ export class CreateOperation {
       );
       if (!missingSource) {
         // ONE SENTENCE, TWO CLASSES — the estate's oldest instance of it, and the
-        // one thing Package O did NOT resolve. This is the `connectOrCreate` twin of
+        // one instance the guard census left unresolved. This is the `connectOrCreate` twin of
         // the `create` arm above: same position, same question, same words, but an
         // engine-fault class instead of a refusal. It shares the owner's message
         // builder so the two cannot drift again; it does not share the owner's
@@ -1160,8 +1160,8 @@ export class CreateOperation {
   }
 
   /**
-   * Resolve a shared-primary-key parent-held edge's PK from the edge's fold (T3c, then
-   * N4-U4). A record whose FK is (part of) its own primary key gets that PK from the
+   * Resolve a shared-primary-key parent-held edge's PK from the edge's fold. A record
+   * whose FK is (part of) its own primary key gets that PK from the
    * edge, not from scalar data, so `planNestedCreateIdentity` would otherwise reject it
    * as "primary key not known before execution" — and that rejection, not the census
    * refusal below it, is what actually stopped this family.
@@ -1169,20 +1169,20 @@ export class CreateOperation {
    * Two provenances, both of them the value the edge's own step ACTS ON:
    *
    *  · **a literal** — a direct-referenced `connect` (the referenced column is in
-   *    `where`) or a `create` spelling the referenced column in its data (T3c);
+   *    `where`) or a `create` spelling the referenced column in its data;
    *  · **a produced `Ref`** — a `create` whose target key the DATABASE generates
-   *    (N4-U4). The target is a before-parent INSERT, so its identity exists as soon as
+   *    The target is a before-parent INSERT, so its identity exists as soon as
    *    that INSERT runs, and the record's own FK column already references it by a
    *    backward `Ref` (`beforeParentFkAssign`). The shared PK is that same column, so
    *    the record's identity — and the terminal read that addresses the created row — is
    *    that same `Ref`. Nothing is re-derived: one produced value, spent everywhere.
    *
    * The `Ref` needs the target's write-step id BEFORE the arms fold (a value the
-   * identity is built from, the N4-U1 allocation-order precedent), so this method
+   * identity is built from, the allocation-order precedent), so this method
    * pre-allocates it and {@link interpretParentHeldCreate} consumes it instead of
    * minting its own.
    *
-   * **E6.3 — `connectOrCreate` is a third source, and it is the SAME literal.** The
+   * **`connectOrCreate` is a third source, and it is the SAME literal.** The
    * arm is a runtime decision, but the value is not: the found arm's foreign key is
    * `connectOrCreate.where`'s referenced literal ({@link CreateOperation.toOneFkAssign}
    * reads that `where`), and the create arm's is the created target's own referenced
@@ -1212,7 +1212,7 @@ export class CreateOperation {
    * for the edge's value — measured at 8c2908d, the operation ran and the terminal read
    * addressed a key no row holds (transaction: the whole unit aborts on the read's
    * postcondition; ATOMIC BATCH: the write COMMITS and the operation then reports an
-   * internal `QueryEngineError`). Deciding at the source is D3's placement rule.
+   * internal `QueryEngineError`). Deciding at the source is the placement rule.
    */
   private resolveSharedPkIdentity(
     childScope: QueryScope,
@@ -1249,7 +1249,7 @@ export class CreateOperation {
       if (!entry) continue;
       const armSpec =
         entry.kind === "connectOrCreate" ? entry.items[0] : undefined;
-      // The value the found arm's foreign key takes, per E6.3's note above.
+      // The value the found arm's foreign key takes, per the `connectOrCreate` note above.
       const agreeWith =
         armSpec && isRecord(armSpec.create) ? armSpec.create : undefined;
       const source =
@@ -1268,20 +1268,18 @@ export class CreateOperation {
         assertSharedPkResolved(childScope, entry.kind, relation, {});
         continue;
       }
-      const { foreignFields, referencedFields } = relation.membership;
-      for (let index = 0; index < foreignFields.length; index += 1) {
-        const foreignField = foreignFields[index]!;
-        const referenced = referencedFields[index]!;
+      for (const { foreignField, referencedField: referenced } of relation
+        .membership.members) {
         if (!recordPk.includes(foreignField)) continue;
         // The literal the fold SPELLS. `isMissingGeneratedIncrement` is the same
         // question `planNestedCreateIdentity` asks one line later: a create payload
         // carries the target's auto-increment key as an ABSENT value, so the key is
         // present-but-unspelled and only the INSERT will know it.
         const spelled = source[referenced];
-        // E6.3: on a `connectOrCreate` the two arms must leave the record holding the
-        // SAME key, so the create arm's own referenced value has to agree with the
-        // `where`'s. `fkEquals` is the comparator E5-U2 chose for exactly this
-        // construction-time question, reused rather than re-derived.
+        // On a `connectOrCreate` the two arms must leave the record holding the SAME
+        // key, so the create arm's own referenced value has to agree with the `where`'s.
+        // `fkEquals` is the comparator for exactly this construction-time question,
+        // reused rather than re-derived.
         const armsAgree =
           agreeWith === undefined || fkEquals(agreeWith[referenced], spelled);
         if (
@@ -1295,7 +1293,7 @@ export class CreateOperation {
           identity[foreignField] = spelled;
           continue;
         }
-        // N4-U4: the target's key is the one its own INSERT will PRODUCE. Pre-allocate
+        // The target's key is the one its own INSERT will PRODUCE. Pre-allocate
         // that INSERT's step id so the record's identity can `Ref` it here, before the
         // arms fold — one id, one producing statement, one value.
         //
@@ -1303,7 +1301,7 @@ export class CreateOperation {
         // the consumer needs at CONSTRUCTION is a reference, not a value, and a produced
         // reference is exactly what {@link CreateOperation.producedReference} mints —
         // registering the demand on the very step id allocated here, so the target's own
-        // INSERT publishes the column when its plan is built a few lines later. E6.3's
+        // INSERT publishes the column when its plan is built a few lines later. The
         // measured obstacle is untouched: a NON-referenced connect's lookup subquery and
         // a `connectOrCreate` whose two arms name different keys still resolve nothing,
         // and still refuse below.
@@ -1412,7 +1410,7 @@ export class CreateOperation {
   private interpretRelation(input: {
     childScope: QueryScope;
     self: RecordIdentity;
-    /** N4-U4 — the write-step id the shared-primary-key identity `Ref`s, when this
+    /** The write-step id the shared-primary-key identity `Ref`s, when this
      *  relation's before-parent `create` is what produces this record's primary key. */
     sharedPkWriteStepId?: string;
     relation: BoundRelation;
@@ -1435,7 +1433,7 @@ export class CreateOperation {
       // admits here — create/createMany/connect/connectOrCreate/upsert — only ADDS
       // membership (ATOM “Relation-owner boundary”).
       //
-      // E5-U1 — `upsert` is the last of them, and it is the beyond-parity superset the
+      // `upsert` is the last of them, and it is the beyond-parity superset the
       // parse boundary has documented since P−1.2: Prisma has no `upsert` in a create
       // input, VibORM accepts one with GLOBAL-LOOKUP, ADOPT-AND-UPDATE semantics. The
       // reason it used to refuse was mechanical and is gone: the junction's correlated
@@ -1462,7 +1460,7 @@ export class CreateOperation {
           relation,
           program,
           parentId: freshParentId,
-          // E5-U1 — this record is being MADE, so it has no membership to read.
+          // This record is being MADE, so it has no membership to read.
           freshParent: true,
           txMode,
           recordCompilers: this.recordCompilers,
@@ -1508,8 +1506,8 @@ export class CreateOperation {
     // mixed-directions conformance scenario and the create-family oracle certify the
     // one-to-one `create`.
     //
-    // E4-U1 — and the fields-less `manyToOne` too, which used to be REFUSED here by a
-    // type-name predicate (`oneToMany || oneToOne`). N7-U-A measured that refusal: a
+    // And the fields-less `manyToOne` too, which used to be REFUSED here by a
+    // type-name predicate (`oneToMany || oneToOne`). That refusal was measured: a
     // `manyToOne` declared without `.fields()` (the inverse side spelled with the
     // many-side helper, its FK resolved from the target's own back-reference) has
     // a child-held position and `type === "manyToOne"`, so it landed here and was refused,
@@ -1526,7 +1524,7 @@ export class CreateOperation {
     // mechanism, not three names: the child INSERTs after the parent with `fk = parent`, and all three
     // create-root kinds the parse admits (`create` / `connect` / `connectOrCreate`) have
     // a child-held arm below. The to-one slot's own contradiction — two kinds naming one
-    // slot — is answered inside `interpretChildHeld` by D5's arity twin, which reads
+    // slot — is answered inside `interpretChildHeld` by the arity twin, which reads
     // the bound to-one kind and so covers the fields-less spelling by construction.
     //
     // No occupied-slot decision belongs here either: this parent is FRESH, so its to-one
@@ -1562,7 +1560,7 @@ export class CreateOperation {
         `query-engine-v2 internal: an uncomposable parent-held to-one payload reached the create dispatch on relation '${relationName}'; it has ${entries.map((entry) => entry.kind).join(", ") || "none"}.`
       );
     }
-    // The shared-primary-key edge is decided in `resolveSharedPkIdentity` (E6.3), which
+    // The shared-primary-key edge is decided in `resolveSharedPkIdentity`, which
     // runs BEFORE this record's identity is planned and refuses there — at the site that
     // manufactures the shared key's source. The check used to stand here and read
     // `input.self.identity`, which by then could hold an application-materialized
@@ -1590,7 +1588,7 @@ export class CreateOperation {
         );
         return;
       default:
-        // Unreachable by construction (N7-U-A, the X1c disposition): `toOneCreateFactory`
+        // Unreachable by construction: `toOneCreateFactory`
         // offers EXACTLY `create` / `connect` / `connectOrCreate`, and the three arms above
         // are total over that set. `update` / `delete` / `disconnect` / `upsert` / `set`
         // under a create root are answered by the parse boundary first
@@ -1679,10 +1677,10 @@ export class CreateOperation {
         `query-engine-v2 internal: parent-held create on relation '${relation.relationInfo.name}' has no item.`
       );
     }
-    // N4-U4: when this record's own primary key IS the foreign key this arm resolves,
+    // When this record's own primary key IS the foreign key this arm resolves,
     // the identity already `Ref`s a step id — so this INSERT must BE that step, not a
     // freshly allocated one. The allocation moved to `resolveSharedPkIdentity` because
-    // the identity is built before the arms fold (the N4-U1 precedent).
+    // the identity is built before the arms fold.
     const before = this.buildRecord(
       childScope,
       createData,
@@ -1774,10 +1772,8 @@ export class CreateOperation {
     const relationName = relationInfo.name;
     const recordScope = createQueryScope(this.engine.adapter, recordModel);
     const fkAssign: Record<string, unknown> = {};
-    const { foreignFields, referencedFields } = relation.membership;
-    for (let index = 0; index < foreignFields.length; index += 1) {
-      const referenced = referencedFields[index]!;
-      const foreignField = foreignFields[index]!;
+    for (const { foreignField, referencedField: referenced } of relation
+      .membership.members) {
       const member: ForeignKeyMember = {
         foreignField,
         referencedField: referenced,
@@ -1812,9 +1808,8 @@ export class CreateOperation {
   ): Record<string, unknown> {
     const relationName = relation.relationInfo.name;
     const fkAssign: Record<string, unknown> = {};
-    const { foreignFields, referencedFields } = relation.membership;
-    for (let index = 0; index < foreignFields.length; index += 1) {
-      const foreignField = foreignFields[index]!;
+    for (const { foreignField, referencedField } of relation.membership
+      .members) {
       fkAssign[foreignField] = referenceSql(
         this.engine,
         recordModel,
@@ -1822,7 +1817,7 @@ export class CreateOperation {
         this.targetReferencedValue(
           target,
           foreignField,
-          referencedFields[index]!,
+          referencedField,
           relationName
         )
       );
@@ -1831,7 +1826,7 @@ export class CreateOperation {
   }
 
   /** The value a before-parent target produces for one referenced field — a `Ref` to
-   *  its captured generated id, or a value knowable at construction (N4-U4). */
+   *  its captured generated id, or a value knowable at construction. */
   private targetReferencedValue(
     target: RecordPlan,
     foreignField: string,
@@ -1980,7 +1975,7 @@ export class CreateOperation {
           );
           break;
         default:
-          // Unreachable by construction (N7-U-A, the X1c disposition): the five arms above
+          // Unreachable by construction: the five arms above
           // are total over `toManyCreateFactory`'s key set (create / createMany / connect /
           // connectOrCreate / upsert). `update` / `updateMany` / `delete` / `deleteMany` /
           // `set` / `disconnect` under a create root are answered by the parse boundary
@@ -2111,19 +2106,13 @@ export class CreateOperation {
   ): Record<string, unknown> {
     const relationName = relation.relationInfo.name;
     const assign: Record<string, unknown> = {};
-    const { foreignFields, referencedFields } = relation.membership;
-    for (let index = 0; index < foreignFields.length; index += 1) {
-      const foreignField = foreignFields[index]!;
+    for (const { foreignField, referencedField } of relation.membership
+      .members) {
       assign[foreignField] = referenceSql(
         this.engine,
         childModel,
         foreignField,
-        this.referencedValue(
-          self,
-          foreignField,
-          referencedFields[index]!,
-          relationName
-        )
+        this.referencedValue(self, foreignField, referencedField, relationName)
       );
     }
     return assign;
@@ -2151,7 +2140,7 @@ export class CreateOperation {
   }
 
   /** The parent value a child FK references — a `Ref` to the value this record's own
-   *  INSERT produces, or a value already knowable at construction (N4-U4). */
+   *  INSERT produces, or a value already knowable at construction. */
   private referencedValue(
     self: RecordIdentity,
     foreignField: string,
@@ -2180,8 +2169,8 @@ export class CreateOperation {
    * topology as two ordered `JunctionSide` reference keys and enumerates the schema,
    * migration, join-SQL, OwnWrite and engine work it waits on).
    *
-   * PACKAGE O — this was an `UnsupportedOperationError` claiming to reach that fact
-   * ONE STATEMENT EARLIER than the junction resolution's
+   * This was an `UnsupportedOperationError` claiming to reach that fact ONE
+   * STATEMENT EARLIER than the junction resolution's
    * `getRequiredSinglePrimaryKeyField`. MEASURED, and the claim is false: a junction
    * program on a compound-primary-key model is answered by `OwnWriteAnalyzer` →
    * `getRelationMembershipScope` → the bound junction's sides → that function, which
@@ -2193,7 +2182,7 @@ export class CreateOperation {
    * So the user-facing limitation keeps its engine owner (a better-worded one: it
    * names the surrogate-key remedy) and this becomes what it actually is — a
    * structural invariant of the argument `buildJunctionParts` receives. It is not the
-   * child-edge arity boundary any more either: E4-U2 gave the child-held adopt kinds
+   * child-edge arity boundary any more either: the child-held adopt kinds have
    * a source with one value per referenced column ({@link childEdgeParentSource}),
    * and they no longer come here.
    */
@@ -2215,7 +2204,7 @@ export class CreateOperation {
   }
 
   /**
-   * E4-U2 — the parent source a child-held ADOPT edge (`connectOrCreate` / `upsert`)
+   * The parent source a child-held ADOPT edge (`connectOrCreate` / `upsert`)
    * consumes: one whole-value source per referenced column, keyed by that column's NAME.
    *
    * A single-column edge is the length-1 case and produces exactly the source it always
@@ -2223,7 +2212,7 @@ export class CreateOperation {
    * here, and the refusal was right for the source that existed: every consumer of a
    * unbound source spends one value on every foreign-key column, so
    * a two-column edge would have written the first referenced value into both — the
-   * cross-pair trap D3 measured one level deeper. Keying by name removes the trap by
+   * cross-pair trap measured one level deeper. Keying by name removes the trap by
    * construction rather than by care: there is no index to misalign, and a column with
    * no member is an engine invariant break rather than a silent `undefined`.
    *
@@ -2582,7 +2571,7 @@ export class CreateOperation {
   ): WriteStep {
     const { childScope, generatedField, writeStepId } = plan;
     const txMode = this.mode === "transaction";
-    // N4-U2: the enclosing adopt arm's missing-premise pin rides THIS record's INSERT
+    // The enclosing adopt arm's missing-premise pin rides THIS record's INSERT
     // when this record is the subtree's root — the one statement whose unique-constraint
     // violation is the arm's raceable signal. Every deeper record of the subtree is an
     // unconditional create, so none of them carries it.
@@ -2735,8 +2724,8 @@ export class CreateOperation {
    * NOT the same owner as `getCreatedRowWhere` (query-engine/operations/mutation-identity.ts),
    * which answers the same question for `ManyAndReturnOperation` through the adapter's
    * `lastInsertId()` SQL rather than a backward reference. Two mechanisms, two owners,
-   * near-identical names — a Package O ledger item, recorded here so a later reuse is a
-   * decision and not an accident.
+   * near-identical names — a guard-ownership-ledger item, recorded here so a later
+   * reuse is a decision and not an accident.
    */
   private createdRowWhere(plan: RecordPlan): Record<string, unknown> {
     if (plan.generatedField) {
@@ -2768,8 +2757,7 @@ export class CreateOperation {
    */
   /**
    * THE owner of "a fresh record cannot publish the referenced column this edge
-   * needs" (Package O, cluster 1; plan §O2 row 2, "fresh referenced field
-   * publication → CreateOperation demand publication").
+   * needs" (guard-ownership-ledger.md, cluster 1).
    *
    * Four construction sites used to spell this decision — the polymorphic
    * before-parent target, the ordinary before-parent target, this record's own
@@ -2892,7 +2880,7 @@ export class CreateOperation {
   }
 
   /**
-   * N4-U4 — the terminal read's unique `where` from the root record's identity. A
+   * The terminal read's unique `where` from the root record's identity. A
    * shared-primary-key identity carries a `Ref` to the before-parent INSERT that
    * produces it, so that member is lowered like every other deferred value (the same
    * `referenceSql` the generated-key branch above uses); a literal identity is passed
@@ -2946,9 +2934,9 @@ export class CreateOperation {
   ): void {
     // The M2M create-tree surface: create / createMany / connect / connectOrCreate /
     // upsert. Every one of them only ADDS membership to a parent that cannot already
-    // have any (fresh-parent elision, ATOM “Relation-owner boundary”). `createMany` joined the set in N3-U1
-    // (the `create` slot per row plus the duplicate skip); `upsert` joined it in E5-U1
-    // (the adopt family's third member — global lookup, then adopt-and-update).
+    // have any (fresh-parent elision, ATOM “Relation-owner boundary”). `createMany`
+    // carries the `create` slot per row plus the duplicate skip; `upsert` is the adopt
+    // family's third member — global lookup, then adopt-and-update.
     //
     // With `upsert` in, this is an ENGINE INVARIANT, not a capability boundary — the
     // X1c disposition. The kinds it names are EXACTLY the kinds the parse boundary
@@ -2987,7 +2975,7 @@ function producedKey(field: string): string {
 }
 
 /**
- * N4-U4 — one referenced value of a FRESH record, in the ONE place every asker reads
+ * One referenced value of a FRESH record, in the ONE place every asker reads
  * it: the child-FK assignment, the after-parent adopt/M2M parent id, the before-parent
  * target's referenced value, and (through the identity) the terminal read.
  *
@@ -2997,12 +2985,12 @@ function producedKey(field: string): string {
  *     `Ref` a before-parent INSERT produces, which `resolveSharedPkIdentity` put there;
  *  2. a NON-primary-key referenced column the record's own create data SPELLS. A fresh
  *     record's identity is wider than its primary key: an FK referencing one of its
- *     uniques (the D4 shape on a create root) needs the value that unique is about to
+ *     uniques needs the value that unique is about to
  *     hold, and that value is in the same create data the primary key came from — the
  *     same provenance, one column over. Nothing is re-read and nothing is re-derived.
  *
- * A THIRD provenance used to live here — the primary key the INSERT generates — and
- * Package F moved it out rather than leaving two owners for one answer: publication is
+ * A THIRD provenance used to live here — the primary key the INSERT generates — and it
+ * moved out rather than leaving two owners for one answer: publication is
  * a substrate decision now, and {@link CreateOperation.producedReference} is the only
  * thing that makes it. Its caller intercepts the generated key before this function is
  * reached, so an arm for it here could only ever disagree.
@@ -3161,7 +3149,7 @@ function insertTakesDatabaseAssignedValue(
 }
 
 /**
- * E6.3 — every shared primary-key member must have taken its value FROM THE EDGE.
+ * Every shared primary-key member must have taken its value FROM THE EDGE.
  *
  * Raised where the shared key's source is manufactured, so nothing downstream can read
  * a stand-in: a `s.string().id()` member arrives carrying an application-materialized
@@ -3190,7 +3178,7 @@ function assertSharedPkResolved(
 }
 
 /**
- * N4-U4 — whether a before-parent target's referenced column is the key its own INSERT
+ * Whether a before-parent target's referenced column is the key its own INSERT
  * will GENERATE: the target's single primary key, auto-increment, and not spelled in the
  * payload. Decided from the schema alone, so the shared-primary-key identity can `Ref`
  * that INSERT before the arm (and therefore the target's own plan) is built.

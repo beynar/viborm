@@ -962,7 +962,7 @@ export class RelationJunctionPart implements Part {
           select: targetProjectionRowKeySelect(projection),
           forUpdate: this.context.txMode,
         });
-    // N4-U1: a slot whose deeper edges `planned`-read this probe must publish the
+    // A slot whose deeper edges `planned`-read this probe must publish the
     // captured target primary key as a `firstRowField`, and — because that extraction
     // is eager and would otherwise abort with an internal wording — carry this
     // family's own not-a-member message as the read's postcondition. Byte-identical to
@@ -1285,7 +1285,7 @@ export class RelationJunctionPart implements Part {
         ? { additionalColumns: args.additionalColumns }
         : {}),
       ...(args.predicate ? { predicate: args.predicate } : {}),
-      ...(args.take !== undefined ? { take: args.take } : {}),
+      ...(args.take === undefined ? {} : { take: args.take }),
       lock: "transaction",
     });
   }
@@ -1407,7 +1407,7 @@ export class RelationJunctionPart implements Part {
    *  concurrent move of the selector onto a replacement leaves no such row, so the
    *  join never links the replacement). Existing-row premise, raceable:false.
    *
-   *  E5-U1 — the fresh-parent `upsert` takes the same premise through the same
+   *  The fresh-parent `upsert` takes the same premise through the same
    *  construction site, worded for ITS operation: the two members of the adopt family
    *  say `Record was replaced … during nested connectOrCreate` and `… nested upsert`,
    *  and one site keeps them from drifting. */
@@ -1707,7 +1707,7 @@ export class RelationJunctionPart implements Part {
    * parent.` on the batch substrate while the transaction substrate succeeded).
    *
    * Without a transition the two sources are one value and every guard is
-   * byte-identical to pre-E2-U3.
+   * byte-identical to the no-transition plan.
    */
   private membershipLiteral(known: PlanningKnown): unknown {
     return foreignKeyResolvedReadValue(
@@ -1874,7 +1874,7 @@ export function buildJunctionParts(input: {
     }
     const produced = subtree.rootReferenced(targetReference.referencedField);
     if (produced === undefined) {
-      // MEASURED UNREACHABLE (Package F, F4). This used to be a capability refusal —
+      // MEASURED UNREACHABLE. This used to be a capability refusal —
       // "the target primary key must be in the create data" — and the shape it named is
       // real, but no payload arrives here holding it. `targetReference.referencedField` is
       // `getRequiredSinglePrimaryKeyField`, and `planNestedCreateIdentity` is TOTAL over
@@ -1883,7 +1883,7 @@ export function buildJunctionParts(input: {
       // record's `generatedField` (so it answers with the produced reference), and throws
       // `NestedWriteError` for an absent key that is neither — one line EARLIER, inside
       // the `createFresh` call above. The two other candidates die further upstream: an
-      // `Sql` primary key is parse-unreachable in write data (E6.6), and a `null` one is
+      // `Sql` primary key is parse-unreachable in write data, and a `null` one is
       // refused by the target's own create schema before the engine sees it. So this is a
       // code path a user cannot reach, and a `QueryEngineError` is what that is — the
       // disposition `assertCreateTreeKinds` already carries for the same situation.
@@ -2113,7 +2113,7 @@ export function buildJunctionParts(input: {
         // `createMany` does (`CreateOperation.foldCreateMany`) — no Part, no steps.
         if (rows.length > 0) {
           const skipDuplicates = entry.skipDuplicates === true;
-          // E6.8 — see {@link skipDuplicatesDisposition}. Only a generated target key
+          // See {@link skipDuplicatesDisposition}. Only a generated target key
           // reaches a decision here: everything else keeps the skip leaf it has today.
           const disposition = skipDuplicates
             ? skipDuplicatesDisposition(rows)
@@ -2159,12 +2159,12 @@ export function buildJunctionParts(input: {
         break;
       }
       case "connectOrCreate": {
-        // E2-U2: the create arm folds its own relations one level deeper against its
+        // The create arm folds its own relations one level deeper against its
         // literal PK (mechanism 2); the slot emits them on the create branch only.
         const items = entry.items;
         const armed = items.map((item) =>
-          // E4-U3: the arm's missing-premise pin rides the delegated subtree's root
-          // INSERT when the whole create is delegated (E2's carve, now wired).
+          // The arm's missing-premise pin rides the delegated subtree's root
+          // INSERT when the whole create is delegated.
           freshTargetFold(
             item.create,
             "connectOrCreate",
@@ -2373,14 +2373,12 @@ function stableKey(record: Record<string, unknown>): string {
 /**
  * The scalar half of a junction `updateMany` entry's data.
  *
- * A refusal stood here (Package O cluster 2, site 9) and is DELETED. It restated
- * `assertSelectedUpdateManyDataIsScalar`'s decision — which the enclosing selected
- * record's data has already answered on every route into this builder — and it read
- * `Object.keys(relations)` alone, the map-only question Package K proved is a
- * measured SILENT WRONG ANSWER for a direct polymorphic key (it carries no relation
- * program, so a `disconnect` walked past a map-only wall and was dropped on the
- * floor). It was the fourth such reader; deleting it removes the blind spot rather
- * than teaching a duplicate to see.
+ * NO REFUSAL HERE. `assertSelectedUpdateManyDataIsScalar` owns that decision and the
+ * enclosing selected record's data has already answered it on every route into this
+ * builder. A restatement here would also have to read `Object.keys(relations)` alone,
+ * and that map-only question is a measured SILENT WRONG ANSWER for a direct
+ * polymorphic key: it carries no relation program, so a `disconnect` walks past a
+ * map-only wall and is dropped on the floor.
  */
 function scalarOnly(
   childScope: QueryScope,

@@ -110,7 +110,7 @@ export function getCompoundIdConstraint(
  * Return the ordered scalar fields that form the model primary key — the
  * catalog row key's TOTAL view. The `["id"]` fallback for a model with no
  * declared key is load-bearing: thirty call sites and the converted dead-guard
- * family (N7-U-A) rely on this function never answering an empty list.
+ * family rely on this function never answering an empty list.
  */
 export function getPrimaryKeyFields(model: Model<any>): string[] {
   const rowKey = getModelKeyCatalog(model).rowKey;

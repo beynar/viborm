@@ -34,11 +34,10 @@ import type { QueryScope } from "../types";
  *
  * - **The same discriminator columns.** `{ id }` and `{ email }` name rows
  *   through different unique constraints, so they are different IN lists.
- * - **No extra filter half.** An extended selector (`{ id, archived: false }`,
- *   W4/N6-U1) carries a PREDICATE as well as an identity, and two targets'
- *   predicates need not agree; an IN list over their identities would apply one
- *   target's predicate to another target's row. Such a target keeps its own
- *   group.
+ * - **No extra filter half.** An extended selector (`{ id, archived: false }`)
+ *   carries a PREDICATE as well as an identity, and two targets' predicates need
+ *   not agree; an IN list over their identities would apply one target's predicate
+ *   to another target's row. Such a target keeps its own group.
  * - **Primitive key values only.** The missing-target verdict counts distinct
  *   keys ({@link countDistinctTargets}), and that count has to agree with what
  *   SQL considers one row. For a string, number, boolean or bigint, JS equality

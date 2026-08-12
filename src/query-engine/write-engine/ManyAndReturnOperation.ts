@@ -64,8 +64,8 @@ type AndReturnKind =
 /**
  * Does THIS substrate make the row-returning arm impossible? One condition, two
  * readers: this operation's constructor (which raises the sentence below) and
- * `routing.ts`, which must know the answer BEFORE it picks a shell — Package J gave
- * `createMany` a third destination, and a relation-bearing payload with `select` has
+ * `routing.ts`, which must know the answer BEFORE it picks a shell — `createMany` has
+ * a third destination, and a relation-bearing payload with `select` has
  * to reach this owner so the specific sentence answers instead of a record series'
  * generic "no interactive transaction" one.
  *
@@ -136,7 +136,7 @@ export class ManyAndReturnOperation {
   private readonly captureRead: ReadStep | undefined;
   private readonly updateData: Record<string, unknown> | undefined;
   /**
-   * E6.9 — the non-returning `createMany` + `select` + `skipDuplicates` capture: one
+   * The non-returning `createMany` + `select` + `skipDuplicates` capture: one
    * skippable INSERT per input row, in input order. They are the operation's WRITES, and
    * they run in the CAPTURE fragment because their own outcome is what the final fragment
    * is built from — which row was inserted, and what id it got. See
@@ -350,7 +350,7 @@ export class ManyAndReturnOperation {
       return { steps };
     }
     if (this.skipInserts) {
-      // E6.9: the capture is the WRITES, and what crosses into `compile` is each one's own
+      // The capture is the WRITES, and what crosses into `compile` is each one's own
       // outcome — see {@link buildCreateManySkipCapture} for why that is this phase.
       const steps = [...this.skipInserts];
       return { steps };
@@ -511,7 +511,7 @@ export class ManyAndReturnOperation {
   }
 
   /**
-   * E6.9 — `createMany` + `select` + `skipDuplicates` on a driver with no `RETURNING`.
+   * `createMany` + `select` + `skipDuplicates` on a driver with no `RETURNING`.
    *
    * MEASURED FIRST (Docker MySQL 8.4, HEAD e37c611): a typed `UnsupportedOperationError`
    * (V8003), "createMany with 'select' does not support 'skipDuplicates' on a driver
@@ -817,17 +817,14 @@ export class ManyAndReturnOperation {
 
   /**
    * `getPrimaryKeyFields` is TOTAL — a model with no declared id answers `["id"]`
-   * — so the empty-list refusal that stood here could not fire. Package K met the
-   * same shape while drafting its own copy and deleted it at the gate rather than
-   * keep a check whose unique coverage cannot be named; Package O deletes the two
-   * instances K handed on (here and `RecordUpdateCompiler`) on the same evidence.
-   * Deleting turns nothing red, which IS the falsification for this class.
+   * — so the empty-list refusal that stood here could not fire, and a check whose
+   * unique coverage cannot be named is not kept. Deleting it turns nothing red,
+   * which IS the falsification for this class.
    *
-   * NOT THE WHOLE CLASS, and the Package O gate corrected the record: the same
-   * dead predicate also stands at `DeleteOperation`, `UpdateOperation` and
-   * `UpsertOperation`. Those three STAY — they are members of the N7-U-A
-   * converted family, each names the boundary that answers instead (the
-   * where-unique parse) and each is pinned by a behavioral witness in
+   * NOT THE WHOLE CLASS: the same dead predicate also stands at `DeleteOperation`,
+   * `UpdateOperation` and `UpsertOperation`. Those three STAY — they are members of
+   * the converted dead-guard family, each names the boundary that answers instead
+   * (the where-unique parse) and each is pinned by a behavioral witness in
    * `operation-construction-witnesses.test.ts`. That is this estate's disposition
    * for a branch unreachable by construction: convert, name the owner, pin it.
    * These two had no witness and named no owner. Retire the family as five, or

@@ -200,27 +200,31 @@ type IsChildHeldToOne<S extends RelationState> = S extends {
 type OptionalToOneUpdateEntries<
   S extends RelationState,
   Source extends AnyModel,
-> = IsFieldsLessInverseOneToOne<S> extends true
-  ? ToOneUpdateSchemaDelete["entries"] &
-      (MembershipCanBeCleared<S, Source> extends true
-        ? ToOneUpdateSchemaDisconnect["entries"]
-        : Record<never, never>)
-  : ToOneUpdateSchemaDisconnect["entries"] & ToOneUpdateSchemaDelete["entries"];
+> =
+  IsFieldsLessInverseOneToOne<S> extends true
+    ? ToOneUpdateSchemaDelete["entries"] &
+        (MembershipCanBeCleared<S, Source> extends true
+          ? ToOneUpdateSchemaDisconnect["entries"]
+          : Record<never, never>)
+    : ToOneUpdateSchemaDisconnect["entries"] &
+        ToOneUpdateSchemaDelete["entries"];
 
 export type ToOneUpdateSchema<
   S extends RelationState,
   Source extends AnyModel,
-> = SlotMayBeEmpty<S> extends true
-  ? ToOneMutationSchema<
-      OptionalToOneUpdateEntries<S, Source> & ToOneUpdateEntriesBase<S, Source>,
-      undefined,
-      IsChildHeldToOne<S>
-    >
-  : ToOneMutationSchema<
-      ToOneUpdateEntriesBase<S, Source>,
-      undefined,
-      IsChildHeldToOne<S>
-    >;
+> =
+  SlotMayBeEmpty<S> extends true
+    ? ToOneMutationSchema<
+        OptionalToOneUpdateEntries<S, Source> &
+          ToOneUpdateEntriesBase<S, Source>,
+        undefined,
+        IsChildHeldToOne<S>
+      >
+    : ToOneMutationSchema<
+        ToOneUpdateEntriesBase<S, Source>,
+        undefined,
+        IsChildHeldToOne<S>
+      >;
 
 export const toOneUpdateFactory = <
   S extends RelationState,
@@ -233,15 +237,15 @@ export const toOneUpdateFactory = <
 ): ToOneUpdateSchema<S, Source> => {
   const projection = nestedRelationDataProjection(state, source, targetSchemas);
   const getCreateSchema = projection.getCreateSchema;
-  // N1 — the same owner, applied to nested UPDATE data. See
+  // The same owner, applied to nested UPDATE data. See
   // {@link ProjectedNestedUpdate} for why the two contexts share one rule.
   //
   // This omission is the SINGLE owner of the spelled-owned-FK refusal on every
   // schema. The engine guard that once backed it up
   // (`assertOwnedFkAbsentFromUpdateData`, guard-ledger site 11) is deleted: its
   // only route was a zero-argument `.fields()` this scanner read as truthy while
-  // the engine read length, and the Phase 2 alignment gave both readings to one
-  // resolver (`@schema/relation/inverse`), so the divergent payload now refuses
+  // the engine read length, and both readings now come from one resolver
+  // (`@schema/relation/inverse`), so the divergent payload refuses
   // here, as `Unknown key`, like every other schema's.
   const getUpdateSchema = projection.getUpdateSchema;
 
@@ -265,7 +269,7 @@ export const toOneUpdateFactory = <
     create: getCreateSchema,
     connect: () => targetSchemas().core.whereUnique,
     connectOrCreate: connectOrCreateSchema,
-    // W4-U3: bare data OR `{ where?, data }` — the wrapper's `where` filters the
+    // Bare data OR `{ where?, data }` — the wrapper's `where` filters the
     // currently connected record (see `toOneUpdateTargetFactory`).
     update: () =>
       toOneUpdateTargetFactory<S, T, ReturnType<typeof getUpdateSchema>>(

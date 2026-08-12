@@ -114,8 +114,10 @@ Nested writes are a public feature, not a second runtime. Their compiler has
 three independent inputs:
 
 - `RelationMutationProgram` records the schema-transformed payload meaning;
-- `BoundRelation` records whether the edge is parent-held, child-held, or a
-  junction;
+- `BoundRelation` records the one stored topology — where the membership lives
+  (parent-held, child-held, or a junction), how many targets the slot admits, and
+  how the membership is physically stored — with every other view of the edge
+  derived from it;
 - a record compiler mutates one fresh or already-selected record.
 
 `CreateOperation` compiles non-bulk fresh record subtrees except the explicit
@@ -160,8 +162,9 @@ Binding happens at the first topology decision so an earlier validation failure
 still wins and an untaken upsert arm remains inert.
 
 Here, parent means the current source record at one relation edge and child
-means its target. `parentHeldToOne` means the source record stores the FK. The
-terms do not define a global model hierarchy.
+means its target. A `parentHeld` position means the source record stores the FK
+— and, because one source row holds one FK tuple, such an edge is always to-one.
+The terms do not define a global model hierarchy.
 
 Before emission, OwnWrite analysis rejects nested trees whose writes cannot be
 linearized safely. `RecordUpdateCompiler` and relation owners that pass it a

@@ -147,8 +147,7 @@ export function buildMutationProjectionFold(
 }
 
 /**
- * PACKAGE M (plan §4.5) — the write-dependency lowering that amends the sentence
- * on `args.siblings` above: an arm MAY now reference a value another arm
+ * The write-dependency lowering that amends the sentence on `args.siblings` above: an arm MAY now reference a value another arm
  * produced, because PostgreSQL's `RETURNING` relation is a channel the shared
  * snapshot does not close.
  *

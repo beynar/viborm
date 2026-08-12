@@ -49,7 +49,7 @@ export interface SubOperationOptions {
     readonly incomingMembership?: RelationMembershipBinding;
     readonly relationName: string;
     /**
-     * N4-U2 — the raceable missing-premise pin of an enclosing adopt arm. A nested
+     * The raceable missing-premise pin of an enclosing adopt arm. A nested
      * `upsert`/`connectOrCreate` whose probe found nothing takes its CREATE arm, and
      * that arm's missing premise is enforced by the fresh row's own unique constraint
      * (the Pin Rule, `whenMissing: "constraint"`): a concurrent writer that created
@@ -179,8 +179,9 @@ export function pinnedTargetValues(
  * a relation" here and the gate declines the fold; the unfolded path reads the
  * projection through an aliased SELECT, which correlates and answers the truth.
  *
- * WHY THIS IS NOT DERIVED FROM A COMPILED SELECTION FACT (the distinct-truth
- * Phase 10 prototype tried exactly that and was rejected at its gate): the four
+ * WHY THIS IS NOT DERIVED FROM A COMPILED SELECTION FACT (a prototype that did
+ * exactly that was built whole and rejected on measurement — the falsifier is in
+ * `docs/architecture/guard-ownership-ledger.md`): the four
  * gates ask BEFORE any SQL exists, in their operation constructors, and the
  * selection traversal that could compile such a fact spends
  * `QueryScope.nextAlias()` per relation. Asking it here would either renumber

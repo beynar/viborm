@@ -103,7 +103,7 @@ export class DeleteOperation {
 
     const parentPrimaryKeys = getPrimaryKeyFields(model);
     if (parentPrimaryKeys.length === 0) {
-      // Unreachable by construction (N7-U-A, the X1c disposition): the whole-args
+      // Unreachable by construction: the whole-args
       // `args.delete` parse below validates `where` against a PK-less model's
       // discriminator-free whereUnique, which answers first with
       // `ValidationError: Missing required field: one of …` — measured. §3.A A16 states

@@ -384,7 +384,7 @@ describe("write engine route inventory (P6 accounting)", () => {
   //     the located tuple, and the arity-1 non-PK edge writes the slug.
   //   · **±0, `assertArmEdgeIsChildHeld`** (B3) — ATTEMPTED, FALSIFIED, RESTORED. The
   //     guard says "a parent-held to-one write belongs in the arm's own UPDATE SET", and
-  //     `interpretParentHeldToOne` really does put it there: for a parent-held relation
+  //     `interpretParentHeld` really does put it there: for a parent-held relation
   //     the arm did NOT arrive through, `connect` / `create` / both `connectOrCreate`
   //     arms / `disconnect` all fold into the ONE UPDATE the arm already emits. The
   //     invariant the guard owns is bigger than that mechanism. This seam also hands the
@@ -1047,40 +1047,40 @@ describe("write engine route inventory (P6 accounting)", () => {
         2,
         "query-engine/write-engine/RecordUpdateCompiler.ts",
         // Shifted by Phase 4 (axis migration reshaped the file above), then Phase 5.
-        1978,
-        1950,
+        1976,
+        1948,
         "postTransitionReference",
       ],
       [
         3,
         "query-engine/write-engine/RecordUpdateCompiler.ts",
         // Shifted by Phase 4, then Phase 5.
-        2193,
-        2089,
+        2191,
+        2087,
         "resolveCreateParent",
       ],
       [
         4,
         "query-engine/write-engine/RecordUpdateCompiler.ts",
         // Shifted by Phase 4, then Phase 5.
-        3330,
-        3310,
+        3327,
+        3308,
         "recordSharedKeyFold",
       ],
       [
         5,
         "query-engine/write-engine/RecordUpdateCompiler.ts",
         // Shifted by Phase 4, then Phase 5.
-        3410,
-        3402,
+        3407,
+        3399,
         "beforeTargetReferencedValue",
       ],
       [
         6,
         "query-engine/write-engine/RecordUpdateCompiler.ts",
         // Shifted by Phase 5.
-        4558,
-        4519,
+        4555,
+        4516,
         "composeToOneEntries",
       ],
       [
@@ -1106,40 +1106,40 @@ describe("write engine route inventory (P6 accounting)", () => {
         12,
         "query-engine/write-engine/RelationUpsertPart.ts",
         // Shifted by Phase 5.
-        759,
-        748,
+        758,
+        747,
         "withoutAgreeingOwnedFk",
       ],
       [
         13,
         "query-engine/write-engine/RelationUpsertPart.ts",
         // Shifted by Phase 4, then Phase 5.
-        1209,
-        1202,
+        1208,
+        1201,
         "assertArmEdgeIsChildHeld",
       ],
       [
         15,
         "query-engine/write-engine/CreateOperation.ts",
         // Shifted by unit 9.1, then Phase 4, then Phase 5.
-        2798,
-        2790,
+        2786,
+        2778,
         "requireRecordReferenced",
       ],
       [
         19,
         "query-engine/write-engine/CreateOperation.ts",
         // Shifted by unit 9.1, then Phase 4, then Phase 5.
-        2876,
-        2865,
+        2864,
+        2853,
         "producedReference",
       ],
       [
         20,
         "query-engine/write-engine/CreateOperation.ts",
         // Shifted by unit 9.1, then Phase 4, then Phase 5.
-        3187,
-        3173,
+        3175,
+        3161,
         "assertSharedPkResolved",
       ],
       [
@@ -1153,8 +1153,8 @@ describe("write engine route inventory (P6 accounting)", () => {
         22,
         "query-engine/relation-key-legality.ts",
         // Shifted by Phase 4, then Phase 5.
-        170,
-        164,
+        171,
+        165,
         "assertSelectedUpdateManyDataIsScalar",
       ],
       [
@@ -1528,10 +1528,11 @@ describe("write engine full client operation surface (P6 precondition)", () => {
  *     `NestedWriteError`. Package L's outcome brief listed it among "4 census sites
  *     unchanged"; it has never been one.
  *   · The compound-M2M fact has TWO owners across layers and NEITHER is a census site:
- *     `builders/correlation-utils.ts:154` (`getRequiredSinglePrimaryKeyField`, a
- *     `QueryEngineError`) and `migrations/serializer.ts:661` (a raw `Error`). Their
- *     sentences are near-identical but not byte-identical — "uses a compound primary
- *     key" against "uses compound primary key". N3 wrote here that site 17 reached the
+ *     `builders/relation-data-builder.ts:365` (`getRequiredSinglePrimaryKeyField`, a
+ *     `QueryEngineError` — it was at `correlation-utils.ts:154` when this was written
+ *     and moved with the junction binder in Phase 3) and `migrations/serializer.ts:661`
+ *     (a raw `Error`). Their sentences are near-identical but not byte-identical —
+ *     "uses a compound primary key" against "uses compound primary key". N3 wrote here that site 17 reached the
  *     same fact "one statement earlier" and was the only one a census grep could see;
  *     PACKAGE O MEASURED THAT FALSE — site 17 never reached the fact at all, the first
  *     of the two answers every public payload, and site 17 is now a `QueryEngineError`

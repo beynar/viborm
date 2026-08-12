@@ -28,7 +28,7 @@ type BulkCountKind = "updateMany" | "deleteMany";
  *
  * THIS SHELL SEES SCALAR-ONLY `updateMany` DATA, and the router is what
  * guarantees it — not the schema. `getUpdateManyArgs` binds `data` to the FULL
- * `core.update` schema (plan §5.2, Package K), so a relation key parses; routing
+ * `core.update` schema, so a relation key parses; routing
  * then sends that call to `UpdateManyRecordSeries` instead of here. What this
  * class must never become is the owner of a relation payload: the SET builder
  * skips non-scalar keys silently, which is exactly the wrong-success defect the

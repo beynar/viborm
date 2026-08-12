@@ -1,7 +1,7 @@
 // biome-ignore-all lint/style/useFilenamingConvention: File matches its primary class export.
 import { getModelKeyCatalog, type Model } from "@schema/model";
 import {
-  type BoundRelation,
+  type ChildHeldRelation,
   membershipReferencedFields,
   type ParentHeldRelation,
 } from "./builders/relation-data-builder";
@@ -23,7 +23,6 @@ import {
   unknownConstraint,
   updateResultConstraints,
 } from "./TargetConstraint";
-import { QueryEngineError } from "./types";
 
 export class OwnWriteSteps {
   private readonly relation: OwnWriteRelation;
@@ -499,8 +498,12 @@ interface ToOneUpdateFootprint {
   readonly writesMembership: boolean;
 }
 
+/**
+ * The caller is inside the to-one arm, and a junction row set is always to-many,
+ * so the parameter type is what excludes a junction here.
+ */
 function buildToOneUpdateFootprint(
-  relation: BoundRelation,
+  relation: ParentHeldRelation | ChildHeldRelation,
   updateData: Readonly<Record<string, unknown>>,
   rootScalarData: Readonly<Record<string, unknown>> | undefined
 ): ToOneUpdateFootprint {
@@ -508,12 +511,6 @@ function buildToOneUpdateFootprint(
   const target = relationInfo.targetModel;
   const scalarData = getScalarData(target, updateData);
   const changedFields = new Set(Object.keys(scalarData));
-  if (relation.position === "junction") {
-    throw new QueryEngineError(
-      `Relation '${relationInfo.name}' is many-to-many and has no FK direction. ` +
-        "Many-to-many writes must go through the junction table handlers."
-    );
-  }
   const readConstraint =
     relation.position === "parentHeld" && rootScalarData
       ? buildReboundTargetConstraint(target, relation, rootScalarData)

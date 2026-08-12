@@ -950,3 +950,106 @@ on the same evidence:
   92c9397c), and `relationCardinality(state)` as the one owner of the
   type→cardinality derivation (four former inline spellings).
 - Consequence: plan Phase 11 (conditional on a retained Phase 10) does not run.
+
+## Addendum — distinct-truth Phase 12 (final deletion and doctrine)
+
+Four code deletions, each adjudicated against HEAD before it was made, plus the
+proof history the production comment sweep moved here rather than dropped.
+
+**Three dead engine refusals — DELETED, because the compiler is the owner now.**
+`RelationInfo["cardinality"]` is the two-value union `"one" | "many"`
+(`query-engine/types.ts:228`, derived by `relationCardinality`), so a third state
+is unconstructible and the three sentences that named one could not fire:
+
+1. `relation-orderby-builder.ts:69` — `Unsupported relation orderBy '<n>'.`,
+   after arms that test `=== "one"` and `=== "many"` and both return;
+2. `relation-orderby-builder.ts:124` — the same sentence on a nested field path,
+   behind `if (nestedRelationInfo.cardinality === "many") throw`, so `!== "one"`
+   is the empty set;
+3. `relation-filter-builder.ts:145` — `Unsupported relation filter '<n>'.`, in
+   the same shape as (1).
+
+None was message-pinned anywhere in `src/`, `tests/` or `docs/` (verified by
+grep at HEAD before deletion), and none had a witness. The to-many/to-one arms
+are now the total dispatch they always were: the last arm is unconditional.
+
+**`OwnWriteSteps.buildToOneUpdateFootprint`'s junction refusal — DELETED, because
+the TYPE SYSTEM is the owner.** The refusal read
+`Relation '<n>' is many-to-many and has no FK direction. Many-to-many writes must
+go through the junction table handlers.` and doubled as the narrowing that let
+the body read `membership.foreignFields`. The parameter is now
+`ParentHeldRelation | ChildHeldRelation`, which is the same narrowing stated once:
+`JunctionBoundRelation.cardinality` is the literal `"many"`
+(`relation-data-builder.ts:185-189`), and the only caller is inside
+`processUpdate`'s `boundRelation.cardinality === "one"` arm — so a junction cannot
+be passed, and passing one would now be a compile error rather than a runtime
+sentence. Not message-pinned (the other occurrences (also in map-tx-create-connect.md and map-oracle-and-callers.md, all prose) in the repo is a prose
+line in `engine-unification/map-shared-and-m2m.md`).
+
+**Seven index-pairing walks — FOLDED onto `membership.members`.** Byte-neutral by
+construction: `pairMembers` is `foreignFields.map((f, i) => ({ f, referencedFields[i] }))`,
+so the folded loops read the same arrays in the same order with the same index
+math, and the mismatched-foreign-key refusal keeps its single lazy owner. The
+seven, re-resolved at HEAD: `CreateOperation.ts` `resolveSharedPkIdentity`,
+`toOneFkAssign`, `beforeParentFkAssign`, `childFkAssign`; `RecordUpdateCompiler.ts`
+`recordSharedKeyFold`, `beforeTargetFkAssign`, `toOneFkAssign`. No refusal moved,
+and no site now spells `foreignFields[i]` beside `referencedFields[i]`.
+
+**`interpretParentHeldToOne` → `interpretParentHeld`.** A tautological
+cross-product name: parent-held is always to-one, which is what the union already
+says. Renamed at its four `RecordUpdateCompiler` coordinates and in every live doc
+and test comment naming the method. The historical rows above (cluster 13, and the
+`<parentHeldToOne>` query spellings in clusters 1, 4 and 6) keep the old spelling
+on purpose — they record what a site was called when it was measured.
+
+**Proof history relocated out of production comments.** Two blocks stated a
+deletion's argument at the site of the deleted thing; both are recorded here and
+removed from `src/`:
+
+- `relation-key-legality.ts` — `assertPinnedTransitionIsCompilable` lived there
+  and is deleted. It refused a selected target that transitions a row-key member
+  the locator does not pin while a deeper non-cascading edge references that
+  member, because the engine could not name the member's pre-transition value
+  ("…transitions the target primary key '<field>' while writing a deeper edge
+  whose foreign key does not cascade on update; it must locate the target by that
+  primary key."). `RecordUpdateCompiler.interpretReferencedKeyTransition` now
+  names it — the located row supplies every member's OLD value and
+  `postTransitionReference` derives every member's NEW value — so the refusal has
+  a compiling answer, and its five eager arm-side call sites went with it. Its
+  domain was also strictly NARROWER than the compiler's: row-key members only, and
+  it matched a parent-held membership's `referencedFields`, which name the
+  TARGET's columns rather than the selected model's, by name across two models.
+- `target-projection.ts` — `capturedTargetConstraint` lived there with zero
+  production consumers and is deleted. It was refused on SHAPE: an occupied-slot
+  predicate is a `where` over the CHILD scope whose conjuncts pair the child's
+  FOREIGN fields with the PARENT's pre-transition referenced values, and a
+  `TargetConstraint` binds ONE model's own field names to values, so the
+  cross-model pairing the relation topology owns had nowhere to live in it. It
+  also asked the wrong question — "do these two static targets overlap", not "does
+  any row exist here" — and there is no captured child row to normalize, since
+  discovering whether one exists is that guard's whole purpose. The occupied
+  guard's conjuncts come from the correlated membership binding through
+  `planningMembershipCondition` / `finalMembershipCondition`; where a captured row
+  key belongs beside a selector, `capturedTargetFilters` is the live shape.
+
+**Sequence check.** The Phase 5, 7, 8-stage-1, 8-stage-2 and 10 addenda above were
+re-read in order at this phase and still read coherently: 5 moves guard #1 into the
+binder's lazy `members` getter and deletes `assertEqualArity`; 7 deletes
+`buildCorrelation`'s junction refusal and replaces `ManyToManyStatements`'
+guard with the classifier; 8 stage 1 keeps two polymorphic engine-fault sentences
+and closes their one reachable route; 8 stage 2 gives clearability one owner and
+records the three coverages the schema layer cannot take; 10 records a REJECTED
+prototype. Phase 12 adds no guard, moves none, and deletes only refusals whose
+owner is now a type.
+
+Two counterfactual notes for the Phase 12 deletions, recorded so the reasoning is
+not re-derived: (1) a FORGED third cardinality value (unconstructible from any
+public input) would now land in the adjacent arm's own shape validation — loud but
+differently worded at the orderBy-name and filter sites, and a silent to-one JOIN
+at the nested-orderBy site, which is double-impossible (it must also survive the
+"many" throw above it). (2) The seven pairing folds are byte-neutral on every
+well-formed schema; on malformed-arity metadata in DEFERRED-legality flows (upsert
+arms, nested fresh subtrees) they newly fire the pairing owner's NestedWriteError
+at construction where the raw walks silently paired `undefined` — root flows were
+already dominated by the analyzer's `.members` touch. A strict widening toward the
+single owner, which is the fold's point.

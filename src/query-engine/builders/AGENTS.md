@@ -25,7 +25,7 @@ adapter methods for dialect syntax and keep values parameterized.
 | `include-builder.ts` | nested relation reads and JSON projection |
 | `select-builder.ts` | selected columns and result pairs |
 | `relation-traversal.ts` | the physical read traversal of one relation occurrence |
-| `correlation-utils.ts` | ordinary/polymorphic correlation predicates and model keys |
+| `correlation-utils.ts` | ordinary/polymorphic correlation predicates and primary-key selectors |
 | `many-to-many-utils.ts` | junction identity and joins |
 | `values-builder.ts` | INSERT values and destination scalar conversion |
 | `set-builder.ts` | UPDATE assignments |
@@ -97,7 +97,10 @@ known before topology may be resolved (a read traversal placing its aliases, a
 junction statement refusing a non-junction relation); bind when the bound value
 itself is needed. There is no second entry point per arm.
 
-Classification (distinct-truth Phase 4 — three orthogonal axes):
+ONE STORED TOPOLOGY, SEVERAL DERIVED VIEWS. The classification answers three
+orthogonal axes over a single stored membership; nothing downstream stores a
+second copy of any of them, and every question about an edge is asked of the axis
+that owns it:
 
 1. many-to-many → position `junction` (cardinality `many`, junction membership);
 2. current model holds FK → position `parentHeld` (cardinality `one`,
@@ -107,9 +110,11 @@ Classification (distinct-truth Phase 4 — three orthogonal axes):
 4. remaining ordinary child-held edge → position `childHeld`, foreign-key
    membership, cardinality from the public relation.
 
-The bound value contains the source model, the membership's holder and referenced
-models, ordered foreign and referenced fields, those fields PAIRED member for
-member, and the update action. A polymorphic membership carries one referenced
+The bound value contains the relation declaration, the source model, and the
+membership: its holder and referenced models, ordered foreign and referenced
+fields, those fields PAIRED member for member, and the update action. Consumers
+read `membership.members` rather than re-pairing the two field lists by index —
+the pairing has one owner because it owns a refusal. A polymorphic membership carries one referenced
 FIELD, not a list — its discriminator is a fixed qualifier, not a member. The bound
 value does not contain scopes, aliases, identity values, reference sources,
 transition state, junction metadata, SQL, or execution policy.

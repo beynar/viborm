@@ -162,26 +162,6 @@ export function capturedTargetFilters(
   );
 }
 
-/*
- * `capturedTargetConstraint` stood here and is DELETED (Package O, §O2/§O3).
- *
- * Package C kept it with ZERO production consumers under the plan's mandate, with
- * the explicit rule "if Package D lands without consuming it, Package O deletes
- * it". Package D landed and refused it on SHAPE, not by oversight: an occupied-slot
- * predicate is a `where` over the CHILD scope whose conjuncts pair the child's
- * FOREIGN fields with the PARENT's pre-transition referenced values, and a
- * `TargetConstraint` binds ONE model's own field names to values, so the
- * cross-model pairing the relation topology owns had nowhere to live in it. It also
- * asked the wrong question — "do these two static targets overlap", not "does any
- * row exist here" — and there is no captured child row to normalize, since
- * discovering whether one exists is that guard's entire purpose.
- *
- * The occupied guard's conjuncts come from the correlated membership binding
- * through `planningMembershipCondition` / `finalMembershipCondition`, the owner
- * every other membership predicate already uses. Where a captured row key DOES
- * belong beside a selector, `capturedTargetFilters` above is the live shape.
- */
-
 /**
  * ORDER a captured root set deterministically, by complete row key (plan §5.2
  * step 4, §6 K3 "applies limit before deterministic in-memory sorting").

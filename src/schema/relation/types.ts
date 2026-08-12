@@ -206,17 +206,14 @@ type ExtractInverseFields<TTargetModel, TSourceModel, TName> = [
  * back-reference IS this relation's foreign key whether or not it echoes the name, and
  * the name only picks among SEVERAL competing back-references.
  *
- * TH — the residual D5 left here is closed. The name check used to REJECT at the type
- * level while the runtime demoted it, so on a schema whose lone back-reference does not
- * echo the name the two answered differently about one edge. Measured through the public
- * client at 620a171: a nested `createMany` row DEMANDED the foreign key
- * (`Property 'orgId' is missing … but required`) that the runtime schema had already made
- * optional and the engine derives — a legal call the compiler refused. The alignment is
- * expressible because `.fields()` keeps its literal tuple through the model type and
- * {@link IsSingleMember} answers `candidates.length === 1` over the target's RELATION
- * KEYS (the recorded risk — a `.fields()` collapse to `string[]` fusing two candidates —
- * was measured NOT to occur, and counting keys rather than tuples makes it unreachable
- * either way).
+ * THE TYPE LEVEL AND THE RUNTIME ANSWER THIS IDENTICALLY, and must. The name check
+ * used to REJECT at the type level while the runtime demoted it, so on a schema whose
+ * lone back-reference does not echo the name the two disagreed about one edge and a
+ * legal nested `createMany` row demanded a foreign key the runtime had already made
+ * optional. The alignment is expressible because `.fields()` keeps its literal tuple
+ * through the model type and {@link IsSingleMember} answers `candidates.length === 1`
+ * over the target's RELATION KEYS — counting keys rather than tuples is what keeps a
+ * `.fields()` collapse to `string[]` from fusing two candidates.
  */
 export type GetInverseRelationMap<
   S extends RelationState,

@@ -229,10 +229,9 @@ function getFkFields(state: ModelState): Set<string> {
  * instead, which is what `requiresOneOfKeySets` then arbitrates).
  *
  * ONE derivation with two readers — {@link getCreateSchema} and {@link getBulkCreate}.
- * Package J made a root `createMany` row the ordinary create data shape, and "the
- * entries are the create schema's, key for key" is only true if the two families
- * cannot drift on which scalars are required; a second copy of this filter is exactly
- * how they would.
+ * A root `createMany` row IS the ordinary create data shape, and "the entries are the
+ * create schema's, key for key" is only true if the two families cannot drift on which
+ * scalars are required; a second copy of this filter is exactly how they would.
  */
 function getRequiredCreateScalars(
   state: ModelState,

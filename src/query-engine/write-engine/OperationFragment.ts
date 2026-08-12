@@ -211,7 +211,7 @@ export function createFailureError(
 }
 
 /**
- * The ONE statement-reference discovery (distinct-truth Phase 9.5): a
+ * The ONE statement-reference discovery: a
  * statement's dependencies are exactly the {@link OperationValueReference}
  * values in its `Sql.values`. Fragment validation, planning dependency
  * levels, the single-statement policies, and the PostgreSQL dependency-fold

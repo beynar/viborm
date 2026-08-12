@@ -101,7 +101,7 @@ export function nestedReplacement(
 // ---------------------------------------------------------------------------
 /**
  * CLASS IV (T4c) — V1's `relationFailure` occupied-slot message, verbatim: a root
- * update (or, since N5-U1, a nested update TARGET) transitions a key a child-held,
+ * update (or a nested update TARGET) transitions a key a child-held,
  * non-cascade relation references while that relation's old slot still holds rows.
  * Both askers say it identically because it is one rule at two depths.
  */

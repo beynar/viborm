@@ -19,7 +19,7 @@
 // the other.
 //
 // The ENGINE does not read this module. It answers the same physical question from
-// BOUND membership (`write-engine/relation-nullability.ts`, Phase 5), which is the
+// BOUND membership (`write-engine/relation-nullability.ts`), which is the
 // only reading available to it on a trusted internal program that never passed the
 // public schema — see the guard-ownership ledger.
 
@@ -77,17 +77,18 @@ type PolymorphicInverseBindingFor<
 type PolymorphicInverseMembershipState<
   S extends RelationState,
   Source extends AnyModel,
-> = CanBindPolymorphicInverse<S> extends true
-  ? PolymorphicInverseBindingFor<S, Source> extends {
-      readonly relationKey: infer RelationKey;
-    }
-    ? [RelationKey] extends [never]
-      ? never
-      : RelationKey extends keyof RelationTarget<S>["~"]["state"]["polymorphicRelations"]
-        ? RelationTarget<S>["~"]["state"]["polymorphicRelations"][RelationKey]["~"]["state"]
-        : never
-    : never
-  : never;
+> =
+  CanBindPolymorphicInverse<S> extends true
+    ? PolymorphicInverseBindingFor<S, Source> extends {
+        readonly relationKey: infer RelationKey;
+      }
+      ? [RelationKey] extends [never]
+        ? never
+        : RelationKey extends keyof RelationTarget<S>["~"]["state"]["polymorphicRelations"]
+          ? RelationTarget<S>["~"]["state"]["polymorphicRelations"][RelationKey]["~"]["state"]
+          : never
+      : never
+    : never;
 
 type NullableScalarKeys<Model extends AnyModel> = {
   [Key in keyof Model["~"]["state"]["scalars"]]: Model["~"]["state"]["scalars"][Key]["~"]["state"] extends {
@@ -101,23 +102,24 @@ type NullableScalarKeys<Model extends AnyModel> = {
 type InverseFkMembershipCanBeCleared<
   S extends RelationState,
   Source extends AnyModel,
-> = Extract<
-  GetInverseRelationMap<S, Source>,
-  readonly string[]
-> extends infer Fields
-  ? [Fields] extends [never]
-    ? false
-    : Fields extends readonly string[]
-      ? [Fields[number]] extends [never]
-        ? false
-        : Exclude<
-              Fields[number],
-              NullableScalarKeys<RelationTarget<S>>
-            > extends never
-          ? true
-          : false
-      : false
-  : false;
+> =
+  Extract<
+    GetInverseRelationMap<S, Source>,
+    readonly string[]
+  > extends infer Fields
+    ? [Fields] extends [never]
+      ? false
+      : Fields extends readonly string[]
+        ? [Fields[number]] extends [never]
+          ? false
+          : Exclude<
+                Fields[number],
+                NullableScalarKeys<RelationTarget<S>>
+              > extends never
+            ? true
+            : false
+        : false
+    : false;
 
 /**
  * Can the membership be CLEARED while both records survive? Physical storage only.

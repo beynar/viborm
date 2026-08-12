@@ -53,3 +53,17 @@ _Avoid_: Foreign key when the storage is polymorphic or belongs to a junction
 The complete stored fact that identifies one relation membership. It can combine
 stored references with fixed qualifiers such as a polymorphic discriminator.
 _Avoid_: Identity, reference key
+
+**Series member**:
+One record operation that a transactional record series runs — an ordinary
+single-record operation with its own locate, guards and failure, of which the
+series runs N in sequence. It is the ATOM's sense of "member" and has nothing to
+do with a membership's stored members.
+_Avoid_: Member on its own where a membership is also in scope
+
+## Reading a relation
+
+One stored topology, several derived views. A relation is declared once; its
+cardinality, its clearability, and its physical membership are each DERIVED from
+that declaration by one named owner, never stored beside it and never
+re-derived at the point of use.

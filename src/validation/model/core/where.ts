@@ -156,14 +156,13 @@ type WhereUniqueExtendedEntries<
  * required" shapes — Prisma's `AtLeast`, for free).
  *
  * SCOPE. This schema is the `where` of the TOP-LEVEL `findUnique` /
- * `findUniqueOrThrow` / `update` / `delete` / `upsert`, and — since N6-U1
- * (decision D-N1) — of the NESTED `update` / `upsert` / `delete` TARGET selectors
- * too. W4-U1 kept those nested positions strict for a stated reason: "a nested
- * target is located by PK boundaries the extra filters would collide with". N1 and
- * N4-U1 removed that collision by making a nested locate RETURN its primary key
- * however the row was named, so the scoping had outlived its cause and the three
- * target positions now take this schema. Prisma's nested selectors are unique-only
- * there, which makes this a deliberate SUPERSET (capability matrix, §write).
+ * `findUniqueOrThrow` / `update` / `delete` / `upsert`, and of the NESTED `update` /
+ * `upsert` / `delete` TARGET selectors too. Those nested positions were once strict
+ * because "a nested target is located by PK boundaries the extra filters would
+ * collide with"; a nested locate now RETURNS its primary key however the row was
+ * named, so there is no collision left to avoid. Prisma's nested selectors are
+ * unique-only there, which makes this a deliberate SUPERSET (capability matrix,
+ * §write).
  *
  * Still strict, and for reasons that are their own, not leftovers:
  *  · `connect` / `disconnect` / `set` / `connectOrCreate.where` — these NAME a row
@@ -177,7 +176,7 @@ type WhereUniqueExtendedEntries<
  * `query-engine-v2/shared.ts` `uniqueSelectorConjuncts` for the one place the two
  * halves are recombined, and `docs/content/docs/client/*`.
  *
- * RELATION FILTERS (N6-U2). They were refused here until the write half learned
+ * RELATION FILTERS. They were refused here until the write half learned
  * to name its own table. A unique `where`'s filter half compiles into the
  * UPDATE/DELETE as well as the locate (batch mode addresses the row by the
  * original `where`, so guard and write pin one row), and there the target

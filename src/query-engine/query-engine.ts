@@ -26,7 +26,7 @@ export class QueryEngine {
   readonly scopeId: symbol;
 
   /**
-   * TRANSITIONAL (W6-U1, removed next release). `"number"` restores the old
+   * TRANSITIONAL (removed next release). `"number"` restores the old
    * lossy decimal decode at RUNTIME ONLY — the static types still say `string`,
    * so the hatch is deliberately type-incoherent. It exists to unblock a deploy
    * that cannot migrate its decimal reads in one step, not to be a mode anyone

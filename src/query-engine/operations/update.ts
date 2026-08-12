@@ -67,8 +67,8 @@ export function buildUpdateStatement(
   // mutation into scalar assignments or membership Parts before this leaf, so
   // the SET clause trusts what it is handed. The relation interpreter that once
   // sat here re-derived FK assignments below the canonical program boundary and
-  // silently dropped every other relation kind — deleted (distinct-truth
-  // Phase 9.4) with all ten callers audited scalar-only.
+  // silently dropped every other relation kind — deleted, with all ten callers
+  // audited scalar-only.
   const setSql = buildSet(
     ctx,
     args.data,

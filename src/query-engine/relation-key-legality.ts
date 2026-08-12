@@ -149,11 +149,12 @@ export function assertUpdateManyDataRelationsAreCompilable(
 }
 
 /**
- * THE owner of "nested bulk data carries relation writes" (Package O, cluster 2).
+ * THE owner of "nested bulk data carries relation writes"
+ * (guard-ownership-ledger.md, cluster 2).
  *
  * A set-based UPDATE publishes no per-row identity a descendant write can correlate
- * to, so a nested `updateMany` accepts scalar data only (ATOM §17; Package L
- * measured both lifts and both were rejected, so this wall stands).
+ * to, so a nested `updateMany` accepts scalar data only (ATOM §17; both lifts were
+ * measured and rejected, so this wall stands).
  *
  * ONE construction site, TWO nouns. The junction and ordinary wordings used to be
  * two throw tokens of the same decision, and two more copies stood downstream in
@@ -173,23 +174,6 @@ export function assertSelectedUpdateManyDataIsScalar(
       : `query-engine-v2 updateMany for relation '${invalid.relationName}' does not support nested relation writes in its data.`
   );
 }
-
-/*
- * D2 — `assertPinnedTransitionIsCompilable` lived here and is DELETED. It refused a
- * selected target that transitions a row-key member the locator does not pin while a
- * deeper non-cascading edge references that member, because the engine could not name
- * the member's pre-transition value: "…transitions the target primary key '<field>'
- * while writing a deeper edge whose foreign key does not cascade on update; it must
- * locate the target by that primary key."
- *
- * `RecordUpdateCompiler.interpretReferencedKeyTransition` now names it — the located
- * row supplies every member's OLD value and `postTransitionReference` derives every
- * member's NEW value — so the refusal has a compiling answer and its five eager arm-side
- * call sites are gone with it. Its domain was also strictly NARROWER than the compiler's
- * (row-key members only, and it matched a parent-held membership's
- * `referencedFields`, which name the TARGET's columns rather than the selected
- * model's, by name across two models).
- */
 
 function findRelationBearingUpdateManyData(
   source: QueryScope,

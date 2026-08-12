@@ -236,7 +236,7 @@ interface ToOneLink {
  * the parent INSERT replaced by the parent UPDATE.
  *
  * E1 U3 — the target is a create SUBTREE, not one INSERT: a whole
- * {@link FreshRecordPart} in its `nestedFresh` mode (the X1b/N4-U2 seam), so the
+ * {@link FreshRecordPart} in its `nestedFresh` mode, so the
  * target's own relations at any depth fall out of the create root unchanged. The
  * identity flows the OTHER way here than it does for a nested fresh arm — the
  * enclosing UPDATE's SET reads the SUBTREE ROOT's key — and the subtree exports it
@@ -317,7 +317,7 @@ type ParentHeldTarget =
       readonly guardId: string;
       readonly correlation: ParentHeldCorrelation;
       readonly probe: ReadStep;
-      /** W4-U3 — the `update: { where, data }` wrapper's NON-unique filter on the
+      /** The `update: { where, data }` wrapper's NON-unique filter on the
        *  currently connected record, ANDed into the locate probe AND the batch
        *  split-witness guard (never the write, which addresses the captured PK).
        *  Absent for the bare `update: <data>` spelling. */
@@ -464,7 +464,7 @@ interface RelationKeyGuard {
   readonly probe: ReadStep;
   /**
    * The BATCH premise: the same predicate with every located pre-value RESOLVED. It
-   * cannot simply reuse `probe.statement`, because since D2 that statement may carry a
+   * cannot simply reuse `probe.statement`, because that statement may carry a
    * planning `Ref` to the located row — legal inside the planning fragment that read
    * it, and rejected by the fragment validator inside the atomic unit, which has no
    * such step to point at. This is the same planning/final split
@@ -479,7 +479,7 @@ interface RelationKeyGuard {
    * DIFFERENTLY — the planning probe binds it as a parameter (`= $n`, never true of
    * NULL) while the batch premise resolves it to a literal (`IS NULL`, true of NULL) —
    * and one payload must not get two verdicts for the substrate it ran on. Reachable
-   * only since D2 widened the regime to compound and non-primary-key references; a
+   * only since the regime widened to compound and non-primary-key references; a
    * primary key has no null member.
    */
   readonly oldReferenceIsAddressable: (known: PlanningKnown) => boolean;
@@ -571,7 +571,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
   private readonly sharedKeyMembers: ReadonlySet<string>;
   /**
    * E1 — the FINAL value each of those members takes: the literal the arm spells, or
-   * the `Ref` the before-root target's own INSERT publishes (Package F's channel). The
+   * the `Ref` the before-root target's own INSERT publishes. The
    * arms fill it while the relation loop runs and every reader consults it at COMPILE —
    * the terminal read's where, and the post-transition source a child-held edge writes
    * — so no reader depends on the order the payload happened to list relations in.
@@ -607,10 +607,9 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     // constructor is then the ONE thing every write, guard and re-address reads the
     // key back from (ATOM "Wrong-row protection"). No field survives beside it.
     //
-    // An `parentPrimaryKeys.length === 0` refusal stood here and is DELETED
-    // (Package O): `getPrimaryKeyFields` is total — a model with no declared id
-    // answers `["id"]` — so the empty list was unreachable. Same dead shape as
-    // `ManyAndReturnOperation.pkSelect`'s, deleted with it.
+    // No `parentPrimaryKeys.length === 0` refusal: `getPrimaryKeyFields` is total — a
+    // model with no declared id answers `["id"]` — so the empty list is unreachable.
+    // Same dead shape as `ManyAndReturnOperation.pkSelect`'s.
     const parentPrimaryKeys = getPrimaryKeyFields(this.model);
     this.targetReadId = resolveStepAddress(input.scope, input.targetRead);
     this.writeId = resolveStepAddress(input.scope, input.rootWrite);
@@ -814,7 +813,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     known: Readonly<Record<string, unknown>>,
     locatedRow: Record<string, unknown>
   ): OperationStep[] {
-    // Build-don't-select (P1.2): to-one connect checks + child arms construct
+    // Build-don't-select: to-one connect checks + child arms construct
     // their taken steps; the shared root update and deep terminal read emit once.
     // Guards hoist ahead of every write (batch pins premises first).
     const guards: OperationStep[] = [];
@@ -852,7 +851,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     for (const part of this.childParts) {
       bucketOperationSteps(part.compile(this.scope, known), guards, writes);
     }
-    // The post-transition Parts (T4b create leaves + N5-U1's guarded adopt family).
+    // The post-transition Parts (transitioned create leaves + the guarded adopt family).
     // Their GUARDS join every other guard at the front — a batch pins its premises
     // before any write, and every premise these Parts assert (the connect target
     // exists; the departing set is empty) is a fact about rows the root UPDATE does
@@ -898,7 +897,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     if (rootUpdate && this.reorderRootUpdateAfterChildren) {
       steps.push(rootUpdate);
     }
-    // T4b CLASS III + N5-U1 — every write whose foreign key is the POST-transition
+    // CLASS III — every write whose foreign key is the POST-transition
     // referenced value lands here: the transitioned-PK create INSERTs, and the guarded
     // adopt family's reparent UPDATEs. They must follow the root UPDATE, which is what
     // makes the new parent row exist (a NO-ACTION foreign key does not cascade a fresh
@@ -1362,7 +1361,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
           relation,
           program,
           parentId: input.parentIdSource,
-          // D1 — a junction edge reads its EXISTING join rows by the located key.
+          // A junction edge reads its EXISTING join rows by the located key.
           // `interpretRelation` returns for a junction before it classifies a
           // referenced-key transition, so `parentId` is the located source here too
           // and the two agree; naming the read source anyway is what stops that
@@ -1405,9 +1404,9 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       // write the target before the root UPDATE and reference its identity from the
       // UPDATE's SET.
       //
-      // H3/R2 — this dispatch is now TOTAL over the parent-held half of the to-one
-      // composition lattice, not one arm behind an arity refusal. What E6.5 measured at
-      // 8c2908d and declined to own is exactly what {@link interpretParentHeldComposition}
+      // This dispatch is TOTAL over the parent-held half of the to-one composition
+      // lattice, not one arm behind an arity refusal. What an earlier measurement
+      // declined to own is exactly what {@link interpretParentHeldComposition}
       // now owns: the FK-null of a `delete` is elided when a sibling supplier rebinds the
       // same columns (without the elision the fresh row was inserted and then ORPHANED —
       // `station.depotId = null`, `depots = [d-alt, d-new]`), and `disconnect` + supplier
@@ -1465,16 +1464,15 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     const relationInfo = relation.relationInfo;
     const relationName = relationInfo.name;
     // Compound foreign keys are per-field (ATOM “Field-bound foreign-key provenance”): every referenced parent
-    // column — the PK, a subset of it, or a non-PK unique (D4-style) — is added
+    // column — the PK, a subset of it, or a non-PK unique — is added
     // to the locate read's select/outputs so a per-field child part reads or refs
     // each one. The whole family (link/adopt/write/set) generalizes together; no
     // shape needs a separate path solely because the edge is compound.
     //
-    // T3b-2 (family E): a nested `create`/`createMany` resolves its FK from the
-    // update's own inputs (the referenced column pinned by the unique `where`, or
-    // rewritten by the root SET — D4), NOT from the located row, so a create-ONLY
-    // relation adds no referenced column to `locateFields`. This keeps the D4 order
-    // correct: the root UPDATE stays reorder-FALSE (before the child INSERT), so the
+    // A nested `create`/`createMany` resolves its FK from the update's own inputs
+    // (the referenced column pinned by the unique `where`, or rewritten by the root
+    // SET), NOT from the located row, so a create-ONLY relation adds no referenced
+    // column to `locateFields`. This keeps the ordering correct: the root UPDATE stays reorder-FALSE (before the child INSERT), so the
     // fresh row references the post-transition value that already exists.
     const needsLocatedReference = entries.some(
       (entry) => entry.kind !== "create" && entry.kind !== "createMany"
@@ -1499,18 +1497,18 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       childScope,
       childName,
     });
-    // N5-U1 — the ADOPT family under a guarded non-cascade transition. The occupied
+    // The ADOPT family under a guarded non-cascade transition. The occupied
     // guard just emitted proves the OLD slot is empty, so an adopt edge has exactly
     // one correct target: the parent's POST-transition referenced value, and the WRITE
     // is deferred until after the root UPDATE, which is what makes the row it points at
     // exist. Ordering closes this family; no new expressiveness was needed.
     //
-    // D2 — the value is a construction literal where the locator pins the reference and
+    // The value is a construction literal where the locator pins the reference and
     // a per-member compile-time source otherwise; both are one `FinalReferenceSource`,
     // so nothing downstream distinguishes them. What used to be refused here (a
     // compound, non-PK, or unpinned reference under any kind but `create`) now takes
     // the second spelling and compiles.
-    // N5-U1 — the ADOPT family's two facts, kept apart because they are not one
+    // The ADOPT family's two facts, kept apart because they are not one
     // fact: `adoptWrite` is the SOURCE an adopt edge writes (it overrides
     // `WritePartBase.parentId` and deliberately leaves `membershipReadSource` alone
     // — that split IS the old-read / new-write rule), and the adopt PLACEMENT is the
@@ -1846,7 +1844,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
         // On a singular relation `delete: true` is a correlated bulk delete — DELETE
         // child WHERE fk = parent. `true` is the arm's only reachable value: the parse
         // boundary types it `v.boolean()` and `false` is Prisma's no-op, dropped from
-        // the entry list (N7-U-B).
+        // the entry list.
         push(
           isInverseToOne
             ? buildToManyDeleteManyParts(writeBase, {
@@ -1921,7 +1919,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
   }
 
   /**
-   * D1 — the ONE post-transition reference-value derivation, for every member of a
+   * The ONE post-transition reference-value derivation, for every member of a
    * reference key, in every position that needs it: the transitioned create leaf
    * ({@link transitionedCreateParent}), the polymorphic inverse
    * ({@link resolvePolymorphicParent}), and the child-held adopt/occupied family
@@ -1990,8 +1988,8 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
   }
 
   /**
-   * A child-held nested `create`/`createMany` under the update root (T3b-2 family E,
-   * generalized by N1-U1). The fresh child's foreign key is the located parent's
+   * A child-held nested `create`/`createMany` under the update root. The fresh
+   * child's foreign key is the located parent's
    * referenced column, resolved by {@link resolveCreateParent} to either a
    * construction-time literal (the `where` pins it, or the root SET rewrites it) or a
    * `planned` read of the LOCATE step — the located-parent Ref. Both provenances feed
@@ -2063,7 +2061,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
    *     extra statement, no compile-time resolution;
    *   - anything else — the `where: { email }` spelling, whose discriminator names a
    *     DIFFERENT column than the one the child FK references, or a COMPOUND reference
-   *     (N1-U2) — → the **located-parent Ref**: every referenced column joins the locate
+   *     — → the **located-parent Ref**: every referenced column joins the locate
    *     read's select/outputs, and the fresh row's FK is resolved PER FIELD at compile from
    *     the row the locate ACTED ON (the wrong-row doctrine: never from re-consulting the
    *     `where`). Compound needs no new mechanism — a compound foreign key is per-field
@@ -2074,7 +2072,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
    *
    *  **A referenced column IS rewritten** (a transition). The referential ACTION decides,
    *  because it decides whether a post-transition value is needed at all:
-   *   - `ON UPDATE CASCADE`, any arity, pinned or not (N5-U2) → the LOCATED pre-transition
+   *   - `ON UPDATE CASCADE`, any arity, pinned or not → the LOCATED pre-transition
    *     values, `afterRoot: false`. The INSERT lands before the root UPDATE and the cascade
    *     carries the fresh row's foreign key new — the ordering a reparent already gets;
    *   - a NON-cascading **transitioned PRIMARY KEY** whose pre-transition value the `where`
@@ -2103,20 +2101,20 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     if (rewritten.length === 0) {
       return this.locatedCreateParent(input, relation);
     }
-    // N5-U2 — a rewritten reference on an `ON UPDATE CASCADE` edge needs NO
+    // A rewritten reference on an `ON UPDATE CASCADE` edge needs NO
     // post-transition derivation at all, whatever its arity and wherever its
     // pre-transition value lives. Write the fresh row against the LOCATED (pre-transition)
     // values, before the root UPDATE, and the cascade carries it new — the same ordering
     // `reorderRootUpdateAfterChildren` already applies to a reparent, applied to an
     // INSERT. `locatedCreateParent` is entered unchanged, so a compound reference rides
-    // it per field exactly as N1-U2 made it. This is checked BEFORE the arity and
+    // it per field. This is checked BEFORE the arity and
     // pinned-value branches below, because both of those exist only to derive a
     // POST-transition value, and a cascading edge never needs one.
     if (relation.membership.onUpdate === "cascade") {
       return this.locatedCreateParent(input, relation);
     }
     if (referencedFields.length !== 1) {
-      // E6.7 — a NON-cascade COMPOUND reference the root SET rewrites. The located row
+      // A NON-cascade COMPOUND reference the root SET rewrites. The located row
       // carries the pre-transition members, but a NO-ACTION foreign key does not follow
       // them, so the fresh row must reference the POST-transition TUPLE — per member:
       // `getUpdatedPrimaryKeyValue` over each located value and its operand, at COMPILE
@@ -2144,8 +2142,8 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       // `getUpdatedPrimaryKeyValue` to apply, whatever the `where` pins; its post value
       // is the fold's, read per member at compile.
       if (!pinnedBefore || this.sharedKeyMembers.has(referencedField)) {
-        // E6.7 — the `where` pins some OTHER unique, so the pre-transition value lives
-        // only in the located row. N5-U2 measured that the Ref reaches it; what a
+        // The `where` pins some OTHER unique, so the pre-transition value lives only
+        // in the located row. The Ref reaches it, as measured; what a
         // NO-ACTION foreign key needs is the POST-transition value, and
         // `getUpdatedPrimaryKeyValue(before, operand)` can only run once `before` is
         // known, i.e. at COMPILE. That is the one thing every construction-fixed source
@@ -2168,7 +2166,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
         afterRoot: true,
       };
     }
-    // N7-U-B — `{ set: v }` is the SAME assignment as the bare `v`, spelled with the
+    // `{ set: v }` is the SAME assignment as the bare `v`, spelled with the
     // envelope Prisma's scalar update input allows. `classifyRelationKeyScalarUpdate`
     // is the engine's one reader of that envelope (the own-write legality walk and
     // `TargetConstraint` already ask it the same question), so the normalization is
@@ -2180,11 +2178,11 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     const resolved = classifyRelationKeyScalarUpdate(operand);
     const literal = resolved.resolved ? resolved.value : operand;
     if (!isConstructionLiteral(literal)) {
-      // MEASURED (N7-U-B): what reaches here after the `{ set: v }` unwrapping above is
+      // MEASURED: what reaches here after the `{ set: v }` unwrapping above is
       // an operand with NO value at construction. `INSERT … VALUES (<the post-SET
       // value>)` is trivial SQL; what the engine cannot spell is the value itself. An
       // `Sql` operand re-evaluated for the FK is a SECOND provenance
-      // (`gen_random_uuid()` twice is two values, the N4-U4 measurement); `null`
+      // (`gen_random_uuid()` twice is two values); `null`
       // references no row at all. Arithmetic (`{ increment }` / `{ multiply }`) never
       // arrives: the CLASS IV relation-key legality guard pre-empts it with its own
       // message ("Use a literal value or '{ set: ... }'") — measured, N7 verify. The
@@ -2203,7 +2201,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
   }
 
   /**
-   * E6.7 — the parent id for a nested create under a NON-CASCADE transition whose
+   * The parent id for a nested create under a NON-CASCADE transition whose
    * post-transition value has no construction-time spelling: a compound reference, or a
    * single primary key the unique `where` does not pin.
    *
@@ -2217,7 +2215,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
    * new parent has to exist first. Reordering the root UPDATE behind the children would
    * invert exactly that.
    *
-   * E6.6 measured that only the `null` arm of the shared refusal is reachable from the
+   * Only the `null` arm of the shared refusal is reachable from the
    * public client — the parse boundary has no `Sql` member in write data.
    */
   private transitionedCreateParent(
@@ -2243,9 +2241,9 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
   }
 
   /**
-   * N1-U1/U2 — the parent id for a nested create whose referenced columns the root SET
-   * leaves alone. A SINGLE referenced column the unique `where` PINS keeps its
-   * construction-time literal (the pre-N1 plan, byte for byte). Everything else — an
+   * The parent id for a nested create whose referenced columns the root SET leaves
+   * alone. A SINGLE referenced column the unique `where` PINS keeps its
+   * construction-time literal, byte for byte. Everything else — an
    * unpinned reference (`where: { email }` while the child FK references `id`) or a
    * COMPOUND one — takes THE LOCATED-PARENT REF.
    *
@@ -2300,7 +2298,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
    * slot occupied: V1 rejects `Cannot update relation '…' with onUpdate('…') while the
    * current relation is occupied.` for ANY nested mutation on it (upsert / update /
    * delete / disconnect / create / …) and either cardinality. Called once per relation
-   * before the per-kind dispatch, and kind-BLIND in its body since N5-U1 removed the one
+   * before the per-kind dispatch, and kind-BLIND in its body since it lost the one
    * per-kind branch it had (the adopt refusal): the guard belongs to the relation, the
    * ordering to the kind. Returns which regime applies:
    *   · **`"none"`** — parent-held / `ON UPDATE CASCADE`, no referenced column written,
@@ -2315,9 +2313,9 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
    *     and `adoptParts`), which is why the source is returned rather than consumed
    *     here.
    *
-   * D2 — there is no `pastSurface` third answer any more. What used to be past the
-   * surface — a COMPOUND reference, a NON-PK referenced unique (the D4 case), and a
-   * pre-value the unique `where` does not pin — is now compiled by the same two
+   * There is no `pastSurface` third answer. What used to be past the surface — a
+   * COMPOUND reference, a NON-PK referenced unique, and a pre-value the unique
+   * `where` does not pin — is compiled by the same two
    * mechanisms the create leaf already had: the OLD value of every member is read from
    * the LOCATED ROW (the target projection publishes it; no extra planning read), and
    * the NEW value of every member is {@link postTransitionReference}, resolved per
@@ -2363,7 +2361,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     // Does the root SET rewrite a referenced parent column — or, E1, does a
     // shared-primary-key arm fold a new value into one? Both are the same fact about
     // the same column, and a transition that only ONE of them can see is the silent
-    // orphan D2 closed for the scalar half.
+    // orphan closed for the scalar half.
     const changed = referencedFields.filter(
       (field) =>
         Object.hasOwn(input.rootScalarData, field) ||
@@ -2389,7 +2387,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     // The post-transition value as a CONSTRUCTION literal, for the one shape that has
     // one: a single referenced member whose pre-value the locator pins. Keeping it is
     // what makes the guarded family's statements and parameters byte-identical to the
-    // pre-D2 plan, and it is the only place the no-op question can be answered before
+    // pre-widening plan, and it is the only place the no-op question can be answered before
     // the locate runs. `length === 1` is not a first-member read: it IS the whole
     // reference key, and a compound one falls through to the per-member compile-time
     // source rather than borrowing member zero's answer.
@@ -2442,7 +2440,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
 
   /** CLASS IV (T4c) — emit V1's occupied guard onto `relationKeyGuards`: a read of the
    *  OLD slot (a child correlated on the pre-transition parent values), locked in tx
-   *  mode. D3: the correlation is lowered from the COMPLETE correlated binding through
+   *  mode. The correlation is lowered from the COMPLETE correlated binding through
    *  the membership owner, so every referenced member contributes its conjunct in schema
    *  order — a compound edge names all of them where a pinned-selector special case
    *  named one. A single-member edge collapses to the same one-conjunct `where` with the
@@ -2536,8 +2534,8 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
    *  creates). The relation-level occupied guard is already emitted
    *  ({@link interpretReferencedKeyTransition}).
    *
-   *  H7, RAISED AND SETTLED BY MEASUREMENT (Package G raised it, Package E closed it).
-   *  The claim was that dropping `upsertInput.update` here loses a payload silently. It
+   *  RAISED AND SETTLED BY MEASUREMENT. The claim was that dropping
+   *  `upsertInput.update` here loses a payload silently. It
    *  does not, because the arm and the guard are emitted from the SAME regime decision
    *  over the SAME population — the child correlated on the parent's PRE-transition
    *  values — and {@link compileRelationKeyGuards} runs FIRST in
@@ -2604,7 +2602,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
   ): void {
     const relationName = relation.relationInfo.name;
     if (entries.length === 1) {
-      this.interpretParentHeldToOne(input, relation, entries[0]!);
+      this.interpretParentHeld(input, relation, entries[0]!);
       return;
     }
     const vacate = entries.find(
@@ -2622,7 +2620,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       // edge's columns, whichever key the payload spelled first. It goes through the
       // ordinary single-intent dispatch: a supplier means the same thing composed as it
       // does alone, and a second spelling of those three arms would be a second owner.
-      this.interpretParentHeldToOne(input, relation, supplier);
+      this.interpretParentHeld(input, relation, supplier);
       if (vacate.kind === "delete") {
         input.parentHeldTargets.push(
           this.interpretParentHeldDelete(input, relation, true)
@@ -2639,7 +2637,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       // FK correlation (which addresses the OUTGOING member) if the parse ever hands
       // this dispatch a target-less `connect`.
       const suppliedWhere = requireToOneConnectTarget(supplier, relationName);
-      this.interpretParentHeldToOne(input, relation, supplier);
+      this.interpretParentHeld(input, relation, supplier);
       const compiled = this.interpretParentHeldUpdate(
         input,
         relation,
@@ -2660,7 +2658,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
   }
 
   /** Compile one parent-held to-one mutation at its required position. */
-  private interpretParentHeldToOne(
+  private interpretParentHeld(
     input: Parameters<RecordUpdateCompilerState["interpretRelation"]>[0],
     relation: ParentHeldRelation,
     entry: RelationMutationEntry
@@ -2702,7 +2700,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
         );
         return;
       default:
-        // Unreachable by construction (N7-U-A, the X1c disposition): `toOneUpdateFactory`
+        // Unreachable by construction: `toOneUpdateFactory`
         // offers exactly create / connect / connectOrCreate / update / upsert (+ disconnect
         // and delete when the relation is optional). `connect` and `disconnect` are
         // dispatched to `interpretToOneLink` above this switch and the rest have arms; a
@@ -2737,7 +2735,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
    * uses it. So a foreign key that references some OTHER unique of the child is a
    * shape this ledger already expresses; only the ARITY was ever load-bearing.
    *
-   * E6.4 — the ARITY OF THE EDGE was never load-bearing either, and the old refusal
+   * The ARITY OF THE EDGE was never load-bearing either, and the old refusal
    * conflated it with the arity of the child's own key. The ledger's two jobs stay
    * separate: {@link parentHeldCorrelationFilters} already emits ONE conjunct per
    * referenced column, index-aligned with the parent FK column it reads (the same
@@ -2870,7 +2868,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
   /** A parent-held to-one `delete: true`: NULL the parent FK (a required FK is V1's
    *  typed reject), then correlated bulk-delete the referenced target. `true` is the
    *  arm's only reachable value — the parse boundary types it `v.boolean()` and `false`
-   *  is Prisma's no-op, dropped from the kind list (N7-U-B). */
+   *  is Prisma's no-op, dropped from the kind list. */
   private interpretParentHeldDelete(
     input: Parameters<RecordUpdateCompilerState["interpretRelation"]>[0],
     relation: ParentHeldRelation,
@@ -3062,7 +3060,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
 
   /** The correlated locate probe for a parent-held `update`/`upsert`: `WHERE
    *  <referenced> = <finalFk> [AND <filter>] [AND <every row-key member> =
-   *  <its captured value>]`, one row, FOR UPDATE in tx. `filter` is W4-U3's non-unique
+   *  <its captured value>]`, one row, FOR UPDATE in tx. `filter` is the non-unique
    *  `update: { where, data }` term on the currently connected record — a plain
    *  `WhereInput` handed to the find builder whole; a connected row that fails it
    *  leaves the probe empty, which is already this family's target-not-found abort
@@ -3264,8 +3262,8 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
    * and it records the value it does find ({@link sharedKeyFinal}) for the readers
    * that need it — the terminal read's where, the child-held transition machinery,
    * and the reorder decision. Its unique coverage — each disjunct below has a witness,
-   * and a disjunct whose coverage could not be named was deleted at the Package E gate
-   * rather than kept for symmetry:
+   * and a disjunct whose coverage could not be named was deleted rather than kept
+   * for symmetry:
    *   · `undefined` — the arm answers with no value at all. Two spellings reach it:
    *     a `connect` / `connectOrCreate` through a NON-referenced unique, whose `where`
    *     does not spell the referenced column (its foreign key comes from a correlated
@@ -3314,11 +3312,10 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     resolve: (foreignField: string, referencedField: string) => unknown
   ): void {
     const recordPk = getPrimaryKeyFields(this.model);
-    const { foreignFields, referencedFields } = relation.membership;
-    for (let index = 0; index < foreignFields.length; index += 1) {
-      const foreignField = foreignFields[index]!;
+    for (const { foreignField, referencedField } of relation.membership
+      .members) {
       if (!recordPk.includes(foreignField)) continue;
-      const value = resolve(foreignField, referencedFields[index]!);
+      const value = resolve(foreignField, referencedField);
       const spelled = Object.hasOwn(input.rootScalarData, foreignField)
         ? classifyRelationKeyScalarUpdate(input.rootScalarData[foreignField])
         : undefined;
@@ -3369,17 +3366,17 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     before: BeforeTarget
   ): Record<string, unknown> {
     const { relationInfo } = relation;
-    const { foreignFields, referencedFields } = relation.membership;
     const fkAssign: Record<string, unknown> = {};
-    for (let index = 0; index < foreignFields.length; index += 1) {
-      fkAssign[foreignFields[index]!] = referenceSql(
+    for (const { foreignField, referencedField } of relation.membership
+      .members) {
+      fkAssign[foreignField] = referenceSql(
         this.engine,
         this.model,
-        foreignFields[index]!,
+        foreignField,
         this.beforeTargetReferencedValue(
           before,
-          foreignFields[index]!,
-          referencedFields[index]!,
+          foreignField,
+          referencedField,
           relationInfo.name
         )
       );
@@ -3445,15 +3442,15 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     where: Record<string, unknown>
   ): Record<string, unknown> {
     const { relationInfo } = relation;
-    const { foreignFields, referencedFields } = relation.membership;
     const recordScope = {
       ...createQueryScope(this.engine.adapter, this.model),
       mutationTable: getTableName(this.model),
     };
     const fkAssign: Record<string, unknown> = {};
-    for (let index = 0; index < foreignFields.length; index += 1) {
-      const referenced = referencedFields[index]!;
-      const fkField = foreignFields[index]!;
+    for (const {
+      foreignField: fkField,
+      referencedField: referenced,
+    } of relation.membership.members) {
       const member: ForeignKeyMember = {
         foreignField: fkField,
         referencedField: referenced,
@@ -3840,7 +3837,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       return;
     }
     // The arm's raceable missing premise rides the SUBTREE's root INSERT, threaded
-    // through `nestedFresh.rootRacePin` at construction (N4-U2's seam).
+    // through `nestedFresh.rootRacePin` at construction.
     this.emitBeforeTarget(target.before, known, guards, beforeRootWrites);
     applyRootMembershipAssignment(
       this.engine,
@@ -3911,7 +3908,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
             captured,
             false,
             known,
-            // W4-U3: the batch guard re-asserts the wrapper's filter alongside the
+            // The batch guard re-asserts the wrapper's filter alongside the
             // correlation and the captured row key — a concurrent write that makes
             // the connected row fail the filter aborts the batch typed, exactly as
             // the tx path's locked probe would have.
@@ -4361,10 +4358,10 @@ const SHARED_KEY_FOLD_KINDS: ReadonlySet<string> = new Set([
  * identical final state (`accountId: <same key>`) is ACCEPTED — the scalar half reaches
  * `sameScalarValue` in {@link RecordUpdateCompilerState.interpretReferencedKeyTransition}
  * and this half cannot, because the value is not there yet. Measured on both substrates
- * at the Package E gate and pinned in `shared-pk-update-root-behavior.ts`. Kept rather
+ * and pinned in `shared-pk-update-root-behavior.ts`. Kept rather
  * than closed: closing it means deriving each arm's value a SECOND time here, in a
  * second enumeration of "what does this arm fold", and a fold the two enumerations
- * disagree about is the silent orphan D2 closed. Refusing a satisfiable payload is the
+ * disagree about is the silent orphan. Refusing a satisfiable payload is the
  * recoverable direction; under-counting is not.
  */
 function resolveSharedKeyMembers(
@@ -4389,7 +4386,7 @@ function resolveSharedKeyMembers(
     // A multi-kind to-one payload used to be refused before any of this mattered, by
     // `interpretRelation`'s OWN parent-held dispatch guard (`kinds.length !== 1`), and
     // reading the entry count here was reading that guard's premise rather than this
-    // map's question. Package H's lattice admits a supplier beside an `update` and
+    // map's question. The to-one lattice admits a supplier beside an `update` and
     // beside a vacate, so the old skip would have gone fail-OPEN: the supplier would
     // still fill `sharedKeyFinal` while this map stayed empty, moving the terminal
     // without the transition regime, the reorder, or the occupied guard.
@@ -4480,12 +4477,12 @@ interface ComposedToOnePayload {
  * `update` and the one composed with a `connect` ask for it, and they must not ask
  * differently.
  *
- * W4-U3: the payload reaches here as the relation schema's canonical envelope — bare
+ * The payload reaches here as the relation schema's canonical envelope — bare
  * data and Prisma's `{ where?, data }` wrapper are told apart ONCE, at the parse, off
  * the user's own payload (a schema output rewrites scalar shorthands and is not a
  * faithful witness of the form). The wrapper's `where` is a NON-unique filter on the
  * connected record; it rides the locate, never the write. The bare form yields no
- * filter and is byte-identical to pre-W4-U3.
+ * filter and is byte-identical to the bare-payload plan.
  */
 function parentHeldUpdateTarget(
   entry: RelationMutationEntry,

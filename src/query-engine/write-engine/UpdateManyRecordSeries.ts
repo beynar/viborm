@@ -308,8 +308,8 @@ export class UpdateManyRecordSeries implements RecordSeriesOperation {
    * every one of these shapes means what a single `update` means, which is why the
    * refusal names the observed count.
    *
-   * IT SCANS RAW ENTRIES, WHICH IS WHAT MAKES IT COMPLETE. Package H's to-one
-   * composition lattice lets a supplier travel beside a modifier (`{ connect, update }`,
+   * IT SCANS RAW ENTRIES, WHICH IS WHAT MAKES IT COMPLETE. The to-one composition
+   * lattice lets a supplier travel beside a modifier (`{ connect, update }`,
    * `{ disconnect, connect }`, the child-held `{ vacate, supply, update }` triples),
    * and its composition owner buckets those entries WITHOUT renaming or merging their
    * kinds. So a composed `connect` still presents itself as a `connect` to a scan of
@@ -375,10 +375,9 @@ class FinalRootRead implements ExecutableOperation {
       kind: "read",
       statement: buildFindUnique(ctx, { where, select }),
       outputs: { result: { kind: "rows" } },
-      // THE MISSING-FINAL-READ DECISION (plan §6 K6; carried into Package K from J
-      // as a question to DECIDE rather than inherit). A captured root can stop
-      // existing at its final row key for two reasons, and both are reachable HERE
-      // in a way neither is on the create side:
+      // THE MISSING-FINAL-READ DECISION. A captured root can stop existing at its
+      // final row key for two reasons, and both are reachable HERE in a way neither
+      // is on the create side:
       //
       //   · a LATER member MOVED it — legal whenever a row-key member is also a
       //     foreign key, or through any primary-key transition on a self-relation;
@@ -407,8 +406,8 @@ class FinalRootRead implements ExecutableOperation {
       //
       // ITS REACH IS CARDINALITY AT THE REPORTED KEY, not provenance: it answers
       // "is there exactly one row here", never "is this the row that member updated"
-      // — and Package H established there is no produced-identity selector channel
-      // that could answer the second. The gap that implies has no witness: for a
+      // — and there is no produced-identity selector channel that could answer the
+      // second. The gap that implies has no witness: for a
       // later member to REPLACE a captured root at its own key, the shared `data`
       // would have to recreate that key, and then the FIRST member to run it
       // collides with the row that is still there (measured on PGlite).
@@ -466,7 +465,7 @@ function asRows(value: unknown): readonly unknown[] {
 
 /**
  * The `data` this shell was routed for. Worded as an ENGINE FAULT rather than as a
- * shape check (the distinction E5-U3 drew and the parse-boundary ratchet enforces):
+ * shape check (the distinction the parse-boundary ratchet enforces):
  * the envelope's schema already admits no payload without an object `data`, so a
  * caller cannot reach this — only a route that skipped the boundary can.
  */

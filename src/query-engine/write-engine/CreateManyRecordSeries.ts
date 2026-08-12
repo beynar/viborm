@@ -73,7 +73,7 @@ import { getStepModelName, isRecord } from "./shared";
  * was considered and rejected: it would need a fourth already-validated input route
  * whose member is no longer an ordinary create, which is the one property this class
  * exists to preserve, and it would buy nothing a returning driver's folded RETURNING
- * does not already fold. Per-row round trips on the bulk arms are Package M's subject,
+ * does not already fold. Per-row round trips on the bulk arms are a separate subject,
  * not a reason to make a member special here.
  */
 export class CreateManyRecordSeries implements RecordSeriesOperation {

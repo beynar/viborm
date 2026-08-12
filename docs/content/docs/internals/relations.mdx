@@ -102,21 +102,26 @@ one nested mutation is executed.
 When L6 reaches its first topology decision, `bindRelation` interprets that
 declaration relative to the current model:
 
-| `BoundRelation.kind` | Meaning for the current record |
-| --- | --- |
-| `parentHeldToOne` | The current record stores the foreign key |
-| `childHeldToOne` | One target record stores the foreign key |
-| `childHeldToMany` | Many target records store the foreign key |
-| `polymorphicChildHeldToOne` | One target stores an exact fixed-discriminator membership in private columns |
-| `polymorphicChildHeldToMany` | Many targets store exact fixed-discriminator memberships in private columns |
-| `junction` | Membership is stored in a junction table |
+A bound relation answers three orthogonal questions, and each consumer asks the
+one it needs. There is one stored topology, several derived views:
 
-The bound value carries only the source model, ordered foreign and referenced
-fields, and `onUpdate` action where an FK exists. It carries no query scope,
-record identity, SQL, branch, or execution policy. A fields-less `manyToOne`
-whose inverse stores the FK is therefore `childHeldToOne`. A resolved
-polymorphic inverse uses one of the two polymorphic child-held kinds because its
-membership is the private `(type, identity)` pair rather than an ordinary FK.
+| Axis | Values | What it decides |
+| --- | --- | --- |
+| `position` | `parentHeld` · `childHeld` · `junction` | Which row stores the membership — placement, and whether one membership can be shared by several source rows |
+| `cardinality` | `one` · `many` | How many targets the public slot admits — arity and payload shape, nothing about storage |
+| `membership.kind` | `foreignKey` · `polymorphic` · `junction` | How the membership is physically stored — which columns are written, read and compared |
+
+The union forbids the impossible combinations rather than enumerating the legal
+ones: a parent-held edge holds one foreign-key tuple per source row and is
+therefore always to-one, and a junction row set is always to-many. Both
+child-held storages admit either arity.
+
+The bound value carries the relation declaration, the source model, and the
+membership. It carries no query scope, record identity, SQL, branch, or
+execution policy. A fields-less `manyToOne` whose inverse stores the FK is
+therefore `childHeld` and to-one. A resolved polymorphic inverse is child-held
+with a `polymorphic` membership, because what it stores is the private
+`(type, identity)` pair rather than an ordinary FK.
 
 `BoundRelation` also stays separate from `RelationMutationProgram`: one says
 where an edge is stored, while the other says what the user requested. Relation

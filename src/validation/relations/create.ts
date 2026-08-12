@@ -96,22 +96,23 @@ type TargetHoldsInverseFk<S extends RelationState> =
  *
  * NOT applied to the to-many `upsert` arm of a CREATE context
  * ({@link ToManyCreateSchema}): the engine ABSORBS an agreeing spelling there
- * (`RelationUpsertPart.withoutAgreeingOwnedFk`, E5-U2), which is a capability, and only
+ * (`RelationUpsertPart.withoutAgreeingOwnedFk`), which is a capability, and only
  * a create root whose own key is spelled has a value to agree with.
  */
 export type UpdateWithOmittedFk<
   S extends RelationState,
   Source extends AnyModel,
-> = TargetHoldsInverseFk<S> extends true
-  ? V.Omit<
-      GetTargetSchemas<S>["core"]["update"],
-      OmittedInverseFkKeys<
-        S,
-        Source,
-        GetTargetSchemas<S>["core"]["update"]["entries"]
+> =
+  TargetHoldsInverseFk<S> extends true
+    ? V.Omit<
+        GetTargetSchemas<S>["core"]["update"],
+        OmittedInverseFkKeys<
+          S,
+          Source,
+          GetTargetSchemas<S>["core"]["update"]["entries"]
+        >
       >
-    >
-  : GetTargetSchemas<S>["core"]["update"];
+    : GetTargetSchemas<S>["core"]["update"];
 
 type InverseRelationMap<
   S extends RelationState,
@@ -195,22 +196,22 @@ type NamedScannedCandidateKeys<
     : never;
 }[KnownKeys<TargetModel<S>["~"]["state"]["relations"]>];
 
-type ScannedFieldsAt<S extends RelationState, K> = K extends KnownKeys<
-  TargetModel<S>["~"]["state"]["relations"]
->
-  ? TargetModel<S>["~"]["state"]["relations"][K]["~"]["state"] extends {
-      fields: readonly (infer ScalarKey extends string)[];
-    }
-    ? ScalarKey
-    : never
-  : never;
+type ScannedFieldsAt<S extends RelationState, K> =
+  K extends KnownKeys<TargetModel<S>["~"]["state"]["relations"]>
+    ? TargetModel<S>["~"]["state"]["relations"][K]["~"]["state"] extends {
+        fields: readonly (infer ScalarKey extends string)[];
+      }
+      ? ScalarKey
+      : never
+    : never;
 
 type ScannedInverseRelationMap<
   S extends RelationState,
   Source extends AnyModel,
-> = IsSingleMember<ScannedCandidateKeys<S, Source>> extends true
-  ? ScannedFieldsAt<S, ScannedCandidateKeys<S, Source>>
-  : ScannedFieldsAt<S, NamedScannedCandidateKeys<S, Source>>;
+> =
+  IsSingleMember<ScannedCandidateKeys<S, Source>> extends true
+    ? ScannedFieldsAt<S, ScannedCandidateKeys<S, Source>>
+    : ScannedFieldsAt<S, NamedScannedCandidateKeys<S, Source>>;
 
 type KnownKeys<T> = {
   [K in keyof T]: string extends K ? never : number extends K ? never : K;
@@ -406,7 +407,7 @@ export const toManyCreateFactory = <
             {
               where: () => targetSchemas().core.whereUnique,
               create: getCreateSchema,
-              // The E5-U2 asymmetry, carried as projection data rather than
+              // The agreeing-owned-FK asymmetry, carried as projection data rather than
               // decided here: see {@link ProjectedCreateUpsertUpdate}.
               update: projection.getCreateUpsertUpdateSchema,
             },

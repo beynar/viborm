@@ -57,16 +57,19 @@ Execution-specific deduplication stays with the consumer that owns it.
 
 ### Relation position
 
-`BoundRelation` classifies an edge on three orthogonal axes — `position`
-(`parentHeld`/`childHeld`/`junction`), `cardinality` (`one`/`many`), and
-`membership.kind` (`foreignKey`/`polymorphic`/`junction`) — with impossible
-combinations unrepresentable. It stores topology only: source model and one
+One stored topology, several derived views. `BoundRelation` classifies an edge on
+three orthogonal axes — `position` (`parentHeld`/`childHeld`/`junction`),
+`cardinality` (`one`/`many`), and `membership.kind`
+(`foreignKey`/`polymorphic`/`junction`) — with impossible combinations
+unrepresentable, and every downstream view of the edge derived from that one
+stored fact rather than stored beside it. It stores topology only: source model and one
 membership carrying the holder and referenced models, ordered storage fields,
 referenced fields, those fields paired member for member, and the schema-fixed
 discriminator needed by a polymorphic membership. It does not store scopes,
 runtime identities, value sources, transition state, SQL, or branch policy.
 The field pairing is lazy: it owns the mismatched-metadata refusal and must not
-move it earlier.
+move it earlier. It is also the only pairing — consumers read `membership.members`
+instead of re-pairing the two field lists by index.
 
 The polymorphic child-held variant means one exact physical membership:
 private identity equals the parent referenced value and private type equals the

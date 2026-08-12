@@ -647,14 +647,13 @@ export class RelationWritePart implements Part {
 
   /**
    * The scalar data of the nested `updateMany` leaf (this runs for that kind alone;
-   * the inverse-upsert found arm was the other caller until Package G routed it
-   * through the record compiler).
+   * the inverse-upsert found arm was the other caller until it was routed through
+   * the record compiler).
    *
-   * A refusal stood here (Package O cluster 2, site 10) and is DELETED. Bulk data
-   * still accepts scalar keys only — a set-based UPDATE has no per-row captured
+   * Bulk data accepts scalar keys only — a set-based UPDATE has no per-row captured
    * identity for a descendant write to correlate to (ATOM §17) — but
-   * `assertSelectedUpdateManyDataIsScalar` is the ONE owner of that decision, and
-   * this restated it with a byte-identical sentence.
+   * `assertSelectedUpdateManyDataIsScalar` is the ONE owner of that decision, so
+   * this site does not restate it.
    *
    * MEASURED before deleting: every producer of a relation-bearing bulk leaf is
    * already answered by that owner. `RecordUpdateCompiler`'s two positions skip
@@ -1153,13 +1152,14 @@ interface WritePartBase {
   readonly parentId: FinalReferenceSource;
   /**
    * What EXISTING membership is read by, beside the `parentId` new membership is
-   * written with. D1 — REQUIRED: the two are the same source wherever the parent's
-   * referenced value is not in transition, and every construction site says so
-   * itself. `?? parentId` was the old-from-new inference Package D deletes; it was
-   * benign only because every site that HAD a transition happened to thread this
+   * written with. REQUIRED, not defaulted: the two are the same source wherever the
+   * parent's referenced value is not in transition, and every construction site says
+   * so itself. Inferring the old value from the new one (`?? parentId`) was benign
+   * only because every site that HAD a transition happened to thread this
    * explicitly, which is a property of the callers, not of the type.
    *
-   * PHASE 5 PARTIAL — this stays a scalar beside `parentId` rather than folding into
+   * DELIBERATELY TWO CHANNELS — this stays a scalar beside `parentId` rather than
+   * folding into
    * one source-bound membership. Binding the pair into a
    * {@link CorrelatedRelationMembershipBinding} once per edge would have to run
    * {@link planningSourceFromFinal} at the binding site, and that narrowing is BOTH

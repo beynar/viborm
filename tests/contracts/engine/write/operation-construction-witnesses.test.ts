@@ -486,11 +486,14 @@ describe("N7-U-A (c-i) conversion witnesses — UpdateOperation", () => {
         ).toBeDefined();
       }
     }
-    // :1202 (and its depth twin, nested-target-parts :308) — the guard asks
-    // `!(isToOne || type === "oneToMany")` on a relation that is neither many-to-many
-    // (dispatched to the junction above) nor parent-held (dispatched to the to-one
-    // family). `RelationInfo["type"]` is a closed four-member union, and every member
-    // that can arrive satisfies the predicate, so the guard is false for all of them.
+    // :1202 (and its depth twin, nested-target-parts :308) — HISTORICAL COORDINATES:
+    // the type-name guard they addressed asked `!(isToOne || type === "oneToMany")` on
+    // a relation that is neither many-to-many (dispatched to the junction above) nor
+    // parent-held (dispatched to the to-one family), and it is gone — the bound
+    // relation's own classification narrows the arm now. The argument it rested on is
+    // what this test still pins, and it is the reason the guard could go:
+    // `RelationInfo["type"]` is a closed four-member union, and every member that can
+    // arrive satisfies the predicate, so the guard was false for all of them.
     const types: RelationInfo["type"][] = [
       "oneToOne",
       "oneToMany",
@@ -977,7 +980,8 @@ describe("N7-U-A — the TWO (c-i) claims that failed re-verification", () => {
  *
  * `CreateOperation.edgeParentId` carried an `UnsupportedOperationError` whose docblock
  * claimed it reached the compound-primary-key fact "one statement earlier" than
- * `getManyToManyJoinInfo`'s `getRequiredSinglePrimaryKeyField`. The guard ownership
+ * `getRequiredSinglePrimaryKeyField` (reached then through `getManyToManyJoinInfo`,
+ * deleted in Phase 3; the junction bind reaches it now). The guard ownership
  * ledger (`docs/architecture/guard-ownership-ledger.md`, cluster 9) recorded it as the
  * one survivor kept AGAINST §O3 clause 1 by the plan's §N2 mandate, with no falsifier,
  * and asked this lane to write one.

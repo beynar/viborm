@@ -198,7 +198,7 @@ export function getSQLiteType(context: ScalarTypeContext): string {
       return SQLITE_TYPE_DEFAULTS.int;
     case "float":
       return SQLITE_TYPE_DEFAULTS.float;
-    // NOT the float default (W6-U1): a decimal column is TEXT on SQLite so the
+    // NOT the float default: a decimal column is TEXT on SQLite so the
     // exact spelling survives. REAL rounds it into a double on the way in.
     case "decimal":
       return SQLITE_TYPE_DEFAULTS.decimal;

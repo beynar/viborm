@@ -100,7 +100,7 @@ function isAssertionFailure(
  * Every error class {@link mapProviderError} constructs — the driver layer's failure
  * vocabulary, named so it is visible at the call sites instead of erased to `Error`.
  *
- * The members are disjoint by `code` (T1-U1 gave each class its literal), so this union is a
+ * The members are disjoint by `code` — each class carries its literal — so this union is a
  * discriminated union: `if (failure.code === VibORMErrorCode.UNIQUE_CONSTRAINT)` selects
  * `UniqueConstraintError`, and an exhaustive `switch` over the codes bottoms out at `never`.
  *

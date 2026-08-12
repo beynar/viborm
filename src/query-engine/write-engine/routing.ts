@@ -176,7 +176,7 @@ function constructOperation(
     case "delete":
       return new DeleteOperation(engine, model, args);
     case "upsert":
-      // E5-U3 — the ENVELOPE is validated HERE, at the one construction path a client
+      // The ENVELOPE is validated HERE, at the one construction path a client
       // payload takes (a nested upsert never builds an `UpsertOperation`; it is a
       // relation payload the enclosing operation's schema already validated). The
       // envelope owns the three required keys, the five optional names, and the
@@ -195,7 +195,7 @@ function constructOperation(
     // itself is validated by the ONE arg schema inside whichever arm is built,
     // so a malformed `select` still rejects with a typed ValidationError.
     case "createMany":
-      // PACKAGE J2 — three destinations, one discriminant each, in this order.
+      // THREE DESTINATIONS, one discriminant each, in this order.
       //
       // (1) The row-returning owner comes FIRST when the substrate is the one it
       //     refuses on. A bulk write with `select` on a batch-only, non-returning
@@ -203,14 +203,14 @@ function constructOperation(
       //     naming `createMany` and `select`; a series on that substrate would
       //     instead inherit `withTransaction`'s generic "does not support callback
       //     transactions". Reaching for the existing owner keeps the specific
-      //     message without minting a second copy of it (Package I brief, item 3).
+      //     message without minting a second copy of it.
       // (2) Any row carrying a general relation program routes the WHOLE operation
       //     to the record series (§5.1). Empty data has no row, so it never reaches
       //     here — and that matters more than it looks: a series REQUIRES an
       //     interactive transaction, so `createMany({ data: [] })` (what every caller
       //     spreading a possibly-empty array sends) would turn from `{ count: 0 }`
-      //     into a TransactionError on every batch-only driver. Measured, correcting
-      //     the Package I brief: the cost is NOT an extra BEGIN/COMMIT — the existing
+      //     into a TransactionError on every batch-only driver. Measured: the cost
+      //     is NOT an extra BEGIN/COMMIT — the existing
       //     empty arm already opens one, because its plan is not a single statement.
       // (3) Otherwise the two existing owners, constructed unchanged.
       if (

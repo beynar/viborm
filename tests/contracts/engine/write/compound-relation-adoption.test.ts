@@ -45,9 +45,10 @@ for (const substrate of substrates) {
 describe("E4-U2 the boundary the per-field source did not move", () => {
   test("the many-to-many junction keeps the single-parent-column refusal", async () => {
     // `edgeParentId` still exists, and still refuses arity > 1 — for the junction, whose
-    // join row keys its parent half with ONE column
-    // (`getManyToManyJoinInfo` → `getRequiredSinglePrimaryKeyField`). The message is the
-    // same sentence; what changed is that only the m2m branch can still reach it.
+    // join row keys its parent half with ONE column (the junction bind →
+    // `getRequiredSinglePrimaryKeyField`; the reach was through `getManyToManyJoinInfo`
+    // when this was written, deleted in Phase 3). The message is the same sentence;
+    // what changed is that only the m2m branch can still reach it.
     const source = await import(
       "@src/query-engine/write-engine/CreateOperation"
     );

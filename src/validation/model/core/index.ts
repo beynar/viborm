@@ -140,8 +140,7 @@ export type CoreSchemas<M extends AnyModel, F extends ScalarSchemas<M>> = {
   /**
    * The STRICT unique selector: unique discriminators only. Used by `cursor` and
    * by every NESTED relation-write target selector (`connect`, `disconnect`,
-   * `set`, nested `update`/`delete`/`upsert` `where`), which keep it deliberately
-   * (W4-U1 scope).
+   * `set`, nested `update`/`delete`/`upsert` `where`), which keep it deliberately.
    */
   whereUnique: WhereUniqueSchema<M, F>;
   /**

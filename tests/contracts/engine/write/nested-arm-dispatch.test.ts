@@ -405,7 +405,7 @@ function runSuite(
     // the one the guard's own docblock used to give.
     //
     // The selected-record compiler the arm delegates to DOES own a parent-held fold:
-    // `interpretParentHeldToOne` puts the target's key into `toOneLinks` /
+    // `interpretParentHeld` puts the target's key into `toOneLinks` /
     // `parentHeldTargets` and `compileLocatedRecord` merges it into the one root UPDATE
     // the arm already emits. Measured on both substrates, `owner` — a parent-held
     // relation the arm did NOT arrive through — folds correctly for connect, create,
@@ -463,12 +463,15 @@ function runSuite(
         "upsert",
         { upsert: { create: { id: "w1", name: "W" }, update: { name: "W2" } } },
       ],
-    ])("carve-out: a parent-held to-one %s refuses by DIRECTION", async (_label, payload) => {
-      const error = await refusalOf({ owner: payload });
-      expect(error).toBeInstanceOf(UnsupportedOperationError);
-      expect((error as Error).message).toBe(PARENT_HELD);
-      expect(driver.statements).toEqual([]);
-    });
+    ])(
+      "carve-out: a parent-held to-one %s refuses by DIRECTION",
+      async (_label, payload) => {
+        const error = await refusalOf({ owner: payload });
+        expect(error).toBeInstanceOf(UnsupportedOperationError);
+        expect((error as Error).message).toBe(PARENT_HELD);
+        expect(driver.statements).toEqual([]);
+      }
+    );
 
     test("the carve-out also answers on the relation the arm ARRIVED THROUGH", async () => {
       // The falsifying case, pinned as a refusal so the collision described above can

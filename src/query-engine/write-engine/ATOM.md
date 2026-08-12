@@ -258,8 +258,11 @@ It can change locks, error attribution, race exposure, and sibling visibility.
 
 ## 7. Bound relation position
 
-`bindRelation` turns schema relation metadata into one topology fact, carrying
-three ORTHOGONAL axes:
+ONE STORED TOPOLOGY, SEVERAL DERIVED VIEWS. `bindRelation` turns schema relation
+metadata into one topology fact, carrying three ORTHOGONAL axes. Every other
+statement about the edge — its arity, whether its slot may empty, whether its
+membership can be cleared, how it correlates — is DERIVED from that one fact by
+one named owner, and is never stored a second time:
 
 ```ts
 type BoundRelation =
@@ -316,7 +319,9 @@ carries:
 - ordered referenced fields;
 - those two lists paired member for member, LAZILY: pairing is where mismatched
   foreign-key metadata is refused, and binding must not move that refusal ahead of
-  the relation-key legality error that answers first;
+  the relation-key legality error that answers first. That pairing is the ONE
+  pairing — a consumer needing both halves of a member reads `members`, never
+  `foreignFields[i]` beside `referencedFields[i]`;
 - the `onUpdate` action.
 
 A polymorphic membership carries the same holder and referenced models, its

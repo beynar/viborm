@@ -293,8 +293,9 @@ test("the engine still resolves the name-mismatched edge it always resolved", as
     client.book.findUnique({ where: { id: 20 } })
   ).resolves.toMatchObject({ authorId: 2 });
 
-  // And the READ caller of the same scanner — `buildCorrelation`, which has no parse
-  // boundary in front of it — still correlates the relation on this schema.
+  // And the READ caller of the same scanner — the relation traversal's bind thunk,
+  // which has no parse boundary in front of it — still correlates the relation on
+  // this schema.
   await expect(
     client.author.findUnique({ where: { id: 2 }, include: { books: true } })
   ).resolves.toMatchObject({ books: [{ id: 20, authorId: 2 }] });

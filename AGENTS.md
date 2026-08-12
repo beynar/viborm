@@ -40,6 +40,14 @@ These constraints shaped every architectural decision. When you wonder "why is t
 | **L11: Instrumentation** | `src/instrumentation/` | Tracing, logging | Query logic | [instrumentation/AGENTS.md](src/instrumentation/AGENTS.md) |
 | **L12: Migrations** | `src/migrations/` | Schema sync, migration files, DDL | Schema definition | [migrations/AGENTS.md](src/migrations/AGENTS.md) |
 
+**One stored topology, several derived views.** A relation is DECLARED once, at
+L4, and every layer above reads a DERIVED view of that one declaration through
+the single owner of that view — cardinality
+(`@schema/relation/cardinality`), clearability (`@schema/relation/clearability`),
+and, inside L6, the bound membership `bindRelation` returns. No layer stores a
+second copy of a topology fact, and no consumer re-derives one inline. When a
+question about an edge has an answer, it has exactly one place that answers it.
+
 ---
 
 ## Schema Taxonomy

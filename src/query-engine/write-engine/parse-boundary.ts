@@ -54,7 +54,7 @@ export function parseValidated<S extends VibSchema>(
 }
 
 /**
- * E5-U3 — the `upsert` ENVELOPE, and only the envelope.
+ * The `upsert` ENVELOPE, and only the envelope.
  *
  * `upsert` was the one write operation whose front line lived in the engine: a key gate
  * (`assertUpsertKeys`) plus three `requireRecord` narrowings. X2 kept them deliberately,

@@ -96,55 +96,49 @@ export function buildRelationFilterSql(
   }
 
   // To-one relations use is/isNot (normalized by schema validation)
-  if (relationInfo.cardinality === "one") {
-    const conditions: Sql[] = [];
-    let hasOperator = false;
+  const conditions: Sql[] = [];
+  let hasOperator = false;
 
-    if (filter.is !== undefined) {
-      hasOperator = true;
-      const isValue = filter.is;
-      if (isValue === null) {
-        conditions.push(buildIsNullFilter(subqueries, ctx, relationInfo));
-      } else {
-        conditions.push(
-          buildIsFilter(
-            subqueries,
-            ctx,
-            relationInfo,
-            requireFilterObject(relationInfo, "is", isValue)
-          )
-        );
-      }
-    }
-    if (filter.isNot !== undefined) {
-      hasOperator = true;
-      const isNotValue = filter.isNot;
-      if (isNotValue === null) {
-        conditions.push(buildIsNotNullFilter(subqueries, ctx, relationInfo));
-      } else {
-        conditions.push(
-          buildIsNotFilter(
-            subqueries,
-            ctx,
-            relationInfo,
-            requireFilterObject(relationInfo, "isNot", isNotValue)
-          )
-        );
-      }
-    }
-
-    if (!hasOperator) {
-      throw new QueryEngineError(
-        `Relation filter '${relationInfo.name}' requires one of: is, isNot.`
+  if (filter.is !== undefined) {
+    hasOperator = true;
+    const isValue = filter.is;
+    if (isValue === null) {
+      conditions.push(buildIsNullFilter(subqueries, ctx, relationInfo));
+    } else {
+      conditions.push(
+        buildIsFilter(
+          subqueries,
+          ctx,
+          relationInfo,
+          requireFilterObject(relationInfo, "is", isValue)
+        )
       );
     }
-
-    return ctx.adapter.operators.and(...conditions);
+  }
+  if (filter.isNot !== undefined) {
+    hasOperator = true;
+    const isNotValue = filter.isNot;
+    if (isNotValue === null) {
+      conditions.push(buildIsNotNullFilter(subqueries, ctx, relationInfo));
+    } else {
+      conditions.push(
+        buildIsNotFilter(
+          subqueries,
+          ctx,
+          relationInfo,
+          requireFilterObject(relationInfo, "isNot", isNotValue)
+        )
+      );
+    }
   }
 
-  throw new QueryEngineError(
-    `Unsupported relation filter '${relationInfo.name}'.`
-  );
+  if (!hasOperator) {
+    throw new QueryEngineError(
+      `Relation filter '${relationInfo.name}' requires one of: is, isNot.`
+    );
+  }
+
+  return ctx.adapter.operators.and(...conditions);
 }
 
 function requireFilterObject(

@@ -175,10 +175,10 @@ export const getUpdateArgs = <M extends AnyModel, F extends ScalarSchemas<M>>(
  * `data` binds to the model's ORDINARY update schema — the SAME instance
  * `getUpdateArgs` binds (`core.update`, memoized once per model in the registry),
  * so relation and polymorphic keys mean here exactly what they mean on a single
- * `update` and cannot drift into a second dialect of the same surface. Package K
- * (plan §5.2, §6 K1) widened it from the scalar-only schema: a relation-bearing
- * `data` is no longer inexpressible, it routes to a record series that applies one
- * ordinary selected-record update per captured root.
+ * `update` and cannot drift into a second dialect of the same surface. It is the
+ * ordinary update schema rather than a scalar-only one: a relation-bearing `data`
+ * routes to a record series that applies one ordinary selected-record update per
+ * captured root.
  *
  * WHAT THE SCHEMA DELIBERATELY DOES NOT DECIDE. Which of those shapes the ENGINE
  * can apply to N roots at once is not a parse-boundary question: "this child-held

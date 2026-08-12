@@ -353,14 +353,6 @@ function bindJunctionRelation(
  *   scalar id (first `.id()` scalar in shape order, the same one the deleted scan
  *   returned), and its absence is the "no primary key field" case.
  */
-// MOVED from correlation-utils.ts and reimplemented on the model-key catalog in
-// distinct-truth Phase 3 (Phase 1 deferred it here, to the junction binder that
-// owns its only consumers). Equivalence verified branch-by-branch against the
-// old state scans: the grouped-primary test spans exactly the old
-// non-empty-compoundId-record set (the catalog keeps EVERY compound-id entry,
-// empty- and ''-named ones included, and only grouped keys carry a name); the
-// bare rowKey is the first isId scalar in shape order, the same field the old
-// scalar scan returned; class and both sentences byte-identical.
 export function getRequiredSinglePrimaryKeyField(model: Model<any>): string {
   const modelName = getModelName(model);
   const catalog = getModelKeyCatalog(model);

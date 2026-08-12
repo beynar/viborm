@@ -93,11 +93,12 @@ type HasNamedTargetPolymorphicRelations<S extends RelationState> =
 export type HasPolymorphicInverse<
   S extends RelationState,
   Source extends AnyModel,
-> = CanBindPolymorphicInverse<S> extends true
-  ? HasNamedTargetPolymorphicRelations<S> extends true
-    ? HasExactPolymorphicInverse<S, Source>
-    : false
-  : false;
+> =
+  CanBindPolymorphicInverse<S> extends true
+    ? HasNamedTargetPolymorphicRelations<S> extends true
+      ? HasExactPolymorphicInverse<S, Source>
+      : false
+    : false;
 
 // =============================================================================
 // THE POLYMORPHIC ARM
@@ -152,21 +153,22 @@ type PolymorphicInverseCreateManyData<S extends RelationState> =
 export type NestedRelationDataProjection<
   S extends RelationState,
   Source extends AnyModel,
-> = HasPolymorphicInverse<S, Source> extends true
-  ? {
-      create: PolymorphicInverseCreateTarget<S, Source>;
-      update: PolymorphicInverseUpdateTarget<S, Source>;
-      createManyData: PolymorphicInverseCreateManyData<S>;
-      createUpsertUpdate: PolymorphicInverseUpdateTarget<S, Source>;
-      satisfiedPolymorphicRelation: PolymorphicInverseRelationKey<S, Source>;
-    }
-  : {
-      create: CreateWithOmittedFk<S, Source>;
-      update: UpdateWithOmittedFk<S, Source>;
-      createManyData: CreateManyDataSchema<S, Source>;
-      createUpsertUpdate: GetTargetSchemas<S>["core"]["update"];
-      satisfiedPolymorphicRelation: never;
-    };
+> =
+  HasPolymorphicInverse<S, Source> extends true
+    ? {
+        create: PolymorphicInverseCreateTarget<S, Source>;
+        update: PolymorphicInverseUpdateTarget<S, Source>;
+        createManyData: PolymorphicInverseCreateManyData<S>;
+        createUpsertUpdate: PolymorphicInverseUpdateTarget<S, Source>;
+        satisfiedPolymorphicRelation: PolymorphicInverseRelationKey<S, Source>;
+      }
+    : {
+        create: CreateWithOmittedFk<S, Source>;
+        update: UpdateWithOmittedFk<S, Source>;
+        createManyData: CreateManyDataSchema<S, Source>;
+        createUpsertUpdate: GetTargetSchemas<S>["core"]["update"];
+        satisfiedPolymorphicRelation: never;
+      };
 
 /** The target schema a nested `create` payload writes into. */
 export type ProjectedNestedCreate<
@@ -190,7 +192,7 @@ export type ProjectedCreateManyData<
  * The `upsert.update` arm of a to-many payload under a CREATE root, and the one
  * place the two edges deliberately disagree: the ordinary edge keeps the target's
  * BARE `core.update` because the engine ABSORBS an agreeing owned foreign key there
- * (E5-U2, `RelationUpsertPart.withoutAgreeingOwnedFk`), while a polymorphic
+ * (`RelationUpsertPart.withoutAgreeingOwnedFk`), while a polymorphic
  * membership has no spellable column to agree with and keeps the projection.
  * Neither direction may be "unified" into the other.
  */
@@ -221,7 +223,7 @@ export interface NestedRelationDataSchemas {
   /** The same omission applied to nested UPDATE data, gated per edge. */
   readonly getUpdateSchema: () => AnyObjectSchema;
   readonly getCreateManyDataSchema: () => AnyObjectSchema;
-  /** See {@link ProjectedCreateUpsertUpdate} — the E5-U2 asymmetry. */
+  /** See {@link ProjectedCreateUpsertUpdate} — the agreeing-owned-FK asymmetry. */
   readonly getCreateUpsertUpdateSchema: () => AnyObjectSchema;
   readonly satisfiedPolymorphicRelation: string | undefined;
 }

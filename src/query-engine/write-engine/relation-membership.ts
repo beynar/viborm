@@ -30,7 +30,7 @@ export type FinalReferenceSource =
       readonly kind: "transitionedPlanningField";
       readonly step: string;
       /**
-       * D1 — the transformation is FIELD-AGNOSTIC and the field comes from the
+       * The transformation is FIELD-AGNOSTIC and the field comes from the
        * member it is bound to, so one source stays per-member correct however many
        * members it is bound across. A source that closed its field in was correct
        * only when built inside a per-member `map`, which made every broadcast site

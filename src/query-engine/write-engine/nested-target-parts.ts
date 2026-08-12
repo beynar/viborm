@@ -65,12 +65,12 @@ import { buildTargetProjection } from "./target-projection";
  * erased type import breaks the cycle).
  *
  * `membershipReadSource` names the value EXISTING membership is read by, beside the
- * `parentId` new membership is written with. D1 — it is REQUIRED, and every caller
+ * `parentId` new membership is written with. It is REQUIRED, and every caller
  * states its own answer: they are the same source wherever the parent's referenced
  * value is not in transition, and defaulting one to the other is exactly the
- * old-from-new inference Package D deletes.
+ * old-from-new inference this seam refuses.
  *
- * PHASE 5 PARTIAL — the two stay separate positional sources rather than one
+ * DELIBERATELY TWO POSITIONAL SOURCES rather than one
  * source-bound membership, for the reason recorded on `WritePartBase.membershipReadSource`:
  * the read source's narrowing is lazy and kind-named, so binding it once per edge
  * would move a refusal and rewrite its sentence.
@@ -111,13 +111,12 @@ export function buildJunctionTargetRelationParts(
   // this fold pushes its bulk parts unconditionally (the `updateMany` arm of
   // {@link foldJunctionChildHeldEntry}) but its only producer is
   // `RelationJunctionPart.freshTargetFold`, i.e. CREATE-context data, and
-  // `ToManyCreateSchema` has no `updateMany` key to carry. The call stays anyway: the
-  // Package N gate measured `buildToManyUpdateManyParts` — the arm its own implementer
-  // note had recorded as needing no guard — SILENTLY REPARENTING rows one schema over,
-  // and left the standing instruction not to read "no measured live route" as licence
-  // on a bulk arm. Package O deleted the Part-level RESTATEMENT this seam used to rely
-  // on (a second construction site with its own byte-identical sentence); it did not
-  // move the decision.
+  // `ToManyCreateSchema` has no `updateMany` key to carry. The call stays anyway:
+  // `buildToManyUpdateManyParts` — the arm an implementer note had recorded as needing
+  // no guard — was measured SILENTLY REPARENTING rows one schema over, so "no measured
+  // live route" is not licence on a bulk arm. The Part-level RESTATEMENT this seam used
+  // to rely on (a second construction site with its own byte-identical sentence) is
+  // gone; the decision did not move.
   assertSelectedUpdateManyDataIsScalar(targetScope, relations);
   const parts: Part[] = [];
   for (const program of relationMutationPrograms(relations)) {
@@ -326,8 +325,8 @@ function foldJunctionChildHeldEntry(args: {
         // membership for a correlated probe to find. That is the documented rule for a
         // fresh parent (query-engine/AGENTS.md, "For inverse writes … A fresh-parent
         // upsert also adopts globally").
-        // D1 deleted the correlated twin that stood here behind
-        // `if (membershipReadSource)`. Presence of a read source was never the question
+        // A correlated twin stood here behind `if (membershipReadSource)` and is
+        // deleted. Presence of a read source was never the question
         // this position asks — freshness is — and with the source now required the
         // branch would have flipped every fresh polymorphic upsert to a correlated
         // probe. It had been unreachable since it was written: `nestedBuilder` has one
@@ -379,7 +378,7 @@ function foldJunctionChildHeldEntry(args: {
       if (isInverseToOne) {
         // `delete: true` — the arm's only reachable value at this seam too (the parse
         // boundary types an inverse-side to-one `delete` as `v.boolean()`; `false` is
-        // Prisma's no-op, dropped from the kind list, N7-U-B).
+        // Prisma's no-op, dropped from the kind list).
         push(
           buildToManyDeleteManyParts(writeBase, {
             kind: "deleteMany",
