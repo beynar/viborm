@@ -136,7 +136,41 @@ const depSchema = (() => {
         .optional(),
     })
     .map("pm_labels");
-  return { hub, span, tag, cell, crate, pallet, label };
+  /**
+   * PLAN 10.1 — a model-level `.omit()` over the PRODUCED key.
+   *
+   * `returningEveryColumn` builds the root arm's `RETURNING` from
+   * `getScalarFieldNames` — every scalar, un-omit-filtered — where both
+   * public-shape owners filter through `getDefaultScalarFieldNames`. Until this
+   * fixture the asymmetry was asserted by its own docblock and nothing else,
+   * because no fold test carried an `.omit()` at all: on a model without one the
+   * two lists are equal and the difference is unobservable.
+   *
+   * `vault.id` makes them differ AND makes the difference fatal: it is the
+   * DATABASE-GENERATED key the `slot` arm spends, and a key `.omit()` hides from
+   * every result — so the outer projection cannot name it, while the sibling
+   * arm must read it out of the CTE by column name.
+   */
+  const vault = s
+    .model({
+      id: s.int().id().increment(),
+      name: s.string(),
+      slots: s.oneToMany(() => slot),
+    })
+    .map("pm_vaults")
+    .omit({ id: true });
+  const slot = s
+    .model({
+      id: s.string().id(),
+      vaultId: s.int().nullable(),
+      vault: s
+        .manyToOne(() => vault)
+        .fields("vaultId")
+        .references("id")
+        .optional(),
+    })
+    .map("pm_slots");
+  return { hub, span, tag, cell, crate, pallet, label, vault, slot };
 })();
 
 hydrateSchemaNames(depSchema);
@@ -403,10 +437,74 @@ describe("M4 — PostgreSQL statement count, and the answer it must not change",
     expect(statements[0]).toContain('(SELECT "id" FROM "__viborm_write_0")');
     expect(created).toEqual({ id: "cr1" });
 
+    // PLAN 10.1 — the OTHER end of the same convention, byte-exact on the root
+    // arm's `RETURNING` itself. Every root-arm `RETURNING` pin in the estate
+    // (`fresh-produced-field`, `parity-f`, `parity-h`) uses UNMAPPED keys, and
+    // the reader-side pin in M2 below reads `"box_pk"` out of a list no test
+    // asserts — so a `returningEveryColumn` rebuilt as `buildSelect`'s aliased
+    // projection would leave both green and only fail against a live database.
+    // Here the mapped column and the field alias sit in ONE statement, one on
+    // each side: the CTE carries `"crate_pk"`, the outer projection renames it.
+    expect(statements[0]).toContain('RETURNING "crate_pk", "name")');
+    expect(statements[0]).not.toContain('RETURNING "crate_pk" AS "id"');
+    expect(statements[0]).toContain(
+      'SELECT "t0"."crate_pk" AS "id" FROM "__viborm_mutation" AS "t0"'
+    );
+
     const [pallet] = await client.pallet.findMany({});
     expect(await client.label.findMany({})).toEqual([
       { id: "lb1", palletId: pallet?.id },
     ]);
+  });
+
+  /**
+   * PLAN 10.1 — the CTE's `RETURNING` is NOT the `.omit()`-filtered set, and the
+   * claim is falsified here rather than asserted in prose.
+   *
+   * `mutation-projection-fold.ts` says so in its docblock ("Not the
+   * `.omit()`-filtered set either: the CTE is plumbing") and nothing measured it:
+   * `grep '\.omit('` over the fold suites returned nothing before this test. The
+   * shape that tells the two apart is a `.omit()`ed field the COMPILER demands —
+   * `vault.id` is the generated key the child arm spends, and `armColumnSql`
+   * reads it off `__viborm_mutation` by COLUMN name. Filter the list by
+   * `getDefaultScalarFieldNames` and the arm emits `RETURNING "name"` alone,
+   * against a sibling that still reads `"id"`: PostgreSQL answers
+   * `column "id" does not exist` and this test alone turns red.
+   *
+   * The same statement carries both readings, which is what makes it a pin on
+   * the DIFFERENCE rather than on either list: the CTE keeps the omitted column
+   * and the outer `SELECT` drops it.
+   */
+  test("an `.omit()`ed produced key still rides the CTE to the arm that spends it", async () => {
+    const { driver, client } = boot();
+
+    driver.recording = true;
+    const created = await client.vault.create({
+      data: { name: "V1", slots: { create: { id: "sl1" } } },
+    });
+    const statements = drain(driver);
+    driver.recording = false;
+
+    expect(foldedInOneStatement(statements)).toBe(true);
+    // The un-filtered storage footprint: `id` is in the CTE though no result
+    // may name it…
+    expect(statements[0]).toContain('RETURNING "id", "name")');
+    // …because the sibling arm addresses it there, by column name.
+    expect(statements[0]).toContain('(SELECT "id" FROM "__viborm_mutation")');
+    // …and the OUTER projection is the omit-filtered one, on the same statement.
+    expect(statements[0]).toContain(
+      'SELECT "t0"."name" AS "name" FROM "__viborm_mutation" AS "t0"'
+    );
+    expect(created).toEqual({ name: "V1" });
+
+    // The child took the key this one command generated. `where` still
+    // addresses the omitted column, so the link is checkable without the
+    // projection that hides it.
+    const [slot] = await client.slot.findMany({});
+    expect(slot?.id).toBe("sl1");
+    expect(
+      await client.vault.findMany({ where: { id: slot?.vaultId ?? -1 } })
+    ).toEqual([{ name: "V1" }]);
   });
 
   /**
