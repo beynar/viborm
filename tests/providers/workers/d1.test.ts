@@ -1,6 +1,9 @@
 import { env } from "cloudflare:test";
 import type { D1Database } from "@cloudflare/workers-types";
 import { D1Driver } from "@src/drivers/d1";
+import { string } from "@src/schema/scalars/string/scalar";
+import { parse } from "@src/validation";
+import { getScalarSchemas } from "@src/validation/scalars";
 
 declare module "cloudflare:test" {
   interface ProvidedEnv {
@@ -17,6 +20,14 @@ beforeAll(async () => {
 });
 
 describe("D1 binding provider", () => {
+  it("generates CUID defaults inside the worker request context", () => {
+    const scalar = string().cuid();
+    const parsed = parse(getScalarSchemas(scalar["~"].state).create, undefined);
+
+    if (parsed.issues) throw new Error("Expected CUID generation to succeed");
+    expect(parsed.value).toMatch(/^[a-z][0-9a-z]{23}$/);
+  });
+
   it("executes bound writes and normalizes rows", async () => {
     const driver = new D1Driver({ database: env.DB });
     const id = crypto.randomUUID();

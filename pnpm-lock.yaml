@@ -15,8 +15,8 @@ importers:
         specifier: ^1.39.0
         version: 1.39.0
       '@paralleldrive/cuid2':
-        specifier: ^3.0.4
-        version: 3.0.4
+        specifier: ^3.3.0
+        version: 3.3.0
       '@standard-schema/spec':
         specifier: ^1.0.0
         version: 1.1.0
@@ -1879,8 +1879,8 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@paralleldrive/cuid2@3.0.4':
-    resolution: {integrity: sha512-sM6M2PWrByOEpN2QYAdulhEbSZmChwj0e52u4hpwB7u4PznFiNAavtE6m7O8tWUlzX+jT2eKKtc5/ZgX+IHrtg==}
+  '@paralleldrive/cuid2@3.3.0':
+    resolution: {integrity: sha512-OqiFvSOF0dBSesELYY2CAMa4YINvlLpvKOz/rv6NeZEqiyttlHgv98Juwv4Ch+GrEV7IZ8jfI2VcEoYUjXXCjw==}
     hasBin: true
 
   '@pierre/diffs@1.3.1':
@@ -8782,7 +8782,7 @@ snapshots:
   '@pagefind/windows-x64@1.5.2':
     optional: true
 
-  '@paralleldrive/cuid2@3.0.4':
+  '@paralleldrive/cuid2@3.3.0':
     dependencies:
       '@noble/hashes': 2.0.1
       bignumber.js: 9.3.1

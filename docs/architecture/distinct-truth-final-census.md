@@ -146,9 +146,16 @@ resolves"), which is what keeps this table from decaying into narrative.
 | Relation topology branch delta vs Phase 0 | branchNodes 3,532 (Phase 0: 3,658 — net −126) |
 | `pnpm test:types` median | 16.89 s warm (16.82 / 16.89 / 17.02), quiet box — vs the lift A1 quiet median 16.71 s (+1.1%) and the Phase 0 loaded-box 22.49 s |
 | Full suite: tests passed / files | `pnpm test`: 5,092 passed / 221 files. `coverage-write-engine` (fold + parity + census suites, NOT in `pnpm test`): 3,145 passed / 354 skipped / 173 files. Coverage gates: validation 100/100/100/100, relations 100/100/100/100. `pnpm build`: clean |
-| Provider suites run | pglite 774 · sqlite3 1,169 · libsql 1,117 · pg (Docker) 874 · postgres (Docker) 294 · transaction-options (Docker) 2 · mysql2 (Docker) 1,065 · bun 2 — all passed; per-suite single-digit skips are their own env-conditional cases |
-| Provider suites SKIPPED | neon-http and planetscale (hosted credentials absent) — SKIPPED, not passed. D1: known pre-existing baseline failure (workerd/cuid2), not run and not a regression |
+| Provider suites run | pglite 774 · sqlite3 1,169 · libsql 1,117 · pg (Docker) 874 · postgres (Docker) 294 · transaction-options (Docker) 2 · mysql2 (Docker) 1,065 · bun 2 · D1 3 — all passed; per-suite single-digit skips are their own env-conditional cases |
+| Provider suites SKIPPED | neon-http and planetscale (hosted credentials absent) — SKIPPED, not passed |
 | `operation-construction-inventory.test.ts` coordinate table | re-anchored by the coordinator for Phase 12's 11 shifted rows; 7/7 census assertions green at HEAD (14 write-engine sites, 18 classified, 10 invariants) |
+
+The D1 count is a post-plan repair. The original final gate correctly recorded
+that `@paralleldrive/cuid2@3.0.4` initialized randomness at module scope and
+therefore failed Workerd collection. Upgrading to 3.3.0 uses the package's lazy
+`createId` initialization. The provider suite now pins
+both safe module collection and request-context CUID generation. This repair
+changes no query-engine production code or census value.
 
 ## 6. What the plan did not do
 
