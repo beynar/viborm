@@ -837,3 +837,45 @@ reads — the arity comparison reads `foreignFields`/`referencedFields`, which a
 eager fields, and `.members` is still touched only below it. The code says so in a
 comment, because neither message has a test witness and a silent displacement
 would pass the whole suite.
+
+## Addendum — distinct-truth Phase 8 stage 1 (project nested relation data once)
+
+No guard was added, moved or deleted. What changed is what can REACH two engine
+sentences, and one runtime/type divergence that is now a single expression.
+
+**`resolvePolymorphicMutationIntent`'s invalid-payload sentence — KEPT, now
+engine-fault-only (`builders/polymorphic-mutation.ts:106`, `:125`).** Both
+constructions read `Polymorphic relation '<r>' produced an invalid mutation
+payload.` and neither has ever had a test witness (the only occurrences are the two
+source lines) because the parse boundary refused first — INCLUDING the presence
+corner: a required direct polymorphic membership is required by PRESENCE
+(`requiresOneOfKeySets`, `primitives/object.ts:511-528`), so `{ subject: {} }`
+satisfied the requirement, but the old per-verb union still refused the empty
+payload at parse in the union's voice (`Value did not match any union member`).
+The hazard was COUNTERFACTUAL: a naive lattice migration whose empty arm parses
+clean would have let that corner reach `:125` as an internal error. Unit 8.3
+forecloses it — the direct surface takes the lattice owner in `exactlyOne` mode,
+whose zero-active refusal (`Missing to-one operation: expected exactly one of …`)
+answers the corner in the lattice's own voice; the witness is
+`polymorphic.core.test.ts` "the required-membership corner refuses at parse, not in
+the engine". The engine check STAYS: it is the fail-closed floor for a payload that
+reaches the resolver without passing the schema, and it is now exactly that and
+nothing else.
+
+**`… produced an invalid <operation> mutation.` (`polymorphic-mutation.ts:131`) —
+KEPT, and its one reachable route closed.** The route was the direct `update` arm,
+whose payload schema required only `data` while the published TYPE required the
+discriminator too; a validated `{ update: { data } }` therefore reached the engine
+with no `type`. The migrated arm requires `type` and `data`
+(`relations/polymorphic/update.ts`), which is the type surface unchanged and the
+runtime narrowed to meet it — a pre-existing divergence fixed, with the witness in
+`polymorphic.core.test.ts` "the update arm still requires the discriminator its
+engine step addresses".
+
+**Polymorphic-inverse to-one `delete` — one expression for both levels
+(R10).** The deleted clone added `delete: v.boolean()` unconditionally while
+`PolymorphicInverseToOneSchemas` gated the same key on `S["optional"] extends
+true`. Unified through `toOneUpdateFactory`, whose optional gate is now the single
+reading. Unreachable divergence: schema rule R008 (`rules/relation.ts:53-77`)
+forces a fields-less `oneToOne` to be optional, and that branch was the only entry —
+so no validated schema observes the change.

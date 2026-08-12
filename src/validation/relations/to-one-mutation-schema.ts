@@ -18,11 +18,19 @@ type MutationArm<T, Active extends MutationKey<T>> = {
   [Key in Exclude<MutationKey<T>, Active>]?: InactiveMutationValue<T[Key]>;
 };
 
-type AtMostOneMutation<T> =
-  | EmptyMutation<T>
-  | {
-      [Key in MutationKey<T>]: MutationArm<T, Key>;
-    }[MutationKey<T>];
+/**
+ * EXACTLY one active intent — the arms without the empty one.
+ *
+ * This is the whole type-level content of the `exactlyOne` composition mode. A
+ * surface that carries its target discriminator INSIDE each verb payload (the direct
+ * polymorphic edge) has no coherent reading of an empty payload and no reading at all
+ * of two intents, because the storage pair it writes is atomic: one `(type, id)`.
+ */
+type ExactlyOneMutation<T> = {
+  [Key in MutationKey<T>]: MutationArm<T, Key>;
+}[MutationKey<T>];
+
+type AtMostOneMutation<T> = EmptyMutation<T> | ExactlyOneMutation<T>;
 
 /**
  * ONE composition, spelled as the arm that activates every key it names — and `never`
@@ -114,12 +122,27 @@ type ParentHeldCompositionMutation<T> =
   | ReplacementMutation<T>
   | SupplyThenModifyMutation<T, "connect">;
 
-type ToOneMutationInputValue<T, ChildHeld extends boolean> = T extends object
-  ?
-      | AtMostOneMutation<T>
-      | (ChildHeld extends true
-          ? ChildHeldCompositionMutation<T>
-          : ParentHeldCompositionMutation<T>)
+/**
+ * Which composition rule this surface publishes. `lattice` is the accepted-set rule
+ * every ordinary and inverse to-one edge uses; `exactlyOne` is the strictly narrower
+ * one — no empty payload, no composition — and it exists because a direct
+ * polymorphic payload has neither reading. There is no third rule and no way to
+ * spell one: a surface picks one of these two.
+ */
+export type ToOneMutationComposition = "lattice" | "exactlyOne";
+
+type ToOneMutationInputValue<
+  T,
+  ChildHeld extends boolean,
+  Composition extends ToOneMutationComposition,
+> = T extends object
+  ? Composition extends "exactlyOne"
+    ? ExactlyOneMutation<T>
+    :
+        | AtMostOneMutation<T>
+        | (ChildHeld extends true
+            ? ChildHeldCompositionMutation<T>
+            : ParentHeldCompositionMutation<T>)
   : T;
 
 type BaseObjectSchema<
@@ -131,9 +154,11 @@ type ToOneMutationInput<
   Entries,
   Options extends ObjectOptions | undefined,
   ChildHeld extends boolean,
+  Composition extends ToOneMutationComposition,
 > = ToOneMutationInputValue<
   InferInput<BaseObjectSchema<Entries, Options>>,
-  ChildHeld
+  ChildHeld,
+  Composition
 >;
 
 type ToOneMutationOutput<
@@ -146,10 +171,11 @@ export interface ToOneMutationSchema<
   Entries extends object,
   Options extends ObjectOptions | undefined = undefined,
   ChildHeld extends boolean = false,
+  Composition extends ToOneMutationComposition = "lattice",
 > extends ObjectSchema<
     Entries,
     Options,
-    ToOneMutationInput<Entries, Options, ChildHeld>,
+    ToOneMutationInput<Entries, Options, ChildHeld, Composition>,
     ToOneMutationOutput<Entries, Options>
   > {}
 
@@ -198,10 +224,19 @@ function isAcceptedComposition(
   return childHeld || (vacate === undefined && supply === "connect");
 }
 
+const unsupportedCombination = (active: readonly string[]) => ({
+  issues: [
+    {
+      message: `Unsupported to-one operation combination: ${active.join(", ")}`,
+    },
+  ],
+});
+
 function enforceCompositionLattice<Output>(
   result: StandardSchemaV1.Result<Output>,
   operationKeys: readonly string[],
-  childHeld: boolean
+  childHeld: boolean,
+  exactlyOne: boolean
 ): StandardSchemaV1.Result<Output> {
   if (result.issues) return result;
   const output = result.value;
@@ -212,14 +247,22 @@ function enforceCompositionLattice<Output>(
     const value = output[key];
     if (value !== undefined && value !== false) active.push(key);
   }
+  if (exactlyOne) {
+    if (active.length === 1) return result;
+    // Two intents is the SAME fact the lattice already has a sentence for, so it
+    // keeps that sentence. Zero is the fact only this mode can state.
+    return active.length === 0
+      ? {
+          issues: [
+            {
+              message: `Missing to-one operation: expected exactly one of ${operationKeys.join(", ")}`,
+            },
+          ],
+        }
+      : unsupportedCombination(active);
+  }
   if (isAcceptedComposition(active, childHeld)) return result;
-  return {
-    issues: [
-      {
-        message: `Unsupported to-one operation combination: ${active.join(", ")}`,
-      },
-    ],
-  };
+  return unsupportedCombination(active);
 }
 
 /**
@@ -231,6 +274,13 @@ function enforceCompositionLattice<Output>(
  * passes no value for it: that surface owns no vacate and no `update`, so no
  * composition is spellable there and the flag has nothing to decide.
  *
+ * `composition` names the RULE. `exactlyOne` narrows this owner for the direct
+ * polymorphic edge, whose payload writes one atomic `(type, id)` pair and carries the
+ * discriminator inside each verb: an empty payload names no target for a membership
+ * the model may require, and two intents name two. Both were refused before this mode
+ * existed — the first by a union that had no empty member, the second by hand-spelled
+ * exclusivity — and both are refused here now, in this owner's voice.
+ *
  * The counting validator is built HERE, before the schema object exists, and no
  * property of a constructed schema is ever redefined (validation Rule 4). That is not
  * a style preference: `v.union` and the lazy records capture a member's
@@ -241,20 +291,24 @@ export function toOneMutationSchema<
   Entries extends object,
   const Options extends ObjectOptions | undefined = undefined,
   const ChildHeld extends boolean = false,
+  const Composition extends ToOneMutationComposition = "lattice",
 >(
   entries: Entries,
   options?: Options,
-  childHeld?: ChildHeld
-): ToOneMutationSchema<Entries, Options, ChildHeld> {
+  childHeld?: ChildHeld,
+  composition?: Composition
+): ToOneMutationSchema<Entries, Options, ChildHeld, Composition> {
   const base = v.object(entries, options);
   const operationKeys = Object.keys(entries);
   const baseValidate = base["~standard"].validate;
   const isChildHeld = childHeld === true;
+  const isExactlyOne = composition === "exactlyOne";
   const validate: typeof baseValidate = (value, validationOptions) =>
     enforceCompositionLattice(
       baseValidate(value, validationOptions),
       operationKeys,
-      isChildHeld
+      isChildHeld,
+      isExactlyOne
     );
 
   const schema = {
@@ -276,5 +330,10 @@ export function toOneMutationSchema<
     enumerable: false,
   });
 
-  return schema as ToOneMutationSchema<Entries, Options, ChildHeld>;
+  return schema as ToOneMutationSchema<
+    Entries,
+    Options,
+    ChildHeld,
+    Composition
+  >;
 }
