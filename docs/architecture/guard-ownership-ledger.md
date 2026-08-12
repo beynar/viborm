@@ -1053,3 +1053,13 @@ arms, nested fresh subtrees) they newly fire the pairing owner's NestedWriteErro
 at construction where the raw walks silently paired `undefined` — root flows were
 already dominated by the analyzer's `.members` touch. A strict widening toward the
 single owner, which is the fold's point.
+
+One clarification on the updateMany wall (row 22), for the reader chasing "the
+wall": DETECTION has one owner (`findRelationBearingUpdateManyData` over the one
+parsed collection), and the REFUSAL has two boundary spellings by position — the
+root update refuses as a `NestedWriteError` naming the nested-writes contract,
+every selected/deeper position as the census's `UnsupportedOperationError`. Row
+22's "only expression of this invariant" is a claim about the census class; the
+root sentence is the same detector's other voice, not a second detector. The
+polymorphic reach of the selected-position guard is exercised through the ROOT
+twin's witness; the selected-position falsifiers are ordinary-relation shaped.

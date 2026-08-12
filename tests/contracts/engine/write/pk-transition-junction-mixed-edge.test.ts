@@ -175,7 +175,7 @@ for (const substrate of ["transaction", "atomic batch"] as const) {
       : new BatchOnlyPGliteDriver({ client: database });
 
   describe(`E2-U3 primary-key transition with a junction and a non-cascade edge (${substrate})`, () => {
-    test("the junction WRITE takes the post-transition key", async () => {
+    test("the junction row carries the post-transition key (the WRITE binds the located key; ON UPDATE CASCADE transitions it)", async () => {
       const client = await setup(makeDriver(getFamily().database));
       try {
         await client.author.update({

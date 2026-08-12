@@ -356,7 +356,11 @@ A bound relation does not carry:
 
 Bind at the first topology decision. Do not bind all relations early: that can
 move malformed-metadata errors ahead of schema errors or into an untaken upsert
-arm.
+arm. Lateness protects exactly what is lazy — the paired FK members and the
+junction sides. The row-held bind itself resolves the inverse EAGERLY, so a
+missing, ambiguous, or storage-less inverse refuses at construction even from
+an untaken arm (pinned by the construction-eagerness witnesses); that is the
+deliberate boundary, not a leak.
 
 Direct polymorphic mutation intent is not a bound inverse. It chooses a target
 variant per payload, and lowers to the parsed collection's polymorphic arms — a

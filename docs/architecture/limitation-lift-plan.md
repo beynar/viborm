@@ -645,7 +645,8 @@ records that the ledger agrees with them:
   label.
 - Compound many-to-many is a future capability, not a validation seal — §7.4
   and Package N2 own it. Its live refusal is
-  `builders/correlation-utils.ts:149` (`getRequiredSinglePrimaryKeyField`), with
+  `builders/relation-data-builder.ts:356` (`getRequiredSinglePrimaryKeyField`,
+  since distinct-truth Phase 3), with
   a second owner in `src/migrations/serializer.ts:661`; the
   `CreateOperation.ts:1998` coordinate this line used to carry was wrong on both
   counts and is corrected at §7.4.
@@ -1629,9 +1630,10 @@ These restrictions have a concrete reason and must not be removed by weakening a
   named `CreateOperation.ts:1998`, which is wrong twice over: the coordinate
   moved, and that site was never the fact's owner. Driven through the public
   client with a compound-primary-key model carrying a many-to-many relation, the
-  answer comes from `builders/correlation-utils.ts:149`
-  (`getRequiredSinglePrimaryKeyField`), reached through
-  `many-to-many-utils.getManyToManyJoinInfo` ←
+  answer comes from `builders/relation-data-builder.ts:356`
+  (`getRequiredSinglePrimaryKeyField`, throw at `:365` — it moved there with the
+  junction binder at distinct-truth Phase 3), reached through the bound
+  junction's lazy sides ←
   `RelationMembership.getRelationMembershipScope` ← `OwnWriteRelation.create` ←
   `OwnWriteAnalyzer.analyze` — the record-program boundary, before
   `CreateOperation` interprets any relation. The migration layer holds the

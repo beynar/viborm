@@ -562,7 +562,7 @@ describe("write engine route inventory (P6 accounting)", () => {
   // and say which; the repo-wide count today is 22 here + 2 in relation-key-legality.ts +
   // 1 in builders/decimal-portability.ts.
   // WHAT DID NOT MOVE, deliberately: `RelationJunctionPart`'s three sites. A junction side
-  // is one column today and `getManyToManyJoinInfo` resolves it through
+  // is one column today and (in this row's era) `getManyToManyJoinInfo` resolved it through
   // `getRequiredSinglePrimaryKeyField`, which throws before the Part is constructed — so
   // its `targetPkField` is the junction's STORED REFERENCE, not a second answer to "what
   // is the row key", and it keeps that name with the carve-out documented at its owner
@@ -916,7 +916,8 @@ describe("write engine route inventory (P6 accounting)", () => {
   //     docblock claimed it reached the compound-primary-key m2m fact "one statement
   //     earlier" than `getRequiredSinglePrimaryKeyField`. MEASURED FALSE: a junction
   //     program on a compound-PK model is answered by `OwnWriteAnalyzer` ->
-  //     `getRelationMembershipScope` -> `getManyToManyJoinInfo` -> that function, at the
+  //     `getRelationMembershipScope` -> `getManyToManyJoinInfo` (since Phase 3: the bound
+  //     junction's lazy sides) -> that function, at the
   //     record-program boundary, BEFORE any relation is interpreted. The shape is still
   //     refused in the ENGINE (plan §7.4 / §6 N2 forbid sealing it in validation, and
   //     nothing has), by an owner whose message names the surrogate-key remedy. The
