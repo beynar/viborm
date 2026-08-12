@@ -8,8 +8,8 @@ conditional on a retained Phase 10 and did not run)
 
 The rule the plan ends on: **one stored topology, several derived views.**
 
-Sections marked `TBD` are live measurements the coordinator fills from its own
-runs; nothing in this document is a number this phase measured itself.
+Live measurements below were filled by the coordinator from its own runs;
+nothing in this document is a number the sweep phase measured itself.
 
 ---
 
@@ -17,8 +17,8 @@ runs; nothing in this document is a number this phase measured itself.
 
 | Measure | Phase 0 baseline | HEAD |
 | --- | --- | --- |
-| Physical TypeScript lines (query engine) | 42,281 | TBD — `node scripts/query-engine-structure.mjs` |
-| Token-bearing lines (query engine) | 31,299 | TBD — same script |
+| Physical TypeScript lines (query engine) | 42,281 | 42,264 (−17) |
+| Token-bearing lines (query engine) | 31,299 | 30,835 (−464) |
 
 The Phase 0 figures are the ones the plan recorded for the end of the previous
 lift (39,022 → 42,281 physical, 30,196 → 31,299 token-bearing, of which roughly
@@ -142,13 +142,13 @@ resolves"), which is what keeps this table from decaying into narrative.
 
 | Measure | Value |
 | --- | --- |
-| Physical / token-bearing production LOC at HEAD | TBD (`node scripts/query-engine-structure.mjs`, read-only) |
-| Relation topology branch delta vs Phase 0 | TBD (same script) |
-| `pnpm test:types` median | TBD |
-| Full suite: tests passed / files | TBD |
-| Provider suites run | TBD |
-| Provider suites SKIPPED (Docker unavailable) | TBD — skipped is not passed |
-| `operation-construction-inventory.test.ts` coordinate table | TBD — Phase 12 shifted 11 of 18 rows; the drift is reported with the phase, not self-edited |
+| Physical / token-bearing production LOC at HEAD | query engine 42,264 / 30,835 (Phase 0: 42,281 / 31,299 — net −17 physical, −464 token); write engine 23,511 / 16,588 (Phase 0: 23,841 / 17,013); functions 1,578 (Phase 0: 1,572); one runtime import-cycle component of 11 builder files (Phase 0: 6 — the growth is Phase 7's traversal module joining the pre-existing component, recorded there); write-engine cycles 0 |
+| Relation topology branch delta vs Phase 0 | branchNodes 3,532 (Phase 0: 3,658 — net −126) |
+| `pnpm test:types` median | 16.89 s warm (16.82 / 16.89 / 17.02), quiet box — vs the lift A1 quiet median 16.71 s (+1.1%) and the Phase 0 loaded-box 22.49 s |
+| Full suite: tests passed / files | `pnpm test`: 5,092 passed / 221 files. `coverage-write-engine` (fold + parity + census suites, NOT in `pnpm test`): 3,145 passed / 354 skipped / 173 files. Coverage gates: validation 100/100/100/100, relations 100/100/100/100. `pnpm build`: clean |
+| Provider suites run | pglite 774 · sqlite3 1,169 · libsql 1,117 · pg (Docker) 874 · postgres (Docker) 294 · transaction-options (Docker) 2 · mysql2 (Docker) 1,065 · bun 2 — all passed; per-suite single-digit skips are their own env-conditional cases |
+| Provider suites SKIPPED | neon-http and planetscale (hosted credentials absent) — SKIPPED, not passed. D1: known pre-existing baseline failure (workerd/cuid2), not run and not a regression |
+| `operation-construction-inventory.test.ts` coordinate table | re-anchored by the coordinator for Phase 12's 11 shifted rows; 7/7 census assertions green at HEAD (14 write-engine sites, 18 classified, 10 invariants) |
 
 ## 6. What the plan did not do
 
