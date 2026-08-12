@@ -543,7 +543,7 @@ describe("M12 the parse boundary owns the degenerate to-one schema too", () => {
     { timeout: 30_000 },
     async () => {
       // Before the alignment the degenerate map answered `[]`, so
-      // `inverseMembershipCanBeCleared` was false and `disconnect` was an
+      // `inverseMembershipCanBeCleared` (since relocated into `schema/relation/clearability.ts`) was false and `disconnect` was an
       // `Unknown key` here — a refusal the ordinary spelling of the SAME
       // physical schema never had (profile.userId is nullable). The aligned
       // scan resolves the real back-reference, so the degenerate spelling now

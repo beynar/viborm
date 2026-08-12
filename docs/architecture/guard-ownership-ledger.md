@@ -879,3 +879,49 @@ true`. Unified through `toOneUpdateFactory`, whose optional gate is now the sing
 reading. Unreachable divergence: schema rule R008 (`rules/relation.ts:53-77`)
 forces a fields-less `oneToOne` to be optional, and that branch was the only entry —
 so no validated schema observes the change.
+
+## Addendum — distinct-truth Phase 8 stage 2 (derive relation clearability once)
+
+The two facts about emptying a relation now have ONE owner,
+`src/schema/relation/clearability.ts`: `slotMayBeEmpty` (public optionality) and
+`membershipCanBeCleared` (physical storage), each with its type twin beside it. The
+operation-schema availability sites read them; the duplicate per-field nullability
+scan that lived in the validation layer is deleted. **No engine guard moved, and no
+validation-layer fact was threaded into the engine** — `relation-nullability.ts` still
+answers from BOUND membership (Phase 5), which is the only reading available to it.
+
+**`assertRelationCanDisconnect` / `requiredForeignKeyFields` — KEPT, byte-identical,
+with unique coverage that the schema layer cannot take.** Both sentences are
+unchanged, and so are the three call positions (`RecordUpdateCompiler.ts:1741`,
+`:2888` — skipped when `rebound` — and `:4121`). What the schema owner does NOT cover,
+and why:
+
+1. **A parent-held optional to-one whose own foreign-key column is not nullable.**
+   The operation schema exposes `disconnect` on that direction from the SLOT fact
+   alone, and the membership fact cannot answer for it: the column sits on the SOURCE
+   row, while `membershipCanBeCleared`'s ordinary reading is the TARGET's scalars.
+   The canonical instance is a shared primary key — `accountId` is both identity and
+   foreign key, so it is never nullable while the slot is optional. This is a PUBLIC
+   route through the client, pinned at
+   `parity-e-shared-pk.test.ts:803` (fixture comment at `:147`: "the only spelling `disconnect` reaches") and
+   `shared-pk-update-root-behavior.ts:630`. Making the schema withhold `disconnect`
+   there would be a capability change and would need the optionality/nullability
+   agreement rule the plan forbids.
+2. **`set` dropping members on a non-clearable membership.** The same
+   `requiredForeignKeyFields` fact is consumed as a NON-refusal by
+   `buildToManySetPart` (`RelationWritePart.ts:1350` → `RelationSetPart.requiredFk`),
+   which refuses with its own sentence (`messages.ts:51`, "rows removed from the set
+   cannot be disconnected. Delete them instead."). The schema deliberately still
+   offers `set` on a non-clearable membership (`compatibility.mdx:144-146`), so this
+   route exists by design; pinned at `nested-mutation-behavior.ts:332`,
+   `m7-error-surface.test.ts:153`, `nested-write-behavior.ts:951`.
+3. **Trusted internal programs that never pass the public schema** — e.g. the
+   single-statement build API spelling `disconnect` on a REQUIRED relation whose
+   schema owns no such key (`sql-generation.core.test.ts:1450`).
+
+**The two facts stay two.** On a polymorphic edge they coincide by definition (the
+private `(type, id)` pair is nullable exactly when the relation is optional); on an
+ordinary edge they diverge, and an optional slot with a non-nullable child foreign key
+is a legal schema whose to-one surface offers `delete` without `disconnect`. That
+divergence is what item 1 above is made of, and the plan (§8.2) explicitly leaves any
+rule forcing the two to agree as a separate, source-breaking product decision.

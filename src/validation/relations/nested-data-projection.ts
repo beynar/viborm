@@ -5,20 +5,26 @@
 // relation leaves for the caller. Two edges answer "what does the enclosing step
 // already own" differently — an ordinary inverse owns the target's foreign-key
 // SCALARS, a polymorphic inverse owns the target's direct RELATION KEY — and until
-// this module existed each answer had its own verb factories, its own createMany
-// availability, and its own clearability scan.
+// this module existed each answer had its own verb factories and its own createMany
+// availability.
 //
 // This is the one place that difference is decided. The verb factories
 // (`toOne/toMany` × `create/update`) consume the projection blindly, so a surface
 // that used to be a clone is now the same factory with a different projection.
+//
+// What this module deliberately does NOT own: whether the membership it projects can
+// be CLEARED. That is a schema fact about storage, not a fact about which keys a
+// nested payload may spell, and its owner is `@schema/relation/clearability` — read
+// there by the update factories, which are its only consumers.
 
 import type { AnyModel } from "@schema/model";
-import { getPolymorphicInverseBinding } from "@schema/relation/inverse";
+import {
+  type CanBindPolymorphicInverse,
+  canBindPolymorphicInverse,
+  getPolymorphicInverseBinding,
+} from "@schema/relation/inverse";
 import type { GetPolymorphicInverseBinding } from "@schema/relation/polymorphic";
-import type {
-  GetInverseRelationMap,
-  RelationState,
-} from "@schema/relation/types";
+import type { RelationState } from "@schema/relation/types";
 import { getInverseRelationMap } from "@schema/relation/types";
 import type { ScalarSchemas } from "../model";
 import {
@@ -36,32 +42,6 @@ import type { GetTargetSchemas, SchemaGetter, TargetModel } from "./helpers";
 // =============================================================================
 // WHICH EDGE — the one dispatch
 // =============================================================================
-
-/**
- * Only two relation shapes can bind a polymorphic inverse: a `oneToMany`, and a
- * fields-LESS `oneToOne`. Every other shape holds a physical foreign key on one of
- * the two rows, and its projection is the ordinary one — asking the polymorphic
- * resolver about them would let a name-paired polymorphic edge shadow a real column.
- *
- * The runtime twin below is the same rule; the two are read together by
- * {@link NestedRelationDataProjection} and by `getRelationSchemas`.
- */
-type CanBindPolymorphicInverse<S extends RelationState> = S["type"] extends
-  | "manyToMany"
-  | "oneToMany"
-  ? S["type"] extends "oneToMany"
-    ? true
-    : false
-  : S["type"] extends "oneToOne"
-    ? S extends { fields: readonly string[] }
-      ? false
-      : true
-    : false;
-
-const canBindPolymorphicInverse = (state: RelationState): boolean =>
-  state.type === "oneToMany" ||
-  (state.type === "oneToOne" &&
-    (state.fields === undefined || state.fields.length === 0));
 
 type PolymorphicInverseBindingFor<
   S extends RelationState,
@@ -100,7 +80,16 @@ type HasNamedTargetPolymorphicRelations<S extends RelationState> =
       ? false
       : true;
 
-/** The ONE type-level question the projection asks. */
+/**
+ * The ONE type-level question the projection asks.
+ *
+ * The shape gate is the schema layer's ({@link canBindPolymorphicInverse}); what this
+ * adds is the OMISSION obligation — the resolved relation key must be a key the
+ * target's create schema actually has, because that key is what `V.Omit` removes.
+ * `clearability.ts` asks the same first question and then a different second one (is
+ * that relation's own membership state readable), which is why the two spellings are
+ * not one: they share the gate, not the obligation.
+ */
 export type HasPolymorphicInverse<
   S extends RelationState,
   Source extends AnyModel,
@@ -148,57 +137,6 @@ type PolymorphicInverseCreateManyData<S extends RelationState> =
     readonly []
   >;
 
-type PolymorphicInverseRelationState<
-  S extends RelationState,
-  Source extends AnyModel,
-> = PolymorphicInverseRelationKey<S, Source> extends infer RelationKey
-  ? RelationKey extends keyof TargetModel<S>["~"]["state"]["polymorphicRelations"]
-    ? TargetModel<S>["~"]["state"]["polymorphicRelations"][RelationKey]["~"]["state"]
-    : never
-  : never;
-
-type PolymorphicMembershipCanBeCleared<
-  S extends RelationState,
-  Source extends AnyModel,
-> = [PolymorphicInverseRelationState<S, Source>] extends [never]
-  ? false
-  : PolymorphicInverseRelationState<S, Source> extends { optional: true }
-    ? true
-    : false;
-
-// =============================================================================
-// THE ORDINARY ARM's clearability half
-// =============================================================================
-
-type NullableScalarKeys<Model extends AnyModel> = {
-  [Key in keyof Model["~"]["state"]["scalars"]]: Model["~"]["state"]["scalars"][Key]["~"]["state"] extends {
-    nullable: true;
-  }
-    ? Key
-    : never;
-}[keyof Model["~"]["state"]["scalars"]];
-
-type InverseMembershipCanBeCleared<
-  S extends RelationState,
-  Source extends AnyModel,
-> = Extract<
-  GetInverseRelationMap<S, Source>,
-  readonly string[]
-> extends infer Fields
-  ? [Fields] extends [never]
-    ? false
-    : Fields extends readonly string[]
-      ? [Fields[number]] extends [never]
-        ? false
-        : Exclude<
-              Fields[number],
-              NullableScalarKeys<TargetModel<S>>
-            > extends never
-          ? true
-          : false
-      : false
-  : false;
-
 // =============================================================================
 // THE PROJECTION — one alias, one instantiation per relation
 // =============================================================================
@@ -221,7 +159,6 @@ export type NestedRelationDataProjection<
       createManyData: PolymorphicInverseCreateManyData<S>;
       createUpsertUpdate: PolymorphicInverseUpdateTarget<S, Source>;
       satisfiedPolymorphicRelation: PolymorphicInverseRelationKey<S, Source>;
-      membershipCanBeCleared: PolymorphicMembershipCanBeCleared<S, Source>;
     }
   : {
       create: CreateWithOmittedFk<S, Source>;
@@ -229,7 +166,6 @@ export type NestedRelationDataProjection<
       createManyData: CreateManyDataSchema<S, Source>;
       createUpsertUpdate: GetTargetSchemas<S>["core"]["update"];
       satisfiedPolymorphicRelation: never;
-      membershipCanBeCleared: InverseMembershipCanBeCleared<S, Source>;
     };
 
 /** The target schema a nested `create` payload writes into. */
@@ -272,17 +208,6 @@ export type ProjectedSatisfiedPolymorphicRelation<
   string
 >;
 
-/**
- * Can the membership this relation represents be CLEARED — the physical fact, not
- * the slot's public optionality. Ordinary: every inverse foreign-key scalar is
- * nullable. Polymorphic: the target's direct relation is optional (its private
- * columns are nullable by that same definition).
- */
-export type ProjectedMembershipCanBeCleared<
-  S extends RelationState,
-  Source extends AnyModel,
-> = NestedRelationDataProjection<S, Source>["membershipCanBeCleared"];
-
 // =============================================================================
 // RUNTIME
 // =============================================================================
@@ -299,7 +224,6 @@ export interface NestedRelationDataSchemas {
   /** See {@link ProjectedCreateUpsertUpdate} — the E5-U2 asymmetry. */
   readonly getCreateUpsertUpdateSchema: () => AnyObjectSchema;
   readonly satisfiedPolymorphicRelation: string | undefined;
-  readonly membershipCanBeCleared: boolean;
 }
 
 /**
@@ -308,7 +232,7 @@ export interface NestedRelationDataSchemas {
  * type twin is `TargetHoldsInverseFk` ({@link file://./create.ts}); this is the one
  * runtime reading of it.
  */
-export const targetHoldsInverseFk = (state: RelationState): boolean =>
+const targetHoldsInverseFk = (state: RelationState): boolean =>
   state.type !== "manyToMany" &&
   (state.fields === undefined || state.fields.length === 0);
 
@@ -367,9 +291,6 @@ export const nestedRelationDataProjection = <
       },
       getCreateUpsertUpdateSchema: getUpdateSchema,
       satisfiedPolymorphicRelation: relationKey,
-      membershipCanBeCleared:
-        targetModel["~"].state.polymorphicRelations[relationKey]?.["~"].state
-          .optional === true,
     };
   }
 
@@ -407,26 +328,5 @@ export const nestedRelationDataProjection = <
     getCreateUpsertUpdateSchema: () =>
       targetSchemas().core.update as unknown as AnyObjectSchema,
     satisfiedPolymorphicRelation: undefined,
-    membershipCanBeCleared: inverseMembershipCanBeCleared(state, source),
   };
 };
-
-/**
- * The ORDINARY arm's physical clearability: can every inverse foreign-key column be
- * set to NULL. The polymorphic arm answers the same question from the target
- * relation's optionality (its private `(type, id)` pair is nullable exactly then),
- * and the two stay two facts — the plan forbids a rule that they must agree.
- */
-function inverseMembershipCanBeCleared(
-  state: RelationState,
-  source: AnyModel
-): boolean {
-  const inverseFields: unknown = getInverseRelationMap(state, source);
-  if (!Array.isArray(inverseFields) || inverseFields.length === 0) return false;
-  const targetModel = state.getter();
-  return inverseFields.every(
-    (field) =>
-      typeof field === "string" &&
-      targetModel["~"].state.scalars[field]?.["~"].state.nullable === true
-  );
-}

@@ -48,7 +48,7 @@ import {
   getPolymorphicInverseCandidates,
   type PolymorphicInverseBinding,
 } from "./polymorphic";
-import type { AnyRelation, ReferentialAction } from "./types";
+import type { AnyRelation, ReferentialAction, RelationState } from "./types";
 
 export interface ResolvedInverseCandidate {
   /** The back-reference's key on the TARGET model. */
@@ -88,7 +88,11 @@ export function resolveInverseRelation(
 
   // 2. Ordinary fields-bearing back-references — the ONE ordinary precedence,
   // stated in resolveOrdinaryInverse and only called from here.
-  const ordinary = resolveOrdinaryInverse(targetModel, sourceModel, relationName);
+  const ordinary = resolveOrdinaryInverse(
+    targetModel,
+    sourceModel,
+    relationName
+  );
   if (ordinary.kind !== "missing") {
     return ordinary;
   }
@@ -130,6 +134,49 @@ export function getPolymorphicInverseBinding(
       }
     : undefined;
 }
+
+/**
+ * Which relation SHAPES may take a polymorphic inverse at all: a `oneToMany`, and a
+ * fields-LESS `oneToOne`. Every other shape records its membership in a physical
+ * foreign key on one of the two rows, so asking the polymorphic precedence about it
+ * would let a name-paired polymorphic edge shadow a real column.
+ *
+ * A PRECONDITION of {@link getPolymorphicInverseBinding} rather than part of it: the
+ * resolver answers "which back-reference carries the membership between these two
+ * models", and this answers "may THIS edge take that answer". Both readers of the
+ * polymorphic binding — the operation-schema nested-data projection and
+ * {@link file://./clearability.ts} — gate on this one function, so neither can widen
+ * the set of shapes on its own.
+ *
+ * A `.fields()` spelled with ZERO arguments is fields-LESS here too, the same
+ * aligned reading the rest of this module applies.
+ */
+export const canBindPolymorphicInverse = (state: RelationState): boolean =>
+  state.type === "oneToMany" ||
+  (state.type === "oneToOne" &&
+    (state.fields === undefined || state.fields.length === 0));
+
+/**
+ * The type twin of {@link canBindPolymorphicInverse} — with ONE known divergence:
+ * a `.fields()` spelled with ZERO arguments infers `fields: []`, which IS
+ * assignable to `readonly string[]`, so this twin answers `false` where the
+ * runtime answers `true`. Pre-existing (the deleted private copy read the same
+ * way), inherited unchanged by this relocation: on that shape the type level
+ * falls to the ordinary-FK reading and withholds keys the runtime grants
+ * (`nested-update-owned-fk.test.ts` casts around exactly this). Aligning the
+ * twin to the siblings' non-empty-tuple spelling is a type-surface widening
+ * with its own measurement obligation — a later unit, not this one.
+ */
+export type CanBindPolymorphicInverse<S extends RelationState> =
+  S["type"] extends "manyToMany" | "oneToMany"
+    ? S["type"] extends "oneToMany"
+      ? true
+      : false
+    : S["type"] extends "oneToOne"
+      ? S extends { fields: readonly string[] }
+        ? false
+        : true
+      : false;
 
 /**
  * The ordinary-only resolution — the polymorphic arms skipped. The engine asks

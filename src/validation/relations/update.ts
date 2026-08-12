@@ -1,6 +1,12 @@
 // Relation Update Schemas
 
 import type { AnyModel } from "@schema/model";
+import {
+  type MembershipCanBeCleared,
+  membershipCanBeCleared,
+  type SlotMayBeEmpty,
+  slotMayBeEmpty,
+} from "@schema/relation/clearability";
 import type { RelationState } from "@schema/relation/types";
 import { createSchema, fail, ok, validateSchema } from "../primitives/helpers";
 import v, { type V } from "../primitives/v";
@@ -10,7 +16,6 @@ import { applyCreateManyAvailability } from "./create-many-availability";
 import type { GetTargetSchemas, SchemaGetter, TargetModel } from "./helpers";
 import {
   nestedRelationDataProjection,
-  type ProjectedMembershipCanBeCleared,
   type ProjectedNestedCreate,
   type ProjectedNestedUpdate,
 } from "./nested-data-projection";
@@ -186,12 +191,18 @@ type IsChildHeldToOne<S extends RelationState> = S extends {
   ? false
   : true;
 
+/**
+ * The two facts, read as the two availability rules they are: `delete` follows the
+ * SLOT (this branch is only reached when it may be empty), `disconnect` follows the
+ * MEMBERSHIP. They coincide on every shape except the one this conditional exists
+ * for — a fields-less inverse whose child-side foreign key cannot be nulled.
+ */
 type OptionalToOneUpdateEntries<
   S extends RelationState,
   Source extends AnyModel,
 > = IsFieldsLessInverseOneToOne<S> extends true
   ? ToOneUpdateSchemaDelete["entries"] &
-      (ProjectedMembershipCanBeCleared<S, Source> extends true
+      (MembershipCanBeCleared<S, Source> extends true
         ? ToOneUpdateSchemaDisconnect["entries"]
         : Record<never, never>)
   : ToOneUpdateSchemaDisconnect["entries"] & ToOneUpdateSchemaDelete["entries"];
@@ -199,7 +210,7 @@ type OptionalToOneUpdateEntries<
 export type ToOneUpdateSchema<
   S extends RelationState,
   Source extends AnyModel,
-> = S["optional"] extends true
+> = SlotMayBeEmpty<S> extends true
   ? ToOneMutationSchema<
       OptionalToOneUpdateEntries<S, Source> & ToOneUpdateEntriesBase<S, Source>,
       undefined,
@@ -265,7 +276,8 @@ export const toOneUpdateFactory = <
   };
   const isChildHeld = state.fields === undefined || state.fields.length === 0;
 
-  if (state.optional !== true) {
+  // The SLOT fact: a relation that must hold a record owns neither removal verb.
+  if (!slotMayBeEmpty(state)) {
     return toOneMutationSchema(
       baseEntries,
       undefined,
@@ -276,6 +288,12 @@ export const toOneUpdateFactory = <
   const isFieldsLessInverse =
     state.type === "oneToOne" &&
     (state.fields === undefined || state.fields.length === 0);
+  // A PARENT-HELD optional to-one grants `disconnect` from the slot fact alone: the
+  // column that records this membership is on THIS row, which is not what
+  // `membershipCanBeCleared` reads. When that column is not nullable (a shared
+  // primary key is the standing example) the payload is spellable and the engine's
+  // `assertRelationCanDisconnect` is what refuses it — the guard's one public route,
+  // named in the guard-ownership ledger.
   if (!isFieldsLessInverse) {
     return toOneMutationSchema(
       {
@@ -288,8 +306,9 @@ export const toOneUpdateFactory = <
     ) as unknown as ToOneUpdateSchema<S, Source>;
   }
 
-  const membershipCanBeCleared = projection.membershipCanBeCleared;
-  return (membershipCanBeCleared
+  // The MEMBERSHIP fact, asked ONLY here: this is the one branch where an empty slot
+  // does not imply a clearable membership.
+  return (membershipCanBeCleared(state, source)
     ? toOneMutationSchema(
         {
           ...baseEntries,
@@ -376,7 +395,7 @@ export type ToManyUpdateSchema<
   ToManyUpdateEntries<S, Source> &
     (S["type"] extends "manyToMany"
       ? ToManyDisconnectEntry<S>
-      : ProjectedMembershipCanBeCleared<S, Source> extends true
+      : MembershipCanBeCleared<S, Source> extends true
         ? ToManyDisconnectEntry<S>
         : Record<never, never>)
 >;
@@ -440,11 +459,11 @@ export const toManyUpdateFactory = <
     { partial: false }
   );
 
-  // A `manyToMany` membership always clears (the junction row goes), and every
-  // other edge asks the projection. A polymorphic inverse is never `manyToMany`,
-  // so its clearability alone decides — the same expression, one owner.
+  // A `manyToMany` membership always clears (the junction row goes, no column is
+  // nulled), and every other edge asks the clearability owner. A polymorphic inverse
+  // is never `manyToMany`, so its clearability alone decides — one expression.
   const canDisconnect =
-    state.type === "manyToMany" || projection.membershipCanBeCleared;
+    state.type === "manyToMany" || membershipCanBeCleared(state, source);
   const disconnectEntry = canDisconnect
     ? {
         disconnect: () => v.singleOrArray(targetSchemas().core.whereUnique),

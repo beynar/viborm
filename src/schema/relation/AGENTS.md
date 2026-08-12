@@ -36,6 +36,8 @@ The solution: **thunks** `() => Model` defer model resolution, and **chainable m
 | `to-many.ts` | `ToManyRelation` class + `oneToMany` factory |
 | `many-to-many.ts` | `ManyToManyRelation` class + `manyToMany` factory |
 | `polymorphic.ts` | `PolymorphicRelation`, private-storage metadata, and inverse binding |
+| `inverse.ts` | The one candidate discovery/resolution owner, and which shapes may bind a polymorphic inverse |
+| `clearability.ts` | The two emptying facts: `slotMayBeEmpty`, `membershipCanBeCleared` |
 | `helpers.ts` | Junction table utilities for many-to-many |
 | `index.ts` | Re-exports everything |
 
@@ -119,6 +121,23 @@ A fields-less `oneToOne` is non-owning and must call `.optional()` because no
 local FK can require a related row to exist. This slot optionality is distinct
 from membership clearability: inverse delete removes the child, while inverse
 disconnect preserves it and therefore requires nullable child-side storage.
+
+`clearability.ts` owns both readings, runtime and type together:
+`slotMayBeEmpty(state)` is the declaration's own optionality, and
+`membershipCanBeCleared(state, source)` is the storage question — every inverse
+foreign-key scalar nullable on an ordinary edge, the target relation optional on
+a polymorphic one, which is the same statement about its private `(type, id)`
+pair. They are TWO facts and must stay two: an optional slot whose child-side
+foreign key cannot be nulled is a legal schema whose operation surface offers
+`delete` without `disconnect`. A rule forcing the two to agree would be
+source-breaking and is a separate product decision (compression plan §8.2), so
+no consumer may derive one from the other.
+
+The write engine does not read this module. It answers the physical question
+from BOUND membership (`query-engine/write-engine/relation-nullability.ts`),
+which is the only reading available on a trusted internal program that never
+passed the public schema — see the guard-ownership ledger for the coverage that
+keeps that guard alive.
 
 ---
 

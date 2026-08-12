@@ -78,8 +78,8 @@ export type CreateWithOmittedFk<
  * capability lift with its own measurement — recorded for the guard-ownership ledger,
  * not folded into N1, which may only make the parse agree with the engine.
  *
- * The runtime twin is `targetHoldsInverseFk`
- * ({@link file://./nested-data-projection.ts}), where the projection owner applies it.
+ * The runtime twin is the projection owner's module-private
+ * `targetHoldsInverseFk` ({@link file://./nested-data-projection.ts}).
  */
 type TargetHoldsInverseFk<S extends RelationState> =
   S["type"] extends "manyToMany"

@@ -2,6 +2,15 @@
 // Re-exports all public types and factory functions
 
 // =============================================================================
+// CLEARABILITY
+// =============================================================================
+export {
+  type MembershipCanBeCleared,
+  membershipCanBeCleared,
+  type SlotMayBeEmpty,
+  slotMayBeEmpty,
+} from "./clearability";
+// =============================================================================
 // HELPERS
 // =============================================================================
 export {
@@ -11,6 +20,8 @@ export {
   getJunctionTableName,
 } from "./helpers";
 export {
+  type CanBindPolymorphicInverse,
+  canBindPolymorphicInverse,
   collectInverseCandidates,
   getPolymorphicInverseBinding,
   type ResolvedInverseCandidate,

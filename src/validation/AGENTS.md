@@ -121,8 +121,13 @@ leaves for the caller, and which columns that removes depends on the edge: an
 ordinary inverse owns the target's foreign-key SCALARS, a polymorphic inverse owns
 the target's direct RELATION KEY. `relations/nested-data-projection.ts` is the one
 place that difference is decided — create, update, createMany-data, the createMany
-"satisfied membership" argument, the create-root `upsert.update` arm, and membership
-clearability, at runtime and at the type level together.
+"satisfied membership" argument and the create-root `upsert.update` arm, at runtime
+and at the type level together.
+
+Whether that membership can be CLEARED is NOT this module's fact. It is a schema
+fact about storage, owned by `@schema/relation/clearability` (`slotMayBeEmpty` and
+`membershipCanBeCleared`, the two facts that must stay two), and it is read only by
+the update factories — the create surfaces have no removal verb to gate.
 
 The four verb factories (`toOne`/`toMany` × `create`/`update`) consume the projection
 without asking which edge they are on. A polymorphic inverse therefore has no verb
