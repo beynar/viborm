@@ -52,6 +52,7 @@ export type PGliteConfig<C extends DriverConfig> = PGliteDriverOptions & C;
 
 export class PGliteDriver extends Driver<PGlite, Transaction> {
   readonly adapter: DatabaseAdapter;
+  readonly maxBindParametersPerStatement: number | undefined = 65_535;
   protected override readonly serializeTransactions = true;
 
   private readonly driverOptions: PGliteDriverOptions;

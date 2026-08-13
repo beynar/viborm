@@ -8,11 +8,15 @@ type D1Database = ConstructorParameters<typeof D1Driver>[0]["database"];
 interface NullD1Result {
   success: true;
   results: null;
-  meta: { changes: number };
+  meta: { changes: number; last_row_id: number };
 }
 
-function nullResult(changes = 0): NullD1Result {
-  return { success: true, results: null, meta: { changes } };
+function nullResult(changes = 0, lastRowId = 0): NullD1Result {
+  return {
+    success: true,
+    results: null,
+    meta: { changes, last_row_id: lastRowId },
+  };
 }
 
 function createSingleResultDriver(result: NullD1Result): D1Driver {
@@ -58,6 +62,42 @@ async function captureMalformedResult(
 }
 
 describe("D1 binding null-result statement contracts", () => {
+  test("publishes the concrete generated row id reported by D1", async () => {
+    await expect(
+      createSingleResultDriver(nullResult(1, 42))._executeRaw(
+        "INSERT INTO events DEFAULT VALUES"
+      )
+    ).resolves.toEqual({ rows: [], rowCount: 1, insertId: 42 });
+  });
+
+  test("does not publish D1's sticky row id for a later non-insert statement", async () => {
+    await expect(
+      createSingleResultDriver(nullResult(1, 42))._executeRaw(
+        "UPDATE events SET note = 'later'"
+      )
+    ).resolves.toEqual({ rows: [], rowCount: 1 });
+  });
+
+  test("accepts a signed SQLite row id without publishing it as generated identity", async () => {
+    await expect(
+      createSingleResultDriver(nullResult(1, -7))._executeRaw(
+        "INSERT INTO events DEFAULT VALUES"
+      )
+    ).resolves.toEqual({ rows: [], rowCount: 1 });
+  });
+
+  test.each([
+    1.5,
+    Number.MAX_SAFE_INTEGER + 1,
+    Number.NaN,
+  ])("rejects a non-safe D1 last_row_id (%s)", async (lastRowId) => {
+    await expect(
+      createSingleResultDriver(nullResult(1, lastRowId))._executeRaw(
+        "INSERT INTO events DEFAULT VALUES"
+      )
+    ).rejects.toThrow("a safe-integer last_row_id");
+  });
+
   test.each([
     ["DDL", "CREATE TABLE events (id INTEGER)", 0],
     [
@@ -159,6 +199,27 @@ describe("D1 binding null-result statement contracts", () => {
       { rows: [], rowCount: 1 },
       { rows: [], rowCount: 0 },
     ]);
+  });
+
+  test("acknowledges commit before normalizing a malformed batch result", async () => {
+    const driver = createBatchResultDriver([
+      {
+        success: true,
+        results: null,
+        meta: { changes: -1, last_row_id: 0 },
+      },
+    ]);
+    const committed = vi.fn(() => Promise.resolve());
+
+    await expect(
+      driver._executeBatch(
+        [{ sql: "UPDATE events SET note = 'updated'" }],
+        undefined,
+        undefined,
+        committed
+      )
+    ).rejects.toBeInstanceOf(QueryError);
+    expect(committed).toHaveBeenCalledOnce();
   });
 
   test("attributes statement preparation failures to their batch position", async () => {

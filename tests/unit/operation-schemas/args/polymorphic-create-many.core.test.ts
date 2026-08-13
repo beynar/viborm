@@ -57,10 +57,7 @@ const models = { parent, requiredChild, optionalChild, post, video };
 hydrateSchemaNames(models);
 const schemas = createSchemaRegistry(models).proxy;
 
-const refusal =
-  "createMany is not available for model 'requiredChild' because required polymorphic relation 'subject' cannot be supplied by a scalar-only bulk row. Use create instead.";
-
-describe("required polymorphic createMany availability", () => {
+describe("polymorphic createMany relation requirements", () => {
   test("root createMany accepts connect-only polymorphic memberships per row", () => {
     const accepted = parse(schemas.requiredChild.args.createMany, {
       data: [
@@ -82,35 +79,110 @@ describe("required polymorphic createMany availability", () => {
     expect(missing.issues?.[0]?.message).toContain("subject");
   });
 
-  test("nested create-family createMany uses the same refusal", () => {
+  test("nested create-family createMany accepts relation-bearing rows", () => {
     const result = parse(schemas.parent.args.create, {
       data: {
         id: "parent-1",
-        requiredChildren: { createMany: { data: [] } },
+        requiredChildren: {
+          createMany: {
+            data: [
+              {
+                id: "child-1",
+                subject: {
+                  connect: { type: "post", where: { id: "post-1" } },
+                },
+                secondary: {
+                  connect: { type: "video", where: { id: "video-1" } },
+                },
+              },
+            ],
+          },
+        },
       },
     });
 
-    expect(result.issues?.[0]?.message).toBe(refusal);
-    expect(result.issues?.[0]?.path).toEqual([
-      "data",
-      "requiredChildren",
-      "createMany",
-    ]);
+    expect(result.issues).toBeUndefined();
   });
 
-  test("nested update-family createMany uses the same refusal", () => {
+  test("nested update-family createMany accepts relation-bearing rows", () => {
     const result = parse(schemas.parent.args.update, {
       where: { id: "parent-1" },
       data: {
-        requiredChildren: { createMany: { data: [] } },
+        requiredChildren: {
+          createMany: {
+            data: [
+              {
+                id: "child-2",
+                subject: {
+                  connect: { type: "video", where: { id: "video-2" } },
+                },
+                secondary: {
+                  connect: { type: "post", where: { id: "post-2" } },
+                },
+              },
+            ],
+          },
+        },
       },
     });
 
-    expect(result.issues?.[0]?.message).toBe(refusal);
+    expect(result.issues).toBeUndefined();
+  });
+
+  test("nested createMany still requires every relation not supplied by its enclosing edge", () => {
+    const result = parse(schemas.parent.args.create, {
+      data: {
+        id: "parent-1",
+        requiredChildren: {
+          createMany: {
+            data: [
+              {
+                id: "child-3",
+                subject: {
+                  connect: { type: "post", where: { id: "post-1" } },
+                },
+              },
+            ],
+          },
+        },
+      },
+    });
+
     expect(result.issues?.[0]?.path).toEqual([
       "data",
       "requiredChildren",
       "createMany",
+      "data",
+      0,
+    ]);
+  });
+
+  test("nested createMany keeps the enclosing ordinary membership unspellable", () => {
+    const row = {
+      id: "child-4",
+      parentId: "other-parent",
+      subject: {
+        connect: { type: "post", where: { id: "post-1" } },
+      },
+      secondary: {
+        connect: { type: "video", where: { id: "video-1" } },
+      },
+    };
+    const result = parse(schemas.parent.args.create, {
+      data: {
+        id: "parent-1",
+        requiredChildren: { createMany: { data: [row] } },
+      },
+    });
+
+    expect(result.issues?.[0]?.message).toBe("Unknown key: parentId");
+    expect(result.issues?.[0]?.path).toEqual([
+      "data",
+      "requiredChildren",
+      "createMany",
+      "data",
+      0,
+      "parentId",
     ]);
   });
 

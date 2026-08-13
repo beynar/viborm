@@ -136,6 +136,7 @@ function toQueryResult<T>(
 
 export class MySQL2Driver extends Driver<Pool, PoolConnection> {
   readonly adapter: DatabaseAdapter = new MySQLAdapter();
+  readonly maxBindParametersPerStatement: number | undefined = 65_535;
   readonly result: DriverResultParser = mysqlResultParser;
 
   private readonly driverOptions: MySQL2DriverOptions;

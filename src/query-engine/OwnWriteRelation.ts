@@ -3,6 +3,7 @@ import type { Model } from "@schema/model";
 import type { BoundRelation } from "./builders/relation-data-builder";
 import type {
   NormalizedRelationUpsert,
+  RecordMutationData,
   RelationMutationProgram,
 } from "./builders/relation-mutation-parser";
 import { createChildScope } from "./context";
@@ -29,7 +30,11 @@ import {
 } from "./TargetConstraint";
 import type { QueryScope } from "./types";
 
-type CreateOperation = "create" | "createMany" | "connectOrCreate" | "upsert";
+export type OwnWriteCreateOperation =
+  | "create"
+  | "createMany"
+  | "connectOrCreate"
+  | "upsert";
 
 interface CreateSummaryOptions {
   readonly appendMembership?: boolean;
@@ -37,7 +42,7 @@ interface CreateSummaryOptions {
 }
 
 export interface OwnWriteCreateSummary {
-  readonly operation: Exclude<CreateOperation, "createMany">;
+  readonly operation: OwnWriteCreateOperation;
   readonly data: Readonly<Record<string, unknown>>;
 }
 
@@ -164,15 +169,15 @@ export class OwnWriteRelation {
   }
 
   analyzeCreate(
-    data: Record<string, unknown>,
-    rootOperation: "create" | "connectOrCreate" | "upsert" = "create",
+    data: RecordMutationData,
+    rootOperation: OwnWriteCreateOperation = "create",
     insertSummary?: OwnWriteCreateSummary
   ): void {
     this.node.analyzer.analyzeCreate(this, data, rootOperation, insertSummary);
   }
 
   analyzeUpdate(
-    data: Record<string, unknown>,
+    data: RecordMutationData,
     selector: Record<string, unknown> | undefined,
     rootOperation: "update" | "upsert" = "update"
   ): void {
@@ -251,7 +256,7 @@ export class OwnWriteRelation {
     const resultConstraints = updateResultConstraints(
       this.target,
       decision,
-      input.update,
+      input.update.parsed,
       input.target.where
     );
     if (resultConstraints.length === 0) {
@@ -263,7 +268,7 @@ export class OwnWriteRelation {
   }
 
   appendCreateSummary(
-    operation: CreateOperation,
+    operation: OwnWriteCreateOperation,
     data: Readonly<Record<string, unknown>>,
     options: CreateSummaryOptions = {}
   ): void {

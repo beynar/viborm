@@ -118,8 +118,16 @@ describe("provider execution-context concurrency", () => {
     clientReady.resolve(database);
     await started.promise;
     providerResults.resolve([
-      { success: true, results: [], meta: { changes: 0 } },
-      { success: true, results: null, meta: { changes: 0 } },
+      {
+        success: true,
+        results: [],
+        meta: { changes: 0, last_row_id: 0 },
+      },
+      {
+        success: true,
+        results: null,
+        meta: { changes: 0, last_row_id: 0 },
+      },
     ]);
 
     await expect(failure).resolves.toMatchObject({

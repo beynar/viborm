@@ -27,7 +27,10 @@ does not interpret relations or mutation kinds.
 - `WriteStep` describes a write and is the only step that can carry `racePin`
   or `onUniqueConflict`.
 - `GuardStep` protects a premise of the selected final fragment.
-- `PlanningFragment` contains statements and outputs, never guards.
+- `RecordSeriesStep` places one existing `RecordSeriesOperation` at an exact
+  nested position in a final fragment.
+- `PlanningFragment` contains statements and outputs, never guards or record
+  series.
 - `OperationFragment` contains final statements, guards, and outputs.
 
 Planning is not read-only. Skip-duplicate capture performs preparation
@@ -79,11 +82,11 @@ outside `BoundRelation`.
 
 ### Record mutation
 
-`CreateOperation` compiles each non-bulk fresh record subtree. Nested callers
+`CreateOperation` compiles each fresh record subtree. Nested and series callers
 provide parsed data and one optional source-bound membership. The explicit
 inline junction-target insert remains local to `RelationJunctionPart`.
 
-`RecordUpdateCompiler` compiles each already-selected non-bulk record update. It
+`RecordUpdateCompiler` compiles each already-selected record update. It
 owns scalar SET data, an optional incoming membership, nested relations,
 its `TargetProjection`, primary-key transitions, the root UPDATE, and descendant
 order. The projection keeps public model fields and private physical columns in
@@ -129,7 +132,7 @@ private pair as internal columns and the compiler addresses the captured target.
 On the batch substrate, the existing target guard also reasserts every projected
 private value that affected branch selection.
 
-Root createMany is the one bulk specialization. Each row may carry connect-only
+The grouped root createMany path is one bulk specialization. Each row may carry connect-only
 polymorphic memberships. `bulk-polymorphic-connect.ts` groups target probes by
 relation and discriminator, resolves one private pair per row, and hands the
 rows back to the existing grouped INSERT planner. Count and returning shells
@@ -138,6 +141,41 @@ consume the same preparation; neither performs one lookup per input row.
 For a singular inverse, the relation-wide unique `(type, identity)` index is
 the occupied-slot guard. A concurrent slot occupation is reported as a genuine
 unique conflict and is not treated as a retryable missing-target race.
+
+## Record series
+
+`RecordSeriesOperation` is the one data-dependent bulk execution form. It
+captures an optional root set, then plans and executes ordinary record members
+left to right. Member N can therefore observe member N−1; duplicate
+`connectOrCreate` keeps first-create-wins without a bulk-specific relation
+compiler.
+
+Root relation-bearing `createMany` uses `CreateManyRecordSeries`. Root
+relation-bearing `updateMany` uses `UpdateManyRecordSeries`, which captures the
+matching complete row keys once and sorts them before member compilation.
+Nested relation-bearing `createMany` and `updateMany` use one
+`RecordSeriesStep` at their exact position in the outer fragment. Scalar-only
+bulk shapes remain grouped and never enter a series.
+
+On a transaction-capable driver, the root series and all nested series steps
+share one operation-wide transaction. On D1, root and exactly guarded nested
+series can run progressively: each write batch is atomic and committed, a later
+failure reports `meta.recordSeriesProgress`, and no retry replays the committed
+prefix. A nested `RecordSeriesStep` carries either its compiler-owned
+complete-parent/membership guard or a fail-closed reason. An unguardable
+placement refuses before its containing member writes; earlier root members may
+already be committed. Relation-bearing `skipDuplicates` and a dynamic series
+inside explicit `$transaction([...])` refuse before the first user write.
+
+On interactive drivers, relation-bearing `skipDuplicates` scopes each create
+member as one subtree. A root unique conflict skips that complete subtree;
+descendant and non-unique failures remain fatal. The skipped member never
+adopts or mutates the conflicting existing row.
+
+The public returning arm does not issue one final read per member.
+`series-result-read.ts` groups complete row keys into K set reads bounded by the
+driver's bind-parameter budget, normally one, then restores source order and
+preserves exact missing-row failures.
 
 ## Source-bound relation membership
 
@@ -205,10 +243,11 @@ for why the semantics require it. `ManyToManyStatements` remains the junction SQ
 owner. Keep adapter `batchRefs` and the type-only `QueryMetadata` compatibility
 export; the latter is not a runtime boundary.
 
-Nested `createMany` stays with the owner of its set-shaped placement: a fresh
-parent records post-insert groups in `CreateOperation`; a selected parent uses
-the specialized builders in `nested-target-parts.ts`; a junction keeps target
-rows and join effects in `RelationJunctionPart`.
+Nested scalar-only `createMany` and `updateMany` stay with their set-shaped
+owners. Relation-bearing nested `createMany` builds ordinary fresh-record Parts;
+relation-bearing nested `updateMany` captures correlated complete row keys and
+builds ordinary selected-record compilers. Both run through the same nested
+`RecordSeriesStep`; no bulk relation compiler exists.
 
 Do not add a generic mutation DSL, payload walker, locator, strategy framework,
 branch-step IR, lifecycle hook, or shared utility landfill.

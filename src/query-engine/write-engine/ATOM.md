@@ -87,6 +87,15 @@ interface GuardStep {
   readonly premise: ExistsOrNotExists;
   readonly failure: Failure;
 }
+
+interface RecordSeriesStep {
+  readonly id: string;
+  readonly kind: "recordSeries";
+  readonly series: RecordSeriesOperation;
+  readonly progressive:
+    | { readonly kind: "guarded"; readonly guard: GuardStep }
+    | { readonly kind: "unsupported"; readonly reason: string };
+}
 ```
 
 A statement step has:
@@ -100,7 +109,9 @@ A read cannot carry a race pin or conflict policy. Those properties affect a
 write and therefore exist only on `WriteStep`.
 
 No branch, locate, relation, or mutation kind is a runtime step kind. Those are
-compiler concepts that lower to reads, writes, and guards.
+compiler concepts that lower to reads, writes, and guards. `RecordSeriesStep`
+is only the nested placement of the existing ordered record-series execution
+form; it does not interpret mutation meaning.
 
 An `OperationValueReference` identifies one declared output from an earlier
 step. It can appear in `Sql.values` until execution materializes it. References
@@ -117,8 +128,9 @@ interface PlanningFragment {
 }
 ```
 
-Planning contains no guards. A guard protects a premise of the selected final
-fragment, and no final branch has been selected while planning runs.
+Planning contains no guards or record series. A guard protects a premise of the
+selected final fragment, and no final branch has been selected while planning
+runs.
 
 Planning is not read-only. Skip-duplicate capture performs preparation
 writes during root planning. Those writes publish the values required to build
@@ -431,7 +443,8 @@ paired prefix; correlated reads still refuse it.)
 
 ## 9. Fresh-record compiler
 
-`CreateOperation` is the compiler for each non-bulk fresh record subtree.
+`CreateOperation` is the compiler for each fresh record subtree, including a
+record-series member.
 
 Nested callers provide:
 
@@ -516,7 +529,8 @@ ordering in `RelationJunctionPart`.
 
 ## 10. Selected-record compiler
 
-`RecordUpdateCompiler` compiles one already-selected non-bulk record update.
+`RecordUpdateCompiler` compiles one already-selected record update, including a
+record-series member.
 
 Its caller supplies target-read and root-write labels. The compiler exposes:
 
@@ -844,16 +858,19 @@ What is NOT specialized is a `createMany` row carrying a general relation
 program. Routing sends the whole operation to `CreateManyRecordSeries`, a record
 series whose members are ordinary `CreateOperation` instances (plan §4.4, §5.1).
 The reason is semantic, not architectural taste: row N may observe what row N-1
-committed inside the transaction, which is what makes duplicate
+wrote in the same execution scope, which is what makes duplicate
 `connectOrCreate` targets converge on one row. A pre-planned bulk form cannot
 express that, and a second relation compiler for bulk rows would be the thing
 this document exists to prevent. The empty payload and the two bulk shapes above
 never reach the series, so their plans are unchanged.
 
-`skipDuplicates` beside a general nested effect is refused at construction: a
-skipped root has two defensible meanings for its nested effects (suppress them,
-or apply them to the row that already exists) and the product has not chosen
-one.
+On an interactive driver, `skipDuplicates` beside a general nested effect gives
+each member one subtree-scoped savepoint. A unique conflict on the member's
+ROOT write skips the complete subtree and never adopts or mutates the existing
+row. Descendant conflicts and non-unique failures remain fatal. The skipped
+member contributes neither a root count nor a public result row. D1 refuses
+this combination before the first user write because its batch error cannot
+attribute root versus descendant conflict precisely.
 
 What is also NOT specialized is root `updateMany` whose data carries a general
 relation program. Routing sends the whole operation to `UpdateManyRecordSeries`,
@@ -897,34 +914,55 @@ payload spelled as N ordinary `update` calls does; refusing it would make the
 bulk spelling reject what the single spelling executes. Measured and pinned as
 behavior rather than inferred.
 
-Both series' returning arms read each member's final root row key after every
-member finishes, and each of those reads carries an `exactlyOneRow`
-postcondition. It is the ordinal contract of an ordered source list whose rows
-concatenate: without it a read that matched nothing would shorten the public
-answer instead of failing. On the create side one thing reaches it — a later
-member moving an earlier member's row key, which is legal whenever a row-key
-member is also a foreign key. On the update side a later member's nested effects
-can also DELETE a captured root. Both answer with a refusal. The alternative,
-returning the rows that survived, was rejected for ONE reason: the engine already
-fails loudly with `NotFoundError` when the same removal happens before the
-victim's own member runs, so a legal-empty read would make the public answer
-depend on capture order alone. It was not rejected for making the arms disagree —
-they disagree either way, and deliberately: the `{ count }` arm of the very
-payload the `select` arm refuses answers the captured root count and succeeds.
-The postcondition is cardinality at the reported key, so it detects a root's
-ABSENCE, not its replacement.
+Nested bulk follows the same split. Scalar-only nested `createMany` and
+`updateMany` remain set-oriented and grouped. A relation-bearing nested
+`createMany` lowers each row through `CreateOperation` in input order. A
+relation-bearing nested `updateMany` captures its exact correlated target keys
+at the operation's ordered position, sorts complete row keys, and invokes
+`RecordUpdateCompiler` once per captured target. Both are placed by one
+`RecordSeriesStep`; the outer fragment resumes only after the series completes.
+The enclosing relation Part still owns membership, target capture, guards, and
+placement. The N-greater-than-one named child-held move refusal applies at this
+level too.
 
-Nested relation-level `updateMany` still rejects relation-bearing data before
-SQL, and that check remains deferred so an untaken top-level upsert update arm
-is inert. "Relation-bearing" there means ordinary AND direct polymorphic keys,
-read through one shared predicate over the parsed collection: a targetless
-polymorphic disconnect carries no relation program, and a reader that looked
-only at relation programs let it past the wall and then dropped it. The
-collection now carries that disconnect as its own entry, so the predicate is one
-key per entry; what the measured defect leaves behind is the ownership, not a
-union of two maps. Relation `set` is independent of membership
-clearability: optional storage emits departures, while required storage guards
-that the departing set is empty.
+Both root series' returning arms collect each member's final complete row key,
+then `series-result-read.ts` builds K bounded set reads, normally one. It counts
+the compiled bind values against the driver-owned parameter budget, indexes
+decoded rows by complete key, restores source order, replays duplicate keys,
+and strips key fields injected only for correlation. Missing rows keep the
+existing exact failure rather than silently shortening the result. On the
+create side a later member can move an earlier member's row key. On the update
+side later nested effects can also delete a captured root. The `{ count }` arm
+of the same payload still answers the completed or captured root count.
+Grouping changes result transport only; it does not remove compiler terminal
+reads or change member planning.
+
+Execution substrate is separate from series meaning:
+
+- a transaction-capable root series runs in one operation-wide transaction;
+- a nested `RecordSeriesStep` reuses that already-open transaction;
+- D1 can execute a ROOT dynamic series as ordered committed atomic member
+  batches. A later failure keeps the committed prefix and carries exact
+  `recordSeriesProgress`; no retry replays a committed segment;
+- D1 can execute a nested `RecordSeriesStep` only when the relation placement
+  supplies the exact complete-parent or membership guard that is repeated in
+  every later write batch. An unguardable placement refuses before its
+  containing member writes; earlier progressive root members can already be
+  committed and are reported. Relation-bearing `skipDuplicates` and a dynamic
+  series inside explicit `$transaction([...])` refuse before member 0 writes;
+- D1's official per-statement `meta.last_row_id` enters the existing
+  `QueryResult.insertId` channel. It can publish one concrete generated integer
+  identity across a segment boundary; it never permits ID-range inference;
+- other substrates that cannot provide either interactive execution or the D1
+  ordered-commit contract refuse the series.
+
+Nested relation-bearing `updateMany` reparses the retained source update data
+once per captured target through the exact projected nested-update schema. It
+does not feed transformed output back into validation. An untaken top-level
+upsert update arm remains inert because capture and replay occur only after that
+arm is selected. Relation `set` is independent of membership clearability:
+optional storage emits departures, while required storage guards that the
+departing set is empty.
 
 Skip-duplicate preparation writes remain in planning. Adapter `batchRefs` and executor
 `insertId` handling remain because they express real substrate capabilities.

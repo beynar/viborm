@@ -23,6 +23,9 @@
   verify the process table again before trusting its completion. In a Vitest
   workspace, pin focused file runs to one project or overlapping projects can
   execute the same file twice.
+- Before a focused Vitest run, read `vitest.workspace.ts` and use the declared
+  project name exactly. Do not infer a project name from a package or directory
+  label; a misspelled filter fails before collecting the intended witness.
 - When a coverage score drops after test-tier reclassification, compare the
   files selected by the coverage project with the full owning-layer inventory
   before adding tests. Measure the full safe selection first; fix coverage

@@ -5,7 +5,8 @@ import {
   partitionModelData,
 } from "@query-engine/builders/relation-mutation-parser";
 import { createQueryScope, getRelationInfo } from "@query-engine/context";
-import { s } from "@schema";
+import { hydrateSchemaNames, s } from "@schema";
+import { validateSchemaOrThrow } from "@schema/validation";
 import { describe, expect, test } from "vitest";
 
 const user = s.model({
@@ -26,6 +27,21 @@ const post = s.model({
 });
 
 const adapter = new PostgresAdapter();
+
+const polymorphicSchema = (() => {
+  const article = s.model({ id: s.int().id(), title: s.string() });
+  const video = s.model({ id: s.int().id(), title: s.string() });
+  const reaction = s.model({
+    id: s.int().id(),
+    subject: s
+      .polymorphic({ article: () => article, video: () => video })
+      .optional(),
+  });
+  return { article, video, reaction };
+})();
+
+hydrateSchemaNames(polymorphicSchema);
+validateSchemaOrThrow(polymorphicSchema);
 
 function requireRelationInfo(
   model: typeof user | typeof post,
@@ -96,7 +112,19 @@ describe("relation mutation program", () => {
     ]);
     expect(
       program?.entries.find((entry) => entry.kind === "connectOrCreate")
-    ).toEqual({ kind: "connectOrCreate", items: [duplicate, duplicateAgain] });
+    ).toEqual({
+      kind: "connectOrCreate",
+      items: [
+        {
+          where: duplicate.where,
+          create: { parsed: duplicate.create, source: undefined },
+        },
+        {
+          where: duplicateAgain.where,
+          create: { parsed: duplicateAgain.create, source: undefined },
+        },
+      ],
+    });
     expect(program?.entries.find((entry) => entry.kind === "set")).toEqual({
       kind: "set",
       targets: [],
@@ -105,7 +133,10 @@ describe("relation mutation program", () => {
       program?.entries.find((entry) => entry.kind === "createMany")
     ).toEqual({
       kind: "createMany",
-      rows: [firstCreate, secondCreate],
+      rows: [
+        { parsed: firstCreate, source: undefined },
+        { parsed: secondCreate, source: undefined },
+      ],
       skipDuplicates: true,
     });
   });
@@ -135,7 +166,7 @@ describe("relation mutation program", () => {
               kind: "correlated",
               filter: { name: { contains: "A" } },
             },
-            data: transformedData,
+            data: { parsed: transformedData, source: undefined },
           },
         ],
       },
@@ -144,8 +175,14 @@ describe("relation mutation program", () => {
         items: [
           {
             target: { kind: "correlated" },
-            create: { id: 2, name: "Grace" },
-            update: { name: { set: "Grace" } },
+            create: {
+              parsed: { id: 2, name: "Grace" },
+              source: undefined,
+            },
+            update: {
+              parsed: { name: { set: "Grace" } },
+              source: undefined,
+            },
           },
         ],
       },
@@ -171,7 +208,7 @@ describe("relation mutation program", () => {
         items: [
           {
             target: { kind: "unique", where: { id: 1 } },
-            data: updateData,
+            data: { parsed: updateData, source: undefined },
           },
         ],
       },
@@ -180,8 +217,11 @@ describe("relation mutation program", () => {
         items: [
           {
             target: { kind: "unique", where: { id: 2 } },
-            create: { id: 2, title: "new" },
-            update: upsertUpdate,
+            create: {
+              parsed: { id: 2, title: "new" },
+              source: undefined,
+            },
+            update: { parsed: upsertUpdate, source: undefined },
           },
         ],
       },
@@ -230,10 +270,150 @@ describe("relation mutation program", () => {
         items: [
           {
             target: { kind: "unique", where: { id: 2 } },
-            data: transformedData,
+            data: { parsed: transformedData, source: undefined },
           },
         ],
       },
     ]);
+  });
+
+  test("keeps each record arm beside its exact source record", () => {
+    const relationInfo = requireRelationInfo(user, "posts");
+    const sourceCreate = { id: 1, title: "source create" };
+    const sourceCreateMany = { id: 2, title: "source createMany" };
+    const sourceConnectOrCreate = { id: 3, title: "source adopt" };
+    const sourceUpdate = { title: "source update" };
+    const sourceUpdateMany = { title: "source updateMany" };
+    const sourceUpsertCreate = { id: 4, title: "source upsert create" };
+    const sourceUpsertUpdate = { title: "source upsert update" };
+    const program = buildRelationMutationProgram(
+      relationInfo,
+      {
+        create: { id: 1, title: "parsed create" },
+        createMany: { data: [{ id: 2, title: "parsed createMany" }] },
+        connectOrCreate: {
+          where: { id: 3 },
+          create: { id: 3, title: "parsed adopt" },
+        },
+        update: {
+          where: { id: 1 },
+          data: { title: { set: "parsed update" } },
+        },
+        updateMany: {
+          where: { id: 1 },
+          data: { title: { set: "parsed updateMany" } },
+        },
+        upsert: {
+          where: { id: 4 },
+          create: { id: 4, title: "parsed upsert create" },
+          update: { title: { set: "parsed upsert update" } },
+        },
+      },
+      {
+        create: sourceCreate,
+        createMany: { data: [sourceCreateMany] },
+        connectOrCreate: {
+          where: { id: 3 },
+          create: sourceConnectOrCreate,
+        },
+        update: { where: { id: 1 }, data: sourceUpdate },
+        updateMany: { where: { id: 1 }, data: sourceUpdateMany },
+        upsert: {
+          where: { id: 4 },
+          create: sourceUpsertCreate,
+          update: sourceUpsertUpdate,
+        },
+      }
+    );
+
+    const entries = program?.entries ?? [];
+    expect(
+      entries.find((entry) => entry.kind === "create")?.items[0]?.source
+    ).toBe(sourceCreate);
+    expect(
+      entries.find((entry) => entry.kind === "createMany")?.rows[0]?.source
+    ).toBe(sourceCreateMany);
+    expect(
+      entries.find((entry) => entry.kind === "connectOrCreate")?.items[0]
+        ?.create.source
+    ).toBe(sourceConnectOrCreate);
+    expect(
+      entries.find((entry) => entry.kind === "update")?.items[0]?.data.source
+    ).toBe(sourceUpdate);
+    expect(
+      entries.find((entry) => entry.kind === "updateMany")?.items[0]?.data
+        .source
+    ).toBe(sourceUpdateMany);
+    const upsert = entries.find((entry) => entry.kind === "upsert");
+    expect(upsert?.items[0]?.create.source).toBe(sourceUpsertCreate);
+    expect(upsert?.items[0]?.update.source).toBe(sourceUpsertUpdate);
+  });
+
+  test("projects bare and wrapped to-one update sources from the canonical form", () => {
+    const relationInfo = requireRelationInfo(post, "author");
+    const bareSource = { name: "bare source" };
+    const wrappedSource = { name: "wrapped source" };
+    const bare = buildRelationMutationProgram(
+      relationInfo,
+      { update: { data: { name: { set: "parsed bare" } } } },
+      { update: bareSource }
+    );
+    const wrapped = buildRelationMutationProgram(
+      relationInfo,
+      {
+        update: {
+          where: { name: { contains: "A" } },
+          data: { name: { set: "parsed wrapped" } },
+        },
+      },
+      {
+        update: {
+          where: { name: { contains: "A" } },
+          data: wrappedSource,
+        },
+      }
+    );
+
+    expect(bare?.entries[0]?.kind).toBe("update");
+    expect(
+      bare?.entries[0]?.kind === "update"
+        ? bare.entries[0].items[0]?.data.source
+        : undefined
+    ).toBe(bareSource);
+    expect(
+      wrapped?.entries[0]?.kind === "update"
+        ? wrapped.entries[0].items[0]?.data.source
+        : undefined
+    ).toBe(wrappedSource);
+  });
+
+  test("keeps direct polymorphic record provenance through concrete-edge lowering", () => {
+    const ctx = createQueryScope(adapter, polymorphicSchema.reaction);
+    const sourceCreate = { id: 9, title: "source" };
+    const parsed = buildParsedRelationPrograms(
+      ctx,
+      {
+        subject: {
+          create: {
+            type: "article",
+            data: { id: 9, title: "parsed" },
+          },
+        },
+      },
+      {
+        subject: {
+          create: { type: "article", data: sourceCreate },
+        },
+      }
+    );
+    const mutation = parsed.relations[0];
+    expect(mutation?.kind).toBe("polymorphicTarget");
+    const create =
+      mutation?.kind === "polymorphicTarget"
+        ? mutation.program.entries[0]
+        : undefined;
+    expect(
+      create?.kind === "create" ? create.items[0]?.source : undefined
+    ).toBe(sourceCreate);
   });
 });

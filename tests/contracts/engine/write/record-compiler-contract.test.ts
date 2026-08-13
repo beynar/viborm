@@ -181,7 +181,9 @@ function statementStep(
   id: string
 ): StatementStep {
   const found = step(fragment, id);
-  if (found.kind === "guard") throw new Error(`Expected statement '${id}'.`);
+  if (found.kind === "guard" || found.kind === "recordSeries") {
+    throw new Error(`Expected statement '${id}'.`);
+  }
   return found;
 }
 
@@ -566,7 +568,12 @@ describe("one record, one compiler parity", () => {
           expect(premise(current)).toEqual(premise(twin));
           continue;
         }
-        if (current.kind === "guard" || twin.kind === "guard") {
+        if (
+          current.kind === "guard" ||
+          twin.kind === "guard" ||
+          current.kind === "recordSeries" ||
+          twin.kind === "recordSeries"
+        ) {
           throw new Error(
             `Step '${current.id}' changed kind across the seams.`
           );

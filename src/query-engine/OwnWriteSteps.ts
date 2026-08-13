@@ -5,9 +5,14 @@ import {
   membershipReferencedFields,
   type ParentHeldRelation,
 } from "./builders/relation-data-builder";
-import type { RelationMutationEntry } from "./builders/relation-mutation-parser";
+import type {
+  RecordMutationData,
+  RelationMutationEntry,
+} from "./builders/relation-mutation-parser";
+import { buildParsedRelationPrograms } from "./builders/relation-mutation-parser";
 import type { OwnWriteFootprint, OwnWriteLedger } from "./OwnWriteLedger";
 import type { OwnWriteRelation } from "./OwnWriteRelation";
+import { relationWriteKeys } from "./relation-key-legality";
 import {
   classifyRelationKeyScalarUpdate,
   classifyTargetConstraintOverlap,
@@ -34,17 +39,49 @@ export class OwnWriteSteps {
   processTree(entry: RelationMutationEntry): void {
     if (entry.kind === "create") {
       for (const createData of entry.items) {
-        const insertSummary = this.relation.getInsertSummary(
-          "create",
-          createData
-        );
-        this.relation.analyzeCreate(createData, "create", insertSummary);
-        if (!insertSummary) {
-          this.relation.appendCreateSummary("create", createData, {
-            appendTarget: false,
-          });
-        }
+        this.processCreateTree(this.relation, "create", createData);
       }
+      return;
+    }
+
+    if (entry.kind === "createMany") {
+      const childScope = this.relation.createChildScope();
+      const checkpoint = this.relation.ledger.checkpoint();
+      const membershipCheckpoint = this.relation.membershipLedger?.checkpoint();
+      const deltas: OwnWriteFootprint[][] = [];
+      const membershipDeltas: OwnWriteFootprint[][] = [];
+      for (const createData of entry.rows) {
+        // A relation-bearing createMany is executed as a left-to-right record
+        // series. Each member plans after its predecessor has executed, so a
+        // predecessor write is database state, not an own-write dependency inside
+        // this member's plan. Analyze every member against the same pre-series
+        // ledger, then publish all footprints for operations that follow the series.
+        const memberLedger = this.relation.ledger.fork();
+        const memberMembershipLedger = this.relation.membershipLedger?.fork();
+        const memberRelation = this.relation.fork(
+          memberLedger,
+          memberMembershipLedger
+        );
+        if (
+          relationWriteKeys(
+            buildParsedRelationPrograms(
+              childScope,
+              createData.parsed,
+              createData.source
+            )
+          ).length > 0
+        ) {
+          this.processCreateTree(memberRelation, "createMany", createData);
+        } else {
+          memberRelation.appendCreateSummary("createMany", createData.parsed);
+        }
+        deltas.push(memberLedger.deltaSince(checkpoint));
+        membershipDeltas.push(
+          getMembershipDelta(memberMembershipLedger, membershipCheckpoint)
+        );
+      }
+      this.relation.ledger.mergeDeltas(...deltas);
+      this.relation.membershipLedger?.mergeDeltas(...membershipDeltas);
       return;
     }
 
@@ -53,20 +90,84 @@ export class OwnWriteSteps {
       return;
     }
 
+    if (entry.kind === "updateMany") {
+      const childScope = this.relation.createChildScope();
+      const memberData = entry.items.flatMap((input) =>
+        relationWriteKeys(
+          buildParsedRelationPrograms(
+            childScope,
+            input.data.parsed,
+            input.data.source
+          )
+        ).length > 0
+          ? [input.data]
+          : []
+      );
+      if (memberData.length === 0) {
+        this.process(entry);
+        return;
+      }
+
+      const checkpoint = this.relation.ledger.checkpoint();
+      const membershipCheckpoint = this.relation.membershipLedger?.checkpoint();
+      const deltas: OwnWriteFootprint[][] = [];
+      const membershipDeltas: OwnWriteFootprint[][] = [];
+      for (const data of memberData) {
+        // A selected updateMany member plans after the series capture and in its own
+        // operation. The relation-level unknown footprint describes the whole series
+        // to later siblings; it is not a prior write inside any one member. Analyze
+        // every member shape against the pre-series ledgers, then publish its outward
+        // effects only after the outer footprint has been recorded.
+        const memberLedger = this.relation.ledger.fork();
+        const memberMembershipLedger = this.relation.membershipLedger?.fork();
+        this.relation
+          .fork(memberLedger, memberMembershipLedger)
+          .analyzeUpdate(data, undefined);
+        deltas.push(memberLedger.deltaSince(checkpoint));
+        membershipDeltas.push(
+          getMembershipDelta(memberMembershipLedger, membershipCheckpoint)
+        );
+      }
+
+      this.process(entry);
+      this.relation.ledger.mergeDeltas(...deltas);
+      this.relation.membershipLedger?.mergeDeltas(...membershipDeltas);
+      return;
+    }
+
     if (processOwnWriteBranchEntry(this.relation, entry)) return;
     this.process(entry);
+  }
+
+  /** A relation-bearing createMany row is one complete create tree. Scalar
+   * rows keep the earlier summary-only analysis used by the grouped leaf. */
+  private processCreateTree(
+    relation: OwnWriteRelation,
+    operation: "create" | "createMany",
+    createData: RecordMutationData
+  ): void {
+    const insertSummary = relation.getInsertSummary(
+      operation,
+      createData.parsed
+    );
+    relation.analyzeCreate(createData, operation, insertSummary);
+    if (!insertSummary) {
+      relation.appendCreateSummary(operation, createData.parsed, {
+        appendTarget: false,
+      });
+    }
   }
 
   process(entry: RelationMutationEntry): void {
     switch (entry.kind) {
       case "create":
         for (const data of entry.items) {
-          this.relation.appendCreateSummary("create", data);
+          this.relation.appendCreateSummary("create", data.parsed);
         }
         return;
       case "createMany":
         for (const data of entry.rows) {
-          this.relation.appendCreateSummary("createMany", data);
+          this.relation.appendCreateSummary("createMany", data.parsed);
         }
         return;
       case "connect":
@@ -89,7 +190,10 @@ export class OwnWriteSteps {
             repeatedSelector
           );
           const checkpoint = this.relation.ledger.checkpoint();
-          this.relation.appendCreateSummary("connectOrCreate", input.create);
+          this.relation.appendCreateSummary(
+            "connectOrCreate",
+            input.create.parsed
+          );
           this.relation.appendMembership("connectOrCreate", selector);
           priorItems.push({
             target,
@@ -116,7 +220,7 @@ export class OwnWriteSteps {
             input.target.kind === "unique" ? input.target.where : undefined
           );
           this.relation.appendUpsertUpdateSummary(input, decision);
-          this.relation.appendCreateSummary("upsert", input.create);
+          this.relation.appendCreateSummary("upsert", input.create.parsed);
           this.relation.appendMembership("upsert", decision);
         }
         return;
@@ -257,7 +361,7 @@ export class OwnWriteSteps {
       if (!input) return;
       const footprint = buildToOneUpdateFootprint(
         this.relation.boundRelation,
-        input.data,
+        input.data.parsed,
         this.relation.family.kind === "update"
           ? this.relation.family.scalarData
           : undefined
@@ -330,7 +434,7 @@ export class OwnWriteSteps {
       const resultConstraints = updateResultConstraints(
         this.relation.target,
         selector,
-        input.data,
+        input.data.parsed,
         input.target.where
       );
       if (resultConstraints.length === 0) {
@@ -405,7 +509,7 @@ function processConnectOrCreateBranches(
       (createBranch) => {
         const insertSummary = createBranch.getInsertSummary(
           "connectOrCreate",
-          input.create
+          input.create.parsed
         );
         createBranch.analyzeCreate(
           input.create,
@@ -413,9 +517,11 @@ function processConnectOrCreateBranches(
           insertSummary
         );
         if (!insertSummary) {
-          createBranch.appendCreateSummary("connectOrCreate", input.create, {
-            appendTarget: false,
-          });
+          createBranch.appendCreateSummary(
+            "connectOrCreate",
+            input.create.parsed,
+            { appendTarget: false }
+          );
         }
       },
       (foundBranch) => {
@@ -444,11 +550,11 @@ function processUpsertBranches(
       (createBranch) => {
         const insertSummary = createBranch.getInsertSummary(
           "upsert",
-          input.create
+          input.create.parsed
         );
         createBranch.analyzeCreate(input.create, "upsert", insertSummary);
         if (!insertSummary) {
-          createBranch.appendCreateSummary("upsert", input.create, {
+          createBranch.appendCreateSummary("upsert", input.create.parsed, {
             appendTarget: false,
           });
         }
@@ -599,7 +705,7 @@ function prepareConnectOrCreateItems(
     const createdTarget = getCreatedWhereUniqueTarget(
       relation.target,
       item.where,
-      item.create
+      item.create.parsed
     );
     if (createdTarget) createdTargets.push(createdTarget);
   }

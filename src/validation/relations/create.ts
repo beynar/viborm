@@ -3,23 +3,14 @@
 import type { AnyModel } from "@schema/model";
 import type {
   GetInverseRelationMap,
-  IsSingleMember,
   RelationState,
 } from "@schema/relation/types";
-import type { ScalarSchemas } from "../model";
-import type { NestedScalarCreateWithOmittedRequiredKeys } from "../model/core/create";
 import { type V, v } from "../primitives/v";
-import {
-  applyCreateManyAvailability,
-  type CreateManyAvailability,
-} from "./create-many-availability";
-import type { GetTargetSchemas, SchemaGetter, TargetModel } from "./helpers";
+import type { GetTargetSchemas, SchemaGetter } from "./helpers";
 import {
   nestedRelationDataProjection,
-  type ProjectedCreateManyData,
   type ProjectedCreateUpsertUpdate,
   type ProjectedNestedCreate,
-  type ProjectedSatisfiedPolymorphicRelation,
 } from "./nested-data-projection";
 import {
   type ToOneMutationSchema,
@@ -114,147 +105,21 @@ export type UpdateWithOmittedFk<
       >
     : GetTargetSchemas<S>["core"]["update"];
 
-type InverseRelationMap<
-  S extends RelationState,
-  Source extends AnyModel,
-> = S extends {
-  type: "manyToOne" | "oneToOne";
-  fields: readonly (infer ScalarKey extends string)[];
-}
-  ? ScalarKey
-  : S extends { name: infer RelationName extends string }
-    ? ScalarsForRelationKey<TargetModel<S>, RelationName> extends never
-      ? ScannedInverseRelationMap<S, Source>
-      : ScalarsForRelationKey<TargetModel<S>, RelationName>
-    : ScannedInverseRelationMap<S, Source>;
-
-type ScalarsForRelationKey<
-  M extends AnyModel,
-  RelationName extends string,
-> = RelationName extends keyof M["~"]["state"]["relations"]
-  ? M["~"]["state"]["relations"][RelationName]["~"]["state"] extends {
-      fields: readonly (infer ScalarKey extends string)[];
-    }
-    ? ScalarKey
-    : never
-  : never;
-
-/**
- * The scan that resolves which columns a nested create/createMany must NOT ask the
- * caller for, because the enclosing relation owns them.
- *
- * TH — the relation name DISAMBIGUATES; it does not reject. This is the rule the one
- * candidate scan (`@schema/relation/inverse`) applies for every consumer, and
- * this twin used to apply it the rejecting way: on a schema whose SOLE back-reference
- * does not echo the source relation's `.name()`, the scan answered `never`, so
- * {@link CreateManyDataSchema} kept the foreign key REQUIRED while the runtime schema had
- * made it optional and the engine derives it. Measured at 620a171 through the public
- * client: `Property 'orgId' is missing in type '{ id: number; handle: string; }' but
- * required` on a call the runtime accepts.
- *
- * Candidates are counted by their RELATION KEY, never by the field names they carry — two
- * relations can name the same column, and counting names would fuse two candidates into
- * one and take the single-candidate branch for a genuinely ambiguous edge.
- */
-type ScannedCandidateKeys<S extends RelationState, Source extends AnyModel> = {
-  [K in KnownKeys<
-    TargetModel<S>["~"]["state"]["relations"]
-  >]: TargetModel<S>["~"]["state"]["relations"][K]["~"]["state"] extends {
-    type: "manyToOne" | "oneToOne";
-    getter: () => Source;
-    fields: readonly string[];
-  }
-    ? // The aligned reading, in the SAME idiom as `InverseCandidateKeys`
-      // (types.ts): only the known-empty tuple is excluded, so a widened
-      // `string[]` stays a candidate exactly as the runtime keeps it.
-      TargetModel<S>["~"]["state"]["relations"][K]["~"]["state"]["fields"] extends readonly []
-      ? never
-      : K
-    : never;
-}[KnownKeys<TargetModel<S>["~"]["state"]["relations"]>];
-
-type NamedScannedCandidateKeys<
-  S extends RelationState,
-  Source extends AnyModel,
-> = {
-  [K in KnownKeys<
-    TargetModel<S>["~"]["state"]["relations"]
-  >]: TargetModel<S>["~"]["state"]["relations"][K]["~"]["state"] extends infer InverseState
-    ? InverseState extends {
-        type: "manyToOne" | "oneToOne";
-        getter: () => Source;
-        fields: readonly string[];
-      }
-      ? InverseState["fields"] extends readonly []
-        ? never
-        : S extends { name: infer RelationName extends string }
-          ? InverseState extends { name: RelationName }
-            ? K
-            : never
-          : K
-      : never
-    : never;
-}[KnownKeys<TargetModel<S>["~"]["state"]["relations"]>];
-
-type ScannedFieldsAt<S extends RelationState, K> =
-  K extends KnownKeys<TargetModel<S>["~"]["state"]["relations"]>
-    ? TargetModel<S>["~"]["state"]["relations"][K]["~"]["state"] extends {
-        fields: readonly (infer ScalarKey extends string)[];
-      }
-      ? ScalarKey
-      : never
-    : never;
-
-type ScannedInverseRelationMap<
-  S extends RelationState,
-  Source extends AnyModel,
-> =
-  IsSingleMember<ScannedCandidateKeys<S, Source>> extends true
-    ? ScannedFieldsAt<S, ScannedCandidateKeys<S, Source>>
-    : ScannedFieldsAt<S, NamedScannedCandidateKeys<S, Source>>;
-
-type KnownKeys<T> = {
-  [K in keyof T]: string extends K ? never : number extends K ? never : K;
-}[keyof T];
-
-export type InverseRequiredKeys<
-  S extends RelationState,
-  Source extends AnyModel,
-> = readonly InverseRelationMap<S, Source>[];
-
-export type CreateManyDataSchema<
-  S extends RelationState,
-  Source extends AnyModel,
-> = NestedScalarCreateWithOmittedRequiredKeys<
-  TargetModel<S>,
-  ScalarSchemas<TargetModel<S>>,
-  InverseRequiredKeys<S, Source>
->;
-
 type AvailableNestedCreateManySchema<
   S extends RelationState,
   Source extends AnyModel,
 > = V.Object<
   {
-    data: () => V.Array<ProjectedCreateManyData<S, Source>>;
+    data: () => V.Array<ProjectedNestedCreate<S, Source>>;
     skipDuplicates: V.Boolean<{ optional: true }>;
   },
   { atLeast: ["data"] }
 >;
 
-/**
- * The bulk arm, with the availability the PROJECTION decides: a polymorphic inverse
- * satisfies the required membership its own enclosing edge supplies, an ordinary
- * inverse satisfies none.
- */
 export type NestedCreateManySchema<
   S extends RelationState,
   Source extends AnyModel,
-> = CreateManyAvailability<
-  TargetModel<S>,
-  AvailableNestedCreateManySchema<S, Source>,
-  ProjectedSatisfiedPolymorphicRelation<S, Source>
->;
+> = AvailableNestedCreateManySchema<S, Source>;
 
 // =============================================================================
 // CREATE FACTORY IMPLEMENTATIONS
@@ -313,8 +178,9 @@ export const toOneCreateFactory = <
  * All accept single or array, normalized to array
  * Uses thunks for lazy evaluation to avoid circular reference issues
  *
- * Note: createMany uses scalarCreate (no nested relations) because
- * nested creates within createMany are not supported.
+ * Each createMany row uses the same projected create schema as `create`. The
+ * query engine keeps scalar-only rows on its grouped fast path and composes
+ * relation-bearing rows as an ordered record series.
  */
 
 export type ToManyCreateSchema<
@@ -370,22 +236,17 @@ export const toManyCreateFactory = <
   const projection = nestedRelationDataProjection(state, source, targetSchemas);
   const getCreateSchema = projection.getCreateSchema;
 
-  const createManySchema = applyCreateManyAvailability(
-    state.getter() as TargetModel<S>,
-    v.object(
-      {
-        data: () => v.array(projection.getCreateManyDataSchema()),
-        skipDuplicates: v.boolean({ optional: true }),
-      },
-      { atLeast: ["data"] }
-    ),
-    projection.satisfiedPolymorphicRelation
+  const createManySchema = v.object(
+    {
+      data: () => v.array(getCreateSchema()),
+      skipDuplicates: v.boolean({ optional: true }),
+    },
+    { atLeast: ["data"] }
   );
 
   return v.object(
     {
       create: () => v.singleOrArray(getCreateSchema()),
-      // createMany only accepts scalar fields - no nested relation mutations
       createMany: createManySchema,
       connect: () => v.singleOrArray(targetSchemas().core.whereUnique),
       connectOrCreate: () =>

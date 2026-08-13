@@ -47,6 +47,8 @@ function suite(
         // index a live foreign key still needs. The m2m junction goes first of all.
         for (const table of [
           "jseries_post_tag",
+          "jseries_kind_records",
+          "jseries_kind_owners",
           "jseries_attachments",
           "jseries_posts",
           "jseries_tags",

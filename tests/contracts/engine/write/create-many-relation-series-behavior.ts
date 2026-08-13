@@ -16,8 +16,8 @@ import { beforeEach, describe, expect, test } from "vitest";
  *   · input order is execution order is result order;
  *   · a failure in any row rolls back every row.
  *
- * The one boundary the lift leaves is here too: `skipDuplicates` beside a general
- * nested effect is refused, typed, before anything runs.
+ * A duplicate root suppresses its complete member subtree; it never adopts or
+ * mutates the existing root.
  *
  * Deliberately NOT here: which SQL any of this compiles to. The plan shapes,
  * step ids and bytes are `parity-j-create-many.test.ts`'s (for the two arms J keeps
@@ -85,7 +85,35 @@ export const createManySeriesSchema = (() => {
     })
     .map("jseries_attachments");
 
-  return { author, post, tag, image, clip, attachment };
+  const kindOwner = s
+    .model({
+      id: s.int().id().increment(),
+      name: s.string().unique(),
+      records: s.oneToMany(() => kindRecord),
+    })
+    .map("jseries_kind_owners");
+
+  const kindRecord = s
+    .model({
+      kind: s.string().id(),
+      ownerId: s.int(),
+      owner: s
+        .manyToOne(() => kindOwner)
+        .fields("ownerId")
+        .references("id"),
+    })
+    .map("jseries_kind_records");
+
+  return {
+    author,
+    post,
+    tag,
+    image,
+    clip,
+    attachment,
+    kindOwner,
+    kindRecord,
+  };
 })();
 
 interface StoredAttachment {
@@ -107,6 +135,8 @@ export function registerCreateManySeriesBehavior(
       // Children before parents: every suite shares one migrated database and each
       // test starts from an empty one.
       for (const model of [
+        "kindRecord",
+        "kindOwner",
         "attachment",
         "tag",
         "post",
@@ -141,6 +171,20 @@ export function registerCreateManySeriesBehavior(
         { id: 1, title: "connected", author: { name: "resident" } },
         { id: 2, title: "fresh", author: { name: "arrival" } },
       ]);
+    });
+
+    test("a row key named kind is never decoded as an internal skip outcome", async () => {
+      await client.kindOwner.create({ data: { name: "existing" } });
+
+      const result = await client.kindRecord.createMany({
+        data: [
+          { kind: "skipped", owner: { connect: { name: "existing" } } },
+          { kind: "inserted", owner: { create: { name: "fresh" } } },
+        ],
+        select: { kind: true },
+      });
+
+      expect(result).toEqual([{ kind: "skipped" }, { kind: "inserted" }]);
     });
 
     test("a SCALAR-ONLY row inside a series writes what the grouped INSERT would", async () => {
@@ -535,17 +579,47 @@ export function registerCreateManySeriesBehavior(
       });
     });
 
-    test("skipDuplicates beside a nested relation write is refused, typed", async () => {
+    test("skipDuplicates suppresses the complete duplicate subtree", async () => {
+      const existingAuthor = await client.author.create({
+        data: { name: "existing" },
+      });
+      await client.post.create({
+        data: {
+          id: 1,
+          title: "kept",
+          author: { connect: { id: existingAuthor.id } },
+        },
+      });
+
+      const result = await client.post.createMany({
+        data: [
+          {
+            id: 1,
+            title: "must stay kept",
+            author: { create: { name: "must-not-exist" } },
+          },
+          {
+            id: 2,
+            title: "inserted",
+            author: { create: { name: "inserted-author" } },
+          },
+        ],
+        skipDuplicates: true,
+      });
+
+      expect(result).toEqual({ count: 1 });
       await expect(
-        client.post.createMany({
-          data: [{ id: 1, title: "one", author: { create: { name: "a" } } }],
-          skipDuplicates: true,
-        })
-      ).rejects.toThrow(
-        "createMany cannot combine 'skipDuplicates' with nested relation writes"
-      );
-      // Refused BEFORE anything ran.
-      await expect(client.author.findMany()).resolves.toEqual([]);
+        client.post.findMany({ orderBy: { id: "asc" } })
+      ).resolves.toEqual([
+        { id: 1, title: "kept", authorId: existingAuthor.id },
+        { id: 2, title: "inserted", authorId: expect.any(Number) },
+      ]);
+      await expect(
+        client.author.findMany({ orderBy: { name: "asc" } })
+      ).resolves.toEqual([
+        { id: expect.any(Number), name: "existing" },
+        { id: expect.any(Number), name: "inserted-author" },
+      ]);
     });
 
     test("skipDuplicates on scalar-only rows is untouched", async () => {

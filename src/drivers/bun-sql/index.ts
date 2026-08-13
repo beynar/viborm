@@ -94,6 +94,7 @@ export type BunSQLClientConfig<C extends DriverConfig> = BunSQLDriverOptions &
 
 export class BunSQLDriver extends Driver<BunSQL, BunSQLTransaction> {
   readonly adapter: DatabaseAdapter;
+  readonly maxBindParametersPerStatement: number | undefined = 65_535;
 
   private readonly driverOptions: BunSQLDriverOptions;
 

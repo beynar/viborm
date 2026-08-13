@@ -56,17 +56,20 @@ await client.user.updateMany({
 ```
 
 Three things change when `data` carries a relation, and all three are
-consequences of the same fact — the call becomes one ordinary update per matching
-row, run in order inside a single transaction:
+consequences of the same fact — the call becomes one ordinary update per
+matching row, run in deterministic primary-key order:
 
 - **`count` is the number of matching rows**, not the database's affected-row
   total. (Scalar-only `updateMany` still reports the provider's number, which on
   MySQL is zero for an assignment that changes nothing.)
-- **Everything rolls back together.** If the fifth row's update fails, the first
-  four are undone.
-- **The call needs a real transaction**, so a driver that only supports batches
-  (D1, PlanetScale, Neon HTTP) rejects this form. Scalar-only `updateMany` still
-  works there.
+- **Transaction-capable drivers roll everything back together.** If the fifth
+  row's update fails, the first four are undone.
+- **D1 executes root members as ordered committed atomic batches.** If a later
+  member fails, earlier committed members remain and the error reports the
+  exact committed prefix. See
+  [D1 transactions and batching](/docs/drivers/sqlite/d1#relation-bearing-bulk-writes).
+- Other batch-only drivers reject this relation-bearing form before writing.
+  Scalar-only `updateMany` still uses its grouped statement there.
 
 :::warning
 A relation whose membership is stored on the **target** row — `connect`,
@@ -97,12 +100,14 @@ const updated = await client.post.updateMany({
 The rows are read **after** the update, so an atomic operation on the primary key
 returns the new identity, not the old one.
 
-When `data` carries a relation, that read happens once every row has finished,
-by each row's final primary key, in the captured order. If one of those rows is
-gone by then — a later row's nested effects deleted it, or moved its key — the
-call **fails rather than hand back a shorter list**, because a silently shorter
-answer would depend on nothing but capture order. The `{ count }` form of the
-same payload answers the captured row count and succeeds.
+When `data` carries a relation, that read happens after every row has finished,
+by each row's final primary key, in the captured order. VibORM groups the final
+lookup into bounded set queries, normally one query; large inputs are split only
+to respect the driver's parameter limit. If one of those rows is gone by then —
+a later row's nested effects deleted it, or moved its key — the call **fails
+rather than hand back a shorter list**, because a silently shorter answer would
+depend on nothing but capture order. The `{ count }` form of the same payload
+answers the captured row count and succeeds.
 
 :::info
 There is no separate `updateManyAndReturn` method (Prisma has one). Passing
@@ -159,15 +164,16 @@ for `limit: 0`. A `limit: 0` call stays on that path even when `data` carries a
 relation — a cap of no rows writes nothing, so it needs no transaction and works
 on every driver.
 
-When `data` carries a relation the call opens a transaction and issues one
-`SELECT` of the matching primary keys — locking them where the database supports
-it — evaluating your `where` and `limit` once. Then, per matched row, exactly
-what that row would have cost as a single [`update`](/docs/client/update) — the
-same target probes, the same child writes, in the same order. Ten matched rows
-with a `connect` issue ten probes, because that is what ten `update` calls
-issue. Adding a `select` adds one read per row at the end. Narrow the `where`
-(or use `limit`) when the row count is large; this form is per-row work by
-design, and it is the price of the relation semantics being the same ones a
+When `data` carries a relation the call issues one `SELECT` of the matching
+primary keys, evaluating your `where` and `limit` once and locking where the
+database supports it. An interactive driver keeps the capture and members in
+one transaction. D1 commits one atomic batch per executable segment. Per
+matched row, the cost is exactly what that row would have cost as a single
+[`update`](/docs/client/update): the same target probes and child writes, in the
+same order. Ten matched rows with a `connect` issue ten probes. Adding a
+`select` adds one or more bounded set reads at the end, normally one. Narrow the
+`where` (or use `limit`) when the row count is large; this form is per-row work
+by design, and it is the price of the relation semantics being the same ones a
 single `update` gives you.
 
 ## Options

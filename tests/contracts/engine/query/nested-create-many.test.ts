@@ -17,9 +17,6 @@ import {
   test,
 } from "vitest";
 
-/** Package J's one added refusal — hoisted per the top-level-regex rule. */
-const SKIP_DUPLICATES_REFUSAL = /skipDuplicates/;
-
 // =============================================================================
 // TEST SCHEMA
 // =============================================================================
@@ -39,8 +36,21 @@ const post = s
       .manyToOne(() => user)
       .fields("userId")
       .references("id"),
+    comments: s.oneToMany(() => comment),
   })
   .map("posts");
+
+const comment = s
+  .model({
+    id: s.string().id(),
+    body: s.string(),
+    postId: s.string(),
+    post: s
+      .manyToOne(() => post)
+      .fields("postId")
+      .references("id"),
+  })
+  .map("nested_create_many_comments");
 
 const incrementParent = s
   .model({
@@ -53,16 +63,36 @@ const incrementParent = s
 const incrementChild = s
   .model({
     id: s.int().id().increment(),
-    label: s.string(),
+    label: s.string().nullable(),
     parentId: s.int(),
     parent: s
       .manyToOne(() => incrementParent)
       .fields("parentId")
       .references("id"),
+    grandchildren: s.oneToMany(() => incrementGrandchild),
   })
   .map("nested_increment_children");
 
-const schema = { user, post, incrementParent, incrementChild };
+const incrementGrandchild = s
+  .model({
+    id: s.int().id().increment(),
+    marker: s.string(),
+    childId: s.int(),
+    child: s
+      .manyToOne(() => incrementChild)
+      .fields("childId")
+      .references("id"),
+  })
+  .map("nested_increment_grandchildren");
+
+const schema = {
+  user,
+  post,
+  comment,
+  incrementParent,
+  incrementChild,
+  incrementGrandchild,
+};
 
 // =============================================================================
 // TEST SETUP
@@ -85,6 +115,8 @@ afterAll(async () => {
 
 beforeEach(async () => {
   // Clean up data between tests
+  await client.comment.deleteMany();
+  await client.incrementGrandchild.deleteMany();
   await client.incrementChild.deleteMany();
   await client.incrementParent.deleteMany();
   await client.post.deleteMany();
@@ -130,30 +162,164 @@ describe("Nested CreateMany", () => {
       expect(posts[1]?.userId).toBe("user-1");
     });
 
-    test("creates parent with nested createMany (FK explicitly provided)", async () => {
-      // FK can also be explicitly provided if desired
-      const result = await client.user.create({
+    test("rejects the enclosing membership scalar inside nested createMany", async () => {
+      const args = {
         data: {
           id: "user-1",
           name: "John",
           posts: {
             createMany: {
+              data: [{ id: "post-1", title: "First Post", userId: "user-1" }],
+            },
+          },
+        },
+      } as unknown as Parameters<typeof client.user.create>[0];
+
+      await expect(client.user.create(args)).rejects.toThrow();
+      await expect(client.user.findMany()).resolves.toEqual([]);
+      await expect(client.post.findMany()).resolves.toEqual([]);
+    });
+
+    test("relation-bearing rows run complete fresh subtrees left to right", async () => {
+      await client.user.create({ data: { id: "resident", name: "Resident" } });
+      await client.post.create({
+        data: {
+          id: "post-existing",
+          title: "Existing",
+          userId: "resident",
+        },
+      });
+
+      await client.user.create({
+        data: {
+          id: "user-1",
+          name: "John",
+          posts: {
+            createMany: {
+              skipDuplicates: true,
               data: [
-                { id: "post-1", title: "First Post", userId: "user-1" },
-                { id: "post-2", title: "Second Post", userId: "user-1" },
+                {
+                  id: "post-existing",
+                  title: "Skipped",
+                  comments: {
+                    create: { id: "comment-skipped", body: "must roll back" },
+                  },
+                },
+                {
+                  id: "post-new",
+                  title: "Inserted",
+                  comments: {
+                    create: { id: "comment-new", body: "kept" },
+                  },
+                },
               ],
             },
           },
         },
       });
 
-      expect(result.id).toBe("user-1");
+      await expect(
+        client.post.findMany({
+          orderBy: { id: "asc" },
+          select: {
+            id: true,
+            title: true,
+            userId: true,
+            comments: { orderBy: { id: "asc" } },
+          },
+        })
+      ).resolves.toEqual([
+        {
+          id: "post-existing",
+          title: "Existing",
+          userId: "resident",
+          comments: [],
+        },
+        {
+          id: "post-new",
+          title: "Inserted",
+          userId: "user-1",
+          comments: [{ id: "comment-new", body: "kept", postId: "post-new" }],
+        },
+      ]);
+    });
 
-      const posts = await client.post.findMany({
-        where: { userId: "user-1" },
+    test("later relation-bearing rows observe a target created by an earlier row", async () => {
+      await client.user.create({
+        data: {
+          id: "user-1",
+          name: "John",
+          posts: {
+            createMany: {
+              data: [
+                {
+                  id: "post-1",
+                  title: "First",
+                  comments: {
+                    connectOrCreate: {
+                      where: { id: "shared-comment" },
+                      create: { id: "shared-comment", body: "Shared" },
+                    },
+                  },
+                },
+                {
+                  id: "post-2",
+                  title: "Second",
+                  comments: {
+                    connectOrCreate: {
+                      where: { id: "shared-comment" },
+                      create: { id: "shared-comment", body: "Must not run" },
+                    },
+                  },
+                },
+              ],
+            },
+          },
+        },
       });
 
-      expect(posts.length).toBe(2);
+      await expect(client.comment.findMany()).resolves.toEqual([
+        { id: "shared-comment", body: "Shared", postId: "post-2" },
+      ]);
+    });
+
+    test("selected parent update composes relation-bearing createMany rows", async () => {
+      await client.user.create({
+        data: { id: "user-1", name: "John" },
+      });
+
+      await client.user.update({
+        where: { id: "user-1" },
+        data: {
+          posts: {
+            createMany: {
+              data: [
+                {
+                  id: "post-1",
+                  title: "First",
+                  comments: {
+                    create: { id: "comment-1", body: "First comment" },
+                  },
+                },
+                {
+                  id: "post-2",
+                  title: "Second",
+                  comments: {
+                    create: { id: "comment-2", body: "Second comment" },
+                  },
+                },
+              ],
+            },
+          },
+        },
+      });
+
+      await expect(
+        client.comment.findMany({ orderBy: { id: "asc" } })
+      ).resolves.toEqual([
+        { id: "comment-1", body: "First comment", postId: "post-1" },
+        { id: "comment-2", body: "Second comment", postId: "post-2" },
+      ]);
     });
 
     test("creates parent with nested createMany and returns with include", async () => {
@@ -221,6 +387,38 @@ describe("Nested CreateMany", () => {
       expect(idsByLabel.get("explicit")).toBe(10);
       expect(idsByLabel.get("generated")).not.toBe(0);
       expect(idsByLabel.get("generated")).not.toBe(10);
+    });
+
+    test("skipDuplicates accepts a relation-bearing row with only derived root scalars", async () => {
+      const parent = await client.incrementParent.create({
+        data: {
+          name: "Parent",
+          children: {
+            createMany: {
+              skipDuplicates: true,
+              data: [
+                {
+                  grandchildren: {
+                    create: { marker: "kept" },
+                  },
+                },
+              ],
+            },
+          },
+        },
+      });
+
+      const [child] = await client.incrementChild.findMany({
+        where: { parentId: parent.id },
+      });
+      expect(child).toEqual({
+        id: expect.any(Number),
+        label: null,
+        parentId: parent.id,
+      });
+      await expect(client.incrementGrandchild.findMany()).resolves.toEqual([
+        { id: expect.any(Number), marker: "kept", childId: child?.id },
+      ]);
     });
 
     test("creates parent with empty createMany data array", async () => {
@@ -375,60 +573,38 @@ describe("Nested CreateMany", () => {
       ]);
     });
 
-    test("rejects skipDuplicates beside a relation-bearing row before writing", async () => {
-      // Package J's ONE added refusal, and the position this test now protects: a
-      // skipped row has no defined meaning for its nested effects, so the contract is
-      // deferred rather than guessed. It is decided at CONSTRUCTION, so nothing runs.
+    test("skipDuplicates suppresses the complete duplicate root subtree", async () => {
+      await client.user.create({ data: { id: "user-1", name: "Existing" } });
+
       await expect(
         client.user.createMany({
           data: [
             {
               id: "user-1",
-              name: "John",
-              posts: { create: { id: "post-1", title: "Should not write" } },
+              name: "Duplicate",
+              posts: { create: { id: "post-skipped", title: "Skipped" } },
+            },
+            {
+              id: "user-2",
+              name: "Inserted",
+              posts: { create: { id: "post-kept", title: "Kept" } },
             },
           ],
           skipDuplicates: true,
         })
-      ).rejects.toThrow(SKIP_DUPLICATES_REFUSAL);
+      ).resolves.toEqual({ count: 1 });
 
       const [users, posts] = await Promise.all([
-        client.user.findMany(),
+        client.user.findMany({ orderBy: { id: "asc" } }),
         client.post.findMany(),
       ]);
-      expect(users).toHaveLength(0);
-      expect(posts).toHaveLength(0);
-    });
-
-    test("rejects relation envelopes in nested createMany data before writing", async () => {
-      const invalidCreateArgs = {
-        data: {
-          id: "user-1",
-          name: "John",
-          posts: {
-            createMany: {
-              data: [
-                {
-                  id: "post-1",
-                  title: "Should not write",
-                  author: {
-                    connect: { id: "user-1" },
-                  },
-                },
-              ],
-            },
-          },
-        },
-      } as unknown as Parameters<typeof client.user.create>[0];
-
-      await expect(client.user.create(invalidCreateArgs)).rejects.toThrow();
-
-      const [users, posts] = await Promise.all([
-        client.user.findMany(),
-        client.post.findMany(),
+      expect(users).toEqual([
+        { id: "user-1", name: "Existing" },
+        { id: "user-2", name: "Inserted" },
       ]);
-      expect(users).toHaveLength(0);
-      expect(posts).toHaveLength(0);
+      expect(posts).toEqual([
+        { id: "post-kept", title: "Kept", userId: "user-2" },
+      ]);
     });
 
     test("missing nested update target rolls back parent mutation", async () => {

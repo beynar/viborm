@@ -19,8 +19,11 @@ import { createQueryScope } from "../context/query-scope";
 import { buildCreateManyPlan } from "../operations/create";
 import { assertPortableCreateManySkip } from "../operations/create-many-portability";
 import type { QueryEngine } from "../query-engine";
-import { assertSelectedUpdateManyDataIsScalar } from "../relation-key-legality";
 import type { QueryScope } from "../types";
+import {
+  buildFreshRecordSeriesPart,
+  createManyCarriesRelations,
+} from "./FreshRecordSeriesPart";
 import { referenceScalarSql, referenceSql } from "./fragment-builders";
 import type { OperationStep, StatementStep } from "./OperationFragment";
 import type { Part, PlanningKnown } from "./Part";
@@ -99,25 +102,6 @@ export function buildJunctionTargetRelationParts(
   recordCompilers: RecordCompilerSeam,
   membershipReadSource: FinalReferenceSource
 ): readonly Part[] {
-  // The bulk-leaf wall, at its ONE owner (`relation-key-legality`), applied here for
-  // the same reason it is applied at the other three positions that build bulk leaves:
-  // one owner, one message, one decision, called wherever the decision is due. This is
-  // a CALL POSITION, not a second guard.
-  //
-  // MEASURED, and stated plainly because the first version of this comment claimed the
-  // opposite: this position has NO live route today. `RecordUpdateCompiler`'s two
-  // positions skip building the Part when `updateManyCarriesRelations`, so a
-  // relation-bearing nested `updateMany` reaches its deferred legality closure there;
-  // this fold pushes its bulk parts unconditionally (the `updateMany` arm of
-  // {@link foldJunctionChildHeldEntry}) but its only producer is
-  // `RelationJunctionPart.freshTargetFold`, i.e. CREATE-context data, and
-  // `ToManyCreateSchema` has no `updateMany` key to carry. The call stays anyway:
-  // `buildToManyUpdateManyParts` — the arm an implementer note had recorded as needing
-  // no guard — was measured SILENTLY REPARENTING rows one schema over, so "no measured
-  // live route" is not licence on a bulk arm. The Part-level RESTATEMENT this seam used
-  // to rely on (a second construction site with its own byte-identical sentence) is
-  // gone; the decision did not move.
-  assertSelectedUpdateManyDataIsScalar(targetScope, relations);
   const parts: Part[] = [];
   for (const program of relationMutationPrograms(relations)) {
     foldJunctionTargetRelation({
@@ -400,7 +384,7 @@ function foldJunctionChildHeldEntry(args: {
       // incoming members resolve literal and planned parents through the same compiler.
       parts.push(
         ...entry.items.map((data) =>
-          recordCompilers.createFresh({
+          recordCompilers.createFresh(scope, {
             childScope,
             data,
             incomingMembership: bindRelationMembership(relation, parentId),
@@ -411,6 +395,22 @@ function foldJunctionChildHeldEntry(args: {
       return;
     }
     case "createMany": {
+      if (createManyCarriesRelations(childScope, entry)) {
+        parts.push(
+          buildFreshRecordSeriesPart({
+            scope,
+            engine,
+            childScope,
+            childName,
+            relationName,
+            rows: entry.rows,
+            incomingMembership: bindRelationMembership(relation, parentId),
+            skipDuplicates: entry.skipDuplicates === true,
+            createFresh: recordCompilers.createFresh,
+          })
+        );
+        return;
+      }
       // Literal parents inject now; planned parents inject the captured value at
       // compile. Skip semantics are independent of that provenance.
       if (hasPolymorphicMembership(relation)) {
@@ -518,7 +518,7 @@ function planNestedCreateMany(input: {
 } {
   const { engine, childScope } = input;
   const skipDuplicates = input.createManyEntry.skipDuplicates === true;
-  const userRows = input.createManyEntry.rows;
+  const userRows = input.createManyEntry.rows.map((row) => row.parsed);
   if (skipDuplicates) {
     // V1's portability guard, on the PRE-injection user rows (construction time): a
     // skipDuplicates createMany carrying a default-only row (no explicit user scalar

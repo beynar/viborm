@@ -18,17 +18,16 @@ import { beforeAll, describe, expect, test } from "vitest";
  *    the taken found branch. The CREATE arm is built with no such option, so its
  *    payload is validated at construction whether or not it is taken. The asymmetry is
  *    pinned below rather than left to be discovered.
- *  · The deferral covers the ANALYSES, not the arm's shape. An unknown key or a wrong
+ *  · The deferral covers the analyses, not the arm's shape. An unknown key or a wrong
  *    scalar type in the untaken update arm still rejects — measured at 00cca59 — because
  *    `UpsertOperation` separately parses each arm's scalar half. What is deferred is the
  *    whole-args `args.update` parse plus the primary-key-arithmetic portability check,
- *    the relation-key legality walk (CLASS IV) and the `updateMany`-carries-relations
- *    walk (CLASS V).
+ *    the relation-key legality walk.
  *
  * CLASS IV is already pinned, on the create-taken direction, by
  * `tests/query-engine/relation-key-update-legality.test.ts` ("does not validate an
  * untaken top-level upsert update branch"). This file extends rather than repeats it:
- * CLASS V, which that test does not reach, plus the create-arm asymmetry.
+ * a now-supported nested record series, plus the create-arm asymmetry.
  */
 const untakenArmSchema = (() => {
   const writer = s
@@ -77,10 +76,7 @@ const untakenArmSchema = (() => {
 
 hydrateSchemaNames(untakenArmSchema);
 
-/** A CLASS V payload: a nested relation write inside `updateMany` data. It is
- *  inexpressible (a set-based UPDATE has no per-row identity for a child write to
- *  reference), and the walk that says so is one of the deferred analyses. */
-const CLASS_V_UPDATE = {
+const NESTED_SERIES_UPDATE = {
   books: {
     updateMany: {
       where: {},
@@ -88,9 +84,6 @@ const CLASS_V_UPDATE = {
     },
   },
 };
-
-const CLASS_V_MESSAGE =
-  "Nested relation writes inside updateMany data for relation 'books' are not supported.";
 
 let client: any;
 
@@ -110,21 +103,25 @@ describe("E5-U4 the untaken arm's legality stays deferred", () => {
     const made = await client.writer.upsert({
       where: { id: "w1" },
       create: { id: "w1", email: "w1@x" },
-      update: CLASS_V_UPDATE,
+      update: NESTED_SERIES_UPDATE,
     });
     expect(made).toMatchObject({ id: "w1" });
   }, 120_000);
 
-  test("…and DOES run when the UPDATE arm is taken", async () => {
-    // The other half: the analysis is deferred, not deleted.
+  test("…and the selected record series runs only when the UPDATE arm is taken", async () => {
     await client.writer.create({ data: { id: "w2", email: "w2@x" } });
+    await client.writer.create({ data: { id: "w-other", email: "other@x" } });
+    await client.book.create({
+      data: { id: "b2", title: "book", writerId: "w2" },
+    });
+    await client.writer.upsert({
+      where: { id: "w2" },
+      create: { id: "w2", email: "w2@x" },
+      update: NESTED_SERIES_UPDATE,
+    });
     await expect(
-      client.writer.upsert({
-        where: { id: "w2" },
-        create: { id: "w2", email: "w2@x" },
-        update: CLASS_V_UPDATE,
-      })
-    ).rejects.toThrow(CLASS_V_MESSAGE);
+      client.book.findUnique({ where: { id: "b2" } })
+    ).resolves.toMatchObject({ writerId: "w-other", title: "book" });
   }, 120_000);
 
   test("the CREATE arm is NOT deferred — its payload is validated either way", async () => {
@@ -147,8 +144,8 @@ describe("E5-U4 the untaken arm's legality stays deferred", () => {
   }, 120_000);
 });
 
-describe("selected-record CLASS V legality", () => {
-  test("an ordinary deep selected update rejects before the root write", async () => {
+describe("selected-record nested updateMany", () => {
+  test("an ordinary deep selected update composes through the record compiler", async () => {
     await client.writer.create({
       data: { id: "w4", email: "w4@x" },
     });
@@ -156,36 +153,36 @@ describe("selected-record CLASS V legality", () => {
       data: { id: "b4", title: "book", writerId: "w4" },
     });
     await client.tag.create({ data: { id: "t4" } });
+    await client.tag.create({ data: { id: "t5" } });
     await client.page.create({
       data: { id: "p4", bookId: "b4", tagId: "t4" },
     });
 
-    await expect(
-      client.writer.update({
-        where: { id: "w4" },
-        data: {
-          label: "changed",
-          books: {
-            update: {
-              where: { id: "b4" },
-              data: {
-                pages: {
-                  updateMany: {
-                    where: {},
-                    data: { tag: { connect: { id: "t4" } } },
-                  },
+    await client.writer.update({
+      where: { id: "w4" },
+      data: {
+        label: "changed",
+        books: {
+          update: {
+            where: { id: "b4" },
+            data: {
+              pages: {
+                updateMany: {
+                  where: {},
+                  data: { tag: { connect: { id: "t5" } } },
                 },
               },
             },
           },
         },
-      })
-    ).rejects.toThrow(
-      "query-engine-v2 updateMany for relation 'pages' does not support nested relation writes in its data."
-    );
+      },
+    });
 
     expect(
       (await client.writer.findUnique({ where: { id: "w4" } })).label
-    ).toBe("x");
+    ).toBe("changed");
+    await expect(
+      client.page.findUnique({ where: { id: "p4" } })
+    ).resolves.toMatchObject({ tagId: "t5" });
   }, 120_000);
 });

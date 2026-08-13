@@ -608,15 +608,9 @@ for (const substrate of ["transaction", "atomic batch"] as const) {
       });
     }, 30_000);
 
-    /**
-     * Found-arm legality runs only after the found arm is selected (ATOM §13). The
-     * SAME payload is accepted when the row is absent and refused when it is present —
-     * and the refusal is the CLASS V walk's own message, not a construction-time
-     * carve-out.
-     */
-    test("found-arm legality is deferred: the missing arm accepts what the found arm refuses", async () => {
+    test("the missing arm leaves nested updateMany inert and the found arm executes it", async () => {
       const client = await setup(makeDriver(getFamily().database));
-      const classV = {
+      const nestedSeriesUpdate = {
         notes: {
           updateMany: {
             where: {},
@@ -631,7 +625,7 @@ for (const substrate of ["transaction", "atomic batch"] as const) {
           profile: {
             upsert: {
               create: { id: "p-lonely", bio: "created" },
-              update: classV,
+              update: nestedSeriesUpdate,
             },
           },
         },
@@ -640,24 +634,30 @@ for (const substrate of ["transaction", "atomic batch"] as const) {
         client.profile.findUnique({ where: { id: "p-lonely" } })
       ).resolves.toMatchObject({ bio: "created" });
 
-      await expect(
-        client.user.update({
-          where: { id: "owner" },
-          data: {
-            profile: {
-              upsert: {
-                create: { id: "p-unused", bio: "unused" },
-                update: classV,
-              },
+      const found = client.user.update({
+        where: { id: "owner" },
+        data: {
+          profile: {
+            upsert: {
+              create: { id: "p-unused", bio: "unused" },
+              update: nestedSeriesUpdate,
             },
           },
-        })
-      ).rejects.toThrow(
-        "query-engine-v2 updateMany for relation 'notes' does not support nested relation writes in its data."
-      );
+        },
+      });
+      if (substrate === "atomic batch") {
+        await expect(found).rejects.toThrow(
+          "requires ordered series execution"
+        );
+        await expect(
+          client.note.findUnique({ where: { id: "n-owner" } })
+        ).resolves.toMatchObject({ profileId: "p-owner" });
+        return;
+      }
+      await found;
       await expect(
         client.note.findUnique({ where: { id: "n-owner" } })
-      ).resolves.toMatchObject({ profileId: "p-owner" });
+      ).resolves.toMatchObject({ profileId: "p-decoy" });
     }, 30_000);
 
     test("an empty found update writes nothing at all", async () => {

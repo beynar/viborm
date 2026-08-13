@@ -745,7 +745,7 @@ describe("Deeply Nested Updates", () => {
       }
     });
 
-    test("runtime: update createMany requires FK not derived from parent relation", () => {
+    test("runtime: update createMany requires an edge not derived from the parent relation", () => {
       const result = parse(relationScopedSchemas.author.args.update, {
         where: { id: "author-1" },
         data: {
@@ -762,8 +762,10 @@ describe("Deeply Nested Updates", () => {
         "createMany",
         "data",
         0,
-        "categoryId",
       ]);
+      expect(result.issues?.[0]?.message).toBe(
+        "Missing required fields: one of categoryId or category"
+      );
     });
 
     test("runtime: update createMany accepts FK not derived from parent relation", () => {

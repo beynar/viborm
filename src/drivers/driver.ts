@@ -21,7 +21,12 @@ import type {
 } from "./shared/transaction-options";
 import { runSavepoint } from "./shared/transactions";
 import { toTransactionOperationError } from "./transaction-lifecycle-error";
-import type { BatchQuery, QueryExecutionContext, QueryResult } from "./types";
+import type {
+  BatchQuery,
+  CommittedBatchNotification,
+  QueryExecutionContext,
+  QueryResult,
+} from "./types";
 
 export type { DriverResultParser } from "./driver-instrumentation";
 export type { QueryExecutionContext } from "./types";
@@ -201,6 +206,8 @@ export class TransactionBoundDriver<TClient, TTransaction> extends Driver<
   protected override readonly inTransaction = true;
   override readonly supportsTransactions: boolean;
   override readonly supportsBatch: boolean;
+  override readonly supportsOrderedCommittedSegments: boolean;
+  override readonly maxBindParametersPerStatement: number | undefined;
 
   constructor(
     baseDriver: Driver<TClient, TTransaction>,
@@ -216,6 +223,10 @@ export class TransactionBoundDriver<TClient, TTransaction> extends Driver<
     this.result = baseDriver.result;
     this.supportsTransactions = baseDriver.supportsTransactions;
     this.supportsBatch = baseDriver.supportsBatch;
+    this.supportsOrderedCommittedSegments =
+      baseDriver.supportsOrderedCommittedSegments;
+    this.maxBindParametersPerStatement =
+      baseDriver.maxBindParametersPerStatement;
     // Copy instrumentation - each tx driver gets its own context for proper span parenting
     this.instrumentation = baseDriver["instrumentation"];
   }
@@ -414,7 +425,8 @@ export class TransactionBoundDriver<TClient, TTransaction> extends Driver<
   override _executeBatch<T>(
     queries: BatchQuery[],
     options?: BatchTransactionOptions,
-    context?: QueryExecutionContext
+    context?: QueryExecutionContext,
+    committed?: CommittedBatchNotification
   ): Promise<QueryResult<T>[]> {
     const optionsError = this.readNestedOptionsError(options, "batch");
     if (optionsError) return Promise.reject(optionsError);
@@ -426,7 +438,7 @@ export class TransactionBoundDriver<TClient, TTransaction> extends Driver<
     return this.trackTransactionOperation(
       () =>
         this.enqueueScopeOperation(() =>
-          super._executeBatch<T>(queries, options, context)
+          super._executeBatch<T>(queries, options, context, committed)
         ),
       true
     );

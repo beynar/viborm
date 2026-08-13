@@ -412,15 +412,15 @@ The parent supplies both the variant and its identity. Child `create` and
 inverse operation.
 
 In the shapes below, `ChildCreate` and `ChildUpdate` are the normal nested
-record inputs with that owning relation omitted. `ChildScalarCreate` contains
-scalar fields only.
+record inputs with that owning relation omitted. They may contain other
+relation writes.
 
 ### Parent create
 
 | Operation | Payload |
 |-----------|---------|
 | `create` | `ChildCreate` or `ChildCreate[]` |
-| `createMany` | `{ data: ChildScalarCreate[], skipDuplicates?: boolean }` |
+| `createMany` | `{ data: ChildCreate[], skipDuplicates?: boolean }` |
 | `connect` | `ChildWhereUnique` or `ChildWhereUnique[]` |
 | `connectOrCreate` | `{ where: ChildWhereUnique, create: ChildCreate }` or an array |
 | `upsert` | `{ where: ChildWhereUnique, create: ChildCreate, update: ChildUpdate }` or an array |
@@ -487,13 +487,22 @@ identity and another discriminator are not members of this relation and remain
 untouched.
 
 Nested inverse `createMany` applies the enclosing `(type, identity)` pair to
-every scalar row. It is unavailable if another required polymorphic relation on
-the child would remain unsatisfied.
+every row. Scalar-only rows remain grouped; a row with another relation becomes
+an ordered fresh-record subtree. It is unavailable if another required
+polymorphic relation on the child would remain unsatisfied.
 
-An executable `updateMany.data` must contain scalar updates. Its input remains
-broad because top-level upsert defers update-arm legality until that arm is
-selected. A selected relation-bearing `updateMany` fails before SQL; use
-targeted `update` for nested relation work.
+Nested inverse `updateMany` also accepts relation-bearing `ChildUpdate` data.
+VibORM captures the exact discriminator-scoped members and runs the ordinary
+selected-record compiler once per captured child. If more than one child is
+captured, a deeper child-held operation cannot move the same named target to
+all of them.
+
+On an interactive driver, these relation-bearing nested bulk forms share the
+enclosing transaction. D1 executes them as ordered committed segments when the
+compiler can re-assert the exact parent or polymorphic membership in every
+later write batch. An unguardable shape is refused before its containing member
+writes. If reached inside a progressive root bulk call, earlier root members
+can already be committed and are reported.
 
 ## Write an inverse one-to-one relation
 

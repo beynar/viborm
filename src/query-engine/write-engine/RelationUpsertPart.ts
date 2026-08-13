@@ -10,6 +10,7 @@ import {
   type ConnectOrCreateInput,
   type NormalizedRelationUpsert,
   type ParsedRecordPrograms,
+  type RecordMutationData,
   type RelationMutationProgram,
   relationMutationPrograms,
 } from "../builders/relation-mutation-parser";
@@ -17,10 +18,7 @@ import { createQueryScope } from "../context/query-scope";
 import { buildFind, buildFindUnique, buildUpdate } from "../operations";
 import { assertPortablePrimaryKeyUpdateInput } from "../operations/mutation-identity";
 import type { QueryEngine } from "../query-engine";
-import {
-  assertRelationKeyUpdatesAreCompilable,
-  assertSelectedUpdateManyDataIsScalar,
-} from "../relation-key-legality";
+import { assertRelationKeyUpdatesAreCompilable } from "../relation-key-legality";
 import {
   classifyTargetConstraintOverlap,
   getCreatedWhereUniqueTarget,
@@ -921,7 +919,7 @@ function isSameOperationConnectOrCreateDuplicate(
   );
   if (duplicate) return true;
 
-  const create = isRecord(item.create) ? item.create : undefined;
+  const create = item.create.parsed;
   const createdSelector = create
     ? getCreatedWhereUniqueTarget(child.model, item.where, create)
     : undefined;
@@ -980,8 +978,8 @@ function buildAdoptParts(
 
 interface AdoptMutationItem {
   readonly where: Record<string, unknown>;
-  readonly create: Record<string, unknown>;
-  readonly update?: Record<string, unknown>;
+  readonly create: RecordMutationData;
+  readonly update?: RecordMutationData;
 }
 
 function buildOneUpsertPart(
@@ -1036,35 +1034,41 @@ function buildOneUpsertPart(
       ? parent.membership.members
       : undefined;
   const rawCreate = requireRecord(
-    item.create,
+    item.create.parsed,
     `${relationName}.${family}.create`
   );
-  const create = ordinaryMembers
-    ? withoutAgreeingOwnedFk(rawCreate, {
-        members: ordinaryMembers,
-        relationName,
-      })
-    : rawCreate;
+  const create: RecordMutationData = {
+    parsed: ordinaryMembers
+      ? withoutAgreeingOwnedFk(rawCreate, {
+          members: ordinaryMembers,
+          relationName,
+        })
+      : rawCreate,
+    source: item.create.source,
+  };
   // connectOrCreate has no update payload; its found arm is a pure connect.
   const update =
     family === "connectOrCreate"
       ? undefined
       : (() => {
           const rawUpdate = requireRecord(
-            item.update,
+            item.update?.parsed,
             `${relationName}.upsert.update`
           );
-          return ordinaryMembers
-            ? withoutAgreeingOwnedFk(rawUpdate, {
-                members: ordinaryMembers,
-                relationName,
-              })
-            : rawUpdate;
+          return {
+            parsed: ordinaryMembers
+              ? withoutAgreeingOwnedFk(rawUpdate, {
+                  members: ordinaryMembers,
+                  relationName,
+                })
+              : rawUpdate,
+            source: item.update?.source,
+          } satisfies RecordMutationData;
         })();
   const childUpdate: ParsedRecordPrograms =
     update === undefined
       ? { scalarData: {}, relations: [] }
-      : buildParsedRelationPrograms(child, update);
+      : buildParsedRelationPrograms(child, update.parsed, update.source);
   // The probe publishes the child's complete row key and every found-arm write
   // addresses all of it, so an adopt target keys on however many members it has.
   const targetProjection = buildTargetProjection(child.model);
@@ -1112,12 +1116,11 @@ function buildOneUpsertPart(
           childUpdate.scalarData,
           childUpdate.relations
         );
-        assertSelectedUpdateManyDataIsScalar(child, childUpdate.relations);
       }
     : undefined;
   const probeId =
     updateCompiler?.targetReadId ?? scope.allocate(`${childName}.find`);
-  const createSubtree = seam.createFresh({
+  const createSubtree = seam.createFresh(scope, {
     childScope: child,
     data: create,
     incomingMembership,

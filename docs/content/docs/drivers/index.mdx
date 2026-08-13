@@ -97,5 +97,7 @@ polyfills it — and a runtime that has the symbol (Node ≥18.18).
 - **Node.js traditional**: Use `pg`, `mysql2`, or `sqlite3`
 - **Serverless/Edge**: Use `neon-http`, `planetscale`, `libsql`, or `d1`
 - **Bun runtime**: Use `bun-sql` or `bun-sqlite`
-- **Cloudflare D1**: Use `d1` with a Workers binding; its `batch()` primitive is the supported atomic path
+- **Cloudflare D1**: Use `d1` with a Workers binding. Static work uses one native
+  atomic batch; supported dynamic record series use ordered committed segments
+  with exact failure progress.
 - **Local development**: Use `pglite`, `sqlite3`, or `bun-sqlite`

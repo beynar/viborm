@@ -4,5 +4,6 @@ export * from "./constraints";
 export * from "./diagnostics";
 export * from "./migrations";
 export * from "./query";
+export * from "./record-series-progress";
 export * from "./transaction";
 export * from "./validation";

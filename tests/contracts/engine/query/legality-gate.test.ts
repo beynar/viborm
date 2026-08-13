@@ -4,8 +4,8 @@ import { PGliteDriver } from "@drivers/pglite";
 import type { BatchQuery, QueryResult } from "@drivers/types";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { push } from "@migrations";
-import { describe, expect, test } from "vitest";
 import { nestedWriteBehaviorSchema } from "@tests/fixtures/nested-write-behavior-schema";
+import { describe, expect, test } from "vitest";
 
 /**
  * M2 uniform legality gate (§11 M2 / §6.3).
@@ -32,9 +32,6 @@ type BehaviorClient = VibORMClient<{
   schema: BehaviorSchema;
   driver: PGliteDriver;
 }>;
-
-const UPDATE_MANY_RELATION_MESSAGE =
-  "Nested relation writes inside updateMany data for relation 'posts' are not supported.";
 
 // A tx driver that counts how many transactions it opens, so a test can prove
 // an operation reached the atomic scope (was not short-circuited by the gate).
@@ -200,11 +197,11 @@ describe("M2 legality gate", () => {
       }
     );
 
-    // The update branch IS validated when it is actually taken (target
-    // exists) — by the frozen engines, with the identical typed message in
-    // both modes, and with no partial state persisted.
+    // A taken update branch now composes relation-bearing updateMany as a nested
+    // selected-record series. The missing-arm witnesses above still prove that
+    // construction does not parse or execute that subtree early.
     test(
-      "transaction mode: existing target rejects the taken update branch",
+      "transaction mode: existing target executes the taken update branch",
       { timeout: 30_000 },
       async () => {
         const db = await setupDb();
@@ -212,30 +209,28 @@ describe("M2 legality gate", () => {
         const client = bootShared(driver);
         await client.user.create({ data: { id: "u1", name: "A" } });
 
-        await expect(
-          client.user.upsert({
-            where: { id: "u1" },
-            create: { id: "u1", name: "New" },
-            update: {
-              name: "Changed",
-              posts: {
-                updateMany: {
-                  where: {},
-                  data: { title: "X", author: { connect: { id: "u1" } } },
-                },
+        await client.user.upsert({
+          where: { id: "u1" },
+          create: { id: "u1", name: "New" },
+          update: {
+            name: "Changed",
+            posts: {
+              updateMany: {
+                where: {},
+                data: { title: "X", author: { connect: { id: "u1" } } },
               },
             },
-          })
-        ).rejects.toThrow(UPDATE_MANY_RELATION_MESSAGE);
+          },
+        });
 
         const user = await client.user.findUnique({ where: { id: "u1" } });
-        expect(user?.name).toBe("A");
+        expect(user?.name).toBe("Changed");
         await client.$disconnect();
       }
     );
 
     test(
-      "batch mode: existing target rejects the taken update branch, same message",
+      "batch-only mode refuses the nested series before the root write",
       { timeout: 30_000 },
       async () => {
         const db = await setupDb();
@@ -260,10 +255,13 @@ describe("M2 legality gate", () => {
               },
             },
           })
-        ).rejects.toThrow(UPDATE_MANY_RELATION_MESSAGE);
+        ).rejects.toThrow("requires ordered series execution");
 
         const user = await client.user.findUnique({ where: { id: "u1" } });
         expect(user?.name).toBe("A");
+        await expect(
+          client.post.findUnique({ where: { id: "p1" } })
+        ).resolves.toMatchObject({ title: "T", userId: "u1" });
         await client.$disconnect();
       }
     );

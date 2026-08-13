@@ -203,6 +203,9 @@ function stepContract(driver: AnyDriver, current: OperationStep): unknown {
       failure: current.failure,
     };
   }
+  if (current.kind === "recordSeries") {
+    return { id: current.id, kind: current.kind };
+  }
   return {
     id: current.id,
     kind: current.kind,

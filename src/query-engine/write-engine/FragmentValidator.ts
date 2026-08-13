@@ -44,7 +44,7 @@ function indexSteps(
       );
     }
     const outputs =
-      step.kind === "guard"
+      step.kind === "guard" || step.kind === "recordSeries"
         ? new Set<string>()
         : new Set(Object.keys(step.outputs));
     records.set(step.id, { index, outputs, kind: step.kind });
@@ -57,27 +57,46 @@ function assertBackwardLocalReferences(
   records: ReadonlyMap<string, StepRecord>
 ): void {
   steps.forEach((step, index) => {
+    if (step.kind === "recordSeries") {
+      if (step.progressive.kind === "unsupported") return;
+      assertStatementReferencesBackward(
+        step.progressive.guard.id,
+        step.progressive.guard.premise.statement,
+        index,
+        records
+      );
+      return;
+    }
     const statement =
       step.kind === "guard" ? step.premise.statement : step.statement;
-    for (const reference of statementReferences(statement)) {
-      const producer = records.get(reference.step);
-      if (!producer) {
-        throw new QueryEngineError(
-          `Reference '${reference.step}.${reference.output}' in step '${step.id}' points outside the fragment.`
-        );
-      }
-      if (producer.index >= index) {
-        throw new QueryEngineError(
-          `Reference '${reference.step}.${reference.output}' in step '${step.id}' does not point backward.`
-        );
-      }
-      if (!producer.outputs.has(reference.output)) {
-        throw new QueryEngineError(
-          `Reference '${reference.step}.${reference.output}' in step '${step.id}' points at an undeclared output.`
-        );
-      }
-    }
+    assertStatementReferencesBackward(step.id, statement, index, records);
   });
+}
+
+function assertStatementReferencesBackward(
+  stepId: string,
+  statement: GuardStep["premise"]["statement"],
+  index: number,
+  records: ReadonlyMap<string, StepRecord>
+): void {
+  for (const reference of statementReferences(statement)) {
+    const producer = records.get(reference.step);
+    if (!producer) {
+      throw new QueryEngineError(
+        `Reference '${reference.step}.${reference.output}' in step '${stepId}' points outside the fragment.`
+      );
+    }
+    if (producer.index >= index) {
+      throw new QueryEngineError(
+        `Reference '${reference.step}.${reference.output}' in step '${stepId}' does not point backward.`
+      );
+    }
+    if (!producer.outputs.has(reference.output)) {
+      throw new QueryEngineError(
+        `Reference '${reference.step}.${reference.output}' in step '${stepId}' points at an undeclared output.`
+      );
+    }
+  }
 }
 
 function assertOutputsResolvable(
@@ -104,8 +123,16 @@ function assertOutputsResolvable(
 
 function assertGuardPinRule(steps: readonly OperationStep[]): void {
   for (const step of steps) {
-    if (step.kind !== "guard") continue;
-    assertGuardRaceability(step);
+    if (step.kind === "guard") {
+      assertGuardRaceability(step);
+      continue;
+    }
+    if (
+      step.kind === "recordSeries" &&
+      step.progressive.kind === "guarded"
+    ) {
+      assertGuardRaceability(step.progressive.guard);
+    }
   }
 }
 

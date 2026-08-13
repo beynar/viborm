@@ -159,6 +159,9 @@ function prepared(
 
 function stepContract(driver: AnyDriver, current: OperationStep): unknown {
   if (current.kind === "guard") throw new Error("updateMany plans no guard.");
+  if (current.kind === "recordSeries") {
+    return { id: current.id, kind: current.kind };
+  }
   return {
     id: current.id,
     kind: current.kind,

@@ -4,8 +4,12 @@ import type { PolymorphicStorageColumn } from "@schema/relation";
 import {
   buildTargetProjection,
   capturedTargetFilters,
+  capturedTargetSetWhere,
   capturedTargetValues,
   capturedTargetWhere,
+  readRowKey,
+  rowKeysEqual,
+  rowKeyToken,
   targetProjectionOutputs,
   targetProjectionRowKeySelect,
 } from "@src/query-engine/write-engine/target-projection";
@@ -51,7 +55,8 @@ const schema = (() => {
     })
     .id(["slot", "tenantId"])
     .map("tp_reordered_pk");
-  return { scalarPk, compoundPk, reorderedPk };
+  const decimalPk = s.model({ id: s.decimal().id() }).map("tp_decimal_pk");
+  return { scalarPk, compoundPk, reorderedPk, decimalPk };
 })();
 
 hydrateSchemaNames(schema);
@@ -59,6 +64,7 @@ hydrateSchemaNames(schema);
 const scalarPk = schema.scalarPk as Model<any>;
 const compoundPk = schema.compoundPk as Model<any>;
 const reorderedPk = schema.reorderedPk as Model<any>;
+const decimalPk = schema.decimalPk as Model<any>;
 
 const typeColumn: PolymorphicStorageColumn = {
   name: "ownerType",
@@ -184,6 +190,30 @@ describe("captured row-key selectors", () => {
     ]);
   });
 
+  test("a row-key set uses IN for one member and ordered OR/AND groups for compounds", () => {
+    expect(
+      capturedTargetSetWhere(scalarPk, buildTargetProjection(scalarPk), [
+        { id: "i1" },
+        { id: "i2" },
+      ])
+    ).toEqual({ id: { in: ["i1", "i2"] } });
+    expect(
+      capturedTargetSetWhere(compoundPk, buildTargetProjection(compoundPk), [
+        { tenantId: "t1", slot: "s1" },
+        { tenantId: "t2", slot: "s2" },
+      ])
+    ).toEqual({
+      OR: [
+        {
+          AND: [{ tenantId: { equals: "t1" } }, { slot: { equals: "s1" } }],
+        },
+        {
+          AND: [{ tenantId: { equals: "t2" } }, { slot: { equals: "s2" } }],
+        },
+      ],
+    });
+  });
+
   /*
    * "the captured constraint is exact over the row key alone" stood here and is
    * DELETED with `capturedTargetConstraint` itself (Package O). It was the owner's
@@ -225,6 +255,64 @@ describe("captured row-key selectors", () => {
       capturedTargetWhere(compoundPk, projection, { tenantId: "t1" })
     ).toThrow(
       "Cannot refetch mutation result for model 'compoundPk' because primary key field 'slot' is missing."
+    );
+  });
+});
+
+describe("decoded row-key indexing", () => {
+  test("reads only the complete row key and confirms exact equality", () => {
+    expect(
+      readRowKey(compoundPk, {
+        tenantId: "t1",
+        slot: "s1",
+        note: "not part of the key",
+      })
+    ).toEqual({ tenantId: "t1", slot: "s1" });
+    expect(
+      rowKeysEqual(
+        compoundPk,
+        { tenantId: "t1", slot: "s1" },
+        { tenantId: "t1", slot: "s1", note: "ignored" }
+      )
+    ).toBe(true);
+    expect(
+      rowKeysEqual(
+        compoundPk,
+        { tenantId: "t1", slot: "s1" },
+        { tenantId: "t1", slot: "s2" }
+      )
+    ).toBe(false);
+  });
+
+  test("length boundaries keep adjacent compound values collision-free", () => {
+    expect(rowKeyToken(compoundPk, { tenantId: "1", slot: "23" })).not.toBe(
+      rowKeyToken(compoundPk, { tenantId: "12", slot: "3" })
+    );
+  });
+
+  test("runtime tags distinguish dates, bytes, strings, and numbers", () => {
+    expect(
+      rowKeysEqual(
+        scalarPk,
+        { id: new Date("2026-01-01T00:00:00.000Z") },
+        { id: new Date("2026-01-01T00:00:00.000Z") }
+      )
+    ).toBe(true);
+    expect(
+      rowKeysEqual(
+        scalarPk,
+        { id: new Uint8Array([1, 2, 3]) },
+        { id: new Uint8Array([1, 2, 3]) }
+      )
+    ).toBe(true);
+    expect(rowKeyToken(scalarPk, { id: "1" })).not.toBe(
+      rowKeyToken(scalarPk, { id: 1 })
+    );
+    expect(rowKeyToken(scalarPk, { id: new Uint8Array([49]) })).not.toBe(
+      rowKeyToken(scalarPk, { id: "1" })
+    );
+    expect(rowKeyToken(decimalPk, { id: "1" })).not.toBe(
+      rowKeyToken(scalarPk, { id: "1" })
     );
   });
 });

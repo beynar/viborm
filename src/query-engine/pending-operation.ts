@@ -9,6 +9,7 @@ import { PendingOperationError } from "@errors";
 import type { Model } from "@schema/model";
 import type { Sql } from "@sql";
 import type {
+  CommittedWriteSegmentNotification,
   ExecutableOperation,
   SingleStatementCandidate,
 } from "../query-engine/write-engine/OperationExecutor";
@@ -41,10 +42,16 @@ import {
 export const PENDING_OPERATION_SYMBOL = Symbol.for("viborm.pendingOperation");
 
 type ExecutionWrapper<T> = (
-  execute: (driver?: AnyDriver) => Promise<T>
+  execute: (
+    driver?: AnyDriver,
+    committedWriteSegment?: CommittedWriteSegmentNotification
+  ) => Promise<T>
 ) => Promise<T>;
 
-type DeferredExecution<T> = (driverOverride?: AnyDriver) => Promise<T>;
+type DeferredExecution<T> = (
+  driverOverride?: AnyDriver,
+  committedWriteSegment?: CommittedWriteSegmentNotification
+) => Promise<T>;
 
 const OR_THROW_SUFFIX = "OrThrow";
 
@@ -150,7 +157,7 @@ export class PendingOperation<T> implements PromiseLike<T> {
 
   /**
    * This payload's operation as ONE fragment atom, or `undefined` when it runs as
-   * a transactional record series — a form with no single planning phase, no
+   * a record series — a form with no single planning phase, no
    * single statement, and no single driver result. The seams that ask the executor
    * (`prepare`, `buildStatement`, `prepareBatch`) hand it the routed operation and
    * let the executor decline; the two seams below read the operation themselves
@@ -195,11 +202,14 @@ export class PendingOperation<T> implements PromiseLike<T> {
     return this.promise;
   }
 
-  private runExecution(driverOverride?: AnyDriver): Promise<T> {
+  private runExecution(
+    driverOverride?: AnyDriver,
+    committedWriteSegment?: CommittedWriteSegmentNotification
+  ): Promise<T> {
     if (this.deferredExecution) {
-      return this.deferredExecution(driverOverride);
+      return this.deferredExecution(driverOverride, committedWriteSegment);
     }
-    return this.run(driverOverride);
+    return this.run(driverOverride, committedWriteSegment);
   }
 
   /**
@@ -210,7 +220,10 @@ export class PendingOperation<T> implements PromiseLike<T> {
    * `UnsupportedOperationError` for a shape the engine does not express) is
    * surfaced through the same observation wrapper.
    */
-  private run(driverOverride?: AnyDriver): Promise<T> {
+  private run(
+    driverOverride?: AnyDriver,
+    committedWriteSegment?: CommittedWriteSegmentNotification
+  ): Promise<T> {
     let operation: RoutedExecutableOperation;
     try {
       operation = this.resolveOperation();
@@ -222,7 +235,8 @@ export class PendingOperation<T> implements PromiseLike<T> {
         this.executor(),
         operation,
         this.context.attribution,
-        driverOverride
+        driverOverride,
+        committedWriteSegment
       )
     );
   }
@@ -253,7 +267,7 @@ export class PendingOperation<T> implements PromiseLike<T> {
    *
    * Fails loudly rather than falling back to the raw payload: only the read
    * families are cacheable, and only they carry a validated payload. A
-   * transactional record series carries none either — it is a write form — and
+   * record series carries none either — it is a write form — and
    * lands on the same refusal by the same absence.
    */
   cacheKeyArgs(): Record<string, unknown> {
@@ -352,7 +366,7 @@ export class PendingOperation<T> implements PromiseLike<T> {
     const operation = this.statementOperation();
     if (!operation) {
       // A record series produced no single driver result to be handed back: its
-      // members ran inside their own transaction and it parsed them there. The
+      // members ran through their own series scope and it parsed them there. The
       // array-batch protocol never gets here (its `prepare` and `prepareBatch`
       // both declined this form, so the merge already refused); a caller reaching
       // it by another route is naming the wrong seam, and says so.
@@ -379,8 +393,16 @@ export class PendingOperation<T> implements PromiseLike<T> {
   }
 
   wrapExecutor(wrapper: ExecutionWrapper<T>): PendingOperation<T> {
-    const deferredExecution: DeferredExecution<T> = (driverOverride) =>
-      wrapper((driver) => this.runExecution(driver ?? driverOverride));
+    const deferredExecution: DeferredExecution<T> = (
+      driverOverride,
+      outerCommittedWriteSegment
+    ) =>
+      wrapper((driver, committedWriteSegment) =>
+        this.runExecution(
+          driver ?? driverOverride,
+          committedWriteSegment ?? outerCommittedWriteSegment
+        )
+      );
     return new PendingOperation(
       this.engine,
       this.model,

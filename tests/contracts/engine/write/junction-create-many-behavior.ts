@@ -4,8 +4,6 @@ import { createOperationExecutionContext } from "@query-engine/execution-context
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { s } from "@schema";
 import type { Model } from "@schema/model";
-import { createSchemaRegistry } from "@validation";
-import { describe, expect, test } from "vitest";
 import { CreateOperation } from "@src/query-engine/write-engine/CreateOperation";
 import { OperationExecutor } from "@src/query-engine/write-engine/OperationExecutor";
 import { UpdateOperation } from "@src/query-engine/write-engine/UpdateOperation";
@@ -13,6 +11,8 @@ import {
   type BehaviorDatabaseSource,
   useBehaviorDatabase,
 } from "@tests/fixtures/drivers/pglite";
+import { createSchemaRegistry } from "@validation";
+import { describe, expect, test } from "vitest";
 
 /**
  * N3 — the M2M completions, across the whole driver matrix.
@@ -81,8 +81,20 @@ export const junctionCreateManySchema = (() => {
       name: s.string().unique(),
       color: s.string(),
       posts: s.manyToMany(() => post),
+      notes: s.oneToMany(() => tagNote),
     })
     .map("n3_tags");
+  const tagNote = s
+    .model({
+      id: s.string().id(),
+      body: s.string(),
+      tagId: s.string(),
+      tag: s
+        .manyToOne(() => tag)
+        .fields("tagId")
+        .references("id"),
+    })
+    .map("n3_tag_notes");
   // DB-generated keys on both sides, and a unique the create data can spell: the
   // produced-identity path (U1's generated leg, U2's identity source).
   const article = s
@@ -133,7 +145,7 @@ export const junctionCreateManySchema = (() => {
       sheets: s.manyToMany(() => sheet),
     })
     .map("n3_cells");
-  return { post, tag, article, label, board, mark, sheet, cell };
+  return { post, tag, tagNote, article, label, board, mark, sheet, cell };
 })();
 
 function makeClient(driver: AnyDriver) {
@@ -259,15 +271,12 @@ export function runJunctionCreateManyBehavior(
   } & BehaviorDatabaseSource
 ): void {
   describe(`${options.name} junction createMany + upsert identity (N3)`, () => {
-    const openDatabase = useBehaviorDatabase(
-      junctionCreateManySchema,
-      options
-    );
+    const openDatabase = useBehaviorDatabase(junctionCreateManySchema, options);
 
     const setup = async () => {
       const { driver, client, dispose } = await openDatabase();
       const run = makeRunner(driver);
-      return { client, run, dispose };
+      return { client, driver, run, dispose };
     };
 
     // ---------------------------------------------------------------- N3-U1
@@ -444,6 +453,79 @@ export function runJunctionCreateManyBehavior(
           // Half two: the join row is a different row, so BOTH targets are linked —
           // the pinned semantics, asserted rather than assumed.
           expect(await tagsOf(client, "p1")).toEqual(["t1", "t2"]);
+        } finally {
+          await dispose();
+        }
+      }
+    );
+
+    test(
+      "relation-bearing createMany skips the target subtree and its join together",
+      { timeout: 30_000 },
+      async () => {
+        const { client, driver, run, dispose } = await setup();
+        try {
+          await client.post.create({
+            data: { id: "p1", slug: "s1", title: "t" },
+          });
+          await client.tag.create({
+            data: { id: "t1", name: "alpha", color: "ORIGINAL" },
+          });
+
+          const mutation = run.update("post", junctionCreateManySchema.post, {
+            where: { id: "p1" },
+            data: {
+              tags: {
+                createMany: {
+                  data: [
+                    {
+                      id: "t1",
+                      name: "alpha",
+                      color: "IGNORED",
+                      notes: {
+                        create: { id: "note-skipped", body: "skipped" },
+                      },
+                    },
+                    {
+                      id: "t2",
+                      name: "beta",
+                      color: "fresh",
+                      notes: {
+                        create: { id: "note-kept", body: "kept" },
+                      },
+                    },
+                  ],
+                  skipDuplicates: true,
+                },
+              },
+            },
+          });
+
+          if (
+            !(
+              driver.supportsTransactions ||
+              driver.supportsOrderedCommittedSegments
+            )
+          ) {
+            await expect(mutation).rejects.toThrow(
+              "requires ordered series execution"
+            );
+            expect(await tagsOf(client, "p1")).toEqual([]);
+            await expect(client.tagNote.findMany()).resolves.toEqual([]);
+            await expect(
+              client.tag.findMany({ orderBy: { id: "asc" } })
+            ).resolves.toEqual([
+              { id: "t1", name: "alpha", color: "ORIGINAL" },
+            ]);
+            return;
+          }
+
+          await mutation;
+
+          expect(await tagsOf(client, "p1")).toEqual(["t2"]);
+          await expect(
+            client.tagNote.findMany({ orderBy: { id: "asc" } })
+          ).resolves.toEqual([{ id: "note-kept", body: "kept", tagId: "t2" }]);
         } finally {
           await dispose();
         }

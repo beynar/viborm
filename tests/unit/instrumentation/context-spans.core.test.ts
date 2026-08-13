@@ -41,12 +41,20 @@ import {
   ATTR_DB_QUERY_TEXT,
   ATTR_DB_SYSTEM,
   ATTR_VIBORM_CORRELATION_ID,
+  ATTR_VIBORM_WRITE_ATOMICITY,
+  ATTR_VIBORM_WRITE_COMMIT_OUTCOME,
+  ATTR_VIBORM_WRITE_COMMITTED_SEGMENTS,
+  ATTR_VIBORM_WRITE_COMMITTED_WRITE_MEMBERS,
+  ATTR_VIBORM_WRITE_COMPLETED_MEMBERS,
+  ATTR_VIBORM_WRITE_MEMBER_PATH,
+  ATTR_VIBORM_WRITE_STATEMENT_COUNT,
   SPAN_BUILD,
   SPAN_CACHE_GET,
   SPAN_CACHE_SET,
   SPAN_EXECUTE,
   SPAN_OPERATION,
   SPAN_PARSE,
+  SPAN_RECORD_SERIES_SEGMENT,
   SPAN_VALIDATE,
 } from "@src/instrumentation/spans";
 import {
@@ -348,6 +356,9 @@ describe("span + attribute constants", () => {
     expect(SPAN_PARSE).toBe("viborm.parse");
     expect(SPAN_CACHE_GET).toBe("viborm.cache.get");
     expect(SPAN_CACHE_SET).toBe("viborm.cache.set");
+    expect(SPAN_RECORD_SERIES_SEGMENT).toBe(
+      "viborm.write.record_series.segment"
+    );
   });
 
   it("attribute constants map to their OTel / custom keys", () => {
@@ -361,6 +372,23 @@ describe("span + attribute constants", () => {
     expect(ATTR_CACHE_KEY).toBe("cache.key");
     expect(ATTR_CACHE_RESULT).toBe("cache.result");
     expect(ATTR_CACHE_TTL).toBe("cache.ttl");
+    expect(ATTR_VIBORM_WRITE_ATOMICITY).toBe("viborm.write.atomicity");
+    expect(ATTR_VIBORM_WRITE_MEMBER_PATH).toBe("viborm.write.member_path");
+    expect(ATTR_VIBORM_WRITE_STATEMENT_COUNT).toBe(
+      "viborm.write.statement_count"
+    );
+    expect(ATTR_VIBORM_WRITE_COMMIT_OUTCOME).toBe(
+      "viborm.write.commit_outcome"
+    );
+    expect(ATTR_VIBORM_WRITE_COMMITTED_SEGMENTS).toBe(
+      "viborm.write.committed_segments"
+    );
+    expect(ATTR_VIBORM_WRITE_COMPLETED_MEMBERS).toBe(
+      "viborm.write.completed_members"
+    );
+    expect(ATTR_VIBORM_WRITE_COMMITTED_WRITE_MEMBERS).toBe(
+      "viborm.write.committed_write_members"
+    );
   });
 
   it("all span-name constants are distinct (no accidental collisions)", () => {

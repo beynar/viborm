@@ -1,19 +1,48 @@
 import { createClient } from "@client/client";
-import type { AnyDriver, QueryExecutionContext } from "@drivers";
+import type {
+  AnyDriver,
+  BatchQuery,
+  QueryExecutionContext,
+  QueryResult,
+} from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
-import { TransactionError } from "@errors";
+import {
+  attachRecordSeriesProgress,
+  hasCommittedRecordSeriesProgress,
+  QueryEngineError,
+  TransactionError,
+  VibORMError,
+} from "@errors";
+import {
+  createInstrumentationContext,
+  type InstrumentationContext,
+} from "@instrumentation/context";
+import {
+  ATTR_VIBORM_WRITE_ATOMICITY,
+  ATTR_VIBORM_WRITE_COMMIT_OUTCOME,
+  ATTR_VIBORM_WRITE_COMMITTED_SEGMENTS,
+  ATTR_VIBORM_WRITE_COMMITTED_WRITE_MEMBERS,
+  ATTR_VIBORM_WRITE_COMPLETED_MEMBERS,
+  ATTR_VIBORM_WRITE_MEMBER_PATH,
+  ATTR_VIBORM_WRITE_STATEMENT_COUNT,
+  SPAN_OPERATION,
+  SPAN_RECORD_SERIES_SEGMENT,
+} from "@instrumentation/spans";
+import type { TracerWrapper, VibORMSpanOptions } from "@instrumentation/tracer";
 import { push } from "@migrations";
 import { createOperationExecutionContext } from "@query-engine/execution-context";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames, s } from "@schema";
 import { sql } from "@sql";
 import { createTransactionCleanupError } from "@src/drivers/shared/transactions";
+import type { CommittedBatchNotification } from "@src/drivers/types";
 import {
   type ExecutableOperation,
   OperationExecutor,
 } from "@src/query-engine/write-engine/OperationExecutor";
 import type {
+  GuardStep,
   OperationFragment,
   PlanningFragment,
   ReadStep,
@@ -113,7 +142,7 @@ class TracingPGliteDriver extends PGliteDriver {
 
 /** A substrate with an atomic batch and NO interactive scope. */
 class TracingBatchOnlyPGliteDriver extends BatchOnlyPGliteDriver {
-  private readonly events: string[];
+  protected readonly events: string[];
 
   constructor(
     events: string[],
@@ -131,6 +160,90 @@ class TracingBatchOnlyPGliteDriver extends BatchOnlyPGliteDriver {
   ) {
     traceStatement(this.events, statement, params);
     return super.execute<T>(client, statement, params, context);
+  }
+}
+
+/** The batch-only stand-in with the exact progressive capability D1 declares. */
+class TracingProgressivePGliteDriver extends TracingBatchOnlyPGliteDriver {
+  override readonly supportsOrderedCommittedSegments = true;
+  override readonly maxBindParametersPerStatement: number;
+
+  constructor(events: string[], maxBindParametersPerStatement = 65_535) {
+    super(events, { client: database });
+    this.maxBindParametersPerStatement = maxBindParametersPerStatement;
+  }
+
+  protected override async executeBatch<T>(
+    client: PGlite | Transaction,
+    queries: BatchQuery[],
+    _context?: QueryExecutionContext,
+    committed?: CommittedBatchNotification
+  ): Promise<QueryResult<T>[]> {
+    for (const query of queries) {
+      traceStatement(this.events, query.sql, query.params ?? []);
+    }
+    const results = await super.executeBatch<T>(client, queries);
+    await committed?.();
+    return results;
+  }
+}
+
+interface RecordedProgressSpan {
+  readonly name: string;
+  readonly parent: string | undefined;
+  readonly attributes: NonNullable<VibORMSpanOptions["attributes"]>;
+}
+
+/** A custom tracer witness for active parenting and optional late attributes. */
+class RecordingProgressTracer implements TracerWrapper {
+  readonly spans: RecordedProgressSpan[] = [];
+  private active: RecordedProgressSpan | undefined;
+
+  async startActiveSpan<T>(
+    options: VibORMSpanOptions,
+    fn: () => T | Promise<T>
+  ): Promise<T> {
+    const previous = this.active;
+    const current: RecordedProgressSpan = {
+      name: options.name,
+      parent: previous?.name,
+      attributes: options.attributes ?? {},
+    };
+    this.spans.push(current);
+    this.active = current;
+    try {
+      return await fn();
+    } finally {
+      this.active = previous;
+    }
+  }
+
+  startActiveSpanSync<T>(options: VibORMSpanOptions, fn: () => T): T {
+    const previous = this.active;
+    const current: RecordedProgressSpan = {
+      name: options.name,
+      parent: previous?.name,
+      attributes: options.attributes ?? {},
+    };
+    this.spans.push(current);
+    this.active = current;
+    try {
+      return fn();
+    } finally {
+      this.active = previous;
+    }
+  }
+
+  setActiveSpanAttributes(
+    attributes: Parameters<
+      NonNullable<TracerWrapper["setActiveSpanAttributes"]>
+    >[0]
+  ): void {
+    if (this.active) Object.assign(this.active.attributes, attributes);
+  }
+
+  isEnabled(): boolean {
+    return true;
   }
 }
 
@@ -287,6 +400,105 @@ function seriesOperation(
   };
 }
 
+function staticSeries(
+  members: readonly ExecutableOperation[],
+  parseSeries: RecordSeriesOperation["parseSeries"] = (input) =>
+    input.memberResults
+): RecordSeriesOperation {
+  return {
+    executionKind: "recordSeries",
+    capture: () => ({ steps: [] }),
+    compileMembers: () => members,
+    compileResultReads: () => [],
+    parseSeries,
+  };
+}
+
+function staticMember(fragment: OperationFragment): ExecutableOperation {
+  return {
+    mode: "batch",
+    planning: () => ({ steps: [] }),
+    compile: () => fragment,
+    parse<T>(outputs): T {
+      return outputs as T;
+    },
+  };
+}
+
+/** One outer member whose durable prefix feeds a nested series and its suffix. */
+function nestedProgressiveSeries(
+  nestedLabel = "nested"
+): RecordSeriesOperation {
+  const prefix: WriteStep = {
+    id: "outer.prefix",
+    kind: "write",
+    statement: sql`INSERT INTO "rs_ledger" ("id", "label") VALUES (${1}, ${"prefix"}) RETURNING "id"`,
+    outputs: {
+      id: { kind: "firstRowField", field: "id" },
+    },
+  };
+  const nestedWrite: WriteStep = {
+    id: "nested.write",
+    kind: "write",
+    statement: sql`UPDATE "rs_ledger" SET "label" = ${nestedLabel} WHERE "id" = ${ref(prefix.id, "id")} RETURNING "id"`,
+    outputs: { rows: { kind: "rows" } },
+  };
+  const nested = staticSeries([
+    staticMember({
+      steps: [nestedWrite],
+      outputs: { result: ref(nestedWrite.id, "rows") },
+    }),
+  ]);
+  const parentBoundaryGuard: GuardStep = {
+    id: "outer.parent",
+    kind: "guard",
+    premise: {
+      kind: "exists",
+      statement: sql`SELECT 1 FROM "rs_ledger" WHERE "id" = ${ref(prefix.id, "id")}`,
+    },
+    failure: {
+      kind: "query",
+      message: "the outer parent vanished across its committed boundary",
+      raceable: false,
+    },
+  };
+  const exactPrefixGuard: GuardStep = {
+    id: "outer.guard",
+    kind: "guard",
+    premise: {
+      kind: "exists",
+      statement: sql`SELECT 1 FROM "rs_ledger" WHERE "id" = ${ref(prefix.id, "id")} AND "label" = ${nestedLabel}`,
+    },
+    failure: {
+      kind: "query",
+      message: "the nested series did not preserve the captured prefix",
+      raceable: false,
+    },
+  };
+  const suffix: WriteStep = {
+    id: "outer.suffix",
+    kind: "write",
+    statement: sql`INSERT INTO "rs_ledger" ("id", "label") SELECT ${2}, ${"suffix"} WHERE ${ref(prefix.id, "id")} = ${1} RETURNING "id"`,
+    outputs: { rows: { kind: "rows" } },
+  };
+  return staticSeries([
+    staticMember({
+      steps: [
+        prefix,
+        {
+          id: "outer.series",
+          kind: "recordSeries",
+          progressive: { kind: "guarded", guard: parentBoundaryGuard },
+          series: nested,
+        },
+        exactPrefixGuard,
+        suffix,
+      ],
+      outputs: { result: ref(suffix.id, "rows") },
+    }),
+  ]);
+}
+
 /** Two members: the second's label and pin are the only per-case variables. */
 function twoMemberShape(
   second: (attempt: number) => MemberSpec,
@@ -337,20 +549,30 @@ beforeEach(async () => {
   await stateClient.$executeRawUnsafe('TRUNCATE TABLE "rs_ledger"');
 });
 
-function executorFor(driver: PGliteDriver): OperationExecutor {
+function executorFor(
+  driver: PGliteDriver,
+  instrumentation?: InstrumentationContext
+): OperationExecutor {
   return new OperationExecutor(
     new QueryEngine(
       driver,
       createModelRegistry(
         recordSeriesSchema,
         createSchemaRegistry(recordSeriesSchema)
-      )
+      ),
+      instrumentation
     )
   );
 }
 
-function seriesContext(): QueryExecutionContext {
-  return createOperationExecutionContext("ledger", "createMany");
+function seriesContext(
+  instrumentation?: InstrumentationContext
+): QueryExecutionContext {
+  return createOperationExecutionContext(
+    "ledger",
+    "createMany",
+    instrumentation
+  );
 }
 
 function ledgerRows(): Promise<Array<{ id: number; label: string }>> {
@@ -615,6 +837,286 @@ describe("I3 — the transactional record series through the real executor", () 
   });
 });
 
+describe("I13 — progressive nested record series", () => {
+  test("runs prefix, recursive series, and suffix with exact cross-boundary values", async () => {
+    const events: string[] = [];
+    const driver = new TracingProgressivePGliteDriver(events);
+
+    await expect(
+      executorFor(driver).execute<unknown>(
+        nestedProgressiveSeries(),
+        seriesContext()
+      )
+    ).resolves.toEqual([{ result: [{ id: 2 }] }]);
+
+    expect(events).toEqual([
+      "sql:INSERT(1,prefix)",
+      "sql:SELECT(1)",
+      "sql:UPDATE(nested,1)",
+      "sql:SELECT(1)",
+      "sql:SELECT(1,nested)",
+      "sql:INSERT(2,suffix,1,1)",
+    ]);
+    await expect(ledgerRows()).resolves.toEqual([
+      { id: 1, label: "nested" },
+      { id: 2, label: "suffix" },
+    ]);
+  }, 60_000);
+
+  test("routes a guarded nested series from a direct atomic-batch fragment", async () => {
+    const events: string[] = [];
+    const driver = new TracingProgressivePGliteDriver(events);
+    const direct = nestedProgressiveSeries().compileMembers({})[0];
+    if (!direct) throw new Error("expected one direct progressive member");
+
+    await expect(
+      executorFor(driver).execute<unknown>(direct, seriesContext())
+    ).resolves.toEqual({ result: [{ id: 2 }] });
+
+    expect(events).toEqual([
+      "sql:INSERT(1,prefix)",
+      "sql:SELECT(1)",
+      "sql:UPDATE(nested,1)",
+      "sql:SELECT(1)",
+      "sql:SELECT(1,nested)",
+      "sql:INSERT(2,suffix,1,1)",
+    ]);
+  }, 60_000);
+
+  test("emits one child span per segment and final parent progress", async () => {
+    const events: string[] = [];
+    const driver = new TracingProgressivePGliteDriver(events);
+    const tracer = new RecordingProgressTracer();
+    const instrumentation: InstrumentationContext = {
+      ...createInstrumentationContext({ tracing: true }),
+      tracer,
+    };
+
+    await tracer.startActiveSpan({ name: SPAN_OPERATION }, () =>
+      executorFor(driver, instrumentation).execute(
+        nestedProgressiveSeries(),
+        seriesContext(instrumentation)
+      )
+    );
+
+    const parent = tracer.spans.find((span) => span.name === SPAN_OPERATION);
+    expect(parent?.attributes).toMatchObject({
+      [ATTR_VIBORM_WRITE_ATOMICITY]: "segment",
+      [ATTR_VIBORM_WRITE_COMMITTED_SEGMENTS]: 3,
+      [ATTR_VIBORM_WRITE_COMPLETED_MEMBERS]: 2,
+      [ATTR_VIBORM_WRITE_COMMITTED_WRITE_MEMBERS]: 2,
+    });
+    expect(
+      tracer.spans
+        .filter((span) => span.name === SPAN_RECORD_SERIES_SEGMENT)
+        .map((span) => ({
+          parent: span.parent,
+          path: span.attributes[ATTR_VIBORM_WRITE_MEMBER_PATH],
+          statements: span.attributes[ATTR_VIBORM_WRITE_STATEMENT_COUNT],
+          outcome: span.attributes[ATTR_VIBORM_WRITE_COMMIT_OUTCOME],
+        }))
+    ).toEqual([
+      {
+        parent: SPAN_OPERATION,
+        path: "0",
+        statements: 1,
+        outcome: "committed",
+      },
+      {
+        parent: SPAN_OPERATION,
+        path: "0.0",
+        statements: 2,
+        outcome: "committed",
+      },
+      {
+        parent: SPAN_OPERATION,
+        path: "0",
+        statements: 3,
+        outcome: "committed",
+      },
+    ]);
+  }, 60_000);
+
+  test("marks a segment committed when post-commit invalidation fails", async () => {
+    const events: string[] = [];
+    const driver = new TracingProgressivePGliteDriver(events);
+    const tracer = new RecordingProgressTracer();
+    const instrumentation: InstrumentationContext = {
+      ...createInstrumentationContext({ tracing: true }),
+      tracer,
+    };
+
+    const failure = await tracer
+      .startActiveSpan({ name: SPAN_OPERATION }, () =>
+        executorFor(driver, instrumentation).execute(
+          nestedProgressiveSeries(),
+          seriesContext(instrumentation),
+          undefined,
+          async () => {
+            throw new Error("invalidation failed");
+          }
+        )
+      )
+      .catch((error) => error);
+
+    expect(failure).toMatchObject({
+      meta: {
+        recordSeriesProgress: {
+          phase: "invalidation",
+          committedSegments: 1,
+          committedWriteMembers: 1,
+        },
+      },
+    });
+    const segment = tracer.spans.find(
+      (span) => span.name === SPAN_RECORD_SERIES_SEGMENT
+    );
+    expect(segment?.attributes[ATTR_VIBORM_WRITE_COMMIT_OUTCOME]).toBe(
+      "committed"
+    );
+    const parent = tracer.spans.find((span) => span.name === SPAN_OPERATION);
+    expect(parent?.attributes).toMatchObject({
+      [ATTR_VIBORM_WRITE_ATOMICITY]: "segment",
+      [ATTR_VIBORM_WRITE_COMMITTED_SEGMENTS]: 1,
+      [ATTR_VIBORM_WRITE_COMPLETED_MEMBERS]: 0,
+      [ATTR_VIBORM_WRITE_COMMITTED_WRITE_MEMBERS]: 1,
+    });
+  }, 60_000);
+
+  test.each([
+    {
+      name: "prefix",
+      seed: { id: 1, label: "occupied-prefix" },
+      series: () => nestedProgressiveSeries(),
+      phase: "prefix",
+      memberPath: [0],
+      committedSegments: 0,
+    },
+    {
+      name: "nested member",
+      seed: { id: 9, label: "occupied-nested" },
+      series: () => nestedProgressiveSeries("occupied-nested"),
+      phase: "member",
+      memberPath: [0, 0],
+      committedSegments: 1,
+    },
+    {
+      name: "suffix",
+      seed: { id: 2, label: "occupied-suffix" },
+      series: () => nestedProgressiveSeries(),
+      phase: "suffix",
+      memberPath: [0],
+      committedSegments: 2,
+    },
+  ])("attributes a $name failure to its exact progressive phase", async ({
+    seed,
+    series,
+    phase,
+    memberPath,
+    committedSegments,
+  }) => {
+    const events: string[] = [];
+    const driver = new TracingProgressivePGliteDriver(events);
+    await seedRow(seed.id, seed.label);
+
+    const failure = await executorFor(driver)
+      .execute(series(), seriesContext())
+      .catch((error) => error);
+
+    expect(failure).toMatchObject({
+      meta: {
+        recordSeriesProgress: {
+          atomicity: "segment",
+          phase,
+          committedSegments,
+          memberPath,
+        },
+      },
+    });
+    if (!(failure instanceof VibORMError)) {
+      throw new Error("expected a VibORM progress failure");
+    }
+    expect(failure.toJSON()).toMatchObject({
+      meta: {
+        recordSeriesProgress: {
+          phase,
+          committedSegments,
+          memberPath,
+        },
+      },
+    });
+  }, 60_000);
+
+  test("refuses a statically oversized later member before the first commit", async () => {
+    const events: string[] = [];
+    const driver = new TracingProgressivePGliteDriver(events, 2);
+    const first: WriteStep = {
+      id: "capacity.first",
+      kind: "write",
+      statement: sql`INSERT INTO "rs_ledger" ("id", "label") VALUES (${1}, ${"first"})`,
+      outputs: { count: { kind: "rowCount" } },
+    };
+    const oversized: WriteStep = {
+      id: "capacity.oversized",
+      kind: "write",
+      statement: sql`INSERT INTO "rs_ledger" ("id", "label") SELECT ${2}, ${"oversized"} WHERE ${true}`,
+      outputs: { count: { kind: "rowCount" } },
+    };
+    const series = staticSeries([
+      staticMember({
+        steps: [first],
+        outputs: { count: ref(first.id, "count") },
+      }),
+      staticMember({
+        steps: [oversized],
+        outputs: { count: ref(oversized.id, "count") },
+      }),
+    ]);
+
+    await expect(
+      executorFor(driver).execute(series, seriesContext())
+    ).rejects.toThrow(
+      "one statically compiled statement needs 3 bound values, above the verified limit of 2"
+    );
+    expect(events).toEqual([]);
+    await expect(ledgerRows()).resolves.toEqual([]);
+  }, 60_000);
+
+  test("refuses an unguarded nested boundary before its enclosing prefix commits", async () => {
+    const events: string[] = [];
+    const driver = new TracingProgressivePGliteDriver(events);
+    const prefix: WriteStep = {
+      id: "unguarded.prefix",
+      kind: "write",
+      statement: sql`INSERT INTO "rs_ledger" ("id", "label") VALUES (${1}, ${"unsafe"})`,
+      outputs: { count: { kind: "rowCount" } },
+    };
+    const unsafe = staticSeries([
+      staticMember({
+        steps: [
+          prefix,
+          {
+            id: "unguarded.series",
+            kind: "recordSeries",
+            progressive: {
+              kind: "unsupported",
+              reason: "the complete parent cannot be re-pinned",
+            },
+            series: staticSeries([]),
+          },
+        ],
+        outputs: { count: ref(prefix.id, "count") },
+      }),
+    ]);
+
+    await expect(
+      executorFor(driver).execute(unsafe, seriesContext())
+    ).rejects.toThrow("the complete parent cannot be re-pinned");
+    expect(events).toEqual([]);
+    await expect(ledgerRows()).resolves.toEqual([]);
+  }, 60_000);
+});
+
 describe("I3 — pre-existing hazard: the retry mark does not survive error wrapping", () => {
   test("a differing scope failure defeats the outer retry (current behaviour, pinned)", async () => {
     const events: string[] = [];
@@ -659,4 +1161,63 @@ describe("I3 — pre-existing hazard: the retry mark does not survive error wrap
     ]);
     await expect(ledgerRows()).resolves.toEqual([{ id: 9, label: "clash" }]);
   }, 60_000);
+});
+
+describe("I3 — committed progress is trusted execution state", () => {
+  test("mutable public metadata cannot suppress a whole-operation retry", () => {
+    const forged = new QueryEngineError("forged", {
+      meta: {
+        recordSeriesProgress: {
+          atomicity: "segment",
+          phase: "member",
+          committedSegments: 1,
+          completedMembers: 1,
+          committedWriteMembers: 1,
+        },
+      },
+    });
+    expect(hasCommittedRecordSeriesProgress(forged)).toBe(false);
+
+    const trusted = attachRecordSeriesProgress(forged, {
+      atomicity: "segment",
+      phase: "member",
+      committedSegments: 1,
+      completedMembers: 1,
+      committedWriteMembers: 1,
+    });
+    expect(hasCommittedRecordSeriesProgress(trusted)).toBe(true);
+  });
+
+  test("re-attachment cannot make public and trusted progress disagree", () => {
+    const failure = attachRecordSeriesProgress(
+      new QueryEngineError("stopped"),
+      {
+        atomicity: "segment",
+        phase: "member",
+        committedSegments: 1,
+        completedMembers: 1,
+        committedWriteMembers: 1,
+      }
+    );
+    const reattached = attachRecordSeriesProgress(failure, {
+      atomicity: "segment",
+      phase: "result",
+      committedSegments: 2,
+      completedMembers: 2,
+      committedWriteMembers: 2,
+    });
+
+    expect(reattached.meta.recordSeriesProgress).toMatchObject({
+      phase: "member",
+      committedSegments: 1,
+    });
+    expect(reattached.toJSON()).toMatchObject({
+      meta: {
+        recordSeriesProgress: {
+          phase: "member",
+          committedSegments: 1,
+        },
+      },
+    });
+  });
 });

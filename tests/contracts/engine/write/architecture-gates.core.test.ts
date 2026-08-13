@@ -44,6 +44,7 @@ const FRAGMENT_TYPE_NAMES = [
   "PlanningFragment",
   "Postcondition",
   "ReadStep",
+  "RecordSeriesStep",
   "StatementOutputSource",
   "StatementStep",
   "StatementStepBase",
@@ -149,7 +150,8 @@ function stepKindLiterals(file: ts.SourceFile): string[] {
       !(
         statement.name.text === "ReadStep" ||
         statement.name.text === "WriteStep" ||
-        statement.name.text === "GuardStep"
+        statement.name.text === "GuardStep" ||
+        statement.name.text === "RecordSeriesStep"
       )
     ) {
       continue;
@@ -215,9 +217,14 @@ describe("write engine structural gates (PLAN P0)", () => {
     expect(surface).toMatchSnapshot();
   });
 
-  it("(d) keeps the step vocabulary at exactly read/write/guard + census types", () => {
+  it("(d) keeps the step vocabulary at exactly read/write/guard/recordSeries + census types", () => {
     const file = parse(FRAGMENT);
-    expect(stepKindLiterals(file)).toEqual(["guard", "read", "write"]);
+    expect(stepKindLiterals(file)).toEqual([
+      "guard",
+      "read",
+      "recordSeries",
+      "write",
+    ]);
     expect(exportedTypeSurface(file).map((entry) => entry.name)).toEqual(
       FRAGMENT_TYPE_NAMES
     );

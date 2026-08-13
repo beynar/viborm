@@ -46,23 +46,27 @@ database_name = "my-database"
 database_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
 ```
 
-## Transactions & Batching
+## Transactions and batching
 
-D1 does **not** support traditional dynamic transactions, but VibORM provides full support for **batch mode** using D1's native `batch()` API.
+D1 does not support an interactive callback transaction. VibORM uses the
+binding's native `batch()` primitive for work that can be planned up front.
 
-### Batch Mode (Recommended)
+### Atomic array transactions
 
-Use the array API for atomic operations - VibORM uses D1's native `batch()` under the hood:
+The array API is one atomic D1 batch:
 
 ```typescript
-// Atomic execution using D1's native batch()
 const [user, post] = await client.$transaction([
   client.user.create({ data: { name: "Alice", email: "alice@example.com" } }),
   client.post.create({ data: { title: "Hello", authorId: "preset-id" } }),
 ]);
 ```
 
-### Dynamic Transactions
+Every operation in this array must be statically batchable. A dynamic record
+series is refused before the batch is submitted because `$transaction([...])`
+promises one atomic commit.
+
+### Interactive transactions
 
 Dynamic transactions (callback API) are unsupported and reject:
 
@@ -74,9 +78,76 @@ await client.$transaction(async (tx) => {
 });
 ```
 
-:::warning
-For D1, use batch mode (`$transaction([...])`) for operations that can be planned up front. Nested writes are supported inside a batch, but sibling operations cannot read each other's results.
-:::
+### Relation-bearing bulk writes
+
+Root `createMany` and `updateMany` calls whose records write relations need
+left-to-right decisions. Nested relation-bearing `createMany` and `updateMany`
+can need the same pause at their exact position in a record tree. Outside
+`$transaction([...])`, D1 executes supported series as **ordered committed
+segments**:
+
+- one submitted segment batch is atomic;
+- a later member observes earlier committed members;
+- successful results match transaction-capable drivers;
+- if a later segment fails, earlier segments stay committed;
+- the error reports the exact durable prefix;
+- VibORM never retries an already committed prefix.
+
+```ts
+import { isVibORMError } from "viborm";
+
+try {
+  await client.post.createMany({
+    data: [
+      { id: "p1", author: { create: { id: "a1", name: "first" } } },
+      { id: "p2", author: { create: { id: "a2", name: "occupied" } } },
+    ],
+  });
+} catch (error) {
+  if (isVibORMError(error)) {
+    console.log(error.toJSON().meta.recordSeriesProgress);
+    // {
+    //   atomicity: "segment",
+    //   phase: "member",
+    //   committedSegments: 1,
+    //   completedMembers: 1,
+    //   committedWriteMembers: 1,
+    //   memberPath: [1],
+    //   totalMembers: 2
+    // }
+  }
+}
+```
+
+`completedMembers` is the completed input prefix.
+`committedWriteMembers` counts members whose user-table writes are durable.
+`committedSegments` counts committed D1 batches. The `phase` says whether the
+failure happened during capture, planning, an enclosing prefix, a member, an
+enclosing suffix, the final result read, or cache invalidation.
+
+This progressive route applies to root relation-bearing `createMany` and
+`updateMany`. A nested relation-bearing `createMany` or `updateMany` also runs
+at its exact tree position when VibORM can re-assert the complete parent row or
+relation membership inside every later write batch.
+
+For one inserted row with a database-generated integer key, the D1 driver
+normalizes the binding's official `meta.last_row_id` as that statement's
+generated identity. A later segment can therefore use the concrete key. VibORM
+never derives a range of generated keys from it and never assumes adjacent
+values for a multi-row insert.
+
+The following shapes remain unavailable:
+
+- relation-bearing `createMany` with `skipDuplicates`, because a D1 batch error
+  cannot safely distinguish the root conflict from a descendant conflict. This
+  is refused before member 0 writes;
+- a nested series whose compiler cannot provide an exact complete-parent and
+  membership guard. It is refused before the containing member writes. Earlier
+  progressive root members can already be committed and are reported;
+- any dynamic record series inside explicit `$transaction([...])`.
+
+Scalar bulk operations and other statically planned nested writes continue to
+use one atomic D1 batch.
 
 ### Migrations
 
@@ -86,11 +157,16 @@ migrations with `wrangler d1 migrations` instead.
 
 ## Capabilities
 
-Dynamic transactions reject; batch mode is fully supported via D1's native `batch()`. See the [feature matrix](/docs/drivers#feature-matrix) for the full comparison.
+Interactive transactions reject. Static work uses one native atomic batch.
+Root dynamic relation-bearing bulk uses ordered segment-atomic batches with
+reported progress. See the [feature matrix](/docs/drivers#feature-matrix) for
+the full comparison.
 
 ## Limitations
 
-- Batch operations cannot read each other's results — use a single nested write for dependent mutations
+- Operations inside `$transaction([...])` cannot read sibling results.
+- Nested dynamic writes require an exact compiler-provided parent/membership
+  guard; shapes that cannot provide one reject.
 - Only available in Cloudflare Workers
 - SQLite dialect - no `LATERAL` joins, limited `FULL OUTER JOIN`
 - JSON columns are parsed automatically

@@ -63,12 +63,14 @@ fragment vocabulary.
 
 ## Fragment vocabulary
 
-`write-engine/OperationFragment.ts` defines three runtime step kinds:
+`write-engine/OperationFragment.ts` defines four runtime step kinds:
 
 - `read` executes adapter-built SQL;
 - `write` executes adapter-built SQL and can carry a race pin or
   conflict-skip effect;
-- `guard` checks a database premise for the selected final fragment.
+- `guard` checks a database premise for the selected final fragment;
+- `recordSeries` suspends a final fragment at one nested bulk position, runs
+  the existing ordered record-series form, then resumes the fragment.
 
 Produced values reference declared outputs from earlier steps. The fragment is
 not a second SQL AST and contains no relation strategy, payload walker, driver,
@@ -99,8 +101,9 @@ Parent and child are edge-relative roles. Parent is the enclosing source record
 whose relation field is being compiled; child is its target. A
 parent-held edge (`position: "parentHeld"`) means that source record stores the FK.
 
-`CreateOperation` compiles non-bulk fresh record subtrees.
-`RecordUpdateCompiler` compiles non-bulk updates for an already-selected record.
+`CreateOperation` compiles fresh record subtrees, including record-series
+members. `RecordUpdateCompiler` compiles updates for an already-selected record,
+including selected members of root or nested update series.
 The record compiler owns scalar assignments, an optional incoming membership,
 nested record effects, required target fields, primary-key transitions, and
 root-write order.
@@ -114,9 +117,23 @@ Validation transforms are not assumed to be idempotent. Parse untrusted input
 once at its trust boundary and pass transformed programs or record data
 downstream.
 
-`createMany`, `updateMany`, `deleteMany`, relation `set`, and many-and-return
-folds remain specialized because they have set semantics rather than one-record
-semantics.
+Scalar-only `createMany` and `updateMany`, `deleteMany`, relation `set`, and
+many-and-return folds remain specialized because their expressed payload has
+set semantics. A relation-bearing root bulk operation uses the one
+`RecordSeriesOperation`; nested relation-bearing `createMany` and `updateMany`
+place that same form through one `RecordSeriesStep`. Scalar-only bulk shapes
+stay grouped.
+
+A transaction-capable root series and its nested steps share one transaction.
+D1 executes root and exactly guarded nested series as ordered committed atomic
+segments. A later failure reports the committed prefix and does not replay it.
+An unguardable nested placement fails closed before its containing write
+segment. Relation-bearing `skipDuplicates` and dynamic series inside explicit
+`$transaction([...])` remain unavailable on D1.
+
+Returning series group their final row lookups into K set reads bounded by the
+driver bind limit, normally one, then reconstruct source order. Per-member
+terminal reads remain as liveness witnesses.
 
 See [write-engine/ATOM.md](write-engine/ATOM.md) for the normative write-engine
 doctrine.

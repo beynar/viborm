@@ -287,6 +287,28 @@ describe("Relation Create - Types (Author Model)", () => {
     }>().toMatchTypeOf<RelationScopedCreateArgsInput>();
   });
 
+  test("type: nested createMany can supply an unrelated FK through its relation", () => {
+    type RelationScopedCreateArgsInput = InferInput<
+      typeof relationScopedSchemas.author.args.create
+    >;
+
+    expectTypeOf<{
+      data: {
+        id: string;
+        name: string;
+        posts: {
+          createMany: {
+            data: Array<{
+              id: string;
+              title: string;
+              category: { connect: { id: string } };
+            }>;
+          };
+        };
+      };
+    }>().toMatchTypeOf<RelationScopedCreateArgsInput>();
+  });
+
   test("type: relation-scoped createMany data requires unrelated FK", () => {
     type RelationScopedPostCreateManyData = InferInput<
       typeof helperScopedPostNestedCreateManyData
@@ -557,7 +579,6 @@ describe("Relation Create - Author Model Runtime (oneToMany)", () => {
       "createMany",
       "data",
       0,
-      "categoryId",
     ]);
   });
 
@@ -569,6 +590,28 @@ describe("Relation Create - Author Model Runtime (oneToMany)", () => {
         posts: {
           createMany: {
             data: [{ id: "post-1", title: "Hello", categoryId: "category-1" }],
+          },
+        },
+      },
+    });
+
+    expect(result.issues).toBeUndefined();
+  });
+
+  test("runtime: createMany accepts a relation not derived from its parent", () => {
+    const result = parse(relationScopedSchemas.author.args.create, {
+      data: {
+        id: "author-1",
+        name: "Alice",
+        posts: {
+          createMany: {
+            data: [
+              {
+                id: "post-1",
+                title: "Hello",
+                category: { connect: { id: "category-1" } },
+              },
+            ],
           },
         },
       },

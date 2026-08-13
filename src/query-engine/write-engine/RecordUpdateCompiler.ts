@@ -2,7 +2,6 @@
 import { NestedWriteError, QueryEngineError } from "@errors";
 import type { PolymorphicStorageColumn } from "@schema/relation";
 import { isSql, type Sql } from "@sql";
-import type { ToOneUpdateTarget } from "@validation/relations/to-one-update-form";
 import {
   buildPrimaryKeyWhereUnique,
   getPrimaryKeyFields,
@@ -22,6 +21,7 @@ import {
 import type {
   NormalizedRelationUpsert,
   ParsedRelationMutation,
+  RecordMutationData,
   RelationMutationEntry,
   RelationMutationProgram,
 } from "../builders/relation-mutation-parser";
@@ -39,10 +39,7 @@ import {
   getUpdatedPrimaryKeyValues,
 } from "../operations/mutation-identity";
 import type { QueryEngine } from "../query-engine";
-import {
-  assertRelationKeyUpdatesAreCompilable,
-  assertSelectedUpdateManyDataIsScalar,
-} from "../relation-key-legality";
+import { assertRelationKeyUpdatesAreCompilable } from "../relation-key-legality";
 import { classifyRelationKeyScalarUpdate } from "../TargetConstraint";
 import type {
   QueryScope,
@@ -50,6 +47,10 @@ import type {
   ResolvedPolymorphicEdge,
 } from "../types";
 import type { FreshRecordBuilder, FreshRecordPart } from "./CreateOperation";
+import {
+  buildFreshRecordSeriesPart,
+  createManyCarriesRelations,
+} from "./FreshRecordSeriesPart";
 import {
   absenceGuard,
   affectedRows,
@@ -101,7 +102,6 @@ import {
   buildToManyUpdateManyParts,
   buildToManyUpdateParts,
   buildToOneUpdatePart,
-  updateManyCarriesRelations,
 } from "./RelationWritePart";
 import {
   applyRootMembershipAssignment,
@@ -1159,12 +1159,16 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     scope: StepScope,
     edge: ResolvedPolymorphicEdge,
     childScope: QueryScope,
-    data: Record<string, unknown>,
+    data: RecordMutationData,
     filter: Record<string, unknown> | undefined,
     txMode: boolean
   ): Extract<ParentHeldTarget, { kind: "polymorphicUpdate" }> | undefined {
     const relationName = edge.relationInfo.name;
-    const parsed = buildParsedRelationPrograms(childScope, data);
+    const parsed = buildParsedRelationPrograms(
+      childScope,
+      data.parsed,
+      data.source
+    );
     assertPortablePrimaryKeyUpdateInput(childScope.model, "update", {
       data: parsed.scalarData,
     });
@@ -1173,7 +1177,6 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       parsed.scalarData,
       parsed.relations
     );
-    assertSelectedUpdateManyDataIsScalar(childScope, parsed.relations);
     const childName = getStepModelName(edge.targetModel, relationName);
     const compiler = this.recordCompilers.updateSelected({
       scope,
@@ -1211,8 +1214,8 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     scope: StepScope,
     edge: ResolvedPolymorphicEdge,
     childScope: QueryScope,
-    create: Record<string, unknown>,
-    update: Record<string, unknown>,
+    create: RecordMutationData,
+    update: RecordMutationData,
     txMode: boolean
   ): Extract<ParentHeldTarget, { kind: "polymorphicUpsert" }> {
     const relationName = edge.relationInfo.name;
@@ -1223,7 +1226,11 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
         `query-engine update cannot resolve referenced field '${edge.referencedField}' for relation '${relationName}'.`
       );
     }
-    const parsed = buildParsedRelationPrograms(childScope, update);
+    const parsed = buildParsedRelationPrograms(
+      childScope,
+      update.parsed,
+      update.source
+    );
     const hasUpdate =
       Object.keys(parsed.scalarData).length > 0 || parsed.relations.length > 0;
     const childName = getStepModelName(edge.targetModel, relationName);
@@ -1679,7 +1686,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
           if (entry.kind === "create") {
             push(
               entry.items.map((data) =>
-                this.createFresh({
+                this.createFresh(this.scope, {
                   childScope,
                   data,
                   incomingMembership: bindRelationMembership(
@@ -1690,6 +1697,25 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
                 })
               )
             );
+            return;
+          }
+          if (createManyCarriesRelations(childScope, entry)) {
+            push([
+              buildFreshRecordSeriesPart({
+                scope,
+                engine: this.engine,
+                childScope,
+                childName,
+                relationName,
+                rows: entry.rows,
+                incomingMembership: bindRelationMembership(
+                  relation,
+                  adoptWrite
+                ),
+                skipDuplicates: entry.skipDuplicates === true,
+                createFresh: this.createFresh,
+              }),
+            ]);
             return;
           }
           push([
@@ -1831,13 +1857,6 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
         );
         return;
       case "updateMany":
-        // CLASS V (T4c): a relation-carrying updateMany is rejected by the legality
-        // check (immediate at construction for a plain update, or deferred to the taken
-        // upsert branch). Skip building the Part so its construction does not throw
-        // ahead of that runtime-branch-gated verdict (an untaken upsert update arm
-        // whose invalid updateMany never runs must not reject the whole tree). ONE
-        // copy, for every membership.
-        if (updateManyCarriesRelations(childScope, entry.items)) return;
         push(buildToManyUpdateManyParts(writeBase, entry));
         return;
       case "delete":
@@ -2025,7 +2044,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     if (entry.kind === "create") {
       target.push(
         ...entry.items.map((data) =>
-          this.createFresh({
+          this.createFresh(this.scope, {
             childScope: leaf.childScope,
             data,
             incomingMembership: {
@@ -2036,6 +2055,26 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
             relationName: leaf.relationName,
           })
         )
+      );
+      return;
+    }
+    if (createManyCarriesRelations(childScope, entry)) {
+      target.push(
+        buildFreshRecordSeriesPart({
+          scope: input.scope,
+          engine: this.engine,
+          childScope,
+          childName,
+          relationName,
+          rows: entry.rows,
+          incomingMembership: {
+            kind: "foreignKey",
+            relation,
+            members,
+          },
+          skipDuplicates: entry.skipDuplicates === true,
+          createFresh: this.createFresh,
+        })
       );
       return;
     }
@@ -2564,7 +2603,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
   }): void {
     const { input, relation, childScope, upsertInput, write } = args;
     input.afterRootParts.push(
-      this.createFresh({
+      this.createFresh(this.scope, {
         childScope,
         data: upsertInput.create,
         incomingMembership: bindRelationMembership(relation, write),
@@ -2783,7 +2822,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
   private interpretParentHeldUpdate(
     input: Parameters<RecordUpdateCompilerState["interpretRelation"]>[0],
     relation: ParentHeldRelation,
-    target: ToOneUpdateTarget,
+    target: SourcedToOneUpdateTarget,
     /** H3/R2 — the sibling supplier's selector, when this modify composes with one. */
     suppliedTarget?: Record<string, unknown>
   ): ParentHeldTarget | undefined {
@@ -2799,7 +2838,11 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       suppliedTarget
     );
     const childName = getStepModelName(relationInfo.targetModel, relationName);
-    const childUpdate = buildParsedRelationPrograms(childScope, target.data);
+    const childUpdate = buildParsedRelationPrograms(
+      childScope,
+      target.data.parsed,
+      target.data.source
+    );
     assertPortablePrimaryKeyUpdateInput(childScope.model, "update", {
       data: childUpdate.scalarData,
     });
@@ -2808,7 +2851,6 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       childUpdate.scalarData,
       childUpdate.relations
     );
-    assertSelectedUpdateManyDataIsScalar(childScope, childUpdate.relations);
     const compiler = this.recordCompilers.updateSelected({
       scope: input.scope,
       engine: this.engine,
@@ -2949,7 +2991,11 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       }
     );
     const childName = getStepModelName(relationInfo.targetModel, relationName);
-    const childUpdate = buildParsedRelationPrograms(childScope, spec.update);
+    const childUpdate = buildParsedRelationPrograms(
+      childScope,
+      spec.update.parsed,
+      spec.update.source
+    );
     const hasUpdate =
       Object.keys(childUpdate.scalarData).length > 0 ||
       childUpdate.relations.length > 0;
@@ -2973,10 +3019,6 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
           assertRelationKeyUpdatesAreCompilable(
             childScope,
             childUpdate.scalarData,
-            childUpdate.relations
-          );
-          assertSelectedUpdateManyDataIsScalar(
-            childScope,
             childUpdate.relations
           );
         }
@@ -3346,11 +3388,11 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
    */
   private buildBeforeTarget(
     childScope: QueryScope,
-    createData: Record<string, unknown>,
+    createData: RecordMutationData,
     rootRacePin?: TargetConstraintPin
   ): BeforeTarget {
     return {
-      subtree: this.createFresh({
+      subtree: this.createFresh(this.scope, {
         childScope,
         data: createData,
         relationName: "",
@@ -4484,10 +4526,15 @@ interface ComposedToOnePayload {
  * connected record; it rides the locate, never the write. The bare form yields no
  * filter and is byte-identical to the bare-payload plan.
  */
+interface SourcedToOneUpdateTarget {
+  readonly data: RecordMutationData;
+  readonly filter?: Record<string, unknown>;
+}
+
 function parentHeldUpdateTarget(
   entry: RelationMutationEntry,
   relationName: string
-): ToOneUpdateTarget {
+): SourcedToOneUpdateTarget {
   const item = entry.kind === "update" ? entry.items[0] : undefined;
   if (!(item && item.target.kind === "correlated")) {
     throw new QueryEngineError(

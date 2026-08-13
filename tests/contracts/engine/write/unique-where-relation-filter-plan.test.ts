@@ -290,7 +290,7 @@ describe("N6-U1 × N6-U2: a NESTED target selector's relation filter", () => {
         reads.push(step.premise.statement.toStatement("$n"));
       } else if (step.kind === "write") {
         writes.push(step.statement.toStatement("$n"));
-      } else {
+      } else if (step.kind === "read") {
         reads.push(step.statement.toStatement("$n"));
       }
     }

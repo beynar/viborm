@@ -138,6 +138,7 @@ All spans follow the `viborm.*` naming convention:
 | `viborm.driver.execute` | Actual database round-trip | execute |
 | `viborm.parse` | Result hydration | operation |
 | `viborm.transaction` | Transaction boundary | Request |
+| `viborm.write.record_series.segment` | One progressive record-series segment attempt | operation |
 | `viborm.cache.get` | Cache read | operation |
 | `viborm.cache.set` | Cache write | operation |
 
@@ -157,6 +158,26 @@ ATTR_DB_DRIVER        // Driver name ("pg", "mysql2", etc.)
 ATTR_CACHE_DRIVER     // Cache driver ("memory", "cloudflare-kv")
 ATTR_CACHE_RESULT     // "hit", "miss", "stale", "bypass"
 ```
+
+### Progressive record-series spans
+
+An ordered committed-segment write emits
+`viborm.write.record_series.segment` around each submitted segment attempt. It
+records only structural facts:
+
+- `viborm.write.atomicity = "segment"`;
+- `viborm.write.member_path`, as a dot-separated ordinal path or `root`;
+- `viborm.write.statement_count`;
+- `viborm.write.commit_outcome`, one of `committed`, `rolled_back`,
+  `unacknowledged`, or `read_only`.
+
+The active parent operation span receives the final committed-segment,
+completed-member, and committed-write-member counts. The executor updates a
+late commit outcome through `Span.setAttributes` when an OpenTelemetry span is
+available, or through the optional `TracerWrapper.setActiveSpanAttributes`
+seam for a custom tracer. Instrumentation failure never changes the database
+outcome. Do not attach row keys, private relation columns, SQL, or payload
+values to these progress attributes.
 
 ---
 

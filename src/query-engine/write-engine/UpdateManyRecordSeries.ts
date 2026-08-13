@@ -1,27 +1,26 @@
 // biome-ignore-all lint/style/useFilenamingConvention: UpdateManyRecordSeries is the architecture name (plan §4.6).
-import { QueryEngineError, UnsupportedOperationError } from "@errors";
+import { QueryEngineError } from "@errors";
 import type { Model } from "@schema/model";
 import { buildPrimaryKeyWhereUnique } from "../builders/correlation-utils";
 import { buildParsedRelationPrograms } from "../builders/relation-mutation-parser";
 import { getPrimaryKeyFields } from "../context";
 import { createQueryScope } from "../context/query-scope";
-import { buildFind, buildFindUnique } from "../operations";
+import { buildFind } from "../operations";
 import type { QueryEngine } from "../query-engine";
-import { findSingleTargetMembershipMove } from "../relation-key-legality";
-import { ResultParser } from "../result/ResultParser";
-import type { Operation, QueryScope } from "../types";
+import { assertSingleTargetMembershipMoveAppliesToRecords } from "../relation-key-legality";
+import type { Operation } from "../types";
 import { validate } from "../validator";
-import { exactlyOneRow } from "./fragment-builders";
 import type { ExecutableOperation } from "./OperationExecutor";
-import {
-  type OperationFragment,
-  type PlanningFragment,
-  type ReadStep,
-  ref,
-} from "./OperationFragment";
+import type { PlanningFragment, ReadStep } from "./OperationFragment";
 import { planningKey } from "./Part";
 import type { RecordSeriesOperation } from "./record-series";
 import { StepScope } from "./StepScope";
+import {
+  buildSeriesResultReads,
+  parseSeriesResultReads,
+  parseSeriesRowKeys,
+  type SeriesResultReadInput,
+} from "./series-result-read";
 import { getStepModelName, isRecord } from "./shared";
 import { sortCapturedRowKeys } from "./target-projection";
 import { UpdateOperation } from "./UpdateOperation";
@@ -201,16 +200,8 @@ export class UpdateManyRecordSeries implements RecordSeriesOperation {
   ): readonly ExecutableOperation[] {
     const select = this.select;
     if (!select) return [];
-    const ctx = createQueryScope(this.engine.adapter, this.model);
-    const name = getStepModelName(this.model, "record");
-    return memberResults.map(
-      (rowKey) =>
-        new FinalRootRead(
-          ctx,
-          this.scope.allocate(`${name}.updateManySeries.read`),
-          buildPrimaryKeyWhereUnique(this.model, asRowKey(rowKey)),
-          select
-        )
+    return buildSeriesResultReads(
+      this.resultReadInput(memberResults.map(asRowKey), select)
     );
   }
 
@@ -227,18 +218,28 @@ export class UpdateManyRecordSeries implements RecordSeriesOperation {
       // attached to its definition.
       return { count: this.capturedRoots(input.captured).length };
     }
-    // The reads ran in captured order and answered one row each, so concatenating
-    // them IS the deterministic captured-order row set. It is shaped by the SAME
-    // parser the returning bulk arm uses, with the same validated payload, so the
-    // public projection, omission and scalar casts are that arm's — not a second
-    // opinion.
-    const rows = input.resultReadResults.flatMap(asRows);
-    return new ResultParser(
-      this.engine.adapter,
-      this.model,
-      this.engine.driver,
-      this.engine.decimalDecode
-    ).parse("updateManyAndReturn", rows, this.args);
+    return parseSeriesResultReads(
+      this.resultReadInput(input.memberResults.map(asRowKey), this.select),
+      input.resultReadResults
+    );
+  }
+
+  private resultReadInput(
+    expectedRowKeys: readonly Readonly<Record<string, unknown>>[],
+    select: Readonly<Record<string, unknown>>
+  ): SeriesResultReadInput {
+    return {
+      engine: this.engine,
+      model: this.model,
+      args: this.args,
+      select,
+      expectedRowKeys,
+      operation: "updateManyAndReturn",
+      scope: this.scope,
+      stepLabel: `${getStepModelName(this.model, "record")}.updateManySeries.read`,
+      missingRowMessage:
+        "updateMany with 'select' could not read back one of the updated rows at the primary key it reported. A later row in the same call moved or removed that row; use the '{ count }' form, or write those rows in separate calls.",
+    };
   }
 
   /** The validated `limit`, or `undefined` when the caller omitted it. */
@@ -283,7 +284,7 @@ export class UpdateManyRecordSeries implements RecordSeriesOperation {
     }
     return sortCapturedRowKeys(
       this.identityFields,
-      rows.map((row) => asRowKey(row))
+      parseSeriesRowKeys(this.engine, this.model, "updateManyAndReturn", rows)
     );
   }
 
@@ -328,111 +329,19 @@ export class UpdateManyRecordSeries implements RecordSeriesOperation {
    * this boundary is pinned as behavior in `update-many-relation-series-behavior.ts`
    * so it stays a decision.
    *
-   * WHICH SHAPES ARE THE SUBJECT is `findSingleTargetMembershipMove`'s (the relation
-   * legality owner's), not this shell's: it knows the edge topology and the parsed
-   * entry shapes, and it is the one place that knows an EMPTY collection names no
-   * target at all. This class owns only the count and the sentence.
+   * The relation-legality owner classifies the shapes and owns the refusal. This
+   * shell supplies only the captured record count and the parsed root programs.
    */
   private assertMembershipAppliesToEveryRoot(rootCount: number): void {
-    if (rootCount < 2) return;
     const parent = createQueryScope(this.engine.adapter, this.model);
     // The RAW data, which is what the members compile: the guard and the writes read
     // one source. Building programs is not parsing — no scalar transform runs here,
     // and the members' own parses are untouched.
-    const move = findSingleTargetMembershipMove(
+    assertSingleTargetMembershipMoveAppliesToRecords(
       parent,
-      buildParsedRelationPrograms(parent, this.rawData).relations
+      buildParsedRelationPrograms(parent, this.rawData, this.rawData).relations,
+      rootCount
     );
-    if (!move) return;
-    throw new UnsupportedOperationError(
-      `updateMany matched ${rootCount} rows, so it cannot apply '${move.kind}' to relation '${move.relationName}': that membership is stored on the target row, which can belong to only one of them — the last row updated would take it from the others. Narrow the filter (or add 'limit: 1') so exactly one row matches, or write this relation in a separate call.`
-    );
-  }
-}
-
-/**
- * One ordinary read of one final root row, by its complete row key.
- *
- * It is spelled here rather than through `ReadOperation` for the reason every
- * already-validated route in this engine exists: `ReadOperation` re-validates through
- * the `findUnique` args schema, which would re-parse the caller's already parsed
- * `select` (the non-idempotence X2 records). It is the same shape
- * `CreateManyRecordSeries` and `ManyAndReturnOperation` build for their own final
- * reads.
- */
-class FinalRootRead implements ExecutableOperation {
-  readonly mode = "transaction" as const;
-  private readonly step: ReadStep;
-
-  constructor(
-    ctx: QueryScope,
-    id: string,
-    where: Record<string, unknown>,
-    select: Record<string, unknown>
-  ) {
-    this.step = {
-      id,
-      kind: "read",
-      statement: buildFindUnique(ctx, { where, select }),
-      outputs: { result: { kind: "rows" } },
-      // THE MISSING-FINAL-READ DECISION. A captured root can stop existing at its
-      // final row key for two reasons, and both are reachable HERE in a way neither
-      // is on the create side:
-      //
-      //   · a LATER member MOVED it — legal whenever a row-key member is also a
-      //     foreign key, or through any primary-key transition on a self-relation;
-      //   · a LATER member DELETED it — a self-referencing `delete`/`deleteMany` in
-      //     the shared `data` removes another captured root. `createMany` has no
-      //     delete verb, so this whole class is new to `updateMany`.
-      //
-      // The answer is REFUSE, not "return the rows that survived", and ONE argument
-      // decides it: the engine's own adjacent behaviour. When the removal happens
-      // BEFORE the victim's member runs, that member already fails loudly at its own
-      // locate, with `NotFoundError`. Choosing a legal-empty final read would mean
-      // the SAME payload answers `NotFoundError` or a silently shorter row list
-      // depending only on the order the roots were captured in — an order-dependent
-      // public contract, which is exactly what §5.2's determinism requirement
-      // forbids.
-      //
-      // What it is NOT: an argument that the two arms must agree. They do not agree
-      // under either choice — `{ count }` answers the captured N and succeeds for
-      // the very payload the `select` arm refuses here (both witnessed) — so "the
-      // arms would disagree" would have been a reason for nothing.
-      //
-      // So: one row per captured root, or the call refuses and everything rolls
-      // back. `raceable: false` — a retry would deterministically do the same thing.
-      // The message names both causes as the EXPLANATION of an observation rather
-      // than as a claim about a row this code never saw.
-      //
-      // ITS REACH IS CARDINALITY AT THE REPORTED KEY, not provenance: it answers
-      // "is there exactly one row here", never "is this the row that member updated"
-      // — and there is no produced-identity selector channel that could answer the
-      // second. The gap that implies has no witness: for a
-      // later member to REPLACE a captured root at its own key, the shared `data`
-      // would have to recreate that key, and then the FIRST member to run it
-      // collides with the row that is still there (measured on PGlite).
-      expects: exactlyOneRow({
-        kind: "query",
-        message:
-          "updateMany with 'select' could not read back one of the updated rows at the primary key it reported. A later row in the same call moved or removed that row; use the '{ count }' form, or write those rows in separate calls.",
-        raceable: false,
-      }),
-    };
-  }
-
-  planning(): PlanningFragment {
-    return { steps: [] };
-  }
-
-  compile(): OperationFragment {
-    return {
-      steps: [this.step],
-      outputs: { result: ref(this.step.id, "result") },
-    };
-  }
-
-  parse<T>(outputs: Readonly<Record<string, unknown>>): T {
-    return outputs.result as T;
   }
 }
 
@@ -447,19 +356,6 @@ function asRowKey(value: unknown): Record<string, unknown> {
   if (isRecord(value)) return value;
   throw new QueryEngineError(
     "query-engine-v2 updateMany with relation data lost a captured root's row key."
-  );
-}
-
-/**
- * The same narrowing for a read's rows. How MANY rows is the step's postcondition
- * (above); this is only the executor's `unknown` boundary, and it is spelled loudly
- * for the same reason its sibling is — a silent `[]` here would drop a row from the
- * public answer, which is the exact failure the postcondition exists to prevent.
- */
-function asRows(value: unknown): readonly unknown[] {
-  if (Array.isArray(value)) return value;
-  throw new QueryEngineError(
-    "query-engine-v2 updateMany with relation data lost a root's final read."
   );
 }
 

@@ -4,13 +4,12 @@ import {
   membershipReferencedFields,
 } from "./builders/relation-data-builder";
 import {
-  buildParsedRelationPrograms,
   type ParsedRecordPrograms,
   type ParsedRelationMutation,
   type RelationMutationEntry,
   relationMutationPrograms,
 } from "./builders/relation-mutation-parser";
-import { createQueryScope, getPrimaryKeyFields } from "./context/query-scope";
+import { getPrimaryKeyFields } from "./context/query-scope";
 import { classifyRelationKeyScalarUpdate } from "./TargetConstraint";
 import type { QueryScope } from "./types";
 
@@ -40,31 +39,12 @@ import type { QueryScope } from "./types";
  * key per entry with no union and no de-duplication to forget. What survives from
  * the defect is the OWNERSHIP: every site that decides "relation-bearing" asks this
  * function, because the blind spot was three copies of one question, not three
- * independent judgements. The returned ORDER is public — it is the `relations` meta
- * of {@link assertUpdateManyRelationsAreCompilable}'s error.
+ * independent judgements. The returned order is the parser's relation-key order.
  */
 export function relationWriteKeys(
   parsed: ParsedRecordPrograms
 ): readonly string[] {
   return parsed.relations.map((entry) => entry.name);
-}
-
-/**
- * V1's updateMany-data relation legality (P6 pure-leaf extraction, consumed by
- * V2): a nested relation write inside `updateMany` data is inexpressible, rejected
- * before any effect with the byte-identical typed message. `relationKeys` is
- * {@link relationWriteKeys} of one updateMany input's parsed `data`.
- */
-export function assertUpdateManyRelationsAreCompilable(
-  relationName: string,
-  relationKeys: readonly string[]
-): void {
-  if (relationKeys.length === 0) return;
-  throw new NestedWriteError(
-    `Nested relation writes inside updateMany data for relation '${relationName}' are not supported.`,
-    relationName,
-    { meta: { operation: "updateMany", relations: [...relationKeys] } }
-  );
 }
 
 /**
@@ -115,6 +95,24 @@ export function findSingleTargetMembershipMove(
 }
 
 /**
+ * Refuse one named child-held target membership applied to several selected
+ * source records. The parsed shape owner identifies the move; this boundary owns
+ * the observed record count and the one public explanation of why it is ambiguous.
+ */
+export function assertSingleTargetMembershipMoveAppliesToRecords(
+  source: QueryScope,
+  relations: readonly ParsedRelationMutation[],
+  recordCount: number
+): void {
+  if (recordCount < 2) return;
+  const move = findSingleTargetMembershipMove(source, relations);
+  if (!move) return;
+  throw new UnsupportedOperationError(
+    `updateMany matched ${recordCount} rows, so it cannot apply '${move.kind}' to relation '${move.relationName}': that membership is stored on the target row, which can belong to only one of them — the last row updated would take it from the others. Narrow the filter (or add 'limit: 1') so exactly one row matches, or write this relation in a separate call.`
+  );
+}
+
+/**
  * How many EXISTING targets an entry names, for the three verbs that move a stored
  * membership; zero for every other verb. Exhaustive over the parsed entry union, so
  * a new verb is a compile error here rather than a silently unclassified shape.
@@ -129,85 +127,6 @@ function namedTargetCount(entry: RelationMutationEntry): number {
     default:
       return 0;
   }
-}
-
-/**
- * Reject relation writes carried by any direct `updateMany` entry in one
- * selected-record update. Callers own when this check runs so an untaken upsert
- * arm remains inert.
- */
-export function assertUpdateManyDataRelationsAreCompilable(
-  source: QueryScope,
-  relations: readonly ParsedRelationMutation[]
-): void {
-  const invalid = findRelationBearingUpdateManyData(source, relations);
-  if (!invalid) return;
-  assertUpdateManyRelationsAreCompilable(
-    invalid.relationName,
-    invalid.relationKeys
-  );
-}
-
-/**
- * THE owner of "nested bulk data carries relation writes"
- * (guard-ownership-ledger.md, cluster 2).
- *
- * A set-based UPDATE publishes no per-row identity a descendant write can correlate
- * to, so a nested `updateMany` accepts scalar data only (ATOM §17; both lifts were
- * measured and rejected, so this wall stands).
- *
- * ONE construction site, TWO nouns. The junction and ordinary wordings used to be
- * two throw tokens of the same decision, and two more copies stood downstream in
- * `RelationJunctionPart.scalarOnly` and `RelationWritePart.parseScalarUpdateData`.
- * All three are gone; both shipped sentences survive here byte-identically, chosen
- * from `invalid.isJunction`, because a message noun is not a second decision.
- */
-export function assertSelectedUpdateManyDataIsScalar(
-  source: QueryScope,
-  relations: readonly ParsedRelationMutation[]
-): void {
-  const invalid = findRelationBearingUpdateManyData(source, relations);
-  if (!invalid) return;
-  throw new UnsupportedOperationError(
-    invalid.isJunction
-      ? `query-engine-v2 nested 'updateMany' on many-to-many relation '${invalid.relationName}' does not support nested relation writes in its data.`
-      : `query-engine-v2 updateMany for relation '${invalid.relationName}' does not support nested relation writes in its data.`
-  );
-}
-
-function findRelationBearingUpdateManyData(
-  source: QueryScope,
-  relations: readonly ParsedRelationMutation[]
-):
-  | {
-      readonly relationName: string;
-      readonly relationKeys: readonly string[];
-      readonly isJunction: boolean;
-    }
-  | undefined {
-  for (const program of relationMutationPrograms(relations)) {
-    const relation = bindRelation(source, program.relationInfo);
-    const target = createQueryScope(
-      source.adapter,
-      program.relationInfo.targetModel
-    );
-    for (const entry of program.entries) {
-      if (entry.kind !== "updateMany") continue;
-      for (const input of entry.items) {
-        const nested = relationWriteKeys(
-          buildParsedRelationPrograms(target, input.data)
-        );
-        if (nested.length > 0) {
-          return {
-            relationName: program.relationInfo.name,
-            relationKeys: nested,
-            isJunction: relation.position === "junction",
-          };
-        }
-      }
-    }
-  }
-  return undefined;
 }
 
 /**

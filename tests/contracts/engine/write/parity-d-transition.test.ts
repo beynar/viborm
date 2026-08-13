@@ -1634,7 +1634,9 @@ describe("parity D — two transitioned edges keep one order in three places", (
         (step) =>
           step.kind === "guard"
             ? driver._prepare(step.premise.statement).params
-            : driver._prepare(step.statement).params
+            : step.kind === "recordSeries"
+              ? []
+              : driver._prepare(step.statement).params
       )
     ).toEqual([
       ["h1"],

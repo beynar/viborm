@@ -1,4 +1,5 @@
 import { createClient } from "@client/client";
+import type { OperationPayload } from "@client/types";
 import { PGliteDriver } from "@drivers/pglite";
 import { s } from "@schema/index";
 import { expectTypeOf, test } from "vitest";
@@ -54,7 +55,41 @@ const client = createClient({
   driver: new PGliteDriver(),
 });
 
-const requiredNestedCreateMany = { createMany: { data: [] } };
+const requiredNestedCreateManyCreatePayload = {
+  data: {
+    id: "parent-1",
+    requiredChildren: {
+      createMany: {
+        data: [
+          {
+            id: "child-4",
+            subject: {
+              connect: { type: "post", where: { id: "post-1" } },
+            },
+          },
+        ],
+      },
+    },
+  },
+} satisfies OperationPayload<"create", typeof parent>;
+
+const requiredNestedCreateManyUpdatePayload = {
+  where: { id: "parent-1" },
+  data: {
+    requiredChildren: {
+      createMany: {
+        data: [
+          {
+            id: "child-5",
+            subject: {
+              connect: { type: "video", where: { id: "video-1" } },
+            },
+          },
+        ],
+      },
+    },
+  },
+} satisfies OperationPayload<"update", typeof parent>;
 
 /**
  * PINNED AS COMPILING WITH THE TYPO (Package J1 labelled this; it was an
@@ -108,21 +143,24 @@ const rootRelationFromVariable = () => {
   return client.optionalChild.createMany({ data: rows });
 };
 
-const nestedCreateRefusal = () =>
+const nestedCreateWithRequiredRelation = () =>
+  client.parent.create(requiredNestedCreateManyCreatePayload);
+
+const nestedUpdateWithRequiredRelation = () =>
+  client.parent.update(requiredNestedCreateManyUpdatePayload);
+
+const nestedCreateStillRequiresItsOtherMembership = () =>
   client.parent.create({
     data: {
       id: "parent-1",
-      // @ts-expect-error - nested createMany cannot supply the required polymorphic edge
-      requiredChildren: requiredNestedCreateMany,
-    },
-  });
-
-const nestedUpdateRefusal = () =>
-  client.parent.update({
-    where: { id: "parent-1" },
-    data: {
-      // @ts-expect-error - update-family createMany has the same scalar-only boundary
-      requiredChildren: requiredNestedCreateMany,
+      requiredChildren: {
+        createMany: {
+          data: [
+            // @ts-expect-error - the enclosing parent supplies parent, not subject
+            { id: "child-6" },
+          ],
+        },
+      },
     },
   });
 
@@ -145,12 +183,13 @@ const optionalNestedUpdate = () =>
     },
   });
 
-test("public createMany availability follows polymorphic nullability", () => {
+test("public createMany rows preserve polymorphic relation requirements", () => {
   expectTypeOf(rootRequiredConnect).toBeFunction();
   expectTypeOf(rootRelationInsteadOfFk).toBeFunction();
   expectTypeOf(rootRelationFromVariable).toBeFunction();
-  expectTypeOf(nestedCreateRefusal).toBeFunction();
-  expectTypeOf(nestedUpdateRefusal).toBeFunction();
+  expectTypeOf(nestedCreateWithRequiredRelation).toBeFunction();
+  expectTypeOf(nestedUpdateWithRequiredRelation).toBeFunction();
+  expectTypeOf(nestedCreateStillRequiresItsOtherMembership).toBeFunction();
   expectTypeOf(optionalRoot).toBeFunction();
   expectTypeOf(optionalNestedCreate).toBeFunction();
   expectTypeOf(optionalNestedUpdate).toBeFunction();

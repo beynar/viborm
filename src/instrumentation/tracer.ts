@@ -83,6 +83,12 @@ export interface TracerWrapper {
   startActiveSpanSync<T>(options: VibORMSpanOptions, fn: (span?: Span) => T): T;
 
   /**
+   * Add attributes to the active span when the installed tracer can expose it.
+   * Optional so existing custom wrappers remain source-compatible.
+   */
+  setActiveSpanAttributes?: ((attributes: Attributes) => void) | undefined;
+
+  /**
    * Check if tracing is enabled (OTel loaded and configured)
    */
   isEnabled(): boolean;
@@ -105,6 +111,10 @@ const noopTracer: TracerWrapper = Object.freeze({
     fn: (span?: Span) => T
   ): T {
     return fn();
+  },
+
+  setActiveSpanAttributes(): void {
+    // No active provider span exists.
   },
 
   isEnabled(): boolean {
@@ -334,6 +344,13 @@ export function createTracerWrapper(
         // The operation outcome below remains authoritative.
       }
       return executeOnce();
+    },
+
+    setActiveSpanAttributes(attributes: Attributes): void {
+      if (!otel) return;
+      safely(() =>
+        otel?.trace.getSpan(otel.context.active())?.setAttributes(attributes)
+      );
     },
 
     isEnabled(): boolean {

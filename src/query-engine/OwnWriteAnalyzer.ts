@@ -10,6 +10,7 @@ import {
   buildParsedRelationPrograms,
   type ParsedRelationMutation,
   type ProgramRelationMutation,
+  type RecordMutationData,
 } from "./builders/relation-mutation-parser";
 import {
   type DependencyOperation,
@@ -50,12 +51,16 @@ export class OwnWriteAnalyzer {
 
   analyzeCreate(
     relation: OwnWriteRelation,
-    data: Record<string, unknown>,
-    rootOperation: "create" | "connectOrCreate" | "upsert",
+    data: RecordMutationData,
+    rootOperation: OwnWriteCreateSummary["operation"],
     insertSummary?: OwnWriteCreateSummary
   ): void {
     const childCtx = relation.createChildScope();
-    const parsed = buildParsedRelationPrograms(childCtx, data);
+    const parsed = buildParsedRelationPrograms(
+      childCtx,
+      data.parsed,
+      data.source
+    );
     const insertBarrier = insertSummary
       ? new OwnWriteInsertBarrier(relation, insertSummary)
       : undefined;
@@ -72,12 +77,16 @@ export class OwnWriteAnalyzer {
 
   analyzeUpdate(
     relation: OwnWriteRelation,
-    data: Record<string, unknown>,
+    data: RecordMutationData,
     selector: Record<string, unknown> | undefined,
     rootOperation: "update" | "upsert" = "update"
   ): void {
     const childCtx = relation.createChildScope();
-    const parsed = buildParsedRelationPrograms(childCtx, data);
+    const parsed = buildParsedRelationPrograms(
+      childCtx,
+      data.parsed,
+      data.source
+    );
 
     relation.ledger.withNestedScope(() => {
       new OwnWriteNode(

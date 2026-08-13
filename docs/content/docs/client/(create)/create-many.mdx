@@ -52,28 +52,45 @@ await client.user.createMany({
 // Result: { count: 2 } — and one team, not two.
 ```
 
-Rows run **left to right inside a single transaction**, each one exactly as if
-you had called `create` with it. That order is the contract, not an artifact:
-row 2 sees what row 1 committed, which is why two rows naming the same
-`connectOrCreate` target converge on one row instead of racing to create two.
+Rows run **left to right**, each one exactly as if you had called `create` with
+it. That order is the contract, not an artifact: row 2 sees what row 1 wrote,
+which is why two rows naming the same `connectOrCreate` target converge on one
+row instead of racing to create two.
 
 What follows from it:
 
 - **`count` is the number of root rows inserted** — nested children are not
   counted.
-- **Everything rolls back together.** A failure in any row undoes every row.
-- **The call needs a real transaction**, so a driver that only supports batches
-  (D1, PlanetScale, Neon HTTP) rejects this form. Rows that stay on the grouped
-  `INSERT` path — scalar rows, and the direct polymorphic `connect` above — are
-  unaffected, because they never become a per-row sequence.
+- **Transaction-capable drivers roll everything back together.** A failure in
+  any row undoes every row.
+- **D1 keeps the same successful result and row order, with a different failure
+  boundary.** It commits ordered atomic segments. If a later segment fails, the
+  error reports the committed prefix and those earlier writes remain committed.
+  See [D1 transactions and batching](/docs/drivers/sqlite/d1#relation-bearing-bulk-writes).
+- Other batch-only drivers reject this relation-bearing form before writing.
+  Rows that stay on the grouped `INSERT` path — scalar rows and the direct
+  polymorphic `connect` above — are unaffected.
 
-:::warning
-`skipDuplicates` cannot be combined with nested relation writes, and the call is
-  refused before anything is written. A skipped root has two defensible meanings
-  for its nested effects — suppress them, or apply them to the row that already
-  exists — and VibORM will not pick one silently. Drop `skipDuplicates`, or
-  write the relations in a separate call.
-:::
+With `skipDuplicates`, a conflicting root row suppresses its **complete nested
+record subtree**. VibORM does not apply that row's relation effects to the
+existing record:
+
+```ts
+await client.user.createMany({
+  data: [
+    {
+      email: "already-exists@example.com",
+      posts: { create: { title: "also skipped" } },
+    },
+  ],
+  skipDuplicates: true,
+});
+```
+
+This relation-bearing skip contract requires an interactive transaction. D1
+and other batch-only drivers reject the combination before the first user
+write because their batch errors cannot distinguish a root conflict from a
+descendant conflict safely.
 
 ## Skip duplicates
 
@@ -96,8 +113,9 @@ A row containing only database-owned defaults cannot use `skipDuplicates`.
 VibORM rejects that shape before writing because no supported database shares a
 duplicate-only `DEFAULT VALUES` primitive.
 
-`skipDuplicates` also cannot be combined with nested relation writes — see
-[Writing relations](#writing-relations) for why.
+For relation-bearing rows, a skipped root suppresses its whole nested subtree.
+That form requires an interactive transaction; see
+[Writing relations](#writing-relations).
 
 ## Getting the rows back
 
@@ -133,31 +151,25 @@ drop `skipDuplicates`.
 
 When the rows carry relations, the returned rows are read **after every row has
 finished**, in input order, so a child written by a later row cannot leave an
-earlier row's projection stale. If a later row moved an earlier row's primary
-key — legal whenever a key member is also a foreign key — that read finds
-nothing, and the call **fails rather than hand back a shorter list**. The
-`{ count }` form of the same payload succeeds.
+earlier row's projection stale. VibORM groups those final reads into bounded
+set queries, normally one query; large inputs are split only to respect the
+driver's parameter limit. If a later row moved an earlier row's primary key —
+legal whenever a key member is also a foreign key — the read finds nothing,
+and the call **fails rather than hand back a shorter list**. The `{ count }`
+form of the same payload succeeds.
 
 ## What it costs
 
 The scalar path is unchanged: one grouped `INSERT` (plus the skip-duplicate
 preparation it always used).
 
-A relation-bearing call costs one transaction plus, per row, exactly what that
-row would have cost as a single `create` — the same target probes, the same
-child writes, in the same order. Ten rows that each `connect` a target issue ten
-probes, because that is what ten `create` calls issue. Adding a `select` adds
-one read per row at the end.
-
-On PostgreSQL a row whose relation work is nested `create` / `createMany` only —
-no `connect`, `connectOrCreate` or `upsert`, each of which has to look a target
-up first — collapses into **one** statement: the parent `INSERT` and its child
-`INSERT`s become a single `WITH … RETURNING` command instead of one statement
-each, with a database-generated parent key travelling between them inside that
-statement. Measured: a parent plus two children went from four statements to
-one. It is an optimization with no semantic surface — same rows, same order,
-same errors — and it applies to a plain `create` too. Other providers run the
-portable statement series.
+On an interactive driver, a relation-bearing call costs one transaction plus,
+per row, exactly what that row would have cost as a single `create` — the same
+target probes, the same child writes, in the same order. D1 sends one atomic
+committed batch per executable segment instead of one transaction. Ten rows
+that each `connect` a target issue ten probes, because that is what ten `create`
+calls issue. Adding a `select` adds one or more bounded set reads at the end,
+normally one, rather than one public-result read per row.
 
 ## Options
 
@@ -165,8 +177,8 @@ portable statement series.
 await client.user.createMany({
   data: [{ ... }],      // Required: array of records — the ordinary create data
                         // shape, nested relation writes included
-  skipDuplicates: true, // Optional: skip duplicate-key conflicts
-                        // (not combinable with nested relation writes)
+  skipDuplicates: true, // Optional: skip duplicate-key conflicts; with relation
+                        // writes, the complete skipped subtree is suppressed
   select: { ... },      // Optional (scalar fields only): return the created rows
                         // instead of { count }
 });

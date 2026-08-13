@@ -114,6 +114,7 @@ export class BunSQLiteDriver extends Driver<
   BunSQLiteDatabase
 > {
   readonly adapter: DatabaseAdapter = new SQLiteAdapter();
+  readonly maxBindParametersPerStatement: number | undefined = 999;
   readonly result: DriverResultParser = sqliteResultParser;
   protected override readonly serializeTransactions = true;
 

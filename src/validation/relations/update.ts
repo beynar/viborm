@@ -12,8 +12,7 @@ import { createSchema, fail, ok, validateSchema } from "../primitives/helpers";
 import v, { type V } from "../primitives/v";
 import type { VibSchema } from "../types";
 import type { NestedCreateManySchema } from "./create";
-import { applyCreateManyAvailability } from "./create-many-availability";
-import type { GetTargetSchemas, SchemaGetter, TargetModel } from "./helpers";
+import type { GetTargetSchemas, SchemaGetter } from "./helpers";
 import {
   nestedRelationDataProjection,
   type ProjectedNestedCreate,
@@ -418,16 +417,12 @@ export const toManyUpdateFactory = <
   // N1 — see the to-one factory above and {@link ProjectedNestedUpdate}.
   const getUpdateSchema = projection.getUpdateSchema;
 
-  const createManySchema = applyCreateManyAvailability(
-    state.getter() as TargetModel<S>,
-    v.object(
-      {
-        data: () => v.array(projection.getCreateManyDataSchema()),
-        skipDuplicates: v.boolean({ optional: true }),
-      },
-      { atLeast: ["data"] }
-    ),
-    projection.satisfiedPolymorphicRelation
+  const createManySchema = v.object(
+    {
+      data: () => v.array(getCreateSchema()),
+      skipDuplicates: v.boolean({ optional: true }),
+    },
+    { atLeast: ["data"] }
   );
 
   const connectOrCreateSchema = v.object(

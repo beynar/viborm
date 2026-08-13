@@ -70,9 +70,8 @@ import { beforeAll, describe, expect, test } from "vitest";
  *      why. It is a TRIPWIRE, not a target: a site is a construction position, and
  *      several positions can express one invariant.
  *   2. **The tracked route corpus**, which exercises named write shapes and asserts
- *      that exactly the documented ones refuse. Package J made that list non-empty
- *      on purpose — a boundary a lift draws deliberately belongs in the list, not
- *      in silence.
+ *      that exactly the documented ones refuse. The list is empty again: root-conflict
+ *      disposition now gives `skipDuplicates` with nested effects one exact meaning.
  *
  * The per-SHAPE classification — which of the surviving refusals is a semantic
  * contradiction, which is a missing stable identity, which is the substrate, which
@@ -85,8 +84,7 @@ import { beforeAll, describe, expect, test } from "vitest";
 const REMAINING_ROUTE =
   "createMany with select + skipDuplicates on non-returning drivers";
 
-/** PACKAGE J's one new route: `skipDuplicates` beside a general nested effect. */
-const J_SKIP_WITH_RELATIONS =
+const SKIP_WITH_RELATIONS_ROUTE =
   "createMany with skipDuplicates + relation-bearing rows";
 
 class BatchlessNonReturningMySQL2 extends MySQL2Driver {
@@ -271,13 +269,10 @@ describe("write engine route inventory (P6 accounting)", () => {
           );
         },
       },
-      // --- PACKAGE J (2026-08-10): the one refusal the lift ADDS. ---
-      // Plan §5.1 keeps `skipDuplicates` + general nested effects refused because the
-      // PRODUCT meaning is undecided (does a skipped root suppress its nested effects,
-      // or adopt the existing row and apply them?), and says not to guess it. Tracked
-      // here on purpose: it is a live route, not a historical label.
+      // A skipped root suppresses its complete nested subtree. This route stays in the
+      // corpus so a regression to Package J's old construction refusal is visible.
       {
-        label: J_SKIP_WITH_RELATIONS,
+        label: SKIP_WITH_RELATIONS_ROUTE,
         construct: () => {
           constructRoutedOperation(m2m, manyToManySchema.post, "createMany", {
             data: [{ id: "p1", title: "a", tags: { connect: { id: "t1" } } }],
@@ -294,11 +289,8 @@ describe("write engine route inventory (P6 accounting)", () => {
   // refetch; witnesses in skip-select-capture-behavior.ts). REMAINING_ROUTE survives as
   // the corpus label only.
   //
-  // AMENDED BY PACKAGE J: the tracked-refusal list is no longer empty, and being
-  // non-empty is the point. J lifted the relation-bearing `createMany` refusal and, in
-  // the same move, drew ONE narrower boundary the plan asked for by name — so the list
-  // says exactly which shape that is, rather than going quiet again.
-  test("exactly one tracked write shape refuses at construction", () => {
+  // Root-conflict disposition later absorbed Package J's one narrowed residue too.
+  test("all tracked write shapes construct", () => {
     const routed: string[] = [];
     for (const c of cases) {
       try {
@@ -311,7 +303,7 @@ describe("write engine route inventory (P6 accounting)", () => {
         }
       }
     }
-    expect(routed).toEqual([J_SKIP_WITH_RELATIONS]);
+    expect(routed).toEqual([]);
   });
 
   // The corpus above exercises the *tracked* shapes; this tripwire catches the
@@ -523,13 +515,12 @@ describe("write engine route inventory (P6 accounting)", () => {
   // 'profile' does not support nested relation writes in its data.`, thrown at
   // construction with an empty statement log — by routing that arm through
   // `RecordCompilerSeam.updateSelected` with the complete parsed record. But the throw
-  // it retired is a BRANCH of a SHARED site: `RelationWritePart.parseScalarUpdateData`
-  // serves nested `updateMany` too, and that half stays (ATOM §17 — a set-based UPDATE
-  // has no per-row captured identity for a descendant write to correlate to; lifting it
-  // is Package K/L2, not G). So the site survives, worded for `updateMany` alone, the
-  // dead `kind === "inverseUpsert" ? "upsert" : kind` ternary that spelled the other
-  // half is gone, and the count is 22 before and after. A census of SITES cannot show a
-  // half-site retiring, which is exactly why this paragraph exists.
+  // it retired was then a BRANCH of a SHARED site: `RelationWritePart.parseScalarUpdateData`
+  // still served nested `updateMany`, so Package G left the construction site in place
+  // and only removed its inverse-upsert branch. Relation-bearing bulk later retired the
+  // remaining branch by capturing each selected target and compiling one record subtree
+  // per row. The historical 22 → 22 result for Package G is therefore still true; the
+  // current executable census below records the later deletion.
   //   The absorbed shape carries behavioral witnesses rather than a reachability
   //   argument, per the CENSUS DISCIPLINE note above: `inverse-to-one-update-depth`
   //   drives the found arm's depth, the missing arm's inertness, deferred found-arm
@@ -716,8 +707,9 @@ describe("write engine route inventory (P6 accounting)", () => {
   // carrying a general relation program routes the whole operation to
   // `CreateManyRecordSeries`. The site added is the boundary plan §5.1 draws by name:
   // `skipDuplicates` beside a general nested effect, refused typed at construction
-  // (`CreateManyRecordSeries.ts`), tracked in the corpus above as
-  // {@link J_SKIP_WITH_RELATIONS}.
+  // (`CreateManyRecordSeries.ts`), tracked in the corpus above as the
+  // skip-with-relations route. Record-series conflict disposition later retired it:
+  // when the root is skipped, its complete subtree is skipped.
   //
   // WHY IT IS AN UnsupportedOperationError AND NOT A TransactionError. The two substrate
   // refusals it sits beside (`ManyAndReturnOperation`'s `select`-in-forced-batch, and its
@@ -822,20 +814,22 @@ describe("write engine route inventory (P6 accounting)", () => {
   //     SUBQUERY, is unexercised. If the ledger's `delete`-target-write refusal is ever
   //     narrowed, this elision goes live on a value shape no witness covers.
   //
-  // K GATE (2026-08-10) — 20 -> 21. ONE SITE ADDED, in `UpdateManyRecordSeries`:
-  //   · `assertMembershipAppliesToEveryRoot` — a CHILD-HELD `connect`,
+  // K GATE (2026-08-10) — originally 20 -> 21. ONE INVARIANT ADDED:
+  //   · a CHILD-HELD `connect`,
   //     `connectOrCreate` or `set` NAMING AT LEAST ONE EXISTING TARGET in root
   //     `updateMany` data when the capture found MORE THAN ONE root. The membership
   //     is stored on the target row and a target can hold one parent, so applying it
   //     to N roots in sequence ends with the last root owning the child and the rest
   //     silently not — which is not what "apply this update to every selected row"
   //     can mean. It is N-DEPENDENT, so no schema can own it (the count is only known
-  //     after the capture), and it fires inside `compileMembers`, before any member
-  //     is built and therefore before the first write. Junction and parent-held
+  //     after the capture), and it fires before any member is built and therefore
+  //     before the first write. Junction and parent-held
   //     equivalents are deliberately NOT refused, and neither is `create`: those mean
   //     one thing per root. The same payload at N = 1 builds its member and runs.
-  //     WHICH SHAPES qualify is `relation-key-legality.findSingleTargetMembershipMove`'s
-  //     (the relation legality owner's); the shell owns the count and the sentence.
+  //     Relation-bearing bulk moved the public refusal and sentence to
+  //     `relation-key-legality.assertSingleTargetMembershipMoveAppliesToRecords`,
+  //     so root and nested record series consume one owner. The shell supplies only
+  //     the captured count and parsed programs; old site 1 is retired into site 22.
   //     Its DEPTH is the root's own relation keys: a membership move a fresh
   //     descendant carries is applied per root and is not refused, because at that
   //     depth the series does what N ordinary `update` calls do (pinned in
@@ -988,11 +982,11 @@ describe("write engine route inventory (P6 accounting)", () => {
       const source = await readFile(join(dir, file), "utf8");
       sites += source.split("new UnsupportedOperationError(").length - 1;
     }
-    expect(sites).toBe(14);
+    expect(sites).toBe(13);
   });
 
   /**
-   * The classification names 18 throw coordinates and 17 owner declarations. Package N3
+   * The classification names 17 throw coordinates and 17 owner declarations. Package N3
    * deleted the previous generation of line-number claims because they had decayed — 18
    * of 22 doc coordinates no longer resolved — and then wrote fresh ones, which decay
    * exactly the same way unless something executes them. This is that something: it
@@ -1004,8 +998,13 @@ describe("write engine route inventory (P6 accounting)", () => {
    * closing narrative, and `docs/architecture/guard-ownership-ledger.md` be read side by
    * side. The gaps are the record:
    *
-   *   · 9, 10, 23 — cluster 2, "nested bulk data carries relation writes". FOUR
-   *     expressions became ONE owner (site 22).
+   *   · 9, 10, 22, 23 — cluster 2, "nested bulk data carries relation writes".
+   *     Record-series compilation retired the refusal. Site number 22 now names the
+   *     narrower and different N>1 single-target membership invariant.
+   *   · 7 — a create-series root conflict now has an explicit conflict disposition;
+   *     construction no longer needs to refuse `skipDuplicates` without a literal key.
+   *   · 27 — progressive committed-series execution added one first-knowable provider
+   *     capability boundary. This replaces no older site and is classified explicitly.
    *   · 14, 16, 18 — cluster 1, "a fresh record cannot publish the referenced column
    *     this edge needs". FOUR construction sites became ONE owner (site 15,
    *     `requireRecordReferenced`), which names its position.
@@ -1026,9 +1025,7 @@ describe("write engine route inventory (P6 accounting)", () => {
     const { readFile } = await import("node:fs/promises");
     const { join } = await import("node:path");
 
-    /** `[site, path under src, throw line, owner declaration line, owner symbol]`.
-     *  A `null` owner symbol means the site's owner is not a named declaration
-     *  (site 7 is the constructor). */
+    /** `[site, path under src, throw line, owner declaration line, owner symbol]`. */
     const CLASSIFIED: readonly [
       number,
       string,
@@ -1037,126 +1034,102 @@ describe("write engine route inventory (P6 accounting)", () => {
       string | null,
     ][] = [
       [
-        1,
-        "query-engine/write-engine/UpdateManyRecordSeries.ts",
-        // Shifted -1 when unit 9.6 deleted the series' unread `mode` line.
-        347,
-        336,
-        "assertMembershipAppliesToEveryRoot",
-      ],
-      [
         2,
         "query-engine/write-engine/RecordUpdateCompiler.ts",
-        // Shifted by Phase 4 (axis migration reshaped the file above), then Phase 5.
-        1976,
-        1948,
+        1995,
+        1967,
         "postTransitionReference",
       ],
       [
         3,
         "query-engine/write-engine/RecordUpdateCompiler.ts",
-        // Shifted by Phase 4, then Phase 5.
-        2191,
-        2087,
+        2230,
+        2126,
         "resolveCreateParent",
       ],
       [
         4,
         "query-engine/write-engine/RecordUpdateCompiler.ts",
-        // Shifted by Phase 4, then Phase 5.
-        3327,
-        3308,
+        3369,
+        3350,
         "recordSharedKeyFold",
       ],
       [
         5,
         "query-engine/write-engine/RecordUpdateCompiler.ts",
-        // Shifted by Phase 4, then Phase 5.
-        3407,
-        3399,
+        3449,
+        3441,
         "beforeTargetReferencedValue",
       ],
       [
         6,
         "query-engine/write-engine/RecordUpdateCompiler.ts",
-        // Shifted by Phase 5.
-        4555,
-        4516,
+        4602,
+        4563,
         "composeToOneEntries",
-      ],
-      [
-        7,
-        "query-engine/write-engine/CreateManyRecordSeries.ts",
-        // Shifted -1 by unit 9.6 (mode deletion).
-        125,
-        null,
-        null,
       ],
       [
         8,
         "query-engine/write-engine/RelationJunctionPart.ts",
-        // Shifted +1 / -2 by distinct-truth phase 3 (bound junction sides): the
-        // class's junction carve-out shrank by three lines and the target
-        // reference read wraps. Coordinates only — the site is unchanged.
-        // Shifted again by Phase 4, then Phase 5.
-        1385,
-        1370,
+        1443,
+        1428,
         "resolveCreatePk",
       ],
       [
         12,
         "query-engine/write-engine/RelationUpsertPart.ts",
-        // Shifted by Phase 5.
-        758,
-        747,
+        756,
+        745,
         "withoutAgreeingOwnedFk",
       ],
       [
         13,
         "query-engine/write-engine/RelationUpsertPart.ts",
-        // Shifted by Phase 4, then Phase 5.
-        1208,
-        1201,
+        1211,
+        1204,
         "assertArmEdgeIsChildHeld",
       ],
       [
         15,
         "query-engine/write-engine/CreateOperation.ts",
-        // Shifted by unit 9.1, then Phase 4, then Phase 5.
-        2786,
-        2778,
+        2912,
+        2904,
         "requireRecordReferenced",
       ],
       [
         19,
         "query-engine/write-engine/CreateOperation.ts",
-        // Shifted by unit 9.1, then Phase 4, then Phase 5.
-        2864,
-        2853,
+        3009,
+        2998,
         "producedReference",
       ],
       [
         20,
         "query-engine/write-engine/CreateOperation.ts",
-        // Shifted by unit 9.1, then Phase 4, then Phase 5.
-        3175,
-        3161,
+        3322,
+        3308,
         "assertSharedPkResolved",
       ],
       [
         21,
         "query-engine/write-engine/UpsertOperation.ts",
-        1153,
-        1109,
+        1151,
+        1107,
         "createArmIdentity",
+      ],
+      [
+        27,
+        "query-engine/write-engine/OperationExecutor.ts",
+        1510,
+        1506,
+        "progressiveSeriesRefusal",
       ],
       [
         22,
         "query-engine/relation-key-legality.ts",
-        // Shifted by Phase 4, then Phase 5.
-        171,
-        165,
-        "assertSelectedUpdateManyDataIsScalar",
+        110,
+        102,
+        "assertSingleTargetMembershipMoveAppliesToRecords",
       ],
       [
         24,
@@ -1205,7 +1178,7 @@ describe("write engine route inventory (P6 accounting)", () => {
     }
     expect(misses).toEqual([]);
     // The list itself must stay complete, or a site could be dropped to keep it green.
-    expect(CLASSIFIED.length).toBe(18);
+    expect(CLASSIFIED.length).toBe(17);
   });
 });
 
@@ -1362,9 +1335,9 @@ describe("write engine full client operation surface (P6 precondition)", () => {
  *                                        the work it waits on.
  *
  * THE WRITE-ENGINE SITES (the number this file pins: 21 when N3 wrote this section,
- * 15 after Package O, 14 after Phase 2 of the distinct-truth compression deleted site 11
- * — the per-site rows below keep N3's numbering, and the eight numbers those two rounds
- * retired are named in the count-evolution block)
+ * 15 after Package O and 14 after Phase 2. Relation-bearing bulk retired sites 1 and 7
+ * while progressive committed-series execution added site 27, so the raw count is 13;
+ * the per-site rows keep N3's numbering so the history stays traceable)
  *
  * TWO COORDINATE COLUMNS, because one of them is history. "N3" is where the site stood
  * when this section was written; "HEAD" is where it stands now, and is what the
@@ -1373,28 +1346,29 @@ describe("write engine full client operation surface (P6 precondition)", () => {
  * kept because a coordinate that vanishes teaches nothing.
  *
  *  #  site (throw) — N3               owner (declaration) — N3          bucket  HEAD
- *  1  UpdateManyRecordSeries.ts:348   assertMembershipAppliesToEveryRoot:337  SC   :348 / :337
- *  2  RecordUpdateCompiler.ts:1800    postTransitionReference:1772            MSI  :1800 / :1772
- *  3  RecordUpdateCompiler.ts:2017    resolveCreateParent:1911                MSI  :2017 / :1911
- *  4  RecordUpdateCompiler.ts:3533    recordSharedKeyFold:3513                MSI* :3533 / :3513
- *  5  RecordUpdateCompiler.ts:3612    beforeTargetReferencedValue:3604        MSI  :3612 / :3604
- *  6  RecordUpdateCompiler.ts:4767    composeToOneEntries:4728                UFF  :4767 / :4728
- *  7  CreateManyRecordSeries.ts:126   the constructor                         DPC  :126
- *  8  RelationJunctionPart.ts:1374    resolveCreatePk:1362                    MSI  :1374 / :1362
- *  9  RelationJunctionPart.ts:2354    scalarOnly:2343                         MSI  RETIRED → 22
- * 10  RelationWritePart.ts:691        parseScalarUpdateData:676               MSI  RETIRED → 22
+ *  1  UpdateManyRecordSeries.ts:348   assertMembershipAppliesToEveryRoot:337  SC   RETIRED → 22
+ *  2  RecordUpdateCompiler.ts:1800    postTransitionReference:1772            MSI  :1995 / :1967
+ *  3  RecordUpdateCompiler.ts:2017    resolveCreateParent:1911                MSI  :2230 / :2126
+ *  4  RecordUpdateCompiler.ts:3533    recordSharedKeyFold:3513                MSI* :3369 / :3350
+ *  5  RecordUpdateCompiler.ts:3612    beforeTargetReferencedValue:3604        MSI  :3449 / :3441
+ *  6  RecordUpdateCompiler.ts:4767    composeToOneEntries:4728                UFF  :4602 / :4563
+ *  7  CreateManyRecordSeries.ts:126   the constructor                         DPC  RETIRED (explicit conflict outcome)
+ *  8  RelationJunctionPart.ts:1374    resolveCreatePk:1362                    MSI  :1443 / :1428
+ *  9  RelationJunctionPart.ts:2354    scalarOnly:2343                         MSI  RETIRED (record series)
+ * 10  RelationWritePart.ts:691        parseScalarUpdateData:676               MSI  RETIRED (record series)
  * 11  RelationWritePart.ts:1244       assertOwnedFkAbsentFromUpdateData:1234  SC   RETIRED (deleted)
- * 12  RelationUpsertPart.ts:754       withoutAgreeingOwnedFk:743              SC   :754 / :743
+ * 12  RelationUpsertPart.ts:754       withoutAgreeingOwnedFk:743              SC   :756 / :745
  * 13  RelationUpsertPart.ts:1211      assertArmEdgeIsChildHeld:1204           SC   :1211 / :1204
  * 14  CreateOperation.ts:991          interpretPolymorphicRelation:961        MSI  RETIRED → 15
- * 15  CreateOperation.ts:1789         targetReferencedValue:1781              MSI  :2772 / :2764
+ * 15  CreateOperation.ts:1789         targetReferencedValue:1781              MSI  :2912 / :2904
  *                                     (HEAD owner: requireRecordReferenced)
  * 16  CreateOperation.ts:2109         referencedValue:2101                    MSI  RETIRED → 15
  * 17  CreateOperation.ts:2139         edgeParentId:2133                       UFF  RETIRED (converted)
  * 18  CreateOperation.ts:2193         referencedParentSource:2186             MSI  RETIRED → 15
- * 19  CreateOperation.ts:2788         producedReference:2777                  PSI  :2850 / :2839
- * 20  CreateOperation.ts:3091         assertSharedPkResolved:3077             MSI  :3154 / :3140
- * 21  UpsertOperation.ts:1147         createArmIdentity:1103                  MSI  :1147 / :1103
+ * 19  CreateOperation.ts:2788         producedReference:2777                  PSI  :3009 / :2998
+ * 20  CreateOperation.ts:3091         assertSharedPkResolved:3077             MSI  :3322 / :3308
+ * 21  UpsertOperation.ts:1147         createArmIdentity:1103                  MSI  :1151 / :1107
+ * 27  OperationExecutor.ts:1079        progressiveSeriesRefusal:1075           PSI  :1510 / :1506
  *
  * (*) Site 4 is ONE sentence over TWO invariants: "no value" and "NULL" are MSI, but
  *     "a root SET spells the same member the arm folds, DISAGREEING" is SC. Recorded,
@@ -1402,11 +1376,11 @@ describe("write engine full client operation surface (P6 precondition)", () => {
  *     shipped sentence would create a second owner for one fact seen from two sides.
  *
  * THE QUERY-ENGINE SITES OUTSIDE THIS DIRECTORY (invisible to the tripwire, which
- * reads only `write-engine/`, and therefore worth naming here). THREE when N3 wrote
- * this; TWO after Package O merged 22 and 23 into one construction site.
+ * reads only `write-engine/`, and therefore worth naming here). The former scalar-only
+ * nested-bulk owner is gone; its retained site number now names the narrower N>1 move.
  *
- * 22  relation-key-legality.ts:162    assertSelectedUpdateManyDataIsScalar:155  MSI  :173 / :167
- * 23  relation-key-legality.ts:166    the same function, ordinary arm           MSI  RETIRED → 22
+ * 22  relation-key-legality.ts:110    assertSingleTargetMembershipMoveAppliesToRecords:102  SC  :110 / :102
+ * 23  relation-key-legality.ts:166    scalar-only ordinary arm                  MSI  RETIRED (record series)
  * 24  builders/decimal-portability.ts:56  assertExactDecimalOperation:48        PSI  :56 / :48
  *
  * THE 2 `src` SITES OUTSIDE THE QUERY ENGINE
@@ -1428,19 +1402,21 @@ describe("write engine full client operation surface (P6 precondition)", () => {
  *   #  invariant                                   N3 sites            after O
  *   1. an unresolvable referenced value            8 (2,3,5,14,15,      4 (2,3,5,15)
  *                                                     16,18,20)
- *   2. nested bulk data carries relation writes    4 (9,10,22,23)      1 (22)
+ *   2. nested bulk data carries relation writes    4 (9,10,22,23)      NONE — record
+ *      series now gives every selected record its own captured identity and compiler
  *   3. a second provenance for the owned FK        2 (11,12)           2 (11,12),
  *      then 1 (12) after Phase 2 of the distinct-truth compression deleted site 11. The
  *      invariant is UNCHANGED — the upsert seam still owns it, and the nested-update
  *      family is owned by the parse boundary on every schema.
- *   4. skipDuplicates without an identity          2 (7,8) — TWO       2 (7,8) — TWO
- *      contracts: 7 is DPC (the public meaning is unchosen) and 8 is MSI (a skipped
- *      row produces no identity). One PHRASE, two invariants; counted as two.
+ *   4. skipDuplicates without an identity          2 (7,8) — TWO       1 (8). Site 7's
+ *      root conflict now has an explicit outcome; site 8 still owns the distinct case
+ *      where a skipped junction target cannot publish an identity.
  *   5. an upsert create arm with no readable-back row .. 21             21
  *   6. a shared primary key with no one final value .... 4 (+20, which  4, 20
  *      N3 filed under cluster 1 and the ledger moves here: same invariant, create
  *      root instead of update root, a genuinely different trust boundary)
- *   7. a single-target membership move across N>1 roots  1              1
+ *   7. a single-target membership move across N>1 roots  1              1 (22). The
+ *      relation-key owner now serves both root and nested series count boundaries.
  *   8. a composed producing supplier + modify .......... 6              6
  *   9. a compound child edge into a junction ........... 17             NONE — the
  *      site was CONVERTED (see the count-evolution block); the invariant is still
@@ -1449,6 +1425,7 @@ describe("write engine full client operation surface (P6 precondition)", () => {
  *  10. depth on an upsert's update arm ................. 13             13
  *  11. publication on a batch substrate ................ 19             19
  *  12. decimal portability ............................. 24             24
+ *  13. committed segments lack a verified capability ... NONE           27
  *
  * So: SITES 24 → 17 in the query-engine scope, INVARIANTS 13 → 12 as an
  * `UnsupportedOperationError` and 13 still engine-owned. Nothing became legal; one
@@ -1457,7 +1434,11 @@ describe("write engine full client operation surface (P6 precondition)", () => {
  *
  * AFTER PHASE 2 of the distinct-truth compression (site 11 deleted, an SC row whose
  * invariant keeps site 12): write-engine 14 sites / 10 invariants · query-engine 16 / 12 ·
- * whole `src` 18 / 14. Sites move, invariants do not — which is the shape §O4 asks for.
+ * whole `src` 18 / 14. AFTER RELATION-BEARING BULK: write-engine 13 sites / 10
+ * invariants · query-engine 15 sites / 11 invariants · whole `src` 17 / 13. The
+ * scalar-only nested-bulk invariant and site 7's unchosen-conflict invariant are gone;
+ * site 22 is now the single first-knowable owner for invariant 7;
+ * site 27 adds the distinct provider-capability truth required by progressive segments.
  *
  * WHAT THAT DOES AND DOES NOT SETTLE, stated exactly, because the first version of
  * this paragraph got it wrong. §O4's 8–12 band is a gate on CONSTRUCTION SITES
@@ -1512,22 +1493,14 @@ describe("write engine full client operation surface (P6 precondition)", () => {
  *     or `src/schema/validation` reads a junction's compound primary key, the two
  *     carve-outs in `RelationJunctionPart` still name `JunctionSide` by name, and
  *     `JunctionBoundRelation` now CARRIES the two-sides topology (distinct-truth Phase 3: table/source/target, lazily resolved).
- *   · Sites 9, 10, 22 and 23 get NO expiry. Package L prototyped both lifts and BOTH
- *     were REJECTED, so nothing in this lift lifts the nested-bulk wall and a comment
- *     promising otherwise would be promising unscheduled work. L's boundary, verbatim:
- *     "the fragment atom's single planning phase is the wall; a record series is
- *     operation-level, so a nested capture has no home." The truthful future path is
- *     not a series at all — it is the DESUGAR already standing on the junction leg
- *     (`RelationJunctionPart`'s `case createMany` folds one fresh target per row,
- *     identically to its `case create`) and at `nested-target-parts.ts` (`createFresh`
- *     + `bindRelationMembership`). Extending that to the other three legs is a NEW
- *     capability outside this lift.
+ *   · Sites 9, 10, and 23 are retired by nested record-series compilation. Site 22's
+ *     number remains in the executable census, but its owner is now the narrower rule
+ *     that one child-held target cannot be moved to several selected parents.
  *
  * FOUR THINGS THAT ARE NOT SITES, recorded so Package O does not hunt for them.
  *
- *   · `relation-key-legality.ts:61` (`assertUpdateManyRelationsAreCompilable`) throws
- *     `NestedWriteError`. Package L's outcome brief listed it among "4 census sites
- *     unchanged"; it has never been one.
+ *   · The former `assertUpdateManyRelationsAreCompilable` was not a census site and is
+ *     now deleted with the scalar-only nested-bulk invariant.
  *   · The compound-M2M fact has TWO owners across layers and NEITHER is a census site:
  *     `builders/relation-data-builder.ts:365` (`getRequiredSinglePrimaryKeyField`, a
  *     `QueryEngineError` — it was at `correlation-utils.ts:154` when this was written
@@ -1549,11 +1522,9 @@ describe("write engine full client operation surface (P6 precondition)", () => {
  *     `ManyAndReturnOperation` and `UpdateManyRecordSeries` validate unprefixed. So
  *     one payload's issue path depends on which arm read it. Pre-existing; now on
  *     both accepted shapes, which is why it is worth writing down.
- *   · `sortCapturedRowKeys` (`target-projection.ts`) orders `updateMany` series
- *     members deterministically PER DEPLOYMENT but not identically ACROSS providers:
- *     node-postgres decodes an int8 row key as the string "9", PGlite as the number 9,
- *     better-sqlite3 as 9n, which rank differently. Visible in the `select` arm's row
- *     order. A documented determinism boundary, not a refusal.
+ *   · `sortCapturedRowKeys` (`target-projection.ts`) receives canonically decoded
+ *     row-key members before ordering. An int8 key therefore has one ordering across
+ *     node-postgres, PGlite, and SQLite even though their raw driver values differ.
  *
  * WHAT PACKAGE O DID TO THIS NUMBER: 21 → 15, and the classification above is now
  * READ THROUGH `docs/architecture/guard-ownership-ledger.md`, which is this census's

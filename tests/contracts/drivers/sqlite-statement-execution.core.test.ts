@@ -101,7 +101,10 @@ function createD1BatchDriver(results: StatementResult[]) {
       results.map((result) => ({
         success: true,
         results: result.rows,
-        meta: { changes: result.changes },
+        meta: {
+          changes: result.changes,
+          last_row_id: Number(result.lastInsertRowid ?? 0),
+        },
       }))
     ),
     prepare(sql: string) {
@@ -286,10 +289,11 @@ describe("D1 statement execution", () => {
     const rows =
       isResultProducer && !("empty" in statementCase) ? [{ value: sql }] : [];
     const { changes } = statementCase;
+    const isInsert = sql.toUpperCase().includes("INSERT INTO");
     const { all, boundValues, driver, run } = createD1StatementDriver({
       rows,
       changes,
-      lastInsertRowid: 91,
+      lastInsertRowid: isInsert ? 91 : 0,
     });
 
     try {
@@ -297,7 +301,8 @@ describe("D1 statement execution", () => {
 
       expect(result.rows).toEqual(rows);
       expect(result.rowCount).toBe(changes || rows.length);
-      expect(result).not.toHaveProperty("insertId");
+      if (isInsert) expect(result.insertId).toBe(91);
+      else expect(result).not.toHaveProperty("insertId");
       expect(boundValues).toEqual(["returning"]);
       expect(run).toHaveBeenCalledOnce();
       expect(all).not.toHaveBeenCalled();
@@ -308,22 +313,25 @@ describe("D1 statement execution", () => {
 
   test("normalizes mixed mutation and reader results from native batch", async () => {
     const { batch, driver, preparedSql } = createD1BatchDriver([
-      { rows: [], changes: 2 },
+      { rows: [], changes: 1, lastInsertRowid: 12 },
       { rows: [{ id: 1 }, { id: 2 }], changes: 0 },
     ]);
 
     try {
       const results = await driver._executeBatch([
-        { sql: "UPDATE returning_events SET note = ?", params: ["updated"] },
+        {
+          sql: "INSERT INTO returning_events(note) VALUES (?)",
+          params: ["inserted"],
+        },
         { sql: "SELECT id FROM returning_events" },
       ]);
 
       expect(results).toEqual([
-        { rows: [], rowCount: 2 },
+        { rows: [], rowCount: 1, insertId: 12 },
         { rows: [{ id: 1 }, { id: 2 }], rowCount: 2 },
       ]);
       expect(preparedSql).toEqual([
-        "UPDATE returning_events SET note = ?",
+        "INSERT INTO returning_events(note) VALUES (?)",
         "SELECT id FROM returning_events",
       ]);
       expect(batch).toHaveBeenCalledOnce();

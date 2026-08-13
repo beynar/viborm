@@ -1,5 +1,6 @@
 /** Driver instrumentation, diagnostics, and provider result middleware. */
 
+import type { RelationResultKind } from "@adapters/adapter-result-parser";
 import type { DatabaseAdapter } from "@adapters/database-adapter";
 import {
   ConnectionError,
@@ -21,7 +22,6 @@ import {
 } from "@instrumentation/spans";
 import { getNoopTracer } from "@instrumentation/tracer";
 import type { Operation } from "@query-engine/types";
-import type { RelationResultKind } from "@adapters/adapter-result-parser";
 import type { Sql } from "@sql";
 import {
   BATCH_DIAGNOSTIC_PARAMS,
@@ -125,6 +125,24 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
    * such as D1 bindings and Neon HTTP.
    */
   readonly supportsBatch: boolean = false;
+
+  /**
+   * Whether independently submitted native batches form one ordered committed
+   * sequence: each batch is atomic, and a later batch observes every earlier
+   * successful batch. This is stronger than `supportsBatch`; providers enable it
+   * only after a binding-level contract proves both properties.
+   */
+  readonly supportsOrderedCommittedSegments: boolean = false;
+
+  /**
+   * Conservative maximum number of values this provider accepts in one bound
+   * statement. Query compilation may use this to split an optimization, but it
+   * must keep the existing one-row path when the capacity is unknown.
+   *
+   * Custom drivers fail safe by default. Built-in drivers override this with a
+   * limit guaranteed by their concrete provider/runtime.
+   */
+  readonly maxBindParametersPerStatement: number | undefined = undefined;
 
   readonly dialect: Dialect;
   readonly driverName: string;
@@ -508,8 +526,7 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
     context?: QueryExecutionContext
   ): DiagnosticDisclosure {
     return (
-      this.getInstrumentation(context)?.config.diagnostics ??
-      EMPTY_DISCLOSURE
+      this.getInstrumentation(context)?.config.diagnostics ?? EMPTY_DISCLOSURE
     );
   }
 

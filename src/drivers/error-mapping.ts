@@ -1,8 +1,10 @@
 import {
+  attachRecordSeriesProgress,
   CheckConstraintError,
   ConnectionError,
   type DiagnosticDisclosure,
   ForeignKeyError,
+  getTrustedRecordSeriesProgress,
   isVibORMError,
   NESTED_WRITE_ASSERTION_FLOOR_MESSAGE,
   NestedWriteAssertionError,
@@ -136,7 +138,11 @@ export function normalizeDriverError(
   context: DriverErrorContext
 ): NormalizedDriverError {
   if (isKnownVibORMError(error)) {
-    return attachExecutionContext(error, context);
+    const normalized = attachExecutionContext(error, context);
+    const progress = getTrustedRecordSeriesProgress(error);
+    return progress
+      ? attachRecordSeriesProgress(normalized, progress)
+      : normalized;
   }
   return mapProviderError(error, context);
 }

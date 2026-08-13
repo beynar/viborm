@@ -3,12 +3,28 @@ import type { AnyDriver, QueryExecutionContext } from "@drivers";
 import { MySQL2Driver } from "@drivers/mysql2";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
+import {
+  buildParsedRelationPrograms,
+  buildRelationMutationProgram,
+} from "@query-engine/builders/relation-mutation-parser";
+import { bindRelation } from "@query-engine/builders/relation-data-builder";
+import {
+  createQueryScope,
+  getRelationInfo,
+} from "@query-engine/context/query-scope";
+import { assertUpdateOwnWriteSafety } from "@query-engine/OwnWriteAnalyzer";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames, s } from "@schema";
 import type { Model } from "@schema/model";
 import { validateClientSchemaOrThrow } from "@schema/validation/validator";
+import { sql } from "@sql";
+import { NestedUpdateManyRecordSeries } from "@src/query-engine/write-engine/NestedUpdateManyRecordSeries";
+import type { ReadStep } from "@src/query-engine/write-engine/OperationFragment";
 import { planningKey } from "@src/query-engine/write-engine/Part";
+import { parseValidated } from "@src/query-engine/write-engine/parse-boundary";
+import type { RecordCompilerSeam } from "@src/query-engine/write-engine/RecordUpdateCompiler";
 import { isRecordSeries } from "@src/query-engine/write-engine/record-series";
+import { bindCorrelatedRelationMembership } from "@src/query-engine/write-engine/relation-membership";
 import { constructRoutedOperation } from "@src/query-engine/write-engine/routing";
 import { sortCapturedRowKeys } from "@src/query-engine/write-engine/target-projection";
 import {
@@ -83,6 +99,49 @@ const polySchema = (() => {
 })();
 hydrateSchemaNames(polySchema);
 validateClientSchemaOrThrow(polySchema);
+
+let replayOwnWriteDefaultValue = 1;
+let replayOwnWriteDefaultCalls = 0;
+
+const replayOwnWriteSchema = (() => {
+  const shelf = s
+    .model({
+      id: s.int().id(),
+      bins: s.oneToMany(() => bin),
+    })
+    .map("k_replay_own_write_shelves");
+  const bin = s
+    .model({
+      id: s.int().id(),
+      shelfId: s.int().nullable(),
+      shelf: s
+        .manyToOne(() => shelf)
+        .fields("shelfId")
+        .references("id")
+        .optional(),
+      targets: s
+        .manyToMany(() => target)
+        .through("k_replay_own_write_bin_target"),
+    })
+    .map("k_replay_own_write_bins");
+  const target = s
+    .model({
+      id: s
+        .int()
+        .id()
+        .default(() => {
+          replayOwnWriteDefaultCalls += 1;
+          return replayOwnWriteDefaultValue;
+        }),
+      bins: s
+        .manyToMany(() => bin)
+        .through("k_replay_own_write_bin_target"),
+    })
+    .map("k_replay_own_write_targets");
+  return { shelf, bin, target };
+})();
+
+hydrateSchemaNames(replayOwnWriteSchema);
 
 function engineFor(
   driver: AnyDriver,
@@ -306,7 +365,7 @@ describe("K3/K6 — the statement list the series actually issues", () => {
     await client.bin.create({ data: { id: 2, label: "two" } });
   };
 
-  test("ONE capture, then one complete update per root, then the reads", async () => {
+  test("ONE capture, then one complete update per root, then the grouped read", async () => {
     const driver = new TracingPGliteDriver();
     const client = createClient({
       schema: updateManySeriesSchema,
@@ -326,9 +385,9 @@ describe("K3/K6 — the statement list the series actually issues", () => {
     // Read it as §5.2's recipe: ONE capture of the root keys (the only evaluation of
     // the public `where`), then member 0's complete ordinary update — its own locate,
     // its own probe of the shelf it is connecting to, its UPDATE with the FK folded
-    // in, its terminal read — then member 1's, and only THEN the two ordinary reads
-    // that answer the public projection. Nothing writes after the first of those
-    // reads, which is what "read after every member effect" means operationally.
+    // in, its terminal read — then member 1's, and only THEN one grouped read that
+    // answers the public projection. Nothing writes after that read, which is what
+    // "read after every member effect" means operationally.
     //
     // The per-member shelf probe is the visible price of the lift and it is the RIGHT
     // price: it is what an ordinary `update` issues for the same payload, which is the
@@ -343,7 +402,6 @@ describe("K3/K6 — the statement list the series actually issues", () => {
       "SELECT kseries_bins",
       "SELECT kseries_shelves",
       "UPDATE kseries_bins",
-      "SELECT kseries_bins",
       "SELECT kseries_bins",
       "SELECT kseries_bins",
     ]);
@@ -557,6 +615,126 @@ describe("K4 — the N-dependent refusal runs before any member is built", () =>
         resultReadResults: [],
       })
     ).toEqual({ count: 0 });
+  });
+});
+
+describe("nested updateMany replay owns its replayed OwnWrite footprint", () => {
+  test("a changed client default is analyzed again before a selected member compiles", () => {
+    replayOwnWriteDefaultValue = 1;
+    replayOwnWriteDefaultCalls = 0;
+
+    const schemas = createSchemaRegistry(replayOwnWriteSchema);
+    const engine = new QueryEngine(
+      new PGliteDriver(),
+      createModelRegistry(replayOwnWriteSchema, schemas)
+    );
+    const sourceScope = createQueryScope(
+      engine.adapter,
+      replayOwnWriteSchema.shelf
+    );
+    const targetScope = createQueryScope(
+      engine.adapter,
+      replayOwnWriteSchema.bin
+    );
+    const relationInfo = getRelationInfo(sourceScope, "bins");
+    const relationSchemas = engine.schemaRegistry.getModelSchemas(
+      replayOwnWriteSchema.shelf
+    ).relations.bins;
+    if (!(relationInfo && relationSchemas)) {
+      throw new Error("expected the replay OwnWrite relation schema");
+    }
+
+    const source = {
+      targets: {
+        connectOrCreate: {
+          where: { id: 99 },
+          create: {},
+        },
+        set: [{ id: 2 }],
+      },
+    };
+    const sourcePayload = { updateMany: { data: source } };
+    const parsedPayload = parseValidated(
+      relationSchemas.update,
+      sourcePayload,
+      "update",
+      "data.bins"
+    );
+    const program = buildRelationMutationProgram(
+      relationInfo,
+      parsedPayload,
+      sourcePayload
+    );
+    const updateMany = program?.entries.find(
+      (entry) => entry.kind === "updateMany"
+    );
+    const mutationData = updateMany?.items[0]?.data;
+    if (!(updateMany && mutationData)) {
+      throw new Error("expected replayable nested updateMany data");
+    }
+
+    const initiallyParsed = buildParsedRelationPrograms(
+      targetScope,
+      mutationData.parsed,
+      mutationData.source
+    );
+    expect(() =>
+      assertUpdateOwnWriteSafety(
+        targetScope,
+        initiallyParsed.scalarData,
+        initiallyParsed.relations,
+        { id: 10 }
+      )
+    ).not.toThrow();
+    const callsAfterEnclosingParse = replayOwnWriteDefaultCalls;
+
+    replayOwnWriteDefaultValue = 2;
+    const capture: ReadStep = {
+      id: "nestedReplay.capture",
+      kind: "read",
+      statement: sql`SELECT 1`,
+      outputs: { rows: { kind: "rows" } },
+    };
+    const unreachableCompiler = () => {
+      throw new Error("member compilation reached an unsafe replayed program");
+    };
+    const recordCompilers: RecordCompilerSeam = {
+      createFresh: unreachableCompiler,
+      updateSelected: unreachableCompiler,
+    };
+    const boundRelation = bindRelation(sourceScope, relationInfo);
+    if (boundRelation.position !== "childHeld") {
+      throw new Error("expected child-held replay relation topology");
+    }
+    const series = new NestedUpdateManyRecordSeries({
+      engine,
+      sourceScope,
+      targetScope,
+      relationInfo,
+      data: mutationData,
+      capture,
+      recordCompilers,
+      membership: {
+        kind: "childHeld",
+        binding: bindCorrelatedRelationMembership(
+          boundRelation,
+          { kind: "literal", value: 1 },
+          { kind: "literal", value: 1 }
+        ),
+        known: {},
+      },
+    });
+
+    expect(() =>
+      series.compileMembers({
+        [`${capture.id}.rows`]: [{ id: 10 }],
+      })
+    ).toThrow(
+      "Nested operation 'set' on relation 'targets' depends on an earlier 'connectOrCreate' target write"
+    );
+    expect(replayOwnWriteDefaultCalls).toBeGreaterThan(
+      callsAfterEnclosingParse
+    );
   });
 });
 
@@ -798,37 +976,43 @@ describe("K3 — the captured-order comparator is a TOTAL order over row keys", 
 // (4) The G blind spot this package closed.
 // ---------------------------------------------------------------------------
 
-describe("K/G — a polymorphic write at the nested updateMany leaf is refused, not dropped", () => {
-  test("the targetless disconnect reaches the wall its ordinary sibling always did", () => {
-    // MEASURED AT HEAD before this fix: the same payload compiled to the scalar UPDATE
-    // and the terminal SELECT and SUCCEEDED, leaving the private `(type, id)` pair in
-    // place. `parseScalarUpdateData`, `updateManyCarriesRelations` and
-    // `findRelationBearingUpdateManyData` each read `.relations` alone, and a resolved
-    // polymorphic disconnect produces no relation program.
-    const engine = engineFor(new PGliteDriver(), polySchema as any);
-    expect(() =>
-      constructRoutedOperation(engine, polySchema.board, "update", {
-        where: { id: 1 },
-        data: {
-          slots: {
-            updateMany: {
-              where: {},
-              data: { caption: "x", media: { disconnect: true } },
-            },
+describe("D — polymorphic writes inside nested updateMany", () => {
+  const polyFamily = usePGliteSchemaFamily(polySchema);
+
+  test("a targetless disconnect clears every matched member's storage pair", async () => {
+    const client = polyFamily().client as any;
+    await client.image.create({ data: { id: 1, url: "one" } });
+    await client.board.create({ data: { id: 1, name: "board" } });
+    await client.slot.create({
+      data: {
+        id: 1,
+        caption: "before",
+        board: { connect: { id: 1 } },
+        media: { connect: { type: "image", where: { id: 1 } } },
+      },
+    });
+
+    await client.board.update({
+      where: { id: 1 },
+      data: {
+        slots: {
+          updateMany: {
+            where: { id: 1 },
+            data: { caption: "after", media: { disconnect: true } },
           },
         },
-      })
-    ).toThrow(
-      "Nested relation writes inside updateMany data for relation 'slots' are not supported."
+      },
+    });
+
+    const stored = await client.$queryRawUnsafe(
+      "SELECT caption, media_type, media_id FROM kpoly_slots WHERE id = 1"
     );
+    expect(stored).toEqual([
+      { caption: "after", media_type: null, media_id: null },
+    ]);
   });
 
-  test("a MALFORMED polymorphic envelope reports its parse error, not the updateMany wall", () => {
-    // `findRelationBearingUpdateManyData` PARSES the nested data to answer the
-    // legality question, so a malformed polymorphic envelope surfaces its own
-    // parse-time error before `assertUpdateManyDataRelationsAreCompilable` can
-    // name the wall. This precedence is deliberate current behavior; a unified
-    // parsed collection must not flip it silently.
+  test("a MALFORMED polymorphic envelope still reports its parse error", () => {
     const engine = engineFor(new PGliteDriver(), polySchema as any);
     let caught: unknown;
     try {
@@ -852,9 +1036,6 @@ describe("K/G — a polymorphic write at the nested updateMany leaf is refused, 
     }
     expect(String(caught)).toContain(
       "ValidationError: Validation failed for update:"
-    );
-    expect(String(caught)).not.toContain(
-      "Nested relation writes inside updateMany data"
     );
   });
 });

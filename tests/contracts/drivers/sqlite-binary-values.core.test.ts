@@ -54,7 +54,10 @@ function createD1BinaryFixture() {
             results: returnsRow
               ? [{ id: "blob-1", payload: [...storedPayload] }]
               : [],
-            meta: { changes: D1_MUTATION_STATEMENT_REGEX.test(sql) ? 1 : 0 },
+            meta: {
+              changes: D1_MUTATION_STATEMENT_REGEX.test(sql) ? 1 : 0,
+              last_row_id: 0,
+            },
           };
         },
       };

@@ -12,7 +12,12 @@ import { QueryEngineError } from "../types";
 import type { ResultParser } from "./ResultParser";
 
 export interface RowValueParsers {
-  parseField(scalar: Scalar, value: unknown, operation: Operation): unknown;
+  parseField(
+    scalar: Scalar,
+    value: unknown,
+    operation: Operation,
+    captureExact?: (value: unknown) => void
+  ): unknown;
   parseRelation(
     relation: AnyRelation,
     value: unknown,

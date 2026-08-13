@@ -108,7 +108,9 @@ function shapeOf(
 ): unknown {
   const operation = new CreateOperation(engineFor(driver, schema), model, args);
   return operation.compile({}).steps.map((step) => {
-    if (step.kind === "guard") throw new Error("Unexpected guard step.");
+    if (step.kind === "guard" || step.kind === "recordSeries") {
+      throw new Error("Unexpected non-statement step.");
+    }
     const query = driver._prepare(step.statement);
     return {
       id: step.id,

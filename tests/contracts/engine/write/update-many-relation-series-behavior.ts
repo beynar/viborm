@@ -280,6 +280,126 @@ export function registerUpdateManySeriesBehavior(
       expect(new Set(tickets.map((row: any) => row.id)).size).toBe(2);
     });
 
+    test("nested updateMany reparses defaults once per selected target", async () => {
+      await seedBins();
+      await client.bin.updateMany({
+        where: { id: { in: [1, 2] } },
+        data: { shelfId: 1 },
+      });
+
+      const result = await client.shelf.update({
+        where: { id: 1 },
+        data: {
+          bins: {
+            updateMany: {
+              where: { id: { in: [1, 2] } },
+              data: { tickets: { create: { note: "nested" } } },
+            },
+          },
+        },
+      });
+
+      expect(result.id).toBe(1);
+      const tickets = await client.ticket.findMany({
+        orderBy: { binId: "asc" },
+        select: { id: true, binId: true },
+      });
+      expect(tickets.map((row: any) => row.binId)).toEqual([1, 2]);
+      expect(new Set(tickets.map((row: any) => row.id)).size).toBe(2);
+    });
+
+    test("nested updateMany applies N=0/N=1 and refuses an impossible N>1 move", async () => {
+      await seedBins();
+      await client.bin.updateMany({
+        where: { id: { in: [1, 2] } },
+        data: { shelfId: 1 },
+      });
+      await client.gadget.create({ data: { id: 1, name: "shared" } });
+
+      await client.shelf.update({
+        where: { id: 1 },
+        data: {
+          bins: {
+            updateMany: {
+              where: { id: 999 },
+              data: { gadgets: { connect: [{ id: 1 }] } },
+            },
+          },
+        },
+      });
+      await expect(
+        client.gadget.findUnique({ where: { id: 1 } })
+      ).resolves.toMatchObject({ binId: null });
+
+      await client.shelf.update({
+        where: { id: 1 },
+        data: {
+          bins: {
+            updateMany: {
+              where: { id: 1 },
+              data: { gadgets: { connect: [{ id: 1 }] } },
+            },
+          },
+        },
+      });
+      await expect(
+        client.gadget.findUnique({ where: { id: 1 } })
+      ).resolves.toMatchObject({ binId: 1 });
+
+      await expect(
+        client.shelf.update({
+          where: { id: 1 },
+          data: {
+            room: "must roll back",
+            bins: {
+              updateMany: {
+                where: { id: { in: [1, 2] } },
+                data: { gadgets: { connect: [{ id: 1 }] } },
+              },
+            },
+          },
+        })
+      ).rejects.toThrow("updateMany matched 2 rows");
+      await expect(
+        client.shelf.findUnique({ where: { id: 1 } })
+      ).resolves.toMatchObject({ room: "north" });
+      await expect(
+        client.gadget.findUnique({ where: { id: 1 } })
+      ).resolves.toMatchObject({ binId: 1 });
+    });
+
+    test("a later nested updateMany member failure rolls back the prefix and earlier members", async () => {
+      await seedBins();
+      await client.bin.updateMany({
+        where: { id: { in: [1, 2] } },
+        data: { shelfId: 1 },
+      });
+
+      await expect(
+        client.shelf.update({
+          where: { id: 1 },
+          data: {
+            room: "must roll back",
+            bins: {
+              updateMany: {
+                where: { id: { in: [1, 2] } },
+                data: {
+                  tickets: {
+                    create: { id: "same-ticket", note: "collision" },
+                  },
+                },
+              },
+            },
+          },
+        })
+      ).rejects.toThrow();
+
+      await expect(
+        client.shelf.findUnique({ where: { id: 1 } })
+      ).resolves.toMatchObject({ room: "north" });
+      await expect(client.ticket.findMany()).resolves.toEqual([]);
+    });
+
     test("a junction link is meaningful for every root and is applied to all of them", async () => {
       await seedBins();
       await client.zone.create({ data: { id: 1, name: "cold" } });

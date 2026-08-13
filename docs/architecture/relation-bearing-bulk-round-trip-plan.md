@@ -2,7 +2,8 @@
 
 **Date:** 2026-08-12
 
-**Status:** Decision-complete capability and performance plan
+**Status:** Implemented capability pass with measured prototype decisions;
+final repository validation is recorded by the task report, not inferred here
 
 **Starting architecture:** distinct-truth compression at commit
 <code>0dc8306e68c5cfba26812a830c884708da626220</code>, stacked on the
@@ -50,9 +51,8 @@ ModelKeyCatalog
 OperationFragment.outputs + ExecutableOperation.parse
   keep final output transport and parsing operation-specific
 
-RecordResultDemand (conditional work-package F outcome)
-  replaces suppressTerminal inside record compilation only
-  and asks for none, the complete row key, or the existing public row
+series-result-read
+  owns K bounded final set reads and source-order reconstruction
 ~~~
 
 The capability pass makes four decisions:
@@ -69,20 +69,59 @@ The capability pass makes four decisions:
    per executable segment and may commit several segments for one public
    operation. A later failure can therefore leave earlier segments committed.
 
-The performance pass then improves how those existing facts are transported:
+The retained performance change replaces N final per-row result reads with K
+bounded set reads, normally one. It does not claim a measured network-latency
+improvement. Provider requests depend on the concrete driver and deployment.
 
-1. Replace N final per-row result reads with K bounded set reads, normally one.
-2. Stop using a terminal SELECT as a row-key carrier when the record compiler
-   can already publish the final key and can prove that the root remains live.
-3. Use a real native ordered batch on drivers that expose one.
-4. Fold a strict static PostgreSQL create series into one writable-CTE command.
-5. Keep every data-dependent shape on sequential execution. Use an interactive
-   transaction when available; otherwise use ordered committed segments on an
-   atomic-batch driver and expose the weaker failure atomicity truthfully.
+Three objective prototypes were not retained. Terminal row-key publication had
+no owner that could also prove the root was still live. The installed libSQL
+SDK did not report the exact failing statement index needed to preserve failure
+attribution. PostgreSQL writable CTEs could not preserve ordered sibling
+visibility and the existing first-failure contract. Static fragment batching
+remains deferred rather than being built on either rejected premise.
 
 The dynamic series remains the semantic reference implementation. D1 does not
 gain a second mutation language: it runs the same ordinary record compilers and
 commits at record-series segment boundaries.
+
+### 1.1 Delivery record
+
+| Package | Outcome | Durable result |
+|---|---|---|
+| A | Retained in part | Transport and statement censuses are pinned. No remote-latency number is claimed because no representative remote benchmark was run. |
+| B | Retained | A skipped relation-bearing root suppresses its complete record subtree on an interactive transaction substrate. |
+| C | Retained | Nested relation-bearing `createMany` reuses `CreateOperation` through one nested record-series placement. |
+| D | Retained | Nested relation-bearing `updateMany` captures exact correlated targets and reuses `RecordUpdateCompiler`. |
+| E | Retained | Returning series use K bind-budgeted set reads, normally one, and reconstruct exact source order. |
+| F | Rejected | A final key is not a sufficient replacement for the terminal read without one owner that also proves root liveness. No partial demand abstraction survives. |
+| G | Rejected | The installed libSQL SDK does not provide an exact failing-statement index for native batch failure attribution. |
+| H | Deferred | Static fragment batching remains possible future work, but no transport abstraction was added without a truthful G result. |
+| I | Retained | D1 runs root and exactly guarded nested record series as ordered committed atomic segments. Unsupported placements fail closed. |
+| J | Rejected | PostgreSQL writable CTE siblings do not provide the required sequential visibility or first-failure semantics. |
+| K | Deferred | No cross-member relation probe cache or speculative update-series fold was added. |
+| L | Retained | Public and internal documentation state the shipped API and provider commit boundaries. |
+
+### 1.2 Remaining restrictions
+
+- Relation-bearing `skipDuplicates` requires an interactive transaction. D1
+  and other batch-only drivers refuse it before the first user write because a
+  batch error cannot attribute a root conflict separately from a descendant
+  conflict.
+- One child-held target cannot be moved to more than one parent by one
+  `updateMany`; the child stores one parent membership.
+- A D1 nested series runs only when the compiler can re-assert the complete
+  parent or membership premise in each later write batch. Other placements
+  fail closed before their containing member writes.
+- D1 can carry one database-generated integer identity across a segment through
+  the binding's official per-statement `meta.last_row_id`, normalized as
+  `QueryResult.insertId`. The engine never infers adjacent or ranged IDs.
+- A dynamic record series cannot be placed inside explicit
+  `$transaction([...])`, because that API promises one atomic batch.
+- Other batch-only drivers without the ordered committed-segment capability
+  still refuse dynamic relation-bearing series.
+- Returning bulk projections remain scalar-only.
+- No native libSQL batch optimization, terminal-read elision, PostgreSQL
+  whole-series writable CTE, or inferred generated-ID arithmetic was added.
 
 ## 2. Why this plan exists
 
@@ -371,51 +410,31 @@ Let:
 - C be the root-set capture cost, 0 for createMany and normally 1 for
   updateMany.
 
-Current:
+Starting point:
 
 ~~~text
 count  = C + Σ(Bᵢ + 1)
 select = C + Σ(Bᵢ + 1) + N
 ~~~
 
-After grouped final reads only:
+Delivered:
 
 ~~~text
 count  = C + Σ(Bᵢ + 1)
 select = C + Σ(Bᵢ + 1) + K
 ~~~
 
-After grouped final reads and compiler-proved terminal elision:
-
-~~~text
-count  = C + ΣBᵢ
-select = C + ΣBᵢ + K
-~~~
-
 Savings:
 
 ~~~text
-grouped read only:
-  select saves N - K statements
-
-grouped read + proven terminal elision:
-  count saves N statements
-  select saves 2N - K statements
+select saves N - K statements
 ~~~
 
-For N=2 and K=1:
-
-| Path | Current count / select | Safe full target |
-|---|---:|---:|
-| Non-folded root + child create | 6 / 8 | 4 / 5 |
-| Child-held connect create | 8 / 10 | 6 / 7 |
-| Mixed connectOrCreate witness | 7 / 9 | 5 / 6 |
-| Measured updateMany witness | 9 / 11 | 7 / 8 |
-| PostgreSQL folded nested create | 2 / 4 | 2 / 3 |
-
-The update target is conditional. It is reached only for members whose record
-compiler proves that no post-root effect can remove or unaccountedly re-key the
-root. Other members retain their terminal witness.
+The per-member terminal read remains. It is a liveness witness, not redundant
+key transport: a later member can delete or re-key an earlier root. Work package
+F was rejected because no existing owner could prove that liveness after all
+later effects. The only shipped statement reduction in this pass is N to K for
+the public final reads.
 
 For D1, statement reduction and request reduction are separate. A progressive
 series normally uses:
@@ -546,12 +565,9 @@ Phase 10's <code>CompiledSelection</code> was rejected and Phase 11's
 <code>OperationResultContract</code> therefore did not run. Do not revive either
 as a prerequisite and do not recreate them under bulk-specific names.
 
-One narrower fact is still required by work package F: a record compiler must
-know whether its caller wants no logical result, the complete final row key, or
-the existing public row. Represent that as the private
-<code>RecordResultDemand</code> union defined in F1. It replaces the existing
-<code>suppressTerminal</code> boolean; it does not own selection traversal,
-result cardinality, fragment output names, or parsing.
+Work package F did not pass its keep gate. The existing terminal read and
+<code>suppressTerminal</code> fact remain. No `RecordResultDemand`, series-key
+carrier, or generic result contract was added.
 
 Do not introduce:
 
@@ -719,15 +735,11 @@ Never hide partial progress by returning a shortened successful result.
 
 Public result reads run after every member effect.
 
-For PostgreSQL writable CTEs, sibling data-modifying arms share the command's
-base-table snapshot. A relation projection in the same command may not observe
-the sibling writes. Therefore:
-
-- a scalar-only result may be returned by the command when proved exact;
-- a relation-bearing result requires a separate post-write read;
-- the first implementation should use the separate grouped read for all public
-  bulk projections unless the scalar-only fold is already proved by the
-  compiled-selection owner.
+They use K bounded set reads, normally one, after the series completes. The
+engine then restores source order and fails exactly when a promised root is
+missing. The rejected PostgreSQL whole-series CTE cannot replace this boundary:
+data-modifying siblings share one command snapshot and do not provide the
+series' ordered visibility or first-failure semantics.
 
 ### 7.5 Generated identities
 
@@ -877,9 +889,9 @@ Before implementation:
 8. Record three warm <code>pnpm test:types</code> timings.
 9. Run the green baseline through the repository's memory-capped launchers.
 
-Do not recreate a rejected abstraction under a bulk-specific name. If the
-private RecordResultDemand in F fails its keep gate, retain the current terminal
-reads and continue the independent capability and transport packages.
+Do not recreate a rejected abstraction under a bulk-specific name. Work package
+F failed its keep gate, so the current terminal reads remain and no partial
+demand abstraction survives.
 
 ### 8.2 Change discipline
 
@@ -968,6 +980,11 @@ Pin:
 - rollback effects.
 
 ### A2. Add real latency benchmarks
+
+**Outcome:** not run in this implementation. The local transport census records
+statements and driver calls, but no representative remote deployment was
+available. Do not convert local PGlite timing into a provider-request or latency
+claim. A future benchmark must keep the requirements below.
 
 Extend <code>benchmarks/nested-write.bench.ts</code> or add one cohesive
 relation-bulk benchmark beside it.
@@ -1429,7 +1446,12 @@ Suggested commit:
 refactor: coalesce record series result reads
 ~~~
 
-## 14. Work package F — Publish final row keys directly
+## 14. Work package F — Rejected: publish final row keys directly
+
+**Outcome:** rejected. A published final key proves an address, not that the
+address still contains the root after later members run. The existing terminal
+read remains the liveness witness. No `RecordResultDemand` or partial
+replacement for `suppressTerminal` was retained.
 
 This package removes terminal SELECTs only when the record compiler can prove
 equivalence.
@@ -1632,7 +1654,12 @@ Suggested commit:
 refactor: publish record series keys without refetch
 ~~~
 
-## 15. Work package G — Add truthful native libSQL batching
+## 15. Work package G — Rejected: native libSQL batching
+
+**Outcome:** rejected against the installed SDK. Its batch failure surface does
+not identify the exact failing statement, so the executor could not preserve
+the existing first owned failure and statement attribution. Ordinary libSQL
+execution is unchanged; no native-batch capability is advertised.
 
 This package improves provider requests, not SQL statement count.
 
@@ -1709,7 +1736,11 @@ Suggested commit:
 feat: execute libsql batches natively
 ~~~
 
-## 16. Work package H — Batch already-selected static fragments
+## 16. Work package H — Deferred: batch already-selected static fragments
+
+**Outcome:** deferred. The work remains an optional transport optimization, but
+the implementation did not add it after the libSQL attribution premise failed.
+There is no partial static-batching abstraction in the engine.
 
 This package is executor-local. It does not change when a member is planned.
 
@@ -1916,9 +1947,9 @@ contract. Another batch-only driver may enable the same route only after an
 equivalent ordered-atomic-batch and error-attribution contract passes.
 
 It is a standalone-operation fallback. Do not place progressive segments inside
-an explicitly atomic <code>$transaction([...])</code> contract. Such a call may
-accept the operation only when the complete series prepares as one atomic D1
-batch; otherwise it refuses before any member write. Never make an API named
+an explicitly atomic <code>$transaction([...])</code> contract. A dynamic series
+there refuses before any member write. Static operations that do not require a
+record series keep the existing one-batch route. Never make an API named
 <code>$transaction</code> commit a partial prefix.
 
 Planning stays just-in-time. Never precompile member N before predecessor
@@ -2065,7 +2096,13 @@ This preserves duplicate <code>connectOrCreate</code> first-create-wins and
 upsert branch visibility without conditional SQL. Database-generated and
 compound keys use the existing per-record publication owner.
 
-### I8. Implement subtree skipDuplicates per member batch
+### I8. Reject relation-bearing skipDuplicates on D1
+
+**Outcome:** the required attribution was not available. D1 batch failures
+cannot prove that a unique conflict came from the member's root insert rather
+than a descendant. The combination therefore refuses before member 0 writes.
+The following rejected design records why a duplicate pre-probe is not an
+acceptable substitute.
 
 The entire candidate subtree executes inside one atomic D1 member batch.
 
@@ -2138,9 +2175,7 @@ atomic:
 - scalar createMany/updateMany keep their one-statement paths;
 - an ordinary single-record nested write that fits one D1 batch remains one
   atomic batch;
-- a complete static record series that the existing atomic lowerer can submit
-  once remains one batch;
-- later PostgreSQL/libSQL optimizations retain their own gates.
+- static work that does not require a record series remains one batch.
 
 Do not build the conditional-SQL/workset system previously considered for D1.
 It duplicates branch, guard, generated-value, and selected-update truths merely
@@ -2195,13 +2230,16 @@ Keep the progressive route only if:
 12. No conditional mutation IR, SQL activation predicate, typed workset, or
    second record compiler is introduced.
 
-Refuse only the current member when:
+Refuse the current progressive placement before its containing write segment
+when:
 
 - that ordinary member cannot lower to one existing atomic D1 batch;
 - exact root-versus-descendant skip-conflict attribution is unavailable;
 - the member exceeds a provider limit and cannot remain atomic;
 - an existing operation reference cannot cross the selected segment boundary
-  without guessing a value.
+  without guessing a value;
+- the compiler cannot provide an exact complete-parent or membership guard for
+  every later write segment.
 
 Refuse the complete operation before writes when progressive execution is
 requested inside an explicit operation-atomic transaction/batch contract.
@@ -2218,7 +2256,12 @@ refactor: notify committed write segments
 fix: report partial d1 write progress
 ~~~
 
-## 18. Work package J — PostgreSQL whole-series create CTE
+## 18. Work package J — Rejected: PostgreSQL whole-series create CTE
+
+**Outcome:** rejected. PostgreSQL data-modifying CTE siblings share one command
+snapshot and do not form the required left-to-right visibility chain. Their
+error observation also cannot preserve the series' existing first-failure
+contract. Per-record PostgreSQL behavior remains on the portable series path.
 
 This is an objective prototype over the existing create-tree fold.
 
@@ -2510,14 +2553,11 @@ Assert:
 PostgreSQL/PGlite:
 
 - existing per-member fold parity;
-- whole-series CTE eligibility and decline reasons;
-- writable-CTE snapshot witness;
-- multiple generated identity refusal;
-- TCP-latency benchmark on a remote driver.
+- grouped final reads and bind-budget chunking;
+- compound and generated row-key reconstruction.
 
 MySQL:
 
-- terminal-read removal;
 - grouped final reads;
 - LAST_INSERT_ID remains per-record transport only;
 - no multipleStatements;
@@ -2525,18 +2565,14 @@ MySQL:
 
 SQLite3 and Bun SQLite:
 
-- SQL statement reductions;
-- CPU and allocation measurements;
+- grouped final reads;
 - no network-round-trip wording.
 
 libSQL:
 
-- Client.batch;
-- Transaction.batch;
-- ordered result normalization;
-- one remote batch request;
-- rollback and statement attribution;
-- generated identity fallback.
+- ordinary execution remains unchanged;
+- no native-batch capability is advertised without exact statement failure
+  attribution.
 
 D1:
 
@@ -2544,10 +2580,10 @@ D1:
 - ordered atomic rollback for each submitted segment on the real binding;
 - visibility of one committed segment to the next planning read;
 - root createMany sibling branch visibility across committed members;
-- subtree skip rolls back the complete current member batch;
-- exact root-versus-descendant conflict attribution;
+- relation-bearing skipDuplicates refuses before member 0 writes;
 - captured root updateMany member execution;
-- nested createMany and updateMany at their exact series positions;
+- guarded nested createMany and updateMany at their exact series positions;
+- an unguardable nested placement refuses before its containing write segment;
 - prefix/member/suffix commit order;
 - exact committed-segment, completed-member, and committed-write-member failure
   metadata, both directly and through <code>toJSON()</code>;
@@ -2560,7 +2596,7 @@ D1:
 - cache invalidation failure reports a committed invalidation-phase segment;
 - one-batch preservation for existing static paths;
 - dynamic series inside <code>$transaction([...])</code> refuses before writes;
-- a statically one-batch series remains eligible inside that explicit atomic
+- static non-series operations remain eligible inside that explicit atomic
   contract.
 
 ### 22.3 Parameter and size stress
@@ -2586,7 +2622,6 @@ Inject:
 - raceable missing-arm loser;
 - failing child INSERT after root INSERT;
 - later provider error after an earlier potential postcondition;
-- libSQL batch statement-index failure;
 - rollback cleanup failure.
 
 Also inject:
@@ -2619,7 +2654,7 @@ Per unit:
 
 ~~~bash
 pnpm test:types
-pnpm test:gates
+pnpm test:layer:query-engine
 ~~~
 
 Focused write tests:
@@ -2646,7 +2681,6 @@ Final:
 
 ~~~bash
 pnpm test:types
-pnpm test:gates
 pnpm package:build
 pnpm test
 pnpm test:all
@@ -2682,11 +2716,9 @@ Run three warm final type checks. Median regression must remain below 5%.
 - PlanningFragment has no manually maintained output map.
 - Final OperationFragment output selection and concrete operation parsing stay
   explicit.
-- If work package F is retained, RecordResultDemand is private to record
-  compilation, replaces <code>suppressTerminal</code>, and has only
-  <code>none | rowKey | public</code>. If F is rejected, both the current
-  terminal reads and <code>suppressTerminal</code> remain; no partial demand
-  abstraction survives.
+- Work package F is rejected: current terminal reads and
+  <code>suppressTerminal</code> remain, and no partial demand abstraction
+  survives.
 - No CompiledSelection or generic OperationResultContract is introduced.
 - One shared owner builds final series reads.
 - Write-engine runtime import cycles remain zero.
@@ -2724,15 +2756,13 @@ Run three warm final type checks. Median regression must remain below 5%.
 ### 24.3 Performance
 
 - Grouped result reads reduce N to K.
-- Every compiler-proved terminal elision removes one statement.
 - Existing scalar createMany/updateMany paths are byte-identical.
 - Existing direct polymorphic grouped createMany is byte-identical.
-- LibSQL native batch uses one actual batch body call.
+- LibSQL does not advertise a native-batch optimization.
 - MySQL results never claim a one-request batch.
 - Embedded SQLite results never claim a network round trip.
-- PostgreSQL whole-series CTE, if retained, sends one command for its exact
-  static subset.
-- Eligible D1 dynamic decisions execute between ordered atomic member batches;
+- PostgreSQL keeps the portable per-member series route.
+- Eligible D1 dynamic decisions execute between ordered atomic segments;
   planning requests and committed batches are reported separately.
 
 ### 24.4 Fallback
@@ -2757,33 +2787,14 @@ construction-time refusal or operation-wide rollback. It must instead preserve
 successful results and ordered mutation semantics while exposing segment
 atomicity exactly.
 
-## 25. Recommended commit order
+## 25. Delivery commit
 
 ~~~text
-test: measure relation bulk transport costs
-feat: skip duplicate relation-bearing create trees
-feat: support relations in nested create many
-feat: compose nested record update series
-refactor: coalesce record series result reads
-refactor: publish record series keys without refetch
-feat: execute libsql batches natively
-refactor: unify generated identity outputs
-perf: batch eligible operation fragments
-test: pin d1 segment atomicity
-refactor: execute record series in committed segments
-feat: execute dynamic create series on d1
-feat: execute captured update series on d1
-feat: execute nested record series on d1
-refactor: notify committed write segments
-fix: report partial d1 write progress
-perf: fold static create series into one postgres command
-perf: batch static record series fragments
-docs: document relation-bearing bulk semantics
+feat: expand relation-bearing bulk writes
 ~~~
 
-The PostgreSQL whole-series fold is an objective prototype. If it fails its
-keep gate, remove only that prototype and continue. D1 progressive execution is
-the capability fallback and does not depend on the PostgreSQL result.
+The implementation is one task-level change. Rejected prototypes leave no
+partial owner or advertised capability behind.
 
 ## 26. Final report
 
@@ -2793,20 +2804,19 @@ Report:
 - production, test, and documentation LOC separately;
 - SQL statement counts before/after;
 - driver body calls before/after;
-- native batch calls before/after;
-- measured provider requests before/after;
+- measured provider requests only for providers and deployments actually run;
 - BEGIN/COMMIT envelope separately;
-- N=1, 2, 10, and 100 latency p50/p95;
+- no latency claim when a representative remote benchmark was not run;
 - final K chunk counts for each provider;
-- final-key terminal elision eligibility and decline census;
-- libSQL native batch result;
+- the F rejection and retained terminal-liveness read;
+- the libSQL native-batch rejection and installed-SDK attribution limit;
 - D1 root create, root update, nested create, and nested update results
   separately;
 - D1 operation-atomic versus segment-atomic route counts;
 - partial-progress failure witnesses for member, suffix, result, and
   invalidation phases, including completed versus durable-write members;
 - every D1 member-level reject gate still reachable after the work;
-- PostgreSQL whole-series CTE result;
+- the PostgreSQL whole-series CTE rejection;
 - MySQL explicitly unsupported one-request result;
 - exact test commands and outcomes;
 - provider suites run or skipped;
@@ -2831,15 +2841,14 @@ RecordSeriesOperation
           |
           +--> static member/run
                  same ordinary fragment
-                 |
-                 +--> native ordered driver batch when real
-                 +--> PostgreSQL writable CTE when proved
-                 +--> current linear transaction otherwise
+                 -> current linear transaction or existing atomic batch
           |
           +--> nested RecordSeriesStep
           |      same series runner
           |      interactive: one open transaction
-          |      D1: committed prefix -> members -> suffix segments
+          |      D1 when exactly guarded:
+          |        committed prefix -> members -> suffix segments
+          |      otherwise: fail closed before the containing write segment
           |
           +--> D1 progressive lowering
                  planning/capture at the ordinary ordered position

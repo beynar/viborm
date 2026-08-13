@@ -35,8 +35,9 @@ export interface QueryResult<T = Record<string, unknown>> {
   rowCount: number;
   /**
    * Auto-generated id of the inserted row, when the driver reports one
-   * (MySQL drivers). Preferred over a follow-up SELECT LAST_INSERT_ID(),
-   * which races on pooled connections outside transactions.
+   * (for example MySQL `insertId` or D1 `meta.last_row_id`). Preferred over a
+   * follow-up last-id query, which can lose the producing statement's exact
+   * connection or batch position.
    */
   insertId?: number | bigint;
 }
@@ -65,6 +66,9 @@ export interface BatchQuery {
   /** Attribution for this statement when it represents one ORM operation. */
   context?: QueryExecutionContext;
 }
+
+/** Internal acknowledgement fired after a native batch commits, before decoding. */
+export type CommittedBatchNotification = () => Promise<void>;
 
 /**
  * Options for batch execution

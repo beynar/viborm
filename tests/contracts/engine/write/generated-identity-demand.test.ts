@@ -29,7 +29,7 @@ function createNestedSquad(
       scope: new StepScope(),
       skipOwnWrite: true,
       nestedFresh: {
-        data,
+        data: { parsed: data, source: undefined },
         relationName: "",
       },
     }

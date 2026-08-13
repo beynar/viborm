@@ -53,7 +53,11 @@ export function getRelationMembershipEndpoints(
 export type OwnWriteDependencyFamily =
   | {
       readonly kind: "create";
-      readonly rootOperation?: "create" | "connectOrCreate" | "upsert";
+      readonly rootOperation?:
+        | "create"
+        | "createMany"
+        | "connectOrCreate"
+        | "upsert";
       readonly scalarData: Readonly<Record<string, unknown>>;
     }
   | {

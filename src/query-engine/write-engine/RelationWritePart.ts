@@ -3,13 +3,14 @@ import { NestedWriteError, QueryEngineError } from "@errors";
 import type { Sql } from "@sql";
 import type { ChildHeldRelation } from "../builders/relation-data-builder";
 import type {
-  NestedUpdateManyInput,
   NormalizedRelationUpsert,
+  ParsedRecordPrograms,
+  RecordMutationData,
   RelationMutationEntry,
 } from "../builders/relation-mutation-parser";
 import { buildParsedRelationPrograms } from "../builders/relation-mutation-parser";
 import { getWhereUniqueEntries } from "../builders/where-unique-builder";
-import { getTableName } from "../context/query-scope";
+import { createQueryScope, getTableName } from "../context/query-scope";
 import {
   buildDelete,
   buildDeleteMany,
@@ -19,11 +20,7 @@ import {
 } from "../operations";
 import { assertPortablePrimaryKeyUpdateInput } from "../operations/mutation-identity";
 import type { QueryEngine } from "../query-engine";
-import {
-  assertRelationKeyUpdatesAreCompilable,
-  assertSelectedUpdateManyDataIsScalar,
-  relationWriteKeys,
-} from "../relation-key-legality";
+import { assertRelationKeyUpdatesAreCompilable } from "../relation-key-legality";
 import type { QueryScope } from "../types";
 import {
   exactlyOneRow,
@@ -36,9 +33,11 @@ import {
   upsertPremiseChanged,
   upsertTargetVanished,
 } from "./messages";
+import { NestedUpdateManyRecordSeries } from "./NestedUpdateManyRecordSeries";
 import type {
   OperationStep,
   ReadStep,
+  RecordSeriesStep,
   StatementStep,
   WriteStep,
 } from "./OperationFragment";
@@ -59,6 +58,7 @@ import {
   planningMembershipCondition,
   planningSourceFromFinal,
   type RelationMembershipBinding,
+  resolveMembershipWriteParentRowKey,
 } from "./relation-membership";
 import { requiredForeignKeyFields } from "./relation-nullability";
 import type { StepScope } from "./StepScope";
@@ -72,6 +72,7 @@ import {
   capturedTargetFilters,
   capturedTargetValues,
   capturedTargetWhere,
+  completeTargetPresenceGuard,
   type TargetProjection,
   targetProjectionColumns,
   targetProjectionOutputs,
@@ -114,7 +115,7 @@ interface RelationWriteContext {
   /** Targeted (`update`/`delete`): the child's unique locator. */
   readonly where?: Record<string, unknown>;
   /** Targeted `update`: the validated scalar data (nested relations rejected). */
-  readonly data?: Record<string, unknown>;
+  readonly data?: RecordMutationData;
   /** Bulk (`updateMany`/`deleteMany`): the user filter, correlated to the parent. */
   readonly filter?: Record<string, unknown>;
   /** Optional non-unique filter that the currently connected inverse to-one row
@@ -153,7 +154,7 @@ export type RelationWriteConfig = RelationWriteContext &
       }
     | {
         readonly kind: "inverseUpsert";
-        readonly data: Record<string, unknown>;
+        readonly data: RecordMutationData;
         readonly createSubtree: Part;
       }
   );
@@ -168,6 +169,7 @@ export class RelationWritePart implements Part {
   // relation-only nested update carries no scalars — then no self-UPDATE is emitted,
   // only the child Parts). Computed once at construction.
   private readonly updateScalarData: Record<string, unknown> = {};
+  private readonly updateManyParsed?: ParsedRecordPrograms;
   private readonly updateCompiler?: RecordUpdateCompiler;
   // An upsert found arm's update legality, deferred until that arm is SELECTED
   // (ATOM §13). The untaken update subtree of a missing create is never analyzed,
@@ -209,11 +211,14 @@ export class RelationWritePart implements Part {
       scope.allocate(`${config.childName}.${this.operationKind}`);
     this.guardId = scope.allocate(`${config.childName}.guard.exists`);
     // Payload support is decided before I/O. Targeted updates and the upsert found
-    // arm delegate nested relations to the record compiler; bulk leaves remain
-    // scalar-only.
+    // arm delegate nested relations to the record compiler. Relation-bearing
+    // updateMany keeps its exact Part position and captures a selected-record series.
     if (config.kind === "updateMany") {
-      this.updateScalarData = this.parseScalarUpdateData();
-      this.isNoOpUpdate = Object.keys(this.updateScalarData).length === 0;
+      this.updateManyParsed = this.parseUpdateManyData();
+      this.updateScalarData = this.updateManyParsed.scalarData;
+      this.isNoOpUpdate =
+        Object.keys(this.updateScalarData).length === 0 &&
+        this.updateManyParsed.relations.length === 0;
     } else if (config.kind === "inverseUpsert") {
       // G1 — ONE parse of the complete record boundary, forwarded whole. This seam
       // used to hand on the program map alone, discarding a direct polymorphic
@@ -221,7 +226,8 @@ export class RelationWritePart implements Part {
       // wrote nothing; one collection leaves nothing to drop.
       const parsed = buildParsedRelationPrograms(
         config.childScope,
-        config.data
+        config.data.parsed,
+        config.data.source
       );
       updateCompiler = config.recordCompilers.updateSelected({
         scope,
@@ -256,10 +262,6 @@ export class RelationWritePart implements Part {
             assertRelationKeyUpdatesAreCompilable(
               config.childScope,
               parsed.scalarData,
-              parsed.relations
-            );
-            assertSelectedUpdateManyDataIsScalar(
-              config.childScope,
               parsed.relations
             );
           }
@@ -297,7 +299,11 @@ export class RelationWritePart implements Part {
 
   compile(scope: StepScope, known: PlanningKnown): readonly OperationStep[] {
     if (this.isNoOpUpdate) return [];
-    if (this.config.kind === "updateMany") return [this.buildUpdateMany(known)];
+    if (this.config.kind === "updateMany") {
+      return this.updateManyParsed?.relations.length
+        ? [this.buildUpdateManySeries(known)]
+        : [this.buildUpdateMany(known)];
+    }
     if (this.config.kind === "deleteMany") return [this.buildDeleteMany(known)];
     return this.compileTargeted(scope, known);
   }
@@ -449,6 +455,100 @@ export class RelationWritePart implements Part {
         ...(membership.predicate ? { predicate: membership.predicate } : {}),
       }),
       outputs: {},
+    };
+  }
+
+  private buildUpdateManySeries(known: PlanningKnown): OperationStep {
+    const data = this.config.data;
+    if (!data) {
+      throw new QueryEngineError(
+        `query-engine-v2 updateMany for relation '${this.relationName}' requires data.`
+      );
+    }
+    const membership = finalMembershipCondition(
+      this.config.engine,
+      this.config.childScope,
+      this.config.membership,
+      this.config.childScope.rootAlias,
+      known,
+      "updateMany"
+    );
+    const capture: ReadStep = {
+      id: this.probeId,
+      kind: "read",
+      statement: buildFind(
+        this.config.childScope,
+        {
+          where: this.correlatedFilter(membership.filters),
+          select: targetProjectionRowKeySelect(this.config.targetProjection),
+          forUpdate: true,
+        },
+        membership.predicate ? { predicate: membership.predicate } : {}
+      ),
+      outputs: { rows: { kind: "rows" } },
+    };
+    return {
+      id: this.writeId,
+      kind: "recordSeries",
+      progressive: this.progressiveUpdateManyParentGuard(known),
+      series: new NestedUpdateManyRecordSeries({
+        engine: this.config.engine,
+        sourceScope: createQueryScope(
+          this.config.engine.adapter,
+          this.config.membership.relation.sourceModel
+        ),
+        targetScope: this.config.childScope,
+        relationInfo: this.config.membership.relation.relationInfo,
+        data,
+        capture,
+        recordCompilers: this.config.recordCompilers,
+        membership: {
+          kind: "childHeld",
+          binding: this.config.membership,
+          known,
+        },
+      }),
+    };
+  }
+
+  private progressiveUpdateManyParentGuard(
+    known: PlanningKnown
+  ): RecordSeriesStep["progressive"] {
+    if (
+      this.config.engine.driver.supportsTransactions ||
+      !this.config.engine.driver.supportsOrderedCommittedSegments
+    ) {
+      return {
+        kind: "unsupported",
+        reason: "this execution substrate does not use progressive commits",
+      };
+    }
+    const parent = this.config.membership.relation.membership.referenced;
+    // The Part's write source names the parent at this exact placement. It is the
+    // located value before an ordinary transition, and the transitioned value when a
+    // polymorphic Part is deliberately placed after the parent update.
+    const identity = resolveMembershipWriteParentRowKey(
+      this.config.membership,
+      known,
+      "updateMany"
+    );
+    if (!identity) {
+      return {
+        kind: "unsupported",
+        reason: `nested updateMany on relation '${this.relationName}' cannot re-pin the complete parent row key`,
+      };
+    }
+    return {
+      kind: "guarded",
+      guard: completeTargetPresenceGuard(
+        createQueryScope(this.config.engine.adapter, parent),
+        `${this.writeId}.parent`,
+        identity,
+        nestedWriteFailure(
+          `Cannot update relation '${this.relationName}': parent record changed across a committed segment.`,
+          this.relationName
+        )
+      ),
     };
   }
 
@@ -612,7 +712,11 @@ export class RelationWritePart implements Part {
         `query-engine-v2 update for relation '${this.relationName}' requires data.`
       );
     }
-    const parsed = buildParsedRelationPrograms(this.config.childScope, data);
+    const parsed = buildParsedRelationPrograms(
+      this.config.childScope,
+      data.parsed,
+      data.source
+    );
     const pinnedTarget = this.config.where
       ? pinnedTargetValues(this.config.childScope, this.config.where)
       : {};
@@ -628,10 +732,6 @@ export class RelationWritePart implements Part {
       parsed.scalarData,
       parsed.relations
     );
-    assertSelectedUpdateManyDataIsScalar(
-      this.config.childScope,
-      parsed.relations
-    );
     return this.config.recordCompilers.updateSelected({
       scope,
       engine: this.config.engine,
@@ -645,28 +745,7 @@ export class RelationWritePart implements Part {
     });
   }
 
-  /**
-   * The scalar data of the nested `updateMany` leaf (this runs for that kind alone;
-   * the inverse-upsert found arm was the other caller until it was routed through
-   * the record compiler).
-   *
-   * Bulk data accepts scalar keys only — a set-based UPDATE has no per-row captured
-   * identity for a descendant write to correlate to (ATOM §17) — but
-   * `assertSelectedUpdateManyDataIsScalar` is the ONE owner of that decision, so
-   * this site does not restate it.
-   *
-   * MEASURED before deleting: every producer of a relation-bearing bulk leaf is
-   * already answered by that owner. `RecordUpdateCompiler`'s two positions skip
-   * building the Part entirely when `updateManyCarriesRelations` (so the deferred
-   * legality closure keeps an untaken arm inert); the third,
-   * `nested-target-parts.buildJunctionTargetRelationParts`, was ungated and now
-   * calls the owner at its seam. That fold's only producer is
-   * `RelationJunctionPart`'s `freshTargetFold`, i.e. CREATE-context data, whose
-   * `ToManyCreateSchema` has no `updateMany` key at all — so the position it
-   * uniquely covered has no public route, and a guard whose unique coverage cannot
-   * be named does not stay (AGENTS.md, "one guard per invariant").
-   */
-  private parseScalarUpdateData(): Record<string, unknown> {
+  private parseUpdateManyData(): ParsedRecordPrograms {
     const { data, childScope } = this.config;
     const kind = this.operationKind;
     if (!data) {
@@ -674,13 +753,20 @@ export class RelationWritePart implements Part {
         `query-engine-v2 ${kind} for relation '${this.relationName}' requires data.`
       );
     }
-    const parsed = buildParsedRelationPrograms(childScope, data);
-    const { scalarData, relations } = parsed;
+    const parsed = buildParsedRelationPrograms(
+      childScope,
+      data.parsed,
+      data.source
+    );
     assertPortablePrimaryKeyUpdateInput(childScope.model, kind, {
-      data: scalarData,
+      data: parsed.scalarData,
     });
-    assertRelationKeyUpdatesAreCompilable(childScope, scalarData, relations);
-    return scalarData;
+    assertRelationKeyUpdatesAreCompilable(
+      childScope,
+      parsed.scalarData,
+      parsed.relations
+    );
+    return parsed;
   }
 
   /** The row the correlated probe captured — the one source of every row-key
@@ -1260,7 +1346,7 @@ export function buildInverseToOneUpsertPart(
   // The found arm cannot move the child away by assigning its relation-owned FK.
   // A relation-bearing create arm uses the ordinary fresh-record compiler; its
   // incoming membership is injected into the subtree's root INSERT.
-  const subtree = base.recordCompilers.createFresh({
+  const subtree = base.recordCompilers.createFresh(base.scope, {
     childScope: base.childScope,
     data: createData,
     incomingMembership: bindRelationMembership(base.relation, base.parentId),
@@ -1289,22 +1375,6 @@ export function buildToManyUpdateManyParts(
       data: item.data,
     });
   });
-}
-
-/** Keep an invalid nested updateMany arm structural until its owner runs legality.
- *  Same question, same owner as the legality check itself ({@link relationWriteKeys}):
- *  when this answers "no relations" and the legality check answers "yes", the Part is
- *  built AND the write is refused — or, as measured before both read one predicate, the
- *  Part is built and a polymorphic disconnect is silently dropped. */
-export function updateManyCarriesRelations(
-  childScope: QueryScope,
-  inputs: readonly NestedUpdateManyInput[]
-): boolean {
-  return inputs.some(
-    (input) =>
-      relationWriteKeys(buildParsedRelationPrograms(childScope, input.data))
-        .length > 0
-  );
 }
 
 /** `delete`: one targeted correlated part per unique `where`. */

@@ -9,7 +9,7 @@ export interface GuardStep { readonly id: string; readonly kind: "guard"; readon
 
 export interface OperationFragment { readonly steps: readonly OperationStep[]; readonly outputs: Readonly<Record<string, FragmentOutputSource>>; }
 
-export type OperationStep = StatementStep | GuardStep;
+export type OperationStep = StatementStep | GuardStep | RecordSeriesStep;
 
 export interface OperationValueReference { readonly kind: typeof OPERATION_VALUE_REFERENCE; readonly step: string; readonly output: string; }
 
@@ -18,6 +18,8 @@ export interface PlanningFragment { readonly steps: readonly StatementStep[]; }
 export type Postcondition = | { readonly kind: "exactlyOneRow"; readonly failure: Failure } | { readonly kind: "affectedRows"; readonly expected: number | { readonly min: number }; readonly failure: Failure; };
 
 export interface ReadStep extends StatementStepBase { readonly kind: "read"; }
+
+export interface RecordSeriesStep { readonly id: string; readonly kind: "recordSeries"; readonly series: RecordSeriesOperation; readonly progressive: | { readonly kind: "guarded"; readonly guard: GuardStep } | { readonly kind: "unsupported"; readonly reason: string }; }
 
 export type StatementOutputSource = | { readonly kind: "rows" } | { readonly kind: "rowCount" } | { readonly kind: "insertId" } | { readonly kind: "firstRowField"; readonly field: string; readonly optional?: boolean; };
 

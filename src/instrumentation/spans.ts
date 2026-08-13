@@ -53,6 +53,9 @@ export const SPAN_CONNECT = "viborm.connect";
  */
 export const SPAN_DISCONNECT = "viborm.disconnect";
 
+/** One committed-segment attempt inside a progressive record series. */
+export const SPAN_RECORD_SERIES_SEGMENT = "viborm.write.record_series.segment";
+
 /**
  * Type for all valid span names
  */
@@ -65,6 +68,7 @@ export type VibORMSpanName =
   | typeof SPAN_TRANSACTION
   | typeof SPAN_CONNECT
   | typeof SPAN_DISCONNECT
+  | typeof SPAN_RECORD_SERIES_SEGMENT
   | typeof SPAN_CACHE_GET
   | typeof SPAN_CACHE_SET
   | typeof SPAN_CACHE_DELETE
@@ -123,6 +127,30 @@ export const ATTR_DB_DRIVER = "db.system.driver";
 
 /** Caller-supplied identifier that correlates one execution across outputs. */
 export const ATTR_VIBORM_CORRELATION_ID = "viborm.correlation.id";
+
+/** Atomicity retained by a write: complete operation or committed segment. */
+export const ATTR_VIBORM_WRITE_ATOMICITY = "viborm.write.atomicity";
+
+/** Dot-separated ordinal path of the active record-series member. */
+export const ATTR_VIBORM_WRITE_MEMBER_PATH = "viborm.write.member_path";
+
+/** Number of SQL statements submitted in one committed segment attempt. */
+export const ATTR_VIBORM_WRITE_STATEMENT_COUNT = "viborm.write.statement_count";
+
+/** Whether the observed segment committed. */
+export const ATTR_VIBORM_WRITE_COMMIT_OUTCOME = "viborm.write.commit_outcome";
+
+/** Final number of committed database segments. */
+export const ATTR_VIBORM_WRITE_COMMITTED_SEGMENTS =
+  "viborm.write.committed_segments";
+
+/** Final number of record-series members that completed. */
+export const ATTR_VIBORM_WRITE_COMPLETED_MEMBERS =
+  "viborm.write.completed_members";
+
+/** Final number of completed members that committed at least one write. */
+export const ATTR_VIBORM_WRITE_COMMITTED_WRITE_MEMBERS =
+  "viborm.write.committed_write_members";
 
 /**
  * Query parameter by key or index

@@ -34,10 +34,7 @@ import {
   getUpdatedPrimaryKeyWhere,
 } from "../operations/mutation-identity";
 import type { QueryEngine } from "../query-engine";
-import {
-  assertRelationKeyUpdatesAreCompilable,
-  assertUpdateManyDataRelationsAreCompilable,
-} from "../relation-key-legality";
+import { assertRelationKeyUpdatesAreCompilable } from "../relation-key-legality";
 import { ResultParser } from "../result/ResultParser";
 import type { QueryScope } from "../types";
 import {
@@ -384,7 +381,8 @@ export class UpsertOperation {
         );
         const program = buildRelationMutationProgram(
           relationPayload.relationInfo,
-          parsedRelation
+          parsedRelation,
+          relationPayload.payload
         );
         if (program) {
           updateRelations.push({
@@ -413,13 +411,14 @@ export class UpsertOperation {
           buildPolymorphicMutationProgram(
             parent,
             relationPayload.relation,
-            parsedRelation
+            parsedRelation,
+            relationPayload.payload
           )
         );
       }
     }
-    const createFresh: FreshRecordBuilder = (input) =>
-      buildFreshRecordPart(scope, engine, input);
+    const createFresh: FreshRecordBuilder = (freshScope, input) =>
+      buildFreshRecordPart(freshScope, engine, input);
     this.updateCompiler = updateHasRelations
       ? buildRecordUpdateCompiler(
           {
@@ -451,7 +450,6 @@ export class UpsertOperation {
             this.updateData,
             updateRelations
           );
-          assertUpdateManyDataRelationsAreCompilable(parent, updateRelations);
           if (!isRecord(parsedArgs.data)) {
             throw new QueryEngineError(
               "query-engine-v2 internal: update.data must be a record."

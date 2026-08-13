@@ -537,20 +537,20 @@ A junction row keys its parent half with ONE column by construction (the junctio
 
 ## 11. Bulk roots that carry relation writes (2)
 
-Packages J and K gave root `createMany` and root `updateMany` the ordinary nested-write surface, each as a `RecordSeriesOperation`. Each added exactly one refusal, and neither is a shape either of the sections above could hold.
+Packages J and K gave root `createMany` and root `updateMany` the ordinary nested-write surface, each as a `RecordSeriesOperation`. The later relation-bearing bulk pass retired the root `skipDuplicates` product refusal by choosing suppress-the-whole-subtree semantics. The N>1 single-target membership contradiction remains.
 
-**11.1 — `skipDuplicates` beside nested relation writes, at a `createMany` root** · `CreateManyRecordSeries.ts:126` (the constructor)
+**11.1 — retired: `skipDuplicates` beside nested relation writes at a `createMany` root**
 
 ```ts
 client.org.createMany({
   data: [{ name: "Acme", members: { create: [{ name: "x" }] } }],
-  skipDuplicates: true,                                            // ✗
+  skipDuplicates: true,
 });
 ```
 
-Not an identity problem and not a substrate one — the only refusal in this document that is neither. A skipped row has no defined meaning for its nested effects: they could be SUPPRESSED, or APPLIED to the row that already exists, and both are defensible public contracts. The limitation-lift plan (§5.1, §7.3) says not to guess, so the site is an `UnsupportedOperationError` rather than the `TransactionError` the substrate refusals carry — no driver capability would change the answer. Drop the flag, or write the relations in a second call. Scalar `createMany` keeps `skipDuplicates` on its old owner, byte-identically.
+The contract is now exact: if the root INSERT is skipped, that input row's complete nested subtree is suppressed. Existing rows are never adopted or updated. Count and returning results include only inserted roots, in input order. Interactive drivers isolate each member with a savepoint so effects that precede the root INSERT are also removed. D1 still refuses this relation-bearing shape because its batch API cannot attribute a unique conflict to the root statement precisely enough to suppress only that member.
 
-**11.2 — a single-target membership move across more than one `updateMany` root** · `UpdateManyRecordSeries.ts:337` (`assertMembershipAppliesToEveryRoot`; the throw is `:348`)
+**11.2 — a single-target membership move across more than one `updateMany` root** · `relation-key-legality.ts:102` (`assertSingleTargetMembershipMoveAppliesToRecords`; the throw is `:110`)
 
 ```ts
 client.org.updateMany({
@@ -620,13 +620,13 @@ and is kept because a coordinate that vanishes teaches nothing.
 
 | # | Site | Owner | Bucket | HEAD | Basis |
 |---|---|---|---|---|---|
-| 1 | `UpdateManyRecordSeries.ts:348` | `assertMembershipAppliesToEveryRoot` (`:337`) | **SC** | `:348` / `:337` | K. A single-target membership move applied to N matched roots would leave the target under the last one; "apply to every row" and "one target row" contradict. N-dependent, so no schema can own it. |
+| 1 | `UpdateManyRecordSeries.ts:348` | former `assertMembershipAppliesToEveryRoot` (`:337`) | **SC** | RETIRED → site 22 | The relation-bearing bulk pass moved the refusal to the shared relation-legality owner so root and nested series use one truth. |
 | 2 | `RecordUpdateCompiler.ts:1800` | `postTransitionReference` (`:1772`) | **MSI** | `:1800` / `:1772` | §2.5. `Sql` operands are parse-unreachable, so the reachable operand is `null`, which names no row. |
 | 3 | `RecordUpdateCompiler.ts:2017` | `resolveCreateParent` (`:1911`) | **MSI** | `:2017` / `:1911` | §2.5, the nested-create leaf. Same invariant as 2. |
 | 4 | `RecordUpdateCompiler.ts:3533` | `recordSharedKeyFold` (`:3513`) | **MSI**, with one SC disjunct — see below | `:3533` / `:3513` | E. Three disjuncts under one sentence: no value, and NULL, are MSI; "a root SET spells the same member the arm folds, disagreeing" is SC. **Flagged for Package O**: one site, two invariants. |
 | 5 | `RecordUpdateCompiler.ts:3612` | `beforeTargetReferencedValue` (`:3604`) | **MSI** | `:3612` / `:3604` | §2.3, narrowed by F to the null/absent population. |
 | 6 | `RecordUpdateCompiler.ts:4767` | `composeToOneEntries` (`:4728`) | **UFF** | `:4767` / `:4728` | H. **Expiry: the produced-identity selector channel for `RecordUpdateCompiler`** — a final reference into an earlier INSERT's outputs, consumed by `writeWhere`, the captured-key guards and the terminal read. The site names the obstacle itself. |
-| 7 | `CreateManyRecordSeries.ts:126` | the constructor | **DPC** | `:126` | J, §7.3. `skipDuplicates` plus nested effects has two defensible meanings (suppress the effects, or apply them to the row that already exists) and the plan says not to guess. The site's own docblock says product gap, not substrate. |
+| 7 | `CreateManyRecordSeries.ts:126` | former constructor refusal | **DPC** | RETIRED | The chosen contract suppresses the skipped root's whole nested subtree. |
 | 8 | `RelationJunctionPart.ts:1374` | `resolveCreatePk` (`:1362`) | **MSI** | `:1374` / `:1362` | §4.1, §7.3's identity half. A skipped row produces no identity for its join row. |
 | 9 | `RelationJunctionPart.ts:2354` | `scalarOnly` (`:2343`) | **MSI** | **RETIRED → 22** | §4.3. A set-based UPDATE learns no per-row identity. **NO EXPIRY MAY BE STATED** — see the Package L note below. |
 | 10 | `RelationWritePart.ts:691` | `parseScalarUpdateData` (`:676`) | **MSI** | **RETIRED → 22** | §8.1. Same invariant as 9, 22 and 23: four sentences, one invariant. |

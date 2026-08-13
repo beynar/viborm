@@ -6,9 +6,12 @@ import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames, s } from "@schema";
 import type { Model } from "@schema/model";
-import { isRecordSeries } from "@src/query-engine/write-engine/record-series";
+import { CreateManyRecordSeries } from "@src/query-engine/write-engine/CreateManyRecordSeries";
+import {
+  isRecordSeries,
+  isSkippableCreateMemberResult,
+} from "@src/query-engine/write-engine/record-series";
 import { constructRoutedOperation } from "@src/query-engine/write-engine/routing";
-import { UnsupportedOperationError } from "@src/query-engine/write-engine/shared";
 import {
   createManySeriesSchema,
   registerCreateManySeriesBehavior,
@@ -333,27 +336,61 @@ describe("J2 — the typed select+batch-only refusal wins over series routing", 
   }, 60_000);
 });
 
-describe("J1 — the one refusal the lift adds", () => {
-  test("skipDuplicates beside a relation row is an UnsupportedOperationError", () => {
-    let thrown: unknown;
-    try {
-      routeCreateMany(new PGliteDriver(), createManySeriesSchema.post, {
+describe("record-series skip outcome integrity", () => {
+  test("only the executor's exact inserted/skipped shapes are accepted", () => {
+    expect(isSkippableCreateMemberResult({ kind: "skipped" })).toBe(true);
+    expect(
+      isSkippableCreateMemberResult({ kind: "inserted", value: { id: 1 } })
+    ).toBe(true);
+    expect(isSkippableCreateMemberResult({ kind: "inserted" })).toBe(false);
+    expect(
+      isSkippableCreateMemberResult({ kind: "skipped", value: { id: 1 } })
+    ).toBe(false);
+  });
+
+  test("a skip-enabled series refuses a raw member row instead of counting it", () => {
+    const series = new CreateManyRecordSeries(
+      engineFor(new PGliteDriver()),
+      createManySeriesSchema.post,
+      {
+        data: [
+          {
+            id: 1,
+            title: "one",
+            author: { connect: { name: "resident" } },
+          },
+        ],
+        skipDuplicates: true,
+      }
+    );
+
+    expect(() =>
+      series.parseSeries({
+        captured: {},
+        memberResults: [{ id: 1 }],
+        resultReadResults: [],
+      })
+    ).toThrow(
+      "query-engine-v2 createMany with skipDuplicates lost a member's exact inserted/skipped outcome."
+    );
+  });
+});
+
+describe("relation-bearing skipDuplicates construction", () => {
+  test("routes through the record series", () => {
+    const routed = routeCreateMany(
+      new PGliteDriver(),
+      createManySeriesSchema.post,
+      {
         data: [{ id: 1, title: "a", author: { create: { name: "n" } } }],
         skipDuplicates: true,
-      });
-    } catch (error) {
-      thrown = error;
-    }
-    expect(thrown).toBeInstanceOf(UnsupportedOperationError);
-    expect((thrown as Error).message).toBe(
-      "createMany cannot combine 'skipDuplicates' with nested relation writes: a skipped row has no defined meaning for its nested effects — they could be suppressed, or applied to the row that already exists — and viborm will not pick one silently. Drop 'skipDuplicates', or write the relations in a separate call."
+      }
     );
+    expect(routed !== undefined && isRecordSeries(routed)).toBe(true);
   });
 
   test("a malformed payload still fails VALIDATION first", () => {
-    // The refusal is placed after the shell's own parse for exactly this reason: a
-    // payload that is both malformed and asks for the refused combination is a
-    // validation error, as it is on every other route.
+    // The series shell still parses before it constructs any member.
     expect(() =>
       routeCreateMany(new PGliteDriver(), createManySeriesSchema.post, {
         data: [{ id: 1, titlle: "typo", author: { create: { name: "n" } } }],
@@ -475,7 +512,7 @@ describe("J3/J4 — the statement list the series actually issues", () => {
     await setup.$disconnect();
   }, 60_000);
 
-  test("members run left to right and the returning reads come after all of them", async () => {
+  test("members run left to right and the returning read comes after all of them", async () => {
     const driver = new TracingPGliteDriver();
     const client = createClient({
       schema: createManySeriesSchema,
@@ -495,9 +532,9 @@ describe("J3/J4 — the statement list the series actually issues", () => {
 
     // The whole issued sequence, in order. Read it as the plan's sentence: member 0's
     // complete subtree (its author, then its own row, then the member's terminal read
-    // of its final row key), then member 1's, and only THEN the two ordinary reads
-    // that answer the public projection. Nothing writes after the first of those
-    // reads, which is what "read after every member finishes" means operationally.
+    // of its final row key), then member 1's, and only THEN one grouped read that
+    // answers the public projection. Nothing writes after that read, which is what
+    // "read after every member finishes" means operationally.
     expect(driver.statements).toEqual([
       "BEGIN",
       "INSERT jseries_authors",
@@ -505,7 +542,6 @@ describe("J3/J4 — the statement list the series actually issues", () => {
       "SELECT jseries_posts",
       "INSERT jseries_authors",
       "INSERT jseries_posts",
-      "SELECT jseries_posts",
       "SELECT jseries_posts",
       "SELECT jseries_posts",
     ]);
@@ -731,10 +767,11 @@ describe("J4 — N rows in, N rows out, or a refusal", () => {
     const client = family().client as any;
     await client.owner.create({ data: { id: 1, name: "u1" } });
 
-    // WITHOUT the postcondition this call RESOLVES with `[{ ownerId: 2, slug: "b" }]`
+    // WITHOUT the missing-key check this call RESOLVES with
+    // `[{ ownerId: 2, slug: "b" }]`
     // — one row for a two-row `createMany`, no error, while the `{ count }` arm of the
-    // byte-identical payload answers 2. Measured on 2026-08-10 before the fix, and the
-    // falsifier for it: delete `FinalRootRead`'s `expects` and this test goes red.
+    // byte-identical payload answers 2. The grouped result owner must therefore
+    // reject a missing reported key instead of returning a plausible short list.
     await expect(
       client.item.createMany({
         data: stealingPayload,
@@ -776,8 +813,8 @@ describe("J4 — N rows in, N rows out, or a refusal", () => {
     const client = family().client as any;
     await client.owner.create({ data: { id: 1, name: "u1" } });
 
-    // The postcondition is not a tax on the arm: the same shape without the theft
-    // returns one row per input, in input order.
+    // The missing-key contract is not a tax on the arm: the same shape without the
+    // theft returns one row per input, in input order.
     await expect(
       client.item.createMany({
         data: [

@@ -1,8 +1,14 @@
 import type { ExecutableOperation } from "./OperationExecutor";
 import type { PlanningFragment } from "./OperationFragment";
 
+/** The only per-member root-conflict policy understood by record-series execution. */
+export type SeriesRootConflictDisposition = {
+  readonly kind: "skipDuplicate";
+  readonly rootWriteId: string;
+};
+
 /**
- * A TRANSACTIONAL RECORD SERIES: the second — and only other — execution form the
+ * A RECORD SERIES: the second — and only other — execution form the
  * engine has (plan §4.4).
  *
  * The fragment atom is one planning phase followed by one final compilation. That
@@ -39,12 +45,14 @@ import type { PlanningFragment } from "./OperationFragment";
  * hand-built map to mis-spell, so the old bare-names hazard is structurally
  * gone). `compileMembers` / `compileResultReads` read exactly those keys.
  *
- * The series is transaction-only BY ITS FORM, not by a mode field:
- * `executionKind: "recordSeries"` alone selects the series executor, which opens
- * an interactive scope unconditionally because member N is planned against the
- * effects member N-1 already applied inside it. There is no atomic-batch
- * lowering, which is why every prepared-statement and prepared-batch seam
- * declines this form before fragment compilation.
+ * `executionKind: "recordSeries"` alone selects the series executor. Interactive
+ * drivers run it in one transaction. A batch-only driver may run root members as
+ * ordered committed segments only when its capability contract proves atomic
+ * batches and cross-batch visibility. A nested placement additionally carries
+ * the exact parent/membership guard every later write segment re-asserts; a
+ * compiler that cannot provide that proof marks the placement unsupported.
+ * Prepared statement/batch seams still decline this dynamic form before fragment
+ * compilation.
  */
 export interface RecordSeriesOperation {
   readonly executionKind: "recordSeries";
@@ -65,6 +73,26 @@ export interface RecordSeriesOperation {
     readonly memberResults: readonly unknown[];
     readonly resultReadResults: readonly unknown[];
   }): unknown;
+}
+
+/** The executor's exact result for a duplicate-skippable create member. */
+export type SkippableCreateMemberResult =
+  | { readonly kind: "inserted"; readonly value: unknown }
+  | { readonly kind: "skipped" };
+
+export function isSkippableCreateMemberResult(
+  value: unknown
+): value is SkippableCreateMemberResult {
+  if (typeof value !== "object" || value === null || !("kind" in value)) {
+    return false;
+  }
+  const keys = Reflect.ownKeys(value);
+  if (value.kind === "skipped") return keys.length === 1;
+  return (
+    value.kind === "inserted" &&
+    keys.length === 2 &&
+    Object.hasOwn(value, "value")
+  );
 }
 
 /** What a routed payload may resolve to: one fragment atom, or one series. */

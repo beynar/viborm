@@ -1,15 +1,19 @@
 import { MemoryCache } from "@cache/drivers/memory";
 import { PendingOperation as ClientPendingOperation } from "@client/exports";
 import { PgDriver } from "@drivers/pg";
-import { PendingOperationError, ValidationError } from "@errors";
+import {
+  CacheConfigurationError,
+  PendingOperationError,
+  ValidationError,
+} from "@errors";
 import { withMutationCacheInvalidation } from "@query-engine/cache-flow";
 import { PendingOperation } from "@query-engine/pending-operation";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import type { QueryMetadata } from "@query-engine/types";
 import { hydrateSchemaNames, s } from "@schema";
+import { PendingOperation as RootPendingOperation } from "@src/index";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
-import { PendingOperation as RootPendingOperation } from "@src/index";
 
 function createOperation<T>(
   operation: "findMany" | "update" = "findMany",
@@ -232,6 +236,26 @@ describe("PendingOperation frozen public contract", () => {
     const caught = await decorated.execute().catch((error) => error);
     expect(caught).toBe(failure);
     expect(invalidate).not.toHaveBeenCalled();
+  });
+
+  it("owns cache invalidation failures instead of leaking a raw error", async () => {
+    const cache = new MemoryCache();
+    const failure = new Error("cache transport failed");
+    vi.spyOn(cache, "_invalidate").mockRejectedValue(failure);
+    const mutation = createControlledOperation(42, "update").operation;
+    const decorated = withMutationCacheInvalidation(
+      mutation,
+      cache,
+      "user",
+      "update",
+      undefined
+    );
+
+    const caught = await decorated.execute().catch((error) => error);
+    expect(caught).toBeInstanceOf(CacheConfigurationError);
+    expect(caught).toMatchObject({
+      meta: { method: "invalidate", model: "user", operation: "update" },
+    });
   });
 
   it("keeps PendingOperation as the root and client runtime export", () => {

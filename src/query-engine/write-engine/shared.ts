@@ -18,6 +18,7 @@ import {
 import type { QueryEngine } from "../query-engine";
 import { getForeignKeyTargetFields } from "../TargetConstraint";
 import type { QueryScope } from "../types";
+import type { RecordMutationData } from "../builders/relation-mutation-parser";
 import type { TargetConstraintPin } from "./OperationFragment";
 import type { RelationMembershipBinding } from "./relation-membership";
 import type { StepScope } from "./StepScope";
@@ -45,9 +46,15 @@ export interface SubOperationOptions {
    * family and M2M — falls out unchanged, one architecture, at any depth.
    */
   readonly nestedFresh?: {
-    readonly data: Record<string, unknown>;
+    readonly data: RecordMutationData;
     readonly incomingMembership?: RelationMembershipBinding;
     readonly relationName: string;
+    /**
+     * A nested createMany series member may absorb a conflict on this record's
+     * root INSERT. Descendant conflicts remain ordinary failures, and the series
+     * savepoint removes the complete skipped subtree.
+     */
+    readonly skipDuplicates?: boolean;
     /**
      * The raceable missing-premise pin of an enclosing adopt arm. A nested
      * `upsert`/`connectOrCreate` whose probe found nothing takes its CREATE arm, and
@@ -88,8 +95,10 @@ export interface SubOperationOptions {
    * after every member's effects have landed.
    */
   readonly parsedRoot?: {
-    readonly data: Record<string, unknown>;
+    readonly data: RecordMutationData;
     readonly select: Record<string, unknown>;
+    /** Root-series contract: a root conflict suppresses this complete record tree. */
+    readonly skipDuplicates?: boolean;
   };
   /**
    * PACKAGE K5 — an INDEPENDENT ROOT update of ONE CAPTURED ROW: one member of a

@@ -283,7 +283,11 @@ describe("SQLite3 Driver", () => {
           return statement;
         },
         async run() {
-          return { success: true, results: [], meta: { changes: 1 } };
+          return {
+            success: true,
+            results: [],
+            meta: { changes: 1, last_row_id: 1 },
+          };
         },
       };
       // This fake intentionally implements only the D1 surface exercised here.

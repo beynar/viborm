@@ -5,8 +5,7 @@
 // relation leaves for the caller. Two edges answer "what does the enclosing step
 // already own" differently — an ordinary inverse owns the target's foreign-key
 // SCALARS, a polymorphic inverse owns the target's direct RELATION KEY — and until
-// this module existed each answer had its own verb factories and its own createMany
-// availability.
+// this module existed each answer had its own verb factories.
 //
 // This is the one place that difference is decided. The verb factories
 // (`toOne/toMany` × `create/update`) consume the projection blindly, so a surface
@@ -26,14 +25,8 @@ import {
 import type { GetPolymorphicInverseBinding } from "@schema/relation/polymorphic";
 import type { RelationState } from "@schema/relation/types";
 import { getInverseRelationMap } from "@schema/relation/types";
-import type { ScalarSchemas } from "../model";
-import {
-  getNestedScalarCreateWithOmittedRequiredKeys,
-  type NestedScalarCreateWithOmittedRequiredKeys,
-} from "../model/core/create";
 import { type V, v } from "../primitives/v";
 import type {
-  CreateManyDataSchema,
   CreateWithOmittedFk,
   UpdateWithOmittedFk,
 } from "./create";
@@ -125,19 +118,6 @@ type PolymorphicInverseUpdateTarget<
   ]
 >;
 
-/**
- * A polymorphic membership's `(type, id)` columns are PRIVATE — they are never in
- * `state.scalars` — so a bulk row omits no required scalar key. The enclosing edge
- * supplies the pair, which is also why the relation key is the createMany
- * availability owner's "satisfied" argument.
- */
-type PolymorphicInverseCreateManyData<S extends RelationState> =
-  NestedScalarCreateWithOmittedRequiredKeys<
-    TargetModel<S>,
-    ScalarSchemas<TargetModel<S>>,
-    readonly []
-  >;
-
 // =============================================================================
 // THE PROJECTION — one alias, one instantiation per relation
 // =============================================================================
@@ -158,16 +138,12 @@ export type NestedRelationDataProjection<
     ? {
         create: PolymorphicInverseCreateTarget<S, Source>;
         update: PolymorphicInverseUpdateTarget<S, Source>;
-        createManyData: PolymorphicInverseCreateManyData<S>;
         createUpsertUpdate: PolymorphicInverseUpdateTarget<S, Source>;
-        satisfiedPolymorphicRelation: PolymorphicInverseRelationKey<S, Source>;
       }
     : {
         create: CreateWithOmittedFk<S, Source>;
         update: UpdateWithOmittedFk<S, Source>;
-        createManyData: CreateManyDataSchema<S, Source>;
         createUpsertUpdate: GetTargetSchemas<S>["core"]["update"];
-        satisfiedPolymorphicRelation: never;
       };
 
 /** The target schema a nested `create` payload writes into. */
@@ -182,12 +158,6 @@ export type ProjectedNestedUpdate<
   Source extends AnyModel,
 > = NestedRelationDataProjection<S, Source>["update"];
 
-/** The scalar-only bulk row of a nested `createMany`. */
-export type ProjectedCreateManyData<
-  S extends RelationState,
-  Source extends AnyModel,
-> = NestedRelationDataProjection<S, Source>["createManyData"];
-
 /**
  * The `upsert.update` arm of a to-many payload under a CREATE root, and the one
  * place the two edges deliberately disagree: the ordinary edge keeps the target's
@@ -201,15 +171,6 @@ export type ProjectedCreateUpsertUpdate<
   Source extends AnyModel,
 > = NestedRelationDataProjection<S, Source>["createUpsertUpdate"];
 
-/** The polymorphic relation key the enclosing edge satisfies, if any. */
-export type ProjectedSatisfiedPolymorphicRelation<
-  S extends RelationState,
-  Source extends AnyModel,
-> = Extract<
-  NestedRelationDataProjection<S, Source>["satisfiedPolymorphicRelation"],
-  string
->;
-
 // =============================================================================
 // RUNTIME
 // =============================================================================
@@ -222,10 +183,8 @@ export interface NestedRelationDataSchemas {
   readonly getCreateSchema: () => AnyObjectSchema;
   /** The same omission applied to nested UPDATE data, gated per edge. */
   readonly getUpdateSchema: () => AnyObjectSchema;
-  readonly getCreateManyDataSchema: () => AnyObjectSchema;
   /** See {@link ProjectedCreateUpsertUpdate} — the agreeing-owned-FK asymmetry. */
   readonly getCreateUpsertUpdateSchema: () => AnyObjectSchema;
-  readonly satisfiedPolymorphicRelation: string | undefined;
 }
 
 /**
@@ -265,7 +224,6 @@ export const nestedRelationDataProjection = <
 
   if (binding) {
     const relationKey = binding.relationKey;
-    const targetModel: AnyModel = state.getter();
     const getCreateSchema = () =>
       v.omit(targetSchemas().core.create as unknown as AnyObjectSchema, [
         relationKey,
@@ -278,21 +236,7 @@ export const nestedRelationDataProjection = <
     return {
       getCreateSchema,
       getUpdateSchema,
-      getCreateManyDataSchema: () => {
-        const target = targetSchemas();
-        const noOmittedRequiredKeys: readonly [] = [];
-        return getNestedScalarCreateWithOmittedRequiredKeys(
-          targetModel,
-          {
-            scalars: target.scalars,
-            relations: target.relations,
-            polymorphic: target.polymorphic,
-          } as unknown as ScalarSchemas<AnyModel>,
-          noOmittedRequiredKeys
-        ) as unknown as AnyObjectSchema;
-      },
       getCreateUpsertUpdateSchema: getUpdateSchema,
-      satisfiedPolymorphicRelation: relationKey,
     };
   }
 
@@ -313,22 +257,7 @@ export const nestedRelationDataProjection = <
   return {
     getCreateSchema,
     getUpdateSchema,
-    getCreateManyDataSchema: () => {
-      const target = targetSchemas();
-      const fkFields = (getInverseRelationMap(state, source) ??
-        []) as unknown as readonly string[];
-      return getNestedScalarCreateWithOmittedRequiredKeys(
-        state.getter() as AnyModel,
-        {
-          scalars: target.scalars,
-          relations: target.relations,
-          polymorphic: target.polymorphic,
-        } as unknown as ScalarSchemas<AnyModel>,
-        fkFields
-      ) as unknown as AnyObjectSchema;
-    },
     getCreateUpsertUpdateSchema: () =>
       targetSchemas().core.update as unknown as AnyObjectSchema,
-    satisfiedPolymorphicRelation: undefined,
   };
 };

@@ -15,17 +15,10 @@ import { describe, expect, test } from "vitest";
 /**
  * E2-U2 — **relations inside a many-to-many `connectOrCreate` create arm.**
  *
- * The `scalarOnly` boundary refused them at every root, measured live before the lift
- * (0 statements, both substrates, all three `buildJunctionParts` callers):
- *
- *   UnsupportedOperationError: query-engine-v2 nested 'connectOrCreate' on many-to-many
- *   relation 'tags' does not support nested relation writes in its data.
- *
  * The create arm inserts a row keyed by the literal primary key its data spells, so its
- * deeper edges are the ordinary fresh-target case (mechanism 2) the `create` and `upsert`
- * arms already fold. What is arm-specific is WHERE the folded Parts are emitted, and that
- * is the whole of this unit's care: `connectOrCreate` has THREE branches and only one of
- * them makes a row.
+ * deeper edges use the ordinary fresh-target compiler. What is arm-specific is WHERE
+ * those Parts are emitted: `connectOrCreate` has THREE branches and only one of them
+ * makes a row.
  *
  *  · **found** (the global probe located the target) — adopt: the join row alone. Prisma's
  *    semantics are that an existing row is joined, not described, so the create payload
@@ -48,9 +41,8 @@ import { describe, expect, test } from "vitest";
  *    the arm's INSERT and with it the `racePin` — also E4's, and the pin is witnessed
  *    here so the trade cannot be made silently.
  *
- * The `updateMany` sibling of the same boundary stays refused with the ENGINE's reason
- * (M4): a set-based `UPDATE … WHERE <membership>` never learns which rows it touched, so
- * a deeper edge has no per-row identity to reference.
+ * Relation-bearing `updateMany` now captures connected target row keys at this Part's
+ * ordered position and runs one selected-record compiler subtree per target.
  */
 const adoptRelationsSchema = (() => {
   const user = s
@@ -675,38 +667,49 @@ describe("E2-U2 the carve-outs — both DISCHARGED by E4-U3", () => {
     }
   }, 30_000);
 
-  test("the updateMany sibling keeps the boundary, for the engine's own reason", async () => {
+  test("junction updateMany runs one selected-record subtree per connected target", async () => {
     const client = await setup(new PGliteDriver());
     try {
       await client.board.create({ data: { id: "b1", name: "board" } });
       await client.boardPost.create({
         data: { id: "bp1", title: "bp", boardId: "b1" },
       });
-      // One level deeper, where the update root's own CLASS V legality check does not
-      // run: a set-based UPDATE has no per-row identity for a child write to reference.
-      await expect(
-        client.board.update({
-          where: { id: "b1" },
-          data: {
-            posts: {
-              update: {
-                where: { id: "bp1" },
-                data: {
-                  marks: {
-                    updateMany: {
-                      where: {},
-                      data: { notes: { create: { id: "x", body: "b" } } },
+      await client.mark.create({
+        data: {
+          id: "m1",
+          name: "mark",
+          posts: { connect: { id: "bp1" } },
+        },
+      });
+
+      await client.board.update({
+        where: { id: "b1" },
+        data: {
+          posts: {
+            update: {
+              where: { id: "bp1" },
+              data: {
+                marks: {
+                  updateMany: {
+                    where: { id: "m1" },
+                    data: {
+                      name: "updated",
+                      notes: { create: { id: "x", body: "nested" } },
                     },
                   },
                 },
               },
             },
           },
-        })
-      ).rejects.toThrow(
-        "query-engine-v2 nested 'updateMany' on many-to-many relation 'marks' does not support nested relation writes in its data."
-      );
-      await expect(client.markNote.findMany({})).resolves.toEqual([]);
+        },
+      });
+
+      await expect(
+        client.mark.findUnique({ where: { id: "m1" } })
+      ).resolves.toMatchObject({ name: "updated" });
+      await expect(
+        client.markNote.findUnique({ where: { id: "x" } })
+      ).resolves.toEqual({ id: "x", body: "nested", markId: "m1" });
     } finally {
       await client.$disconnect();
     }

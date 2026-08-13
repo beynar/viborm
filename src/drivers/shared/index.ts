@@ -12,6 +12,7 @@ export {
 export { normalizePostgresRowCount } from "./postgres-result";
 export {
   classifySQLiteStatementResult,
+  isSQLiteInsertStatement,
   type SQLiteStatementResultKind,
 } from "./sqlite-statement-classifier";
 export {

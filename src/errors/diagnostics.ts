@@ -59,6 +59,23 @@ interface TrustedErrorSnapshot {
   readonly timestamp: string;
 }
 
+export interface RecordSeriesProgress {
+  readonly atomicity: "segment";
+  readonly phase:
+    | "capture"
+    | "planning"
+    | "prefix"
+    | "member"
+    | "suffix"
+    | "result"
+    | "invalidation";
+  readonly committedSegments: number;
+  readonly completedMembers: number;
+  readonly committedWriteMembers: number;
+  readonly memberPath?: readonly number[];
+  readonly totalMembers?: number;
+}
+
 const MAX_DEPTH = 8;
 const SQL_KEYS = new Set(["query", "querytext", "sql", "statement"]);
 const PARAMETER_KEYS = new Set([
@@ -103,6 +120,7 @@ const ERROR_META_KEYS = new Set([
   "providerSqlState",
   "providerStatus",
   "query",
+  "recordSeriesProgress",
   "relation",
   "relations",
   "representation",
@@ -165,6 +183,9 @@ const CIRCULAR_VALUE = "[Circular]";
 const TRUNCATED_VALUE = TRUNCATED_DIAGNOSTIC_VALUE;
 const UNREADABLE_VALUE = UNREADABLE_DIAGNOSTIC_VALUE;
 const TRUSTED_ERROR_SNAPSHOT = Symbol("viborm.trustedErrorSnapshot");
+const TRUSTED_RECORD_SERIES_PROGRESS = Symbol(
+  "viborm.trustedRecordSeriesProgress"
+);
 
 export function resolveDiagnosticDisclosure(
   disclosure?: DiagnosticDisclosure
@@ -281,11 +302,92 @@ export function serializeTrustedError(
   defineSafe(
     serialized,
     "meta",
-    sanitizeErrorMetadata(snapshot.meta, snapshot.disclosure)
+    trustedMetaWithRecordSeriesProgress(error, snapshot)
   );
   defineSafe(serialized, "timestamp", snapshot.timestamp);
   defineSafe(serialized, "cause", serializeSanitizedError(snapshot.cause));
   return serialized;
+}
+
+/** Attach one already-sanitized committed-series diagnostic to trusted output. */
+export function registerTrustedRecordSeriesProgress(
+  error: Error,
+  progress: RecordSeriesProgress
+): void {
+  defineHidden(
+    error,
+    TRUSTED_RECORD_SERIES_PROGRESS,
+    freezeDiagnosticValue(progress)
+  );
+}
+
+export function getTrustedRecordSeriesProgress(
+  error: Error
+): RecordSeriesProgress | undefined {
+  return sanitizeRecordSeriesProgress(
+    safeRead(error, TRUSTED_RECORD_SERIES_PROGRESS)
+  );
+}
+
+export function sanitizeRecordSeriesProgress(
+  value: unknown
+): RecordSeriesProgress | undefined {
+  if (!isRecord(value)) return undefined;
+  const atomicity = safeRead(value, "atomicity");
+  const phase = safeRead(value, "phase");
+  const committedSegments = safeProgressInteger(
+    safeRead(value, "committedSegments")
+  );
+  const completedMembers = safeProgressInteger(
+    safeRead(value, "completedMembers")
+  );
+  const committedWriteMembers = safeProgressInteger(
+    safeRead(value, "committedWriteMembers")
+  );
+  const totalMembersValue = safeRead(value, "totalMembers");
+  const totalMembers =
+    totalMembersValue === undefined
+      ? undefined
+      : safeProgressInteger(totalMembersValue);
+  const memberPathValue = safeRead(value, "memberPath");
+  const memberPath =
+    memberPathValue === undefined
+      ? undefined
+      : sanitizeProgressMemberPath(memberPathValue);
+  if (
+    atomicity !== "segment" ||
+    !isRecordSeriesProgressPhase(phase) ||
+    committedSegments === undefined ||
+    completedMembers === undefined ||
+    committedWriteMembers === undefined ||
+    (totalMembersValue !== undefined && totalMembers === undefined) ||
+    (memberPathValue !== undefined && memberPath === undefined)
+  ) {
+    return undefined;
+  }
+  return Object.freeze({
+    atomicity,
+    phase,
+    committedSegments,
+    completedMembers,
+    committedWriteMembers,
+    ...(memberPath ? { memberPath: Object.freeze(memberPath) } : {}),
+    ...(totalMembers !== undefined ? { totalMembers } : {}),
+  });
+}
+
+function isRecordSeriesProgressPhase(
+  value: unknown
+): value is RecordSeriesProgress["phase"] {
+  return (
+    value === "capture" ||
+    value === "planning" ||
+    value === "prefix" ||
+    value === "member" ||
+    value === "suffix" ||
+    value === "result" ||
+    value === "invalidation"
+  );
 }
 
 export function getTrustedErrorCause(error: Error): Error | undefined {
@@ -481,7 +583,9 @@ function sanitizeError(
       if (filtered !== undefined) defineSafe(sanitized, key, filtered);
     }
   }
-  const meta = trusted?.meta;
+  const meta = trusted
+    ? trustedMetaWithRecordSeriesProgress(error, trusted)
+    : undefined;
   if (!redactMessage && meta) {
     defineSafe(
       sanitized,
@@ -501,6 +605,10 @@ function sanitizeError(
       prismaCode: trusted.prismaCode,
       timestamp: new Date(trusted.timestamp),
     });
+    const progress = sanitizeRecordSeriesProgress(
+      safeRead(error, TRUSTED_RECORD_SERIES_PROGRESS)
+    );
+    if (progress) registerTrustedRecordSeriesProgress(sanitized, progress);
   }
 
   const nested = trusted?.cause ?? getNestedCause(error);
@@ -542,6 +650,9 @@ function filterAllowedDiagnosticValue(
   value: unknown,
   validateLogMetadata: boolean
 ): unknown {
+  if (key === "recordSeriesProgress") {
+    return sanitizeRecordSeriesProgress(value);
+  }
   if (key === "event" && validateLogMetadata) {
     return typeof value === "string" &&
       ["bypass", "hit", "miss", "revalidate"].includes(value)
@@ -583,6 +694,39 @@ function filterAllowedDiagnosticValue(
   if (key === "query") return typeof value === "string" ? value : undefined;
   if (key === "params") return isArrayValue(value) ? value : undefined;
   return undefined;
+}
+
+function safeProgressInteger(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0
+    ? value
+    : undefined;
+}
+
+function sanitizeProgressMemberPath(value: unknown): number[] | undefined {
+  if (!isArrayValue(value)) return undefined;
+  const length = safeArrayLength(value);
+  if (length > 32) return undefined;
+  const path: number[] = [];
+  for (let index = 0; index < length; index += 1) {
+    const descriptor = safeOwnPropertyDescriptor(value, String(index));
+    if (!(descriptor && "value" in descriptor)) return undefined;
+    const ordinal = safeProgressInteger(descriptor.value);
+    if (ordinal === undefined) return undefined;
+    path.push(ordinal);
+  }
+  return path;
+}
+
+function trustedMetaWithRecordSeriesProgress(
+  error: Error,
+  snapshot: TrustedErrorSnapshot
+): Record<string, unknown> {
+  const meta = sanitizeErrorMetadata(snapshot.meta, snapshot.disclosure);
+  const progress = sanitizeRecordSeriesProgress(
+    safeRead(error, TRUSTED_RECORD_SERIES_PROGRESS)
+  );
+  if (progress) defineSafe(meta, "recordSeriesProgress", progress);
+  return meta;
 }
 
 function sanitizeStringArray(value: unknown): string[] | undefined {

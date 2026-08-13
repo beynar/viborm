@@ -4,7 +4,12 @@ description: Create, update, and manage related records in a single operation
 icon: layers
 ---
 
-Nested writes let you create, connect, update, and delete related records in the same call as their parent. The whole operation is **atomic** — if any part fails, nothing is written — and generated IDs flow automatically from a parent to its children.
+Nested writes let you create, connect, update, and delete related records in the
+same call as their parent. Transaction-capable drivers run the whole operation
+atomically, and generated IDs flow automatically from a parent to its children.
+D1 also runs ordinary nested writes in one atomic batch when they can be planned
+up front. Its root relation-bearing bulk route has a separate
+[segment-atomic contract](/docs/drivers/sqlite/d1#relation-bearing-bulk-writes).
 
 :::info
 Link selectors — `connect`, `connectOrCreate.where`, `disconnect`, and `set` —
@@ -69,6 +74,45 @@ const user = await client.user.create({
   include: { posts: true },
 });
 ```
+
+### createMany (nested)
+
+Use nested `createMany` on a to-many relation. Scalar-only rows keep the grouped
+bulk insert. A row that contains another relation is compiled as an ordinary
+fresh record subtree, and those record subtrees run left to right:
+
+```ts
+await client.user.create({
+  data: {
+    email: "alice@example.com",
+    posts: {
+      createMany: {
+        data: [
+          {
+            title: "First",
+            comments: { create: { body: "Nested one level deeper" } },
+          },
+          {
+            title: "Second",
+            category: { connect: { slug: "news" } },
+          },
+        ],
+      },
+    },
+  },
+});
+```
+
+D1 also executes this nested series when VibORM can re-assert the complete
+parent or relation membership in every later write batch. A shape without that
+exact guard is refused before its containing member writes. If reached inside a
+progressive root bulk call, earlier root members can already be committed and
+are reported.
+
+With `skipDuplicates`, a conflicting created row suppresses that row's complete
+nested subtree. It does not apply the nested effects to the existing row. This
+relation-bearing skip form requires an interactive transaction. D1 and other
+batch-only drivers reject it before the first user write.
 
 ### connect
 
@@ -248,10 +292,38 @@ const user = await client.user.update({
 });
 ```
 
-`updateMany` applies to to-many relations only. Its executable `data` is
-scalar-only; use targeted nested `update` when a child update must contain
-relation operations. The compatibility reference explains the deliberately
-deferred validation of an untaken upsert update arm.
+`updateMany` applies to to-many relations only. Scalar-only `data` stays on the
+set-based bulk path. When `data` contains a relation, VibORM captures the
+matching related rows once, sorts their complete primary keys, and runs the same
+selected-record update compiler once per captured row:
+
+```ts
+await client.user.update({
+  where: { id: "user_123" },
+  data: {
+    posts: {
+      updateMany: {
+        where: { published: false },
+        data: {
+          archived: true,
+          auditEntries: { create: { action: "archive" } },
+        },
+      },
+    },
+  },
+});
+```
+
+Matching zero rows remains a successful no-op. If more than one row is
+captured, VibORM refuses a deeper child-held operation that would move the same
+named target to several updated rows; one target row can store only one parent
+membership.
+
+D1 also executes this nested series when VibORM can re-assert the complete
+parent or relation membership in every later write batch. A shape without that
+exact guard is refused before its containing member writes. If that member
+belongs to a progressive root bulk call, earlier root members can already be
+committed; the error reports that prefix.
 
 ### upsert (nested)
 

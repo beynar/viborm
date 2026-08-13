@@ -96,6 +96,7 @@ const libsqlRowCount = (
 
 export class LibSQLDriver extends Driver<Client, Client | Transaction> {
   readonly adapter: DatabaseAdapter = new SQLiteAdapter();
+  readonly maxBindParametersPerStatement: number | undefined = 999;
   readonly result: DriverResultParser = sqliteResultParser;
   protected override readonly serializeTransactions: boolean;
 

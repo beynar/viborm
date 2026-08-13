@@ -23,6 +23,7 @@ import {
   buildParsedRelationPrograms,
   type ParsedRecordPrograms,
   type ParsedRelationMutation,
+  type RecordMutationData,
   type RelationMutationEntry,
   type RelationMutationProgram,
 } from "../builders/relation-mutation-parser";
@@ -53,6 +54,10 @@ import type {
   RelationInfo,
   ResolvedPolymorphicEdge,
 } from "../types";
+import {
+  buildFreshRecordSeriesPart,
+  createManyCarriesRelations,
+} from "./FreshRecordSeriesPart";
 import {
   childRacePin,
   exactlyOneRow,
@@ -93,6 +98,7 @@ import {
   buildConnectOrCreateParts,
   buildToManyUpsertParts,
 } from "./RelationUpsertPart";
+import type { SeriesRootConflictDisposition } from "./record-series";
 import {
   applyRootMembershipAssignment,
   bindRelationMembership,
@@ -123,22 +129,29 @@ type ExecutionMode = "transaction" | "batch";
 
 export interface FreshRecordPart extends Part {
   readonly rootWriteId: string;
+  readonly seriesRootConflict: SeriesRootConflictDisposition | undefined;
   rootReferenced(field: string): FinalReferenceSource | undefined;
 }
 
-export type FreshRecordBuilder = (input: {
+export interface FreshRecordInput {
   readonly childScope: QueryScope;
-  readonly data: Record<string, unknown>;
+  readonly data: RecordMutationData;
   readonly incomingMembership?: RelationMembershipBinding;
   readonly relationName: string;
   readonly racePin?: TargetConstraintPin;
-}) => FreshRecordPart;
+  readonly skipDuplicates?: boolean;
+}
+
+export type FreshRecordBuilder = (
+  scope: StepScope,
+  input: FreshRecordInput
+) => FreshRecordPart;
 
 /** Build one nested non-bulk fresh record through the create compiler. */
 export function buildFreshRecordPart(
   scope: StepScope,
   engine: QueryEngine,
-  input: Parameters<FreshRecordBuilder>[0]
+  input: FreshRecordInput
 ): FreshRecordPart {
   const operation = new CreateOperation(
     engine,
@@ -154,6 +167,7 @@ export function buildFreshRecordPart(
           : {}),
         relationName: input.relationName,
         rootRacePin: input.racePin,
+        skipDuplicates: input.skipDuplicates,
       },
     }
   );
@@ -162,6 +176,9 @@ export function buildFreshRecordPart(
     compile: (_scope, known) => operation.compile(known).steps,
     get rootWriteId() {
       return operation.rootWriteStepId;
+    },
+    get seriesRootConflict() {
+      return operation.seriesRootConflict;
     },
     rootReferenced: (field) => operation.freshRootReferenced(field),
   };
@@ -283,6 +300,10 @@ interface CreateManyGroup {
   readonly databaseAssigned: readonly boolean[];
 }
 
+type CreateManyWork =
+  | { readonly kind: "group"; readonly group: CreateManyGroup }
+  | { readonly kind: "series"; readonly part: Part };
+
 /**
  * One create record in the tree (the root or any nested `create`). It knows its
  * own scalar INSERT, the parent-held connects folded before it, and the
@@ -301,7 +322,7 @@ interface RecordPlan {
   readonly writeStepId: string;
   readonly parentHeldArms: readonly ParentHeldArm[];
   readonly childCreates: readonly ChildCreate[];
-  readonly createManyGroups: readonly CreateManyGroup[];
+  readonly createManyWork: readonly CreateManyWork[];
   readonly afterParts: readonly Part[];
 }
 
@@ -357,6 +378,9 @@ export class CreateOperation {
   private readonly model: Model<any>;
   private readonly scope: StepScope;
   private readonly resultArgs: Record<string, unknown>;
+  /** Internal series members publish exact row keys, even when public decimal
+   * decoding deliberately requests the legacy lossy number representation. */
+  private readonly resultDecimalDecode: "string" | "number";
   private readonly root: RecordPlan;
   private readonly parsedSelect: Record<string, unknown> | undefined;
   private readonly parsedInclude: Record<string, unknown> | undefined;
@@ -395,6 +419,8 @@ export class CreateOperation {
   /** X1b — a nested fresh subtree emits no terminal read (the enclosing op owns
    *  the result) and injects the located parent's FK into its root INSERT. */
   private readonly suppressTerminal: boolean;
+  /** A root-series member whose root conflict suppresses its complete subtree. */
+  private readonly rootSkipDuplicates: boolean;
   private readonly incomingMembership: RelationMembershipBinding | undefined;
   /** The enclosing adopt arm's raceable missing-premise pin, carried by this
    *  subtree's ROOT record INSERT (the statement that was the arm's own create leaf
@@ -448,15 +474,16 @@ export class CreateOperation {
    */
   private readonly annotatedByEnclosingOwner: boolean;
   private readonly armLegalityChecks: (() => void) | undefined;
-  /** The adopt family's fresh-arm seam, bound to this operation's scope and
-   *  engine (an arrow field, so `this` survives being passed as a callback). */
-  private readonly createFresh: FreshRecordBuilder = (input) =>
-    buildFreshRecordPart(this.scope, this.engine, input);
+  /** The adopt family's fresh-arm seam. Its caller supplies the record scope so
+   *  a data-dependent record-series member keeps one allocator for its complete
+   *  subtree instead of borrowing the enclosing record's allocator. */
+  private readonly createFresh: FreshRecordBuilder = (scope, input) =>
+    buildFreshRecordPart(scope, this.engine, input);
   /** E3 — the adopt family's whole seam: the fresh CREATE arm above, plus the
    *  located UPDATE arm's deeper child Parts. Arrow fields, so this binds lazily
    *  and field-initializer order does not matter. */
   private readonly recordCompilers: RecordCompilerSeam = {
-    createFresh: (input) => this.createFresh(input),
+    createFresh: (scope, input) => this.createFresh(scope, input),
     updateSelected: (input) =>
       buildRecordUpdateCompiler(input, this.createFresh),
   };
@@ -481,11 +508,17 @@ export class CreateOperation {
     // X2), emits no terminal read, and folds the located parent's FK into its root
     // INSERT at compile.
     const nestedFresh = options.nestedFresh;
+    this.resultDecimalDecode = options.parsedRoot
+      ? "string"
+      : engine.decimalDecode;
     this.suppressTerminal = nestedFresh !== undefined;
+    this.rootSkipDuplicates =
+      options.parsedRoot?.skipDuplicates === true ||
+      nestedFresh?.skipDuplicates === true;
     this.incomingMembership = nestedFresh?.incomingMembership;
     this.rootRacePin = nestedFresh?.rootRacePin;
 
-    let data: Record<string, unknown>;
+    let data: RecordMutationData;
     if (nestedFresh) {
       data = nestedFresh.data;
       this.parsedInclude = undefined;
@@ -517,7 +550,10 @@ export class CreateOperation {
         "create",
         ""
       );
-      data = parsedArgs.data;
+      data = {
+        parsed: parsedArgs.data,
+        source: isRecord(args.data) ? args.data : undefined,
+      };
       const hasSelect = isRecord(parsedArgs.select);
       this.parsedInclude = isRecord(parsedArgs.include)
         ? parsedArgs.include
@@ -543,7 +579,11 @@ export class CreateOperation {
     // the whole enclosing tree, so it is skipped here (V1 checks it inside the
     // whenFalse branch only; a nested subtree's own-write is covered by the
     // enclosing operation's whole-tree walk).
-    const parsedData = buildParsedRelationPrograms(parent, data);
+    const parsedData = buildParsedRelationPrograms(
+      parent,
+      data.parsed,
+      data.source
+    );
     const assertOwnWrite = () => {
       assertCreateOwnWriteSafety(
         parent,
@@ -574,7 +614,7 @@ export class CreateOperation {
     const isPureScalar =
       this.root.parentHeldArms.length === 0 &&
       this.root.childCreates.length === 0 &&
-      this.root.createManyGroups.length === 0 &&
+      this.root.createManyWork.length === 0 &&
       this.root.afterParts.length === 0;
     // A relation projection cannot ride
     // a RETURNING list (no alias to correlate against) but can ride a CTE:
@@ -594,7 +634,7 @@ export class CreateOperation {
         this.parsedInclude
       );
     this.foldStep =
-      !this.suppressTerminal &&
+      !(this.suppressTerminal || this.rootSkipDuplicates) &&
       txMode &&
       isPureScalar &&
       (scalarOnlyProjection || foldsProjectionIntoCte) &&
@@ -771,6 +811,7 @@ export class CreateOperation {
     collectFoldArmSemantics(this.root, semantics);
     const foldable =
       this.mode === "transaction" &&
+      !this.rootSkipDuplicates &&
       this.engine.adapter.capabilities.supportsCteWithMutations &&
       this.engine.adapter.capabilities.supportsReturning &&
       this.projectionIsScalarOnly() &&
@@ -825,7 +866,7 @@ export class CreateOperation {
       this.engine.adapter,
       this.model,
       this.engine.driver,
-      this.engine.decimalDecode
+      this.resultDecimalDecode
     ).parse<T>("create", outputs.result, this.resultArgs);
   }
 
@@ -833,6 +874,13 @@ export class CreateOperation {
    *  arm annotates with its raceable missing-premise `racePin` (T3c). */
   get rootWriteStepId(): string {
     return this.root.writeStepId;
+  }
+
+  /** Exact series-only root-conflict disposition. Descendant writes never expose it. */
+  get seriesRootConflict(): SeriesRootConflictDisposition | undefined {
+    return this.rootSkipDuplicates
+      ? { kind: "skipDuplicate", rootWriteId: this.root.writeStepId }
+      : undefined;
   }
 
   // -------------------------------------------------------------------------
@@ -845,12 +893,13 @@ export class CreateOperation {
    */
   private buildRecord(
     childScope: QueryScope,
-    data: Record<string, unknown>,
+    data: RecordMutationData,
     txMode: boolean,
     presetWriteStepId?: string,
     parsedData: ParsedRecordPrograms = buildParsedRelationPrograms(
       childScope,
-      data
+      data.parsed,
+      data.source
     )
   ): RecordPlan {
     const model = childScope.model;
@@ -881,7 +930,7 @@ export class CreateOperation {
 
     const parentHeldArms: ParentHeldArm[] = [];
     const childCreates: ChildCreate[] = [];
-    const createManyGroups: CreateManyGroup[] = [];
+    const createManyWork: CreateManyWork[] = [];
     const afterParts: Part[] = [];
 
     // The before-parent coverage ledger: every parent-held `create`
@@ -923,11 +972,16 @@ export class CreateOperation {
         coverage,
         parentHeldArms,
         childCreates,
-        createManyGroups,
+        createManyWork,
         afterParts,
       });
     }
 
+    this.registerPlanning(
+      createManyWork.flatMap((work) =>
+        work.kind === "series" ? [work.part] : []
+      )
+    );
     this.registerPlanning(afterParts);
 
     return {
@@ -939,7 +993,7 @@ export class CreateOperation {
       writeStepId,
       parentHeldArms,
       childCreates,
-      createManyGroups,
+      createManyWork,
       afterParts,
     };
   }
@@ -1250,13 +1304,12 @@ export class CreateOperation {
       const armSpec =
         entry.kind === "connectOrCreate" ? entry.items[0] : undefined;
       // The value the found arm's foreign key takes, per the `connectOrCreate` note above.
-      const agreeWith =
-        armSpec && isRecord(armSpec.create) ? armSpec.create : undefined;
+      const agreeWith = armSpec ? armSpec.create.parsed : undefined;
       const source =
         entry.kind === "connect"
           ? entry.targets[0]
           : entry.kind === "create"
-            ? entry.items[0]
+            ? entry.items[0]?.parsed
             : armSpec
               ? armSpec.where
               : undefined;
@@ -1352,7 +1405,7 @@ export class CreateOperation {
       if (parsed.kind === "polymorphicTarget") {
         const edge = parsed.edge;
         const create = program.entries.find((entry) => entry.kind === "create");
-        const data = create?.items[0];
+        const data = create?.items[0]?.parsed;
         if (data && Object.hasOwn(data, edge.referencedField)) {
           targets.push({
             model: edge.targetModel,
@@ -1376,8 +1429,8 @@ export class CreateOperation {
       const key: Record<string, unknown> = {};
       let hasAny = false;
       for (const referenced of relation.membership.referencedFields) {
-        if (Object.hasOwn(createData, referenced)) {
-          key[referenced] = createData[referenced];
+        if (Object.hasOwn(createData.parsed, referenced)) {
+          key[referenced] = createData.parsed[referenced];
           hasAny = true;
         }
       }
@@ -1419,7 +1472,7 @@ export class CreateOperation {
     coverage: readonly CreatedTarget[];
     parentHeldArms: ParentHeldArm[];
     childCreates: ChildCreate[];
-    createManyGroups: CreateManyGroup[];
+    createManyWork: CreateManyWork[];
     afterParts: Part[];
   }): void {
     const { relation, program, txMode } = input;
@@ -1993,7 +2046,7 @@ export class CreateOperation {
     input: Parameters<CreateOperation["interpretRelation"]>[0],
     childScope: QueryScope,
     relation: ChildHeldRelation,
-    items: readonly Record<string, unknown>[]
+    items: readonly RecordMutationData[]
   ): void {
     const inject = hasPolymorphicMembership(relation)
       ? {}
@@ -2019,6 +2072,42 @@ export class CreateOperation {
   ): void {
     const skipDuplicates = entry.skipDuplicates === true;
     const userRows = entry.rows;
+    const parsedRows = userRows.map((row) => row.parsed);
+    if (userRows.length === 0) return;
+    if (createManyCarriesRelations(childScope, entry)) {
+      const relationName = relation.relationInfo.name;
+      const incomingMembership = hasPolymorphicMembership(relation)
+        ? bindRelationMembership(
+            relation,
+            this.referencedParentSource(
+              input.self,
+              relation.membership.referencedField,
+              relationName
+            )
+          )
+        : {
+            kind: "foreignKey" as const,
+            relation,
+            members: this.childEdgeMembers(input.self, relation),
+          };
+      const parentRowKey = this.progressiveParentRowKey(input.self);
+      input.createManyWork.push({
+        kind: "series",
+        part: buildFreshRecordSeriesPart({
+          scope: this.scope,
+          engine: this.engine,
+          childScope,
+          childName: getStepModelName(childScope.model, relationName),
+          relationName,
+          rows: userRows,
+          incomingMembership,
+          ...(parentRowKey ? { parentRowKey } : {}),
+          skipDuplicates,
+          createFresh: this.createFresh,
+        }),
+      });
+      return;
+    }
     if (skipDuplicates) {
       // V1's portability guard, run BEFORE the parent write (construction time) on
       // the PRE-injection user rows: a `skipDuplicates` createMany carrying a
@@ -2030,7 +2119,7 @@ export class CreateOperation {
       // FK-injected plan below never trips its OWN internal check (every row carries
       // the injected FK column), so this pre-injection check is the sole V1-parity
       // gate for the default-only shape (T4a CLASS VI).
-      const groups = buildValueGroups(childScope, userRows);
+      const groups = buildValueGroups(childScope, parsedRows);
       assertPortableCreateManySkip(
         true,
         groups.some((group) => group.columns.length === 0)
@@ -2039,8 +2128,7 @@ export class CreateOperation {
     const inject = hasPolymorphicMembership(relation)
       ? {}
       : this.childFkAssign(input.self, relation, childScope.model);
-    const rows = userRows.map((row) => ({ ...row, ...inject }));
-    if (rows.length === 0) return;
+    const rows = parsedRows.map((row) => ({ ...row, ...inject }));
     // Lower to grouped INSERTs (buildCreateManyPlan): one statement per same-shape
     // group, so heterogeneous rows (some supplying a generated PK, some omitting
     // it) split into contiguous grouped INSERTs — full parity with V1's grouped
@@ -2068,25 +2156,28 @@ export class CreateOperation {
       this.engine.adapter.mutations.skipDuplicatesStrategy ===
         "recoverableUniqueError";
     const base = getStepModelName(childScope.model, relation.relationInfo.name);
-    input.createManyGroups.push({
-      steps: plan.statements.map(
-        (statement): WriteStep => ({
-          id: this.scope.allocate(`${base}.createMany`),
-          kind: "write",
-          statement: statement.sql,
-          outputs: {},
-          ...(recoverUnique ? { onUniqueConflict: "skip" } : {}),
-        })
-      ),
-      databaseAssigned: plan.statements.map((statement) =>
-        statement.inputIndexes.some((index) =>
-          insertTakesDatabaseAssignedValue(childScope.model, rows[index]!)
-        )
-      ),
-      targetTable: getTableName(childScope.model),
-      statementSkipsDuplicates:
-        skipDuplicates &&
-        this.engine.adapter.mutations.skipDuplicatesStrategy === "sql",
+    input.createManyWork.push({
+      kind: "group",
+      group: {
+        steps: plan.statements.map(
+          (statement): WriteStep => ({
+            id: this.scope.allocate(`${base}.createMany`),
+            kind: "write",
+            statement: statement.sql,
+            outputs: {},
+            ...(recoverUnique ? { onUniqueConflict: "skip" } : {}),
+          })
+        ),
+        databaseAssigned: plan.statements.map((statement) =>
+          statement.inputIndexes.some((index) =>
+            insertTakesDatabaseAssignedValue(childScope.model, rows[index]!)
+          )
+        ),
+        targetTable: getTableName(childScope.model),
+        statementSkipsDuplicates:
+          skipDuplicates &&
+          this.engine.adapter.mutations.skipDuplicatesStrategy === "sql",
+      },
     });
   }
 
@@ -2306,8 +2397,16 @@ export class CreateOperation {
         )
       );
     }
-    for (const group of plan.createManyGroups) {
-      for (const step of group.steps) writes.push(step);
+    for (const work of plan.createManyWork) {
+      if (work.kind === "series") {
+        bucketOperationSteps(
+          work.part.compile(this.scope, known),
+          guards,
+          writes
+        );
+        continue;
+      }
+      for (const step of work.group.steps) writes.push(step);
     }
     for (const part of plan.afterParts) {
       bucketOperationSteps(part.compile(this.scope, known), guards, writes);
@@ -2619,7 +2718,13 @@ export class CreateOperation {
     const returnedProduced = capturesByReturning
       ? [...(demanded ?? [])].filter((field) => field !== generatedField)
       : [];
-    if (capturedIdentity === undefined && returnedProduced.length === 0) {
+    const skipsRoot =
+      this.rootSkipDuplicates && writeStepId === this.root.writeStepId;
+    if (
+      capturedIdentity === undefined &&
+      returnedProduced.length === 0 &&
+      !skipsRoot
+    ) {
       return {
         id: writeStepId,
         kind: "write",
@@ -2649,23 +2754,44 @@ export class CreateOperation {
     for (const field of returnedProduced) {
       outputs[producedKey(field)] = { kind: "firstRowField", field };
     }
+    const statement = skipsRoot
+      ? buildCreateManyPlan(
+          childScope,
+          {
+            data: [insertData],
+            skipDuplicates: true,
+            ...(Object.keys(select).length > 0 ? { select } : {}),
+          },
+          Object.keys(select).length > 0,
+          [polymorphicStorage]
+        ).statements[0]?.sql
+      : Object.keys(select).length > 0
+        ? buildCreate(childScope, {
+            data: insertData,
+            polymorphicStorage,
+            select,
+          })
+        : buildInsert(
+            childScope,
+            getTableName(childScope.model),
+            insertData,
+            polymorphicStorage
+          );
+    if (!statement) {
+      throw new QueryEngineError(
+        `query-engine-v2 create did not build the root skip statement '${writeStepId}'.`
+      );
+    }
     return {
       id: writeStepId,
       kind: "write",
-      statement:
-        Object.keys(select).length > 0
-          ? buildCreate(childScope, {
-              data: insertData,
-              polymorphicStorage,
-              select,
-            })
-          : buildInsert(
-              childScope,
-              getTableName(childScope.model),
-              insertData,
-              polymorphicStorage
-            ),
+      statement,
       outputs,
+      ...(skipsRoot &&
+      this.engine.adapter.mutations.skipDuplicatesStrategy ===
+        "recoverableUniqueError"
+        ? { onUniqueConflict: "skip" as const }
+        : {}),
       ...racePin,
     };
   }
@@ -2825,6 +2951,25 @@ export class CreateOperation {
         record.generatedField
       ),
     };
+  }
+
+  /** Complete identity used only when a later committed segment must re-pin this row. */
+  private progressiveParentRowKey(
+    record: RecordIdentity
+  ): Readonly<Record<string, FinalReferenceSource>> | undefined {
+    if (
+      this.engine.driver.supportsTransactions ||
+      !this.engine.driver.supportsOrderedCommittedSegments
+    ) {
+      return undefined;
+    }
+    const sources: Record<string, FinalReferenceSource> = {};
+    for (const field of getPrimaryKeyFields(record.model)) {
+      const source = this.recordReferenced(record, field);
+      if (!source) return undefined;
+      sources[field] = source;
+    }
+    return sources;
   }
 
   /**
@@ -3123,7 +3268,9 @@ function collectFoldArmSemantics(
   for (const child of plan.childCreates) {
     collectFoldArmSemantics(child.record, into);
   }
-  for (const group of plan.createManyGroups) {
+  for (const work of plan.createManyWork) {
+    if (work.kind === "series") continue;
+    const { group } = work;
     for (const [index, step] of group.steps.entries()) {
       into.set(step.id, {
         databaseAssigned: group.databaseAssigned[index]!,

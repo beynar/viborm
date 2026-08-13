@@ -922,7 +922,7 @@ describe("Nested Mutation Routing", () => {
     ]);
   });
 
-  test("nested relation writes inside updateMany data fail closed", async () => {
+  test("nested relation writes inside updateMany compile one selected subtree per child", async () => {
     await client.user.create({
       data: {
         id: "user-1",
@@ -933,26 +933,24 @@ describe("Nested Mutation Routing", () => {
       },
     });
 
-    await expect(
-      client.user.update({
-        where: { id: "user-1" },
-        data: {
-          name: "Changed",
-          posts: {
-            updateMany: {
-              data: {
-                author: {
-                  update: { name: "Ignored" },
-                },
+    await client.user.update({
+      where: { id: "user-1" },
+      data: {
+        name: "Changed",
+        posts: {
+          updateMany: {
+            data: {
+              author: {
+                update: { name: "Nested" },
               },
             },
           },
         },
-      })
-    ).rejects.toThrow("Nested relation writes inside updateMany data");
+      },
+    });
 
     const user = await client.user.findUnique({ where: { id: "user-1" } });
-    expect(user?.name).toBe("Alice");
+    expect(user?.name).toBe("Nested");
   });
 
   test("nested to-many upsert updates an existing child for this parent", async () => {

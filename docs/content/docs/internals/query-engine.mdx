@@ -13,8 +13,10 @@ operation, compiles adapter-built SQL into a small fragment vocabulary, executes
 that fragment through a driver, and parses the declared result.
 
 PostgreSQL, MySQL, SQLite, LibSQL, and PGlite use different syntax and execution
-capabilities, but portable operations keep the same accepted inputs, atomic
-effects, results, and failures.
+capabilities. Portable operations keep the same accepted inputs and successful
+results. Transaction-capable drivers keep operation-wide atomicity; D1 exposes
+segment atomicity for root and exactly guarded nested dynamic record series and
+reports the committed prefix on failure.
 
 ## Compilation and execution
 
@@ -31,7 +33,7 @@ flowchart TD
     Executor -->|"planning outputs"| Shell
     Shell --> Final["selected OperationFragment"]
     Final --> Executor
-    Executor --> Driver["Driver statement, transaction, or atomic batch"]
+    Executor --> Driver["Driver statement, transaction, atomic batch, or committed series segment"]
     Driver -->|"provider results"| Executor
     Executor --> Results["Strict result parser"]
     Results --> Value["Typed value"]
@@ -55,11 +57,14 @@ it does not know what a relation mutation means.
 | `write-engine/routing.ts` | Route-wide operation gates, shared-envelope parsing, and shell construction |
 | `write-engine/*Operation.ts` | Public-operation-family owners and their executable fragments |
 | `operations/*.ts` | Operation-specific SQL, plan, identity, and ordering helpers |
-| `CreateOperation` | One non-bulk fresh record subtree |
-| `RecordUpdateCompiler` | One already-selected non-bulk record update |
+| `CreateOperation` | One fresh record subtree, including a record-series member |
+| `RecordUpdateCompiler` | One already-selected record update, including a record-series member |
+| `RecordSeriesOperation` | Left-to-right sequencing of ordinary record operations |
+| `RecordSeriesStep` | One nested placement of that same series inside a final fragment |
+| `series-result-read.ts` | Bounded final set reads and source-order reconstruction |
 | relation Parts | Child-held/junction selection, membership, guards, pins, and edge effects |
 | `ManyToManyStatements` | Adapter-backed junction SQL materialization |
-| `OperationExecutor` | Generic statement, transaction, and atomic-batch execution |
+| `OperationExecutor` | Generic statement, transaction, atomic-batch, and committed-series execution |
 | `QueryScope` | Adapter, model, aliases, root alias, and SQL-construction target |
 | `builders/` | Shared SQL and semantic builders, including payload and topology parsing |
 | `builders/polymorphic-*` | Direct member/inverse resolution, CASE reads, correlated filters, and atomic private storage meaning |
@@ -70,18 +75,21 @@ identity and receives a new transaction scope identity.
 
 ## Fragment vocabulary
 
-The runtime vocabulary has three step kinds:
+The runtime vocabulary has four step kinds:
 
 - `read` executes an adapter-built read statement;
 - `write` executes an adapter-built write statement and can carry a race pin or
   conflict-skip effect;
 - `guard` checks a database premise of the selected final fragment.
+- `recordSeries` suspends a final fragment at one exact nested bulk position,
+  executes the existing record-series form, then resumes the fragment.
 
 Produced values reference declared outputs from earlier steps. This is an
 execution fragment, not a second SQL AST. It contains no relation strategy,
 payload walker, driver, or arbitrary context bag.
 
-Planning uses a guard-free `PlanningFragment`. Planning is not always read-only:
+Planning uses a guard-free `PlanningFragment` containing statement steps only.
+It never contains a nested record series. Planning is not always read-only:
 skip-duplicate capture can perform preparation writes. Final compilation emits
 one `OperationFragment` for the selected effects.
 
@@ -94,6 +102,24 @@ available substrate cannot represent a required effect.
 Planning reads can be grouped into one round trip on atomic-batch drivers. The
 final selected fragment can then run as one atomic batch. Transaction drivers
 execute the same steps linearly inside a transaction.
+
+A `RecordSeriesOperation` plans and executes member N only after member N−1 has
+finished, so decisions such as duplicate `connectOrCreate` observe earlier
+members. At a root, transaction-capable drivers execute the complete series in
+one transaction. A nested `RecordSeriesStep` reuses that already-open
+transaction and does not start another one.
+
+D1 can execute a root dynamic series as ordered committed segments. Each
+segment batch is atomic, but the public operation can contain several commits;
+a later failure carries exact progress metadata and never retries the committed
+prefix.
+D1 also executes a nested `RecordSeriesStep` when its relation compiler supplies
+an exact complete-parent or membership guard. The executor repeats that guard
+inside every later write batch. An unguardable placement refuses before its
+containing member writes; earlier members of a progressive root series can
+already be committed and are reported. Relation-bearing `skipDuplicates` and a
+dynamic series inside explicit `$transaction([...])` refuse before member 0
+writes. Static D1 paths continue to use one atomic batch.
 
 Simple operations keep a structural fast path. A candidate is direct only when
 planning is empty, final compilation produces exactly one statement, and that
@@ -120,9 +146,9 @@ three independent inputs:
   derived from it;
 - a record compiler mutates one fresh or already-selected record.
 
-`CreateOperation` compiles non-bulk fresh record subtrees except the explicit
+`CreateOperation` compiles fresh record subtrees except the explicit
 inline junction-target insert.
-`RecordUpdateCompiler` compiles non-bulk updates for a record selected by its
+`RecordUpdateCompiler` compiles updates for a record selected by its
 caller. A parent-held to-one branch stays in the record compiler because it
 chooses FK columns in that record's root statement. Child-held and junction
 Parts own target reads, parent correlation, membership, found/missing decisions,
@@ -214,8 +240,10 @@ premise adds a statement but not a network round trip.
 | Child-held targeted edge | The outer routed operation | The child-held relation Part | `RecordUpdateCompiler` for a selected target; `CreateOperation` for a fresh target | A correlated target read captures the target primary key and parent value | Transaction lock or batch captured-row guard, then the selected target or edge effects in relation order |
 | Junction existing-target mutation | The outer routed operation | `RelationJunctionPart` | `RecordUpdateCompiler` only when the target record changes | Membership or global probes capture target identity and parent membership | Locked decision or batch membership/identity guard, then target and junction effects in the selected branch |
 | Junction fresh-target attachment | The outer routed operation | `RelationJunctionPart` | Junction-local INSERT for an inline target; `CreateOperation` for a delegated target | Literal identity or a demanded inline/delegated INSERT output; a missing same-target create carries `racePin` | Inline: target INSERT, junction INSERT, descendants. Delegated: complete fresh subtree, then junction INSERT |
-| Nested set/bulk relation mutation | The outer routed operation | `RelationSetPart`, `RelationWritePart`, or `RelationJunctionPart` | None; the specialized Part owns set semantics | Materialized membership sets, filters, and correlated parent values | Guards precede specialized set or bulk effects; zero matches remain legal where the operation contract allows them |
-| Top-level bulk write | `CreateManyOperation`, `BulkCountOperation`, or `ManyAndReturnOperation` | The specialized shell | None; there is no one-record loop | Row-shape grouping, optional preparation writes, and captured output groups | Specialized statements preserve skip and bulk semantics; output folds concatenate rows or sum counts |
+| Nested scalar set/bulk relation mutation | The outer routed operation | `RelationSetPart`, `RelationWritePart`, or `RelationJunctionPart` | None; the specialized Part owns set semantics | Materialized membership sets, filters, and correlated parent values | Guards precede specialized set or bulk effects; zero matches remain legal where the operation contract allows them |
+| Nested relation-bearing `createMany` / `updateMany` | The outer routed operation | The enclosing relation Part at the series position | `CreateOperation` / `RecordUpdateCompiler` for each member | Create rows keep input order; update targets are captured once and sorted by complete row key | One `RecordSeriesStep` runs ordinary member trees at that exact position, then the outer fragment resumes |
+| Scalar top-level bulk write | `CreateManyOperation`, `BulkCountOperation`, or `ManyAndReturnOperation` | The specialized shell | None; there is no one-record loop | Row-shape grouping, optional preparation writes, and captured output groups | Specialized statements preserve skip and bulk semantics; output folds concatenate rows or sum counts |
+| Relation-bearing top-level bulk write | `CreateManyRecordSeries` or `UpdateManyRecordSeries` | The series shell fixes order and result shape; ordinary relation owners decide each member | `CreateOperation` / `RecordUpdateCompiler` | Create input order, or one captured and sorted update root set | Interactive transaction, or root D1 committed segments; grouped final reads reconstruct public input order |
 
 Junction compilation also uses exact discriminated state. Inline fresh targets
 emit target INSERT, junction INSERT, then inline descendants. Delegated targets
@@ -241,17 +269,24 @@ feed planning SQL. Final references and lookup SQL remain final-only. A primary
 key transition uses one read source for the old value and one write source for
 the transformed value, so correlation and assignment cannot silently swap.
 
-`createMany`, `updateMany`, `deleteMany`, and relation `set` remain specialized
-because they have set semantics rather than one-record semantics. The one
-exception is a `createMany` row carrying a general relation program: the whole
-call becomes a transactional record series whose members are ordinary create
-operations, run left to right, because a later row may need to observe what an
-earlier one wrote.
+`createMany`, `updateMany`, `deleteMany`, and relation `set` retain their
+set-oriented scalar paths. A root `createMany` row with a general relation
+program routes the whole call to `CreateManyRecordSeries`; root relation-bearing
+`updateMany` routes to `UpdateManyRecordSeries`. The former preserves input
+order. The latter captures the matching complete row keys once and sorts them.
+Both reuse ordinary record compilers rather than a bulk relation compiler.
 
-Nested `createMany` stays with the owner of its placement. `CreateOperation`
-stores post-insert groups for a fresh parent, `nested-target-parts.ts` builds
-them for a selected parent, and `RelationJunctionPart` keeps target rows ordered
-with join effects. The top-level form stays in `CreateManyOperation`.
+Nested scalar-only `createMany` and `updateMany` also keep their grouped paths.
+A relation-bearing nested create uses ordinary fresh record Parts inside one
+`RecordSeriesStep`; a relation-bearing nested update captures its correlated
+targets and uses `RecordUpdateCompiler` once per target. The enclosing relation
+Part owns placement, membership, and guards. A child-held move that names one
+target remains refused when more than one selected member would claim it.
+
+Final public reads for a series are grouped by complete row key and chunked by
+the driver's bind-parameter budget. N logical member results therefore require
+K bounded set reads, normally one, while preserving source order and exact
+missing-row failures.
 
 ## Polymorphic relation path
 

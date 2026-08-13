@@ -21,11 +21,18 @@ import {
   malformedScalarValue,
   type RowValueParsers,
 } from "./result-parser-contract";
-import { parseResultDefault } from "./result-row-parser";
+import {
+  type ExactFieldCapture,
+  parseResultDefault,
+} from "./result-row-parser";
 import { buildExpectedResultShape } from "./result-shape";
 import { parseFieldValueDefault } from "./scalar-result-parser";
 
-type FieldParser = (value: unknown, operation: Operation) => unknown;
+type FieldParser = (
+  value: unknown,
+  operation: Operation,
+  captureExact?: (value: unknown) => void
+) => unknown;
 type RelationParser = (
   value: unknown,
   operation: Operation,
@@ -98,6 +105,48 @@ export class ResultParser {
     args: Record<string, unknown>,
     expectedShape?: ExpectedResultShape
   ): T {
+    return this.parseWithChain<T>(
+      operation,
+      raw,
+      args,
+      expectedShape,
+      this.getResultChain()
+    );
+  }
+
+  /**
+   * Parse one root row set once while retaining selected scalar values before
+   * the temporary `decimalDecode: "number"` presentation conversion.
+   */
+  parseRowsWithExactFields<T>(
+    operation: Operation,
+    raw: unknown,
+    args: Record<string, unknown>,
+    fields: readonly string[],
+    expectedShape?: ExpectedResultShape
+  ): readonly [T, readonly Readonly<Record<string, unknown>>[]] {
+    const rows: Record<string, unknown>[] = [];
+    const exactFields: ExactFieldCapture = {
+      fields: new Set(fields),
+      rows,
+    };
+    const parsed = this.parseWithChain<T>(
+      operation,
+      raw,
+      args,
+      expectedShape,
+      this.createResultChain(exactFields)
+    );
+    return [parsed, rows];
+  }
+
+  private parseWithChain<T>(
+    operation: Operation,
+    raw: unknown,
+    args: Record<string, unknown>,
+    expectedShape: ExpectedResultShape | undefined,
+    chain: ResultParserChain
+  ): T {
     if (raw === null || raw === undefined) {
       return malformedResult(this, operation, "the statement result is absent");
     }
@@ -119,7 +168,7 @@ export class ResultParser {
 
     const shape =
       expectedShape ?? buildExpectedResultShape(this.model, operation, args);
-    return this.getResultChain()(raw, operation, shape) as T;
+    return chain(raw, operation, shape) as T;
   }
 
   private getResultChain(): ResultParserChain {
@@ -159,8 +208,8 @@ export class ResultParser {
 
   private createRowValueParsers(): RowValueParsers {
     const parsers: RowValueParsers = {
-      parseField: (scalar, value, operation) =>
-        this.getFieldChain(scalar)(value, operation),
+      parseField: (scalar, value, operation, captureExact) =>
+        this.getFieldChain(scalar)(value, operation, captureExact),
       parseRelation: (relation, value, operation, shape) =>
         this.getRelationChain(relation, parsers)(value, operation, shape),
       parsePolymorphic: (
@@ -192,13 +241,16 @@ export class ResultParser {
     return parsers;
   }
 
-  private createResultChain(): ResultParserChain {
+  private createResultChain(
+    exactFields?: ExactFieldCapture
+  ): ResultParserChain {
     const parsers = this.createRowValueParsers();
     const defaultParse = (
       value: unknown,
       operation: Operation,
       shape?: ExpectedResultShape
-    ) => parseResultDefault(this, operation, value, shape, parsers);
+    ) =>
+      parseResultDefault(this, operation, value, shape, parsers, exactFields);
     const adapterParse = (
       value: unknown,
       operation: Operation,
@@ -347,7 +399,7 @@ export class ResultParser {
       return typeof parsed === "string" ? Number(parsed) : parsed;
     };
 
-    return (value, operation) => {
+    return (value, operation, captureExact) => {
       if (value === undefined) {
         return malformedScalarValue(
           provider,
@@ -356,7 +408,11 @@ export class ResultParser {
           "the value is absent"
         );
       }
-      if (value === null) return defaultParse(value, operation);
+      if (value === null) {
+        const parsed = defaultParse(value, operation);
+        captureExact?.(parsed);
+        return applyLegacy(parsed);
+      }
       let transformed: unknown;
       try {
         transformed = middlewareDecode(value);
@@ -369,7 +425,9 @@ export class ResultParser {
           "provider scalar decoding failed"
         );
       }
-      return applyLegacy(defaultParse(transformed, operation));
+      const parsed = defaultParse(transformed, operation);
+      captureExact?.(parsed);
+      return applyLegacy(parsed);
     };
   }
 }

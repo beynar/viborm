@@ -65,8 +65,12 @@ export class CacheConfigurationError extends VibORMError {
   /** Literal discriminant: this class always carries `CACHE_CONFIGURATION`. */
   declare readonly code: typeof VibORMErrorCode.CACHE_CONFIGURATION;
 
-  constructor(message: string, options?: { meta?: VibORMErrorMeta }) {
+  constructor(
+    message: string,
+    options?: { cause?: Error | undefined; meta?: VibORMErrorMeta }
+  ) {
     super(message, VibORMErrorCode.CACHE_CONFIGURATION, {
+      cause: options?.cause,
       meta: options?.meta,
     });
   }

@@ -72,16 +72,31 @@ export function withMutationCacheInvalidation<T>(
     return pendingOperation;
   }
 
-  const invalidate = () =>
-    cache._invalidate(
-      modelName,
-      cacheOptions,
-      pendingOperation.getExecutionContext()
-    );
+  const invalidate = async () => {
+    try {
+      await cache._invalidate(
+        modelName,
+        cacheOptions,
+        pendingOperation.getExecutionContext()
+      );
+    } catch (error) {
+      throw new CacheConfigurationError(
+        `Cache invalidation failed after mutation '${operation}' on model '${modelName}'.`,
+        {
+          cause: error instanceof Error ? error : undefined,
+          meta: { method: "invalidate", model: modelName, operation },
+        }
+      );
+    }
+  };
 
   const wrapped = pendingOperation.wrapExecutor(async (execute) => {
-    const result = await execute();
-    await invalidate();
+    let receivedCommittedSegment = false;
+    const result = await execute(undefined, async () => {
+      receivedCommittedSegment = true;
+      await invalidate();
+    });
+    if (!receivedCommittedSegment) await invalidate();
     return result;
   });
   mutationInvalidations.set(wrapped, invalidate);

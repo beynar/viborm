@@ -26,11 +26,16 @@ import { isNormalizedResultRow } from "../normalized-result";
 import {
   classifySQLiteStatementResult,
   convertValuesForSQLite,
+  isSQLiteInsertStatement,
   sqliteResultParser,
   type TransactionOptionSupport,
   unsupportedCallbackTransactionError,
 } from "../shared";
-import type { BatchQuery, QueryResult } from "../types";
+import type {
+  BatchQuery,
+  CommittedBatchNotification,
+  QueryResult,
+} from "../types";
 
 // ============================================================
 // EXPORTED OPTIONS
@@ -45,7 +50,7 @@ export type D1ClientConfig<C extends DriverConfig> = D1DriverOptions & C;
 interface D1BindingResult<T> {
   success: true;
   results: T[] | null;
-  meta: { changes: number };
+  meta: { changes: number; last_row_id: number };
 }
 
 const ROW_PRODUCING_OPERATIONS = new Set([
@@ -92,11 +97,14 @@ function assertD1BindingResult<T>(
     typeof result.meta.changes !== "number" ||
     !Number.isFinite(result.meta.changes) ||
     !Number.isSafeInteger(result.meta.changes) ||
-    result.meta.changes < 0
+    result.meta.changes < 0 ||
+    typeof result.meta.last_row_id !== "number" ||
+    !Number.isFinite(result.meta.last_row_id) ||
+    !Number.isSafeInteger(result.meta.last_row_id)
   ) {
     throw malformedD1Result(
       context,
-      "expected explicit object rows (or null) and non-negative changes metadata"
+      "expected explicit object rows (or null), non-negative changes, and a safe-integer last_row_id"
     );
   }
 }
@@ -126,9 +134,15 @@ function normalizeD1Result<T>(
   } else {
     rows = result.results;
   }
+  // D1 reports the connection's most recent row id on later statements too.
+  // Publish it only for the INSERT/REPLACE statement that owns that identity.
+  const insertId = isSQLiteInsertStatement(sql)
+    ? result.meta.last_row_id
+    : undefined;
   return {
     rows,
     rowCount: result.meta.changes === 0 ? rows.length : result.meta.changes,
+    ...(insertId !== undefined && insertId > 0 ? { insertId } : {}),
   };
 }
 
@@ -138,9 +152,11 @@ function normalizeD1Result<T>(
 
 export class D1Driver extends Driver<D1Database, D1Database> {
   readonly adapter: DatabaseAdapter = new SQLiteAdapter();
+  readonly maxBindParametersPerStatement: number | undefined = 100;
   readonly result: DriverResultParser = sqliteResultParser;
   readonly supportsTransactions = false;
   readonly supportsBatch = true;
+  readonly supportsOrderedCommittedSegments = true;
 
   private readonly driverOptions: D1DriverOptions;
 
@@ -233,7 +249,8 @@ export class D1Driver extends Driver<D1Database, D1Database> {
   protected async executeBatch<T>(
     client: D1Database,
     queries: BatchQuery[],
-    context?: QueryExecutionContext
+    context?: QueryExecutionContext,
+    committed?: CommittedBatchNotification
   ): Promise<QueryResult<T>[]> {
     const batchContext = context ?? { operation: "executeBatch" };
     const statements: ReturnType<D1Database["prepare"]>[] = [];
@@ -254,6 +271,7 @@ export class D1Driver extends Driver<D1Database, D1Database> {
 
     // Execute all statements atomically
     const results: unknown = await client.batch<T>(statements);
+    await committed?.();
 
     if (!Array.isArray(results) || results.length !== queries.length) {
       const actualResultCount = Array.isArray(results) ? results.length : 0;

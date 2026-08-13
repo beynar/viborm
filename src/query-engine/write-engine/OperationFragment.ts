@@ -1,6 +1,7 @@
 // biome-ignore-all lint/style/useFilenamingConvention: OperationFragment is the architecture name.
 import { NestedWriteError, NotFoundError, TransactionError } from "@errors";
 import type { Sql } from "@sql";
+import type { RecordSeriesOperation } from "./record-series";
 
 export const OPERATION_VALUE_REFERENCE = Symbol(
   "viborm.operationValueReference"
@@ -121,7 +122,32 @@ export interface GuardStep {
   readonly failure: Failure;
 }
 
-export type OperationStep = StatementStep | GuardStep;
+/**
+ * Suspend the enclosing record fragment at one exact ordered position and run a
+ * data-dependent number of ordinary record operations before the fragment resumes.
+ *
+ * This is the nested placement of the existing record-series execution form. It
+ * carries no SQL and publishes no value into its enclosing fragment. Planning
+ * fragments remain statement-only: a nested series is selected only after the
+ * enclosing operation has completed its one planning phase.
+ */
+export interface RecordSeriesStep {
+  readonly id: string;
+  readonly kind: "recordSeries";
+  readonly series: RecordSeriesOperation;
+  /**
+   * A progressive commit creates a concurrency boundary that an interactive
+   * transaction does not have. The compiler must either provide the exact
+   * existing-row premise every later write batch can re-assert, or name why this
+   * placement cannot run progressively. Runtime value materialization alone is
+   * never an existence or membership proof.
+   */
+  readonly progressive:
+    | { readonly kind: "guarded"; readonly guard: GuardStep }
+    | { readonly kind: "unsupported"; readonly reason: string };
+}
+
+export type OperationStep = StatementStep | GuardStep | RecordSeriesStep;
 
 /**
  * A fragment output names either a single produced value or an ordered list of

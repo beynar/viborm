@@ -26,10 +26,7 @@ import {
 } from "../operations";
 import { assertPortablePrimaryKeyUpdateInput } from "../operations/mutation-identity";
 import type { QueryEngine } from "../query-engine";
-import {
-  assertRelationKeyUpdatesAreCompilable,
-  assertUpdateManyDataRelationsAreCompilable,
-} from "../relation-key-legality";
+import { assertRelationKeyUpdatesAreCompilable } from "../relation-key-legality";
 import { ResultParser } from "../result/ResultParser";
 import {
   buildFreshRecordPart,
@@ -101,6 +98,8 @@ export class UpdateOperation {
   private readonly rootGuardId: string;
   private readonly directWrite: WriteStep | undefined;
   private readonly directGuard: GuardStep | undefined;
+  /** Captured bulk members return exact row keys for internal addressing. */
+  private readonly resultDecimalDecode: "string" | "number";
 
   constructor(
     engine: QueryEngine,
@@ -125,6 +124,7 @@ export class UpdateOperation {
     // fragment of one — is everything from `data` down: its own relation parse, its
     // own own-write preflight, its own locate, compiler, transitions and terminal read.
     const captured = options.capturedRoot;
+    this.resultDecimalDecode = captured ? "string" : engine.decimalDecode;
     // The whole envelope owns public validation and error ordering. Relation
     // payloads are then transformed exactly once at their existing relation sites.
     const validatedArgs = captured
@@ -168,7 +168,8 @@ export class UpdateOperation {
       );
       const program = buildRelationMutationProgram(
         relationPayload.relationInfo,
-        parsedRelation
+        parsedRelation,
+        relationPayload.payload
       );
       if (program) {
         relations.push({ kind: "ordinary", name: relationName, program });
@@ -193,7 +194,8 @@ export class UpdateOperation {
         buildPolymorphicMutationProgram(
           parent,
           relationPayload.relation,
-          parsedRelation
+          parsedRelation,
+          relationPayload.payload
         )
       );
     }
@@ -203,7 +205,6 @@ export class UpdateOperation {
       partitioned.scalarData,
       relations
     );
-    assertUpdateManyDataRelationsAreCompilable(parent, relations);
 
     // A member's selector is not user input: it is the complete captured row key,
     // already built as a `whereUnique` from values this transaction locked and read.
@@ -324,8 +325,8 @@ export class UpdateOperation {
           )
         : undefined;
 
-    const createFresh: FreshRecordBuilder = (input) =>
-      buildFreshRecordPart(scope, engine, input);
+    const createFresh: FreshRecordBuilder = (freshScope, input) =>
+      buildFreshRecordPart(freshScope, engine, input);
     this.compiler = canFold
       ? undefined
       : buildRecordUpdateCompiler(
@@ -436,7 +437,7 @@ export class UpdateOperation {
       this.engine.adapter,
       this.model,
       this.engine.driver,
-      this.engine.decimalDecode
+      this.resultDecimalDecode
     ).parse<T>("update", outputs.result, this.resultArgs);
   }
 

@@ -56,6 +56,7 @@ export default defineWorkspace([
       include: [
         "tests/contracts/architecture/**/*.core.test.ts",
         "tests/contracts/engine/query/**/*.core.test.ts",
+        "tests/contracts/engine/query/nested-create-many.test.ts",
         "tests/contracts/engine/write/**/*.test.ts",
       ],
     },

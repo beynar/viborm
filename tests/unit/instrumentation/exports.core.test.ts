@@ -9,12 +9,14 @@ describe("instrumentation source entries", () => {
       ATTR_DB_QUERY_TEXT: "db.query.text",
       SPAN_EXECUTE: "viborm.execute",
       SPAN_OPERATION: "viborm.operation",
+      SPAN_RECORD_SERIES_SEGMENT: "viborm.write.record_series.segment",
     });
     expect(internalInstrumentation).toMatchObject({
       createInstrumentationContext: expect.any(Function),
       createLogger: expect.any(Function),
       createTracerWrapper: expect.any(Function),
       SPAN_OPERATION: "viborm.operation",
+      SPAN_RECORD_SERIES_SEGMENT: "viborm.write.record_series.segment",
     });
   });
 });

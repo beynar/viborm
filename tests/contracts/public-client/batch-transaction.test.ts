@@ -203,7 +203,7 @@ describe("PendingOperation", () => {
         email: "test@test.com",
         posts: {
           createMany: {
-            data: [{ id: "p1", title: "Post 1", authorId: "1" }],
+            data: [{ id: "p1", title: "Post 1" }],
           },
         },
       },
@@ -219,7 +219,7 @@ describe("PendingOperation", () => {
       data: {
         posts: {
           createMany: {
-            data: [{ id: "p1", title: "Post 1", authorId: "1" }],
+            data: [{ id: "p1", title: "Post 1" }],
           },
         },
       },
@@ -306,7 +306,7 @@ describe("PendingOperation", () => {
       update: {
         posts: {
           createMany: {
-            data: [{ id: "p1", title: "Post 1", authorId: "1" }],
+            data: [{ id: "p1", title: "Post 1" }],
           },
         },
       },

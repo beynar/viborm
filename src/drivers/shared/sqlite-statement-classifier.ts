@@ -40,35 +40,16 @@ export function classifySQLiteStatementResult(
   sql: string
 ): SQLiteStatementResultKind {
   const topLevel = getTopLevelStatementTokens(sql);
-  if (!topLevel) {
-    return "unknown";
-  }
-  const first = topLevel[0];
-  if (!first || first.kind !== "word") {
-    return "unknown";
-  }
-
-  let commandIndex = 0;
-  if (first.value === "WITH") {
-    commandIndex = topLevel.findIndex(
-      (token, index) =>
-        index > 0 && token.kind === "word" && WITH_COMMANDS.has(token.value)
-    );
-    if (commandIndex < 0) {
-      return "unknown";
-    }
-  }
-
-  const command = topLevel[commandIndex]?.value;
-  if (!command) {
-    return "unknown";
-  }
+  if (!topLevel) return "unknown";
+  const resolved = topLevelCommand(topLevel);
+  const command = resolved?.value;
+  if (!command) return "unknown";
   if (ROW_COMMANDS.has(command)) {
     return "rows";
   }
   if (MUTATION_COMMANDS.has(command)) {
     return topLevel
-      .slice(commandIndex + 1)
+      .slice(resolved.index + 1)
       .some((token) => token.kind === "word" && token.value === "RETURNING")
       ? "rows"
       : "no-rows";
@@ -77,6 +58,26 @@ export function classifySQLiteStatementResult(
     return classifyPragma(topLevel);
   }
   return NO_ROW_COMMANDS.has(command) ? "no-rows" : "unknown";
+}
+
+/** Whether D1/SQLite's statement-local generated-row metadata belongs to this SQL. */
+export function isSQLiteInsertStatement(sql: string): boolean {
+  const command = topLevelCommand(getTopLevelStatementTokens(sql))?.value;
+  return command === "INSERT" || command === "REPLACE";
+}
+
+function topLevelCommand(
+  topLevel: SQLStatementToken[] | undefined
+): { readonly index: number; readonly value: string } | undefined {
+  const first = topLevel?.[0];
+  if (!first || first.kind !== "word") return undefined;
+  if (first.value !== "WITH") return { index: 0, value: first.value };
+  const index = topLevel.findIndex(
+    (token, tokenIndex) =>
+      tokenIndex > 0 && token.kind === "word" && WITH_COMMANDS.has(token.value)
+  );
+  const command = topLevel[index];
+  return command?.kind === "word" ? { index, value: command.value } : undefined;
 }
 
 function classifyPragma(

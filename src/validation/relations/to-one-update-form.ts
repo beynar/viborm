@@ -156,6 +156,25 @@ export function splitToOneUpdateTarget(
   return { data: parsed.data, filter: where };
 }
 
+/**
+ * Project the caller's exact update-data record from the source spelling that
+ * produced a canonical {@link ToOneUpdateEnvelope}.
+ *
+ * This stays beside {@link readToOneUpdateForm}: only this owner knows that an
+ * envelope-shaped source contributes its `data` member while a bare source is
+ * itself the update data. Callers use it only after the relation schema accepted
+ * the source, so the ambiguous `data`-field spelling has already been refused.
+ * Keeping this projection here prevents the query engine from inventing a second
+ * interpretation of the two public forms when it retains replay provenance.
+ */
+export function toOneUpdateSourceData(
+  source: unknown
+): Record<string, unknown> | undefined {
+  if (source === undefined) return undefined;
+  if (hasEnvelopeShape(source)) return source.data;
+  return isPlainObject(source) ? source : undefined;
+}
+
 /** The envelope's SHAPE — a `data` key holding a plain object. Not the form: on a
  *  target owning a `data` field this shape is also how bare data spells that field,
  *  which is what {@link readToOneUpdateForm} arbitrates. */

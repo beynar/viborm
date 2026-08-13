@@ -60,6 +60,7 @@ export type SQLite3ClientConfig<C extends DriverConfig> = SQLite3DriverOptions &
 
 export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
   readonly adapter: DatabaseAdapter = new SQLiteAdapter();
+  readonly maxBindParametersPerStatement: number | undefined = 999;
   readonly result: DriverResultParser = sqliteResultParser;
   protected override readonly serializeTransactions = true;
 

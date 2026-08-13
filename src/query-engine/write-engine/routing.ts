@@ -1,5 +1,5 @@
 import type { AnyDriver, QueryExecutionContext } from "@drivers";
-import { TransactionError } from "@errors";
+import { hasCommittedRecordSeriesProgress, TransactionError } from "@errors";
 import type { Model } from "@schema/model";
 import { isPolymorphicRelation, isRelation } from "../context/query-scope";
 import type { QueryEngine } from "../query-engine";
@@ -139,23 +139,35 @@ function assertRoutedAtomicResolution(
  * its adopt arm and converges; a second failure propagates. A violation matching
  * no racePin and not `meta.raceable` never retries.
  *
- * A transactional record series retries here as ONE unit — its capture and every
- * one of its members run again — because a member has no scope of its own to be
- * retried in: its predecessors' effects rolled back with the series' own
- * transaction scope, so only the whole series can be re-planned against the state
- * that actually survived.
+ * A transaction-backed record series retries here as ONE unit because its prior
+ * attempt rolled back. A progressive committed series attaches trusted progress;
+ * this boundary retries only before its first committed segment. After a committed
+ * prefix, only the current uncommitted member may retry inside the executor.
  */
 export async function executeRoutedOperation<T>(
   executor: OperationExecutor,
   operation: RoutedExecutableOperation,
   context: QueryExecutionContext,
-  driverOverride?: AnyDriver
+  driverOverride?: AnyDriver,
+  committedWriteSegment?: () => Promise<void>
 ): Promise<T> {
   try {
-    return await executor.execute<T>(operation, context, driverOverride);
+    return await executor.execute<T>(
+      operation,
+      context,
+      driverOverride,
+      committedWriteSegment
+    );
   } catch (error) {
-    if (!isRetryableRace(error)) throw error;
-    return executor.execute<T>(operation, context, driverOverride);
+    if (hasCommittedRecordSeriesProgress(error) || !isRetryableRace(error)) {
+      throw error;
+    }
+    return executor.execute<T>(
+      operation,
+      context,
+      driverOverride,
+      committedWriteSegment
+    );
   }
 }
 

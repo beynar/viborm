@@ -83,6 +83,7 @@ export class PlanetScaleDriver extends Driver<
   PlanetScaleTransaction
 > {
   readonly adapter: DatabaseAdapter = new MySQLAdapter();
+  readonly maxBindParametersPerStatement: number | undefined = 65_535;
   readonly result: DriverResultParser = mysqlResultParser;
   readonly supportsTransactions = true;
 

@@ -204,8 +204,10 @@ const [users, posts] = await client.$transaction([
 Every connection-oriented driver supports both forms. D1 Workers bindings and
 Neon HTTP are batch-only, so their callback form throws. Cloudflare D1 support
 uses the Workers binding: its `batch()` primitive is the documented atomic path
-required by VibORM. An empty array always returns `[]` without contacting a
-provider.
+required by VibORM. This paragraph describes the transaction APIs. A standalone
+D1 relation-bearing bulk write can instead use the documented ordered
+segment-atomic route and report a committed prefix on failure. An empty array
+always returns `[]` without contacting a provider.
 
 ### The difference
 

@@ -68,7 +68,7 @@ function statement(
   id: string
 ): StatementStep {
   const step = fragment.steps.find((candidate) => candidate.id === id);
-  if (!step || step.kind === "guard") {
+  if (!step || step.kind === "guard" || step.kind === "recordSeries") {
     throw new Error(`Expected statement '${id}'.`);
   }
   return step;

@@ -18,9 +18,9 @@ Everything in the API works the same on every database unless noted under [Datab
 | `findFirst` / `findFirstOrThrow` | ✅ | Filtering, ordering, pagination, `select`, `include`. |
 | `findMany` | ✅ | Filters, relation filters, ordering, cursor pagination, negative `take`, `distinct`, `select`, `include`. |
 | `create` | ✅ | Scalar data and nested writes. |
-| `createMany` | Different | Returns `{ count }`, or the created rows when the call carries a `select` — Prisma's separate `createManyAndReturn` does not exist. That `select` is scalar-only (no relation key, no `_count`, no `include`) even when the rows themselves nest relations. Rows accept the ordinary `create` data shape, including nested relation writes — except a direct polymorphic field, which stays a connect-only membership per row. Relation-bearing rows execute left to right in one transaction, so a later row observes what an earlier one wrote. `skipDuplicates` cannot be combined with nested relation writes, and a `select` refuses rather than answer short when a later row moves an earlier row's primary key. |
+| `createMany` | Different | Returns `{ count }`, or the created rows when the call carries a scalar-only `select`; Prisma's separate `createManyAndReturn` does not exist. Rows accept the ordinary `create` data shape, including nested relations, except that a direct polymorphic field stays connect-only. Relation-bearing rows execute left to right. On interactive drivers they use one transaction; on D1, supported series use ordered committed atomic segments and a later failure reports the durable prefix. With `skipDuplicates`, a conflicting root suppresses its complete subtree; this relation-bearing skip form requires an interactive transaction. A `select` refuses rather than answer short when a later row moves an earlier row's primary key. |
 | `update` | ✅ | Requires a unique `where` and throws when missing. Extra scalar and relation filters are allowed in it; an excluded row is a `NotFoundError`, never a silent no-op. |
-| `updateMany` | Different | Returns `{ count }`, or the updated rows when the call carries a `select` — Prisma's separate `updateManyAndReturn` does not exist. That `select` is scalar-only even when `data` writes relations. `data` accepts the ordinary `update` surface, relations included, which Prisma rejects outright. A relation-bearing call becomes one ordinary update per matching row, in one transaction: `count` is then the number of matching rows rather than the provider's affected-row total, a batch-only driver rejects the form, and a child-held `connect`/`connectOrCreate`/`set` naming an existing target is refused before any write when more than one row matched. A `select` refuses rather than answer short when a later row removes an earlier row's key. Prisma 6's `limit` is supported, with Prisma's own caveat: it caps how many rows are affected, not which. |
+| `updateMany` | Different | Returns `{ count }`, or the updated rows when the call carries a scalar-only `select`; Prisma's separate `updateManyAndReturn` does not exist. `data` accepts the ordinary `update` surface, relations included, which Prisma rejects outright. A relation-bearing call captures the matching roots and runs one ordinary selected update per row. Interactive drivers use one transaction; D1 root members use ordered committed atomic batches. `count` is the captured match count rather than the provider's affected-row total. A child-held `connect`/`connectOrCreate`/`set` naming an existing target is refused before any write when more than one root matched. A `select` refuses rather than answer short when a later row removes an earlier row's key. Prisma 6's `limit` is supported, with Prisma's caveat: it caps how many rows are affected, not which. |
 | `upsert` | ✅ | Requires unique `where`, `create`, and `update`. An extra filter that excludes an existing row sends the call down the create branch, whose unique violation surfaces unretried. |
 | `delete` | ✅ | Requires a unique `where` and throws when missing. Extra scalar and relation filters are allowed in it; an excluded row is a `NotFoundError` and survives. |
 | `deleteMany` | Extension | Returns `{ count }`, or the deleted rows when the call carries a `select` (scalar-only). Prisma has no returning `deleteMany`. Prisma 6's `limit` is supported. |
@@ -122,7 +122,14 @@ They may retain existing members and adopt new ones, but reject when any current
 exact member would depart. `disconnect` requires clearable membership and its
 key is absent otherwise.
 
-On a **many-to-many** relation, `createMany` inserts each row and links it to the parent. `skipDuplicates` there skips the child ROW's insert — the join row is a different row and is still written, so a skipped item leaves the existing target untouched and links it. It is refused (typed, before any write) when the target's primary key is database-generated: a skipped insert produces no identity for its join row. Supply the key, or drop `skipDuplicates`.
+On a **many-to-many** relation, scalar-only `createMany` uses the grouped path:
+it inserts each row and links it to the parent. `skipDuplicates` there skips the
+child row's insert, while the distinct join row is still written, so a skipped
+item links the existing target. It is refused before any write when the target's
+primary key is database-generated because a skipped insert produces no identity
+for its join row. When a `createMany` member itself carries relations, it uses
+the record-series contract instead: a skipped member suppresses its complete
+subtree, including the join.
 
 **Shapes:**
 
@@ -176,16 +183,15 @@ The matrices show operation support. These restrictions are independent:
   payloads contain exactly one typed intent. To-many payloads may combine
   operation kinds. See
   [Combining operations on one to-one relation](/docs/client/nested-writes#combining-operations-on-one-to-one-relation).
-- **Nested** (relation-level) `createMany` rows are scalar-only, and so is
-  executable nested `updateMany.data` — which is the one place root and nested
-  bulk differ, since root `createMany`/`updateMany` do take relations. Nested
-  `updateMany.data`'s parsed/contextual shape stays broad so an invalid relation
-  write in an untaken top-level upsert update arm stays inert; if that arm is
-  selected, the query engine rejects the relation write before SQL.
-  "Relation write" there means an ordinary **or** a direct polymorphic key: a
-  targetless polymorphic `disconnect` carries no relation program, and it used to
-  slip past the wall and then be silently ignored. `deleteMany` contains filters,
-  not update data.
+- Nested `createMany` rows and nested `updateMany.data` may contain ordinary or
+  direct polymorphic relation writes. Scalar-only shapes stay grouped. A
+  relation-bearing shape becomes an ordered record series at that exact
+  position in the parent tree. D1 executes nested relation-bearing `createMany`
+  and `updateMany` when VibORM can verify the complete parent or membership in
+  every later write batch. A nested dynamic shape without that exact guard is
+  refused before its containing member writes. If reached inside
+  a progressive root bulk call, earlier root members can already be committed
+  and are reported.
 - Relation-link selectors (`connect`, `disconnect`, `set`, and
   `connectOrCreate.where`) require unique discriminators; they do not accept the
   extra filters allowed by nested update and upsert targets.
@@ -209,7 +215,7 @@ database's locale or ICU installation.
 
 | Behavior | Difference |
 |----------|-----------|
-| Transactions on serverless drivers | **D1 Workers bindings** and **Neon HTTP** support batch mode only. Cloudflare D1 support uses the binding because its `batch()` primitive provides the required atomic boundary. See [Transactions](/docs/client/transactions). |
+| Transactions on serverless drivers | **D1 Workers bindings** and **Neon HTTP** have no interactive callback transaction. Static D1 work uses one native atomic batch. Root relation-bearing `createMany`/`updateMany` can use several ordered committed D1 batches; a later failure preserves and reports the committed prefix. Nested relation-bearing `createMany`/`updateMany` run only when VibORM can verify the complete parent or membership in every later write batch; an unguardable nested shape refuses before its containing member writes. Relation-bearing `skipDuplicates` and a dynamic series inside explicit `$transaction([...])` refuse before member 0 writes. See [D1](/docs/drivers/sqlite/d1) and [Transactions](/docs/client/transactions). |
 | Vector / geospatial | PostgreSQL with the relevant extension enabled; unsupported (and clearly errors) elsewhere. |
 | Ordering, aggregating and arithmetic on a `s.decimal()` | **SQLite refuses them**; PostgreSQL and MySQL answer them exactly. SQLite has no exact decimal type, so viborm stores decimals in a `TEXT` column there and raises `UnsupportedOperationError` (`V8003`) rather than routing the answer through a double. See [the row below](#decimals-on-sqlite). |
 

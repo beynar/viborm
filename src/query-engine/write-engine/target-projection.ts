@@ -6,9 +6,15 @@ import {
   getPrimaryKeyFields,
 } from "../builders/correlation-utils";
 import { buildScalarSqlValueForScalar } from "../builders/values-builder";
+import { buildFindUnique } from "../operations/find-unique";
 import { getPrimaryKeyValuesFromRecord } from "../operations/mutation-identity";
 import type { QueryScope } from "../types";
-import type { StatementOutputSource } from "./OperationFragment";
+import { presenceGuard } from "./fragment-builders";
+import type {
+  Failure,
+  GuardStep,
+  StatementOutputSource,
+} from "./OperationFragment";
 
 /**
  * Every public field and private column a compiler consumes from a captured row.
@@ -100,6 +106,24 @@ export function targetProjectionSelect(
   return Object.fromEntries(projection.fields.map((field) => [field, true]));
 }
 
+/** Existing-row guard addressed only by one already-resolved complete row key. */
+export function completeTargetPresenceGuard(
+  scope: QueryScope,
+  id: string,
+  identity: Readonly<Record<string, unknown>>,
+  failure: Failure
+): GuardStep {
+  const projection = buildTargetProjection(scope.model);
+  return presenceGuard(
+    id,
+    buildFindUnique(scope, {
+      where: buildPrimaryKeyWhereUnique(scope.model, identity),
+      select: targetProjectionRowKeySelect(projection),
+    }),
+    failure
+  );
+}
+
 /**
  * The captured row key as a `whereUnique` — what a targeted UPDATE or DELETE
  * addresses the selected record by, every member of it.
@@ -163,6 +187,146 @@ export function capturedTargetFilters(
 }
 
 /**
+ * Address a set of captured rows by the complete row key.
+ *
+ * A scalar key keeps the established `IN` lowering. Compound keys use one
+ * ordered AND group per row because portable row-value IN syntax and null
+ * semantics differ between providers. The target projection remains the one
+ * declaration of which members form the key, and the shared captured-value
+ * extractor remains the one completeness check.
+ */
+export function capturedTargetSetWhere(
+  model: Model<any>,
+  projection: TargetProjection,
+  captured: readonly Readonly<Record<string, unknown>>[]
+): Record<string, unknown> {
+  if (projection.identityFields.length === 1) {
+    const field = projection.identityFields[0];
+    if (field !== undefined) {
+      return {
+        [field]: {
+          in: captured.map(
+            (row) => capturedTargetValues(model, projection, row)[field]
+          ),
+        },
+      };
+    }
+  }
+  return {
+    OR: captured.map((row) => ({
+      AND: capturedTargetFilters(model, projection, row),
+    })),
+  };
+}
+
+/** Read one decoded complete row key in declared key order. */
+export function readRowKey(
+  model: Model<any>,
+  record: Readonly<Record<string, unknown>>
+): Readonly<Record<string, unknown>> {
+  const projection = buildTargetProjection(model);
+  return capturedTargetValues(model, projection, record);
+}
+
+/**
+ * Stable lookup token for one decoded row key.
+ *
+ * Field names, declared scalar types, runtime value kinds, and payloads are all
+ * length-delimited. This prevents textual collisions such as a decimal `"1"`
+ * and a string `"1"`, adjacent compound members, or byte/text values with the
+ * same printable spelling. A token is only an index hint: callers confirm a
+ * match with {@link rowKeysEqual} before accepting it.
+ */
+export function rowKeyToken(
+  model: Model<any>,
+  record: Readonly<Record<string, unknown>>
+): string {
+  const projection = buildTargetProjection(model);
+  const key = capturedTargetValues(model, projection, record);
+  const fields = projection.identityFields;
+  let token = lengthDelimited(String(fields.length));
+  for (const field of fields) {
+    const scalarType =
+      model["~"].state.scalars[field]?.["~"].state.type ?? "unknown";
+    token += lengthDelimited(field);
+    token += lengthDelimited(scalarType);
+    token += encodeRowKeyValue(key[field]);
+  }
+  return token;
+}
+
+/** Exact equality over decoded complete row-key values. */
+export function rowKeysEqual(
+  model: Model<any>,
+  left: Readonly<Record<string, unknown>>,
+  right: Readonly<Record<string, unknown>>
+): boolean {
+  const projection = buildTargetProjection(model);
+  const leftKey = capturedTargetValues(model, projection, left);
+  const rightKey = capturedTargetValues(model, projection, right);
+  for (const field of projection.identityFields) {
+    if (!rowKeyValuesEqual(leftKey[field], rightKey[field])) return false;
+  }
+  return true;
+}
+
+function encodeRowKeyValue(value: unknown): string {
+  if (value === null) return lengthDelimited("null");
+  if (value === undefined) return lengthDelimited("undefined");
+  if (typeof value === "boolean") {
+    return lengthDelimited(value ? "boolean:1" : "boolean:0");
+  }
+  if (typeof value === "bigint") {
+    return lengthDelimited(`bigint:${value}`);
+  }
+  if (typeof value === "number") {
+    const payload = Number.isNaN(value)
+      ? "nan"
+      : value === Number.POSITIVE_INFINITY
+        ? "+infinity"
+        : value === Number.NEGATIVE_INFINITY
+          ? "-infinity"
+          : Object.is(value, -0)
+            ? "-0"
+            : String(value);
+    return lengthDelimited(`number:${payload}`);
+  }
+  if (typeof value === "string") {
+    return lengthDelimited(`string:${value}`);
+  }
+  if (value instanceof Date) {
+    return lengthDelimited(`date:${value.getTime()}`);
+  }
+  if (ArrayBuffer.isView(value)) {
+    return lengthDelimited(`bytes:${bytesHex(viewBytes(value))}`);
+  }
+  return lengthDelimited(`other:${String(value)}`);
+}
+
+function lengthDelimited(value: string): string {
+  return `${value.length}:${value}`;
+}
+
+function bytesHex(bytes: Uint8Array): string {
+  let output = "";
+  for (const byte of bytes) {
+    output += byte.toString(16).padStart(2, "0");
+  }
+  return output;
+}
+
+function rowKeyValuesEqual(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) return true;
+  if (left instanceof Date && right instanceof Date) {
+    return left.getTime() === right.getTime();
+  }
+  if (ArrayBuffer.isView(left) && ArrayBuffer.isView(right)) {
+    return compareBytes(viewBytes(left), viewBytes(right)) === 0;
+  }
+  return false;
+}
+
+/**
  * ORDER a captured root set deterministically, by complete row key (plan §5.2
  * step 4, §6 K3 "applies limit before deterministic in-memory sorting").
  *
@@ -177,33 +341,18 @@ export function capturedTargetFilters(
  * it cannot be moved into the capture without changing which rows a capped capture
  * selects.
  *
- * DETERMINISTIC, NOT SEMANTIC, AND NOT CROSS-PROVIDER. §5.2 asks for "a
- * deterministic engine order" and that is what this is: the same captured VALUES
- * always yield the same execution order, independent of collation, plan shape or
- * physical row order. Two things it does NOT claim, the second measured rather than
- * reasoned about:
- *
- *  · it is not the dialect's `ORDER BY` — a string compares by UTF-16 code unit here
- *    and by the database's collation there, and reconciling those would mean
- *    re-implementing collations in JavaScript;
- *  · it is not the same order on every provider, because the VALUES are not the same
- *    objects on every provider. A `bigInt` row key arrives from node-postgres as the
- *    STRING "9" (its int8 parser is pg's default; this repo's `types` override covers
- *    DATE and TIMESTAMP alone), from PGlite as the NUMBER 9, and from better-sqlite3
- *    as `9n`. Rank 3 orders "10" before "9"; rank 2 orders 9 before 10. So a
- *    bigint-keyed capture runs its members in a different order on pg than on PGlite
- *    or SQLite — visible in the row order of the `select` arm, and able to decide the
- *    outcome of a payload whose members collide (two roots moved onto one key).
- *    Recorded for the guard ledger; closing it means deciding that this comparator
- *    knows what a column's declared type is, which would make it a second reader of
- *    how a provider decodes.
+ * DETERMINISTIC, NOT DATABASE COLLATION ORDER. Callers decode row-key values
+ * through the normal scalar-result boundary before reaching this comparator, so
+ * bigint, decimal, and temporal identities have one canonical JS representation
+ * across providers. A string still compares by UTF-16 code unit here and by the
+ * database's collation there; reproducing provider collations in JavaScript would
+ * create a second SQL-ordering owner.
  *
  * Total over every value a row key can carry, in row-key field order:
  * `null`/absent first, then booleans, numbers and bigints numerically (they compare
  * across the two types), strings by code unit, `Date` by instant, byte arrays
- * lexicographically. Anything else — a `Decimal` object is the only known instance,
- * and only when a decimal column is a primary key — falls back to its decimal TEXT,
- * which is total and stable but orders "10" before "9". Values of DIFFERENT types
+ * lexicographically. Anything else falls back to its canonical text, which is total
+ * and stable but orders "10" before "9". Values of DIFFERENT types
  * are separated by that type rank before any of it runs, so the comparator can never
  * answer 0 for two values that are not equal — the one property that would make the
  * execution order differ between two runs over the same captured set. The byte-array

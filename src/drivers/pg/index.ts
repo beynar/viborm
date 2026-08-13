@@ -77,6 +77,7 @@ export type PgClientConfig<C extends DriverConfig> = PgDriverOptions & C;
 
 export class PgDriver extends Driver<Pool, PoolClient> {
   readonly adapter: DatabaseAdapter;
+  readonly maxBindParametersPerStatement: number | undefined = 65_535;
 
   private readonly driverOptions: PgDriverOptions;
 

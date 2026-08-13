@@ -46,17 +46,19 @@ See [write-engine/ATOM.md](write-engine/ATOM.md) for the normative doctrine and
 
 ### Execution atom
 
-`OperationFragment.ts` defines three runtime step kinds:
+`OperationFragment.ts` defines four runtime step kinds:
 
 - `ReadStep`;
 - `WriteStep`, the only kind that can carry `racePin` or
   `onUniqueConflict`;
-- `GuardStep`.
+- `GuardStep`;
+- `RecordSeriesStep`, the one nested placement of an existing
+  `RecordSeriesOperation` inside a final fragment.
 
-`PlanningFragment` contains statement steps and outputs, never guards. Planning
-is not read-only: skip-duplicate capture performs preparation writes.
-Nested `Part.planning()` currently contributes reads. Keep the executor's
-non-read planning fallback.
+`PlanningFragment` contains statement steps and outputs, never guards or record
+series. Planning is not read-only: skip-duplicate capture performs preparation
+writes. Nested `Part.planning()` currently contributes reads. Keep the
+executor's non-read planning fallback.
 
 ### Local terminology
 
@@ -82,6 +84,14 @@ hierarchy.
 preserve mutation order, array order, duplicates, `set: []`, and normalized
 targets. Emitters consume `program.entries`; they do not reparse or recreate an
 optional per-kind bag.
+
+Every record-bearing entry carries `RecordMutationData`: the transformed record
+beside the exact source record that produced it. This provenance is recursive and
+stays one value, never an index-aligned companion array. It lets a record series
+run the established validation boundary once per selected member without applying
+that boundary to its own transformed output. A source is `undefined` only in
+compile-level witnesses and analytical callers that start from an already parsed
+tree; such a value may be inspected but cannot be replayed as user input.
 
 Validation transforms are not assumed to be idempotent. Parse untrusted input
 once at its trust boundary and pass transformed meaning downstream.
@@ -154,34 +164,44 @@ operation **over the payloads its bulk path expresses** — scalar `createMany`
 rows (plus a direct polymorphic `connect`), scalar `updateMany` data,
 `deleteMany`, relation `set`, skip-duplicate capture, and the many-and-return
 folds. A root bulk write whose payload carries a general relation program is not
-specialized: it routes to a record series. Nested relation-level `createMany`
-and `updateMany` stay scalar-only and refuse relation-bearing data before SQL.
+specialized: it routes to a record series. Nested scalar-only `createMany` and
+`updateMany` keep their grouped paths; relation-bearing forms place the same
+record-series execution at their exact position in the enclosing tree.
 
 ### Record series
 
 `write-engine/record-series.ts` owns one atom: `RecordSeriesOperation`, the
-transactional sequencing of ordinary record operations. It is the only new
-execution form in the write engine, and it is deliberately thin.
+left-to-right sequencing of ordinary record operations. It is deliberately
+thin.
 
 - **What it is.** A capture (optional), then N ordinary member operations run
-  left to right in one interactive transaction, then the public bulk result.
-  Members are `CreateOperation` / `UpdateOperation` instances built the ordinary
-  way. The series adds no runtime step kind, no Part, no transaction AST, no
-  callback protocol and no second planning model.
+  left to right, then the public bulk result. Members reuse `CreateOperation`
+  and `RecordUpdateCompiler`. `RecordSeriesStep` is the one authorized nested
+  placement of this existing form; it adds no mutation Part, transaction AST,
+  callback protocol, or second planning model.
 - **Why sequencing and not pre-planning.** Member N may observe what member N−1
-  committed inside the transaction. That is what makes duplicate
+  wrote in the same execution scope. That is what makes duplicate
   `connectOrCreate` targets converge on one row, and it is a semantic
   requirement, not an implementation preference.
-- **Substrate.** A series always opens its own scope — a transaction on a
-  top-level driver, a SAVEPOINT on a nested one — so a retry cannot re-run
-  members over surviving predecessor rows. A batch-only driver has no
-  interactive transaction and the operation refuses. Decide the substrate at
-  CONSTRUCTION, before choosing the series shell, so a typed refusal is not
-  degraded into the transaction wrapper's generic wording.
-- **Retry ownership.** The COMPLETE series retries once as one unit, capture
-  included; members never retry locally. Guards are the only producer of
-  `meta.raceable`, and members always run in transaction mode, so inside a
-  series only identity marking applies.
+- **Interactive substrate.** A root series opens one transaction. A nested
+  `RecordSeriesStep` runs in the transaction already owned by the enclosing
+  operation; it never opens another one. The complete series retry, capture
+  included, is outer-owned.
+- **D1 substrate.** D1 can execute a ROOT dynamic series as ordered committed
+  atomic segments. The successful meaning and order are unchanged, but a
+  later failure preserves the committed prefix and carries
+  `meta.recordSeriesProgress`. No retry replays that prefix. A nested
+  `RecordSeriesStep` uses the same progressive runner only when its compiler
+  supplies the exact complete-parent or membership guard that every later write
+  batch reasserts. An unguardable placement refuses before its containing
+  member writes, although prior root members may already be committed.
+  Relation-bearing `skipDuplicates` and dynamic series inside explicit
+  `$transaction([...])` refuse before the first user write.
+- **Skip ownership.** On an interactive driver, `skipDuplicates` on a
+  relation-bearing create series treats one member as a savepoint-scoped
+  subtree. A root unique conflict skips the complete subtree; descendant and
+  non-unique failures remain fatal. D1 refuses this form because its batch
+  error cannot attribute root versus descendant conflict precisely.
 - **Routing is a predicate, not a mode flag.** One predicate per family decides
   series-or-not, and the scalar owners stay byte-identical on the other side of
   it. Those predicates are single owners whose violation is silent data loss —
@@ -195,6 +215,25 @@ switches and they are not record compilers. `write-engine/ATOM.md` §17 is
 normative for what each one promises: capture-then-per-root ordering, the
 count contracts, the N>1 membership refusal, and the postcondition on the
 returning arms.
+
+`FreshRecordSeriesPart` places relation-bearing nested `createMany` rows.
+Nested update-many construction captures exact correlated targets and builds
+one selected-record compiler per complete row key. Scalar-only nested bulk
+never enters either series path. Series returning reads use
+`series-result-read.ts`: it groups complete row keys into K bounded set reads,
+normally one, reorders results to source order, replays duplicate keys, strips
+injected key fields, and preserves exact missing-row failures.
+
+Every nested `RecordSeriesStep` carries a progressive proof: either one exact
+guard or one fail-closed reason. The guard is compiler-owned because only the
+relation placement knows which existing parent or membership fact crosses the
+commit boundary. The executor materializes boundary values and repeats that
+guard in each later write batch; it never invents relation identity.
+
+D1 publishes one statement's official `meta.last_row_id` through the existing
+`QueryResult.insertId` channel. Progressive segments can materialize that one
+generated integer identity after commit. It is per-statement provenance, never
+permission to infer an ID range or assign identities arithmetically.
 
 ### Row keys and target projections
 
@@ -381,6 +420,9 @@ the existing guard; it does not add a statement or round trip.
 | `write-engine/record-series.ts` | the record-series contract and its routed-operation discrimination |
 | `write-engine/CreateManyRecordSeries.ts` | root relation-bearing `createMany` shell |
 | `write-engine/UpdateManyRecordSeries.ts` | root relation-bearing `updateMany` shell |
+| `write-engine/FreshRecordSeriesPart.ts` | nested relation-bearing `createMany` placement |
+| `write-engine/NestedUpdateManyRecordSeries.ts` | correlated target capture and member compilation for nested relation-bearing `updateMany` |
+| `write-engine/series-result-read.ts` | bounded final set reads and source-order reconstruction |
 | `write-engine/target-projection.ts` | complete captured row keys and selected-target projections |
 | relation Parts | child-held/junction selection, membership, guards, pins, and edge effects |
 | `write-engine/OperationExecutor.ts` | generic fragment execution, including series execution and retry routing |

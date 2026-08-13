@@ -1,6 +1,10 @@
 import { NestedWriteError, QueryEngineError } from "@errors";
-import type { Sql } from "@sql";
-import { buildPolymorphicMembershipPredicate } from "../builders/correlation-utils";
+import type { Model } from "@schema/model";
+import { isSql, type Sql } from "@sql";
+import {
+  buildPolymorphicMembershipPredicate,
+  getPrimaryKeyFields,
+} from "../builders/correlation-utils";
 import type { PolymorphicStorageValue } from "../builders/polymorphic-mutation";
 import {
   type BoundPolymorphicMembership,
@@ -79,6 +83,171 @@ export type CorrelatedRelationMembershipBinding =
 export interface LoweredMembershipWrite {
   readonly data: Record<string, unknown>;
   readonly polymorphicStorage: readonly PolymorphicStorageValue<unknown>[];
+}
+
+interface FinalReferenceFieldSource {
+  readonly field: string;
+  readonly source: FinalReferenceSource;
+}
+
+interface PlanningReferenceFieldSource {
+  readonly field: string;
+  readonly source: PlanningReferenceSource;
+}
+
+/**
+ * Resolve the complete row key of a parent that a later committed segment must
+ * still observe. Exact field-bound sources win. A planning-backed source may
+ * publish another row-key member from the same captured parent row; literals,
+ * lookups, and produced single-field references never pretend to do so.
+ */
+export function resolveFinalReferenceRowKey(
+  model: Model<any>,
+  sources: readonly FinalReferenceFieldSource[],
+  known: PlanningKnown,
+  relationName: string,
+  operation: string
+): Record<string, unknown> | undefined {
+  const fallback = sharedFinalPlanningSource(sources);
+  const identity: Record<string, unknown> = {};
+  for (const field of getPrimaryKeyFields(model)) {
+    const source =
+      sources.find((candidate) => candidate.field === field)?.source ??
+      fallback;
+    if (!source || source.kind === "lookup") return undefined;
+    if (source.kind === "literal" && isSql(source.value)) return undefined;
+    const value = foreignKeyWriteValue(
+      {
+        foreignField: field,
+        referencedField: field,
+        writeSource: source,
+      },
+      known,
+      relationName,
+      operation
+    );
+    if (isSql(value)) return undefined;
+    identity[field] = value;
+  }
+  return identity;
+}
+
+/** Complete parent row key at a membership WRITE position. */
+export function resolveMembershipWriteParentRowKey(
+  binding: RelationMembershipBinding,
+  known: PlanningKnown,
+  operation: string
+): Record<string, unknown> | undefined {
+  const relationName = binding.relation.relationInfo.name;
+  const sources: FinalReferenceFieldSource[] =
+    binding.kind === "foreignKey"
+      ? binding.members.map((member) => ({
+          field: member.referencedField,
+          source: member.writeSource,
+        }))
+      : [
+          {
+            field: binding.relation.membership.referencedField,
+            source: binding.writeSource,
+          },
+        ];
+  return resolveFinalReferenceRowKey(
+    binding.relation.membership.referenced,
+    sources,
+    known,
+    relationName,
+    operation
+  );
+}
+
+/** Complete parent row key at an existing-membership READ position. */
+export function resolveMembershipReadParentRowKey(
+  binding: CorrelatedRelationMembershipBinding,
+  known: PlanningKnown,
+  operation: string
+): Record<string, unknown> | undefined {
+  const relationName = binding.relation.relationInfo.name;
+  const sources: PlanningReferenceFieldSource[] =
+    binding.kind === "foreignKey"
+      ? binding.members.map((member) => ({
+          field: member.referencedField,
+          source: member.readSource,
+        }))
+      : [
+          {
+            field: binding.relation.membership.referencedField,
+            source: binding.readSource,
+          },
+        ];
+  const fallback = sharedPlanningSource(sources);
+  const identity: Record<string, unknown> = {};
+  for (const field of getPrimaryKeyFields(
+    binding.relation.membership.referenced
+  )) {
+    const source =
+      sources.find((candidate) => candidate.field === field)?.source ??
+      fallback;
+    if (!source) return undefined;
+    if (source.kind === "literal" && isSql(source.value)) return undefined;
+    const value = resolvedPlanningReferenceValue(
+      source,
+      field,
+      known,
+      relationName,
+      operation
+    );
+    if (isSql(value)) return undefined;
+    identity[field] = value;
+  }
+  return identity;
+}
+
+function sharedFinalPlanningSource(
+  sources: readonly FinalReferenceFieldSource[]
+): FinalReferenceSource | undefined {
+  const candidates = sources
+    .map((entry) => entry.source)
+    .filter(
+      (
+        source
+      ): source is Extract<
+        FinalReferenceSource,
+        { kind: "planningField" | "transitionedPlanningField" }
+      > =>
+        source.kind === "planningField" ||
+        source.kind === "transitionedPlanningField"
+    );
+  const first = candidates[0];
+  if (!first) return undefined;
+  return candidates.every(
+    (candidate) =>
+      candidate.kind === first.kind &&
+      candidate.step === first.step &&
+      (candidate.kind !== "transitionedPlanningField" ||
+        (first.kind === "transitionedPlanningField" &&
+          candidate.apply === first.apply))
+  )
+    ? first
+    : undefined;
+}
+
+function sharedPlanningSource(
+  sources: readonly PlanningReferenceFieldSource[]
+): PlanningReferenceSource | undefined {
+  const candidates = sources
+    .map((entry) => entry.source)
+    .filter(
+      (
+        source
+      ): source is Extract<
+        PlanningReferenceSource,
+        { kind: "planningField" }
+      > => source.kind === "planningField"
+    );
+  const first = candidates[0];
+  return first && candidates.every((candidate) => candidate.step === first.step)
+    ? first
+    : undefined;
 }
 
 /**

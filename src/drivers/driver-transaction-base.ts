@@ -31,7 +31,12 @@ import {
   readTransactionCleanupFailures,
 } from "./shared/transactions";
 import { normalizeTransactionLifecycleError } from "./transaction-lifecycle-error";
-import type { BatchQuery, QueryExecutionContext, QueryResult } from "./types";
+import type {
+  BatchQuery,
+  CommittedBatchNotification,
+  QueryExecutionContext,
+  QueryResult,
+} from "./types";
 
 /** Forward every option except `timeout`, which the caller consumed itself. */
 function withoutTimeout(
@@ -476,7 +481,8 @@ export abstract class DriverTransactionBase<
   protected async executeBatch<T>(
     client: TClient | TTransaction,
     queries: BatchQuery[],
-    context?: QueryExecutionContext
+    context?: QueryExecutionContext,
+    _committed?: CommittedBatchNotification
   ): Promise<QueryResult<T>[]> {
     const batchContext = context ?? { operation: "executeBatch" };
     const results: QueryResult<T>[] = [];
@@ -535,7 +541,8 @@ export abstract class DriverTransactionBase<
   async _executeBatch<T>(
     queries: BatchQuery[],
     options?: BatchTransactionOptions,
-    context?: QueryExecutionContext
+    context?: QueryExecutionContext,
+    committed?: CommittedBatchNotification
   ): Promise<QueryResult<T>[]> {
     // Resolved with the batch contract: an array of operations has no
     // interactive window, so only `isolationLevel` is on offer here.
@@ -574,6 +581,11 @@ export abstract class DriverTransactionBase<
     // Native batches execute as one driver call, so errors normalize/log once
     // for the whole batch rather than per statement.
     if (this.supportsBatch) {
+      if (committed && !this.supportsOrderedCommittedSegments) {
+        throw new TransactionError(
+          `Driver '${this.driverName}' cannot acknowledge ordered committed segments.`
+        );
+      }
       const sql = batchQueries.map((query) => query.sql).join("; ");
       const executeNativeBatch = async () => {
         const client = await this.getClient(executionContext);
@@ -586,7 +598,8 @@ export abstract class DriverTransactionBase<
               const results = await this.executeBatch<T>(
                 client,
                 batchQueries,
-                executionContext
+                executionContext,
+                committed
               );
               assertNormalizedBatchResults(
                 results,

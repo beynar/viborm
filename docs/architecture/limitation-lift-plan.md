@@ -452,12 +452,12 @@ Rules:
 - A failure in any row rolls back every row.
 - Same-operation connectOrCreate retains first-create-wins because row N observes committed-in-transaction effects from row N-1.
 
-skipDuplicates with general nested effects remains refused. The public product meaning must first choose one of these incompatible contracts:
+This plan originally left `skipDuplicates` with general nested effects refused until the public product meaning chose one of these incompatible contracts:
 
 1. A skipped root suppresses every nested effect.
 2. A skipped root adopts the existing row and applies its nested effects.
 
-Do not guess this contract during implementation.
+The later relation-bearing bulk plan chose contract 1: a skipped root suppresses its complete nested subtree. Interactive drivers now implement it with one member savepoint; D1 retains a provider-specific refusal where exact root-conflict attribution is unavailable.
 
 ### 5.2 Relation-bearing updateMany
 
@@ -490,7 +490,7 @@ Rules:
 - One member may observe the completed effects of an earlier member.
 - Every member is constructed and all N-dependent capability checks run before the first write.
 
-For more than one captured root, **create** a pre-write refusal for child-held connect, connectOrCreate, and set. (The draft said "retain": there was nothing to retain. Scalar-only `updateMany` could not express those shapes at all, so Package K minted this refusal — `UpdateManyRecordSeries.assertMembershipAppliesToEveryRoot`, the package's one census site.) One child stores one parent membership; sequential last-parent-wins behavior does not satisfy “apply this update to every selected root.” M2M and parent-held equivalents remain meaningful and may execute.
+For more than one captured root, **create** a pre-write refusal for child-held connect, connectOrCreate, and set. (The draft said "retain": there was nothing to retain. Scalar-only `updateMany` could not express those shapes at all, so Package K minted this refusal. The later relation-bearing bulk pass moved the refusal to `relation-key-legality.assertSingleTargetMembershipMoveAppliesToRecords`, where root and nested series share one owner.) One child stores one parent membership; sequential last-parent-wins behavior does not satisfy “apply this update to every selected root.” M2M and parent-held equivalents remain meaningful and may execute.
 
 Three boundaries of that refusal, each measured rather than inferred:
 
@@ -1611,12 +1611,10 @@ These restrictions have a concrete reason and must not be removed by weakening a
 ### 7.3 Duplicate skipping without identity
 
 - skipDuplicates when no exact unique identifies which existing row caused the skip.
-- skipDuplicates plus nested effects until the public contract chooses
-  suppress-effects or adopt-and-apply. As of Package J this is an implemented
-  refusal with an owner: `CreateManyRecordSeries.ts:126`, raised at construction
-  before the series shell runs anything. It is an `UnsupportedOperationError`
-  rather than the substrate refusals' `TransactionError` because no driver
-  capability would change the answer — it is a product gap.
+- `skipDuplicates` plus nested effects was a product gap in this plan. The later
+  relation-bearing bulk pass chose suppress-effects, retired the constructor
+  refusal, and kept only provider-specific refusals where a driver cannot
+  identify and isolate the skipped root member exactly.
 
 ### 7.4 Topology features not implemented here
 

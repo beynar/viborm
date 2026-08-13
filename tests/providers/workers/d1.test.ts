@@ -1,9 +1,17 @@
 import { env } from "cloudflare:test";
 import type { D1Database } from "@cloudflare/workers-types";
-import { D1Driver } from "@src/drivers/d1";
+import { MemoryCache } from "@src/cache/drivers/memory";
+import { createClient, D1Driver } from "@src/drivers/d1";
+import {
+  CacheConfigurationError,
+  UniqueConstraintError,
+  VibORMError,
+} from "@src/errors";
+import { s } from "@src/schema";
 import { string } from "@src/schema/scalars/string/scalar";
 import { parse } from "@src/validation";
 import { getScalarSchemas } from "@src/validation/scalars";
+import { vi } from "vitest";
 
 declare module "cloudflare:test" {
   interface ProvidedEnv {
@@ -12,10 +20,162 @@ declare module "cloudflare:test" {
 }
 
 const TABLE = "viborm_d1_driver_core";
+const CUID_PATTERN = /^[a-z][0-9a-z]{23}$/;
+
+const progressiveAuthor = s
+  .model({
+    id: s.string().id(),
+    name: s.string().unique(),
+    posts: s.oneToMany(() => progressivePost),
+  })
+  .map("viborm_d1_progressive_authors");
+const progressiveCategory = s
+  .model({
+    id: s.string().id(),
+    name: s.string().unique(),
+    posts: s.oneToMany(() => progressivePost),
+  })
+  .map("viborm_d1_progressive_categories");
+const progressivePost = s
+  .model({
+    id: s.string().id(),
+    title: s.string(),
+    authorId: s.string(),
+    author: s
+      .manyToOne(() => progressiveAuthor)
+      .fields("authorId")
+      .references("id"),
+    categoryId: s.string().nullable(),
+    category: s
+      .manyToOne(() => progressiveCategory)
+      .fields("categoryId")
+      .references("id")
+      .optional(),
+  })
+  .map("viborm_d1_progressive_posts");
+const progressiveSchema = {
+  author: progressiveAuthor,
+  category: progressiveCategory,
+  post: progressivePost,
+};
+const generatedAuthor = s
+  .model({
+    id: s.int().id().increment(),
+    name: s.string().unique(),
+    posts: s.oneToMany(() => generatedPost),
+  })
+  .map("viborm_d1_generated_authors");
+const generatedCategory = s
+  .model({
+    id: s.string().id(),
+    name: s.string().unique(),
+    posts: s.oneToMany(() => generatedPost),
+  })
+  .map("viborm_d1_generated_categories");
+const generatedPost = s
+  .model({
+    id: s.string().id(),
+    title: s.string(),
+    authorId: s.int(),
+    author: s
+      .manyToOne(() => generatedAuthor)
+      .fields("authorId")
+      .references("id"),
+    categoryId: s.string().nullable(),
+    category: s
+      .manyToOne(() => generatedCategory)
+      .fields("categoryId")
+      .references("id")
+      .optional(),
+  })
+  .map("viborm_d1_generated_posts");
+const generatedProgressiveSchema = {
+  author: generatedAuthor,
+  category: generatedCategory,
+  post: generatedPost,
+};
+
+type D1Statement = ReturnType<D1Database["prepare"]>;
+
+function movePostAfterNestedMemberLocate(database: D1Database): D1Database {
+  let postReadCount = 0;
+  let moved = false;
+  const statementQueries = new WeakMap<D1Statement, string>();
+
+  async function observePostRead(query: string): Promise<void> {
+    if (
+      moved ||
+      !query.trimStart().startsWith("SELECT") ||
+      !query.includes("viborm_d1_progressive_posts")
+    ) {
+      return;
+    }
+    // The first read fixes the relation member set. The second locates that
+    // member for its record compiler; moving it now places the race immediately
+    // before the guard and write that must share the next D1 batch.
+    postReadCount += 1;
+    if (postReadCount !== 2) return;
+    moved = true;
+    await database
+      .prepare(
+        "UPDATE viborm_d1_progressive_posts SET authorId = ? WHERE id = ?"
+      )
+      .bind("a2", "p1")
+      .run();
+  }
+
+  function wrapStatement(statement: D1Statement, query: string): D1Statement {
+    const wrapped = new Proxy(statement, {
+      get(target, property) {
+        if (property === "bind") {
+          return (...values: unknown[]) =>
+            wrapStatement(target.bind(...values), query);
+        }
+        if (property === "run") {
+          return async () => {
+            const result = await target.run();
+            await observePostRead(query);
+            return result;
+          };
+        }
+        const value = Reflect.get(target, property, target);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    statementQueries.set(wrapped, query);
+    return wrapped;
+  }
+
+  return new Proxy(database, {
+    get(target, property) {
+      if (property === "prepare") {
+        return (query: string) => wrapStatement(target.prepare(query), query);
+      }
+      if (property === "batch") {
+        return async (statements: D1Statement[]) => {
+          const results = await target.batch(statements);
+          for (const statement of statements) {
+            const query = statementQueries.get(statement);
+            if (query) await observePostRead(query);
+          }
+          return results;
+        };
+      }
+      const value = Reflect.get(target, property, target);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+}
 
 beforeAll(async () => {
   await env.DB.exec(
-    `CREATE TABLE IF NOT EXISTS ${TABLE} (id TEXT PRIMARY KEY, value TEXT NOT NULL)`
+    `CREATE TABLE IF NOT EXISTS ${TABLE} (id TEXT PRIMARY KEY, value TEXT NOT NULL);
+     CREATE TABLE IF NOT EXISTS viborm_d1_progressive_authors (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE);
+     CREATE TABLE IF NOT EXISTS viborm_d1_progressive_categories (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE);
+     CREATE TABLE IF NOT EXISTS viborm_d1_progressive_posts (id TEXT PRIMARY KEY, title TEXT NOT NULL, authorId TEXT NOT NULL REFERENCES viborm_d1_progressive_authors(id), categoryId TEXT REFERENCES viborm_d1_progressive_categories(id));
+     CREATE TABLE IF NOT EXISTS viborm_d1_generated_authors (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE);
+     CREATE TABLE IF NOT EXISTS viborm_d1_generated_categories (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE);
+     CREATE TABLE IF NOT EXISTS viborm_d1_generated_posts (id TEXT PRIMARY KEY, title TEXT NOT NULL, authorId INTEGER NOT NULL REFERENCES viborm_d1_generated_authors(id), categoryId TEXT REFERENCES viborm_d1_generated_categories(id))`
   );
 });
 
@@ -25,7 +185,7 @@ describe("D1 binding provider", () => {
     const parsed = parse(getScalarSchemas(scalar["~"].state).create, undefined);
 
     if (parsed.issues) throw new Error("Expected CUID generation to succeed");
-    expect(parsed.value).toMatch(/^[a-z][0-9a-z]{23}$/);
+    expect(parsed.value).toMatch(CUID_PATTERN);
   });
 
   it("executes bound writes and normalizes rows", async () => {
@@ -69,5 +229,562 @@ describe("D1 binding provider", () => {
       [id]
     );
     expect(selected.rows).toEqual([{ count: 0 }]);
+  });
+
+  it("executes a native batch in order and publishes its commit to the next batch", async () => {
+    const driver = new D1Driver({ database: env.DB });
+    expect(driver.supportsOrderedCommittedSegments).toBe(true);
+    const id = crypto.randomUUID();
+
+    const first = await driver._executeBatch([
+      {
+        sql: `INSERT INTO ${TABLE} (id, value) VALUES (?, ?)`,
+        params: [id, "first"],
+      },
+      {
+        sql: `UPDATE ${TABLE} SET value = ? WHERE id = ?`,
+        params: ["second", id],
+      },
+      { sql: `SELECT value FROM ${TABLE} WHERE id = ?`, params: [id] },
+    ]);
+    expect(first[2]?.rows).toEqual([{ value: "second" }]);
+
+    const later = await driver._executeBatch([
+      { sql: `SELECT value FROM ${TABLE} WHERE id = ?`, params: [id] },
+    ]);
+    expect(later[0]?.rows).toEqual([{ value: "second" }]);
+
+    const laterSingle = await driver._executeRaw<{ value: string }>(
+      `SELECT value FROM ${TABLE} WHERE id = ?`,
+      [id]
+    );
+    expect(laterSingle.rows).toEqual([{ value: "second" }]);
+  });
+
+  it("executes relation-bearing createMany as ordered committed members", async () => {
+    const client = createClient({
+      schema: progressiveSchema,
+      database: env.DB,
+    });
+    await client.post.deleteMany({});
+    await client.author.deleteMany({});
+    await client.category.deleteMany({});
+
+    await expect(
+      client.post.createMany({
+        data: [
+          {
+            id: "p1",
+            title: "one",
+            author: { create: { id: "a1", name: "shared" } },
+          },
+          {
+            id: "p2",
+            title: "two",
+            author: {
+              connectOrCreate: {
+                where: { name: "shared" },
+                create: { id: "unused", name: "shared" },
+              },
+            },
+          },
+        ],
+      })
+    ).resolves.toEqual({ count: 2 });
+
+    await expect(
+      client.post.findMany({ orderBy: { id: "asc" } })
+    ).resolves.toEqual([
+      { id: "p1", title: "one", authorId: "a1", categoryId: null },
+      { id: "p2", title: "two", authorId: "a1", categoryId: null },
+    ]);
+  });
+
+  it("executes relation-bearing updateMany as ordered committed members", async () => {
+    const client = createClient({
+      schema: progressiveSchema,
+      database: env.DB,
+    });
+    await client.post.deleteMany({});
+    await client.author.deleteMany({});
+    await client.category.deleteMany({});
+    await client.author.create({ data: { id: "a1", name: "author" } });
+    await client.category.create({ data: { id: "c1", name: "category" } });
+    await client.post.createMany({
+      data: [
+        { id: "p1", title: "one", authorId: "a1" },
+        { id: "p2", title: "two", authorId: "a1" },
+      ],
+    });
+
+    await expect(
+      client.post.updateMany({
+        data: {
+          title: "moved",
+          category: { connect: { id: "c1" } },
+        },
+      })
+    ).resolves.toEqual({ count: 2 });
+    await expect(
+      client.post.findMany({
+        orderBy: { id: "asc" },
+        select: { id: true, title: true, categoryId: true },
+      })
+    ).resolves.toEqual([
+      { id: "p1", title: "moved", categoryId: "c1" },
+      { id: "p2", title: "moved", categoryId: "c1" },
+    ]);
+  });
+
+  it("invalidates mutation cache after every committed member", async () => {
+    const cache = new MemoryCache();
+    const invalidate = vi.spyOn(cache, "_invalidate");
+    const client = createClient({
+      schema: progressiveSchema,
+      database: env.DB,
+      cache,
+    });
+    await client.post.deleteMany({});
+    await client.author.deleteMany({});
+    await client.category.deleteMany({});
+    invalidate.mockClear();
+
+    await client.post.createMany({
+      data: [
+        {
+          id: "p1",
+          title: "one",
+          author: { create: { id: "a1", name: "one" } },
+        },
+        {
+          id: "p2",
+          title: "two",
+          author: { create: { id: "a2", name: "two" } },
+        },
+      ],
+    });
+
+    expect(invalidate).toHaveBeenCalledTimes(2);
+  });
+
+  it("owns invalidation failure after the committed member and reports exact progress", async () => {
+    const cache = new MemoryCache();
+    vi.spyOn(cache, "_invalidate").mockRejectedValue(
+      new Error("private cache transport failure")
+    );
+    const client = createClient({
+      schema: progressiveSchema,
+      database: env.DB,
+      cache,
+    });
+    await env.DB.exec(
+      "DELETE FROM viborm_d1_progressive_posts; DELETE FROM viborm_d1_progressive_authors; DELETE FROM viborm_d1_progressive_categories"
+    );
+
+    const failure = await client.post
+      .createMany({
+        data: [
+          {
+            id: "p1",
+            title: "committed",
+            author: { create: { id: "a1", name: "one" } },
+          },
+          {
+            id: "p2",
+            title: "not attempted",
+            author: { create: { id: "a2", name: "two" } },
+          },
+        ],
+      })
+      .catch((error) => error);
+
+    expect(failure).toBeInstanceOf(CacheConfigurationError);
+    expect(failure).toMatchObject({
+      meta: {
+        method: "invalidate",
+        model: "post",
+        operation: "createMany",
+        recordSeriesProgress: {
+          atomicity: "segment",
+          phase: "invalidation",
+          committedSegments: 1,
+          completedMembers: 0,
+          committedWriteMembers: 1,
+          memberPath: [0],
+          totalMembers: 2,
+        },
+      },
+    });
+    if (!(failure instanceof VibORMError)) throw failure;
+    expect(failure.toJSON()).toMatchObject({
+      meta: {
+        recordSeriesProgress: {
+          phase: "invalidation",
+          committedSegments: 1,
+          completedMembers: 0,
+          committedWriteMembers: 1,
+        },
+      },
+    });
+    const rows = await env.DB.prepare(
+      "SELECT id, authorId FROM viborm_d1_progressive_posts ORDER BY id"
+    ).all();
+    expect(rows.results).toEqual([{ id: "p1", authorId: "a1" }]);
+  });
+
+  it("reports the exact committed prefix when a later member fails", async () => {
+    const client = createClient({
+      schema: progressiveSchema,
+      database: env.DB,
+    });
+    await client.post.deleteMany({});
+    await client.author.deleteMany({});
+    await client.category.deleteMany({});
+    await client.author.create({
+      data: { id: "occupied", name: "occupied" },
+    });
+
+    let failure: unknown;
+    try {
+      await client.post.createMany({
+        data: [
+          {
+            id: "p1",
+            title: "kept",
+            author: { create: { id: "a1", name: "first" } },
+          },
+          {
+            id: "p2",
+            title: "fails",
+            author: { create: { id: "a2", name: "occupied" } },
+          },
+        ],
+      });
+    } catch (error) {
+      failure = error;
+    }
+
+    expect(failure).toMatchObject({
+      meta: {
+        recordSeriesProgress: {
+          atomicity: "segment",
+          phase: "member",
+          committedSegments: 1,
+          completedMembers: 1,
+          committedWriteMembers: 1,
+          memberPath: [1],
+          totalMembers: 2,
+        },
+      },
+    });
+    if (!(failure instanceof VibORMError)) throw failure;
+    expect(failure).toBeInstanceOf(UniqueConstraintError);
+    expect(failure.toJSON()).toMatchObject({
+      meta: {
+        recordSeriesProgress: {
+          committedSegments: 1,
+          completedMembers: 1,
+          committedWriteMembers: 1,
+        },
+      },
+    });
+    await expect(client.post.findMany()).resolves.toEqual([
+      { id: "p1", title: "kept", authorId: "a1", categoryId: null },
+    ]);
+  });
+
+  it("classifies a later member's planning failure after its committed prefix", async () => {
+    const client = createClient({
+      schema: progressiveSchema,
+      database: env.DB,
+    });
+    await client.post.deleteMany({});
+    await client.author.deleteMany({});
+    await client.category.deleteMany({});
+
+    const failure = await client.post
+      .createMany({
+        data: [
+          {
+            id: "p1",
+            title: "kept",
+            author: { create: { id: "a1", name: "first" } },
+          },
+          {
+            id: "p2",
+            title: "missing target",
+            author: { connect: { name: "absent" } },
+          },
+        ],
+      })
+      .catch((error) => error);
+
+    expect(failure).toMatchObject({
+      meta: {
+        recordSeriesProgress: {
+          atomicity: "segment",
+          phase: "planning",
+          committedSegments: 1,
+          completedMembers: 1,
+          committedWriteMembers: 1,
+          memberPath: [1],
+          totalMembers: 2,
+        },
+      },
+    });
+    await expect(client.post.findMany()).resolves.toEqual([
+      { id: "p1", title: "kept", authorId: "a1", categoryId: null },
+    ]);
+  });
+
+  it("refuses progressive subtree skipping before the first member writes", async () => {
+    const client = createClient({
+      schema: progressiveSchema,
+      database: env.DB,
+    });
+    await client.post.deleteMany({});
+    await client.author.deleteMany({});
+    await client.category.deleteMany({});
+
+    await expect(
+      client.post.createMany({
+        data: [
+          {
+            id: "p1",
+            title: "one",
+            author: { create: { id: "a1", name: "one" } },
+          },
+        ],
+        skipDuplicates: true,
+      })
+    ).rejects.toThrow("root-versus-descendant conflict attribution");
+    await expect(client.post.findMany()).resolves.toEqual([]);
+    await expect(client.author.findMany()).resolves.toEqual([]);
+  });
+
+  it("executes nested relation-bearing record series at their tree position", async () => {
+    const client = createClient({
+      schema: progressiveSchema,
+      database: env.DB,
+    });
+    await client.post.deleteMany({});
+    await client.author.deleteMany({});
+    await client.category.deleteMany({});
+
+    await expect(
+      client.author.createMany({
+        data: [
+          {
+            id: "a1",
+            name: "root",
+            posts: {
+              createMany: {
+                data: [
+                  {
+                    id: "p1",
+                    title: "nested",
+                    category: {
+                      create: { id: "c1", name: "nested category" },
+                    },
+                  },
+                ],
+              },
+            },
+          },
+        ],
+      })
+    ).resolves.toEqual({ count: 1 });
+    await expect(client.author.findMany()).resolves.toEqual([
+      { id: "a1", name: "root" },
+    ]);
+    await expect(client.post.findMany()).resolves.toEqual([
+      {
+        id: "p1",
+        title: "nested",
+        authorId: "a1",
+        categoryId: "c1",
+      },
+    ]);
+    await expect(client.category.findMany()).resolves.toEqual([
+      { id: "c1", name: "nested category" },
+    ]);
+  });
+
+  it("publishes a generated parent identity into nested createMany segments", async () => {
+    const client = createClient({
+      schema: generatedProgressiveSchema,
+      database: env.DB,
+    });
+    await client.post.deleteMany({});
+    await client.author.deleteMany({});
+    await client.category.deleteMany({});
+
+    const created = await client.author.create({
+      data: {
+        name: "generated parent",
+        posts: {
+          createMany: {
+            data: [
+              {
+                id: "generated-post",
+                title: "nested",
+                category: {
+                  create: { id: "generated-category", name: "category" },
+                },
+              },
+            ],
+          },
+        },
+      },
+    });
+
+    expect(created.id).toEqual(expect.any(Number));
+    await expect(
+      client.post.findUnique({ where: { id: "generated-post" } })
+    ).resolves.toEqual({
+      id: "generated-post",
+      title: "nested",
+      authorId: created.id,
+      categoryId: "generated-category",
+    });
+  });
+
+  it("executes guarded nested relation-bearing updateMany members", async () => {
+    const client = createClient({
+      schema: progressiveSchema,
+      database: env.DB,
+    });
+    await client.post.deleteMany({});
+    await client.author.deleteMany({});
+    await client.category.deleteMany({});
+    await client.author.create({ data: { id: "a1", name: "before" } });
+    await client.category.create({ data: { id: "c1", name: "category" } });
+    await client.post.create({
+      data: { id: "p1", title: "before", authorId: "a1" },
+    });
+
+    await expect(
+      client.author.update({
+        where: { id: "a1" },
+        data: {
+          name: "after",
+          posts: {
+            updateMany: {
+              where: { id: "p1" },
+              data: {
+                title: "updated",
+                category: { connect: { id: "c1" } },
+              },
+            },
+          },
+        },
+      })
+    ).resolves.toEqual({ id: "a1", name: "after" });
+    await expect(
+      client.post.findUnique({ where: { id: "p1" } })
+    ).resolves.toEqual({
+      id: "p1",
+      title: "updated",
+      authorId: "a1",
+      categoryId: "c1",
+    });
+  });
+
+  it("stops a moved nested updateMany member in its guarded batch", async () => {
+    const setup = createClient({
+      schema: progressiveSchema,
+      database: env.DB,
+    });
+    await setup.post.deleteMany({});
+    await setup.author.deleteMany({});
+    await setup.category.deleteMany({});
+    await setup.author.createMany({
+      data: [
+        { id: "a1", name: "before" },
+        { id: "a2", name: "other" },
+      ],
+    });
+    await setup.category.create({ data: { id: "c1", name: "category" } });
+    await setup.post.create({
+      data: { id: "p1", title: "before", authorId: "a1" },
+    });
+
+    const raced = createClient({
+      schema: progressiveSchema,
+      database: movePostAfterNestedMemberLocate(env.DB),
+    });
+    const failure = await raced.author
+      .update({
+        where: { id: "a1" },
+        data: {
+          name: "committed prefix",
+          posts: {
+            updateMany: {
+              where: { id: "p1" },
+              data: {
+                title: "must not commit",
+                category: { connect: { id: "c1" } },
+              },
+            },
+          },
+        },
+      })
+      .catch((error) => error);
+
+    expect(failure).toMatchObject({
+      meta: {
+        recordSeriesProgress: {
+          atomicity: "segment",
+          phase: "member",
+          committedSegments: 1,
+          completedMembers: 0,
+          committedWriteMembers: 1,
+          memberPath: [0],
+          totalMembers: 1,
+        },
+      },
+    });
+    await expect(
+      setup.author.findUnique({ where: { id: "a1" } })
+    ).resolves.toEqual({ id: "a1", name: "committed prefix" });
+    await expect(
+      setup.post.findUnique({ where: { id: "p1" } })
+    ).resolves.toEqual({
+      id: "p1",
+      title: "before",
+      authorId: "a2",
+      categoryId: null,
+    });
+  });
+
+  it("refuses a mixed progressive $transaction([...]) before any write", async () => {
+    const client = createClient({
+      schema: progressiveSchema,
+      database: env.DB,
+    });
+    await client.post.deleteMany({});
+    await client.author.deleteMany({});
+    await client.category.deleteMany({});
+
+    const ordinary = client.category.create({
+      data: { id: "never", name: "not committed" },
+    });
+    const series = client.post.createMany({
+      data: [
+        {
+          id: "p1",
+          title: "one",
+          author: { create: { id: "a1", name: "one" } },
+        },
+      ],
+    });
+    await expect(client.$transaction([ordinary, series])).rejects.toMatchObject(
+      {
+        meta: { driver: "d1", method: "$transaction([...])" },
+      }
+    );
+    await expect(client.post.findMany()).resolves.toEqual([]);
+    await expect(client.author.findMany()).resolves.toEqual([]);
+    await expect(client.category.findMany()).resolves.toEqual([]);
   });
 });

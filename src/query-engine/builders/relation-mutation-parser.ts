@@ -2,6 +2,7 @@ import type { PolymorphicStorage } from "@schema/relation";
 import {
   splitToOneUpdateTarget,
   type ToOneUpdateEnvelope,
+  toOneUpdateSourceData,
 } from "@validation/relations/to-one-update-form";
 import { isRecord } from "@validation/value-guards";
 import {
@@ -20,12 +21,23 @@ import { resolvePolymorphicMutationIntent } from "./polymorphic-mutation";
 
 export interface ConnectOrCreateInput {
   readonly where: Record<string, unknown>;
-  readonly create: Record<string, unknown>;
+  readonly create: RecordMutationData;
 }
 
 export interface NestedUpdateManyInput {
   readonly where?: Record<string, unknown>;
-  readonly data: Record<string, unknown>;
+  readonly data: RecordMutationData;
+}
+
+/**
+ * One schema-transformed record mutation beside the exact caller record that
+ * produced it. The source is absent only for internal callers that already lost
+ * the trust-boundary input; it is never reconstructed from `parsed`, because
+ * validation transforms are not idempotent.
+ */
+export interface RecordMutationData {
+  readonly parsed: Record<string, unknown>;
+  readonly source: Record<string, unknown> | undefined;
 }
 
 /**
@@ -102,15 +114,15 @@ export interface NormalizedRelationUpdate {
   readonly target:
     | CorrelatedRelationMutationTarget
     | UniqueRelationMutationTarget;
-  readonly data: Record<string, unknown>;
+  readonly data: RecordMutationData;
 }
 
 export interface NormalizedRelationUpsert {
   readonly target:
     | CorrelatedRelationMutationTarget
     | UniqueRelationMutationTarget;
-  readonly create: Record<string, unknown>;
-  readonly update: Record<string, unknown>;
+  readonly create: RecordMutationData;
+  readonly update: RecordMutationData;
 }
 
 export type CurrentOrSelectorTargets =
@@ -123,11 +135,11 @@ export type CurrentOrSelectorTargets =
 export type RelationMutationEntry =
   | {
       readonly kind: "create";
-      readonly items: readonly Record<string, unknown>[];
+      readonly items: readonly RecordMutationData[];
     }
   | {
       readonly kind: "createMany";
-      readonly rows: readonly Record<string, unknown>[];
+      readonly rows: readonly RecordMutationData[];
       readonly skipDuplicates?: boolean;
     }
   | {
@@ -210,9 +222,16 @@ export function partitionModelData(
   return { scalarData, relationPayloads, polymorphicPayloads };
 }
 
+/**
+ * Build one relation program from schema output. `sourcePayload` is the exact
+ * relation value handed to that schema. It is optional only for analytical and
+ * compile-level callers that begin with an already parsed tree; every
+ * record-bearing entry then states `source: undefined` and is not replayable.
+ */
 export function buildRelationMutationProgram(
   relationInfo: RelationInfo,
-  parsedPayload: unknown
+  parsedPayload: unknown,
+  sourcePayload?: unknown
 ): RelationMutationProgram | undefined {
   if (!hasRelationMutationInput(parsedPayload)) {
     if (isRecord(parsedPayload) && Object.keys(parsedPayload).length > 0) {
@@ -233,14 +252,34 @@ export function buildRelationMutationProgram(
       case "create":
         entries.push({
           kind,
-          items: parseSingleOrArrayRecord(value, relationInfo, kind),
+          items: parseRecordMutationItems(
+            value,
+            sourceMutationValue(sourcePayload, kind),
+            relationInfo,
+            kind
+          ),
         });
         break;
       case "createMany": {
         const envelope = requireRecordEnvelope(relationInfo, kind, value);
+        const sourceEnvelope = sourceMutationEnvelope(
+          relationInfo,
+          kind,
+          sourcePayload
+        );
         entries.push({
           kind,
-          rows: requireRecordArrayField(relationInfo, kind, envelope, "data"),
+          rows: pairRecordMutationItems(
+            requireRecordArrayField(relationInfo, kind, envelope, "data"),
+            sourceEnvelope
+              ? requireRecordArrayField(
+                  relationInfo,
+                  kind,
+                  sourceEnvelope,
+                  "data"
+                )
+              : undefined
+          ),
           ...(typeof envelope.skipDuplicates === "boolean"
             ? { skipDuplicates: envelope.skipDuplicates }
             : {}),
@@ -256,7 +295,11 @@ export function buildRelationMutationProgram(
       case "connectOrCreate":
         entries.push({
           kind,
-          items: parseConnectOrCreateItems(relationInfo, value),
+          items: parseConnectOrCreateItems(
+            relationInfo,
+            value,
+            sourceMutationValue(sourcePayload, kind)
+          ),
         });
         break;
       case "disconnect":
@@ -281,13 +324,21 @@ export function buildRelationMutationProgram(
       case "update":
         entries.push({
           kind,
-          items: parseNormalizedUpdates(relationInfo, value),
+          items: parseNormalizedUpdates(
+            relationInfo,
+            value,
+            sourceMutationValue(sourcePayload, kind)
+          ),
         });
         break;
       case "updateMany":
         entries.push({
           kind,
-          items: parseNormalizedUpdateMany(relationInfo, value),
+          items: parseNormalizedUpdateMany(
+            relationInfo,
+            value,
+            sourceMutationValue(sourcePayload, kind)
+          ),
         });
         break;
       case "deleteMany":
@@ -299,7 +350,11 @@ export function buildRelationMutationProgram(
       case "upsert":
         entries.push({
           kind,
-          items: parseNormalizedUpserts(relationInfo, value),
+          items: parseNormalizedUpserts(
+            relationInfo,
+            value,
+            sourceMutationValue(sourcePayload, kind)
+          ),
         });
         break;
       default: {
@@ -394,7 +449,8 @@ export function relationMutationPrograms(
 export function buildPolymorphicMutationProgram(
   ctx: QueryScope,
   relation: NonNullable<ReturnType<typeof getPolymorphicRelationInfo>>,
-  parsedPayload: unknown
+  parsedPayload: unknown,
+  sourcePayload?: unknown
 ): Extract<
   ParsedRelationMutation,
   { kind: "polymorphicTarget" | "polymorphicDisconnect" }
@@ -407,9 +463,11 @@ export function buildPolymorphicMutationProgram(
       storage: intent.storage,
     };
   }
-  const program = buildRelationMutationProgram(intent.edge.relationInfo, {
-    [intent.operation]: intent.payload,
-  });
+  const program = buildRelationMutationProgram(
+    intent.edge.relationInfo,
+    { [intent.operation]: intent.payload },
+    polymorphicSourceProgram(intent.operation, sourcePayload)
+  );
   if (!program) {
     throw new NestedWriteError(
       `Polymorphic relation '${relation.name}' produced no target mutation.`,
@@ -424,9 +482,16 @@ export function buildPolymorphicMutationProgram(
   };
 }
 
+/**
+ * Partition one parsed record while retaining its source recursively. Production
+ * operation shells pass `sourceData` whenever they still own the caller record.
+ * Source-less callers may analyze existing schema output, but must not use it as a
+ * validation replay input.
+ */
 export function buildParsedRelationPrograms(
   ctx: QueryScope,
-  parsedData: Record<string, unknown>
+  parsedData: Record<string, unknown>,
+  sourceData?: Record<string, unknown>
 ): ParsedRecordPrograms {
   const { scalarData, relationPayloads, polymorphicPayloads } =
     partitionModelData(ctx, parsedData);
@@ -438,13 +503,24 @@ export function buildParsedRelationPrograms(
   for (const [relationName, { relationInfo, payload }] of Object.entries(
     relationPayloads
   )) {
-    const program = buildRelationMutationProgram(relationInfo, payload);
+    const program = buildRelationMutationProgram(
+      relationInfo,
+      payload,
+      sourceData?.[relationName]
+    );
     if (program) {
       relations.push({ kind: "ordinary", name: relationName, program });
     }
   }
   for (const { relation, payload } of Object.values(polymorphicPayloads)) {
-    relations.push(buildPolymorphicMutationProgram(ctx, relation, payload));
+    relations.push(
+      buildPolymorphicMutationProgram(
+        ctx,
+        relation,
+        payload,
+        sourceData?.[relation.name]
+      )
+    );
   }
   return { scalarData, relations };
 }
@@ -461,29 +537,38 @@ function hasRelationMutationInput(
 
 function parseConnectOrCreateItems(
   relationInfo: RelationInfo,
-  value: unknown
+  value: unknown,
+  sourceValue: unknown
 ): ConnectOrCreateInput[] {
-  return parseSingleOrArrayRecord(value, relationInfo, "connectOrCreate").map(
-    (input) => ({
-      where: requireRecordField(
-        relationInfo,
-        "connectOrCreate",
-        input,
-        "where"
-      ),
-      create: requireRecordField(
-        relationInfo,
-        "connectOrCreate",
-        input,
-        "create"
-      ),
-    })
+  const inputs = parseSingleOrArrayRecord(
+    value,
+    relationInfo,
+    "connectOrCreate"
   );
+  const sources = parseSourceRecords(
+    sourceValue,
+    relationInfo,
+    "connectOrCreate"
+  );
+  return inputs.map((input, index) => ({
+    where: requireRecordField(relationInfo, "connectOrCreate", input, "where"),
+    create: recordMutationData(
+      requireRecordField(relationInfo, "connectOrCreate", input, "create"),
+      sourceRecordField(
+        relationInfo,
+        "connectOrCreate",
+        sources,
+        index,
+        "create"
+      )
+    ),
+  }));
 }
 
 function parseNormalizedUpdates(
   relationInfo: RelationInfo,
-  value: unknown
+  value: unknown,
+  sourceValue: unknown
 ): NormalizedRelationUpdate[] {
   if (relationInfo.cardinality === "one") {
     // `parsedPayload` is deliberately an unknown carrier, but the to-one update
@@ -495,30 +580,42 @@ function parseNormalizedUpdates(
           kind: "correlated",
           ...(target.filter ? { filter: target.filter } : {}),
         },
-        data: target.data,
+        data: recordMutationData(
+          target.data,
+          toOneUpdateSourceData(sourceValue)
+        ),
       },
     ];
   }
 
-  return parseSingleOrArrayRecord(value, relationInfo, "update").map(
-    (input) => ({
-      target: {
-        kind: "unique",
-        where: requireRecordField(relationInfo, "update", input, "where"),
-      },
-      data: requireRecordField(relationInfo, "update", input, "data"),
-    })
-  );
+  const inputs = parseSingleOrArrayRecord(value, relationInfo, "update");
+  const sources = parseSourceRecords(sourceValue, relationInfo, "update");
+  return inputs.map((input, index) => ({
+    target: {
+      kind: "unique",
+      where: requireRecordField(relationInfo, "update", input, "where"),
+    },
+    data: recordMutationData(
+      requireRecordField(relationInfo, "update", input, "data"),
+      sourceRecordField(relationInfo, "update", sources, index, "data")
+    ),
+  }));
 }
 
 function parseNormalizedUpdateMany(
   relationInfo: RelationInfo,
-  value: unknown
+  value: unknown,
+  sourceValue: unknown
 ): NestedUpdateManyInput[] {
   rejectToOneOperation(relationInfo, "updateMany");
-  return parseSingleOrArrayRecord(value, relationInfo, "updateMany").map(
-    (input): NestedUpdateManyInput => ({
-      data: requireRecordField(relationInfo, "updateMany", input, "data"),
+  const inputs = parseSingleOrArrayRecord(value, relationInfo, "updateMany");
+  const sources = parseSourceRecords(sourceValue, relationInfo, "updateMany");
+  return inputs.map(
+    (input, index): NestedUpdateManyInput => ({
+      data: recordMutationData(
+        requireRecordField(relationInfo, "updateMany", input, "data"),
+        sourceRecordField(relationInfo, "updateMany", sources, index, "data")
+      ),
       ...(input.where === undefined
         ? {}
         : {
@@ -543,7 +640,8 @@ function parseNormalizedDeleteMany(
 
 function parseNormalizedUpserts(
   relationInfo: RelationInfo,
-  value: unknown
+  value: unknown,
+  sourceValue: unknown
 ): NormalizedRelationUpsert[] {
   if (relationInfo.cardinality === "one" && Array.isArray(value)) {
     throw new NestedWriteError(
@@ -553,19 +651,148 @@ function parseNormalizedUpserts(
     );
   }
 
-  return parseSingleOrArrayRecord(value, relationInfo, "upsert").map(
-    (input) => ({
-      target:
-        relationInfo.cardinality === "one"
-          ? { kind: "correlated" }
-          : {
-              kind: "unique",
-              where: requireRecordField(relationInfo, "upsert", input, "where"),
-            },
-      create: requireRecordField(relationInfo, "upsert", input, "create"),
-      update: requireRecordField(relationInfo, "upsert", input, "update"),
-    })
+  const inputs = parseSingleOrArrayRecord(value, relationInfo, "upsert");
+  const sources = parseSourceRecords(sourceValue, relationInfo, "upsert");
+  return inputs.map((input, index) => ({
+    target:
+      relationInfo.cardinality === "one"
+        ? { kind: "correlated" }
+        : {
+            kind: "unique",
+            where: requireRecordField(relationInfo, "upsert", input, "where"),
+          },
+    create: recordMutationData(
+      requireRecordField(relationInfo, "upsert", input, "create"),
+      sourceRecordField(relationInfo, "upsert", sources, index, "create")
+    ),
+    update: recordMutationData(
+      requireRecordField(relationInfo, "upsert", input, "update"),
+      sourceRecordField(relationInfo, "upsert", sources, index, "update")
+    ),
+  }));
+}
+
+function parseRecordMutationItems(
+  parsedValue: unknown,
+  sourceValue: unknown,
+  relationInfo: RelationInfo,
+  operation: string
+): RecordMutationData[] {
+  return pairRecordMutationItems(
+    parseSingleOrArrayRecord(parsedValue, relationInfo, operation),
+    parseSourceRecords(sourceValue, relationInfo, operation)
   );
+}
+
+function pairRecordMutationItems(
+  parsed: readonly Record<string, unknown>[],
+  source: readonly Record<string, unknown>[] | undefined
+): RecordMutationData[] {
+  if (source && source.length !== parsed.length) {
+    throw new TypeError(
+      `Relation mutation source has ${source.length} record(s) for ${parsed.length} parsed record(s).`
+    );
+  }
+  return parsed.map((value, index) =>
+    recordMutationData(value, source?.[index])
+  );
+}
+
+function recordMutationData(
+  parsed: Record<string, unknown>,
+  source: Record<string, unknown> | undefined
+): RecordMutationData {
+  return { parsed, source };
+}
+
+function parseSourceRecords(
+  value: unknown,
+  relationInfo: RelationInfo,
+  operation: string
+): Record<string, unknown>[] | undefined {
+  return value === undefined
+    ? undefined
+    : parseSingleOrArrayRecord(value, relationInfo, operation);
+}
+
+function sourceRecordField(
+  relationInfo: RelationInfo,
+  operation: string,
+  sources: readonly Record<string, unknown>[] | undefined,
+  index: number,
+  field: string
+): Record<string, unknown> | undefined {
+  if (!sources) return undefined;
+  const source = sources[index];
+  if (!source) {
+    throw new TypeError(
+      `Relation mutation '${operation}' on '${relationInfo.name}' lost source item ${index}.`
+    );
+  }
+  return requireRecordField(relationInfo, operation, source, field);
+}
+
+function sourceMutationValue(
+  sourcePayload: unknown,
+  operation: string
+): unknown {
+  return isRecord(sourcePayload) ? sourcePayload[operation] : undefined;
+}
+
+function sourceMutationEnvelope(
+  relationInfo: RelationInfo,
+  operation: string,
+  sourcePayload: unknown
+): Record<string, unknown> | undefined {
+  const value = sourceMutationValue(sourcePayload, operation);
+  return value === undefined
+    ? undefined
+    : requireRecordEnvelope(relationInfo, operation, value);
+}
+
+function polymorphicSourceProgram(
+  operation:
+    | "connect"
+    | "create"
+    | "connectOrCreate"
+    | "update"
+    | "upsert"
+    | "delete",
+  sourcePayload: unknown
+): Record<string, unknown> | undefined {
+  if (!isRecord(sourcePayload)) return undefined;
+  const envelope = sourcePayload[operation];
+  if (!isRecord(envelope)) return undefined;
+  switch (operation) {
+    case "connect":
+      return { connect: envelope.where };
+    case "create":
+      return { create: envelope.data };
+    case "connectOrCreate":
+      return {
+        connectOrCreate: {
+          where: envelope.where,
+          create: envelope.create,
+        },
+      };
+    case "update":
+      return {
+        update: {
+          data: envelope.data,
+          ...(envelope.where === undefined ? {} : { where: envelope.where }),
+        },
+      };
+    case "upsert":
+      return {
+        upsert: { create: envelope.create, update: envelope.update },
+      };
+    case "delete":
+      return { delete: true };
+    default: {
+      const exhaustive: never = operation;
+      throw new TypeError(`Unknown polymorphic mutation: ${exhaustive}`);
+    }
+  }
 }
 
 function parseSingleOrArrayRecord(

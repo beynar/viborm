@@ -122,6 +122,7 @@ function isNeonQueryFunction(client: NeonQuery | NeonTx): client is NeonQuery {
 
 export class NeonHTTPDriver extends Driver<NeonQuery, NeonTx> {
   readonly adapter: DatabaseAdapter;
+  readonly maxBindParametersPerStatement: number | undefined = 65_535;
 
   // Neon HTTP only supports non-interactive (batch) transactions
   // Callback-style transactions are not supported
