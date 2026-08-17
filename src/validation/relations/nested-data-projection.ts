@@ -10,6 +10,10 @@
 // This is the one place that difference is decided. The verb factories
 // (`toOne/toMany` × `create/update`) consume the projection blindly, so a surface
 // that used to be a clone is now the same factory with a different projection.
+// One selected-arm exception is also owned here: an update-root to-many
+// `upsert.update` may spell a polymorphic inverse's relation key because the engine
+// has already selected that exact incoming parent and carries its row continuity.
+// Ordinary update/updateMany and every create surface keep the omission.
 //
 // What this module deliberately does NOT own: whether the membership it projects can
 // be CLEARED. That is a schema fact about storage, not a fact about which keys a
@@ -26,10 +30,7 @@ import type { GetPolymorphicInverseBinding } from "@schema/relation/polymorphic"
 import type { RelationState } from "@schema/relation/types";
 import { getInverseRelationMap } from "@schema/relation/types";
 import { type V, v } from "../primitives/v";
-import type {
-  CreateWithOmittedFk,
-  UpdateWithOmittedFk,
-} from "./create";
+import type { CreateWithOmittedFk, UpdateWithOmittedFk } from "./create";
 import type { GetTargetSchemas, SchemaGetter, TargetModel } from "./helpers";
 
 // =============================================================================
@@ -86,12 +87,11 @@ type HasNamedTargetPolymorphicRelations<S extends RelationState> =
 export type HasPolymorphicInverse<
   S extends RelationState,
   Source extends AnyModel,
-> =
-  CanBindPolymorphicInverse<S> extends true
-    ? HasNamedTargetPolymorphicRelations<S> extends true
-      ? HasExactPolymorphicInverse<S, Source>
-      : false
-    : false;
+> = CanBindPolymorphicInverse<S> extends true
+  ? HasNamedTargetPolymorphicRelations<S> extends true
+    ? HasExactPolymorphicInverse<S, Source>
+    : false
+  : false;
 
 // =============================================================================
 // THE POLYMORPHIC ARM
@@ -118,6 +118,12 @@ type PolymorphicInverseUpdateTarget<
   ]
 >;
 
+/** A correlated to-many upsert found arm has selected-row continuity back to its
+ * enclosing polymorphic parent. That one arm may therefore re-enter the direct
+ * relation key; ordinary update/updateMany payloads still omit it. */
+type PolymorphicInverseSelectedUpsertUpdateTarget<S extends RelationState> =
+  GetTargetSchemas<S>["core"]["update"];
+
 // =============================================================================
 // THE PROJECTION — one alias, one instantiation per relation
 // =============================================================================
@@ -133,18 +139,19 @@ type PolymorphicInverseUpdateTarget<
 export type NestedRelationDataProjection<
   S extends RelationState,
   Source extends AnyModel,
-> =
-  HasPolymorphicInverse<S, Source> extends true
-    ? {
-        create: PolymorphicInverseCreateTarget<S, Source>;
-        update: PolymorphicInverseUpdateTarget<S, Source>;
-        createUpsertUpdate: PolymorphicInverseUpdateTarget<S, Source>;
-      }
-    : {
-        create: CreateWithOmittedFk<S, Source>;
-        update: UpdateWithOmittedFk<S, Source>;
-        createUpsertUpdate: GetTargetSchemas<S>["core"]["update"];
-      };
+> = HasPolymorphicInverse<S, Source> extends true
+  ? {
+      create: PolymorphicInverseCreateTarget<S, Source>;
+      update: PolymorphicInverseUpdateTarget<S, Source>;
+      selectedUpsertUpdate: PolymorphicInverseSelectedUpsertUpdateTarget<S>;
+      createUpsertUpdate: PolymorphicInverseUpdateTarget<S, Source>;
+    }
+  : {
+      create: CreateWithOmittedFk<S, Source>;
+      update: UpdateWithOmittedFk<S, Source>;
+      selectedUpsertUpdate: UpdateWithOmittedFk<S, Source>;
+      createUpsertUpdate: GetTargetSchemas<S>["core"]["update"];
+    };
 
 /** The target schema a nested `create` payload writes into. */
 export type ProjectedNestedCreate<
@@ -157,6 +164,14 @@ export type ProjectedNestedUpdate<
   S extends RelationState,
   Source extends AnyModel,
 > = NestedRelationDataProjection<S, Source>["update"];
+
+/** The update branch of a to-many upsert under an update root. Only this branch
+ * carries the selected incoming-parent continuity needed to expose an inverse
+ * polymorphic relation key safely. */
+export type ProjectedSelectedUpsertUpdate<
+  S extends RelationState,
+  Source extends AnyModel,
+> = NestedRelationDataProjection<S, Source>["selectedUpsertUpdate"];
 
 /**
  * The `upsert.update` arm of a to-many payload under a CREATE root, and the one
@@ -183,6 +198,8 @@ export interface NestedRelationDataSchemas {
   readonly getCreateSchema: () => AnyObjectSchema;
   /** The same omission applied to nested UPDATE data, gated per edge. */
   readonly getUpdateSchema: () => AnyObjectSchema;
+  /** The selected found arm may re-enter an inverse polymorphic owner. */
+  readonly getSelectedUpsertUpdateSchema: () => AnyObjectSchema;
   /** See {@link ProjectedCreateUpsertUpdate} — the agreeing-owned-FK asymmetry. */
   readonly getCreateUpsertUpdateSchema: () => AnyObjectSchema;
 }
@@ -236,6 +253,8 @@ export const nestedRelationDataProjection = <
     return {
       getCreateSchema,
       getUpdateSchema,
+      getSelectedUpsertUpdateSchema: () =>
+        targetSchemas().core.update as unknown as AnyObjectSchema,
       getCreateUpsertUpdateSchema: getUpdateSchema,
     };
   }
@@ -257,6 +276,7 @@ export const nestedRelationDataProjection = <
   return {
     getCreateSchema,
     getUpdateSchema,
+    getSelectedUpsertUpdateSchema: getUpdateSchema,
     getCreateUpsertUpdateSchema: () =>
       targetSchemas().core.update as unknown as AnyObjectSchema,
   };

@@ -1,12 +1,11 @@
-import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { createClient } from "@client/client";
-import type { BatchQuery, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
-import { PGlite, type Transaction } from "@electric-sql/pglite";
+import { PGlite } from "@electric-sql/pglite";
 import { push } from "@migrations";
 import { s } from "@schema";
-import { describe, expect, test } from "vitest";
 import { observeClientOperations } from "@tests/contracts/engine/write/operation-observer";
+import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
+import { describe, expect, test } from "vitest";
 
 type Schema = Record<string, ReturnType<typeof s.model>>;
 
@@ -111,19 +110,23 @@ describe("X1b mechanism 2 — generated-PK fresh child carries its own grandchil
     [5, 4, "g2"],
   ];
 
-  for (const substrate of ["tx", "batch"] as const) {
-    test(`${substrate}: the produced id threads to the grandchild (backward Ref), native Observed`, async () => {
-      const { state, engines } = await runObserved(
-        genTree,
-        substrate,
-        seed,
-        op,
-        snap
-      );
-      expect(engines).toEqual(new Set(["production"]));
-      expect(state).toEqual(expected);
-    });
-  }
+  test("tx: the produced id threads to the grandchild (backward Ref), native Observed", async () => {
+    const { state, engines } = await runObserved(genTree, "tx", seed, op, snap);
+    expect(engines).toEqual(new Set(["production"]));
+    expect(state).toEqual(expected);
+  });
+
+  test("batch: the produced id threads to the grandchild", async () => {
+    const { state, engines } = await runObserved(
+      genTree,
+      "batch",
+      seed,
+      op,
+      snap
+    );
+    expect(engines).toEqual(new Set(["production"]));
+    expect(state).toEqual(expected);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -220,17 +223,27 @@ describe("X1b mechanism 1 (fresh) — a parent-held to-one grandchild of a fresh
     ],
   };
 
-  for (const substrate of ["tx", "batch"] as const) {
-    test(`${substrate}: the before-parent author id folds into the fresh post's FK, native Observed`, async () => {
-      const { state, engines } = await runObserved(
-        blogSchema,
-        substrate,
-        seed,
-        op,
-        snap
-      );
-      expect(engines).toEqual(new Set(["production"]));
-      expect(state).toEqual(expected);
-    });
-  }
+  test("tx: the before-parent author id folds into the fresh post's FK, native Observed", async () => {
+    const { state, engines } = await runObserved(
+      blogSchema,
+      "tx",
+      seed,
+      op,
+      snap
+    );
+    expect(engines).toEqual(new Set(["production"]));
+    expect(state).toEqual(expected);
+  });
+
+  test("batch: the generated author identity folds into the fresh post", async () => {
+    const { state, engines } = await runObserved(
+      blogSchema,
+      "batch",
+      seed,
+      op,
+      snap
+    );
+    expect(engines).toEqual(new Set(["production"]));
+    expect(state).toEqual(expected);
+  });
 });

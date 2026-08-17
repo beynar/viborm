@@ -144,18 +144,26 @@ calls during the nested callback reject fail-closed.
 
 ## Batch Mode (Prisma-style)
 
-Use the array API for independent operations that should run together atomically. Sibling operations can't read each other's results, but a nested write inside a single operation works normally.
-
-The array takes **model operations only**. A raw query runs the moment you call
-it and returns a plain Promise, so there is nothing left to batch — passing one
-is refused with a typed `UnsupportedOperationError`. Run raw SQL inside the
-interactive form instead.
+Use the array API for independent model and raw operations that should run
+together atomically. Sibling operations cannot read each other's JavaScript
+results, but they execute in declared order, so a later query observes an
+earlier database write. Raw calls are lazy just like model operations: creating
+one performs no I/O until the array is submitted or the operation is awaited.
 
 ```ts
 const [users, posts, count] = await client.$transaction([
   client.user.findMany({ where: { active: true } }),
   client.post.findMany({ where: { published: true } }),
   client.user.count(),
+]);
+```
+
+Raw and model operations can be mixed:
+
+```ts
+const [affected, users] = await client.$transaction([
+  client.$executeRaw`UPDATE "user" SET active = ${false} WHERE tenant_id = ${tenantId}`,
+  client.user.findMany({ where: { tenantId } }),
 ]);
 ```
 

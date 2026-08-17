@@ -127,10 +127,12 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
   readonly supportsBatch: boolean = false;
 
   /**
-   * Whether independently submitted native batches form one ordered committed
-   * sequence: each batch is atomic, and a later batch observes every earlier
-   * successful batch. This is stronger than `supportsBatch`; providers enable it
-   * only after a binding-level contract proves both properties.
+   * Whether a native batch can acknowledge its commit before result decoding,
+   * so the executor can attribute an exact committed prefix after a later
+   * failure. Awaited calls are already sequential and a normalized successful
+   * return must be visible to the next awaited call; this stronger capability
+   * adds a commit-notification boundary for precise progressive failure
+   * attribution before result decoding.
    */
   readonly supportsOrderedCommittedSegments: boolean = false;
 
@@ -139,8 +141,8 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
    * statement. Query compilation may use this to split an optimization, but it
    * must keep the existing one-row path when the capacity is unknown.
    *
-   * Custom drivers fail safe by default. Built-in drivers override this with a
-   * limit guaranteed by their concrete provider/runtime.
+   * When it is unknown, compilation skips the static capacity check and lets the
+   * provider own any typed capacity failure for the submitted statement.
    */
   readonly maxBindParametersPerStatement: number | undefined = undefined;
 

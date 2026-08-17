@@ -58,7 +58,7 @@ export const adoptOwnedFkSchema = (() => {
       id: s.string().id(),
       slug: s.string().unique(),
       label: s.string().default("x"),
-      ownerId: s.string().nullable(),
+      ownerId: s.string().nullable().map("owner_fk"),
       owner: s
         .manyToOne(() => owner)
         .fields("ownerId")
@@ -453,43 +453,68 @@ export function registerAdoptOwnedFkBehavior(
       );
     }, 120_000);
 
-    test("a COMPOUND edge keeps the refusal, fully or partially spelled", async () => {
+    test("a COMPOUND edge accepts agreeing partial and complete spellings", async () => {
       const client = await connect();
       await reset(client);
-      const compound =
-        "Relation 'kids' owns 'pa, pb'; omit it from nested create and update data.";
-      await expect(
-        client.pair.create({
-          data: {
-            a: "a1",
-            b: "b1",
-            email: "p1@x",
-            kids: {
-              upsert: {
-                where: { slug: "half" },
-                create: { id: "never", slug: "half" },
-                update: { pa: "a1" },
-              },
+      await client.pair.create({
+        data: { a: "old", b: "pair", email: "old@x" },
+      });
+      await client.kid.create({
+        data: {
+          id: "k-half",
+          slug: "half",
+          pa: "old",
+          pb: "pair",
+        },
+      });
+      await client.kid.create({
+        data: {
+          id: "k-whole",
+          slug: "whole",
+          pa: "old",
+          pb: "pair",
+        },
+      });
+
+      await client.pair.create({
+        data: {
+          a: "a1",
+          b: "b1",
+          email: "p1@x",
+          kids: {
+            upsert: {
+              where: { slug: "half" },
+              create: { id: "never-half", slug: "half" },
+              update: { pa: "a1" },
             },
           },
-        })
-      ).rejects.toThrow(compound);
-      await expect(
-        client.pair.create({
-          data: {
-            a: "a2",
-            b: "b2",
-            email: "p2@x",
-            kids: {
-              upsert: {
-                where: { slug: "whole" },
-                create: { id: "never", slug: "whole" },
-                update: { pa: "a2", pb: "b2" },
-              },
+        },
+      });
+      await client.pair.create({
+        data: {
+          a: "a2",
+          b: "b2",
+          email: "p2@x",
+          kids: {
+            upsert: {
+              where: { slug: "whole" },
+              create: { id: "never-whole", slug: "whole" },
+              update: { pa: "a2", pb: "b2" },
             },
           },
+        },
+      });
+
+      expect(
+        await client.kid.findMany({
+          where: { slug: { in: ["half", "whole"] } },
+          orderBy: { slug: "asc" },
+          select: { slug: true, pa: true, pb: true },
         })
-      ).rejects.toThrow(compound);
+      ).toEqual([
+        { slug: "half", pa: "a1", pb: "b1" },
+        { slug: "whole", pa: "a2", pb: "b2" },
+      ]);
     }, 120_000);
 
     test("WALL: a nested CREATE arm cannot spell the owned FK — the parse boundary omits it", async () => {

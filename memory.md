@@ -70,3 +70,37 @@
   Change the one manifest entry, then run an offline lockfile-only install and
   verify that the lock diff contains only that package and its required
   transitive changes before synchronizing `node_modules`.
+- When an explicit implementation request supersedes a plan's prototype keep
+  gate, do not report the old gate as the endpoint. Keep the safety invariants,
+  identify the smallest exact semantic fact the engine lacks, and prototype
+  that fact through its existing owner until the capability works or a real
+  provider impossibility is proved.
+- Permission to accept partial commits does not permit a guard-to-write TOCTOU
+  window. A premise that protects a write must share its atomic database unit;
+  otherwise lower the premise into conditional DML or keep the substrate
+  boundary explicit.
+- Do not widen a public scalar naming token into an array merely because its
+  storage expands to several members. When schema arity and order are already
+  known, keep the public token scalar and let one topology owner derive the
+  complete ordered group.
+- Do not turn a raw unsupported-error constructor census into a product backlog.
+  One constructor can format several distinct boundaries, while one capability
+  can cross several constructors. Classify public shapes and semantic reasons
+  first; use the raw count only as an audit checksum.
+- When two roadmap items consume the same semantic fact, present them under one
+  user-facing capability but keep their execution owners distinct. Name the
+  shared truth, show what each consumer does with it, and separate unrelated
+  work that merely happens to share an error factory.
+- For an unreleased product, design the final V1 representation directly. Do
+  not add dual readers, legacy snapshot shims, or manual compatibility
+  choreography for a format no user has received. Treat ordinary future schema
+  evolution separately: automate exact conversions and fail loudly when data
+  cannot fit the new domain.
+- In a rollback or uniqueness falsifier, derive the duplicate key from the row
+  that established the constraint. A visually similar hand-written key is not
+  evidence of a collision; assert the duplicate equality before execution when
+  the witness is assembled indirectly.
+- Before propagating projection demand across recursive compilers, distinguish
+  a projection-only field set from one that also controls write ordering. Add
+  remote field demand only to the projection owner; otherwise asking for one
+  more value can silently move a write across a key-transition barrier.

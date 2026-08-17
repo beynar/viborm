@@ -4,6 +4,15 @@
 **Status:** Decision-complete implementation plan
 **Starting commit:** 2ca32ad45465bf9f2b75f9047ea8761df22b6670
 
+> **RecordSeries history note (2026-08-14):** The transaction-first interface,
+> executor algorithm, and delivery packages below record the original checkpoint.
+> The later relation-bearing bulk and generated-output passes supersede their
+> batch refusal: any no-transaction driver with native atomic batching may execute
+> a safe progressive series after normalized success. The strong committed-segment
+> flag adds callback-before-decode attribution; explicit `$transaction([...])`
+> arrays remain indivisible. Sections 5.1, 7.3, 7.5, and 11 state the current
+> RecordSeries contract.
+
 ## 1. Outcome
 
 Lift the query-engine restrictions that have useful, coherent semantics while extending the concepts that already own record mutation:
@@ -18,7 +27,8 @@ Lift the query-engine restrictions that have useful, coherent semantics while ex
   describe where those key members live. Row addressing and relation storage
   remain distinct even when both use the same primary-key fields.
 - Existing field-bound FinalReferenceSource values continue to carry literals, planning values, transitioned values, final references, and lookups.
-- One new operation-level execution form, RecordSeriesOperation, expresses a transaction containing a data-dependent sequence of ordinary record operations.
+- One new operation-level execution form, RecordSeriesOperation, expresses an
+  ordered, data-dependent sequence of ordinary record operations.
 - PostgreSQL receives an optional dependency-aware mutation CTE fold over the existing OperationValueReference graph.
 
 The capability architecture is portable. The CTE fold is an optimization and never determines whether a public operation is supported.
@@ -273,7 +283,7 @@ Do not add:
 
 Demand is registered only by calls to rootReferenced(field). Existing calls that request no generated field retain their current SQL.
 
-### 4.4 Transactional record series
+### 4.4 Historical transaction-first record-series design
 
 The current fragment atom has one planning phase followed by one final compilation. It cannot truthfully represent a data-dependent number of record operations when every member may have its own planning.
 
@@ -457,7 +467,11 @@ This plan originally left `skipDuplicates` with general nested effects refused u
 1. A skipped root suppresses every nested effect.
 2. A skipped root adopts the existing row and applies its nested effects.
 
-The later relation-bearing bulk plan chose contract 1: a skipped root suppresses its complete nested subtree. Interactive drivers now implement it with one member savepoint; D1 retains a provider-specific refusal where exact root-conflict attribution is unavailable.
+The later relation-bearing bulk plan chose contract 1: a skipped root suppresses
+its complete nested subtree. Interactive drivers implement it with one member
+savepoint. A batch route isolates a root-first skippable INSERT, suppresses
+descendants when it inserts zero rows, and refuses before effects when a write or
+nested record series would have to precede that root.
 
 ### 5.2 Relation-bearing updateMany
 
@@ -511,7 +525,7 @@ Three boundaries of that refusal, each measured rather than inferred:
   it a second reader of provider decoding, so it was left stated rather than
   fixed.
 
-### 5.3 Nested bulk relation operations
+### 5.3 Historical Package L checkpoint — nested bulk relation operations
 
 Root relation-bearing createMany and updateMany are mandatory goals. A relation-level createMany or updateMany whose row/data contains further relations is a second integration problem because it would place a record series inside an existing record tree.
 
@@ -530,6 +544,10 @@ If any condition fails, remove the prototype and retain a focused nested-only re
 **OUTCOME (Package L, 2026-08-10): BOTH prototypes REJECTED, no commit.** The
 nested walls stand, unchanged and truthful, and the four census sites that
 express them are byte-identical to their pre-L text.
+
+This outcome belongs to the transaction-first checkpoint. The later
+relation-bearing bulk pass added the guarded nested `RecordSeriesStep` route;
+sections 7.3 and 7.5 state its current restrictions.
 
 The boundary, stated once and verbatim:
 
@@ -1075,7 +1093,11 @@ Suggested commit:
 feat: compose to-one supply and selected update
 ~~~
 
-### Package I — Add the transaction record-series atom
+### Historical Package I checkpoint — Add the transaction record-series atom
+
+The bullets in this package record the first transaction-only implementation.
+They are preserved as delivery history; the RecordSeries history note at the top
+states the current native-batch route.
 
 #### I1. Add contracts without consumers
 
@@ -1610,11 +1632,11 @@ These restrictions have a concrete reason and must not be removed by weakening a
 
 ### 7.3 Duplicate skipping without identity
 
-- skipDuplicates when no exact unique identifies which existing row caused the skip.
-- `skipDuplicates` plus nested effects was a product gap in this plan. The later
-  relation-bearing bulk pass chose suppress-effects, retired the constructor
-  refusal, and kept only provider-specific refusals where a driver cannot
-  identify and isolate the skipped root member exactly.
+- A skipped relation-bearing root suppresses its subtree and never needs to name
+  or adopt the conflicting row. Interactive execution uses a savepoint; batch
+  execution isolates a root-first skippable INSERT and observes its exact row count.
+- A write or nested record series before that skippable root remains refused
+  before operation effects, because suppression would strand the earlier work.
 
 ### 7.4 Topology features not implemented here
 
@@ -1648,10 +1670,12 @@ These restrictions have a concrete reason and must not be removed by weakening a
 
 ### 7.5 Substrate boundaries
 
-- RecordSeriesOperation on a batch-only provider with no interactive transaction.
-- Nested relation-bearing bulk. No longer conditional: Package L ran both
-  prototypes and REJECTED both, so this is a standing boundary with a recorded
-  reason and a recorded future path (§5.3).
+- RecordSeriesOperation on a driver with neither an interactive transaction nor
+  native atomic batching.
+- A progressive RecordSeriesOperation inside explicit `$transaction([...])`;
+  that API remains one indivisible atomic batch.
+- Nested relation-bearing bulk without the compiler-owned complete parent or
+  membership premise required by each later consuming batch.
 - Child-held connect, connectOrCreate, or set across more than one updateMany
   root — at the ROOT's own relation keys, and only when the entry names an
   existing target (§5.2).
@@ -1818,7 +1842,8 @@ The engine should gain capability by making its existing atoms more truthful:
 - A fresh record can publish a demanded field once that field becomes knowable.
 - A record compiler owns one complete record mutation.
 - A relation owner owns membership and branch decisions.
-- A record series owns only transactional sequencing of ordinary record operations.
+- A record series owns ordered sequencing of ordinary record operations, inside
+  one interactive transaction or across safe native-batch segments.
 - A PostgreSQL CTE fold owns only lowering a proven write-value dependency graph.
 
 That division keeps the portable semantics simple and lets PostgreSQL compress eligible work without turning provider-specific SQL into a second query engine.

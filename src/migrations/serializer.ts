@@ -12,14 +12,17 @@
 
 import {
   type AnyModel,
+  getModelKeyCatalog,
   getTableName as getModelTableName,
   type ModelState,
 } from "../schema/model";
 import type { AnyRelation } from "../schema/relation";
 import {
   findPairedManyToManyState,
-  getJunctionFieldNames,
+  getJunctionConstraintName,
+  getJunctionFieldGroups,
   getJunctionTableName,
+  junctionSourceSideIsFirst,
 } from "../schema/relation/helpers";
 import type { Scalar } from "../schema/scalars/base";
 import type { MigrationDriver } from "./drivers";
@@ -504,13 +507,6 @@ export function serializeModels(
         targetModelName
       );
 
-      // Get junction field names
-      const [sourceFieldName, targetFieldName] = getJunctionFieldNames(
-        relation as AnyRelation,
-        modelName,
-        targetModelName
-      );
-
       // Referential actions may be configured on either side of the pair.
       // Prisma parity: implicit junction FKs default to CASCADE so deleting
       // an endpoint row removes its associations.
@@ -542,62 +538,116 @@ export function serializeModels(
         "cascade"
       );
 
-      // Get PK types from source and target models
-      const sourcePkField = getPrimaryKeyFieldDef(model, migrationDriver);
-      const targetPkField = getPrimaryKeyFieldDef(targetModel, migrationDriver);
+      const sourcePkFields = getPrimaryKeyFieldDefs(model, migrationDriver);
+      const targetPkFields = getPrimaryKeyFieldDefs(
+        targetModel,
+        migrationDriver
+      );
+      const fieldGroups = getJunctionFieldGroups(
+        relation as AnyRelation,
+        modelName,
+        targetModelName,
+        sourcePkFields.map((field) => field.field),
+        targetPkFields.map((field) => field.field)
+      );
+      const sourceMembers = sourcePkFields.map((pk, index) => {
+        const column = fieldGroups.source.fields[index];
+        if (column === undefined) {
+          throw new Error(
+            "Junction source expansion did not match its primary-key arity."
+          );
+        }
+        return { column, pk };
+      });
+      const targetMembers = targetPkFields.map((pk, index) => {
+        const column = fieldGroups.target.fields[index];
+        if (column === undefined) {
+          throw new Error(
+            "Junction target expansion did not match its primary-key arity."
+          );
+        }
+        return { column, pk };
+      });
 
       // Canonical column order: sorted model names decide (as the generated
       // table name does), so both sides serialize the identical table.
       const sourceSide = {
-        column: sourceFieldName,
-        pk: sourcePkField,
+        group: fieldGroups.source,
+        members: sourceMembers,
         table: sourceTableName,
         sortKey: modelName.toLowerCase(),
       };
       const targetSide = {
-        column: targetFieldName,
-        pk: targetPkField,
+        group: fieldGroups.target,
+        members: targetMembers,
         table: targetTableName,
         sortKey: targetModelName.toLowerCase(),
       };
       let [first, second] = [sourceSide, targetSide];
       if (
-        first.sortKey > second.sortKey ||
-        (first.sortKey === second.sortKey && first.column > second.column)
+        !junctionSourceSideIsFirst(
+          modelName,
+          fieldGroups.source.fields,
+          targetModelName,
+          fieldGroups.target.fields
+        )
       ) {
         [first, second] = [second, first];
       }
 
+      const firstColumns = first.members.map((member) => member.column);
+      const secondColumns = second.members.map((member) => member.column);
+
       const junctionDef: TableDef = {
         name: junctionTableName,
         columns: [
-          { name: first.column, type: first.pk.type, nullable: false },
-          { name: second.column, type: second.pk.type, nullable: false },
+          ...first.members.map((member) => ({
+            name: member.column,
+            type: member.pk.type,
+            nullable: false,
+          })),
+          ...second.members.map((member) => ({
+            name: member.column,
+            type: member.pk.type,
+            nullable: false,
+          })),
         ],
-        primaryKey: { columns: [first.column, second.column] },
-        // The PK covers first-column lookups; reverse traversal needs its
-        // own index (Prisma indexes B the same way).
+        primaryKey: { columns: [...firstColumns, ...secondColumns] },
+        // The PK covers first-side lookups; reverse traversal needs one
+        // index over the complete second-side stored reference.
         indexes: [
           {
-            name: `${junctionTableName}_${second.column}_idx`,
-            columns: [second.column],
+            name: getJunctionConstraintName(
+              junctionTableName,
+              second.group,
+              "idx"
+            ),
+            columns: secondColumns,
             unique: false,
           },
         ],
         foreignKeys: [
           {
-            name: `${junctionTableName}_${first.column}_fkey`,
-            columns: [first.column],
+            name: getJunctionConstraintName(
+              junctionTableName,
+              first.group,
+              "fkey"
+            ),
+            columns: firstColumns,
             referencedTable: first.table,
-            referencedColumns: [first.pk.name],
+            referencedColumns: first.members.map((member) => member.pk.column),
             onDelete,
             onUpdate,
           },
           {
-            name: `${junctionTableName}_${second.column}_fkey`,
-            columns: [second.column],
+            name: getJunctionConstraintName(
+              junctionTableName,
+              second.group,
+              "fkey"
+            ),
+            columns: secondColumns,
             referencedTable: second.table,
-            referencedColumns: [second.pk.name],
+            referencedColumns: second.members.map((member) => member.pk.column),
             onDelete,
             onUpdate,
           },
@@ -646,41 +696,34 @@ export function serializeModels(
 // =============================================================================
 
 /**
- * Get the primary key field definition for a model.
- * Throws if the model uses compound PK (not supported for M2M junction tables).
+ * Get every primary-key member in model-key order.
  */
-function getPrimaryKeyFieldDef(
+function getPrimaryKeyFieldDefs(
   model: AnyModel,
   migrationDriver: MigrationDriver
-): { name: string; type: string } {
+): readonly { field: string; column: string; type: string }[] {
   const modelState = model["~"].state;
   const modelName = model["~"].names.ts;
-
-  // Compound PKs not supported for junction tables
-  if (modelState.compoundId && Object.keys(modelState.compoundId).length > 0) {
+  const rowKey = getModelKeyCatalog(model).rowKey?.fields;
+  if (!rowKey || rowKey.length === 0) {
     throw new Error(
-      `Model "${modelName}" uses compound primary key. ` +
-        "Many-to-many relations with compound PKs are not supported. " +
-        "Use a single-field surrogate key (e.g., s.string().id().ulid()) instead."
+      `Model "${modelName}" has no primary key. Schema may not be hydrated.`
     );
   }
-
-  for (const [fieldName, scalar] of Object.entries(modelState.scalars)) {
-    const scalarState = (scalar as Scalar)["~"].state;
-    if (scalarState.isId) {
-      const columnName = model["~"].getFieldName(fieldName).sql;
-      const columnType = migrationDriver.mapScalarType(
-        scalar as Scalar,
-        scalarState
+  return rowKey.map((field) => {
+    const scalar = modelState.scalars[field];
+    if (!scalar) {
+      throw new Error(
+        `Primary-key field '${field}' of model "${modelName}" is not a scalar.`
       );
-      return { name: columnName, type: columnType };
     }
-  }
-
-  throw new Error(
-    `Model "${modelName}" has no primary key field. ` +
-      "Schema may not be hydrated."
-  );
+    const scalarState = scalar["~"].state;
+    return {
+      field,
+      column: model["~"].getFieldName(field).sql,
+      type: migrationDriver.mapScalarType(scalar, scalarState),
+    };
+  });
 }
 
 export { getColumnName } from "../schema/model";

@@ -5,6 +5,7 @@ import { isRecord as isRecordValue } from "@validation/value-guards";
 
 export { isRecord } from "@validation/value-guards";
 
+import type { RecordMutationData } from "../builders/relation-mutation-parser";
 import {
   getWhereUniqueEntries,
   partitionWhereUnique,
@@ -18,8 +19,6 @@ import {
 import type { QueryEngine } from "../query-engine";
 import { getForeignKeyTargetFields } from "../TargetConstraint";
 import type { QueryScope } from "../types";
-import type { RecordMutationData } from "../builders/relation-mutation-parser";
-import type { TargetConstraintPin } from "./OperationFragment";
 import type { RelationMembershipBinding } from "./relation-membership";
 import type { StepScope } from "./StepScope";
 
@@ -32,6 +31,12 @@ export interface SubOperationOptions {
   readonly scope?: StepScope;
   /** Skip the constructor own-write preflight; the caller runs it per-arm (deferred). */
   readonly skipOwnWrite?: boolean;
+  /**
+   * An enclosing probe-first upsert's missing-row race fact. Supplying it before
+   * compilation lets the create compiler attach it to the root INSERT and decide
+   * whether a multi-write fold can preserve exact failure attribution.
+   */
+  readonly rootRacePin?: import("./create-race-pin").CreateRacePin;
   /**
    * X1b — a nested fresh `create` at DEPTH: this `CreateOperation` is not a standalone
    * operation but a create SUBTREE spliced under a located target's write (a nested
@@ -67,7 +72,7 @@ export interface SubOperationOptions {
      * the arm's own leaf. Absent for every other `nestedFresh` caller (a nested
      * `create` is unconditional: its violation is a genuine error, never a race).
      */
-    readonly rootRacePin?: TargetConstraintPin;
+    readonly rootRacePin?: import("./create-race-pin").CreateRacePin;
   };
   /**
    * PACKAGE J3 — an INDEPENDENT ROOT create whose data a caller has already
@@ -322,20 +327,34 @@ export function projectionReadsMutatedModel(
   select: Readonly<Record<string, unknown>> | undefined,
   include: Readonly<Record<string, unknown>> | undefined
 ): boolean {
-  const table = getTableName(scope.model);
-  return (
-    payloadReachesTable(scope, select, table) ||
-    payloadReachesTable(scope, include, table)
+  return projectionReadsAnyTable(
+    scope,
+    select,
+    include,
+    new Set([getTableName(scope.model)])
   );
 }
 
-function payloadReachesTable(
+/** Whether a projection reaches any table whose rows the same command mutates. */
+export function projectionReadsAnyTable(
+  scope: QueryScope,
+  select: Readonly<Record<string, unknown>> | undefined,
+  include: Readonly<Record<string, unknown>> | undefined,
+  tables: ReadonlySet<string>
+): boolean {
+  return (
+    payloadReachesAnyTable(scope, select, tables) ||
+    payloadReachesAnyTable(scope, include, tables)
+  );
+}
+
+function payloadReachesAnyTable(
   scope: QueryScope,
   value: unknown,
-  table: string
+  tables: ReadonlySet<string>
 ): boolean {
   if (Array.isArray(value)) {
-    return value.some((entry) => payloadReachesTable(scope, entry, table));
+    return value.some((entry) => payloadReachesAnyTable(scope, entry, tables));
   }
   if (!isRecordValue(value)) return false;
   for (const [key, entry] of Object.entries(value)) {
@@ -345,32 +364,34 @@ function payloadReachesTable(
     if (entry === false || entry === undefined) continue;
     const polymorphic = getPolymorphicRelationInfo(scope, key);
     if (polymorphic) {
-      if (polymorphicPayloadReachesTable(scope, polymorphic, entry, table)) {
+      if (
+        polymorphicPayloadReachesAnyTable(scope, polymorphic, entry, tables)
+      ) {
         return true;
       }
       continue;
     }
     const relation = getRelationInfo(scope, key);
     if (relation) {
-      if (getTableName(relation.targetModel) === table) return true;
+      if (tables.has(getTableName(relation.targetModel))) return true;
       const child = createChildScope(
         scope,
         relation.targetModel,
         scope.rootAlias
       );
-      if (payloadReachesTable(child, entry, table)) return true;
+      if (payloadReachesAnyTable(child, entry, tables)) return true;
       continue;
     }
-    if (payloadReachesTable(scope, entry, table)) return true;
+    if (payloadReachesAnyTable(scope, entry, tables)) return true;
   }
   return false;
 }
 
-function polymorphicPayloadReachesTable(
+function polymorphicPayloadReachesAnyTable(
   scope: QueryScope,
   relation: NonNullable<ReturnType<typeof getPolymorphicRelationInfo>>,
   value: unknown,
-  table: string
+  tables: ReadonlySet<string>
 ): boolean {
   if (isRecordValue(value) && typeof value.type === "string") {
     const nested = isRecordValue(value.is)
@@ -381,18 +402,18 @@ function polymorphicPayloadReachesTable(
     if (!nested) return false;
     const member = relation.storage.members.get(value.type);
     if (!member) return false;
-    if (getTableName(member.targetModel) === table) return true;
+    if (tables.has(getTableName(member.targetModel))) return true;
     const child = createChildScope(scope, member.targetModel, scope.rootAlias);
-    return payloadReachesTable(child, nested, table);
+    return payloadReachesAnyTable(child, nested, tables);
   }
 
   for (const [publicType, member] of relation.storage.members) {
-    if (getTableName(member.targetModel) === table) return true;
+    if (tables.has(getTableName(member.targetModel))) return true;
     if (!isRecordValue(value)) continue;
     const override = value[publicType];
     if (!isRecordValue(override)) continue;
     const child = createChildScope(scope, member.targetModel, scope.rootAlias);
-    if (payloadReachesTable(child, override, table)) return true;
+    if (payloadReachesAnyTable(child, override, tables)) return true;
   }
   return false;
 }
@@ -514,6 +535,11 @@ function isAddressableLiteral(value: unknown): boolean {
  * `.unique()`s first (declaration order), then compound uniques; `undefined` when none
  * is complete.
  *
+ * `explicitFields` narrows the same scan to values the source payload actually
+ * supplied. Create's post-write locator uses it so a materialized application
+ * default cannot masquerade as the value emitted by the INSERT. Existing arm
+ * identity callers omit it and keep their historical parsed-data contract.
+ *
  * `state.uniques` is the model's single-column unique/id scalars, so a compound PK's
  * members never appear there individually — half a compound key is a filter, never an
  * identity.
@@ -526,7 +552,8 @@ function isAddressableLiteral(value: unknown): boolean {
  */
 export function createDataUniqueWhere(
   model: Model<any>,
-  createData: Record<string, unknown>
+  createData: Record<string, unknown>,
+  explicitFields?: ReadonlySet<string>
 ): Record<string, unknown> | undefined {
   // Bare scalar selectors first (shape order), then grouped compound uniques —
   // the compound PRIMARY key is deliberately not consulted: half a compound key
@@ -535,6 +562,7 @@ export function createDataUniqueWhere(
   for (const key of getModelKeyCatalog(model).addressableKeys) {
     if (key.name === undefined) {
       const field = key.fields[0] as string;
+      if (explicitFields && !explicitFields.has(field)) continue;
       const value = createData[field];
       if (isAddressableLiteral(value)) return { [field]: value };
     }
@@ -544,6 +572,10 @@ export function createDataUniqueWhere(
     const values: Record<string, unknown> = {};
     let complete = true;
     for (const field of key.fields) {
+      if (explicitFields && !explicitFields.has(field)) {
+        complete = false;
+        break;
+      }
       const value = createData[field];
       if (!isAddressableLiteral(value)) {
         complete = false;

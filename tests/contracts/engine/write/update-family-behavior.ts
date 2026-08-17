@@ -4,8 +4,6 @@ import { createOperationExecutionContext } from "@query-engine/execution-context
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames, s } from "@schema";
 import type { Model } from "@schema/model";
-import { createSchemaRegistry } from "@validation";
-import { describe, expect, test } from "vitest";
 import { DeleteOperation } from "@src/query-engine/write-engine/DeleteOperation";
 import { OperationExecutor } from "@src/query-engine/write-engine/OperationExecutor";
 import { UpdateOperation } from "@src/query-engine/write-engine/UpdateOperation";
@@ -13,6 +11,8 @@ import {
   type BehaviorDatabaseSource,
   useBehaviorDatabase,
 } from "@tests/fixtures/drivers/pglite";
+import { createSchemaRegistry } from "@validation";
+import { describe, expect, test } from "vitest";
 
 /**
  * The P2a update-family schema. `user` holds a child-held-FK to-many (`posts`);
@@ -121,7 +121,9 @@ export function runUpdateFamilyBehavior(
       async () => {
         const { driver, client, dispose } = await setup();
         try {
-          await client.user.create({ data: { email: "s@x", count: 10 } });
+          await client.user.create({
+            data: { id: 1, email: "s@x", count: 10 },
+          });
           const result = await createUpdateFamilyExecutor(driver).executeUpdate(
             "user",
             updateFamilySchema.user,
@@ -144,7 +146,9 @@ export function runUpdateFamilyBehavior(
       async () => {
         const { driver, client, dispose } = await setup();
         try {
-          await client.user.create({ data: { email: "owner@x", count: 0 } });
+          await client.user.create({
+            data: { id: 1, email: "owner@x", count: 0 },
+          });
           await client.post.create({
             data: { id: 7, title: "orphan", slug: "s7", userId: null },
           });
@@ -178,6 +182,7 @@ export function runUpdateFamilyBehavior(
         try {
           await client.user.create({
             data: {
+              id: 1,
               email: "d@x",
               count: 0,
               posts: { create: { id: 8, title: "mine", slug: "s8" } },
@@ -208,8 +213,12 @@ export function runUpdateFamilyBehavior(
       async () => {
         const { driver, client, dispose } = await setup();
         try {
-          await client.user.create({ data: { email: "a@x", count: 0 } });
-          await client.user.create({ data: { email: "b@x", count: 0 } });
+          await client.user.create({
+            data: { id: 1, email: "a@x", count: 0 },
+          });
+          await client.user.create({
+            data: { id: 2, email: "b@x", count: 0 },
+          });
           await client.post.create({
             data: { id: 9, title: "b's", slug: "s9", userId: 2 },
           });
@@ -241,7 +250,9 @@ export function runUpdateFamilyBehavior(
       async () => {
         const { driver, client, dispose } = await setup();
         try {
-          await client.user.create({ data: { email: "c@x", count: 0 } });
+          await client.user.create({
+            data: { id: 1, email: "c@x", count: 0 },
+          });
           await expect(
             createUpdateFamilyExecutor(driver).executeUpdate(
               "user",
@@ -267,7 +278,9 @@ export function runUpdateFamilyBehavior(
       async () => {
         const { driver, client, dispose } = await setup();
         try {
-          await client.user.create({ data: { email: "u1@x", count: 0 } });
+          await client.user.create({
+            data: { id: 1, email: "u1@x", count: 0 },
+          });
           await client.post.create({
             data: { id: 11, title: "p", slug: "s11", userId: null },
           });
@@ -293,7 +306,9 @@ export function runUpdateFamilyBehavior(
       async () => {
         const { driver, client, dispose } = await setup();
         try {
-          await client.user.create({ data: { email: "u2@x", count: 0 } });
+          await client.user.create({
+            data: { id: 1, email: "u2@x", count: 0 },
+          });
           await client.post.create({
             data: { id: 12, title: "p", slug: "s12", userId: 1 },
           });
@@ -319,7 +334,9 @@ export function runUpdateFamilyBehavior(
       async () => {
         const { driver, client, dispose } = await setup();
         try {
-          await client.user.create({ data: { email: "del@x", count: 3 } });
+          await client.user.create({
+            data: { id: 1, email: "del@x", count: 3 },
+          });
           const result = await createUpdateFamilyExecutor(driver).executeDelete(
             "user",
             updateFamilySchema.user,
@@ -387,7 +404,9 @@ export function runUpdateFamilyBehavior(
         // we assert a required-FK disconnect is impossible to express silently.
         const { driver, client, dispose } = await setup();
         try {
-          await client.user.create({ data: { email: "n@x", count: 0 } });
+          await client.user.create({
+            data: { id: 1, email: "n@x", count: 0 },
+          });
           await client.post.create({
             data: { id: 20, title: "p", slug: "s20", userId: 1 },
           });
@@ -416,7 +435,9 @@ export function runUpdateFamilyBehavior(
       async () => {
         const { driver, client, dispose } = await setup();
         try {
-          await client.user.create({ data: { email: "keep@x", count: 0 } });
+          await client.user.create({
+            data: { id: 1, email: "keep@x", count: 0 },
+          });
           await client.post.create({
             data: { id: 30, title: "free", slug: "s30", userId: null },
           });

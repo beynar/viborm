@@ -1,19 +1,18 @@
 import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
-import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { s } from "@schema";
-import { hydrateSchemaNames } from "@schema/hydration";
 import type { Model } from "@schema/model";
-import { createSchemaRegistry } from "@validation";
-import { describe, expect, test } from "vitest";
-import { constructRoutedOperation } from "@src/query-engine/write-engine/routing";
 import { UnsupportedOperationError } from "@src/query-engine/write-engine/shared";
-import { manyToManySchema } from "@tests/fixtures/many-to-many-schema";
-import { nestedWriteBehaviorSchema } from "@tests/fixtures/nested-write-behavior-schema";
 import { operationFragmentSchema } from "@tests/contracts/engine/write/create-nested-upsert-behavior";
 import { depthSeamSchema } from "@tests/contracts/engine/write/depth-seam-behavior";
 import { producedIdentitySchema } from "@tests/contracts/engine/write/produced-identity-depth-behavior";
-import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
+import {
+  BatchOnlyPGliteDriver,
+  usePGliteSchemaFamily,
+} from "@tests/fixtures/drivers/pglite";
+import { manyToManySchema } from "@tests/fixtures/many-to-many-schema";
+import { nestedWriteBehaviorSchema } from "@tests/fixtures/nested-write-behavior-schema";
+import { describe, expect, test } from "vitest";
 
 /**
  * The decline-surface gate (P6). With V1 deleted, the single engine either
@@ -29,26 +28,11 @@ import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
  *     narrowing a type guard): the corresponding test then throws instead of
  *     persisting.
  *
- *  2. **A documented narrower boundary still declines (operation-construction-inventory category
- *     iii).** A shape one level deeper than an absorbed family's proven surface
- *     (here: an m2m `upsert` whose non-primary-key-unique target's update arm
- *     carries deeper relation writes) is reached by no conformance scenario, so it
- *     declines with an `UnsupportedOperationError` at construction — a tripwire that
- *     a future regression silently changing its disposition would surface here. The
- *     shape this slot held before N4 (a `createMany` under a parent-held `planned`
- *     target) was absorbed by N4-U3 and now executes; see the retarget note on
- *     {@link REPRESENTATIVE_CONSTRUCT_DECLINE}.
+ *  2. **A documented semantic boundary still declines.** On batch-only execution,
+ *     a parent-held target write cannot precede a skippable createMany root: if the
+ *     root skips, that target would be stranded. The public payload below must fail
+ *     with `UnsupportedOperationError` before either row is written.
  */
-
-// A minimal engine, mirroring operation-construction-inventory.test.ts's `pgEngine`.
-function pgEngine(schema: Record<string, Model<any>>): QueryEngine {
-  hydrateSchemaNames(schema);
-  const schemas = createSchemaRegistry(schema);
-  return new QueryEngine(
-    new PGliteDriver(),
-    createModelRegistry(schema, schemas)
-  );
-}
 
 async function freshClient(schema: Record<string, Model<any>>) {
   const family = (() => {
@@ -992,96 +976,44 @@ describe("decline-surface gate: the adopt family's create arm is a create subtre
 });
 
 // ---------------------------------------------------------------------------
-// The single engine either constructs a payload's whole tree or declines it with
-// an UnsupportedOperationError at construction — no fallback catches the decline.
-// Every conformance scenario constructs (the migration reached census zero before
-// V1 was deleted). A handful of DEEPER narrower-boundary shapes (create-context
-// depth under a planned parent-held id, a compound-PK child at depth, …) reached
-// by no conformance scenario still decline — documented operation-construction-inventory category
-// (iii), their absorption post-P6 backlog. This witness keeps one such shape
-// honestly visible so a future regression that silently changed its disposition
-// would surface here.
+// Construction now accepts every shape in this gate. The surviving boundary is
+// execution-order semantics: on a batch-only route, a write before a skippable root
+// would remain committed if the root skipped. The progressive preflight must decline
+// that public payload before either operation row is written.
 // ---------------------------------------------------------------------------
-/** The representative decline's own schema (see the note below): a junction target with a
- *  DB-generated primary key and TWO uniques a `whereUnique` can name. */
-const twoUniqueTarget = (() => {
-  const shelf = s
-    .model({
-      id: s.string().id(),
-      books: s.manyToMany(() => book).through("dsg_book_shelf"),
-    })
-    .map("dsg_shelves");
-  const book = s
-    .model({
-      id: s.int().id().increment(),
-      isbn: s.string().unique(),
-      code: s.string().unique(),
-      title: s.string(),
-      shelves: s.manyToMany(() => shelf).through("dsg_book_shelf"),
-    })
-    .map("dsg_books");
-  return { shelf, book };
-})();
+describe("decline-surface gate: the surviving progressive boundary declines typed", () => {
+  test("a parent-held write before a skippable root refuses before effects", async () => {
+    const family = getOperationFragmentFamily();
+    await family.reset();
+    const client = createClient({
+      schema: opf,
+      driver: new BatchOnlyPGliteDriver({ client: family.database }),
+    });
 
-const REPRESENTATIVE_CONSTRUCT_DECLINE = {
-  // RETARGETED TWICE, each time by the absorption that took the previous representative.
-  //
-  //  1. N4 (operation-construction-inventory's "76 -> 74" entry) took a `createMany` under a parent-held
-  //     `planned` target — N4-U3's absorption.
-  //  2. U-E6.1 took the one that replaced it: an m2m `upsert` whose non-PK-unique
-  //     target's update arm carries deeper relation writes. Its recorded justification
-  //     was the created-earlier branch — an update arm reached with the global probe
-  //     having run BEFORE this operation's own INSERT — and N7-U-C had already deleted
-  //     that branch. What was left was a wiring gap, not a wall: the fold now hands the
-  //     arm the probe id the `update` kind always had. It EXECUTES, with witnesses in
-  //     `junction-upsert-arm-probe-behavior.ts` on both substrates and both Docker legs.
-  //
-  //  3. U-E6.8 took MOST of the one that replaced THAT: a `createMany` through a junction
-  //     with `skipDuplicates` onto a DB-generated target key. The maintainer's decision
-  //     (expressible-shapes-plan.md, Risks item 3) is that adopt-equivalence defines skip
-  //     for generated-key rows, so a row spelling exactly one nameable unique is now a
-  //     `connectOrCreate` adopt and a target with nothing to conflict on drops the flag —
-  //     witnessed in `junction-skip-adoption-behavior.ts`, both substrates, both Docker
-  //     legs.
-  //
-  // The tripwire needs a shape that still declines, so it names the SURVIVOR of that same
-  // site, whose impossibility E6.8 re-proved: a row spelling TWO complete nameable uniques.
-  // Either constraint can be the one an INSERT meets, so no single probe names the row a
-  // skip would have skipped ON — and an adopt that guessed would join the parent to a row
-  // the skip never selected (the wrong-row doctrine; the decoy is in E6.8's witness file).
-  // The schema is local because the shape is about CONSTRAINTS, and the shared m2m fixture
-  // has only one unique per target. A construct-time probe: no seed, no execution.
-  label:
-    "m2m createMany with skipDuplicates onto a generated key whose row spells two uniques",
-  schema: twoUniqueTarget as Record<string, Model<any>>,
-  operation: "update",
-  args: {
-    where: { id: "s1" },
-    data: {
-      books: {
-        createMany: {
-          data: [{ isbn: "i1", code: "c1", title: "t" }],
-          skipDuplicates: true,
-        },
-      },
-    },
-  } as Record<string, unknown>,
-  rootModel: twoUniqueTarget.shelf as Model<any>,
-} as const;
+    let caught: unknown;
+    try {
+      await client.post.createMany({
+        data: [
+          {
+            id: 1,
+            title: "skippable",
+            slug: "skippable",
+            author: { create: { id: 99, name: "must-not-land" } },
+          },
+        ],
+        skipDuplicates: true,
+      });
+    } catch (error) {
+      caught = error;
+    }
 
-describe("decline-surface gate: the documented narrower boundary still declines (P6)", () => {
-  test(`documented narrower boundary still declines: ${REPRESENTATIVE_CONSTRUCT_DECLINE.label}`, () => {
-    const shape = REPRESENTATIVE_CONSTRUCT_DECLINE;
-    const engine = pgEngine(shape.schema);
-    // With V1 deleted, a decline propagates: constructing this shape throws the
-    // UnsupportedOperationError rather than handing the tree to a fallback.
-    expect(() =>
-      constructRoutedOperation(
-        engine,
-        shape.rootModel,
-        shape.operation,
-        shape.args
-      )
-    ).toThrow(UnsupportedOperationError);
+    expect(caught).toBeInstanceOf(UnsupportedOperationError);
+    if (!(caught instanceof UnsupportedOperationError)) throw caught;
+    expect(caught.code).toBe("V8003");
+    expect(caught.message).toBe(
+      "Driver 'pglite' cannot execute this record series as committed segments because skipping root 'post.create' would leave prior effect 'user.create' committed."
+    );
+    await expect(client.user.findMany({})).resolves.toEqual([]);
+    await expect(client.post.findMany({})).resolves.toEqual([]);
   });
 });

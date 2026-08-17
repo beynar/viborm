@@ -10,38 +10,12 @@ import {
 } from "@errors";
 import { push } from "@migrations";
 import { s } from "@schema";
-import type Database from "better-sqlite3";
-import { vi } from "vitest";
-import { batchPrimaryKeyDataflowSchema } from "@tests/fixtures/batch-primary-key-dataflow-schema";
-import {
-  createInMemorySQLite3Driver,
-  createSQLite3UserPostClient,
-  setupSQLite3UserPostDatabase,
-} from "@tests/fixtures/drivers/sqlite3";
-import { seedWindowUserPosts } from "@tests/fixtures/user-post-seed";
-import { runBooleanNoOpArmBehavior } from "@tests/contracts/engine/write/boolean-noop-arm-behavior";
-import { runBulkWriteBehavior } from "@tests/contracts/engine/write/bulk-write-behavior";
-import { runCreateManyBehavior } from "@tests/contracts/engine/write/create-many-behavior";
-import { runCreateNestedUpsertBehavior } from "@tests/contracts/engine/write/create-nested-upsert-behavior";
-import { runDepthSeamBehavior } from "@tests/contracts/engine/write/depth-seam-behavior";
-import { runExtendedWhereUniqueBehavior } from "@tests/contracts/engine/write/extended-where-unique-behavior";
-import { runInverseToOneCreateBehavior } from "@tests/contracts/engine/write/inverse-to-one-create-behavior";
-import { runJunctionCreateManyBehavior } from "@tests/contracts/engine/write/junction-create-many-behavior";
-import { runLocatedParentRefBehavior } from "@tests/contracts/engine/write/located-parent-ref-behavior";
-import { runNestedMutationBehavior } from "@tests/contracts/engine/write/nested-mutation-behavior";
-import { runOwnWriteLinearizationBehavior } from "@tests/contracts/engine/write/own-write-linearization-behavior";
-import { runPostTransitionAdoptBehavior } from "@tests/contracts/engine/write/post-transition-adopt-behavior";
-import { runProducedIdentityBehavior } from "@tests/contracts/engine/write/produced-identity-depth-behavior";
-import { runReadBehavior } from "@tests/contracts/engine/write/read-behavior";
-import { runToOneUpdateWhereBehavior } from "@tests/contracts/engine/write/to-one-update-where-behavior";
-import { runUpdateFamilyBehavior } from "@tests/contracts/engine/write/update-family-behavior";
-import { runUpdateNestedUpsertBehavior } from "@tests/contracts/engine/write/update-nested-upsert-behavior";
-import { runUpsertFamilyBehavior } from "@tests/contracts/engine/write/upsert-family-behavior";
 import { batchPrimaryKeyDataflowContract } from "@tests/contracts/drivers/behaviors/batch-primary-key-dataflow-behavior";
 import { batchRefSmokeContract } from "@tests/contracts/drivers/behaviors/batch-ref-smoke-behavior";
 import { blobFilterContract } from "@tests/contracts/drivers/behaviors/blob-filter-behavior";
 import { bulkWriteLimitContract } from "@tests/contracts/drivers/behaviors/bulk-write-limit-behavior";
 import { clientRawContract } from "@tests/contracts/drivers/behaviors/client-raw-behavior";
+import { compoundJunctionContract } from "@tests/contracts/drivers/behaviors/compound-junction-behavior";
 import { compoundKeyContract } from "@tests/contracts/drivers/behaviors/compound-key-behavior";
 import { countAggregateWindowContract } from "@tests/contracts/drivers/behaviors/count-aggregate-window-behavior";
 import { createManyReturnFoldContract } from "@tests/contracts/drivers/behaviors/create-many-return-fold-behavior";
@@ -84,6 +58,33 @@ import {
   scalarRoundtripContract,
 } from "@tests/contracts/drivers/behaviors/scalar-roundtrip-behavior";
 import { upsertAtomicityContract } from "@tests/contracts/drivers/behaviors/upsert-atomicity-behavior";
+import { runBooleanNoOpArmBehavior } from "@tests/contracts/engine/write/boolean-noop-arm-behavior";
+import { runBulkWriteBehavior } from "@tests/contracts/engine/write/bulk-write-behavior";
+import { runCreateManyBehavior } from "@tests/contracts/engine/write/create-many-behavior";
+import { runCreateNestedUpsertBehavior } from "@tests/contracts/engine/write/create-nested-upsert-behavior";
+import { runDepthSeamBehavior } from "@tests/contracts/engine/write/depth-seam-behavior";
+import { runExtendedWhereUniqueBehavior } from "@tests/contracts/engine/write/extended-where-unique-behavior";
+import { runInverseToOneCreateBehavior } from "@tests/contracts/engine/write/inverse-to-one-create-behavior";
+import { runJunctionCreateManyBehavior } from "@tests/contracts/engine/write/junction-create-many-behavior";
+import { runLocatedParentRefBehavior } from "@tests/contracts/engine/write/located-parent-ref-behavior";
+import { runNestedMutationBehavior } from "@tests/contracts/engine/write/nested-mutation-behavior";
+import { runOwnWriteLinearizationBehavior } from "@tests/contracts/engine/write/own-write-linearization-behavior";
+import { runPostTransitionAdoptBehavior } from "@tests/contracts/engine/write/post-transition-adopt-behavior";
+import { runProducedIdentityBehavior } from "@tests/contracts/engine/write/produced-identity-depth-behavior";
+import { runReadBehavior } from "@tests/contracts/engine/write/read-behavior";
+import { runToOneUpdateWhereBehavior } from "@tests/contracts/engine/write/to-one-update-where-behavior";
+import { runUpdateFamilyBehavior } from "@tests/contracts/engine/write/update-family-behavior";
+import { runUpdateNestedUpsertBehavior } from "@tests/contracts/engine/write/update-nested-upsert-behavior";
+import { runUpsertFamilyBehavior } from "@tests/contracts/engine/write/upsert-family-behavior";
+import { batchPrimaryKeyDataflowSchema } from "@tests/fixtures/batch-primary-key-dataflow-schema";
+import {
+  createInMemorySQLite3Driver,
+  createSQLite3UserPostClient,
+  setupSQLite3UserPostDatabase,
+} from "@tests/fixtures/drivers/sqlite3";
+import { seedWindowUserPosts } from "@tests/fixtures/user-post-seed";
+import type Database from "better-sqlite3";
+import { vi } from "vitest";
 
 class BatchOnlySQLite3Driver extends SQLite3Driver {
   override readonly supportsTransactions = false;
@@ -802,6 +803,10 @@ describe("SQLite3 Driver", () => {
     createDriver: createInMemorySQLite3Driver,
   });
   compoundKeyContract.register({
+    driverName: "SQLite3",
+    createDriver: createInMemorySQLite3Driver,
+  });
+  compoundJunctionContract.register({
     driverName: "SQLite3",
     createDriver: createInMemorySQLite3Driver,
   });

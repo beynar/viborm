@@ -1,18 +1,17 @@
-import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { createClient } from "@client/client";
-import type { BatchQuery, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
-import { PGlite, type Transaction } from "@electric-sql/pglite";
+import { PGlite } from "@electric-sql/pglite";
 import { push } from "@migrations";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
-import { createSchemaRegistry } from "@validation";
-import { describe, expect, test } from "vitest";
 import { CreateOperation } from "@src/query-engine/write-engine/CreateOperation";
 import type { StatementStep } from "@src/query-engine/write-engine/OperationFragment";
 import {
   adoptOwnedFkSchema,
   registerAdoptOwnedFkBehavior,
 } from "@tests/contracts/engine/write/adopt-owned-fk-agreement-behavior";
+import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
+import { createSchemaRegistry } from "@validation";
+import { describe, expect, test } from "vitest";
 
 const substrates = [
   {
@@ -42,7 +41,7 @@ for (const substrate of substrates) {
 const THING_UPDATE = /UPDATE "e5u2_things"/;
 const THING_INSERT = /INSERT INTO "e5u2_things"/;
 const TIME_UPDATE = /UPDATE "e5u2_time_rows"/;
-const OWNER_COLUMN = /"ownerId"/g;
+const OWNER_COLUMN = /"owner_fk"/g;
 const SET_CLAUSE = /SET (.*?) WHERE /;
 
 function sqlOf(step: { statement: { strings: readonly string[] } }): string {

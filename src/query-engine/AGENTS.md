@@ -154,6 +154,16 @@ For child-held and junction edges, relation owners keep the target read,
 correlation, membership, found/missing decision, guards, race pins, not-found
 failure, and standalone edge effects. A true no-op allocates no step ID.
 
+Selected-row continuity is one `RecordUpdateCompiler` fact, not a relation-name
+or ID special case. Planning always addresses the complete row key captured by
+the target projection. Execution asks `selectedRowKeyAt` for that captured key
+before the root transition or the complete final key after it; each relation
+owner supplies the phase from its actual root/child placement. An exact
+correlated incoming-parent `update` or found `upsert` may transport this fact
+back to the matching parent-held edge. `delete`, global-adopt target mutation,
+and a loopback that itself changes the incoming parent's row key remain focused
+refusals because they do not publish a usable final tuple to enclosing siblings.
+
 Fresh and selected compilers recurse through a type-only `RecordCompilerSeam`
 with two functions: `createFresh` and `updateSelected`. It is a dependency
 boundary, not a strategy framework. Runtime imports inside `write-engine` must
@@ -167,6 +177,46 @@ folds. A root bulk write whose payload carries a general relation program is not
 specialized: it routes to a record series. Nested scalar-only `createMany` and
 `updateMany` keep their grouped paths; relation-bearing forms place the same
 record-series execution at their exact position in the enclosing tree.
+
+### Bind-budget partitioning
+
+The driver owns `maxBindParametersPerStatement`; `QueryEngine` exposes its
+normalized positive-integer value to semantic builders. `QueryScope` stays an
+adapter/model concern and never reaches through to driver state.
+
+`bind-budget.ts` partitions a contiguous semantic item range by compiling SQL
+and measuring `Sql.values.length`. Never estimate binds as rows × columns:
+casts, private relation storage, SQL-valued cells, predicates, and adapter
+lowering can add values. Unknown capacity preserves the old statement shape. A
+single over-budget item remains indivisible for the executor's final pre-I/O
+capacity refusal.
+
+The currently splittable write owners are:
+
+- `buildCreateManyPlan`: contiguous same-shape scalar rows, including nested,
+  polymorphic, skip, and returning forms. Chunks preserve input ordinals and
+  their counts/results concatenate in order.
+- junction `connect`/`set`: the duplicate-skipping join INSERT over an already
+  captured exact target-key list. The clear step of `set`, every target guard,
+  and every insert chunk stay in the existing atomic operation.
+
+The other bulk forms remain one statement for semantic reasons:
+
+- scalar `updateMany`/`deleteMany` own one arbitrary predicate (and optional
+  limit/RETURNING contract). Repeating that predicate can rematch changed rows,
+  double-count, or choose a different limited set;
+- child-held grouped `connect`/`disconnect` own one all-target existence
+  decision across their probe and write. They have no statement-plan seam that
+  can partition both halves from compiled bind counts yet;
+- junction `deleteMany` owns whole-set added/removed guards. Partitioning the
+  captured set makes the other chunks look like membership differences;
+- per-selector junction disconnect/delete and record-series update paths are
+  already separate semantic statements or members, so there is no bulk leaf to
+  split.
+
+Chunking changes statement-level trigger cardinality only for payloads that did
+not fit previously: one firing per chunk. Row-level triggers still fire once per
+row, and an under-budget run stays one statement.
 
 ### Record series
 
@@ -187,21 +237,31 @@ thin.
   `RecordSeriesStep` runs in the transaction already owned by the enclosing
   operation; it never opens another one. The complete series retry, capture
   included, is outer-owned.
-- **D1 substrate.** D1 can execute a ROOT dynamic series as ordered committed
-  atomic segments. The successful meaning and order are unchanged, but a
-  later failure preserves the committed prefix and carries
-  `meta.recordSeriesProgress`. No retry replays that prefix. A nested
-  `RecordSeriesStep` uses the same progressive runner only when its compiler
-  supplies the exact complete-parent or membership guard that every later write
-  batch reasserts. An unguardable placement refuses before its containing
-  member writes, although prior root members may already be committed.
-  Relation-bearing `skipDuplicates` and dynamic series inside explicit
-  `$transaction([...])` refuse before the first user write.
+- **Batch-only substrate.** Any no-transaction driver with native atomic batch
+  can execute a dynamic series as committed segments after normalized awaited
+  success. The successful meaning and order are unchanged. A later failure
+  preserves acknowledged prior segments and carries `meta.recordSeriesProgress`;
+  no retry replays that prefix. `supportsOrderedCommittedSegments` strengthens
+  callback-before-decode attribution. Without it, a dispatched segment whose
+  result cannot be decoded is reported as possibly committed. A nested
+  `RecordSeriesStep` uses the same runner only when its compiler supplies the
+  exact complete-parent and, where needed, membership guard that every later
+  write batch reasserts. An unguardable placement refuses before its containing
+  member writes, although prior root members may already be committed. A dynamic
+  series inside explicit `$transaction([...])` remains indivisible and refuses
+  before the first user write.
 - **Skip ownership.** On an interactive driver, `skipDuplicates` on a
   relation-bearing create series treats one member as a savepoint-scoped
-  subtree. A root unique conflict skips the complete subtree; descendant and
-  non-unique failures remain fatal. D1 refuses this form because its batch
-  error cannot attribute root versus descendant conflict precisely.
+  subtree. On a batch-only driver, the executor isolates the skippable root as
+  one atomic segment and observes normalized row count before it dispatches any
+  descendant. A root conflict skips the complete subtree; descendant and
+  non-unique failures remain fatal. This is safe only when no write or nested
+  series precedes the root. `assertProgressiveRootConflictEligibility` refuses
+  that prior-effect case before segment dispatch because the effect would survive
+  a root skip. A junction `createMany` whose skipped-on row NO unique selector
+  can name uses the same member — target subtree plus its join row. Where one
+  complete unique DOES name it, adopt-and-link remains unchanged. Vacuous flags
+  still drop at routing.
 - **Routing is a predicate, not a mode flag.** One predicate per family decides
   series-or-not, and the scalar owners stay byte-identical on the other side of
   it. Those predicates are single owners whose violation is silent data loss —
@@ -217,18 +277,45 @@ count contracts, the N>1 membership refusal, and the postcondition on the
 returning arms.
 
 `FreshRecordSeriesPart` places relation-bearing nested `createMany` rows.
-Nested update-many construction captures exact correlated targets and builds
-one selected-record compiler per complete row key. Scalar-only nested bulk
-never enters either series path. Series returning reads use
+`NestedSelectedRecordSeries` owns every captured selected-record series: the
+correlated target set of a nested relation-bearing `updateMany`, and the
+exactly-one membership capture a composed producing to-one supplier hands it.
+Scalar-only nested bulk never enters either series path. Series returning reads use
 `series-result-read.ts`: it groups complete row keys into K bounded set reads,
 normally one, reorders results to source order, replays duplicate keys, strips
 injected key fields, and preserves exact missing-row failures.
+
+`RecordUpdateCompiler` is the one comparison owner for every final assignment
+to a selected record's physical columns. Scalar SET data, parent-held folds,
+shared-primary-key demands, and demanded global-adopt membership enter the same
+ledger contribution rule across construction and compile timing boundaries.
+Correlated incoming membership is only a locate/guard premise and does not emit
+a redundant SET. Equal proven sources collapse; conflicting or unprovable
+sources fail closed before silent last-writer overwrite.
 
 Every nested `RecordSeriesStep` carries a progressive proof: either one exact
 guard or one fail-closed reason. The guard is compiler-owned because only the
 relation placement knows which existing parent or membership fact crosses the
 commit boundary. The executor materializes boundary values and repeats that
 guard in each later write batch; it never invents relation identity.
+
+When the selected parent moves, the same placement phase chooses which complete
+key that progressive guard re-pins: captured before-root, final after-root. A
+row-key transition is therefore not itself a progressive refusal.
+
+That proof is TWO facts with one relation-membership source owner, and neither
+substitutes for the other.
+LIVENESS is the parent's complete `ModelKeyCatalog.rowKey`, resolved by
+`resolveFinalReferenceRowKey` — a reference value is not row identity, so a
+non-PK reference never stands in for it. MEMBERSHIP is the exact referenced
+value each later write will store. Every ordinary child-held progressive entrance
+asks `relation-membership.ts` for the complete correlated premise when the
+reference key differs from the row key. Existing-member series use the READ-side
+row key and referenced tuple; supplier continuations use the WRITE-side pair the
+supplier stored. Junction sides and polymorphic inverses reference the complete
+primary key by construction, so their membership premise is empty and their guard
+is the complete row key alone. A premise that cannot be stated exactly declines
+the placement rather than guarding half of it.
 
 D1 publishes one statement's official `meta.last_row_id` through the existing
 `QueryResult.insertId` channel. Progressive segments can materialize that one
@@ -255,10 +342,20 @@ universal `Identity`, tuple, or value-bag abstraction that erases them.
   target's row key.
 
 `TargetProjection` publishes selected target values. It does not own FK,
-polymorphic-column or junction-column mappings, and no configuration may carry a
-`TargetProjection` and a single scalar child key at the same time. Junction SQL
-keeps its own single-primary-key carve-out at its own owners, documented there,
-because a junction table keys on one column per side.
+polymorphic-column or junction-column mappings. A bound `JunctionSide` owns the
+complete ordered mapping from junction columns to one endpoint's row-key fields;
+junction SQL consumes that group without projecting it to a scalar.
+
+### Bind-parameter budgets
+
+The active driver owns `maxBindParametersPerStatement`. Semantic bulk builders
+receive that number from `QueryEngine` and partition only shapes whose count,
+order, conflict, and guard meaning survive partitioning. `buildCreateManyPlan`
+chunks compiled same-shape rows from actual `Sql.values.length`; junction
+`connect` and `set` chunk complete captured key tuples. The executor enforces the
+final compiled limit but never parses or rewrites arbitrary SQL. Predicate
+updates/deletes, complete-set guards, and one indivisible over-limit statement
+remain one unit and refuse before I/O when the provider limit is known.
 
 ### Fresh-record field publication
 
@@ -266,32 +363,83 @@ A fresh record can publish a demanded field once that field becomes knowable,
 and demand is what drives the work: nothing publishes a value no consumer asked
 for.
 
+- The model key catalog owns row-key member order. `CreateOperation` classifies
+  omitted database-assigned members once and publishes the complete row key on
+  demand. Exactly one such member keeps the historical `id` output; plural
+  members each use the existing field-keyed `produced:<field>` channel. Never
+  infer one generated member from another or privilege the first member.
 - Any referenced scalar field can be demanded, not only a generated primary key.
 - On a RETURNING provider the demanded fields join the INSERT's `RETURNING`
   select, keeping the destination casts.
+- A selected shared-key arm may publish an exact pre-cast value that its own
+  successful INSERT consumed. The statement both writes and publishes one source;
+  descendants and the terminal never reselect the branch. Returning remains the
+  stored-row authority when available.
+- A compound selected relation publishes its complete stored tuple once any
+  member overlaps the row key. Only the overlap is row identity; non-key tuple
+  members remain field publications for downstream memberships. Relations with
+  no row-key overlap keep the ordinary parent-held fast path.
 - On a non-returning transaction provider one focused SELECT by the created-row
-  selector answers it, inside the transaction. If no such selector exists, the
-  operation refuses BEFORE the INSERT rather than writing a row it cannot name.
-  An `insertId` identifies the row; it is not the value.
-- On a batch substrate publication is refused: batch statement rows are not
-  addressable, and widening the scratch carrier would widen the
-  `$transaction`-merge exclusion. That was measured, not assumed.
+  selector answers it, inside the transaction. One generated key uses the exact
+  statement-local `insertId`. A plural generated row key may instead use another
+  complete addressable unique only when every member is an explicit create-source
+  literal. Omitted/defaulted, null, `Sql`, incomplete, and raw-index-only candidates
+  do not qualify. If no selector exists, the operation refuses BEFORE the INSERT
+  rather than writing a row it cannot name. A locator identifies the row; it is not
+  the demanded value.
+- SQLite and MySQL batch adapters can publish one generated identity through
+  their exact statement-local insert-ID channels. PostgreSQL never uses
+  session-global, trigger-sensitive `lastval()`: a default operation either keeps
+  the producer's `RETURNING` in one exact fold or materializes it before a guarded
+  dependent segment. The latter can commit a prefix and reports that progress.
+- An explicit `$transaction([...])` remains one indivisible shared batch. A scalar
+  RETURNING result folds into one statement. On an adapter with data-modifying CTEs,
+  a bounded mutation DAG may also fold when its result projection reads no table a
+  sibling CTE mutates. Otherwise it refuses before provider effects when an internal
+  statement needs generated output and no exact one-batch lowering exists. A
+  non-returning adapter also refuses a plural database-assigned row key when no
+  complete explicit stable locator can name the inserted row. Every generated output
+  that crosses a segment must carry the compiler's exact continuation premise.
+
+For selected updates, connect and connectOrCreate use the exact referenced tuple
+captured by their probe. Target update and found upsert publish their compiler's
+post-update tuple; a database cascade owns the physical shared-key move. Current
+membership writes precede that transition and post-transition writes follow it.
 
 ### To-one composition
 
 A to-one payload under an update surface is `(vacate?, supplier, modify?)` — the
 create root owns neither `update` nor a vacate key, so it stays at one intent.
 The relation owner states that order; `RELATION_MUTATION_KEYS` ordering decides
-nothing. A composed modify
-is located by the SUPPLIER'S IDENTITY, never by membership correlation, because
-correlation at planning time addresses the OUTGOING member — the wrong row. It
-follows that only a supplier whose identity exists before the fragment's first
-write can carry a modify: a `connect`'s unique selector can, and a `create` or
-`connectOrCreate` cannot, because it produces the identity by inserting it. That
-refusal names the missing produced-identity channel rather than an arity, so it
-stays truthful the day the channel lands. A parent-held vacate plus supplier is
-a final-slot fold: compute the final FK value and write it once in the root
-statement; never emit a transient null assignment.
+nothing. `builders/to-one-composition.ts` is the ONE reading of that shape, and
+both the compiler and OwnWrite consume it rather than re-deriving it.
+
+A composed modify is never located by planning-time membership correlation,
+because that correlation addresses the OUTGOING member — the wrong row. HOW it
+is located depends on the supplier, and that is the composition's one branch:
+
+- a `connect` names a unique selector that already exists at construction, so
+  its modify is an ordinary selected-record update in the same fragment
+  (`suppliedSelector`); that path is unchanged;
+- a `create`, or `connectOrCreate`'s missing arm, PRODUCES the row, so nothing
+  names it until that write lands. Its modify is a record-series continuation
+  (`membershipCapture`): the supplier runs, the singular member is then selected
+  through the same exact physical-membership predicate every other arm on the
+  edge uses, and the ordinary `RecordUpdateCompiler` runs against the captured
+  complete row key. MEMBERSHIP AFTER SUPPLY IS THE SELECTOR, so the supplier is
+  never asked to predict or publish its own row key, and no produced-identity
+  channel is required.
+
+The continuation is an ordinary nested `RecordSeriesStep` of exactly one member,
+placed after its supplier's Parts. It therefore inherits the series substrate
+contract unchanged: one interactive transaction, or native atomic-batch segments
+whose complete-parent and membership guard is repeated in every later write
+batch, or a refusal before the containing member writes. Ordered commit callbacks
+strengthen attribution; they are not eligibility.
+
+A parent-held vacate plus supplier is a final-slot fold: compute the final FK
+value and write it once in the root statement; never emit a transient null
+assignment.
 
 ### Polymorphic relations
 
@@ -410,7 +558,9 @@ the existing guard; it does not add a statement or round trip.
 | Owner | Responsibility |
 | --- | --- |
 | `query-engine.ts` | client-scoped driver, registry, and engine composition |
-| `pending-operation.ts` | lazy public operation lifecycle and routing entry |
+| `pending-operation.ts` | lazy public model-operation routing entry |
+| `pending-execution.ts` | one-shot default/driver-bound execution lifecycle shared by model and raw operations |
+| `transaction-operation.ts` | the internal protocol consumed by `$transaction([...])` |
 | `write-engine/routing.ts` | route-wide operation gates, shared-envelope parsing, and shell construction |
 | `operations/*.ts` | operation-specific SQL, plan, identity, and ordering helpers; not shells |
 | `write-engine/CreateOperation.ts` | fresh record compilation and create result |
@@ -421,7 +571,7 @@ the existing guard; it does not add a statement or round trip.
 | `write-engine/CreateManyRecordSeries.ts` | root relation-bearing `createMany` shell |
 | `write-engine/UpdateManyRecordSeries.ts` | root relation-bearing `updateMany` shell |
 | `write-engine/FreshRecordSeriesPart.ts` | nested relation-bearing `createMany` placement |
-| `write-engine/NestedUpdateManyRecordSeries.ts` | correlated target capture and member compilation for nested relation-bearing `updateMany` |
+| `write-engine/NestedSelectedRecordSeries.ts` | member compilation for a relation owner's captured selected records — the correlated set of a nested relation-bearing `updateMany`, and the singular member a to-one supplier just produced |
 | `write-engine/series-result-read.ts` | bounded final set reads and source-order reconstruction |
 | `write-engine/target-projection.ts` | complete captured row keys and selected-target projections |
 | relation Parts | child-held/junction selection, membership, guards, pins, and edge effects |

@@ -199,4 +199,67 @@ describe("Skip Duplicates SQL Generation", () => {
     expect(statement).toContain("ON DUPLICATE KEY UPDATE `id` = `id`");
     expect(statement).not.toContain("INSERT IGNORE");
   });
+
+  test.each([
+    {
+      name: "PostgreSQL",
+      adapter: new PostgresAdapter(),
+      table: sql`"memberships"`,
+      placeholder: "$n",
+      suffix: "ON CONFLICT DO NOTHING",
+    },
+    {
+      name: "SQLite",
+      adapter: new SQLiteAdapter(),
+      table: sql`"memberships"`,
+      placeholder: "?",
+      suffix: "ON CONFLICT DO NOTHING",
+    },
+    {
+      name: "MySQL",
+      adapter: new MySQLAdapter(),
+      table: sql`\`memberships\``,
+      placeholder: "?",
+      suffix: "ON DUPLICATE KEY UPDATE `owner_1` = `owner_1`",
+    },
+  ] satisfies readonly {
+    name: string;
+    adapter: DatabaseAdapter;
+    table: ReturnType<typeof sql>;
+    placeholder: "$n" | "?";
+    suffix: string;
+  }[])("$name inserts from SELECT before its duplicate suffix", ({
+    adapter,
+    table,
+    placeholder,
+    suffix,
+  }) => {
+    const duplicate = adapter.mutations.skipDuplicates("owner_1");
+    const targetTable = adapter.identifiers.escape("targets");
+    const region = adapter.identifiers.column("targets", "region");
+    const code = adapter.identifiers.column("targets", "code");
+    const select = adapter.assemble.select({
+      columns: sql`${"tenant"}, ${"owner"}, ${region}, ${code}`,
+      from: targetTable,
+      where: adapter.operators.and(
+        adapter.operators.eq(region, sql`${"eu"}`),
+        adapter.operators.eq(code, sql`${"book"}`)
+      ),
+    });
+    const insert = adapter.mutations.insert(
+      table,
+      ["owner_1", "owner_2", "target_1", "target_2"],
+      { select },
+      duplicate.prefix
+    );
+    const statement = sql`${insert} ${duplicate.suffix}`.toStatement(
+      placeholder
+    );
+
+    expect(statement).toMatch(INSERT_INTO_SQL);
+    expect(statement).toContain("SELECT");
+    expect(statement.indexOf("SELECT")).toBeLessThan(statement.indexOf(suffix));
+    expect(statement).toContain(suffix);
+    expect(statement).not.toContain("VALUES");
+  });
 });

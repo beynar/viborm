@@ -41,32 +41,37 @@ what comes back.
 
 ## What the create branch needs in `create`
 
-To hand back the row it just inserted, `upsert` has to be able to name that row.
-It works this out from your `create` data alone — never from the `where` — and
-any one of these is enough:
+To hand back the row it just inserted, `upsert` has to identify that exact row.
+It never assumes that the `where` names the created row. Any one of these is
+enough:
 
 - every **primary key** field, as a literal;
 - every column of some **unique constraint** of the model (a `.unique()` column,
-  or a whole compound unique);
-- nothing at all, when the model's single primary key is a database-generated
-  `increment` — the insert captures the value the database assigns.
+  or a whole compound unique), explicitly written in `create`;
+- a database-generated primary-key member that the active adapter can publish
+  exactly from the INSERT. This includes a compound key whose generated members
+  are returned by the provider.
 
-Almost every model satisfies at least one of these without you doing anything.
-The exception is a model whose primary key is a *generated compound* key and
-which has no other unique constraint: nothing in `create` can name the inserted
-row, so `upsert` refuses with an `UnsupportedOperationError` instead of guessing.
-The refusal only fires when the create branch is actually taken — the same call
-updates normally when the row exists — and such a model cannot be written through
-`create` either (use `createMany`, or add a unique constraint).
+On a non-returning adapter, one generated `increment` key can use the driver's
+exact statement-local insert ID. A generated compound key has no singular insert
+ID, but it can still work when `create` explicitly writes another complete public
+unique key: VibORM uses that stable key for one focused read and publishes every
+generated primary-key member from the inserted row. Omitted/defaulted, `null`,
+SQL-expression, incomplete compound, and raw-index-only values are not stable
+locators.
+
+If neither provider output nor a stable explicit locator can identify the row,
+the create branch refuses with `UnsupportedOperationError` before it writes. The
+refusal is branch-local: the same call still updates normally when the row exists.
 
 :::info
-On drivers with no interactive transactions (Cloudflare D1, Neon HTTP), the third
-case above — a generated `increment` primary key with no other unique in `create`
-— cannot be merged into a `$transaction([...])` array, because the captured id is
-per-operation state a shared batch cannot isolate. It throws a `TransactionError`
-rather than emit a colliding batch; `await` the `upsert` on its own instead. The
-first two cases capture nothing and batch normally, so including a unique key in
-`create` is enough to avoid this entirely.
+`$transaction([...])` stays indivisible. A scalar generated-output upsert folds
+into one statement on a RETURNING adapter. PostgreSQL-family relation-bearing
+create graphs can also fold when their result projection does not read a table
+written by a sibling mutation. If an operation still needs generated output
+across internal statements and the adapter has no exact one-batch lowering,
+VibORM refuses the array before provider effects. Awaiting the operation on its
+own can use the default transaction or guarded-segment route instead.
 :::
 
 ## Options

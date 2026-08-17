@@ -1199,12 +1199,12 @@ describe("parity C — compound child row keys, per owner", () => {
               ]
             : []),
           {
-            // The found arm both REWRITES the adopted FK and addresses the target by
-            // the captured pair.
+            // Correlated found membership is locate/guard-only. The update addresses
+            // the captured pair without redundantly rewriting the agreeing owner FK.
             id: "pair.update",
             kind: "write",
-            sql: 'UPDATE "parity_c_pairs" SET "note" = $1, "ownerId" = CAST($2 AS TEXT) WHERE ("parity_c_pairs"."tenantId" = $3 AND "parity_c_pairs"."slot" = $4) RETURNING "tenantId" AS "tenantId", "slot" AS "slot"',
-            params: ["n2", "o1", "tCap", "sCap"],
+            sql: 'UPDATE "parity_c_pairs" SET "note" = $1 WHERE ("parity_c_pairs"."tenantId" = $2 AND "parity_c_pairs"."slot" = $3) RETURNING "tenantId" AS "tenantId", "slot" AS "slot"',
+            params: ["n2", "tCap", "sCap"],
             outputs: {},
             expects: substrate.batch
               ? null

@@ -4,7 +4,9 @@ import { MemoryCache } from "@src/cache/drivers/memory";
 import { createClient, D1Driver } from "@src/drivers/d1";
 import {
   CacheConfigurationError,
+  TransactionError,
   UniqueConstraintError,
+  UnsupportedOperationError,
   VibORMError,
 } from "@src/errors";
 import { s } from "@src/schema";
@@ -96,6 +98,59 @@ const generatedProgressiveSchema = {
 };
 
 type D1Statement = ReturnType<D1Database["prepare"]>;
+
+interface BindObservation {
+  readonly query: string;
+  readonly values: readonly unknown[];
+}
+
+function observeStatementBinds(
+  database: D1Database,
+  observations: BindObservation[]
+): D1Database {
+  function wrapStatement(statement: D1Statement, query: string): D1Statement {
+    return new Proxy(statement, {
+      get(target, property) {
+        if (property === "bind") {
+          return (...values: unknown[]) => {
+            observations.push({ query, values });
+            return wrapStatement(target.bind(...values), query);
+          };
+        }
+        const value = Reflect.get(target, property, target);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+  }
+
+  return new Proxy(database, {
+    get(target, property) {
+      if (property === "prepare") {
+        return (query: string) => wrapStatement(target.prepare(query), query);
+      }
+      const value = Reflect.get(target, property, target);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+}
+
+function observeBatchSizes(
+  database: D1Database,
+  batchSizes: number[]
+): D1Database {
+  return new Proxy(database, {
+    get(target, property) {
+      if (property === "batch") {
+        return (statements: D1Statement[]) => {
+          batchSizes.push(statements.length);
+          return target.batch(statements);
+        };
+      }
+      const value = Reflect.get(target, property, target);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+}
 
 function movePostAfterNestedMemberLocate(database: D1Database): D1Database {
   let postReadCount = 0;
@@ -261,6 +316,169 @@ describe("D1 binding provider", () => {
     expect(laterSingle.rows).toEqual([{ value: "second" }]);
   });
 
+  it("mixes raw and model operations in one ordered client batch", async () => {
+    const batchSizes: number[] = [];
+    const client = createClient({
+      schema: progressiveSchema,
+      database: observeBatchSizes(env.DB, batchSizes),
+    });
+    await client.post.deleteMany({});
+    await client.author.deleteMany({});
+    await client.category.deleteMany({});
+    await client.author.create({
+      data: { id: "raw-order-author", name: "before" },
+    });
+    batchSizes.length = 0;
+
+    const [affected, modelRow, rawRows] = await client.$transaction([
+      client.$executeRaw`
+        UPDATE viborm_d1_progressive_authors
+        SET name = ${"after"}
+        WHERE id = ${"raw-order-author"}
+      `,
+      client.author.findUniqueOrThrow({
+        where: { id: "raw-order-author" },
+      }),
+      client.$queryRaw<{ id: string; name: string }>`
+        SELECT id, name
+        FROM viborm_d1_progressive_authors
+        WHERE name = ${"after"}
+      `,
+    ]);
+
+    expect(affected).toBe(1);
+    expect(modelRow).toEqual({ id: "raw-order-author", name: "after" });
+    expect(rawRows).toEqual([{ id: "raw-order-author", name: "after" }]);
+    expect(batchSizes).toEqual([3]);
+  });
+
+  it("rolls model and raw writes back when a later raw D1 member fails", async () => {
+    const client = createClient({
+      schema: progressiveSchema,
+      database: env.DB,
+    });
+    await client.post.deleteMany({});
+    await client.author.deleteMany({});
+    await client.category.deleteMany({});
+    await client.author.createMany({
+      data: [
+        { id: "raw-rollback-model", name: "model" },
+        { id: "raw-rollback-raw", name: "raw" },
+      ],
+    });
+
+    await expect(
+      client.$transaction([
+        client.author.update({
+          where: { id: "raw-rollback-model" },
+          data: { name: "model-written" },
+        }),
+        client.$executeRaw`
+          UPDATE viborm_d1_progressive_authors
+          SET name = ${"raw-written"}
+          WHERE id = ${"raw-rollback-raw"}
+        `,
+        client.$queryRawUnsafe(
+          "SELECT * FROM viborm_d1_table_that_does_not_exist"
+        ),
+      ])
+    ).rejects.toThrow();
+
+    await expect(
+      client.author.findMany({
+        orderBy: { id: "asc" },
+        select: { id: true, name: true },
+      })
+    ).resolves.toEqual([
+      { id: "raw-rollback-model", name: "model" },
+      { id: "raw-rollback-raw", name: "raw" },
+    ]);
+  });
+
+  it("returns generated scalar upsert output from one explicit D1 array", async () => {
+    const batchSizes: number[] = [];
+    const client = createClient({
+      schema: generatedProgressiveSchema,
+      database: observeBatchSizes(env.DB, batchSizes),
+    });
+    await client.post.deleteMany({});
+    await client.author.deleteMany({});
+    await client.category.deleteMany({});
+    batchSizes.length = 0;
+
+    const [upserted, created] = await client.$transaction([
+      client.author.upsert({
+        where: { id: 2_000_000_001 },
+        create: { name: "generated-upsert" },
+        update: { name: "must-not-run" },
+        select: { id: true, name: true },
+      }),
+      client.author.create({
+        data: { name: "generated-create" },
+        select: { id: true, name: true },
+      }),
+    ]);
+
+    expect(upserted).toEqual({
+      id: expect.any(Number),
+      name: "generated-upsert",
+    });
+    expect(created).toEqual({
+      id: expect.any(Number),
+      name: "generated-create",
+    });
+    expect(upserted.id).not.toBe(2_000_000_001);
+    expect(upserted.id).not.toBe(created.id);
+    // The locate probe runs before the indivisible unit. The final native batch
+    // contains only the generated-output INSERT and its array sibling.
+    expect(batchSizes).toEqual([2]);
+    await expect(
+      client.author.findMany({
+        orderBy: { id: "asc" },
+        select: { id: true, name: true },
+      })
+    ).resolves.toEqual([upserted, created]);
+  });
+
+  it("keeps a relation DAG with generated output outside non-CTE D1 arrays", async () => {
+    const client = createClient({
+      schema: generatedProgressiveSchema,
+      database: env.DB,
+    });
+    await client.post.deleteMany({});
+    await client.author.deleteMany({});
+    await client.category.deleteMany({});
+
+    const refusal = await client
+      .$transaction([
+        client.author.create({
+          data: {
+            name: "unfoldable-author",
+            posts: {
+              create: { id: "unfoldable-post", title: "must not run" },
+            },
+          },
+          select: { id: true },
+        }),
+        client.category.create({
+          data: { id: "unfoldable-sibling", name: "must not run" },
+        }),
+      ])
+      .then(
+        () => undefined,
+        (error: unknown) => error
+      );
+    expect(refusal).toBeInstanceOf(TransactionError);
+    if (!(refusal instanceof TransactionError)) throw refusal;
+    expect(refusal.code).toBe("V5001");
+    expect(refusal.message).toBe(
+      "query-engine-v2 cannot merge an insertId-scratch operation into a shared driver batch."
+    );
+    await expect(client.author.findMany()).resolves.toEqual([]);
+    await expect(client.post.findMany()).resolves.toEqual([]);
+    await expect(client.category.findMany()).resolves.toEqual([]);
+  });
+
   it("executes relation-bearing createMany as ordered committed members", async () => {
     const client = createClient({
       schema: progressiveSchema,
@@ -298,6 +516,88 @@ describe("D1 binding provider", () => {
       { id: "p1", title: "one", authorId: "a1", categoryId: null },
       { id: "p2", title: "two", authorId: "a1", categoryId: null },
     ]);
+  });
+
+  it("chunks a relation-bearing nested createMany to D1's verified bind budget", async () => {
+    const setup = createClient({
+      schema: progressiveSchema,
+      database: env.DB,
+    });
+    await setup.post.deleteMany({});
+    await setup.author.deleteMany({});
+    await setup.category.deleteMany({});
+
+    const observations: BindObservation[] = [];
+    const client = createClient({
+      schema: progressiveSchema,
+      database: observeStatementBinds(env.DB, observations),
+    });
+    const children = Array.from({ length: 40 }, (_, index) => {
+      const ordinal = String(index).padStart(2, "0");
+      return {
+        id: `bind-post-${ordinal}`,
+        title: `row-${ordinal}`,
+      };
+    });
+
+    await expect(
+      client.author.create({
+        data: {
+          id: "bind-parent",
+          name: "bind-parent",
+          posts: { createMany: { data: children } },
+        },
+      })
+    ).resolves.toMatchObject({ id: "bind-parent" });
+
+    const childInserts = observations.filter(
+      ({ query }) =>
+        query.trimStart().startsWith("INSERT") &&
+        query.includes("viborm_d1_progressive_posts")
+    );
+    expect(childInserts.length).toBeGreaterThan(1);
+    expect(childInserts.every(({ values }) => values.length <= 100)).toBe(true);
+    expect(childInserts.flatMap(({ values }) => values)).toHaveLength(120);
+    await expect(
+      setup.post.findMany({
+        where: { authorId: "bind-parent" },
+        orderBy: { title: "asc" },
+        select: { title: true, authorId: true },
+      })
+    ).resolves.toEqual(
+      children.map(({ title }) => ({ title, authorId: "bind-parent" }))
+    );
+  });
+
+  it("rolls every createMany chunk back when a later D1 chunk fails", async () => {
+    const client = createClient({
+      schema: progressiveSchema,
+      database: env.DB,
+    });
+    await client.post.deleteMany({});
+    await client.author.deleteMany({});
+    await client.category.deleteMany({});
+    const children = Array.from({ length: 40 }, (_, index) => ({
+      id: index === 39 ? "rollback-post-0" : `rollback-post-${index}`,
+      title: `row-${index}`,
+    }));
+
+    await expect(
+      client.author.create({
+        data: {
+          id: "rollback-parent",
+          name: "rollback-parent",
+          posts: { createMany: { data: children } },
+        },
+      })
+    ).rejects.toBeInstanceOf(UniqueConstraintError);
+
+    await expect(
+      client.author.findUnique({ where: { id: "rollback-parent" } })
+    ).resolves.toBeNull();
+    await expect(
+      client.post.findMany({ where: { authorId: "rollback-parent" } })
+    ).resolves.toEqual([]);
   });
 
   it("executes relation-bearing updateMany as ordered committed members", async () => {
@@ -546,8 +846,8 @@ describe("D1 binding provider", () => {
     await client.author.deleteMany({});
     await client.category.deleteMany({});
 
-    await expect(
-      client.post.createMany({
+    const refusal = await client.post
+      .createMany({
         data: [
           {
             id: "p1",
@@ -557,7 +857,14 @@ describe("D1 binding provider", () => {
         ],
         skipDuplicates: true,
       })
-    ).rejects.toThrow("root-versus-descendant conflict attribution");
+      .catch((error) => error);
+
+    expect(refusal).toBeInstanceOf(UnsupportedOperationError);
+    if (!(refusal instanceof UnsupportedOperationError)) throw refusal;
+    expect(refusal.code).toBe("V8003");
+    expect(refusal.message).toBe(
+      "Driver 'd1' cannot execute this record series as committed segments because skipping root 'post.create' would leave prior effect 'author.create' committed."
+    );
     await expect(client.post.findMany()).resolves.toEqual([]);
     await expect(client.author.findMany()).resolves.toEqual([]);
   });

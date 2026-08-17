@@ -1,25 +1,21 @@
+import { createClient } from "@client/client";
+import { PGliteDriver } from "@drivers/pglite";
+import type { PGlite } from "@electric-sql/pglite";
+import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
+import { isOperationValueReference } from "@src/query-engine/write-engine/OperationFragment";
+import { UpdateOperation } from "@src/query-engine/write-engine/UpdateOperation";
+import { observeClientOperations } from "@tests/contracts/engine/write/operation-observer";
+import {
+  runUpdateFamilyBehavior,
+  updateFamilySchema,
+} from "@tests/contracts/engine/write/update-family-behavior";
 import {
   BatchOnlyPGliteDriver,
   type PGliteSchemaFamily,
   usePGliteSchemaFamily,
 } from "@tests/fixtures/drivers/pglite";
-import { createClient } from "@client/client";
-import type { BatchQuery, QueryResult } from "@drivers";
-import { PGliteDriver } from "@drivers/pglite";
-import { PGlite, type Transaction } from "@electric-sql/pglite";
-import {
-  createModelRegistry,
-  QueryEngine,
-} from "@query-engine/query-engine";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
-import { isOperationValueReference } from "@src/query-engine/write-engine/OperationFragment";
-import { UpdateOperation } from "@src/query-engine/write-engine/UpdateOperation";
-import {
-  runUpdateFamilyBehavior,
-  updateFamilySchema,
-} from "@tests/contracts/engine/write/update-family-behavior";
-import { observeClientOperations } from "@tests/contracts/engine/write/operation-observer";
 
 // The whole update family on PGlite, both substrates (the driver-matrix legs
 // live in tests/drivers/{sqlite3,mysql2,pg,libsql}.test.ts).

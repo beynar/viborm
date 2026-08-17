@@ -4,14 +4,14 @@ import { createOperationExecutionContext } from "@query-engine/execution-context
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames, s } from "@schema";
 import type { Model } from "@schema/model";
-import { createSchemaRegistry } from "@validation";
-import { describe, expect, test } from "vitest";
 import { OperationExecutor } from "@src/query-engine/write-engine/OperationExecutor";
 import { UpdateOperation } from "@src/query-engine/write-engine/UpdateOperation";
 import {
   type BehaviorDatabaseSource,
   useBehaviorDatabase,
 } from "@tests/fixtures/drivers/pglite";
+import { createSchemaRegistry } from "@validation";
+import { describe, expect, test } from "vitest";
 
 /**
  * The canonical parity slice schema (PLAN P1.1(b)): a parent located by a
@@ -122,7 +122,9 @@ export function runUpdateNestedUpsertBehavior(
       async () => {
         const { driver, client, dispose } = await setup();
         try {
-          await client.user.create({ data: { email: "a@x", count: 10 } });
+          await client.user.create({
+            data: { id: 1, email: "a@x", count: 10 },
+          });
           const result = await createUpdateSliceExecutor(driver).executeUpdate(
             updateSliceSchema.user,
             correlatedUpsertArgs({
@@ -152,6 +154,7 @@ export function runUpdateNestedUpsertBehavior(
         try {
           await client.user.create({
             data: {
+              id: 1,
               email: "b@x",
               count: 0,
               posts: { create: { id: 5, title: "old", slug: "s5" } },
@@ -184,8 +187,12 @@ export function runUpdateNestedUpsertBehavior(
       async () => {
         const { driver, client, dispose } = await setup();
         try {
-          await client.user.create({ data: { email: "owner@x", count: 0 } });
-          await client.user.create({ data: { email: "thief@x", count: 0 } });
+          await client.user.create({
+            data: { id: 1, email: "owner@x", count: 0 },
+          });
+          await client.user.create({
+            data: { id: 2, email: "thief@x", count: 0 },
+          });
           await client.post.create({
             data: { id: 7, title: "owned", slug: "s7", userId: 1 },
           });
@@ -245,7 +252,9 @@ export function runUpdateNestedUpsertBehavior(
       async () => {
         const { driver, client, dispose } = await setup();
         try {
-          await client.user.create({ data: { email: "u@x", count: 0 } });
+          await client.user.create({
+            data: { id: 1, email: "u@x", count: 0 },
+          });
           await client.post.create({
             data: { id: 3, title: "other", slug: "s3", userId: null },
           });

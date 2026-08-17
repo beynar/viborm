@@ -20,35 +20,10 @@ import {
 } from "@query-engine/result-aliases";
 import { s } from "@schema";
 import { sql } from "@sql";
-import { runBooleanNoOpArmBehavior } from "@tests/contracts/engine/write/boolean-noop-arm-behavior";
-import { runBulkWriteBehavior } from "@tests/contracts/engine/write/bulk-write-behavior";
-import { runCreateManyBehavior } from "@tests/contracts/engine/write/create-many-behavior";
-import { runCreateNestedUpsertBehavior } from "@tests/contracts/engine/write/create-nested-upsert-behavior";
-import { runDepthSeamBehavior } from "@tests/contracts/engine/write/depth-seam-behavior";
-import { runExtendedWhereUniqueBehavior } from "@tests/contracts/engine/write/extended-where-unique-behavior";
-import { runInverseToOneCreateBehavior } from "@tests/contracts/engine/write/inverse-to-one-create-behavior";
-import { runJunctionCreateManyBehavior } from "@tests/contracts/engine/write/junction-create-many-behavior";
-import { runLocatedParentRefBehavior } from "@tests/contracts/engine/write/located-parent-ref-behavior";
-import { runNestedMutationBehavior } from "@tests/contracts/engine/write/nested-mutation-behavior";
-import { runOptionalAbsentBindBehavior } from "@tests/contracts/engine/write/optional-absent-bind-behavior";
-import { runOwnWriteLinearizationBehavior } from "@tests/contracts/engine/write/own-write-linearization-behavior";
-import {
-  runBeforeRootSubtreeBehavior,
-  runNonPkReferenceBehavior,
-  runParentHeldLookupBehavior,
-  runUpsertArmRelationBehavior,
-} from "@tests/contracts/engine/write/parent-held-lookup-behavior";
-import { runPostTransitionAdoptBehavior } from "@tests/contracts/engine/write/post-transition-adopt-behavior";
-import { runProducedIdentityBehavior } from "@tests/contracts/engine/write/produced-identity-depth-behavior";
-import { runReadBehavior } from "@tests/contracts/engine/write/read-behavior";
-import { runToOneUpdateWhereBehavior } from "@tests/contracts/engine/write/to-one-update-where-behavior";
-import { runUpdateFamilyBehavior } from "@tests/contracts/engine/write/update-family-behavior";
-import { runUpdateNestedUpsertBehavior } from "@tests/contracts/engine/write/update-nested-upsert-behavior";
-import { runUpsertFamilyBehavior } from "@tests/contracts/engine/write/upsert-family-behavior";
-import { MySQL2BatchForcedDriver } from "@tests/fixtures/drivers/batch-forced-mysql2";
 import { blobFilterContract } from "@tests/contracts/drivers/behaviors/blob-filter-behavior";
 import { bulkWriteLimitContract } from "@tests/contracts/drivers/behaviors/bulk-write-limit-behavior";
 import { clientRawContract } from "@tests/contracts/drivers/behaviors/client-raw-behavior";
+import { compoundJunctionContract } from "@tests/contracts/drivers/behaviors/compound-junction-behavior";
 import { compoundKeyContract } from "@tests/contracts/drivers/behaviors/compound-key-behavior";
 import { countAggregateWindowContract } from "@tests/contracts/drivers/behaviors/count-aggregate-window-behavior";
 import { createManyReturnFoldContract } from "@tests/contracts/drivers/behaviors/create-many-return-fold-behavior";
@@ -77,6 +52,7 @@ import { optionalRelationParityContract } from "@tests/contracts/drivers/behavio
 import { orderingArrayCreateContract } from "@tests/contracts/drivers/behaviors/ordering-array-create-behavior";
 import { polymorphicRelationContract } from "@tests/contracts/drivers/behaviors/polymorphic-relation-behavior";
 import { prismaParityContract } from "@tests/contracts/drivers/behaviors/prisma-parity-behavior";
+import { rawArrayTransactionContract } from "@tests/contracts/drivers/behaviors/raw-array-transaction-behavior";
 import { readPathRegressionContract } from "@tests/contracts/drivers/behaviors/read-path-regression-behavior";
 import { relationFilterMutationContract } from "@tests/contracts/drivers/behaviors/relation-filter-mutation-behavior";
 import { relationReadAggregateContract } from "@tests/contracts/drivers/behaviors/relation-read-aggregate-behavior";
@@ -85,6 +61,32 @@ import {
   scalarRoundtripContract,
 } from "@tests/contracts/drivers/behaviors/scalar-roundtrip-behavior";
 import { upsertAtomicityContract } from "@tests/contracts/drivers/behaviors/upsert-atomicity-behavior";
+import { runBooleanNoOpArmBehavior } from "@tests/contracts/engine/write/boolean-noop-arm-behavior";
+import { runBulkWriteBehavior } from "@tests/contracts/engine/write/bulk-write-behavior";
+import { runCreateManyBehavior } from "@tests/contracts/engine/write/create-many-behavior";
+import { runCreateNestedUpsertBehavior } from "@tests/contracts/engine/write/create-nested-upsert-behavior";
+import { runDepthSeamBehavior } from "@tests/contracts/engine/write/depth-seam-behavior";
+import { runExtendedWhereUniqueBehavior } from "@tests/contracts/engine/write/extended-where-unique-behavior";
+import { runInverseToOneCreateBehavior } from "@tests/contracts/engine/write/inverse-to-one-create-behavior";
+import { runJunctionCreateManyBehavior } from "@tests/contracts/engine/write/junction-create-many-behavior";
+import { runLocatedParentRefBehavior } from "@tests/contracts/engine/write/located-parent-ref-behavior";
+import { runNestedMutationBehavior } from "@tests/contracts/engine/write/nested-mutation-behavior";
+import { runOptionalAbsentBindBehavior } from "@tests/contracts/engine/write/optional-absent-bind-behavior";
+import { runOwnWriteLinearizationBehavior } from "@tests/contracts/engine/write/own-write-linearization-behavior";
+import {
+  runBeforeRootSubtreeBehavior,
+  runNonPkReferenceBehavior,
+  runParentHeldLookupBehavior,
+  runUpsertArmRelationBehavior,
+} from "@tests/contracts/engine/write/parent-held-lookup-behavior";
+import { runPostTransitionAdoptBehavior } from "@tests/contracts/engine/write/post-transition-adopt-behavior";
+import { runProducedIdentityBehavior } from "@tests/contracts/engine/write/produced-identity-depth-behavior";
+import { runReadBehavior } from "@tests/contracts/engine/write/read-behavior";
+import { runToOneUpdateWhereBehavior } from "@tests/contracts/engine/write/to-one-update-where-behavior";
+import { runUpdateFamilyBehavior } from "@tests/contracts/engine/write/update-family-behavior";
+import { runUpdateNestedUpsertBehavior } from "@tests/contracts/engine/write/update-nested-upsert-behavior";
+import { runUpsertFamilyBehavior } from "@tests/contracts/engine/write/upsert-family-behavior";
+import { MySQL2BatchForcedDriver } from "@tests/fixtures/drivers/batch-forced-mysql2";
 
 const TEST_CONNECTION_STRING = process.env.MYSQL_TEST_CONNECTION_STRING;
 const describeIf = TEST_CONNECTION_STRING ? describe : describe.skip;
@@ -280,6 +282,10 @@ describeIf("MySQL2 Driver", () => {
     driverName: "MySQL2",
     createDriver: createMySQL2Driver,
   });
+  compoundJunctionContract.register({
+    driverName: "MySQL2",
+    createDriver: createMySQL2Driver,
+  });
 
   readPathRegressionContract.register({
     driverName: "MySQL2",
@@ -306,6 +312,10 @@ describeIf("MySQL2 Driver", () => {
 
   clientRawContract.register({
     driverName: "MySQL2",
+    createDriver: createMySQL2Driver,
+  });
+  rawArrayTransactionContract.register({
+    name: "Docker MySQL",
     createDriver: createMySQL2Driver,
   });
 

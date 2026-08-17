@@ -478,7 +478,7 @@ describe("polymorphic operation schema factories", () => {
     ).toBe(false);
   });
 
-  test("inverse mutation data cannot restate its owning direct edge", () => {
+  test("only a selected upsert found arm may re-enter its owning direct edge", () => {
     const directOwner = {
       connect: { type: "article", where: { id: "article-2" } },
     };
@@ -525,11 +525,22 @@ describe("polymorphic operation schema factories", () => {
               body: "first",
               commentable: directOwner,
             },
-            update: { body: "changed", commentable: directOwner },
+            update: { body: "changed" },
           },
         },
       })
     ).toBe(false);
+    expect(
+      accepts(registry.proxy.article.core.update, {
+        comments: {
+          upsert: {
+            where: { id: "remark-1" },
+            create: { id: "remark-1", body: "first" },
+            update: { body: "changed", commentable: directOwner },
+          },
+        },
+      })
+    ).toBe(true);
   });
 
   test("inverse create preserves unrelated required relation groups", () => {

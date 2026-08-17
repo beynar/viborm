@@ -14,19 +14,24 @@
  *  - `join` / `empty` / `raw` compose the way Prisma's do.
  *  - the deprecated `(string, params?)` form still runs and announces itself
  *    once per method on the `warning` channel.
- *  - a raw query handed to `$transaction([...])` is refused, typed.
+ *  - raw calls are lazy, promise-compatible transaction operations.
+ *  - raw and model operations share one atomic array transaction in order.
  */
 
 import { createClient } from "@client/client";
+import type { RawOperation } from "@client/raw";
 import type { AnyDriver } from "@drivers";
-import { UnsupportedOperationError, VibORMErrorCode } from "@errors";
+import { PendingOperationError, VibORMErrorCode } from "@errors";
 import { push } from "@migrations";
 import { s } from "@schema";
 import { empty, join, raw, sql } from "@sql";
-import { afterEach, describe, expect, expectTypeOf, test } from "vitest";
-import { createInMemoryPGliteDriver } from "@tests/fixtures/drivers/pglite";
+import {
+  BatchOnlyPGliteDriver,
+  createInMemoryPGliteDriver,
+} from "@tests/fixtures/drivers/pglite";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
 import { captureLogs } from "@tests/unit/instrumentation/_capture";
+import { afterEach, describe, expect, expectTypeOf, test, vi } from "vitest";
 
 // Lowercase single-word identifiers need no dialect-specific quoting.
 const item = s
@@ -263,6 +268,22 @@ for (const { name, createDriver } of DIALECTS) {
         });
         expect(committed.label).toBe("Renamed");
       });
+
+      test("raw and model operations mix in a nested array transaction", async () => {
+        const { client } = await setup();
+
+        await client.$transaction(async (tx) => {
+          const [affected, found] = await tx.$transaction([
+            tx.$executeRaw`
+              UPDATE raw_sql_items SET label = ${"Nested"} WHERE id = ${"i1"}
+            `,
+            tx.item.findUniqueOrThrow({ where: { id: "i1" } }),
+          ]);
+
+          expect(affected).toBe(1);
+          expect(found.label).toBe("Nested");
+        });
+      });
     });
 
     describe("composition helpers", () => {
@@ -365,19 +386,72 @@ for (const { name, createDriver } of DIALECTS) {
       });
     });
 
-    describe("$transaction([...]) refuses raw", () => {
-      test("a raw promise in the array is refused, typed", async () => {
+    describe("lazy transaction operations", () => {
+      test("construction performs no query or legacy warning", async () => {
+        const { client, probe } = await setup();
+
+        const tagged = client.$queryRaw`SELECT 1`;
+        const legacy = client.$queryRaw("SELECT 1");
+        await Promise.resolve();
+
+        expect(probe.events).toEqual([]);
+
+        await tagged;
+        await legacy;
+        expect(warnings(probe)).toHaveLength(1);
+      });
+
+      test("an abandoned legacy operation never warns", async () => {
+        const { client, probe } = await setup();
+
+        client.$executeRaw("UPDATE raw_sql_items SET qty = 0");
+        await Promise.resolve();
+
+        expect(warnings(probe)).toEqual([]);
+      });
+
+      test("keeps the complete Promise surface and one execution", async () => {
         const { client } = await setup();
+        const operation = client.$queryRaw<{ id: string }>`
+          SELECT id FROM raw_sql_items ORDER BY id
+        `;
 
-        const rawOperation = client.$queryRaw`SELECT 1`;
-        await expect(
-          client.$transaction([rawOperation] as unknown as Parameters<
-            typeof client.$transaction
-          >[0])
-        ).rejects.toBeInstanceOf(UnsupportedOperationError);
+        const [direct, resolved, all] = await Promise.all([
+          operation,
+          Promise.resolve(operation),
+          Promise.all([operation]),
+        ]);
 
-        // The refusal names the interactive form as the way through.
-        await rawOperation;
+        expect(direct).toEqual(resolved);
+        expect(all).toEqual([direct]);
+        expect(Object.prototype.toString.call(operation)).toBe(
+          "[object Promise]"
+        );
+      });
+
+      test("refuses transaction execution after direct execution", async () => {
+        const { client } = await setup();
+        const operation = client.$queryRaw`SELECT 1`;
+        await operation;
+
+        await expect(client.$transaction([operation])).rejects.toBeInstanceOf(
+          PendingOperationError
+        );
+      });
+
+      test("refuses a raw operation from another transaction scope", async () => {
+        const { client } = await setup();
+        let scoped: RawOperation<unknown[]> | undefined;
+
+        await client.$transaction(async (tx) => {
+          scoped = tx.$queryRaw`SELECT 1`;
+        });
+        if (!scoped)
+          throw new Error("transaction did not create raw operation");
+
+        await expect(client.$transaction([scoped])).rejects.toBeInstanceOf(
+          PendingOperationError
+        );
       });
 
       test("model operations in the array still batch", async () => {
@@ -395,6 +469,142 @@ for (const { name, createDriver } of DIALECTS) {
   });
 }
 
+describe("raw SQL in a native array transaction", () => {
+  test("mixes raw and model operations in one ordered atomic batch", async () => {
+    const driver = new BatchOnlyPGliteDriver();
+    const client = createClient({ schema, driver });
+    try {
+      await push(client, { force: true });
+      await seed(client);
+      const executeBatch = vi.spyOn(driver, "_executeBatch");
+
+      const rename = client.$executeRaw`
+        UPDATE raw_sql_items SET label = ${"Renamed"} WHERE id = ${"i1"}
+      `;
+      const [affected, modelRows, rawRows] = await client.$transaction([
+        rename,
+        client.item.findMany({ where: { label: "Renamed" } }),
+        client.$queryRaw<{ id: string }>`
+          SELECT id FROM raw_sql_items WHERE label = ${"Renamed"}
+        `,
+      ]);
+
+      expect(affected).toBe(1);
+      expect(modelRows.map((row) => row.id)).toEqual(["i1"]);
+      expect(rawRows).toEqual([{ id: "i1" }]);
+      expect(executeBatch).toHaveBeenCalledOnce();
+      const submitted = executeBatch.mock.calls[0]?.[0] ?? [];
+      expect(submitted).toHaveLength(3);
+      expect(submitted[0]?.sql).toContain("UPDATE raw_sql_items");
+      expect(submitted[0]?.params).toEqual(["Renamed", "i1"]);
+      expect(submitted[1]?.sql).toContain("raw_sql_items");
+      expect(submitted[2]?.sql).toContain("SELECT id FROM raw_sql_items");
+      expect(submitted[2]?.params).toEqual(["Renamed"]);
+    } finally {
+      await client.$disconnect();
+    }
+  });
+
+  test("a native batch consumes both raw and model operations exactly once", async () => {
+    const driver = new BatchOnlyPGliteDriver();
+    const client = createClient({ schema, driver });
+    try {
+      await push(client, { force: true });
+      await seed(client);
+      const rawOperation = client.$executeRaw`
+        UPDATE raw_sql_items SET qty = ${9} WHERE id = ${"i1"}
+      `;
+      const modelOperation = client.item.findMany({ where: { id: "i1" } });
+
+      await client.$transaction([rawOperation, modelOperation]);
+
+      await expect((async () => rawOperation)()).rejects.toBeInstanceOf(
+        PendingOperationError
+      );
+      await expect((async () => modelOperation)()).rejects.toBeInstanceOf(
+        PendingOperationError
+      );
+      await expect(client.$transaction([rawOperation])).rejects.toBeInstanceOf(
+        PendingOperationError
+      );
+      await expect(
+        client.item.findUnique({ where: { id: "i1" } })
+      ).resolves.toMatchObject({ qty: 9 });
+    } finally {
+      await client.$disconnect();
+    }
+  });
+
+  test("prepares every raw input before dispatching any effect", async () => {
+    const driver = new BatchOnlyPGliteDriver();
+    const client = createClient({ schema, driver });
+    try {
+      await push(client, { force: true });
+      await seed(client);
+      const executeBatch = vi.spyOn(driver, "_executeBatch");
+
+      await expect(
+        client.$transaction([
+          client.$executeRaw`UPDATE raw_sql_items SET qty = ${77}`,
+          client.$queryRaw(sql`SELECT 1`, "stray"),
+        ])
+      ).rejects.toMatchObject({ code: VibORMErrorCode.INVALID_INPUT });
+
+      expect(executeBatch).not.toHaveBeenCalled();
+      await expect(client.item.count({ where: { qty: 77 } })).resolves.toBe(0);
+    } finally {
+      await client.$disconnect();
+    }
+  });
+
+  test("a later raw failure rolls back an earlier raw and model write", async () => {
+    const driver = new BatchOnlyPGliteDriver();
+    const client = createClient({ schema, driver });
+    try {
+      await push(client, { force: true });
+      await seed(client);
+
+      await expect(
+        client.$transaction([
+          client.item.update({
+            where: { id: "i1" },
+            data: { qty: 88 },
+          }),
+          client.$executeRaw`UPDATE raw_sql_items SET qty = ${99} WHERE id = ${"i2"}`,
+          client.$queryRawUnsafe("SELECT * FROM table_that_does_not_exist"),
+        ])
+      ).rejects.toThrow();
+
+      await expect(
+        client.item.findMany({
+          where: { qty: { in: [88, 99] } },
+        })
+      ).resolves.toEqual([]);
+    } finally {
+      await client.$disconnect();
+    }
+  });
+
+  test("rejects a foreign-client raw operation before dispatch", async () => {
+    const driver = new BatchOnlyPGliteDriver();
+    const foreignDriver = new BatchOnlyPGliteDriver();
+    const client = createClient({ schema, driver });
+    const foreign = createClient({ schema, driver: foreignDriver });
+    try {
+      await push(client, { force: true });
+      const executeBatch = vi.spyOn(driver, "_executeBatch");
+      const foreignOperation = foreign.$queryRaw`SELECT 1`;
+
+      await expect(
+        client.$transaction([foreignOperation])
+      ).rejects.toBeInstanceOf(PendingOperationError);
+      expect(executeBatch).not.toHaveBeenCalled();
+    } finally {
+      await Promise.all([client.$disconnect(), foreign.$disconnect()]);
+    }
+  });
+});
+
 describe("raw SQL types", () => {
   test("$queryRaw answers rows, $executeRaw answers a count", () => {
     const client = createClient({
@@ -403,15 +613,27 @@ describe("raw SQL types", () => {
     });
 
     expectTypeOf(client.$queryRaw<{ id: string }>`SELECT 1`).toEqualTypeOf<
-      Promise<{ id: string }[]>
+      RawOperation<{ id: string }[]>
     >();
     expectTypeOf(
       client.$queryRawUnsafe<{ id: string }>("SELECT 1")
-    ).toEqualTypeOf<Promise<{ id: string }[]>>();
-    expectTypeOf(client.$executeRaw`SELECT 1`).toEqualTypeOf<Promise<number>>();
-    expectTypeOf(client.$executeRawUnsafe("SELECT 1")).toEqualTypeOf<
-      Promise<number>
+    ).toEqualTypeOf<RawOperation<{ id: string }[]>>();
+    expectTypeOf(client.$executeRaw`SELECT 1`).toEqualTypeOf<
+      RawOperation<number>
     >();
+    expectTypeOf(client.$executeRawUnsafe("SELECT 1")).toEqualTypeOf<
+      RawOperation<number>
+    >();
+
+    const queryPromise: Promise<{ id: string }[]> = client.$queryRaw<{
+      id: string;
+    }>`SELECT 1`;
+    expectTypeOf(queryPromise).toEqualTypeOf<Promise<{ id: string }[]>>();
+
+    const query = client.$queryRaw<{ id: string }>`SELECT 1`;
+    expectTypeOf(
+      client.$transaction([client.$executeRaw`SELECT 1`, query])
+    ).toEqualTypeOf<Promise<[number, { id: string }[]]>>();
   });
 
   test("the transaction client carries the same raw surface", () => {
@@ -422,9 +644,11 @@ describe("raw SQL types", () => {
 
     expectTypeOf(client.$transaction).toBeCallableWith(async (tx) => {
       expectTypeOf(tx.$queryRaw<{ id: string }>`SELECT 1`).toEqualTypeOf<
-        Promise<{ id: string }[]>
+        RawOperation<{ id: string }[]>
       >();
-      expectTypeOf(tx.$executeRaw`SELECT 1`).toEqualTypeOf<Promise<number>>();
+      expectTypeOf(tx.$executeRaw`SELECT 1`).toEqualTypeOf<
+        RawOperation<number>
+      >();
       return 1;
     });
   });

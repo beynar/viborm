@@ -3,8 +3,6 @@ import { createOperationExecutionContext } from "@query-engine/execution-context
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames, s } from "@schema";
 import type { Model } from "@schema/model";
-import { createSchemaRegistry } from "@validation";
-import { describe, expect, test } from "vitest";
 import { CreateOperation } from "@src/query-engine/write-engine/CreateOperation";
 import { OperationExecutor } from "@src/query-engine/write-engine/OperationExecutor";
 import { getStepModelName } from "@src/query-engine/write-engine/shared";
@@ -12,6 +10,8 @@ import {
   type BehaviorDatabaseSource,
   useBehaviorDatabase,
 } from "@tests/fixtures/drivers/pglite";
+import { createSchemaRegistry } from "@validation";
+import { describe, expect, test } from "vitest";
 
 export const operationFragmentSchema = (() => {
   const user = s
@@ -105,7 +105,9 @@ export function createNestedUpsertArgs(title = "post") {
 }
 
 export function runCreateNestedUpsertBehavior(
-  options: { readonly name: string } & BehaviorDatabaseSource
+  options: {
+    readonly name: string;
+  } & BehaviorDatabaseSource
 ): void {
   describe(`${options.name} operation fragments`, () => {
     const openDatabase = useBehaviorDatabase(operationFragmentSchema, options);
@@ -115,28 +117,30 @@ export function runCreateNestedUpsertBehavior(
       async () => {
         const { driver, client, dispose } = await openDatabase();
         try {
-          await client.user.create({ data: { name: "existing" } });
-          const result = await createOperationExecutor(driver).executeCreate(
+          await client.user.create({ data: { id: -1, name: "existing" } });
+          const execution = createOperationExecutor(driver).executeCreate(
             operationFragmentSchema.user,
             createNestedUpsertArgs()
           );
 
+          const result = await execution;
+
           expect(result).toEqual({
             name: "henry",
-            posts: [{ id: 1, title: "post", slug: "post-key", userId: 2 }],
+            posts: [{ id: 1, title: "post", slug: "post-key", userId: 1 }],
           });
           await expect(
             client.user.findMany({ include: { posts: true } })
           ).resolves.toEqual([
             {
-              id: 1,
+              id: -1,
               name: "existing",
               posts: [],
             },
             {
-              id: 2,
+              id: 1,
               name: "henry",
-              posts: [{ id: 1, title: "post", slug: "post-key", userId: 2 }],
+              posts: [{ id: 1, title: "post", slug: "post-key", userId: 1 }],
             },
           ]);
         } finally {
@@ -151,7 +155,7 @@ export function runCreateNestedUpsertBehavior(
       async () => {
         const { driver, client, dispose } = await openDatabase();
         try {
-          await client.user.create({ data: { name: "existing" } });
+          await client.user.create({ data: { id: -1, name: "existing" } });
           await client.post.create({
             data: {
               id: 1,
@@ -161,10 +165,12 @@ export function runCreateNestedUpsertBehavior(
             },
           });
 
-          const result = await createOperationExecutor(driver).executeCreate(
+          const execution = createOperationExecutor(driver).executeCreate(
             operationFragmentSchema.user,
             createNestedUpsertArgs("published")
           );
+
+          const result = await execution;
 
           expect(result).toEqual({
             name: "henry",
@@ -173,7 +179,7 @@ export function runCreateNestedUpsertBehavior(
                 id: 1,
                 title: "published",
                 slug: "post-key",
-                userId: 2,
+                userId: 1,
               },
             ],
           });
@@ -183,7 +189,7 @@ export function runCreateNestedUpsertBehavior(
             id: 1,
             title: "published",
             slug: "post-key",
-            userId: 2,
+            userId: 1,
           });
         } finally {
           await dispose();

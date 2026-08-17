@@ -19,15 +19,12 @@ import { describe, expect, test } from "vitest";
 /**
  * PARITY WITNESS — Package B (§6 B, "Trust the selected-record compiler").
  *
- * Package B's outcome (commit 4ef2fa57): `assertArmPkStable` and
- * `assertArmEdgeReferencesLocatedPk` are DELETED; `assertArmEdgeIsChildHeld`
- * (RelationUpsertPart.ts:1196) is RESTORED after a measured silent-write defect —
- * a parent-held to-one written on the relation the upsert ARRIVED THROUGH is
- * silently overridden by the arm's own reparent (its docblock carries the
- * measurement). Deleting a construction-time guard changes what the surface
- * ACCEPTS; it must not change how an already-accepted payload compiles. This
- * file is the "already-accepted" half, byte for byte, so the lift is proved
- * additive.
+ * Package C keeps Package B's planning, guards, descendant writes, and captured
+ * identity byte-identical, with one deliberate root-UPDATE correction: correlated
+ * incoming membership is a locate/guard premise, so the found arm no longer emits a
+ * redundant `SET orgId = <the value already used to locate it>`. The expected SQL and
+ * parameter lists below pin that omission explicitly. Global-adopt membership remains
+ * a final assignment and is covered by the owned-FK behavior contract.
  *
  * DIMENSIONS PINNED (plan §6 A2's nine):
  *   · planning IDs and order, planning SQL and parameters, planning outputs;
@@ -41,14 +38,11 @@ import { describe, expect, test } from "vitest";
  *     equalities below are that pin. Round-trip counts are not a separate fact for
  *     these shapes: each substrate issues one round trip per step it lists.
  *
- * The refusal MESSAGES are not restated here. The surviving
- * `assertArmEdgeIsChildHeld` refusal is pinned exact-string with an empty
- * statement log at nested-arm-dispatch.test.ts (the PARENT_HELD block). The two
- * DELETED guards' former messages are quoted verbatim inside the accept
- * witnesses that replaced them (nested-arm-dispatch.test.ts for the PK move,
- * upsert-arm-referenced-edge.test.ts for the referenced edge), as the record of
- * what each lift discharged. This file carries the fragment dimension those
- * files do not, and nothing else.
+ * Refusal messages are not restated here. `nested-arm-dispatch.test.ts` owns
+ * selected-row continuity for stable same-incoming update/found-upsert and the two
+ * retained boundaries: delete/global-adopt and a re-entry that itself changes the
+ * incoming row key. It also owns the positive parent-held membership-writer and
+ * self-relation cases. This file owns the fragment dimension only.
  *
  * CAPTURED IDENTITY vs PUBLIC SELECTOR. `buildUpdateArm` addresses the arm by the
  * CAPTURED primary key (RelationUpsertPart.ts:455, reading :473's `locatedRow(rows)`),
@@ -409,8 +403,8 @@ for (const substrate of [
           {
             id: "team.update",
             kind: "write",
-            sql: 'UPDATE "parity_b_teams" SET "label" = $1, "orgId" = CAST($2 AS TEXT) WHERE "parity_b_teams"."id" = $3 RETURNING "id" AS "id"',
-            params: ["T1b", "o1", "t1"],
+            sql: 'UPDATE "parity_b_teams" SET "label" = $1 WHERE "parity_b_teams"."id" = $2 RETURNING "id" AS "id"',
+            params: ["T1b", "t1"],
             outputs: {},
             expects: substrate.batch ? null : ARM_VANISHED,
             racePin: null,
@@ -473,8 +467,8 @@ for (const substrate of [
           {
             id: "team.update",
             kind: "write",
-            sql: 'UPDATE "parity_b_teams" SET "label" = $1, "orgId" = CAST($2 AS TEXT) WHERE "parity_b_teams"."id" = $3 RETURNING "id" AS "id"',
-            params: ["T1b", "o1", "t1"],
+            sql: 'UPDATE "parity_b_teams" SET "label" = $1 WHERE "parity_b_teams"."id" = $2 RETURNING "id" AS "id"',
+            params: ["T1b", "t1"],
             outputs: {},
             expects: substrate.batch ? null : ARM_VANISHED,
             racePin: null,
@@ -552,8 +546,8 @@ for (const substrate of [
           {
             id: "team.update",
             kind: "write",
-            sql: 'UPDATE "parity_b_teams" SET "label" = $1, "orgId" = CAST($2 AS TEXT) WHERE "parity_b_teams"."id" = $3 RETURNING "id" AS "id"',
-            params: ["T1b", "o1", "t1"],
+            sql: 'UPDATE "parity_b_teams" SET "label" = $1 WHERE "parity_b_teams"."id" = $2 RETURNING "id" AS "id"',
+            params: ["T1b", "t1"],
             outputs: {},
             expects: substrate.batch ? null : ARM_VANISHED,
             racePin: null,
@@ -635,8 +629,8 @@ for (const substrate of [
           {
             id: "team.update",
             kind: "write",
-            sql: 'UPDATE "parity_b_teams" SET "id" = $1, "label" = $2, "orgId" = CAST($3 AS TEXT) WHERE "parity_b_teams"."id" = $4 RETURNING "id" AS "id"',
-            params: ["t1", "T1b", "o1", "t1"],
+            sql: 'UPDATE "parity_b_teams" SET "id" = $1, "label" = $2 WHERE "parity_b_teams"."id" = $3 RETURNING "id" AS "id"',
+            params: ["t1", "T1b", "t1"],
             outputs: {},
             expects: substrate.batch ? null : ARM_VANISHED,
             racePin: null,
@@ -659,8 +653,8 @@ for (const substrate of [
           {
             id: "team.update",
             kind: "write",
-            sql: 'UPDATE "parity_b_teams" SET "id" = $1, "label" = $2, "orgId" = CAST($3 AS TEXT) WHERE "parity_b_teams"."id" = $4 RETURNING "id" AS "id"',
-            params: ["tMoved", "T1b", "o1", "t1"],
+            sql: 'UPDATE "parity_b_teams" SET "id" = $1, "label" = $2 WHERE "parity_b_teams"."id" = $3 RETURNING "id" AS "id"',
+            params: ["tMoved", "T1b", "t1"],
             outputs: {},
             expects: substrate.batch ? null : ARM_VANISHED,
             racePin: null,
@@ -778,8 +772,8 @@ for (const substrate of [
           {
             id: "team.update",
             kind: "write",
-            sql: 'UPDATE "parity_b_teams" SET "label" = $1, "orgId" = CAST($2 AS TEXT) WHERE "parity_b_teams"."id" = $3 RETURNING "id" AS "id"',
-            params: ["T1b", "o1", "tCaptured"],
+            sql: 'UPDATE "parity_b_teams" SET "label" = $1 WHERE "parity_b_teams"."id" = $2 RETURNING "id" AS "id"',
+            params: ["T1b", "tCaptured"],
             outputs: {},
             expects: substrate.batch ? null : ARM_VANISHED,
             racePin: null,

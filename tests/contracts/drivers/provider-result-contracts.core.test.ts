@@ -595,11 +595,41 @@ describe("provider row-count normalization", () => {
   });
 
   test.each([
+    { explicitId: "-1", label: "safe integer", insertId: -1 },
+    { explicitId: "-1", label: "canonical decimal string", insertId: "-1" },
+    {
+      explicitId: "-9007199254740993",
+      label: "canonical decimal string outside the safe integer range",
+      insertId: "-9007199254740993",
+    },
+    {
+      explicitId: "-9223372036854775808",
+      label: "minimum signed BIGINT decimal string",
+      insertId: "-9223372036854775808",
+    },
+  ])("mysql2 omits an explicit negative auto-increment header echo ($label)", async ({
+    explicitId,
+    insertId,
+  }) => {
+    const result = await createMySQL2Driver(1, insertId)._executeRaw(
+      `INSERT INTO t (id) VALUES (${explicitId})`
+    );
+
+    expect(result).toEqual({ rows: [], rowCount: 1 });
+  });
+
+  test.each([
     undefined,
     null,
     Number.NaN,
+    Number.NEGATIVE_INFINITY,
+    Number.MIN_SAFE_INTEGER - 1,
+    -1.5,
     "01",
-    "-1",
+    "-0",
+    "-01",
+    " -1",
+    "+1",
     "1.5",
   ])("mysql2 rejects malformed required insertId (%s)", async (insertId) => {
     const error = await captureQueryError(

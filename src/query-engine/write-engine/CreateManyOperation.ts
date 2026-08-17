@@ -111,7 +111,9 @@ export class CreateManyOperation {
     const plan = buildCreateManyPlan(
       parent,
       { data: this.data, skipDuplicates },
-      false
+      false,
+      undefined,
+      engine.maxBindParametersPerStatement
     );
     // Dialects whose skip is a recoverable unique error (MySQL) have no plain
     // SQL leaf, so each per-row statement runs behind a savepoint. Dialects whose
@@ -163,7 +165,8 @@ export class CreateManyOperation {
         this.parent,
         { data: this.data, skipDuplicates: this.skipDuplicates },
         false,
-        storageByRow
+        storageByRow,
+        this.engine.maxBindParametersPerStatement
       );
       const recoverUnique =
         this.skipDuplicates &&

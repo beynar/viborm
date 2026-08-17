@@ -18,9 +18,9 @@ Everything in the API works the same on every database unless noted under [Datab
 | `findFirst` / `findFirstOrThrow` | ✅ | Filtering, ordering, pagination, `select`, `include`. |
 | `findMany` | ✅ | Filters, relation filters, ordering, cursor pagination, negative `take`, `distinct`, `select`, `include`. |
 | `create` | ✅ | Scalar data and nested writes. |
-| `createMany` | Different | Returns `{ count }`, or the created rows when the call carries a scalar-only `select`; Prisma's separate `createManyAndReturn` does not exist. Rows accept the ordinary `create` data shape, including nested relations, except that a direct polymorphic field stays connect-only. Relation-bearing rows execute left to right. On interactive drivers they use one transaction; on D1, supported series use ordered committed atomic segments and a later failure reports the durable prefix. With `skipDuplicates`, a conflicting root suppresses its complete subtree; this relation-bearing skip form requires an interactive transaction. A `select` refuses rather than answer short when a later row moves an earlier row's primary key. |
+| `createMany` | Different | Returns `{ count }`, or the created rows when the call carries a scalar-only `select`; Prisma's separate `createManyAndReturn` does not exist. Rows accept the ordinary `create` data shape, including nested relations, except that a direct polymorphic field stays connect-only. Relation-bearing rows execute left to right. Interactive drivers use one transaction; a no-transaction driver with native atomic batch uses committed segments. With `skipDuplicates`, a conflicting root suppresses its complete subtree. The root is isolated as one segment; only a member that must write before that root refuses pre-effect, because those earlier effects could not be undone after a skip. A `select` refuses rather than answer short when a later row moves an earlier row's primary key. |
 | `update` | ✅ | Requires a unique `where` and throws when missing. Extra scalar and relation filters are allowed in it; an excluded row is a `NotFoundError`, never a silent no-op. |
-| `updateMany` | Different | Returns `{ count }`, or the updated rows when the call carries a scalar-only `select`; Prisma's separate `updateManyAndReturn` does not exist. `data` accepts the ordinary `update` surface, relations included, which Prisma rejects outright. A relation-bearing call captures the matching roots and runs one ordinary selected update per row. Interactive drivers use one transaction; D1 root members use ordered committed atomic batches. `count` is the captured match count rather than the provider's affected-row total. A child-held `connect`/`connectOrCreate`/`set` naming an existing target is refused before any write when more than one root matched. A `select` refuses rather than answer short when a later row removes an earlier row's key. Prisma 6's `limit` is supported, with Prisma's caveat: it caps how many rows are affected, not which. |
+| `updateMany` | Different | Returns `{ count }`, or the updated rows when the call carries a scalar-only `select`; Prisma's separate `updateManyAndReturn` does not exist. `data` accepts the ordinary `update` surface, relations included, which Prisma rejects outright. A relation-bearing call captures the matching roots and runs one ordinary selected update per row. Interactive drivers use one transaction; a no-transaction driver with native atomic batch uses committed segments. `count` is the captured match count rather than the provider's affected-row total. A child-held `connect`/`connectOrCreate`/`set` naming an existing target is refused before any write when more than one root matched. A `select` refuses rather than answer short when a later row removes an earlier row's key. Prisma 6's `limit` is supported, with Prisma's caveat: it caps how many rows are affected, not which. |
 | `upsert` | ✅ | Requires unique `where`, `create`, and `update`. An extra filter that excludes an existing row sends the call down the create branch, whose unique violation surfaces unretried. |
 | `delete` | ✅ | Requires a unique `where` and throws when missing. Extra scalar and relation filters are allowed in it; an excluded row is a `NotFoundError` and survives. |
 | `deleteMany` | Extension | Returns `{ count }`, or the deleted rows when the call carries a `select` (scalar-only). Prisma has no returning `deleteMany`. Prisma 6's `limit` is supported. |
@@ -122,14 +122,34 @@ They may retain existing members and adopt new ones, but reject when any current
 exact member would depart. `disconnect` requires clearable membership and its
 key is absent otherwise.
 
-On a **many-to-many** relation, scalar-only `createMany` uses the grouped path:
-it inserts each row and links it to the parent. `skipDuplicates` there skips the
-child row's insert, while the distinct join row is still written, so a skipped
-item links the existing target. It is refused before any write when the target's
-primary key is database-generated because a skipped insert produces no identity
-for its join row. When a `createMany` member itself carries relations, it uses
-the record-series contract instead: a skipped member suppresses its complete
-subtree, including the join.
+On a **many-to-many** relation, scalar-only `createMany` starts with row-local
+routing; homogeneous leaf and adopt runs stay grouped. Each member is classified
+in input order, so one nameable row and one unnameable sibling can take different
+routes. `skipDuplicates` for that member depends on whether one complete unique
+selector can name the row that conflicted:
+
+- **it can** — the skipped item links the existing target. The child insert is
+  skipped and the distinct join row is still written, so the parent ends up
+  connected to the row that was already there;
+- **it cannot** — the target key is database-generated and the row spells two
+  independent uniques, or the conflict would fire on an index no `where` can
+  spell, or the only unique is compound with a `null` member — and that member is
+  **suppressed** instead: the target is not written,
+  its join row is not written, every sibling row still lands, and the row that
+  was already there is neither rewritten nor linked. viborm does not guess which
+  existing row to adopt.
+
+Later members observe targets and descendants earlier members created. This
+left-to-right visibility also applies when relation-bearing members require
+dynamic planning.
+
+When a `createMany` member itself carries relations, it uses the record-series
+contract, where a skipped member suppresses its complete subtree including the
+join. Interactive drivers use a member savepoint. A batch-only driver isolates
+the skippable root as one atomic segment, observes normalized row count, and does
+not dispatch descendants after a skip. This is safe when no write or nested
+series precedes that root. A member that needs such a prior effect refuses before
+dispatch, because the effect would survive a later root skip.
 
 **Shapes:**
 
@@ -166,16 +186,20 @@ The matrices show operation support. These restrictions are independent:
   optional `update` of the supplied row — on BOTH directions. The five spellable
   replacement pairs are `disconnect + connectOrCreate`, `disconnect + connect`,
   `disconnect + create`, `delete + connect`, and `delete + create`; `delete`
-  beside `connectOrCreate` is excluded deliberately. A `connect` may also carry
-  an `update`, with or without a vacate ahead of it. `create` or
-  `connectOrCreate` beside an `update` is refused — the modify addresses the
-  supplied row through a read that precedes every write, and those suppliers only
-  produce that identity by inserting it — at the type boundary on the
-  parent-held direction and in the engine, with a message naming that obstacle,
-  on the child-held one. Three further spellable compositions are declined before
+  beside `connectOrCreate` is excluded deliberately. Any supplier may also carry
+  an `update`, with or without a vacate ahead of it, and the modify always
+  applies to the supplied row after the supplier has run — so a relative update
+  counts from the supplied value, and the update may itself carry relations,
+  nested bulk, or another composition. On the child-held direction a `create`
+  supplier, or a `connectOrCreate` that creates, is located after the fact by the
+  membership it just established: that costs one extra round trip and needs a
+  driver with either interactive transactions or native atomic batch, and a
+  driver with neither declines before the supplier writes. On the parent-held
+  direction `create` or `connectOrCreate` beside an `update` remains refused at
+  the type boundary. Two further spellable compositions are declined before
   any write by the own-write analyzer, because `delete: true` names a row whose
   identity is unknown at analysis and may be the one a sibling reads: parent-held
-  `delete + connect`, and child-held `delete` plus a supplier plus an `update`.
+  `delete + connect`, and child-held `delete` plus a `connect` plus an `update`.
   The vacate always runs before the supplier, whatever order it is
   spelled in, and a parent-held vacate plus supplier folds to one foreign-key
   value with no transient `NULL`. Literal `false` is inactive. Other
@@ -186,16 +210,21 @@ The matrices show operation support. These restrictions are independent:
 - Nested `createMany` rows and nested `updateMany.data` may contain ordinary or
   direct polymorphic relation writes. Scalar-only shapes stay grouped. A
   relation-bearing shape becomes an ordered record series at that exact
-  position in the parent tree. D1 executes nested relation-bearing `createMany`
-  and `updateMany` when VibORM can verify the complete parent or membership in
-  every later write batch. A nested dynamic shape without that exact guard is
+  position in the parent tree. Any no-transaction driver with native atomic batch
+  executes nested relation-bearing `createMany` and `updateMany` when VibORM can
+  verify the complete parent and, where needed, membership in every later write
+  batch. A nested dynamic shape without that exact guard is
   refused before its containing member writes. If reached inside
   a progressive root bulk call, earlier root members can already be committed
   and are reported.
 - Relation-link selectors (`connect`, `disconnect`, `set`, and
   `connectOrCreate.where`) require unique discriminators; they do not accept the
   extra filters allowed by nested update and upsert targets.
-- Many-to-many relations with compound primary keys are not supported.
+- Many-to-many relations support scalar and compound primary keys on either
+  side. `.A("owner")` and `.B("target")` remain scalar tokens: for a compound
+  side they expand to `owner_1`, `owner_2`, … and `target_1`, `target_2`, … in
+  declared primary-key order. Reads, writes, cascades, and generated key
+  publication consume the complete tuple.
 - A create-then-`connectOrCreate` conflict on the same target in one payload is
   rejected as an OwnWrite conflict instead of depending on sibling visibility.
 
@@ -215,7 +244,10 @@ database's locale or ICU installation.
 
 | Behavior | Difference |
 |----------|-----------|
-| Transactions on serverless drivers | **D1 Workers bindings** and **Neon HTTP** have no interactive callback transaction. Static D1 work uses one native atomic batch. Root relation-bearing `createMany`/`updateMany` can use several ordered committed D1 batches; a later failure preserves and reports the committed prefix. Nested relation-bearing `createMany`/`updateMany` run only when VibORM can verify the complete parent or membership in every later write batch; an unguardable nested shape refuses before its containing member writes. Relation-bearing `skipDuplicates` and a dynamic series inside explicit `$transaction([...])` refuse before member 0 writes. See [D1](/docs/drivers/sqlite/d1) and [Transactions](/docs/client/transactions). |
+| Transactions on serverless drivers | **D1 Workers bindings** and **Neon HTTP** have no interactive callback transaction. A default dynamic write can use several native atomic batches after exact guard preflight and normalized awaited success. A later failure preserves prior acknowledged segments; providers with `supportsOrderedCommittedSegments` report the exact callback-acknowledged prefix, while another batch provider can mark the last dispatched segment as possibly committed when its result cannot be decoded. Nested relation-bearing `createMany`/`updateMany` require the complete parent and, where needed, membership guard. A skippable root is isolated; only a write or nested series before it remains a pre-effect refusal. Explicit `$transaction([...])` stays indivisible and refuses a dynamic series before member 0. See [D1](/docs/drivers/sqlite/d1) and [Transactions](/docs/client/transactions). |
+| Database-generated keys a write must read back | Every driver publishes them on its interactive transaction path. On a **batch-only** substrate, SQLite, libSQL, D1 and MySQL use their exact statement-local insert-ID channels. PostgreSQL-family drivers, including **Neon HTTP**, use the producer's own `RETURNING`: an exact fold stays one statement, and another default operation continues through guarded segments when later SQL needs the value. Those segments can commit a prefix. An explicit indivisible `$transaction([...])` still refuses before effects when no exact one-batch lowering exists. See [the row below](#generated-keys-and-the-execution-substrate). |
+| More than one database-generated primary-key member | A database fact, not an ORM policy. **PostgreSQL** allows several generated columns in one key and viborm publishes every member exactly. **MySQL** allows one `AUTO_INCREMENT` column and **SQLite/libSQL/D1** generate only the `INTEGER PRIMARY KEY`, so the compound shape cannot be declared there at all. viborm never derives one generated value from another. |
+| `skipDuplicates` on a relation-bearing nested write | The row and everything under it are suppressed together. Interactive drivers use a savepoint. A **batch-only** driver isolates the root write, uses normalized row count to decide whether to dispatch descendants, and continues with siblings. It refuses only when a write or nested series must run before that root, because a skipped root could not roll that prior effect back. A many-to-many row with no conflictable unique still drops the vacuous flag, and a row with one exact selector still uses adopt-and-link. |
 | Vector / geospatial | PostgreSQL with the relevant extension enabled; unsupported (and clearly errors) elsewhere. |
 | Ordering, aggregating and arithmetic on a `s.decimal()` | **SQLite refuses them**; PostgreSQL and MySQL answer them exactly. SQLite has no exact decimal type, so viborm stores decimals in a `TEXT` column there and raises `UnsupportedOperationError` (`V8003`) rather than routing the answer through a double. See [the row below](#decimals-on-sqlite). |
 
@@ -228,6 +260,64 @@ string keys preserve case, accents, and trailing spaces like PostgreSQL and
 SQLite. Existing tables require the explicit collation migration described in
 the [MySQL migration driver guide](/docs/migration/drivers/mysql); upgrading the
 package does not rewrite deployed tables.
+
+### Generated keys and the execution substrate
+
+A key the **database** assigns is readable back by the same call that created the
+row, and the rows underneath it can use it:
+
+```ts
+// `id` is s.int().id().increment() — the child's FK gets the value the INSERT made
+await client.org.create({
+  data: { name: "Acme", members: { create: [{ name: "Ada" }] } },
+});
+```
+
+A primary key may have **more than one** generated member where the database
+allows it, and `upsert` can create through it:
+
+```ts
+const twin = s
+  .model({ a: s.int().increment(), b: s.int().increment(), label: s.string() })
+  .id(["a", "b"]);
+
+await client.twin.upsert({
+  where: { a_b: { a: 10, b: 20 } },
+  create: { label: "created" },
+  update: { label: "updated" },
+});
+```
+
+On PostgreSQL the create arm returns both members from its own `INSERT` and
+addresses the new row by the complete key. Every member is read exactly; none is
+inferred from the position of another or from sequence adjacency. MySQL and
+SQLite cannot declare this shape — one `AUTO_INCREMENT` column and one
+`INTEGER PRIMARY KEY` respectively — so there is nothing to emulate there.
+
+Where it can cost you something is the **substrate**, not the database:
+
+| Driver | Interactive transaction | Batch-only path |
+|---|---|---|
+| `pg`, `postgres`, `pglite`, `bun-sql` | Supported: the key comes back on the `INSERT`'s `RETURNING` | Supported: exact folds stay one statement; otherwise `RETURNING` values cross guarded atomic segments |
+| `neon-http` | Not available — Neon HTTP has no callback transaction | Supported through guarded `RETURNING` segments; the operation is not atomic across segments |
+| `mysql2`, `planetscale` | Supported | Supported — exact `LAST_INSERT_ID()` |
+| `sqlite3`, `libsql`, `bun-sqlite` | Supported | Supported — exact `last_insert_rowid()` |
+| `d1` | Not available | Supported — exact `last_insert_rowid()` |
+
+PostgreSQL never uses `lastval()`: it is session-global, so a trigger or another
+generated column can move it. The producer's own `RETURNING` is the exact source.
+When later SQL needs that value and no one-statement fold exists, the default
+operation awaits the producer batch, re-pins the created row and every consumed
+non-key value, and then runs the dependent batch. A later failure can therefore
+leave an earlier segment committed; the error carries progress and cache
+invalidation follows each completed or possibly visible segment.
+
+An explicit `$transaction([operationA, operationB])` remains one indivisible native
+batch. VibORM does not weaken that requested atomicity by splitting it, so an array
+that needs a PostgreSQL `RETURNING` value across its internal statements still refuses
+before effects unless the compiler can lower the complete array to one exact statement.
+The same fail-closed boundary applies to a custom driver that offers neither callback
+transactions nor atomic batches.
 
 ### Decimals on SQLite
 
@@ -306,4 +396,4 @@ there. Prisma behaves the same way.
 | Create/update inputs | A single blended input surface rather than Prisma's separate checked/unchecked variants. |
 | Bulk writes that return rows | Implicit: `createMany` / `updateMany` return rows when the call carries a `select` or query-level `omit`, and `{ count }` otherwise. Prisma's `createManyAndReturn` / `updateManyAndReturn` methods do not exist — migrate `createManyAndReturn(args)` to `createMany({ ...args, select })`, same for `updateManyAndReturn`. `deleteMany` accepts the same projections, which Prisma has no form of. On all three the projection is scalar-only and `include` is rejected: VibORM does not project relations into a bulk write's returned rows, and refuses rather than answer wrongly. Prisma does accept relations on `createManyAndReturn`/`updateManyAndReturn`; read them in a separate query instead. |
 | `omit` | Query-level and client-level `omit` support Prisma's local `{ field: false }` override and refuse an `omit` that empties the result. Three differences: VibORM lets query-level `omit` subtract from `select` (Prisma rejects the pair); VibORM has a schema-level `.omit()` that is a hard exclusion no client or query can undo; and `omit` on a bulk write returns rows, following the implicit-returning rule above. See [Omitting fields](/docs/client/omit). |
-| Raw SQL | Prisma's shape: tagged `$queryRaw`/`$executeRaw` plus `$queryRawUnsafe`/`$executeRawUnsafe`. `$queryRaw` answers `T[]`, `$executeRaw` answers the affected count. `$queryRaw`/`$executeRaw` still accept the pre-1.0 `(sql: string, params?)` form for one release, with a deprecation notice on the `warning` log channel. `$transaction([...])` takes model operations only — run raw SQL inside the interactive form. See [Raw SQL](/docs/client/raw-sql). |
+| Raw SQL | Prisma's shape: tagged `$queryRaw`/`$executeRaw` plus `$queryRawUnsafe`/`$executeRawUnsafe`. `$queryRaw` answers `T[]`, `$executeRaw` answers the affected count. `$queryRaw`/`$executeRaw` still accept the pre-1.0 `(sql: string, params?)` form for one release, with a deprecation notice on the `warning` log channel. Raw calls are lazy, promise-compatible operations and can mix with model operations in `$transaction([...])`. See [Raw SQL](/docs/client/raw-sql). |

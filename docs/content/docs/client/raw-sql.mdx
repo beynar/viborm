@@ -110,6 +110,10 @@ carries its parameters, so there is nowhere for the extras to go.
 
 ## Raw SQL in a transaction
 
+Raw methods are lazy. Calling one captures the statement and parameters; no
+validation, warning, or database work happens until the returned operation is
+awaited or submitted to `$transaction([...])`.
+
 The interactive transaction client carries the same four methods, bound to the
 open transaction. They travel the transaction's connection, see its
 uncommitted writes, and roll back with it:
@@ -127,10 +131,27 @@ await client.$transaction(async (tx) => {
 });
 ```
 
-The **array** form of `$transaction` is model operations only. A raw query runs
-the moment you call it and returns a plain Promise, so there is no deferred
-operation left to batch — passing one is refused with a typed
-`UnsupportedOperationError`. Use the interactive form above.
+The **array** form accepts raw and model operations together. They execute in
+declared order inside the same atomic database unit, and later SQL can observe
+earlier database effects. Array members remain independent at the JavaScript
+level: one member cannot interpolate another member's result.
+
+```ts
+const disable = client.$executeRaw`
+  UPDATE "account" SET active = ${false} WHERE tenant_id = ${tenantId}
+`;
+
+const [affected, accounts] = await client.$transaction([
+  disable,
+  client.$queryRaw<{ id: string }>`
+    SELECT id FROM "account" WHERE tenant_id = ${tenantId}
+  `,
+]);
+```
+
+Raw operations implement the complete `Promise` surface, so `await`,
+`Promise.resolve`, `Promise.all`, and assignment to `Promise<T>` keep working.
+They are deliberately not native `Promise` instances.
 
 ## Rows are driver-native
 

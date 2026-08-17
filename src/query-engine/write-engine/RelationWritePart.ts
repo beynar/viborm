@@ -33,7 +33,7 @@ import {
   upsertPremiseChanged,
   upsertTargetVanished,
 } from "./messages";
-import { NestedUpdateManyRecordSeries } from "./NestedUpdateManyRecordSeries";
+import { NestedSelectedRecordSeries } from "./NestedSelectedRecordSeries";
 import type {
   OperationStep,
   ReadStep,
@@ -53,12 +53,13 @@ import {
   type CorrelatedRelationMembershipBinding,
   type FinalReferenceSource,
   finalMembershipCondition,
+  finalMembershipWriteCondition,
   lowerEmptyMembership,
   lowerMembershipWrite,
   planningMembershipCondition,
   planningSourceFromFinal,
   type RelationMembershipBinding,
-  resolveMembershipWriteParentRowKey,
+  resolveCorrelatedMembershipProgressivePremise,
 } from "./relation-membership";
 import { requiredForeignKeyFields } from "./relation-nullability";
 import type { StepScope } from "./StepScope";
@@ -136,6 +137,19 @@ interface RelationWriteContext {
    * gives up is only the membership premise, which the supplier's own Part owns.
    */
   readonly suppliedTarget?: boolean;
+  /**
+   * H3, producing half — this targeted `update` modifies the member a sibling
+   * `create` or `connectOrCreate` in the same to-one payload is PRODUCING, so nothing
+   * names that row until the supplier writes it. There is no planning probe at all:
+   * the locate is a record-series CAPTURE placed after the supplier's own Parts, run
+   * through the same exact physical-membership predicate the supplier just satisfied,
+   * and its complete captured row key addresses the ordinary selected-record update.
+   *
+   * Membership after supply IS the selector, which is why the supplier is never asked
+   * to predict or publish its own row key — the composition needs no produced-identity
+   * channel, only an ordering.
+   */
+  readonly suppliedContinuation?: boolean;
 }
 
 /** H3 — what a SUPPLIED target's probe correlates on: nothing. The incoming row is not
@@ -170,6 +184,9 @@ export class RelationWritePart implements Part {
   // only the child Parts). Computed once at construction.
   private readonly updateScalarData: Record<string, unknown> = {};
   private readonly updateManyParsed?: ParsedRecordPrograms;
+  /** H3, producing half — the composed continuation's programs, parsed exactly once,
+   *  at this construction. The series member consumes them directly. */
+  private readonly continuationParsed?: ParsedRecordPrograms;
   private readonly updateCompiler?: RecordUpdateCompiler;
   // An upsert found arm's update legality, deferred until that arm is SELECTED
   // (ATOM §13). The untaken update subtree of a missing create is never analyzed,
@@ -191,6 +208,27 @@ export class RelationWritePart implements Part {
 
   constructor(scope: StepScope, config: RelationWriteConfig) {
     this.config = config;
+    if (config.kind === "update" && config.suppliedContinuation) {
+      // No compiler and no probe at construction: the row does not exist yet. What IS
+      // decided here is everything that can be decided before I/O — the payload's own
+      // legality, and whether it asks for anything at all — so a continuation that is
+      // a no-op emits no capture and no series, exactly as a lone empty nested update
+      // emits no probe.
+      const parsed = this.parseNestedRecordData();
+      this.continuationParsed = parsed;
+      this.updateScalarData = parsed.scalarData;
+      this.isNoOpUpdate =
+        Object.keys(parsed.scalarData).length === 0 &&
+        parsed.relations.length === 0;
+      this.probeId = this.isNoOpUpdate
+        ? ""
+        : scope.allocate(`${config.childName}.find`);
+      this.writeId = this.isNoOpUpdate
+        ? ""
+        : scope.allocate(`${config.childName}.update`);
+      this.guardId = "";
+      return;
+    }
     let updateCompiler: RecordUpdateCompiler | undefined;
     if (config.kind === "update") {
       updateCompiler = this.buildUpdateCompiler(scope);
@@ -214,7 +252,7 @@ export class RelationWritePart implements Part {
     // arm delegate nested relations to the record compiler. Relation-bearing
     // updateMany keeps its exact Part position and captures a selected-record series.
     if (config.kind === "updateMany") {
-      this.updateManyParsed = this.parseUpdateManyData();
+      this.updateManyParsed = this.parseNestedRecordData();
       this.updateScalarData = this.updateManyParsed.scalarData;
       this.isNoOpUpdate =
         Object.keys(this.updateScalarData).length === 0 &&
@@ -279,6 +317,10 @@ export class RelationWritePart implements Part {
 
   planning(scope: StepScope): readonly StatementStep[] {
     if (this.isNoOpUpdate) return [];
+    // The composed continuation contributes NOTHING to planning. Its locate is the
+    // series capture, and planning precedes every write in this fragment — including
+    // the supplier's, which is the write that makes the row exist.
+    if (this.continuationParsed) return [];
     const steps: StatementStep[] = this.probe ? [this.probe] : [];
     if (this.updateCompiler) {
       // Both arms of an upsert plan (technique #2's widened superset), but only one
@@ -299,6 +341,9 @@ export class RelationWritePart implements Part {
 
   compile(scope: StepScope, known: PlanningKnown): readonly OperationStep[] {
     if (this.isNoOpUpdate) return [];
+    if (this.continuationParsed) {
+      return [this.buildContinuationSeries(this.continuationParsed, known)];
+    }
     if (this.config.kind === "updateMany") {
       return this.updateManyParsed?.relations.length
         ? [this.buildUpdateManySeries(known)]
@@ -490,8 +535,8 @@ export class RelationWritePart implements Part {
     return {
       id: this.writeId,
       kind: "recordSeries",
-      progressive: this.progressiveUpdateManyParentGuard(known),
-      series: new NestedUpdateManyRecordSeries({
+      progressive: this.progressiveParentGuard(known, "existingMembers"),
+      series: new NestedSelectedRecordSeries({
         engine: this.config.engine,
         sourceScope: createQueryScope(
           this.config.engine.adapter,
@@ -499,24 +544,97 @@ export class RelationWritePart implements Part {
         ),
         targetScope: this.config.childScope,
         relationInfo: this.config.membership.relation.relationInfo,
-        data,
+        member: { kind: "replayPerRecord", data },
         capture,
         recordCompilers: this.config.recordCompilers,
         membership: {
           kind: "childHeld",
           binding: this.config.membership,
           known,
+          correlate: "existingMembers",
         },
       }),
     };
   }
 
-  private progressiveUpdateManyParentGuard(
+  /**
+   * H3, producing half — the composed continuation, as a record series of exactly one
+   * member.
+   *
+   * The capture is the SAME exact physical-membership predicate every other arm on this
+   * edge uses ({@link finalMembershipCondition}), narrowed by the `{ where, data }`
+   * wrapper's optional filter, and it runs at this Part's position: after the supplier's
+   * writes, because both land in the same Part list and the supplier's entry is
+   * dispatched first. To-one storage admits one member, so `exactlyOneRow` is the
+   * arity — and a capture that finds none is the relation family's own target-not-found
+   * failure, raised before any member is compiled rather than silently updating nothing.
+   */
+  private buildContinuationSeries(
+    parsed: ParsedRecordPrograms,
     known: PlanningKnown
+  ): OperationStep {
+    // The WRITE side, deliberately. Every other arm on this edge asks which rows
+    // currently carry the parent's membership; this one asks for the row its own
+    // sibling supplier just assigned it to, which is the post-transition value
+    // whenever the parent's referenced key is moving.
+    const membership = finalMembershipWriteCondition(
+      this.config.engine,
+      this.config.childScope,
+      this.config.membership,
+      this.config.childScope.rootAlias,
+      known,
+      "update"
+    );
+    const capture: ReadStep = {
+      id: this.probeId,
+      kind: "read",
+      statement: buildFind(
+        this.config.childScope,
+        {
+          where: { AND: [...this.targetFilters(), ...membership.filters] },
+          select: targetProjectionRowKeySelect(this.config.targetProjection),
+          forUpdate: true,
+        },
+        {
+          limit: 1,
+          ...(membership.predicate ? { predicate: membership.predicate } : {}),
+        }
+      ),
+      outputs: { rows: { kind: "rows" } },
+      expects: exactlyOneRow(this.targetFailure()),
+    };
+    return {
+      id: this.writeId,
+      kind: "recordSeries",
+      progressive: this.progressiveParentGuard(known, "suppliedMember"),
+      series: new NestedSelectedRecordSeries({
+        engine: this.config.engine,
+        sourceScope: createQueryScope(
+          this.config.engine.adapter,
+          this.config.membership.relation.sourceModel
+        ),
+        targetScope: this.config.childScope,
+        relationInfo: this.config.membership.relation.relationInfo,
+        member: { kind: "parsedOnce", programs: parsed },
+        capture,
+        recordCompilers: this.config.recordCompilers,
+        membership: {
+          kind: "childHeld",
+          binding: this.config.membership,
+          known,
+          correlate: "suppliedMember",
+        },
+      }),
+    };
+  }
+
+  private progressiveParentGuard(
+    known: PlanningKnown,
+    correlate: "existingMembers" | "suppliedMember"
   ): RecordSeriesStep["progressive"] {
     if (
       this.config.engine.driver.supportsTransactions ||
-      !this.config.engine.driver.supportsOrderedCommittedSegments
+      !this.config.engine.driver.supportsBatch
     ) {
       return {
         kind: "unsupported",
@@ -524,18 +642,16 @@ export class RelationWritePart implements Part {
       };
     }
     const parent = this.config.membership.relation.membership.referenced;
-    // The Part's write source names the parent at this exact placement. It is the
-    // located value before an ordinary transition, and the transitioned value when a
-    // polymorphic Part is deliberately placed after the parent update.
-    const identity = resolveMembershipWriteParentRowKey(
+    const premise = resolveCorrelatedMembershipProgressivePremise(
       this.config.membership,
       known,
-      "updateMany"
+      this.operationKind,
+      correlate
     );
-    if (!identity) {
+    if (!premise) {
       return {
         kind: "unsupported",
-        reason: `nested updateMany on relation '${this.relationName}' cannot re-pin the complete parent row key`,
+        reason: `nested ${this.operationKind} on relation '${this.relationName}' cannot re-pin the complete parent row key and exact membership premise`,
       };
     }
     return {
@@ -543,11 +659,12 @@ export class RelationWritePart implements Part {
       guard: completeTargetPresenceGuard(
         createQueryScope(this.config.engine.adapter, parent),
         `${this.writeId}.parent`,
-        identity,
+        premise.identity,
         nestedWriteFailure(
           `Cannot update relation '${this.relationName}': parent record changed across a committed segment.`,
           this.relationName
-        )
+        ),
+        premise.membership
       ),
     };
   }
@@ -745,7 +862,11 @@ export class RelationWritePart implements Part {
     });
   }
 
-  private parseUpdateManyData(): ParsedRecordPrograms {
+  /** One parse of an already-transformed nested record payload, plus the two
+   *  legality rules a selected-record update owes before any I/O. Shared by the bulk
+   *  `updateMany` arm and the composed continuation, which is why it does not name
+   *  either. */
+  private parseNestedRecordData(): ParsedRecordPrograms {
     const { data, childScope } = this.config;
     const kind = this.operationKind;
     if (!data) {
@@ -1296,6 +1417,20 @@ export function buildToManyUpdateParts(
  * joins the correlated probe (and the batch guard), so a filter-miss is the family's
  * existing `Cannot update … for this parent` abort. The bare form yields no filter.
  */
+/** The one owner of the to-one update entry's shape: exactly one correlated target. */
+function requireCorrelatedToOneTarget(
+  entry: Extract<RelationMutationEntry, { kind: "update" }>,
+  relationName: string
+) {
+  const target = entry.items[0];
+  if (!target || target.target.kind !== "correlated") {
+    throw new QueryEngineError(
+      `query-engine-v2 internal: to-one update for relation '${relationName}' requires one correlated target.`
+    );
+  }
+  return { ...target, target: target.target };
+}
+
 export function buildToOneUpdatePart(
   base: WritePartBase,
   entry: Extract<RelationMutationEntry, { kind: "update" }>,
@@ -1307,12 +1442,7 @@ export function buildToOneUpdatePart(
   suppliedWhere?: Record<string, unknown>
 ): Part {
   const relationName = base.relation.relationInfo.name;
-  const target = entry.items[0];
-  if (!target || target.target.kind !== "correlated") {
-    throw new QueryEngineError(
-      `query-engine-v2 internal: to-one update for relation '${relationName}' requires one correlated target.`
-    );
-  }
+  const target = requireCorrelatedToOneTarget(entry, relationName);
   // The relation owns this FK, so it is never update data — whether the locator is the
   // FK correlation (a lone modify) or `suppliedWhere` (one composed with a supplier,
   // whose own assignment writes the same column).
@@ -1320,6 +1450,30 @@ export function buildToOneUpdatePart(
     ...partConfig(base, "update"),
     data: target.data,
     ...(suppliedWhere ? { where: suppliedWhere, suppliedTarget: true } : {}),
+    ...(target.target.filter ? { targetFilter: target.target.filter } : {}),
+  });
+}
+
+/**
+ * The composed modify of a PRODUCING supplier (`create`, or `connectOrCreate`'s missing
+ * arm). Same entry, same leaf owner, same selected-record compiler — only the LOCATE
+ * moves: from a planning probe, which runs before every write in the fragment, to a
+ * record-series capture placed after the supplier's own Parts.
+ *
+ * It takes no `where`: there is no selector to take. `connect` hands over one and keeps
+ * {@link buildToOneUpdatePart} byte-identical; a producing supplier hands over
+ * membership, which is exact for this topology and is what the capture reads.
+ */
+export function buildToOneContinuationPart(
+  base: WritePartBase,
+  entry: Extract<RelationMutationEntry, { kind: "update" }>
+): Part {
+  const relationName = base.relation.relationInfo.name;
+  const target = requireCorrelatedToOneTarget(entry, relationName);
+  return new RelationWritePart(base.scope, {
+    ...partConfig(base, "update"),
+    data: target.data,
+    suppliedContinuation: true,
     ...(target.target.filter ? { targetFilter: target.target.filter } : {}),
   });
 }

@@ -104,7 +104,10 @@ const DELETED_KEY_GATES = [
 // per-kind bag readers and their local array/single-item normalizers.
 // 18 -> 16 (field-bound source lowering): relation consumers no longer recast captured
 // planning rows to recover a field selected outside the source owner.
-const MAX_PAYLOAD_RECORD_CASTS = 15;
+// 15 -> 14 (compound-junction tuple lowering): `RelationJunctionPart.pkOf` now uses the
+// shared record narrowing before extracting the complete target tuple, so its scalar-era
+// cast disappeared instead of moving to the tuple path.
+const MAX_PAYLOAD_RECORD_CASTS = 14;
 // 22 -> 21 (N4-U2): the same removal. `foldParentHeldConnect`'s "requires a where object
 // one level deeper" was the shape-check message that went with that cast.
 // 21 -> 20 (E3): `RelationUpsertPart.normalizeUpsertItems` went with the upsert arm's

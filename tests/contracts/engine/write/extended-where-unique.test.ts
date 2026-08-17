@@ -1,16 +1,10 @@
-import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { createClient } from "@client/client";
-import type { BatchQuery, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
-import type { PGlite, Transaction } from "@electric-sql/pglite";
-import { TransactionError } from "@errors";
 import { push } from "@migrations";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames, s } from "@schema";
 import type { Model } from "@schema/model";
 import { isSql } from "@sql";
-import { createSchemaRegistry } from "@validation";
-import { expect, test } from "vitest";
 import type {
   ReadStep,
   WriteStep,
@@ -20,6 +14,9 @@ import {
   extendedWhereUniqueSchema,
   runExtendedWhereUniqueBehavior,
 } from "@tests/contracts/engine/write/extended-where-unique-behavior";
+import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
+import { createSchemaRegistry } from "@validation";
+import { expect, test } from "vitest";
 
 // The whole extended-whereUnique surface on PGlite, both substrates. The driver
 // matrix legs run the same module from tests/drivers/*.test.ts.
@@ -106,14 +103,11 @@ test("the withheld pin is about the FILTER, not the discriminator's shape", () =
 
 const identitySchema = (() => {
   // Compound PK whose second member is DB-generated, plus a single-column unique.
-  // A literal PK is impossible (the create data cannot carry `seq`), and the
-  // captured-increment source does not apply either (it covers a SINGLE generated
-  // PK — a compound one cannot be propagated). Before the unique-from-create-data
-  // source existed this shape was REFUSED outright, though it had answered before
-  // the read-back moved off the `where`. Its DDL is not portable across the driver
-  // matrix (SQLite cannot AUTOINCREMENT a compound-PK member, MySQL needs the
-  // AUTO_INCREMENT column first in a key), which is why this schema lives here —
-  // compiled everywhere, and run against PostgreSQL only.
+  // A literal PK is impossible because create omits `seq`; the complete unique is
+  // deliberately preferred over generated-key capture because it is capture-free.
+  // Its DDL is not portable across the driver matrix (SQLite cannot AUTOINCREMENT a
+  // compound-PK member, MySQL needs the AUTO_INCREMENT column first in a key), so
+  // this schema is compiled everywhere and run against PostgreSQL only.
   const seat = s
     .model({
       tenantId: s.int(),
@@ -123,15 +117,10 @@ const identitySchema = (() => {
     })
     .id(["tenantId", "seq"])
     .map("ext_wu_seats");
-  // The same compound generated PK with NO other unique. RETARGETED BY E6.2
-  // (authorized test change: decline → accept-and-execute, same payload): this WAS the
-  // shape the refusal was for, on the reading that a compound key needs a compound
-  // capture. M9 measured the payload reaching the refusal and E6.2 absorbed it —
-  // one member is produced by the INSERT, the other is a literal the same INSERT
-  // writes, and their union names exactly the inserted row. The refusal now covers
-  // only the payloads where that union cannot be formed; see
-  // `produced-compound-identity.test.ts` for the survivor (two generated members)
-  // and the whole absorbed family.
+  // The same compound generated PK with no alternate unique. E6.2 absorbed the
+  // one-generated-plus-one-literal shape through their complete row-key union;
+  // residual-lift Package A generalizes the same publication owner to multiple
+  // database-assigned members in `produced-compound-identity.test.ts`.
   const slot = s
     .model({
       tenantId: s.int(),
@@ -334,8 +323,7 @@ test(
     });
     await push(client, { force: true });
     try {
-      // `create` cannot reach this model (mutation-identity refuses to propagate a
-      // generated compound PK), so seed through `createMany`.
+      // Seed without needing the generated compound row key as an immediate result.
       await client.seat.createMany({
         data: [{ tenantId: 1, email: "seed@x", score: 7 }],
       });
@@ -374,32 +362,23 @@ test(
 );
 
 test(
-  "BEHAVIOR: the produced compound identity answers on both arms, on a model create cannot reach",
+  "BEHAVIOR: root create and upsert publish the produced compound identity",
   { timeout: 30_000 },
   async () => {
-    // RETARGETED BY E6.2 (authorized test change: decline → accept-and-execute, same payload). This test
-    // read "the remaining refusal is typed, and its model is already write-capped"
-    // and asserted the `UnsupportedOperationError` on the `slot` create arm. The
-    // "write-capped" half is still TRUE and still pinned below: a single-row
-    // `create` on `slot` remains refused upstream by mutation-identity's
-    // generated-compound-PK guard. What changed is the upsert: its create arm now
-    // reads back by the produced key, so the model gains a single-row write path
-    // through `upsert` that `create` still does not have.
+    // Package A gives the fresh-record owner the complete ordered row key. Root
+    // create and probe-first upsert therefore publish the same generated member.
     const client = createClient({
       schema: identitySchema,
       driver: new PGliteDriver(),
     });
     await push(client, { force: true });
     try {
-      const createRejection = await client.slot
-        .create({ data: { tenantId: 1, label: "a", score: 1 } })
-        .then(
-          () => undefined,
-          (error: unknown) => error
-        );
-      expect((createRejection as Error).message).toContain(
-        "Nested create cannot propagate generated compound primary keys"
-      );
+      expect(
+        await client.slot.create({
+          data: { tenantId: 1, label: "a", score: 1 },
+          select: { tenantId: true, label: true },
+        })
+      ).toEqual({ tenantId: 1, label: "a" });
       expect(
         await client.slot.createMany({
           data: [{ tenantId: 1, label: "b", score: 2 }],
@@ -407,7 +386,10 @@ test(
       ).toEqual({ count: 1 });
       expect(
         await client.slot.findMany({ select: { tenantId: true, label: true } })
-      ).toEqual([{ tenantId: 1, label: "b" }]);
+      ).toEqual([
+        { tenantId: 1, label: "a" },
+        { tenantId: 1, label: "b" },
+      ]);
       // CREATE arm: the `where` names a `seq` no row holds. The seeded row shares
       // the create's `tenantId`, so a read-back re-derived from the spelled member
       // alone could answer with IT; the produced `seq` is what separates them.
@@ -427,6 +409,7 @@ test(
           select: { label: true, score: true },
         })
       ).toEqual([
+        { label: "a", score: 1 },
         { label: "b", score: 2 },
         { label: "c", score: 3 },
       ]);
@@ -434,7 +417,7 @@ test(
       // still updates on the very same model.
       expect(
         await client.slot.upsert({
-          where: { tenantId_seq: { tenantId: 1, seq: 1 } },
+          where: { tenantId_seq: { tenantId: 1, seq: 2 } },
           create: { tenantId: 1, label: "c", score: 3 },
           update: { score: { increment: 1 } },
           select: { label: true, score: true },
@@ -449,14 +432,13 @@ test(
 // ---------------------------------------------------------------------------
 // THE SHARED-BATCH SEAM: `$transaction([…])` on a batch-only driver.
 //
-// The shared merge cannot isolate an operation's `insertId` scratch, so the one
-// remaining capture-needing shape is refused there — typed, and only when the
-// create arm is taken. The behavior suite proves the capture-free shapes merge on
-// both substrates; this proves the refusal is still a refusal, and still narrow.
+// The explicit array is one indivisible native batch. A scalar create arm now returns
+// its public projection directly from INSERT, so no generated value crosses into a
+// later statement and the arm can merge beside a sibling operation.
 // ---------------------------------------------------------------------------
 
 test(
-  "$transaction([…]): a capture-needing create arm is refused, typed",
+  "$transaction([…]): a capture-needing create arm returns from its INSERT",
   { timeout: 30_000 },
   async () => {
     const client = createClient({
@@ -465,38 +447,19 @@ test(
     });
     await push(client, { force: true });
     try {
-      const rejection = await client
-        .$transaction([
-          client.note.upsert({
-            where: { id: 999 },
-            create: { label: "captured", status: "fresh", score: 1 },
-            update: { score: { increment: 1 } },
-            select: { label: true },
-          }),
-        ])
-        .then(
-          () => undefined,
-          (error: unknown) => error
-        );
-      expect(rejection).toBeInstanceOf(TransactionError);
-      expect((rejection as Error).message).toContain(
-        "cannot merge an insertId-scratch operation into a shared driver batch"
-      );
-      // The same operation on its OWN atomic unit is unaffected — the refusal is
-      // about the shared merge, not about the capture.
-      expect(
-        await client.note.upsert({
+      const [created] = await client.$transaction([
+        client.note.upsert({
           where: { id: 999 },
           create: { label: "captured", status: "fresh", score: 1 },
           update: { score: { increment: 1 } },
-          select: { label: true, score: true },
-        })
-      ).toEqual({ label: "captured", score: 1 });
-      // …and the UPDATE arm of the very same call merges fine: it never captures.
-      // The row the direct call above created is now live, so this locates it.
+          select: { id: true, label: true, score: true },
+        }),
+      ]);
+      expect(created).toMatchObject({ label: "captured", score: 1 });
+      expect(created.id).not.toBe(999);
       const [updated] = await client.$transaction([
         client.note.upsert({
-          where: { id: 1 },
+          where: { id: created.id },
           create: { label: "captured", status: "fresh", score: 1 },
           update: { score: { increment: 1 } },
           select: { label: true, score: true },

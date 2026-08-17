@@ -13,7 +13,6 @@ import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import type { Model } from "@schema/model";
 import { OperationExecutor } from "@src/query-engine/write-engine/OperationExecutor";
 import { executeRoutedOperation } from "@src/query-engine/write-engine/routing";
-import { UnsupportedOperationError } from "@src/query-engine/write-engine/shared";
 import { UpdateOperation } from "@src/query-engine/write-engine/UpdateOperation";
 import { UpsertOperation } from "@src/query-engine/write-engine/UpsertOperation";
 import { observeClientOperations } from "@tests/contracts/engine/write/operation-observer";
@@ -299,18 +298,34 @@ describe("write boundary upsert construction surface", () => {
 // `nested-arm-dispatch.test.ts`.
 // ---------------------------------------------------------------------------
 
-describe("write boundary depth-2 to-one grandchild refusal", () => {
-  test("a nested upsert whose update arm has a to-one connectOrCreate is the documented refusal", () => {
+describe("write boundary depth-2 to-one grandchild, LIFTED", () => {
+  // RETARGETED by the residual lift's Package I orchestrator pass (2026-08-14).
+  //
+  // This block asserted `assertArmEdgeIsChildHeld` — the broad parent-held refusal
+  // that residual Package C DELETED and replaced with the exact
+  // same-incoming-membership target-mutation rule. The file was never retargeted, so
+  // it had been red since C and was carried through D-I as "stale batch residue" it
+  // never belonged to (it constructs in 9 ms and never reaches a driver).
+  //
+  // MEASURED on PGlite before rewriting, because the shape is the one whose SILENT
+  // OVERWRITE the first lift's Package B restored a guard for: the arm's incoming
+  // membership and the deeper parent-held fold both write `userId`. Both halves are
+  // pinned below. The old defect was that the explicit write was DISCARDED; residual
+  // C's assignment reconciliation makes the incoming membership locate/guard-only, so
+  // the explicit write is the one final value and it LANDS. The refusal is gone
+  // because the composition became coherent, not because the hazard was accepted.
+  const getFamily = usePGliteSchemaFamily(upsertFamilySchema);
+
+  test("constructs — the broad refusal is gone", () => {
     const schemas = createSchemaRegistry(upsertFamilySchema);
     const boundary = new QueryEngine(
       new PGliteDriver(),
       createModelRegistry(upsertFamilySchema, schemas)
     );
-    const userModel = upsertFamilySchema.user;
 
     expect(
       () =>
-        new UpdateOperation(boundary, userModel, {
+        new UpdateOperation(boundary, upsertFamilySchema.user, {
           where: { email: "gp@x" },
           data: {
             posts: {
@@ -332,8 +347,77 @@ describe("write boundary depth-2 to-one grandchild refusal", () => {
           },
           select: { email: true },
         })
-    ).toThrow(UnsupportedOperationError);
+    ).not.toThrow();
   });
+
+  test(
+    "the deeper parent-held write is the final value on both the agreeing and the DISAGREEING spelling",
+    { timeout: 30_000 },
+    async () => {
+      const family = getFamily();
+      await family.reset();
+      const client = makeClient(family.database);
+      await client.user.create({ data: { id: 1, email: "gp@x", score: 0 } });
+      await client.user.create({ data: { id: 2, email: "other@x", score: 0 } });
+      await client.post.create({
+        data: {
+          id: 50,
+          title: "orig",
+          slug: "s50",
+          author: { connect: { id: 1 } },
+        },
+      });
+
+      // AGREEING: the grandchild names the same parent the arm located through.
+      await client.user.update({
+        where: { email: "gp@x" },
+        data: {
+          posts: {
+            upsert: [
+              {
+                where: { id: 50 },
+                create: { id: 50, title: "created", slug: "s50c" },
+                update: {
+                  author: {
+                    connectOrCreate: {
+                      where: { id: 1 },
+                      create: { id: 1, email: "gp@x", score: 0 },
+                    },
+                  },
+                },
+              },
+            ],
+          },
+        },
+        select: { email: true },
+      });
+      await expect(
+        client.post.findUnique({ where: { id: 50 } })
+      ).resolves.toMatchObject({ userId: 1 });
+
+      // DISAGREEING — the half that measures the old defect. The arm located post 50
+      // through user 1; the update arm reparents it to user 2. The requested write is
+      // the final value; a `userId` of 1 here would be the silent discard.
+      await client.user.update({
+        where: { email: "gp@x" },
+        data: {
+          posts: {
+            upsert: [
+              {
+                where: { id: 50 },
+                create: { id: 50, title: "created", slug: "s50c" },
+                update: { author: { connect: { id: 2 } } },
+              },
+            ],
+          },
+        },
+        select: { email: true },
+      });
+      await expect(
+        client.post.findUnique({ where: { id: 50 } })
+      ).resolves.toMatchObject({ userId: 2 });
+    }
+  );
 });
 
 // ---------------------------------------------------------------------------

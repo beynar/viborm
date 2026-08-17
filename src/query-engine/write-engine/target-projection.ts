@@ -106,18 +106,39 @@ export function targetProjectionSelect(
   return Object.fromEntries(projection.fields.map((field) => [field, true]));
 }
 
-/** Existing-row guard addressed only by one already-resolved complete row key. */
+/**
+ * Existing-row guard addressed by one already-resolved complete row key, and —
+ * when the caller supplies one — by an exact membership premise beside it.
+ *
+ * The two arguments are two FACTS and the split is deliberate (residual plan §H1:
+ * "a reference value is not row identity … keep that pair in a distinct
+ * exact-membership guard when the progressive boundary needs it; the parent
+ * liveness guard still uses every `ModelKeyCatalog.rowKey` member"). `identity`
+ * says the row is still there; `membership` says the value a later batch is about
+ * to write into a child's foreign key still names THAT row. A caller with nothing
+ * to add passes nothing and its SQL is byte-identical, which is why the placements
+ * that were already accepted before H1 did not move.
+ *
+ * `membership` entries must name fields OUTSIDE the row key — a row-key member is
+ * already asserted by `identity`, and re-spelling it would be the second guard for
+ * one invariant this estate bans. They join the same `whereUnique` as extended
+ * discriminators or filters, so this adds one conjunct, never one statement.
+ */
 export function completeTargetPresenceGuard(
   scope: QueryScope,
   id: string,
   identity: Readonly<Record<string, unknown>>,
-  failure: Failure
+  failure: Failure,
+  membership?: Readonly<Record<string, unknown>>
 ): GuardStep {
   const projection = buildTargetProjection(scope.model);
   return presenceGuard(
     id,
     buildFindUnique(scope, {
-      where: buildPrimaryKeyWhereUnique(scope.model, identity),
+      where: {
+        ...buildPrimaryKeyWhereUnique(scope.model, identity),
+        ...(membership ?? {}),
+      },
       select: targetProjectionRowKeySelect(projection),
     }),
     failure

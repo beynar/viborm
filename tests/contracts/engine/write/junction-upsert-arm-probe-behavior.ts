@@ -121,7 +121,7 @@ async function seedDecoy(client: any): Promise<{
   decoyUserId: string;
 }> {
   const decoyTag = await client.tag.create({
-    data: { slug: "decoy", weight: 4 },
+    data: { id: -1, slug: "decoy", weight: 4 },
   });
   await client.note.create({
     data: { id: "n-decoy", body: "decoy", tagId: decoyTag.id },
@@ -156,7 +156,7 @@ export function registerJunctionUpsertArmProbeBehavior(
       await reset(client);
       const decoy = await seedDecoy(client);
       const target = await client.tag.create({
-        data: { slug: "target", weight: 4 },
+        data: { id: 1, slug: "target", weight: 4 },
       });
       await client.user.create({
         data: { id: "u1", name: "u", tags: { connect: { id: target.id } } },
@@ -202,7 +202,7 @@ export function registerJunctionUpsertArmProbeBehavior(
       const decoy = await seedDecoy(client);
       await client.owner.create({ data: { id: "o1", label: "o" } });
       const target = await client.tag.create({
-        data: { slug: "target", weight: 4 },
+        data: { id: -2, slug: "target", weight: 4 },
       });
       await client.user.create({
         data: { id: "u1", name: "u", tags: { connect: { id: target.id } } },
@@ -233,7 +233,7 @@ export function registerJunctionUpsertArmProbeBehavior(
       // CREATE arm — the delegated locate finds nothing and must NOT raise the
       // target's own not-found: an empty probe here is the create decision. This is
       // the leg that used to abort the whole operation.
-      await client.user.update({
+      const missingOperation = client.user.update({
         where: { id: "u1" },
         data: {
           tags: {
@@ -245,6 +245,7 @@ export function registerJunctionUpsertArmProbeBehavior(
           },
         },
       });
+      await missingOperation;
       const fresh = await client.tag.findUnique({ where: { slug: "fresh" } });
       expect(fresh.weight).toBe(7);
       // The update arm's payload is NOT applied to the row the create arm made.
@@ -264,7 +265,9 @@ export function registerJunctionUpsertArmProbeBehavior(
       const client = await connect();
       await reset(client);
       await seedDecoy(client);
-      await client.tag.create({ data: { slug: "outsider", weight: 4 } });
+      await client.tag.create({
+        data: { id: 1, slug: "outsider", weight: 4 },
+      });
       await client.user.create({ data: { id: "u1", name: "u" } });
 
       await expect(
@@ -291,7 +294,7 @@ export function registerJunctionUpsertArmProbeBehavior(
       await reset(client);
       const decoy = await seedDecoy(client);
       const target = await client.tag.create({
-        data: { slug: "target", weight: 4 },
+        data: { id: 1, slug: "target", weight: 4 },
       });
 
       const made = await client.user.create({
@@ -325,7 +328,7 @@ export function registerJunctionUpsertArmProbeBehavior(
       const decoy = await seedDecoy(client);
       await client.owner.create({ data: { id: "o1", label: "o" } });
       const target = await client.tag.create({
-        data: { slug: "target", weight: 4 },
+        data: { id: 1, slug: "target", weight: 4 },
       });
 
       const made = await client.user.create({

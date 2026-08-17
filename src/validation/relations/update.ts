@@ -17,6 +17,7 @@ import {
   nestedRelationDataProjection,
   type ProjectedNestedCreate,
   type ProjectedNestedUpdate,
+  type ProjectedSelectedUpsertUpdate,
 } from "./nested-data-projection";
 import {
   type ToOneMutationSchema,
@@ -199,31 +200,27 @@ type IsChildHeldToOne<S extends RelationState> = S extends {
 type OptionalToOneUpdateEntries<
   S extends RelationState,
   Source extends AnyModel,
-> =
-  IsFieldsLessInverseOneToOne<S> extends true
-    ? ToOneUpdateSchemaDelete["entries"] &
-        (MembershipCanBeCleared<S, Source> extends true
-          ? ToOneUpdateSchemaDisconnect["entries"]
-          : Record<never, never>)
-    : ToOneUpdateSchemaDisconnect["entries"] &
-        ToOneUpdateSchemaDelete["entries"];
+> = IsFieldsLessInverseOneToOne<S> extends true
+  ? ToOneUpdateSchemaDelete["entries"] &
+      (MembershipCanBeCleared<S, Source> extends true
+        ? ToOneUpdateSchemaDisconnect["entries"]
+        : Record<never, never>)
+  : ToOneUpdateSchemaDisconnect["entries"] & ToOneUpdateSchemaDelete["entries"];
 
 export type ToOneUpdateSchema<
   S extends RelationState,
   Source extends AnyModel,
-> =
-  SlotMayBeEmpty<S> extends true
-    ? ToOneMutationSchema<
-        OptionalToOneUpdateEntries<S, Source> &
-          ToOneUpdateEntriesBase<S, Source>,
-        undefined,
-        IsChildHeldToOne<S>
-      >
-    : ToOneMutationSchema<
-        ToOneUpdateEntriesBase<S, Source>,
-        undefined,
-        IsChildHeldToOne<S>
-      >;
+> = SlotMayBeEmpty<S> extends true
+  ? ToOneMutationSchema<
+      OptionalToOneUpdateEntries<S, Source> & ToOneUpdateEntriesBase<S, Source>,
+      undefined,
+      IsChildHeldToOne<S>
+    >
+  : ToOneMutationSchema<
+      ToOneUpdateEntriesBase<S, Source>,
+      undefined,
+      IsChildHeldToOne<S>
+    >;
 
 export const toOneUpdateFactory = <
   S extends RelationState,
@@ -379,7 +376,7 @@ type ToManyUpdateEntries<S extends RelationState, Source extends AnyModel> = {
       {
         where: () => GetTargetSchemas<S>["core"]["whereUniqueExtended"];
         create: () => ProjectedNestedCreate<S, Source>;
-        update: () => ProjectedNestedUpdate<S, Source>;
+        update: () => ProjectedSelectedUpsertUpdate<S, Source>;
       },
       { partial: false }
     >
@@ -416,6 +413,8 @@ export const toManyUpdateFactory = <
   const getCreateSchema = projection.getCreateSchema;
   // N1 — see the to-one factory above and {@link ProjectedNestedUpdate}.
   const getUpdateSchema = projection.getUpdateSchema;
+  const getSelectedUpsertUpdateSchema =
+    projection.getSelectedUpsertUpdateSchema;
 
   const createManySchema = v.object(
     {
@@ -453,7 +452,7 @@ export const toManyUpdateFactory = <
     {
       where: () => targetSchemas().core.whereUniqueExtended,
       create: getCreateSchema,
-      update: getUpdateSchema,
+      update: getSelectedUpsertUpdateSchema,
     },
     { partial: false }
   );

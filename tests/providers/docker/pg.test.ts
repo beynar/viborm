@@ -11,6 +11,37 @@ import { createClient as PgCreateClient, PgDriver } from "@drivers/pg";
 import { UniqueConstraintError } from "@errors";
 import { push } from "@migrations";
 import { s } from "@schema";
+import { batchPrimaryKeyDataflowContract } from "@tests/contracts/drivers/behaviors/batch-primary-key-dataflow-behavior";
+import { blobFilterContract } from "@tests/contracts/drivers/behaviors/blob-filter-behavior";
+import { bulkWriteLimitContract } from "@tests/contracts/drivers/behaviors/bulk-write-limit-behavior";
+import { clientRawContract } from "@tests/contracts/drivers/behaviors/client-raw-behavior";
+import { compoundJunctionContract } from "@tests/contracts/drivers/behaviors/compound-junction-behavior";
+import { createManyReturnFoldContract } from "@tests/contracts/drivers/behaviors/create-many-return-fold-behavior";
+import { decimalExactnessContract } from "@tests/contracts/drivers/behaviors/decimal-exactness-behavior";
+import { fieldReferenceContract } from "@tests/contracts/drivers/behaviors/field-reference-behavior";
+import { fkIndexContract } from "@tests/contracts/drivers/behaviors/fk-index-behavior";
+import { forwardFkOrderingContract } from "@tests/contracts/drivers/behaviors/forward-fk-ordering-behavior";
+import {
+  mappedIndexContract,
+  partialIndexPredicateChurnContract,
+} from "@tests/contracts/drivers/behaviors/index-ddl-behavior";
+import { jsonNullSentinelContract } from "@tests/contracts/drivers/behaviors/json-null-sentinel-behavior";
+import { listJsonFilterContract } from "@tests/contracts/drivers/behaviors/list-json-filter-behavior";
+import { m2mDeleteManyStalenessContract } from "@tests/contracts/drivers/behaviors/m2m-deletemany-staleness-behavior";
+import { nestedOrderByContract } from "@tests/contracts/drivers/behaviors/nested-orderby-behavior";
+import { nestedWriteAdvancedContract } from "@tests/contracts/drivers/behaviors/nested-write-advanced-behavior";
+import { nestedWriteContract } from "@tests/contracts/drivers/behaviors/nested-write-behavior";
+import { nestedWriteConcurrencyContract } from "@tests/contracts/drivers/behaviors/nested-write-concurrency-behavior";
+import { omitContract } from "@tests/contracts/drivers/behaviors/omit-behavior";
+import { polymorphicRelationContract } from "@tests/contracts/drivers/behaviors/polymorphic-relation-behavior";
+import { rawArrayTransactionContract } from "@tests/contracts/drivers/behaviors/raw-array-transaction-behavior";
+import { relationReadAggregateContract } from "@tests/contracts/drivers/behaviors/relation-read-aggregate-behavior";
+import {
+  fullScalarRoundtripContract,
+  scalarRoundtripContract,
+} from "@tests/contracts/drivers/behaviors/scalar-roundtrip-behavior";
+import { upsertAtomicityContract } from "@tests/contracts/drivers/behaviors/upsert-atomicity-behavior";
+import { vectorContract } from "@tests/contracts/drivers/behaviors/vector-behavior";
 import { runBooleanNoOpArmBehavior } from "@tests/contracts/engine/write/boolean-noop-arm-behavior";
 import { runBulkWriteBehavior } from "@tests/contracts/engine/write/bulk-write-behavior";
 import { runCreateManyBehavior } from "@tests/contracts/engine/write/create-many-behavior";
@@ -40,35 +71,6 @@ import {
   PgBeforeFirstBatchDriver,
   PgRacePlantingBatchDriver,
 } from "@tests/fixtures/drivers/batch-forced-pg";
-import { batchPrimaryKeyDataflowContract } from "@tests/contracts/drivers/behaviors/batch-primary-key-dataflow-behavior";
-import { blobFilterContract } from "@tests/contracts/drivers/behaviors/blob-filter-behavior";
-import { bulkWriteLimitContract } from "@tests/contracts/drivers/behaviors/bulk-write-limit-behavior";
-import { clientRawContract } from "@tests/contracts/drivers/behaviors/client-raw-behavior";
-import { createManyReturnFoldContract } from "@tests/contracts/drivers/behaviors/create-many-return-fold-behavior";
-import { decimalExactnessContract } from "@tests/contracts/drivers/behaviors/decimal-exactness-behavior";
-import { fieldReferenceContract } from "@tests/contracts/drivers/behaviors/field-reference-behavior";
-import { fkIndexContract } from "@tests/contracts/drivers/behaviors/fk-index-behavior";
-import { forwardFkOrderingContract } from "@tests/contracts/drivers/behaviors/forward-fk-ordering-behavior";
-import {
-  mappedIndexContract,
-  partialIndexPredicateChurnContract,
-} from "@tests/contracts/drivers/behaviors/index-ddl-behavior";
-import { jsonNullSentinelContract } from "@tests/contracts/drivers/behaviors/json-null-sentinel-behavior";
-import { listJsonFilterContract } from "@tests/contracts/drivers/behaviors/list-json-filter-behavior";
-import { m2mDeleteManyStalenessContract } from "@tests/contracts/drivers/behaviors/m2m-deletemany-staleness-behavior";
-import { nestedOrderByContract } from "@tests/contracts/drivers/behaviors/nested-orderby-behavior";
-import { nestedWriteAdvancedContract } from "@tests/contracts/drivers/behaviors/nested-write-advanced-behavior";
-import { nestedWriteContract } from "@tests/contracts/drivers/behaviors/nested-write-behavior";
-import { nestedWriteConcurrencyContract } from "@tests/contracts/drivers/behaviors/nested-write-concurrency-behavior";
-import { omitContract } from "@tests/contracts/drivers/behaviors/omit-behavior";
-import { polymorphicRelationContract } from "@tests/contracts/drivers/behaviors/polymorphic-relation-behavior";
-import { relationReadAggregateContract } from "@tests/contracts/drivers/behaviors/relation-read-aggregate-behavior";
-import {
-  fullScalarRoundtripContract,
-  scalarRoundtripContract,
-} from "@tests/contracts/drivers/behaviors/scalar-roundtrip-behavior";
-import { upsertAtomicityContract } from "@tests/contracts/drivers/behaviors/upsert-atomicity-behavior";
-import { vectorContract } from "@tests/contracts/drivers/behaviors/vector-behavior";
 
 // =============================================================================
 // SCHEMA DEFINITION
@@ -532,6 +534,10 @@ describeIf("pg Driver", () => {
     driverName: "pg",
     createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
   });
+  compoundJunctionContract.register({
+    driverName: "pg",
+    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
   // Decision 7.4 on the real server rather than the WASM one: the deparse this
   // reconciles is PostgreSQL's, and `pg` reaches it through a POOL, where the
   // canonicalization's session-local scratch would scatter across connections
@@ -642,6 +648,10 @@ describeIf("pg Driver", () => {
     driverName: "pg",
     createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
   });
+  rawArrayTransactionContract.register({
+    name: "Docker PostgreSQL",
+    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
 
   // Relation _count / relation orderBy / every-none read filters over the
   // real driver (correlated-subquery results cross real result parsing).
@@ -672,9 +682,6 @@ describeIf("pg Driver", () => {
     createDriver: () =>
       new PgBatchForcedDriver({ databaseUrl: TEST_CONNECTION_STRING }),
   });
-  // T4b CLASS III — the batch updated/generated-PK dataflow on the RETURNING/lastval
-  // driver: updated-PK (compile-derived literal FK) and generated-PK (lastval batch-ref
-  // store) both proven on a real Postgres atomic batch.
   batchPrimaryKeyDataflowContract.register({
     driverName: "pg batch-only",
     createDriver: () =>

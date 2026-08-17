@@ -3,9 +3,14 @@
 **Date:** 2026-08-05
 **Re-anchored:** 2026-08-11 (Package N3) — COMPLETE, every section, against the tree at the Package N commit. The three partial re-anchors this file used to record (Packages F, E, and K's one-line fix) are folded in and their deferral notes deleted, because there is nothing left for them to defer.
 **Re-anchored again:** 2026-08-11 (the **Package O gate**), against the tree after "refactor: give query engine guards one owner". Package O compressed the census from 21 write-engine sites to 15 and this file went on stating 21/24/26 and "12 distinct invariants" in the present tense — the exact failure its own anchoring convention exists to prevent, one package later. What changed here: §12's site tables gained a HEAD column and RETIRED markers, the distinct-invariant section was corrected (row 4 is two invariants, so the base was 13 and not 12), the §O4 verdict paragraph now records that the architecture review WAS conducted and approved all 19 survivors, and every coordinate pointing into a file Package O touched was re-resolved. **The shapes themselves did not change: not one refusal was lifted, added or narrowed by Package O.** Its subject was ownership, not capability.
-**Scope:** the 30 refusals standing after PR #20, MINUS the 9 the final re-audit re-filed as expressible work, MINUS the 2 Package B deleted, MINUS the 1 Package F deleted, MINUS the 4 of §1 Package H delivered, MINUS §7.1, which Package D deleted and which this file went on presenting as standing for a day. What remains is **18 shape entries**, each with the payload that raises it and the reason it stands. They covered 20 of the 21 write-engine sites when N3 wrote this: §2.2 and §2.5 each held two positions, and the twenty-first (an atomic batch cannot publish a produced column) is a substrate fact rather than a shape and is classified in §12 instead. **After Package O the same 18 shapes are expressed by 15 sites** — six positions folded into owners that already said the same sentence, and one (§10.1) changed error class. A shape whose site count fell is still refused, by the same words, at the same moment.
+**Package-O checkpoint scope:** the 30 refusals standing after PR #20, MINUS the 9 the final re-audit re-filed as expressible work, MINUS the 2 Package B deleted, MINUS the 1 Package F deleted, MINUS the 4 of §1 Package H delivered, MINUS §7.1, which Package D deleted and which this file went on presenting as standing for a day. At that checkpoint **18 shape entries** remained, each with the payload that raised it and the reason it stood. They covered 20 of the 21 write-engine sites when N3 wrote this: §2.2 and §2.5 each held two positions, and the twenty-first (an atomic batch cannot publish a produced column) was a substrate fact rather than a shape and was classified in §12 instead. **After Package O the same 18 shapes were expressed by 15 sites** — six positions folded into owners that already said the same sentence, and one (§10.1) changed error class. For current truth, use the live table in `guard-ownership-ledger.md`: **8 write-engine / 10 query-engine / 11 whole `src`**, with every live site falsified.
 
-Every refusal below is an `UnsupportedOperationError` raised at CONSTRUCTION — before any statement runs, so nothing is written. Each has a committed witness in `tests/contracts/engine/write/`. The examples are derived from the refusal conditions in code, the re-audit's per-site arguments, and those witnesses; they show the SHAPE, not a runnable fixture.
+At the Package-O checkpoint, every refusal catalogued below was an
+`UnsupportedOperationError` raised at CONSTRUCTION — before any statement ran, so
+nothing was written. That is historical evidence, not a claim about every live residual
+site: the current census also has compile-, executor-, and driver-boundary owners. Each
+example was derived from the then-current refusal condition and its committed witness;
+it shows the SHAPE, not a runnable fixture.
 
 **Anchoring convention.** A refusal SITE is anchored on its
 `throw new UnsupportedOperationError(` line, not on the message template one line
@@ -34,7 +39,28 @@ Two things had moved before that and neither changes a shape:
   compound-child-PK family under "What is NOT here"), and one shape moved out of
   the write engine entirely (that section's last row).
 
-The executable census owner is
+**RE-ANCHORED AGAIN, 2026-08-14 (residual Package I plus Track A).** Everything
+below this paragraph up to §12 is the Package O snapshot and is kept as history; the
+numbers in that snapshot are NOT live. **The live census is 8 write-engine / 10
+query-engine / 12 whole `src`**, re-measured site by site and pinned executably by
+`operation-construction-inventory.test.ts` (which asserts the write-engine 8 and
+re-resolves all 12 coordinates). The per-site owner, invariant, first-knowable
+boundary and falsifier for each of those 12 live in
+`guard-ownership-ledger.md` under "Residual Package I plus Track A — the live site
+table", which supersedes every coordinate in this document's §12 tables. Track A
+retired the static later-race-pin refusal; the remaining crossed-output boundary is
+the compiler-continuation premise.
+
+**CURRENT OVERLAY, 2026-08-17 (five-capability lift).** The historical snapshots
+below stay dated. The current literal census is **8 write-engine / 10
+query-engine / 11 whole `src`**: site 26 is retired, and sites 13, 19, 27 and 28
+are narrower. The executable inventory re-resolves all 11 live coordinates;
+the current live table in `guard-ownership-ledger.md` gives each owner and
+falsifier. Stable selected-row re-entry, splittable bind-budget chunks, exact
+scalar/snapshot-safe mutation folds, and an explicit alternate-unique
+post-write locator are accepted shapes, not forbidden ones.
+
+*(Historical, Package O era, left as written.)* The executable census owner is
 `tests/contracts/engine/write/operation-construction-inventory.test.ts`; it pins
 **15** `new UnsupportedOperationError` sites under `src/query-engine/write-engine`
 (2026-08-11, after Packages B, C, D, G, F, J, H, K, N and O — J added one, H removed
@@ -49,10 +75,10 @@ Sites are positions, not shapes, and the mapping between the two is what that ce
 test's narrative owns — including the sites that are deliberately not shapes in
 this document, each named where it belongs below. **§12 gives every one of the 19 its
 single classification bucket**, which is the measure the limitation-lift plan's §O4
-calls the more important one: the 17 query-engine sites express **12 distinct
-invariants**, and the engine owns **13** (the thirteenth, compound many-to-many, is
-refused by `getRequiredSinglePrimaryKeyField` as a `QueryEngineError`, so no census
-grep sees it). The per-site reasoning, the §O3 five-question audit and the §O4
+calls the more important one: the live sites and their distinct invariants are
+classified by the executable inventory and ownership ledger. The former extra
+engine-owned compound-many-to-many invariant is now retired; it never affected
+the raw `UnsupportedOperationError` census. The per-site reasoning, the §O3 five-question audit and the §O4
 adjudication record live in `docs/architecture/guard-ownership-ledger.md`, which is
 this document's companion: **this file owns the SHAPES, the ledger owns the
 OWNERSHIP, and the inventory test owns WHAT IS THERE.**
@@ -95,9 +121,9 @@ Each entry below is kept with its original text and a **delivered** note, becaus
 
 **What the four became.** `CreateOperation`'s two lines survive as `QueryEngineError` assertions in place — under the CREATE root the to-one input owns neither `update` nor a vacate key, so their only multi-entry payload is supplier + supplier and the schema answers first; reaching them means the schema and the dispatch disagree, which is an engine fault, not a declined shape. `RecordUpdateCompiler`'s two are deleted outright.
 
-**The one site added,** and it is a different claim: `create` or `connectOrCreate` composed with `update` is refused because a selected-record compiler locates its record with a PLANNING read, planning precedes every write, and those two suppliers only produce the row's identity by inserting it. `connect` composes, because a unique selector is an identity that exists before the fragment's first write. The site names that obstacle, so it stays truthful until the produced-identity selector channel lands.
+**The one site added** — `create` or `connectOrCreate` composed with `update`, refused because a selected-record compiler located its record with a PLANNING read that precedes every write — **has since been RETIRED by residual-lift Package E**, which moved the locate instead of building the channel the sentence named. §1.5 carries the delivered note; the net of H plus E on this section is 23 → 19. `builders/to-one-composition.ts` now owns the one composition reading, and `composeToOneEntries` is a reader of it rather than a decision of its own.
 
-**Three shapes the lattice admits and `OwnWriteLedger` still refuses** (a `NestedWriteError`, not a census site): parent-held `delete` + `connect`, and child-held `delete` + supplier + `update`, both because `delete: true` names the CURRENT member — an identity unknown at construction — so the analyzer cannot rule out that it is the very row the sibling reads.
+**The shapes the lattice admits and `OwnWriteLedger` still refuses** (a `NestedWriteError`, not a census site): parent-held `delete` + `connect`, and child-held `delete` + `connect` + `update`, both because `delete: true` names the CURRENT member — an identity unknown at construction — so the analyzer cannot rule out that it is the very row the sibling reads. Child-held `delete` + a PRODUCING supplier + `update` is no longer among them: its modify is located by post-supply membership rather than by a construction-time selector, so the analyzer has no target read to place against the `delete`, and the series executes vacate → supplier → capture → update in that order.
 
 Witnesses: `parity-h-to-one-lattice.test.ts` (plans, refusal sentences, census), `vacate-then-supply.test.ts` (all 21 pairs and all 6 triples by OWNER, plus the parent-held direction's state), `shared-pk-supply-modify.test.ts` (the shared-key fold through a composition).
 
@@ -153,27 +179,30 @@ client.user.update({
 });
 ```
 
-**1.5 — a PRODUCING supplier composed with `update`, child-held** · `RecordUpdateCompiler.ts:4728` (`composeToOneEntries`; the throw is `:4767`) — **ADDED by Package H, and the one shape in this document with a NAMED EXPIRY**
+**1.5 — DELIVERED: a PRODUCING supplier composed with `update`, child-held** — added by Package H with a NAMED EXPIRY, and **retired by residual-lift Package E (2026-08-13)**, the only shape in this document whose stated expiry has been met.
 
 ```ts
+// ✓ ALL of these execute now, on any substrate that can run a record series:
 client.user.update({
   where: { id: 1 },
   data: {
     badge: {
-      create: { label: "x" },      // ✗ so is connectOrCreate
+      create: { label: "x" },      // and so does connectOrCreate, both arms
       update: { label: "y" },
     },
   },
 });
 
-// ✓ connect composes, because a unique selector is an identity that already exists:
+// ✓ connect composes as it always did, and its plan is byte-identical:
 client.user.update({
   where: { id: 1 },
   data: { badge: { connect: { id: 3 }, update: { label: "y" } } },
 });
 ```
 
-A selected-record compiler locates its record with a PLANNING read, planning precedes every write, and `create` / `connectOrCreate` only produce the row's identity by inserting it. The refusal names that obstacle in its own sentence, so it stays truthful until the work expires it: **a produced-identity selector channel for `RecordUpdateCompiler`** — a final reference into an earlier INSERT's outputs, consumed by `writeWhere`, the captured-key guards and the terminal read. Type-admitted and engine-refused deliberately: the schema keeps the pair legal so the lattice has one owner, and the engine owns coherence.
+The expiry was met by NOT building the channel it named. The refusal assumed the modify must be located by a PLANNING read, which precedes every write; the lift changed the LOCATE instead. **Membership after supply is the selector**: the supplier's own Parts run first, a nested `RecordSeriesStep` of exactly one member then captures the singular target through the same exact physical-membership predicate every other arm on that edge uses, and the ordinary `RecordUpdateCompiler` runs against the captured complete row key. No supplier publishes a row key for this composition, no produced-identity reference kind exists, and the `connect` path never enters a series. The public type surface is unchanged — the schema still owns the lattice, and the engine now executes all of it.
+
+What did NOT widen, and still refuses: two suppliers (the lattice, `to-one-mutation-schema.ts`), and `delete` + `connect` + `update`, whose modify still reads a construction-time selector so the own-write ledger can still place it against the sibling `delete`. The substrate boundary is the record series' own: a driver with neither an interactive transaction nor native atomic batch declines before the supplier writes.
 
 ---
 
@@ -187,7 +216,7 @@ A foreign key equal to `NULL` references nothing. These fire when the referenced
 
 **The split sentence above is superseded for 2.4, and the correction is stated rather than edited away** because the pre-Package-F reading was the maintainer's. 2.4's site is `referencedParentSource`, which resolves each component through the SAME `recordReferenced` seam as 2.1 — so a compound edge whose failing component is a database-produced column is narrowed exactly like the single-column cases, and only its NULL member survives. Measured: `org.unique(["region","code"])` with `code: s.int().increment()` and a nested `seats: { create: … }` threw at that site at `5bf1893f` and compiles at the Package F tree with `RETURNING "code"`. **2.5** is the only entry in this section the ruling confirms untouched — its value is a column the ROOT rewrites to a non-literal, which no INSERT of this operation produces.
 
-Package F also added **one new refusal**, kept deliberately outside this section because it is a substrate fact rather than a shape: on an atomic-batch substrate no statement's rows are addressable and the reference scratch carries the generated identity alone, so a produced column cannot be published there at all and says so in its own sentence (`CreateOperation.ts:2788`, `producedReference`, declared `:2777`). Witnessed in `fresh-produced-field-behavior.ts` and `fresh-produced-field.test.ts`; the before-picture is `parity-f-fresh-field.test.ts`.
+Package F also added **one new refusal**, kept deliberately outside this section because it was a substrate fact rather than a shape: at that checkpoint an atomic batch could not address statement rows and its reference scratch carried only the generated identity. The generated-output segmentation pass retired that general refusal. A default operation now keeps an exact one-statement fold where possible, otherwise materializes `RETURNING` output and continues through an exact row-premise guard. The five-capability lift narrows the explicit-array and non-returning cases again: RETURNING scalar arms and snapshot-safe PostgreSQL-family mutation DAGs fold into one statement, and an explicitly written addressable alternate unique can locate a plural generated row key for one focused read. What still refuses is narrower: a non-returning adapter with an unnamed plural database-assigned row key (site 19), an indivisible explicit `$transaction([...])` whose mutation graph has no exact one-batch lowering (site 28), or a crossed provider output whose compiler supplies no exact continuation premise (site 32). The static later-race refusal is retired; an actual loser surfaces its unique error with committed progress and is not retried.
 
 **2.1 — the record's own referenced column, under `create`** · `CreateOperation.ts:2109` (`referencedValue`, declared `:2101`) · **PACKAGE O (2026-08-11): the shape is unchanged; its POSITION moved.** The site folded into `requireRecordReferenced` (`CreateOperation.ts:2772`, declared `:2764`, position `childEdge`); the sentence is byte-identical and `parity-f-fresh-field.test.ts:813`/`:819` still pin it.
 
@@ -214,7 +243,7 @@ client.member.create({
 });
 ```
 
-**2.3 — the same, at an `update` root** · `RecordUpdateCompiler.ts:3612` (`beforeTargetReferencedValue`, declared `:3604`)
+**2.3 — the same, at an `update` root** · **RESIDUAL PACKAGE G (2026-08-14): the shape is unchanged; its OWNER moved.** The update root's own `beforeTargetReferencedValue` is deleted; the before-root target now asks its own fresh subtree through `FreshRecordPart.requireRootReferenced`, so the refusal is `CreateOperation.requireRecordReferenced`'s (position `beforeRootTarget`) exactly as §2.2's is. The sentence is byte-identical and `parity-f-fresh-field.test.ts` / `parent-held-lookup-behavior.ts` still pin it.
 
 ```ts
 client.member.update({
@@ -237,7 +266,7 @@ client.org.create({
 
 E4 made the source per-field, so this is now judged **per component**: a null member makes the adopt probe match nothing silently on a nullable column, and raises a bare NOT NULL on a required one.
 
-**2.5 — a nested create referencing a column the root rewrites to a non-literal** · `RecordUpdateCompiler.ts:1800` (inside `postTransitionReference`, declared `:1772`, which Package D collapsed THREE closures onto — `transitionedCreateParent` and `resolvePolymorphicParent` both delegate to it now) and `:2017` (the nested-create leaf, inside `resolveCreateParent`, declared `:1911`)
+**2.5 — a nested write referencing a column the root rewrites to NULL** · `RecordUpdateCompiler.requireRewrittenReferenceValue`
 
 ```ts
 client.org.update({
@@ -249,7 +278,41 @@ client.org.update({
 });
 ```
 
-E6.6 measured that `Sql` operands are **parse-unreachable** in write data, so the reachable operand here is `null` — which names no row.
+E6.6 measured that `Sql` operands are **parse-unreachable** in write data, so the reachable
+operand here is `null` — which names no row.
+
+**RESIDUAL PACKAGE G (2026-08-14) drew that measurement's consequence.** Two sites used
+to spell one sentence with a swapped noun (`postTransitionReference`'s per-member closure
+at COMPILE, and `resolveCreateParent`'s arity-1 non-primary-key arm at CONSTRUCTION).
+Their acceptance predicates genuinely differ and both positions survive; the VERDICT does
+not, and now has one owner answering in three states:
+
+- an exact value — returned, and each position uses it its own way;
+- an exact `null` — a **contradiction**, refused as `NestedWriteError`: *"Cannot update
+  relation key field '<f>' to null while mutating relation '<r>'. A null reference names
+  no row for that relation to point at."* No substrate produces a row for a NULL foreign
+  key, so this is the caller's payload being wrong, not a capability the engine lacks;
+- anything unrepresentable — **unreachable**, and therefore a `QueryEngineError`. TWO of
+  the boundaries that make it unreachable are pinned in `sql-operand-boundary-behavior.ts`:
+  `Sql` dies at the parse boundary (bare and `{ set: … }`, under both roots), arithmetic at
+  relation-key legality's CLASS IV guard. An array operand and an explicit `undefined` are
+  answered by those same two boundaries and have **no witness of their own** — two pinned
+  arms, not four.
+
+Both positions are witnessed on the same payload family: the create leaf refuses at
+construction, the adopt arm at compile, with one message and zero effects.
+
+**"One owner, one message" is narrower than this shape, and the narrower claim is the true
+one.** It holds for the two positions `requireRewrittenReferenceValue` serves. It does not
+hold for every payload of §2.5: when the rewritten column is a ROW-KEY member the locator
+PINS, `resolveCreateParent` takes its pinned branch and never consults that owner — the post
+value is derived by `getUpdatedPrimaryKeyValue`, and an operand it cannot derive raises that
+function's own pre-existing `QueryEngineError`, *"Cannot determine the updated primary key
+for model '<M>' because field '<f>' uses an unsupported operation."* (`operations/
+mutation-identity.ts`). That owner predates residual Package G, reads the same predicate,
+and G did not touch it. No public payload was measured onto that path, so it carries no
+witness here and is not a census site; it is recorded because a reader counting owners for
+this shape would otherwise count one and find two.
 
 ---
 
@@ -290,9 +353,9 @@ Package E lifted `create`, `connectOrCreate`, `upsert` and the literal `connect`
 
 ---
 
-## 4. Junction / many-to-many (2)
+## 4. Junction / many-to-many (1)
 
-**4.1 — `skipDuplicates` where no single unique names the skipped-on row** · `RelationJunctionPart.ts:1374` (inside `resolveCreatePk`, declared `:1362`)
+**4.1 — `skipDuplicates` where no single unique names the skipped-on row** — **DELIVERED (2026-08-13, residual Package F; batch route widened 2026-08-14).** The shape below EXECUTES on every interactive or native atomic-batch driver when no effect precedes its root write.
 
 ```ts
 const tag = s.model({
@@ -304,12 +367,32 @@ const tag = s.model({
 client.post.create({
   data: {
     title: "x",
-    tags: { createMany: { data: [{ slug: "a", code: "1" }], skipDuplicates: true } },  // ✗
+    tags: { createMany: { data: [{ slug: "a", code: "1" }], skipDuplicates: true } },  // ✓
   },
 });
 ```
 
-E6.8 absorbed the two nameable cases (no conflictable unique at all → the flag is vacuous; exactly one complete unique per row → rewritten as an adopt). What remains: the probe can name a *different* row than the constraint that actually fired. Widening it was **falsified** — it joined the parent to a row the constraint may not have fired on. A compound unique with a `NULL` member stays refused for the same reason (NULL-distinct semantics).
+E6.8 had absorbed the two nameable cases (no conflictable unique at all → the flag is vacuous; exactly one complete unique per row → rewritten as an adopt) and left this one refused, because the probe can name a *different* row than the constraint that actually fired. Widening the ADOPT route was **falsified** — it joined the parent to a row the constraint may not have fired on — and that falsification still stands: this shape is not adopted. It is **suppressed**. `routeJunctionCreateManyRow` routes this row through the per-record series a relation-bearing junction row already used, where the target subtree and its join row are one member. Interactive execution uses a savepoint. Batch execution isolates the target root as one atomic segment and observes normalized row count before dispatching the join or descendants. A root conflict suppresses the member and the series continues, so the target is absent, its join row is absent, every sibling lands, and the row that was already there is neither rewritten nor linked. A compound unique with a `NULL` member takes the same route, and under NULL-distinct semantics nothing conflicts, so it simply writes. A mixed input is classified per row and preserved as maximal ordered route runs; a nameable sibling can still adopt while this member suppresses.
+
+One failure stays fatal: a conflict INSIDE the target subtree is not the annotated root's, so it aborts the complete operation — that is the contract, not a limitation. The former blanket batch refusal is retired; the narrow prior-effect boundary is recorded in **4.4** below.
+
+**4.4 — retired blanket batch refusal; prior-effect boundary remains**
+
+```ts
+// on any driver with supportsTransactions: false and supportsBatch: true
+client.post.update({
+  where: { id: "p1" },
+  data: { tags: { createMany: { data: [{ tag: "t" }], skipDuplicates: true } } },  // ✓ root-first suppression
+});
+```
+
+The former `assertSeriesSkipAttributable` site is deleted. A batch driver can
+attribute the root by placing that write alone in one atomic segment and reading
+its normalized row count before any descendant runs. Ordered commit callbacks
+strengthen attribution but are not required. The only retained refusal is when a
+write or nested series precedes the skippable root: suppressing the root would
+leave that earlier effect committed. `OperationExecutor` refuses that member
+before segment dispatch through the shared progressive owner.
 
 **4.2 — a junction create arm whose subtree cannot name its own row** — **DELIVERED AND REMOVED (2026-08-10, Package F).** The recorded narrowing — "the parse boundary fills every defaulted key and requires undefaulted ones, so the public surface reaching this is small" — understated it: the surface is EMPTY. `targetPkField` is `getRequiredSinglePrimaryKeyField`, and `planNestedCreateIdentity` is total over a single-member primary key — a spelled value enters the record's identity, an absent auto-increment becomes its `generatedField`, and an absent key that is neither throws `NestedWriteError` one line earlier, inside the `createFresh` call that builds the subtree. The other two candidates die further upstream: an `Sql` primary key is parse-unreachable in write data (E6.6), and a `null` one is refused by the target's own create schema (measured: `ValidationError: … Expected integer`). So `rootReferenced` cannot answer `undefined` here, before Package F or after. The position survives as a `QueryEngineError` naming an internal invariant — the disposition `assertCreateTreeKinds` already carries — and leaves the census.
 
@@ -358,7 +441,17 @@ Three of the four call positions are reachable through the public client and are
 
 **§3.1 note, needing ratification like Package D's:** two previously-ACCEPTED payload classes now refuse. The nested `updateMany` spelling above (whose accepted outcome was the silent reparent), and `{ userId: undefined }` in nested update data — `strict` object parsing keys on a key's PRESENCE, and nested CREATE data has answered `Unknown key` for the identical spelling since it was written, so the two contexts now agree. Both measured; both in `nested-update-owned-fk.test.ts`.
 
-**5.2 — spelled with a DISAGREEING value at the adopt seam** · `RelationUpsertPart.ts:743` (`withoutAgreeingOwnedFk`; the throw is `:754`)
+**5.2 — DELIVERED: relation-owned FK agreement is reconciled by the selected-record assignment owner**
+
+Package C deleted `withoutAgreeingOwnedFk`. The create-root upsert update arm
+now contributes its scalar data and demanded membership to
+`RecordUpdateCompiler`'s physical-column ledger. Any agreeing subset of a
+compound FK is absorbed member by member. A complete agreeing compound FK is
+also accepted. Disagreement, null, arithmetic, and equality that cannot be
+proved still raise the one final-assignment contradiction before effects.
+
+The notes below describe the pre-Package-C boundary and are retained as history,
+not as the current API.
 
 The root must be a **create**. An UPDATE root cannot reach this seam any more: Package N1 built the to-many `upsert` arm of a nested UPDATE from `getUpdateSchema`, so `client.author.update({ … posts: { upsert: { update: { authorId } } } })` answers `ValidationError: … Unknown key: authorId` at the parse and never arrives (`adopt-owned-fk-agreement-behavior.ts`, "WALL: an UPDATE root cannot spell the owned FK in the upsert arm either"). The create context is the one position N1 deliberately left un-omitted, precisely so this absorbed capability keeps a value to agree with.
 
@@ -386,7 +479,26 @@ The agree case is absorbed only where the parent value is a construction-time **
 
 ## 6. Depth on an upsert's update arm (1)
 
-**6.1 — a parent-held to-one write one level deeper** · `RelationUpsertPart.ts:1204` (`assertArmEdgeIsChildHeld`; the throw is `:1211`)
+**6.1 — DELIVERED: parent-held folds and selected-row re-entry**
+
+Package C deleted `assertArmEdgeIsChildHeld`. Unrelated parent-held writes now
+fold into the selected record's one root update. On the incoming edge,
+membership writers are reconciled as final assignments while correlated
+membership itself remains locate/guard-only. The five-capability lift then gave
+stable same-incoming update and found-upsert a selected-row continuation: they
+address the captured complete key before the enclosing root update or the final
+complete key after it, as chosen by relation placement. Child-held self-relation
+inverses are not confused with that edge.
+
+What remains refused is narrower than “target mutation on the same scope”:
+same-incoming delete/global-adopt has no selected continuation, and a re-entry
+that itself changes the incoming parent's row key cannot publish its second final
+tuple back to the enclosing compiler. `nested-arm-dispatch.test.ts` pins both
+boundaries beside the accepted update/found-upsert and enclosing-key-transition
+cases.
+
+The historical Package-B falsifier below explains why a ledger was necessary;
+it no longer describes current behavior.
 
 *Package B (commit `4ef2fa57`) attempted this deletion and RESTORED the guard on a
 measured defect: when the deeper parent-held write names the relation the upsert
@@ -492,11 +604,23 @@ The `:2314` wall verbatim, one relation kind over. *(This site used to be SHARED
 
 ---
 
-## 9. Read-back identity (1)
+## 9. Read-back identity (delivered)
 
-**9.1 — an upsert create arm that names no row to read back** · `UpsertOperation.ts:1103` (`createArmIdentity`; the throw is `:1147`)
+**9.1 — plural database-assigned row-key publication** — delivered by residual-lift Package A.
 
-The create arm's data carries neither a complete primary key, nor any complete unique constraint of the model, and its absent PK members are not a single database-generated identity the INSERT can capture.
+**9.2 — PostgreSQL atomic-batch generated-identity transport** — Package B
+reclassified the former accepted `lastval()` scratch path as a pre-effect
+refusal. `lastval()` is session-global and can be changed by another generated
+column or a trigger, so it cannot truthfully identify the preceding INSERT.
+The generated-output pass then supplied the exact replacement: default
+PostgreSQL-family operations publish from the producer's own `RETURNING`, keep
+an exact one-statement fold where possible, and otherwise continue through
+guarded atomic segments. The five-capability lift extends the indivisible path:
+a RETURNING scalar arm folds on every supporting adapter, and a bounded
+PostgreSQL-family mutation DAG folds when its result projection reads no table
+written by a sibling CTE. Site 28 survives only when an indivisible fragment,
+such as explicit `$transaction([...])`, still has no exact one-batch lowering.
+SQLite/MySQL keep their exact statement-local lowerings.
 
 ```ts
 // E6.2 ABSORBED the common case — a compound PK with ONE increment member:
@@ -508,11 +632,36 @@ client.cell.upsert({
 });
 ```
 
-What remains refused is the residue: **two** database-assigned members, which is not expressible on MySQL or SQLite anyway (one auto-increment per table). The PostgreSQL two-serial corner is **unmeasured** — recorded as a probe, not a claim.
+PostgreSQL now publishes **two or more** database-assigned row-key members through
+the fresh-record owner, using one field-keyed output per member. Root create,
+nested create, and the probe-first scalar upsert fallback consume the same fact.
+The two-generated-member DDL and exact returned row are measured on PGlite.
+
+MySQL and SQLite retain their native DDL boundaries; the engine never infers one
+generated member from another. A RETURNING-capable batch publishes the complete
+plural tuple exactly. `CreateOperation.producedReference` refuses only when a
+non-returning provider has several database-assigned row-key members and no
+complete explicit addressable alternate unique can name the inserted row. When
+one exists, the create plan carries that post-write locator and one focused read
+publishes all demanded generated members. Null, omitted/defaulted, `Sql`,
+incomplete compound, and raw-index-only candidates do not qualify.
 
 ---
 
-## 10. Compound edge into a junction (1)
+## 10. Compound edge into a junction — delivered
+
+**CURRENT RESULT (2026-08-14): supported.** A junction side is a complete
+ordered stored reference and can contain any non-empty number of primary-key
+members. `.A()` and `.B()` still each accept one string: it is the exact column
+for a scalar side and a positional prefix (`<token>_1`, `<token>_2`, …) for a
+compound side. The same bound groups own migration metadata, read correlation,
+write values, guards, cascades, and generated-field publication. PGlite
+transaction+batch, better-sqlite3, and live MySQL2 behavior are pinned, together
+with PostgreSQL/MySQL/SQLite `INSERT ... SELECT` SQL.
+
+The Package N/O account below is retained only as historical evidence of the
+former refusal and why it was not sealed in validation. Its present-tense
+claims do not describe the current engine.
 
 **10.1** · `CreateOperation.ts:2162` (`edgeParentId`; the throw is `:2168`; N3 anchored the pair at `:2133`/`:2139`) — **PACKAGE O CONVERTED THIS SITE TO A `QueryEngineError` (2026-08-11). The shape is still refused, in the engine, before any I/O — but by the owner that actually answers it.**
 
@@ -548,7 +697,7 @@ client.org.createMany({
 });
 ```
 
-The contract is now exact: if the root INSERT is skipped, that input row's complete nested subtree is suppressed. Existing rows are never adopted or updated. Count and returning results include only inserted roots, in input order. Interactive drivers isolate each member with a savepoint so effects that precede the root INSERT are also removed. D1 still refuses this relation-bearing shape because its batch API cannot attribute a unique conflict to the root statement precisely enough to suppress only that member.
+The contract is now exact: if the root INSERT is skipped, that input row's complete nested subtree is suppressed. Existing rows are never adopted or updated. Count and returning results include only inserted roots, in input order. Interactive drivers isolate each member with a savepoint. Batch-only drivers isolate the root write and inspect normalized row count before descendants run. If a member requires a write or nested series before that root, it refuses pre-effect because the earlier effect could not be undone after a skip.
 
 **11.2 — a single-target membership move across more than one `updateMany` root** · `relation-key-legality.ts:102` (`assertSingleTargetMembershipMoveAppliesToRecords`; the throw is `:110`)
 
@@ -585,7 +734,7 @@ Changes since this list was written, each verified against the tree:
   RESIDUE, deliberate and narrow: a same-value write of a referenced column is treated as a real transition wherever the pre-value is not a construction literal — which needs BOTH a single-member reference and a locator that pins it, a compound reference having no construction-time post-value even when the locator pins every member. So an occupied old slot then refuses with the occupied message where a pinning single-member locator would accept. The no-op question needs the pre-value, and the two things the regime decides — `afterRootParts` ordering and the to-one upsert's create-arm reroute — are construction-time structure. For every nested kind but `create` / `createMany` this NARROWS a refusal that used to cover the whole shape.
   NOT a lift, and the ledger says so rather than letting the sentence above imply it: for nested `create` / `createMany` the occupied guard is a NEW REFUSAL on payloads that previously executed. `pastSurface` returned before the guard could be emitted and its caller let those two kinds through untouched, so a compound / non-primary-key / unpinned reference carrying create-only relations used to compile with no probe and no guard however occupied the old slot was — while the PINNED single-member twin of the same payload was refused with the occupied message throughout. The guard is kind-blind and relation-level, so unifying the two spellings costs that accept. This is a §3.1 change of "guards and postconditions", "statement count and round trips", and "error class, message" on an accepted payload, and it needs the coordinator's ratification rather than a package's. Measured on every driver leg (`compiled-key-transition-behavior.ts`, "an OCCUPIED old slot refuses the same nested create the empty slot accepts").
   BOUNDED at the gate: an old reference tuple with a NULL member addresses no row under MATCH SIMPLE, so the guard does not fire for it. That is decided once for both substrates, because the guard's two carriers lower a null pre-value differently — the planning probe binds it as a parameter (`= $n`, never true of NULL), the atomic batch's premise resolves it to a literal (`IS NULL`, true of NULL) — and the same payload was resolving on a transaction while throwing the occupied error on a batch (`RelationKeyGuard.oldReferenceIsAddressable`; pinned on both substrates in the same behavior file).
-- (2026-08-10, Package F) **§4.2 leaves this document**, and the "honest note" count below drops with it: the junction create arm that "cannot name its own row" has no reachable payload, measured rather than argued (see §4.2's entry). Package F's own work is not a deletion but a NARROWING of §2.1, §2.2, §2.3 and §3.1 to the value states the maintainer's ruling actually named. Each of those four used to refuse two different facts under one sentence — "no row holds this value" and "the row that will hold it has not been inserted yet" — and only the first is a boundary. A referenced column the database produces (an absent `.increment()`, which is the whole of that population in this schema language) is now published by the INSERT that produces it: through its own `RETURNING` list on a returning provider in a transaction, and through ONE focused post-insert SELECT by the created-row selector on a non-returning one, in the same transaction. Demand is registered only by `rootReferenced(field)`, so a create that asks for nothing extra is byte-identical; the generated primary key keeps its historical output channel for the same reason. What still refuses at all four sites is the omitted `.nullable()` column — `.nullable()` sets `hasDefault: true, default: null`, so it arrives as an explicit `null`. ONE refusal was ADDED and is deliberately not a shape in this document: on an atomic-batch substrate no statement's rows are addressable and the reference scratch carries the generated identity alone, so the produced column cannot be published there and says so in its own sentence (`CreateOperation.ts:2788`, inside `producedReference`, declared `:2777`). Witnessed in `fresh-produced-field-behavior.ts` (live, both provider families) and `fresh-produced-field.test.ts` (three substrate spellings, the channel-collision pin, the K2 survivors); the before-picture is `parity-f-fresh-field.test.ts`, which also gained the junction produced-identity consumer Package A had left unpinned.
+- (2026-08-10, Package F) **§4.2 leaves this document**, and the "honest note" count below drops with it: the junction create arm that "cannot name its own row" has no reachable payload, measured rather than argued (see §4.2's entry). Package F's own work is not a deletion but a NARROWING of §2.1, §2.2, §2.3 and §3.1 to the value states the maintainer's ruling actually named. Each of those four used to refuse two different facts under one sentence — "no row holds this value" and "the row that will hold it has not been inserted yet" — and only the first is a boundary. A referenced column the database produces (an absent `.increment()`, which is the whole of that population in this schema language) is now published by the INSERT that produces it: through its own `RETURNING` list on a returning provider in a transaction, and through ONE focused post-insert SELECT by the created-row selector on a non-returning one, in the same transaction. Demand is registered only by `rootReferenced(field)`, so a create that asks for nothing extra is byte-identical; the generated primary key keeps its historical output channel for the same reason. What still refuses at all four sites is the omitted `.nullable()` column — `.nullable()` sets `hasDefault: true, default: null`, so it arrives as an explicit `null`. Package F also added a batch-only publication refusal. **That last addition is historical:** the generated-output segmentation pass retired it for default operations by using exact folds or guarded `RETURNING` segments. The surviving substrate walls are the narrower site-19/site-28/site-32 cases described above.
 
 - (2026-08-10, Package G) **The last row of this section is DELIVERED and removed**: the inverse-to-one upsert-arm HALF of §8.1's site. Its recorded obstacle was that the arm had no captured target to hand a nested write; the arm's own correlated probe had been publishing exactly that since Package C, and Package D removed the last reason an UNPINNED target could not carry one. `RelationWritePart`'s `inverseUpsert` branch now parses the arm ONCE through `buildParsedRelationPrograms` and hands all three members — `scalarData`, `relations`, and the `polymorphic` map it used to drop on the floor — to `RecordCompilerSeam.updateSelected`, with no `incomingMembership` (the probe found the row BY the membership, so the arm never reparents) and no `pinnedTarget` (a correlated inverse to-one has no unique `where`, so nothing is construction-known). The relation owner keeps the correlated probe, the found/missing decision, the batch premise guard and the transaction affected-rows failure; what moved is the found arm's body and the timing of its legality, which is now a deferred closure invoked after the arm is selected — ATOM §13's wording, which this seam was the last one not to obey.
   DELIVERED TOO, in the same parse: a direct polymorphic `disconnect` resolves to an intent with no relation program, so it lived only in the dropped third member. Measured at `a8349793`, `owner.update > card.upsert.update: { subject: { disconnect: true } }` compiled the found arm to ZERO steps and the call succeeded having cleared nothing, while the sibling nested `update` kind emitted the UPDATE. That was a silent wrong answer, not a refusal, so it was never in this document; it is recorded here because the same line caused both.
@@ -621,18 +770,18 @@ and is kept because a coordinate that vanishes teaches nothing.
 | # | Site | Owner | Bucket | HEAD | Basis |
 |---|---|---|---|---|---|
 | 1 | `UpdateManyRecordSeries.ts:348` | former `assertMembershipAppliesToEveryRoot` (`:337`) | **SC** | RETIRED → site 22 | The relation-bearing bulk pass moved the refusal to the shared relation-legality owner so root and nested series use one truth. |
-| 2 | `RecordUpdateCompiler.ts:1800` | `postTransitionReference` (`:1772`) | **MSI** | `:1800` / `:1772` | §2.5. `Sql` operands are parse-unreachable, so the reachable operand is `null`, which names no row. |
-| 3 | `RecordUpdateCompiler.ts:2017` | `resolveCreateParent` (`:1911`) | **MSI** | `:2017` / `:1911` | §2.5, the nested-create leaf. Same invariant as 2. |
+| 2 | `RecordUpdateCompiler.ts:1800` | `postTransitionReference` (`:1772`) | **MSI** | **RETIRED (split)** | §2.5. Residual Package G: the position survives, the sentence does not. Its `null` payload is a CONTRADICTION and refuses as `NestedWriteError` from `requireRewrittenReferenceValue`; the unrepresentable remainder is unreachable behind the parse boundary and carries `QueryEngineError`. |
+| 3 | `RecordUpdateCompiler.ts:2017` | `resolveCreateParent` (`:1911`) | **MSI** | **RETIRED (split)** | §2.5, the nested-create leaf. Package O kept it beside site 2 because its ACCEPTANCE predicate is wider and its accepted arm orders the INSERT earlier — both still true, and both still its own. Residual Package G took only the verdict the two shared. |
 | 4 | `RecordUpdateCompiler.ts:3533` | `recordSharedKeyFold` (`:3513`) | **MSI**, with one SC disjunct — see below | `:3533` / `:3513` | E. Three disjuncts under one sentence: no value, and NULL, are MSI; "a root SET spells the same member the arm folds, disagreeing" is SC. **Flagged for Package O**: one site, two invariants. |
-| 5 | `RecordUpdateCompiler.ts:3612` | `beforeTargetReferencedValue` (`:3604`) | **MSI** | `:3612` / `:3604` | §2.3, narrowed by F to the null/absent population. |
-| 6 | `RecordUpdateCompiler.ts:4767` | `composeToOneEntries` (`:4728`) | **UFF** | `:4767` / `:4728` | H. **Expiry: the produced-identity selector channel for `RecordUpdateCompiler`** — a final reference into an earlier INSERT's outputs, consumed by `writeWhere`, the captured-key guards and the terminal read. The site names the obstacle itself. |
+| 5 | `RecordUpdateCompiler.ts:3612` | `beforeTargetReferencedValue` (`:3604`) | **MSI** | **RETIRED → 15** | §2.3, narrowed by F to the null/absent population, then folded by residual Package G: the before-root target asks its own fresh subtree (`requireRootReferenced`), so site 15 answers with the same sentence under position `beforeRootTarget`. |
+| 6 | `RecordUpdateCompiler.ts:4767` | former `composeToOneEntries` unsupported arm (`:4728`) | **UFF** | **RETIRED** | H stated the expiry; residual-lift Package E MET it — see §1.5. Not by building the produced-identity selector channel, but by locating the modify through post-supply membership in a one-member record series. `composeToOneEntries` survives as a reader of `builders/to-one-composition.ts` with only its pre-existing engine-fault `QueryEngineError`. |
 | 7 | `CreateManyRecordSeries.ts:126` | former constructor refusal | **DPC** | RETIRED | The chosen contract suppresses the skipped root's whole nested subtree. |
 | 8 | `RelationJunctionPart.ts:1374` | `resolveCreatePk` (`:1362`) | **MSI** | `:1374` / `:1362` | §4.1, §7.3's identity half. A skipped row produces no identity for its join row. |
 | 9 | `RelationJunctionPart.ts:2354` | `scalarOnly` (`:2343`) | **MSI** | **RETIRED → 22** | §4.3. A set-based UPDATE learns no per-row identity. **NO EXPIRY MAY BE STATED** — see the Package L note below. |
 | 10 | `RelationWritePart.ts:691` | `parseScalarUpdateData` (`:676`) | **MSI** | **RETIRED → 22** | §8.1. Same invariant as 9, 22 and 23: four sentences, one invariant. |
 | 11 | `RelationWritePart.ts:1244` | `assertOwnedFkAbsentFromUpdateData` (`:1234`) | **SC** | `:1250` / `:1240` | §5.1, §7.1 of the plan: two different values claimed for one FK member. |
-| 12 | `RelationUpsertPart.ts:754` | `withoutAgreeingOwnedFk` (`:743`) | **SC** | `:754` / `:743` | §5.2. Same invariant as 11, from the same string. An AGREEING literal is absorbed, so only the contradiction refuses. |
-| 13 | `RelationUpsertPart.ts:1211` | `assertArmEdgeIsChildHeld` (`:1204`) | **SC** | `:1211` / `:1204` | §6.1. Two writers of one column, one of them the arm's own reparent. Package B attempted the deletion and was FALSIFIED at the gate — the strongest evidence of unique coverage in this table. |
+| 12 | former `RelationUpsertPart.withoutAgreeingOwnedFk` | selected-record final-assignment ledger | **SC** | RETIRED → site 4 | §5.2. Agreement and contradiction now use the same physical-column owner as every other selected-record assignment. |
+| 13 | `RelationUpsertPart.ts:1088` | `assertNoIncomingTargetMutationOverlap` (`:1054`) | **SC** | `:1088` / `:1054` | §6.1. Narrowed to a parent-held target mutation on the exact incoming OwnWrite membership scope. |
 | 14 | `CreateOperation.ts:991` | `interpretPolymorphicRelation` (`:961`) | **MSI** | **RETIRED → 15** | §2.2's bound-polymorphic twin. |
 | 15 | `CreateOperation.ts:1789` | `targetReferencedValue` (`:1781`) | **MSI** | `:2772` / `:2764` (`requireRecordReferenced`) | §2.2. |
 | 16 | `CreateOperation.ts:2109` | `referencedValue` (`:2101`) | **MSI** | **RETIRED → 15** | §2.1. |
@@ -655,7 +804,7 @@ and is kept because a coordinate that vanishes teaches nothing.
 | # | Site | Owner | Bucket | HEAD | Basis |
 |---|---|---|---|---|---|
 | 25 | `src/drivers/shared/transaction-options.ts:144` | `refuseTransactionOption` (`:139`) | **PSI** | `:144` / `:139` | The driver does not implement the option. |
-| 26 | `src/client/raw.ts:129` | `rawOperationInBatchError` (`:128`) | **SC** | `:129` / `:128` | A raw statement has already run; there is nothing left to batch. |
+| 26 | former `src/client/raw.ts:129` | `rawOperationInBatchError` | **SC** | **RETIRED** | Raw SQL now captures a lazy transaction operation and joins `$transaction([...])`; the eager-promise invalid state no longer exists. |
 
 ### Distinct invariants — the measure §O4 calls the more important one
 
@@ -674,7 +823,7 @@ carried in `guard-ownership-ledger.md` and
 | 2 | nested bulk data carries relation writes | 4 (9, 10, 22, 23) | **1** (22) |
 | 3 | a second provenance for the owned foreign key | 2 (11, 12) | 2 (11, 12) |
 | 4a | `skipDuplicates` whose nested-effect meaning is unchosen (DPC) | 1 (7) | 1 (7) |
-| 4b | `skipDuplicates` whose skipped row produces no identity (MSI) | 1 (8) | 1 (8) |
+| 4b | `skipDuplicates` whose skipped row produces no identity (MSI) | 1 (8) | 1 (8) — **0 after residual Package F**: the target subtree and its join row became one series member, so no identity is asked for. Historical site 31 briefly owned the batch-substrate half; the batch-only series lift retired it through root isolation. |
 | 5 | an upsert create arm with no readable-back row | 1 (21) | 1 (21) |
 | 6 | a shared primary key with no one final value | 1 (4) | **2** (4, 20 — the ledger moves 20 here from cluster 1: same invariant, create root instead of update root) |
 | 7 | a single-target membership move across N > 1 roots | 1 (1) | 1 (1) |
@@ -688,6 +837,25 @@ By scope, as §O4 asks: write-engine **15 sites / 10 invariants** · query-engin
 **17 / 12** · whole `src` **19 / 14**. Engine-owned refusal invariants: **13**,
 the twelfth plus the converted compound-many-to-many one.
 
+**The table above is the "after O" SNAPSHOT and is not re-measured here.** Later
+packages moved it: rows 2, 3, 4a, 5, 8 and 9 no longer have a census site at all.
+**Live after Track A: write-engine 9 · query-engine 11 · whole `src` 13**, pinned
+executably by `operation-construction-inventory.test.ts`, whose count-evolution block
+itemises every delta, and enumerated site by site in `guard-ownership-ledger.md`'s
+live table. Row 8 is E's: the composed producing supplier is not refused anywhere.
+Rows 1 and 5 changed OWNER without changing shape (residual G folded the two
+cluster-1 emitters onto one verdict; residual D renamed the shared-key create-root
+owner to `assertSelectedSharedPkValue`). The Package-I falsifiers for
+plural-without-RETURNING and `assertSelectedSharedPkValue` remain. Track A converted
+the former `consumedValue` crossing into an acceptance contract, retained the
+indivisible-array refusal at site 28, and retained only the compiler-continuation
+premise at site 32 from the weak-segmentation pair.
+
+The later compound-junction pass changes no raw census count: row 9 was already
+outside the `UnsupportedOperationError` census. It does change capability truth:
+row 9 is now delivered and its extra non-census engine-owned refusal invariant no
+longer exists.
+
 **§O4's band is a SITE gate, and 15 does not meet it either.** The plan says "Expected result: 8–12 construction sites" and "a result above 12 blocks finalization until an architecture review examines every survivor", so Package O's architecture review was MANDATORY. **IT WAS CONDUCTED AND IT APPROVED ALL 19 SURVIVORS, none rejected** — the record, including the verdict verbatim and the site-by-site table, is in `guard-ownership-ledger.md` under "§O4 — the architecture review: adjudication record", and the five-question §O3 audit is in the same file. The approval rests on a fact worth repeating here: 15 write-engine sites express 10 invariants, so even a perfect one-site-per-invariant estate would sit at 10, and the whole overshoot is five extra sites across three multi-boundary invariants, each with a trust boundary verified in code. The invariant count is what §O4 asks to be *reported* beside the raw count, not a second gate that can be met instead. An earlier version of this paragraph said the band was already satisfied — it was reading a site gate against an invariant count — and the version before this one still read "24 does not meet it" after the census had become 17.
 
 Cluster 1 was eight sites saying one thing, and it is precisely §O2's "fresh referenced field publication" group — the largest single compression opportunity in Package O, and arithmetic rather than judgement. **Package O took it: sites 14, 16 and 18 fold into `CreateOperation.requireRecordReferenced` (`:2764`, throwing at `:2772`), which takes a position argument that selects the noun and makes the decision once; every previously pinned sentence survives byte-identically.** Its eight were also counted over ONE error class: `CreateOperation.ts:1027` (this document read it at `:1015`) repeats site 14's sentence BYTE-IDENTICALLY as a `QueryEngineError`, and `RecordUpdateCompiler.ts:939`, `:964` and `:1164` state the same invariant in that class as well. Package F filed the first pair as a For-O item; all four are named here because a class change removes a site from the census grep without removing the refusal, and cluster 1 is where that bites. The twin now shares the owner's message BUILDER so the two sentences cannot drift, and keeps its class: converting it owes a behavioral witness of the shape, and no payload reaches either polymorphic position (a direct polymorphic edge's referenced field is always the target's primary key, and the three spellings that would make it unresolvable are refused by the parse boundary first).
@@ -696,13 +864,18 @@ Bucket distribution at N3 (before Package O), with site 4 counted under MSI and 
 
 After Package O: over the 17 query-engine sites **MSI 9 · SC 4 · PSI 2 · UFF 1 · DPC 1** (= 17); over all 19 `src` sites **MSI 9 · SC 5 · PSI 3 · UFF 1 · DPC 1** (= 19); over the 15 write-engine sites alone **MSI 8 · SC 4 · PSI 1 · UFF 1 · DPC 1** (= 15). Six MSI positions left (9, 10, 14, 16, 18, 23) and one UFF changed class (17). Each line carries its total because the previous version's two lines summed to 23 and 25.
 
-### Residues with a stated expiry, and one without
+### Historical Package-O residues — retired by the residual lift
 
-Sites 6 and 17 are UFF and both name their expiry above. **Site 9 / 10 / 22 / 23 do NOT get one**, and this is the correction Package L bought: BOTH of its prototypes were REJECTED, so nothing in this lift lifts the nested-bulk wall, and a document that implied otherwise would be promising work no one has scheduled. Package L's boundary, verbatim:
+At the Package-O checkpoint, sites 6 and 17 were UFF and named their expiry,
+while sites 9 / 10 / 22 / 23 had none. Package L had rejected both prototypes,
+so the document then recorded this boundary verbatim:
 
 > the fragment atom's single planning phase is the wall; a record series is operation-level, so a nested capture has no home.
 
-The truthful future path is not a series at all — it is the **desugar already standing on the junction leg**: `RelationJunctionPart`'s `case createMany` folds one fresh target per row, identically to its `case create`, and `nested-target-parts.ts` does the same through `createFresh` + `bindRelationMembership`. Extending that to the other three legs is a NEW capability outside this lift, and it is the shape any future attempt should start from.
+That conclusion is retired. `RecordSeriesStep` is now the home: nested
+relation-bearing `createMany` and `updateMany` execute as ordered record series on an
+interactive transaction and on exactly guarded native atomic-batch segments. The quoted
+fragment remains only as evidence of the Package-O decision boundary.
 
 ### Ledger notes for Package O, raised by this classification
 
@@ -716,6 +889,13 @@ The truthful future path is not a series at all — it is the **desugar already 
 
 ---
 
-## The honesty note
+## The Package-O honesty note (historical)
 
-All 19 of these **type-check and pass validation**, then throw at construction (26 when this paragraph was written; Package O folded six positions and converted one, lifting nothing). TH measured the type-narrowable surface as empty *for the current generator* — one relation-input type serves positions with opposite dispositions, so removing a key would forbid shapes that execute. Package N1 is the first counter-example and a narrow one: the relation-owned foreign key IS position-decidable, and removing it from nested update data cost nothing that executes, because the engine had a fold for that column at every position it was removed from. Roughly four of them are permanent AND statically decidable (the `updateMany` relation writes — sites 9 and 10 at the time, now the one owner, site 22 — the supplier×supplier pairs, and the unnameable-unique `skipDuplicates`) and could in principle become compile errors if the generator emitted position-aware inputs — at an instantiation-depth cost the estate has already measured once (34s → 172s for three guarded clauses). That measurement is proposed, not done. The compound junction edge is statically decidable too, but §10 and §12 both classify it as UFF rather than a permanent refusal, so a type that forbade it would have to be reopened when that topology lands.
+At that checkpoint, all 19 entries **type-checked and passed validation**, then threw
+at construction (26 when the paragraph was first written; Package O folded six
+positions and converted one, lifting nothing). TH measured the type-narrowable surface
+as empty for that generator. The residual lift later changed the capability surface:
+nested relation-bearing bulk gained `RecordSeriesStep`, and unnameable junction
+`skipDuplicates` now suppresses one routed member on an interactive savepoint or an
+isolated batch root segment instead of being a permanent shape refusal. Current refusal truth is the 8 / 10 / 11 live table
+in `guard-ownership-ledger.md`; this paragraph remains only as the Package-O record.

@@ -17,6 +17,7 @@ import { isErrorLogged } from "@instrumentation/logged-errors";
 import { getNoopTracer, type VibORMSpanOptions } from "@instrumentation/tracer";
 import { isCacheManagedExecution } from "./cache-flow";
 import type { PendingOperation } from "./pending-operation";
+import type { TransactionOperation } from "./transaction-operation";
 import type { Operation } from "./types";
 
 /** Immutable ownership and attribution captured when an operation is created. */
@@ -105,12 +106,12 @@ export function observeOperationExecution<T>(
 }
 
 /** Observe native-batch preparation and parsing as one logical operation. */
-export async function observePendingBatchPhase<T, R>(
-  pending: PendingOperation<T>,
+export async function observeTransactionBatchPhase<T, R>(
+  operation: TransactionOperation<T>,
   driver: AnyDriver,
   execute: () => R | Promise<R>
 ): Promise<R> {
-  const executionContext = pending.context.attribution;
+  const executionContext = operation.getExecutionContext();
   const instrumentation = getExecutionInstrumentation(executionContext);
   const startedAt = Date.now();
   const run = async (): Promise<R> => {
@@ -143,8 +144,8 @@ export async function observePendingBatchPhase<T, R>(
       name: SPAN_OPERATION,
       attributes: {
         ...driver.getBaseAttributes(),
-        [ATTR_DB_COLLECTION]: pending.modelName,
-        [ATTR_DB_OPERATION_NAME]: pending.operation,
+        [ATTR_DB_COLLECTION]: operation.getModel(),
+        [ATTR_DB_OPERATION_NAME]: operation.getOperation(),
         [ATTR_VIBORM_CORRELATION_ID]: executionContext.correlationId,
       },
     },

@@ -2,11 +2,11 @@ import { createClient } from "@client/client";
 import { MySQL2Driver } from "@drivers/mysql2";
 import { PgDriver } from "@drivers/pg";
 import { push } from "@migrations";
-import { afterAll, describe } from "vitest";
 import {
   producedIdentitySchema,
   registerProducedIdentityBehavior,
 } from "@tests/contracts/engine/write/junction-produced-identity-behavior";
+import { afterAll, describe } from "vitest";
 
 /**
  * E4-U3 on the live servers.

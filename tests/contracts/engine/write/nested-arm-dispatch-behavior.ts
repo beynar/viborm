@@ -24,8 +24,10 @@ export const armDispatchSchema = (() => {
   const org = s
     .model({
       id: s.string().id(),
+      code: s.string().unique(),
       name: s.string(),
       teams: s.oneToMany(() => team),
+      codeNotes: s.oneToMany(() => note).name("orgCodeNotes"),
     })
     .map("e3_orgs");
   const team = s
@@ -38,6 +40,7 @@ export const armDispatchSchema = (() => {
         .manyToOne(() => org)
         .fields("orgId")
         .references("id")
+        .onUpdate("cascade")
         .optional(),
       ownerId: s.string().nullable(),
       owner: s
@@ -60,6 +63,14 @@ export const armDispatchSchema = (() => {
         .fields("teamId")
         .references("id")
         .optional(),
+      orgCode: s.string().nullable(),
+      codeOrg: s
+        .manyToOne(() => org)
+        .fields("orgCode")
+        .references("code")
+        .onUpdate("restrict")
+        .optional()
+        .name("orgCodeNotes"),
     })
     .map("e3_notes");
   const owner = s
@@ -76,7 +87,21 @@ export const armDispatchSchema = (() => {
       teams: s.manyToMany(() => team),
     })
     .map("e3_tags");
-  return { org, team, note, owner, tag };
+  const node = s
+    .model({
+      id: s.string().id(),
+      label: s.string(),
+      parentId: s.string().nullable(),
+      parent: s
+        .manyToOne(() => node)
+        .fields("parentId")
+        .references("id")
+        .optional()
+        .name("tree"),
+      children: s.oneToMany(() => node).name("tree"),
+    })
+    .map("e3_nodes");
+  return { org, team, note, owner, tag, node };
 })();
 
 hydrateSchemaNames(armDispatchSchema);
@@ -134,7 +159,8 @@ export class BatchOnlyRecordingPGliteDriver extends RecordingPGliteDriver {
 export function armUpdate(
   relations: Record<string, unknown>,
   locator: Record<string, unknown> = { id: "t1" },
-  updateScalars: Record<string, unknown> = { label: "T1b" }
+  updateScalars: Record<string, unknown> = { label: "T1b" },
+  rootScalars: Record<string, unknown> = {}
 ) {
   // The create arm's row must be spellable whichever unique names the arm: a locator
   // that names an ABSENT row takes the create branch, and its INSERT must collide with
@@ -146,6 +172,7 @@ export function armUpdate(
   return {
     where: { id: "o1" },
     data: {
+      ...rootScalars,
       teams: {
         upsert: [
           {

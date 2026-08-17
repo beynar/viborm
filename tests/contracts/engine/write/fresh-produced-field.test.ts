@@ -6,6 +6,7 @@ import { SQLite3Driver } from "@drivers/sqlite3";
 import { PGlite } from "@electric-sql/pglite";
 import { push } from "@migrations";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
+import { hydrateSchemaNames, s } from "@schema";
 import type { Model } from "@schema/model";
 import { CreateOperation } from "@src/query-engine/write-engine/CreateOperation";
 import { isOperationValueReference } from "@src/query-engine/write-engine/OperationFragment";
@@ -53,6 +54,27 @@ const substrates = [
     make: () => new BatchOnlyPGliteDriver({ client: new PGlite() }),
   },
 ] as const;
+
+const singleSequenceSchema = (() => {
+  const owner = s
+    .model({
+      id: s.int().id().increment(),
+      children: s.oneToMany(() => child),
+    })
+    .map("pkgb_single_owners");
+  const child = s
+    .model({
+      id: s.string().id(),
+      ownerId: s.int(),
+      owner: s
+        .manyToOne(() => owner)
+        .fields("ownerId")
+        .references("id"),
+    })
+    .map("pkgb_single_children");
+  return { child, owner };
+})();
+hydrateSchemaNames(singleSequenceSchema);
 
 function pushed(schema: Record<string, unknown>): () => Promise<any> {
   let shared: any;
@@ -336,87 +358,6 @@ describe("F3 — a non-returning transaction provider adds ONE focused read", ()
       },
     ]);
   });
-
-  /**
-   * STRUCTURAL ONLY, and the reason is measured rather than stylistic: this shape asks
-   * one record for a generated primary key AND another database-produced column, which on
-   * a non-returning provider means a MySQL table with two AUTO_INCREMENT columns — DDL
-   * MySQL refuses (`ER_WRONG_AUTO_KEY`). mysql2 and PlanetScale are the only adapters
-   * declaring `supportsReturning: false`, so NO provider this repo ships can host the row.
-   * The branch is pinned anyway because it is the consistency between two owners, not a
-   * defense: `buildInsertStep` must declare the `id` output that `createdRowWhere` spends,
-   * or the focused read carries a dangling reference. See both owners' notes.
-   */
-  test("insertId NAMES the row for that read; it is never the field's value", () => {
-    const driver = new MySQL2Driver();
-    const control = shapeOf(
-      driver,
-      twoSequenceSchema.hub as Model<any>,
-      { data: { spans: { create: { id: "s1" } } }, select: { id: true } },
-      twoSequenceSchema
-    ) as any[];
-    // CONTROL: demand for the identity alone adds no read, on this substrate as on any
-    // other. So the extra step below belongs to the produced non-identity column.
-    expect(control.map((step) => step.id)).toEqual([
-      "hub.create",
-      "span.create",
-      "hub.select",
-    ]);
-
-    const steps = shapeOf(
-      driver,
-      twoSequenceSchema.hub as Model<any>,
-      { data: { marks: { create: { id: "m1" } } }, select: { id: true } },
-      twoSequenceSchema
-    ) as any[];
-    expect(steps.map((step) => step.id)).toEqual([
-      "hub.create",
-      "hub.produced",
-      "mark.create",
-      "hub.select",
-    ]);
-    // The INSERT captures the identity because the READ needs a row to name — that is
-    // the whole of what `insertId` does here.
-    expect(steps[0].outputs).toEqual({ id: { kind: "insertId" } });
-    expect(steps[1].sql).toBe(
-      "SELECT `t0`.`code` AS `code` FROM `pkgf_hubs` AS `t0` WHERE `t0`.`id` = CAST(? AS SIGNED) LIMIT 1"
-    );
-    expect(steps[1].params).toEqual([{ ref: "hub.create.id" }]);
-    // …and the consumer spends the READ's value, not the insert id.
-    expect(steps[2].params).toEqual([
-      "m1",
-      { ref: "hub.produced.produced:code" },
-    ]);
-  });
-
-  /** Structural for the same measured reason as the test above. */
-  test("a NON-root record's focused read still gets an identity to address it by", () => {
-    // The root's identity is captured for its own terminal read, so a root can hide the
-    // coupling. Here the producing record is a BEFORE-parent target: nothing else in the
-    // operation wants its key, and only the focused read does.
-    const driver = new MySQL2Driver();
-    const steps = shapeOf(
-      driver,
-      twoSequenceSchema.mark as Model<any>,
-      { data: { id: "m1", hub: { create: {} } }, select: { id: true } },
-      twoSequenceSchema
-    ) as any[];
-    expect(steps.map((step) => step.id)).toEqual([
-      "hub.create",
-      "hub.produced",
-      "mark.create",
-      "mark.select",
-    ]);
-    expect(steps[0].outputs).toEqual({ id: { kind: "insertId" } });
-    expect(steps[1].sql).toBe(
-      "SELECT `t0`.`code` AS `code` FROM `pkgf_hubs` AS `t0` WHERE `t0`.`id` = CAST(? AS SIGNED) LIMIT 1"
-    );
-    expect(steps[1].params).toEqual([{ ref: "hub.create.id" }]);
-    expect(steps[2].params).toEqual([
-      "m1",
-      { ref: "hub.produced.produced:code" },
-    ]);
-  });
 });
 
 describe("F1 — the published channel is per field, not per record", () => {
@@ -450,21 +391,47 @@ describe("F1 — the published channel is per field, not per record", () => {
 });
 
 describe("F4 — the substrate row of the value-state table", () => {
-  test("a batch substrate refuses in its own sentence, before any statement", () => {
-    let thrown: unknown;
-    try {
-      new CreateOperation(
-        engineFor(new BatchOnlyPGliteDriver()),
+  test("PostgreSQL batch keeps the exact one-statement dependency fold", () => {
+    expect(
+      shapeOf(
+        new BatchOnlyPGliteDriver(),
         producedFieldSchema.depot as Model<any>,
         CRATE_LEAF
-      );
-    } catch (error) {
-      thrown = error;
-    }
-    expect(thrown).toBeInstanceOf(UnsupportedOperationError);
-    expect((thrown as Error).message).toBe(
-      "query-engine-v2 create cannot publish the database-produced field 'serial' of 'depot' on a batch substrate: an atomic batch addresses no statement's rows, and its reference storage carries the generated identity alone. Run this write on a driver that offers an interactive transaction."
+      )
+    ).toEqual(
+      shapeOf(
+        new PGliteDriver(),
+        producedFieldSchema.depot as Model<any>,
+        CRATE_LEAF
+      )
     );
+  });
+
+  test("PostgreSQL batch returns and spends the generated identity", async () => {
+    const database = new PGlite();
+    const setup = createClient({
+      schema: singleSequenceSchema,
+      driver: new PGliteDriver({ client: database }),
+    });
+    try {
+      await push(setup, { force: true });
+      const batch = createClient({
+        schema: singleSequenceSchema,
+        driver: new BatchOnlyPGliteDriver({ client: database }),
+      });
+      const created = await batch.owner.create({
+        data: { children: { create: { id: "c-batch" } } },
+        select: { id: true },
+      });
+      await expect(
+        setup.child.findUnique({ where: { id: "c-batch" } })
+      ).resolves.toEqual({
+        id: "c-batch",
+        ownerId: created.id,
+      });
+    } finally {
+      await setup.$disconnect();
+    }
   });
 
   test("KEEP: the nullable-unique row raises the SAME sentence it always did", () => {
@@ -480,7 +447,7 @@ describe("F4 — the substrate row of the value-state table", () => {
     }
     expect(thrown).toBeInstanceOf(UnsupportedOperationError);
     expect((thrown as Error).message).toBe(
-      "query-engine-v2 create cannot resolve referenced field 'slot' for relation 'latches': it is neither this record's primary key nor a knowable value in its own create data."
+      "query-engine-v2 create cannot resolve the parent id for relation 'latches': referenced field 'slot' is neither this record's primary key nor a knowable value in its own create data."
     );
   });
 
@@ -524,20 +491,56 @@ describe("F4 — the substrate row of the value-state table", () => {
     ]);
   });
 
-  test("K2 SURVIVORS: a connect by a non-referenced unique still refuses", () => {
-    let thrown: unknown;
-    try {
-      new CreateOperation(
-        engineFor(new PGliteDriver()),
-        producedFieldSchema.seal as Model<any>,
-        { data: { note: "n", depot: { connect: { id: "d1" } } } }
-      );
-    } catch (error) {
-      thrown = error;
-    }
-    expect(thrown).toBeInstanceOf(UnsupportedOperationError);
-    expect((thrown as Error).message).toBe(
-      "query-engine-v2 create does not support a shared-primary-key connect on relation 'depot' whose foreign key 'depotSerial' (this record's primary key) is not a compile-time literal."
+  test("K2: a non-referenced-unique connect publishes the selected non-PK value", () => {
+    const driver = new PGliteDriver();
+    const operation = new CreateOperation(
+      engineFor(driver),
+      producedFieldSchema.seal as Model<any>,
+      {
+        data: { note: "n", depot: { connect: { id: "d1" } } },
+        select: { depotSerial: true },
+      }
     );
+    expect(
+      operation.planning().steps.map((step) => ({
+        id: step.id,
+        outputs: normalized(step.outputs),
+      }))
+    ).toEqual([
+      {
+        id: "depot.find",
+        outputs: { rows: { kind: "rows" } },
+      },
+    ]);
+    const steps = operation
+      .compile({ "depot.find.rows": [{ serial: 41 }] })
+      .steps.map((step) => {
+        if (step.kind === "guard" || step.kind === "recordSeries") {
+          throw new Error("Unexpected non-statement step.");
+        }
+        const query = driver._prepare(step.statement);
+        return {
+          id: step.id,
+          params: normalized(query.params),
+          outputs: normalized(step.outputs),
+        };
+      });
+    expect(steps).toEqual([
+      {
+        id: "seal.create",
+        params: [41, "n"],
+        outputs: {
+          "produced:depotSerial": {
+            kind: "firstRowField",
+            field: "depotSerial",
+          },
+        },
+      },
+      {
+        id: "seal.select",
+        params: [{ ref: "seal.create.produced:depotSerial" }],
+        outputs: { result: { kind: "rows" } },
+      },
+    ]);
   });
 });

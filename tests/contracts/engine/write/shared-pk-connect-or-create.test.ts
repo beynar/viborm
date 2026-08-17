@@ -1,16 +1,16 @@
-import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { createClient } from "@client/client";
 import type { BatchQuery, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { push } from "@migrations";
-import { expect, test } from "vitest";
-import { batchIsAtomicUnit } from "@tests/fixtures/atomic-unit-batch";
 import {
   registerSharedPkConnectOrCreateBehavior,
   sharedPkConnectOrCreateSchema,
 } from "@tests/contracts/engine/write/shared-pk-connect-or-create-behavior";
+import { batchIsAtomicUnit } from "@tests/fixtures/atomic-unit-batch";
+import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
+import { expect, test } from "vitest";
 
 /** The deterministic TOCTOU window: `beforeBatch` runs between the planning probe and
  *  the atomic WRITE batch (the `staleness-injection.test.ts` driver, same rule). */
@@ -123,5 +123,50 @@ test("BATCH TOCTOU: the found target deleted after planning aborts the batch, wr
   expect(await setup.profile.count()).toBe(0);
   expect(await setup.user.count()).toBe(0);
   // One PGlite instance backs both clients, so it is disconnected exactly once.
+  await setup.$disconnect();
+}, 30_000);
+
+test("BATCH TOCTOU: an alternate-unique replacement cannot donate a different shared key", async () => {
+  const db = new PGlite();
+  const setup = createClient({
+    schema: sharedPkConnectOrCreateSchema,
+    driver: new PGliteDriver({ client: db }),
+  }) as any;
+  await push(setup, { force: true });
+  await setup.user.create({ data: { id: "u1", email: "same@x", name: "old" } });
+
+  const racing = createClient({
+    schema: sharedPkConnectOrCreateSchema,
+    driver: new BeforeBatchPGliteDriver(
+      async () => {
+        await setup.user.delete({ where: { id: "u1" } });
+        await setup.user.create({
+          data: { id: "replacement", email: "same@x", name: "new" },
+        });
+      },
+      { client: db }
+    ),
+  }) as any;
+
+  const rejection = await racing.profile
+    .create({
+      data: {
+        bio: "must not spend stale u1",
+        user: { connect: { email: "same@x" } },
+      },
+    })
+    .then(
+      () => undefined,
+      (error: unknown) => error
+    );
+
+  expect(rejection).toBeInstanceOf(Error);
+  expect(await setup.profile.count()).toBe(0);
+  expect(
+    await setup.user.findUnique({
+      where: { email: "same@x" },
+      select: { id: true },
+    })
+  ).toEqual({ id: "replacement" });
   await setup.$disconnect();
 }, 30_000);

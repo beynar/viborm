@@ -21,9 +21,10 @@ const MEMBERSHIP = join(WRITE_ENGINE_ROOT, "relation-membership.ts");
 
 // Operation-kind and relation-kind tokens the executor must never learn. Generic
 // words (set, count, exist) are deliberately excluded — they collide with Map.set
-// and rowCount and carry no semantic leak on their own.
+// and rowCount and carry no semantic leak on their own. `delete` remains an operation
+// token, but `.delete` is ordinary Set bookkeeping and is not an operation-kind leak.
 const OPERATION_KIND_TOKENS =
-  /\b(?:create|update|upsert|delete|findUnique|findMany|findFirst|createMany|updateMany|deleteMany|aggregate|groupBy|connect|disconnect|connectOrCreate|oneToMany|manyToOne|manyToMany|oneToOne)\b/i;
+  /\b(?:create|update|upsert|(?<!\.)delete|findUnique|findMany|findFirst|createMany|updateMany|deleteMany|aggregate|groupBy|connect|disconnect|connectOrCreate|oneToMany|manyToOne|manyToMany|oneToOne)\b/i;
 
 const CONCRETE_OPERATION_MODULE = /Operation$/;
 const STEP_VOCABULARY =

@@ -1,12 +1,8 @@
-import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { createClient } from "@client/client";
-import type { BatchQuery, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
-import { PGlite, type Transaction } from "@electric-sql/pglite";
+import { PGlite } from "@electric-sql/pglite";
 import { push } from "@migrations";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
-import { createSchemaRegistry } from "@validation";
-import { describe, expect, test } from "vitest";
 import { CreateOperation } from "@src/query-engine/write-engine/CreateOperation";
 import type {
   OperationStep,
@@ -17,6 +13,9 @@ import {
   junctionUpsertArmSchema,
   registerJunctionUpsertArmProbeBehavior,
 } from "@tests/contracts/engine/write/junction-upsert-arm-probe-behavior";
+import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
+import { createSchemaRegistry } from "@validation";
+import { describe, expect, test } from "vitest";
 
 const substrates = [
   {

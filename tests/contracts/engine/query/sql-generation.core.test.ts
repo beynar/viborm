@@ -1971,11 +1971,7 @@ describe("batch ref adapter SQL", () => {
       'DELETE FROM "__viborm_batch_refs" WHERE "batch_id" = $1'
     );
     expect(adapter.batchRefs.clear(batchId).values).toEqual([batchId]);
-    expect(
-      adapter.batchRefs.storeLastInsertId(batchId, "user_id").toStatement("$n")
-    ).toBe(
-      'INSERT INTO "__viborm_batch_refs" ("batch_id", "ref_key", "ref_value") VALUES ($1, $2, CAST((lastval()) AS TEXT)) ON CONFLICT ("batch_id", "ref_key") DO UPDATE SET "ref_value" = EXCLUDED."ref_value"'
-    );
+    expect(adapter.batchRefs.storeLastInsertId).toBeUndefined();
     expect(
       adapter.batchRefs.store(batchId, "answer", sql`40 + 2`).toStatement("$n")
     ).toBe(
@@ -2004,9 +2000,9 @@ describe("batch ref adapter SQL", () => {
       'DELETE FROM "__viborm_batch_refs" WHERE "batch_id" = ?'
     );
     expect(adapter.batchRefs.clear(batchId).values).toEqual([batchId]);
-    expect(
-      adapter.batchRefs.storeLastInsertId(batchId, "user_id").toStatement()
-    ).toBe(
+    const storeLastInsertId = adapter.batchRefs.storeLastInsertId;
+    expect(storeLastInsertId).toBeDefined();
+    expect(storeLastInsertId?.(batchId, "user_id").toStatement()).toBe(
       'INSERT INTO "__viborm_batch_refs" ("batch_id", "ref_key", "ref_value") VALUES (?, ?, CAST((last_insert_rowid()) AS TEXT)) ON CONFLICT ("batch_id", "ref_key") DO UPDATE SET "ref_value" = EXCLUDED."ref_value"'
     );
     expect(
@@ -2019,6 +2015,15 @@ describe("batch ref adapter SQL", () => {
     );
     expect(adapter.batchRefs.cleanup(batchId).toStatement()).toBe(
       'DELETE FROM "__viborm_batch_refs" WHERE "batch_id" = ?'
+    );
+  });
+
+  test("MySQL retains exact statement-local generated identity storage", () => {
+    const adapter = new MySQLAdapter();
+    const storeLastInsertId = adapter.batchRefs.storeLastInsertId;
+    expect(storeLastInsertId).toBeDefined();
+    expect(storeLastInsertId?.("batch-a", "user_id").toStatement()).toBe(
+      "INSERT INTO `__viborm_batch_refs` (`batch_id`, `ref_key`, `ref_value`) VALUES (?, ?, CAST((LAST_INSERT_ID()) AS CHAR)) ON DUPLICATE KEY UPDATE `ref_value` = VALUES(`ref_value`)"
     );
   });
 });

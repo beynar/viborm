@@ -243,6 +243,7 @@ index from its validated `PolymorphicStorage` descriptor:
 Required relations make both columns non-null; optional relations make both
 nullable. The existing composite index is non-unique for an inverse `oneToMany`
 and unique for an inverse `oneToOne`; its name and column order do not change.
+
 Changing inverse cardinality therefore uses the normal drop-index/create-index
 diff. Existing duplicate pairs make a many-to-one cardinality migration fail
 transactionally; VibORM does not synthesize deduplication DML. The private
@@ -264,6 +265,14 @@ without creating SQL, a migration file, or a journal entry. `push()` compares
 live structure only: introspected text columns cannot recover discriminator
 history, so push cannot detect a stored-value rename, removal, or retarget.
 Push users must migrate data before changing those mappings.
+
+### Rule 7: Junction Sides Are Complete Stored References
+
+The relation layer resolves each many-to-many side into one ordered group of
+junction columns paired with the endpoint row-key fields. The serializer uses
+those groups unchanged for columns, the combined junction primary key, the
+reverse-side index, and both foreign keys. Never project a compound side to its
+first member or rederive positional names in migration code.
 
 ---
 

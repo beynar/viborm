@@ -812,10 +812,13 @@ describe("relation-key update legality", () => {
     // spelling and the bare literal are ONE assignment. The edge must NOT cascade —
     // a cascading edge never consults this derivation (N5-U2) — which is why this
     // witness lives on registry/entry, not organization/member. Falsified:
-    // reverting the envelope unwrapping to the bare
-    // `input.rootScalarData[referencedField]` read fails this test with
-    // "references a non-literal rewritten column 'tag'" while the bare-literal
-    // sibling below still passes.
+    // reverting the envelope unwrapping to a bare
+    // `input.rootScalarData[referencedField]` read fails this test while the
+    // bare-literal sibling below still passes. Residual G moved the unwrapping
+    // (and the verdict on what it produces) into
+    // `RecordUpdateCompiler.requireRewrittenReferenceValue`, so that is where the
+    // falsification now goes: without it, `{ set: 11 }` is not a construction
+    // literal and lands in the unrepresentable state.
     await expectParity(
       {
         seed: async (client) => {

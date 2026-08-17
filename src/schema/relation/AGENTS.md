@@ -87,12 +87,19 @@ s.oneToMany(() => post)         // Minimal config - FK is on the "many" side
 ```typescript
 s.manyToMany(() => tag)
   .through("post_tags")         // Junction table name
-  .A("postId")                  // Source FK column in junction table
-  .B("tagId")                   // Target FK column in junction table
+  .A("postId")                  // Source column or compound-side prefix
+  .B("tagId")                   // Target column or compound-side prefix
   .onDelete("cascade")          // Referential action
   .onUpdate("cascade")
   .name("tags")
 ```
+
+`.A()` and `.B()` always take one string token. For a scalar endpoint row key,
+the token is the exact junction column name. For a compound row key, it is a
+prefix expanded positionally as `<prefix>_1`, `<prefix>_2`, and so on in the
+model row-key order. Do not expose an array API or derive suffixes from mapped
+SQL column names: the ordered bound `JunctionSide` owns the complete physical
+column-to-referenced-field correspondence.
 
 ### Polymorphic Relations
 

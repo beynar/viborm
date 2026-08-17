@@ -1,6 +1,6 @@
-import { defineContract } from "@tests/contracts/contract";
 import type { Driver } from "@drivers";
 import { sql } from "@sql";
+import { defineContract } from "@tests/contracts/contract";
 import { describe, expect, test } from "vitest";
 
 interface BatchRefSmokeOptions<TDriver extends Driver<any, any>> {
@@ -13,8 +13,9 @@ export function runBatchRefSmokeBehavior<TDriver extends Driver<any, any>>({
   createDriver,
 }: BatchRefSmokeOptions<TDriver>) {
   describe(`${driverName} batch refs`, () => {
-    test("stores and reads a generated id inside one batch", async () => {
+    test("stores and reads an exact reference inside one batch", async () => {
       const driver = createDriver();
+      const storeLastInsertId = driver.adapter.batchRefs.storeLastInsertId;
       const batchId = `smoke_${driverName.replace(/[^a-z0-9]/gi, "_")}`;
       const tableName = "__viborm_batch_ref_smoke_users";
       const createTable =
@@ -23,14 +24,25 @@ export function runBatchRefSmokeBehavior<TDriver extends Driver<any, any>>({
           : sql.raw`CREATE TEMP TABLE IF NOT EXISTS "__viborm_batch_ref_smoke_users" ("id" INTEGER PRIMARY KEY AUTOINCREMENT, "name" TEXT NOT NULL)`;
 
       try {
+        if (!storeLastInsertId) {
+          expect(driver.dialect).toBe("postgresql");
+        }
+        const publication = storeLastInsertId
+          ? [
+              createTable,
+              sql`INSERT INTO ${driver.adapter.identifiers.escape(
+                tableName
+              )} (${driver.adapter.identifiers.escape(
+                "name"
+              )}) VALUES (${"Ada"})`,
+              storeLastInsertId(batchId, "user_id"),
+            ]
+          : [driver.adapter.batchRefs.store(batchId, "user_id", sql`${1}`)];
+        const setup = driver.adapter.batchRefs.setup(batchId);
         const statements = [
-          createTable,
-          ...driver.adapter.batchRefs.setup(batchId),
+          ...setup,
           driver.adapter.batchRefs.clear(batchId),
-          sql`INSERT INTO ${driver.adapter.identifiers.escape(
-            tableName
-          )} (${driver.adapter.identifiers.escape("name")}) VALUES (${"Ada"})`,
-          driver.adapter.batchRefs.storeLastInsertId(batchId, "user_id"),
+          ...publication,
           sql`SELECT ${driver.adapter.batchRefs.read(
             batchId,
             "user_id"
@@ -40,7 +52,7 @@ export function runBatchRefSmokeBehavior<TDriver extends Driver<any, any>>({
             tableName
           )}`,
         ];
-        const selectIndex = statements.length - 3;
+        const selectIndex = setup.length + 1 + publication.length;
         const results = await driver._executeBatch<{ id: string | number }>(
           statements.map((statement) => driver._prepare(statement))
         );

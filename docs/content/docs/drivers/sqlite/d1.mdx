@@ -138,16 +138,21 @@ values for a multi-row insert.
 
 The following shapes remain unavailable:
 
-- relation-bearing `createMany` with `skipDuplicates`, because a D1 batch error
-  cannot safely distinguish the root conflict from a descendant conflict. This
-  is refused before member 0 writes;
+- a relation-bearing `createMany` member with a write or nested series before
+  its skippable root, because a root conflict would leave that earlier effect
+  committed. A root-first member is supported: VibORM isolates the root batch
+  and dispatches no descendants when it skips;
 - a nested series whose compiler cannot provide an exact complete-parent and
   membership guard. It is refused before the containing member writes. Earlier
   progressive root members can already be committed and are reported;
 - any dynamic record series inside explicit `$transaction([...])`.
 
 Scalar bulk operations and other statically planned nested writes continue to
-use one atomic D1 batch.
+use one atomic D1 batch. Inside that batch, a splittable `createMany` statement
+is divided into the largest chunks that fit D1's conservative 100-bound-value
+budget. The same applies to a many-to-many `connect`/`set` junction insert over
+an already captured target-key list. The complete operation still succeeds or
+rolls back as one D1 batch.
 
 ### Migrations
 

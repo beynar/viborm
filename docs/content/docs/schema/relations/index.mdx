@@ -90,12 +90,18 @@ The FK configuration is done on the `manyToOne` side, not here.
 ```ts
 s.manyToMany(() => target)
   .through("post_tags")     // Junction table name
-  .A("postId")              // Source FK in junction table
-  .B("tagId")               // Target FK in junction table
+  .A("postId")              // Source column, or prefix for a compound source key
+  .B("tagId")               // Target column, or prefix for a compound target key
   .onDelete("cascade")      // Referential action (applies to both FKs)
   .onUpdate("cascade")      // Referential action (applies to both FKs)
   .name("tags")             // Custom relation name
 ```
+
+`.A()` and `.B()` always take one string. For a one-field primary key, that
+string is the exact junction column name. For a compound primary key, it is a
+prefix: `.A("post")` expands to `post_1`, `post_2`, and so on, in the primary
+key's declared field order. The inverse relation swaps the complete A and B
+groups.
 
 ### Polymorphic Relations
 

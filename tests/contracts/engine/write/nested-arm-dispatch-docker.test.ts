@@ -2,9 +2,11 @@ import { createClient } from "@client/client";
 import { MySQL2Driver } from "@drivers/mysql2";
 import { PgDriver } from "@drivers/pg";
 import { push } from "@migrations";
+import {
+  armDispatchSchema,
+  armUpdate,
+} from "@tests/contracts/engine/write/nested-arm-dispatch-behavior";
 import { describe, expect, test } from "vitest";
-import { UnsupportedOperationError } from "@src/query-engine/write-engine/shared";
-import { armDispatchSchema, armUpdate } from "@tests/contracts/engine/write/nested-arm-dispatch-behavior";
 
 /**
  * E3 on the live servers. Two things need a real driver rather than PGlite:
@@ -41,7 +43,9 @@ function suite(name: string, makeDriver: () => any, enabled: boolean): void {
       await client.tag.deleteMany({});
       await client.owner.deleteMany({});
       await client.org.deleteMany({});
-      await client.org.create({ data: { id: "o1", name: "Org" } });
+      await client.org.create({
+        data: { id: "o1", code: "org-1-code", name: "Org" },
+      });
       await client.owner.create({ data: { id: "w1", name: "Owner" } });
       await client.tag.create({ data: { id: "g1", name: "Tag" } });
       await client.team.create({
@@ -156,15 +160,12 @@ function suite(name: string, makeDriver: () => any, enabled: boolean): void {
       expect(team.tags.map((tag: { id: string }) => tag.id)).toEqual(["g1"]);
     });
 
-    test("the parent-held carve-out refuses identically on the server", async () => {
+    test("the parent-held fold lands on the selected arm on the server", async () => {
       const client = await seeded();
-      const error = await client.org
-        .update(armUpdate({ owner: { connect: { id: "w1" } } }))
-        .then(
-          () => undefined,
-          (thrown: unknown) => thrown
-        );
-      expect(error).toBeInstanceOf(UnsupportedOperationError);
+      await client.org.update(armUpdate({ owner: { connect: { id: "w1" } } }));
+      expect(
+        (await client.team.findUnique({ where: { id: "t1" } })).ownerId
+      ).toBe("w1");
     });
   });
 }

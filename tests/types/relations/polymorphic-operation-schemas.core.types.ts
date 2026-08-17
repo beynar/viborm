@@ -469,6 +469,28 @@ const updateOwnerCannotBeRestated = () =>
     },
   } satisfies OperationPayload<"update", typeof optionalArticle>);
 
+const selectedUpsertCanReenterOwner = () =>
+  inverseClient.optionalArticle.update({
+    where: { id: "article-1" },
+    data: {
+      comments: {
+        upsert: {
+          where: { id: "comment-1" },
+          create: { id: "comment-1", body: "must not create" },
+          update: {
+            body: "changed",
+            commentable: {
+              update: {
+                type: "article",
+                data: { id: "article-2" },
+              },
+            },
+          },
+        },
+      },
+    },
+  } satisfies OperationPayload<"update", typeof optionalArticle>);
+
 const createOwnerCannotBeRestated = () =>
   inverseClient.optionalArticle.create({
     data: {
@@ -1119,6 +1141,7 @@ const _publicSurfaceProbes = [
   requiredDisconnectIsRejected,
   requiredSetIsAccepted,
   updateOwnerCannotBeRestated,
+  selectedUpsertCanReenterOwner,
   createOwnerCannotBeRestated,
   typoProbes,
   singularInverseSurface,

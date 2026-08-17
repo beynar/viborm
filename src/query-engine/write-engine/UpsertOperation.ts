@@ -10,6 +10,7 @@ import {
   buildRelationMutationProgram,
   type ParsedRelationMutation,
   partitionModelData,
+  type RecordMutationData,
 } from "../builders/relation-mutation-parser";
 import { buildInsert } from "../builders/values-builder";
 import {
@@ -26,11 +27,14 @@ import {
   buildCreate,
   buildFind,
   buildFindUnique,
+  buildInsertStatement,
+  buildMutationProjectionFold,
   buildUpdate,
   buildUpsert,
 } from "../operations";
 import {
   assertPortablePrimaryKeyUpdateInput,
+  databaseAssignedRowKeyFields,
   getUpdatedPrimaryKeyWhere,
 } from "../operations/mutation-identity";
 import type { QueryEngine } from "../query-engine";
@@ -41,11 +45,12 @@ import {
   buildFreshRecordPart,
   CreateOperation,
   type FreshRecordBuilder,
+  type FreshRecordPart,
 } from "./CreateOperation";
+import { createDataSpellsRacePin, createRacePin } from "./create-race-pin";
 import {
   absenceGuard,
   affectedRows,
-  childRacePin,
   exactlyOneRow,
   notFoundFailure,
   presenceGuard,
@@ -77,9 +82,9 @@ import {
   isRecord,
   pinnedTargetValues,
   projectionNamesNoRelation,
+  projectionReadsMutatedModel,
   type SubOperationOptions,
   selectExecutionMode,
-  UnsupportedOperationError,
   uniqueSelectorConjuncts,
 } from "./shared";
 import {
@@ -111,8 +116,9 @@ interface ArmResult {
  *   every part of it derived from the row this statement made or wrote.
  *   A single-column primary key is the `literals = {}` case of the same shape.
  *
- * There is deliberately no third shape: any other create payload names no row the
- * upsert can read back, and `createArmIdentity` refuses instead of guessing.
+ * Other scalar create payloads do not add another identity shape here. When the
+ * create arm is taken, they delegate to the fresh-record compiler, which either
+ * publishes the complete row key or refuses at its existing publication boundary.
  */
 type CreateArmIdentity =
   | { readonly kind: "known"; readonly where: Record<string, unknown> }
@@ -172,6 +178,10 @@ export class UpsertOperation {
   private readonly whereNamesOneConstraint: boolean;
   private readonly parentPrimaryKeys: readonly string[];
   private readonly createData: Record<string, unknown>;
+  private readonly createRecordData: RecordMutationData;
+  /** Parsed scalar values for the inline scalar create arm. Relation-bearing create
+   * values stay with CreateOperation's one parse boundary. */
+  private readonly createScalarData: Record<string, unknown>;
   private readonly updateData: Record<string, unknown>;
   private readonly conditionals: readonly Conditional[];
   private readonly locate: ReadStep;
@@ -187,6 +197,12 @@ export class UpsertOperation {
   private readonly canFoldUpdateArm: boolean;
   // A relation-bearing create arm uses CreateOperation; scalar create stays inline.
   private readonly createArmOp?: CreateOperation;
+  // Built only after the locate chooses the scalar create arm whose complete row
+  // key needs plural publication. This fallback is strictly scalar, so the nested
+  // fresh part has no planning reads omitted from this shell's planning superset.
+  // Nested-fresh compilation also suppresses its own terminal/fold, so demanding
+  // every key before the first compile cannot invalidate precomputed SQL.
+  private pluralCreateArm?: FreshRecordPart;
   // A relation-bearing found arm reuses this operation's decision read.
   private readonly updateCompiler?: RecordUpdateCompiler;
   private readonly updateLegality?: () => void;
@@ -225,7 +241,7 @@ export class UpsertOperation {
     }
     // Compound primary keys are supported: every probe/guard selects each PK
     // field; the create/update arms target the parsed compound where-unique, and
-    // `childRacePin`/`getWhereUniqueEntries` already expand the compound key.
+    // `createRacePin`/`getWhereUniqueEntries` already expand the compound key.
     this.parentPrimaryKeys = parentPrimaryKeys;
 
     // Scalar arms stay inline. A relation-bearing create uses CreateOperation; a
@@ -262,8 +278,10 @@ export class UpsertOperation {
     this.whereNamesOneConstraint =
       Object.keys(whereParts.discriminator).length === 1;
     // Inline create parses its scalar payload here. A relation-bearing create remains
-    // whole for CreateOperation, so `createData` is empty and the SQL fold must decline.
-    this.createData = createHasRelations
+    // whole for CreateOperation, so both inline stores are empty and the SQL fold must
+    // decline. Race-pin provenance later reads that compiler's already parsed root
+    // scalars instead of reparsing or comparing against raw source values.
+    this.createScalarData = createHasRelations
       ? {}
       : parseValidated(
           parentSchemas.core.scalarCreate,
@@ -271,6 +289,8 @@ export class UpsertOperation {
           "upsert",
           "create"
         );
+    this.createData = createHasRelations ? {} : this.createScalarData;
+    this.createRecordData = { parsed: this.createScalarData, source: create };
     this.updateData = parseValidated(
       parentSchemas.core.scalarUpdate,
       updatePartition.scalarData,
@@ -349,7 +369,11 @@ export class UpsertOperation {
         : {}),
       ...(this.parsedInclude ? { include: this.parsedInclude } : {}),
     };
-    const subOptions: SubOperationOptions = { scope, skipOwnWrite: true };
+    const subOptions: SubOperationOptions = {
+      scope,
+      skipOwnWrite: true,
+      rootRacePin: createRacePin(parent, this.parentWhere),
+    };
     this.createArmOp = createHasRelations
       ? new CreateOperation(
           engine,
@@ -639,14 +663,16 @@ export class UpsertOperation {
    * relation writes.
    */
   private createDataSpellsConflictTarget(parent: QueryScope): boolean {
-    const entries = getWhereUniqueEntries(parent, this.parentWhere);
-    if (entries.length === 0) return false;
-    return entries.every(({ fieldName, value }) => {
-      const created = this.createData[fieldName];
-      // Equality to a foldable primitive also proves that `created` has the same
-      // foldable value; a second type check would enforce no additional case.
-      return isFoldableKeyValue(value) && Object.is(created, value);
-    });
+    return this.scalarCreateSpellsConflictTarget(parent, this.createData);
+  }
+
+  /** One equality owner for both fold eligibility and create-race provenance. */
+  private scalarCreateSpellsConflictTarget(
+    parent: QueryScope,
+    scalarCreate: Readonly<Record<string, unknown>>
+  ): boolean {
+    const race = createRacePin(parent, this.parentWhere);
+    return race !== undefined && createDataSpellsRacePin(scalarCreate, race);
   }
 
   /** Absent → CREATE (constraint + `racePin`, never a guard) then terminal read. */
@@ -658,21 +684,37 @@ export class UpsertOperation {
       // selection. The untaken create subtree must remain inert.
       this.createArmOp.assertArmLegality();
       const fragment = this.createArmOp.compile(known);
-      // The create root's INSERT carries no racePin; the upsert's missing premise
-      // IS raceable (a concurrent create loser retries into the update arm), so
-      // annotate the root INSERT with the same `childRacePin` the scalar arm uses.
-      const steps = this.annotateCreateRacePin(fragment.steps);
-      return { steps, resultId: resultStepId(fragment, "upsert create arm") };
+      return {
+        steps: [...fragment.steps],
+        resultId: resultStepId(fragment, "upsert create arm"),
+      };
     }
     const parent = createQueryScope(this.engine.adapter, this.model);
+    const returned = this.compileBatchReturningCreateArm(parent);
+    if (returned) return returned;
     // How this INSERT's row will be addressed afterwards — decided BEFORE the
     // statement is built, because a DB-generated identity changes the statement
     // itself (it has to capture the value the database produces).
     const identity = this.createArmIdentity();
+    if (!identity) return this.compilePublishedCreateArm(parent, known);
     const create: WriteStep = {
       id: this.createId,
       kind: "write",
       ...this.createArmInsert(parent, identity),
+      ...(identity.kind === "generated"
+        ? {
+            progressiveContinuation: presenceGuard(
+              `${this.createId}.continuation`,
+              buildFindUnique(parent, {
+                where: this.createArmTerminalWhere(identity),
+                select: this.pkSelect(),
+              }),
+              queryFailure(
+                "Created upsert row changed across a generated-output segment boundary."
+              )
+            ),
+          }
+        : {}),
       // The missing premise is enforced by the unique constraint the `where`
       // targets; its violation is the raceable create-branch signal — but only
       // when the locate actually PROVED that premise (see `createArmRacePin`).
@@ -691,34 +733,73 @@ export class UpsertOperation {
     };
   }
 
-  /** Add the raceable missing-premise `racePin` to the create compiler's root
-   *  INSERT step, matching the scalar arm, so a concurrent create
-   *  loser's unique violation retries into the update arm. */
-  private annotateCreateRacePin(
-    steps: readonly OperationStep[]
-  ): OperationStep[] {
-    const parent = createQueryScope(this.engine.adapter, this.model);
-    const pin = this.createArmRacePin(parent);
-    if (!pin.racePin) return [...steps];
-    const racePin = pin.racePin;
-    const rootWriteStepId = this.createArmOp?.rootWriteStepId;
-    return steps.map((step) =>
-      step.id === rootWriteStepId && step.kind === "write" && !step.racePin
-        ? { ...step, racePin }
-        : step
+  /**
+   * Batch-only RETURNING adapters can expose a generated create-arm result from
+   * the producing INSERT itself. No later statement consumes the generated row
+   * key, so an indivisible transaction array has no value boundary to cross.
+   */
+  private compileBatchReturningCreateArm(
+    parent: QueryScope
+  ): ArmResult | undefined {
+    if (
+      this.mode !== "batch" ||
+      !this.engine.adapter.capabilities.supportsReturning ||
+      databaseAssignedRowKeyFields(this.model, this.createData).length === 0
+    ) {
+      return undefined;
+    }
+    const scalarOnly = projectionNamesNoRelation(
+      this.model,
+      this.parsedSelect,
+      this.parsedInclude
     );
+    const foldsProjectionIntoCte =
+      !scalarOnly &&
+      this.engine.adapter.capabilities.supportsCteWithMutations &&
+      !projectionReadsMutatedModel(
+        parent,
+        this.parsedSelect,
+        this.parsedInclude
+      );
+    if (!(scalarOnly || foldsProjectionIntoCte)) return undefined;
+    const write: WriteStep = {
+      id: this.createId,
+      kind: "write",
+      statement: foldsProjectionIntoCte
+        ? buildMutationProjectionFold(parent, {
+            mutation: buildInsertStatement(parent, this.createData),
+            select: this.parsedSelect,
+            ...(this.parsedInclude ? { include: this.parsedInclude } : {}),
+          })
+        : buildCreate(parent, {
+            data: this.createData,
+            select: this.parsedSelect,
+          }),
+      outputs: { result: { kind: "rows" } },
+      ...this.createArmRacePin(parent),
+    };
+    return { steps: [write], resultId: write.id };
   }
 
   /**
    * The create arm's raceable missing premise — present only for a PLAIN unique
    * `where`. The extended-selector withholding (an excluded row's violation is a
-   * genuine conflict, not a race) is `childRacePin`'s own rule, decided in the one
-   * function that mints these pins — see {@link childRacePin}.
+   * genuine conflict, not a race) is the create pin owner's rule, decided in the one
+   * function that mints these pins — see {@link createRacePin}.
    */
   private createArmRacePin(parent: QueryScope): {
-    racePin?: ReturnType<typeof childRacePin>;
+    racePin?: import("./OperationFragment").TargetConstraintPin;
   } {
-    return { racePin: childRacePin(parent, this.parentWhere) };
+    // A missing `where` row is a retry premise only when this INSERT proposes the
+    // same unique values. A conflict on different create values is a genuine create
+    // conflict, even if it names the same constraint; `racePinMatches` cannot compare
+    // values after the provider reports the violation.
+    const scalarCreate =
+      this.createArmOp?.freshRootScalarValues() ?? this.createScalarData;
+    if (!this.scalarCreateSpellsConflictTarget(parent, scalarCreate)) {
+      return {};
+    }
+    return { racePin: createRacePin(parent, this.parentWhere)?.pin };
   }
 
   /** Present → skip (conditional no-match) or update (all conditionals match). */
@@ -1061,7 +1142,7 @@ export class UpsertOperation {
    *    row holding them. Like (1) it is derived from the create data alone, so it
    *    is immune to the wrong-row bug even when a DIFFERENT live row satisfies
    *    the `where`;
-   * 3. **a PRODUCED identity — the captured member ⊎ the spelled ones** — exactly
+   * 3. **a PRODUCED identity fast path — the captured member ⊎ the spelled ones** — exactly
    *    one primary-key member is absent from the create data and that member is an
    *    `increment`, so the INSERT captures what the database produced for it (see
    *    {@link UpsertOperation.createArmInsert}) and the read-back references it,
@@ -1070,10 +1151,12 @@ export class UpsertOperation {
    *    complete primary key whose every part comes from the row this statement made
    *    or wrote. A single-column PK is the degenerate case (the union is empty), and
    *    a COMPOUND PK with one generated member is the general one — the shape M9
-   *    measured reaching the refusal below. Two absent members cannot both be
-   *    produced (one INSERT publishes ONE generated identity), and an absent member
-   *    that is not an `increment` is not produced at all (a column DEFAULT is
-   *    evaluated by the database and published nowhere) — both stay refused.
+   *    measured reaching the former refusal below.
+   *
+   * Any remaining scalar create arm is delegated lazily to `FreshRecordPart` after
+   * the locate chooses it. That owner publishes every database-assigned row-key
+   * member through field-keyed outputs. It also owns the genuine refusal when the
+   * row key cannot be published on the active substrate.
    *
    * Rungs (1) and (3) inline create-data values into the read-back `where`, so a
    * NON-literal there would be evaluated a second time and could name a different
@@ -1086,25 +1169,20 @@ export class UpsertOperation {
    *
    * **Why (2) outranks (3), uniformly and not just in batch mode.** All three are
    * equally correct; (1) and (2) are additionally CAPTURE-FREE — they compile to a
-   * plain INSERT with no output, whereas (3) makes the statement itself depend on
-   * the execution mode and the driver (`… RETURNING pk` in a returning-driver
-   * transaction, the driver's `insertId` scratch otherwise). That scratch is
-   * per-operation state a SHARED driver batch cannot isolate, so an operation that
-   * needs it is refused from `$transaction([…])` on a batch-only driver
-   * ({@link OperationExecutor.prepareSharedBatch}) — data-dependently, since only
-   * the create arm carries it. Compile cannot see whether it will be merged into a
-   * shared batch, so a batch-only preference would still leave that refusal
-   * reachable for the mainstream `increment` PK + unique-in-create-data model.
-   * Preferring the capture-free identity ALWAYS gives one compiled shape per
-   * (model, args) pair on every substrate and every driver, and shrinks the
-   * refusal to the shapes that genuinely have no other identity.
+   * plain INSERT with no output, whereas (3) makes the statement depend on the
+   * execution mode and adapter output capability. A RETURNING adapter can fold a
+   * scalar produced result into one statement for an indivisible shared batch, and
+   * exact insert-id lowerings remain available where the adapter supplies them. A
+   * more complex generated-output graph still needs its own exact fold or the
+   * executor refuses it before effects. Preferring the capture-free identity keeps
+   * one simpler compiled shape per `(model, args)` pair whenever the create source
+   * already names its row; generated output remains the fallback, not a blanket
+   * shared-batch limitation.
    *
-   * A create payload carrying none of the three names no row this operation can
-   * read back, so it is refused rather than guessed at — and only when the create
-   * arm is actually TAKEN (this runs at compile), so an upsert that updates is
-   * never affected.
+   * Classification and delegation happen only when the create arm is actually
+   * taken, so an upsert that updates is never affected by create publication.
    */
-  private createArmIdentity(): CreateArmIdentity {
+  private createArmIdentity(): CreateArmIdentity | undefined {
     const literalPrimaryKey = this.parentPrimaryKeys.every(
       (pk) => this.createData[pk] !== undefined
     );
@@ -1148,9 +1226,63 @@ export class UpsertOperation {
         ),
       };
     }
-    throw new UnsupportedOperationError(
-      `query-engine-v2 upsert cannot read back the row its create arm inserts for '${getStepModelName(this.model, "record")}': the create data carries neither a complete primary key ('${this.parentPrimaryKeys.join(", ")}') nor any complete unique constraint of the model, and its absent primary-key members are not a single database-generated identity the INSERT can capture.`
-    );
+    return undefined;
+  }
+
+  /**
+   * The non-inline scalar create arm. `FreshRecordPart` owns publication of every
+   * database-assigned row-key member; this shell owns only the upsert terminal.
+   */
+  private compilePublishedCreateArm(
+    parent: QueryScope,
+    known: Readonly<Record<string, unknown>>
+  ): ArmResult {
+    const part = this.pluralCreateArmPart(parent);
+    const published = part.rootRowKey();
+    const identity: Record<string, unknown> = {};
+    for (const field of this.parentPrimaryKeys) {
+      const source = published[field];
+      if (!source) {
+        throw new QueryEngineError(
+          `query-engine-v2 internal: upsert fresh create did not publish row-key field '${field}'.`
+        );
+      }
+      if (source.kind === "literal") {
+        identity[field] = source.value;
+        continue;
+      }
+      if (source.kind === "finalRef") {
+        identity[field] = referenceSql(
+          this.engine,
+          this.model,
+          field,
+          source.ref
+        );
+        continue;
+      }
+      throw new QueryEngineError(
+        `query-engine-v2 internal: upsert fresh create row-key field '${field}' used a non-fresh reference source.`
+      );
+    }
+    return {
+      steps: [
+        ...part.compile(this.scope, known),
+        this.buildTerminal(buildPrimaryKeyWhereUnique(this.model, identity)),
+      ],
+      resultId: this.terminalId,
+    };
+  }
+
+  private pluralCreateArmPart(parent: QueryScope): FreshRecordPart {
+    if (this.pluralCreateArm) return this.pluralCreateArm;
+    const racePin = createRacePin(parent, this.parentWhere);
+    this.pluralCreateArm = buildFreshRecordPart(this.scope, this.engine, {
+      childScope: parent,
+      data: this.createRecordData,
+      relationName: "record",
+      ...(racePin ? { racePin } : {}),
+    });
+    return this.pluralCreateArm;
   }
 
   /**
@@ -1176,8 +1308,9 @@ export class UpsertOperation {
       };
     }
     const capture =
-      this.mode === "transaction" &&
-      this.engine.adapter.capabilities.supportsReturning;
+      this.engine.adapter.capabilities.supportsReturning &&
+      (this.mode === "transaction" ||
+        !this.engine.adapter.batchRefs.storeLastInsertId);
     return {
       statement: capture
         ? buildCreate(parent, {
@@ -1295,15 +1428,6 @@ export class UpsertOperation {
  * A conflict-target value the fold can compare by identity — see
  * {@link UpsertOperation.createDataSpellsConflictTarget}.
  */
-function isFoldableKeyValue(value: unknown): boolean {
-  return (
-    typeof value === "string" ||
-    typeof value === "number" ||
-    typeof value === "bigint" ||
-    typeof value === "boolean"
-  );
-}
-
 /**
  * Conjunct 7 of the ON CONFLICT fold: every assignment in the update payload is a
  * plain `set` (or a bare `null`), so the SET clause never reads the column it

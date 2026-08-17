@@ -1,11 +1,8 @@
-import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import type { BatchQuery, QueryExecutionContext, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { NestedWriteError } from "@errors";
 import { push } from "@migrations";
-import { describe, expect, test } from "vitest";
-import { batchIsAtomicUnit } from "@tests/fixtures/atomic-unit-batch";
 import {
   makeLookupClient,
   runBeforeRootSubtreeBehavior,
@@ -13,7 +10,11 @@ import {
   runParentHeldLookupBehavior,
   runUpsertArmRelationBehavior,
   seedLookupBed,
+  seedProducedIdentityDecoy,
 } from "@tests/contracts/engine/write/parent-held-lookup-behavior";
+import { batchIsAtomicUnit } from "@tests/fixtures/atomic-unit-batch";
+import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
+import { describe, expect, test } from "vitest";
 
 runParentHeldLookupBehavior({
   name: "PGlite transaction",
@@ -370,6 +371,7 @@ describe("E1 U3 — the subtree root's produced identity", () => {
       const stateClient = makeLookupClient(new PGliteDriver({ client: db }));
       await push(stateClient, { force: true });
       await seedLookupBed(stateClient);
+      await seedProducedIdentityDecoy(stateClient);
       const decoy = await stateClient.magazine.findFirst({
         orderBy: { id: "asc" },
       });
@@ -512,6 +514,75 @@ describe("E1 U6 — the non-PK edge's captured identity", () => {
         { id: 1, slug: "codeless", code: null, tier: "platinum" },
         { id: 2, slug: "gold-slug", code: "GOLD", tier: "gold" },
       ]);
+      await stateClient.$disconnect();
+    }
+  );
+});
+
+// ---------------------------------------------------------------------------
+// E1 U3 on the two substrates this bed can actually reach. The enclosing UPDATE's
+// SET spends the key the database assigns to the reversed subtree. An interactive
+// transaction consumes the producer's RETURNING value directly. Default PostgreSQL
+// batch execution materializes that same value between guarded atomic segments;
+// neither path uses session-global `lastval()`.
+// ---------------------------------------------------------------------------
+
+describe("E1 U3 — the produced identity by substrate", () => {
+  test(
+    "the transaction path spends the key the subtree's INSERT produced",
+    { timeout: 30_000 },
+    async () => {
+      const db = new PGlite();
+      const client = makeLookupClient(new PGliteDriver({ client: db }));
+      await push(client, { force: true });
+      await seedLookupBed(client);
+      await seedProducedIdentityDecoy(client);
+
+      await expect(
+        client.issue.update({
+          where: { id: 1 },
+          data: { magazine: { create: { title: "fresh-magazine" } } },
+        })
+      ).resolves.toEqual({ id: 1, name: "issue-1", magazineId: 2 });
+      // The decoy holds the lower key, so a fold that spent anything but the
+      // subtree's own produced identity binds magazine 1 visibly.
+      await expect(
+        client.magazine.findMany({ orderBy: { id: "asc" } })
+      ).resolves.toEqual([
+        { id: 1, title: "decoy-magazine" },
+        { id: 2, title: "fresh-magazine" },
+      ]);
+      await client.$disconnect();
+    }
+  );
+
+  test(
+    "the PostgreSQL atomic batch spends the producer's exact RETURNING key",
+    { timeout: 30_000 },
+    async () => {
+      const db = new PGlite();
+      const stateClient = makeLookupClient(new PGliteDriver({ client: db }));
+      await push(stateClient, { force: true });
+      await seedLookupBed(stateClient);
+      await seedProducedIdentityDecoy(stateClient);
+
+      const driver = new BatchOnlyPGliteDriver({ client: db });
+      const client = makeLookupClient(driver);
+      await expect(
+        client.issue.update({
+          where: { id: 1 },
+          data: { magazine: { create: { title: "fresh-magazine" } } },
+        })
+      ).resolves.toEqual({ id: 1, name: "issue-1", magazineId: 2 });
+      await expect(
+        stateClient.magazine.findMany({ orderBy: { id: "asc" } })
+      ).resolves.toEqual([
+        { id: 1, title: "decoy-magazine" },
+        { id: 2, title: "fresh-magazine" },
+      ]);
+      await expect(
+        stateClient.issue.findUnique({ where: { id: 1 } })
+      ).resolves.toEqual({ id: 1, name: "issue-1", magazineId: 2 });
       await stateClient.$disconnect();
     }
   );

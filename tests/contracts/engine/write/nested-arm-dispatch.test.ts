@@ -105,7 +105,9 @@ function runSuite(
     beforeEach(async () => {
       driver = make(getFamily().database);
       client = createClient({ schema: armDispatchSchema, driver }) as any;
-      await client.org.create({ data: { id: "o1", name: "Org" } });
+      await client.org.create({
+        data: { id: "o1", code: "org-1-code", name: "Org" },
+      });
       await client.owner.create({ data: { id: "w1", name: "Owner" } });
       await client.tag.create({ data: { id: "g1", name: "Tag" } });
       await client.team.create({
@@ -127,12 +129,15 @@ function runSuite(
     const run = async (
       relations: Record<string, unknown>,
       locator?: Record<string, unknown>,
-      scalars?: Record<string, unknown>
+      scalars?: Record<string, unknown>,
+      rootScalars?: Record<string, unknown>
     ) => {
       driver.statements.length = 0;
       driver.recording = true;
       try {
-        await client.org.update(armUpdate(relations, locator, scalars));
+        await client.org.update(
+          armUpdate(relations, locator, scalars, rootScalars)
+        );
       } finally {
         driver.recording = false;
       }
@@ -141,12 +146,13 @@ function runSuite(
     const refusalOf = async (
       relations: Record<string, unknown>,
       locator?: Record<string, unknown>,
-      scalars?: Record<string, unknown>
+      scalars?: Record<string, unknown>,
+      rootScalars?: Record<string, unknown>
     ) => {
       driver.statements.length = 0;
       driver.recording = true;
       const error = await client.org
-        .update(armUpdate(relations, locator, scalars))
+        .update(armUpdate(relations, locator, scalars, rootScalars))
         .then(
           () => undefined,
           (thrown: unknown) => thrown
@@ -329,7 +335,9 @@ function runSuite(
         schema: armDispatchSchema,
         driver: corrupting,
       }) as any;
-      await seeded.org.create({ data: { id: "o1", name: "Org" } });
+      await seeded.org.create({
+        data: { id: "o1", code: "org-1-code", name: "Org" },
+      });
       await seeded.tag.create({ data: { id: "g1", name: "Tag" } });
       await seeded.team.create({
         data: { id: "t1", label: "T1", slug: "team-1", orgId: "o1" },
@@ -395,99 +403,271 @@ function runSuite(
     });
 
     // -----------------------------------------------------------------------
-    // CARVE-OUTS. Each refuses TYPED, at construction, with an empty statement log.
+    // Parent-held folds now belong to the selected-record compiler too.
     // -----------------------------------------------------------------------
-
-    // -----------------------------------------------------------------------
-    // B3 OF THE LIMITATION LIFT ATTEMPTED TO DELETE THIS CARVE-OUT AND WAS FALSIFIED
-    // AT THE PACKAGE GATE. The deletion is not shipped, and the refusal below is the
-    // shipped behaviour again — so this comment records WHY, because the reason is not
-    // the one the guard's own docblock used to give.
-    //
-    // The selected-record compiler the arm delegates to DOES own a parent-held fold:
-    // `interpretParentHeld` puts the target's key into `toOneLinks` /
-    // `parentHeldTargets` and `compileLocatedRecord` merges it into the one root UPDATE
-    // the arm already emits. Measured on both substrates, `owner` — a parent-held
-    // relation the arm did NOT arrive through — folds correctly for connect, create,
-    // connectOrCreate (found and fresh), and disconnect, in a single `UPDATE "e3_teams"`.
-    //
-    // What killed the deletion is the relation the arm ARRIVED THROUGH, which is the
-    // one this refusal's message names. This seam hands the compiler an
-    // `incomingMembership` (the reparent onto the enclosing row) and
-    // `compileLocatedRecord` applies it AFTER the fold, over the same column. Measured
-    // through the public client with `org.update` → `teams.upsert[].update.org`:
-    //
-    //   · connect { id: 'o2' }  → resolves, o2's probe runs, orgId stays 'o1'
-    //   · create  { id: 'o9' }  → o9 INSERTed and committed, orgId stays 'o1' (orphan)
-    //   · disconnect: true      → orgId stays 'o1'
-    //   · the SAME payload on both arms → 'o2' via the create arm, 'o1' via this one
-    //   · delete: true          → deletes the enclosing operation's own root row and
-    //                             fails the terminal read with a bare TransactionError
-    //
-    // None of those refuse. The nested targeted-update seam passes no
-    // `incomingMembership` and lands 'o2' correctly for the same payload, so this is
-    // not parity — the collision is this seam's alone. Lifting it needs the fold and
-    // the incoming reparent reconciled in ONE owner (per-column precedence with a
-    // refusal when they disagree); that is carried forward as a Package D case.
-    //
-    // PACKAGE H — THE SAME CLASS, SECOND INSTANCE, and now with a precedent to point at.
-    // H3's parent-held composition is the same shape of problem: a vacate and a supplier
-    // both assign the edge's foreign-key columns in one root UPDATE, and before H the
-    // winner was whichever assignment `Object.assign(parentSet, link.assignment)` applied
-    // last. `interpretParentHeldComposition` answers it with PER-COLUMN PRECEDENCE
-    // decided before the SET is assembled — the supplier owns the column, so the vacate
-    // contributes no assignment at all — which is exactly the mechanism this carve-out is
-    // waiting for, minus the "refuse when they disagree" half (H's two writers cannot
-    // disagree; a replacement has one meaning). What the seam above still needs is that
-    // half: the incoming reparent and a nested fold CAN name different rows, and no owner
-    // decides between them. ONE ledger row covers both instances for Package O.
-    // -----------------------------------------------------------------------
-
-    const PARENT_HELD =
-      "query-engine-v2 does not support a parent-held to-one write on relation 'owner' one level deeper on the update arm; the arm's row holds that foreign key, so the write belongs in the arm's own UPDATE SET, which already carries this relation's reparent.";
 
     test.each([
-      ["create", { create: { id: "w9", name: "W9" } }],
-      ["connect", { connect: { id: "w1" } }],
+      ["create", { create: { id: "w9", name: "W9" } }, "w9"],
+      ["connect", { connect: { id: "w1" } }, "w1"],
       [
-        "connectOrCreate",
+        "connectOrCreate found",
         {
           connectOrCreate: {
             where: { id: "w1" },
             create: { id: "w1", name: "W" },
           },
         },
+        "w1",
       ],
-      ["update", { update: { name: "W2" } }],
       [
-        "upsert",
-        { upsert: { create: { id: "w1", name: "W" }, update: { name: "W2" } } },
+        "connectOrCreate missing",
+        {
+          connectOrCreate: {
+            where: { id: "w9" },
+            create: { id: "w9", name: "W9" },
+          },
+        },
+        "w9",
       ],
-    ])(
-      "carve-out: a parent-held to-one %s refuses by DIRECTION",
-      async (_label, payload) => {
-        const error = await refusalOf({ owner: payload });
-        expect(error).toBeInstanceOf(UnsupportedOperationError);
-        expect((error as Error).message).toBe(PARENT_HELD);
-        expect(driver.statements).toEqual([]);
-      }
-    );
+    ])("parent-held %s folds into the selected arm root", async (_label, payload, ownerId) => {
+      await run({ owner: payload });
+      expect(
+        (await client.team.findUnique({ where: { id: "t1" } })).ownerId
+      ).toBe(ownerId);
+    });
 
-    test("the carve-out also answers on the relation the arm ARRIVED THROUGH", async () => {
-      // The falsifying case, pinned as a refusal so the collision described above can
-      // never be reached silently: `org` is parent-held on `team` AND is the relation
-      // this upsert traversed, so its fold and the arm's incoming reparent write the
-      // same column. Same guard, same phase, empty log — and the enclosing row keeps
-      // the membership the traversal asserted.
-      const error = await refusalOf({ org: { connect: { id: "o1" } } });
-      expect(error).toBeInstanceOf(UnsupportedOperationError);
-      expect((error as Error).message).toBe(
-        "query-engine-v2 does not support a parent-held to-one write on relation 'org' one level deeper on the update arm; the arm's row holds that foreign key, so the write belongs in the arm's own UPDATE SET, which already carries this relation's reparent."
-      );
-      expect(driver.statements).toEqual([]);
+    test("parent-held update and upsert target the selected arm's relation", async () => {
+      await client.team.update({
+        where: { id: "t1" },
+        data: { owner: { connect: { id: "w1" } } },
+      });
+      await run({ owner: { update: { name: "W1b" } } });
+      expect(
+        (await client.owner.findUnique({ where: { id: "w1" } })).name
+      ).toBe("W1b");
+
+      await run({
+        owner: {
+          upsert: {
+            create: { id: "w9", name: "W9" },
+            update: { name: "unused" },
+          },
+        },
+      });
+      expect(
+        (await client.team.findUnique({ where: { id: "t1" } })).ownerId
+      ).toBe("w1");
+    });
+
+    test("a membership writer on the incoming edge may reparent", async () => {
+      await client.org.create({
+        data: { id: "o2", code: "org-2-code", name: "O2" },
+      });
+      await run({ org: { connect: { id: "o2" } } });
       expect(
         (await client.team.findUnique({ where: { id: "t1" } })).orgId
-      ).toBe("o1");
+      ).toBe("o2");
+    });
+
+    test("a membership writer on the incoming edge may disconnect", async () => {
+      await run({ org: { disconnect: true } });
+      expect(
+        (await client.team.findUnique({ where: { id: "t1" } })).orgId
+      ).toBeNull();
+    });
+
+    test("same-incoming update re-enters the exact selected parent", async () => {
+      await client.org.create({
+        data: { id: "o2", code: "org-2-code", name: "decoy" },
+      });
+      await run({ org: { update: { name: "selected" } } });
+      expect(
+        await client.org.findMany({
+          orderBy: { id: "asc" },
+          select: { id: true, name: true },
+        })
+      ).toEqual([
+        { id: "o1", name: "selected" },
+        { id: "o2", name: "decoy" },
+      ]);
+    });
+
+    test("same-incoming descendants read a demanded non-key reference from the selected parent", async () => {
+      await run(
+        {
+          org: {
+            update: {
+              codeNotes: {
+                create: { id: "nCode", body: "deep", tagName: "ntCode" },
+              },
+            },
+          },
+        },
+        undefined,
+        undefined,
+        { code: "org-1-code-moved" }
+      );
+      await expect(
+        client.note.findUnique({ where: { id: "nCode" } })
+      ).resolves.toMatchObject({
+        id: "nCode",
+        orgCode: "org-1-code-moved",
+        teamId: null,
+      });
+    });
+
+    test("the optional parent filter cannot redirect re-entry to a decoy", async () => {
+      await client.org.create({
+        data: { id: "o2", code: "org-2-code", name: "decoy-match" },
+      });
+      const error = await refusalOf({
+        org: {
+          update: {
+            where: { name: "decoy-match" },
+            data: { name: "must not escape" },
+          },
+        },
+      });
+      expect(error).toBeInstanceOf(NestedWriteError);
+      expect((error as Error).message).toContain(
+        "target record was not found for this parent"
+      );
+      await expect(
+        client.org.findMany({ orderBy: { id: "asc" } })
+      ).resolves.toMatchObject([
+        { id: "o1", name: "Org" },
+        { id: "o2", name: "decoy-match" },
+      ]);
+    });
+
+    test("same-incoming upsert takes the found arm and never creates its sentinel", async () => {
+      await run({
+        org: {
+          upsert: {
+            create: {
+              id: "o-sentinel",
+              code: "org-sentinel-code",
+              name: "must not create",
+            },
+            update: { name: "selected by found arm" },
+          },
+        },
+      });
+      await expect(
+        client.org.findUnique({ where: { id: "o1" } })
+      ).resolves.toMatchObject({ name: "selected by found arm" });
+      await expect(
+        client.org.findUnique({ where: { id: "o-sentinel" } })
+      ).resolves.toBeNull();
+    });
+
+    test("the enclosing create arm leaves the incoming-parent update inert", async () => {
+      await run(
+        { org: { update: { name: "must not run" } } },
+        { id: "tFresh" }
+      );
+      await expect(
+        client.org.findUnique({ where: { id: "o1" } })
+      ).resolves.toMatchObject({ name: "Org" });
+      await expect(
+        client.team.findUnique({ where: { id: "tFresh" } })
+      ).resolves.toMatchObject({ orgId: "o1" });
+    });
+
+    test("a direct parent-key transition keeps re-entry on the captured parent", async () => {
+      await run(
+        { org: { update: { name: "inner-before-root" } } },
+        { id: "t1" },
+        { label: "T1b" },
+        { id: "o-moved", name: "outer-after-child" }
+      );
+      await expect(
+        client.org.findUnique({ where: { id: "o1" } })
+      ).resolves.toBeNull();
+      await expect(
+        client.org.findUnique({ where: { id: "o-moved" } })
+      ).resolves.toMatchObject({ name: "outer-after-child" });
+      await expect(
+        client.team.findUnique({ where: { id: "t1" } })
+      ).resolves.toMatchObject({ orgId: "o-moved" });
+    });
+
+    const SAME_INCOMING_DELETE =
+      "query-engine-v2 does not support a target mutation on relation 'org' when it addresses the same incoming membership as the selected upsert arm.";
+
+    test("same-incoming delete keeps the focused overlap refusal", async () => {
+      const error = await refusalOf({ org: { delete: true } });
+      expect(error).toBeInstanceOf(UnsupportedOperationError);
+      expect((error as Error).message).toBe(SAME_INCOMING_DELETE);
+      expect(driver.statements).toEqual([]);
+    });
+
+    test("a key-changing re-entry remains a focused refusal", async () => {
+      const error = await refusalOf({ org: { update: { id: "o-inner" } } });
+      expect(error).toBeInstanceOf(UnsupportedOperationError);
+      expect((error as Error).message).toBe(
+        "query-engine-v2 does not support a selected incoming-parent re-entry that changes row-key field 'id' on relation 'org'."
+      );
+      expect(
+        driver.statements.every((statement) => statement.startsWith("SELECT "))
+      ).toBe(true);
+      await expect(
+        client.org.findUnique({ where: { id: "o1" } })
+      ).resolves.toMatchObject({ name: "Org" });
+    });
+
+    test("delete beside a supplier stays with the earlier OwnWrite refusal", async () => {
+      const error = await refusalOf({
+        org: { connect: { id: "o1" }, delete: true },
+      });
+      expect(error).toBeInstanceOf(NestedWriteError);
+      expect((error as Error).message).toBe(
+        "Nested operation 'connect' on relation 'org' depends on an earlier 'delete' target write in the same nested write. Split these operations into separate queries."
+      );
+      expect(driver.statements).toEqual([]);
+    });
+
+    test("a self-relation child-held inverse is not the incoming parent-held edge", async () => {
+      await client.node.create({
+        data: { id: "root", label: "root", parentId: null },
+      });
+      await client.node.create({
+        data: { id: "child", label: "child", parentId: "root" },
+      });
+      await client.node.create({
+        data: { id: "grand", label: "before", parentId: "child" },
+      });
+
+      await client.node.update({
+        where: { id: "root" },
+        data: {
+          children: {
+            upsert: [
+              {
+                where: { id: "child" },
+                create: { id: "unused", label: "unused" },
+                update: {
+                  children: {
+                    update: [
+                      {
+                        where: { id: "grand" },
+                        data: { label: "after" },
+                      },
+                    ],
+                  },
+                },
+              },
+            ],
+          },
+        },
+      });
+
+      expect(
+        await client.node.findUnique({
+          where: { id: "grand" },
+          select: { label: true, parentId: true },
+        })
+      ).toEqual({ label: "after", parentId: "child" });
     });
 
     // -----------------------------------------------------------------------

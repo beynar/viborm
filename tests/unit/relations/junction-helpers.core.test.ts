@@ -3,6 +3,7 @@ import {
   findPairedManyToManyState,
   generateJunctionFieldName,
   generateJunctionTableName,
+  getJunctionFieldGroups,
   getJunctionFieldNames,
   getJunctionTableName,
 } from "@schema/relation/helpers";
@@ -251,6 +252,113 @@ describe("many-to-many junction helpers", () => {
       "parent_id",
       "child_id",
     ]);
+  });
+
+  test("treats A and B as positional prefixes for compound row keys", () => {
+    const relation = s
+      .manyToMany(() => target)
+      .A("post_key")
+      .B("tag_key");
+    const source = s.model({ id: s.string().id(), targets: relation });
+    const target = s.model({ id: s.string().id() });
+    hydrateSchemaNames({ source, target });
+
+    expect(
+      getJunctionFieldGroups(
+        relation,
+        "Post",
+        "Tag",
+        ["tenant", "slug"],
+        ["locale", "code", "revision"]
+      )
+    ).toEqual({
+      source: {
+        token: "post_key",
+        fields: ["post_key_1", "post_key_2"],
+      },
+      target: {
+        token: "tag_key",
+        fields: ["tag_key_1", "tag_key_2", "tag_key_3"],
+      },
+    });
+  });
+
+  test("keeps scalar columns byte-identical and derives compound prefixes", () => {
+    const relation = s.manyToMany(() => target);
+    const source = s.model({ id: s.string().id(), targets: relation });
+    const target = s.model({ id: s.string().id() });
+    hydrateSchemaNames({ source, target });
+
+    expect(
+      getJunctionFieldGroups(
+        relation,
+        "Post",
+        "Tag",
+        ["id"],
+        ["tenant", "code"]
+      )
+    ).toEqual({
+      source: { token: "postId", fields: ["postId"] },
+      target: { token: "tag", fields: ["tag_1", "tag_2"] },
+    });
+  });
+
+  test("derives distinct positional prefixes for an unpaired compound self relation", () => {
+    const peers = s.manyToMany(() => node);
+    const node = s.model({ id: s.string().id(), peers });
+    hydrateSchemaNames({ node });
+
+    expect(
+      getJunctionFieldGroups(
+        peers,
+        "Node",
+        "Node",
+        ["tenant", "parent"],
+        ["tenant", "child"]
+      )
+    ).toEqual({
+      source: { token: "nodeA", fields: ["nodeA_1", "nodeA_2"] },
+      target: { token: "nodeB", fields: ["nodeB_1", "nodeB_2"] },
+    });
+  });
+
+  test("rejects expanded cross-side collisions and invalid identifiers", () => {
+    const collision = s
+      .manyToMany(() => collisionTarget)
+      .A("post_1")
+      .B("Post");
+    const collisionSource = s.model({
+      id: s.string().id(),
+      targets: collision,
+    });
+    const collisionTarget = s.model({ id: s.string().id() });
+    hydrateSchemaNames({ collisionSource, collisionTarget });
+
+    expect(() =>
+      getJunctionFieldGroups(
+        collision,
+        "Source",
+        "Target",
+        ["id"],
+        ["tenant", "code"]
+      )
+    ).toThrow("collide after compound-prefix expansion");
+
+    const longPrefix = "x".repeat(62);
+    const invalid = s.manyToMany(() => invalidTarget).A(longPrefix);
+    const invalidSource = s.model({ id: s.string().id(), targets: invalid });
+    const invalidTarget = s.model({ id: s.string().id() });
+    hydrateSchemaNames({ invalidSource, invalidTarget });
+
+    expect(() =>
+      getJunctionFieldGroups(
+        invalid,
+        "Source",
+        "Target",
+        ["tenant", "code"],
+        ["id"]
+      )
+    ).toThrow("is not a valid SQL identifier");
   });
 });
 

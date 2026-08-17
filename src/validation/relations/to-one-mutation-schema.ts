@@ -108,15 +108,16 @@ type ChildHeldCompositionMutation<T> =
  * `update` would have to modify a row whose identity the same statement is still
  * producing; that composition is refused here rather than half-supported.
  *
- * The CHILD-held direction admits those same two shapes and lets the engine's
- * composition owner refuse them, in a sentence that names the missing produced-identity
- * channel. The obstacle is the same one; the two directions state it in different places
- * because only this one can be seen from the payload alone — a parent-held supplier and
- * its modify fold into the record's own root statement, so "the identity is not there
- * yet" is a property of the shape, while on the child-held direction it is a property of
- * how that engine locates a selected record, and the day that channel lands only the
- * engine's sentence should have to go. Anyone widening one direction should read the
- * other's owner before assuming they agree.
+ * The CHILD-held direction admits those same two shapes and EXECUTES them: the
+ * residual lift's Package E gave the engine a membership-capture continuation
+ * (the supplier runs, the one row carrying the supplied membership is captured, and
+ * the retained update source compiles against that selected target), so the engine
+ * sentence that used to refuse them is gone. The two directions still differ because
+ * only this one can be seen from the payload alone — a parent-held supplier and its
+ * modify fold into the record's own root statement, so "the identity is not there
+ * yet" is a property of the shape, not of how the engine locates a selected record.
+ * Anyone widening this direction should read the child-held continuation owner
+ * before assuming the two agree.
  */
 type ParentHeldCompositionMutation<T> =
   | ReplacementMutation<T>

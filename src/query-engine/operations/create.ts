@@ -7,6 +7,7 @@
 
 import { type Sql, sql } from "@sql";
 import { isRecord } from "@validation/value-guards";
+import { compileBindBudgetChunks } from "../bind-budget";
 import type { PolymorphicStorageValue } from "../builders/polymorphic-mutation";
 import { buildSelect } from "../builders/select-builder";
 import {
@@ -158,7 +159,8 @@ export function buildCreateManyPlan(
   returnRows: boolean,
   polymorphicStorage?:
     | PolymorphicStorageValue<unknown>
-    | readonly (readonly PolymorphicStorageValue<unknown>[])[]
+    | readonly (readonly PolymorphicStorageValue<unknown>[])[],
+  maxBindParametersPerStatement?: number
 ): CreateManyPlan {
   const data = getCreateManyData(args.data);
   if (data.length === 0) {
@@ -199,15 +201,64 @@ export function buildCreateManyPlan(
   return {
     inputCount: data.length,
     skipDuplicates,
-    statements: units.map((unit) => ({
-      inputIndexes: unit.inputIndexes,
-      sql: buildCreateManyStatement(
-        ctx,
-        unit,
-        skipDuplicates && !recoverDuplicateErrors,
-        returningSql
-      ),
-    })),
+    statements: buildBudgetedCreateManyStatements(
+      ctx,
+      units,
+      skipDuplicates && !recoverDuplicateErrors,
+      returningSql,
+      maxBindParametersPerStatement
+    ),
+  };
+}
+
+/**
+ * Partition one semantic same-shape run only when its compiled SQL exceeds the
+ * active provider's verified bind budget. The statement itself is the meter:
+ * casts, SQL-valued cells, private discriminators, and dialect lowering can all
+ * change its `values.length`, so row/column arithmetic is not authoritative.
+ *
+ * A one-row statement is indivisible and stays intact even when it is too
+ * large. The executor owns the final pre-I/O refusal for that boundary.
+ */
+function buildBudgetedCreateManyStatements(
+  ctx: QueryScope,
+  groups: readonly ValuesGroup[],
+  skipDuplicates: boolean,
+  returningSql: Sql | undefined,
+  maxBindParametersPerStatement: number | undefined
+): CreateManyStatement[] {
+  const statements: CreateManyStatement[] = [];
+  for (const group of groups) {
+    const chunks = compileBindBudgetChunks(
+      group.values.length,
+      maxBindParametersPerStatement,
+      (start, end) =>
+        buildCreateManyStatement(
+          ctx,
+          sliceValuesGroup(group, start, end),
+          skipDuplicates,
+          returningSql
+        )
+    );
+    for (const chunk of chunks) {
+      statements.push({
+        inputIndexes: group.inputIndexes.slice(chunk.start, chunk.end),
+        sql: chunk.statement,
+      });
+    }
+  }
+  return statements;
+}
+
+function sliceValuesGroup(
+  group: ValuesGroup,
+  start: number,
+  end: number
+): ValuesGroup {
+  return {
+    columns: group.columns,
+    inputIndexes: group.inputIndexes.slice(start, end),
+    values: group.values.slice(start, end),
   };
 }
 

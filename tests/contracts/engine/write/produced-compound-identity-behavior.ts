@@ -26,13 +26,10 @@ import { describe, expect, test } from "vitest";
  * statement made. The rung now takes that union: one absent member, generated, plus the
  * literals the create data spells.
  *
- * **The batch capture wall is respected, not crossed.** The terminal read is a LATER
- * statement, so on the atomic batch the create arm publishes its identity as `insertId`
- * (the executor's scratch-store threading — the certified path) and never as the
- * `firstRowField` of a write, which a batch cannot thread. That is the shape
- * `createArmInsert` has always compiled; this unit widens WHICH members the read-back
- * joins, not HOW the produced one travels. The `firstRowField` capture stays on the
- * transaction + returning-driver leg alone.
+ * **The batch capture wall is respected, not crossed.** The `firstRowField` capture
+ * stays on the transaction + returning-driver leg. A PostgreSQL atomic batch has no
+ * exact `insertId` lowering: session-global `lastval()` can be changed by another
+ * generated column or by a trigger, so that substrate refuses before effects.
  *
  * **What the decoys measure.** `b` is not unique on its own, so a read-back that
  * re-derived the identity by the spelled members could answer with a DIFFERENT row that
@@ -69,8 +66,7 @@ async function seedDecoys(
   client: any
 ): Promise<{ sameB: number; whereB: number }> {
   await client.ticket.deleteMany({});
-  // `create` cannot reach this model (mutation-identity refuses to propagate a
-  // generated compound primary key), so seed through `createMany`.
+  // Seed both decoys together; this setup does not need either generated key yet.
   await client.ticket.createMany({
     data: [
       { b: "written", label: "decoy-same-b" },

@@ -216,6 +216,11 @@ runCreateNestedUpsertBehavior({
   pgliteMode: "atomicBatch",
 });
 
+function explicitRootCreateNestedUpsertArgs(title = "post") {
+  const args = createNestedUpsertArgs(title);
+  return { ...args, data: { id: -1, ...args.data } };
+}
+
 describe("write engine linear operation fragments", () => {
   test("creates locked transaction planning and linear final fragments", () => {
     const driver = new TransactionProbeDriver();
@@ -504,7 +509,7 @@ describe("write engine linear operation fragments", () => {
     const driver = new GuardProviderFailureBatchDriver();
     const execution = createOperationExecutor(driver).executeCreate(
       operationFragmentSchema.user,
-      createNestedUpsertArgs()
+      explicitRootCreateNestedUpsertArgs()
     );
 
     await expect(execution).rejects.toBe(driver.failure);
@@ -519,7 +524,7 @@ describe("write engine linear operation fragments", () => {
     await expect(
       createOperationExecutor(malformed).executeCreate(
         operationFragmentSchema.user,
-        createNestedUpsertArgs()
+        explicitRootCreateNestedUpsertArgs()
       )
     ).rejects.toThrow("malformed normalized result");
     expect(malformed.batchCalls).toBe(0);
@@ -528,7 +533,7 @@ describe("write engine linear operation fragments", () => {
     await expect(
       createOperationExecutor(short).executeCreate(
         operationFragmentSchema.user,
-        createNestedUpsertArgs()
+        explicitRootCreateNestedUpsertArgs()
       )
     ).rejects.toThrow("returned 0 results");
     expect(short.executions).toBe(1);
@@ -553,7 +558,7 @@ describe("write engine linear operation fragments", () => {
         await expect(
           createOperationExecutor(driver).executeCreate(
             operationFragmentSchema.user,
-            createNestedUpsertArgs()
+            explicitRootCreateNestedUpsertArgs()
           )
         ).rejects.toBe(driver.failure);
         await expect(setup.user.findMany()).resolves.toEqual([]);
@@ -590,7 +595,7 @@ describe("write engine linear operation fragments", () => {
         await expect(
           createOperationExecutor(driver).executeCreate(
             operationFragmentSchema.user,
-            createNestedUpsertArgs()
+            explicitRootCreateNestedUpsertArgs()
           )
         ).rejects.toBeInstanceOf(UniqueConstraintError);
         expect(driver.batchCalls).toBe(1);
@@ -640,7 +645,7 @@ describe("write engine linear operation fragments", () => {
         await expect(
           createOperationExecutor(driver).executeCreate(
             operationFragmentSchema.user,
-            createNestedUpsertArgs("published")
+            explicitRootCreateNestedUpsertArgs("published")
           )
         ).rejects.toBeInstanceOf(NestedWriteError);
         expect(driver.batchCalls).toBe(1);
@@ -729,7 +734,10 @@ describe("write engine linear operation fragments", () => {
 
         let caught: unknown;
         await createOperationExecutor(driver)
-          .executeCreate(operationFragmentSchema.user, createNestedUpsertArgs())
+          .executeCreate(
+            operationFragmentSchema.user,
+            explicitRootCreateNestedUpsertArgs()
+          )
           .catch((error) => {
             caught = error;
           });

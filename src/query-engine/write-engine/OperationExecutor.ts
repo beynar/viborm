@@ -30,6 +30,7 @@ import {
 } from "@instrumentation";
 import type { TracerWrapper } from "@instrumentation/tracer";
 import { isSql, Sql } from "@sql";
+import { normalizedBindParameterLimit } from "../bind-budget";
 import { createCorrelationId } from "../execution-context";
 import type { QueryEngine } from "../query-engine";
 import { executeSkippableWrite } from "../skippable-write";
@@ -56,15 +57,11 @@ import {
   type StatementOutputSource,
   type StatementStep,
   statementHasReferences,
+  statementOutputReferences,
   statementReferences,
 } from "./OperationFragment";
 import { planningKey } from "./Part";
-import {
-  isRetryableRace,
-  markRaceable,
-  markRaceIfPinned,
-  racePinMatches,
-} from "./race-retry";
+import { isRetryableRace, markRaceIfPinned } from "./race-retry";
 import {
   isRecordSeries,
   type RecordSeriesOperation,
@@ -76,6 +73,8 @@ import { isRecord, noAtomicSubstrateError } from "./shared";
 type RuntimeValues = Map<string, Map<string, unknown>>;
 
 export type CommittedWriteSegmentNotification = () => Promise<void>;
+/** Conservatively invalidate after dispatch when provider acknowledgement is ambiguous. */
+export type WriteMayBeVisibleNotification = () => Promise<void>;
 
 /** Internal savepoint control flow for a duplicate-skipped series member. */
 class SkippedRecordSeriesMember extends Error {}
@@ -135,6 +134,12 @@ interface AtomicPlan {
   readonly fragment: OperationFragment;
   readonly entries: readonly BatchEntry[];
   readonly values: RuntimeValues;
+  readonly skippableRootWriteId?: string;
+}
+
+interface AtomicExecutionResult {
+  readonly outputs: Readonly<Record<string, unknown>>;
+  readonly skippedRoot: boolean;
 }
 
 interface ProgressiveMemberPreparation {
@@ -146,6 +151,11 @@ interface ProgressiveMemberPreparation {
 
 interface ProgressiveMemberCommitState {
   writeCommitted: boolean;
+}
+
+interface GeneratedOutputSegment {
+  readonly steps: readonly OperationStep[];
+  readonly continuationGuards: readonly GuardStep[];
 }
 
 type ProgressiveSegmentPhase = "prefix" | "member" | "suffix";
@@ -203,31 +213,23 @@ export class OperationExecutor {
     operation: RoutedExecutableOperation,
     context: QueryExecutionContext,
     driverOverride?: AnyDriver,
-    committedWriteSegment?: CommittedWriteSegmentNotification
+    committedWriteSegment?: CommittedWriteSegmentNotification,
+    writeMayBeVisible?: WriteMayBeVisibleNotification
   ): Promise<T> {
     // A SERIES has no single planning-then-compilation fragment, so none of the
-    // seams below it may be entered: it owns an interactive scope in which it
-    // captures, builds its members, and runs them one after another.
-    //
-    // It always opens that scope ITSELF — on the caller's driver when there is
-    // one, where `withTransaction` is a savepoint (the same nesting the client's
-    // callback seam already opens per operation). Borrowing the caller's scope
-    // instead would make the retry above untrue: a member failure would leave its
-    // predecessors' effects standing in a scope it had merely poisoned, so the
-    // second attempt could neither undo them nor run at all. `withTransaction`
-    // also refuses a substrate offering no interactive scope before it reaches the
-    // provider, under that method's own naming.
+    // ordinary seams below it may be entered. A transaction-capable driver owns
+    // one interactive scope and can retry the complete series. A no-transaction
+    // driver with native atomic batches runs guarded progressive segments; it
+    // reports a committed prefix and never replays that prefix on retry.
     if (isRecordSeries(operation)) {
       const seriesDriver = driverOverride ?? this.engine.driver;
-      if (
-        !seriesDriver.supportsTransactions &&
-        seriesDriver.supportsOrderedCommittedSegments
-      ) {
+      if (!seriesDriver.supportsTransactions && seriesDriver.supportsBatch) {
         return this.runProgressiveRecordSeries<T>(
           operation,
           context,
           seriesDriver,
-          committedWriteSegment
+          committedWriteSegment,
+          writeMayBeVisible
         );
       }
       setTracerAttributes(progressiveTracer(this.engine, context), {
@@ -280,7 +282,12 @@ export class OperationExecutor {
     if (operation.mode === "transaction") {
       return this.runTransaction<T>(operation, context);
     }
-    return this.runAtomicBatch<T>(operation, context, committedWriteSegment);
+    return this.runAtomicBatch<T>(
+      operation,
+      context,
+      committedWriteSegment,
+      writeMayBeVisible
+    );
   }
 
   /**
@@ -311,6 +318,11 @@ export class OperationExecutor {
       inheritedValues
     );
     validateFragment(capture);
+    assertOperationFragmentCapacity(
+      capture,
+      driver,
+      normalizedBindParameterLimit(driver.maxBindParametersPerStatement)
+    );
     const captured = await this.executeLinear(
       capture,
       driver,
@@ -356,15 +368,17 @@ export class OperationExecutor {
   }
 
   /**
-   * Execute the existing record-series form as ordered committed batches. This
-   * route is selected only by a driver whose binding contract proves that every
-   * submitted batch is atomic and a later batch observes earlier commits.
+   * Execute the existing record-series form as ordered atomic batches. Every
+   * batch-only driver can use normalized successful return as the boundary for
+   * the next segment. A driver with committed-batch notification additionally
+   * gives failures during result decoding exact committed-prefix attribution.
    */
   private async runProgressiveRecordSeries<T>(
     operation: RecordSeriesOperation,
     context: QueryExecutionContext,
     driver: AnyDriver,
-    committedWriteSegment?: CommittedWriteSegmentNotification
+    committedWriteSegment?: CommittedWriteSegmentNotification,
+    writeMayBeVisible?: WriteMayBeVisibleNotification
   ): Promise<T> {
     const progress: MutableRecordSeriesProgress = {
       committedSegments: 0,
@@ -383,7 +397,8 @@ export class OperationExecutor {
         progress,
         [],
         bindLimit,
-        committedWriteSegment
+        committedWriteSegment,
+        writeMayBeVisible
       );
     } catch (error) {
       if (hasRecordSeriesProgress(error)) throw error;
@@ -411,6 +426,7 @@ export class OperationExecutor {
     seriesPath: readonly number[],
     bindLimit: number,
     committedWriteSegment?: CommittedWriteSegmentNotification,
+    writeMayBeVisible?: WriteMayBeVisibleNotification,
     memberPhase: ProgressiveSegmentPhase = "member"
   ): Promise<T> {
     let captured: Readonly<Record<string, unknown>>;
@@ -443,12 +459,6 @@ export class OperationExecutor {
         // entered, so a root-only total would no longer describe them.
         progress.totalMembers = undefined;
       }
-      if (members.some((member) => member.seriesRootConflict !== undefined)) {
-        throw progressiveSeriesRefusal(
-          driver,
-          "skipDuplicates needs exact root-versus-descendant conflict attribution, which this ordered batch contract does not provide"
-        );
-      }
       preparedMembers = members.map((member) =>
         this.prepareProgressiveMember(
           member,
@@ -475,6 +485,7 @@ export class OperationExecutor {
           [...seriesPath, index],
           bindLimit,
           committedWriteSegment,
+          writeMayBeVisible,
           memberPhase
         )
       );
@@ -512,8 +523,8 @@ export class OperationExecutor {
             "a final result read unexpectedly contains a write"
           );
         }
-        const outputs = await this.executeEntries(plan, driver, context);
-        resultReadResults.push(resultRead.parse(outputs));
+        const execution = await this.executeEntries(plan, driver, context);
+        resultReadResults.push(resultRead.parse(execution.outputs));
       }
       return operation.parseSeries({
         captured,
@@ -556,6 +567,17 @@ export class OperationExecutor {
     validateFragment(compiled);
     assertStaticFragmentCapacity(compiled, driver, bindLimit);
     assertProgressiveBoundaryEligibility(compiled, driver);
+    assertProgressiveRootConflictEligibility(
+      compiled,
+      operation.seriesRootConflict,
+      driver
+    );
+    assertGeneratedOutputFragmentEligibility(
+      compiled,
+      driver,
+      this.engine.adapter.batchRefs.storeLastInsertId !== undefined,
+      operation.seriesRootConflict?.rootWriteId
+    );
     return { operation, planning, compiled };
   }
 
@@ -579,6 +601,12 @@ export class OperationExecutor {
     validateFragment(fragment);
     assertStaticFragmentCapacity(fragment, driver, bindLimit);
     assertProgressiveBoundaryEligibility(fragment, driver);
+    assertGeneratedOutputFragmentEligibility(
+      fragment,
+      driver,
+      this.engine.adapter.batchRefs.storeLastInsertId !== undefined,
+      prepared.operation.seriesRootConflict?.rootWriteId
+    );
     return fragment;
   }
 
@@ -592,6 +620,7 @@ export class OperationExecutor {
     memberPath: readonly number[],
     bindLimit: number,
     committedWriteSegment?: CommittedWriteSegmentNotification,
+    writeMayBeVisible?: WriteMayBeVisibleNotification,
     fragmentPhase: ProgressiveSegmentPhase = "member"
   ): Promise<unknown> {
     let attemptedCurrentMemberRetry = false;
@@ -625,7 +654,12 @@ export class OperationExecutor {
         const commitState: ProgressiveMemberCommitState = {
           writeCommitted: false,
         };
-        await this.executeProgressiveFragment(
+        assertProgressiveRootConflictEligibility(
+          fragment,
+          prepared.operation.seriesRootConflict,
+          driver
+        );
+        const skipped = await this.executeProgressiveFragment(
           fragment,
           context,
           driver,
@@ -636,8 +670,14 @@ export class OperationExecutor {
           commitState,
           bindLimit,
           committedWriteSegment,
-          fragmentPhase
+          writeMayBeVisible,
+          fragmentPhase,
+          prepared.operation.seriesRootConflict
         );
+        if (skipped) {
+          progress.completedMembers += 1;
+          return { kind: "skipped" as const };
+        }
         const outputs = resolveFragmentOutputs(fragment, runtimeValues);
         const result = prepared.operation.parse(outputs);
         progress.completedMembers += 1;
@@ -675,72 +715,113 @@ export class OperationExecutor {
     commitState: ProgressiveMemberCommitState,
     bindLimit: number,
     committedWriteSegment?: CommittedWriteSegmentNotification,
-    fragmentPhase: ProgressiveSegmentPhase = "member"
-  ): Promise<void> {
+    writeMayBeVisible?: WriteMayBeVisibleNotification,
+    fragmentPhase: ProgressiveSegmentPhase = "member",
+    rootConflict?: SeriesRootConflictDisposition
+  ): Promise<boolean> {
     let segment: OperationStep[] = [];
     let activeGuards = [...inheritedGuards];
+    const statementSteps = statementStepsById(fragment);
+    const priorOrdinaryIds = new Set<string>();
     const hasNestedSeries = fragment.steps.some(
       (step) => step.kind === "recordSeries"
     );
     let completedNestedSeries = false;
-    const flush = async () => {
-      if (segment.length === 0) return;
+    const flush = async (): Promise<boolean> => {
+      if (segment.length === 0) return false;
       const phase: ProgressiveSegmentPhase = hasNestedSeries
         ? completedNestedSeries
           ? "suffix"
           : "prefix"
         : fragmentPhase;
-      const hasWrite = segment.some((step) => step.kind === "write");
-      const guardedSegment = hasWrite ? [...activeGuards, ...segment] : segment;
-      const materialized = materializeExternalFragment(
-        segmentFragment(guardedSegment),
-        runtimeValues
-      );
+      const ordinarySteps = segment;
       segment = [];
-      validateFragment(materialized);
-      const plan = this.compileToEntries(materialized);
-      assertAtomicPlanCapacity(plan, driver, bindLimit);
-      const tracer = progressiveTracer(this.engine, context);
-      const planHasWrite = atomicPlanHasWrite(plan);
-      let segmentCommitted = false;
-      const committed = planHasWrite
-        ? async () => {
-            segmentCommitted = true;
-            progress.committedSegments += 1;
-            if (!commitState.writeCommitted) {
-              commitState.writeCommitted = true;
-              progress.committedWriteMembers += 1;
-            }
-            if (!committedWriteSegment) return;
-            try {
-              await committedWriteSegment();
-            } catch (error) {
-              throw attachProgress(error, progress, "invalidation", memberPath);
-            }
-          }
-        : undefined;
-      try {
-        await observeProgressiveSegment(
-          tracer,
-          plan,
-          memberPath,
-          planHasWrite,
-          () => segmentCommitted,
-          () => this.executeEntries(plan, driver, context, committed)
+      const generatedSegments = generatedOutputSegments(
+        segmentFragment(ordinarySteps),
+        this.engine.adapter.batchRefs.storeLastInsertId !== undefined
+      );
+      const executionSegments = generatedSegments ?? [
+        { steps: ordinarySteps, continuationGuards: [] },
+      ];
+      if (generatedSegments) {
+        assertGeneratedOutputSegmentEligibility(
+          generatedSegments,
+          driver,
+          rootConflict?.rootWriteId
         );
-        mergeRuntimeValues(runtimeValues, plan.values);
-      } catch (error) {
-        if (hasRecordSeriesProgress(error)) throw error;
-        throw attachProgress(error, progress, phase, memberPath);
       }
+      for (const executionSegment of executionSegments) {
+        const crossedOutputGuards = crossedReferenceContinuationGuards(
+          executionSegment.steps,
+          priorOrdinaryIds,
+          statementSteps
+        );
+        const hasWrite = executionSegment.steps.some(
+          (step) => step.kind === "write"
+        );
+        const continuationGuards = new Map<string, GuardStep>();
+        for (const guard of [
+          ...crossedOutputGuards,
+          ...executionSegment.continuationGuards,
+        ]) {
+          continuationGuards.set(guard.id, guard);
+        }
+        const guardedSegment = [
+          ...(hasWrite ? activeGuards : []),
+          ...continuationGuards.values(),
+          ...executionSegment.steps,
+        ];
+        const materialized = materializeExternalFragment(
+          segmentFragment(guardedSegment),
+          runtimeValues
+        );
+        validateFragment(materialized);
+        const skippableRootWriteId = executionSegment.steps.some(
+          (step) => step.id === rootConflict?.rootWriteId
+        )
+          ? rootConflict?.rootWriteId
+          : undefined;
+        const plan = this.compileToEntries(materialized, skippableRootWriteId);
+        assertAtomicPlanCapacity(plan, driver, bindLimit);
+        try {
+          const execution = await this.executeProgressiveAtomicPlan(
+            plan,
+            context,
+            driver,
+            progress,
+            memberPath,
+            commitState,
+            committedWriteSegment,
+            writeMayBeVisible
+          );
+          if (execution.skippedRoot) return true;
+          mergeRuntimeValues(runtimeValues, plan.values);
+        } catch (error) {
+          if (error instanceof SkippedRecordSeriesMember) return true;
+          if (hasRecordSeriesProgress(error)) throw error;
+          if (isRetryableRace(error) && !commitState.writeCommitted) {
+            throw error;
+          }
+          throw attachProgress(error, progress, phase, memberPath);
+        }
+      }
+      for (const step of ordinarySteps) {
+        if (step.kind === "read" || step.kind === "write") {
+          priorOrdinaryIds.add(step.id);
+        }
+      }
+      return false;
     };
 
     for (const step of fragment.steps) {
       if (step.kind !== "recordSeries") {
         segment.push(step);
+        if (step.id === rootConflict?.rootWriteId && (await flush())) {
+          return true;
+        }
         continue;
       }
-      await flush();
+      if (await flush()) return true;
       if (step.progressive.kind === "unsupported") {
         throw progressiveSeriesRefusal(driver, step.progressive.reason);
       }
@@ -759,11 +840,141 @@ export class OperationExecutor {
         memberPath,
         bindLimit,
         committedWriteSegment,
+        writeMayBeVisible,
         "member"
       );
       completedNestedSeries = true;
     }
-    await flush();
+    return flush();
+  }
+
+  /**
+   * Execute one progressive atomic unit with the driver's strongest truthful
+   * acknowledgement. A committed-callback driver reports the atomic commit
+   * before decoding. A weaker batch driver acknowledges it after a normalized
+   * result; a dispatched failure before that boundary remains conservatively
+   * visible. Definite invalidation runs at that truthful boundary. Its failure
+   * is retained until a normalized zero-row root can be removed from the
+   * committed-write-member count.
+   */
+  private async executeProgressiveAtomicPlan(
+    plan: AtomicPlan,
+    context: QueryExecutionContext,
+    driver: AnyDriver,
+    progress: MutableRecordSeriesProgress,
+    memberPath: readonly number[],
+    commitState: ProgressiveMemberCommitState,
+    committedWriteSegment?: CommittedWriteSegmentNotification,
+    writeMayBeVisible?: WriteMayBeVisibleNotification
+  ): Promise<AtomicExecutionResult> {
+    const planHasWrite = atomicPlanHasWrite(plan);
+    let segmentCommitted = false;
+    let countedCommittedWriteMember = false;
+    let invalidationFailed = false;
+    let invalidationFailure: unknown;
+    let dispatched = false;
+    let unacknowledged = false;
+    const committed = planHasWrite
+      ? async () => {
+          if (segmentCommitted) return;
+          segmentCommitted = true;
+          progress.committedSegments += 1;
+          if (!commitState.writeCommitted) {
+            commitState.writeCommitted = true;
+            progress.committedWriteMembers += 1;
+            countedCommittedWriteMember = true;
+          }
+          try {
+            await committedWriteSegment?.();
+          } catch (error) {
+            invalidationFailed = true;
+            invalidationFailure = error;
+          }
+        }
+      : undefined;
+
+    return observeProgressiveSegment(
+      progressiveTracer(this.engine, context),
+      plan,
+      memberPath,
+      planHasWrite,
+      () => segmentCommitted,
+      () => unacknowledged,
+      async () => {
+        try {
+          const outputs = await this.executeEntries(
+            plan,
+            driver,
+            context,
+            driver.supportsOrderedCommittedSegments ? committed : undefined,
+            () => {
+              dispatched = true;
+            }
+          );
+          if (planHasWrite && !driver.supportsOrderedCommittedSegments) {
+            await committed?.();
+          }
+          if (
+            outputs.skippedRoot &&
+            countedCommittedWriteMember &&
+            commitState.writeCommitted
+          ) {
+            commitState.writeCommitted = false;
+            progress.committedWriteMembers -= 1;
+          }
+          if (invalidationFailed) {
+            throw attachProgress(
+              invalidationFailure,
+              progress,
+              "invalidation",
+              memberPath
+            );
+          }
+          return outputs;
+        } catch (error) {
+          if (hasRecordSeriesProgress(error)) throw error;
+          const segmentRolledBack =
+            error instanceof UniqueConstraintError ||
+            error instanceof SkippedRecordSeriesMember ||
+            isRetryableRace(error);
+          if (invalidationFailed) {
+            throw attachProgress(
+              new AggregateError(
+                [error, invalidationFailure],
+                "Committed segment decoding and cache invalidation both failed."
+              ),
+              progress,
+              "invalidation",
+              memberPath
+            );
+          }
+          if (
+            planHasWrite &&
+            dispatched &&
+            !segmentCommitted &&
+            !driver.supportsOrderedCommittedSegments &&
+            !segmentRolledBack
+          ) {
+            unacknowledged = true;
+            progress.mayHaveCommittedSegment = true;
+            try {
+              await writeMayBeVisible?.();
+            } catch (invalidationError) {
+              throw attachProgress(
+                new AggregateError(
+                  [error, invalidationError],
+                  "Progressive segment outcome and cache invalidation both failed."
+                ),
+                progress,
+                "invalidation",
+                memberPath
+              );
+            }
+          }
+          throw error;
+        }
+      }
+    );
   }
 
   private async runRecordSeriesMember(
@@ -826,6 +1037,11 @@ export class OperationExecutor {
       inheritedValues
     );
     validateFragment(planning);
+    assertOperationFragmentCapacity(
+      planning,
+      driver,
+      normalizedBindParameterLimit(driver.maxBindParametersPerStatement)
+    );
     const planningOutputs = await this.executeLinear(
       planning,
       driver,
@@ -837,6 +1053,11 @@ export class OperationExecutor {
       inheritedValues
     );
     validateFragment(fragment);
+    assertOperationFragmentCapacity(
+      fragment,
+      driver,
+      normalizedBindParameterLimit(driver.maxBindParametersPerStatement)
+    );
     const outputs = await this.executeLinear(
       fragment,
       driver,
@@ -850,26 +1071,115 @@ export class OperationExecutor {
   private async runAtomicBatch<T>(
     operation: ExecutableOperation,
     context: QueryExecutionContext,
-    committedWriteSegment?: CommittedWriteSegmentNotification
+    committedWriteSegment?: CommittedWriteSegmentNotification,
+    writeMayBeVisible?: WriteMayBeVisibleNotification
   ): Promise<T> {
     const driver = this.engine.driver;
     const fragment = await this.buildAtomicFragment(operation, driver, context);
     if (
       fragment.steps.some((step) => step.kind === "recordSeries") &&
-      !driver.supportsTransactions &&
-      driver.supportsOrderedCommittedSegments
+      !driver.supportsTransactions
     ) {
       return this.runProgressiveFragmentOperation<T>(
         operation,
         fragment,
         context,
         driver,
-        committedWriteSegment
+        committedWriteSegment,
+        writeMayBeVisible
+      );
+    }
+    const generatedSegments = generatedOutputSegments(
+      fragment,
+      this.engine.adapter.batchRefs.storeLastInsertId !== undefined
+    );
+    if (generatedSegments) {
+      return this.runGeneratedOutputFallback<T>(
+        operation,
+        fragment,
+        generatedSegments,
+        context,
+        driver,
+        committedWriteSegment,
+        writeMayBeVisible
       );
     }
     const plan = this.compileToEntries(fragment);
-    const outputs = await this.executeEntries(plan, driver, context);
-    return operation.parse<T>(outputs);
+    assertOperationPlanCapacity(
+      plan,
+      driver,
+      normalizedBindParameterLimit(driver.maxBindParametersPerStatement)
+    );
+    const execution = await this.executeEntries(plan, driver, context);
+    return operation.parse<T>(execution.outputs);
+  }
+
+  private async runGeneratedOutputFallback<T>(
+    operation: ExecutableOperation,
+    fragment: OperationFragment,
+    segments: readonly GeneratedOutputSegment[],
+    context: QueryExecutionContext,
+    driver: AnyDriver,
+    committedWriteSegment?: CommittedWriteSegmentNotification,
+    writeMayBeVisible?: WriteMayBeVisibleNotification
+  ): Promise<T> {
+    const progress: MutableRecordSeriesProgress = {
+      committedSegments: 0,
+      completedMembers: 0,
+      committedWriteMembers: 0,
+    };
+    try {
+      let bindLimit: number;
+      try {
+        bindLimit = progressiveBindLimit(driver);
+        assertStaticFragmentCapacity(fragment, driver, bindLimit);
+        assertGeneratedOutputSegmentEligibility(segments, driver);
+      } catch (error) {
+        throw attachProgress(error, progress, "planning");
+      }
+      const runtimeValues: RuntimeValues = new Map();
+      const commitState: ProgressiveMemberCommitState = {
+        writeCommitted: false,
+      };
+      for (const segment of segments) {
+        const materialized = materializeExternalFragment(
+          segmentFragment([...segment.continuationGuards, ...segment.steps]),
+          runtimeValues
+        );
+        validateFragment(materialized);
+        const plan = this.compileToEntries(materialized);
+        assertAtomicPlanCapacity(plan, driver, bindLimit);
+        try {
+          await this.executeProgressiveAtomicPlan(
+            plan,
+            context,
+            driver,
+            progress,
+            [],
+            commitState,
+            committedWriteSegment,
+            writeMayBeVisible
+          );
+          mergeRuntimeValues(runtimeValues, plan.values);
+        } catch (error) {
+          if (hasRecordSeriesProgress(error)) throw error;
+          throw attachProgress(error, progress, "member");
+        }
+      }
+      try {
+        const outputs = resolveFragmentOutputs(fragment, runtimeValues);
+        const result = operation.parse<T>(outputs);
+        progress.completedMembers += 1;
+        return result;
+      } catch (error) {
+        throw attachProgress(error, progress, "result");
+      }
+    } finally {
+      setProgressiveParentAttributes(
+        progressiveTracer(this.engine, context),
+        progress
+      );
+    }
   }
 
   /**
@@ -882,7 +1192,8 @@ export class OperationExecutor {
     fragment: OperationFragment,
     context: QueryExecutionContext,
     driver: AnyDriver,
-    committedWriteSegment?: CommittedWriteSegmentNotification
+    committedWriteSegment?: CommittedWriteSegmentNotification,
+    writeMayBeVisible?: WriteMayBeVisibleNotification
   ): Promise<T> {
     const progress: MutableRecordSeriesProgress = {
       committedSegments: 0,
@@ -895,6 +1206,11 @@ export class OperationExecutor {
         bindLimit = progressiveBindLimit(driver);
         assertStaticFragmentCapacity(fragment, driver, bindLimit);
         assertProgressiveBoundaryEligibility(fragment, driver);
+        assertGeneratedOutputFragmentEligibility(
+          fragment,
+          driver,
+          this.engine.adapter.batchRefs.storeLastInsertId !== undefined
+        );
       } catch (error) {
         throw attachProgress(error, progress, "planning");
       }
@@ -910,7 +1226,8 @@ export class OperationExecutor {
           [],
           { writeCommitted: false },
           bindLimit,
-          committedWriteSegment
+          committedWriteSegment,
+          writeMayBeVisible
         );
       } catch (error) {
         if (hasRecordSeriesProgress(error)) throw error;
@@ -955,7 +1272,20 @@ export class OperationExecutor {
   ): Promise<PreparedBatchOperation<T> | undefined> {
     if (isRecordSeries(operation)) return undefined;
     operation.assertBatchPreparable?.();
-    const plan = await this.buildAtomicPlan(operation, driver, context);
+    const fragment = await this.buildAtomicFragment(operation, driver, context);
+    if (fragment.steps.some((step) => step.kind === "recordSeries")) {
+      return undefined;
+    }
+    assertIndivisibleGeneratedOutput(
+      fragment,
+      this.engine.adapter.batchRefs.storeLastInsertId !== undefined
+    );
+    const plan = this.compileToEntries(fragment);
+    assertOperationPlanCapacity(
+      plan,
+      driver,
+      normalizedBindParameterLimit(driver.maxBindParametersPerStatement)
+    );
     if (plan.entries.some((entry) => stepUsesInsertIdScratch(entry.step))) {
       throw new TransactionError(
         "query-engine-v2 cannot merge an insertId-scratch operation into a shared driver batch."
@@ -998,6 +1328,11 @@ export class OperationExecutor {
     context: QueryExecutionContext
   ): Promise<T> {
     const { step } = plan;
+    assertOperationStatementCapacity(
+      step.statement,
+      driver,
+      normalizedBindParameterLimit(driver.maxBindParametersPerStatement)
+    );
     const result = await this.executeStatement(
       step,
       step.statement,
@@ -1009,9 +1344,8 @@ export class OperationExecutor {
       operation: step.id,
     });
     enforcePostcondition(step, result, context);
-    const values: RuntimeValues = new Map([
-      [step.id, extractOutputs(step, result)],
-    ]);
+    const values: RuntimeValues = new Map();
+    values.set(step.id, extractOutputs(step, result, values));
     return operation.parse<T>(resolveFragmentOutputs(plan.fragment, values));
   }
 
@@ -1045,6 +1379,11 @@ export class OperationExecutor {
     driver: AnyDriver,
     context: QueryExecutionContext
   ): PreparedQuery {
+    assertOperationStatementCapacity(
+      plan.step.statement,
+      driver,
+      normalizedBindParameterLimit(driver.maxBindParametersPerStatement)
+    );
     return prepareBatchQuery(plan.step.statement, driver, context);
   }
 
@@ -1058,20 +1397,9 @@ export class OperationExecutor {
       rows: raw.rows,
       rowCount: raw.rowCount,
     };
-    const values: RuntimeValues = new Map([
-      [plan.step.id, extractOutputs(plan.step, result)],
-    ]);
+    const values: RuntimeValues = new Map();
+    values.set(plan.step.id, extractOutputs(plan.step, result, values));
     return operation.parse<T>(resolveFragmentOutputs(plan.fragment, values));
-  }
-
-  private async buildAtomicPlan(
-    operation: ExecutableOperation,
-    driver: AnyDriver,
-    context: QueryExecutionContext
-  ): Promise<AtomicPlan> {
-    return this.compileToEntries(
-      await this.buildAtomicFragment(operation, driver, context)
-    );
   }
 
   private async buildAtomicFragment(
@@ -1081,6 +1409,11 @@ export class OperationExecutor {
   ): Promise<OperationFragment> {
     const planning = operation.planning();
     validateFragment(planning);
+    assertOperationFragmentCapacity(
+      planning,
+      driver,
+      normalizedBindParameterLimit(driver.maxBindParametersPerStatement)
+    );
     const planningOutputs = await this.executePlanningLevels(
       planning,
       driver,
@@ -1088,6 +1421,13 @@ export class OperationExecutor {
     );
     const fragment = operation.compile(planningOutputs);
     validateFragment(fragment);
+    if (!fragment.steps.some((step) => step.kind === "recordSeries")) {
+      assertOperationFragmentCapacity(
+        fragment,
+        driver,
+        normalizedBindParameterLimit(driver.maxBindParametersPerStatement)
+      );
+    }
     return fragment;
   }
 
@@ -1170,7 +1510,7 @@ export class OperationExecutor {
       const result = results[index];
       if (!result) continue;
       enforcePostcondition(step, result, context);
-      values.set(step.id, extractOutputs(step, result));
+      values.set(step.id, extractOutputs(step, result, values));
     }
   }
 
@@ -1226,7 +1566,7 @@ export class OperationExecutor {
       throw new SkippedRecordSeriesMember();
     }
     enforcePostcondition(step, result, context);
-    values.set(step.id, extractOutputs(step, result));
+    values.set(step.id, extractOutputs(step, result, values));
   }
 
   /**
@@ -1256,7 +1596,10 @@ export class OperationExecutor {
   }
 
   /** Compile-to-entries half: lower a fragment into a runnable atomic unit. */
-  private compileToEntries(fragment: OperationFragment): AtomicPlan {
+  private compileToEntries(
+    fragment: OperationFragment,
+    skippableRootWriteId?: string
+  ): AtomicPlan {
     const values: RuntimeValues = new Map();
     const batchId = `operation_${createCorrelationId()}`;
     const batchEntries: BatchEntry[] = [];
@@ -1288,7 +1631,11 @@ export class OperationExecutor {
         );
       }
 
-      if (step.kind === "write" && step.onUniqueConflict === "skip") {
+      if (
+        step.kind === "write" &&
+        step.onUniqueConflict === "skip" &&
+        step.id !== skippableRootWriteId
+      ) {
         // The savepoint-wrapped skip effect (ATOM “Bulk specializations”) has no lowering to a plain
         // atomic batch — a batch is one indivisible unit, so a per-row rollback
         // is not expressible. Fail closed rather than silently propagate the
@@ -1303,10 +1650,30 @@ export class OperationExecutor {
         step,
       });
       for (const [output, source] of Object.entries(step.outputs)) {
+        if (source.kind === "consumedValue") {
+          if (source.source.kind === "literal") {
+            setRuntimeValue(values, step.id, output, source.source.value);
+            continue;
+          }
+          const producer = values
+            .get(source.source.reference.step)
+            ?.get(source.source.reference.output);
+          if (producer !== undefined) {
+            setRuntimeValue(values, step.id, output, producer);
+          }
+          continue;
+        }
         if (source.kind !== "insertId") continue;
         // A fragment result can read the provider's own insertId directly. Scratch is
         // required only when later SQL in this same atomic unit consumes the value.
         if (!consumedOutputs.has(`${step.id}.${output}`)) continue;
+        const storeLastInsertId =
+          this.engine.adapter.batchRefs.storeLastInsertId;
+        // The shared-batch entrance and the default-operation segment planner
+        // have already rejected or cut every unsupported cross-statement
+        // dependency. An absent store here therefore means this insertId is only
+        // a public result and needs no scratch lowering.
+        if (!storeLastInsertId) continue;
         usesScratch = true;
         const key = `ref_${nextReference}`;
         nextReference += 1;
@@ -1317,10 +1684,7 @@ export class OperationExecutor {
           this.engine.adapter.batchRefs.read(batchId, key)
         );
         batchEntries.push({
-          statement: this.engine.adapter.batchRefs.storeLastInsertId(
-            batchId,
-            key
-          ),
+          statement: storeLastInsertId(batchId, key),
         });
       }
     }
@@ -1334,6 +1698,7 @@ export class OperationExecutor {
         usesScratch
       ),
       values,
+      ...(skippableRootWriteId ? { skippableRootWriteId } : {}),
     };
   }
 
@@ -1342,13 +1707,15 @@ export class OperationExecutor {
     plan: AtomicPlan,
     driver: AnyDriver,
     context: QueryExecutionContext,
-    committed?: CommittedWriteSegmentNotification
-  ): Promise<Readonly<Record<string, unknown>>> {
+    committed?: CommittedWriteSegmentNotification,
+    dispatching?: () => void
+  ): Promise<AtomicExecutionResult> {
     const { entries } = plan;
     const queries = entries.map((entry) => driver._prepare(entry.statement));
 
     let results: QueryResult<unknown>[];
     try {
+      dispatching?.();
       results = await driver._executeBatch(
         queries,
         undefined,
@@ -1362,19 +1729,26 @@ export class OperationExecutor {
         driver,
         context
       );
+      const skippableRoot = entries.find(
+        (entry) => entry.step?.id === plan.skippableRootWriteId
+      )?.step;
+      if (
+        error instanceof UniqueConstraintError &&
+        skippableRoot?.kind === "write" &&
+        skippableRoot.onUniqueConflict === "skip"
+      ) {
+        throw new SkippedRecordSeriesMember();
+      }
       // An insert-branch loser inside the atomic unit surfaces its pinned unique
       // violation; classify it against any racePin so the retry layer above the
       // executor converges. The batch is one unit,
       // so the failing entry is not individually reported — match the error
       // against every racePin the plan carries (there is one per insert branch).
-      if (error instanceof UniqueConstraintError) {
-        for (const entry of entries) {
-          const pin =
-            entry.step?.kind === "write" ? entry.step.racePin : undefined;
-          if (pin && racePinMatches(error, pin)) {
-            markRaceable(error);
-            break;
-          }
+      for (const entry of entries) {
+        const pin =
+          entry.step?.kind === "write" ? entry.step.racePin : undefined;
+        if (pin) {
+          markRaceIfPinned(error, pin);
         }
       }
       throw error;
@@ -1383,7 +1757,16 @@ export class OperationExecutor {
       provider: driver.driverName,
       operation: "query-engine-v2",
     });
-    return assembleOutputs(plan, results);
+    const rootIndex =
+      plan.skippableRootWriteId === undefined
+        ? -1
+        : entries.findIndex(
+            (entry) => entry.step?.id === plan.skippableRootWriteId
+          );
+    if (rootIndex >= 0 && results[rootIndex]?.rowCount === 0) {
+      return { outputs: {}, skippedRoot: true };
+    }
+    return { outputs: assembleOutputs(plan, results), skippedRoot: false };
   }
 }
 
@@ -1391,6 +1774,7 @@ interface MutableRecordSeriesProgress {
   committedSegments: number;
   completedMembers: number;
   committedWriteMembers: number;
+  mayHaveCommittedSegment?: true;
   totalMembers?: number;
 }
 
@@ -1404,14 +1788,15 @@ function progressiveTracer(
   );
 }
 
-async function observeProgressiveSegment(
+async function observeProgressiveSegment<T>(
   tracer: TracerWrapper | undefined,
   plan: AtomicPlan,
   memberPath: readonly number[],
   hasWrite: boolean,
   didCommit: () => boolean,
-  execute: () => Promise<Readonly<Record<string, unknown>>>
-): Promise<Readonly<Record<string, unknown>>> {
+  mayHaveCommitted: () => boolean,
+  execute: () => Promise<T>
+): Promise<T> {
   if (!tracer) return execute();
   let succeeded = false;
   const spanAttributes = {
@@ -1434,9 +1819,11 @@ async function observeProgressiveSegment(
         const outcome = hasWrite
           ? didCommit()
             ? "committed"
-            : succeeded
+            : mayHaveCommitted()
               ? "unacknowledged"
-              : "rolled_back"
+              : succeeded
+                ? "unacknowledged"
+                : "rolled_back"
           : "read_only";
         const attributes = {
           [ATTR_VIBORM_WRITE_COMMIT_OUTCOME]: outcome,
@@ -1496,6 +1883,9 @@ function attachProgress(
     committedSegments: progress.committedSegments,
     completedMembers: progress.completedMembers,
     committedWriteMembers: progress.committedWriteMembers,
+    ...(progress.mayHaveCommittedSegment
+      ? { mayHaveCommittedSegment: true as const }
+      : {}),
     ...(memberPath.length === 0 ? {} : { memberPath }),
     ...(progress.totalMembers === undefined
       ? {}
@@ -1503,12 +1893,86 @@ function attachProgress(
   });
 }
 
+function executionRefusal(
+  driver: AnyDriver,
+  subject: string,
+  reason: string
+): UnsupportedOperationError {
+  return new UnsupportedOperationError(
+    `Driver '${driver.driverName}' cannot execute this ${subject} because ${reason}.`
+  );
+}
+
 function progressiveSeriesRefusal(
   driver: AnyDriver,
   reason: string
 ): UnsupportedOperationError {
-  return new UnsupportedOperationError(
-    `Driver '${driver.driverName}' cannot execute this record series as committed segments because ${reason}.`
+  return executionRefusal(
+    driver,
+    "record series as committed segments",
+    reason
+  );
+}
+
+function assertOperationStatementCapacity(
+  statement: Sql,
+  driver: AnyDriver,
+  limit: number | undefined
+): void {
+  if (limit === undefined || statement.values.length <= limit) return;
+  throw executionRefusal(
+    driver,
+    "operation",
+    `one indivisible statement needs ${statement.values.length} bound values, above the verified limit of ${limit}`
+  );
+}
+
+function assertOperationFragmentCapacity(
+  fragment: OperationFragment | PlanningFragment,
+  driver: AnyDriver,
+  limit: number | undefined
+): void {
+  if (limit === undefined) return;
+  for (const step of fragment.steps) {
+    if (step.kind === "recordSeries") continue;
+    const statement =
+      step.kind === "guard" ? step.premise.statement : step.statement;
+    assertOperationStatementCapacity(statement, driver, limit);
+  }
+}
+
+function assertOperationPlanCapacity(
+  plan: AtomicPlan,
+  driver: AnyDriver,
+  limit: number | undefined
+): void {
+  for (const entry of plan.entries) {
+    assertOperationStatementCapacity(entry.statement, driver, limit);
+  }
+}
+
+function assertProgressiveRootConflictEligibility(
+  fragment: OperationFragment,
+  disposition: SeriesRootConflictDisposition | undefined,
+  driver: AnyDriver
+): void {
+  if (!disposition) return;
+  const rootIndex = fragment.steps.findIndex(
+    (step) => step.id === disposition.rootWriteId
+  );
+  const root = fragment.steps[rootIndex];
+  if (!(rootIndex >= 0 && root?.kind === "write")) {
+    throw new QueryEngineError(
+      `Record-series root-conflict step '${disposition.rootWriteId}' is not a write in its member fragment.`
+    );
+  }
+  const priorEffect = fragment.steps
+    .slice(0, rootIndex)
+    .find((step) => step.kind === "write" || step.kind === "recordSeries");
+  if (!priorEffect) return;
+  throw progressiveSeriesRefusal(
+    driver,
+    `skipping root '${disposition.rootWriteId}' would leave prior effect '${priorEffect.id}' committed`
   );
 }
 
@@ -1524,13 +1988,9 @@ function progressiveBindLimit(driver: AnyDriver): number {
     );
   }
   const limit = driver.maxBindParametersPerStatement;
-  if (!(typeof limit === "number" && Number.isInteger(limit) && limit > 0)) {
-    throw progressiveSeriesRefusal(
-      driver,
-      "the provider has no verified bound-parameter capacity"
-    );
-  }
-  return limit;
+  return typeof limit === "number" && Number.isInteger(limit) && limit > 0
+    ? limit
+    : Number.POSITIVE_INFINITY;
 }
 
 function assertStaticFragmentCapacity(
@@ -1559,6 +2019,16 @@ function assertStaticFragmentCapacity(
         `one statically compiled statement needs ${statement.values.length} bound values, above the verified limit of ${limit}`
       );
     }
+    if (
+      (step.kind === "read" || step.kind === "write") &&
+      step.progressiveContinuation &&
+      step.progressiveContinuation.premise.statement.values.length > limit
+    ) {
+      throw progressiveSeriesRefusal(
+        driver,
+        `one statically compiled continuation guard needs ${step.progressiveContinuation.premise.statement.values.length} bound values, above the verified limit of ${limit}`
+      );
+    }
   }
 }
 
@@ -1574,6 +2044,106 @@ function assertProgressiveBoundaryEligibility(
       throw progressiveSeriesRefusal(driver, step.progressive.reason);
     }
   }
+}
+
+function assertGeneratedOutputSegmentEligibility(
+  segments: readonly GeneratedOutputSegment[],
+  driver: AnyDriver,
+  skippableRootWriteId?: string
+): void {
+  if (segments.length < 2) {
+    throw new QueryEngineError(
+      "Generated-output fallback did not produce an execution boundary."
+    );
+  }
+  for (const segment of segments) {
+    assertGeneratedOutputStepsEligibility(
+      segment.steps,
+      driver,
+      skippableRootWriteId
+    );
+  }
+}
+
+function assertGeneratedOutputStepsEligibility(
+  steps: readonly OperationStep[],
+  driver: AnyDriver,
+  skippableRootWriteId?: string
+): void {
+  for (const step of steps) {
+    if (step.kind === "recordSeries") {
+      throw progressiveSeriesRefusal(
+        driver,
+        "a generated-output boundary crosses a nested record series"
+      );
+    }
+    if (step.kind === "guard") continue;
+    if (step.expects) {
+      throw new QueryEngineError(
+        `Step '${step.id}' carries a postcondition that cannot be checked after a committed generated-output segment.`
+      );
+    }
+    if (
+      step.kind === "write" &&
+      step.onUniqueConflict === "skip" &&
+      step.id !== skippableRootWriteId
+    ) {
+      throw new QueryEngineError(
+        `Step '${step.id}' carries an onUniqueConflict skip effect that cannot cross a generated-output segment boundary.`
+      );
+    }
+  }
+}
+
+function assertGeneratedOutputFragmentEligibility(
+  fragment: OperationFragment,
+  driver: AnyDriver,
+  supportsInsertIdScratch: boolean,
+  skippableRootWriteId?: string
+): void {
+  const statementSteps = statementStepsById(fragment);
+  const priorOrdinaryIds = new Set<string>();
+  let ordinary: OperationStep[] = [];
+  const flush = () => {
+    if (ordinary.length === 0) return;
+    const crossedGuards = crossedReferenceContinuationGuards(
+      ordinary,
+      priorOrdinaryIds,
+      statementSteps
+    );
+    if (crossedGuards.length > 0) {
+      assertGeneratedOutputStepsEligibility(
+        ordinary,
+        driver,
+        skippableRootWriteId
+      );
+    }
+    const segments = generatedOutputSegments(
+      segmentFragment(ordinary),
+      supportsInsertIdScratch
+    );
+    for (const step of ordinary) {
+      if (step.kind === "read" || step.kind === "write") {
+        priorOrdinaryIds.add(step.id);
+      }
+    }
+    ordinary = [];
+    if (segments) {
+      assertGeneratedOutputSegmentEligibility(
+        segments,
+        driver,
+        skippableRootWriteId
+      );
+    }
+  };
+  for (const step of fragment.steps) {
+    if (step.kind === "recordSeries") {
+      flush();
+      continue;
+    }
+    ordinary.push(step);
+  }
+  flush();
 }
 
 function assertAtomicPlanCapacity(
@@ -1610,6 +2180,190 @@ function segmentFragment(steps: readonly OperationStep[]): OperationFragment {
     }
   }
   return { steps, outputs };
+}
+
+function operationStepReferences(
+  step: OperationStep
+): readonly OperationValueReference[] {
+  if (step.kind === "recordSeries") return [];
+  const statement =
+    step.kind === "guard" ? step.premise.statement : step.statement;
+  return statementReferences(statement);
+}
+
+function statementStepsById(
+  fragment: OperationFragment
+): ReadonlyMap<string, StatementStep> {
+  const steps = new Map<string, StatementStep>();
+  for (const step of fragment.steps) {
+    if (step.kind === "read" || step.kind === "write") {
+      steps.set(step.id, step);
+    }
+  }
+  return steps;
+}
+
+function outputSource(
+  reference: OperationValueReference,
+  steps: ReadonlyMap<string, StatementStep>
+): StatementOutputSource | undefined {
+  return steps.get(reference.step)?.outputs[reference.output];
+}
+
+function outputDependsOnProvider(
+  reference: OperationValueReference,
+  steps: ReadonlyMap<string, StatementStep>,
+  visiting: Set<string> = new Set()
+): boolean {
+  const key = `${reference.step}.${reference.output}`;
+  if (visiting.has(key)) return true;
+  const source = outputSource(reference, steps);
+  if (!source) return false;
+  if (source.kind !== "consumedValue") return true;
+  if (source.source.kind === "literal") return false;
+  visiting.add(key);
+  const depends = outputDependsOnProvider(
+    source.source.reference,
+    steps,
+    visiting
+  );
+  visiting.delete(key);
+  return depends;
+}
+
+function outputNeedsAtomicMaterialization(
+  reference: OperationValueReference,
+  steps: ReadonlyMap<string, StatementStep>,
+  supportsInsertIdScratch: boolean,
+  visiting: Set<string> = new Set()
+): boolean {
+  const key = `${reference.step}.${reference.output}`;
+  if (visiting.has(key)) return true;
+  const source = outputSource(reference, steps);
+  if (!source) return false;
+  if (source.kind === "insertId") return !supportsInsertIdScratch;
+  if (source.kind !== "consumedValue") return true;
+  if (source.source.kind === "literal") return false;
+  visiting.add(key);
+  const needs = outputNeedsAtomicMaterialization(
+    source.source.reference,
+    steps,
+    supportsInsertIdScratch,
+    visiting
+  );
+  visiting.delete(key);
+  return needs;
+}
+
+function generatedOutputSegments(
+  fragment: OperationFragment,
+  supportsInsertIdScratch: boolean
+): readonly GeneratedOutputSegment[] | undefined {
+  if (fragment.steps.some((step) => step.kind === "recordSeries")) {
+    return undefined;
+  }
+  const stepsById = statementStepsById(fragment);
+  const needsFallback = firstGeneratedOutputDependency(
+    fragment,
+    stepsById,
+    supportsInsertIdScratch
+  );
+  if (!needsFallback) return undefined;
+
+  const rawSegments: OperationStep[][] = [];
+  let current: OperationStep[] = [];
+  let currentIds = new Set<string>();
+  const flush = () => {
+    if (current.length === 0) return;
+    rawSegments.push(current);
+    current = [];
+    currentIds = new Set<string>();
+  };
+  for (const step of fragment.steps) {
+    const crossesProviderOutput = operationStepReferences(step).some(
+      (reference) =>
+        currentIds.has(reference.step) &&
+        outputNeedsAtomicMaterialization(
+          reference,
+          stepsById,
+          supportsInsertIdScratch
+        )
+    );
+    if (crossesProviderOutput) flush();
+    current.push(step);
+    currentIds.add(step.id);
+  }
+  flush();
+
+  const priorIds = new Set<string>();
+  return rawSegments.map((segment) => {
+    const guards = crossedReferenceContinuationGuards(
+      segment,
+      priorIds,
+      stepsById
+    );
+    for (const step of segment) priorIds.add(step.id);
+    return { steps: segment, continuationGuards: guards };
+  });
+}
+
+function firstGeneratedOutputDependency(
+  fragment: OperationFragment,
+  stepsById: ReadonlyMap<string, StatementStep>,
+  supportsInsertIdScratch: boolean
+): OperationValueReference | undefined {
+  for (const step of fragment.steps) {
+    for (const reference of operationStepReferences(step)) {
+      if (
+        outputNeedsAtomicMaterialization(
+          reference,
+          stepsById,
+          supportsInsertIdScratch
+        )
+      ) {
+        return reference;
+      }
+    }
+  }
+  return undefined;
+}
+
+function assertIndivisibleGeneratedOutput(
+  fragment: OperationFragment,
+  supportsInsertIdScratch: boolean
+): void {
+  const reference = firstGeneratedOutputDependency(
+    fragment,
+    statementStepsById(fragment),
+    supportsInsertIdScratch
+  );
+  if (!reference) return;
+  throw new UnsupportedOperationError(
+    `query-engine-v2 cannot materialize generated output '${reference.step}.${reference.output}' across statements inside one indivisible shared batch. Use the default operation form or a driver with an interactive transaction.`
+  );
+}
+
+function crossedReferenceContinuationGuards(
+  steps: readonly OperationStep[],
+  priorIds: ReadonlySet<string>,
+  stepsById: ReadonlyMap<string, StatementStep>
+): readonly GuardStep[] {
+  const guards = new Map<string, GuardStep>();
+  for (const step of steps) {
+    for (const reference of operationStepReferences(step)) {
+      if (!priorIds.has(reference.step)) continue;
+      const producer = stepsById.get(reference.step);
+      const continuation = producer?.progressiveContinuation;
+      if (!continuation) {
+        if (!outputDependsOnProvider(reference, stepsById)) continue;
+        throw new UnsupportedOperationError(
+          `query-engine-v2 cannot continue a generated-output write after '${reference.step}.${reference.output}' without the producer's exact row premise.`
+        );
+      }
+      guards.set(continuation.id, continuation);
+    }
+  }
+  return [...guards.values()];
 }
 
 /** Outputs consumed by SQL inside the same fragment, excluding public result refs. */
@@ -1704,7 +2458,10 @@ function planningLevel(
   unorderableLevel: number
 ): number {
   let level = 0;
-  for (const value of statementReferences(step.statement)) {
+  for (const value of [
+    ...statementReferences(step.statement),
+    ...statementOutputReferences(step),
+  ]) {
     const producer = levelOf.get(value.step);
     // A reference this pass cannot place — a producer the fragment does not
     // carry — is not something grouping may guess at. Keep the step strictly
@@ -1845,13 +2602,49 @@ function materializeExternalFragment(
         },
       };
     }
+    const outputs = Object.fromEntries(
+      Object.entries<StatementOutputSource>(step.outputs).map(
+        ([name, source]) => [
+          name,
+          source.kind === "consumedValue"
+            ? {
+                ...source,
+                source: materializeExternalConsumedSource(
+                  source.source,
+                  localSteps,
+                  values
+                ),
+              }
+            : source,
+        ]
+      )
+    );
     return {
       ...step,
       statement: materializeExternalSql(step.statement, localSteps, values),
+      outputs,
+      ...(step.progressiveContinuation
+        ? {
+            progressiveContinuation: {
+              ...step.progressiveContinuation,
+              premise: {
+                ...step.progressiveContinuation.premise,
+                statement: materializeExternalSql(
+                  step.progressiveContinuation.premise.statement,
+                  localSteps,
+                  values
+                ),
+              },
+            },
+          }
+        : {}),
     };
   });
   return "outputs" in fragment
-    ? { steps, outputs: fragment.outputs }
+    ? {
+        steps,
+        outputs: fragment.outputs,
+      }
     : { steps: steps.filter(isStatementStep) };
 }
 
@@ -1881,6 +2674,37 @@ function materializeExternalSql(
   );
 }
 
+function materializeExternalValue(
+  value: unknown,
+  localSteps: ReadonlySet<string>,
+  values: RuntimeValues
+): unknown {
+  if (!(isOperationValueReference(value) && !localSteps.has(value.step))) {
+    return value;
+  }
+  const resolved = resolveRuntimeValue(value, values);
+  if (isSql(resolved)) {
+    throw new QueryEngineError(
+      `External operation reference '${value.step}.${value.output}' is not a concrete runtime value.`
+    );
+  }
+  return resolved ?? null;
+}
+
+function materializeExternalConsumedSource(
+  source: Extract<StatementOutputSource, { kind: "consumedValue" }>["source"],
+  localSteps: ReadonlySet<string>,
+  values: RuntimeValues
+): Extract<StatementOutputSource, { kind: "consumedValue" }>["source"] {
+  if (source.kind === "literal" || localSteps.has(source.reference.step)) {
+    return source;
+  }
+  return {
+    kind: "literal",
+    value: materializeExternalValue(source.reference, localSteps, values),
+  };
+}
+
 function materializeBatchSql(statement: Sql, values: RuntimeValues): Sql {
   return new Sql(
     statement.strings,
@@ -1894,7 +2718,8 @@ function materializeBatchSql(statement: Sql, values: RuntimeValues): Sql {
 
 function extractOutputs(
   step: StatementStep,
-  result: QueryResult<unknown>
+  result: QueryResult<unknown>,
+  values: RuntimeValues
 ): Map<string, unknown> {
   const outputs = new Map<string, unknown>();
   // A write whose skip effect (ATOM “Bulk specializations”) ABSORBED a unique violation made no row, so it
@@ -1913,7 +2738,7 @@ function extractOutputs(
       outputs.set(name, undefined);
       continue;
     }
-    outputs.set(name, extractOutput(step.id, source, result));
+    outputs.set(name, extractOutput(step.id, source, result, values));
   }
   return outputs;
 }
@@ -1921,10 +2746,14 @@ function extractOutputs(
 function extractOutput(
   step: string,
   source: StatementOutputSource,
-  result: QueryResult<unknown>
+  result: QueryResult<unknown>,
+  values: RuntimeValues
 ): unknown {
   if (source.kind === "rows") return result.rows;
   if (source.kind === "rowCount") return result.rowCount;
+  if (source.kind === "consumedValue") {
+    return resolveConsumedValue(source.source, values, false);
+  }
   if (source.kind === "insertId") {
     if (result.insertId === undefined) {
       throw new TransactionError(
@@ -1955,6 +2784,15 @@ function mergeBatchOutputs(
   values: RuntimeValues
 ): void {
   for (const [name, source] of Object.entries(step.outputs)) {
+    if (source.kind === "consumedValue") {
+      const resolved = resolveConsumedValue(source.source, values, true);
+      // A batch-local scratch expression has already been embedded in every later
+      // statement before provider I/O. It is not a public runtime value, and the
+      // preflight above refuses any fragment that tries to carry it across a boundary.
+      if (isSql(resolved)) continue;
+      setRuntimeValue(values, step.id, name, resolved);
+      continue;
+    }
     if (source.kind === "insertId" && result.insertId === undefined) {
       const existing = values.get(step.id)?.get(name);
       if (isSql(existing)) continue;
@@ -1963,9 +2801,26 @@ function mergeBatchOutputs(
       values,
       step.id,
       name,
-      extractOutput(step.id, source, result)
+      extractOutput(step.id, source, result, values)
     );
   }
+}
+
+function resolveConsumedValue(
+  source: Extract<StatementOutputSource, { kind: "consumedValue" }>["source"],
+  values: RuntimeValues,
+  allowScratchSql: boolean
+): unknown {
+  const resolved =
+    source.kind === "reference"
+      ? resolveRuntimeValue(source.reference, values)
+      : source.value;
+  if (isSql(resolved) && !allowScratchSql) {
+    throw new QueryEngineError(
+      "A consumed-value output did not resolve to a concrete runtime value."
+    );
+  }
+  return resolved;
 }
 
 /**

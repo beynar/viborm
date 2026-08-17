@@ -1,4 +1,3 @@
-import { defineContract } from "@tests/contracts/contract";
 import {
   createClient,
   type VibORMClient,
@@ -7,8 +6,9 @@ import {
 import type { AnyDriver } from "@drivers";
 import { push } from "@migrations";
 import { s } from "@schema";
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { defineContract } from "@tests/contracts/contract";
 import { manyToManySchema as schema } from "@tests/fixtures/many-to-many-schema";
+import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
 type ManyToManyClientConfig = VibORMConfig & {
   schema: typeof schema;
@@ -62,6 +62,16 @@ export function runManyToManyBehavior({
         include: { tags: true },
       });
       return (post?.tags ?? []).map((tag: { id: string }) => tag.id).sort();
+    }
+
+    async function labelNamesOf(articleId: number): Promise<string[]> {
+      const article = await requireClient(client).article.findUnique({
+        where: { id: articleId },
+        include: { labels: true },
+      });
+      return (article?.labels ?? [])
+        .map((label: { name: string }) => label.name)
+        .sort();
     }
 
     test("connect inserts junction rows without touching unrelated foreign keys", async () => {
@@ -622,8 +632,10 @@ export function runManyToManyBehavior({
 
       // Pre-existing target: the same create also CONNECTs it, so the join rows
       // reference both a produced target id and the fresh parent's produced id.
-      const connected = await c.label.create({ data: { name: "gen-pre" } });
-      const created = await c.article.create({
+      const connected = await c.label.create({
+        data: { id: -1, name: "gen-pre" },
+      });
+      const operation = c.article.create({
         data: {
           title: "Article 1",
           labels: {
@@ -632,6 +644,7 @@ export function runManyToManyBehavior({
           },
         },
       });
+      const created = await operation;
 
       const article = await c.article.findUnique({
         where: { id: created.id },
@@ -655,11 +668,14 @@ export function runManyToManyBehavior({
     test("junction create with a generated target PK under an update root", async () => {
       const c = requireClient(client);
 
-      const created = await c.article.create({ data: { title: "Article 2" } });
-      await c.article.update({
+      const created = await c.article.create({
+        data: { id: 1, title: "Article 2" },
+      });
+      const operation = c.article.update({
         where: { id: created.id },
         data: { labels: { create: { name: "gen-upd" } } },
       });
+      await operation;
 
       const article = await c.article.findUnique({
         where: { id: created.id },
@@ -675,8 +691,12 @@ export function runManyToManyBehavior({
     test("connectOrCreate with a generated target PK connects existing and creates missing", async () => {
       const c = requireClient(client);
 
-      const existing = await c.label.create({ data: { name: "gen-existing" } });
-      const created = await c.article.create({ data: { title: "Article 3" } });
+      const existing = await c.label.create({
+        data: { id: -1, name: "gen-existing" },
+      });
+      const created = await c.article.create({
+        data: { id: 1, title: "Article 3" },
+      });
 
       await c.article.update({
         where: { id: created.id },
@@ -689,7 +709,9 @@ export function runManyToManyBehavior({
           },
         },
       });
-      await c.article.update({
+      expect(await labelNamesOf(created.id)).toEqual(["gen-existing"]);
+
+      const missingOperation = c.article.update({
         where: { id: created.id },
         data: {
           labels: {
@@ -700,6 +722,7 @@ export function runManyToManyBehavior({
           },
         },
       });
+      await missingOperation;
 
       const article = await c.article.findUnique({
         where: { id: created.id },
@@ -732,12 +755,16 @@ export function runManyToManyBehavior({
     // substrates.
     test("upsert through the junction creates a target whose PK the database generates", async () => {
       const c = requireClient(client);
-      const created = await c.article.create({ data: { title: "Article 4" } });
+      const created = await c.article.create({
+        data: { id: 1, title: "Article 4" },
+      });
       // A decoy label the operation must not touch: the join row has to carry the id
       // this INSERT produced, not "some label".
-      const decoy = await c.label.create({ data: { name: "gen-decoy" } });
+      const decoy = await c.label.create({
+        data: { id: -1, name: "gen-decoy" },
+      });
 
-      await c.article.update({
+      const operation = c.article.update({
         where: { id: created.id },
         data: {
           labels: {
@@ -749,6 +776,7 @@ export function runManyToManyBehavior({
           },
         },
       });
+      await operation;
 
       const article = await c.article.findUnique({
         where: { id: created.id },

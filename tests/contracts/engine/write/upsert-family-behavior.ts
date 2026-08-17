@@ -3,8 +3,6 @@ import { createOperationExecutionContext } from "@query-engine/execution-context
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames, s } from "@schema";
 import type { Model } from "@schema/model";
-import { createSchemaRegistry } from "@validation";
-import { describe, expect, test } from "vitest";
 import { OperationExecutor } from "@src/query-engine/write-engine/OperationExecutor";
 import { UpdateOperation } from "@src/query-engine/write-engine/UpdateOperation";
 import { UpsertOperation } from "@src/query-engine/write-engine/UpsertOperation";
@@ -12,6 +10,8 @@ import {
   type BehaviorDatabaseSource,
   useBehaviorDatabase,
 } from "@tests/fixtures/drivers/pglite";
+import { createSchemaRegistry } from "@validation";
+import { describe, expect, test } from "vitest";
 
 /**
  * The P2b upsert-family schema. `user` (auto-increment PK, unique `email`, an
@@ -111,7 +111,9 @@ export function createUpsertFamilyExecutor(
  * (upsert-family.test.ts) proves V1 parity on PGlite separately.
  */
 export function runUpsertFamilyBehavior(
-  options: { readonly name: string } & BehaviorDatabaseSource
+  options: {
+    readonly name: string;
+  } & BehaviorDatabaseSource
 ): void {
   describe(`${options.name} upsert family`, () => {
     const setup = useBehaviorDatabase(upsertFamilySchema, options);
@@ -148,7 +150,9 @@ export function runUpsertFamilyBehavior(
       async () => {
         const { driver, client, dispose } = await setup();
         try {
-          await client.user.create({ data: { email: "s@x", score: 10 } });
+          await client.user.create({
+            data: { id: 1, email: "s@x", score: 10 },
+          });
           const result = await createUpsertFamilyExecutor(driver).executeUpsert(
             "user",
             upsertFamilySchema.user,
@@ -172,7 +176,9 @@ export function runUpsertFamilyBehavior(
       async () => {
         const { driver, client, dispose } = await setup();
         try {
-          await client.user.create({ data: { email: "t@x", score: 10 } });
+          await client.user.create({
+            data: { id: 1, email: "t@x", score: 10 },
+          });
           const result = await createUpsertFamilyExecutor(driver).executeUpsert(
             "user",
             upsertFamilySchema.user,
@@ -197,7 +203,9 @@ export function runUpsertFamilyBehavior(
       async () => {
         const { driver, client, dispose } = await setup();
         try {
-          await client.user.create({ data: { email: "w@x", score: 10 } });
+          await client.user.create({
+            data: { id: 1, email: "w@x", score: 10 },
+          });
           const result = await createUpsertFamilyExecutor(driver).executeUpsert(
             "user",
             upsertFamilySchema.user,
@@ -222,7 +230,9 @@ export function runUpsertFamilyBehavior(
       async () => {
         const { driver, client, dispose } = await setup();
         try {
-          await client.user.create({ data: { email: "m@x", score: 10 } });
+          await client.user.create({
+            data: { id: 1, email: "m@x", score: 10 },
+          });
           const result = await createUpsertFamilyExecutor(driver).executeUpsert(
             "user",
             upsertFamilySchema.user,
@@ -248,7 +258,9 @@ export function runUpsertFamilyBehavior(
       async () => {
         const { driver, client, dispose } = await setup();
         try {
-          await client.user.create({ data: { email: "coc@x", score: 0 } });
+          await client.user.create({
+            data: { id: 1, email: "coc@x", score: 0 },
+          });
           await client.post.create({
             data: { id: 40, title: "orphan", slug: "s40", userId: null },
           });
@@ -287,7 +299,9 @@ export function runUpsertFamilyBehavior(
       async () => {
         const { driver, client, dispose } = await setup();
         try {
-          await client.user.create({ data: { email: "coc2@x", score: 0 } });
+          await client.user.create({
+            data: { id: 1, email: "coc2@x", score: 0 },
+          });
           const result = await createUpsertFamilyExecutor(driver).executeUpdate(
             "user",
             upsertFamilySchema.user,
@@ -330,9 +344,13 @@ export function runUpsertFamilyBehavior(
       async () => {
         const { driver, client, dispose } = await setup();
         try {
-          // A decoy seeded FIRST, so it holds the lower generated id.
-          await client.user.create({ data: { email: "decoy@x", score: 0 } });
-          await client.user.create({ data: { email: "arm@x", score: 5 } });
+          // A decoy holds the lower deterministic id.
+          await client.user.create({
+            data: { id: 1, email: "decoy@x", score: 0 },
+          });
+          await client.user.create({
+            data: { id: 2, email: "arm@x", score: 5 },
+          });
           const result = await createUpsertFamilyExecutor(driver).executeUpsert(
             "user",
             upsertFamilySchema.user,
@@ -367,8 +385,10 @@ export function runUpsertFamilyBehavior(
       async () => {
         const { driver, client, dispose } = await setup();
         try {
-          await client.user.create({ data: { email: "decoy@x", score: 0 } });
-          const result = await createUpsertFamilyExecutor(driver).executeUpsert(
+          await client.user.create({
+            data: { id: -1, email: "decoy@x", score: 0 },
+          });
+          const execution = createUpsertFamilyExecutor(driver).executeUpsert(
             "user",
             upsertFamilySchema.user,
             {
@@ -387,9 +407,10 @@ export function runUpsertFamilyBehavior(
               },
             }
           );
+          const result = await execution;
           expect(result).toEqual({
             email: "absent@x",
-            posts: [{ id: 51, userId: 2 }],
+            posts: [{ id: 51, userId: 1 }],
           });
           // The untaken update arm wrote nothing.
           await expect(
@@ -445,7 +466,9 @@ export function runUpsertFamilyBehavior(
       async () => {
         const { driver, client, dispose } = await setup();
         try {
-          await client.user.create({ data: { email: "door@x", score: 10 } });
+          await client.user.create({
+            data: { id: 1, email: "door@x", score: 10 },
+          });
           const result = await createUpsertFamilyExecutor(driver).executeUpsert(
             "user",
             upsertFamilySchema.user,

@@ -1,14 +1,18 @@
 import { isValidSchemaIdentifier } from "../../identifier";
-import { Model } from "../../model";
+import { getModelKeyCatalog, Model } from "../../model";
 import {
   collectInverseCandidates,
-  generateJunctionFieldName,
-  generateJunctionTableName,
   getPolymorphicInverseBinding,
   getPolymorphicInverseCandidates,
   type PolymorphicInverseCardinality,
   type PolymorphicStorageMember,
 } from "../../relation";
+import {
+  getJunctionConstraintName,
+  getJunctionFieldGroups,
+  getJunctionTableName,
+  junctionSourceSideIsFirst,
+} from "../../relation/helpers";
 import { string } from "../../scalars";
 import type { Scalar } from "../../scalars/base";
 import type {
@@ -64,74 +68,35 @@ function junctionPhysicalNames(
       const target = state.getter();
       const targetName = findModelName(ctx, target);
       if (!targetName) continue;
-      const candidates = getRelations(target).filter(([, candidate]) => {
-        const candidateState = candidate["~"].state;
-        return (
-          candidateState.type === "manyToMany" &&
-          candidateState.getter() === source
+      const sourceRowKey = getModelKeyCatalog(source).rowKey?.fields;
+      const targetRowKey = getModelKeyCatalog(target).rowKey?.fields;
+      if (!(sourceRowKey?.length && targetRowKey?.length)) continue;
+      try {
+        const tableName = getJunctionTableName(
+          relation,
+          sourceName,
+          targetName
         );
-      });
-      const compatible = candidates.filter(([, candidate]) => {
-        const pairedName = candidate["~"].state.name;
-        return !(
-          state.name !== undefined &&
-          pairedName !== undefined &&
-          state.name !== pairedName
+        const groups = getJunctionFieldGroups(
+          relation,
+          sourceName,
+          targetName,
+          sourceRowKey,
+          targetRowKey
         );
-      });
-      const paired =
-        compatible.length === 1
-          ? compatible[0]?.[1]["~"].state
-          : compatible.filter(
-                ([, candidate]) => candidate["~"].state.name === state.name
-              ).length === 1
-            ? compatible.find(
-                ([, candidate]) => candidate["~"].state.name === state.name
-              )?.[1]["~"].state
-            : undefined;
-      if (
-        state.through !== undefined &&
-        paired?.through !== undefined &&
-        state.through !== paired.through
-      ) {
-        continue;
+        const second = junctionSourceSideIsFirst(
+          sourceName,
+          groups.source.fields,
+          targetName,
+          groups.target.fields
+        )
+          ? groups.target
+          : groups.source;
+        names.add(tableName);
+        names.add(getJunctionConstraintName(tableName, second, "idx"));
+      } catch {
+        // Relation validation reports malformed junction configuration.
       }
-      const explicit = state.through ?? paired?.through;
-      const base = generateJunctionTableName(sourceName, targetName);
-      const tableName =
-        explicit ??
-        ((state.name ?? paired?.name)
-          ? `${base}_${state.name ?? paired?.name}`
-          : base);
-      names.add(tableName);
-      const sourceColumn =
-        state.A ??
-        paired?.B ??
-        (sourceName === targetName
-          ? `${sourceName.toLowerCase()}AId`
-          : generateJunctionFieldName(sourceName));
-      const targetColumn =
-        state.B ??
-        paired?.A ??
-        (sourceName === targetName
-          ? `${targetName.toLowerCase()}BId`
-          : generateJunctionFieldName(targetName));
-      const sourceSide = {
-        column: sourceColumn,
-        sortKey: sourceName.toLowerCase(),
-      };
-      const targetSide = {
-        column: targetColumn,
-        sortKey: targetName.toLowerCase(),
-      };
-      let [first, second] = [sourceSide, targetSide];
-      if (
-        first.sortKey > second.sortKey ||
-        (first.sortKey === second.sortKey && first.column > second.column)
-      ) {
-        [first, second] = [second, first];
-      }
-      names.add(`${tableName}_${second.column}_idx`);
     }
   }
   return names;

@@ -594,7 +594,9 @@ export class ManyAndReturnOperation {
         skipDuplicates: true,
         ...(this.select ? { select: this.select } : {}),
       },
-      true
+      true,
+      undefined,
+      this.engine.maxBindParametersPerStatement
     );
     // A dialect whose skip IS a SQL leaf carries it in the statement and reports the skip
     // as a zero row count; MySQL's is the savepoint effect. Both are read the same way
@@ -713,7 +715,8 @@ export class ManyAndReturnOperation {
         ...(this.select ? { select: this.select } : {}),
       },
       true,
-      resolved?.storageByRow
+      resolved?.storageByRow,
+      this.engine.maxBindParametersPerStatement
     );
     const steps: OperationStep[] = [...(resolved?.guards ?? [])];
     const output: OperationValueReference[] = [];

@@ -2,11 +2,11 @@ import { createClient } from "@client/client";
 import { MySQL2Driver } from "@drivers/mysql2";
 import { PgDriver } from "@drivers/pg";
 import { push } from "@migrations";
-import { afterAll, describe } from "vitest";
 import {
   junctionUpsertArmSchema,
   registerJunctionUpsertArmProbeBehavior,
 } from "@tests/contracts/engine/write/junction-upsert-arm-probe-behavior";
+import { afterAll, describe } from "vitest";
 
 /**
  * U-E6.1 on the live servers.

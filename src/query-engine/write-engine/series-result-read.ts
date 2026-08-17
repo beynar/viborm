@@ -57,7 +57,7 @@ export function buildSeriesResultReads(
     ctx,
     internalSelect.select,
     input.expectedRowKeys,
-    input.engine.driver.maxBindParametersPerStatement
+    input.engine.maxBindParametersPerStatement
   );
   return chunks.map(
     (rowKeys) =>

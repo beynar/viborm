@@ -4,14 +4,14 @@ import { createOperationExecutionContext } from "@query-engine/execution-context
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames, s } from "@schema";
 import type { Model } from "@schema/model";
-import { createSchemaRegistry } from "@validation";
-import { describe, expect, test } from "vitest";
 import { OperationExecutor } from "@src/query-engine/write-engine/OperationExecutor";
 import { UpdateOperation } from "@src/query-engine/write-engine/UpdateOperation";
 import {
   type BehaviorDatabaseSource,
   useBehaviorDatabase,
 } from "@tests/fixtures/drivers/pglite";
+import { createSchemaRegistry } from "@validation";
+import { describe, expect, test } from "vitest";
 
 /**
  * N4 — the depth seams, across the whole driver matrix.
@@ -305,18 +305,20 @@ async function seedAlbum(client: SeamClient): Promise<void> {
   });
 }
 
-export function runDepthSeamBehavior(options: {
-  readonly name: string;
-  /**
-   * Declared by the caller, never sniffed (the `located-parent-ref-behavior`
-   * convention): on a dialect whose `skipDuplicates` is NOT a SQL leaf
-   * (`recoverableUniqueError` — MySQL) the skip is a savepoint-wrapped executor effect,
-   * and a savepoint has no lowering into a single atomic batch. Such a leg must see the
-   * typed refusal with NOTHING written, not a silent success — and a leg that CAN
-   * express it may not quietly start refusing.
-   */
-  readonly skipDuplicatesInBatchIsInexpressible?: boolean;
-} & BehaviorDatabaseSource): void {
+export function runDepthSeamBehavior(
+  options: {
+    readonly name: string;
+    /**
+     * Declared by the caller, never sniffed (the `located-parent-ref-behavior`
+     * convention): on a dialect whose `skipDuplicates` is NOT a SQL leaf
+     * (`recoverableUniqueError` — MySQL) the skip is a savepoint-wrapped executor effect,
+     * and a savepoint has no lowering into a single atomic batch. Such a leg must see the
+     * typed refusal with NOTHING written, not a silent success — and a leg that CAN
+     * express it may not quietly start refusing.
+     */
+    readonly skipDuplicatesInBatchIsInexpressible?: boolean;
+  } & BehaviorDatabaseSource
+): void {
   describe(`${options.name} depth-seam boundaries (N4)`, () => {
     const openDatabase = useBehaviorDatabase(depthSeamSchema, options);
     const setup = async () => {
@@ -564,7 +566,7 @@ export function runDepthSeamBehavior(options: {
           // — so nothing needs to be known before the statement runs, and the shape
           // executes. The assertion is the identity: the entry's foreign key is the slot
           // id the database generated, not a decoy's and not a guess.
-          await update("workspace", depthSeamSchema.workspace, {
+          const operation = update("workspace", depthSeamSchema.workspace, {
             where: { id: 2 },
             data: {
               slots: {
@@ -580,6 +582,7 @@ export function runDepthSeamBehavior(options: {
               },
             },
           });
+          await operation;
           const slots = await client.slot.findMany({ orderBy: { id: "asc" } });
           expect(slots).toHaveLength(1);
           expect(slots[0]).toMatchObject({

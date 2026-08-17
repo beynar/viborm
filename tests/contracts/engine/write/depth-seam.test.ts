@@ -1,12 +1,9 @@
-import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import type { BatchQuery, QueryExecutionContext, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { push } from "@migrations";
-import { describe, expect, test } from "vitest";
 import type { WriteStep } from "@src/query-engine/write-engine/OperationFragment";
 import { UpdateOperation } from "@src/query-engine/write-engine/UpdateOperation";
-import { batchIsAtomicUnit } from "@tests/fixtures/atomic-unit-batch";
 import {
   depthSeamSchema,
   makeSeamClient,
@@ -15,6 +12,8 @@ import {
   runDepthSeamBehavior,
   seedProjects,
 } from "@tests/contracts/engine/write/depth-seam-behavior";
+import { batchIsAtomicUnit } from "@tests/fixtures/atomic-unit-batch";
+import { describe, expect, test } from "vitest";
 
 /**
  * N4-U1's PROVENANCE instrument, one level below the one N1 built.
@@ -870,7 +869,7 @@ function junctionUpsertCreateArmWrites(
 
 describe("N6-U1 nested create-arm racePin", () => {
   test("a PLAIN nested selector pins the create arm as raceable", () => {
-    const pinned = nestedUpsertCreateArmWrites({ code: "P-TARGET" }).filter(
+    const pinned = nestedUpsertCreateArmWrites({ code: "P-FRESH" }).filter(
       (step) => step.racePin
     );
     expect(pinned).toHaveLength(1);
@@ -879,7 +878,7 @@ describe("N6-U1 nested create-arm racePin", () => {
 
   test("an EXTENDED nested selector withholds the create-arm racePin", () => {
     const writes = nestedUpsertCreateArmWrites({
-      code: "P-TARGET",
+      code: "P-FRESH",
       title: "not-the-title",
     });
     expect(writes.every((step) => step.racePin === undefined)).toBe(true);
@@ -888,7 +887,7 @@ describe("N6-U1 nested create-arm racePin", () => {
   test("the withheld pin is about the FILTER, not the discriminator's shape", () => {
     // Same discriminator, the filter smuggled through a boolean combinator.
     const writes = nestedUpsertCreateArmWrites({
-      code: "P-TARGET",
+      code: "P-FRESH",
       AND: [{ title: "not-the-title" }],
     });
     expect(writes.every((step) => step.racePin === undefined)).toBe(true);
@@ -900,13 +899,13 @@ describe("N6-U1 nested create-arm racePin", () => {
     // extended one. Both halves at once, because at this site they are one fact: the
     // slot hands its selector to `childInsert`, and `childRacePin` decides. Only the
     // junction row follows the child INSERT, and it pins nothing.
-    const plain = junctionUpsertCreateArmWrites({ slug: "target" }).filter(
+    const plain = junctionUpsertCreateArmWrites({ slug: "fresh" }).filter(
       (step) => step.racePin
     );
     expect(plain).toHaveLength(1);
     expect(plain[0]?.racePin?.fields).toEqual(["slug"]);
     const extended = junctionUpsertCreateArmWrites({
-      slug: "target",
+      slug: "fresh",
       caption: "not-the-caption",
     });
     expect(extended.every((step) => step.racePin === undefined)).toBe(true);

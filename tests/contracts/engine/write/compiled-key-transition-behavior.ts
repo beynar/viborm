@@ -237,16 +237,24 @@ export function registerCompileTransitionBehavior(
       await client.bay.create({ data: { id: "b1", area: "eu", slot: "west" } });
 
       // `null` names no row, so there is no post-transition value to reference. The
-      // refusal is this family's typed one, raised where the operand is finally paired
-      // with a located value — never the internal error `getUpdatedPrimaryKeyValue`
-      // raises for the same operand.
+      // refusal is raised where the operand is finally paired with a located value —
+      // never the internal error `getUpdatedPrimaryKeyValue` raises for the same
+      // operand.
+      //
+      // RESIDUAL §G1/§G2 RETARGET (2026-08-14): the sentence and the CLASS changed,
+      // the timing and the effect did not. `null` here is a CONTRADICTION — no
+      // substrate, no future package and no extra round trip produces a row for a
+      // foreign key equal to NULL — so it is a `NestedWriteError` from the one owner
+      // that answers it for every position, not an `UnsupportedOperationError`
+      // claiming a capability the engine might one day gain. Still at COMPILE, still
+      // with nothing written.
       await expect(
         client.bay.update({
           where: { id: "b1" },
           data: { slot: null, pads: { create: { id: "p1" } } },
         })
       ).rejects.toThrow(
-        "query-engine-v2 update nested create on relation 'pads' references a non-literal rewritten column 'slot'."
+        "Cannot update relation key field 'slot' to null while mutating relation 'pads'. A null reference names no row for that relation to point at."
       );
       expect(await client.pad.findMany()).toEqual([]);
       expect((await client.bay.findMany()).map((row: any) => row.slot)).toEqual(

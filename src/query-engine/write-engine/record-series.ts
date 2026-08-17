@@ -25,14 +25,15 @@ export type SeriesRootConflictDisposition = {
  *
  * The phases:
  *
- * - {@link capture} fixes the root set inside the interactive scope. It may be an
- *   empty fragment when the root set is entirely application-known.
+ * - {@link capture} fixes the root set before members run. It may be an empty
+ *   fragment when the root set is entirely application-known.
  * - {@link compileMembers} returns ordinary {@link ExecutableOperation} instances —
  *   the same shells the routed single-tree path builds. Every member is built
- *   before the first one runs, so a member's construction-time refusal happens
- *   before this scope has any effect to undo. Branch-dependent legality keeps its
- *   existing timing: a found-arm check still runs when that member's planning
- *   selects the arm, and its failure rolls the whole scope back.
+ *   before the first one runs, so statically knowable refusals happen before any
+ *   member effect. Branch-dependent legality keeps its existing timing: a found-arm
+ *   check still runs when that member's planning selects the arm. An interactive
+ *   transaction rolls the series back on failure; progressive execution reports and
+ *   preserves an already committed prefix.
  * - {@link compileResultReads} runs only after every member has completed. It
  *   builds ordinary reads for the final root identities when the payload asked for
  *   a returning projection.
@@ -46,13 +47,14 @@ export type SeriesRootConflictDisposition = {
  * gone). `compileMembers` / `compileResultReads` read exactly those keys.
  *
  * `executionKind: "recordSeries"` alone selects the series executor. Interactive
- * drivers run it in one transaction. A batch-only driver may run root members as
- * ordered committed segments only when its capability contract proves atomic
- * batches and cross-batch visibility. A nested placement additionally carries
- * the exact parent/membership guard every later write segment re-asserts; a
- * compiler that cannot provide that proof marks the placement unsupported.
- * Prepared statement/batch seams still decline this dynamic form before fragment
- * compilation.
+ * drivers run it in one transaction. A no-transaction driver with native atomic
+ * batches runs members as ordered segments; normalized successful return is the
+ * boundary for the next segment, while an optional committed-batch notification
+ * makes post-commit decoding failures precisely attributable. A nested placement
+ * additionally carries the exact parent/membership guard every later write segment
+ * re-asserts; a compiler that cannot provide that proof marks the placement
+ * unsupported. Prepared statement/batch seams still decline this dynamic form
+ * before fragment compilation.
  */
 export interface RecordSeriesOperation {
   readonly executionKind: "recordSeries";

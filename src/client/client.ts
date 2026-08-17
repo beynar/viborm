@@ -36,11 +36,12 @@ import {
   withMutationCacheInvalidation,
 } from "@query-engine/cache-flow";
 import { createOperationExecutionContext } from "@query-engine/execution-context";
-import {
-  isPendingOperation,
-  PendingOperation,
-} from "@query-engine/pending-operation";
+import { PendingOperation } from "@query-engine/pending-operation";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
+import {
+  isTransactionOperation,
+  type TransactionOperation,
+} from "@query-engine/transaction-operation";
 import type { PreparedBatchGuard } from "@query-engine/types";
 import { hydrateSchemaNames } from "@schema/hydration";
 import { validateClientSchemaOrThrow } from "@schema/validation/validator";
@@ -55,10 +56,9 @@ import {
 import {
   createLegacyRawWarner,
   createRawSurface,
-  isRawOperationPromise,
   type LegacyRawWarner,
+  type RawOperation,
   type RawSurface,
-  rawOperationInBatchError,
 } from "./raw";
 import type {
   CachedClient,
@@ -116,26 +116,28 @@ const RAW_METHOD_NAMES = new Set<string>([
   "$queryRawUnsafe",
 ]);
 
+type BatchTransactionOperation<T = unknown> =
+  | PendingOperation<T>
+  | RawOperation<T>;
+
 /** The four raw methods the client and its transaction clients answer. */
 function isRawMethodName(prop: string | symbol): prop is keyof RawSurface {
   return typeof prop === "string" && RAW_METHOD_NAMES.has(prop);
 }
 
 /**
- * Every item of `$transaction([...])` must be a deferrable model operation. A
- * raw query is not one — it already ran — so it gets its own refusal instead
- * of the generic "not a pending operation".
+ * Every item of `$transaction([...])` must be one of this client's deferrable
+ * model or raw transaction operations. Ordinary promises remain invalid.
  */
 function assertBatchableOperation(
   candidate: unknown
-): asserts candidate is PendingOperation<unknown> {
-  if (isPendingOperation(candidate)) return;
-  if (isRawOperationPromise(candidate)) throw rawOperationInBatchError();
+): asserts candidate is TransactionOperation<unknown> {
+  if (isTransactionOperation(candidate)) return;
   throw new InvalidTransactionInputError();
 }
 
 function assertOperationOwnership(
-  operation: PendingOperation<unknown>,
+  operation: TransactionOperation<unknown>,
   engine: QueryEngine
 ): void {
   if (operation.getClientId() !== engine.clientId) {
@@ -318,7 +320,7 @@ export type TransactionClient<C extends VibORMConfig> = Client<C> &
         fn: (tx: TransactionClient<C>) => Promise<T>,
         options?: TransactionOptions
       ): Promise<T>;
-      <T extends PendingOperation<unknown>[]>(
+      <T extends BatchTransactionOperation<unknown>[]>(
         operations: [...T],
         options?: BatchTransactionOptions
       ): Promise<{ [K in keyof T]: Awaited<T[K]> }>;
@@ -383,7 +385,7 @@ export type VibORMClient<C extends VibORMConfig> = Client<C> &
           options?: TransactionOptions
         ): Promise<T>;
         // Overload 2: Batch of independent operations (Prisma-style)
-        <T extends PendingOperation<unknown>[]>(
+        <T extends BatchTransactionOperation<unknown>[]>(
           operations: [...T],
           options?: BatchTransactionOptions
         ): Promise<{ [K in keyof T]: Awaited<T[K]> }>;
@@ -427,13 +429,12 @@ export class VibORM<C extends VibORMConfig> {
   }
 
   /**
-   * The raw SQL surface bound to one driver — the client's own driver, or the
-   * transaction-bound driver inside an open interactive transaction.
+   * The raw SQL surface bound to one engine scope — the root scope, or a
+   * transaction-bound scope inside an interactive transaction.
    */
-  private rawSurface(driver: AnyDriver): RawSurface {
+  private rawSurface(engine: QueryEngine): RawSurface {
     return createRawSurface({
-      driver,
-      instrumentation: this.engine.instrumentation,
+      engine,
       warnLegacyString: this.legacyRawWarner,
     });
   }
@@ -665,7 +666,7 @@ export class VibORM<C extends VibORMConfig> {
         }
 
         if (isRawMethodName(prop)) {
-          rawSurface ??= orm.rawSurface(orm.engine.driver);
+          rawSurface ??= orm.rawSurface(orm.engine);
           return rawSurface[prop];
         }
 
@@ -673,7 +674,7 @@ export class VibORM<C extends VibORMConfig> {
           return async <T>(
             input:
               | ((tx: Client<C>) => Promise<T>)
-              | PendingOperation<unknown>[],
+              | TransactionOperation<unknown>[],
             options?: TransactionOptions | BatchTransactionOptions
           ): Promise<T | unknown[]> => {
             // Refuse before dispatching, so that paths which never reach a
@@ -690,16 +691,16 @@ export class VibORM<C extends VibORMConfig> {
                 : "$transaction(callback)",
               orm.engine.instrumentation
             );
-            // Array of PendingOperations = batch mode
+            // Array of transaction operations = batch mode
             if (Array.isArray(input)) {
-              const operations = input as PendingOperation<unknown>[];
+              const operations = input as TransactionOperation<unknown>[];
 
               // Early return for empty array
               if (operations.length === 0) {
                 return [] as unknown[];
               }
 
-              // Validate all items are PendingOperations from this client
+              // Validate all items are transaction operations from this client
               for (const op of operations) {
                 assertBatchableOperation(op);
                 assertOperationOwnership(op, orm.engine);
@@ -714,6 +715,7 @@ export class VibORM<C extends VibORMConfig> {
               // can execute preplanned operations without callback transactions.
               // This provides atomicity for operations that can be batched
               if (!supportsTransactions && supportsBatch) {
+                for (const op of operations) op.reserveWith(driver);
                 const operationQueries: BatchQuery[] = [];
                 const batchGuards: PreparedBatchGuard[] = [];
                 const parsers: Array<{
@@ -734,7 +736,7 @@ export class VibORM<C extends VibORMConfig> {
                       }
                       return {
                         kind: "batch" as const,
-                        preparedBatch: await op.prepareBatch(driver),
+                        preparedBatch: await op.prepareBatch?.(driver),
                       };
                     }
                   );
@@ -937,14 +939,14 @@ export class VibORM<C extends VibORMConfig> {
               return new Proxy(baseClient, {
                 get(target, prop) {
                   if (isRawMethodName(prop)) {
-                    txRawSurface ??= orm.rawSurface(txDriver);
+                    txRawSurface ??= orm.rawSurface(txEngine);
                     return txRawSurface[prop];
                   }
                   if (prop === "$transaction") {
                     return <NT>(
                       nestedInput:
                         | ((nestedTx: TransactionClient<C>) => Promise<NT>)
-                        | PendingOperation<unknown>[],
+                        | TransactionOperation<unknown>[],
                       nestedOptions?:
                         | TransactionOptions
                         | BatchTransactionOptions
@@ -973,9 +975,9 @@ export class VibORM<C extends VibORMConfig> {
                           );
                         if (Array.isArray(nestedInput)) {
                           // Batch mode in nested transaction
-                          // Validate all items are PendingOperations from this transaction client
+                          // Validate all items are transaction operations from this transaction client
                           const nestedOperations =
-                            nestedInput as PendingOperation<unknown>[];
+                            nestedInput as TransactionOperation<unknown>[];
                           for (const op of nestedOperations) {
                             assertBatchableOperation(op);
                             assertOperationOwnership(op, txEngine);

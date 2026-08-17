@@ -171,6 +171,100 @@ describe("relation definition rules", () => {
     expect(codes(validateSchema({ post, tag }))).toContain("JT002");
   });
 
+  it("validates expanded compound fields", () => {
+    const longPrefix = "x".repeat(62);
+    const post = s
+      .model({
+        tenant: s.string(),
+        slug: s.string(),
+        tags: s
+          .manyToMany(() => tag)
+          .through("post_tag")
+          .A(longPrefix)
+          .B("tag"),
+      })
+      .id(["tenant", "slug"]);
+    const tag = s.model({
+      id: s.string().id(),
+      posts: s
+        .manyToMany(() => post)
+        .through("post_tag")
+        .A("tag")
+        .B(longPrefix),
+    });
+
+    expect(codes(validateSchema({ post, tag }))).toContain("JT002");
+  });
+
+  it("rejects an empty compound-side prefix", () => {
+    const post = s
+      .model({
+        tenant: s.string(),
+        slug: s.string(),
+        tags: s
+          .manyToMany(() => tag)
+          .A("")
+          .B("tag"),
+      })
+      .id(["tenant", "slug"]);
+    const tag = s.model({
+      id: s.string().id(),
+      posts: s
+        .manyToMany(() => post)
+        .A("tag")
+        .B(""),
+    });
+
+    expect(codes(validateSchema({ post, tag }))).toContain("JT002");
+  });
+
+  it("validates generated compound-side constraint names", () => {
+    const table = "j".repeat(55);
+    const post = s
+      .model({
+        tenant: s.string(),
+        slug: s.string(),
+        tags: s
+          .manyToMany(() => tag)
+          .through(table)
+          .A("post")
+          .B("tag"),
+      })
+      .id(["tenant", "slug"]);
+    const tag = s.model({
+      id: s.string().id(),
+      posts: s
+        .manyToMany(() => post)
+        .through(table)
+        .A("tag")
+        .B("post"),
+    });
+
+    expect(codes(validateSchema({ post, tag }))).toContain("JT002");
+  });
+
+  it("rejects portable collisions after positional prefix expansion", () => {
+    const post = s.model({
+      id: s.string().id(),
+      tags: s
+        .manyToMany(() => tag)
+        .A("post_1")
+        .B("Post"),
+    });
+    const tag = s
+      .model({
+        tenant: s.string(),
+        code: s.string(),
+        posts: s
+          .manyToMany(() => post)
+          .A("Post")
+          .B("post_1"),
+      })
+      .id(["tenant", "code"]);
+
+    expect(codes(validateSchema({ post, tag }))).toContain("JT003");
+  });
+
   it("warns for unbound snake-case and camel-case polymorphic pairs", () => {
     const comment = s.model({
       id: s.string().id(),

@@ -275,9 +275,11 @@ per-driver table.
 
 ---
 
-## PendingOperation Pattern
+## Transaction operations
 
-Operations return `PendingOperation` objects that defer execution until awaited:
+Model operations return `PendingOperation`; raw methods return `RawOperation`.
+Both implement the internal transaction-operation protocol and defer execution
+until awaited or consumed by `$transaction([...])`:
 
 ```typescript
 const op = orm.user.findMany();  // Returns PendingOperation (not executed yet)
@@ -289,6 +291,11 @@ const [a, b] = await orm.$transaction([
   orm.post.create({ data: {...} })   // Executed together when array is awaited
 ]);
 ```
+
+Raw and model operations can share the same array transaction. Raw operations
+remain structurally compatible with `Promise<T>`, but ordinary promises are not
+transaction operations and remain invalid array members. Client and scope IDs
+are checked for both implementations before dispatch.
 
 ---
 

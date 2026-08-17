@@ -62,6 +62,10 @@ Without adapters, we'd have `if (postgres) ... else if (mysql) ...` scattered ev
 ### Rule 1: All Methods Return Sql Fragments
 Every adapter method takes primitives/Sql and returns Sql. Never return strings. Fragments preserve parameterization.
 
+`mutations.insert` accepts either literal row tuples or `{ select: Sql }`.
+Adapters own the dialect spelling of both `INSERT ... VALUES` and
+`INSERT ... SELECT`; query-engine code must not hand-build either form.
+
 ### Rule 2: Implement for ALL Databases
 Every interface method MUST be implemented in postgres, mysql, AND sqlite. TypeScript enforces this, but incomplete implementations can return wrong results.
 

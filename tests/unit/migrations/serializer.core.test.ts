@@ -4,11 +4,11 @@
  * Tests for serializeModels() function, particularly junction table generation.
  */
 
-import { describe, expect, it } from "vitest";
 import { postgresMigrationDriver } from "@src/migrations/drivers/postgres";
 import { serializeModels } from "@src/migrations/serializer";
 import { s } from "@src/schema";
 import { hydrateSchemaNames } from "@src/schema/hydration";
+import { describe, expect, it } from "vitest";
 
 // =============================================================================
 // JUNCTION TABLE TESTS
@@ -105,6 +105,71 @@ describe("junction table generation", () => {
     expect(junctionTable!.columns.map((c) => c.name).sort()).toEqual([
       "post_fk",
       "tag_fk",
+    ]);
+  });
+
+  it("serializes both compound junction sides from positional prefixes", () => {
+    const Post = s
+      .model({
+        tenant: s.string().map("post_tenant"),
+        slug: s.string().map("post_slug"),
+        tags: s
+          .manyToMany(() => Tag)
+          .A("post")
+          .B("tag"),
+      })
+      .id(["tenant", "slug"]);
+    const Tag = s
+      .model({
+        locale: s.string().map("tag_locale"),
+        code: s.int().map("tag_code"),
+        posts: s
+          .manyToMany(() => Post)
+          .A("tag")
+          .B("post"),
+      })
+      .id(["locale", "code"]);
+    const schema = { post: Post, tag: Tag };
+    hydrateSchemaNames(schema);
+
+    const snapshot = serializeModels(schema, {
+      migrationDriver: postgresMigrationDriver,
+    });
+    const junction = snapshot.tables.find((table) => table.name === "post_tag");
+
+    expect(junction?.columns).toEqual([
+      { name: "post_1", type: "text", nullable: false },
+      { name: "post_2", type: "text", nullable: false },
+      { name: "tag_1", type: "text", nullable: false },
+      { name: "tag_2", type: "integer", nullable: false },
+    ]);
+    expect(junction?.primaryKey).toEqual({
+      columns: ["post_1", "post_2", "tag_1", "tag_2"],
+    });
+    expect(junction?.indexes).toEqual([
+      {
+        name: "post_tag_tag_idx",
+        columns: ["tag_1", "tag_2"],
+        unique: false,
+      },
+    ]);
+    expect(junction?.foreignKeys).toEqual([
+      {
+        name: "post_tag_post_fkey",
+        columns: ["post_1", "post_2"],
+        referencedTable: "post",
+        referencedColumns: ["post_tenant", "post_slug"],
+        onDelete: "cascade",
+        onUpdate: "cascade",
+      },
+      {
+        name: "post_tag_tag_fkey",
+        columns: ["tag_1", "tag_2"],
+        referencedTable: "tag",
+        referencedColumns: ["tag_locale", "tag_code"],
+        onDelete: "cascade",
+        onUpdate: "cascade",
+      },
     ]);
   });
 
@@ -312,7 +377,7 @@ describe("junction table generation", () => {
     }
   });
 
-  it("throws on compound primary key with helpful suggestion", () => {
+  it("uses a generated prefix for one compound junction side", () => {
     const Post = s
       .model({
         title: s.string(),
@@ -330,11 +395,21 @@ describe("junction table generation", () => {
     const schema = { post: Post, tag: Tag };
     hydrateSchemaNames(schema);
 
-    expect(() =>
-      serializeModels(schema, {
-        migrationDriver: postgresMigrationDriver,
-      })
-    ).toThrow(/compound primary key.*surrogate key/i);
+    const snapshot = serializeModels(schema, {
+      migrationDriver: postgresMigrationDriver,
+    });
+    const junction = snapshot.tables.find((table) => table.name === "post_tag");
+
+    expect(junction?.columns.map((column) => column.name)).toEqual([
+      "post_1",
+      "post_2",
+      "tagId",
+    ]);
+    expect(junction?.primaryKey?.columns).toEqual([
+      "post_1",
+      "post_2",
+      "tagId",
+    ]);
   });
 
   it("throws on missing primary key", () => {
@@ -356,7 +431,7 @@ describe("junction table generation", () => {
       serializeModels(schema, {
         migrationDriver: postgresMigrationDriver,
       })
-    ).toThrow(/no primary key field/i);
+    ).toThrow('Model "post" has no primary key. Schema may not be hydrated.');
   });
 
   it("avoids duplicate junction table when both sides define relation", () => {

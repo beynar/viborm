@@ -29,6 +29,8 @@ import { publishedOutputs } from "@tests/fixtures/planning-published";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
 
+const MUTATION_CTE_PREFIX = /^WITH /;
+
 hydrateSchemaNames(nestedWriteBehaviorSchema);
 
 /** PACKAGE G — an inverse to-one whose child's ROW KEY has two members and is not the
@@ -1422,28 +1424,21 @@ describe("one record, one compiler parity", () => {
       "user.locate.rows": reference("user.locate", "rows"),
     });
     const final = operation.compile({ "user.locate.rows": [] });
-    expect(ids(final)).toEqual([
-      "user.create#1",
-      "post.create",
-      "user.select#1",
-    ]);
-    expect(prepared(driver, statementStep(final, "user.create#1"))).toEqual({
-      sql: 'INSERT INTO "update_slice_users" ("email", "count") VALUES ($1, $2) RETURNING "id" AS "id"',
-      params: ["new@x", 0],
-    });
+    expect(ids(final)).toEqual(["user.create#1"]);
+    const folded = prepared(driver, statementStep(final, "user.create#1"));
+    expect(folded.sql).toMatch(MUTATION_CTE_PREFIX);
+    expect(folded.sql).toContain('INSERT INTO "update_slice_users"');
+    expect(folded.sql).toContain('INSERT INTO "update_slice_posts"');
+    expect(folded.params).toEqual(["new@x", 0, 7, "child", "child"]);
     expect(statementStep(final, "user.create#1")).toMatchObject({
-      outputs: { id: { kind: "firstRowField", field: "id" } },
+      outputs: { result: { kind: "rows" } },
       racePin: { fields: ["email"], table: "update_slice_users" },
     });
-    expect(prepared(driver, statementStep(final, "post.create"))).toEqual({
-      sql: 'INSERT INTO "update_slice_posts" ("id", "title", "slug", "userId") VALUES ($1, $2, $3, CAST($4 AS INTEGER))',
-      params: [7, "child", "child", reference("user.create#1", "id")],
-    });
-    expect(statementStep(final, "user.select#1").expects).toEqual(
+    expect(statementStep(final, "user.create#1").expects).toEqual(
       terminalExpectation("create")
     );
     expect(outputContract(final)).toEqual({
-      result: reference("user.select#1", "result"),
+      result: reference("user.create#1", "result"),
     });
     expect(() => operation.compile({})).toThrowError(
       "query-engine-v2 upsert planning did not expose the locate rows."

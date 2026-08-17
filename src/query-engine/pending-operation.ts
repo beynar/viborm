@@ -5,13 +5,13 @@
  */
 
 import type { AnyDriver, QueryExecutionContext } from "@drivers";
-import { PendingOperationError } from "@errors";
 import type { Model } from "@schema/model";
 import type { Sql } from "@sql";
 import type {
   CommittedWriteSegmentNotification,
   ExecutableOperation,
   SingleStatementCandidate,
+  WriteMayBeVisibleNotification,
 } from "../query-engine/write-engine/OperationExecutor";
 import { OperationExecutor } from "../query-engine/write-engine/OperationExecutor";
 import {
@@ -27,9 +27,14 @@ import {
   createPendingOperationContext,
   type OperationExecutionContext,
   observeOperationExecution,
-  observePendingBatchPhase,
+  observeTransactionBatchPhase,
 } from "./execution-context";
+import { PendingExecution } from "./pending-execution";
 import type { QueryEngine } from "./query-engine";
+import {
+  TRANSACTION_OPERATION_SYMBOL,
+  type TransactionOperation,
+} from "./transaction-operation";
 import {
   isBatchOperation,
   type Operation,
@@ -44,20 +49,23 @@ export const PENDING_OPERATION_SYMBOL = Symbol.for("viborm.pendingOperation");
 type ExecutionWrapper<T> = (
   execute: (
     driver?: AnyDriver,
-    committedWriteSegment?: CommittedWriteSegmentNotification
+    committedWriteSegment?: CommittedWriteSegmentNotification,
+    writeMayBeVisible?: WriteMayBeVisibleNotification
   ) => Promise<T>
 ) => Promise<T>;
 
 type DeferredExecution<T> = (
   driverOverride?: AnyDriver,
-  committedWriteSegment?: CommittedWriteSegmentNotification
+  committedWriteSegment?: CommittedWriteSegmentNotification,
+  writeMayBeVisible?: WriteMayBeVisibleNotification
 ) => Promise<T>;
 
 const OR_THROW_SUFFIX = "OrThrow";
 
 /** One user operation, from lazy creation through execution and parsing. */
-export class PendingOperation<T> implements PromiseLike<T> {
+export class PendingOperation<T> implements TransactionOperation<T> {
   readonly [PENDING_OPERATION_SYMBOL] = true;
+  readonly [TRANSACTION_OPERATION_SYMBOL] = true;
   readonly engine: QueryEngine;
   readonly model: Model<any>;
   readonly args: Record<string, unknown>;
@@ -66,8 +74,7 @@ export class PendingOperation<T> implements PromiseLike<T> {
   readonly options: PrepareOptions;
   readonly context: OperationExecutionContext;
 
-  private promise: Promise<T> | null = null;
-  private executedWith: AnyDriver | "default" | null = null;
+  private readonly execution: PendingExecution<T>;
   private readonly deferredExecution: DeferredExecution<T> | undefined;
 
   // The V2 operation for this payload, constructed once (lazily, before any I/O).
@@ -96,6 +103,7 @@ export class PendingOperation<T> implements PromiseLike<T> {
       ? (requestedOperation.slice(0, -OR_THROW_SUFFIX.length) as Operation)
       : (requestedOperation as Operation);
     this.modelName = model["~"].names.ts ?? "unknown";
+    this.execution = new PendingExecution<T>(this.modelName, this.operation);
     this.options = Object.freeze({
       ...options,
       throwIfNotFound: isOrThrow || options?.throwIfNotFound,
@@ -188,28 +196,22 @@ export class PendingOperation<T> implements PromiseLike<T> {
   }
 
   private getPromise(): Promise<T> {
-    if (this.executedWith !== null && this.executedWith !== "default") {
-      throw PendingOperationError.alreadyExecutedWithDriver(
-        this.modelName,
-        this.operation
-      );
-    }
-
-    if (!this.promise) {
-      this.executedWith = "default";
-      this.promise = this.runExecution();
-    }
-    return this.promise;
+    return this.execution.executeDefault(() => this.runExecution());
   }
 
   private runExecution(
     driverOverride?: AnyDriver,
-    committedWriteSegment?: CommittedWriteSegmentNotification
+    committedWriteSegment?: CommittedWriteSegmentNotification,
+    writeMayBeVisible?: WriteMayBeVisibleNotification
   ): Promise<T> {
     if (this.deferredExecution) {
-      return this.deferredExecution(driverOverride, committedWriteSegment);
+      return this.deferredExecution(
+        driverOverride,
+        committedWriteSegment,
+        writeMayBeVisible
+      );
     }
-    return this.run(driverOverride, committedWriteSegment);
+    return this.run(driverOverride, committedWriteSegment, writeMayBeVisible);
   }
 
   /**
@@ -222,7 +224,8 @@ export class PendingOperation<T> implements PromiseLike<T> {
    */
   private run(
     driverOverride?: AnyDriver,
-    committedWriteSegment?: CommittedWriteSegmentNotification
+    committedWriteSegment?: CommittedWriteSegmentNotification,
+    writeMayBeVisible?: WriteMayBeVisibleNotification
   ): Promise<T> {
     let operation: RoutedExecutableOperation;
     try {
@@ -236,7 +239,8 @@ export class PendingOperation<T> implements PromiseLike<T> {
         operation,
         this.context.attribution,
         driverOverride,
-        committedWriteSegment
+        committedWriteSegment,
+        writeMayBeVisible
       )
     );
   }
@@ -305,24 +309,11 @@ export class PendingOperation<T> implements PromiseLike<T> {
   }
 
   executeWith(driver: AnyDriver): Promise<T> {
-    if (this.executedWith === "default") {
-      throw PendingOperationError.alreadyExecutedDefault(
-        this.modelName,
-        this.operation
-      );
-    }
-    if (this.executedWith !== null && this.executedWith !== driver) {
-      throw PendingOperationError.differentDriverConflict(
-        this.modelName,
-        this.operation
-      );
-    }
+    return this.execution.executeWith(driver, () => this.runExecution(driver));
+  }
 
-    if (!this.promise) {
-      this.executedWith = driver;
-      this.promise = this.runExecution(driver);
-    }
-    return this.promise;
+  reserveWith(driver: AnyDriver): void {
+    this.execution.reserveWith(driver);
   }
 
   prepare(driver?: AnyDriver): PreparedQuery | undefined {
@@ -389,18 +380,20 @@ export class PendingOperation<T> implements PromiseLike<T> {
     driver: AnyDriver,
     execute: () => R | Promise<R>
   ): Promise<R> {
-    return observePendingBatchPhase(this, driver, execute);
+    return observeTransactionBatchPhase(this, driver, execute);
   }
 
   wrapExecutor(wrapper: ExecutionWrapper<T>): PendingOperation<T> {
     const deferredExecution: DeferredExecution<T> = (
       driverOverride,
-      outerCommittedWriteSegment
+      outerCommittedWriteSegment,
+      outerWriteMayBeVisible
     ) =>
-      wrapper((driver, committedWriteSegment) =>
+      wrapper((driver, committedWriteSegment, writeMayBeVisible) =>
         this.runExecution(
           driver ?? driverOverride,
-          committedWriteSegment ?? outerCommittedWriteSegment
+          committedWriteSegment ?? outerCommittedWriteSegment,
+          writeMayBeVisible ?? outerWriteMayBeVisible
         )
       );
     return new PendingOperation(

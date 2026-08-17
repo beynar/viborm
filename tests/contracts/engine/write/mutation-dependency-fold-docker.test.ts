@@ -1,9 +1,10 @@
 import { createClient } from "@client/client";
-import type { QueryExecutionContext, QueryResult } from "@drivers";
+import type { BatchQuery, QueryExecutionContext, QueryResult } from "@drivers";
 import { PgDriver } from "@drivers/pg";
 import { UniqueConstraintError } from "@errors";
 import { push } from "@migrations";
 import { hydrateSchemaNames, s } from "@schema";
+import { PgBatchForcedDriver } from "@tests/fixtures/drivers/batch-forced-pg";
 import type { Pool, PoolClient } from "pg";
 import { afterAll, describe, expect, test } from "vitest";
 
@@ -117,6 +118,18 @@ class RecordingPgDriver extends PgDriver {
   ): Promise<QueryResult<T>> {
     if (this.recording) this.statements.push(statement);
     return super.executeRaw<T>(client, statement, params, context);
+  }
+}
+
+/** Records the one real PostgreSQL transaction submitted by the shared-array route. */
+class RecordingBatchPgDriver extends PgBatchForcedDriver {
+  readonly batches: BatchQuery[][] = [];
+
+  override async _executeBatch<T = Record<string, unknown>>(
+    ...args: Parameters<PgDriver["_executeBatch"]>
+  ): Promise<QueryResult<T>[]> {
+    this.batches.push([...args[0]]);
+    return (await super._executeBatch(...args)) as QueryResult<T>[];
   }
 }
 
@@ -242,5 +255,81 @@ afterAll(async () => {
     expect(await client.span.findMany({ where: { id: "dup-live" } })).toEqual(
       []
     );
+  });
+
+  test("an indivisible array folds a generated-key DAG in one real batch", async () => {
+    const observer = await connect();
+    const batchDriver = new RecordingBatchPgDriver({
+      databaseUrl: PG as string,
+    });
+    const client = createClient({ schema: liveSchema, driver: batchDriver });
+    try {
+      const [created, sibling] = await client.$transaction([
+        client.hub.create({
+          data: {
+            name: "live-array-fold",
+            spans: { create: { id: "live-array-span" } },
+          },
+          select: { id: true, name: true },
+        }),
+        client.crate.create({ data: { id: "live-array-sibling" } }),
+      ]);
+
+      expect(created).toEqual({
+        id: expect.any(Number),
+        name: "live-array-fold",
+      });
+      expect(sibling).toEqual({ id: "live-array-sibling" });
+      expect(batchDriver.batches).toHaveLength(1);
+      expect(batchDriver.batches[0]).toHaveLength(2);
+      expect(batchDriver.batches[0]?.[0]?.sql.startsWith("WITH ")).toBe(true);
+      await expect(
+        observer.span.findMany({ where: { id: "live-array-span" } })
+      ).resolves.toEqual([{ id: "live-array-span", hubId: created.id }]);
+    } finally {
+      await client.$disconnect();
+    }
+  });
+
+  test("a failing folded DAG rolls every real PostgreSQL array sibling back", async () => {
+    const observer = await connect();
+    const batchDriver = new RecordingBatchPgDriver({
+      databaseUrl: PG as string,
+    });
+    const client = createClient({ schema: liveSchema, driver: batchDriver });
+    try {
+      await expect(
+        client.$transaction([
+          client.crate.create({ data: { id: "live-array-rolled-back" } }),
+          client.hub.create({
+            data: {
+              name: "live-array-failing-dag",
+              spans: {
+                create: [
+                  { id: "live-array-duplicate" },
+                  { id: "live-array-duplicate" },
+                ],
+              },
+            },
+            select: { id: true },
+          }),
+        ])
+      ).rejects.toBeInstanceOf(UniqueConstraintError);
+
+      expect(batchDriver.batches).toHaveLength(1);
+      expect(batchDriver.batches[0]).toHaveLength(2);
+      expect(batchDriver.batches[0]?.[1]?.sql.startsWith("WITH ")).toBe(true);
+      await expect(
+        observer.crate.findUnique({ where: { id: "live-array-rolled-back" } })
+      ).resolves.toBeNull();
+      await expect(
+        observer.hub.findMany({ where: { name: "live-array-failing-dag" } })
+      ).resolves.toEqual([]);
+      await expect(
+        observer.span.findMany({ where: { id: "live-array-duplicate" } })
+      ).resolves.toEqual([]);
+    } finally {
+      await client.$disconnect();
+    }
   });
 });

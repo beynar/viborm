@@ -63,13 +63,18 @@ What follows from it:
   counted.
 - **Transaction-capable drivers roll everything back together.** A failure in
   any row undoes every row.
-- **D1 keeps the same successful result and row order, with a different failure
-  boundary.** It commits ordered atomic segments. If a later segment fails, the
-  error reports the committed prefix and those earlier writes remain committed.
-  See [D1 transactions and batching](/docs/drivers/sqlite/d1#relation-bearing-bulk-writes).
-- Other batch-only drivers reject this relation-bearing form before writing.
-  Rows that stay on the grouped `INSERT` path — scalar rows and the direct
-  polymorphic `connect` above — are unaffected.
+- **Drivers with native atomic batches keep the same successful result and row
+  order, with a different failure boundary.** Without an interactive transaction,
+  VibORM runs safe ordered segments after each previous batch returns a normalized
+  success. If a later segment fails, earlier segments can remain committed and the
+  error reports committed or possibly committed progress. A driver's strong
+  committed-segment capability adds callback-before-decode attribution; it is not
+  required for this route. See
+  [D1 transactions and batching](/docs/drivers/sqlite/d1#relation-bearing-bulk-writes)
+  for one provider-specific example.
+- A driver with neither interactive transactions nor native atomic batches rejects
+  this relation-bearing form. Rows that stay on the grouped `INSERT` path — scalar
+  rows and the direct polymorphic `connect` above — are unaffected.
 
 With `skipDuplicates`, a conflicting root row suppresses its **complete nested
 record subtree**. VibORM does not apply that row's relation effects to the
@@ -87,10 +92,16 @@ await client.user.createMany({
 });
 ```
 
-This relation-bearing skip contract requires an interactive transaction. D1
-and other batch-only drivers reject the combination before the first user
-write because their batch errors cannot distinguish a root conflict from a
-descendant conflict safely.
+An interactive transaction isolates the complete member with a savepoint. A
+batch-only route isolates a root-first skippable INSERT, inspects its exact row
+count, and dispatches descendants only when that root inserted. A zero-row root
+therefore suppresses its descendants. If a write or nested record series must run
+before the skippable root, VibORM refuses the shape before any operation write:
+suppressing that root would otherwise strand the earlier effect.
+
+Explicit `$transaction([...])` arrays remain one indivisible atomic batch. They do
+not use the progressive fallback and refuse when the dynamic series cannot lower
+exactly into that one batch.
 
 ## Skip duplicates
 
@@ -114,8 +125,8 @@ VibORM rejects that shape before writing because no supported database shares a
 duplicate-only `DEFAULT VALUES` primitive.
 
 For relation-bearing rows, a skipped root suppresses its whole nested subtree.
-That form requires an interactive transaction; see
-[Writing relations](#writing-relations).
+Interactive savepoints and safe root-first batch isolation implement that same
+meaning; see [Writing relations](#writing-relations).
 
 ## Getting the rows back
 
@@ -160,16 +171,25 @@ form of the same payload succeeds.
 
 ## What it costs
 
-The scalar path is unchanged: one grouped `INSERT` (plus the skip-duplicate
-preparation it always used).
+The scalar path uses one grouped `INSERT` per contiguous row shape (plus the
+skip-duplicate preparation it always used). When that statement would exceed a
+driver's verified bound-parameter limit, VibORM compiles the largest fitting
+contiguous chunks and keeps them in the same transaction or native atomic
+batch. Counts and returned rows concatenate in input order. A single row that
+cannot fit remains indivisible and is rejected before database I/O.
+
+Chunking changes one database-visible detail only for a payload that could not
+previously execute: a statement-level trigger fires once per chunk. Row-level
+triggers still fire once per row, and an under-limit row run remains one
+statement.
 
 On an interactive driver, a relation-bearing call costs one transaction plus,
 per row, exactly what that row would have cost as a single `create` — the same
-target probes, the same child writes, in the same order. D1 sends one atomic
-committed batch per executable segment instead of one transaction. Ten rows
-that each `connect` a target issue ten probes, because that is what ten `create`
-calls issue. Adding a `select` adds one or more bounded set reads at the end,
-normally one, rather than one public-result read per row.
+target probes, the same child writes, in the same order. A no-transaction driver
+with native batching sends one atomic batch per safe executable segment instead.
+Ten rows that each `connect` a target issue ten probes, because that is what ten
+`create` calls issue. Adding a `select` adds one or more bounded set reads at the
+end, normally one, rather than one public-result read per row.
 
 ## Options
 

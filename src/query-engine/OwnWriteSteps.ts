@@ -366,8 +366,17 @@ export class OwnWriteSteps {
           ? this.relation.family.scalarData
           : undefined
       );
-      const supplied = this.relation.composedSupplierSelector;
-      if (supplied) {
+      const continuation = this.relation.composedContinuation;
+      if (continuation?.kind === "membershipCapture") {
+        // H3, producing half — the modify's locate is a record-series CAPTURE that runs
+        // after the supplier's write, in the same execution scope. It is not a planning
+        // read at all, so it has no premise an earlier sibling write could invalidate:
+        // observing that write is the composition's whole point. Declaring a read here
+        // would refuse the shape this package exists to execute, and declaring it as a
+        // membership read would additionally name the pair's own sibling vacate as the
+        // modify's premise. Its WRITES are still appended below, so a later sibling
+        // still sees them.
+      } else if (continuation) {
         // H3 — a modify composed with a `connect` reads the SUPPLIER's selector, not
         // membership: that is literally the locator the engine compiles for it. Asking
         // the membership question here would report the pair's own sibling vacate as
@@ -381,7 +390,7 @@ export class OwnWriteSteps {
         // to a filtered field pass `assertIndependent` unseen.
         const suppliedConstraint = selectorConstraint(
           this.relation.target,
-          supplied
+          continuation.where
         );
         this.relation.ledger.assertTargetRead(
           this.relation.relationName,

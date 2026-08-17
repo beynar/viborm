@@ -64,12 +64,18 @@ matching row, run in deterministic primary-key order:
   MySQL is zero for an assignment that changes nothing.)
 - **Transaction-capable drivers roll everything back together.** If the fifth
   row's update fails, the first four are undone.
-- **D1 executes root members as ordered committed atomic batches.** If a later
-  member fails, earlier committed members remain and the error reports the
-  exact committed prefix. See
-  [D1 transactions and batching](/docs/drivers/sqlite/d1#relation-bearing-bulk-writes).
-- Other batch-only drivers reject this relation-bearing form before writing.
-  Scalar-only `updateMany` still uses its grouped statement there.
+- **Drivers with native atomic batches execute safe root members as ordered
+  segments.** Without an interactive transaction, each normalized batch success
+  makes the next member visible. If a later member fails, earlier segments can
+  remain committed and the error reports committed or possibly committed progress.
+  A driver's strong committed-segment capability adds callback-before-decode
+  attribution; it is not required for this route. See
+  [D1 transactions and batching](/docs/drivers/sqlite/d1#relation-bearing-bulk-writes)
+  for one provider-specific example.
+- A driver with neither interactive transactions nor native atomic batches rejects
+  this relation-bearing form. Scalar-only `updateMany` still uses its grouped
+  statement there. Explicit `$transaction([...])` arrays remain indivisible and do
+  not use progressive execution.
 
 :::warning
 A relation whose membership is stored on the **target** row — `connect`,
@@ -167,8 +173,9 @@ on every driver.
 When `data` carries a relation the call issues one `SELECT` of the matching
 primary keys, evaluating your `where` and `limit` once and locking where the
 database supports it. An interactive driver keeps the capture and members in
-one transaction. D1 commits one atomic batch per executable segment. Per
-matched row, the cost is exactly what that row would have cost as a single
+one transaction. A no-transaction driver with native batching commits one
+atomic batch per safe executable segment. Per matched row, the cost is exactly
+what that row would have cost as a single
 [`update`](/docs/client/update): the same target probes and child writes, in the
 same order. Ten matched rows with a `connect` issue ten probes. Adding a
 `select` adds one or more bounded set reads at the end, normally one. Narrow the

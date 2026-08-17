@@ -21,11 +21,11 @@ export interface ReadStep extends StatementStepBase { readonly kind: "read"; }
 
 export interface RecordSeriesStep { readonly id: string; readonly kind: "recordSeries"; readonly series: RecordSeriesOperation; readonly progressive: | { readonly kind: "guarded"; readonly guard: GuardStep } | { readonly kind: "unsupported"; readonly reason: string }; }
 
-export type StatementOutputSource = | { readonly kind: "rows" } | { readonly kind: "rowCount" } | { readonly kind: "insertId" } | { readonly kind: "firstRowField"; readonly field: string; readonly optional?: boolean; };
+export type StatementOutputSource = | { readonly kind: "rows" } | { readonly kind: "rowCount" } | { readonly kind: "insertId" } | { readonly kind: "consumedValue"; readonly source: ConsumedStatementValue; } | { readonly kind: "firstRowField"; readonly field: string; readonly optional?: boolean; };
 
 export type StatementStep = ReadStep | WriteStep;
 
-export interface StatementStepBase { readonly id: string; readonly statement: Sql; readonly outputs: Readonly<Record<string, StatementOutputSource>>; readonly expects?: Postcondition; }
+export interface StatementStepBase { readonly id: string; readonly statement: Sql; readonly outputs: Readonly<Record<string, StatementOutputSource>>; readonly expects?: Postcondition; readonly progressiveContinuation?: GuardStep; }
 
 export interface TargetConstraintPin { readonly fields: readonly string[]; readonly table: string; readonly columns: readonly string[]; readonly constraints: readonly string[]; }
 

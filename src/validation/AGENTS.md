@@ -121,8 +121,12 @@ leaves for the caller, and which columns that removes depends on the edge: an
 ordinary inverse owns the target's foreign-key SCALARS, a polymorphic inverse owns
 the target's direct RELATION KEY. `relations/nested-data-projection.ts` is the one
 place that difference is decided — create, update, createMany-data, the createMany
-"satisfied membership" argument and the create-root `upsert.update` arm, at runtime
-and at the type level together.
+"satisfied membership" argument and both `upsert.update` contexts, at runtime and
+at the type level together. One update-root exception is explicit data in that
+projection: a to-many selected `upsert.update` may re-enter a polymorphic inverse's
+direct relation key because selected-row continuity already owns the exact parent
+target. Ordinary update/updateMany, the create arm, and every create-root surface
+still omit that key.
 
 Whether that membership can be CLEARED is NOT this module's fact. It is a schema
 fact about storage, owned by `@schema/relation/clearability` (`slotMayBeEmpty` and
@@ -148,6 +152,11 @@ Two invariants live here rather than in the factories:
   agreeing owned foreign key (E5-U2); a polymorphic membership has no spellable
   column to agree with and keeps the projection. The factory reads whichever the
   projection carries; flipping either direction is a defect.
+- **The update-root selected `upsert.update` exception is equally data.** An
+  ordinary inverse keeps its owned-FK omission. A polymorphic inverse exposes the
+  target's full update only for this found arm; its selected-parent continuity is
+  what makes the direct relation-key re-entry well-defined. Do not widen ordinary
+  nested update or create-root upsert with it.
 
 ### To-One Composition Modes
 

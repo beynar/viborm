@@ -143,7 +143,7 @@ async function seeded(postIds: number[] = []): Promise<{
   const db = family.database;
   const driver = new TransportCensusPGliteDriver({ client: db });
   const client = createClient({ schema: updateFamilySchema, driver });
-  await client.user.create({ data: { email: "root@x", count: 1 } });
+  await client.user.create({ data: { id: 1, email: "root@x", count: 1 } });
   for (const id of postIds) {
     await client.post.create({
       data: { id, title: `t${id}`, slug: `s${id}`, userId: 1 },
@@ -367,12 +367,12 @@ describe("relation bulk transport census on an embedded batch stand-in", () => {
     await expect(
       driver._executeBatch([
         {
-          sql: 'INSERT INTO "update_family_users" ("email", "count") VALUES ($1, $2)',
-          params: ["rolled-back@x", 2],
+          sql: 'INSERT INTO "update_family_users" ("id", "email", "count") VALUES ($1, $2, $3)',
+          params: [2, "rolled-back@x", 2],
         },
         {
-          sql: 'INSERT INTO "update_family_users" ("email", "count") VALUES ($1, $2)',
-          params: ["root@x", 3],
+          sql: 'INSERT INTO "update_family_users" ("id", "email", "count") VALUES ($1, $2, $3)',
+          params: [3, "root@x", 3],
         },
       ])
     ).rejects.toBeInstanceOf(UniqueConstraintError);
@@ -398,15 +398,16 @@ describe("relation bulk transport census on an embedded batch stand-in", () => {
     ).resolves.toBeNull();
   });
 
-  // WHY PHASE 6.2 DOES NOT EXTEND TO `create` EITHER. A scalar create has no
-  // planning read at all — there is no premise about an existing row to check —
-  // so on this substrate it already uses one execution unit. Its
-  // transaction-mode fold saves a statement, not a batch entry call.
-  test("a scalar create uses one batch unit without claiming a request", async () => {
+  // A scalar create has no planning read and the PostgreSQL producer's own
+  // RETURNING answers the selection in that same statement. The exact fold uses
+  // the direct statement path; no synthetic one-entry batch envelope is needed.
+  test("a scalar create uses one direct execution unit without claiming a request", async () => {
     const { driver, client } = await seeded();
-    await client.user.create({ data: { email: "fresh@x", count: 4 } });
+    await client.user.create({
+      data: { id: 2, email: "fresh@x", count: 4 },
+    });
     expect(driver.executionUnits).toHaveLength(1);
-    expect(driver.executionUnits[0]?.kind).toBe("batch");
+    expect(driver.executionUnits[0]?.kind).toBe("execute");
     const statementCount = driver.executionUnits[0]?.statements.length;
     expect(driver.transport.snapshot()).toMatchObject({
       sqlStatements: statementCount,
@@ -416,8 +417,8 @@ describe("relation bulk transport census on an embedded batch stand-in", () => {
       atomicity: "operation",
       committedWriteSegments: 1,
       transactionEnvelope: {
-        begin: 1,
-        commit: 1,
+        begin: 0,
+        commit: 0,
         rollback: 0,
         savepoints: 0,
       },

@@ -1,4 +1,4 @@
-import { NestedWriteError, UnsupportedOperationError } from "@errors";
+import { NestedWriteError } from "@errors";
 import { hydrateSchemaNames, s } from "@schema";
 import { describe, expect, test } from "vitest";
 
@@ -40,7 +40,8 @@ export const sharedPkUpdateRootSchema = (() => {
       account: s
         .oneToOne(() => account)
         .fields("accountId")
-        .references("id"),
+        .references("id")
+        .onUpdate("cascade"),
       notes: s.oneToMany(() => note),
       chits: s.oneToMany(() => chit),
     })
@@ -100,7 +101,109 @@ export const sharedPkUpdateRootSchema = (() => {
         .references("id"),
     })
     .map("e1u_tickets");
-  return { account, card, chit, desk, note, stub, ticket };
+  const compoundAccount = s
+    .model({
+      region: s.string(),
+      code: s.string(),
+      email: s.string().unique(),
+      card: s.oneToOne(() => compoundCard).optional(),
+    })
+    .id(["region", "code"])
+    .map("e1u_compound_accounts");
+  const compoundCard = s
+    .model({
+      regionId: s.string(),
+      accountCode: s.string(),
+      label: s.string(),
+      account: s
+        .oneToOne(() => compoundAccount)
+        .fields("regionId", "accountCode")
+        .references("region", "code"),
+    })
+    .id(["regionId", "accountCode"])
+    .map("e1u_compound_cards");
+  const provider = s
+    .model({
+      id: s.string().id(),
+      email: s.string().unique(),
+      accounts: s.oneToMany(() => providerAccount).name("provider"),
+    })
+    .map("e1u_providers");
+  const providerAccount = s
+    .model({
+      id: s.string().id(),
+      providerId: s.string().unique(),
+      provider: s
+        .manyToOne(() => provider)
+        .fields("providerId")
+        .references("id")
+        .name("provider"),
+      badge: s
+        .oneToOne(() => providerBadge)
+        .optional()
+        .name("badge"),
+    })
+    .map("e1u_provider_accounts");
+  const providerBadge = s
+    .model({
+      accountProviderId: s.string().id(),
+      label: s.string(),
+      account: s
+        .oneToOne(() => providerAccount)
+        .fields("accountProviderId")
+        .references("providerId")
+        .name("badge")
+        .onUpdate("cascade"),
+    })
+    .map("e1u_provider_badges");
+  const partialAccount = s
+    .model({
+      id: s.string().id(),
+      code: s.string(),
+      card: s.oneToOne(() => partialCard).optional(),
+    })
+    .unique(["id", "code"])
+    .map("e1u_partial_accounts");
+  const partialCard = s
+    .model({
+      accountId: s.string().id(),
+      accountCode: s.string().unique(),
+      account: s
+        .oneToOne(() => partialAccount)
+        .fields("accountId", "accountCode")
+        .references("id", "code")
+        .onUpdate("cascade"),
+      tokens: s.oneToMany(() => partialToken),
+    })
+    .unique(["accountId", "accountCode"])
+    .map("e1u_partial_cards");
+  const partialToken = s
+    .model({
+      id: s.string().id(),
+      cardCode: s.string(),
+      card: s
+        .manyToOne(() => partialCard)
+        .fields("cardCode")
+        .references("accountCode"),
+    })
+    .map("e1u_partial_tokens");
+  return {
+    account,
+    card,
+    chit,
+    compoundAccount,
+    compoundCard,
+    desk,
+    note,
+    partialAccount,
+    partialCard,
+    partialToken,
+    provider,
+    providerAccount,
+    providerBadge,
+    stub,
+    ticket,
+  };
 })();
 
 hydrateSchemaNames(sharedPkUpdateRootSchema);
@@ -143,7 +246,8 @@ const cards = async (client: any): Promise<unknown> =>
 export function registerSharedPkUpdateRootBehavior(
   name: string,
   connect: () => Promise<any>,
-  register: (label: string, body: () => void) => void = describe
+  register: (label: string, body: () => void) => void = describe,
+  options: { readonly includeProducedKey?: boolean } = {}
 ): void {
   register(`Package E shared-PK update root (${name})`, () => {
     test("create: the record's own key moves to the created target, and the read returns it", async () => {
@@ -185,6 +289,38 @@ export function registerSharedPkUpdateRootBehavior(
         { accountId: "decoy", label: "decoy" },
       ]);
       expect(await client.account.count()).toBe(4);
+    });
+
+    test("compound shared keys use every member captured by an alternate unique", async () => {
+      const client = await connect();
+      await client.compoundCard.deleteMany({});
+      await client.compoundAccount.deleteMany({});
+      await client.compoundAccount.createMany({
+        data: [
+          { region: "eu", code: "one", email: "one@compound" },
+          { region: "us", code: "two", email: "two@compound" },
+        ],
+      });
+
+      expect(
+        await client.compoundCard.create({
+          data: {
+            label: "created",
+            account: { connect: { email: "one@compound" } },
+          },
+          select: { regionId: true, accountCode: true },
+        })
+      ).toEqual({ regionId: "eu", accountCode: "one" });
+
+      expect(
+        await client.compoundCard.update({
+          where: {
+            regionId_accountCode: { regionId: "eu", accountCode: "one" },
+          },
+          data: { account: { connect: { email: "two@compound" } } },
+          select: { regionId: true, accountCode: true },
+        })
+      ).toEqual({ regionId: "us", accountCode: "two" });
     });
 
     test("connectOrCreate FOUND: the target exists, so only the record's key is written", async () => {
@@ -270,6 +406,236 @@ export function registerSharedPkUpdateRootBehavior(
       expect(await client.account.count()).toBe(4);
     });
 
+    test("upsert FOUND publishes the target's post-update referenced key", async () => {
+      const client = await connect();
+      await seed(client);
+
+      expect(
+        await client.card.update({
+          where: { accountId: "a1" },
+          data: {
+            account: {
+              upsert: {
+                create: { id: "unused", email: "unused@x", name: "unused" },
+                update: { id: "cascade", name: "moved target" },
+              },
+            },
+            notes: { create: { id: "after", body: "post key" } },
+          },
+          select: { accountId: true },
+        })
+      ).toEqual({ accountId: "cascade" });
+      expect(
+        await client.note.findUnique({
+          where: { id: "after" },
+          select: { cardId: true },
+        })
+      ).toEqual({ cardId: "cascade" });
+      expect(
+        await client.account.findUnique({
+          where: { id: "cascade" },
+          select: { name: true },
+        })
+      ).toEqual({ name: "moved target" });
+    });
+
+    test("update publishes the target's post-update key before descendant writes", async () => {
+      const client = await connect();
+      await seed(client);
+      await client.chit.create({
+        data: { id: "before-update", cardId: "a1", body: "before" },
+      });
+
+      expect(
+        await client.card.update({
+          where: { accountId: "a1" },
+          data: {
+            account: { update: { id: "cascade" } },
+            chits: {
+              update: {
+                where: { id: "before-update" },
+                data: { body: "updated before transition" },
+              },
+              create: { id: "after-update", body: "after" },
+            },
+          },
+          select: { accountId: true },
+        })
+      ).toEqual({ accountId: "cascade" });
+      expect(
+        await client.chit.findUnique({
+          where: { id: "after-update" },
+          select: { cardId: true },
+        })
+      ).toEqual({ cardId: "cascade" });
+      expect(
+        await client.chit.findUnique({
+          where: { id: "before-update" },
+          select: { cardId: true, body: true },
+        })
+      ).toEqual({
+        cardId: "cascade",
+        body: "updated before transition",
+      });
+    });
+
+    test("an empty target update keeps the captured shared key for descendants", async () => {
+      const client = await connect();
+      await seed(client);
+
+      expect(
+        await client.card.update({
+          where: { accountId: "a1" },
+          data: {
+            account: { update: {} },
+            notes: { create: { id: "empty-update", body: "same key" } },
+          },
+          select: { accountId: true },
+        })
+      ).toEqual({ accountId: "a1" });
+      expect(
+        await client.note.findUnique({
+          where: { id: "empty-update" },
+          select: { cardId: true },
+        })
+      ).toEqual({ cardId: "a1" });
+    });
+
+    test("a partial compound shared edge publishes every transitioned member", async () => {
+      const client = await connect();
+      await client.partialToken.deleteMany({});
+      await client.partialCard.deleteMany({});
+      await client.partialAccount.deleteMany({});
+      await client.partialAccount.create({ data: { id: "i1", code: "c1" } });
+      await client.partialCard.create({
+        data: { accountId: "i1", accountCode: "c1" },
+      });
+
+      expect(
+        await client.partialCard.update({
+          where: { accountId: "i1" },
+          data: {
+            account: { update: { id: "i2", code: "c2" } },
+            tokens: { create: { id: "token" } },
+          },
+          select: { accountId: true, accountCode: true },
+        })
+      ).toEqual({ accountId: "i2", accountCode: "c2" });
+      expect(
+        await client.partialToken.findUnique({
+          where: { id: "token" },
+          select: { cardCode: true },
+        })
+      ).toEqual({ cardCode: "c2" });
+    });
+
+    test("fresh create publishes the complete selected compound tuple", async () => {
+      const client = await connect();
+      await client.partialToken.deleteMany({});
+      await client.partialCard.deleteMany({});
+      await client.partialAccount.deleteMany({});
+      await client.partialAccount.create({ data: { id: "i1", code: "c1" } });
+
+      expect(
+        await client.partialCard.create({
+          data: {
+            account: {
+              connect: { id_code: { id: "i1", code: "c1" } },
+            },
+            tokens: { create: { id: "fresh-token" } },
+          },
+          select: { accountId: true, accountCode: true },
+        })
+      ).toEqual({ accountId: "i1", accountCode: "c1" });
+      expect(
+        await client.partialToken.findUnique({
+          where: { id: "fresh-token" },
+          select: { cardCode: true },
+        })
+      ).toEqual({ cardCode: "c1" });
+    });
+
+    test("upsert FOUND publishes a relation-folded non-primary referenced field", async () => {
+      const client = await connect();
+      await client.providerBadge.deleteMany({});
+      await client.providerAccount.deleteMany({});
+      await client.provider.deleteMany({});
+      await client.provider.createMany({
+        data: [
+          { id: "p1", email: "p1@provider" },
+          { id: "p2", email: "p2@provider" },
+        ],
+      });
+      await client.providerAccount.create({
+        data: { id: "account", providerId: "p1" },
+      });
+      await client.providerBadge.create({
+        data: { accountProviderId: "p1", label: "badge" },
+      });
+
+      expect(
+        await client.providerBadge.update({
+          where: { accountProviderId: "p1" },
+          data: {
+            account: {
+              upsert: {
+                create: { id: "unused", providerId: "p1" },
+                update: {
+                  provider: { connect: { email: "p2@provider" } },
+                },
+              },
+            },
+          },
+          select: { accountProviderId: true },
+        })
+      ).toEqual({ accountProviderId: "p2" });
+      expect(
+        await client.providerAccount.findUnique({
+          where: { id: "account" },
+          select: { providerId: true },
+        })
+      ).toEqual({ providerId: "p2" });
+    });
+
+    test("update publishes a nested relation-folded non-primary referenced field", async () => {
+      const client = await connect();
+      await client.providerBadge.deleteMany({});
+      await client.providerAccount.deleteMany({});
+      await client.provider.deleteMany({});
+      await client.provider.createMany({
+        data: [
+          { id: "p1", email: "p1@provider" },
+          { id: "p2", email: "p2@provider" },
+        ],
+      });
+      await client.providerAccount.create({
+        data: { id: "account", providerId: "p1" },
+      });
+      await client.providerBadge.create({
+        data: { accountProviderId: "p1", label: "badge" },
+      });
+
+      expect(
+        await client.providerBadge.update({
+          where: { accountProviderId: "p1" },
+          data: {
+            account: {
+              update: {
+                provider: { connect: { email: "p2@provider" } },
+              },
+            },
+          },
+          select: { accountProviderId: true },
+        })
+      ).toEqual({ accountProviderId: "p2" });
+      expect(
+        await client.providerAccount.findUnique({
+          where: { id: "account" },
+          select: { providerId: true },
+        })
+      ).toEqual({ providerId: "p2" });
+    });
+
     test("a child-held sibling on the shared key follows the fold, written after the root UPDATE", async () => {
       const client = await connect();
       await seed(client);
@@ -327,139 +693,92 @@ export function registerSharedPkUpdateRootBehavior(
       ).toEqual([{ id: "old", cardId: "a1" }]);
     });
 
-    test("a PRODUCED shared key: the record ends at the id the target's INSERT generated", async () => {
-      const client = await connect();
-      await seed(client);
-      const first = await client.desk.create({
-        data: { title: "first" },
-        select: { id: true },
-      });
-      await client.ticket.create({
-        data: { deskId: first.id, memo: "riding" },
-      });
+    if (options.includeProducedKey !== false)
+      test("a PRODUCED shared key: the record ends at the id the target's INSERT generated", async () => {
+        const client = await connect();
+        await seed(client);
+        const first = await client.desk.create({
+          data: { title: "first" },
+          select: { id: true },
+        });
+        await client.ticket.create({
+          data: { deskId: first.id, memo: "riding" },
+        });
 
-      const result = await client.ticket.update({
-        where: { deskId: first.id },
-        data: { desk: { create: { title: "second" } } },
-        select: { deskId: true, memo: true },
+        const result = await client.ticket.update({
+          where: { deskId: first.id },
+          data: { desk: { create: { title: "second" } } },
+          select: { deskId: true, memo: true },
+        });
+        const second = await client.desk.findFirst({
+          where: { title: "second" },
+          select: { id: true },
+        });
+        // Not `first.id + 1`: what is asserted is that the record ends at the id the
+        // SECOND insert generated, whatever the sequence chose.
+        expect(second.id).not.toBe(first.id);
+        expect(result).toEqual({ deskId: second.id, memo: "riding" });
+        expect(
+          await client.ticket.findMany({ select: { deskId: true } })
+        ).toEqual([{ deskId: second.id }]);
       });
-      const second = await client.desk.findFirst({
-        where: { title: "second" },
-        select: { id: true },
-      });
-      // Not `first.id + 1`: what is asserted is that the record ends at the id the
-      // SECOND insert generated, whatever the sequence chose.
-      expect(second.id).not.toBe(first.id);
-      expect(result).toEqual({ deskId: second.id, memo: "riding" });
-      expect(
-        await client.ticket.findMany({ select: { deskId: true } })
-      ).toEqual([{ deskId: second.id }]);
-    });
 
     test.each([
       [
-        "connect",
+        "connect selected by alternate unique",
         { connect: { email: "a2@x" } },
-        "shared-primary-key connect on relation 'account'",
+        "a2",
       ],
       [
-        "connectOrCreate whose arms disagree",
+        "connectOrCreate found arm",
         {
           connectOrCreate: {
             where: { id: "a2" },
             create: { id: "a3", email: "a3@x", name: "three" },
           },
         },
-        "shared-primary-key connectOrCreate on relation 'account'",
+        "a2",
       ],
       [
-        "upsert whose arms disagree",
+        "upsert found arm",
         {
           upsert: {
             create: { id: "a2", email: "a2@x", name: "two" },
-            update: { name: "unused" },
+            update: { name: "selected" },
           },
         },
-        "shared-primary-key upsert on relation 'account'",
+        "a1",
       ],
-    ])("a %s names no one final value: typed refusal, nothing written", async (_label, payload, fragment) => {
+    ])("a %s contributes only the taken arm's exact key", async (_label, payload, expectedKey) => {
       const client = await connect();
       await seed(client);
 
-      const rejection = await client.card
-        .update({ where: { accountId: "a1" }, data: { account: payload } })
-        .then(
-          () => undefined,
-          (error: unknown) => error
-        );
-
-      expect(rejection).toBeInstanceOf(UnsupportedOperationError);
-      expect((rejection as Error).message).toContain(fragment);
-      expect((rejection as Error).message).toContain(
-        "does not resolve to one final value"
-      );
-      expect(await cards(client)).toEqual([
-        { accountId: "a1", label: "under test" },
-        { accountId: "decoy", label: "decoy" },
-      ]);
+      expect(
+        await client.card.update({
+          where: { accountId: "a1" },
+          data: { account: payload },
+          select: { accountId: true },
+        })
+      ).toEqual({ accountId: expectedKey });
+      expect(await cards(client)).toContainEqual({
+        accountId: expectedKey,
+        label: "under test",
+      });
       expect(await client.account.count()).toBe(4);
     });
 
-    /**
-     * RESIDUE, MEASURED AND KEPT (Package E gate) — a fold that moves NOTHING is still
-     * counted as a move, so it takes the occupied guard and is REFUSED where the scalar
-     * spelling of the identical final state is ACCEPTED.
-     *
-     * `resolveSharedKeyMembers` is topological: it runs before the relation loop, so it
-     * knows the arm's KIND but not its VALUE, and it must answer before any arm has. The
-     * scalar half reaches `sameScalarValue` and returns regime "none"; this half cannot,
-     * because there is no `after` to compare yet. Closing the gap means deriving each
-     * arm's value a second time in the pre-pass — a second enumeration of "what does this
-     * arm fold", whose disagreement with the first is the silent orphan D2 closed. This
-     * asymmetry is the price, and it is pinned here so it is a decision and not a drift:
-     * the day the two spellings agree, this test goes red and says so.
-     *
-     * At 33368eb6 BOTH relation spellings refused unconditionally (the shape refusal, and
-     * for `connect` the compile-time "unsupported operation" one), so this is a narrowing,
-     * never a regression.
-     */
-    test("a fold that moves nothing still takes the occupied guard, where its scalar twin does not", async () => {
+    test("a selected fold that keeps the key suppresses the occupied transition guard", async () => {
       const client = await connect();
       await seed(client);
       await client.note.create({
         data: { id: "old", cardId: "a1", body: "incumbent" },
       });
 
-      // (A) the RELATION spelling: `connect` names the key the record already holds.
-      const rejection = await client.card
-        .update({
-          where: { accountId: "a1" },
-          data: {
-            account: { connect: { id: "a1" } },
-            notes: { create: { id: "n1", body: "fresh" } },
-          },
-        })
-        .then(
-          () => undefined,
-          (error: unknown) => error
-        );
-      expect(rejection).toBeInstanceOf(NestedWriteError);
-      expect((rejection as Error).message).toBe(
-        "Cannot update relation 'notes' with onUpdate('restrict') while the current relation is occupied."
-      );
-      expect(
-        await client.note.findMany({
-          orderBy: { id: "asc" },
-          select: { id: true, cardId: true },
-        })
-      ).toEqual([{ id: "old", cardId: "a1" }]);
-
-      // (B) the SCALAR spelling of the SAME final state: accepted, on the same tree.
       expect(
         await client.card.update({
           where: { accountId: "a1" },
           data: {
-            accountId: "a1",
+            account: { connect: { id: "a1" } },
             notes: { create: { id: "n1", body: "fresh" } },
           },
           select: { accountId: true },

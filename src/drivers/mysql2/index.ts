@@ -24,6 +24,7 @@ import {
 } from "../driver";
 import {
   isNormalizedResultRow,
+  type NormalizedResultContext,
   normalizeProviderInsertId,
   normalizeProviderRowCount,
 } from "../normalized-result";
@@ -83,6 +84,22 @@ function malformedMySQL2Result(operation: string, reason: string): QueryError {
   );
 }
 
+const CANONICAL_NEGATIVE_DECIMAL = /^-[1-9]\d*$/;
+
+/** mysql2 echoes an explicit negative AUTO_INCREMENT key in ResultSetHeader.insertId. */
+function normalizeMySQL2InsertId(
+  value: unknown,
+  context: NormalizedResultContext
+): number | bigint | undefined {
+  if (
+    (typeof value === "number" && Number.isSafeInteger(value) && value < 0) ||
+    (typeof value === "string" && CANONICAL_NEGATIVE_DECIMAL.test(value))
+  ) {
+    return undefined;
+  }
+  return normalizeProviderInsertId(value, context, { allowNumber: true });
+}
+
 /** SELECT returns a row array; mutations return a ResultSetHeader. */
 function toQueryResult<T>(
   result: unknown,
@@ -122,9 +139,7 @@ function toQueryResult<T>(
     throw malformedMySQL2Result(operation, "expected a mutation result object");
   }
   const context = { provider: "mysql2", operation };
-  const insertId = normalizeProviderInsertId(result.insertId, context, {
-    allowNumber: true,
-  });
+  const insertId = normalizeMySQL2InsertId(result.insertId, context);
   return {
     rows: [] as T[],
     rowCount: normalizeProviderRowCount(result.affectedRows, context, {

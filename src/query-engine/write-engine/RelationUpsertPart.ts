@@ -1,6 +1,7 @@
 // biome-ignore-all lint/style/useFilenamingConvention: RelationUpsertPart is the architecture name.
 import { NestedWriteError, QueryEngineError } from "@errors";
 import type { Sql } from "@sql";
+import { directPolymorphicMembership } from "../builders/polymorphic-relation";
 import {
   bindRelation,
   membershipReferencedFields,
@@ -10,14 +11,18 @@ import {
   type ConnectOrCreateInput,
   type NormalizedRelationUpsert,
   type ParsedRecordPrograms,
+  type ParsedRelationMutation,
   type RecordMutationData,
-  type RelationMutationProgram,
-  relationMutationPrograms,
 } from "../builders/relation-mutation-parser";
 import { createQueryScope } from "../context/query-scope";
 import { buildFind, buildFindUnique, buildUpdate } from "../operations";
 import { assertPortablePrimaryKeyUpdateInput } from "../operations/mutation-identity";
 import type { QueryEngine } from "../query-engine";
+import {
+  getMembershipScope,
+  getRelationMembershipScope,
+  relationMembershipScopesEqual,
+} from "../RelationMembership";
 import { assertRelationKeyUpdatesAreCompilable } from "../relation-key-legality";
 import {
   classifyTargetConstraintOverlap,
@@ -26,16 +31,15 @@ import {
   type TargetConstraint,
 } from "../TargetConstraint";
 import type { QueryScope } from "../types";
+import { createRacePin } from "./create-race-pin";
 import {
   affectedRows,
-  childRacePin,
   existsGuard,
   nestedWriteFailure,
   presenceGuard,
 } from "./fragment-builders";
 import {
   nestedReplacement,
-  relationOwnsForeignKey,
   upsertTargetNotFoundForParent,
   upsertTargetVanished,
 } from "./messages";
@@ -51,13 +55,11 @@ import { conditionalArmPlanning, planningKey } from "./Part";
 import type {
   RecordCompilerSeam,
   RecordUpdateCompiler,
+  SelectedIncomingParentContinuity,
 } from "./RecordUpdateCompiler";
 import {
   type CorrelatedRelationMembershipBinding,
-  type ForeignKeyMember,
   finalMembershipCondition,
-  fkEquals,
-  literalReferenceValue,
   lowerMembershipWrite,
   membershipProjection,
   type RelationMembershipBinding,
@@ -432,22 +434,18 @@ export class RelationUpsertPart implements Part {
     // two different rows.
     const captured = locatedRow(rows);
     const steps: OperationStep[] = [];
-    if (
-      !this.updateCompiler &&
-      this.family === "upsert" &&
-      this.config.correlation === "correlated"
-    ) {
-      // A correlated empty update observes membership but does not adopt it. This
-      // matters across a parent-key transition: existing rows keep the old physical
-      // membership because polymorphic storage has no database referential action.
-      return steps;
-    }
     if (this.foundPin) {
       steps.push(this.pinLocatedRow(this.foundPin, captured, known));
     }
     if (this.updateCompiler) {
       this.config.updateLegality?.();
       steps.push(...this.compileRecordUpdate(known));
+      return steps;
+    }
+    if (this.config.correlation === "correlated") {
+      // Correlation proves which existing member the found arm may observe. It is
+      // not an instruction to restore that membership. Keep the already-built pin,
+      // but emit no SET for an empty correlated upsert/connect-or-create arm.
       return steps;
     }
     // A probe row with no readable shape publishes no row-key member, and the
@@ -610,13 +608,16 @@ export class RelationUpsertPart implements Part {
   ): WriteStep {
     const { childScope, txMode } = this.config;
     const relationName = this.relationName;
-    const membership = lowerMembershipWrite(
-      this.config.engine,
-      childScope,
-      this.config.membership,
-      known,
-      this.family
-    );
+    const membership =
+      this.config.correlation === "global-adopt"
+        ? lowerMembershipWrite(
+            this.config.engine,
+            childScope,
+            this.config.membership,
+            known,
+            this.family
+          )
+        : { data: {}, polymorphicStorage: [] };
     const step: WriteStep = {
       id: this.updateId,
       kind: "write",
@@ -624,8 +625,8 @@ export class RelationUpsertPart implements Part {
         where: address,
         data: {
           ...this.config.updateData,
-          // global-adopt reparents to the new parent; correlated re-sets the
-          // same value (idempotent). Both land the FK the terminal read expects.
+          // A global adopt writes the demanded membership. Correlation is only a
+          // locate/guard premise and therefore contributes no SET.
           ...membership.data,
         },
         ...(membership.polymorphicStorage.length > 0
@@ -688,96 +689,6 @@ function locatedRow(
     : undefined;
 }
 
-/**
- * The owned foreign key spelled in a nested create/update payload, when the
- * value AGREES with the one the engine's fold is about to write.
- *
- * This family is ONE refusal with ONE message: the engine derives the column from
- * the row the enclosing step acted on, and a spelled value is a SECOND provenance for
- * it. That is true of a value that DISAGREES. A value that agrees is not a second
- * provenance — it is the same value, said twice — so the rule it breaks is a rule about
- * nothing. This drops it and lets the fold speak; every other spelling keeps that
- * message, byte for byte, from the one construction site.
- *
- * WHAT IT COMPARES (the domain is measured ALL-CANONICAL: the parse boundary normalizes
- * every referenced scalar type — int, bigInt, string, dateTime, decimal — to a canonical
- * primitive before either operand reaches here, so no `Date` or `Decimal` INSTANCE
- * arrives and `fkEquals` is the whole comparator, bigint normalization included):
- *
- *  · `{ set: v }` is unwrapped first, and unwrapping is MANDATORY, not a convenience —
- *    an update payload's scalar assignment arrives wrapped in the general case, and the
- *    two spellings must decide identically.
- *  · an ARITHMETIC envelope (`{ increment: n }`, …) is not unwrapped and cannot equal a
- *    literal, so it refuses — correctly: the engine's fold writes an absolute key, and
- *    an operand relative to the row's current one is a different value by construction.
- *  · `null` refuses. An FK equal to NULL references no row, so it contradicts the
- *    membership the enclosing relation is establishing, whatever the parent's key is.
- *
- * WHAT STAYS REFUSED, and why the refusal is the honest answer rather than a gap:
- *
- *  · a COMPOUND edge, fully or partially spelled. The comparison would have to be
- *    per-column against a per-column source, and a partial spelling has no agreement to
- *    test at all.
- *  · a `planned` or `ref` parent source — the update root's located row, and the create
- *    root's DB-generated key. There is NO VALUE at construction to compare against: one
- *    is read at planning, the other produced by an INSERT that has not run. This widens
- *    the recorded boundary from "Ref-only" to both, measured.
- *
- * COLLATION, deliberately: construction-time equality IS `fkEquals` equality, i.e. exact
- * value identity. A `citext` (or any case-insensitive) referenced column would make the
- * DATABASE call `'A'` and `'a'` the same key while this comparator calls them different,
- * so such a spelling refuses instead of being absorbed. That direction fails CLOSED —
- * the caller is told to omit a key the engine already owns — which is the only direction
- * this seam may err in.
- *
- * WHICH PAYLOADS STILL REACH IT, after Package N1 (measured, through the public client):
- * only a CREATE context's to-many `upsert`. N1 built every nested update schema from the
- * omitted-FK owner, which is why `update.ts`'s `upsert` arm — the UPDATE root's — now
- * answers `Unknown key` at the parse; and it deliberately did NOT touch `create.ts`'s
- * `upsert` arm, because absorbing the agreeing spelling is a CAPABILITY and a create root
- * whose own key is spelled is the only parent with a value to agree with. So the absorb
- * branch keeps every payload it ever had, and the refusal branch keeps the disagreeing
- * literal, `null`, the arithmetic envelope, the compound edge, and the `ref` source (a
- * DB-generated create-root key). The `planned` source no longer arrives here: an update
- * root cannot spell the key at all now, which is a strictly earlier answer to the same
- * question, not a lost refusal.
- */
-function withoutAgreeingOwnedFk(
-  payload: Record<string, unknown>,
-  context: {
-    readonly members: readonly ForeignKeyMember[];
-    readonly relationName: string;
-  }
-): Record<string, unknown> {
-  const { members, relationName } = context;
-  const fkFields = members.map((member) => member.foreignField);
-  const spelled = fkFields.filter((fkField) => Object.hasOwn(payload, fkField));
-  if (spelled.length === 0) return payload;
-  const refusal = new UnsupportedOperationError(
-    relationOwnsForeignKey(relationName, fkFields)
-  );
-  const fkField = fkFields.length === 1 ? fkFields[0] : undefined;
-  const parentId =
-    members.length === 1
-      ? literalReferenceValue(members[0]!.writeSource)
-      : undefined;
-  if (fkField === undefined || parentId === undefined) throw refusal;
-  const value = unwrapSetOperand(payload[fkField]);
-  if (value === null || value === undefined) throw refusal;
-  if (!fkEquals(value, parentId)) throw refusal;
-  const { [fkField]: _agreed, ...rest } = payload;
-  return rest;
-}
-
-/** `{ set: v }` → `v`; anything else (a bare value, an arithmetic envelope) verbatim. */
-function unwrapSetOperand(value: unknown): unknown {
-  return isRecord(value) &&
-    Object.keys(value).length === 1 &&
-    Object.hasOwn(value, "set")
-    ? value.set
-    : value;
-}
-
 // ---------------------------------------------------------------------------
 // Recursive to-many upsert composition. One shared builder folds a
 // nested upsert relation into a `RelationUpsertPart`; when that child's UPDATE
@@ -817,13 +728,14 @@ export function buildCorrelatedToManyUpsertParts(
   items: readonly NormalizedRelationUpsert[],
   membership: CorrelatedRelationMembershipBinding,
   txMode: boolean,
-  seam: RecordCompilerSeam
+  seam: RecordCompilerSeam,
+  incomingParentContinuity?: SelectedIncomingParentContinuity
 ): RelationUpsertPart[] {
   return buildUpsertParts(
     scope,
     engine,
     items,
-    { correlation: "correlated", membership },
+    { correlation: "correlated", membership, incomingParentContinuity },
     txMode,
     seam,
     "upsert"
@@ -842,6 +754,7 @@ function buildUpsertParts(
     | {
         readonly correlation: "correlated";
         readonly membership: CorrelatedRelationMembershipBinding;
+        readonly incomingParentContinuity?: SelectedIncomingParentContinuity;
       },
   txMode: boolean,
   seam: RecordCompilerSeam,
@@ -994,6 +907,7 @@ function buildOneUpsertPart(
     | {
         readonly correlation: "correlated";
         readonly membership: CorrelatedRelationMembershipBinding;
+        readonly incomingParentContinuity?: SelectedIncomingParentContinuity;
       },
   txMode: boolean,
   seam: RecordCompilerSeam,
@@ -1022,28 +936,12 @@ function buildOneUpsertPart(
   }
   const child = createQueryScope(engine.adapter, relationInfo.targetModel);
   const where = requireRecord(item.where, `${relationName}.${family}.where`);
-  // The owned foreign key, spelled beside the relation that owns it, decided
-  // ONCE for both arms and BEFORE either is separated: the agreeing spelling is dropped
-  // here, so the engine's fold stays the single provenance everywhere downstream — the
-  // create arm's scalar data, the update arm's SET, the primary-key stability check, and
-  // the fresh create SUBTREE, which is handed this same `create` object and whose root
-  // INSERT folds the parent key through its incoming members. A kept key would meet that fold
-  // there and write the column twice.
-  const ordinaryMembers =
-    parent.membership.kind === "foreignKey"
-      ? parent.membership.members
-      : undefined;
   const rawCreate = requireRecord(
     item.create.parsed,
     `${relationName}.${family}.create`
   );
   const create: RecordMutationData = {
-    parsed: ordinaryMembers
-      ? withoutAgreeingOwnedFk(rawCreate, {
-          members: ordinaryMembers,
-          relationName,
-        })
-      : rawCreate,
+    parsed: rawCreate,
     source: item.create.source,
   };
   // connectOrCreate has no update payload; its found arm is a pure connect.
@@ -1056,12 +954,7 @@ function buildOneUpsertPart(
             `${relationName}.upsert.update`
           );
           return {
-            parsed: ordinaryMembers
-              ? withoutAgreeingOwnedFk(rawUpdate, {
-                  members: ordinaryMembers,
-                  relationName,
-                })
-              : rawUpdate,
+            parsed: rawUpdate,
             source: item.update?.source,
           } satisfies RecordMutationData;
         })();
@@ -1073,8 +966,15 @@ function buildOneUpsertPart(
   // addresses all of it, so an adopt target keys on however many members it has.
   const targetProjection = buildTargetProjection(child.model);
   const childName = getStepModelName(relationInfo.targetModel, relationName);
-  for (const program of relationMutationPrograms(childUpdate.relations)) {
-    assertArmEdgeIsChildHeld(child, program.relationInfo.name, program);
+  for (const parsed of childUpdate.relations) {
+    assertNoIncomingTargetMutationOverlap(
+      child,
+      parent.membership,
+      parent.correlation,
+      parent.correlation === "correlated" &&
+        parent.incomingParentContinuity !== undefined,
+      parsed
+    );
   }
   const parentId =
     parent.membership.kind === "foreignKey"
@@ -1098,10 +998,11 @@ function buildOneUpsertPart(
         relations: childUpdate.relations,
         targetRead: { label: `${childName}.find` },
         rootWrite: { label: `${childName}.update` },
-        ...(incomingMembership.kind === "foreignKey" ||
-        parent.correlation === "global-adopt"
+        ...(parent.correlation === "global-adopt"
           ? { incomingMembership }
-          : {}),
+          : parent.incomingParentContinuity
+            ? { incomingParentContinuity: parent.incomingParentContinuity }
+            : {}),
         relationName,
         pinnedTarget,
       })
@@ -1116,6 +1017,7 @@ function buildOneUpsertPart(
           childUpdate.scalarData,
           childUpdate.relations
         );
+        updateCompiler.assertSelectedIncomingParentLegality();
       }
     : undefined;
   const probeId =
@@ -1125,7 +1027,7 @@ function buildOneUpsertPart(
     data: create,
     incomingMembership,
     relationName,
-    racePin: childRacePin(child, where),
+    racePin: createRacePin(child, where),
   });
 
   const common = {
@@ -1159,57 +1061,59 @@ function buildOneUpsertPart(
   );
 }
 
-/**
- * E3 — WHICH DIRECTION a deeper edge on this arm may take.
- *
- * A child-held edge (the deeper row holds a foreign key referencing this arm's row) is a
- * write to the DEEPER table, correlated to the value this arm's parent source carries —
- * which is what every Part below the seam is built from. A PARENT-HELD edge is not: the
- * arm's OWN row holds the foreign key, so `create`/`connect`/`connectOrCreate` there is
- * a change to the arm's own UPDATE SET, landing beside the reparent this seam already
- * folds.
- *
- * A many-to-many edge needs no fold: its membership is a join row the junction writes,
- * correlated to this arm's parent value like any child-held edge.
- *
- * A DELETION OF THIS REFUSAL WAS TRIED AND FALSIFIED. The selected-record
- * compiler does own a parent-held fold (`interpretParentHeld` → `toOneLinks` /
- * `parentHeldTargets`, merged into `compileLocatedRecord`'s one root UPDATE), and for a
- * relation the arm did NOT arrive through that fold lands correctly. But this seam also
- * hands that compiler an `incomingMembership` — the reparent onto the enclosing row —
- * and `compileLocatedRecord` applies it with `Object.assign(rootExtraSet.data,
- * incoming.data)` AFTER the fold, over the same foreign-key column. So for the relation
- * the arm ARRIVED THROUGH, which is the one this refusal's own message names, the
- * enclosing membership silently wins. Measured on PGlite at the public client, with
- * `org.update` → `teams.upsert[].update.org`:
- *
- *  · `connect: { id: 'o2' }` resolves with no error, the o2 existence probe runs, and
- *    `orgId` stays `'o1'` — the requested reparent is dropped, not refused;
- *  · `create: { id: 'o9' }` INSERTs o9 before the arm's UPDATE, which then writes
- *    `orgId = 'o1'`, committing a row nothing references;
- *  · `disconnect: true` leaves `orgId = 'o1'`;
- *  · the SAME payload spelled on both arms resolves to `'o2'` on the CREATE arm
- *    (`CreateOperation.emitParentHeldArm` assigns AFTER the injected membership) and
- *    `'o1'` on this one — one payload, two opposite memberships;
- *  · `delete: true` deletes the enclosing operation's own root row and fails the
- *    terminal read with a bare `TransactionError`.
- *
- * The nested targeted-update seam is NOT affected and is not parity for this: it passes
- * no `incomingMembership` (`RelationWritePart`), so the same `connect` lands `'o2'`
- * there. The collision is this seam's alone. Lifting it needs the fold and the incoming
- * reparent to be reconciled in ONE owner — a per-column precedence with a refusal when
- * they disagree — which is transition/membership provenance work, not a deletion
- * here.
- */
-function assertArmEdgeIsChildHeld(
+/** Target mutations on the exact incoming membership still address the enclosing
+ * selected row. Membership writers are ordinary final assignments and are reconciled
+ * by RecordUpdateCompiler. A connect followed by update is different: the supplier's
+ * selector addresses the update target. */
+function assertNoIncomingTargetMutationOverlap(
   child: QueryScope,
-  relationName: string,
-  mutation: RelationMutationProgram
+  incoming: RelationMembershipBinding,
+  correlation: UpsertCorrelation,
+  hasSelectedContinuity: boolean,
+  parsed: ParsedRelationMutation
 ): void {
-  const relation = bindRelation(child, mutation.relationInfo);
+  if (parsed.kind === "polymorphicDisconnect") return;
+  const relation = bindRelation(child, parsed.program.relationInfo);
   if (relation.position !== "parentHeld") return;
+  const mutationScope =
+    parsed.kind === "polymorphicTarget"
+      ? getMembershipScope(directPolymorphicMembership(parsed.edge))
+      : getRelationMembershipScope(relation);
+  if (
+    !relationMembershipScopesEqual(
+      getRelationMembershipScope(incoming.relation),
+      mutationScope
+    )
+  ) {
+    return;
+  }
+
+  const hasSupplier = parsed.program.entries.some(
+    (entry) =>
+      entry.kind === "connect" ||
+      entry.kind === "create" ||
+      entry.kind === "connectOrCreate"
+  );
+  const overlaps = parsed.program.entries.some((entry) => {
+    if (entry.kind === "delete") return true;
+    if (correlation === "correlated" && hasSelectedContinuity) return false;
+    return entry.kind === "upsert" || (entry.kind === "update" && !hasSupplier);
+  });
+  if (!overlaps) return;
+  refuseIncomingParentMutation(parsed.program.relationInfo.name);
+}
+
+/** One typed owner for the retained incoming-parent boundary. The general arm is
+ * delete/global-adopt; the field arm is a correlated loopback that would need to
+ * publish another final tuple back to its enclosing compiler. */
+export function refuseIncomingParentMutation(
+  relationName: string,
+  rowKeyField?: string
+): never {
   throw new UnsupportedOperationError(
-    `query-engine-v2 does not support a parent-held to-one write on relation '${relationName}' one level deeper on the update arm; the arm's row holds that foreign key, so the write belongs in the arm's own UPDATE SET, which already carries this relation's reparent.`
+    rowKeyField
+      ? `query-engine-v2 does not support a selected incoming-parent re-entry that changes row-key field '${rowKeyField}' on relation '${relationName}'.`
+      : `query-engine-v2 does not support a target mutation on relation '${relationName}' when it addresses the same incoming membership as the selected upsert arm.`
   );
 }
 

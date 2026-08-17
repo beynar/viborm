@@ -18,14 +18,20 @@
  * release, and announces itself once per method on the `warning` log channel.
  */
 
-import type { AnyDriver, QueryResult } from "@drivers";
-import {
-  QueryError,
-  UnsupportedOperationError,
-  VibORMErrorCode,
-} from "@errors";
+import type { AnyDriver, QueryExecutionContext, QueryResult } from "@drivers";
+import { QueryError, VibORMErrorCode } from "@errors";
 import type { InstrumentationContext } from "@instrumentation";
-import { createOperationExecutionContext } from "@query-engine/execution-context";
+import {
+  createOperationExecutionContext,
+  observeTransactionBatchPhase,
+} from "@query-engine/execution-context";
+import { PendingExecution } from "@query-engine/pending-execution";
+import type { QueryEngine } from "@query-engine/query-engine";
+import {
+  TRANSACTION_OPERATION_SYMBOL,
+  type TransactionOperation,
+} from "@query-engine/transaction-operation";
+import type { PreparedQuery } from "@query-engine/types";
 import { isSql, Sql } from "@sql";
 
 /** The four raw methods, spelled exactly as a caller types them. */
@@ -55,13 +61,13 @@ export interface RawSurface {
   $queryRaw<T = unknown>(
     query: RawQueryInput,
     ...values: unknown[]
-  ): Promise<T[]>;
+  ): RawOperation<T[]>;
   /**
    * @deprecated Pass a tagged template (values are bound) or call
    * `$queryRawUnsafe(sql, ...params)` for a hand-written statement. The string
    * form is removed in the next release.
    */
-  $queryRaw<T = unknown>(query: string, params?: unknown[]): Promise<T[]>;
+  $queryRaw<T = unknown>(query: string, params?: unknown[]): RawOperation<T[]>;
   /**
    * Run a hand-written SELECT string with positional parameters. The statement
    * text is used verbatim — never build it from user input.
@@ -69,67 +75,32 @@ export interface RawSurface {
   $queryRawUnsafe<T = unknown>(
     query: string,
     ...values: unknown[]
-  ): Promise<T[]>;
+  ): RawOperation<T[]>;
   /**
    * Run a statement and get the affected row count. Interpolations are bound
    * parameters.
    */
-  $executeRaw(query: RawQueryInput, ...values: unknown[]): Promise<number>;
+  $executeRaw(query: RawQueryInput, ...values: unknown[]): RawOperation<number>;
   /**
    * @deprecated Pass a tagged template (values are bound) or call
    * `$executeRawUnsafe(sql, ...params)` for a hand-written statement. The
    * string form is removed in the next release.
    */
-  $executeRaw(query: string, params?: unknown[]): Promise<number>;
+  $executeRaw(query: string, params?: unknown[]): RawOperation<number>;
   /**
    * Run a hand-written statement string with positional parameters. The
    * statement text is used verbatim — never build it from user input.
    */
-  $executeRawUnsafe(query: string, ...values: unknown[]): Promise<number>;
+  $executeRawUnsafe(query: string, ...values: unknown[]): RawOperation<number>;
 }
 
 /** Emitted once per method, the first time the legacy string form is used. */
 export type LegacyRawWarner = (method: RawMethodName) => void;
 
 export interface RawSurfaceOptions {
-  /** The driver the statements run on — inside an open transaction, its tx-bound driver. */
-  driver: AnyDriver;
-  instrumentation: InstrumentationContext | undefined;
+  /** The engine owns both the target driver and transaction-operation scope. */
+  engine: QueryEngine;
   warnLegacyString: LegacyRawWarner;
-}
-
-/**
- * Marks the promise a raw method returns. `$transaction([...])` reads it to
- * tell "you handed me a raw query" apart from "you handed me junk", and can
- * then say which one it is.
- */
-const RAW_OPERATION = Symbol.for("viborm.rawOperation");
-
-function tagRawOperation<T>(promise: Promise<T>): Promise<T> {
-  Object.defineProperty(promise, RAW_OPERATION, {
-    value: true,
-    enumerable: false,
-  });
-  return promise;
-}
-
-/** True for the promise a `$queryRaw`/`$executeRaw` family method returned. */
-export function isRawOperationPromise(value: unknown): boolean {
-  if (typeof value !== "object" || value === null) return false;
-  return Reflect.get(value, RAW_OPERATION) === true;
-}
-
-/**
- * The typed refusal for a raw query handed to the array form of
- * `$transaction`. Raw statements execute the moment they are called, so there
- * is nothing left to defer into the batch — the interactive form is where raw
- * SQL joins a transaction.
- */
-export function rawOperationInBatchError(): UnsupportedOperationError {
-  return new UnsupportedOperationError(
-    "$transaction([...]) cannot take a raw query: $queryRaw/$executeRaw run immediately and return a plain Promise, so there is no operation left to batch. Run raw SQL inside the interactive form instead: $transaction(async (tx) => { await tx.$executeRaw`...` }).",
-    { meta: { method: "$transaction([...])" } }
-  );
 }
 
 function isTemplateStringsArray(value: unknown): value is TemplateStringsArray {
@@ -194,110 +165,276 @@ export function createLegacyRawWarner(
   };
 }
 
-/**
- * Build the four raw methods bound to one driver.
- *
- * Inside an interactive transaction the driver is the transaction-bound one,
- * so raw statements travel the same single connection the model operations
- * use and roll back with them.
- */
-export function createRawSurface(options: RawSurfaceOptions): RawSurface {
-  const { driver, instrumentation, warnLegacyString } = options;
+type CapturedRawQuery =
+  | {
+      readonly family: "safe";
+      readonly query: RawQueryInput | string;
+      readonly values: readonly unknown[];
+    }
+  | {
+      readonly family: "unsafe";
+      readonly query: unknown;
+      readonly values: readonly unknown[];
+    };
 
-  const context = (method: RawMethodName) =>
-    createOperationExecutionContext("$raw", method, instrumentation);
+type ResolvedRawQuery =
+  | { readonly kind: "fragment"; readonly query: Sql }
+  | {
+      readonly kind: "verbatim";
+      readonly sql: string;
+      readonly params: readonly unknown[];
+    };
 
-  const runSafe = <T>(
+type RawRow<T> = T extends (infer Row)[] ? Row : unknown;
+
+function captureValues(values: readonly unknown[]): readonly unknown[] {
+  if (values.length === 1 && Array.isArray(values[0])) {
+    return Object.freeze([[...values[0]]]);
+  }
+  return Object.freeze([...values]);
+}
+
+/** A lazy raw statement that remains assignable to `Promise<T>`. */
+export interface RawOperation<T> extends Promise<T> {
+  readonly [TRANSACTION_OPERATION_SYMBOL]: true;
+}
+
+class DeferredRawOperation<T>
+  implements RawOperation<T>, TransactionOperation<T>
+{
+  readonly [TRANSACTION_OPERATION_SYMBOL] = true;
+  readonly [Symbol.toStringTag] = "Promise";
+
+  private readonly execution: PendingExecution<T>;
+  private readonly context: QueryExecutionContext;
+  private readonly engine: QueryEngine;
+  private readonly method: RawMethodName;
+  private readonly captured: CapturedRawQuery;
+  private readonly parse: (raw: QueryResult<RawRow<T>>) => T;
+  private readonly warnLegacyString: LegacyRawWarner;
+  private resolved: ResolvedRawQuery | undefined;
+
+  constructor(
+    engine: QueryEngine,
     method: RawMethodName,
-    query: RawQueryInput | string,
-    values: readonly unknown[]
-  ): Promise<QueryResult<T>> => {
+    captured: CapturedRawQuery,
+    parse: (raw: QueryResult<RawRow<T>>) => T,
+    warnLegacyString: LegacyRawWarner
+  ) {
+    this.engine = engine;
+    this.method = method;
+    this.captured = captured;
+    this.parse = parse;
+    this.warnLegacyString = warnLegacyString;
+    this.execution = new PendingExecution<T>("$raw", method);
+    this.context = createOperationExecutionContext(
+      "$raw",
+      method,
+      engine.instrumentation
+    );
+  }
+
+  private resolve(): ResolvedRawQuery {
+    if (this.resolved) return this.resolved;
+
+    const { query, values } = this.captured;
+    if (this.captured.family === "unsafe") {
+      if (typeof query !== "string") throw invalidRawQueryError(this.method);
+      this.resolved = {
+        kind: "verbatim",
+        sql: query,
+        params: [...values],
+      };
+      return this.resolved;
+    }
+
     if (isTemplateStringsArray(query)) {
-      return driver._execute<T>(new Sql(query, values), context(method));
+      this.resolved = {
+        kind: "fragment",
+        query: new Sql(query, values),
+      };
+      return this.resolved;
     }
     if (isSql(query)) {
-      if (values.length > 0) throw fragmentWithValuesError(method);
-      return driver._execute<T>(query, context(method));
+      if (values.length > 0) throw fragmentWithValuesError(this.method);
+      this.resolved = { kind: "fragment", query };
+      return this.resolved;
     }
     if (typeof query === "string") {
-      warnLegacyString(method);
-      return driver._executeRaw<T>(
-        query,
-        legacyParams(values),
-        context(method)
-      );
+      this.warnLegacyString(this.method);
+      this.resolved = {
+        kind: "verbatim",
+        sql: query,
+        params: legacyParams(values),
+      };
+      return this.resolved;
     }
-    throw invalidRawQueryError(method);
-  };
-
-  const runUnsafe = <T>(
-    method: RawMethodName,
-    query: string,
-    values: readonly unknown[]
-  ): Promise<QueryResult<T>> => {
-    if (typeof query !== "string") throw invalidRawQueryError(method);
-    return driver._executeRaw<T>(query, [...values], context(method));
-  };
-
-  // The thunk keeps execution eager — the driver is called in the same turn —
-  // while an argument refusal still surfaces as a rejection, not a throw from
-  // a function whose declared return type is a Promise.
-  async function rowsOf<T>(run: () => Promise<QueryResult<T>>): Promise<T[]> {
-    return (await run()).rows;
+    throw invalidRawQueryError(this.method);
   }
 
-  async function countOf(
-    run: () => Promise<QueryResult<unknown>>
-  ): Promise<number> {
-    return (await run()).rowCount;
+  private async run(driver: AnyDriver): Promise<T> {
+    const query = this.resolve();
+    const raw =
+      query.kind === "fragment"
+        ? await driver._execute<RawRow<T>>(query.query, this.context)
+        : await driver._executeRaw<RawRow<T>>(
+            query.sql,
+            [...query.params],
+            this.context
+          );
+    return this.parse(raw);
   }
+
+  private getPromise(): Promise<T> {
+    return this.execution.executeDefault(() => this.run(this.engine.driver));
+  }
+
+  reserveWith(driver: AnyDriver): void {
+    this.execution.reserveWith(driver);
+  }
+
+  executeWith(driver: AnyDriver): Promise<T> {
+    return this.execution.executeWith(driver, () => this.run(driver));
+  }
+
+  prepare(driver: AnyDriver = this.engine.driver): PreparedQuery {
+    const query = this.resolve();
+    if (query.kind === "verbatim") {
+      return {
+        sql: query.sql,
+        params: [...query.params],
+        context: this.context,
+      };
+    }
+    const prepared = driver._prepare(query.query);
+    return {
+      sql: prepared.sql,
+      params: prepared.params ? [...prepared.params] : [],
+      context: this.context,
+    };
+  }
+
+  parseResult(raw: QueryResult<RawRow<T>>): T {
+    return this.parse(raw);
+  }
+
+  observeBatchPhase<R>(
+    driver: AnyDriver,
+    execute: () => R | Promise<R>
+  ): Promise<R> {
+    return observeTransactionBatchPhase(this, driver, execute);
+  }
+
+  getModel(): string {
+    return "$raw";
+  }
+
+  getOperation(): string {
+    return this.method;
+  }
+
+  getExecutionContext(): QueryExecutionContext {
+    return this.context;
+  }
+
+  getClientId(): symbol {
+    return this.engine.clientId;
+  }
+
+  getScopeId(): symbol {
+    return this.engine.scopeId;
+  }
+
+  then<TResult1 = T, TResult2 = never>(
+    onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | null,
+    onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null
+  ): Promise<TResult1 | TResult2> {
+    return this.getPromise().then(onfulfilled, onrejected);
+  }
+
+  catch<TResult = never>(
+    onrejected?: ((reason: unknown) => TResult | PromiseLike<TResult>) | null
+  ): Promise<T | TResult> {
+    return this.getPromise().catch(onrejected);
+  }
+
+  finally(onfinally?: (() => void) | null): Promise<T> {
+    return this.getPromise().finally(onfinally);
+  }
+}
+
+/**
+ * Build the four raw methods bound to one query-engine scope.
+ *
+ * Inside an interactive transaction the engine carries the transaction-bound
+ * driver and scope identity, so raw and model operations share both ownership
+ * checks and execution.
+ */
+export function createRawSurface(options: RawSurfaceOptions): RawSurface {
+  const { engine, warnLegacyString } = options;
 
   function $queryRaw<T = unknown>(
     query: RawQueryInput,
     ...values: unknown[]
-  ): Promise<T[]>;
+  ): RawOperation<T[]>;
   function $queryRaw<T = unknown>(
     query: string,
     params?: unknown[]
-  ): Promise<T[]>;
+  ): RawOperation<T[]>;
   function $queryRaw<T = unknown>(
     query: RawQueryInput | string,
     ...values: unknown[]
-  ): Promise<T[]> {
-    return tagRawOperation(
-      rowsOf(() => runSafe<T>("$queryRaw", query, values))
+  ): RawOperation<T[]> {
+    return new DeferredRawOperation<T[]>(
+      engine,
+      "$queryRaw",
+      { family: "safe", query, values: captureValues(values) },
+      (raw) => raw.rows,
+      warnLegacyString
     );
   }
 
   function $queryRawUnsafe<T = unknown>(
     query: string,
     ...values: unknown[]
-  ): Promise<T[]> {
-    return tagRawOperation(
-      rowsOf(() => runUnsafe<T>("$queryRawUnsafe", query, values))
+  ): RawOperation<T[]> {
+    return new DeferredRawOperation<T[]>(
+      engine,
+      "$queryRawUnsafe",
+      { family: "unsafe", query, values: captureValues(values) },
+      (raw) => raw.rows,
+      warnLegacyString
     );
   }
 
   function $executeRaw(
     query: RawQueryInput,
     ...values: unknown[]
-  ): Promise<number>;
-  function $executeRaw(query: string, params?: unknown[]): Promise<number>;
+  ): RawOperation<number>;
+  function $executeRaw(query: string, params?: unknown[]): RawOperation<number>;
   function $executeRaw(
     query: RawQueryInput | string,
     ...values: unknown[]
-  ): Promise<number> {
-    return tagRawOperation(
-      countOf(() => runSafe<unknown>("$executeRaw", query, values))
+  ): RawOperation<number> {
+    return new DeferredRawOperation<number>(
+      engine,
+      "$executeRaw",
+      { family: "safe", query, values: captureValues(values) },
+      (raw) => raw.rowCount,
+      warnLegacyString
     );
   }
 
   function $executeRawUnsafe(
     query: string,
     ...values: unknown[]
-  ): Promise<number> {
-    return tagRawOperation(
-      countOf(() => runUnsafe<unknown>("$executeRawUnsafe", query, values))
+  ): RawOperation<number> {
+    return new DeferredRawOperation<number>(
+      engine,
+      "$executeRawUnsafe",
+      { family: "unsafe", query, values: captureValues(values) },
+      (raw) => raw.rowCount,
+      warnLegacyString
     );
   }
 

@@ -253,7 +253,7 @@ export function registerCompoundAdoptBehavior(
         // ---------------------------------------------------------------------------
         // MIXED components: one `Ref` (the generated parent key), one literal
         // ---------------------------------------------------------------------------
-        const alpha = await client.crew.create({
+        const alphaOperation = {
           data: {
             tag: "alpha",
             members: {
@@ -263,7 +263,8 @@ export function registerCompoundAdoptBehavior(
               },
             },
           },
-        });
+        };
+        const alpha = await client.crew.create(alphaOperation);
         expect(
           await client.member.findUnique({ where: { id: 1 } })
         ).toMatchObject({

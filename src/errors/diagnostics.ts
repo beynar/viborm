@@ -72,6 +72,8 @@ export interface RecordSeriesProgress {
   readonly committedSegments: number;
   readonly completedMembers: number;
   readonly committedWriteMembers: number;
+  /** A dispatched write segment may be durable, but its provider could not acknowledge commit. */
+  readonly mayHaveCommittedSegment?: true;
   readonly memberPath?: readonly number[];
   readonly totalMembers?: number;
 }
@@ -344,6 +346,10 @@ export function sanitizeRecordSeriesProgress(
   const committedWriteMembers = safeProgressInteger(
     safeRead(value, "committedWriteMembers")
   );
+  const mayHaveCommittedSegmentValue = safeRead(
+    value,
+    "mayHaveCommittedSegment"
+  );
   const totalMembersValue = safeRead(value, "totalMembers");
   const totalMembers =
     totalMembersValue === undefined
@@ -360,6 +366,8 @@ export function sanitizeRecordSeriesProgress(
     committedSegments === undefined ||
     completedMembers === undefined ||
     committedWriteMembers === undefined ||
+    (mayHaveCommittedSegmentValue !== undefined &&
+      mayHaveCommittedSegmentValue !== true) ||
     (totalMembersValue !== undefined && totalMembers === undefined) ||
     (memberPathValue !== undefined && memberPath === undefined)
   ) {
@@ -371,6 +379,9 @@ export function sanitizeRecordSeriesProgress(
     committedSegments,
     completedMembers,
     committedWriteMembers,
+    ...(mayHaveCommittedSegmentValue === true
+      ? { mayHaveCommittedSegment: true as const }
+      : {}),
     ...(memberPath ? { memberPath: Object.freeze(memberPath) } : {}),
     ...(totalMembers !== undefined ? { totalMembers } : {}),
   });

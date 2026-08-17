@@ -43,7 +43,23 @@ export type FinalReferenceSource =
        */
       readonly apply: (before: unknown, referencedField: string) => unknown;
     }
+  | {
+      /**
+       * One selected row observed at planning and re-addressed at execution. Unlike a
+       * normal transition source, this source deliberately exposes its captured side
+       * to planning probes while its final side is consumed by writes. The enclosing
+       * selected-record compiler owns the phase decision; relation Parts only carry it.
+       */
+      readonly kind: "selectedRowContinuity";
+      readonly step: string;
+      readonly apply: (before: unknown, referencedField: string) => unknown;
+    }
   | { readonly kind: "lookup"; readonly statement: Sql };
+
+/** Exact final value source for each named field in a complete stored tuple. */
+export type FinalReferenceSources = Readonly<
+  Record<string, FinalReferenceSource>
+>;
 
 export interface ForeignKeyMember {
   readonly foreignField: string;
@@ -132,6 +148,99 @@ export function resolveFinalReferenceRowKey(
   return identity;
 }
 
+/**
+ * The exact membership premise a later committed segment must still observe,
+ * for the referenced fields that are NOT members of the parent's row key.
+ *
+ * Residual plan §H1 keeps two facts apart: the parent liveness guard uses every
+ * `ModelKeyCatalog.rowKey` member, and "an exact … referenced value proves
+ * membership, not parent row identity". When the row key and the reference key
+ * coincide — the ordinary case, and every junction and polymorphic placement by
+ * construction — this answers `{}` and the guard is byte-identical to the one that
+ * shipped before. It answers something only where the two genuinely differ: an
+ * ordinary child-held edge that references a NON-primary-key unique. The caller
+ * chooses the temporal source; {@link resolveCorrelatedMembershipProgressivePremise}
+ * keeps the row key and this tuple on the same read or write side.
+ *
+ * `undefined` means the premise cannot be stated — an opaque lookup, or a value
+ * that is still `Sql` at this point — and the caller must decline the placement
+ * rather than guard half of it. A polymorphic membership never reaches that: its
+ * referenced field is the target's one scalar primary key (schema rule P009), so
+ * the row key already carries it.
+ */
+export function resolveMembershipReferencedPremise(
+  binding: RelationMembershipBinding,
+  known: PlanningKnown,
+  operation: string
+): Record<string, unknown> | undefined {
+  return resolveReferencedPremise(binding, (member) => {
+    if (member.writeSource.kind === "lookup") return undefined;
+    return foreignKeyWriteValue(
+      member,
+      known,
+      binding.relation.relationInfo.name,
+      operation
+    );
+  });
+}
+
+function resolveReferencedPremise(
+  binding: RelationMembershipBinding,
+  resolve: (member: ForeignKeyMember, index: number) => unknown
+): Record<string, unknown> | undefined {
+  if (binding.kind === "polymorphic") return {};
+  const rowKey = new Set(
+    getPrimaryKeyFields(binding.relation.membership.referenced)
+  );
+  const premise: Record<string, unknown> = {};
+  for (const [index, member] of binding.members.entries()) {
+    if (rowKey.has(member.referencedField)) continue;
+    const value = resolve(member, index);
+    if (value === undefined || isSql(value)) return undefined;
+    premise[member.referencedField] = value;
+  }
+  return premise;
+}
+
+/** The two exact parent facts a child-held series carries across a committed
+ * boundary. `existingMembers` observes the membership captured before the
+ * enclosing write; `suppliedMember` observes the membership a preceding supplier
+ * just wrote. The correlation kind is the temporal owner for BOTH row identity and
+ * the non-row-key referenced tuple. */
+export function resolveCorrelatedMembershipProgressivePremise(
+  binding: CorrelatedRelationMembershipBinding,
+  known: PlanningKnown,
+  operation: string,
+  correlate: "existingMembers" | "suppliedMember"
+):
+  | {
+      readonly identity: Record<string, unknown>;
+      readonly membership: Record<string, unknown>;
+    }
+  | undefined {
+  const identity =
+    correlate === "existingMembers"
+      ? resolveMembershipReadParentRowKey(binding, known, operation)
+      : resolveMembershipWriteParentRowKey(binding, known, operation);
+  if (!identity) return undefined;
+  const membership =
+    correlate === "suppliedMember"
+      ? resolveMembershipReferencedPremise(binding, known, operation)
+      : resolveReferencedPremise(binding, (member, index) => {
+          if (binding.kind !== "foreignKey") return undefined;
+          const correlated = binding.members[index];
+          if (!correlated) return undefined;
+          return resolvedPlanningReferenceValue(
+            correlated.readSource,
+            member.referencedField,
+            known,
+            binding.relation.relationInfo.name,
+            operation
+          );
+        });
+  return membership ? { identity, membership } : undefined;
+}
+
 /** Complete parent row key at a membership WRITE position. */
 export function resolveMembershipWriteParentRowKey(
   binding: RelationMembershipBinding,
@@ -212,10 +321,16 @@ function sharedFinalPlanningSource(
         source
       ): source is Extract<
         FinalReferenceSource,
-        { kind: "planningField" | "transitionedPlanningField" }
+        {
+          kind:
+            | "planningField"
+            | "transitionedPlanningField"
+            | "selectedRowContinuity";
+        }
       > =>
         source.kind === "planningField" ||
-        source.kind === "transitionedPlanningField"
+        source.kind === "transitionedPlanningField" ||
+        source.kind === "selectedRowContinuity"
     );
   const first = candidates[0];
   if (!first) return undefined;
@@ -223,9 +338,8 @@ function sharedFinalPlanningSource(
     (candidate) =>
       candidate.kind === first.kind &&
       candidate.step === first.step &&
-      (candidate.kind !== "transitionedPlanningField" ||
-        (first.kind === "transitionedPlanningField" &&
-          candidate.apply === first.apply))
+      (candidate.kind === "planningField" ||
+        (first.kind === candidate.kind && candidate.apply === first.apply))
   )
     ? first
     : undefined;
@@ -303,6 +417,24 @@ export function transitionedParentId(
     kind: "transitionedPlanningField",
     step: readStep,
     apply: transition,
+  };
+}
+
+/**
+ * Publish one field-agnostic selected-row continuity source. Planning reads the
+ * captured row through `readStep`; execution applies the enclosing compiler's phase
+ * function. This is intentionally separate from `transitionedParentId`: an ordinary
+ * transition cannot enter planning under its final value, while selected-row
+ * continuity explicitly requires the before/final split.
+ */
+export function selectedRowContinuity(
+  readStep: string,
+  atExecution: (before: unknown, field: string) => unknown
+): FinalReferenceSource {
+  return {
+    kind: "selectedRowContinuity",
+    step: readStep,
+    apply: atExecution,
   };
 }
 
@@ -428,12 +560,22 @@ export function lowerEmptyMembership(
   };
 }
 
+/**
+ * What every membership question answers with: per-member FK equality filters, or one
+ * exact polymorphic `(type, id)` predicate. One shape, three resolvers (planning read,
+ * final read, final write) — consumers spread `predicate` only when it is present.
+ */
+export type RelationMembershipCondition = {
+  readonly filters: readonly Record<string, unknown>[];
+  readonly predicate?: Sql;
+};
+
 export function planningMembershipCondition(
   engine: QueryEngine,
   childScope: QueryScope,
   binding: CorrelatedRelationMembershipBinding,
   qualifier: string
-) {
+): RelationMembershipCondition {
   if (binding.kind === "foreignKey") {
     return {
       filters: binding.members.map((member) => ({
@@ -469,7 +611,7 @@ export function finalMembershipCondition(
   qualifier: string,
   known: PlanningKnown,
   operation: string
-) {
+): RelationMembershipCondition {
   const relationName = binding.relation.relationInfo.name;
   if (binding.kind === "foreignKey") {
     return {
@@ -485,12 +627,12 @@ export function finalMembershipCondition(
       })),
     };
   }
-  const relation = binding.relation;
-  const { membership } = relation;
-  const identity = referenceScalarSql(
+  const { membership } = binding.relation;
+  return polymorphicMembershipShape(
     engine,
-    membership.storage.idColumn.scalar,
-    membership.storage.idColumn.name,
+    childScope,
+    binding.relation,
+    qualifier,
     resolvedPlanningReferenceValue(
       binding.readSource,
       membership.referencedField,
@@ -498,6 +640,30 @@ export function finalMembershipCondition(
       relationName,
       operation
     )
+  );
+}
+
+/**
+ * The one predicate SHAPE both membership questions share. The read and write
+ * builders differ only in which source resolves the referenced value; the lowering
+ * from that value to the exact `(type, id)` membership predicate lives once, here.
+ */
+function polymorphicMembershipShape(
+  engine: QueryEngine,
+  childScope: QueryScope,
+  relation: Extract<
+    RelationMembershipBinding,
+    { kind: "polymorphic" }
+  >["relation"],
+  qualifier: string,
+  referencedValue: Parameters<typeof referenceScalarSql>[3]
+): RelationMembershipCondition {
+  const { membership } = relation;
+  const identity = referenceScalarSql(
+    engine,
+    membership.storage.idColumn.scalar,
+    membership.storage.idColumn.name,
+    referencedValue
   );
   return {
     filters: [],
@@ -508,6 +674,57 @@ export function finalMembershipCondition(
       identity
     ),
   };
+}
+
+/**
+ * The same membership predicate, resolved from the WRITE source instead of the read
+ * one — the other half of §14's rule, on the one arm that needs it.
+ *
+ * {@link finalMembershipCondition} answers "which rows currently carry this parent's
+ * membership", and every existing caller wants exactly that: a release, a bulk
+ * correlated update, a set departure, an existing-member capture. This one answers
+ * "which row carries the membership a sibling write in this same fragment just
+ * ASSIGNED", which is a different question whenever the parent's referenced value is
+ * in transition — the supplier stored the post-transition value, and the located
+ * pre-transition value names no row at all.
+ *
+ * It is a second QUESTION, not a second owner: both live here, both read one binding,
+ * and neither infers its source from the other. Without a transition the two resolve
+ * to the same value and emit the same SQL, which is why every unchanged caller stays
+ * byte-identical.
+ */
+export function finalMembershipWriteCondition(
+  engine: QueryEngine,
+  childScope: QueryScope,
+  binding: RelationMembershipBinding,
+  qualifier: string,
+  known: PlanningKnown,
+  operation: string
+): RelationMembershipCondition {
+  const relationName = binding.relation.relationInfo.name;
+  if (binding.kind === "foreignKey") {
+    return {
+      filters: binding.members.map((member) => ({
+        [member.foreignField]: {
+          equals: foreignKeyWriteValue(member, known, relationName, operation),
+        },
+      })),
+    };
+  }
+  const { membership } = binding.relation;
+  return polymorphicMembershipShape(
+    engine,
+    childScope,
+    binding.relation,
+    qualifier,
+    finalReferenceValue(
+      binding.writeSource,
+      membership.referencedField,
+      known,
+      relationName,
+      operation
+    )
+  );
 }
 
 export function membershipProjection(
@@ -634,7 +851,8 @@ function finalReferenceValue(
     );
   }
   const before = (row as Record<string, unknown>)[referencedField];
-  return source.kind === "transitionedPlanningField"
+  return source.kind === "transitionedPlanningField" ||
+    source.kind === "selectedRowContinuity"
     ? source.apply(before, referencedField)
     : before;
 }
@@ -799,6 +1017,9 @@ export function planningSourceFromFinal(
 ): PlanningReferenceSource {
   if (source.kind === "literal") return source;
   if (source.kind === "planningField") {
+    return { kind: "planningField", step: source.step };
+  }
+  if (source.kind === "selectedRowContinuity") {
     return { kind: "planningField", step: source.step };
   }
   throw new QueryEngineError(

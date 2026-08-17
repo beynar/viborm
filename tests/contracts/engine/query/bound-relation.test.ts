@@ -192,8 +192,8 @@ const junctionSchema = (() => {
 
   const compoundDoc = s
     .model({
-      tenantId: s.string(),
-      id: s.string(),
+      tenantId: s.string().map("tenant_col"),
+      id: s.string().map("doc_id"),
       labels: s.manyToMany(() => compoundLabel),
     })
     .id(["tenantId", "id"]);
@@ -493,10 +493,7 @@ describe("bound junction sides", () => {
     ]);
   });
 
-  test("a compound primary key is refused when a side is READ, not when the relation is classified", () => {
-    // The timing is the contract: `bindRelation` runs at many sites that never ask
-    // for junction topology, and the compound-M2M limitation must keep firing where
-    // the topology is requested — with its established class and sentence.
+  test("classification stays lazy and a compound side binds every ordered member", () => {
     const scope = createQueryScope(adapter, junctionSchema.compoundDoc);
     const relationInfo = getRelationInfo(scope, "labels");
     if (!relationInfo) throw new Error("Expected relation 'labels'.");
@@ -507,13 +504,24 @@ describe("bound junction sides", () => {
       throw new Error("Expected a junction.");
     }
 
-    expect(() => relation.membership.source).toThrow(
-      'Model "compoundDoc" uses a compound primary key. Many-to-many relations with compound PKs are not supported. Use a single-field surrogate key (e.g., s.string().id().ulid()) instead.'
+    expect(relation.membership.source.members).toEqual([
+      { junctionField: "compounddoc_1", referencedField: "tenantId" },
+      { junctionField: "compounddoc_2", referencedField: "id" },
+    ]);
+    expect(relation.membership.target.members).toEqual([
+      { junctionField: "compoundlabelId", referencedField: "id" },
+    ]);
+
+    const inverse = bindJunctionMembership(
+      junctionSchema.compoundLabel,
+      "docs"
     );
-    // The refusal belongs to the junction resolution, not to one side: the other
-    // end of the same pair meets it too, naming the compound model.
-    expect(
-      () => bindJunctionMembership(junctionSchema.compoundLabel, "docs").target
-    ).toThrow('Model "compoundDoc" uses a compound primary key.');
+    expect(inverse.source.members).toEqual([
+      { junctionField: "compoundlabelId", referencedField: "id" },
+    ]);
+    expect(inverse.target.members).toEqual([
+      { junctionField: "compounddoc_1", referencedField: "tenantId" },
+      { junctionField: "compounddoc_2", referencedField: "id" },
+    ]);
   });
 });

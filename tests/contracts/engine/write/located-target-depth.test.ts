@@ -1,13 +1,13 @@
-import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { createClient } from "@client/client";
 import type { BatchQuery, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { push } from "@migrations";
 import { s } from "@schema";
-import { describe, expect, test } from "vitest";
-import { batchIsAtomicUnit } from "@tests/fixtures/atomic-unit-batch";
 import { observeClientOperations } from "@tests/contracts/engine/write/operation-observer";
+import { batchIsAtomicUnit } from "@tests/fixtures/atomic-unit-batch";
+import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
+import { describe, expect, test } from "vitest";
 
 // A concurrent writer fires once, just before the atomic batch commits.
 class BeforeBatchDriver extends BatchOnlyPGliteDriver {
@@ -150,7 +150,7 @@ describe("X1c — parent-held to-one under a located update target at level 3 (g
 
   // The located member m1 (three located updates deep) folds a fresh badge (generated
   // id 2) into its OWN update SET; m1's name is rewritten in that same SET.
-  const op = async (c: Record<string, any>) => {
+  const op = async (c: Record<string, any>, badgeId?: number) => {
     await c.org.update({
       where: { id: "o1" },
       data: {
@@ -161,7 +161,15 @@ describe("X1c — parent-held to-one under a located update target at level 3 (g
               members: {
                 update: {
                   where: { id: "m1" },
-                  data: { name: "m1b", badge: { create: { code: "B" } } },
+                  data: {
+                    name: "m1b",
+                    badge: {
+                      create:
+                        badgeId === undefined
+                          ? { code: "B" }
+                          : { id: badgeId, code: "B" },
+                    },
+                  },
                 },
               },
             },
@@ -270,7 +278,7 @@ describe("X1c — parent-held to-one under a located update target at level 3 (g
       schema: chainSchema as never,
       driver,
     });
-    await expect(op(observed.client)).rejects.toThrow();
+    await expect(op(observed.client, -1)).rejects.toThrow();
     // m1 is gone (the concurrent writer removed it); crucially, no orphan badge got
     // written under it — the guard aborted the whole atomic unit.
     expect(

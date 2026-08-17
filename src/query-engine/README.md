@@ -108,6 +108,12 @@ The record compiler owns scalar assignments, an optional incoming membership,
 nested record effects, required target fields, primary-key transitions, and
 root-write order.
 
+It also owns selected-row continuity. Planning locates the complete captured
+primary key. A relation placement then chooses that tuple before the root write
+or the compiler's complete final tuple after it. Correlated update and found-
+upsert arms may use this fact to re-enter their exact incoming parent; nested
+progressive series use the same fact to re-pin later committed segments.
+
 Relation Parts still own target reads, parent correlation, membership,
 found/missing decisions, not-found failures, guards, race pins, junction
 effects, and standalone edge effects. A write addresses the captured primary
@@ -125,11 +131,13 @@ place that same form through one `RecordSeriesStep`. Scalar-only bulk shapes
 stay grouped.
 
 A transaction-capable root series and its nested steps share one transaction.
-D1 executes root and exactly guarded nested series as ordered committed atomic
-segments. A later failure reports the committed prefix and does not replay it.
-An unguardable nested placement fails closed before its containing write
-segment. Relation-bearing `skipDuplicates` and dynamic series inside explicit
-`$transaction([...])` remain unavailable on D1.
+Any no-transaction driver with native atomic batches executes root and exactly
+guarded nested series as ordered progressive segments. A later failure reports
+the committed prefix and does not replay it. An unguardable nested placement
+fails closed before its containing write segment. A root-first relation-bearing
+`skipDuplicates` member is isolated and suppresses its descendants on conflict;
+a prior write before that root remains refused. Dynamic series inside explicit
+`$transaction([...])` remain indivisible.
 
 Returning series group their final row lookups into K set reads bounded by the
 driver bind limit, normally one, then reconstruct source order. Per-member

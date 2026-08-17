@@ -116,10 +116,10 @@ export function relationKeyOccupiedMessage(
  * The owned-foreign-key refusal: a nested payload spells, as a scalar assignment, the
  * very column the enclosing relation OWNS. The engine derives that column from the row
  * the enclosing step acted on; a spelled value is a second, contradicting provenance for
- * it. One rule, so one string. Its remaining engine consumer is the adopt family's seam
- * (`RelationUpsertPart.withoutAgreeingOwnedFk`) — the nested-update guard that shared it
- * (site 11) is deleted, its invariant now impossible upstream: the aligned parse
- * omission refuses the spelling as `Unknown key` on every schema.
+ * it. One rule, so one string. `RecordUpdateCompiler`'s final-assignment ledger owns
+ * the remaining adopt-family comparison; the former relation-specific helper and the
+ * nested-update guard are deleted. The aligned parse omission refuses the spelling as
+ * `Unknown key` on every other public schema.
  */
 export function relationOwnsForeignKey(
   relationName: string,

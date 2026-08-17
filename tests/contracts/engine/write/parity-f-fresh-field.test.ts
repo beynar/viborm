@@ -30,19 +30,16 @@ import { describe, expect, test } from "vitest";
  * remain byte-identical" and "at most one post-insert read publishes all demanded fields
  * for a root". Both are counted here rather than asserted in prose:
  *
- *   · a demanded GENERATED identity costs THREE statements on every driver class that has
- *     to carry the value BETWEEN statements, and the driver class changes only HOW the
- *     root INSERT reports the key — `RETURNING <pk>` + `firstRowField` on a returning
- *     driver in transaction mode, a bare INSERT + `insertId` otherwise
- *     (`capturesByReturning`, CreateOperation.ts:2469). Same ids, same order, same count.
- *     RE-BASELINED 2026-08-10 BY PACKAGE M, deliberately and in one direction: on the ONE
- *     substrate whose `WITH` accepts a data-modifying statement (PGlite/PostgreSQL in a
- *     transaction), the value no longer has to travel between statements, so the three are
- *     ONE — see `FOLDED_ONE_CHILD` / `FOLDED_TWO_CHILDREN` below and
- *     `mutation-dependency-fold.test.ts` for the measurement. What F pins is untouched:
+ *   · a demanded GENERATED identity costs THREE statements on a non-returning driver
+ *     that must carry the value BETWEEN statements. PostgreSQL publishes through the
+ *     producer's own `RETURNING <pk>` + `firstRowField` on both execution substrates;
+ *     Package M first enabled the fold in transaction mode; the generated-output pass
+ *     then made the same exact PostgreSQL fold available in batch mode. The value no
+ *     longer travels between statements — see `foldedOneChild` / `foldedTwoChildren`
+ *     below and `mutation-dependency-fold.test.ts`. What F pins is untouched:
  *     the same single published field, the same one `RETURNING` column for two consumers,
- *     the same destination cast at the same column. The pre-M three-statement form is
- *     still asserted here on the batch and MySQL legs, and on three dialects in
+ *     the same destination cast at the same column. The three-statement form remains
+ *     asserted here on the non-returning MySQL leg and on three dialects in
  *     `parity-m-create-dag.test.ts`;
  *   · a demanded field that is already KNOWN from the create data costs ONE statement,
  *     because the whole subtree folds into a single write-dependency CTE. F1 must not turn
@@ -101,19 +98,17 @@ import { describe, expect, test } from "vitest";
  * `QueryEngineError` describing an internal invariant. `planNestedCreateIdentity` is total
  * over a single-member primary key, and `getRequiredSinglePrimaryKeyField` guarantees the
  * junction target has one. The write-engine census is unchanged at 22 because Package F
- * also ADDED one: the batch-substrate publication refusal in `producedReference`.
+ * also ADDED one batch-substrate publication refusal in `producedReference`; the later
+ * generated-output segmentation pass retired that broad boundary for default operations.
  *
  * The shared-primary-key SPLIT is `parity-e-shared-pk.test.ts`'s subject; only its
  * produced-identity leg is pinned below.
  *
- * FALSIFIED 2026-08-09, re-run 2026-08-10 against
- * `src/query-engine/write-engine/CreateOperation.ts`: dropping the `txMode &&` conjunct
- * from the identity-capture choice (`capturesByReturning`, :2469 — one expression now,
- * two before Package F) made the PGlite ATOMIC-BATCH root INSERT emit `RETURNING "id"`
- * with a `firstRowField` output. Exactly the two PGlite-batch legs went red; the PGlite
- * transaction legs, the MySQL2 legs (refused by `supportsReturning`, the other conjunct),
- * the CTE-fold pin, and all five refusals stayed green. The original was restored from a
- * scratchpad copy taken before the edit.
+ * RE-BASELINED 2026-08-14: the generated-output pass deliberately made the former
+ * falsification true. PostgreSQL batch roots now emit their own `RETURNING`, use a
+ * `firstRowField`, and take the exact CTE fold where available. Transaction expectations
+ * remain rollback-enforced; batch folds omit transaction-only postconditions. The
+ * non-returning MySQL control is unchanged.
  */
 
 const freshFieldSchema = (() => {
@@ -279,7 +274,7 @@ const EMPTY_PLANNING = { steps: [], outputs: {} };
  * registry still publishes ONE field for two consumers (one `RETURNING` column
  * in the first arm, spent twice), the destination cast still wraps the value at
  * the child's own column — it is now spelled inside one command instead of
- * across three. Every other substrate keeps the series verbatim, and
+ * across three. The non-returning substrate keeps the series verbatim, and
  * `parity-m-create-dag.test.ts` pins it on three dialects.
  */
 const CREATE_TERMINAL_FAILURE = {
@@ -291,75 +286,78 @@ const CREATE_TERMINAL_FAILURE = {
   },
 };
 
-const FOLDED_ONE_CHILD = {
-  steps: [
-    {
-      id: "hub.create",
-      kind: "write",
-      sql: 'WITH "__viborm_mutation" AS (INSERT INTO "parity_f_hubs" ("name", "tag") VALUES ($1, $2) RETURNING "id", "name", "tag"), "__viborm_write_0" AS (INSERT INTO "parity_f_spans" ("id", "hubId") VALUES ($3, CAST((SELECT "id" FROM "__viborm_mutation") AS INTEGER))) SELECT "t0"."id" AS "id" FROM "__viborm_mutation" AS "t0"',
-      params: ["H", "t", "s1"],
-      outputs: { result: { kind: "rows" } },
-      expects: CREATE_TERMINAL_FAILURE,
-      racePin: null,
-      onUniqueConflict: null,
-    },
-  ],
-  outputs: { result: { ref: "hub.create.result" } },
-};
+function foldedOneChild(
+  terminalExpects: typeof CREATE_TERMINAL_FAILURE | null
+) {
+  return {
+    steps: [
+      {
+        id: "hub.create",
+        kind: "write",
+        sql: 'WITH "__viborm_mutation" AS (INSERT INTO "parity_f_hubs" ("name", "tag") VALUES ($1, $2) RETURNING "id", "name", "tag"), "__viborm_write_0" AS (INSERT INTO "parity_f_spans" ("id", "hubId") VALUES ($3, CAST((SELECT "id" FROM "__viborm_mutation") AS INTEGER))) SELECT "t0"."id" AS "id" FROM "__viborm_mutation" AS "t0"',
+        params: ["H", "t", "s1"],
+        outputs: { result: { kind: "rows" } },
+        expects: terminalExpects,
+        racePin: null,
+        onUniqueConflict: null,
+      },
+    ],
+    outputs: { result: { ref: "hub.create.result" } },
+  };
+}
 
-const FOLDED_TWO_CHILDREN = {
-  steps: [
-    {
-      id: "hub.create",
-      kind: "write",
-      // ONE `RETURNING` list, and the same CTE column read by BOTH arms — the
-      // fold spends the published field twice exactly as the series did.
-      sql: 'WITH "__viborm_mutation" AS (INSERT INTO "parity_f_hubs" ("name", "tag") VALUES ($1, $2) RETURNING "id", "name", "tag"), "__viborm_write_0" AS (INSERT INTO "parity_f_spans" ("id", "hubId") VALUES ($3, CAST((SELECT "id" FROM "__viborm_mutation") AS INTEGER))), "__viborm_write_1" AS (INSERT INTO "parity_f_clips" ("id", "hubId") VALUES ($4, CAST((SELECT "id" FROM "__viborm_mutation") AS INTEGER))) SELECT "t0"."id" AS "id" FROM "__viborm_mutation" AS "t0"',
-      params: ["H", "t", "s1", "k1"],
-      outputs: { result: { kind: "rows" } },
-      expects: CREATE_TERMINAL_FAILURE,
-      racePin: null,
-      onUniqueConflict: null,
-    },
-  ],
-  outputs: { result: { ref: "hub.create.result" } },
-};
+function foldedTwoChildren(
+  terminalExpects: typeof CREATE_TERMINAL_FAILURE | null
+) {
+  return {
+    steps: [
+      {
+        id: "hub.create",
+        kind: "write",
+        // ONE `RETURNING` list, and the same CTE column read by BOTH arms — the
+        // fold spends the published field twice exactly as the series did.
+        sql: 'WITH "__viborm_mutation" AS (INSERT INTO "parity_f_hubs" ("name", "tag") VALUES ($1, $2) RETURNING "id", "name", "tag"), "__viborm_write_0" AS (INSERT INTO "parity_f_spans" ("id", "hubId") VALUES ($3, CAST((SELECT "id" FROM "__viborm_mutation") AS INTEGER))), "__viborm_write_1" AS (INSERT INTO "parity_f_clips" ("id", "hubId") VALUES ($4, CAST((SELECT "id" FROM "__viborm_mutation") AS INTEGER))) SELECT "t0"."id" AS "id" FROM "__viborm_mutation" AS "t0"',
+        params: ["H", "t", "s1", "k1"],
+        outputs: { result: { kind: "rows" } },
+        expects: terminalExpects,
+        racePin: null,
+        onUniqueConflict: null,
+      },
+    ],
+    outputs: { result: { ref: "hub.create.result" } },
+  };
+}
 
 // ---------------------------------------------------------------------------
-// A produced identity: the same three statements everywhere the value has to
-// travel between statements — and ONE where PostgreSQL can spell it inside the
-// command (Package M)
+// A produced identity: one CTE statement wherever PostgreSQL can spell it in
+// the command, and three statements on the non-returning control.
 // ---------------------------------------------------------------------------
 
 for (const substrate of [
   {
-    // `supportsReturning` AND transaction mode: the only combination that captures
-    // the key from the statement's own RETURNING list.
+    // PostgreSQL captures the key from the producer's own RETURNING list.
     name: "PGlite transaction (RETURNING)",
     createDriver: () => new PGliteDriver(),
     quote: (name: string) => `"${name}"`,
     placeholder: (index: number) => `$${index}`,
     intCast: "INTEGER",
     capturesByReturning: true,
-    // PACKAGE M: the only substrate here whose `WITH` accepts a data-modifying
-    // statement, so the only one whose produced identity has an in-statement
-    // spelling. See the re-baseline note in this file's header.
+    // PostgreSQL accepts a data-modifying statement inside this fold.
     foldsCteWithMutations: true,
     // Only a transaction gets an `expects`: a batch step cannot abort on a
     // postcondition, so the shape is one assertion shorter.
     terminalExpects: CREATE_TERMINAL_FAILURE,
   },
   {
-    // The adapter returns, but a batch step's rows are not addressable, so the key
-    // comes from the driver's `insertId` scratch instead.
-    name: "PGlite atomic batch (insertId)",
+    // Batch execution uses the same exact PostgreSQL RETURNING and CTE fold. It omits
+    // only the transaction-owned terminal postcondition.
+    name: "PGlite atomic batch (RETURNING + CTE fold)",
     createDriver: () => new BatchOnlyPGliteDriver(),
     quote: (name: string) => `"${name}"`,
     placeholder: (index: number) => `$${index}`,
     intCast: "INTEGER",
-    capturesByReturning: false,
-    // A batch step is not a transaction, and the tree fold declines outside one.
-    foldsCteWithMutations: false,
+    capturesByReturning: true,
+    foldsCteWithMutations: true,
     terminalExpects: null,
   },
   {
@@ -386,7 +384,7 @@ for (const substrate of [
     : "";
 
   describe(`parity F — a demanded produced identity (${substrate.name})`, () => {
-    test("costs three statements wherever the value must travel, and only the root INSERT's reporting channel moves", () => {
+    test("uses one exact PostgreSQL CTE fold or the non-returning three-statement transport", () => {
       const driver = substrate.createDriver();
       const operation = new CreateOperation(
         engineFor(driver),
@@ -401,7 +399,7 @@ for (const substrate of [
       );
       if (substrate.foldsCteWithMutations) {
         expect(fragmentContract(driver, operation.compile({}))).toEqual(
-          FOLDED_ONE_CHILD
+          foldedOneChild(substrate.terminalExpects)
         );
         return;
       }
@@ -410,9 +408,8 @@ for (const substrate of [
           {
             id: "hub.create",
             kind: "write",
-            // `supportsReturning && txMode` decides this one clause and this one
-            // output kind — `capturesByReturning` at CreateOperation.ts:2469, spent
-            // at :2501 and :2507. Nothing else moves.
+            // Provider RETURNING capability decides this clause and output kind.
+            // The non-returning control below keeps insertId transport.
             sql: `INSERT INTO ${q("parity_f_hubs")} (${q("name")}, ${q("tag")}) VALUES (${p(1)}, ${p(2)})${returningClause}`,
             params: ["H", "t"],
             outputs: { id: identityOutput },
@@ -468,7 +465,7 @@ for (const substrate of [
       );
       if (substrate.foldsCteWithMutations) {
         expect(fragmentContract(driver, operation.compile({}))).toEqual(
-          FOLDED_TWO_CHILDREN
+          foldedTwoChildren(substrate.terminalExpects)
         );
         return;
       }
@@ -544,7 +541,7 @@ for (const substrate of [
                   sql: `INSERT INTO ${q("parity_f_hubs")} (${q("name")}, ${q("tag")}) VALUES (${p(1)}, NULL) RETURNING ${q("name")} AS ${q("name")}`,
                   params: ["H"],
                   outputs: { result: { kind: "rows" } },
-                  expects: CREATE_TERMINAL_FAILURE,
+                  expects: substrate.terminalExpects,
                   racePin: null,
                   onUniqueConflict: null,
                 },
@@ -596,7 +593,7 @@ for (const substrate of [
                   sql: `INSERT INTO ${q("parity_f_crates")} (${q("id")}, ${q("slotKey")}) VALUES (${p(1)}, NULL) RETURNING ${q("id")} AS ${q("id")}`,
                   params: ["c1"],
                   outputs: { result: { kind: "rows" } },
-                  expects: CREATE_TERMINAL_FAILURE,
+                  expects: substrate.terminalExpects,
                   racePin: null,
                   onUniqueConflict: null,
                 },
@@ -806,15 +803,23 @@ describe("parity F — the cannot-resolve refusals §F4 re-sorts", () => {
 
   test.each([
     [
-      // CreateOperation.referencedValue — a child-held leaf's own FK column. This row and
-      // the next reach the SAME site (:1969) by two payload paths; the message cannot tell
-      // them apart, so the labels carry the distinction.
+      // A child-held nested CREATE leaf. RESIDUAL I re-measured this row: it no longer
+      // reaches position `childEdge`, and the change is the lift's rather than a drift.
+      // A nested create now carries an `incomingMembership` like the adopt kinds do — the
+      // seam the composed-supplier and record-series work needed — and that binding is
+      // built from `childEdgeMembers` BEFORE `childFkAssign` runs, so the whole-value
+      // parent source is what asks first and `parentId` is the position that answers.
+      // Same site (15, `requireRecordReferenced`), same class, same construction phase,
+      // zero effects; only the noun moved, and it moved to the one that is now true.
       "a nested create leaf",
       hubCreate({ marks: { create: { id: "m1" } } }),
-      "query-engine-v2 create cannot resolve referenced field 'tag' for relation 'marks': it is neither this record's primary key nor a knowable value in its own create data.",
+      "query-engine-v2 create cannot resolve the parent id for relation 'marks': referenced field 'tag' is neither this record's primary key nor a knowable value in its own create data.",
     ],
     [
-      // Same site, reached through the connect Part's FK assignment.
+      // The connect leaf still reaches `childEdge`: a connect Part takes the per-column FK
+      // assignment directly, with no membership binding built ahead of it. The two rows
+      // therefore no longer share a position, which is why they no longer share a message
+      // — the earlier note here claimed they did, and that claim expired with the seam.
       "a connect leaf",
       hubCreate({ marks: { connect: { id: "m1" } } }),
       "query-engine-v2 create cannot resolve referenced field 'tag' for relation 'marks': it is neither this record's primary key nor a knowable value in its own create data.",
@@ -843,8 +848,11 @@ describe("parity F — the cannot-resolve refusals §F4 re-sorts", () => {
       "query-engine-v2 create cannot resolve referenced field 'slotKey' for the before-parent target of relation 'crate': it is neither that record's primary key nor a knowable value in its own create data.",
     ],
     [
-      // RecordUpdateCompiler.beforeTargetReferencedValue — the same fact at an update
-      // root, where the enclosing statement is an UPDATE rather than an INSERT.
+      // The same fact at an update root, where the enclosing statement is an UPDATE
+      // rather than an INSERT. Residual G deleted the update root's own site: the
+      // before-root target now demands the value from its own fresh subtree
+      // (`FreshRecordPart.requireRootReferenced`), so `requireRecordReferenced`
+      // answers under position `beforeRootTarget` and this sentence is unchanged.
       "a before-root target under an update root",
       () =>
         new UpdateOperation(

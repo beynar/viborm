@@ -119,7 +119,9 @@ function makeClient(driver: AnyDriver) {
 }
 
 export function runExtendedWhereUniqueBehavior(
-  options: { readonly name: string } & BehaviorDatabaseSource
+  options: {
+    readonly name: string;
+  } & BehaviorDatabaseSource
 ): void {
   describe(`${options.name} extended whereUnique`, () => {
     const openDatabase = useBehaviorDatabase(
@@ -135,11 +137,11 @@ export function runExtendedWhereUniqueBehavior(
       await client.account.create({
         data: { id: 2, email: "gone@x", status: "archived", score: 20 },
       });
-      await client.ticket.create({
-        data: { email: "seed@x", status: "active", score: 7 },
+      await client.ticket.createMany({
+        data: [{ email: "seed@x", status: "active", score: 7 }],
       });
-      await client.note.create({
-        data: { label: "seed", status: "active", score: 7 },
+      await client.note.createMany({
+        data: [{ label: "seed", status: "active", score: 7 }],
       });
       // boss ← mid ← kid: `mid` has both a parent and a child, `boss` only a
       // child, `kid` only a parent — so every self-relation filter below has a
@@ -485,12 +487,13 @@ export function runExtendedWhereUniqueBehavior(
         // itself — a value the create data cannot reproduce — so the row written
         // gets a different id than the one asked for, and the captured identity is
         // the only thing that can address it.
-        const created = await client.note.upsert({
+        const operation = client.note.upsert({
           where: { id: 999 },
           create: { label: "captured", status: "fresh", score: 1 },
           update: { score: { increment: 100 } },
           select: { label: true, status: true, score: true },
         });
+        const created = await operation;
         expect(created).toEqual({
           label: "captured",
           status: "fresh",

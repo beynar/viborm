@@ -1,6 +1,7 @@
 // Relation Helpers
 // Junction table utility functions for many-to-many relations
 
+import { isValidSchemaIdentifier } from "../identifier";
 import type { ManyToManyRelationState, RelationState } from "./types";
 
 // =============================================================================
@@ -134,18 +135,164 @@ export function getJunctionTableName(
 }
 
 /**
- * Get the junction column names for a many-to-many relation
- * Returns [sourceColumnName, targetColumnName]
+ * Get the legacy scalar junction column names.
  *
- * Explicit .A()/.B() from either side of the relation pair wins (the paired
- * relation's A/B are swapped relative to this side). Defaults derive from the
- * model names; a self-referential relation gets distinct A/B columns since
- * both would otherwise collapse to the same name.
+ * @deprecated This two-string projection cannot represent compound junction
+ * sides. Engine and migration consumers must use the schema-owned complete group
+ * resolver instead. It remains exported only for scalar API compatibility.
  */
 export function getJunctionFieldNames(
   relation: RelationLike,
   sourceModelName: string,
   targetModelName: string
+): [string, string] {
+  return resolveJunctionFieldTokens(
+    relation,
+    sourceModelName,
+    targetModelName,
+    false,
+    false
+  );
+}
+
+export interface JunctionFieldGroup {
+  /** The public `.A()` / `.B()` token, or its generated equivalent. */
+  readonly token: string;
+  /** Complete ordered junction columns for this endpoint's row key. */
+  readonly fields: readonly string[];
+}
+
+export interface JunctionFieldGroups {
+  readonly source: JunctionFieldGroup;
+  readonly target: JunctionFieldGroup;
+}
+
+export type JunctionConstraintKind = "fkey" | "idx";
+
+export class JunctionPhysicalNameError extends Error {
+  readonly kind: "collision" | "invalidIdentifier";
+
+  constructor(kind: "collision" | "invalidIdentifier", message: string) {
+    super(message);
+    this.name = "JunctionPhysicalNameError";
+    this.kind = kind;
+  }
+}
+
+/** Derive one portable junction constraint name from the side naming token. */
+export function getJunctionConstraintName(
+  table: string,
+  side: JunctionFieldGroup,
+  kind: JunctionConstraintKind
+): string {
+  const name = `${table}_${side.token}_${kind}`;
+  if (!isValidSchemaIdentifier(name)) {
+    throw new JunctionPhysicalNameError(
+      "invalidIdentifier",
+      `Generated junction ${kind} name '${name}' is not a valid SQL identifier.`
+    );
+  }
+  return name;
+}
+
+/**
+ * Resolve both complete junction sides from the two scalar naming tokens.
+ *
+ * `.A()` and `.B()` keep their historical exact-column meaning for a scalar
+ * row key. For a compound row key they are prefixes, expanded positionally in
+ * the model key catalog's order. Public configuration therefore never owns a
+ * second list of primary-key members or their pairing.
+ */
+export function getJunctionFieldGroups(
+  relation: RelationLike,
+  sourceModelName: string,
+  targetModelName: string,
+  sourceRowKeyFields: readonly string[],
+  targetRowKeyFields: readonly string[]
+): JunctionFieldGroups {
+  if (sourceRowKeyFields.length === 0) {
+    throw new Error(
+      `Model '${sourceModelName}' has no primary key; a junction side requires a complete row key.`
+    );
+  }
+  if (targetRowKeyFields.length === 0) {
+    throw new Error(
+      `Model '${targetModelName}' has no primary key; a junction side requires a complete row key.`
+    );
+  }
+  const [sourceToken, targetToken] = resolveJunctionFieldTokens(
+    relation,
+    sourceModelName,
+    targetModelName,
+    sourceRowKeyFields.length > 1,
+    targetRowKeyFields.length > 1
+  );
+  for (const token of [sourceToken, targetToken]) {
+    if (!isValidSchemaIdentifier(token)) {
+      throw new JunctionPhysicalNameError(
+        "invalidIdentifier",
+        `Junction side prefix '${token}' is not a valid SQL identifier.`
+      );
+    }
+  }
+  const source = junctionFieldGroup(sourceToken, sourceRowKeyFields.length);
+  const target = junctionFieldGroup(targetToken, targetRowKeyFields.length);
+  const occupied = new Map<string, string>();
+  for (const field of [...source.fields, ...target.fields]) {
+    if (!isValidSchemaIdentifier(field)) {
+      throw new JunctionPhysicalNameError(
+        "invalidIdentifier",
+        `Expanded junction field '${field}' is not a valid SQL identifier.`
+      );
+    }
+    const portableName = field.toLowerCase();
+    const previous = occupied.get(portableName);
+    if (previous !== undefined) {
+      throw new JunctionPhysicalNameError(
+        "collision",
+        `Junction fields '${previous}' and '${field}' collide after compound-prefix expansion.`
+      );
+    }
+    occupied.set(portableName, field);
+  }
+  return { source, target };
+}
+
+/** Canonical physical side order shared by snapshots and bound membership. */
+export function junctionSourceSideIsFirst(
+  sourceModelName: string,
+  sourceFields: readonly string[],
+  targetModelName: string,
+  targetFields: readonly string[]
+): boolean {
+  const sourceModel = sourceModelName.toLowerCase();
+  const targetModel = targetModelName.toLowerCase();
+  if (sourceModel !== targetModel) return sourceModel < targetModel;
+  return sourceFields.join("\0") <= targetFields.join("\0");
+}
+
+function junctionFieldGroup(
+  token: string,
+  rowKeyArity: number
+): JunctionFieldGroup {
+  return {
+    token,
+    fields:
+      rowKeyArity === 1
+        ? [token]
+        : Array.from(
+            { length: rowKeyArity },
+            (_, index) => `${token}_${index + 1}`
+          ),
+  };
+}
+
+function resolveJunctionFieldTokens(
+  relation: RelationLike,
+  sourceModelName: string,
+  targetModelName: string,
+  sourceIsCompound: boolean,
+  targetIsCompound: boolean
 ): [string, string] {
   const state = relation["~"].state as ManyToManyRelationState;
   const paired =
@@ -178,11 +325,20 @@ export function getJunctionFieldNames(
     // ponytail: single self-relation traverses A→B only; the reverse direction
     // needs a paired relation with explicit .A()/.B()
     const lower = sourceModelName.toLowerCase();
-    return [sourceFieldName ?? `${lower}AId`, targetFieldName ?? `${lower}BId`];
+    return [
+      sourceFieldName ?? `${lower}A${sourceIsCompound ? "" : "Id"}`,
+      targetFieldName ?? `${lower}B${targetIsCompound ? "" : "Id"}`,
+    ];
   }
 
   return [
-    sourceFieldName ?? generateJunctionFieldName(sourceModelName),
-    targetFieldName ?? generateJunctionFieldName(targetModelName),
+    sourceFieldName ??
+      (sourceIsCompound
+        ? sourceModelName.toLowerCase()
+        : generateJunctionFieldName(sourceModelName)),
+    targetFieldName ??
+      (targetIsCompound
+        ? targetModelName.toLowerCase()
+        : generateJunctionFieldName(targetModelName)),
   ];
 }

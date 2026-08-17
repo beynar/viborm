@@ -69,10 +69,6 @@ const NO_UNIQUE_DISCRIMINATOR = /requires at least one unique discriminator/;
 const MISMATCHED_FK = /mismatched foreign-key metadata/;
 const NON_NULLABLE_PK = /Expected integer|Expected object/;
 const NOT_A_READ_BASE = /is not a read base/;
-// E3 — the upsert UPDATE arm's direction boundary replaced the child-held adopt
-// builder's relation-type gate as the answer a parent-held to-one grandchild meets.
-const ARM_EDGE_IS_PARENT_HELD =
-  /does not support a parent-held to-one write on relation .* one level deeper on the update arm/;
 
 const schemas = createSchemaRegistry(nestedWriteBehaviorSchema);
 
@@ -920,27 +916,36 @@ describe("N7-U-A — the TWO (c-i) claims that failed re-verification", () => {
    * `relationInfo.type` no longer reaches the child-held adopt builder — its type gate is
    * an engine invariant again, and the (c-i) claim it lost is restored WITH the reason.
    *
-   * This payload is still refused, still typed, and still at construction — that is what
-   * this witness keeps pinning. Only WHICH boundary answers changed: the parent-held
-   * direction now has its own wording at the arm (`assertArmEdgeIsChildHeld`), which says
-   * the thing the caller can act on — the arm's own row holds that foreign key, so the
-   * write belongs in the arm's UPDATE SET. The class assertion below is the load-bearing
-   * half: an absorption may not turn a typed refusal into an internal error, and this
-   * proves it did not.
-   *
-   * B3 of the limitation lift tried to delete `assertArmEdgeIsChildHeld` and was
-   * FALSIFIED at the package gate: the record compiler's fold is real, but the arm's own
-   * incoming membership silently overwrites it on the relation the upsert traversed —
+   * B3 of the earlier limitation lift tried to delete `assertArmEdgeIsChildHeld` and was
+   * FALSIFIED at its package gate: the record compiler's fold was real, but the arm's own
+   * incoming membership silently overwrote it on the relation the upsert traversed —
    * which is exactly this payload's `author` under `posts`. Measured record in
    * `nested-arm-dispatch.test.ts`.
+   *
+   * RESIDUAL PACKAGE C THEN LIFTED IT, by removing the overwrite rather than the guard.
+   * `RecordUpdateCompiler` became the one reconciler of final assignments per physical
+   * column, so correlated incoming membership is a locate/guard premise instead of an
+   * unconditional re-assignment, and a membership WRITER on the arm's own parent-held edge
+   * — `connect`, `create`, `connectOrCreate`, `disconnect` — is reconciled instead of
+   * refused. The five-capability selected-row-continuity pass narrowed the survivor
+   * again: stable correlated update and found-upsert re-entry now consume the selected
+   * compiler's captured/final complete key. `refuseIncomingParentMutation` retains only
+   * same-incoming delete/global-adopt and a re-entry that itself changes the incoming
+   * row key and would need to publish another final tuple outward.
+   *
+   * So this witness inverts: the payload that named the deleted boundary now COMPILES, and
+   * that is what keeps a future absorption honest — restoring a broad direction refusal here
+   * would turn this green assertion red. The assignment behavior itself belongs to
+   * `nested-arm-dispatch.test.ts`'s same-edge matrix and `parity-b-upsert-arm.test.ts`;
+   * this file only owns "which boundary answers at construction", and the answer is now
+   * "none".
    */
-  test("the parent-held to-one connectOrCreate on an upsert update arm is refused by DIRECTION", () => {
+  test("the parent-held to-one connectOrCreate on an upsert update arm now compiles", () => {
     const engine = new QueryEngine(
       new PGliteDriver(),
       createModelRegistry(nestedWriteBehaviorSchema, schemas)
     );
-    let refusal: unknown;
-    try {
+    expect(
       constructRoutedOperation(
         engine,
         nestedWriteBehaviorSchema.user,
@@ -966,40 +971,13 @@ describe("N7-U-A — the TWO (c-i) claims that failed re-verification", () => {
             },
           },
         }
-      );
-    } catch (error) {
-      refusal = error;
-    }
-    expect(refusal).toBeInstanceOf(UnsupportedOperationError);
-    expect((refusal as Error).message).toMatch(ARM_EDGE_IS_PARENT_HELD);
+      )
+    ).toBeDefined();
   });
 });
 
-/**
- * PACKAGE O — the conversion law applied to the compound many-to-many refusal.
- *
- * `CreateOperation.edgeParentId` carried an `UnsupportedOperationError` whose docblock
- * claimed it reached the compound-primary-key fact "one statement earlier" than
- * `getRequiredSinglePrimaryKeyField` (reached then through `getManyToManyJoinInfo`,
- * deleted in Phase 3; the junction bind reaches it now). The guard ownership
- * ledger (`docs/architecture/guard-ownership-ledger.md`, cluster 9) recorded it as the
- * one survivor kept AGAINST §O3 clause 1 by the plan's §N2 mandate, with no falsifier,
- * and asked this lane to write one.
- *
- * The witness could not be written, because the claim was false — which this test now
- * pins instead. A junction program on a compound-primary-key model is answered by the
- * OwnWrite analyzer at the record-program boundary, BEFORE `CreateOperation` interprets
- * any relation, so no payload ever reached the site. Its refusal became a
- * `QueryEngineError` naming the structural invariant (§7.4's limitation keeps its engine
- * owner — a better-worded one, since this message names the surrogate-key remedy).
- *
- * What this asserts is therefore what the census needs: the shape is still REFUSED, at
- * CONSTRUCTION, with a typed error and no I/O, and the owner that answers is the m2m
- * resolution every other m2m shape already meets. §7.4's rule is intact: the fact is
- * refused in the ENGINE and has NOT been restated as a validation rule to move the error
- * earlier — the parse boundary accepts this payload.
- */
-describe("Package O — the compound many-to-many owner", () => {
+/** Package O's former structural refusal is now a positive construction seam. */
+describe("compound many-to-many construction", () => {
   const compoundJunctionSchema = (() => {
     const doc = s
       .model({
@@ -1022,10 +1000,10 @@ describe("Package O — the compound many-to-many owner", () => {
     return { doc, label };
   })();
 
-  test("a compound primary key carrying a many-to-many relation", async () => {
-    const client = publicClient(compoundJunctionSchema);
-    const error = await refusalOf(() =>
-      client.doc.create({
+  test("a compound primary key carrying a many-to-many relation constructs", () => {
+    const engine = routedEngine(compoundJunctionSchema);
+    expect(
+      constructRoutedOperation(engine, compoundJunctionSchema.doc, "create", {
         data: {
           tenantId: "t1",
           id: "d1",
@@ -1033,18 +1011,6 @@ describe("Package O — the compound many-to-many owner", () => {
           labels: { connect: { id: "l1" } },
         },
       })
-    );
-    // NOT the parse boundary: §N2 forbids sealing the future topology in validation,
-    // and nothing has.
-    expect(error).not.toBeInstanceOf(ValidationError);
-    // The m2m resolution owner, reached through OwnWrite — one statement EARLIER than
-    // the site that used to claim primacy.
-    expect(error.message).toContain(
-      'Model "doc" uses a compound primary key. Many-to-many relations with compound PKs are not supported.'
-    );
-    expect(error.stack).toContain("getRequiredSinglePrimaryKeyField");
-    expect(error.stack).toContain("OwnWrite");
-    // And the site that used to answer here is not what the caller meets.
-    expect(error.message).not.toContain("compound child edge");
+    ).toBeDefined();
   });
 });

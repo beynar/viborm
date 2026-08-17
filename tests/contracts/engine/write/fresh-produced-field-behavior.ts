@@ -336,7 +336,7 @@ export function registerProducedFieldBehavior(
           data: { id: "d9", name: "D", latches: { create: { id: "l9" } } },
         })
       ).rejects.toThrow(
-        "query-engine-v2 create cannot resolve referenced field 'slot' for relation 'latches': it is neither this record's primary key nor a knowable value in its own create data."
+        "query-engine-v2 create cannot resolve the parent id for relation 'latches': referenced field 'slot' is neither this record's primary key nor a knowable value in its own create data."
       );
     });
   });

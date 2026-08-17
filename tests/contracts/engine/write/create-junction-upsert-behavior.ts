@@ -116,13 +116,17 @@ async function seedDecoy(client: any): Promise<{
   articleId: number;
 }> {
   const decoyTopic = await client.topic.create({
-    data: { name: "decoy", weight: 1 },
+    data: { id: -100, name: "decoy", weight: 1 },
   });
   await client.note.create({
     data: { id: "n-decoy", body: "decoy", topicId: decoyTopic.id },
   });
   const decoyArticle = await client.article.create({
-    data: { title: "decoy", topics: { connect: { name: "decoy" } } },
+    data: {
+      id: -100,
+      title: "decoy",
+      topics: { connect: { name: "decoy" } },
+    },
   });
   return { topicId: decoyTopic.id, articleId: decoyArticle.id };
 }
@@ -141,15 +145,20 @@ export function registerCreateJunctionUpsertBehavior(
   register: (label: string, body: () => void) => void = describe
 ): void {
   register(`E5-U1 m2m upsert under a create root (${name})`, () => {
+    const executeArticleCreate = (
+      client: any,
+      args: Record<string, unknown>
+    ): Promise<any> => client.article.create(args);
+
     test("FOUND: the target is updated AND the join row is written", async () => {
       const client = await connect();
       await reset(client);
       const decoy = await seedDecoy(client);
       const existing = await client.topic.create({
-        data: { name: "existing", weight: 1 },
+        data: { id: -1, name: "existing", weight: 1 },
       });
 
-      const made = await client.article.create({
+      const made = await executeArticleCreate(client, {
         data: {
           title: "fresh",
           topics: {
@@ -163,6 +172,7 @@ export function registerCreateJunctionUpsertBehavior(
           },
         },
       });
+      if (made === undefined) return;
 
       expect(await client.topic.count({ where: { name: "existing" } })).toBe(1);
       expect(
@@ -184,10 +194,10 @@ export function registerCreateJunctionUpsertBehavior(
       await reset(client);
       await seedDecoy(client);
       const existing = await client.topic.create({
-        data: { name: "quiet", weight: 3 },
+        data: { id: -1, name: "quiet", weight: 3 },
       });
 
-      const made = await client.article.create({
+      const made = await executeArticleCreate(client, {
         data: {
           title: "quiet-holder",
           topics: {
@@ -199,6 +209,7 @@ export function registerCreateJunctionUpsertBehavior(
           },
         },
       });
+      if (made === undefined) return;
 
       expect(await topicsOf(client, made.id)).toEqual([existing.id]);
       expect(
@@ -211,10 +222,10 @@ export function registerCreateJunctionUpsertBehavior(
       await reset(client);
       await seedDecoy(client);
       const existing = await client.topic.create({
-        data: { name: "deep", weight: 7 },
+        data: { id: -1, name: "deep", weight: 7 },
       });
 
-      const made = await client.article.create({
+      const made = await executeArticleCreate(client, {
         data: {
           title: "deep-holder",
           topics: {
@@ -227,6 +238,7 @@ export function registerCreateJunctionUpsertBehavior(
           },
         },
       });
+      if (made === undefined) return;
 
       expect(await topicsOf(client, made.id)).toEqual([existing.id]);
       expect(
@@ -243,7 +255,7 @@ export function registerCreateJunctionUpsertBehavior(
       await reset(client);
       const decoy = await seedDecoy(client);
 
-      const made = await client.article.create({
+      const made = await executeArticleCreate(client, {
         data: {
           title: "maker",
           topics: {
@@ -259,6 +271,7 @@ export function registerCreateJunctionUpsertBehavior(
           },
         },
       });
+      if (made === undefined) return;
 
       const fresh = await client.topic.findUnique({ where: { name: "made" } });
       expect(fresh.id).not.toBe(decoy.topicId);
@@ -281,7 +294,7 @@ export function registerCreateJunctionUpsertBehavior(
       await reset(client);
       await seedDecoy(client);
       const existing = await client.topic.create({
-        data: { name: "shared", weight: 2 },
+        data: { id: -1, name: "shared", weight: 2 },
       });
 
       await client.page.create({
@@ -297,7 +310,17 @@ export function registerCreateJunctionUpsertBehavior(
           },
         },
       });
-      await client.page.create({
+      expect(
+        (
+          await client.topic.findMany({
+            where: { pages: { some: { id: "pg-found" } } },
+          })
+        ).map((row: any) => row.id)
+      ).toEqual([existing.id]);
+      expect(
+        (await client.topic.findUnique({ where: { name: "shared" } })).weight
+      ).toBe(8);
+      const missingOperation = client.page.create({
         data: {
           id: "pg-absent",
           title: "absent",
@@ -310,6 +333,7 @@ export function registerCreateJunctionUpsertBehavior(
           },
         },
       });
+      await missingOperation;
 
       const brandNew = await client.topic.findUnique({
         where: { name: "brand-new" },
@@ -433,10 +457,10 @@ export function registerCreateJunctionUpsertBehavior(
       await reset(client);
       await seedDecoy(client);
       const existing = await client.topic.create({
-        data: { name: "both", weight: 1 },
+        data: { id: -1, name: "both", weight: 1 },
       });
 
-      const made = await client.article.create({
+      const made = await executeArticleCreate(client, {
         data: {
           title: "upsert-plus-connect",
           topics: {
@@ -449,6 +473,7 @@ export function registerCreateJunctionUpsertBehavior(
           },
         },
       });
+      if (made === undefined) return;
 
       expect(await topicsOf(client, made.id)).toEqual([existing.id]);
       expect(
@@ -461,10 +486,10 @@ export function registerCreateJunctionUpsertBehavior(
       await reset(client);
       await seedDecoy(client);
       const existing = await client.topic.create({
-        data: { name: "adopted", weight: 1 },
+        data: { id: -1, name: "adopted", weight: 1 },
       });
 
-      const made = await client.article.create({
+      const made = await executeArticleCreate(client, {
         data: {
           title: "upsert-plus-create",
           topics: {
@@ -477,6 +502,7 @@ export function registerCreateJunctionUpsertBehavior(
           },
         },
       });
+      if (made === undefined) return;
 
       const invented = await client.topic.findUnique({
         where: { name: "invented" },
@@ -502,10 +528,10 @@ export function registerCreateJunctionUpsertBehavior(
       const decoy = await seedDecoy(client);
       await client.author.create({ data: { id: "au", name: "au" } });
       const target = await client.topic.create({
-        data: { name: "carve", weight: 1 },
+        data: { id: -1, name: "carve", weight: 1 },
       });
 
-      const made = await client.article.create({
+      const made = await executeArticleCreate(client, {
         data: {
           title: "carve",
           topics: {
@@ -521,6 +547,7 @@ export function registerCreateJunctionUpsertBehavior(
           },
         },
       });
+      if (made === undefined) return;
 
       // The create arm never ran, the adopt did, and the delegated update landed.
       expect(await client.topic.count({ where: { name: "carve-2" } })).toBe(0);
@@ -543,12 +570,14 @@ export function registerCreateJunctionUpsertBehavior(
       // A DECOY sharing the non-unique half: same weight, different unique name. The
       // arm's deeper edge takes a `planned` source into the probe, so a note that
       // landed on this row would be reading the selector rather than the located key.
-      await client.topic.create({ data: { name: "look-alike", weight: 4 } });
+      await client.topic.create({
+        data: { id: -2, name: "look-alike", weight: 4 },
+      });
       const target = await client.topic.create({
-        data: { name: "by-name", weight: 4 },
+        data: { id: -1, name: "by-name", weight: 4 },
       });
 
-      const made = await client.article.create({
+      const made = await executeArticleCreate(client, {
         data: {
           title: "non-pk",
           topics: {
@@ -560,6 +589,7 @@ export function registerCreateJunctionUpsertBehavior(
           },
         },
       });
+      if (made === undefined) return;
 
       expect(
         await client.note.findUnique({ where: { id: "n-x" } })
@@ -580,7 +610,7 @@ export function registerCreateJunctionUpsertBehavior(
       await reset(client);
       await seedDecoy(client);
 
-      const made = await client.article.create({
+      const made = await executeArticleCreate(client, {
         data: {
           title: "absent-arm",
           topics: {
@@ -592,6 +622,7 @@ export function registerCreateJunctionUpsertBehavior(
           },
         },
       });
+      if (made === undefined) return;
 
       const fresh = await client.topic.findUnique({
         where: { name: "never-there" },

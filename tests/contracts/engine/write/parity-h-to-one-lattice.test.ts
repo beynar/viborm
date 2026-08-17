@@ -1185,7 +1185,7 @@ describe("parity H — create root, child-held create: the CTE fold", () => {
     });
   });
 
-  test("the atomic batch keeps the same three statements unfolded", () => {
+  test("the atomic batch uses the same exact CTE fold without transaction-only expects", () => {
     const driver = new BatchOnlyPGliteDriver();
     const operation = hubCreateOperation(driver, {
       id: "h1",
@@ -1197,17 +1197,13 @@ describe("parity H — create root, child-held create: the CTE fold", () => {
       steps: [
         write(
           "hub.create",
-          'INSERT INTO "ph_hubs" ("id", "label", "ownerId") VALUES ($1, $2, NULL)',
-          ["h1", "L"]
+          'WITH "__viborm_mutation" AS (INSERT INTO "ph_hubs" ("id", "label", "ownerId") VALUES ($1, $2, NULL) RETURNING "id", "label", "ownerId"), "__viborm_write_0" AS (INSERT INTO "ph_badges" ("id", "tag", "hubId") VALUES ($3, $4, CAST($5 AS TEXT))) SELECT "t0"."id" AS "id" FROM "__viborm_mutation" AS "t0"',
+          ["h1", "L", "b9", "fresh", "h1"],
+          null,
+          { result: ROWS }
         ),
-        write(
-          "badge.create",
-          'INSERT INTO "ph_badges" ("id", "tag", "hubId") VALUES ($1, $2, CAST($3 AS TEXT))',
-          ["b9", "fresh", "h1"]
-        ),
-        read("hub.select", HUB_ROW_SQL, ["h1"], { result: ROWS }),
       ],
-      outputs: { result: reference("hub.select", "result") },
+      outputs: { result: reference("hub.create", "result") },
     });
   });
 });
@@ -1250,45 +1246,15 @@ describe("parity H — every multi-intent refusal, verbatim", () => {
    * that permutes the entries is caught by the message rather than by nothing.
    */
   test.each([
-    // PACKAGE H RETARGET — these four are ACCEPTED by the lattice now, so this block no
-    // longer owns them; their acceptance and final state are pinned in
-    // "parity H — the compositions the lattice accepts" below. What stayed refused, and
-    // what now owns each refusal, is recorded there too.
+    // PACKAGE H RETARGET — four shapes became ACCEPTED there, and PACKAGE E has since
+    // taken the last three this block owned: `create + update`,
+    // `connectOrCreate + update` and `delete + create + update` all EXECUTE now, as a
+    // supplier followed by a record-series continuation. Their step shape is pinned in
+    // "parity H — the compositions the lattice accepts" below and their state in
+    // `supplier-continuation-behavior.ts`; the own-write refusal E did NOT widen —
+    // `delete + connect + update`, whose modify still reads a construction-time
+    // selector — is pinned there too.
     //
-    // The three composed shapes below reach a DIFFERENT owner than the arity guard H
-    // deleted, and each is pinned here with the sentence that owner spells:
-    [
-      "connectOrCreate + update — the produced-identity channel, not arity",
-      "update",
-      {
-        badge: {
-          update: { tag: "t" },
-          connectOrCreate: {
-            where: { id: "b-alt" },
-            create: { id: "b-alt", tag: "n" },
-          },
-        },
-      },
-      "query-engine-v2 update cannot compose 'connectOrCreate' with 'update' on the to-one relation 'badge': the modify addresses the supplied row through a planning read, and a 'connectOrCreate' supplier only produces that row's identity when it inserts it.",
-    ],
-    [
-      "create + update — the produced-identity channel, not arity",
-      "update",
-      { badge: { update: { tag: "t" }, create: { id: "b9", tag: "fresh" } } },
-      "query-engine-v2 update cannot compose 'create' with 'update' on the to-one relation 'badge': the modify addresses the supplied row through a planning read, and a 'create' supplier only produces that row's identity when it inserts it.",
-    ],
-    [
-      "delete + create + update — the own-write ledger, not arity",
-      "update",
-      {
-        badge: {
-          delete: true,
-          create: { id: "b9", tag: "fresh" },
-          update: { tag: "t" },
-        },
-      },
-      "Nested operation 'update' on relation 'badge' depends on an earlier 'delete' membership write in the same nested write. Split these operations into separate queries.",
-    ],
     // H1 keeps refusing these. Same message shape, opposite fate.
     [
       "supplier + supplier",
@@ -1440,10 +1406,13 @@ describe("parity H — every multi-intent refusal, verbatim", () => {
  * multi-entry payload is supplier + supplier, which the two create-root rows in the
  * refusal block above prove the SCHEMA answers first.
  *
- * ONE new site replaces them, and it is not the same claim: `create` / `connectOrCreate`
- * composed with `update` is refused by the engine's missing produced-identity channel,
- * pinned verbatim in the refusal block above. `connect + update` composes, because a
- * unique selector is an identity that exists before the fragment's first write.
+ * ONE new site replaced them, and it is not the same claim: `create` / `connectOrCreate`
+ * composed with `update` was refused by the engine's missing produced-identity channel.
+ * RESIDUAL PACKAGE E DELETED THAT SITE, without building the channel: `connect + update`
+ * still composes directly, because a unique selector is an identity that exists before
+ * the fragment's first write, and a PRODUCING supplier's modify becomes a nested
+ * one-member record series captured by post-supply membership instead. Both plans are
+ * pinned in the composition block below.
  *
  * What this block pins, unchanged in claim and rewritten in mechanism: that the PAYLOAD's
  * key order does not decide the plan. Before H the accepted order came from
@@ -1643,6 +1612,43 @@ describe("parity H — the compositions the lattice accepts", () => {
     });
   }
 
+  for (const substrate of SUBSTRATES) {
+    /**
+     * PACKAGE E — the PRODUCING supplier's shape, which is the whole difference. A
+     * `connect` modify contributes a second planning probe (`badge.find#1` above); a
+     * `create` modify contributes NONE, because its row does not exist while planning
+     * runs. What it contributes instead is one `recordSeries` step, emitted after the
+     * supplier's own write, whose capture reads membership and whose single member is
+     * an ordinary selected-record update.
+     */
+    test(`child-held create + update plans no probe and compiles a series (${substrate.name})`, () => {
+      const driver = substrate.make();
+      const operation = hubUpdateOperation(driver, {
+        badge: { update: { tag: "t" }, create: { id: "b9", tag: "fresh" } },
+      });
+      const final = operation.compile(COMPOSED_KNOWN).steps;
+      expect({
+        planning: operation.planning().steps.map((step) => step.id),
+        final: final.map((step) => step.id),
+        seriesKinds: final.map((step) => step.kind),
+      }).toEqual({
+        planning: ["hub.locate"],
+        final: [
+          ...(substrate.batch ? ["hub.guard.exists"] : []),
+          "badge.create",
+          "badge.update",
+          "hub.select",
+        ],
+        seriesKinds: [
+          ...(substrate.batch ? ["guard"] : []),
+          "write",
+          "recordSeries",
+          "read",
+        ],
+      });
+    });
+  }
+
   /**
    * THE WRONG-ROW DECOY, at the level this file owns: the composed modify's probe must
    * not mention the parent's foreign key or the membership correlation at all. If it
@@ -1678,45 +1684,15 @@ describe("parity H — the compositions the lattice accepts", () => {
 });
 
 /**
- * PACKAGE H — ONE MORE INSTANCE OF PACKAGE G's MEASURED CLASS, recorded and NOT closed.
+ * PACKAGE H recorded ONE MORE INSTANCE OF PACKAGE G's MEASURED CLASS here — an untaken
+ * upsert create arm still ran the found arm's construction-time SHAPE refusals, so a
+ * producing supplier beside a modify refused the whole tree even when the row was
+ * ABSENT. PACKAGE E removes that instance by removing the refusal: the composition is
+ * now a construction-time PLAN, and an untaken arm's plan is inert exactly like every
+ * other untaken arm's.
  *
- * G's carry-forward item 3: "an untaken create arm still runs every construction-time
- * SHAPE refusal in the found arm's subtree, because `RecordUpdateCompilerState`
- * interprets programs in its constructor". H's composition site is a construction-time
- * refusal in exactly that position, so a `create`/`connectOrCreate` supplier beside a
- * modify, spelled inside an upsert's UPDATE arm, refuses the whole tree even when the
- * row is ABSENT and the CREATE arm is the one that would run.
- *
- * MEASURED here rather than argued: the row does not exist, the create arm carries a
- * payload that would succeed on its own, and the tree is still refused with nothing
- * written. That is a fact about WHERE the site sits, not about the composition — every
- * other construction-time refusal in that subtree behaves the same way, which is why
- * this is one more instance of a class and not a new defect. Closing it means deferring
- * the whole selected-record interpretation to the taken branch (the shape of Package G's
- * `updateLegality` deferral, widened), which is a Package O decision, not H's.
+ * The class itself is not claimed closed — a genuinely refusing construction-time site
+ * in an untaken found arm still refuses. The retargeted witness needs a live database
+ * (the create arm now RUNS), so it lives with the rest of the composition's behavior in
+ * `supplier-continuation-behavior.ts`, "an untaken upsert update arm".
  */
-describe("parity H — the composition site is eager on an untaken upsert arm", () => {
-  test("an absent row still refuses for its untaken update arm's composition", async () => {
-    const driver = new RecordingPGliteDriver();
-    const client = createClient({ schema: parityHSchema, driver }) as any;
-    driver.recording = true;
-    const message = await client.hub
-      .upsert({
-        where: { id: "h-absent" },
-        create: { id: "h-absent", label: "L" },
-        update: {
-          badge: { create: { id: "b9", tag: "fresh" }, update: { tag: "t" } },
-        },
-        select: { id: true },
-      })
-      .then(
-        () => "EXECUTED",
-        (thrown: unknown) => (thrown as Error).message
-      );
-    expect({ message, statements: driver.statements }).toEqual({
-      message:
-        "query-engine-v2 update cannot compose 'create' with 'update' on the to-one relation 'badge': the modify addresses the supplied row through a planning read, and a 'create' supplier only produces that row's identity when it inserts it.",
-      statements: [],
-    });
-  });
-});

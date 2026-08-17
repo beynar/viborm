@@ -163,6 +163,14 @@ Generated identity capture is demand-driven. A fresh-record consumer requests
 terminal result needs the value. An unused database-generated identity does not
 force `RETURNING` or `insertId` handling onto an otherwise plain nested insert.
 
+A scalar RETURNING result can fold into one statement for an indivisible array
+member. PostgreSQL-family adapters can also fold a bounded mutation DAG when its
+result projection reads no table written by a sibling mutation CTE. On a
+non-returning transaction provider, a plural generated row key can use one
+focused read only when the create source explicitly writes another complete
+addressable unique. Otherwise the operation refuses before its INSERT rather than
+guessing which row produced the values.
+
 ```mermaid
 flowchart LR
     Payload["Schema-transformed relation payload"] --> Program["RelationMutationProgram"]
@@ -195,7 +203,12 @@ The terms do not define a global model hierarchy.
 Before emission, OwnWrite analysis rejects nested trees whose writes cannot be
 linearized safely. `RecordUpdateCompiler` and relation owners that pass it a
 selected target address the captured primary key rather than re-evaluating the
-selector.
+selector. For later relation work, the compiler also publishes one selected-row
+continuity fact: the complete captured key before the root write and the complete
+final key after it. The relation placement chooses the phase; it does not derive
+an old or new key. This is how stable same-incoming update/found-upsert and
+progressive nested work follow the exact selected row across an enclosing key
+transition.
 
 Direct polymorphic mutation intent and its inverse relation use the same exact
 discriminator-aware OwnWrite scope. The synthetic ordinary edge used to reuse
@@ -242,7 +255,7 @@ premise adds a statement but not a network round trip.
 | Junction fresh-target attachment | The outer routed operation | `RelationJunctionPart` | Junction-local INSERT for an inline target; `CreateOperation` for a delegated target | Literal identity or a demanded inline/delegated INSERT output; a missing same-target create carries `racePin` | Inline: target INSERT, junction INSERT, descendants. Delegated: complete fresh subtree, then junction INSERT |
 | Nested scalar set/bulk relation mutation | The outer routed operation | `RelationSetPart`, `RelationWritePart`, or `RelationJunctionPart` | None; the specialized Part owns set semantics | Materialized membership sets, filters, and correlated parent values | Guards precede specialized set or bulk effects; zero matches remain legal where the operation contract allows them |
 | Nested relation-bearing `createMany` / `updateMany` | The outer routed operation | The enclosing relation Part at the series position | `CreateOperation` / `RecordUpdateCompiler` for each member | Create rows keep input order; update targets are captured once and sorted by complete row key | One `RecordSeriesStep` runs ordinary member trees at that exact position, then the outer fragment resumes |
-| Scalar top-level bulk write | `CreateManyOperation`, `BulkCountOperation`, or `ManyAndReturnOperation` | The specialized shell | None; there is no one-record loop | Row-shape grouping, optional preparation writes, and captured output groups | Specialized statements preserve skip and bulk semantics; output folds concatenate rows or sum counts |
+| Scalar top-level bulk write | `CreateManyOperation`, `BulkCountOperation`, or `ManyAndReturnOperation` | The specialized shell | None; there is no one-record loop | Row-shape grouping, optional preparation writes, and captured output groups | Specialized statements preserve skip and bulk semantics; `createMany` chunks splittable compiled runs to the driver bind budget; output folds concatenate rows or sum counts |
 | Relation-bearing top-level bulk write | `CreateManyRecordSeries` or `UpdateManyRecordSeries` | The series shell fixes order and result shape; ordinary relation owners decide each member | `CreateOperation` / `RecordUpdateCompiler` | Create input order, or one captured and sorted update root set | Interactive transaction, or root D1 committed segments; grouped final reads reconstruct public input order |
 
 Junction compilation also uses exact discriminated state. Inline fresh targets
@@ -287,6 +300,13 @@ Final public reads for a series are grouped by complete row key and chunked by
 the driver's bind-parameter budget. N logical member results therefore require
 K bounded set reads, normally one, while preserving source order and exact
 missing-row failures.
+
+Write-side chunking stays with the semantic builder. `buildCreateManyPlan`
+partitions contiguous same-shape rows from the compiled bind count. Junction
+`connect` and `set` partition complete captured target-key tuples. The executor
+only enforces the final driver limit; it does not split arbitrary predicate SQL
+or complete-set guards. Every chunk remains in the operation's transaction or
+native atomic batch.
 
 ## Polymorphic relation path
 

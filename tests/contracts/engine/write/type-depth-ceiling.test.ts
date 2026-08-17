@@ -1,12 +1,11 @@
-import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { createClient } from "@client/client";
-import type { BatchQuery, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
-import { PGlite, type Transaction } from "@electric-sql/pglite";
+import { PGlite } from "@electric-sql/pglite";
 import { push } from "@migrations";
 import { s } from "@schema";
-import { describe, expect, test } from "vitest";
 import { observeClientOperations } from "@tests/contracts/engine/write/operation-observer";
+import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
+import { describe, expect, test } from "vitest";
 
 /**
  * X1b — the TS ceiling is the COMPILER's, not the boundary's.

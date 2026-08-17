@@ -322,49 +322,14 @@ export function registerVacateThenSupplyBehavior(
       ]);
     });
 
-    // PACKAGE H — the two supply-plus-modify shapes the LATTICE admits and this ENGINE
-    // still refuses, each named by its own owner rather than by an arity count. Recorded
-    // as behavior, not as a schema fact, because that is what changed: the payload now
-    // reaches the engine.
-    test("create and connectOrCreate beside a modify name the missing identity channel", async () => {
-      const client = await connect();
-      await resetVacateThenSupply(client);
-
-      await expect(
-        client.station.update({
-          where: { id: "s1" },
-          data: {
-            badge: {
-              create: { id: "b-new", tag: "fresh" },
-              update: { tag: "u" },
-            },
-          },
-        })
-      ).rejects.toThrow(
-        "query-engine-v2 update cannot compose 'create' with 'update' on the to-one relation 'badge': the modify addresses the supplied row through a planning read, and a 'create' supplier only produces that row's identity when it inserts it."
-      );
-      await expect(
-        client.station.update({
-          where: { id: "s1" },
-          data: {
-            badge: {
-              connectOrCreate: {
-                where: { id: "b-alt" },
-                create: { id: "b-alt", tag: "n" },
-              },
-              update: { tag: "u" },
-            },
-          },
-        })
-      ).rejects.toThrow(
-        "query-engine-v2 update cannot compose 'connectOrCreate' with 'update' on the to-one relation 'badge': the modify addresses the supplied row through a planning read, and a 'connectOrCreate' supplier only produces that row's identity when it inserts it."
-      );
-      // Both refuse at construction: nothing ran.
-      expect(await badges(client)).toEqual([
-        ["b-alt", "alt", null],
-        ["b1", "incumbent", "s1"],
-      ]);
-    });
+    // PACKAGE E RETARGET — `create + update` and `connectOrCreate + update` were the two
+    // supply-plus-modify shapes the LATTICE admitted and this ENGINE refused, naming a
+    // missing produced-identity channel. They now execute, as a supplier followed by a
+    // record-series continuation whose capture reads membership AFTER the supplier
+    // writes. Their behavior — both arms, the vacate-prefixed forms, the recursion, the
+    // rollback and the substrate boundary — lives in `supplier-continuation-behavior.ts`,
+    // which needs a per-substrate registration this bed's shared client cannot give it.
+    // What stays here is the neighbour E did NOT widen:
 
     test("delete beside a supplier and a modify is the own-write ledger's refusal", async () => {
       const client = await connect();

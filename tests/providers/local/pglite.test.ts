@@ -1,15 +1,8 @@
 import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
-import type { BatchQuery, QueryResult } from "@drivers/types";
+import type { QueryResult } from "@drivers/types";
 import type { PGlite, Transaction } from "@electric-sql/pglite";
 import { push } from "@migrations";
-import {
-  BatchOnlyPGliteDriver,
-  createInMemoryPGliteDriver,
-} from "@tests/fixtures/drivers/pglite";
-import { upsertAtomicitySchema } from "@tests/fixtures/upsert-atomicity-schema";
-import { windowUserPostSchema } from "@tests/fixtures/user-post-schema";
-import { seedWindowUserPosts } from "@tests/fixtures/user-post-seed";
 import { batchPrimaryKeyDataflowContract } from "@tests/contracts/drivers/behaviors/batch-primary-key-dataflow-behavior";
 import { batchRefSmokeContract } from "@tests/contracts/drivers/behaviors/batch-ref-smoke-behavior";
 import { blobFilterContract } from "@tests/contracts/drivers/behaviors/blob-filter-behavior";
@@ -57,6 +50,13 @@ import {
   scalarRoundtripContract,
 } from "@tests/contracts/drivers/behaviors/scalar-roundtrip-behavior";
 import { upsertAtomicityContract } from "@tests/contracts/drivers/behaviors/upsert-atomicity-behavior";
+import {
+  BatchOnlyPGliteDriver,
+  createInMemoryPGliteDriver,
+} from "@tests/fixtures/drivers/pglite";
+import { upsertAtomicitySchema } from "@tests/fixtures/upsert-atomicity-schema";
+import { windowUserPostSchema } from "@tests/fixtures/user-post-schema";
+import { seedWindowUserPosts } from "@tests/fixtures/user-post-seed";
 
 function createBatchOnlyPGliteDriver(): PGliteDriver {
   return new BatchOnlyPGliteDriver();

@@ -11,10 +11,24 @@
 > and with what deliberate divergence, read the "Delivery status" table at the top of
 > [prisma-parity-v2-plan.md](prisma-parity-v2-plan.md)** — that table is the summary of record.
 >
-> Rows this branch changed carry an inline annotation naming the closing commit. Every other row is
-> unannotated because it was re-checked and is **still true**, not because it was left unread.
-> Line-number citations were correct on 2026-07-25 and may have drifted since; the file and symbol
-> names are the durable part of each citation.
+> Rows this branch changed carry an inline annotation naming the closing commit. For current
+> behavior, §0's residual-lift overlay and the linked residual plan supersede unannotated rows
+> from the dated July snapshot; this file has not been re-audited line by line as one current
+> matrix. Line-number citations were correct on 2026-07-25 and may have drifted since; the file
+> and symbol names are the durable part of each citation.
+>
+> **Current residual-lift overlay (2026-08-14).** The executable refusal census is **8
+> write-engine / 10 query-engine / 12 whole `src`**, and every live site has a falsifier;
+> the former 76/68/40-site and zero-test statements below are historical audit checkpoints.
+> Junction `createMany` now routes each row independently: a vacuous skip drops the flag, one
+> exact selector adopts, and an unnameable conflict uses member suppression. Interactive
+> drivers use a savepoint; batch-only drivers isolate the root write and observe normalized
+> row count. A prior write or nested series remains a pre-effect refusal. Ordinary
+> child-held progressive guards use READ row-key + READ membership for existing members and
+> WRITE row-key + WRITE membership for supplier continuations. The Phase-3 PostgreSQL batch
+> reconciliation closed 19 files / 126 write-engine failures and the live PG provider is green
+> at 876 passed / 7 skipped / 0 failed. The residual plan and guard ledger are the current
+> sources of record.
 
 Three deliverables in one document:
 
@@ -37,13 +51,13 @@ The bulk-write surface now has two execution shapes:
 | Shape | Current contract |
 |---|---|
 | Scalar `createMany` / `updateMany` | Set-oriented grouped SQL remains the fast path. |
-| Root relation-bearing `createMany` | Input rows run left to right as ordinary fresh-record trees. On interactive drivers the operation is atomic. With `skipDuplicates`, a root conflict suppresses the complete member subtree; D1 refuses this skip form before writing. |
+| Root relation-bearing `createMany` | Input rows run left to right as ordinary fresh-record trees. On interactive drivers the operation is atomic. A batch-only driver isolates a skippable root as one atomic segment and suppresses descendants when normalized row count is zero. A write or nested series before that root remains a pre-effect refusal. |
 | Root relation-bearing `updateMany` | The matching complete row keys are captured once, sorted, and updated through ordinary selected-record compilation. One named child-held target cannot be moved to more than one captured root. |
 | Nested relation-bearing `createMany` | Rows run as ordered fresh-record subtrees at the exact nested position. Scalar-only rows remain grouped. |
 | Nested relation-bearing `updateMany` | Correlated targets are captured at the exact nested position and updated in complete-row-key order. Scalar-only data remains set-oriented. |
 | Returning record series | Final rows are fetched in K bounded set reads, normally one, and restored to source order. |
-| D1 dynamic series | Ordered committed atomic segments. A later failure preserves and reports the exact committed prefix. A nested series runs only with an exact compiler-owned complete-parent or membership guard; otherwise it refuses before its containing member writes. Earlier root members can already be committed. Relation-bearing `skipDuplicates` refuses before member 0. |
-| Explicit D1 `$transaction([...])` | Static operations stay one atomic batch. A dynamic record series is refused because the array API promises one commit. |
+| Batch-only dynamic series | Any no-transaction driver with native atomic batch can execute safe committed segments after normalized awaited success. A nested series requires the exact compiler-owned complete-parent and, where needed, membership guard. Ordered commit callbacks strengthen failure attribution; they are not eligibility. |
+| Explicit batch `$transaction([...])` | Static operations stay one atomic batch. A dynamic record series is refused because the array API promises one commit. |
 
 No native libSQL batching optimization, compiler terminal-read elimination, or
 whole-series PostgreSQL writable-CTE fold is part of this contract.
@@ -128,7 +142,7 @@ Defects 1 and `findFirst({ take })` are the same shape: **validation accepts wha
 
 - **Prisma parity:** the query, filter, write and nested-write surfaces are close to complete and in several places a genuine superset. The gaps are ecosystem-shaped, not query-shaped: no `$extends`, no `$use`, no field references (W2-B), no full-text search, and the CLI is two commands. (W5 closed the raw-SQL, transaction-option, `omit` and — partly — the error-code items this bullet used to list; W6-U1 closed the `Decimal` one.)
 - **Interoperability:** more portable than the README claims and less verified than it implies. The abstraction is real and carefully built; but "works in every provider" is currently a claim about **three embedded databases** extrapolated to eleven drivers. Four drivers have never executed a query against their real backend (W6-U2 moved `bun-sqlite` out of that set — and the first real query it ever ran proved it could not open a database).
-- **Not-implemented:** 76 typed refusals, of which ~40 are *narrower boundaries* reached by zero tests **by construction** — the census gate is empty precisely because nothing reaches them. With V1 deleted, "unreached by the corpus" and "unreachable by a user" are no longer the same claim, and the docs conflate them.
+- **Not-implemented, at the 2026-07 snapshot:** 76 typed refusals, of which ~40 were narrower boundaries with no tests. The current executable census is 8 / 10 / 11 and every live site has a falsifier; keep the old figures only as the audit baseline that motivated the lift.
 
 ---
 
@@ -141,7 +155,7 @@ Defects 1 and `findFirst({ take })` are the same shape: **validation accepts wha
 ## 1.1 Headline gaps a Prisma user hits first
 
 1. **No `$extends`, no `$use`.** Client extensions (result/model/query/client) and middleware are absent entirely — the client proxy is a closed `if (prop === …)` dispatch with no user-extensible slot ([client.ts:373-786](../../src/client/client.ts:373); [types.ts:178](../../src/client/types.ts:178)). Largest ecosystem gap.
-2. ~~**Raw SQL is inverted and partly unreachable.**~~ — **CLOSED by W5-U1**: `$queryRaw`/`$executeRaw` are tagged templates that bind every interpolation (returning `T[]` / the affected count), `$queryRawUnsafe`/`$executeRawUnsafe` carry Prisma's string signatures, `sql`/`join`/`empty`/`raw` are exported from the package root and from `viborm/sql`, and all four methods exist on the interactive transaction client bound to the open transaction. The pre-1.0 `(string, params?)` form survives one release behind a `warning`-channel deprecation notice; `$transaction([...])` refuses a raw operation with a typed V8003.
+2. ~~**Raw SQL is inverted and partly unreachable.**~~ — **CLOSED by W5-U1 and the five-capability Package 1 lift**: `$queryRaw`/`$executeRaw` are tagged templates that bind every interpolation (returning `T[]` / the affected count), `$queryRawUnsafe`/`$executeRawUnsafe` carry Prisma's string signatures, `sql`/`join`/`empty`/`raw` are exported from the package root and from `viborm/sql`, and all four methods exist on the interactive transaction client bound to the open transaction. Raw calls are lazy, promise-compatible operations and mix with model operations in `$transaction([...])`. The pre-1.0 `(string, params?)` form survives one release behind a `warning`-channel deprecation notice.
 3. ~~**Transaction options are rejected, not ignored.**~~ — **CLOSED by W5-U3** (decision D-2): `$transaction` accepts `{ isolationLevel, timeout, maxWait }`. `assertNoTransactionOptions` is retired; each driver declares a contract in `transactionOptionSupport()` and the resolver ([transaction-options.ts](../../src/drivers/shared/transaction-options.ts)) either builds an executable plan or refuses with `UnsupportedOperationError` (V8003); a malformed options object is still `V5005`. Per-driver cells are pinned in `tests/drivers/transaction-portability.test.ts` and tabulated in [transactions.mdx](../content/docs/client/transactions.mdx).
 4. ~~**Error codes don't port.**~~ — **PARTLY CLOSED by W5-U2**: every error still carries its own `V####` `code`, and now also a `prismaCode` where a Prisma counterpart exists (`e.prismaCode === 'P2002'` works in a catch written for Prisma). P2000 is mapped (`ValueTooLongError` V3005, from PG `22001` / MySQL `1406`) and client construction throws `ClientInitializationError` (V1004 → P1012). Deliberately partial: viborm-only families (transactions, nested writes, cache, migrations, V8003) report `undefined` rather than a code Prisma never defined — see the table in §1.8.
 5. ~~**No field references**~~ — **CLOSED by W2-B**, resurfaced by **W8-A**: the operand callback `(ctx) => ctx.fields.<field>` is Prisma's `FieldRef` (see §1.3). **No full-text search** still stands: `search` / `_relevance` return zero hits repo-wide.
@@ -161,10 +175,10 @@ Defects 1 and `findFirst({ take })` are the same shape: **validation accepts wha
 | `findFirstOrThrow` | ✅ | `types.ts:113-114` |
 | `findMany` | ✅ | `find.ts:107-157` |
 | `create` | ✅ | `mutation.ts:19-45`; `CreateOperation.ts` |
-| `createMany` (+`skipDuplicates`) | ✅. Scalar rows — plus a direct polymorphic `connect`, which stays connect-only — keep the grouped multi-row `INSERT`. A row carrying a general relation program routes the whole call to an ordered record series of ordinary creates. Interactive drivers use one transaction; D1 uses committed atomic segments and reports a later failure's prefix. On interactive drivers, `skipDuplicates` suppresses a conflicting root's complete subtree; D1 refuses that combination before member 0. | `mutation.ts` `getCreateManyArgs`; `write-engine/CreateManyRecordSeries.ts` |
+| `createMany` (+`skipDuplicates`) | ✅. Scalar rows — plus a direct polymorphic `connect`, which stays connect-only — keep the grouped multi-row `INSERT`. A row carrying a general relation program routes the whole call to an ordered record series of ordinary creates. Interactive drivers use one transaction; any no-transaction driver with native atomic batch uses committed segments. `skipDuplicates` suppresses a conflicting root's complete subtree. Batch execution isolates the root; only a prior write or nested series remains a pre-effect refusal. | `mutation.ts` `getCreateManyArgs`; `write-engine/CreateManyRecordSeries.ts` |
 | ~~`createManyAndReturn`~~ | **REMOVED as a name** (W3-B, decision D-1): `createMany` with a `select` IS the returning form. That `select` is **scalar-only** — a relation key, `_count`, or `include` is refused at the parse boundary (W3 fix round: the projection used to be accepted and answered with wrong data). `+skipDuplicates` still refused on non-returning drivers | `mutation.ts` `getCreateManyArgs`; `args/bulk-write-projection.ts`; `ManyAndReturnOperation.ts` |
 | `update` | ✅ unique-`where` enforced | `mutation.ts:126-155` |
-| `updateMany` | ✅ incl. `limit` (W4-U2). Scalar-only `data` keeps one set-based `UPDATE` and the provider's affected-row `count`. Relation-bearing data captures the matching complete root keys once and runs ordinary selected updates in key order, reporting the captured count. Interactive drivers use one transaction; D1 uses committed atomic segments. A named child-held target cannot be moved to more than one captured root. | `mutation.ts` `getUpdateManyArgs`; `operations/bulk-limit.ts`; `write-engine/UpdateManyRecordSeries.ts` |
+| `updateMany` | ✅ incl. `limit` (W4-U2). Scalar-only `data` keeps one set-based `UPDATE` and the provider's affected-row `count`. Relation-bearing data captures the matching complete root keys once and runs ordinary selected updates in key order, reporting the captured count. Interactive drivers use one transaction; any no-transaction driver with native atomic batch uses committed segments. A named child-held target cannot be moved to more than one captured root. | `mutation.ts` `getUpdateManyArgs`; `operations/bulk-limit.ts`; `write-engine/UpdateManyRecordSeries.ts` |
 | ~~`updateManyAndReturn`~~ | **REMOVED as a name** (W3-B, decision D-1): `updateMany` with a `select`. Same scalar-only projection as `createMany`; `limit` caps this arm too. Relation-bearing series fetch final rows with K bind-budgeted set reads, normally one, and restore captured order. A missing final key still fails rather than shortening the result; the `{ count }` arm can succeed. `deleteMany` with a `select` is the same public shape, past Prisma, which has no returning `deleteMany`. | `mutation.ts` `getUpdateManyArgs` / `getDeleteManyArgs`; `args/bulk-write-projection.ts`; `write-engine/series-result-read.ts` |
 | `upsert` | ✅ **+ superset** (`targetWhere`/`setWhere`) | `mutation.ts:309-346`; probe-first, not `ON CONFLICT` ([UpsertOperation.ts:79](../../src/query-engine/write-engine/UpsertOperation.ts:79)) |
 | `delete` | ✅ unique-`where` enforced | `mutation.ts:236-262` |
@@ -426,6 +440,24 @@ that proves ordered committed segments. The parameter budget is a conservative
 provider fact used to chunk grouped series-result reads. `supportsReturning`
 still lives on the adapter, not the driver.
 
+**Neon HTTP keeps `supportsOrderedCommittedSegments: false`, for a recorded reason.**
+That flag is now an attribution-strength claim, not general RecordSeries eligibility.
+Neon has the execution substrate (no interactive transaction, a native atomic batch),
+so safe series reach its awaited batch route. Enabling the stronger flag would still
+require live proof of batch atomicity and order, intra-batch visibility, a later request
+observing the commit, no effects from a failed batch, exact RETURNING normalization,
+a stable failing-statement index, exact race classification, and diagnostics at the
+acknowledged commit. The local prerequisite is wired and tested:
+`executeBatch` awaits commit acknowledgement immediately after
+`client.transaction(...)` resolves and before cardinality or result parsing. The fake
+client proves that code order, including post-commit malformed results and no callback
+on provider rejection; it does not prove a hosted commit. **Hosted facts remain
+unmeasured:** this environment has no Neon credentials, `NEON_TEST_DATABASE_URL` is
+unset, the hosted suite skips, and durability, visibility, normalization, and exact
+error attribution remain unproven. The stronger capability therefore stays false. The
+same credential-free suite pins that a safe root series reaches and awaits
+`_executeBatch`; it makes no hosted durability claim.
+
 `BatchOptions.atomic` (`src/drivers/types.ts:72-75`) is **dead code** — nothing reads it. (The second half of this claim, "every transaction entry point calls `assertNoTransactionOptions`", was retired by W5-U3; the entry points now resolve a `TransactionOptions` plan. `BatchOptions.atomic` is still unread.)
 
 | Driver | Dialect | `supportsTransactions` | `supportsBatch` | `serializeTransactions` | Declared at |
@@ -462,8 +494,8 @@ Placeholder style is **dialect-derived, never driver-derived**: `$n` for postgre
 |---|---|---|---|
 | Interactive `$transaction(cb)` | ✅ except ❌ `neon-http` | ✅ | ✅ except ❌ `d1` |
 | Batch `$transaction([...])` | ✅ | ✅ | ✅ |
-| Root relation-bearing record series | ✅ one transaction | ✅ one transaction | ✅ one transaction except D1, which uses ordered committed atomic segments and reports partial progress |
-| Nested relation-bearing record series | ✅ in the enclosing transaction | ✅ in the enclosing transaction | ✅ except D1, which runs only an exactly guarded placement as committed segments; an unguardable placement refuses before the containing member writes and earlier progressive roots can already be committed |
+| Root relation-bearing record series | ✅ one transaction; `neon-http` uses native atomic batch segments after normalized awaited success | ✅ one transaction | ✅ one transaction; D1 uses ordered committed atomic segments and reports exact callback-acknowledged progress |
+| Nested relation-bearing record series | ✅ in the enclosing transaction; `neon-http` uses exactly guarded atomic segments | ✅ in the enclosing transaction | ✅; D1 uses exactly guarded committed segments. An unguardable placement refuses before the containing member writes and earlier progressive roots can already be committed |
 | Savepoints / nested tx | ⚠️ **hand-rolled, uniform** `SAVEPOINT sp_<uuid>` emitted as literal SQL for every dialect ([transactions.ts:227-253](../../src/drivers/shared/transactions.ts:227)) — deliberately bypasses postgres.js `sql.savepoint` and Bun SQL `savepoint`. Unavailable on `d1`/`neon-http` |
 | Isolation levels | ✅ **CLOSED by W5-U3** — `SET TRANSACTION ISOLATION LEVEL` after `BEGIN` on the PostgreSQL family, before `BEGIN` on the MySQL family; `Serializable` honored by construction on SQLite-family drivers with the weaker three refused; batch-only drivers (`d1`, `neon-http`) refuse all four. Per-driver table in [transactions.mdx](../content/docs/client/transactions.mdx) |
 | Concurrency | 🟡 pooled (`pg`, `postgres`, `bun-sql`); serialized (`pglite`) | 🟡 pooled | 🟡 **serialized** (`sqlite3`, `bun-sqlite`, in-memory `libsql`) |
@@ -625,9 +657,11 @@ Consequence: **every `UnsupportedOperationError` throw site is now a terminal, u
 
 But **58 comments across `src/` still say "routes to V1"** (was 73; the N-waves retired 15 of them by deleting or rewriting the sites). See §0.2.
 
-### The refusal surface, counted
+### The refusal surface, counted at the historical audit checkpoint
 
-Re-counted on `nested-write-boundaries` @ `6910728` (grep over `src/query-engine/write-engine/*.ts`).
+Re-counted on `nested-write-boundaries` @ `6910728` (grep over
+`src/query-engine/write-engine/*.ts`). This section is historical. Current counts are
+8 / 10 / 12 and the live site table is in `guard-ownership-ledger.md`.
 
 | Class | Sites in `src/query-engine/write-engine/*.ts` | Nature |
 |---|---:|---|
@@ -645,7 +679,7 @@ Re-counted on `nested-write-boundaries` @ `6910728` (grep over `src/query-engine
 
 *Ranked by likelihood in a normal application.*
 
-**A1. ~~M2M nested `create` with a database-generated target PK — the top hazard.~~ FIXED (`b1392ca`, pre-wave, same branch).** The child INSERT produces the identity and the junction row references it by a backward `Ref`; `create` and `connectOrCreate` both work through the junction. Still refused, and now honestly typed: an explicit-null or non-`increment` absent PK, and the **junction upsert create arm** (its compile-time dedup ledger addresses the target by a literal). The CHILD-HELD upsert create arm no longer refuses a generated key: N4-U2 made that arm a create subtree, whose grandchildren `Ref` the INSERT that produces it. Covered by a generated-PK fixture in the shared M2M behavior suite on every driver leg. See [defect 3](#01-the-three-defects-worth-fixing-before-anything-else).
+**A1. ~~M2M nested `create` with a database-generated target PK — the top hazard.~~ FIXED (`b1392ca`, then completed by the residual lift).** The child INSERT publishes the identity and the junction row references it. `create`, `connectOrCreate`, and the upsert missing arm all reuse the fresh-record publisher. On a PostgreSQL-family batch path, a default operation keeps an exact fold or carries the producer's own `RETURNING` through guarded segments. Only an explicit indivisible array without an exact one-batch lowering refuses that crossing. For junction `createMany + skipDuplicates`, disposition is row-local: a vacuous row drops the flag, one exact selector adopts, and an unnameable conflict suppresses the complete target-and-join member. Interactive execution uses a savepoint; batch execution isolates the root and observes normalized row count.
 
 **A2. `update`/`delete`/`upsert` on a batch-only, non-returning driver.** The returned row's identity can only be parsed after the batch commits, and that parse cannot be rolled back. `TransactionError`. A substrate limit; `ATOM.md:318` says it stays *"unless a deliberate design note lifts it."* **Currently unreachable** — no shipped driver combination qualifies.
 
@@ -667,7 +701,10 @@ cannot store several parent memberships.
 **A8. Root and nested `createMany.data` accept relations.** Scalar-only rows
 remain grouped. Relation-bearing rows run as ordinary fresh-record subtrees.
 On interactive drivers, `skipDuplicates` suppresses the complete subtree of a
-conflicting root; D1 refuses that combination before writing.
+conflicting root through a savepoint. A batch-only substrate isolates the root
+write and suppresses descendants when normalized row count is zero. It refuses
+only when a write or nested series precedes that root. Junction rows whose flag
+is vacuous or whose conflict one exact selector can adopt retain their faster routes.
 
 **A9. No relation projection on a bulk write's returned rows** — neither `include` nor a relation key (or `_count`) inside `select`, on `createMany` / `updateMany` / `deleteMany`. DIVERGENCE, deliberate (W3 fix round): Prisma's `createManyAndReturn`/`updateManyAndReturn` do accept relations there (its generator emits `<Model>SelectCreateManyAndReturn` / `<Model>IncludeCreateManyAndReturn`). viborm refuses instead, because the projection it had was unsound — a relation subquery in a `RETURNING` list has no alias to correlate against, so it bound by name and was captured by the inner table: every to-many came back `[]`, a self-referencing to-one came back `null`, while the same projection through `findMany` returned the real rows. Read relations in a separate query. (`args/bulk-write-projection.ts`.)
 
@@ -685,13 +722,49 @@ conflicting root; D1 refuses that combination before writing.
 
 **A16. Every model must have a primary key.** Engine, `push` and `migrate` all refuse.
 
-**A17. Parity refusals inside nested writes** (all match Prisma's own rejections): `update`/`delete`/`set`/`disconnect` inside a `create` payload; M2M `upsert`/`disconnect`/`set`/`delete` under `create`; unsupported combinations of two kinds on one to-one arm — **narrowed 2026-08-10** (limitation lift, Package H): a to-one update payload is now one composition `(vacate?, supplier, modify?)`, so the five vacate-then-supply replacements are accepted on the parent-held direction as well as the child-held one, and a `connect` may carry an `update` beside it (VibORM extensions, all of them). What stays refused: two suppliers, `upsert` beside another intent, a vacate with a modify and no supplier, two vacates, `delete + connectOrCreate`, and `create`/`connectOrCreate` beside an `update` — the last refused at the type boundary parent-held and by the engine child-held, naming the missing produced-identity channel rather than an arity; ~~object-form `disconnect: {…}`/`delete: {…}` on a to-one~~ (**N2-U3 — this entry was WRONG, and is retracted**: measured against Prisma 7.9.1's generated `ProfileUpdateOneWithoutUserNestedInput`, both keys are typed `ProfileWhereInput | boolean`, a filter narrowing which connected record is acted on. viborm types them `v.boolean()`, so the object form is refused at the parse boundary — a genuine, narrower surface, not parity. Moved to §3.B); writing a relation's owned FK inside its own nested create; nested create identity must match the unique `where`; M2M `disconnect: true` without a selector; `set` that would orphan a required FK.
+**A17. Parity refusals inside nested writes** (all match Prisma's own rejections): `update`/`delete`/`set`/`disconnect` inside a `create` payload; M2M `upsert`/`disconnect`/`set`/`delete` under `create`; unsupported combinations of two kinds on one to-one arm — **narrowed 2026-08-10** (limitation lift, Package H): a to-one update payload is now one composition `(vacate?, supplier, modify?)`, so the five vacate-then-supply replacements are accepted on the parent-held direction as well as the child-held one, and a `connect` may carry an `update` beside it (VibORM extensions, all of them). What stays refused: two suppliers, `upsert` beside another intent, a vacate with a modify and no supplier, two vacates, `delete + connectOrCreate`, and — parent-held only, at the type boundary — `create`/`connectOrCreate` beside an `update`. **Narrowed again 2026-08-13** (residual lift, Package E): on the CHILD-HELD direction a producing supplier now carries its `update`, as a one-member record-series continuation located by post-supply membership, so the engine site that named a missing produced-identity channel is deleted; ~~object-form `disconnect: {…}`/`delete: {…}` on a to-one~~ (**N2-U3 — this entry was WRONG, and is retracted**: measured against Prisma 7.9.1's generated `ProfileUpdateOneWithoutUserNestedInput`, both keys are typed `ProfileWhereInput | boolean`, a filter narrowing which connected record is acted on. viborm types them `v.boolean()`, so the object form is refused at the parse boundary — a genuine, narrower surface, not parity. Moved to §3.B); writing a relation's owned FK inside its own nested create; nested create identity must match the unique `where`; M2M `disconnect: true` without a selector; `set` that would orphan a required FK.
 
-**A18. Driver / dialect capability refusals.** `d1`/`neon-http` callback transactions; ~~`$transaction` options~~ (**W5-U3, `812a750`** — no longer a blanket refusal: options are honored per driver, and only the combinations a driver cannot execute are refused, each with a reason); array-form `$transaction` with a non-batchable op on a batch-only driver; insertId-scratch batch merge; PlanetScale cross-shard; `mysql2` `multipleStatements`; SQLite RIGHT/FULL OUTER/LATERAL; MySQL FULL OUTER; JSON path segments with `"` or `\`; nullable vector column in a distance select; compound-PK many-to-many (query **and** migration).
+**A17a. Selected-row continuity (five-capability Package 2, 2026-08-17).** A
+correlated nested update or found-upsert that re-enters the exact incoming
+parent now addresses the captured selected row, not a row found by re-evaluating
+the public selector. If the enclosing update changes the parent row key, the
+relation placement chooses before-root or after-root and the selected-record
+compiler supplies the complete captured or final key. Same-incoming delete and
+global-adopt still refuse, as does a re-entry that itself changes the incoming
+parent's row key and would need to publish another final tuple outward.
 
-## 3.B Narrower boundaries — the deep shapes the engine declines
+**A17b. Bind-budget partitioning (five-capability Package 3, 2026-08-17).**
+`createMany` groups and junction `connect`/`set` inserts split at their semantic
+builders from the compiled `Sql.values.length`, using the active driver's
+verified `maxBindParametersPerStatement`. Count, input order, conflict behavior,
+and atomicity remain operation-wide. Arbitrary predicate updates/deletes and a
+single indivisible over-limit statement are not rewritten by the executor; the
+latter refuses before I/O. Large-payload statement-level triggers fire once per
+chunk, while an under-limit same-shape run remains one statement.
 
-These are the *interesting* category. `route-inventory.test.ts:70-73` states plainly: **"NO conformance scenario reaches any of them (that is why the census is zero)."** They were unreachable-by-test *and* silently handled by V1. **V1 is gone. They are now live cliffs with zero test coverage.**
+**A18a. Generated-output transport on a batch path** (residual lift Package B,
+then Track A, 2026-08-14). MySQL (`LAST_INSERT_ID()`) and the SQLite family
+(`last_insert_rowid()`, D1 included) keep their exact statement-local channels.
+PostgreSQL never uses session-global, trigger-sensitive `lastval()`. A default
+PostgreSQL-family operation instead keeps the producer's own `RETURNING` in one exact
+fold or materializes it before a guarded dependent segment; Neon HTTP uses the same
+route, with no atomicity across segments. An explicit `$transaction([...])` remains
+indivisible, but scalar RETURNING arms and bounded PostgreSQL-family mutation DAGs
+whose projection does not read a sibling-mutated table fold into one statement. A
+graph with no exact one-batch lowering still refuses before effects. A non-returning
+adapter publishes a plural database-assigned row key through one focused read when
+the create source explicitly writes a complete addressable alternate unique; an
+unnameable row still refuses. Every output crossing a segment must carry the
+compiler's exact continuation premise. The former public-scratch crossing and
+later-race-pin refusals are retired.
+
+**A18. Driver / dialect capability refusals.** `d1`/`neon-http` callback transactions; ~~`$transaction` options~~ (**W5-U3, `812a750`** — no longer a blanket refusal: options are honored per driver, and only the combinations a driver cannot execute are refused, each with a reason); array-form `$transaction` with a non-batchable op on a batch-only driver; cross-statement generated output inside an indivisible array without an exact lowering; a generated-output segment with no compiler continuation premise; PlanetScale cross-shard; `mysql2` `multipleStatements`; SQLite RIGHT/FULL OUTER/LATERAL; MySQL FULL OUTER; JSON path segments with `"` or `\`; nullable vector column in a distance select.
+
+## 3.B Historical narrower-boundary audit
+
+This section records the dated audit that drove the residual lift. Its present-tense
+claims are not current: the live census is 8 / 10 / 11 and every surviving site has
+an exact falsifier in the guard ledger.
 
 Census evolution: 36 → 49 → 51 → 59 → 62 → 65 → 73 → 74 → 75 → 78 → 81 → 86 → 87 → 90 → 89 → 84 → 83 → 78 → 76 → 74 (N4/N5) → **68** (N4-U2) → 45 (N7-U-A) → **40** (N7-U-B), and 68 through N4-U4, N6-U1, N6-U2 and N6-U3 — the last four moved capability without moving the count, each for a reason the log states (the shape missed the census, the refusal lived at the parse boundary, or it raised a different error class). Every absorption added finer boundaries — until N4-U2, whose six sites were boundaries of a hand-rolled arm rather than of anything the engine could not express, and which therefore added none.
 
@@ -720,9 +793,9 @@ These are ordinary Prisma payloads:
 |---|---|
 | `user.update({ where:{ id }, data:{ profile:{ create:{ bio } } } })` on an **inverse-side to-one** | ✅ since **N2-U1**: the arity-1 case of the child-held create, on both parent provenances (pinned `where` or N1's located-parent Ref). An OCCUPIED slot errors as Prisma's does — the 1:1 FK's UNIQUE constraint, no pre-check probe and no retry. `tests/query-engine-v2/inverse-to-one-create-behavior.ts`, every driver leg × both substrates |
 | `user.update({ where:{ email }, data:{ posts:{ create:{…} } } })` | ✅ since **N1-U1** (the located-parent Ref): the locate selects the referenced column and the nested create reads it from the located row, compiling to the same statements as the `where: { id }` spelling |
-| `post.update({ where:{ id }, data:{ tags:{ createMany:{ data:[…] } } } })` (M2M) | ✅ since **N3-U1** — the `create` slot per row plus `skipDuplicates`; also under a `create` root. Refused only for `skipDuplicates` + a DB-generated target key (a skipped INSERT produces no identity for its join row) |
-| `article.update({ …, data:{ labels:{ upsert:{ where:{ name }, create:{ name }, update } } } })` with a generated `label.id` | ✅ since **N3-U2** — the create data's complete unique names the row; the join row rides the produced identity `Ref`. Still refused when the create data spells NO complete identity |
-| Many-to-many on a model with a **compound primary key** | ❌ `Many-to-many relations with compound PKs are not supported` — refused identically on the query side (`correlation-utils.ts:267`) and in the migrations serializer, both at construction/DDL. Measured in N3-U3: the junction vocabulary is scalar to its root, including the public `.A()` / `.B()` API, which names exactly ONE junction column per side |
+| `post.update({ where:{ id }, data:{ tags:{ createMany:{ data:[…] } } } })` (M2M) | ✅. Each row routes independently: spelled key keeps the leaf, a vacuous generated-key skip drops the flag, one exact selector adopts, and an unnameable conflict suppresses target plus join through an interactive savepoint or an isolated batch root segment. |
+| `article.update({ …, data:{ labels:{ upsert:{ where:{ name }, create:{ name }, update } } } })` with a generated `label.id` | ✅. The missing arm is an ordinary fresh-record subtree and publishes the generated key exactly; only a substrate without an exact cross-statement identity channel refuses that transport. |
+| Many-to-many on a model with a **compound primary key** | ✅ **LIFTED by the residual compound-junction pass (2026-08-14).** `.A()` / `.B()` remain one string each; scalar sides use the exact column and compound sides expand that token positionally in row-key order. One bound `JunctionSide` owns every physical-to-referenced member. Migration DDL/introspection, reads, writes, cascades, generated tuple publication, and conditional skip-and-link all consume the complete groups. PGlite transaction+batch, better-sqlite3, live MySQL2, and PostgreSQL/MySQL/SQLite SQL contracts are pinned. |
 | `tags: { update: { where:{ slug }, data:{ posts:{…} } } }` | ❌ must locate the target by its primary key (N4-U1's unit: the same Ref generalizes, applied there) |
 | `user.update({ where:{ id }, data:{ profile:{ disconnect:{ …filter } } } })` / the same with `delete` | ❌ refused at the **parse boundary** — viborm types both keys `v.boolean()`. Prisma 7.9.1 types them `WhereInput \| boolean` (a filter narrowing which connected record is acted on), so this is a NARROWER surface, not a parity refusal (**N2-U3**, retracting the A17 claim). Closing it is a schema widening plus a filtered disconnect write; `delete`'s half is nearly free since `delete: true` already compiles through the filter-taking `deleteMany` leaf |
 | Two kinds on one to-one arm, or connect-by-other-unique on a parent-held to-one | ❌ see §1.5 |
@@ -779,17 +852,21 @@ five orthogonal axes back to data), not lines. Recorded as the right trade, not
 a win. The original ledger remains at
 `db3317770ce7e589ba1da849570eda6925c4c478`.
 
-**D5. Batch-only drivers keep the plan-then-execute path** — the
-single-statement RETURNING fast path is disabled there. D1 adds one deliberate
-exception for root and exactly guarded nested dynamic record series: it plans
-and commits ordered segments progressively, with exact failure progress. Static
-D1 work still uses one atomic batch; Neon HTTP has no progressive series route.
+**D5. Batch-only drivers keep the plan-then-execute path.** An exact generated-output
+fold can stay one statement; otherwise a default RETURNING-capable operation can
+continue through guarded committed segments. Any no-transaction driver with native
+atomic batch supports root and exactly guarded nested dynamic record series. D1's
+ordered callback capability gives exact acknowledged progress; Neon HTTP uses the
+same general route without claiming that stronger hosted attribution.
 
 **D6. SQLite silently ignores `FOR UPDATE`** — a deliberate no-op. Row-level locking semantics differ from PG/MySQL with no signal.
 
 ## 3.E Unverified surface — the honest "we don't know"
 
-**E1. All ~40 category-(iii) narrower boundaries are reached by zero tests, by design.** The census gate is *empty* precisely because nothing reaches them. **The gate proves they are unreached, not that they are correct or that no user will reach them.** §3.B is, structurally, an untested cliff.
+**E1. Historical gap, closed by the residual lift.** The ~40 untested narrower
+boundaries described the dated audit. The current 8 / 10 / 11 construction sites are
+enumerated in the guard ledger and each has a falsifier; no live site has an empty
+falsifier cell.
 
 **E2. Hosted-driver coverage is uneven.** D1 has a Workers provider contract
 covering the real binding path, including progressive root series. Neon HTTP and

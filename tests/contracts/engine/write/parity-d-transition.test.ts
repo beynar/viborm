@@ -1,5 +1,6 @@
 import type { AnyDriver } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
+import { NestedWriteError } from "@errors";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames, s } from "@schema";
 import type { Model } from "@schema/model";
@@ -11,7 +12,6 @@ import {
   type PlanningFragment,
   type StatementStep,
 } from "@src/query-engine/write-engine/OperationFragment";
-import { UnsupportedOperationError } from "@src/query-engine/write-engine/shared";
 import { UpdateOperation } from "@src/query-engine/write-engine/UpdateOperation";
 import { compileTransitionSchema } from "@tests/contracts/engine/write/compiled-key-transition-behavior";
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
@@ -826,31 +826,30 @@ describe("parity D — the shapes D2 lifted", () => {
         "pad.transition.find.rows": [],
       },
       "compile",
-      // NON-DISCRIMINATING no longer — but NOT because the sentence has one emitter.
-      // CORRECTED BY PACKAGE O (the previous text claimed "ONE emitter" and was false
-      // at its own HEAD). This sentence has TWO emitters and they are two different
-      // decisions:
-      //   · `RecordUpdateCompiler.postTransitionReference` (:1800), the per-member
-      //     derivation, whose `position` argument is the only thing that varies
-      //     ("nested create" here, "membership" on the adopt path). It refuses on
-      //     `literal === null || isSql(literal)`.
-      //   · `RecordUpdateCompiler.resolveCreateParent` (:2017), the arity-1
-      //     NON-primary-key branch, which spells "nested create" literally and refuses
-      //     the strictly WIDER `!isConstructionLiteral(literal)` — also an arithmetic
-      //     envelope and a batch-value `Ref` — and whose accepted arm returns
-      //     `afterRoot: false` where this one's returns `afterRoot: true`.
-      // THIS payload reaches the first: `(area, slot)` is a COMPOUND reference, so the
-      // arity-1 branch is never entered. Package O measured the pair and KEPT both
-      // (guard-ownership-ledger.md, disagreement 1); collapsing them would accept
-      // operands that are refused today. The three near-duplicate spellings D1
-      // replaced — including one that differed only by a missing `-v2` prefix — are
-      // still gone.
-      "query-engine-v2 update nested create on relation 'pads' references a non-literal rewritten column 'slot'.",
+      // Package O recorded TWO emitters of one sentence and kept both, because their
+      // ACCEPTANCE predicates differ: `postTransitionReference` refuses on
+      // `literal === null || isSql(literal)` at COMPILE, while `resolveCreateParent`'s
+      // arity-1 NON-primary-key branch refuses the strictly wider
+      // `!isConstructionLiteral(literal)` at CONSTRUCTION and orders its accepted
+      // INSERT before the root UPDATE rather than after it.
+      //
+      // RESIDUAL §G1/§G2 SPLIT THE TWO QUESTIONS APART (2026-08-14). The differing
+      // predicate is a TIMING fact and it stays with each position; the VERDICT is one
+      // and now has one owner (`requireRewrittenReferenceValue`), which is why this
+      // sentence no longer names a position at all. THIS payload is the `null` state:
+      // a contradiction, so a `NestedWriteError`. The `Sql`/arithmetic state became an
+      // engine fault, unreachable behind the parse boundary and CLASS IV legality —
+      // both pinned in `sql-operand-boundary-behavior.ts`.
+      //
+      // The phase is still the pin: `(area, slot)` is a COMPOUND reference, so the
+      // arity-1 construction branch is never entered and this payload must still wait
+      // for compile.
+      "Cannot update relation key field 'slot' to null while mutating relation 'pads'. A null reference names no row for that relation to point at.",
     ],
   ])("%s refuses typed", (_label, build, known, phase, message) => {
     expect(refusal(build, known)).toEqual({
       phase,
-      name: UnsupportedOperationError.name,
+      name: NestedWriteError.name,
       message,
     });
   });

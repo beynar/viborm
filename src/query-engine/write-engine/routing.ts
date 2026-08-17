@@ -149,14 +149,16 @@ export async function executeRoutedOperation<T>(
   operation: RoutedExecutableOperation,
   context: QueryExecutionContext,
   driverOverride?: AnyDriver,
-  committedWriteSegment?: () => Promise<void>
+  committedWriteSegment?: () => Promise<void>,
+  writeMayBeVisible?: () => Promise<void>
 ): Promise<T> {
   try {
     return await executor.execute<T>(
       operation,
       context,
       driverOverride,
-      committedWriteSegment
+      committedWriteSegment,
+      writeMayBeVisible
     );
   } catch (error) {
     if (hasCommittedRecordSeriesProgress(error) || !isRetryableRace(error)) {
@@ -166,7 +168,8 @@ export async function executeRoutedOperation<T>(
       operation,
       context,
       driverOverride,
-      committedWriteSegment
+      committedWriteSegment,
+      writeMayBeVisible
     );
   }
 }

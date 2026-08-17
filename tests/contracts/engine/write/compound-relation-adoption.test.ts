@@ -13,7 +13,6 @@ import {
   registerCompoundAdoptBehavior,
 } from "@tests/contracts/engine/write/compound-relation-adoption-behavior";
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
-import { SOURCE_ROOT } from "@tests/fixtures/repo-paths";
 import { describe, expect, test } from "vitest";
 
 async function setup(driver: PGliteDriver) {
@@ -36,32 +35,17 @@ const substrates = [
 for (const substrate of substrates) {
   // One client per leg: the schema is migrated once and each test resets by DELETE.
   let shared: any;
-  registerCompoundAdoptBehavior(substrate.name, async () => {
-    shared ??= await setup(substrate.make());
-    return shared;
-  });
+  registerCompoundAdoptBehavior(
+    substrate.name,
+    async () => {
+      shared ??= await setup(substrate.make());
+      return shared;
+    },
+    describe
+  );
 }
 
-describe("E4-U2 the boundary the per-field source did not move", () => {
-  test("the many-to-many junction keeps the single-parent-column refusal", async () => {
-    // `edgeParentId` still exists, and still refuses arity > 1 — for the junction, whose
-    // join row keys its parent half with ONE column (the junction bind →
-    // `getRequiredSinglePrimaryKeyField`; the reach was through `getManyToManyJoinInfo`
-    // when this was written, deleted in Phase 3). The message is the same sentence;
-    // what changed is that only the m2m branch can still reach it.
-    const source = await import(
-      "@src/query-engine/write-engine/CreateOperation"
-    );
-    expect(typeof source.CreateOperation).toBe("function");
-    const text = await (await import("node:fs/promises")).readFile(
-      `${SOURCE_ROOT}/query-engine/write-engine/CreateOperation.ts`,
-      "utf8"
-    );
-    // The adopt kinds no longer call it; the junction does. One caller, one reason.
-    const junctionCalls = text.split("this.edgeParentId(").length - 1;
-    expect(junctionCalls).toBe(1);
-  });
-
+describe("E4-U2 membership source typing", () => {
   test("a write-only member cannot be used as a correlated member (type-level)", () => {
     const writeMembers: readonly ForeignKeyMember[] = pairForeignKeyMembers(
       [{ foreignField: "regionId", referencedField: "region" }],

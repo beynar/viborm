@@ -15,10 +15,23 @@ import {
 
 const INTEGER_TEXT_REGEX = /^-?\d+$/;
 
+/** Ordered row-key members whose INSERT values are database-assigned. */
+export function databaseAssignedRowKeyFields<Value>(
+  model: Model<any>,
+  data: Readonly<Record<string, Value>>
+): readonly string[] {
+  return getPrimaryKeyFields(model).filter((field) =>
+    isMissingGeneratedIncrement(model["~"].state.scalars[field], data[field])
+  );
+}
+
 export function planNestedCreateIdentity<Value>(
   model: Model<any>,
   data: Record<string, Value>
-): { identity: Record<string, Value>; generatedField?: string } {
+): {
+  readonly identity: Record<string, Value>;
+  readonly databaseAssigned: readonly string[];
+} {
   const fields = getPrimaryKeyFields(model);
   if (fields.length === 0) {
     throw new NestedWriteError(
@@ -27,6 +40,7 @@ export function planNestedCreateIdentity<Value>(
     );
   }
   const identity: Record<string, Value> = {};
+  const databaseAssigned = databaseAssignedRowKeyFields(model, data);
   for (const field of fields) {
     const value = data[field];
     const scalar = model["~"].state.scalars[field];
@@ -40,15 +54,8 @@ export function planNestedCreateIdentity<Value>(
         model["~"].names.sql ?? "unknown"
       );
     }
-    if (fields.length !== 1) {
-      throw new NestedWriteError(
-        "Nested create cannot propagate generated compound primary keys.",
-        model["~"].names.sql ?? "unknown"
-      );
-    }
-    return { identity, generatedField: field };
   }
-  return { identity };
+  return { identity, databaseAssigned };
 }
 
 export function assertCreateRefetchIdentity(

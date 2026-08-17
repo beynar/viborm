@@ -40,12 +40,35 @@ The distinctive rule of many-to-many: the FKs live in a junction table, configur
 ```ts
 s.manyToMany(() => tag)
   .through("post_tags")     // Junction table name
-  .A("post_id")             // Source FK column in junction table
-  .B("tag_id")              // Target FK column in junction table
+  .A("post_id")             // Source column, or compound-key prefix
+  .B("tag_id")              // Target column, or compound-key prefix
   .onDelete("cascade")      // Referential action (applies to both FKs)
   .onUpdate("cascade")      // Referential action (applies to both FKs)
   .name("labels")           // Custom relation name
 ```
+
+`.A()` and `.B()` remain scalar configuration methods even when an endpoint
+uses a compound primary key. A one-field key uses the supplied string as its
+exact junction column. A compound key expands it as a positional prefix in the
+primary key's declared field order:
+
+```ts
+const post = s.model({
+  tenantId: s.string(),
+  localId: s.string(),
+  tags: s.manyToMany(() => tag)
+    .through("post_tags")
+    .A("post")
+    .B("tagId"),
+}).id(["tenantId", "localId"]);
+
+// Junction columns: post_1, post_2, tagId
+// post_1 -> post.tenantId; post_2 -> post.localId
+```
+
+The suffix is positional by design. Renaming or mapping a primary-key field
+does not turn its field name into junction storage; the declared primary-key
+order remains the source of truth.
 
 ## Auto-Generated Junction Table
 

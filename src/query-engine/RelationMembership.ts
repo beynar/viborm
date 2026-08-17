@@ -1,5 +1,6 @@
 // biome-ignore-all lint/style/useFilenamingConvention: Architecture names this compiler owner RelationMembership.
 import type { Model } from "@schema/model";
+import { junctionSourceSideIsFirst } from "@schema/relation/helpers";
 import {
   type BoundJunctionMembership,
   type BoundMembership,
@@ -7,7 +8,6 @@ import {
   bindRelation,
   type ChildHeldRelation,
   type JunctionReferenceMember,
-  junctionSideMember,
   type ParentHeldRelation,
 } from "./builders/relation-data-builder";
 import {
@@ -75,10 +75,11 @@ export type RelationMembershipScope =
 export function junctionSourceIsFirst(
   membership: BoundJunctionMembership
 ): boolean {
-  return (
-    junctionSideMember(membership.source).junctionField.localeCompare(
-      junctionSideMember(membership.target).junctionField
-    ) <= 0
+  return junctionSourceSideIsFirst(
+    membership.source.model["~"].names.ts ?? "",
+    membership.source.members.map((member) => member.junctionField),
+    membership.target.model["~"].names.ts ?? "",
+    membership.target.members.map((member) => member.junctionField)
   );
 }
 

@@ -158,24 +158,36 @@ Nested relation-bearing `createMany` and `updateMany` use one
 bulk shapes remain grouped and never enter a series.
 
 On a transaction-capable driver, the root series and all nested series steps
-share one operation-wide transaction. On D1, root and exactly guarded nested
-series can run progressively: each write batch is atomic and committed, a later
-failure reports `meta.recordSeriesProgress`, and no retry replays the committed
-prefix. A nested `RecordSeriesStep` carries either its compiler-owned
+share one operation-wide transaction. On a no-transaction driver with native
+atomic batches, root and exactly guarded nested series can run progressively: a
+normalized successful batch orders the next segment, a later failure reports
+`meta.recordSeriesProgress`, and no retry replays a committed prefix. A nested
+`RecordSeriesStep` carries either its compiler-owned
 complete-parent/membership guard or a fail-closed reason. An unguardable
 placement refuses before its containing member writes; earlier root members may
-already be committed. Relation-bearing `skipDuplicates` and a dynamic series
-inside explicit `$transaction([...])` refuse before the first user write.
+already be committed. A root that may skip is isolated and inspected before its
+descendants run. If the member has a write before that root, it refuses pre-effect
+because a skipped root would strand the earlier write. A dynamic series inside
+explicit `$transaction([...])` also refuses because that array is indivisible.
 
-On interactive drivers, relation-bearing `skipDuplicates` scopes each create
-member as one subtree. A root unique conflict skips that complete subtree;
-descendant and non-unique failures remain fatal. The skipped member never
-adopts or mutates the conflicting existing row.
+Relation-bearing `skipDuplicates` scopes each create member as one subtree. An
+interactive driver uses a savepoint. Progressive execution isolates a root-first
+write and observes its result before dispatching descendants. In both cases, a
+root unique conflict skips the complete subtree; descendant and non-unique
+failures remain fatal. The skipped member never adopts or mutates the conflicting
+existing row.
 
 The public returning arm does not issue one final read per member.
 `series-result-read.ts` groups complete row keys into K set reads bounded by the
 driver's bind-parameter budget, normally one, then restores source order and
 preserves exact missing-row failures.
+
+The same driver budget reaches semantic write builders without making the
+executor a SQL rewriter. `buildCreateManyPlan` chunks compiled contiguous
+same-shape rows from actual bind counts; junction `connect` and `set` chunk
+complete captured target-key tuples. All chunks stay in the same transaction or
+native atomic batch. Predicate updates/deletes, complete-set guards, and a single
+indivisible over-limit statement remain one unit.
 
 ## Source-bound relation membership
 
@@ -190,6 +202,15 @@ projections, and decoded-row membership tests.
 A transition reads the old value and writes the new value. Final operation
 references cannot enter planning SQL, and lookup SQL cannot select a branch.
 
+Selected-row continuity gives that split to two consumers without giving either
+consumer its own old/new-key rule. Planning uses the complete captured key from
+`TargetProjection`; execution uses the compiler's complete captured or final key
+for the phase chosen by the relation placement. Exact correlated incoming-parent
+update/found-upsert arms and progressive nested series both consume this fact.
+Delete, global adopt, and a loopback that itself changes the incoming parent's
+row key remain refused because continuity cannot supply their missing result
+fact.
+
 `RecordUpdateCompiler` and relation owners that pass it a selected target write
 by the captured primary key. Scalar probe-first upsert also writes by that key
 in batch mode after guarding that its complete selector and matched conditionals
@@ -197,6 +218,30 @@ still name the captured row. Transaction mode keeps the original selector
 because its locate locks the row. An eligible `ON CONFLICT` fold skips planning;
 a relation-bearing found arm uses the selected-record compiler and its captured
 identity.
+
+The selected-record compiler also owns the final value of every physical root
+column. Scalar updates, parent-held relation folds, shared-primary-key demands,
+and demanded global-adopt membership use one contribution/comparison rule.
+Correlated incoming membership selects and guards the row but is not written
+again. Proven-equal contributions collapse; disagreement and unknown equality
+fail closed instead of relying on assignment order.
+
+Fresh selected shared-key arms use that same physical-column truth. A successful
+root INSERT can publish the exact pre-cast value it consumed under a declared
+field output; this lets a non-returning statement feed descendants without
+guessing a generated identity or selecting an arm twice. Selected target update
+and found upsert publish their post-update referenced tuple, with database
+cascade ordering between current-member and post-transition writes.
+If only part of a compound relation tuple is the row key, the complete tuple is
+published for descendants while only the row-key subset addresses the terminal
+row. Ordinary non-shared parent-held relations keep their existing lookup path.
+
+Fresh generated output has two exact indivisible folds. A scalar RETURNING result
+can fold on any supporting adapter. A bounded mutation DAG can fold on an adapter
+with data-modifying CTEs only when its result projection reads no table a sibling
+CTE mutates. A non-returning plural generated row key uses one focused read only
+when the create source explicitly writes another complete addressable unique;
+otherwise the row remains unnameable and the operation refuses before its INSERT.
 
 ## Branch premises
 

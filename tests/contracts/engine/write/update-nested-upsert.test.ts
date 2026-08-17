@@ -1,15 +1,7 @@
-import {
-  BatchOnlyPGliteDriver,
-  type PGliteSchemaFamily,
-  usePGliteSchemaFamily,
-} from "@tests/fixtures/drivers/pglite";
 import { createClient } from "@client/client";
-import type { BatchQuery, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
-import { PGlite, type Transaction } from "@electric-sql/pglite";
+import type { PGlite } from "@electric-sql/pglite";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
-import { createSchemaRegistry } from "@validation";
-import { describe, expect, test } from "vitest";
 import { UpdateOperation } from "@src/query-engine/write-engine/UpdateOperation";
 import {
   correlatedUpsertArgs,
@@ -17,6 +9,13 @@ import {
   runUpdateNestedUpsertBehavior,
   updateSliceSchema,
 } from "@tests/contracts/engine/write/update-nested-upsert-behavior";
+import {
+  BatchOnlyPGliteDriver,
+  type PGliteSchemaFamily,
+  usePGliteSchemaFamily,
+} from "@tests/fixtures/drivers/pglite";
+import { createSchemaRegistry } from "@validation";
+import { describe, expect, test } from "vitest";
 
 runUpdateNestedUpsertBehavior({
   name: "PGlite transaction",

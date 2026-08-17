@@ -1,7 +1,7 @@
 // Relation Validation Rules
 
 import { isValidSchemaIdentifier } from "../../identifier";
-import type { Model } from "../../model";
+import { getModelKeyCatalog, type Model } from "../../model";
 import {
   getPolymorphicInverseBinding,
   type RelationType,
@@ -9,6 +9,11 @@ import {
 import {
   generateJunctionFieldName,
   generateJunctionTableName,
+  getJunctionConstraintName,
+  getJunctionFieldGroups,
+  getJunctionTableName,
+  JunctionPhysicalNameError,
+  junctionSourceSideIsFirst,
 } from "../../relation/helpers";
 import type {
   Schema,
@@ -217,13 +222,17 @@ export function junctionTableUnique(
 export function junctionFieldsValid(
   _s: Schema,
   name: string,
-  model: Model<any>
+  model: Model<any>,
+  ctx: ValidationContext
 ): SchemaValidationIssue[] {
   const errors: SchemaValidationIssue[] = [];
   for (const [rname, rel] of getRelations(model)) {
-    const a = rel["~"].state.A;
-    const b = rel["~"].state.B;
-    if (a && !isValidSchemaIdentifier(a)) {
+    const state = rel["~"].state;
+    const a = state.A;
+    const b = state.B;
+    let rawInvalid = false;
+    if (a !== undefined && !isValidSchemaIdentifier(a)) {
+      rawInvalid = true;
       errors.push({
         code: "JT002",
         message: `Junction field A '${a}' in '${rname}' invalid`,
@@ -232,10 +241,57 @@ export function junctionFieldsValid(
         relation: rname,
       });
     }
-    if (b && !isValidSchemaIdentifier(b)) {
+    if (b !== undefined && !isValidSchemaIdentifier(b)) {
+      rawInvalid = true;
       errors.push({
         code: "JT002",
         message: `Junction field B '${b}' in '${rname}' invalid`,
+        severity: "error",
+        model: name,
+        relation: rname,
+      });
+    }
+    if (
+      state.type !== "manyToMany" ||
+      rawInvalid ||
+      (a !== undefined && a === b)
+    ) {
+      continue;
+    }
+    const target = state.getter();
+    const targetName = findModelName(ctx, target);
+    const sourceRowKey = getModelKeyCatalog(model).rowKey?.fields;
+    const targetRowKey = target
+      ? getModelKeyCatalog(target).rowKey?.fields
+      : undefined;
+    if (!(targetName && sourceRowKey?.length && targetRowKey?.length)) {
+      continue;
+    }
+    try {
+      const table = getJunctionTableName(rel, name, targetName);
+      const groups = getJunctionFieldGroups(
+        rel,
+        name,
+        targetName,
+        sourceRowKey,
+        targetRowKey
+      );
+      getJunctionConstraintName(table, groups.source, "fkey");
+      getJunctionConstraintName(table, groups.target, "fkey");
+      const second = junctionSourceSideIsFirst(
+        name,
+        groups.source.fields,
+        targetName,
+        groups.target.fields
+      )
+        ? groups.target
+        : groups.source;
+      getJunctionConstraintName(table, second, "idx");
+    } catch (error) {
+      if (!(error instanceof JunctionPhysicalNameError)) continue;
+      errors.push({
+        code: error.kind === "collision" ? "JT003" : "JT002",
+        message: error.message,
         severity: "error",
         model: name,
         relation: rname,

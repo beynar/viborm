@@ -159,6 +159,21 @@ function foldJunctionTargetRelation(input: {
     );
 
   if (relation.position === "junction") {
+    if (relation.membership.source.members.length !== 1) {
+      throw new QueryEngineError(
+        `query-engine-v2 internal: a compound junction parent reached the scalar nested-target seam for relation '${relationName}'; the complete record compiler must own that target.`
+      );
+    }
+    const sourceField = relation.membership.source.members[0]?.referencedField;
+    if (!sourceField) {
+      throw new QueryEngineError(
+        `query-engine-v2 internal: junction relation '${relationName}' has no source row-key member.`
+      );
+    }
+    const parentSources = { [sourceField]: parentId };
+    const readSources = {
+      [sourceField]: input.membershipReadSource,
+    };
     // Junction targets recurse through the same relation builder.
     input.parts.push(
       ...buildJunctionParts({
@@ -167,8 +182,8 @@ function foldJunctionTargetRelation(input: {
         parentScope: targetScope,
         relation,
         program,
-        parentId,
-        membershipReadSource: input.membershipReadSource,
+        parentId: parentSources,
+        membershipReadSource: readSources,
         txMode,
         recordCompilers: input.recordCompilers,
         nestedBuilder: deeperBuilder,
@@ -564,7 +579,9 @@ export function buildLiteralParentCreateManyPart(input: {
   const plan = buildCreateManyPlan(
     childScope,
     { data: rows, skipDuplicates },
-    false
+    false,
+    undefined,
+    engine.maxBindParametersPerStatement
   );
   const steps: OperationStep[] = plan.statements.map((statement) => ({
     id: scope.allocate(`${childName}.createMany`),
@@ -608,7 +625,9 @@ export function buildPlannedParentCreateManyPart(input: {
       data: userRows.map((row) => ({ ...row, ...shapeInject })),
       skipDuplicates,
     },
-    false
+    false,
+    undefined,
+    engine.maxBindParametersPerStatement
   ).statements.map(() => scope.allocate(`${childName}.createMany`));
   return new PlannedParentCreatePart((known) => {
     const inject = foreignKeyInject(
@@ -624,7 +643,9 @@ export function buildPlannedParentCreateManyPart(input: {
         data: userRows.map((row) => ({ ...row, ...inject })),
         skipDuplicates,
       },
-      false
+      false,
+      undefined,
+      engine.maxBindParametersPerStatement
     );
     if (plan.statements.length !== stepIds.length) {
       throw new QueryEngineError(
@@ -671,7 +692,8 @@ export function buildPolymorphicParentCreateManyPart(input: {
     childScope,
     { data: userRows, skipDuplicates },
     false,
-    shapeStorage
+    shapeStorage,
+    engine.maxBindParametersPerStatement
   ).statements.map(() => scope.allocate(`${childName}.createMany`));
   return new PlannedParentCreatePart((known) => {
     const storage = resolvePolymorphicStorageValue(
@@ -684,7 +706,8 @@ export function buildPolymorphicParentCreateManyPart(input: {
       childScope,
       { data: userRows, skipDuplicates },
       false,
-      storage
+      storage,
+      engine.maxBindParametersPerStatement
     );
     if (plan.statements.length !== stepIds.length) {
       throw new QueryEngineError(

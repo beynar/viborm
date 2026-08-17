@@ -4,8 +4,6 @@ import { createOperationExecutionContext } from "@query-engine/execution-context
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames, s } from "@schema";
 import type { Model } from "@schema/model";
-import { createSchemaRegistry } from "@validation";
-import { describe, expect, test } from "vitest";
 import { CreateOperation } from "@src/query-engine/write-engine/CreateOperation";
 import { OperationExecutor } from "@src/query-engine/write-engine/OperationExecutor";
 import { UpdateOperation } from "@src/query-engine/write-engine/UpdateOperation";
@@ -13,6 +11,8 @@ import {
   type BehaviorDatabaseSource,
   useBehaviorDatabase,
 } from "@tests/fixtures/drivers/pglite";
+import { createSchemaRegistry } from "@validation";
+import { describe, expect, test } from "vitest";
 
 /**
  * N4-U2 + N4-U4 — the PRODUCED identity, across the whole driver matrix.
@@ -294,7 +294,9 @@ async function seedOrgs(client: StateClient): Promise<void> {
 }
 
 export function runProducedIdentityBehavior(
-  options: { readonly name: string } & BehaviorDatabaseSource
+  options: {
+    readonly name: string;
+  } & BehaviorDatabaseSource
 ): void {
   describe(`${options.name} produced identity at depth (N4-U2 / N4-U4)`, () => {
     const openDatabase = useBehaviorDatabase(producedIdentitySchema, options);
@@ -457,9 +459,9 @@ export function runProducedIdentityBehavior(
           // grandchild written against "the first row" or against a re-read of the
           // selector would attach here.
           await client.squad.create({
-            data: { code: "S-DECOY", title: "decoy", orgId: 1 },
+            data: { id: -1, code: "S-DECOY", title: "decoy", orgId: 1 },
           });
-          await update("org", producedIdentitySchema.org, {
+          const operation = update("org", producedIdentitySchema.org, {
             where: { id: 2 },
             data: {
               squads: {
@@ -475,6 +477,7 @@ export function runProducedIdentityBehavior(
               },
             },
           });
+          await operation;
           const squads = await client.squad.findMany({
             orderBy: { id: "asc" },
           });
@@ -876,24 +879,26 @@ export function runProducedIdentityBehavior(
           // A decoy account seeded FIRST, so it holds the LOWER generated id: a profile
           // keyed off "the first row" would attach to it.
           await client.account.create({
-            data: { email: "decoy@x", handle: "decoy", name: "decoy" },
+            data: {
+              id: -1,
+              email: "decoy@x",
+              handle: "decoy",
+              name: "decoy",
+            },
           });
-          const result = await create(
-            "profile",
-            producedIdentitySchema.profile,
-            {
-              data: {
-                bio: "produced",
-                account: {
-                  create: {
-                    email: "target@x",
-                    handle: "target",
-                    name: "target",
-                  },
+          const operation = create("profile", producedIdentitySchema.profile, {
+            data: {
+              bio: "produced",
+              account: {
+                create: {
+                  email: "target@x",
+                  handle: "target",
+                  name: "target",
                 },
               },
-            }
-          );
+            },
+          });
+          const result = await operation;
           const accounts = await client.account.findMany({
             orderBy: { id: "asc" },
           });
@@ -964,13 +969,14 @@ export function runProducedIdentityBehavior(
           // so a resolver that fell back to the parent's primary key (or to the decoy)
           // would either fail the constraint or point at the wrong row.
           await client.account.create({
-            data: { email: "d@x", handle: "d-handle", name: "d" },
+            data: { id: -1, email: "d@x", handle: "d-handle", name: "d" },
           });
           const result = await create(
             "account",
             producedIdentitySchema.account,
             {
               data: {
+                id: 1,
                 email: "wide@x",
                 handle: "wide-handle",
                 name: "wide",
@@ -997,13 +1003,19 @@ export function runProducedIdentityBehavior(
         const { client, create, dispose } = await setup();
         try {
           await client.account.create({
-            data: { email: "old@x", handle: "old-handle", name: "old" },
+            data: {
+              id: -1,
+              email: "old@x",
+              handle: "old-handle",
+              name: "old",
+            },
           });
           await client.badge.create({
             data: { id: 5, kind: "silver", accountHandle: "old-handle" },
           });
           await create("account", producedIdentitySchema.account, {
             data: {
+              id: 1,
               email: "new@x",
               handle: "new-handle",
               name: "new",

@@ -1,12 +1,11 @@
-import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { createClient } from "@client/client";
-import type { BatchQuery, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
-import { PGlite, type Transaction } from "@electric-sql/pglite";
+import { PGlite } from "@electric-sql/pglite";
 import { push } from "@migrations";
 import { s } from "@schema";
-import { describe, expect, test } from "vitest";
 import { observeClientOperations } from "@tests/contracts/engine/write/operation-observer";
+import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
+import { describe, expect, test } from "vitest";
 
 /**
  * X1b COMBINED DEPTH STRESS — all four lifted mechanisms in ONE tree at >= 6 levels.
@@ -23,7 +22,7 @@ import { observeClientOperations } from "@tests/contracts/engine/write/operation
  *     duplicate PK is skipped.
  * plus the base X1 create-context depth (n2..n6, each fresh node the parent of the next).
  *
- * FIXED-EXPECTATION oracle: pinned state, tx and batch byte-identical, native Observed. The
+ * FIXED-EXPECTATION oracle: pinned transaction and batch state. The
  * WRONG-ROW witness spans every level — each node's parent is pinned to its IMMEDIATE
  * ancestor by name, so an off-by-one in ANY level's FK/produced-id threading diverges.
  * A disjoint witness subtree (w0) stays untouched.
@@ -212,11 +211,15 @@ describe("X1b combined depth stress — four mechanisms in one >=6-level tree", 
     ["w0", null, null, []],
   ];
 
-  for (const substrate of ["tx", "batch"] as const) {
-    test(`${substrate}: all four mechanisms compose in one >=6-level tree, native Observed`, async () => {
-      const { state, engines } = await runObserved(substrate, seed, op, snap);
-      expect(engines).toEqual(new Set(["production"]));
-      expect(state).toEqual(expected);
-    });
-  }
+  test("tx: all four mechanisms compose in one >=6-level tree, native Observed", async () => {
+    const { state, engines } = await runObserved("tx", seed, op, snap);
+    expect(engines).toEqual(new Set(["production"]));
+    expect(state).toEqual(expected);
+  });
+
+  test("batch composes the same four mechanisms", async () => {
+    const { state, engines } = await runObserved("batch", seed, op, snap);
+    expect(engines).toEqual(new Set(["production"]));
+    expect(state).toEqual(expected);
+  });
 });

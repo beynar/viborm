@@ -1,33 +1,30 @@
-import {
-  BatchOnlyPGliteDriver,
-  usePGliteSchemaFamily,
-} from "@tests/fixtures/drivers/pglite";
 import { createClient } from "@client/client";
 import type { AnyDriver, BatchQuery, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { push } from "@migrations";
 import { createOperationExecutionContext } from "@query-engine/execution-context";
-import {
-  createModelRegistry,
-  QueryEngine,
-} from "@query-engine/query-engine";
+import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { s } from "@schema";
 import type { Model } from "@schema/model";
-import { createSchemaRegistry } from "@validation";
-import { describe, expect, test } from "vitest";
 import { OperationExecutor } from "@src/query-engine/write-engine/OperationExecutor";
 import {
   constructRoutedOperation,
   executeRoutedOperation,
 } from "@src/query-engine/write-engine/routing";
-import { batchIsAtomicUnit } from "@tests/fixtures/atomic-unit-batch";
-import { nestedWriteBehaviorSchema } from "@tests/fixtures/nested-write-behavior-schema";
 import { operationFragmentSchema } from "@tests/contracts/engine/write/create-nested-upsert-behavior";
 import {
-  observeClientOperations,
   type OperationRecord,
+  observeClientOperations,
 } from "@tests/contracts/engine/write/operation-observer";
+import { batchIsAtomicUnit } from "@tests/fixtures/atomic-unit-batch";
+import {
+  BatchOnlyPGliteDriver,
+  usePGliteSchemaFamily,
+} from "@tests/fixtures/drivers/pglite";
+import { nestedWriteBehaviorSchema } from "@tests/fixtures/nested-write-behavior-schema";
+import { createSchemaRegistry } from "@validation";
+import { describe, expect, test } from "vitest";
 
 // Two parent-held to-one relations on one record, BOTH referencing `account` —
 // the crossRelationTargetSchema of nested-write-conformance, the sibling-coupling
@@ -170,7 +167,11 @@ const scenarios: Scenario[] = [
         },
         select: { id: true, userId: true },
       }),
-    dump: (c) => c.user.findMany({ orderBy: { id: "asc" } }),
+    dump: (c) =>
+      Promise.all([
+        c.user.findMany({ orderBy: { id: "asc" } }),
+        c.post.findMany({ orderBy: { id: "asc" } }),
+      ]),
   },
   {
     name: "parent-held to-one create (provided target id, string PK)",
@@ -206,7 +207,11 @@ const scenarios: Scenario[] = [
         },
         select: { id: true, userId: true },
       }),
-    dump: (c) => c.post.findMany({ orderBy: { id: "asc" } }),
+    dump: (c) =>
+      Promise.all([
+        c.user.findMany({ orderBy: { id: "asc" } }),
+        c.post.findMany({ orderBy: { id: "asc" } }),
+      ]),
   },
   {
     name: "parent-held to-one connectOrCreate FOUND (adopts existing)",
@@ -242,7 +247,11 @@ const scenarios: Scenario[] = [
         },
         select: { id: true, userId: true },
       }),
-    dump: (c) => c.user.findMany({ orderBy: { id: "asc" } }),
+    dump: (c) =>
+      Promise.all([
+        c.user.findMany({ orderBy: { id: "asc" } }),
+        c.post.findMany({ orderBy: { id: "asc" } }),
+      ]),
   },
   {
     // THE NAMED REGRESSION WITNESS (P6-prereq-2 kill-signal incident). A sibling
@@ -397,12 +406,12 @@ describe("write boundary to-one create family oracle (Direct vs Observed tx vs O
 
       // Byte-identical error class + message, result, and persisted state.
       expect(tx.error).toEqual(direct.error);
-      expect(batch.error).toEqual(direct.error);
       if (!direct.error) {
         expect(tx.result).toEqual(direct.result);
-        expect(batch.result).toEqual(direct.result);
       }
       expect(tx.state).toEqual(direct.state);
+      expect(batch.error).toEqual(direct.error);
+      if (!direct.error) expect(batch.result).toEqual(direct.result);
       expect(batch.state).toEqual(direct.state);
     });
   }

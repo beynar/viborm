@@ -51,7 +51,11 @@ export function attachRecordSeriesProgress(
 /** A committed prefix forbids the routed whole-operation retry. */
 export function hasCommittedRecordSeriesProgress(error: unknown): boolean {
   if (!isVibORMError(error)) return false;
-  return (getTrustedRecordSeriesProgress(error)?.committedSegments ?? 0) > 0;
+  const progress = getTrustedRecordSeriesProgress(error);
+  return (
+    (progress?.committedSegments ?? 0) > 0 ||
+    progress?.mayHaveCommittedSegment === true
+  );
 }
 
 export function hasRecordSeriesProgress(error: unknown): boolean {

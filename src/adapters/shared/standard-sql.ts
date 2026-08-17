@@ -256,14 +256,24 @@ export const createCteBuilders = (
 
 export const createInsertStatement =
   (quoteIdent: IdentifierQuoter): DatabaseAdapter["mutations"]["insert"] =>
-  (table: Sql, columns: string[], values: Sql[][], prefix?: Sql): Sql => {
+  (
+    table: Sql,
+    columns: string[],
+    source: Sql[][] | { readonly select: Sql },
+    prefix?: Sql
+  ): Sql => {
     const cols = columns.map((c) => sql.raw`${quoteIdent(c)}`);
-    const rows = values.map((row) => sql`(${sql.join(row, ", ")})`);
+    const body = Array.isArray(source)
+      ? sql`VALUES ${sql.join(
+          source.map((row) => sql`(${sql.join(row, ", ")})`),
+          ", "
+        )}`
+      : source.select;
     const prefixPart = prefix ? sql`${prefix} ` : sql``;
     return sql`INSERT ${prefixPart}INTO ${table} (${sql.join(
       cols,
       ", "
-    )}) VALUES ${sql.join(rows, ", ")}`;
+    )}) ${body}`;
   };
 
 /**

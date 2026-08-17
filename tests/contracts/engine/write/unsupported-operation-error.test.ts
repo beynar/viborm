@@ -1,3 +1,4 @@
+import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite } from "@electric-sql/pglite";
 import {
@@ -6,43 +7,17 @@ import {
   VibORMError,
   VibORMErrorCode,
 } from "@errors";
-import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
-import { s } from "@schema";
-import { hydrateSchemaNames } from "@schema/hydration";
-import { createSchemaRegistry } from "@validation";
-import { describe, expect, test } from "vitest";
+import { push } from "@migrations";
 import { UnsupportedOperationError as RootExport } from "@src/index";
 import { UnsupportedOperationError as EngineReexport } from "@src/query-engine/write-engine/shared";
-import { UpdateOperation } from "@src/query-engine/write-engine/UpdateOperation";
+import { operationFragmentSchema } from "@tests/contracts/engine/write/create-nested-upsert-behavior";
+import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
+import { describe, expect, test } from "vitest";
 
 /**
- * The live-refusal specimen, inline because it is about a SHAPE and never touches a
- * database: a junction target with a DB-generated primary key and TWO nameable uniques,
- * both spelled by the row. E6.8 re-proved that this one has no probe (see
- * `junction-skip-adoption-behavior.ts` for the wrong-row decoy that says why).
- */
-const refusalSpecimenSchema = (() => {
-  const shelf = s
-    .model({
-      id: s.string().id(),
-      books: s.manyToMany(() => book).through("uoe_book_shelf"),
-    })
-    .map("uoe_shelves");
-  const book = s
-    .model({
-      id: s.int().id().increment(),
-      isbn: s.string().unique(),
-      code: s.string().unique(),
-      title: s.string(),
-      shelves: s.manyToMany(() => shelf).through("uoe_book_shelf"),
-    })
-    .map("uoe_books");
-  return { shelf, book };
-})();
-
-/**
- * Part B of the M2M generated-PK fix: a DELIBERATE capability boundary must not
- * look like an engine crash. UnsupportedOperationError carries its own
+ * A deliberate execution boundary must not look like an engine crash. A batch-only
+ * createMany member cannot write a parent-held target before a skippable root, because
+ * a skipped root would strand that earlier target. UnsupportedOperationError carries its
  * diagnostic name and taxonomy code (V8003 UNSUPPORTED_OPERATION, distinct from
  * QueryEngineError's V9001 INTERNAL_ERROR and from FeatureNotSupportedError's
  * V8001 dialect-capability class) and is exported from src/errors and the
@@ -75,43 +50,46 @@ describe("UnsupportedOperationError public surface", () => {
     expect(RootExport).toBe(UnsupportedOperationError);
   });
 
-  test("a live engine refusal surfaces the class with the V8003 code", () => {
-    hydrateSchemaNames(refusalSpecimenSchema);
-    const schemas = createSchemaRegistry(refusalSpecimenSchema);
-    const engine = new QueryEngine(
-      new PGliteDriver({ client: new PGlite() }),
-      createModelRegistry(refusalSpecimenSchema, schemas)
-    );
-    // RETARGETED TWICE, each time because the previous specimen was absorbed.
-    //  - N3-U2 absorbed the first (upsert-through-junction with a DB-generated
-    //    create-arm PK — the create data's complete unique now names the row).
-    //  - E6.8 absorbed most of the second (`createMany skipDuplicates` on a
-    //    generated-key target): a row spelling exactly ONE nameable unique is now a
-    //    `connectOrCreate` adopt, and a target with nothing to conflict on drops the flag.
-    // What SURVIVES that refusal — and is the specimen now — is the sub-shape whose
-    // impossibility E6.8 re-proved: a row spelling TWO complete uniques. The probe would
-    // have to name the row a constraint fires on, and either unique can be the one that
-    // fires, so no single probe names it. Refused at construction, before any effect.
+  test("a live pre-effect refusal surfaces the class with the V8003 code", async () => {
+    const database = new PGlite();
+    const state = createClient({
+      schema: operationFragmentSchema,
+      driver: new PGliteDriver({ client: database }),
+    });
+    await push(state, { force: true });
+    const client = createClient({
+      schema: operationFragmentSchema,
+      driver: new BatchOnlyPGliteDriver({ client: database }),
+    });
+
     let caught: unknown;
     try {
-      new UpdateOperation(engine, refusalSpecimenSchema.shelf, {
-        where: { id: "s1" },
-        data: {
-          books: {
-            createMany: {
-              data: [{ isbn: "i1", code: "c1", title: "t" }],
-              skipDuplicates: true,
+      await client.post.createMany({
+        data: [
+          {
+            id: 1,
+            title: "skippable",
+            slug: "skippable",
+            author: {
+              create: { id: 99, name: "must-not-land" },
             },
           },
-        },
+        ],
+        skipDuplicates: true,
       });
     } catch (error) {
       caught = error;
     }
+
     expect(caught).toBeInstanceOf(UnsupportedOperationError);
-    expect((caught as UnsupportedOperationError).code).toBe("V8003");
-    expect((caught as UnsupportedOperationError).name).toBe(
-      "UnsupportedOperationError"
+    if (!(caught instanceof UnsupportedOperationError)) throw caught;
+    expect(caught.code).toBe("V8003");
+    expect(caught.name).toBe("UnsupportedOperationError");
+    expect(caught.message).toBe(
+      "Driver 'pglite' cannot execute this record series as committed segments because skipping root 'post.create' would leave prior effect 'user.create' committed."
     );
-  });
+    await expect(state.user.findMany({})).resolves.toEqual([]);
+    await expect(state.post.findMany({})).resolves.toEqual([]);
+    await state.$disconnect();
+  }, 30_000);
 });

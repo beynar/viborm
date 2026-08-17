@@ -446,7 +446,6 @@ export class PostgresAdapter implements DatabaseAdapter {
     valueColumn: sql.raw`"ref_value"`,
     createTable: sql.raw`CREATE TEMP TABLE IF NOT EXISTS "__viborm_batch_refs" ("batch_id" TEXT NOT NULL, "ref_key" TEXT NOT NULL, "ref_value" TEXT, PRIMARY KEY ("batch_id", "ref_key")) ON COMMIT DROP`,
     castValue: (valueSql) => sql`CAST((${valueSql}) AS TEXT)`,
-    lastInsertId: () => this.lastInsertId(),
   });
 
   // ============================================================

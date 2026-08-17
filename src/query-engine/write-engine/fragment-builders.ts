@@ -129,7 +129,7 @@ function isConcreteFkValue(value: unknown): boolean {
  * `connectOrCreate`, still strict by W4's scoping) is unaffected by construction, and
  * a future widening cannot reintroduce the bug by forgetting a site.
  */
-export function childRacePin(
+export function selectorRacePin(
   child: QueryScope,
   where: Record<string, unknown>
 ): TargetConstraintPin | undefined {

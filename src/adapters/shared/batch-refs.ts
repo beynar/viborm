@@ -8,7 +8,7 @@ interface OnConflictBatchRefsConfig {
   valueColumn: Sql;
   createTable: Sql;
   castValue: (valueSql: Sql) => Sql;
-  lastInsertId: () => Sql;
+  lastInsertId?: () => Sql;
 }
 
 interface MySqlBatchRefsConfig extends OnConflictBatchRefsConfig {
@@ -44,6 +44,7 @@ function createBatchRefs(
     store: (batchId: string, key: string, valueSql: Sql) => Sql;
   }
 ): BatchReferenceSqlAdapter {
+  const lastInsertId = config.lastInsertId;
   const deleteBatch = (batchId: string): Sql =>
     sql`DELETE FROM ${config.table} WHERE ${config.batchIdColumn} = ${batchId}`;
 
@@ -54,7 +55,11 @@ function createBatchRefs(
     store: config.store,
     read: (batchId, key) =>
       sql`(SELECT ${config.valueColumn} FROM ${config.table} WHERE ${config.batchIdColumn} = ${batchId} AND ${config.keyColumn} = ${key} ${sql.raw`LIMIT 1`})`,
-    storeLastInsertId: (batchId, key) =>
-      config.store(batchId, key, config.lastInsertId()),
+    ...(lastInsertId
+      ? {
+          storeLastInsertId: (batchId: string, key: string) =>
+            config.store(batchId, key, lastInsertId()),
+        }
+      : {}),
   };
 }

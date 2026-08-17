@@ -2,11 +2,11 @@ import { createClient } from "@client/client";
 import { MySQL2Driver } from "@drivers/mysql2";
 import { PgDriver } from "@drivers/pg";
 import { push } from "@migrations";
-import { afterAll, describe } from "vitest";
 import {
   compoundAdoptSchema,
   registerCompoundAdoptBehavior,
 } from "@tests/contracts/engine/write/compound-relation-adoption-behavior";
+import { afterAll, describe } from "vitest";
 
 /**
  * E4-U2 on the live servers.

@@ -8,10 +8,11 @@
 
 import { type Sql, sql } from "@sql";
 import { createChildScope, getColumnName, getTableName } from "../context";
-import { NestedWriteError, type QueryScope } from "../types";
-import {
-  type JunctionBoundRelation,
-  junctionSideMember,
+import { NestedWriteError, QueryEngineError, type QueryScope } from "../types";
+import type {
+  JunctionBoundRelation,
+  JunctionReferenceMember,
+  JunctionSide,
 } from "./relation-data-builder";
 import { buildScalarSqlValue } from "./values-builder";
 import { buildWhereUnique } from "./where-unique-builder";
@@ -19,9 +20,9 @@ import { buildWhereUnique } from "./where-unique-builder";
 /**
  * Build the standard M2M join conditions
  *
- * Both conditions fold EVERY member of their side. With one member per side —
- * the only shape the binder resolves today — `operators.and` returns the single
- * conjunct unchanged, so the emitted SQL is the bare equality it has always been.
+ * Both conditions fold EVERY member of their side. With a scalar row key,
+ * `operators.and` returns the single conjunct unchanged, so the emitted SQL is
+ * the bare equality it has always been; compound sides retain every member.
  *
  * @returns correlationCondition: jt.sourceId = parent.id
  * @returns joinCondition: target.id = jt.targetId
@@ -84,24 +85,21 @@ export function buildManyToManyJoinParts(
  * driver rows (column keys), and in the batch engine the value may be a
  * batch reference — buildScalarSqlValue lowers all of these.
  */
+export type JunctionSqlValues = readonly Sql[];
+
 export function buildJunctionParentValue(
   ctx: QueryScope,
   junction: JunctionBoundRelation,
   parentData: Record<string, unknown>,
   relationName: string
-): Sql {
-  const { model } = junction.membership.source;
-  const { referencedField } = junctionSideMember(junction.membership.source);
-  const raw =
-    parentData[referencedField] ??
-    parentData[getColumnName(model, referencedField)];
-  if (raw === undefined || raw === null) {
-    throw new NestedWriteError(
-      `Cannot write many-to-many relation '${relationName}': parent record is missing primary key field '${referencedField}'.`,
-      relationName
-    );
-  }
-  return buildScalarSqlValue(ctx, model, referencedField, raw);
+): JunctionSqlValues {
+  return buildJunctionSideValues(
+    ctx,
+    junction.membership.source,
+    parentData,
+    relationName,
+    "parent"
+  );
 }
 
 /**
@@ -112,19 +110,35 @@ export function buildJunctionTargetValue(
   junction: JunctionBoundRelation,
   targetRecord: Record<string, unknown>,
   relationName: string
-): Sql {
-  const { model } = junction.membership.target;
-  const { referencedField } = junctionSideMember(junction.membership.target);
-  const raw =
-    targetRecord[referencedField] ??
-    targetRecord[getColumnName(model, referencedField)];
-  if (raw === undefined || raw === null) {
-    throw new NestedWriteError(
-      `Cannot write many-to-many relation '${relationName}': target record is missing primary key field '${referencedField}'.`,
-      relationName
-    );
-  }
-  return buildScalarSqlValue(ctx, model, referencedField, raw);
+): JunctionSqlValues {
+  return buildJunctionSideValues(
+    ctx,
+    junction.membership.target,
+    targetRecord,
+    relationName,
+    "target"
+  );
+}
+
+function buildJunctionSideValues(
+  ctx: QueryScope,
+  side: JunctionSide,
+  record: Record<string, unknown>,
+  relationName: string,
+  position: "parent" | "target"
+): JunctionSqlValues {
+  return side.members.map((member) => {
+    const raw =
+      record[member.referencedField] ??
+      record[getColumnName(side.model, member.referencedField)];
+    if (raw === undefined || raw === null) {
+      throw new NestedWriteError(
+        `Cannot write many-to-many relation '${relationName}': ${position} record is missing primary key field '${member.referencedField}'.`,
+        relationName
+      );
+    }
+    return buildScalarSqlValue(ctx, side.model, member.referencedField, raw);
+  });
 }
 
 /**
@@ -134,29 +148,96 @@ export function buildJunctionTargetValue(
 export function buildJunctionInsert(
   ctx: QueryScope,
   junction: JunctionBoundRelation,
-  parentValue: Sql,
-  targetValue: Sql
+  parentValues: JunctionSqlValues,
+  targetValues: JunctionSqlValues
 ): Sql {
-  return buildJunctionInsertMany(ctx, junction, parentValue, [targetValue]);
+  return buildJunctionInsertMany(ctx, junction, parentValues, [targetValues]);
+}
+
+/**
+ * Insert one junction row only when the complete target row key exists.
+ *
+ * A scalar-only `createMany({ skipDuplicates: true })` row can spell its target
+ * key and still skip because a different row owns another unique constraint.
+ * The target key remains authoritative: an exact-key duplicate links, while an
+ * alternate-key conflict whose target key is absent produces no junction row.
+ */
+export function buildJunctionInsertWhenTargetExists(
+  ctx: QueryScope,
+  junction: JunctionBoundRelation,
+  parentValues: JunctionSqlValues,
+  targetValues: JunctionSqlValues
+): Sql {
+  const { adapter } = ctx;
+  const { source, target } = junction.membership;
+  assertJunctionValueArity(source, parentValues);
+  assertJunctionValueArity(target, targetValues);
+  const sourceFields = source.members.map((member) => member.junctionField);
+  const targetFields = target.members.map((member) => member.junctionField);
+  const sourceField = sourceFields[0];
+  if (sourceField === undefined) {
+    throw new QueryEngineError(
+      "Junction source has no stored-reference member."
+    );
+  }
+  const targetTable = getTableName(target.model);
+  const selectedTargetValues = target.members.map((member) =>
+    adapter.identifiers.column(
+      targetTable,
+      getColumnName(target.model, member.referencedField)
+    )
+  );
+  const select = adapter.assemble.select({
+    columns: sql.join([...parentValues, ...selectedTargetValues], ", "),
+    from: adapter.identifiers.escape(targetTable),
+    where: buildJunctionReferencedValuesMatch(
+      ctx,
+      target,
+      targetValues,
+      targetTable
+    ),
+  });
+  const { prefix, suffix } = adapter.mutations.skipDuplicates(sourceField);
+  const insert = adapter.mutations.insert(
+    adapter.identifiers.escape(junction.membership.table),
+    [...sourceFields, ...targetFields],
+    { select },
+    prefix
+  );
+  return sql`${insert} ${suffix}`;
 }
 
 /** INSERT junction rows in one portable duplicate-skipping statement. */
 export function buildJunctionInsertMany(
   ctx: QueryScope,
   junction: JunctionBoundRelation,
-  parentValue: Sql,
-  targetValues: readonly Sql[]
+  parentValues: JunctionSqlValues,
+  targetValues: readonly JunctionSqlValues[]
 ): Sql {
   const { adapter } = ctx;
   const membership = junction.membership;
-  const sourceField = junctionSideMember(membership.source).junctionField;
-  const targetField = junctionSideMember(membership.target).junctionField;
+  assertJunctionValueArity(membership.source, parentValues);
+  for (const target of targetValues) {
+    assertJunctionValueArity(membership.target, target);
+  }
+  const sourceFields = membership.source.members.map(
+    (member) => member.junctionField
+  );
+  const targetFields = membership.target.members.map(
+    (member) => member.junctionField
+  );
+  const sourceField = sourceFields[0];
+  if (sourceField === undefined) {
+    throw new QueryEngineError(
+      "Junction source has no stored-reference member."
+    );
+  }
   const table = adapter.identifiers.escape(membership.table);
   const { prefix, suffix } = adapter.mutations.skipDuplicates(sourceField);
   const insertSql = adapter.mutations.insert(
     table,
-    [sourceField, targetField],
-    targetValues.map((targetValue) => [parentValue, targetValue]),
+    [...sourceFields, ...targetFields],
+    targetValues.map((target) => [...parentValues, ...target]),
     prefix
   );
   return sql`${insertSql} ${suffix}`;
@@ -166,27 +247,125 @@ export function buildJunctionInsertMany(
 export function buildJunctionSourceMatch(
   ctx: QueryScope,
   junction: JunctionBoundRelation,
-  parentValue: Sql
+  parentValues: JunctionSqlValues,
+  qualifier?: string
 ): Sql {
-  return ctx.adapter.operators.eq(
-    ctx.adapter.identifiers.escape(
-      junctionSideMember(junction.membership.source).junctionField
-    ),
-    parentValue
+  return buildJunctionSideMatch(
+    ctx,
+    junction.membership.source.members,
+    parentValues,
+    qualifier
   );
 }
 
-/** Condition: junction.target IN (values | subquery) (for junction DML). */
-export function buildJunctionTargetIn(
+/** Condition: a junction target side equals any complete target row key. */
+export function buildJunctionTargetValuesMatch(
   ctx: QueryScope,
   junction: JunctionBoundRelation,
-  targetValues: Sql
+  targetValues: readonly JunctionSqlValues[],
+  qualifier?: string
 ): Sql {
-  return ctx.adapter.operators.in(
-    ctx.adapter.identifiers.escape(
-      junctionSideMember(junction.membership.target).junctionField
-    ),
-    targetValues
+  const side = junction.membership.target;
+  if (side.members.length === 1) {
+    const [member] = side.members;
+    if (member === undefined) {
+      throw new QueryEngineError(
+        "Junction target has no stored-reference member."
+      );
+    }
+    const values = targetValues.map((target) => {
+      assertJunctionValueArity(side, target);
+      const value = target[0];
+      if (!value) {
+        throw new QueryEngineError("Junction target has no scalar value.");
+      }
+      return value;
+    });
+    const column = junctionColumn(ctx, member, qualifier);
+    return ctx.adapter.operators.in(column, sql`(${sql.join(values, ", ")})`);
+  }
+  return ctx.adapter.operators.or(
+    ...targetValues.map((target) =>
+      buildJunctionSideMatch(ctx, side.members, target, qualifier)
+    )
+  );
+}
+
+/** Match target junction columns to scalar subqueries selected by one unique row. */
+export function buildJunctionTargetSubqueriesMatch(
+  ctx: QueryScope,
+  junction: JunctionBoundRelation,
+  targetValues: JunctionSqlValues,
+  qualifier?: string
+): Sql {
+  const side = junction.membership.target;
+  assertJunctionValueArity(side, targetValues);
+  if (side.members.length === 1) {
+    const value = targetValues[0];
+    if (!value) {
+      throw new QueryEngineError("Junction target has no scalar subquery.");
+    }
+    return ctx.adapter.operators.in(
+      junctionColumn(ctx, side.members[0]!, qualifier),
+      value
+    );
+  }
+  return buildJunctionSideMatch(ctx, side.members, targetValues, qualifier);
+}
+
+/** Condition on an endpoint table: its complete referenced key equals one tuple. */
+export function buildJunctionReferencedValuesMatch(
+  ctx: QueryScope,
+  side: JunctionSide,
+  values: JunctionSqlValues,
+  qualifier: string
+): Sql {
+  assertJunctionValueArity(side, values);
+  return ctx.adapter.operators.and(
+    ...side.members.map((member, index) => {
+      const value = values[index];
+      if (!value) {
+        throw new QueryEngineError(
+          "Junction referenced side has an incomplete value tuple."
+        );
+      }
+      return ctx.adapter.operators.eq(
+        ctx.adapter.identifiers.column(
+          qualifier,
+          getColumnName(side.model, member.referencedField)
+        ),
+        value
+      );
+    })
+  );
+}
+
+/** Condition on an endpoint table: its complete referenced key is in a tuple set. */
+export function buildJunctionReferencedValuesSetMatch(
+  ctx: QueryScope,
+  side: JunctionSide,
+  values: readonly JunctionSqlValues[],
+  qualifier: string
+): Sql {
+  if (side.members.length === 1) {
+    const column = ctx.adapter.identifiers.column(
+      qualifier,
+      getColumnName(side.model, side.members[0]!.referencedField)
+    );
+    const scalars = values.map((tuple) => {
+      assertJunctionValueArity(side, tuple);
+      const value = tuple[0];
+      if (!value) {
+        throw new QueryEngineError("Junction target has no scalar value.");
+      }
+      return value;
+    });
+    return ctx.adapter.operators.in(column, sql`(${sql.join(scalars, ", ")})`);
+  }
+  return ctx.adapter.operators.or(
+    ...values.map((tuple) =>
+      buildJunctionReferencedValuesMatch(ctx, side, tuple, qualifier)
+    )
   );
 }
 
@@ -194,22 +373,24 @@ export function buildJunctionTargetIn(
  * Scalar subquery resolving a target row's PK from a where-unique input:
  * (SELECT target.pk FROM target WHERE <unique>)
  */
-export function buildTargetPkSubquery(
+export function buildTargetPkSubqueries(
   ctx: QueryScope,
   junction: JunctionBoundRelation,
   whereUnique: Record<string, unknown>
-): Sql {
+): JunctionSqlValues {
   const { adapter } = ctx;
   const target = junction.membership.target;
   const { model } = target;
   const targetTableName = getTableName(model);
   const childCtx = createChildScope(ctx, model, ctx.nextAlias());
   const whereClause = buildWhereUnique(childCtx, whereUnique, targetTableName);
-  const pkCol = adapter.identifiers.column(
-    targetTableName,
-    getColumnName(model, junctionSideMember(target).referencedField)
-  );
-  return sql`(SELECT ${pkCol} FROM ${adapter.identifiers.escape(targetTableName)} WHERE ${whereClause})`;
+  return target.members.map((member) => {
+    const pkCol = adapter.identifiers.column(
+      targetTableName,
+      getColumnName(model, member.referencedField)
+    );
+    return sql`(SELECT ${pkCol} FROM ${adapter.identifiers.escape(targetTableName)} WHERE ${whereClause})`;
+  });
 }
 
 /**
@@ -219,20 +400,48 @@ export function buildTargetPkSubquery(
 export function buildJunctionMembership(
   ctx: QueryScope,
   junction: JunctionBoundRelation,
-  parentValue: Sql,
+  parentValues: JunctionSqlValues,
   targetTableOrAlias: string
 ): Sql {
   const { adapter } = ctx;
   const target = junction.membership.target;
-  const targetMember = junctionSideMember(target);
-  const childPkCol = adapter.identifiers.column(
-    targetTableOrAlias,
-    getColumnName(target.model, targetMember.referencedField)
-  );
-  const targetCol = adapter.identifiers.escape(targetMember.junctionField);
   const junctionTable = adapter.identifiers.escape(junction.membership.table);
-  const sourceMatch = buildJunctionSourceMatch(ctx, junction, parentValue);
-  return sql`${childPkCol} IN (SELECT ${targetCol} FROM ${junctionTable} WHERE ${sourceMatch})`;
+  if (target.members.length === 1) {
+    const sourceMatch = buildJunctionSourceMatch(ctx, junction, parentValues);
+    const targetMember = target.members[0]!;
+    const childPkCol = adapter.identifiers.column(
+      targetTableOrAlias,
+      getColumnName(target.model, targetMember.referencedField)
+    );
+    const targetCol = adapter.identifiers.escape(targetMember.junctionField);
+    return sql`${childPkCol} IN (SELECT ${targetCol} FROM ${junctionTable} WHERE ${sourceMatch})`;
+  }
+  const sourceMatch = buildJunctionSourceMatch(
+    ctx,
+    junction,
+    parentValues,
+    junction.membership.table
+  );
+  const targetMatch = adapter.operators.and(
+    ...target.members.map((member) =>
+      adapter.operators.eq(
+        adapter.identifiers.column(
+          targetTableOrAlias,
+          getColumnName(target.model, member.referencedField)
+        ),
+        adapter.identifiers.column(
+          junction.membership.table,
+          member.junctionField
+        )
+      )
+    )
+  );
+  const exists = adapter.assemble.select({
+    columns: adapter.literals.value(1),
+    from: junctionTable,
+    where: adapter.operators.and(sourceMatch, targetMatch),
+  });
+  return adapter.operators.exists(exists);
 }
 
 /**
@@ -244,19 +453,93 @@ export function buildJunctionMembership(
 export function buildJunctionDeleteCondition(
   ctx: QueryScope,
   junction: JunctionBoundRelation,
-  targetPks: Sql
+  targetValues: readonly JunctionSqlValues[]
 ): Sql {
-  const condition = buildJunctionTargetIn(ctx, junction, targetPks);
+  const condition = buildJunctionTargetValuesMatch(ctx, junction, targetValues);
   if (junction.membership.target.model !== ctx.model) {
     return condition;
   }
   return ctx.adapter.operators.or(
     condition,
-    ctx.adapter.operators.in(
-      ctx.adapter.identifiers.escape(
-        junctionSideMember(junction.membership.source).junctionField
-      ),
-      targetPks
+    buildJunctionSideValuesSetMatch(
+      ctx,
+      junction.membership.source,
+      targetValues
     )
   );
+}
+
+function buildJunctionSideValuesSetMatch(
+  ctx: QueryScope,
+  side: JunctionSide,
+  values: readonly JunctionSqlValues[],
+  qualifier?: string
+): Sql {
+  if (side.members.length === 1) {
+    const scalars = values.map((tuple) => {
+      assertJunctionValueArity(side, tuple);
+      const value = tuple[0];
+      if (!value) {
+        throw new QueryEngineError("Junction side has no scalar value.");
+      }
+      return value;
+    });
+    return ctx.adapter.operators.in(
+      junctionColumn(ctx, side.members[0]!, qualifier),
+      sql`(${sql.join(scalars, ", ")})`
+    );
+  }
+  return ctx.adapter.operators.or(
+    ...values.map((tuple) =>
+      buildJunctionSideMatch(ctx, side.members, tuple, qualifier)
+    )
+  );
+}
+
+function buildJunctionSideMatch(
+  ctx: QueryScope,
+  members: readonly JunctionReferenceMember[],
+  values: JunctionSqlValues,
+  qualifier?: string
+): Sql {
+  if (members.length !== values.length) {
+    throw new QueryEngineError(
+      "Junction side value count does not match its stored reference."
+    );
+  }
+  return ctx.adapter.operators.and(
+    ...members.map((member, index) => {
+      const value = values[index];
+      if (!value) {
+        throw new QueryEngineError(
+          "Junction side has an incomplete value tuple."
+        );
+      }
+      return ctx.adapter.operators.eq(
+        junctionColumn(ctx, member, qualifier),
+        value
+      );
+    })
+  );
+}
+
+function junctionColumn(
+  ctx: QueryScope,
+  member: JunctionReferenceMember,
+  qualifier?: string
+): Sql {
+  return qualifier
+    ? ctx.adapter.identifiers.column(qualifier, member.junctionField)
+    : ctx.adapter.identifiers.escape(member.junctionField);
+}
+
+function assertJunctionValueArity(
+  side: JunctionSide,
+  values: JunctionSqlValues
+): void {
+  if (values.length !== side.members.length) {
+    throw new QueryEngineError(
+      "Junction side value count does not match its stored reference."
+    );
+  }
 }

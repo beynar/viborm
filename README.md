@@ -56,7 +56,7 @@ Status legend:
 | Nested writes | Broad nested create/connect/update/delete/upsert matrix | Supports `create`, `createMany`, `connect`, `connectOrCreate`, nullable/correlated `disconnect`, `delete`, `set`, `update`, to-many `updateMany`, `upsert`, and to-many `deleteMany`; callback-transaction and atomic-batch paths propagate generated and updated primary keys where the shape is safe; create-branch update/delete-like shapes are excluded | `Subset` |
 | Transactions | Callback and array `$transaction` | Callback transactions on transactional drivers; batch mode on transactional or atomic-batch drivers | `Supported` |
 | `omit` | Prisma supports per-query and client-level `omit` | Supports both, including `select`/`omit` exclusivity and the local `{ field: false }` override of a client default; VibORM additionally has a schema-level `.omit()` that is a hard exclusion no query can undo | `Supported` |
-| Raw SQL | Prisma tagged `$queryRaw`/`$executeRaw` plus unsafe variants | Tagged `$queryRaw` (returns `T[]`) / `$executeRaw` (returns the affected count) plus `$queryRawUnsafe`/`$executeRawUnsafe`; also on the interactive transaction client. `sql`/`join`/`empty`/`raw` are exported from the package root | `Supported` |
+| Raw SQL | Prisma tagged `$queryRaw`/`$executeRaw` plus unsafe variants | Tagged `$queryRaw` (returns `T[]`) / `$executeRaw` (returns the affected count) plus `$queryRawUnsafe`/`$executeRawUnsafe`; lazy raw operations mix with model operations in array transactions and also run on the interactive transaction client. `sql`/`join`/`empty`/`raw` are exported from the package root | `Supported` |
 | Existence check | Emulated with `count`/`findFirst` in Prisma | `exist({ where })` is a VibORM extension returning `boolean`; no `exists` alias | `Different` |
 
 ```typescript
@@ -552,7 +552,7 @@ Most tests run against PGlite (in-memory PostgreSQL). Driver tests in `tests/dri
 - Full Prisma parity is not complete; VibORM is Prisma-inspired.
 - Parent `create` and the create branch of parent `upsert` intentionally exclude update/delete-like nested operations.
 - Impossible or unsafe primary-key dataflow shapes reject before mutation instead of partially applying nested writes.
-- Raw queries are Prisma-shaped tagged templates; the pre-1.0 `$queryRaw(string, params?)` form still runs for one release behind a deprecation notice, and `$transaction([...])` takes model operations only (raw SQL goes in the interactive form).
+- Raw queries are Prisma-shaped tagged templates; the pre-1.0 `$queryRaw(string, params?)` form still runs for one release behind a deprecation notice. Raw calls are lazy, promise-compatible operations that can mix with model operations in `$transaction([...])`.
 - Transaction options are honored where the driver can honor them and refused with a typed `UnsupportedOperationError` (naming the option and the reason) where it cannot; see the per-driver table in the Transactions docs.
 - Local nested-write conformance is proven on PGlite/Postgres-style and SQLite-family paths; hosted D1 binding and Neon HTTP need external runs before claiming hosted verification.
 

@@ -1,8 +1,10 @@
 import { createClient } from "@client/client";
 import type { BatchQuery, QueryExecutionContext, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
+import { SQLite3Driver } from "@drivers/sqlite3";
 import type { PGlite, Transaction } from "@electric-sql/pglite";
 import { UniqueConstraintError } from "@errors";
+import { push } from "@migrations";
 import { hydrateSchemaNames, s } from "@schema";
 import type { Model } from "@schema/model";
 import { sql } from "@sql";
@@ -13,7 +15,10 @@ import {
   ref,
   type WriteStep,
 } from "@src/query-engine/write-engine/OperationFragment";
+import { expectIndivisibleGeneratedOutputRefusal } from "@tests/contracts/engine/write/generated-identity-batch-refusal";
+import { batchIsAtomicUnit } from "@tests/fixtures/atomic-unit-batch";
 import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
+import type Database from "better-sqlite3";
 import { describe, expect, test } from "vitest";
 
 /**
@@ -170,15 +175,58 @@ const depSchema = (() => {
         .optional(),
     })
     .map("pm_slots");
-  return { hub, span, tag, cell, crate, pallet, label, vault, slot };
+  const node = s
+    .model({
+      id: s.string().id(),
+      label: s.string(),
+      parentId: s.string().nullable(),
+      parent: s
+        .manyToOne(() => node)
+        .fields("parentId")
+        .references("id")
+        .optional(),
+      children: s.oneToMany(() => node),
+    })
+    .map("pm_nodes");
+  const raceEntry = s
+    .model({
+      id: s.int().id().increment(),
+      email: s.string().unique(),
+      status: s.string(),
+    })
+    .map("pm_race_entries");
+  return {
+    hub,
+    span,
+    tag,
+    cell,
+    crate,
+    pallet,
+    label,
+    vault,
+    slot,
+    node,
+    raceEntry,
+  };
 })();
 
 hydrateSchemaNames(depSchema);
+
+const sqliteScalarSchema = {
+  entry: s
+    .model({
+      id: s.int().id().increment(),
+      label: s.string().unique(),
+    })
+    .map("pm_sqlite_entries"),
+};
+hydrateSchemaNames(sqliteScalarSchema);
 
 /** Records every statement, hooking the PROTECTED seam a transaction-bound
  *  driver delegates back to (delete-fold.test.ts owns the explanation). */
 class RecordingPGliteDriver extends PGliteDriver {
   readonly statements: string[] = [];
+  batchCalls = 0;
   recording = false;
 
   protected override execute<T>(
@@ -213,6 +261,57 @@ class BatchOnlyRecordingDriver extends RecordingPGliteDriver {
     client: PGlite | Transaction,
     queries: BatchQuery[]
   ): Promise<QueryResult<T>[]> {
+    this.batchCalls += 1;
+    return this.transaction(client, async (transaction) => {
+      const results: QueryResult<T>[] = [];
+      for (const query of queries) {
+        results.push(
+          await this.executeRaw<T>(transaction, query.sql, query.params)
+        );
+      }
+      return results;
+    });
+  }
+}
+
+class BeforeAtomicBatchDriver extends BatchOnlyRecordingDriver {
+  private beforeBatch: (() => Promise<void>) | undefined;
+
+  constructor(database: PGlite, beforeBatch: () => Promise<void>) {
+    super({ client: database });
+    // Keep this witness on the probe-first RETURNING arm. The targeted
+    // `ON CONFLICT` fold has no planning window and owns a different race contract.
+    this.adapter.capabilities.supportsTargetedUpsert = false;
+    this.beforeBatch = beforeBatch;
+  }
+
+  protected override async executeBatch<T>(
+    client: PGlite | Transaction,
+    queries: BatchQuery[]
+  ): Promise<QueryResult<T>[]> {
+    const hook = this.beforeBatch;
+    if (hook && batchIsAtomicUnit(queries)) {
+      this.beforeBatch = undefined;
+      await hook();
+    }
+    return super.executeBatch<T>(client, queries);
+  }
+}
+
+class BatchOnlyReturningSQLiteDriver extends SQLite3Driver {
+  override readonly supportsTransactions = false;
+  override readonly supportsBatch = true;
+  batchCalls = 0;
+
+  constructor() {
+    super({ dataDir: ":memory:" });
+  }
+
+  protected override executeBatch<T>(
+    client: Database.Database,
+    queries: BatchQuery[]
+  ): Promise<QueryResult<T>[]> {
+    this.batchCalls += 1;
     return this.transaction(client, async (transaction) => {
       const results: QueryResult<T>[] = [];
       for (const query of queries) {
@@ -269,7 +368,7 @@ describe("M4 — PostgreSQL statement count, and the answer it must not change",
     ]);
   });
 
-  test("the batch substrate keeps the portable series and answers identically", async () => {
+  test("the batch substrate keeps the exact one-statement fold", async () => {
     const { driver, client } = boot(true);
 
     driver.recording = true;
@@ -280,11 +379,80 @@ describe("M4 — PostgreSQL statement count, and the answer it must not change",
     const statements = drain(driver);
     driver.recording = false;
 
-    expect(statements.some((text) => text.startsWith("WITH "))).toBe(false);
+    expect(foldedInOneStatement(statements)).toBe(true);
     expect(created).toEqual({ id: created.id, name: "H2" });
     expect(await client.span.findMany({ where: { id: "s2" } })).toEqual([
       { id: "s2", body: "b2", hubId: created.id },
     ]);
+  });
+
+  test("an indivisible array keeps a folded create tree and its sibling in one batch", async () => {
+    const { driver, client } = boot(true);
+
+    const [created, sibling] = await client.$transaction([
+      client.hub.create({
+        data: {
+          name: "H-array",
+          spans: { create: { id: "s-array", body: "array child" } },
+        },
+        select: { id: true, name: true },
+      }),
+      client.tag.create({ data: { id: "tag-array" } }),
+    ]);
+
+    expect(driver.batchCalls).toBe(1);
+    expect(created).toMatchObject({ name: "H-array" });
+    expect(sibling).toEqual({ id: "tag-array" });
+    expect(await client.span.findMany({ where: { id: "s-array" } })).toEqual([
+      {
+        id: "s-array",
+        body: "array child",
+        hubId: created.id,
+      },
+    ]);
+  });
+
+  test("a failing array sibling rolls back the folded create tree", async () => {
+    const { client } = boot(true);
+    await client.tag.create({ data: { id: "occupied-array-tag" } });
+
+    await expect(
+      client.$transaction([
+        client.hub.create({
+          data: {
+            name: "must roll back",
+            spans: { create: { id: "rolled-back-span", body: "child" } },
+          },
+          select: { id: true },
+        }),
+        client.tag.create({ data: { id: "occupied-array-tag" } }),
+      ])
+    ).rejects.toBeInstanceOf(UniqueConstraintError);
+
+    expect(await client.hub.count()).toBe(0);
+    expect(await client.span.count()).toBe(0);
+    expect(await client.tag.findMany()).toEqual([{ id: "occupied-array-tag" }]);
+  });
+
+  test("an indivisible array refuses a generated dependency that relation projection prevents folding", async () => {
+    const { client } = boot(true);
+
+    await expectIndivisibleGeneratedOutputRefusal(
+      client.$transaction([
+        client.hub.create({
+          data: {
+            name: "unfoldable array",
+            spans: { create: { id: "unfoldable-span", body: "child" } },
+          },
+          include: { spans: true },
+        }),
+        client.tag.create({ data: { id: "must-not-run" } }),
+      ]),
+      "hub.create.id"
+    );
+    expect(await client.hub.count()).toBe(0);
+    expect(await client.span.count()).toBe(0);
+    expect(await client.tag.count()).toBe(0);
   });
 
   test("TWO children spending one produced identity are ONE statement, both linked", async () => {
@@ -396,9 +564,9 @@ describe("M4 — PostgreSQL statement count, and the answer it must not change",
     expect(
       await portable.client.hub.findMany({ where: { name: "H5b" } })
     ).toEqual([]);
-    expect(await folded.client.span.findMany({ where: { id: "dup" } })).toEqual(
-      []
-    );
+    expect(
+      await portable.client.span.findMany({ where: { id: "dup" } })
+    ).toEqual([]);
   });
 
   /**
@@ -682,7 +850,32 @@ describe("M4 — injecting one reason at a time makes the fold decline", () => {
     });
   });
 
-  test("A RACE PIN: an upsert's create arm owns a retry the merge cannot carry", async () => {
+  test("a relation projection over untouched tables stays in the tree fold", async () => {
+    const { driver, client } = boot();
+
+    driver.recording = true;
+    const created = await client.hub.create({
+      data: {
+        name: "H9-safe",
+        spans: { create: { id: "s9-safe", body: "b9-safe" } },
+      },
+      include: { tags: true },
+    });
+    const statements = drain(driver);
+    driver.recording = false;
+
+    expect(foldedInOneStatement(statements)).toBe(true);
+    expect(created).toEqual({
+      id: created.id,
+      name: "H9-safe",
+      tags: [],
+    });
+    expect(await client.span.findMany({ where: { id: "s9-safe" } })).toEqual([
+      { id: "s9-safe", body: "b9-safe", hubId: created.id },
+    ]);
+  });
+
+  test("AN ENCLOSING OWNER: an unpinned upsert create arm uses the tree fold", async () => {
     const { driver, client } = boot();
 
     driver.recording = true;
@@ -695,20 +888,177 @@ describe("M4 — injecting one reason at a time makes the fold decline", () => {
     const statements = drain(driver);
     driver.recording = false;
 
-    // The create arm's INSERT carries the pin that says "a unique violation HERE
-    // means another session won the race — retry the whole upsert". The upsert
-    // attaches it AFTER the arm compiles, addressing the root write by step id
-    // (`UpsertOperation.annotateCreateRacePin`), and a fold keeps that id while
-    // swallowing the child INSERTs into the same command — so the child's own
-    // unique violation would come back as "someone else created the row" and
-    // retry into the UPDATE arm. `annotatedByEnclosingOwner` declines instead.
-    //
-    // THIS IS THE ONE THE PROTOTYPE GOT WRONG. Before Package M the reference
-    // conjunct declined this tree by accident; removing it folded a race-pinned
-    // arm, and `record-compiler-contract` caught it.
-    expect(statements.some((text) => text.startsWith("WITH "))).toBe(false);
+    // The create arm does not reproduce `where.id`, so exact race provenance
+    // withholds a pin. The fresh compiler now knows that fact before it chooses
+    // the fold; no post-compilation owner rewrites its root statement.
+    expect(statements.some((text) => text.startsWith("WITH "))).toBe(true);
     expect(await client.span.findMany({ where: { id: "s11" } })).toEqual([
       { id: "s11", body: "b11", hubId: created.id },
+    ]);
+  });
+
+  test("an indivisible array keeps an upsert create DAG and its sibling atomic", async () => {
+    const { driver, client } = boot(true);
+
+    driver.recording = true;
+    const [created, sibling] = await client.$transaction([
+      client.hub.upsert({
+        where: { id: 9001 },
+        create: {
+          name: "H-array-upsert",
+          spans: { create: { id: "s-array-upsert", body: "upsert child" } },
+        },
+        update: { name: "must-not-run" },
+        select: { id: true, name: true },
+      }),
+      client.tag.create({ data: { id: "tag-array-upsert" } }),
+    ]);
+    const statements = drain(driver);
+    driver.recording = false;
+
+    expect(driver.batchCalls).toBe(1);
+    expect(statements.some((text) => text.startsWith("WITH "))).toBe(true);
+    expect(created).toMatchObject({ name: "H-array-upsert" });
+    expect(sibling).toEqual({ id: "tag-array-upsert" });
+    expect(
+      await client.span.findMany({ where: { id: "s-array-upsert" } })
+    ).toEqual([
+      {
+        id: "s-array-upsert",
+        body: "upsert child",
+        hubId: created.id,
+      },
+    ]);
+  });
+
+  test("SQLite batch folds a scalar upsert output without mutation CTE support", async () => {
+    const driver = new BatchOnlyReturningSQLiteDriver();
+    const client = createClient({ schema: sqliteScalarSchema, driver });
+    try {
+      await push(client, { force: true });
+      expect(driver.adapter.capabilities.supportsReturning).toBe(true);
+      expect(driver.adapter.capabilities.supportsCteWithMutations).toBe(false);
+      driver.batchCalls = 0;
+
+      const [created, sibling] = await client.$transaction([
+        client.entry.upsert({
+          where: { id: 42 },
+          create: { label: "generated" },
+          update: { label: "must not run" },
+        }),
+        client.entry.create({ data: { label: "sibling" } }),
+      ]);
+
+      expect(driver.batchCalls).toBe(1);
+      expect(created).toEqual({ id: 1, label: "generated" });
+      expect(sibling).toEqual({ id: 2, label: "sibling" });
+      expect(await client.entry.findMany({ orderBy: { id: "asc" } })).toEqual([
+        { id: 1, label: "generated" },
+        { id: 2, label: "sibling" },
+      ]);
+    } finally {
+      await client.$disconnect();
+    }
+  });
+
+  test("an empty relation arm keeps a scalar-fold create race retryable", async () => {
+    const family = getFamily();
+    const driver = new BeforeAtomicBatchDriver(family.database, async () => {
+      await family.client.node.create({
+        data: { id: "empty-arm-race", label: "competitor" },
+      });
+    });
+    const client = createClient({ schema: depSchema, driver });
+
+    const adopted = await client.node.upsert({
+      where: { id: "empty-arm-race" },
+      create: {
+        id: "empty-arm-race",
+        label: "caller",
+        children: { createMany: { data: [] } },
+      },
+      update: { label: "adopted" },
+    });
+
+    expect(adopted).toMatchObject({ id: "empty-arm-race", label: "adopted" });
+    expect(driver.batchCalls).toBe(2);
+    await expect(
+      family.client.node.findMany({ where: { id: "empty-arm-race" } })
+    ).resolves.toEqual([
+      {
+        id: "empty-arm-race",
+        label: "adopted",
+        parentId: null,
+      },
+    ]);
+  });
+
+  test("an indivisible array surfaces a lost create race without retrying the array", async () => {
+    const family = getFamily();
+    const driver = new BeforeAtomicBatchDriver(family.database, async () => {
+      await family.client.node.create({
+        data: { id: "array-race", label: "competitor" },
+      });
+    });
+    const client = createClient({ schema: depSchema, driver });
+
+    await expect(
+      client.$transaction([
+        client.node.upsert({
+          where: { id: "array-race" },
+          create: {
+            id: "array-race",
+            label: "caller",
+            children: { createMany: { data: [] } },
+          },
+          update: { label: "must not run" },
+        }),
+        client.tag.create({ data: { id: "array-race-sibling" } }),
+      ])
+    ).rejects.toBeInstanceOf(UniqueConstraintError);
+
+    await expect(
+      family.client.node.findMany({ where: { id: "array-race" } })
+    ).resolves.toEqual([
+      { id: "array-race", label: "competitor", parentId: null },
+    ]);
+    expect(
+      await family.client.tag.count({
+        where: { id: "array-race-sibling" },
+      })
+    ).toBe(0);
+  });
+
+  test("a pinned upsert does not fold a same-table descendant into its race unit", async () => {
+    const { driver, client } = boot();
+    await client.node.create({
+      data: { id: "occupied-child", label: "incumbent" },
+    });
+
+    driver.recording = true;
+    await expect(
+      client.node.upsert({
+        where: { id: "new-root" },
+        create: {
+          id: "new-root",
+          label: "root",
+          children: {
+            create: { id: "occupied-child", label: "must fail" },
+          },
+        },
+        update: { label: "must not run" },
+      })
+    ).rejects.toBeInstanceOf(UniqueConstraintError);
+    const statements = drain(driver);
+    driver.recording = false;
+
+    expect(statements.some((text) => text.startsWith("WITH "))).toBe(false);
+    expect(await client.node.findMany({ orderBy: { id: "asc" } })).toEqual([
+      {
+        id: "occupied-child",
+        label: "incumbent",
+        parentId: null,
+      },
     ]);
   });
 

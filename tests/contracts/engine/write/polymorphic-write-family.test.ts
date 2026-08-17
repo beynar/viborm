@@ -1,6 +1,6 @@
 import type { BatchQuery, QueryResult } from "@drivers";
 import type { PGlite, Transaction } from "@electric-sql/pglite";
-import { QueryEngineError } from "@errors";
+import { QueryEngineError, VibORMError } from "@errors";
 import { createOperationExecutionContext } from "@query-engine/execution-context";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { s } from "@schema";
@@ -325,7 +325,7 @@ function registerPolymorphicWriteBehavior(
 
     test("singular inverse reads and creates exact discriminator memberships", async () => {
       const { client } = getFamily();
-      const post = await client.post.create({
+      const postOperation = client.post.create({
         data: {
           slug: "featured-post",
           title: "Featured post",
@@ -335,6 +335,7 @@ function registerPolymorphicWriteBehavior(
         },
         include: { featuredComment: true },
       });
+      const post = await postOperation;
       const video = await client.video.create({
         data: {
           slug: "featured-video",
@@ -360,10 +361,10 @@ function registerPolymorphicWriteBehavior(
     test("singular inverse reuses connect, update, upsert, and disconnect", async () => {
       const { client } = getFamily();
       const post = await client.post.create({
-        data: { slug: "singular-owner", title: "Owner" },
+        data: { id: 1, slug: "singular-owner", title: "Owner" },
       });
       await client.featuredComment.create({
-        data: { code: "adopt-me", body: "unattached" },
+        data: { id: 10, code: "adopt-me", body: "unattached" },
       });
 
       await client.post.update({
@@ -380,7 +381,7 @@ function registerPolymorphicWriteBehavior(
                 connect: {
                   id: (
                     await client.board.create({
-                      data: { name: "nested selected update" },
+                      data: { id: 20, name: "nested selected update" },
                     })
                   ).id,
                 },
@@ -403,7 +404,7 @@ function registerPolymorphicWriteBehavior(
         data: {
           featuredComment: {
             upsert: {
-              create: { code: "unused", body: "unused" },
+              create: { id: 11, code: "unused", body: "unused" },
               update: { body: "upserted" },
             },
           },
@@ -432,7 +433,11 @@ function registerPolymorphicWriteBehavior(
         data: {
           featuredComment: {
             upsert: {
-              create: { code: "created-by-upsert", body: "created" },
+              create: {
+                id: 12,
+                code: "created-by-upsert",
+                body: "created",
+              },
               update: { body: "not reached" },
             },
           },
@@ -458,10 +463,10 @@ function registerPolymorphicWriteBehavior(
     test("singular inverse upsert arms carry nested relation writes on both branches", async () => {
       const { client } = getFamily();
       const post = await client.post.create({
-        data: { slug: "singular-arm-depth", title: "Arm depth" },
+        data: { id: 1, slug: "singular-arm-depth", title: "Arm depth" },
       });
       const board = await client.board.create({
-        data: { name: "arm depth board" },
+        data: { id: 20, name: "arm depth board" },
       });
 
       // MISSING: the create arm runs, and none of the update subtree does.
@@ -470,7 +475,7 @@ function registerPolymorphicWriteBehavior(
         data: {
           featuredComment: {
             upsert: {
-              create: { code: "arm-created", body: "created" },
+              create: { id: 10, code: "arm-created", body: "created" },
               update: {
                 body: "not reached",
                 board: { connect: { id: board.id } },
@@ -494,7 +499,7 @@ function registerPolymorphicWriteBehavior(
         data: {
           featuredComment: {
             upsert: {
-              create: { code: "arm-unused", body: "unused" },
+              create: { id: 11, code: "arm-unused", body: "unused" },
               update: {
                 body: "updated",
                 board: { connect: { id: board.id } },
@@ -528,12 +533,17 @@ function registerPolymorphicWriteBehavior(
           slug: "singular-replacement-owner",
           title: "Replacement owner",
           featuredComment: {
-            create: { code: "singular-incumbent", body: "incumbent" },
+            create: {
+              id: 10,
+              code: "singular-incumbent",
+              body: "incumbent",
+            },
           },
+          id: 1,
         },
       });
       const adopted = await client.featuredComment.create({
-        data: { code: "singular-adopted", body: "adopted" },
+        data: { id: 11, code: "singular-adopted", body: "adopted" },
       });
 
       await client.post.update({
@@ -563,7 +573,7 @@ function registerPolymorphicWriteBehavior(
         data: {
           featuredComment: {
             delete: true,
-            create: { code: "singular-created", body: "created" },
+            create: { id: 12, code: "singular-created", body: "created" },
           },
         },
       });
@@ -581,13 +591,13 @@ function registerPolymorphicWriteBehavior(
     test("singular inverse rejects a second occupant without partial effects", async () => {
       const { client } = getFamily();
       const post = await client.post.create({
-        data: { slug: "occupied-owner", title: "Owner" },
+        data: { id: 1, slug: "occupied-owner", title: "Owner" },
       });
       const first = await client.featuredComment.create({
-        data: { code: "first-occupant", body: "first" },
+        data: { id: 10, code: "first-occupant", body: "first" },
       });
       const second = await client.featuredComment.create({
-        data: { code: "second-occupant", body: "second" },
+        data: { id: 11, code: "second-occupant", body: "second" },
       });
       await client.post.update({
         where: { id: post.id },
@@ -614,10 +624,11 @@ function registerPolymorphicWriteBehavior(
         data: {
           slug: "coc-missing-owner",
           title: "Missing arm",
+          id: 1,
           featuredComment: {
             connectOrCreate: {
               where: { code: "created-by-coc" },
-              create: { code: "created-by-coc", body: "created" },
+              create: { id: 10, code: "created-by-coc", body: "created" },
             },
           },
         },
@@ -626,10 +637,10 @@ function registerPolymorphicWriteBehavior(
       expect(post.featuredComment).toMatchObject({ body: "created" });
 
       const video = await client.video.create({
-        data: { slug: "coc-found-owner", title: "Found arm" },
+        data: { id: 1, slug: "coc-found-owner", title: "Found arm" },
       });
       const existing = await client.featuredComment.create({
-        data: { code: "found-by-coc", body: "existing" },
+        data: { id: 11, code: "found-by-coc", body: "existing" },
       });
       await client.video.update({
         where: { id: video.id },
@@ -637,7 +648,7 @@ function registerPolymorphicWriteBehavior(
           featuredComment: {
             connectOrCreate: {
               where: { code: "found-by-coc" },
-              create: { code: "unused-coc", body: "unused" },
+              create: { id: 12, code: "unused-coc", body: "unused" },
             },
           },
         },
@@ -661,7 +672,7 @@ function registerPolymorphicWriteBehavior(
     test("singular inverse writes the transitioned parent identity", async () => {
       const { client } = getFamily();
       const post = await client.post.create({
-        data: { slug: "transition-owner", title: "Transition" },
+        data: { id: 1, slug: "transition-owner", title: "Transition" },
       });
       const nextId = post.id + 100;
 
@@ -670,7 +681,7 @@ function registerPolymorphicWriteBehavior(
         data: {
           id: nextId,
           featuredComment: {
-            create: { code: "transition-child", body: "after" },
+            create: { id: 10, code: "transition-child", body: "after" },
           },
         },
       });
@@ -696,7 +707,7 @@ function registerPolymorphicWriteBehavior(
     test("direct createMany obeys singular membership uniqueness and skip semantics", async () => {
       const { client } = getFamily();
       const post = await client.post.create({
-        data: { slug: "bulk-singular-owner", title: "Bulk" },
+        data: { id: 1, slug: "bulk-singular-owner", title: "Bulk" },
       });
 
       await client.featuredComment.createMany({
@@ -729,11 +740,12 @@ function registerPolymorphicWriteBehavior(
     test("direct create connects an existing target and creates a fresh target", async () => {
       const { client, ...family } = getFamily();
       const post = await client.post.create({
-        data: { slug: "connected-post", title: "Connected post" },
+        data: { id: 1, slug: "connected-post", title: "Connected post" },
       });
 
       const connected = await client.comment.create({
         data: {
+          id: 10,
           body: "connected",
           commentable: {
             connect: { type: "post", where: { slug: "connected-post" } },
@@ -746,8 +758,16 @@ function registerPolymorphicWriteBehavior(
           },
         },
       });
-      const created = await client.comment.create({
+      expect(connected).toMatchObject({
+        body: "connected",
+        commentable: {
+          type: "post",
+          data: { id: post.id, title: "Connected post" },
+        },
+      });
+      const createFresh = client.comment.create({
         data: {
+          id: 11,
           body: "created",
           commentable: {
             create: {
@@ -758,14 +778,8 @@ function registerPolymorphicWriteBehavior(
         },
         include: { commentable: true },
       });
+      const created = await createFresh;
 
-      expect(connected).toMatchObject({
-        body: "connected",
-        commentable: {
-          type: "post",
-          data: { id: post.id, title: "Connected post" },
-        },
-      });
       expect(created).toMatchObject({
         body: "created",
         commentable: {
@@ -793,24 +807,30 @@ function registerPolymorphicWriteBehavior(
     test("direct create and update share connect-or-create and fresh-target compilation", async () => {
       const { client } = getFamily();
       const existing = await client.post.create({
-        data: { slug: "direct-coc", title: "Existing" },
+        data: { id: 1, slug: "direct-coc", title: "Existing" },
       });
 
       const found = await client.comment.create({
         data: {
+          id: 10,
           body: "found",
           commentable: {
             connectOrCreate: {
               type: "post",
               where: { slug: "direct-coc" },
-              create: { slug: "unused", title: "Unused" },
+              create: { id: 2, slug: "unused", title: "Unused" },
             },
           },
         },
         include: { commentable: true },
       });
-      const missing = await client.comment.create({
+      expect(found.commentable).toMatchObject({
+        type: "post",
+        data: { id: existing.id },
+      });
+      const createMissing = client.comment.create({
         data: {
+          id: 11,
           body: "missing",
           commentable: {
             connectOrCreate: {
@@ -822,7 +842,8 @@ function registerPolymorphicWriteBehavior(
         },
         include: { commentable: true },
       });
-      const replaced = await client.comment.update({
+      const missing = await createMissing;
+      const replaceWithFresh = client.comment.update({
         where: { id: found.id },
         data: {
           commentable: {
@@ -834,11 +855,8 @@ function registerPolymorphicWriteBehavior(
         },
         include: { commentable: true },
       });
+      const replaced = await replaceWithFresh;
 
-      expect(found.commentable).toMatchObject({
-        type: "post",
-        data: { id: existing.id },
-      });
       expect(missing.commentable).toMatchObject({
         type: "video",
         data: { slug: "direct-coc-video" },
@@ -852,10 +870,11 @@ function registerPolymorphicWriteBehavior(
     test("direct selected update, delete, and replacing upsert use the current membership", async () => {
       const { client } = getFamily();
       const post = await client.post.create({
-        data: { slug: "direct-target", title: "Before" },
+        data: { id: 1, slug: "direct-target", title: "Before" },
       });
       const comment = await client.comment.create({
         data: {
+          id: 10,
           body: "owner",
           commentable: {
             connect: { type: "post", where: { id: post.id } },
@@ -885,7 +904,11 @@ function registerPolymorphicWriteBehavior(
           commentable: {
             upsert: {
               type: "post",
-              create: { slug: "unused-same-type", title: "Unused" },
+              create: {
+                id: 2,
+                slug: "unused-same-type",
+                title: "Unused",
+              },
               update: { title: "Updated by upsert" },
             },
           },
@@ -901,7 +924,11 @@ function registerPolymorphicWriteBehavior(
           commentable: {
             upsert: {
               type: "video",
-              create: { slug: "replacement-video", title: "Replacement" },
+              create: {
+                id: 1,
+                slug: "replacement-video",
+                title: "Replacement",
+              },
               update: { title: "Unused" },
             },
           },
@@ -927,9 +954,11 @@ function registerPolymorphicWriteBehavior(
     test("selected connect-or-create adopts found targets and creates missing targets", async () => {
       const { client } = getFamily();
       const foundTarget = await client.video.create({
-        data: { slug: "update-coc-found", title: "Found" },
+        data: { id: 1, slug: "update-coc-found", title: "Found" },
       });
-      const owner = await client.comment.create({ data: { body: "owner" } });
+      const owner = await client.comment.create({
+        data: { id: 10, body: "owner" },
+      });
 
       const found = await client.comment.update({
         where: { id: owner.id },
@@ -938,7 +967,11 @@ function registerPolymorphicWriteBehavior(
             connectOrCreate: {
               type: "video",
               where: { slug: "update-coc-found" },
-              create: { slug: "unused-update-coc", title: "Unused" },
+              create: {
+                id: 2,
+                slug: "unused-update-coc",
+                title: "Unused",
+              },
             },
           },
         },
@@ -949,7 +982,7 @@ function registerPolymorphicWriteBehavior(
         data: { id: foundTarget.id },
       });
 
-      const missing = await client.comment.update({
+      const createMissing = client.comment.update({
         where: { id: owner.id },
         data: {
           commentable: {
@@ -962,6 +995,7 @@ function registerPolymorphicWriteBehavior(
         },
         include: { commentable: true },
       });
+      const missing = await createMissing;
       expect(missing.commentable).toMatchObject({
         type: "post",
         data: { slug: "update-coc-missing" },
@@ -971,14 +1005,20 @@ function registerPolymorphicWriteBehavior(
     test("an ordinary nested owner can connect its polymorphic relation", async () => {
       const { client } = getFamily();
       const post = await client.post.create({
-        data: { slug: "nested-owner-target", title: "Nested owner target" },
+        data: {
+          id: 1,
+          slug: "nested-owner-target",
+          title: "Nested owner target",
+        },
       });
 
       const board = await client.board.create({
         data: {
+          id: 2,
           name: "ordinary owner",
           entries: {
             create: {
+              id: 10,
               body: "nested direct owner",
               commentable: {
                 connect: {
@@ -1007,13 +1047,18 @@ function registerPolymorphicWriteBehavior(
     test("an ordinary nested selected update keeps polymorphic membership projection", async () => {
       const { client } = getFamily();
       const post = await client.post.create({
-        data: { slug: "nested-update-target", title: "Before nested update" },
+        data: {
+          id: 1,
+          slug: "nested-update-target",
+          title: "Before nested update",
+        },
       });
       const board = await client.board.create({
-        data: { name: "nested update" },
+        data: { id: 2, name: "nested update" },
       });
       const comment = await client.comment.create({
         data: {
+          id: 10,
           body: "nested owner",
           board: { connect: { id: board.id } },
           commentable: { connect: { type: "post", where: { id: post.id } } },
@@ -1047,11 +1092,12 @@ function registerPolymorphicWriteBehavior(
     test("direct connect resolves a compound unique selector to the target id", async () => {
       const { client } = getFamily();
       const post = await client.post.create({
-        data: { slug: "compound-target", title: "Compound target" },
+        data: { id: 1, slug: "compound-target", title: "Compound target" },
       });
 
       const comment = await client.comment.create({
         data: {
+          id: 10,
           body: "compound connect",
           commentable: {
             connect: {
@@ -1077,8 +1123,9 @@ function registerPolymorphicWriteBehavior(
     test("a polymorphic target create compiles its ordinary relation subtree", async () => {
       const { client } = getFamily();
 
-      const comment = await client.comment.create({
+      const createTarget = client.comment.create({
         data: {
+          id: 10,
           body: "relation-bearing target",
           commentable: {
             create: {
@@ -1093,6 +1140,7 @@ function registerPolymorphicWriteBehavior(
         },
         include: { commentable: true },
       });
+      const comment = await createTarget;
 
       await expect(
         client.post.findUniqueOrThrow({
@@ -1109,12 +1157,14 @@ function registerPolymorphicWriteBehavior(
       const family = getFamily();
       const { client } = family;
       const post = await client.post.create({
-        data: { slug: "switch-post", title: "Post" },
+        data: { id: 1, slug: "switch-post", title: "Post" },
       });
       const video = await client.video.create({
-        data: { slug: "switch-video", title: "Video" },
+        data: { id: 1, slug: "switch-video", title: "Video" },
       });
-      const comment = await client.comment.create({ data: { body: "switch" } });
+      const comment = await client.comment.create({
+        data: { id: 10, body: "switch" },
+      });
 
       const linkedPost = await client.comment.update({
         where: { id: comment.id },
@@ -1163,10 +1213,10 @@ function registerPolymorphicWriteBehavior(
       const family = getFamily();
       const { client } = family;
       const post = await client.post.create({
-        data: { slug: "bulk-post", title: "Bulk post" },
+        data: { id: 1, slug: "bulk-post", title: "Bulk post" },
       });
       const video = await client.video.create({
-        data: { slug: "bulk-video", title: "Bulk video" },
+        data: { id: 1, slug: "bulk-video", title: "Bulk video" },
       });
 
       await expect(
@@ -1205,7 +1255,7 @@ function registerPolymorphicWriteBehavior(
       const family = getFamily();
       const { client } = family;
       const post = await client.post.create({
-        data: { slug: "bulk-return-post", title: "Bulk return post" },
+        data: { id: 1, slug: "bulk-return-post", title: "Bulk return post" },
       });
 
       await expect(
@@ -1261,10 +1311,10 @@ function registerPolymorphicWriteBehavior(
     test("top-level upsert compiles polymorphic create and update arms", async () => {
       const { client } = getFamily();
       const post = await client.post.create({
-        data: { slug: "upsert-post", title: "Post" },
+        data: { id: 1, slug: "upsert-post", title: "Post" },
       });
       const video = await client.video.create({
-        data: { slug: "upsert-video", title: "Video" },
+        data: { id: 1, slug: "upsert-video", title: "Video" },
       });
 
       const inserted = await client.comment.upsert({
@@ -1869,12 +1919,12 @@ function registerPolymorphicWriteBehavior(
       });
     }
 
-    test("a failed owner insert rolls back its freshly created polymorphic target", async () => {
+    test("a failed owner insert reports the batch prefix and rolls back in a transaction", async () => {
       const { client } = getFamily();
       await client.comment.create({ data: { id: 650, body: "occupied" } });
 
-      await expect(
-        client.comment.create({
+      const failure = await client.comment
+        .create({
           data: {
             id: 650,
             body: "must roll back",
@@ -1886,10 +1936,37 @@ function registerPolymorphicWriteBehavior(
             },
           },
         })
-      ).rejects.toThrow();
-      await expect(
-        client.video.findMany({ where: { slug: "rolled-back-target" } })
-      ).resolves.toEqual([]);
+        .then(
+          () => undefined,
+          (error: unknown) => error
+        );
+      expect(failure).toMatchObject({ name: "UniqueConstraintError" });
+      const videos = await client.video.findMany({
+        where: { slug: "rolled-back-target" },
+      });
+      if (mode === "atomicBatch") {
+        expect(failure).toMatchObject({
+          meta: {
+            recordSeriesProgress: {
+              phase: "member",
+              committedSegments: 1,
+              committedWriteMembers: 1,
+            },
+          },
+        });
+        if (!(failure instanceof VibORMError)) throw failure;
+        expect(failure.meta.recordSeriesProgress).not.toHaveProperty(
+          "mayHaveCommittedSegment"
+        );
+        expect(videos).toEqual([
+          expect.objectContaining({
+            slug: "rolled-back-target",
+            title: "Rolled back",
+          }),
+        ]);
+      } else {
+        expect(videos).toEqual([]);
+      }
       await expect(
         client.comment.findUniqueOrThrow({ where: { id: 650 } })
       ).resolves.toMatchObject({ body: "occupied" });
@@ -1912,7 +1989,11 @@ function registerPolymorphicWriteBehavior(
       expect(await client.requiredComment.findMany()).toEqual([]);
 
       const post = await client.post.create({
-        data: { slug: "required-upsert", title: "Required upsert" },
+        data: {
+          id: 1,
+          slug: "required-upsert",
+          title: "Required upsert",
+        },
       });
       await client.requiredComment.create({
         data: {
@@ -2119,7 +2200,7 @@ function registerPolymorphicWriteBehavior(
         },
       });
 
-      await client.post.update({
+      const recursiveUpdate = client.post.update({
         where: { id: post.id },
         data: {
           comments: {
@@ -2133,6 +2214,7 @@ function registerPolymorphicWriteBehavior(
           },
         },
       });
+      await recursiveUpdate;
       await expect(
         client.comment.findUniqueOrThrow({
           where: { id: member.id },
@@ -2837,9 +2919,62 @@ function registerPolymorphicWriteBehavior(
       ).resolves.toMatchObject({ body: "after scalar update" });
     });
 
+    test("a direct-polymorphic found arm re-enters the parent by its final key", async () => {
+      const { client } = getFamily();
+      const post = await client.post.create({
+        data: {
+          id: 840,
+          slug: "selected-continuity-after-root",
+          title: "before",
+        },
+      });
+      const comment = await client.comment.create({
+        data: {
+          id: 841,
+          body: "arm before",
+          commentable: {
+            connect: { type: "post", where: { id: post.id } },
+          },
+        },
+      });
+
+      await client.post.update({
+        where: { id: post.id },
+        data: {
+          id: 842,
+          title: "outer root first",
+          comments: {
+            upsert: {
+              where: { id: comment.id },
+              create: { id: comment.id, body: "must not create" },
+              update: {
+                body: "arm after",
+                commentable: {
+                  update: {
+                    type: "post",
+                    data: { title: "inner parent later" },
+                  },
+                },
+              },
+            },
+          },
+        },
+      });
+
+      await expect(
+        client.post.findUnique({ where: { id: post.id } })
+      ).resolves.toBeNull();
+      await expect(
+        client.post.findUniqueOrThrow({ where: { id: 842 } })
+      ).resolves.toMatchObject({ title: "inner parent later" });
+      await expect(
+        client.comment.findUniqueOrThrow({ where: { id: comment.id } })
+      ).resolves.toMatchObject({ body: "arm after" });
+    });
+
     test("inverse create consumes a generated parent id", async () => {
       const family = getFamily();
-      const created = await family.client.post.create({
+      const createParent = family.client.post.create({
         data: {
           slug: "fresh-parent",
           title: "Fresh parent",
@@ -2852,6 +2987,7 @@ function registerPolymorphicWriteBehavior(
         },
         include: { comments: { orderBy: { id: "asc" } } },
       });
+      const created = await createParent;
 
       expect(created.comments.map(({ body }) => body)).toEqual([
         "first inverse child",
@@ -2940,6 +3076,7 @@ function registerPolymorphicWriteBehavior(
       });
       const postComment = await client.comment.create({
         data: {
+          id: 42,
           body: "belongs to post",
           commentable: {
             connect: { type: "post", where: { id: post.id } },
@@ -2948,6 +3085,7 @@ function registerPolymorphicWriteBehavior(
       });
       await client.comment.create({
         data: {
+          id: 43,
           body: "same id, wrong discriminator",
           commentable: {
             connect: { type: "video", where: { id: post.id } },
@@ -3049,13 +3187,14 @@ function registerPolymorphicWriteBehavior(
     test("database orphans fail regardless of direct optionality", async () => {
       const { client } = getFamily();
       const optionalTarget = await client.post.create({
-        data: { slug: "optional-orphan", title: "Optional orphan" },
+        data: { id: 1, slug: "optional-orphan", title: "Optional orphan" },
       });
       const requiredTarget = await client.video.create({
-        data: { slug: "required-orphan", title: "Required orphan" },
+        data: { id: 1, slug: "required-orphan", title: "Required orphan" },
       });
       const optional = await client.comment.create({
         data: {
+          id: 2,
           body: "optional",
           commentable: {
             connect: { type: "post", where: { id: optionalTarget.id } },
@@ -3064,6 +3203,7 @@ function registerPolymorphicWriteBehavior(
       });
       const required = await client.requiredComment.create({
         data: {
+          id: 3,
           body: "required",
           subject: {
             connect: { type: "video", where: { id: requiredTarget.id } },

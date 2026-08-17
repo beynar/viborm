@@ -382,21 +382,30 @@ export function runJunctionCreateManyBehavior(
         try {
           // A pre-existing label the operation must NOT link: the join rows have to
           // carry the ids the two INSERTs produced, not "some label".
-          await client.label.create({ data: { slug: "old", note: "n" } });
-          const article = await client.article.create({ data: { title: "a" } });
-          await run.update("article", junctionCreateManySchema.article, {
-            where: { id: article.id },
-            data: {
-              labels: {
-                createMany: {
-                  data: [
-                    { slug: "one", note: "n1" },
-                    { slug: "two", note: "n2" },
-                  ],
+          await client.label.create({
+            data: { id: -1, slug: "old", note: "n" },
+          });
+          const article = await client.article.create({
+            data: { id: -1, title: "a" },
+          });
+          const operation = run.update(
+            "article",
+            junctionCreateManySchema.article,
+            {
+              where: { id: article.id },
+              data: {
+                labels: {
+                  createMany: {
+                    data: [
+                      { slug: "one", note: "n1" },
+                      { slug: "two", note: "n2" },
+                    ],
+                  },
                 },
               },
-            },
-          });
+            }
+          );
+          await operation;
           expect(await labelsOf(client, article.id)).toEqual(["one", "two"]);
         } finally {
           await dispose();
@@ -463,7 +472,7 @@ export function runJunctionCreateManyBehavior(
       "relation-bearing createMany skips the target subtree and its join together",
       { timeout: 30_000 },
       async () => {
-        const { client, driver, run, dispose } = await setup();
+        const { client, run, dispose } = await setup();
         try {
           await client.post.create({
             data: { id: "p1", slug: "s1", title: "t" },
@@ -501,28 +510,15 @@ export function runJunctionCreateManyBehavior(
             },
           });
 
-          if (
-            !(
-              driver.supportsTransactions ||
-              driver.supportsOrderedCommittedSegments
-            )
-          ) {
-            await expect(mutation).rejects.toThrow(
-              "requires ordered series execution"
-            );
-            expect(await tagsOf(client, "p1")).toEqual([]);
-            await expect(client.tagNote.findMany()).resolves.toEqual([]);
-            await expect(
-              client.tag.findMany({ orderBy: { id: "asc" } })
-            ).resolves.toEqual([
-              { id: "t1", name: "alpha", color: "ORIGINAL" },
-            ]);
-            return;
-          }
-
           await mutation;
 
           expect(await tagsOf(client, "p1")).toEqual(["t2"]);
+          await expect(
+            client.tag.findMany({ orderBy: { id: "asc" } })
+          ).resolves.toEqual([
+            { id: "t1", name: "alpha", color: "ORIGINAL" },
+            { id: "t2", name: "beta", color: "fresh" },
+          ]);
           await expect(
             client.tagNote.findMany({ orderBy: { id: "asc" } })
           ).resolves.toEqual([{ id: "note-kept", body: "kept", tagId: "t2" }]);
@@ -610,9 +606,11 @@ export function runJunctionCreateManyBehavior(
           // selector spells — witnessed in `junction-skip-adoption-behavior.ts`, which also
           // carries the state-equivalence and divergence witnesses for the absorbed halves.
           const existing = await client.label.create({
-            data: { slug: "one", note: "ORIGINAL" },
+            data: { id: 1, slug: "one", note: "ORIGINAL" },
           });
-          const article = await client.article.create({ data: { title: "a" } });
+          const article = await client.article.create({
+            data: { id: 1, title: "a" },
+          });
           await run.update("article", junctionCreateManySchema.article, {
             where: { id: article.id },
             data: {
@@ -642,22 +640,31 @@ export function runJunctionCreateManyBehavior(
       async () => {
         const { client, run, dispose } = await setup();
         try {
-          await client.label.create({ data: { slug: "other", note: "decoy" } });
-          const article = await client.article.create({ data: { title: "a" } });
-          await run.update("article", junctionCreateManySchema.article, {
-            where: { id: article.id },
-            data: {
-              labels: {
-                upsert: [
-                  {
-                    where: { slug: "fresh" },
-                    create: { slug: "fresh", note: "created" },
-                    update: { note: "updated" },
-                  },
-                ],
-              },
-            },
+          await client.label.create({
+            data: { id: -1, slug: "other", note: "decoy" },
           });
+          const article = await client.article.create({
+            data: { id: -1, title: "a" },
+          });
+          const operation = run.update(
+            "article",
+            junctionCreateManySchema.article,
+            {
+              where: { id: article.id },
+              data: {
+                labels: {
+                  upsert: [
+                    {
+                      where: { slug: "fresh" },
+                      create: { slug: "fresh", note: "created" },
+                      update: { note: "updated" },
+                    },
+                  ],
+                },
+              },
+            }
+          );
+          await operation;
           expect(await labelsOf(client, article.id)).toEqual(["fresh"]);
           await expect(
             client.label.findUnique({ where: { slug: "fresh" } })
@@ -678,12 +685,14 @@ export function runJunctionCreateManyBehavior(
       async () => {
         const { client, run, dispose } = await setup();
         try {
-          const article = await client.article.create({ data: { title: "a" } });
+          const article = await client.article.create({
+            data: { id: 1, title: "a" },
+          });
           await run.update("article", junctionCreateManySchema.article, {
             where: { id: article.id },
             data: {
               labels: {
-                create: [{ slug: "member", note: "before" }],
+                create: [{ id: 1, slug: "member", note: "before" }],
               },
             },
           });
@@ -719,7 +728,9 @@ export function runJunctionCreateManyBehavior(
       async () => {
         const { client, run, dispose } = await setup();
         try {
-          const article = await client.article.create({ data: { title: "a" } });
+          const article = await client.article.create({
+            data: { id: 1, title: "a" },
+          });
           // The STRING-keyed half. Two items whose selectors name different slugs are
           // still rejected — not because "two items" is illegal, but because
           // `provesPortableDisjointness` refuses to declare two STRINGS unequal (a
@@ -849,25 +860,30 @@ export function runJunctionCreateManyBehavior(
           await client.board.create({ data: { id: "decoy-owner" } });
           await run.update("board", junctionCreateManySchema.board, {
             where: { id: "decoy-owner" },
-            data: { marks: { create: [{ text: "decoy" }] } },
+            data: { marks: { create: [{ id: -1, text: "decoy" }] } },
           });
           await client.board.create({ data: { id: "b1" } });
-          await run.update("board", junctionCreateManySchema.board, {
-            where: { id: "b1" },
-            data: {
-              marks: {
-                upsert: [
-                  {
-                    // Absent globally, so the create arm runs (the decoy's own id must
-                    // not be the one the join row carries).
-                    where: { id: 999 },
-                    create: { text: "x" },
-                    update: { text: "y" },
-                  },
-                ],
+          const operation = run.update(
+            "board",
+            junctionCreateManySchema.board,
+            {
+              where: { id: "b1" },
+              data: {
+                marks: {
+                  upsert: [
+                    {
+                      // Absent globally, so the create arm runs (the decoy's own id must
+                      // not be the one the join row carries).
+                      where: { id: 999 },
+                      create: { text: "x" },
+                      update: { text: "y" },
+                    },
+                  ],
+                },
               },
-            },
-          });
+            }
+          );
+          await operation;
           const marks = await client.mark.findMany({ orderBy: { id: "asc" } });
           expect(marks.map((mark) => mark.text)).toEqual(["decoy", "x"]);
           expect(await marksOf(client, "b1")).toEqual([marks[1]?.id]);

@@ -15,12 +15,14 @@ import { describe, expect, test } from "vitest";
  *
  * This file owns the LATTICE and nothing else; `parity-h-to-one-lattice.test.ts` owns
  * what the engine then compiles, and `vacate-then-supply.test.ts` owns what a live
- * database ends up holding. Most of what the lattice accepts now executes, but not all
- * of it: `create` / `connectOrCreate` beside an `update` is admitted here and refused by
- * the engine's composition owner, which names the missing produced-identity channel, and
- * a `delete` beside a supplier and a modify is admitted here and refused by the own-write
- * ledger. Accepted below therefore means "this shape is coherent", never "this shape
- * runs" — the two refusals are pinned verbatim in those two files.
+ * database ends up holding. Almost everything the lattice accepts now executes —
+ * residual Package E took the last engine refusal, so `create` / `connectOrCreate`
+ * beside an `update` runs as a supplier plus a one-member record-series continuation.
+ * What is still admitted here and refused elsewhere is `delete` beside a CONNECT and a
+ * modify, which the own-write ledger declines because `delete: true` names a row the
+ * analyzer cannot tell apart from the one that modify's construction-time selector
+ * reads. Accepted below therefore means "this shape is coherent", never "this shape
+ * runs" — that refusal is pinned verbatim in those two files.
  */
 const lattice = (() => {
   const owner = s

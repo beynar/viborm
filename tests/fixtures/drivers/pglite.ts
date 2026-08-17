@@ -1,17 +1,17 @@
 import { createClient } from "@client/client";
-import type { BatchQuery, QueryResult } from "@drivers";
-import type { AnyDriver } from "@drivers";
+import type { Schema } from "@client/types";
+import type { AnyDriver, BatchQuery, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { push } from "@migrations";
-import type { Schema } from "@client/types";
 import type { ProviderFixture } from "@tests/contracts/contract";
 import { afterAll, beforeAll, beforeEach } from "vitest";
 
 /**
- * Exercises the atomic-batch execution substrate with PostgreSQL semantics.
- * The transaction is an implementation detail of the PGlite stand-in; VibORM
- * sees a batch-only driver and must compile the complete write before I/O.
+ * Exercises the batch-only execution substrate with PostgreSQL semantics.
+ * Each submitted batch is atomic. VibORM may submit ordered batches when a
+ * default operation must materialize a generated output; the PGlite transaction
+ * below is the implementation of each batch, not an operation-wide transaction.
  */
 export class BatchOnlyPGliteDriver extends PGliteDriver {
   override readonly supportsTransactions = false;
@@ -149,7 +149,9 @@ export function useBehaviorDatabase<const S extends Schema>(
 
   const openIsolated = async (): Promise<OpenDatabase> => {
     if (!source.createDriver) {
-      throw new Error("An isolated behavior database requires a driver factory");
+      throw new Error(
+        "An isolated behavior database requires a driver factory"
+      );
     }
     const driver = source.createDriver();
     const stateDriver = source.createStateDriver?.() ?? driver;
@@ -191,7 +193,9 @@ export function useBehaviorDatabase<const S extends Schema>(
     return {
       driver: shared.driver,
       client: shared.client,
-      dispose: async () => {},
+      dispose: async () => {
+        // The shared schema family owns the connection lifecycle.
+      },
     };
   };
 }

@@ -334,6 +334,9 @@ Insert, Update, Delete operations.
 adapter.mutations.insert(table, ["col1", "col2"], [[val1, val2], [val3, val4]])
 // → INSERT INTO table ("col1", "col2") VALUES (val1, val2), (val3, val4)
 
+adapter.mutations.insert(table, ["col1", "col2"], { select: sourceQuery })
+// → INSERT INTO table ("col1", "col2") SELECT ...
+
 // Update
 adapter.mutations.update(table, setsExpr, whereExpr)
 // → UPDATE table SET ... WHERE ...
@@ -352,6 +355,11 @@ adapter.mutations.onConflict(target, action)
 // PostgreSQL/SQLite → ON CONFLICT (target) DO action
 // MySQL → ON DUPLICATE KEY UPDATE action
 ```
+
+`mutations.insert` owns both standard SQL insert sources: literal `VALUES`
+rows and an `{ select }` query. Adapter implementations preserve the source
+form before adding a dialect prefix or suffix such as duplicate skipping. This
+is one adapter contract, not a query-engine SQL escape hatch.
 
 ### `joins`
 

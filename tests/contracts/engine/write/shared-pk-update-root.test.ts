@@ -8,6 +8,7 @@ import {
   sharedPkUpdateRootSchema,
 } from "@tests/contracts/engine/write/shared-pk-update-root-behavior";
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
+import { describe } from "vitest";
 
 /**
  * Package E's live legs on the credential-free substrates. The atomic-batch leg is the
@@ -20,27 +21,35 @@ const substrates = [
   {
     name: "PGlite transaction",
     make: () => new PGliteDriver({ client: new PGlite() }),
+    includeProducedKey: true,
   },
   {
     name: "PGlite atomic batch",
     make: () => new BatchOnlyPGliteDriver({ client: new PGlite() }),
+    includeProducedKey: false,
   },
   {
     name: "better-sqlite3",
     make: () => new SQLite3Driver({ dataDir: ":memory:" }),
+    includeProducedKey: true,
   },
 ] as const;
 
 for (const substrate of substrates) {
   let shared: any;
-  registerSharedPkUpdateRootBehavior(substrate.name, async () => {
-    if (!shared) {
-      shared = createClient({
-        schema: sharedPkUpdateRootSchema,
-        driver: substrate.make(),
-      }) as any;
-      await push(shared, { force: true });
-    }
-    return shared;
-  });
+  registerSharedPkUpdateRootBehavior(
+    substrate.name,
+    async () => {
+      if (!shared) {
+        shared = createClient({
+          schema: sharedPkUpdateRootSchema,
+          driver: substrate.make(),
+        }) as any;
+        await push(shared, { force: true });
+      }
+      return shared;
+    },
+    describe,
+    { includeProducedKey: substrate.includeProducedKey }
+  );
 }

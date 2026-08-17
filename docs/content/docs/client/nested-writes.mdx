@@ -7,8 +7,9 @@ icon: layers
 Nested writes let you create, connect, update, and delete related records in the
 same call as their parent. Transaction-capable drivers run the whole operation
 atomically, and generated IDs flow automatically from a parent to its children.
-D1 also runs ordinary nested writes in one atomic batch when they can be planned
-up front. Its root relation-bearing bulk route has a separate
+Drivers with native atomic batches run work that can be planned up front in one
+batch and safe dynamic work as ordered segments after normalized success. Those
+segments are not one atomic operation; D1 documents one provider-specific
 [segment-atomic contract](/docs/drivers/sqlite/d1#relation-bearing-bulk-writes).
 
 :::info
@@ -103,16 +104,44 @@ await client.user.create({
 });
 ```
 
-D1 also executes this nested series when VibORM can re-assert the complete
-parent or relation membership in every later write batch. A shape without that
-exact guard is refused before its containing member writes. If reached inside a
-progressive root bulk call, earlier root members can already be committed and
-are reported.
+Any no-transaction driver with native atomic batches also executes this nested
+series when VibORM can re-assert the complete parent or relation membership in
+every later write batch. A shape without that exact guard is refused before its
+containing member writes. If reached inside a progressive root bulk call, earlier
+root members can already be committed and are reported.
 
-With `skipDuplicates`, a conflicting created row suppresses that row's complete
-nested subtree. It does not apply the nested effects to the existing row. This
-relation-bearing skip form requires an interactive transaction. D1 and other
-batch-only drivers reject it before the first user write.
+With `skipDuplicates`, a row that may need root-conflict suppression is one
+subtree. A transaction uses a savepoint. A batch-only route isolates the root
+write, observes whether it skipped, and dispatches descendants only when it
+inserted. A member with an earlier write before that skippable root is refused
+pre-effect, as is one with an earlier nested record series, because skipping the
+root would strand the earlier effect. A
+many-to-many row whose flag is vacuous drops it, and one exact selector can use
+adopt-and-link; neither route needs root suppression.
+
+Explicit `$transaction([...])` arrays remain one indivisible batch. They do not
+use this ordered progressive fallback.
+
+On a **many-to-many** relation, each `createMany` member gets its own
+`skipDuplicates` outcome in input order; a nameable row and an unnameable sibling
+do not force one shared route. When one complete unique selector can name the row
+that conflicted, the target insert is skipped and the join row is still written,
+so the parent ends up linked to the row that was already there. When it cannot —
+the target's key is database-generated and the row spells two independent
+uniques, the conflict would fire on an index no `where` can spell, or the only
+unique is compound with a `null` member — that member is suppressed whole: no
+target, no join row, siblings unaffected, and the pre-existing row neither
+rewritten nor linked. Later members observe the records earlier members wrote;
+viborm does not pick a row to adopt on your behalf.
+
+A nested write that needs a **database-generated key** to be read back — a child
+whose foreign key points at the parent the same call is inserting — uses the
+producer statement's exact output. SQLite-family and MySQL batches keep their
+statement-local generated-ID lowering. PostgreSQL-family batches, including Neon
+HTTP, use `RETURNING`: an exact fold remains one statement, while an unfurled default
+operation runs guarded atomic segments in dependency order. Those segments are not
+one atomic operation, so a later failure can report partial committed progress. See
+[Compatibility](/docs/client/compatibility#generated-keys-and-the-execution-substrate).
 
 ### connect
 
@@ -319,11 +348,12 @@ captured, VibORM refuses a deeper child-held operation that would move the same
 named target to several updated rows; one target row can store only one parent
 membership.
 
-D1 also executes this nested series when VibORM can re-assert the complete
-parent or relation membership in every later write batch. A shape without that
-exact guard is refused before its containing member writes. If that member
-belongs to a progressive root bulk call, earlier root members can already be
-committed; the error reports that prefix.
+A no-transaction driver with native atomic batches also executes this nested
+series when VibORM can re-assert the complete parent or relation membership in
+every later write batch. A shape without that exact guard is refused before its
+containing member writes. If that member belongs to a progressive root bulk
+call, earlier root members can already be committed; the error reports that
+prefix.
 
 ### upsert (nested)
 
@@ -364,6 +394,17 @@ const user = await client.user.update({
 ```
 
 The to-many form also accepts an array of `{ where, create, update }` envelopes.
+
+When a nested update or found-upsert re-enters the exact parent selected by an
+enclosing upsert arm, VibORM keeps addressing that selected row. It does not
+re-run the public selector. If the enclosing update changes the parent's primary
+key, relation placement chooses the captured key before the root write or the
+final complete key after it, so later work still follows the same row.
+
+Two focused boundaries remain. Deleting or globally adopting the exact incoming
+parent is not a selected update continuation. A re-entry that itself changes that
+parent's primary key would have to publish a second final key back to the enclosing
+compiler. VibORM refuses both cases instead of choosing a row or assignment order.
 
 ## Connection Management
 
@@ -419,6 +460,13 @@ const post = await client.post.update({
   },
 });
 ```
+
+For a junction relation, every selector supplies the complete target key,
+including every member of a compound primary key. Large `set` and `connect`
+lists are split into INSERT statements that fit the active driver's verified
+bind-parameter budget. The clear step, all insert chunks, guards, and result stay
+inside the same transaction or native atomic batch. Statement-level triggers fire
+once per chunk for such a large payload; an under-limit list remains one INSERT.
 
 ## Delete Operations
 
@@ -535,28 +583,49 @@ value is computed and written once, in the record's own `UPDATE`.
 directions — `disconnect + connect`, `disconnect + connectOrCreate`,
 `disconnect + create`, `delete + connect`, `delete + create`. `delete` beside
 `connectOrCreate` is not an accepted pair, deliberately rather than by
-omission. A `connect` may additionally carry an `update`, on either direction
-and with or without a vacate before it.
+omission. Any supplier may additionally carry an `update`, with or without a
+vacate before it:
+
+```ts
+// Mint the badge, then edit THAT badge — one call, in this order
+await client.hub.update({
+  where: { id: "h1" },
+  data: {
+    badge: {
+      create: { id: "badge_new", tag: "fresh", rank: 2 },
+      update: { rank: { increment: 3 } }, // sees rank 2, writes 5
+    },
+  },
+});
+```
+
+The modify always applies to the row the supplier supplied, and it applies
+**after** that supplier has run — so a relative update counts from the value the
+supplier wrote, and a `connectOrCreate` that finds an existing row edits the row
+it adopted rather than one it minted. The update is an ordinary update: it can
+carry relations of its own, nested `createMany` / `updateMany`, and another
+supplier-plus-modify one level deeper.
+
+When the supplier is a `create` — or a `connectOrCreate` that ends up creating —
+the row does not exist while the call is being planned, so the engine locates it
+after the fact, by the membership the supplier just established. That costs an
+extra round trip on this relation, and it needs a driver that can either run an
+interactive transaction or submit native atomic batches in order. On the latter,
+each next segment starts only after normalized success from the previous one. A
+driver with neither capability declines before the supplier writes.
 
 :::warning
-`create` or `connectOrCreate` **beside an `update`** is refused, and the error
-  says why: the modify has to address the supplied row through a read that
-  happens before any write in the same statement group, and those two suppliers
-  only produce that row's identity by inserting it. `connect` composes because a
-  unique selector is an identity that already exists.
+Three combinations are spellable but declined before any write, all for the same
+  reason: `delete: true` names the row currently in the slot, whose identity is
+  not known when the call is analyzed, so it cannot be ruled out that it is the
+  very row a sibling operation reads. They are child-held `delete` beside a
+  **`connect`** and an `update`, and parent-held `delete + connect`. Parent-held
+  `delete + create` is fine — nothing has to read the outgoing row, and neither
+  does a producing supplier's `update`, which is why `delete + create + update`
+  runs.
 
-  Spell it as two steps instead — create (or `connectOrCreate`) the row with the
-  data you wanted, or write the parent first and update the child in a second
-  call. On a parent-held relation the combination is rejected at the type level;
-  on a child-held one the types admit it and the engine refuses it, because only
-  the parent-held direction can see the obstacle from the payload alone.
-
-  Three further combinations are spellable but declined before any write, all
-  for the same reason: `delete: true` names the row currently in the slot, whose
-  identity is not known when the call is analyzed, so it cannot be ruled out that
-  it is the very row a sibling operation reads. They are child-held `delete`
-  beside a supplier **and** an `update`, and parent-held `delete + connect`.
-  Parent-held `delete + create` is fine — nothing has to read the outgoing row.
+  On a parent-held relation, `create` or `connectOrCreate` beside an `update`
+  is rejected at the type level, and stays so.
 :::
 
 Everything else stays refused at the type and validation boundary: two

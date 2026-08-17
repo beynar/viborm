@@ -191,12 +191,29 @@ export async function seedLookupBed(client: LookupClient): Promise<void> {
   await client.node.create({ data: { id: 2, label: "leaf", parentId: null } });
   await client.owner.create({ data: { id: 1, email: "owner@x" } });
   await client.profile.create({ data: { ownerId: 1, bio: "seed" } });
-  // Seeded FIRST so it holds the LOWER generated key: a produced identity that came
-  // from anywhere but the subtree's own INSERT lands here.
-  await client.magazine.create({ data: { title: "decoy-magazine" } });
   await client.issue.create({
     data: { id: 1, name: "issue-1", magazineId: null },
   });
+}
+
+/**
+ * The DATABASE-ASSIGNED half of the bed, seeded separately because it is the one
+ * row here whose creation is a substrate capability rather than a payload.
+ *
+ * `magazine.id` is `increment()`, so creating one demands the produced identity
+ * the terminal read addresses the row by. PostgreSQL's atomic batch has no exact
+ * statement-local lowering for that (`lastval()` is session-global and
+ * trigger-sensitive), so this seed runs only where the substrate can publish it.
+ * Keeping it out of `seedLookupBed` is what lets the 24 batch cases below — none
+ * of which name a generated key — keep executing their own claims.
+ *
+ * Seeded FIRST so it holds the LOWER generated key: a produced identity that came
+ * from anywhere but the subtree's own INSERT lands here.
+ */
+export async function seedProducedIdentityDecoy(
+  client: LookupClient
+): Promise<void> {
+  await client.magazine.create({ data: { title: "decoy-magazine" } });
 }
 
 /**

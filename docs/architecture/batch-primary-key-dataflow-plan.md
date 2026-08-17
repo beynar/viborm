@@ -21,12 +21,19 @@ strategy.
 
 ## Current Documentation Status
 
-As of the Phase 6 docs pass, batch-only atomic paths are documented as
-supporting generated and updated primary-key dataflow through internal semantic
-references. Local PGlite/Postgres-style and SQLite-family conformance is the
-current proof. Hosted D1 bindings and Neon HTTP are not blanket nested-write
-gaps, but hosted conformance should be called externally verified only after
-external runs.
+Updated primary-key dataflow remains supported when the compiler can derive the
+final value. Generated-ID dataflow is provider-specific: SQLite and MySQL keep
+their exact statement-local batch lowerings. PostgreSQL never uses `lastval()`,
+which is session-global and can be changed by another generated column or by a
+trigger. Instead, a default PostgreSQL-family operation keeps the producer's own
+`RETURNING` in one exact fold where possible, otherwise materializes it before a
+guarded dependent segment. Segments can commit a prefix and report it. An
+explicit `$transaction([...])` remains indivisible and refuses before effects
+when no exact one-batch lowering can carry the output. The same segment runner
+now serves safe RecordSeries on every no-transaction driver with native atomic
+batch; `supportsOrderedCommittedSegments` strengthens attribution only. The
+phase notes below are historical design records; this paragraph is the current
+contract.
 
 ## T4b Reconciliation — the updated-PK class on V2 (delivered 2026-07-22)
 
@@ -56,12 +63,13 @@ any new adapter machinery, and reality diverged from the plan in one load-bearin
   root UPDATE in BOTH `reorderRootUpdateAfterChildren` branches. This is distinct from the
   existing M2M / existing-edge reorder (those write against the PRE-transition value and
   rely on the junction FK's ON UPDATE CASCADE).
-- **The generated-PK class is unchanged.** The `insertId` scratch (a produced
-  auto-increment id a child FK reads) DOES use `adapter.batchRefs.storeLastInsertId` /
-  `read`, already wired in `OperationExecutor.compileToEntries` and unchanged by T4b.
-  So the adapter batch-ref store lives and is exercised — for generated ids, per dialect
-  (`last_insert_rowid` / `lastval` / `LAST_INSERT_ID`) — but the updated-PK class rides
-  compile-time literals instead.
+- **The generated-PK class uses only exact provider lowerings.** SQLite and MySQL
+  use `last_insert_rowid()` / `LAST_INSERT_ID()` through
+  `adapter.batchRefs.storeLastInsertId`. PostgreSQL never uses session-global
+  `lastval()`: the producer's `RETURNING` either stays inside one exact mutation fold
+  or is materialized before a guarded dependent batch segment. Explicit
+  `$transaction([...])` arrays remain indivisible and refuse when no exact one-batch
+  lowering exists.
 - **Dialect coverage.** The updated-PK lowering is dialect-agnostic, but the family it
   belongs to (single-row `update`/`upsert` refetch) needs RETURNING on a batch-only
   driver. Certified native fallback-off on the RETURNING-capable batch-only drivers —
@@ -80,8 +88,11 @@ any new adapter machinery, and reality diverged from the plan in one load-bearin
 - Query engine decides the mutation graph and primary-key data dependencies.
 - Adapters decide dialect SQL for temporary references, generated IDs, computed
   PK expressions, and cleanup.
-- Batch-only drivers must stay atomic. No non-atomic sequential fallback.
-- Accepted nested writes must work or reject before parent mutation.
+- Batch-only default operations stay atomic when an exact lowering exists.
+  RETURNING-capable drivers may otherwise use guarded committed segments.
+- An accepted segmented write can report a committed prefix after a later
+  failure; it must never reuse provider output for the wrong row.
+- Explicit `$transaction([...])` arrays stay indivisible.
 - No public API change.
 - No provider-specific public nested-write surface.
 - No fake defaults, swallowed errors, or accepted-but-ignored nested branch.
@@ -227,10 +238,9 @@ Add adapter APIs that let batch plans store and read refs safely.
   - `read(batchId, key): Sql`;
   - `storeLastInsertId(batchId, key): Sql`.
 - PostgreSQL adapter:
-  - use transaction-scoped temp storage or an equivalent adapter-owned temp
-    relation;
-  - `storeLastInsertId` uses `lastval()` only immediately after the insert that
-    produced the ID;
+  - uses transaction-scoped temp storage for explicit values;
+  - deliberately omits `storeLastInsertId`; immediacy does not make
+    session-global `lastval()` exact in the presence of triggers;
   - `read` returns a scalar subquery.
 - SQLite adapter:
   - use temp storage valid for the connection/batch execution;
@@ -305,17 +315,17 @@ Replace static PK assumptions in batch `create` with ref-aware PK resolution.
 - Child generated IDs can feed parent FK updates.
 - Recursive generated create chains work.
 - Literal-only plans do not regress.
-- Unsupported generated compound shapes fail before mutation.
+- A non-returning plural generated key with no complete selector fails before
+  mutation; PostgreSQL publishes the complete tuple through `RETURNING`.
 
 ### Expected Tests
 
-- Batch-only PGlite and SQLite-family:
-  - generated parent ID with nested `create`;
-  - generated parent ID with nested `createMany`;
-  - generated child ID before parent FK update;
-  - deep generated chain;
-  - multiple sibling children read the same parent ref;
-  - missing impossible compound generated PK rejects before mutation.
+- SQLite-family batch-only drivers retain the generated-ID cases below.
+- Batch-only PGlite proves exact one-statement folds and guarded `RETURNING`
+  segments, including compound/plural generated-key publication.
+- An explicit indivisible batch remains the pre-effect refusal witness when its
+  internal statements need a generated output and no exact one-batch lowering
+  exists.
 
 ### Verification
 
@@ -367,7 +377,7 @@ upsert update branches.
 
 ### Expected Tests
 
-- Batch-only PGlite and SQLite-family:
+- Batch-only PGlite and SQLite-family (updated-PK class only):
   - update `id: "new-id"` then nested create uses `"new-id"`;
   - update `id: { set: "new-id" }` then final result refetch works;
   - numeric PK `increment/decrement/multiply/divide` refetches by computed PK;
@@ -439,7 +449,9 @@ Update docs so nested-write batch support claims are honest and exact.
 ### Work
 
 - Update nested-write docs:
-  - batch-only atomic drivers support generated and updated PK dataflow;
+- batch-only drivers support updated PK dataflow; generated PostgreSQL values use
+  exact one-statement folds or guarded `RETURNING` segments in default operations,
+  while an indivisible explicit array still requires an exact one-batch lowering;
   - no provider-specific public nested-write surface;
   - impossible or unsafe PK shapes fail closed.
 - Update compatibility matrix:
@@ -453,8 +465,8 @@ Update docs so nested-write batch support claims are honest and exact.
 ### Success Criteria
 
 - Docs do not overclaim hosted external proof.
-- Docs no longer imply generated/updated PK nested writes are intentionally
-  unsupported for batch-only drivers.
+- Docs state the PostgreSQL generated-ID batch boundary without weakening the
+  portable public operation surface.
 
 ### Verification
 

@@ -257,14 +257,13 @@ describe("J2 — the three destinations of one operation name", () => {
   });
 });
 
-describe("J2 — the typed select+batch-only refusal wins over series routing", () => {
+describe("J2 — select keeps its typed refusal while default batch routes", () => {
   const RELATION_ROW = { id: 1, title: "a", author: { connect: { id: 1 } } };
 
   test("a relation-bearing payload WITH select still gets the specific sentence", () => {
-    // I-outcomes item 3. Routed to a series instead, this payload would be refused by
-    // `withTransaction` with the generic "does not support callback transactions" —
-    // a true sentence about the substrate that says nothing about `createMany` or
-    // `select`. The router reaches for the existing owner so the specific one answers.
+    // `select` is a separate row-returning contract. This non-returning provider cannot
+    // roll back public result parsing, so its specific owner answers before the default
+    // record-series route.
     let thrown: unknown;
     try {
       routeCreateMany(
@@ -280,11 +279,9 @@ describe("J2 — the typed select+batch-only refusal wins over series routing", 
     );
   });
 
-  test("without select the same substrate takes the series and its inherited refusal", () => {
-    // §7.5's admitted substrate boundary, asserted rather than assumed: the `{ count }`
-    // arm of a relation-bearing payload has no specific sentence of its own, and does
-    // not get one — a record series simply needs an interactive transaction, and
-    // `withTransaction` says so in its own words.
+  test("without select the same substrate takes the series", () => {
+    // The row-returning limitation belongs only to `select`. The default `{ count }`
+    // payload keeps the record-series route and can use ordered atomic batches.
     const routed = routeCreateMany(
       new BatchOnlyNonReturningDriver(),
       createManySeriesSchema.post,
@@ -374,6 +371,79 @@ describe("record-series skip outcome integrity", () => {
       "query-engine-v2 createMany with skipDuplicates lost a member's exact inserted/skipped outcome."
     );
   });
+});
+
+describe("child-held relation-bearing skip on default batch execution", () => {
+  const nestedSkip = {
+    where: { id: 1 },
+    data: {
+      posts: {
+        createMany: {
+          data: [
+            { id: 1, title: "a", tags: { connect: { name: "t" } } },
+            { id: 2, title: "b", tags: { connect: { name: "t" } } },
+          ],
+          skipDuplicates: true,
+        },
+      },
+    },
+  };
+
+  test("a duplicate root suppresses its subtree and a fresh sibling lands", async () => {
+    const database = new PGlite();
+    const setup = createClient({
+      schema: createManySeriesSchema,
+      driver: new PGliteDriver({ client: database }),
+    }) as any;
+    const { push } = await import("@migrations");
+    await push(setup, { force: true });
+    await setup.author.create({ data: { id: 1, name: "owner" } });
+    await setup.tag.create({ data: { id: 1, name: "t" } });
+    await setup.post.create({
+      data: {
+        id: 1,
+        title: "existing",
+        author: { connect: { id: 1 } },
+      },
+    });
+
+    const batchOnly = createClient({
+      schema: createManySeriesSchema,
+      driver: new BatchOnlyPGliteDriver({ client: database }),
+    }) as any;
+
+    await expect(batchOnly.author.update(nestedSkip)).resolves.toEqual({
+      id: 1,
+      name: "owner",
+    });
+
+    await expect(
+      batchOnly.post.findMany({
+        orderBy: { id: "asc" },
+        select: {
+          id: true,
+          title: true,
+          authorId: true,
+          tags: { select: { id: true, name: true } },
+        },
+      })
+    ).resolves.toEqual([
+      { id: 1, title: "existing", authorId: 1, tags: [] },
+      {
+        id: 2,
+        title: "b",
+        authorId: 1,
+        tags: [{ id: 1, name: "t" }],
+      },
+    ]);
+    await expect(
+      batchOnly.author.findMany({ select: { id: true, name: true } })
+    ).resolves.toEqual([{ id: 1, name: "owner" }]);
+    await expect(
+      batchOnly.tag.findMany({ select: { id: true, name: true } })
+    ).resolves.toEqual([{ id: 1, name: "t" }]);
+    await batchOnly.$disconnect();
+  }, 60_000);
 });
 
 describe("relation-bearing skipDuplicates construction", () => {
@@ -489,11 +559,8 @@ describe("J3/J4 — the statement list the series actually issues", () => {
   }, 60_000);
 
   test("…and on a batch-only substrate the empty payload still ANSWERS", async () => {
-    // THE reason the empty rule is load-bearing. A record series needs an interactive
-    // transaction and refuses without one, so `createMany({ data: [] })` — which every
-    // caller that spreads a possibly-empty array reaches — would go from `{ count: 0 }`
-    // to a `TransactionError` on every batch-only driver. It does not: no row means no
-    // relation key, so the payload never leaves the arm it has always taken.
+    // No row means no relation-bearing member and no batch to submit. The common
+    // spread-a-possibly-empty-array call stays on the no-op arm and answers zero.
     const database = new PGlite();
     const setup = createClient({
       schema: createManySeriesSchema,

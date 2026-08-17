@@ -299,200 +299,179 @@ for (const substrate of ["transaction", "atomic batch"] as const) {
   describe(`E2-U1 inverse-side to-one update with relations (${substrate})`, () => {
     test("folds a deeper create against the located target", async () => {
       const client = await setup(makeDriver(getFamily().database));
-      try {
-        await client.user.update({
-          where: { id: "owner" },
-          data: {
-            profile: {
-              update: {
-                bio: "after",
-                notes: { create: { id: "n-fresh", text: "fresh" } },
-              },
+      await client.user.update({
+        where: { id: "owner" },
+        data: {
+          profile: {
+            update: {
+              bio: "after",
+              notes: { create: { id: "n-fresh", text: "fresh" } },
             },
           },
-        });
-        await expect(state(client)).resolves.toEqual({
-          profiles: [
-            { id: "p-decoy", bio: "decoy", userId: "decoy" },
-            { id: "p-owner", bio: "after", userId: "owner" },
-          ],
-          notes: [
-            { id: "n-decoy", text: "decoy", profileId: "p-decoy" },
-            { id: "n-fresh", text: "fresh", profileId: "p-owner" },
-            { id: "n-owner", text: "owned", profileId: "p-owner" },
-          ],
-          attachments: [],
-        });
-      } finally {
-      }
+        },
+      });
+      await expect(state(client)).resolves.toEqual({
+        profiles: [
+          { id: "p-decoy", bio: "decoy", userId: "decoy" },
+          { id: "p-owner", bio: "after", userId: "owner" },
+        ],
+        notes: [
+          { id: "n-decoy", text: "decoy", profileId: "p-decoy" },
+          { id: "n-fresh", text: "fresh", profileId: "p-owner" },
+          { id: "n-owner", text: "owned", profileId: "p-owner" },
+        ],
+        attachments: [],
+      });
     }, 30_000);
 
     test("folds a junction edge one level deeper", async () => {
       const client = await setup(makeDriver(getFamily().database));
-      try {
-        await client.user.update({
-          where: { id: "owner" },
-          data: { profile: { update: { labels: { connect: { id: "l1" } } } } },
-        });
-        // Membership is the join row, so the claim is read back through the relation.
-        await expect(
-          client.label.findMany({
-            where: { profiles: { some: { id: "p-owner" } } },
-          })
-        ).resolves.toEqual([{ id: "l1", name: "label" }]);
-        await expect(
-          client.label.findMany({
-            where: { profiles: { some: { id: "p-decoy" } } },
-          })
-        ).resolves.toEqual([]);
-      } finally {
-      }
+      await client.user.update({
+        where: { id: "owner" },
+        data: { profile: { update: { labels: { connect: { id: "l1" } } } } },
+      });
+      // Membership is the join row, so the claim is read back through the relation.
+      await expect(
+        client.label.findMany({
+          where: { profiles: { some: { id: "p-owner" } } },
+        })
+      ).resolves.toEqual([{ id: "l1", name: "label" }]);
+      await expect(
+        client.label.findMany({
+          where: { profiles: { some: { id: "p-decoy" } } },
+        })
+      ).resolves.toEqual([]);
     }, 30_000);
 
     test("folds a four-level tree (the created note carries its own attachment)", async () => {
       const client = await setup(makeDriver(getFamily().database));
-      try {
-        await client.user.update({
-          where: { id: "owner" },
-          data: {
-            profile: {
-              update: {
-                notes: {
-                  create: {
-                    id: "n-tree",
-                    text: "tree",
-                    attachments: { create: { id: "a1", name: "a.txt" } },
-                  },
+      await client.user.update({
+        where: { id: "owner" },
+        data: {
+          profile: {
+            update: {
+              notes: {
+                create: {
+                  id: "n-tree",
+                  text: "tree",
+                  attachments: { create: { id: "a1", name: "a.txt" } },
                 },
               },
             },
           },
-        });
-        await expect(
-          client.note.findUnique({ where: { id: "n-tree" } })
-        ).resolves.toEqual({
-          id: "n-tree",
-          text: "tree",
-          profileId: "p-owner",
-        });
-        await expect(
-          client.attachment.findMany({ orderBy: { id: "asc" } })
-        ).resolves.toEqual([{ id: "a1", name: "a.txt", noteId: "n-tree" }]);
-      } finally {
-      }
+        },
+      });
+      await expect(
+        client.note.findUnique({ where: { id: "n-tree" } })
+      ).resolves.toEqual({
+        id: "n-tree",
+        text: "tree",
+        profileId: "p-owner",
+      });
+      await expect(
+        client.attachment.findMany({ orderBy: { id: "asc" } })
+      ).resolves.toEqual([{ id: "a1", name: "a.txt", noteId: "n-tree" }]);
     }, 30_000);
 
     test("a relation-only payload writes no target row", async () => {
       const driver = new RecordingBatchDriver({ client: getFamily().database });
       const client = await setup(driver);
-      try {
-        driver.recording = true;
-        await client.user.update({
-          where: { id: "owner" },
-          data: {
-            profile: {
-              update: { notes: { create: { id: "n-only", text: "only" } } },
-            },
+      driver.recording = true;
+      await client.user.update({
+        where: { id: "owner" },
+        data: {
+          profile: {
+            update: { notes: { create: { id: "n-only", text: "only" } } },
           },
-        });
-        driver.recording = false;
-        // No empty-SET self-UPDATE: the target row is untouched, only its child edge.
-        expect(
-          driver.statements.filter((sql) => sql.startsWith("UPDATE"))
-        ).toEqual([]);
-        await expect(
-          client.profile.findUnique({ where: { id: "p-owner" } })
-        ).resolves.toEqual({ id: "p-owner", bio: "before", userId: "owner" });
-        await expect(
-          client.note.findUnique({ where: { id: "n-only" } })
-        ).resolves.toMatchObject({ profileId: "p-owner" });
-      } finally {
-      }
+        },
+      });
+      driver.recording = false;
+      // No empty-SET self-UPDATE: the target row is untouched, only its child edge.
+      expect(
+        driver.statements.filter((sql) => sql.startsWith("UPDATE"))
+      ).toEqual([]);
+      await expect(
+        client.profile.findUnique({ where: { id: "p-owner" } })
+      ).resolves.toEqual({ id: "p-owner", bio: "before", userId: "owner" });
+      await expect(
+        client.note.findUnique({ where: { id: "n-only" } })
+      ).resolves.toMatchObject({ profileId: "p-owner" });
     }, 30_000);
 
     test("a deeper targeted update reaches only this parent's rows", async () => {
       const client = await setup(makeDriver(getFamily().database));
-      try {
-        await client.user.update({
+      await client.user.update({
+        where: { id: "owner" },
+        data: {
+          profile: {
+            update: {
+              notes: {
+                update: {
+                  where: { id: "n-owner" },
+                  data: { text: "edited" },
+                },
+              },
+            },
+          },
+        },
+      });
+      await expect(
+        client.note.findMany({ orderBy: { id: "asc" } })
+      ).resolves.toEqual([
+        { id: "n-decoy", text: "decoy", profileId: "p-decoy" },
+        { id: "n-owner", text: "edited", profileId: "p-owner" },
+      ]);
+    }, 30_000);
+
+    test("a deeper targeted update naming the DECOY's row aborts", async () => {
+      const client = await setup(makeDriver(getFamily().database));
+      await expect(
+        client.user.update({
           where: { id: "owner" },
           data: {
             profile: {
               update: {
+                bio: "never",
                 notes: {
                   update: {
-                    where: { id: "n-owner" },
-                    data: { text: "edited" },
+                    where: { id: "n-decoy" },
+                    data: { text: "stolen" },
                   },
                 },
               },
             },
           },
-        });
-        await expect(
-          client.note.findMany({ orderBy: { id: "asc" } })
-        ).resolves.toEqual([
+        })
+      ).rejects.toThrow(NOTE_NOT_FOUND);
+      await expect(state(client)).resolves.toEqual({
+        profiles: [
+          { id: "p-decoy", bio: "decoy", userId: "decoy" },
+          { id: "p-owner", bio: "before", userId: "owner" },
+        ],
+        notes: [
           { id: "n-decoy", text: "decoy", profileId: "p-decoy" },
-          { id: "n-owner", text: "edited", profileId: "p-owner" },
-        ]);
-      } finally {
-      }
-    }, 30_000);
-
-    test("a deeper targeted update naming the DECOY's row aborts", async () => {
-      const client = await setup(makeDriver(getFamily().database));
-      try {
-        await expect(
-          client.user.update({
-            where: { id: "owner" },
-            data: {
-              profile: {
-                update: {
-                  bio: "never",
-                  notes: {
-                    update: {
-                      where: { id: "n-decoy" },
-                      data: { text: "stolen" },
-                    },
-                  },
-                },
-              },
-            },
-          })
-        ).rejects.toThrow(NOTE_NOT_FOUND);
-        await expect(state(client)).resolves.toEqual({
-          profiles: [
-            { id: "p-decoy", bio: "decoy", userId: "decoy" },
-            { id: "p-owner", bio: "before", userId: "owner" },
-          ],
-          notes: [
-            { id: "n-decoy", text: "decoy", profileId: "p-decoy" },
-            { id: "n-owner", text: "owned", profileId: "p-owner" },
-          ],
-          attachments: [],
-        });
-      } finally {
-      }
+          { id: "n-owner", text: "owned", profileId: "p-owner" },
+        ],
+        attachments: [],
+      });
     }, 30_000);
 
     test("a parent with no connected target aborts before any deeper write", async () => {
       const client = await setup(makeDriver(getFamily().database));
-      try {
-        await client.user.create({ data: { id: "lonely", name: "lonely" } });
-        await expect(
-          client.user.update({
-            where: { id: "lonely" },
-            data: {
-              profile: {
-                update: { notes: { create: { id: "n-never", text: "never" } } },
-              },
+      await client.user.create({ data: { id: "lonely", name: "lonely" } });
+      await expect(
+        client.user.update({
+          where: { id: "lonely" },
+          data: {
+            profile: {
+              update: { notes: { create: { id: "n-never", text: "never" } } },
             },
-          })
-        ).rejects.toThrow(PROFILE_NOT_FOUND);
-        await expect(
-          client.note.findUnique({ where: { id: "n-never" } })
-        ).resolves.toBeNull();
-      } finally {
-      }
+          },
+        })
+      ).rejects.toThrow(PROFILE_NOT_FOUND);
+      await expect(
+        client.note.findUnique({ where: { id: "n-never" } })
+      ).resolves.toBeNull();
     }, 30_000);
   });
 
@@ -608,7 +587,7 @@ for (const substrate of ["transaction", "atomic batch"] as const) {
       });
     }, 30_000);
 
-    test("the missing arm leaves nested updateMany inert and the found arm executes it", async () => {
+    test("the missing arm leaves nested updateMany inert and the found arm executes it on both substrates", async () => {
       const client = await setup(makeDriver(getFamily().database));
       const nestedSeriesUpdate = {
         notes: {
@@ -619,45 +598,49 @@ for (const substrate of ["transaction", "atomic batch"] as const) {
         },
       };
       await client.user.create({ data: { id: "lonely", name: "lonely" } });
-      await client.user.update({
-        where: { id: "lonely" },
-        data: {
-          profile: {
-            upsert: {
-              create: { id: "p-lonely", bio: "created" },
-              update: nestedSeriesUpdate,
+      await expect(
+        client.user.update({
+          where: { id: "lonely" },
+          data: {
+            profile: {
+              upsert: {
+                create: { id: "p-lonely", bio: "created" },
+                update: nestedSeriesUpdate,
+              },
             },
           },
-        },
-      });
+        })
+      ).resolves.toEqual({ id: "lonely", name: "lonely" });
       await expect(
         client.profile.findUnique({ where: { id: "p-lonely" } })
       ).resolves.toMatchObject({ bio: "created" });
 
-      const found = client.user.update({
-        where: { id: "owner" },
-        data: {
-          profile: {
-            upsert: {
-              create: { id: "p-unused", bio: "unused" },
-              update: nestedSeriesUpdate,
+      await expect(
+        client.user.update({
+          where: { id: "owner" },
+          data: {
+            profile: {
+              upsert: {
+                create: { id: "p-unused", bio: "unused" },
+                update: nestedSeriesUpdate,
+              },
             },
           },
-        },
+        })
+      ).resolves.toEqual({ id: "owner", name: "owner" });
+
+      await expect(state(client)).resolves.toEqual({
+        profiles: [
+          { id: "p-decoy", bio: "decoy", userId: "decoy" },
+          { id: "p-lonely", bio: "created", userId: "lonely" },
+          { id: "p-owner", bio: "before", userId: "owner" },
+        ],
+        notes: [
+          { id: "n-decoy", text: "decoy", profileId: "p-decoy" },
+          { id: "n-owner", text: "owned", profileId: "p-decoy" },
+        ],
+        attachments: [],
       });
-      if (substrate === "atomic batch") {
-        await expect(found).rejects.toThrow(
-          "requires ordered series execution"
-        );
-        await expect(
-          client.note.findUnique({ where: { id: "n-owner" } })
-        ).resolves.toMatchObject({ profileId: "p-owner" });
-        return;
-      }
-      await found;
-      await expect(
-        client.note.findUnique({ where: { id: "n-owner" } })
-      ).resolves.toMatchObject({ profileId: "p-decoy" });
     }, 30_000);
 
     test("an empty found update writes nothing at all", async () => {
@@ -730,39 +713,36 @@ describe("E2-U1 batch ordering: the child Parts compile under the presence guard
   test("the located-target guard precedes every deeper write in the unit", async () => {
     const driver = new RecordingBatchDriver({ client: getFamily().database });
     const client = await setup(driver);
-    try {
-      driver.recording = true;
-      await client.user.update({
-        where: { id: "owner" },
-        data: {
-          profile: {
-            update: {
-              bio: "after",
-              notes: { create: { id: "n-guarded", text: "guarded" } },
-            },
+    driver.recording = true;
+    await client.user.update({
+      where: { id: "owner" },
+      data: {
+        profile: {
+          update: {
+            bio: "after",
+            notes: { create: { id: "n-guarded", text: "guarded" } },
           },
         },
-      });
-      driver.recording = false;
-      // `RelationWritePart.compileTargeted` pushes the presence guard, then the
-      // self-UPDATE, then the child steps — so in ONE atomic unit a guard failure
-      // aborts before any grandchild write. There is no arm under which the note
-      // lands beside a target that moved: no arm, no orphan.
-      const guard = driver.statements.findIndex(
-        (sql) =>
-          sql.includes("__viborm_assert__") && sql.includes("e2u1_profiles")
-      );
-      const selfUpdate = driver.statements.findIndex((sql) =>
-        sql.startsWith('UPDATE "e2u1_profiles"')
-      );
-      const deeperInsert = driver.statements.findIndex((sql) =>
-        sql.startsWith('INSERT INTO "e2u1_notes"')
-      );
-      expect(guard).toBeGreaterThanOrEqual(0);
-      expect(selfUpdate).toBeGreaterThan(guard);
-      expect(deeperInsert).toBeGreaterThan(guard);
-    } finally {
-    }
+      },
+    });
+    driver.recording = false;
+    // `RelationWritePart.compileTargeted` pushes the presence guard, then the
+    // self-UPDATE, then the child steps — so in ONE atomic unit a guard failure
+    // aborts before any grandchild write. There is no arm under which the note
+    // lands beside a target that moved: no arm, no orphan.
+    const guard = driver.statements.findIndex(
+      (sql) =>
+        sql.includes("__viborm_assert__") && sql.includes("e2u1_profiles")
+    );
+    const selfUpdate = driver.statements.findIndex((sql) =>
+      sql.startsWith('UPDATE "e2u1_profiles"')
+    );
+    const deeperInsert = driver.statements.findIndex((sql) =>
+      sql.startsWith('INSERT INTO "e2u1_notes"')
+    );
+    expect(guard).toBeGreaterThanOrEqual(0);
+    expect(selfUpdate).toBeGreaterThan(guard);
+    expect(deeperInsert).toBeGreaterThan(guard);
   }, 30_000);
 });
 
@@ -798,20 +778,17 @@ describe("E2-U1 provenance: the deeper key comes from the row the probe locked",
         }
       )
     );
-    try {
-      await client.user.update(deepCreate);
-      await expect(
-        stateClient.note.findUnique({ where: { id: "n-prov" } })
-      ).resolves.toMatchObject({ profileId: "p-decoy" });
-      // ONE identity, not two: the self-UPDATE addressed the same corrupted key.
-      await expect(
-        stateClient.profile.findUnique({ where: { id: "p-decoy" } })
-      ).resolves.toMatchObject({ bio: "moved" });
-      await expect(
-        stateClient.profile.findUnique({ where: { id: "p-owner" } })
-      ).resolves.toMatchObject({ bio: "before" });
-    } finally {
-    }
+    await client.user.update(deepCreate);
+    await expect(
+      stateClient.note.findUnique({ where: { id: "n-prov" } })
+    ).resolves.toMatchObject({ profileId: "p-decoy" });
+    // ONE identity, not two: the self-UPDATE addressed the same corrupted key.
+    await expect(
+      stateClient.profile.findUnique({ where: { id: "p-decoy" } })
+    ).resolves.toMatchObject({ bio: "moved" });
+    await expect(
+      stateClient.profile.findUnique({ where: { id: "p-owner" } })
+    ).resolves.toMatchObject({ bio: "before" });
   }, 30_000);
 
   test("the atomic batch re-checks the located key against the correlation and aborts", async () => {
@@ -833,21 +810,18 @@ describe("E2-U1 provenance: the deeper key comes from the row the probe locked",
         }
       )
     );
-    try {
-      await expect(client.user.update(deepCreate)).rejects.toThrow(
-        PROFILE_NOT_FOUND
-      );
-      await expect(
-        stateClient.note.findUnique({ where: { id: "n-prov" } })
-      ).resolves.toBeNull();
-      await expect(
-        stateClient.profile.findMany({ orderBy: { id: "asc" } })
-      ).resolves.toEqual([
-        { id: "p-decoy", bio: "decoy", userId: "decoy" },
-        { id: "p-owner", bio: "before", userId: "owner" },
-      ]);
-    } finally {
-    }
+    await expect(client.user.update(deepCreate)).rejects.toThrow(
+      PROFILE_NOT_FOUND
+    );
+    await expect(
+      stateClient.note.findUnique({ where: { id: "n-prov" } })
+    ).resolves.toBeNull();
+    await expect(
+      stateClient.profile.findMany({ orderBy: { id: "asc" } })
+    ).resolves.toEqual([
+      { id: "p-decoy", bio: "decoy", userId: "decoy" },
+      { id: "p-owner", bio: "before", userId: "owner" },
+    ]);
   }, 30_000);
 
   for (const substrate of ["transaction", "atomic batch"] as const) {
@@ -868,18 +842,15 @@ describe("E2-U1 provenance: the deeper key comes from the row the probe locked",
           ? new CorruptProbePGliteDriver({ client: db }, config)
           : new CorruptProbeBatchDriver({ client: db }, config)
       );
-      try {
-        await expect(client.user.update(deepCreate)).rejects.toThrow(
-          UNRESOLVED_LOCATED_PK
-        );
-        await expect(
-          stateClient.note.findUnique({ where: { id: "n-prov" } })
-        ).resolves.toBeNull();
-        await expect(
-          stateClient.profile.findUnique({ where: { id: "p-owner" } })
-        ).resolves.toMatchObject({ bio: "before" });
-      } finally {
-      }
+      await expect(client.user.update(deepCreate)).rejects.toThrow(
+        UNRESOLVED_LOCATED_PK
+      );
+      await expect(
+        stateClient.note.findUnique({ where: { id: "n-prov" } })
+      ).resolves.toBeNull();
+      await expect(
+        stateClient.profile.findUnique({ where: { id: "p-owner" } })
+      ).resolves.toMatchObject({ bio: "before" });
     }, 30_000);
   }
 });
@@ -898,50 +869,47 @@ describe("E2-U1 the carve-outs that stay refused", () => {
   test("a primary-key transition with an OCCUPIED old slot is refused by the occupied guard", async () => {
     const driver = new RecordingBatchDriver({ client: getFamily().database });
     const client = await setup(driver);
-    try {
-      driver.recording = true;
-      // RETARGETED BY PACKAGE D2. This payload used to be refused at CONSTRUCTION by
-      // `assertPinnedTransitionIsCompilable`, whose message named the wrong remedy:
-      //
-      //   query-engine-v2 update for relation 'profile' transitions the target primary
-      //   key 'id' while writing a deeper edge whose foreign key does not cascade on
-      //   update; it must locate the target by that primary key.
-      //
-      // Locating by the primary key would NOT have helped — the note foreign key does
-      // not cascade, `n-owner` sits in the slot `p-owner` is vacating, and moving the
-      // profile strands it whatever the locator says. D2 gives the nested compiler the
-      // pre-transition value (from the located row, not from a `where` it does not
-      // have), so the relation-level occupied guard answers instead, with the reason
-      // that is actually true. The accept half is the next test.
-      //
-      // The class and the timing moved with the wording: `NestedWriteError` rather than
-      // `UnsupportedOperationError`, decided after a planning probe rather than at
-      // construction, so the statement log is no longer empty. Nothing is written
-      // either way, which is what the two reads below assert.
-      await expect(
-        client.user.update({
-          where: { id: "owner" },
-          data: {
-            profile: {
-              update: {
-                id: "p-moved",
-                notes: { create: { id: "n-moved", text: "moved" } },
-              },
+    driver.recording = true;
+    // RETARGETED BY PACKAGE D2. This payload used to be refused at CONSTRUCTION by
+    // `assertPinnedTransitionIsCompilable`, whose message named the wrong remedy:
+    //
+    //   query-engine-v2 update for relation 'profile' transitions the target primary
+    //   key 'id' while writing a deeper edge whose foreign key does not cascade on
+    //   update; it must locate the target by that primary key.
+    //
+    // Locating by the primary key would NOT have helped — the note foreign key does
+    // not cascade, `n-owner` sits in the slot `p-owner` is vacating, and moving the
+    // profile strands it whatever the locator says. D2 gives the nested compiler the
+    // pre-transition value (from the located row, not from a `where` it does not
+    // have), so the relation-level occupied guard answers instead, with the reason
+    // that is actually true. The accept half is the next test.
+    //
+    // The class and the timing moved with the wording: `NestedWriteError` rather than
+    // `UnsupportedOperationError`, decided after a planning probe rather than at
+    // construction, so the statement log is no longer empty. Nothing is written
+    // either way, which is what the two reads below assert.
+    await expect(
+      client.user.update({
+        where: { id: "owner" },
+        data: {
+          profile: {
+            update: {
+              id: "p-moved",
+              notes: { create: { id: "n-moved", text: "moved" } },
             },
           },
-        })
-      ).rejects.toThrow(
-        "Cannot update relation 'notes' with onUpdate('restrict') while the current relation is occupied."
-      );
-      driver.recording = false;
-      await expect(
-        client.profile.findUnique({ where: { id: "p-owner" } })
-      ).resolves.toMatchObject({ id: "p-owner" });
-      await expect(
-        client.note.findUnique({ where: { id: "n-moved" } })
-      ).resolves.toBeNull();
-    } finally {
-    }
+        },
+      })
+    ).rejects.toThrow(
+      "Cannot update relation 'notes' with onUpdate('restrict') while the current relation is occupied."
+    );
+    driver.recording = false;
+    await expect(
+      client.profile.findUnique({ where: { id: "p-owner" } })
+    ).resolves.toMatchObject({ id: "p-owner" });
+    await expect(
+      client.note.findUnique({ where: { id: "n-moved" } })
+    ).resolves.toBeNull();
   }, 30_000);
 
   test("D2 LIFT: with the old slot empty, the transition compiles and the deeper create takes the NEW key", async () => {

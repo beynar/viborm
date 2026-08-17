@@ -3,6 +3,7 @@ import type { InstrumentationContext } from "@instrumentation";
 import type { Model } from "@schema/model";
 import type { Sql } from "@sql";
 import type { SchemaRegistryLookup } from "@validation";
+import { normalizedBindParameterLimit } from "./bind-budget";
 import { PendingOperation } from "./pending-operation";
 import {
   type ModelRegistry,
@@ -58,6 +59,18 @@ export class QueryEngine {
 
   get adapter() {
     return this.driver.adapter;
+  }
+
+  /**
+   * The active driver's verified per-statement bind budget, normalized once for
+   * semantic builders and final executor enforcement. A missing or invalid
+   * declaration is UNKNOWN capacity: builders keep their existing statement
+   * shape and let the provider own any native capacity failure.
+   */
+  get maxBindParametersPerStatement(): number | undefined {
+    return normalizedBindParameterLimit(
+      this.driver.maxBindParametersPerStatement
+    );
   }
 
   get schemaRegistry(): SchemaRegistryLookup {

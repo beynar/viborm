@@ -19,8 +19,15 @@ and the unexecuted <code>OperationResultContract</code> phase are explicitly not
 dependencies.
 
 **Public API:** existing bulk methods gain the relation-bearing combinations
-defined below; method names and success result types remain unchanged. D1
-segment-atomic failures gain exact committed-progress metadata.
+defined below; method names and success result types remain unchanged.
+No-transaction drivers with native atomic batching can expose segment-atomic
+progress; a strong committed callback makes that attribution precise before
+result decoding, while an ambiguous weak-seam failure reports possible progress.
+
+**Residual follow-up:**
+[residual-write-limitation-lift-plan.md](residual-write-limitation-lift-plan.md)
+records the delivered residual lifts, their measured provider boundaries, and
+the restrictions that remain on top of this architecture.
 
 ## 1. Outcome
 
@@ -65,9 +72,10 @@ The capability pass makes four decisions:
 3. A nested relation-bearing <code>updateMany</code> captures its correlated
    target keys and runs the existing selected-record compiler once per target.
 4. Batch-only drivers execute the same ordered record-series meaning with the
-   strongest commit scope their transport supports. D1 uses one atomic batch
-   per executable segment and may commit several segments for one public
-   operation. A later failure can therefore leave earlier segments committed.
+   strongest commit scope their transport supports. Any no-transaction driver
+   with native atomic batching can run a safe series after each prior batch
+   returns normalized success. One public operation may therefore commit several
+   segments, and a later failure can leave earlier segments committed.
 
 The retained performance change replaces N final per-row result reads with K
 bounded set reads, normally one. It does not claim a measured network-latency
@@ -80,11 +88,14 @@ attribution. PostgreSQL writable CTEs could not preserve ordered sibling
 visibility and the existing first-failure contract. Static fragment batching
 remains deferred rather than being built on either rejected premise.
 
-The dynamic series remains the semantic reference implementation. D1 does not
-gain a second mutation language: it runs the same ordinary record compilers and
-commits at record-series segment boundaries.
+The dynamic series remains the semantic reference implementation. Batch drivers
+do not gain a second mutation language: they run the same ordinary record
+compilers and commit at record-series segment boundaries.
 
 ### 1.1 Delivery record
+
+This table records the original package checkpoint. Section 1.2 and the live
+acceptance criteria in section 24 supersede its provider-specific limits.
 
 | Package | Outcome | Durable result |
 |---|---|---|
@@ -101,24 +112,26 @@ commits at record-series segment boundaries.
 | K | Deferred | No cross-member relation probe cache or speculative update-series fold was added. |
 | L | Retained | Public and internal documentation state the shipped API and provider commit boundaries. |
 
-### 1.2 Remaining restrictions
+### 1.2 Current remaining restrictions
 
-- Relation-bearing `skipDuplicates` requires an interactive transaction. D1
-  and other batch-only drivers refuse it before the first user write because a
-  batch error cannot attribute a root conflict separately from a descendant
-  conflict.
+- A root-first skippable fresh-record member can run on a batch driver: the root
+  write is isolated, and zero inserted rows suppress every descendant. A write or
+  nested `RecordSeriesStep` before that skippable root remains a typed pre-effect
+  refusal because suppression would strand the earlier effect. A many-to-many
+  member is routed independently: a vacuous flag is dropped and one exact selector
+  adopts and links.
 - One child-held target cannot be moved to more than one parent by one
   `updateMany`; the child stores one parent membership.
-- A D1 nested series runs only when the compiler can re-assert the complete
-  parent or membership premise in each later write batch. Other placements
-  fail closed before their containing member writes.
+- A nested series on any batch driver runs only when the compiler can re-assert
+  the complete parent or membership premise in each later batch. Other
+  placements fail closed before their containing member writes.
 - D1 can carry one database-generated integer identity across a segment through
   the binding's official per-statement `meta.last_row_id`, normalized as
   `QueryResult.insertId`. The engine never infers adjacent or ranged IDs.
 - A dynamic record series cannot be placed inside explicit
   `$transaction([...])`, because that API promises one atomic batch.
-- Other batch-only drivers without the ordered committed-segment capability
-  still refuse dynamic relation-bearing series.
+- A driver with neither an interactive transaction nor native atomic batching
+  still refuses dynamic relation-bearing series.
 - Returning bulk projections remain scalar-only.
 - No native libSQL batch optimization, terminal-read elision, PostgreSQL
   whole-series writable CTE, or inferred generated-ID arithmetic was added.
@@ -159,8 +172,8 @@ The work here therefore targets redundant transport, not semantic sequencing.
 
 One SQL command is not inherently safer than several statements in one
 transaction. An interactive transaction already gives all-or-nothing effects.
-Conversely, several committed D1 batches cannot provide that guarantee, even
-when every individual batch is atomic.
+Conversely, several committed native batches cannot provide that guarantee,
+even when every individual batch is atomic.
 
 A smaller command count primarily improves:
 
@@ -173,15 +186,23 @@ A smaller command count primarily improves:
 It must not be described as an integrity fix unless a separate correctness
 defect is proved.
 
-For D1, this plan deliberately chooses successful-operation capability over
-operation-wide rollback for dynamic record series. The contract is:
+For a no-transaction native-batch driver, the implementation chooses successful-
+operation capability over operation-wide rollback for dynamic record series. The
+contract is:
 
-- each submitted D1 batch is atomic;
+- each submitted batch is atomic;
 - batches execute in record-series order;
-- a failed batch leaves that batch unapplied;
+- a provider-confirmed atomic rollback leaves that batch unapplied; an ambiguous
+  dispatched failure is reported as possibly committed;
 - earlier successful batches remain committed;
-- the thrown error reports the committed prefix;
+- the thrown error reports committed or possibly committed progress according to
+  the driver's acknowledgement seam;
 - automatic retry never replays a committed segment.
+
+Normalized batch success is enough to continue. The strong
+`supportsOrderedCommittedSegments` capability adds a callback after provider
+resolution but before result decoding, which gives exact commit attribution at
+that earlier boundary; it is not the eligibility gate for progressive execution.
 
 This is **segment-atomic execution**, not operation-atomic execution. Public
 documentation must use those terms and must not imply transaction parity.
@@ -495,8 +516,8 @@ executor to select:
   existing atomic-batch contract;
 - ordered segment-atomic execution when the driver offers ordered atomic
   batches but no interactive transaction;
-- a typed substrate refusal only when even one member cannot execute in an
-  atomic provider batch.
+- a typed refusal only when a required boundary cannot be lowered with its exact
+  compiler-owned premise, or when suppression would strand an earlier effect.
 
 This is one new runtime placement for the already-existing execution form. It
 is not a third mutation compiler, a generic continuation callback, or a
@@ -623,8 +644,8 @@ batch-only driver
 
 Prefer one atomic batch whenever the complete operation already lowers to one.
 Do not introduce conditional SQL solely to force dynamic work into that shape.
-When interactivity is required, D1 executes several committed segments and
-documents the possible committed prefix.
+Without an interactive transaction, a native-batch driver executes safe work as
+several committed segments and documents committed or possibly committed progress.
 
 Every premise learned before a segment is rechecked inside that segment when
 the existing compiler requires it. A stale premise rolls back the current
@@ -633,7 +654,7 @@ the complete public operation.
 
 ### 6.6 Segment execution reuses ordinary operations
 
-The D1 route consumes the same planning and final fragments produced by
+The progressive batch route consumes the same planning and final fragments produced by
 <code>CreateOperation</code>, <code>RecordUpdateCompiler</code>, and relation
 Parts. It does not re-derive BoundRelation's position, cardinality, or
 membership axes and does not introduce a conditional mutation compiler.
@@ -644,10 +665,11 @@ At a batch-only execution boundary:
 2. Compile only the selected arm with the existing compiler.
 3. Submit that member or contiguous ordinary fragment as one atomic batch.
 4. Attribute provider failures to the existing guards, pins, and root write.
-5. After provider success, record the committed segment and notify the existing
-   cache-invalidation owner before parsing outputs.
-6. Parse outputs and continue from the new database state. A parsing or
-   invalidation failure reports that segment as committed.
+5. With the strong callback, acknowledge and invalidate after provider resolution
+   but before result decoding. Otherwise, returned normalized success establishes
+   segment completion and then triggers invalidation.
+6. Continue from the new database state. A weak-seam failure after dispatch is
+   conservatively reported as possibly committed and suppresses whole-operation retry.
 
 The executor coordinates segment boundaries; adapters still own SQL and
 drivers still own transport. No scratch workset, SQL activation predicate,
@@ -657,7 +679,7 @@ branch token, or second mutation representation is added.
 
 The following shapes forbid naive preplanning or whole-series transport
 batching. They use left-to-right execution: inside one transaction when the
-driver supports it, or across ordered committed segments on D1.
+driver supports it, or across ordered native-batch segments otherwise.
 
 ### 7.1 Planning that may observe a predecessor
 
@@ -671,10 +693,11 @@ Do not pre-plan as though predecessor writes did not exist:
 - same-target duplicate-sensitive work;
 - any selector whose answer can change after a predecessor.
 
-On D1, the probe for such a decision executes after the predecessor segment has
-committed. JavaScript selects the arm, the existing compiler emits it, and the
-selected member runs in the next atomic batch. This is why the route has branch
-parity on success but only segment atomicity on failure.
+On a no-transaction batch driver, the probe for such a decision executes after
+the predecessor segment returned normalized success. JavaScript selects the arm,
+the existing compiler emits it, and the selected member runs in the next atomic
+batch. This is why the route has branch parity on success but only segment
+atomicity on failure.
 
 ### 7.2 Guards and postconditions
 
@@ -701,7 +724,7 @@ A later provider-specific prototype may admit postconditions only if it proves:
 “The transaction can roll back” is necessary but not sufficient. Error order is
 part of the contract.
 
-For D1 segment execution, every legality guard that must prevent a write keeps
+For progressive batch execution, every legality guard that must prevent a write keeps
 the existing in-batch assertion lowering. A provider failure rolls back that
 member batch before the executor advances. A parse or result-integrity failure
 detected only after a successful batch counts that batch as committed and
@@ -784,14 +807,13 @@ series. If a before-root descendant fails before execution reaches the root
 INSERT, that existing first failure remains an error; do not add a speculative
 root uniqueness probe merely to reorder failures.
 
-On D1, execute the complete candidate record subtree in one member batch. Do
-not compile root skip as <code>ON CONFLICT DO NOTHING</code> when before-root
-effects exist, because later statements would still run. Let an exact conflict
-on the annotated root INSERT fail and roll back the complete member batch;
-classify that root failure as <code>skipped</code>, then continue with the next
-member. A descendant unique failure remains fatal. If the D1 driver cannot
-distinguish the root INSERT conflict from a descendant conflict exactly, refuse
-that skip shape rather than swallowing the wrong failure.
+On a batch driver, a safe skippable member starts with an isolated root INSERT.
+The executor inspects that statement's exact row count: zero suppresses the
+complete descendant subtree, while one permits the descendants to run in later
+guarded segments. A descendant conflict remains fatal. If any write or nested
+<code>RecordSeriesStep</code> must precede the skippable root, refuse the member
+before the operation's first write; a later root skip would otherwise strand the
+earlier effect.
 
 ### 7.7 Relation-bearing updateMany
 
@@ -840,12 +862,13 @@ prefix effects
 The capture uses the parent identity valid at that position: the old referenced
 value for pre-transition membership reads and the final value for post-transition
 writes. Empty capture is a no-op. On an interactive driver, a member failure
-rolls back the parent and all completed members. On D1, the prefix and completed
-members remain committed and the failure reports their exact progress.
+rolls back the parent and all completed members. On a no-transaction batch driver,
+the prefix and completed members remain committed and the failure reports exact
+or possible progress according to the acknowledgement seam.
 
 ### 7.9 Batch-only dynamic work
 
-A D1 batch contains a fixed number of prepared statements, but one public
+A native batch contains a fixed number of prepared statements, but one public
 operation may submit several batches. Therefore dynamic cardinality is no
 longer a substrate refusal:
 
@@ -857,13 +880,20 @@ longer a substrate refusal:
 - generated values flow through the existing per-member output references;
 - later planning observes every committed predecessor.
 
-The remaining D1 refusal is narrower: one member must itself be expressible as
-one existing atomic D1 batch. Do not split a single ordinary record member at a
-point that would leave half of that member committed, except at an explicit
-nested <code>RecordSeriesStep</code> boundary whose segment semantics are
-reported.
+The remaining refusals are semantic: every crossed boundary needs its exact
+compiler-owned continuation premise, and a skippable root cannot follow a write
+whose effect it might strand. Explicit <code>$transaction([...])</code> arrays
+remain one indivisible batch and never take this progressive route.
 
 ## 8. Execution protocol
+
+> **Historical package record.** Sections 8–23 retain the D1-first design and
+> delivery language from the implementation checkpoint. D1 was the first proved
+> progressive provider. Current eligibility is capability-based: any
+> no-transaction driver with native atomic batching may run a safe series after
+> normalized success; `supportsOrderedCommittedSegments` adds callback-before-
+> decode attribution. Current restrictions are in §§1.2, 6, 7, and 24. D1-only
+> refusal statements inside the package record are historical, not live gates.
 
 ### 8.1 Preflight
 
@@ -2096,13 +2126,17 @@ This preserves duplicate <code>connectOrCreate</code> first-create-wins and
 upsert branch visibility without conditional SQL. Database-generated and
 compound keys use the existing per-record publication owner.
 
-### I8. Reject relation-bearing skipDuplicates on D1
+### Historical I8 checkpoint — reject suppression-requiring rows on D1
 
-**Outcome:** the required attribution was not available. D1 batch failures
-cannot prove that a unique conflict came from the member's root insert rather
-than a descendant. The combination therefore refuses before member 0 writes.
-The following rejected design records why a duplicate pre-probe is not an
-acceptable substitute.
+**Pre-residual outcome:** the required attribution was not available. D1 batch
+failures cannot prove that a unique conflict came from the member's root insert
+rather than a descendant. Residual F later narrowed this from one list-wide
+decision to a row-local route: a many-to-many member with a vacuous flag drops
+it, one exact selector adopts and links, and only a member that still needs
+root-versus-descendant suppression refuses before its write. A child-held fresh
+record still needs the interactive savepoint when its root can skip. The
+following rejected design records why a duplicate pre-probe is not an acceptable
+substitute for the remaining suppression route.
 
 The entire candidate subtree executes inside one atomic D1 member batch.
 
@@ -2483,11 +2517,12 @@ Document the API as it exists after implementation, not as migration history:
 - one named child cannot be moved to several parents by one
   <code>updateMany</code>;
 - interactive drivers use one operation-wide transaction;
-- D1 uses ordered segment-atomic batches for dynamic record series;
-- a failed D1 operation can leave a precisely reported committed prefix;
+- no-transaction native-batch drivers use ordered segment-atomic batches for
+  safe dynamic record series;
+- a failed segmented operation can leave committed or possibly committed progress;
 - no automatic retry replays that committed prefix;
-- static D1 shapes still use one atomic batch whenever possible;
-- dynamic progressive D1 series are refused inside an explicitly atomic
+- static shapes still use one atomic batch whenever possible;
+- dynamic progressive series are refused inside an explicitly atomic
   <code>$transaction([...])</code> call;
 - statement count, provider request count, and transaction envelope are
   different metrics.
@@ -2580,7 +2615,8 @@ D1:
 - ordered atomic rollback for each submitted segment on the real binding;
 - visibility of one committed segment to the next planning read;
 - root createMany sibling branch visibility across committed members;
-- relation-bearing skipDuplicates refuses before member 0 writes;
+- a routed member that still needs root-versus-descendant suppression refuses
+  before its write; vacuous and exactly adoptable many-to-many members proceed;
 - captured root updateMany member execution;
 - guarded nested createMany and updateMany at their exact series positions;
 - an unguardable nested placement refuses before its containing write segment;
@@ -2708,7 +2744,7 @@ Run three warm final type checks. Median regression must remain below 5%.
 - RecordUpdateCompiler remains the only selected-record update compiler.
 - No new bulk mutation interpreter exists.
 - Root and nested series use one executor-owned runner.
-- D1 progressive execution runs existing operation fragments and does not
+- Progressive batch execution runs existing operation fragments and does not
   re-derive relation position, cardinality, or membership independently.
 - No conditional SQL branch IR, batch workset, or D1 record compiler exists.
 - No identity tuple or series key carrier exists.
@@ -2729,29 +2765,32 @@ Run three warm final type checks. Median regression must remain below 5%.
 - Duplicate connectOrCreate still keeps first-create-wins.
 - Complete-series retry remains outer-owned only while no segment has committed.
 - Operation-atomic failures roll back all effects.
-- Segment-atomic failures roll back the current segment and preserve exactly the
-  committed prefix reported by the error.
+- Provider-confirmed segment rollback preserves exactly the committed prefix;
+  weak post-dispatch failures remain conservatively ambiguous.
 - Compound keys remain complete and ordered.
 - Generated IDs are never inferred arithmetically.
 - Final result order matches member order.
 - Missing final rows keep exact errors.
 - A skipped root leaves no effect from its complete subtree and never adopts an
   existing row.
+- A batch route isolates that skippable root before descendants; any prior write
+  or nested series makes the shape a pre-effect refusal.
 - Nested relation-bearing createMany executes sibling record trees in input
   order.
 - Nested relation-bearing updateMany captures once at its ordered position and
   executes selected targets in complete row-key order.
 - The N-greater-than-one child-held named-target move remains refused.
-- Every submitted D1 segment is atomic; the public operation may contain
+- Every submitted native-batch segment is atomic; the public operation may contain
   several committed segments.
-- A D1 member failure leaves no effect from the failing member batch.
-- No D1 retry replays an already committed segment.
-- Partial D1 progress distinguishes completed inputs, durable write members, and
-  committed segments, and is exact in direct errors, serialized diagnostics,
-  instrumentation, and cache invalidation.
+- A provider-confirmed rollback leaves no effect from the failing member batch;
+  an ambiguous dispatched failure reports possible commit.
+- No retry replays an already committed or possibly committed segment.
+- Segmented progress distinguishes completed inputs, durable write members,
+  committed segments, and possible commit. Strong callback drivers can attribute
+  completion before result decoding; weak seams stay conservative.
 - Cross-segment values are materialized; cross-segment row and membership facts
   are re-pinned before a later write.
-- Every residual D1 refusal is tied to one named member-level gate from I14.
+- Every residual progressive refusal is tied to one named semantic gate.
 
 ### 24.3 Performance
 
@@ -2762,8 +2801,8 @@ Run three warm final type checks. Median regression must remain below 5%.
 - MySQL results never claim a one-request batch.
 - Embedded SQLite results never claim a network round trip.
 - PostgreSQL keeps the portable per-member series route.
-- Eligible D1 dynamic decisions execute between ordered atomic segments;
-  planning requests and committed batches are reported separately.
+- Eligible dynamic decisions on native-batch drivers execute between ordered
+  atomic segments; planning requests and committed batches are reported separately.
 
 ### 24.4 Fallback
 
@@ -2846,11 +2885,11 @@ RecordSeriesOperation
           +--> nested RecordSeriesStep
           |      same series runner
           |      interactive: one open transaction
-          |      D1 when exactly guarded:
+          |      native batch when exactly guarded:
           |        committed prefix -> members -> suffix segments
           |      otherwise: fail closed before the containing write segment
           |
-          +--> D1 progressive lowering
+          +--> progressive native-batch lowering
                  planning/capture at the ordinary ordered position
                  -> one atomic committed segment
                  -> observe -> compile the next segment

@@ -2,59 +2,10 @@ import { UnsupportedOperationError } from "@errors";
 import { hydrateSchemaNames, s } from "@schema";
 import { describe, expect, test } from "vitest";
 
-/**
- * E6.3 — **the shared-primary-key edge under a CREATE root: `connectOrCreate` absorbed,
- * `connect` by a non-referenced unique re-filed (b) with the consumer that stops it.**
- *
- * The plan's premise for this row was that the two remaining sub-kinds REACH
- * `CreateOperation`'s shared-primary-key refusal. Measured at 8c2908d, through the
- * public client, that premise was FALSE and what stood in its place was a defect:
- *
- *  · **`s.int().id()` shared key** — `planNestedCreateIdentity` refuses first, upstream
- *    of the census site: `NestedWriteError: Nested create requires primary key field
- *    'userId' to be known before execution.` Nothing is written. Both sub-kinds, and
- *    `connectOrCreate` on both arms.
- *  · **`s.string().id()` shared key** — `.id()` implies `autoGenerate: "ulid"` and a
- *    `defaultUlid()` DEFAULT, so the parse MATERIALIZES a key into the record's scalar
- *    data. The arm's own foreign-key assignment then overwrites that column, but the
- *    identity kept the phantom, so NEITHER refusal fired and the operation RAN:
- *
- *      transaction: SELECT "t0"."id" … FROM users WHERE "t0"."email" = $1 LIMIT 1 FOR UPDATE
- *                   INSERT INTO profiles ("userId","bio") VALUES ((SELECT … WHERE email = $1), $2)
- *                   SELECT … FROM profiles WHERE "userId" = $1   -- $1 = '01KZ7DQM8DE3K763QA1K7RKAQC'
- *                   → TransactionError: query-engine-v2 create terminal read expected exactly one row.
- *                     (the unit aborts; profiles=[] afterwards)
- *
- *      atomic batch: the same three statements, the write inside the batch
- *                   → QueryEngineError: Driver "pglite" returned a malformed result for
- *                     operation "create": expected exactly one row but received 0.
- *                     **and the batch had COMMITTED**: profiles=[{userId:"u1",bio:"b"}]
- *                     (for the connectOrCreate create arm, users gained "u9" as well).
- *
- * A committed write reported as an internal error is the defect this unit closes. The
- * decision moved to where the shared key's source is manufactured
- * (`resolveSharedPkIdentity`, D3's placement rule), so the phantom default can never
- * stand in for the edge's value — and the refusal that remains is the typed one, raised
- * before any statement runs.
- *
- * **What is absorbed.** `connectOrCreate` whose `where` spells the referenced column and
- * whose `create` spells the SAME value: both arms leave the record holding one
- * compile-known key (the found arm's foreign key IS that `where` literal; the create
- * arm's is the created target's own referenced value), so the identity is that key on
- * either arm — one provenance, the probe deciding only which statement puts the row
- * there.
- *
- * **What stays refused, and why.** A `connect` by a NON-referenced unique resolves its
- * foreign key through a lookup SUBQUERY; re-evaluating that expression for the identity
- * is a second evaluation of one expression. The planning probe the arm already runs
- * could supply the value, but only at COMPILE — and the record identity is consumed at
- * CONSTRUCTION by `planNestedCreateIdentity`, by `freshReferenced` (sibling edges,
- * junction parent sources) and by `CreateOperation.freshRootReferenced`, a PUBLIC seam
- * an enclosing `UpdateOperation` reads while building its own SET, with no `known` at
- * the call site and no deferral in the `FreshReferenced` union. A `connectOrCreate`
- * whose arms name DIFFERENT keys is the same fact one step on: two arms, two keys, no
- * identity.
- */
+/** Shared-primary-key create roots consume the exact key of the selected relation arm.
+ * Found arms use the planning probe's captured referenced tuple; missing arms use the
+ * created target's published value. The root INSERT is the single publication point
+ * consumed by descendants and terminal selection on every substrate. */
 export const sharedPkConnectOrCreateSchema = (() => {
   const user = s
     .model({
@@ -164,33 +115,72 @@ export function registerSharedPkConnectOrCreateBehavior(
       expect(await client.profile.count()).toBe(2);
     });
 
-    test("a connect by a NON-referenced unique refuses typed, and writes nothing", async () => {
+    test("a connect by a non-referenced unique publishes the captured key", async () => {
       const client = await connect();
       await seed(client);
 
-      const rejection = await client.profile
-        .create({ data: { bio: "no", user: { connect: { email: "u1@x" } } } })
-        .then(
-          () => undefined,
-          (error: unknown) => error
-        );
-      expect(rejection).toBeInstanceOf(UnsupportedOperationError);
-      expect((rejection as Error).message).toContain(
-        "shared-primary-key connect on relation 'user'"
-      );
-      // THE DEFECT THIS CLOSES: before E6.3 the atomic batch COMMITTED this write and
-      // then reported an internal QueryEngineError.
-      expect(await client.profile.count()).toBe(1);
+      expect(
+        await client.profile.create({
+          data: { bio: "connected", user: { connect: { email: "u1@x" } } },
+          select: { userId: true, bio: true },
+        })
+      ).toEqual({ userId: "u1", bio: "connected" });
     });
 
-    test("a connectOrCreate whose arms name different keys refuses typed, and writes nothing", async () => {
+    test("an explicit shared-key scalar cannot disagree with the selected relation", async () => {
       const client = await connect();
       await seed(client);
 
       const rejection = await client.profile
         .create({
           data: {
-            bio: "no",
+            userId: "other",
+            bio: "contradiction",
+            user: { connect: { email: "u1@x" } },
+          },
+        })
+        .then(
+          () => undefined,
+          (error: unknown) => error
+        );
+      expect(rejection).toBeInstanceOf(UnsupportedOperationError);
+      expect((rejection as Error).message).toContain(
+        "conflicting final assignments"
+      );
+      expect(await client.profile.count()).toBe(1);
+    });
+
+    test("an explicit shared-key scalar cannot disagree with a literal relation key", async () => {
+      const client = await connect();
+      await seed(client);
+
+      const rejection = await client.profile
+        .create({
+          data: {
+            userId: "other",
+            bio: "literal contradiction",
+            user: { connect: { id: "u1" } },
+          },
+        })
+        .then(
+          () => undefined,
+          (error: unknown) => error
+        );
+      expect(rejection).toBeInstanceOf(UnsupportedOperationError);
+      expect((rejection as Error).message).toContain(
+        "conflicting final assignments"
+      );
+      expect(await client.profile.count()).toBe(1);
+    });
+
+    test("a connectOrCreate missing arm may publish a key different from its selector", async () => {
+      const client = await connect();
+      await seed(client);
+
+      expect(
+        await client.profile.create({
+          data: {
+            bio: "selected missing",
             user: {
               connectOrCreate: {
                 where: { id: "fresh" },
@@ -198,27 +188,20 @@ export function registerSharedPkConnectOrCreateBehavior(
               },
             },
           },
+          select: { userId: true },
         })
-        .then(
-          () => undefined,
-          (error: unknown) => error
-        );
-      expect(rejection).toBeInstanceOf(UnsupportedOperationError);
-      expect((rejection as Error).message).toContain(
-        "shared-primary-key connectOrCreate on relation 'user'"
-      );
-      expect(await client.profile.count()).toBe(1);
-      expect(await client.user.count()).toBe(3);
+      ).toEqual({ userId: "elsewhere" });
+      expect(await client.user.count()).toBe(4);
     });
 
-    test("a connectOrCreate by a NON-referenced unique refuses typed, and writes nothing", async () => {
+    test("a connectOrCreate found by a non-referenced unique publishes the captured key", async () => {
       const client = await connect();
       await seed(client);
 
-      const rejection = await client.profile
-        .create({
+      expect(
+        await client.profile.create({
           data: {
-            bio: "no",
+            bio: "selected found",
             user: {
               connectOrCreate: {
                 where: { email: "u1@x" },
@@ -226,16 +209,10 @@ export function registerSharedPkConnectOrCreateBehavior(
               },
             },
           },
+          select: { userId: true },
         })
-        .then(
-          () => undefined,
-          (error: unknown) => error
-        );
-      expect(rejection).toBeInstanceOf(UnsupportedOperationError);
-      expect((rejection as Error).message).toContain(
-        "shared-primary-key connectOrCreate on relation 'user'"
-      );
-      expect(await client.profile.count()).toBe(1);
+      ).toEqual({ userId: "u1" });
+      expect(await client.user.count()).toBe(3);
     });
 
     test("THE COLLATION PROBE: the arm decision and the constraint agree on this dialect", async () => {

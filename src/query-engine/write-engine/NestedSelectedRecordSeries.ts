@@ -43,6 +43,7 @@ import type { RecordSeriesOperation } from "./record-series";
 import {
   type CorrelatedRelationMembershipBinding,
   finalMembershipCondition,
+  finalMembershipWriteCondition,
 } from "./relation-membership";
 import { StepScope } from "./StepScope";
 import { parseSeriesRowKeys } from "./series-result-read";
@@ -61,11 +62,20 @@ import {
   targetProjectionSelect,
 } from "./target-projection";
 
-type NestedUpdateManyMembership =
+type NestedSelectedMembership =
   | {
       readonly kind: "childHeld";
       readonly binding: CorrelatedRelationMembershipBinding;
       readonly known: Readonly<Record<string, unknown>>;
+      /**
+       * Which membership value the captured members carry, and therefore which side
+       * of the old-read/new-write split re-asserts them across a committed segment.
+       * `existingMembers` are rows that already carried the parent's located value;
+       * `suppliedMember` is the row a sibling write in the same fragment just
+       * assigned, which is the post-transition value. The two coincide unless the
+       * parent's referenced key is in transition.
+       */
+      readonly correlate: "existingMembers" | "suppliedMember";
     }
   | {
       readonly kind: "junction";
@@ -74,36 +84,76 @@ type NestedUpdateManyMembership =
       readonly txMode: boolean;
     };
 
-export interface NestedUpdateManyRecordSeriesInput {
+/**
+ * Where one member's record data comes from, and therefore which trust boundary owns
+ * its legality. The two arms exist because the two callers genuinely differ, not to
+ * make one owner configurable:
+ *
+ * - `replayPerRecord` — a nested relation-bearing `updateMany`. Its data is ONE payload
+ *   applied to N captured targets, so the retained raw source is re-entered through the
+ *   projected nested-update schema once per target: client defaults must be evaluated
+ *   per record, and the replayed program is what OwnWrite and the relation-key rules
+ *   must then judge, with that target's own selector.
+ * - `parsedOnce` — a to-one supplier's composed continuation. There is exactly ONE
+ *   member, its data was parsed at the enclosing record's own trust boundary, and that
+ *   parse IS this member's parse. Re-entering the schema here would materialize a
+ *   second set of client defaults, and re-running OwnWrite would be a second analysis
+ *   of a subtree the enclosing analyzer already walked. Its portable-key and
+ *   relation-key legality run at construction instead, before any I/O.
+ */
+export type NestedSelectedMember =
+  | { readonly kind: "replayPerRecord"; readonly data: RecordMutationData }
+  | { readonly kind: "parsedOnce"; readonly programs: ParsedRecordPrograms };
+
+export interface NestedSelectedRecordSeriesInput {
   readonly engine: QueryEngine;
-  /** Model whose public relation schema admitted this updateMany payload. */
+  /** Model whose public relation schema admitted this nested payload. */
   readonly sourceScope: QueryScope;
   readonly targetScope: QueryScope;
   readonly relationInfo: RelationInfo;
-  readonly data: RecordMutationData;
+  readonly member: NestedSelectedMember;
   readonly capture: ReadStep;
   readonly recordCompilers: RecordCompilerSeam;
-  readonly membership: NestedUpdateManyMembership;
+  readonly membership: NestedSelectedMembership;
 }
 
 /**
- * One nested relation-level updateMany whose data carries a record subtree.
+ * One nested relation-level series of SELECTED-record updates.
  *
- * The relation owner supplies the exact membership capture. This owner only
- * turns each captured complete row key into one selected-record compilation.
- * It publishes no value: the enclosing record operation owns the public result.
+ * The relation owner supplies the exact membership capture — a correlated set for a
+ * nested `updateMany`, or the singular member a to-one supplier has just produced. This
+ * owner only turns each captured complete row key into one selected-record compilation,
+ * and repeats the owner's membership guard in every later write on a committed-segment
+ * substrate. It publishes no value: the enclosing record operation owns the public
+ * result.
  */
-export class NestedUpdateManyRecordSeries implements RecordSeriesOperation {
+export class NestedSelectedRecordSeries implements RecordSeriesOperation {
   readonly executionKind = "recordSeries" as const;
 
-  private readonly input: NestedUpdateManyRecordSeriesInput;
+  private readonly input: NestedSelectedRecordSeriesInput;
   private readonly rowKeyProjection: TargetProjection;
-  private readonly source: Record<string, unknown>;
+  /** The input's member arm with the replay source already resolved, so nothing
+   *  below asks a second time whether one exists. */
+  private readonly member:
+    | {
+        readonly kind: "replayPerRecord";
+        readonly source: Record<string, unknown>;
+      }
+    | { readonly kind: "parsedOnce"; readonly programs: ParsedRecordPrograms };
 
-  constructor(input: NestedUpdateManyRecordSeriesInput) {
+  constructor(input: NestedSelectedRecordSeriesInput) {
     this.input = input;
     this.rowKeyProjection = buildTargetProjection(input.targetScope.model);
-    this.source = requireReplaySource(input.data, input.relationInfo.name);
+    this.member =
+      input.member.kind === "replayPerRecord"
+        ? {
+            kind: "replayPerRecord",
+            source: requireReplaySource(
+              input.member.data,
+              input.relationInfo.name
+            ),
+          }
+        : input.member;
   }
 
   capture(): PlanningFragment {
@@ -144,13 +194,13 @@ export class NestedUpdateManyRecordSeries implements RecordSeriesOperation {
     const value = captured[`${this.input.capture.id}.rows`];
     if (!Array.isArray(value)) {
       throw new QueryEngineError(
-        `query-engine-v2 nested updateMany for relation '${this.input.relationInfo.name}' did not expose its captured target rows.`
+        `query-engine-v2 nested selected series for relation '${this.input.relationInfo.name}' did not expose its captured target rows.`
       );
     }
     const rows = value.map((row) => {
       if (!isRecord(row)) {
         throw new QueryEngineError(
-          `query-engine-v2 nested updateMany for relation '${this.input.relationInfo.name}' captured an invalid target row.`
+          `query-engine-v2 nested selected series for relation '${this.input.relationInfo.name}' captured an invalid target row.`
         );
       }
       return row;
@@ -167,33 +217,44 @@ export class NestedUpdateManyRecordSeries implements RecordSeriesOperation {
   }
 
   private prepareMember(row: Record<string, unknown>): PreparedMember {
-    const parsed = this.replayData();
-    assertPortablePrimaryKeyUpdateInput(
-      this.input.targetScope.model,
-      "update",
-      {
-        data: parsed.scalarData,
-      }
-    );
-    assertRelationKeyUpdatesAreCompilable(
-      this.input.targetScope,
-      parsed.scalarData,
-      parsed.relations
-    );
+    const member = this.member;
+    const parsed =
+      member.kind === "parsedOnce"
+        ? member.programs
+        : this.replayData(member.source);
+    if (member.kind === "replayPerRecord") {
+      assertPortablePrimaryKeyUpdateInput(
+        this.input.targetScope.model,
+        "update",
+        {
+          data: parsed.scalarData,
+        }
+      );
+      assertRelationKeyUpdatesAreCompilable(
+        this.input.targetScope,
+        parsed.scalarData,
+        parsed.relations
+      );
+    }
     const selector = capturedTargetWhere(
       this.input.targetScope.model,
       this.rowKeyProjection,
       row
     );
-    // Client defaults are evaluated again for every selected target. Analyze the
-    // replayed program, not the enclosing parse whose defaults may name different
-    // targets, before the record compiler trusts its relation decisions.
-    assertUpdateOwnWriteSafety(
-      this.input.targetScope,
-      parsed.scalarData,
-      parsed.relations,
-      selector
-    );
+    if (member.kind === "replayPerRecord") {
+      // Client defaults are evaluated again for every selected target. Analyze the
+      // replayed program, not the enclosing parse whose defaults may name different
+      // targets, before the record compiler trusts its relation decisions. The
+      // `parsedOnce` arm has no second program to analyze: the enclosing record's own
+      // analyzer already walked this exact subtree at its trusted boundary, and a
+      // second walk here would be a second verdict on one payload.
+      assertUpdateOwnWriteSafety(
+        this.input.targetScope,
+        parsed.scalarData,
+        parsed.relations,
+        selector
+      );
+    }
 
     const scope = new StepScope();
     const childName = getStepModelName(
@@ -230,7 +291,7 @@ export class NestedUpdateManyRecordSeries implements RecordSeriesOperation {
   }
 
   /** Re-enter the same projected nested-update schema that accepted the source. */
-  private replayData(): ParsedRecordPrograms {
+  private replayData(source: Record<string, unknown>): ParsedRecordPrograms {
     const relationName = this.input.relationInfo.name;
     const relationSchemas = this.input.engine.schemaRegistry.getModelSchemas(
       this.input.sourceScope.model
@@ -240,7 +301,7 @@ export class NestedUpdateManyRecordSeries implements RecordSeriesOperation {
         `query-engine-v2 internal: no update schema exists for relation '${relationName}'.`
       );
     }
-    const sourcePayload = { updateMany: { data: this.source } };
+    const sourcePayload = { updateMany: { data: source } };
     const parsedPayload = parseValidated(
       relationSchemas.update,
       sourcePayload,
@@ -305,7 +366,7 @@ export class NestedUpdateManyRecordSeries implements RecordSeriesOperation {
     const mode = selectExecutionMode(this.input.engine, "update");
     const progressive =
       !this.input.engine.driver.supportsTransactions &&
-      this.input.engine.driver.supportsOrderedCommittedSegments;
+      this.input.engine.driver.supportsBatch;
     return {
       mode,
       planning: (): PlanningFragment => ({
@@ -332,7 +393,7 @@ export class NestedUpdateManyRecordSeries implements RecordSeriesOperation {
     const rows = known[planningKey(compiler.targetReadId, "rows")];
     if (!(Array.isArray(rows) && isRecord(rows[0]))) {
       throw new QueryEngineError(
-        `query-engine-v2 nested updateMany for relation '${this.input.relationInfo.name}' cannot re-pin an uncaptured target row.`
+        `query-engine-v2 nested selected series for relation '${this.input.relationInfo.name}' cannot re-pin an uncaptured target row.`
       );
     }
     const captured = rows[0];
@@ -370,14 +431,24 @@ export class NestedUpdateManyRecordSeries implements RecordSeriesOperation {
         "query-engine-v2 internal: child-held membership guard received junction topology."
       );
     }
-    const condition = finalMembershipCondition(
-      this.input.engine,
-      this.input.targetScope,
-      membership.binding,
-      this.input.targetScope.rootAlias,
-      membership.known,
-      "updateMany"
-    );
+    const condition =
+      membership.correlate === "suppliedMember"
+        ? finalMembershipWriteCondition(
+            this.input.engine,
+            this.input.targetScope,
+            membership.binding,
+            this.input.targetScope.rootAlias,
+            membership.known,
+            "update"
+          )
+        : finalMembershipCondition(
+            this.input.engine,
+            this.input.targetScope,
+            membership.binding,
+            this.input.targetScope.rootAlias,
+            membership.known,
+            "updateMany"
+          );
     const predicates = [condition.predicate, capturedColumns].filter(
       (predicate): predicate is Sql => predicate !== undefined
     );

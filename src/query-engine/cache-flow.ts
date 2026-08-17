@@ -11,6 +11,7 @@ import {
 } from "@errors";
 import { parse } from "@validation";
 import type { PendingOperation } from "./pending-operation";
+import type { TransactionOperation } from "./transaction-operation";
 import type { PrepareOptions } from "./types";
 
 type WaitUntilFn = (promise: Promise<unknown>) => void;
@@ -91,12 +92,17 @@ export function withMutationCacheInvalidation<T>(
   };
 
   const wrapped = pendingOperation.wrapExecutor(async (execute) => {
-    let receivedCommittedSegment = false;
-    const result = await execute(undefined, async () => {
-      receivedCommittedSegment = true;
+    let receivedVisibleWrite = false;
+    const writeMayBeVisible = async () => {
+      receivedVisibleWrite = true;
       await invalidate();
-    });
-    if (!receivedCommittedSegment) await invalidate();
+    };
+    const result = await execute(
+      undefined,
+      writeMayBeVisible,
+      writeMayBeVisible
+    );
+    if (!receivedVisibleWrite) await invalidate();
     return result;
   });
   mutationInvalidations.set(wrapped, invalidate);
@@ -113,7 +119,7 @@ export function withMutationCacheInvalidation<T>(
  * mutation is invalidated with its own options, exactly as when awaited directly.
  */
 export async function invalidateCommittedBatch(
-  operations: readonly PendingOperation<unknown>[]
+  operations: readonly TransactionOperation<unknown>[]
 ): Promise<void> {
   for (const operation of operations) {
     const invalidate = mutationInvalidations.get(operation);

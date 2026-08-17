@@ -1,7 +1,3 @@
-import {
-  BatchOnlyPGliteDriver,
-  usePGliteSchemaFamily,
-} from "@tests/fixtures/drivers/pglite";
 import { createClient } from "@client/client";
 import type { BatchQuery, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
@@ -9,16 +5,20 @@ import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { push } from "@migrations";
 import { s } from "@schema";
 import type { Model } from "@schema/model";
-import { describe, expect, test } from "vitest";
-import { batchIsAtomicUnit } from "@tests/fixtures/atomic-unit-batch";
-import { compoundKeyBehaviorSchema } from "@tests/fixtures/compound-key-behavior-schema";
-import { manyToManySchema } from "@tests/fixtures/many-to-many-schema";
-import { nestedWriteBehaviorSchema } from "@tests/fixtures/nested-write-behavior-schema";
 import { operationFragmentSchema } from "@tests/contracts/engine/write/create-nested-upsert-behavior";
 import {
-  observeClientOperations,
   type OperationRecord,
+  observeClientOperations,
 } from "@tests/contracts/engine/write/operation-observer";
+import { batchIsAtomicUnit } from "@tests/fixtures/atomic-unit-batch";
+import { compoundKeyBehaviorSchema } from "@tests/fixtures/compound-key-behavior-schema";
+import {
+  BatchOnlyPGliteDriver,
+  usePGliteSchemaFamily,
+} from "@tests/fixtures/drivers/pglite";
+import { manyToManySchema } from "@tests/fixtures/many-to-many-schema";
+import { nestedWriteBehaviorSchema } from "@tests/fixtures/nested-write-behavior-schema";
+import { describe, expect, test } from "vitest";
 
 // A batch-only driver that runs a mutation on the same DB just before the atomic
 // batch commits — the staleness injection (a concurrent writer moved committed
@@ -516,18 +516,18 @@ const extensionScenarios: Scenario[] = [
     extension: {
       result: {
         name: "adopter",
-        posts: [{ id: 1, title: "adopted", userId: 2 }],
+        posts: [{ id: 1, title: "adopted", userId: 1 }],
       },
-      state: [{ id: 1, title: "adopted", slug: "s1", userId: 2 }],
+      state: [{ id: 1, title: "adopted", slug: "s1", userId: 1 }],
     },
     seed: async (c) => {
-      await c.user.create({ data: { name: "owner" } });
+      await c.user.create({ data: { id: -1, name: "owner" } });
       await c.post.create({
         data: {
           id: 1,
           title: "orig",
           slug: "s1",
-          author: { connect: { id: 1 } },
+          author: { connect: { id: -1 } },
         },
       });
     },
@@ -608,7 +608,7 @@ describe("write boundary create family dual-run oracle (Direct vs Observed tx vs
       expect(tx.routedToObserved).toBe(true);
       expect(batch.routedToObserved).toBe(true);
 
-      // Byte-identical error class + message.
+      // Byte-identical result, error, and state on both execution substrates.
       expect(tx.error).toEqual(direct.error);
       expect(batch.error).toEqual(direct.error);
 
@@ -631,9 +631,8 @@ describe("write boundary create family extension class (P−1.2 superset; the si
       const tx = await runArm(family, "observed-tx", scenario);
       const batch = await runArm(family, "observed-batch", scenario);
 
-      // A DELIBERATE Prisma superset Direct rejected at runtime and the single boundary
-      // adopts. Both substrates succeed, agree byte-for-byte, and match the pinned
-      // result + persisted state (the Direct-reference rejection retired with Direct).
+      expect(tx.observed).toBe(true);
+      expect(batch.observed).toBe(true);
       expect(tx.error).toBeUndefined();
       expect(batch.error).toBeUndefined();
       expect(tx.routedToObserved).toBe(true);
@@ -725,7 +724,7 @@ describe("write boundary create family staleness (batch non-elided connect pins)
 
     await expect(
       (observed.client as any).user.create({
-        data: { name: "adopter", posts: { connect: { id: 31 } } },
+        data: { id: 1, name: "adopter", posts: { connect: { id: 31 } } },
         select: { name: true, posts: true },
       })
     ).rejects.toThrow();

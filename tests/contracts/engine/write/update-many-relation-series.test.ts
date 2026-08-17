@@ -3,11 +3,11 @@ import type { AnyDriver, QueryExecutionContext } from "@drivers";
 import { MySQL2Driver } from "@drivers/mysql2";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
+import { bindRelation } from "@query-engine/builders/relation-data-builder";
 import {
   buildParsedRelationPrograms,
   buildRelationMutationProgram,
 } from "@query-engine/builders/relation-mutation-parser";
-import { bindRelation } from "@query-engine/builders/relation-data-builder";
 import {
   createQueryScope,
   getRelationInfo,
@@ -18,7 +18,7 @@ import { hydrateSchemaNames, s } from "@schema";
 import type { Model } from "@schema/model";
 import { validateClientSchemaOrThrow } from "@schema/validation/validator";
 import { sql } from "@sql";
-import { NestedUpdateManyRecordSeries } from "@src/query-engine/write-engine/NestedUpdateManyRecordSeries";
+import { NestedSelectedRecordSeries } from "@src/query-engine/write-engine/NestedSelectedRecordSeries";
 import type { ReadStep } from "@src/query-engine/write-engine/OperationFragment";
 import { planningKey } from "@src/query-engine/write-engine/Part";
 import { parseValidated } from "@src/query-engine/write-engine/parse-boundary";
@@ -133,9 +133,7 @@ const replayOwnWriteSchema = (() => {
           replayOwnWriteDefaultCalls += 1;
           return replayOwnWriteDefaultValue;
         }),
-      bins: s
-        .manyToMany(() => bin)
-        .through("k_replay_own_write_bin_target"),
+      bins: s.manyToMany(() => bin).through("k_replay_own_write_bin_target"),
     })
     .map("k_replay_own_write_targets");
   return { shelf, bin, target };
@@ -234,8 +232,8 @@ describe("K2 — the three destinations of one operation name", () => {
   });
 
   test("a relation key spelled `undefined` is an ABSENT relation key", () => {
-    // The spread-an-optional idiom must not drag a scalar payload onto the series,
-    // which needs an interactive transaction the fast path does not.
+    // The spread-an-optional idiom must not drag a scalar payload off its one-statement
+    // fast path and into capture plus per-record execution.
     expect(isSeries({ data: { label: "x", shelf: undefined } })).toBe(false);
   });
 
@@ -301,14 +299,13 @@ describe("K2 — the three destinations of one operation name", () => {
   });
 });
 
-describe("K2 — the typed select+batch-only refusal wins over series routing", () => {
+describe("K2 — select keeps its typed refusal while count uses default batch", () => {
   const RELATION_DATA = { label: "x", shelf: { connect: { id: 1 } } };
 
   test("a relation-bearing payload WITH select still gets the specific sentence", () => {
-    // Routed to a series instead, this payload would be refused by `withTransaction`
-    // with the generic "does not support callback transactions" — a true sentence
-    // about the substrate that says nothing about `updateMany` or `select`. The
-    // router reaches for the existing owner so the specific one answers.
+    // `select` is a separate row-returning contract. This non-returning provider cannot
+    // roll back public result parsing, so its specific owner answers before the default
+    // record-series route.
     let thrown: unknown;
     try {
       routeUpdateMany(
@@ -327,10 +324,7 @@ describe("K2 — the typed select+batch-only refusal wins over series routing", 
     );
   });
 
-  test("the { count } arm of the same payload inherits the substrate's own refusal", async () => {
-    // Accepted, and the same trade Package J made: a series needs an interactive
-    // transaction, full stop. Recorded as a behavior rather than left implicit,
-    // because it IS a message change for a shape that used to answer at the schema.
+  test("the { count } arm executes as ordered batches with exact state", async () => {
     const database = new PGlite();
     const setup = createClient({
       schema: updateManySeriesSchema,
@@ -338,19 +332,39 @@ describe("K2 — the typed select+batch-only refusal wins over series routing", 
     }) as any;
     const { push } = await import("@migrations");
     await push(setup, { force: true });
+    await setup.shelf.create({ data: { id: 1, room: "north" } });
+    await setup.bin.createMany({
+      data: [
+        { id: 1, label: "one" },
+        { id: 2, label: "two" },
+        { id: 3, label: "untouched" },
+      ],
+    });
     const batchOnly = createClient({
       schema: updateManySeriesSchema,
       driver: new BatchOnlyPGliteDriver({ client: database }),
     }) as any;
 
     await expect(
-      batchOnly.bin.updateMany({ data: RELATION_DATA })
-    ).rejects.toThrow("does not support callback transactions");
-    // The scalar arm on the SAME substrate still answers.
+      batchOnly.bin.updateMany({
+        where: { id: { in: [1, 2] } },
+        data: RELATION_DATA,
+      })
+    ).resolves.toEqual({ count: 2 });
     await expect(
-      batchOnly.bin.updateMany({ data: { label: "flat" } })
-    ).resolves.toEqual({ count: 0 });
-    await setup.$disconnect();
+      batchOnly.bin.findMany({
+        orderBy: { id: "asc" },
+        select: { id: true, label: true, shelfId: true },
+      })
+    ).resolves.toEqual([
+      { id: 1, label: "x", shelfId: 1 },
+      { id: 2, label: "x", shelfId: 1 },
+      { id: 3, label: "untouched", shelfId: null },
+    ]);
+    await expect(
+      batchOnly.shelf.findMany({ select: { id: true, room: true } })
+    ).resolves.toEqual([{ id: 1, room: "north" }]);
+    await batchOnly.$disconnect();
   }, 60_000);
 });
 
@@ -706,12 +720,12 @@ describe("nested updateMany replay owns its replayed OwnWrite footprint", () => 
     if (boundRelation.position !== "childHeld") {
       throw new Error("expected child-held replay relation topology");
     }
-    const series = new NestedUpdateManyRecordSeries({
+    const series = new NestedSelectedRecordSeries({
       engine,
       sourceScope,
       targetScope,
       relationInfo,
-      data: mutationData,
+      member: { kind: "replayPerRecord", data: mutationData },
       capture,
       recordCompilers,
       membership: {
@@ -722,6 +736,7 @@ describe("nested updateMany replay owns its replayed OwnWrite footprint", () => 
           { kind: "literal", value: 1 }
         ),
         known: {},
+        correlate: "existingMembers",
       },
     });
 

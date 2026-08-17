@@ -43,6 +43,22 @@ import { describe, expect, test } from "vitest";
  * wall, pinned, so that widening the parse boundary to admit `Sql` in write data cannot
  * happen quietly. If that widening ever lands, THIS suite goes red first, and the
  * transaction-only capture the plan designed becomes real work with a real payload.
+ *
+ * RESIDUAL PACKAGE G (2026-08-14) drew the consequence this file's own measurement
+ * had already established. The three arms above are not one fact:
+ *
+ *  · the ONE LIVE ARM is a CONTRADICTION — nothing produces a row for a NULL foreign
+ *    key, on any substrate, ever — so it is a `NestedWriteError` from one owner
+ *    (`RecordUpdateCompiler.requireRewrittenReferenceValue`), reached from both
+ *    positions that ask, with one message and no position noun in it;
+ *  · the DEAD arms (`Sql`, arithmetic, and an array) are not refusals this layer owes
+ *    a sentence at all, because the boundaries pinned above answer them first. What
+ *    remains behind them is an engine fault, `QueryEngineError`, which is why the two
+ *    `UnsupportedOperationError` sites that used to spell one sentence with a swapped
+ *    noun are gone from the census rather than merged.
+ *
+ * The wall itself is unchanged, and this suite is still what fails first if the parse
+ * boundary ever admits `Sql` into write data.
  */
 export const sqlOperandWallSchema = (() => {
   const counter = s
@@ -105,6 +121,14 @@ async function state(client: any): Promise<unknown> {
 }
 
 const UNTOUCHED = { counters: [["c1", "t0", 10]], tags: [], slots: [] };
+
+/**
+ * The ONE sentence residual §G2 left for the one live arm. Held here so the two
+ * positions that reach it (create leaf at construction, adopt arm at compile) cannot
+ * drift into two sentences again.
+ */
+const NULL_REFERENCE_KEY =
+  "Cannot update relation key field 'token' to null while mutating relation 'tags'. A null reference names no row for that relation to point at.";
 
 export function registerSqlOperandWallBehavior(
   name: string,
@@ -194,12 +218,33 @@ export function registerSqlOperandWallBehavior(
             where: { id: "c1" },
             data: { token: operand, tags: { create: { id: "g1" } } },
           })
-        ).rejects.toThrow(
-          "query-engine-v2 update nested create on relation 'tags' references a non-literal rewritten column 'token'."
-        );
+        ).rejects.toThrow(NULL_REFERENCE_KEY);
       }
       // Construction-time: the root UPDATE did not run either.
       expect(await state(client)).toEqual(UNTOUCHED);
+    });
+
+    test("the same null reaches the same owner through an ADOPT arm, at compile", async () => {
+      const client = await connect();
+      await resetSqlOperandWall(client);
+      await client.tag.create({ data: { id: "g1" } });
+
+      // Residual §G2's other position. A `connect` is an adopt kind, so the value is
+      // resolved in the transition owner's per-member closure at COMPILE rather than
+      // in the create leaf at construction — two timings, and before §G2 two
+      // sentences differing only in the noun ("nested create" / "membership"). One
+      // contradiction now has one owner and one message; the timings still differ,
+      // because what a position can KNOW is a genuine per-position fact.
+      await expect(
+        client.counter.update({
+          where: { id: "c1" },
+          data: { token: null, tags: { connect: { id: "g1" } } },
+        })
+      ).rejects.toThrow(NULL_REFERENCE_KEY);
+      expect(await state(client)).toEqual({
+        ...UNTOUCHED,
+        tags: ["g1"],
+      });
     });
   });
 }

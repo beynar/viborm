@@ -1,10 +1,13 @@
 // biome-ignore-all lint/style/useFilenamingConvention: FragmentValidator is the architecture name.
 import { QueryEngineError } from "@errors";
+import { isSql } from "@sql";
 import {
   type GuardStep,
+  isOperationValueReference,
   type OperationFragment,
   type OperationStep,
   type PlanningFragment,
+  statementOutputReferences,
   statementReferences,
 } from "./OperationFragment";
 
@@ -25,29 +28,78 @@ export function validateFragment(
 ): void {
   const records = indexSteps(fragment.steps);
   assertBackwardLocalReferences(fragment.steps, records);
+  assertConsumedOutputsAreValues(fragment.steps);
   // A planning fragment declares no outputs — its publication is derived from
   // the steps themselves, so there is nothing that could fail to resolve.
   if ("outputs" in fragment) {
     assertOutputsResolvable(fragment, records);
   }
-  assertGuardPinRule(fragment.steps);
+  assertGuardPinRule(fragment.steps, records);
+}
+
+function assertConsumedOutputsAreValues(steps: readonly OperationStep[]): void {
+  for (const step of steps) {
+    if (step.kind === "guard" || step.kind === "recordSeries") continue;
+    const consumedReferences = statementReferences(step.statement);
+    for (const [name, source] of Object.entries(step.outputs)) {
+      if (source.kind === "consumedValue" && step.kind !== "write") {
+        throw new QueryEngineError(
+          `Consumed-value output '${step.id}.${name}' must belong to a successful write step.`
+        );
+      }
+      if (
+        source.kind === "consumedValue" &&
+        source.source.kind === "reference"
+      ) {
+        const published = source.source.reference;
+        const wasConsumed = consumedReferences.some(
+          (reference) =>
+            reference.step === published.step &&
+            reference.output === published.output
+        );
+        if (!wasConsumed) {
+          throw new QueryEngineError(
+            `Consumed-value output '${step.id}.${name}' must publish a reference the successful write statement consumed.`
+          );
+        }
+      }
+      if (
+        source.kind === "consumedValue" &&
+        source.source.kind === "literal" &&
+        (isSql(source.source.value) ||
+          isOperationValueReference(source.source.value))
+      ) {
+        throw new QueryEngineError(
+          `Consumed-value output '${step.id}.${name}' must use its explicit reference arm for an operation reference and cannot forward SQL.`
+        );
+      }
+    }
+  }
 }
 
 function indexSteps(
   steps: readonly OperationStep[]
 ): ReadonlyMap<string, StepRecord> {
   const records = new Map<string, StepRecord>();
-  steps.forEach((step, index) => {
-    if (records.has(step.id)) {
-      throw new QueryEngineError(
-        `Fragment step id '${step.id}' is not unique.`
-      );
+  const recordId = (id: string, record: StepRecord): void => {
+    if (records.has(id)) {
+      throw new QueryEngineError(`Fragment step id '${id}' is not unique.`);
     }
+    records.set(id, record);
+  };
+  steps.forEach((step, index) => {
     const outputs =
       step.kind === "guard" || step.kind === "recordSeries"
         ? new Set<string>()
         : new Set(Object.keys(step.outputs));
-    records.set(step.id, { index, outputs, kind: step.kind });
+    recordId(step.id, { index, outputs, kind: step.kind });
+    if (step.kind === "recordSeries" && step.progressive.kind === "guarded") {
+      recordId(step.progressive.guard.id, {
+        index,
+        outputs: new Set<string>(),
+        kind: "guard",
+      });
+    }
   });
   return records;
 }
@@ -70,10 +122,23 @@ function assertBackwardLocalReferences(
     const statement =
       step.kind === "guard" ? step.premise.statement : step.statement;
     assertStatementReferencesBackward(step.id, statement, index, records);
+    if (step.kind === "read" || step.kind === "write") {
+      for (const reference of statementOutputReferences(step)) {
+        assertReferenceBackward(step.id, reference, index, records);
+      }
+      if (step.progressiveContinuation) {
+        assertStatementReferencesAvailableAfterStep(
+          step.progressiveContinuation.id,
+          step.progressiveContinuation.premise.statement,
+          index,
+          records
+        );
+      }
+    }
   });
 }
 
-function assertStatementReferencesBackward(
+function assertStatementReferencesAvailableAfterStep(
   stepId: string,
   statement: GuardStep["premise"]["statement"],
   index: number,
@@ -86,7 +151,7 @@ function assertStatementReferencesBackward(
         `Reference '${reference.step}.${reference.output}' in step '${stepId}' points outside the fragment.`
       );
     }
-    if (producer.index >= index) {
+    if (producer.index > index) {
       throw new QueryEngineError(
         `Reference '${reference.step}.${reference.output}' in step '${stepId}' does not point backward.`
       );
@@ -96,6 +161,41 @@ function assertStatementReferencesBackward(
         `Reference '${reference.step}.${reference.output}' in step '${stepId}' points at an undeclared output.`
       );
     }
+  }
+}
+
+function assertStatementReferencesBackward(
+  stepId: string,
+  statement: GuardStep["premise"]["statement"],
+  index: number,
+  records: ReadonlyMap<string, StepRecord>
+): void {
+  for (const reference of statementReferences(statement)) {
+    assertReferenceBackward(stepId, reference, index, records);
+  }
+}
+
+function assertReferenceBackward(
+  stepId: string,
+  reference: { readonly step: string; readonly output: string },
+  index: number,
+  records: ReadonlyMap<string, StepRecord>
+): void {
+  const producer = records.get(reference.step);
+  if (!producer) {
+    throw new QueryEngineError(
+      `Reference '${reference.step}.${reference.output}' in step '${stepId}' points outside the fragment.`
+    );
+  }
+  if (producer.index >= index) {
+    throw new QueryEngineError(
+      `Reference '${reference.step}.${reference.output}' in step '${stepId}' does not point backward.`
+    );
+  }
+  if (!producer.outputs.has(reference.output)) {
+    throw new QueryEngineError(
+      `Reference '${reference.step}.${reference.output}' in step '${stepId}' points at an undeclared output.`
+    );
   }
 }
 
@@ -121,16 +221,43 @@ function assertOutputsResolvable(
   }
 }
 
-function assertGuardPinRule(steps: readonly OperationStep[]): void {
+function assertGuardPinRule(
+  steps: readonly OperationStep[],
+  records: ReadonlyMap<string, StepRecord>
+): void {
+  const continuationIds = new Set<string>();
   for (const step of steps) {
     if (step.kind === "guard") {
       assertGuardRaceability(step);
       continue;
     }
     if (
-      step.kind === "recordSeries" &&
-      step.progressive.kind === "guarded"
+      (step.kind === "read" || step.kind === "write") &&
+      step.progressiveContinuation
     ) {
+      const continuation = step.progressiveContinuation;
+      if (records.has(continuation.id)) {
+        throw new QueryEngineError(
+          `Progressive continuation guard id '${continuation.id}' collides with a fragment step id.`
+        );
+      }
+      if (continuationIds.has(continuation.id)) {
+        throw new QueryEngineError(
+          `Progressive continuation guard id '${continuation.id}' is not unique.`
+        );
+      }
+      continuationIds.add(continuation.id);
+      if (
+        continuation.premise.kind !== "exists" ||
+        continuation.failure.raceable
+      ) {
+        throw new QueryEngineError(
+          `Progressive continuation guard '${continuation.id}' must be an exists premise with raceable: false.`
+        );
+      }
+      assertGuardRaceability(continuation);
+    }
+    if (step.kind === "recordSeries" && step.progressive.kind === "guarded") {
       assertGuardRaceability(step.progressive.guard);
     }
   }

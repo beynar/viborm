@@ -18,6 +18,13 @@ export interface OperationValueReference {
   readonly output: string;
 }
 
+type ConsumedStatementValue =
+  | { readonly kind: "literal"; readonly value: unknown }
+  | {
+      readonly kind: "reference";
+      readonly reference: OperationValueReference;
+    };
+
 /**
  * Where a produced value comes from — capability knowledge (ATOM's
  * `The execution vocabulary`). Declaring the source gives every value a stable
@@ -28,6 +35,20 @@ export type StatementOutputSource =
   | { readonly kind: "rows" }
   | { readonly kind: "rowCount" }
   | { readonly kind: "insertId" }
+  | {
+      /**
+       * Publish the exact pre-cast value this successful statement consumed.
+       *
+       * This is not generated-value inference: the statement compiler supplies
+       * the same literal or backward reference it put in the mutation assignment.
+       * The executor exposes it only after the statement succeeds. It lets a row
+       * that receives its identity from a selected relation arm become the single
+       * publication owner for descendants and terminal selection, including on a
+       * non-returning provider.
+       */
+      readonly kind: "consumedValue";
+      readonly source: ConsumedStatementValue;
+    }
   | {
       readonly kind: "firstRowField";
       readonly field: string;
@@ -83,6 +104,13 @@ export interface StatementStepBase {
   readonly outputs: Readonly<Record<string, StatementOutputSource>>;
   /** Statement postcondition — see README's `Execution atom`. */
   readonly expects?: Postcondition;
+  /**
+   * Exact premise a later non-atomic segment must re-assert when it consumes a
+   * provider value this step published. The compiler owns the premise because
+   * only it knows both the complete row identity and any non-row-key membership
+   * value the consumer will spend. Atomic execution ignores it.
+   */
+  readonly progressiveContinuation?: GuardStep;
 }
 
 export interface ReadStep extends StatementStepBase {
@@ -237,18 +265,29 @@ export function createFailureError(
 }
 
 /**
- * The ONE statement-reference discovery: a
- * statement's dependencies are exactly the {@link OperationValueReference}
- * values in its `Sql.values`. Fragment validation, planning dependency
- * levels, the single-statement policies, and the PostgreSQL dependency-fold
- * eligibility all consume these two views; only per-value SUBSTITUTION (the
- * two materializers, the CTE lowerer) stays local, because what replaces a
- * reference is each consumer's own fact.
+ * SQL-bound reference discovery. A statement can also forward a prior output
+ * through `consumedValue`; {@link statementOutputReferences} owns that distinct
+ * output view. Dependency consumers combine both views, while per-value
+ * substitution stays local because each execution substrate owns what replaces
+ * a reference.
  */
 export function statementReferences(
   statement: Sql
 ): readonly OperationValueReference[] {
   return statement.values.filter(isOperationValueReference);
+}
+
+/** Backward references carried by value-forwarding statement outputs. */
+export function statementOutputReferences(
+  step: StatementStep
+): readonly OperationValueReference[] {
+  const references: OperationValueReference[] = [];
+  for (const source of Object.values(step.outputs)) {
+    if (source.kind === "consumedValue" && source.source.kind === "reference") {
+      references.push(source.source.reference);
+    }
+  }
+  return references;
 }
 
 /** Discovery-only fast view: does the statement hold ANY reference? */

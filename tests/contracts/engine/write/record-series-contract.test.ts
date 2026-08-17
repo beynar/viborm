@@ -11,7 +11,8 @@ import {
   attachRecordSeriesProgress,
   hasCommittedRecordSeriesProgress,
   QueryEngineError,
-  TransactionError,
+  UniqueConstraintError,
+  UnsupportedOperationError,
   VibORMError,
 } from "@errors";
 import {
@@ -143,6 +144,7 @@ class TracingPGliteDriver extends PGliteDriver {
 /** A substrate with an atomic batch and NO interactive scope. */
 class TracingBatchOnlyPGliteDriver extends BatchOnlyPGliteDriver {
   protected readonly events: string[];
+  batchCalls = 0;
 
   constructor(
     events: string[],
@@ -160,6 +162,17 @@ class TracingBatchOnlyPGliteDriver extends BatchOnlyPGliteDriver {
   ) {
     traceStatement(this.events, statement, params);
     return super.execute<T>(client, statement, params, context);
+  }
+
+  protected override executeBatch<T>(
+    client: PGlite | Transaction,
+    queries: BatchQuery[]
+  ): Promise<QueryResult<T>[]> {
+    this.batchCalls += 1;
+    for (const query of queries) {
+      traceStatement(this.events, query.sql, query.params ?? []);
+    }
+    return super.executeBatch<T>(client, queries);
   }
 }
 
@@ -179,12 +192,19 @@ class TracingProgressivePGliteDriver extends TracingBatchOnlyPGliteDriver {
     _context?: QueryExecutionContext,
     committed?: CommittedBatchNotification
   ): Promise<QueryResult<T>[]> {
-    for (const query of queries) {
-      traceStatement(this.events, query.sql, query.params ?? []);
-    }
     const results = await super.executeBatch<T>(client, queries);
     await committed?.();
     return results;
+  }
+}
+
+class MalformedSecondBatchPGliteDriver extends TracingBatchOnlyPGliteDriver {
+  protected override async executeBatch<T>(
+    client: PGlite | Transaction,
+    queries: BatchQuery[]
+  ): Promise<QueryResult<T>[]> {
+    const results = await super.executeBatch<T>(client, queries);
+    return this.batchCalls === 2 ? [] : results;
   }
 }
 
@@ -280,6 +300,11 @@ interface MemberSpec {
   readonly label: string;
   /** Attach the label pin, making a unique violation on it a retryable race. */
   readonly pinned?: boolean;
+  /** Carry `seriesRootConflict`, so the executor wraps this member in a savepoint
+   *  and a zero-row root write suppresses the member instead of failing the series
+   *  (the disposition a `skipDuplicates` create member and a residual-Package-F
+   *  unnameable junction member both hand it). */
+  readonly skippable?: boolean;
 }
 
 interface SeriesShape {
@@ -315,6 +340,14 @@ function memberOperation(
   };
   return {
     mode: "transaction",
+    ...(spec.skippable
+      ? {
+          seriesRootConflict: {
+            kind: "skipDuplicate" as const,
+            rootWriteId: `${spec.id}.write`,
+          },
+        }
+      : {}),
     planning(): PlanningFragment {
       events.push(`plan:${spec.id}`);
       return { steps: [probe] };
@@ -326,7 +359,9 @@ function memberOperation(
       const write: WriteStep = {
         id: `${spec.id}.write`,
         kind: "write",
-        statement: sql`INSERT INTO "rs_ledger" ("id", "label") VALUES (${spec.rowId}, ${spec.label}) RETURNING "id"`,
+        statement: spec.skippable
+          ? sql`INSERT INTO "rs_ledger" ("id", "label") VALUES (${spec.rowId}, ${spec.label}) ON CONFLICT DO NOTHING RETURNING "id"`
+          : sql`INSERT INTO "rs_ledger" ("id", "label") VALUES (${spec.rowId}, ${spec.label}) RETURNING "id"`,
         outputs: { rows: { kind: "rows" } },
         ...(spec.pinned ? { racePin: LABEL_PIN } : {}),
       };
@@ -414,9 +449,20 @@ function staticSeries(
   };
 }
 
-function staticMember(fragment: OperationFragment): ExecutableOperation {
+function staticMember(
+  fragment: OperationFragment,
+  skippableRootWriteId?: string
+): ExecutableOperation {
   return {
     mode: "batch",
+    ...(skippableRootWriteId
+      ? {
+          seriesRootConflict: {
+            kind: "skipDuplicate" as const,
+            rootWriteId: skippableRootWriteId,
+          },
+        }
+      : {}),
     planning: () => ({ steps: [] }),
     compile: () => fragment,
     parse<T>(outputs): T {
@@ -429,6 +475,19 @@ function staticMember(fragment: OperationFragment): ExecutableOperation {
 function nestedProgressiveSeries(
   nestedLabel = "nested"
 ): RecordSeriesOperation {
+  const prefixContinuation: GuardStep = {
+    id: "outer.prefix.continuation",
+    kind: "guard",
+    premise: {
+      kind: "exists",
+      statement: sql`SELECT 1 FROM "rs_ledger" WHERE "id" = ${ref("outer.prefix", "id")}`,
+    },
+    failure: {
+      kind: "query",
+      message: "the generated prefix vanished before its direct consumer",
+      raceable: false,
+    },
+  };
   const prefix: WriteStep = {
     id: "outer.prefix",
     kind: "write",
@@ -436,6 +495,7 @@ function nestedProgressiveSeries(
     outputs: {
       id: { kind: "firstRowField", field: "id" },
     },
+    progressiveContinuation: prefixContinuation,
   };
   const nestedWrite: WriteStep = {
     id: "nested.write",
@@ -766,7 +826,7 @@ describe("I3 — the transactional record series through the real executor", () 
     ]);
   }, 60_000);
 
-  test("a batch-only substrate refuses before the provider is touched", async () => {
+  test("a batch-only substrate executes members as awaited atomic segments", async () => {
     const events: string[] = [];
     const driver = new TracingBatchOnlyPGliteDriver(events, {
       client: database,
@@ -776,23 +836,30 @@ describe("I3 — the transactional record series through the real executor", () 
       twoMemberShape(() => ({ id: "m1", rowId: 2, label: "one" }))
     );
 
-    // The refusal is the driver's own: a series needs an interactive scope, and
-    // `withTransaction` rejects a substrate that has none BEFORE it invokes the
-    // body. Its wording names the driver method, not the series — inherited
-    // deliberately, since presenting it under a series-specific name would need
-    // error machinery this package does not add. PINNED so the day that changes
-    // is a decision, not a drift.
-    const refusal = await executorFor(driver)
-      .execute<unknown>(series, seriesContext())
-      .then(
-        () => new Error("the series ran on a batch-only substrate"),
-        (error: unknown) => error
-      );
-    if (!(refusal instanceof TransactionError)) throw refusal;
-    expect(refusal.message).toContain("does not support callback transactions");
-    expect(refusal.meta).toMatchObject({ method: "$transaction(callback)" });
-    // Nothing was captured, nothing was built, and no statement was sent.
-    expect(events).toEqual([]);
+    let invalidations = 0;
+    const result = await executorFor(driver).execute<unknown>(
+      series,
+      seriesContext(),
+      undefined,
+      async () => {
+        invalidations += 1;
+        events.push(`invalidate:${invalidations}`);
+      }
+    );
+
+    expect(result).toEqual({
+      captured: [],
+      members: [[1], [2]],
+      resultReads: [],
+    });
+    expect(invalidations).toBe(2);
+    expect(events.indexOf("invalidate:1")).toBeLessThan(
+      events.lastIndexOf("sql:SELECT")
+    );
+    await expect(ledgerRows()).resolves.toEqual([
+      { id: 1, label: "zero" },
+      { id: 2, label: "one" },
+    ]);
   }, 60_000);
 
   test("every prepared-statement and prepared-batch seam declines, touching no phase", async () => {
@@ -838,6 +905,135 @@ describe("I3 — the transactional record series through the real executor", () 
 });
 
 describe("I13 — progressive nested record series", () => {
+  test("runs the same guarded prefix, nested member, and suffix after normalized batch success", async () => {
+    const events: string[] = [];
+    const driver = new TracingBatchOnlyPGliteDriver(events, {
+      client: database,
+    });
+
+    await expect(
+      executorFor(driver).execute<unknown>(
+        nestedProgressiveSeries(),
+        seriesContext()
+      )
+    ).resolves.toEqual([{ result: [{ id: 2 }] }]);
+
+    expect(driver.supportsOrderedCommittedSegments).toBe(false);
+    expect(driver.batchCalls).toBeGreaterThan(1);
+    await expect(ledgerRows()).resolves.toEqual([
+      { id: 1, label: "nested" },
+      { id: 2, label: "suffix" },
+    ]);
+  }, 60_000);
+
+  test("retries only the current rolled-back member after an earlier member committed", async () => {
+    await seedRow(9, "clash");
+    const events: string[] = [];
+    const driver = new TracingBatchOnlyPGliteDriver(events, {
+      client: database,
+    });
+    let secondCompiles = 0;
+    const secondProbe: ReadStep = {
+      id: "retry.probe",
+      kind: "read",
+      statement: sql`SELECT "id" FROM "rs_ledger" ORDER BY "id" ASC`,
+      outputs: { rows: { kind: "rows" } },
+    };
+    const second: ExecutableOperation = {
+      mode: "batch",
+      planning: () => ({ steps: [secondProbe] }),
+      compile: () => {
+        secondCompiles += 1;
+        const write: WriteStep = {
+          id: "retry.write",
+          kind: "write",
+          statement: sql`INSERT INTO "rs_ledger" ("id", "label") VALUES (${2}, ${secondCompiles === 1 ? "clash" : "free"}) RETURNING "id"`,
+          outputs: { rows: { kind: "rows" } },
+          racePin: LABEL_PIN,
+        };
+        return { steps: [write], outputs: { rows: ref(write.id, "rows") } };
+      },
+      parse: <T>(outputs: Readonly<Record<string, unknown>>): T =>
+        outputs.rows as T,
+    };
+
+    const result = await executeRoutedOperation<unknown>(
+      executorFor(driver),
+      staticSeries([
+        memberOperation(events, {
+          id: "first",
+          rowId: 1,
+          label: "first",
+        }),
+        second,
+      ]),
+      seriesContext()
+    );
+
+    expect(result).toEqual([[{ id: 1 }], [{ id: 2 }]]);
+    expect(secondCompiles).toBe(2);
+    expect(
+      events.filter((event) => event === "sql:INSERT(1,first)")
+    ).toHaveLength(1);
+    await expect(ledgerRows()).resolves.toEqual([
+      { id: 1, label: "first" },
+      { id: 2, label: "free" },
+      { id: 9, label: "clash" },
+    ]);
+  }, 60_000);
+
+  test("marks a dispatched malformed weak segment as possibly committed and stops the series", async () => {
+    const events: string[] = [];
+    const driver = new MalformedSecondBatchPGliteDriver(events, {
+      client: database,
+    });
+    const writeMember = (id: number): ExecutableOperation => {
+      const write: WriteStep = {
+        id: `malformed.${id}`,
+        kind: "write",
+        statement: sql`INSERT INTO "rs_ledger" ("id", "label") VALUES (${id}, ${`row-${id}`})`,
+        outputs: { count: { kind: "rowCount" } },
+      };
+      return staticMember({
+        steps: [write],
+        outputs: { count: ref(write.id, "count") },
+      });
+    };
+    let acknowledged = 0;
+    let mayBeVisible = 0;
+
+    const failure = await executorFor(driver)
+      .execute(
+        staticSeries([writeMember(1), writeMember(2), writeMember(3)]),
+        seriesContext(),
+        undefined,
+        async () => {
+          acknowledged += 1;
+        },
+        async () => {
+          mayBeVisible += 1;
+        }
+      )
+      .catch((error) => error);
+
+    expect(failure).toMatchObject({
+      meta: {
+        recordSeriesProgress: {
+          committedSegments: 1,
+          completedMembers: 1,
+          mayHaveCommittedSegment: true,
+        },
+      },
+    });
+    expect(acknowledged).toBe(1);
+    expect(mayBeVisible).toBe(1);
+    expect(driver.batchCalls).toBe(2);
+    await expect(ledgerRows()).resolves.toEqual([
+      { id: 1, label: "row-1" },
+      { id: 2, label: "row-2" },
+    ]);
+  }, 60_000);
+
   test("runs prefix, recursive series, and suffix with exact cross-boundary values", async () => {
     const events: string[] = [];
     const driver = new TracingProgressivePGliteDriver(events);
@@ -853,6 +1049,7 @@ describe("I13 — progressive nested record series", () => {
       "sql:INSERT(1,prefix)",
       "sql:SELECT(1)",
       "sql:UPDATE(nested,1)",
+      "sql:SELECT(1)",
       "sql:SELECT(1)",
       "sql:SELECT(1,nested)",
       "sql:INSERT(2,suffix,1,1)",
@@ -878,10 +1075,32 @@ describe("I13 — progressive nested record series", () => {
       "sql:SELECT(1)",
       "sql:UPDATE(nested,1)",
       "sql:SELECT(1)",
+      "sql:SELECT(1)",
       "sql:SELECT(1,nested)",
       "sql:INSERT(2,suffix,1,1)",
     ]);
   }, 60_000);
+
+  test("declines an indivisible shared batch before a nested series prefix runs", async () => {
+    const events: string[] = [];
+    const driver = new TracingBatchOnlyPGliteDriver(events, {
+      client: database,
+    });
+    const direct = nestedProgressiveSeries().compileMembers({})[0];
+    if (!direct) throw new Error("expected one direct progressive member");
+
+    await expect(
+      executorFor(driver).prepareSharedBatch(
+        direct,
+        driver,
+        seriesContext(),
+        "create"
+      )
+    ).resolves.toBeUndefined();
+    expect(driver.batchCalls).toBe(0);
+    expect(events).toEqual([]);
+    await expect(ledgerRows()).resolves.toEqual([]);
+  });
 
   test("emits one child span per segment and final parent progress", async () => {
     const events: string[] = [];
@@ -931,7 +1150,7 @@ describe("I13 — progressive nested record series", () => {
       {
         parent: SPAN_OPERATION,
         path: "0",
-        statements: 3,
+        statements: 4,
         outcome: "committed",
       },
     ]);
@@ -1114,6 +1333,291 @@ describe("I13 — progressive nested record series", () => {
     ).rejects.toThrow("the complete parent cannot be re-pinned");
     expect(events).toEqual([]);
     await expect(ledgerRows()).resolves.toEqual([]);
+  }, 60_000);
+});
+
+describe("batch-only root-conflict attribution", () => {
+  const rootFirstMember = (
+    rootId: number,
+    rootLabel: string,
+    childId: number,
+    childLabel: string
+  ): ExecutableOperation => {
+    const root: WriteStep = {
+      id: `skip.${rootId}.root`,
+      kind: "write",
+      statement: sql`INSERT INTO "rs_ledger" ("id", "label") VALUES (${rootId}, ${rootLabel}) ON CONFLICT DO NOTHING`,
+      outputs: { count: { kind: "rowCount" } },
+    };
+    const child: WriteStep = {
+      id: `skip.${rootId}.child`,
+      kind: "write",
+      statement: sql`INSERT INTO "rs_ledger" ("id", "label") VALUES (${childId}, ${childLabel})`,
+      outputs: { count: { kind: "rowCount" } },
+    };
+    return staticMember(
+      {
+        steps: [root, child],
+        outputs: { count: ref(child.id, "count") },
+      },
+      root.id
+    );
+  };
+
+  test("a skipped root dispatches no descendant on a capability-false batch driver", async () => {
+    await seedRow(1, "resident");
+    const events: string[] = [];
+    const driver = new TracingBatchOnlyPGliteDriver(events, {
+      client: database,
+    });
+
+    await expect(
+      executorFor(driver).execute(
+        staticSeries([rootFirstMember(1, "duplicate", 2, "descendant")]),
+        seriesContext()
+      )
+    ).resolves.toEqual([{ kind: "skipped" }]);
+
+    expect(driver.batchCalls).toBe(1);
+    await expect(ledgerRows()).resolves.toEqual([{ id: 1, label: "resident" }]);
+  }, 60_000);
+
+  test("a strong commit acknowledgement invalidates a skipped root without counting a write member", async () => {
+    await seedRow(1, "resident");
+    const events: string[] = [];
+    const driver = new TracingProgressivePGliteDriver(events);
+    let committedWrites = 0;
+
+    const failure = await executorFor(driver)
+      .execute(
+        staticSeries([rootFirstMember(1, "duplicate", 2, "descendant")]),
+        seriesContext(),
+        undefined,
+        async () => {
+          committedWrites += 1;
+          throw new Error("skipped-root invalidation failed");
+        }
+      )
+      .catch((error) => error);
+
+    expect(failure).toBeInstanceOf(QueryEngineError);
+    expect(failure).toMatchObject({
+      meta: {
+        recordSeriesProgress: {
+          phase: "invalidation",
+          committedSegments: 1,
+          completedMembers: 0,
+          committedWriteMembers: 0,
+        },
+      },
+    });
+    expect(committedWrites).toBe(1);
+    expect(driver.batchCalls).toBe(1);
+    await expect(ledgerRows()).resolves.toEqual([{ id: 1, label: "resident" }]);
+  }, 60_000);
+
+  test("a skipped root is not counted as a committed write member", async () => {
+    await seedRow(1, "resident");
+    await seedRow(9, "occupied");
+    const events: string[] = [];
+    const driver = new TracingBatchOnlyPGliteDriver(events, {
+      client: database,
+    });
+    const failingWrite: WriteStep = {
+      id: "skip.later-failure",
+      kind: "write",
+      statement: sql`INSERT INTO "rs_ledger" ("id", "label") VALUES (${9}, ${"conflict"})`,
+      outputs: { count: { kind: "rowCount" } },
+    };
+
+    const failure = await executorFor(driver)
+      .execute(
+        staticSeries([
+          rootFirstMember(1, "duplicate", 2, "descendant"),
+          staticMember({
+            steps: [failingWrite],
+            outputs: { count: ref(failingWrite.id, "count") },
+          }),
+        ]),
+        seriesContext()
+      )
+      .catch((error) => error);
+
+    expect(failure).toBeInstanceOf(UniqueConstraintError);
+    expect(failure).toMatchObject({
+      meta: {
+        recordSeriesProgress: {
+          committedSegments: 1,
+          completedMembers: 1,
+          committedWriteMembers: 0,
+        },
+      },
+    });
+    await expect(ledgerRows()).resolves.toEqual([
+      { id: 1, label: "resident" },
+      { id: 9, label: "occupied" },
+    ]);
+  }, 60_000);
+
+  test("a fresh root continues to its descendant", async () => {
+    const events: string[] = [];
+    const driver = new TracingBatchOnlyPGliteDriver(events, {
+      client: database,
+    });
+
+    await expect(
+      executorFor(driver).execute(
+        staticSeries([rootFirstMember(1, "fresh", 2, "descendant")]),
+        seriesContext()
+      )
+    ).resolves.toEqual([{ count: 1 }]);
+
+    expect(driver.batchCalls).toBe(2);
+    await expect(ledgerRows()).resolves.toEqual([
+      { id: 1, label: "fresh" },
+      { id: 2, label: "descendant" },
+    ]);
+  }, 60_000);
+
+  test("a descendant failure preserves only the acknowledged root prefix", async () => {
+    await seedRow(2, "resident");
+    const events: string[] = [];
+    const driver = new TracingBatchOnlyPGliteDriver(events, {
+      client: database,
+    });
+
+    const failure = await executorFor(driver)
+      .execute(
+        staticSeries([rootFirstMember(1, "fresh", 2, "conflict")]),
+        seriesContext()
+      )
+      .catch((error) => error);
+
+    expect(failure).toBeInstanceOf(UniqueConstraintError);
+    expect(failure).toMatchObject({
+      meta: {
+        recordSeriesProgress: {
+          committedSegments: 1,
+          committedWriteMembers: 1,
+        },
+      },
+    });
+    if (!(failure instanceof VibORMError)) throw failure;
+    expect(failure.meta.recordSeriesProgress).not.toHaveProperty(
+      "mayHaveCommittedSegment"
+    );
+    await expect(ledgerRows()).resolves.toEqual([
+      { id: 1, label: "fresh" },
+      { id: 2, label: "resident" },
+    ]);
+  }, 60_000);
+
+  test("a statically known write before the skippable root refuses before any member effect", async () => {
+    const before: WriteStep = {
+      id: "skip.before",
+      kind: "write",
+      statement: sql`INSERT INTO "rs_ledger" ("id", "label") VALUES (${9}, ${"orphan"})`,
+      outputs: { count: { kind: "rowCount" } },
+    };
+    const root: WriteStep = {
+      id: "skip.root",
+      kind: "write",
+      statement: sql`INSERT INTO "rs_ledger" ("id", "label") VALUES (${1}, ${"root"}) ON CONFLICT DO NOTHING`,
+      outputs: { count: { kind: "rowCount" } },
+    };
+    const member = staticMember(
+      { steps: [before, root], outputs: {} },
+      root.id
+    );
+    const driver = new TracingBatchOnlyPGliteDriver([], { client: database });
+
+    const refusal = await executorFor(driver)
+      .execute(staticSeries([member]), seriesContext())
+      .catch((error) => error);
+
+    expect(refusal).toBeInstanceOf(UnsupportedOperationError);
+    expect(refusal).toHaveProperty(
+      "message",
+      "Driver 'pglite' cannot execute this record series as committed segments because skipping root 'skip.root' would leave prior effect 'skip.before' committed."
+    );
+    expect(driver.batchCalls).toBe(0);
+    await expect(ledgerRows()).resolves.toEqual([]);
+  }, 60_000);
+});
+
+describe("residual F — a suppressed member does not poison its enclosing scope", () => {
+  test("a later member still writes, and a later race still retries the WHOLE series", async () => {
+    const events: string[] = [];
+    const driver = new TracingPGliteDriver(events, { client: database });
+    // Two committed rows: `blocked` is what the skippable member's root INSERT
+    // conflicts on (so that member is SUPPRESSED, savepoint and all), and `clash`
+    // is what the pinned member loses to on attempt one (a genuine retryable race).
+    await seedRow(8, "blocked");
+    await seedRow(9, "clash");
+
+    const series = seriesOperation(events, {
+      members: (attempt) => [
+        { id: "m0", rowId: 1, label: "zero" },
+        // Suppressed: its `ON CONFLICT DO NOTHING` root write returns no row, so the
+        // executor rolls this member's savepoint back and the series continues.
+        { id: "mSkip", rowId: 3, label: "blocked", skippable: true },
+        // The member after the suppressed one. If the savepoint rollback had
+        // poisoned the enclosing scope, this INSERT could not run at all.
+        {
+          id: "m1",
+          rowId: 2,
+          label: attempt === 1 ? "clash" : "free",
+          pinned: true,
+        },
+      ],
+    });
+
+    const result = await executeRoutedOperation<unknown>(
+      executorFor(driver),
+      series,
+      seriesContext()
+    );
+
+    // THE CLAIM: the mark on the pinned member's unique violation reached the routed
+    // boundary intact even though a member had already been suppressed inside the
+    // same scope, so the complete series ran again — capture included.
+    expect(events.filter((event) => event.startsWith("capture:"))).toEqual([
+      "capture:1",
+      "capture:2",
+    ]);
+    // Every attempt ran all three members in order, and the suppressed one was
+    // attempted both times rather than being remembered as "already skipped".
+    expect(events.filter((event) => event.startsWith("plan:"))).toEqual([
+      "plan:m0",
+      "plan:mSkip",
+      "plan:m1",
+      "plan:m0",
+      "plan:mSkip",
+      "plan:m1",
+    ]);
+    expect(events.filter((event) => event.startsWith("sql:INSERT"))).toEqual([
+      "sql:INSERT(1,zero)",
+      "sql:INSERT(3,blocked)",
+      "sql:INSERT(2,clash)",
+      "sql:INSERT(1,zero)",
+      "sql:INSERT(3,blocked)",
+      "sql:INSERT(2,free)",
+    ]);
+    // The suppressed member contributed nothing to the public result; the members
+    // around it did.
+    expect(result).toEqual({
+      captured: [8, 9],
+      members: [[1], [], [2]],
+      resultReads: [],
+    });
+    // Row 3 never landed on either attempt, and the row it conflicted with was
+    // neither rewritten nor adopted.
+    await expect(ledgerRows()).resolves.toEqual([
+      { id: 1, label: "zero" },
+      { id: 2, label: "free" },
+      { id: 8, label: "blocked" },
+      { id: 9, label: "clash" },
+    ]);
   }, 60_000);
 });
 

@@ -45,37 +45,27 @@ import { describe, expect, test } from "vitest";
  *   5. "Return the final identity in terminal results" — every lifted terminal addresses
  *      the POST-fold key, including the one that is a `Ref` to the target INSERT that
  *      produces it (Package F's channel, lowered exactly as the create root lowers it);
- *   6. "Reject only if the exact final value cannot be captured or derived" — ONE
- *      narrowed refusal survives, quoted verbatim below, and it is about an ARM THAT
- *      NAMES NO ONE VALUE, never about the shape.
- *
- * THE SPLIT THIS FILE USED TO PIN IS HALF GONE, and the surviving half is why the CREATE
- * root's blocks stay untouched: `CreateOperation.assertSharedPkResolved` still refuses a
- * fresh record whose shared key is not a compile-time literal, because a fresh record has
- * no captured identity to move — there is nothing there yet to transition. Its three
- * refusals are re-asserted verbatim below so a future edit cannot quietly widen them
- * while reading this file as permission.
+ *   6. "Reject only if the exact final value cannot be captured or derived" — the
+ *      selected arm publishes the exact value it consumed. Only a selected null and a
+ *      contradictory second assignment refuse; the former broad create-root guard is gone.
  *
  * DIMENSIONS PINNED (plan §6 A2's nine): planning IDs and order, planning SQL and
  * parameters, planning outputs; final IDs and order, final SQL and parameters; guards and
  * expects (the batch root re-assert, the occupied `notExists` guard and its `raceable`
- * flag, the terminal's transaction-only `exactlyOneRow`); race pins; exact errors — five
- * narrowed UPDATE-root refusals, three CREATE-root ones, and the two refusals a shared key
- * inherits from OTHER owners (the parse boundary and the nullability owner); statement
+ * flag, the terminal's transaction-only `exactlyOneRow`); race pins; exact errors from
+ * the assignment and nullability owners; statement
  * counts, which the step list IS. Round trips equal steps on both substrates.
  *
  * KINDS, and who answers each (the E1 disposition table, all measured):
  *   · `create`, `connect`, `connectOrCreate` — LIFTED. Their final value is the literal
  *     the arm spells or the `Ref` the target's INSERT publishes;
- *   · `upsert` — LIFTED only where its two arms AGREE, which for a shared key means the
- *     created target carries the key the record already holds: the found arm never moves
- *     it (the probe correlates the target on that very column) and the missing arm would.
- *     Two arms naming two keys is exactly "no one final value";
+ *   · `upsert` — LIFTED arm-locally: the found target publishes its post-update key and
+ *     the missing target publishes the exact key its INSERT consumes;
  *   · `disconnect` / `delete` — NOT lifted, and not E's to lift: a row-key member is never
  *     nullable, so `assertRelationCanDisconnect` refuses on an OPTIONAL shared edge and the
  *     parse boundary refuses first on a required one. Both pinned;
- *   · a target `update` — untouched, and its block is unchanged: the shared key rides as a
- *     READ (the probe binds it off the locate) and the record writes nothing.
+ *   · a target `update` — its post-update referenced key is published after the selected
+ *     target write; a database cascade owns the physical parent-key transition.
  *
  * FALSIFIED 2026-08-10 against `src/query-engine/write-engine/RecordUpdateCompiler.ts`,
  * three separate mutations, each restored from a scratchpad copy taken before the edit:
@@ -585,94 +575,6 @@ describe("parity E — the two refusal surfaces, verbatim", () => {
 
   const fresh = { id: "a2", email: "a2@x", name: "A2" };
 
-  /**
-   * THE ONE SURVIVING UPDATE-ROOT REFUSAL, and the four payload classes that reach it.
-   * It is no longer about the SHAPE — every row here has a lifted twin in the byte pins
-   * below, differing only in whether the arm names ONE key for the record to end on.
-   * THREE coverages, one per disjunct, each with its own rows below and none sharing a
-   * witness (the Package E gate deleted a fourth — an `isSql` branch with no producer:
-   * `freshReferenced` answers `undefined` for an `Sql`, and every other resolver reads a
-   * parsed `where` or the operation's own pinned selector):
-   *   · the arm answers with NO VALUE (`undefined`) — a `where` that does not spell the
-   *     referenced column, so the foreign key resolves through a correlated lookup
-   *     SUBQUERY and no literal keys the record; or two arms naming different rows;
-   *   · the arm answers `null` — a NULLABLE referenced unique named NULL, the row below
-   *     that no other row reaches;
-   *   · a root SET spells the same row-key member the arm folds, disagreeing.
-   *
-   * Every row asserts ZERO statements: the refusal is at CONSTRUCTION, so unlike the
-   * pre-E1 `connect` — which was answered at COMPILE by `getUpdatedPrimaryKeyValue`'s
-   * `Sql` branch, in a sentence about "an unsupported operation", AFTER the planning
-   * locate had already been issued — nothing is asked of the database first.
-   */
-  test.each([
-    // A lookup SUBQUERY resolves the foreign key, so no literal keys the record.
-    ["connect", { connect: { email: "a2@x" } }],
-    // … the same, spelled as the found arm of a connectOrCreate.
-    [
-      "connectOrCreate",
-      {
-        connectOrCreate: {
-          where: { email: "a2@x" },
-          create: fresh,
-        },
-      },
-    ],
-    // Two arms, two keys, no one identity.
-    [
-      "connectOrCreate",
-      {
-        connectOrCreate: {
-          where: { id: "a2" },
-          create: { id: "elsewhere", email: "e@x", name: "E" },
-        },
-      },
-    ],
-    // The found arm keeps 'a1' (the probe correlates on the record's own key); the
-    // missing arm would move the record to 'a2'.
-    ["upsert", { upsert: { create: fresh, update: { name: "A3" } } }],
-  ])("UPDATE root — a shared-primary-key %s that names no one final value refuses before any statement", async (kind, payload) => {
-    const { client, driver } = clientOn();
-    expect(
-      await caught(() =>
-        client.card.update({
-          where: { accountId: "a1" },
-          data: { account: payload },
-          select: { accountId: true },
-        })
-      )
-    ).toEqual({
-      name: "UnsupportedOperationError",
-      message: `query-engine-v2 update does not support a shared-primary-key ${kind} on relation 'account' whose foreign key 'accountId' (this record's primary key) does not resolve to one final value.`,
-    });
-    expect(driver.statements).toEqual([]);
-  });
-
-  /**
-   * The `null` disjunct's OWN witness, and the reason it survived the gate's audit of
-   * `recordSharedKeyFold` while the `isSql` one did not: nothing upstream refuses a NULL
-   * here. The parse boundary admits NULL for a nullable unique, and each arm's not-found
-   * premise is about the PROBE, not about this record's key — so without this disjunct a
-   * NULL would be assigned to a row-key column and the terminal would go looking for it.
-   */
-  test("UPDATE root — a shared key whose `where` names a NULLABLE referenced unique NULL refuses before any statement", async () => {
-    const { client, driver } = clientOn();
-    expect(
-      await caught(() =>
-        client.badge.update({
-          where: { handle: "h1" },
-          data: { holder: { connect: { handle: null } } },
-          select: { handle: true },
-        })
-      )
-    ).toEqual({
-      name: "UnsupportedOperationError",
-      message:
-        "query-engine-v2 update does not support a shared-primary-key connect on relation 'holder' whose foreign key 'handle' (this record's primary key) does not resolve to one final value.",
-    });
-    expect(driver.statements).toEqual([]);
-  });
-
   test("UPDATE root — a root SET and a fold that disagree about the row key refuse; agreeing ones compile", async () => {
     const { client, driver } = clientOn();
     expect(
@@ -708,48 +610,6 @@ describe("parity E — the two refusal surfaces, verbatim", () => {
         .compile({ "card.locate.rows": [{ accountId: "a1" }] })
         .steps.map((step) => step.id)
     ).toEqual(["account.create", "card.update", "card.select"]);
-  });
-
-  test.each([
-    // A lookup SUBQUERY resolves the foreign key, so no literal keys the record.
-    [
-      "a connect through a non-key unique",
-      "connect",
-      { connect: { email: "a1@x" } },
-    ],
-    // Two arms, two keys, no one identity — first the create arm disagreeing …
-    [
-      "a connectOrCreate whose arms name different rows",
-      "connectOrCreate",
-      {
-        connectOrCreate: {
-          where: { id: "a1" },
-          create: { id: "elsewhere", email: "e@x", name: "E" },
-        },
-      },
-    ],
-    // … then the where arm naming the row through a non-key unique.
-    [
-      "a connectOrCreate located by a non-key unique",
-      "connectOrCreate",
-      {
-        connectOrCreate: {
-          where: { email: "a1@x" },
-          create: { id: "a1", email: "a1@x", name: "A" },
-        },
-      },
-    ],
-  ])("CREATE root — assertSharedPkResolved keeps refusing %s before any statement", async (_label, kind, payload) => {
-    const { client, driver } = clientOn();
-    expect(
-      await caught(() =>
-        client.card.create({ data: { label: "L", account: payload } })
-      )
-    ).toEqual({
-      name: "UnsupportedOperationError",
-      message: `query-engine-v2 create does not support a shared-primary-key ${kind} on relation 'account' whose foreign key 'accountId' (this record's primary key) is not a compile-time literal.`,
-    });
-    expect(driver.statements).toEqual([]);
   });
 
   /**
@@ -1265,9 +1125,10 @@ for (const substrate of [
     /**
      * RULE 5 at its hardest: the record's final key is not a value at all until the
      * target's INSERT runs. The SET and the terminal read spend the SAME reference, and
-     * the substrate decides only how that INSERT reports it — `RETURNING "id"` with a
-     * `firstRowField` output in transaction mode, a bare INSERT with `insertId`
-     * otherwise. This is Package F's channel consumed, not re-implemented.
+     * the producer's own PostgreSQL `RETURNING "id"` publishes one `firstRowField`
+     * output on both substrates. Transaction execution consumes it in one scope;
+     * batch execution materializes it before the exact guarded continuation. This is
+     * Package F's channel consumed, not re-implemented.
      */
     test("a PRODUCED shared key rides one reference into both the SET and the terminal", () => {
       const driver = substrate.createDriver();
@@ -1310,13 +1171,9 @@ for (const substrate of [
           {
             id: "desk.create",
             kind: "write",
-            sql: substrate.batch
-              ? 'INSERT INTO "parity_e_desks" ("title") VALUES ($1)'
-              : 'INSERT INTO "parity_e_desks" ("title") VALUES ($1) RETURNING "id" AS "id"',
+            sql: 'INSERT INTO "parity_e_desks" ("title") VALUES ($1) RETURNING "id" AS "id"',
             params: ["T"],
-            outputs: substrate.batch
-              ? { id: { kind: "insertId" } }
-              : { id: { kind: "firstRowField", field: "id" } },
+            outputs: { id: { kind: "firstRowField", field: "id" } },
             expects: null,
             racePin: null,
             onUniqueConflict: null,

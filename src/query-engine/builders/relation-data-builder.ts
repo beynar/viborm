@@ -13,6 +13,7 @@ import {
   resolveOrdinaryInverse,
 } from "@schema/relation";
 import {
+  getJunctionFieldGroups,
   getJunctionFieldNames,
   getJunctionTableName,
 } from "@schema/relation/helpers";
@@ -108,9 +109,7 @@ export interface JunctionReferenceMember {
 
 /**
  * One end of a junction: the model it addresses and the ordered junction columns
- * that reference it. Exactly one member today (see {@link junctionSideMember});
- * the array is the shape a compound junction needs and every SQL consumer already
- * iterates it, so widening it adds no branch.
+ * that reference its complete row key.
  */
 export interface JunctionSide {
   readonly model: Model<any>;
@@ -209,25 +208,6 @@ export function hasPolymorphicMembership(
 }
 
 /**
- * JUNCTION CARVE-OUT — the one member of a bound junction side.
- *
- * A side carries exactly one member today because the binder resolves it through
- * {@link getRequiredSinglePrimaryKeyField}, which REFUSES a compound row key before
- * any consumer sees the side. Compound many-to-many is an unimplemented capability
- * (limitation-lift plan §6 N2), not a seal, and this projection is the one place
- * that reads a side as a single member. Its three legal reader classes: the
- * junction-DML builders (one column per side — the capability N2 widens), the
- * Part's stored side references, and `junctionSourceIsFirst`'s orientation
- * comparison, which under compound sides must become an ordered member-list
- * comparison. The join SQL already folds every member.
- */
-export function junctionSideMember(
-  side: JunctionSide
-): JunctionReferenceMember {
-  return side.members[0]!;
-}
-
-/**
  * The columns a ROW-HELD membership references, in schema order.
  *
  * A polymorphic membership references exactly one column — its stored type is a
@@ -257,34 +237,55 @@ function resolveJunctionTopology(
   const { targetModel } = relationInfo;
   const sourceModelName = sourceModel["~"].names.ts ?? "unknown";
   const targetModelName = targetModel["~"].names.ts ?? "unknown";
-  // Resolution ORDER is load-bearing and is the one the deleted second binder used:
-  // table name, then junction columns, then the source row key, then the target's.
-  // A schema that trips two of these keeps reporting the first.
   const table = getJunctionTableName(
     relationInfo.relation,
     sourceModelName,
     targetModelName
   );
-  const [sourceField, targetField] = getJunctionFieldNames(
+  // Preserve the established configuration-error order: the raw A/B pair is
+  // reconciled before either endpoint's row key is requested. Complete group
+  // expansion below calls the same token owner after arity is known.
+  getJunctionFieldNames(
     relationInfo.relation,
     sourceModelName,
     targetModelName
   );
-  const sourceReferenced = getRequiredSinglePrimaryKeyField(sourceModel);
-  const targetReferenced = getRequiredSinglePrimaryKeyField(targetModel);
+  const sourceReferenced = getRequiredPrimaryKeyFields(sourceModel);
+  const targetReferenced = getRequiredPrimaryKeyFields(targetModel);
+  const fields = getJunctionFieldGroups(
+    relationInfo.relation,
+    sourceModelName,
+    targetModelName,
+    sourceReferenced,
+    targetReferenced
+  );
+  const sourceMembers = sourceReferenced.map((referencedField, index) => {
+    const junctionField = fields.source.fields[index];
+    if (junctionField === undefined) {
+      throw new QueryEngineError(
+        "Internal junction source expansion did not match its row-key arity."
+      );
+    }
+    return { junctionField, referencedField };
+  });
+  const targetMembers = targetReferenced.map((referencedField, index) => {
+    const junctionField = fields.target.fields[index];
+    if (junctionField === undefined) {
+      throw new QueryEngineError(
+        "Internal junction target expansion did not match its row-key arity."
+      );
+    }
+    return { junctionField, referencedField };
+  });
   return {
     table,
     source: {
       model: sourceModel,
-      members: [
-        { junctionField: sourceField, referencedField: sourceReferenced },
-      ],
+      members: sourceMembers,
     },
     target: {
       model: targetModel,
-      members: [
-        { junctionField: targetField, referencedField: targetReferenced },
-      ],
+      members: targetMembers,
     },
   };
 }
@@ -310,17 +311,9 @@ function bindJunctionRelation(
     sourceModel: ctx.model,
     membership: {
       kind: "junction",
-      // LAZY AND MEMOIZED, deliberately — not an optimization. Resolving a side asks
-      // each model for its single-field row key, and that ask is where the engine's
-      // compound-many-to-many limitation is refused. Today the refusal fires when JOIN
-      // INFO IS REQUESTED, and `bindRelation` runs at many sites that never request it
-      // (relation-key legality, the OwnWrite entry grouping, the create/update
-      // dispatchers, the junction fold's own child scan). Resolving eagerly here would
-      // move that refusal — and the schema helpers' junction-naming errors — strictly
-      // earlier in the estate's error ordering. Its class, message AND the frames its
-      // stack must contain are pinned (`operation-construction-witnesses.test.ts`:
-      // `getRequiredSinglePrimaryKeyField` reached through an `OwnWrite` frame), so the
-      // laziness is part of the observable contract, not an implementation detail.
+      // LAZY AND MEMOIZED, deliberately — binding runs at sites that do not need
+      // physical junction topology. Column expansion and row-key resolution happen
+      // only when a consumer asks for the stored membership.
       get table() {
         return resolve().table;
       },
@@ -335,48 +328,21 @@ function bindJunctionRelation(
 }
 
 /**
- * The single primary key field of a model, or throw.
- *
- * Junction tables key on one PK column per side, so many-to-many requires a
- * single-field PK on both models.
- *
- * Both questions are answered by the model-key catalog — the one owner of how a row
- * is addressed — rather than by a second read of `state.compoundId`/`state.scalars`:
- *
- * - A GROUPED primary key (`.id([...])`) is exactly an addressable key of kind
- *   `primary` carrying a selector `name`; a bare `.id()` scalar carries none. The
- *   catalog keeps EVERY declared compound-id constraint addressable, including an
- *   empty one, so this test spans exactly the set the deleted
- *   `Object.keys(state.compoundId).length > 0` read spanned — an empty constraint
- *   still refuses here, as it always has.
- * - With no grouped primary declared, the catalog's `rowKey` can only be the bare
- *   scalar id (first `.id()` scalar in shape order, the same one the deleted scan
- *   returned), and its absence is the "no primary key field" case.
+ * The complete ordered primary key of a junction endpoint.
+ * The model-key catalog remains the sole owner of row-key membership and order.
  */
-export function getRequiredSinglePrimaryKeyField(model: Model<any>): string {
+export function getRequiredPrimaryKeyFields(
+  model: Model<any>
+): readonly string[] {
   const modelName = getModelName(model);
-  const catalog = getModelKeyCatalog(model);
-
-  if (
-    catalog.addressableKeys.some(
-      (key) => key.kind === "primary" && key.name !== undefined
-    )
-  ) {
-    throw new QueryEngineError(
-      `Model "${modelName}" uses a compound primary key. ` +
-        "Many-to-many relations with compound PKs are not supported. " +
-        "Use a single-field surrogate key (e.g., s.string().id().ulid()) instead."
-    );
-  }
-
-  const rowKeyField = catalog.rowKey?.fields[0];
-  if (rowKeyField !== undefined) {
-    return rowKeyField;
+  const rowKey = getModelKeyCatalog(model).rowKey?.fields;
+  if (rowKey && rowKey.length > 0) {
+    return rowKey;
   }
 
   throw new QueryEngineError(
-    `Model "${modelName}" has no primary key field. ` +
-      "Many-to-many relations require a single-field primary key."
+    `Model "${modelName}" has no primary key. ` +
+      "Many-to-many relations require a complete primary key."
   );
 }
 

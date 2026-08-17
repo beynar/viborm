@@ -84,7 +84,7 @@ async function reset(client: any): Promise<void> {
  * wrong-row witness, not a value comparison.
  */
 async function seedDecoy(client: any): Promise<number> {
-  const decoy = await client.stamp.create({ data: { name: "decoy" } });
+  const decoy = await client.stamp.create({ data: { id: -1, name: "decoy" } });
   await client.note.create({
     data: { id: "n-decoy", body: "decoy", stampId: decoy.id },
   });
@@ -102,7 +102,7 @@ export function registerProducedIdentityBehavior(
       await reset(client);
       const decoyId = await seedDecoy(client);
 
-      await client.post.create({
+      const operation = client.post.create({
         data: {
           id: "p1",
           title: "t",
@@ -114,6 +114,7 @@ export function registerProducedIdentityBehavior(
           },
         },
       });
+      await operation;
 
       const fresh = await client.stamp.findUnique({
         where: { name: "fresh" },
@@ -148,7 +149,7 @@ export function registerProducedIdentityBehavior(
       await reset(client);
       await seedDecoy(client);
 
-      await client.post.create({
+      const operation = client.post.create({
         data: {
           id: "p2",
           title: "t",
@@ -160,6 +161,7 @@ export function registerProducedIdentityBehavior(
           },
         },
       });
+      await operation;
 
       const a = await client.stamp.findUnique({ where: { name: "a" } });
       const b = await client.stamp.findUnique({ where: { name: "b" } });
@@ -191,7 +193,7 @@ export function registerProducedIdentityBehavior(
       await seedDecoy(client);
       await client.post.create({ data: { id: "p3", title: "t" } });
 
-      await client.post.update({
+      const operation = client.post.update({
         where: { id: "p3" },
         data: {
           stamps: {
@@ -214,6 +216,7 @@ export function registerProducedIdentityBehavior(
           },
         },
       });
+      await operation;
 
       const dup = await client.stamp.findMany({ where: { name: "dup" } });
       expect(dup).toHaveLength(1);
@@ -237,9 +240,11 @@ export function registerProducedIdentityBehavior(
       await reset(client);
       await seedDecoy(client);
       await client.post.create({ data: { id: "p4", title: "t" } });
-      const existing = await client.stamp.create({ data: { name: "here" } });
+      const existing = await client.stamp.create({
+        data: { id: 1, name: "here" },
+      });
 
-      await client.post.update({
+      const operation = client.post.update({
         where: { id: "p4" },
         data: {
           stamps: {
@@ -253,6 +258,7 @@ export function registerProducedIdentityBehavior(
           },
         },
       });
+      await operation;
 
       expect(
         (
@@ -273,7 +279,7 @@ export function registerProducedIdentityBehavior(
       await seedDecoy(client);
       await client.post.create({ data: { id: "p5", title: "t" } });
 
-      await client.post.update({
+      const operation = client.post.update({
         where: { id: "p5" },
         data: {
           stamps: {
@@ -288,6 +294,7 @@ export function registerProducedIdentityBehavior(
           },
         },
       });
+      await operation;
 
       const made = await client.stamp.findUnique({
         where: { name: "made-by-upsert" },
@@ -314,8 +321,10 @@ export function registerProducedIdentityBehavior(
       // What the composition owes E4-U3 is that BOTH branches still produce a join row
       // addressed to the right stamp: the adopted one by the probe's captured key, the
       // fresh one by the `Ref` its own INSERT produced.
-      const existing = await client.stamp.create({ data: { name: "sitting" } });
-      await client.post.create({
+      const existing = await client.stamp.create({
+        data: { id: -1, name: "sitting" },
+      });
+      const operation = client.post.create({
         data: {
           id: "p6",
           title: "t",
@@ -327,6 +336,7 @@ export function registerProducedIdentityBehavior(
           },
         },
       });
+      await operation;
       const fresh = await client.stamp.findUnique({
         where: { name: "arriving" },
       });

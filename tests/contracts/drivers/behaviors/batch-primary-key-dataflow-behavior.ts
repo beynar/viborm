@@ -1,4 +1,3 @@
-import { defineContract } from "@tests/contracts/contract";
 import {
   createClient,
   type VibORMClient,
@@ -7,8 +6,9 @@ import {
 import type { AnyDriver } from "@drivers";
 import { push } from "@migrations";
 import { sql } from "@sql";
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { defineContract } from "@tests/contracts/contract";
 import { batchPrimaryKeyDataflowSchema as schema } from "@tests/fixtures/batch-primary-key-dataflow-schema";
+import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
 type BatchPrimaryKeyDataflowConfig = VibORMConfig & {
   schema: typeof schema;
@@ -21,7 +21,6 @@ type BatchPrimaryKeyDataflowClient =
 export interface BatchPrimaryKeyDataflowOptions {
   driverName: string;
   createDriver: () => AnyDriver;
-  includeGeneratedCreateCases?: boolean;
 }
 
 const numericPkCases = [
@@ -44,11 +43,9 @@ const numericPkCases = [
 export function runBatchPrimaryKeyDataflowBehavior({
   driverName,
   createDriver,
-  includeGeneratedCreateCases = true,
 }: BatchPrimaryKeyDataflowOptions) {
   describe(`${driverName} batch primary-key dataflow`, () => {
     let client: BatchPrimaryKeyDataflowClient | undefined;
-    const generatedCreateTest = includeGeneratedCreateCases ? test : test.skip;
 
     beforeEach(async () => {
       const driver = createDriver();
@@ -70,134 +67,124 @@ export function runBatchPrimaryKeyDataflowBehavior({
       }
     });
 
-    generatedCreateTest(
-      "generated parent ID feeds to-many child FK",
-      async () => {
-        const currentClient = requireClient(client);
+    test("generated parent ID feeds to-many child FK", async () => {
+      const currentClient = requireClient(client);
 
-        const created = await currentClient.generatedUser.create({
-          data: {
-            name: "Generated parent",
-            featuredChildId: null,
-            posts: {
-              create: { title: "Child", slug: "generated-parent-child" },
+      const operation = currentClient.generatedUser.create({
+        data: {
+          name: "Generated parent",
+          featuredChildId: null,
+          posts: {
+            create: { title: "Child", slug: "generated-parent-child" },
+          },
+        },
+      });
+      const created = await operation;
+
+      const posts = await currentClient.generatedPost.findMany();
+      expect(posts).toHaveLength(1);
+      expect(posts[0]?.userId).toBe(created.id);
+    });
+
+    test("generated parent ID feeds nested createMany child FKs", async () => {
+      const currentClient = requireClient(client);
+
+      const operation = currentClient.generatedUser.create({
+        data: {
+          name: "Generated parent createMany",
+          featuredChildId: null,
+          posts: {
+            createMany: {
+              data: [
+                { title: "First child", slug: "generated-create-many-1" },
+                { title: "Second child", slug: "generated-create-many-2" },
+              ],
             },
           },
-        });
+        },
+      });
+      const created = await operation;
 
-        const posts = await currentClient.generatedPost.findMany();
-        expect(posts).toHaveLength(1);
-        expect(posts[0]?.userId).toBe(created.id);
-      }
-    );
+      const posts = await currentClient.generatedPost.findMany({
+        orderBy: { slug: "asc" },
+      });
+      expect(posts).toHaveLength(2);
+      expect(posts.map((post) => post.userId)).toEqual([
+        created.id,
+        created.id,
+      ]);
+    });
 
-    generatedCreateTest(
-      "generated parent ID feeds nested createMany child FKs",
-      async () => {
-        const currentClient = requireClient(client);
+    test("generated child ID feeds to-one parent FK", async () => {
+      const currentClient = requireClient(client);
 
-        const created = await currentClient.generatedUser.create({
-          data: {
-            name: "Generated parent createMany",
-            featuredChildId: null,
-            posts: {
-              createMany: {
-                data: [
-                  { title: "First child", slug: "generated-create-many-1" },
-                  { title: "Second child", slug: "generated-create-many-2" },
-                ],
+      const operation = currentClient.generatedUser.create({
+        data: {
+          name: "Generated child",
+          featuredChild: {
+            create: { label: "Featured" },
+          },
+        },
+      });
+      const created = await operation;
+
+      const featuredChild = await currentClient.featuredChild.findFirst();
+      expect(featuredChild?.id).toBe(created.featuredChildId);
+    });
+
+    test("generated parent ID feeds multiple sibling relation branches", async () => {
+      const currentClient = requireClient(client);
+
+      const operation = currentClient.generatedUser.create({
+        data: {
+          name: "Sibling branches",
+          featuredChildId: null,
+          posts: {
+            create: { title: "Post branch", slug: "sibling-post" },
+          },
+          notes: {
+            create: { body: "Note branch" },
+          },
+        },
+      });
+      const created = await operation;
+
+      const [posts, notes] = await Promise.all([
+        currentClient.generatedPost.findMany(),
+        currentClient.generatedNote.findMany(),
+      ]);
+      expect(posts[0]?.userId).toBe(created.id);
+      expect(notes[0]?.userId).toBe(created.id);
+    });
+
+    test("generated parent, child, and grandchild IDs flow through recursive create", async () => {
+      const currentClient = requireClient(client);
+
+      const operation = currentClient.generatedUser.create({
+        data: {
+          name: "Deep generated",
+          featuredChildId: null,
+          posts: {
+            create: {
+              title: "Generated child",
+              slug: "deep-generated-child",
+              comments: {
+                create: { body: "Generated grandchild" },
               },
             },
           },
-        });
+        },
+      });
+      await operation;
 
-        const posts = await currentClient.generatedPost.findMany({
-          orderBy: { slug: "asc" },
-        });
-        expect(posts).toHaveLength(2);
-        expect(posts.map((post) => post.userId)).toEqual([
-          created.id,
-          created.id,
-        ]);
-      }
-    );
-
-    generatedCreateTest(
-      "generated child ID feeds to-one parent FK",
-      async () => {
-        const currentClient = requireClient(client);
-
-        const created = await currentClient.generatedUser.create({
-          data: {
-            name: "Generated child",
-            featuredChild: {
-              create: { label: "Featured" },
-            },
-          },
-        });
-
-        const featuredChild = await currentClient.featuredChild.findFirst();
-        expect(featuredChild?.id).toBe(created.featuredChildId);
-      }
-    );
-
-    generatedCreateTest(
-      "generated parent ID feeds multiple sibling relation branches",
-      async () => {
-        const currentClient = requireClient(client);
-
-        const created = await currentClient.generatedUser.create({
-          data: {
-            name: "Sibling branches",
-            featuredChildId: null,
-            posts: {
-              create: { title: "Post branch", slug: "sibling-post" },
-            },
-            notes: {
-              create: { body: "Note branch" },
-            },
-          },
-        });
-
-        const [posts, notes] = await Promise.all([
-          currentClient.generatedPost.findMany(),
-          currentClient.generatedNote.findMany(),
-        ]);
-        expect(posts[0]?.userId).toBe(created.id);
-        expect(notes[0]?.userId).toBe(created.id);
-      }
-    );
-
-    generatedCreateTest(
-      "generated parent, child, and grandchild IDs flow through recursive create",
-      async () => {
-        const currentClient = requireClient(client);
-
-        await currentClient.generatedUser.create({
-          data: {
-            name: "Deep generated",
-            featuredChildId: null,
-            posts: {
-              create: {
-                title: "Generated child",
-                slug: "deep-generated-child",
-                comments: {
-                  create: { body: "Generated grandchild" },
-                },
-              },
-            },
-          },
-        });
-
-        const [user, post, comment] = await Promise.all([
-          currentClient.generatedUser.findFirst(),
-          currentClient.generatedPost.findFirst(),
-          currentClient.generatedComment.findFirst(),
-        ]);
-        expect(post?.userId).toBe(user?.id);
-        expect(comment?.postId).toBe(post?.id);
-      }
-    );
+      const [user, post, comment] = await Promise.all([
+        currentClient.generatedUser.findFirst(),
+        currentClient.generatedPost.findFirst(),
+        currentClient.generatedComment.findFirst(),
+      ]);
+      expect(post?.userId).toBe(user?.id);
+      expect(comment?.postId).toBe(post?.id);
+    });
 
     test("top-level update changes PK with direct literal and nested create uses it", async () => {
       const currentClient = requireClient(client);
@@ -293,34 +280,32 @@ export function runBatchPrimaryKeyDataflowBehavior({
       expect(posts[0]?.userId).toBe(702);
     });
 
-    generatedCreateTest(
-      "failure after generated refs rolls back parent and children",
-      async () => {
-        const currentClient = requireClient(client);
+    test("failure after generated refs rolls back parent and children", async () => {
+      const currentClient = requireClient(client);
 
-        await expect(
-          currentClient.generatedUser.create({
-            data: {
-              name: "Rollback generated refs",
-              featuredChildId: null,
-              posts: {
-                create: [
-                  { title: "First", slug: "duplicate-generated-slug" },
-                  { title: "Second", slug: "duplicate-generated-slug" },
-                ],
-              },
+      await expect(
+        currentClient.generatedUser.create({
+          data: {
+            id: -1,
+            name: "Rollback generated refs",
+            featuredChildId: null,
+            posts: {
+              create: [
+                { title: "First", slug: "duplicate-generated-slug" },
+                { title: "Second", slug: "duplicate-generated-slug" },
+              ],
             },
-          })
-        ).rejects.toThrow();
+          },
+        })
+      ).rejects.toThrow();
 
-        const [users, posts] = await Promise.all([
-          currentClient.generatedUser.findMany(),
-          currentClient.generatedPost.findMany(),
-        ]);
-        expect(users).toHaveLength(0);
-        expect(posts).toHaveLength(0);
-      }
-    );
+      const [users, posts] = await Promise.all([
+        currentClient.generatedUser.findMany(),
+        currentClient.generatedPost.findMany(),
+      ]);
+      expect(users).toHaveLength(0);
+      expect(posts).toHaveLength(0);
+    });
 
     test("unsupported compound primary-key dataflow rejects before parent mutation", async () => {
       const currentClient = requireClient(client);

@@ -462,11 +462,11 @@ export interface DatabaseAdapter {
   mutations: {
     /** How top-level bulk create realizes duplicate-only skipping. */
     skipDuplicatesStrategy: "sql" | "recoverableUniqueError";
-    /** INSERT INTO table (cols) VALUES (...), with an optional dialect prefix. */
+    /** INSERT INTO table (cols) from literal rows or a SELECT source. */
     insert: (
       table: Sql,
       columns: string[],
-      values: Sql[][],
+      source: Sql[][] | { readonly select: Sql },
       prefix?: Sql
     ) => Sql;
     /** Insert one row using only database defaults. */
@@ -519,9 +519,10 @@ export interface DatabaseAdapter {
   /**
    * LAST INSERT ID
    * Returns SQL for getting the last auto-generated ID.
-   * Used in multi-statement nested creates to reference parent's ID in child inserts.
+   * Used only where the provider exposes an exact statement-local identity.
    *
-   * PostgreSQL: lastval() - returns last value from any sequence in session
+   * PostgreSQL: lastval() exists for legacy/direct SQL uses, but batchRefs does not
+   * expose it because another generated column or trigger can change the session value
    * SQLite: last_insert_rowid() - returns last ROWID inserted
    * MySQL: LAST_INSERT_ID() - returns last AUTO_INCREMENT value
    */

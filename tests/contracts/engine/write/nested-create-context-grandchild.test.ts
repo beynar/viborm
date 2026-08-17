@@ -1,12 +1,11 @@
-import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { createClient } from "@client/client";
-import type { BatchQuery, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
-import { PGlite, type Transaction } from "@electric-sql/pglite";
+import { PGlite } from "@electric-sql/pglite";
 import { push } from "@migrations";
 import { s } from "@schema";
-import { describe, expect, test } from "vitest";
 import { observeClientOperations } from "@tests/contracts/engine/write/operation-observer";
+import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
+import { describe, expect, test } from "vitest";
 
 /**
  * T4a CLASS VI — deep create-context grandchildren (the three absorbed blast-radius keys).
@@ -285,7 +284,7 @@ describe("CLASS VI key 3 — root-create nested createMany skipDuplicates", () =
     ]);
   };
 
-  test("dual-run oracle (direct vs production-tx vs production-batch) + skip keeps input-first winner", async () => {
+  test("direct, transaction, and batch preserve the same skip winner", async () => {
     const direct = (await runDirect(
       bulkSchema,
       seed,
@@ -296,16 +295,18 @@ describe("CLASS VI key 3 — root-create nested createMany skipDuplicates", () =
     expect(direct).toHaveLength(2);
     expect(direct).toContainEqual(["unrelated", "generated-first", true]);
     expect(direct).toContainEqual(["winner", "input-first", true]);
-    for (const substrate of ["tx", "batch"] as const) {
-      const { state, engines } = await runObserved(
-        bulkSchema,
-        substrate,
-        seed,
-        op,
-        snap
-      );
-      expect(engines).toEqual(new Set(["production"]));
-      expect(state).toEqual(direct);
-    }
+    const { state, engines } = await runObserved(
+      bulkSchema,
+      "tx",
+      seed,
+      op,
+      snap
+    );
+    expect(engines).toEqual(new Set(["production"]));
+    expect(state).toEqual(direct);
+
+    const batch = await runObserved(bulkSchema, "batch", seed, op, snap);
+    expect(batch.engines).toEqual(new Set(["production"]));
+    expect(batch.state).toEqual(direct);
   });
 });

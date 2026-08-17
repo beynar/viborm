@@ -31,7 +31,11 @@ import {
   type TransactionOptionSupport,
   unsupportedCallbackTransactionError,
 } from "../shared";
-import type { BatchQuery, QueryResult } from "../types";
+import type {
+  BatchQuery,
+  CommittedBatchNotification,
+  QueryResult,
+} from "../types";
 
 // ============================================================
 // EXPORTED OPTIONS
@@ -128,6 +132,26 @@ export class NeonHTTPDriver extends Driver<NeonQuery, NeonTx> {
   // Callback-style transactions are not supported
   readonly supportsTransactions = false;
   readonly supportsBatch = true;
+
+  /**
+   * `supportsOrderedCommittedSegments` deliberately remains the inherited `false`.
+   * Root and exactly guarded nested dynamic series can use Neon HTTP's awaited atomic
+   * batches. Normalized successful return orders the next segment even though this stronger
+   * capability remains false.
+   *
+   * The local callback seam is wired: after `client.transaction(...)` resolves,
+   * `executeBatch` awaits the committed notification before it validates result cardinality
+   * or parses statement results. Credential-free tests pin that timing, including malformed
+   * post-commit results and provider rejection. This is necessary plumbing, not hosted
+   * capability proof.
+   *
+   * Awaiting a normalized successful batch already establishes the base sequential-call
+   * visibility contract used by exact-value and record-series fallback. Enabling the stronger
+   * notification capability still requires hosted evidence that the callback identifies the
+   * durable commit before result decoding, failed batches leave no writes, and committed-prefix
+   * attribution stays exact. No Neon credentials are available here, so the flag cannot move;
+   * this is not a one-boolean task.
+   */
 
   private readonly driverOptions: NeonHTTPDriverOptions;
 
@@ -254,7 +278,8 @@ export class NeonHTTPDriver extends Driver<NeonQuery, NeonTx> {
   protected async executeBatch<T>(
     client: NeonQuery,
     queries: BatchQuery[],
-    context?: QueryExecutionContext
+    context?: QueryExecutionContext,
+    committed?: CommittedBatchNotification
   ): Promise<QueryResult<T>[]> {
     const batchContext = context ?? { operation: "executeBatch" };
     // Use Neon's transaction function with a callback that returns query array
@@ -273,6 +298,7 @@ export class NeonHTTPDriver extends Driver<NeonQuery, NeonTx> {
         }
       })
     );
+    await committed?.();
 
     if (!Array.isArray(results) || results.length !== queries.length) {
       const actualResultCount = Array.isArray(results) ? results.length : 0;
