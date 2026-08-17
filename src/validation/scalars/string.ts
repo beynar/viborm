@@ -1,4 +1,5 @@
 import type { ScalarState } from "@schema/scalars/common";
+import { lazyScalarSchemas } from "../lazy";
 import v, { type V } from "../primitives/v";
 import { createScalarInterner, scalarInternKey } from "./intern";
 import {
@@ -173,18 +174,20 @@ export const buildStringSchema = <
   state: F
 ): StringSchemas<F, C> => {
   const key = scalarInternKey(state);
-  return {
-    base: state.base as F["base"],
-    create: v.string(state),
-    update: internUpdate(key, () =>
-      state.array
-        ? buildStringListUpdateSchema(state.base)
-        : buildStringUpdateSchema(state.base)
-    ) as never,
-    filter: internFilter(key, () =>
-      state.array
-        ? buildStringListFilterSchema(state.base)
-        : buildStringFilterSchema(state.base)
-    ) as never,
-  } as StringSchemas<F, C>;
+  return lazyScalarSchemas<StringSchemas<F, C>>({
+    base: state.base,
+    create: () => v.string(state),
+    update: () =>
+      internUpdate(key, () =>
+        state.array
+          ? buildStringListUpdateSchema(state.base)
+          : buildStringUpdateSchema(state.base)
+      ) as never,
+    filter: () =>
+      internFilter(key, () =>
+        state.array
+          ? buildStringListFilterSchema(state.base)
+          : buildStringFilterSchema(state.base)
+      ) as never,
+  });
 };

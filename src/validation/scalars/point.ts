@@ -1,4 +1,5 @@
 import type { ScalarState } from "@schema/scalars/common";
+import { lazyScalarSchemas } from "../lazy";
 import v, { type V } from "../primitives/v";
 import {
   buildNegatableFilterSchema,
@@ -70,10 +71,10 @@ export interface PointSchemas<F extends ScalarState<"point">> {
 export const buildPointSchema = <F extends ScalarState<"point">>(
   state: F
 ): PointSchemas<F> => {
-  return {
-    base: state.base as F["base"],
-    create: v.point(state),
-    update: buildPointUpdateSchema(state.base),
-    filter: buildPointFilterSchema(state.base),
-  } as PointSchemas<F>;
+  return lazyScalarSchemas<PointSchemas<F>>({
+    base: state.base,
+    create: () => v.point(state),
+    update: () => buildPointUpdateSchema<F["base"]>(state.base),
+    filter: () => buildPointFilterSchema<F["base"]>(state.base),
+  });
 };

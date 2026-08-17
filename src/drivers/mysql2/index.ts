@@ -304,7 +304,7 @@ export function createClient<S extends Schema, C extends DriverConfig<S>>(
     DriverConfig<S> &
     NoExtraDriverConfigKeys<C, MySQL2DriverOptions, S> &
     NoExtraNestedConfigKeys<C, S>
-) {
+): VibORMClient<C & { driver: MySQL2Driver }> {
   const { pool, options = {}, databaseUrl, ...restConfig } = config;
 
   if (databaseUrl) {

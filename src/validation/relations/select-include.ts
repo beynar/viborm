@@ -46,11 +46,11 @@ const nestedOmitLabel = <S extends RelationState>(relationState: S): string =>
 
 /**
  * A relation node accepts `omit` exactly like a top-level operation does:
- * exclusive with `select`, composable with `include`, and desugared into the
- * explicit `select` it denotes before anything downstream sees it. Wrapping the
- * node schema with the SAME helper the top level uses is what keeps the two
- * surfaces from drifting — and it runs BEFORE `includeToField`, which then finds
- * a `select` already in place and leaves it alone.
+ * subtractive with `select`, composable with `include`, and desugared into one
+ * explicit `select` before anything downstream sees it. Wrapping the node
+ * schema with the SAME helper the top level uses is what keeps the two surfaces
+ * from drifting — and it runs BEFORE `includeToField`, which then finds a
+ * `select` already in place and leaves it alone.
  */
 const withNestedOmit = <S extends RelationState, Schema extends V.Object<any>>(
   relationState: S,

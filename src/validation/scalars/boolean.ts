@@ -1,4 +1,5 @@
 import type { ScalarState } from "@schema/scalars/common";
+import { lazyScalarSchemas } from "../lazy";
 import v, { type V } from "../primitives/v";
 import { createScalarInterner, scalarInternKey } from "./intern";
 import {
@@ -164,18 +165,20 @@ export const buildBooleanSchema = <
   state: F
 ): BooleanSchemas<F, C> => {
   const key = scalarInternKey(state);
-  return {
-    base: state.base as F["base"],
-    create: v.boolean(state),
-    update: internUpdate(key, () =>
-      state.array
-        ? buildBooleanListUpdateSchema(state.base)
-        : buildBooleanUpdateSchema(state.base)
-    ) as never,
-    filter: internFilter(key, () =>
-      state.array
-        ? buildBooleanListFilterSchema(state.base)
-        : buildBooleanFilterSchema(state.base)
-    ) as never,
-  } as BooleanSchemas<F, C>;
+  return lazyScalarSchemas<BooleanSchemas<F, C>>({
+    base: state.base,
+    create: () => v.boolean(state),
+    update: () =>
+      internUpdate(key, () =>
+        state.array
+          ? buildBooleanListUpdateSchema(state.base)
+          : buildBooleanUpdateSchema(state.base)
+      ) as never,
+    filter: () =>
+      internFilter(key, () =>
+        state.array
+          ? buildBooleanListFilterSchema(state.base)
+          : buildBooleanFilterSchema(state.base)
+      ) as never,
+  });
 };

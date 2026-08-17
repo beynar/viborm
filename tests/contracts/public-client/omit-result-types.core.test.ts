@@ -13,8 +13,8 @@
  *     only the runtime value decides, and claiming presence would be a lie in
  *     exactly the case the caller wrote the flag for.
  *
- * `select` + `omit` is refused at the parse boundary; the type says `never` for
- * the same payload so the two layers agree.
+ * `select` + `omit` is set subtraction: select chooses the candidate shape and
+ * omit removes any selected scalar flagged true.
  */
 
 import { createClient } from "@client/client";
@@ -121,13 +121,49 @@ describe("query-level omit at the top level", () => {
     expectTypeOf<Result>().toEqualTypeOf<{ id: string }>();
   });
 
-  test("select + omit is not a result type", () => {
+  test("a disjoint omit leaves a selected result unchanged", () => {
     type Result = OperationResult<
       "findMany",
       AuthorModel,
       { select: { id: true }; omit: { passwordHash: true } }
     >;
-    expectTypeOf<Result>().toEqualTypeOf<never[]>();
+    expectTypeOf<Result>().toEqualTypeOf<{ id: string }[]>();
+  });
+
+  test("an overlapping omit removes the selected key", () => {
+    type Result = OperationResult<
+      "findMany",
+      AuthorModel,
+      {
+        select: { id: true; email: true; passwordHash: true };
+        omit: { passwordHash: true };
+      }
+    >;
+    expectTypeOf<Result>().toEqualTypeOf<{ id: string; email: string }[]>();
+  });
+
+  test("the exported fifth generic remains a complete args override", () => {
+    type Result = OperationResult<
+      "findMany",
+      AuthorModel,
+      { select: { id: true } },
+      undefined,
+      { select: { email: true } }
+    >;
+    expectTypeOf<Result>().toEqualTypeOf<{ email: string }[]>();
+  });
+
+  test("an explicit fifth generic remains already-effective beside a client default", () => {
+    type Result = OperationResult<
+      "findMany",
+      AuthorModel,
+      { select: { id: true } },
+      { passwordHash: true },
+      Record<never, never>
+    >;
+    expectTypeOf<Result>().toEqualTypeOf<
+      { id: string; email: string; passwordHash: string }[]
+    >();
   });
 });
 
@@ -203,6 +239,32 @@ describe("omit on a bulk write", () => {
     expectTypeOf<Result>().toEqualTypeOf<
       { count: number } | { id: string; email: string }[]
     >();
+  });
+
+  test("select and omit compose on the row arm", () => {
+    type Result = OperationResult<
+      "updateMany",
+      AuthorModel,
+      {
+        data: Record<never, never>;
+        select: { id: true; email: true; passwordHash: true };
+        omit: { passwordHash: true };
+      }
+    >;
+    expectTypeOf<Result>().toEqualTypeOf<{ id: string; email: string }[]>();
+  });
+
+  test("a definite omit keeps a maybe-select payload on the row arm", () => {
+    type Result = OperationResult<
+      "updateMany",
+      AuthorModel,
+      {
+        data: Record<never, never>;
+        select: { id: true; email: true } | undefined;
+        omit: { passwordHash: true };
+      }
+    >;
+    expectTypeOf<Result>().toEqualTypeOf<{ id: string; email: string }[]>();
   });
 });
 

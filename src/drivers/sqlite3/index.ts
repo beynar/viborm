@@ -185,7 +185,7 @@ export function createClient<S extends Schema, C extends DriverConfig<S>>(
     DriverConfig<S> &
     NoExtraDriverConfigKeys<C, SQLite3DriverOptions, S> &
     NoExtraNestedConfigKeys<C, S>
-) {
+): VibORMClient<C & { driver: SQLite3Driver }> {
   const { client, dataDir, options, ...restConfig } = config;
 
   const driver = new SQLite3Driver({ client, dataDir, options });

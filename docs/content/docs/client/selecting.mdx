@@ -36,13 +36,15 @@ const users = await client.user.findMany({
 ## omit
 
 `omit` is the inverse of `select` — every readable scalar except the ones you
-name. It cannot be combined with `select`, and it composes with `include`:
+name. It composes with `include`, and it can subtract scalar fields from an
+explicit `select`:
 
 ```ts
 const users = await client.user.findMany({
+  select: { id: true, email: true, passwordHash: true },
   omit: { passwordHash: true },
-  include: { posts: { omit: { draftBody: true } } },
 });
+// { id: string; email: string }[]
 ```
 
 See [Omitting fields](/docs/client/omit) for the full surface, including the
@@ -250,4 +252,3 @@ const user = await client.user.findUnique({
 });
 // Type: (User & { posts: Post[] }) | null
 ```
-

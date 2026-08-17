@@ -1,4 +1,5 @@
 import type { ScalarState } from "@schema/scalars/common";
+import { lazyScalarSchemas } from "../lazy";
 import v, { type V } from "../primitives/v";
 import { createScalarInterner, scalarInternKey } from "./intern";
 import {
@@ -168,18 +169,20 @@ export const buildDateSchema = <
   state: F
 ): DateSchemas<F, C> => {
   const key = scalarInternKey(state);
-  return {
-    base: state.base as F["base"],
-    create: v.isoDate(state),
-    update: internUpdate(key, () =>
-      state.array
-        ? buildDateListUpdateSchema(state.base)
-        : buildDateUpdateSchema(state.base)
-    ) as never,
-    filter: internFilter(key, () =>
-      state.array
-        ? buildDateListFilterSchema(state.base)
-        : buildDateFilterSchema(state.base)
-    ) as never,
-  } as DateSchemas<F, C>;
+  return lazyScalarSchemas<DateSchemas<F, C>>({
+    base: state.base,
+    create: () => v.isoDate(state),
+    update: () =>
+      internUpdate(key, () =>
+        state.array
+          ? buildDateListUpdateSchema(state.base)
+          : buildDateUpdateSchema(state.base)
+      ) as never,
+    filter: () =>
+      internFilter(key, () =>
+        state.array
+          ? buildDateListFilterSchema(state.base)
+          : buildDateFilterSchema(state.base)
+      ) as never,
+  });
 };

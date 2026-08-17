@@ -15,7 +15,7 @@
  */
 
 import type { ScalarState } from "@schema/scalars/common";
-import { dateTime } from "@schema/scalars/datetime/scalar";
+import { date, dateTime, time } from "@schema/scalars/datetime";
 import { type InferInput, parse } from "@validation";
 import { type GetScalarSchemas, getScalarSchemas } from "@validation/scalars";
 import { describe, expect, expectTypeOf, test } from "vitest";
@@ -742,6 +742,44 @@ describe("Default Value Behavior", () => {
       expect(() =>
         new Date(result.value as string).toISOString()
       ).not.toThrow();
+    });
+  });
+});
+
+describe("Date and Time Operation Schemas", () => {
+  test("date update accepts scalar shorthand", () => {
+    const schemas = getScalarSchemas(date()["~"].state);
+
+    expect(parse(schemas.create, "2024-01-15")).toEqual({
+      value: "2024-01-15",
+    });
+    expect(parse(schemas.update, "2024-01-15")).toEqual({
+      value: { set: "2024-01-15" },
+    });
+  });
+
+  test("date update prepends a single value as a list", () => {
+    const schemas = getScalarSchemas(date().array()["~"].state);
+    const result = parse(schemas.update, { unshift: "2024-01-15" });
+
+    expect(result).toEqual({ value: { unshift: ["2024-01-15"] } });
+  });
+
+  test("time update appends a single value as a list", () => {
+    const schemas = getScalarSchemas(time().array()["~"].state);
+    const result = parse(schemas.update, { push: "10:30:00.000" });
+
+    expect(result).toEqual({ value: { push: ["10:30:00.000"] } });
+  });
+
+  test("time update accepts an explicit scalar set", () => {
+    const schemas = getScalarSchemas(time()["~"].state);
+
+    expect(parse(schemas.create, "10:30:00.000")).toEqual({
+      value: "10:30:00.000",
+    });
+    expect(parse(schemas.update, { set: "10:30:00.000" })).toEqual({
+      value: { set: "10:30:00.000" },
     });
   });
 });

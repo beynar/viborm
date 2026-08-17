@@ -355,6 +355,70 @@ export function runPolymorphicRelationBehavior(
       ]);
     });
 
+    test("target-local omit subtracts from polymorphic select", async () => {
+      const { client } = requireDatabase();
+      const post = await client.post.create({
+        data: {
+          slug: "projected-post",
+          title: "Projected post",
+        },
+      });
+      const video = await client.video.create({
+        data: {
+          slug: "projected-video",
+          title: "Projected video",
+        },
+      });
+      await client.comment.create({
+        data: {
+          body: "post comment",
+          commentable: { connect: { type: "post", where: { id: post.id } } },
+        },
+      });
+      await client.comment.create({
+        data: {
+          body: "video comment",
+          commentable: {
+            connect: { type: "video", where: { id: video.id } },
+          },
+        },
+      });
+
+      const comments = await client.comment.findMany({
+        orderBy: { id: "asc" },
+        select: {
+          body: true,
+          commentable: {
+            post: {
+              select: { id: true, slug: true, title: true },
+              omit: { slug: true },
+            },
+            video: {
+              select: { id: true, slug: true, title: true },
+              omit: { slug: true },
+            },
+          },
+        },
+      });
+
+      expect(comments).toEqual([
+        {
+          body: "post comment",
+          commentable: {
+            type: "post",
+            data: { id: post.id, title: "Projected post" },
+          },
+        },
+        {
+          body: "video comment",
+          commentable: {
+            type: "video",
+            data: { id: video.id, title: "Projected video" },
+          },
+        },
+      ]);
+    });
+
     test.runIf(options.name === "pg")(
       "inverse reads use the generated discriminator/id index",
       async () => {

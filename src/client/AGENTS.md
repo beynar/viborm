@@ -24,7 +24,7 @@ This works because:
 1. Schema definitions carry type information via State generics
 2. Validation model schemas have branded types for operation inference
 3. Client uses recursive proxies to intercept calls
-4. Result types adapt based on select/include args
+4. Result types adapt based on select/include/omit args
 
 ---
 
@@ -90,7 +90,18 @@ await orm.user.findMany({ select: { email: true } })
 // Include → scalars + relations
 await orm.user.findMany({ include: { posts: true } })
 // → { id, email, name, posts: Post[] }[]
+
+// Query-level omit subtracts after select
+await orm.user.findMany({
+  select: { id: true, email: true, name: true },
+  omit: { name: true },
+})
+// → { id, email }[]
 ```
+
+An explicit `select` overrides the client-level omit default, but a query-level
+`omit` written beside that select still subtracts from it. The same rule applies
+on nested relation nodes and row-returning bulk writes.
 
 ---
 
@@ -106,7 +117,32 @@ Never use type assertions (`as`). If you need `as`, something is wrong upstream 
 Every operation needs entries in BOTH `OperationPayload` (input) AND `OperationResult` (output) types.
 
 ### Rule 4: Result Adaptation
-Use `InferSelectInclude` to compute result type. Don't return fixed model type when select/include should narrow it.
+Use `InferSelectInclude` to compute result type. Do not return a fixed model type
+when `select`, `include`, or `omit` should change it.
+
+### Rule 5: Keep Nested Client Omit Client-Local
+Client-level `omit` reaches nested result types through a minimal, client-only
+surface carrier. A model surface contains only its scalar, ordinary-relation,
+and polymorphic-relation key sets plus that client's configured omission.
+
+Resolve a unique surface match exactly. When several schema models have the
+same surface, widen the candidate omission flags so affected result fields are
+optional. Never guess one model identity from an ambiguous structural match.
+
+Do not put client defaults or schema-key brands into `Model`, `ModelState`, or
+relation state. Do not compare full model types, inspect relation getters
+recursively, or include scalar schema values in the carrier. Those forms reopen
+the mutually-recursive `any` collapse and make custom-schema types part of the
+completion hot path. A client with no configured omit must take the early
+no-carrier path.
+
+### Type-only public client probes
+
+Keep `createClient()` inside an uncalled function when a test only inspects an
+inferred return type. Holding many constructed clients in module scope keeps
+their schema registries alive for the full Vitest worker and can exhaust the
+client layer's memory cap. Runtime contracts should construct and execute a
+real client normally.
 
 ---
 

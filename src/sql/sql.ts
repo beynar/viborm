@@ -8,6 +8,15 @@ export type Value = unknown;
  */
 export type RawValue = Value | Sql;
 
+type Placeholder = "$n" | ":n" | "?";
+
+interface SqlProjection {
+  strings: string[];
+  values: Value[];
+}
+
+type StatementCache = Partial<Record<Placeholder, string>>;
+
 /**
  * A SQL instance can be nested within each other to build SQL strings.
  *
@@ -17,16 +26,11 @@ export type RawValue = Value | Sql;
  * intermediate fragments never pay flattening or allocation.
  */
 export class Sql {
-  private readonly rawStrings: readonly string[];
-  private readonly rawValues: readonly RawValue[];
+  private rawStrings: readonly string[];
+  private rawValues: readonly RawValue[];
 
-  private _values: Value[] | undefined;
-  private _strings: string[] | undefined;
-
-  // Cached statement strings (memoized per placeholder type)
-  private _stmt$n: string | undefined;
-  private _stmt$: string | undefined;
-  private _stmtQ: string | undefined;
+  private projection: SqlProjection | undefined;
+  private statements: StatementCache | undefined;
 
   constructor(rawStrings: readonly string[], rawValues: readonly RawValue[]) {
     if (rawStrings.length - 1 !== rawValues.length) {
@@ -45,24 +49,24 @@ export class Sql {
   }
 
   get values(): Value[] {
-    if (this._values === undefined) {
-      this.flatten();
-    }
-    return this._values as Value[];
+    return this.flatten().values;
   }
 
   get strings(): string[] {
-    if (this._strings === undefined) {
-      this.flatten();
-    }
-    return this._strings as string[];
+    return this.flatten().strings;
   }
 
   /**
    * Flatten the raw fragment tree in one pass, walking children's raw
    * fragments directly so nested Sql instances are never flattened themselves.
+   * The flat arrays then replace the raw tree as the canonical representation,
+   * releasing child fragments that are not referenced elsewhere.
    */
-  private flatten(): void {
+  private flatten(): SqlProjection {
+    if (this.projection !== undefined) {
+      return this.projection;
+    }
+
     const strings: string[] = [];
     const values: Value[] = [];
     let current = "";
@@ -88,63 +92,50 @@ export class Sql {
     walk(this.rawStrings, this.rawValues);
     strings.push(current);
 
-    this._strings = strings;
-    this._values = values;
+    const projection: SqlProjection = { strings, values };
+
+    this.rawStrings = strings;
+    this.rawValues = values;
+    this.projection = projection;
+
+    return projection;
   }
 
   /**
    * Build the final SQL statement string with placeholders.
    * Results are cached per placeholder type for reuse.
    */
-  toStatement(placeholder: "$n" | ":n" | "?" = "?"): string {
-    // Check cache first
-    if (placeholder === "$n") {
-      if (this._stmt$n !== undefined) return this._stmt$n;
-    } else if (placeholder === ":n") {
-      if (this._stmt$ !== undefined) return this._stmt$;
-    } else if (this._stmtQ !== undefined) return this._stmtQ;
+  toStatement(placeholder: Placeholder = "?"): string {
+    const cached = this.statements?.[placeholder];
+    if (cached !== undefined) return cached;
 
-    // Build the statement
     const strings = this.strings;
     const len = strings.length;
 
     if (len === 1) {
-      // No placeholders needed
       const result = strings[0]!;
-      this._stmt$n = this._stmt$ = this._stmtQ = result;
+      this.statements = { $n: result, ":n": result, "?": result };
       return result;
     }
 
-    // Pre-calculate total length for better string allocation
-    // Use array join for better performance with many segments
-    const parts = new Array<string>(len * 2 - 1);
-    parts[0] = strings[0]!;
+    let result: string;
 
     if (placeholder === "?") {
-      // Simple ? placeholders (MySQL/SQLite style)
-      for (let i = 1; i < len; i++) {
-        parts[i * 2 - 1] = "?";
-        parts[i * 2] = strings[i]!;
-      }
+      result = strings.join("?");
     } else {
-      // Numbered placeholders ($1, $2 or :1, :2)
       const prefix = placeholder === "$n" ? "$" : ":";
+      const parts = new Array<string>(len * 2 - 1);
+      parts[0] = strings[0]!;
       for (let i = 1; i < len; i++) {
         parts[i * 2 - 1] = prefix + i;
         parts[i * 2] = strings[i]!;
       }
+      result = parts.join("");
     }
 
-    const result = parts.join("");
-
-    // Cache the result
-    if (placeholder === "$n") {
-      this._stmt$n = result;
-    } else if (placeholder === ":n") {
-      this._stmt$ = result;
-    } else {
-      this._stmtQ = result;
-    }
+    const statements = this.statements ?? {};
+    statements[placeholder] = result;
+    this.statements = statements;
 
     return result;
   }
@@ -224,12 +215,11 @@ export { empty, join, raw, sqlTag as sql };
  * builds).
  */
 export function isSql(value: unknown): value is Sql {
-  return (
-    value !== null &&
-    typeof value === "object" &&
-    "strings" in value &&
-    "values" in value &&
-    Array.isArray((value as Sql).strings) &&
-    Array.isArray((value as Sql).values)
-  );
+  if (value instanceof Sql) return true;
+  if (value === null || typeof value !== "object") return false;
+
+  const strings = Reflect.get(value, "strings");
+  if (!Array.isArray(strings)) return false;
+
+  return Array.isArray(Reflect.get(value, "values"));
 }

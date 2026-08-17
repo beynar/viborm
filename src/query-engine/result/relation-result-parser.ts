@@ -8,9 +8,9 @@ import {
   isResultRow,
   malformedResult,
   normalizeResultRows,
+  parseResultRows,
   type RowValueParsers,
 } from "./result-parser-contract";
-import { createRowParser } from "./result-row-parser";
 
 export function parseRelationValueDefault(
   ctx: ResultParser,
@@ -59,21 +59,23 @@ export function parseRelationValueDefault(
     if (!first) {
       return [];
     }
-    const keys = Object.keys(first);
+    let keys: readonly string[] | undefined;
     if (shape) {
-      for (const row of rows) assertExpectedRowKeys(ctx, operation, row, shape);
+      for (let i = 0; i < rows.length; i++) {
+        assertExpectedRowKeys(ctx, operation, rows[i]!, shape);
+      }
     } else {
+      keys = Object.keys(first);
       assertUniformRowKeys(ctx, operation, rows, keys);
     }
-    const itemParser = createRowParser(
-      ctx,
-      operation,
-      keys,
+    const itemParser = parsers.getRowParser(
       targetModel,
+      first,
+      operation,
       shape,
-      parsers
+      keys
     );
-    const parsed = rows.map(itemParser);
+    const parsed = parseResultRows(rows, itemParser);
     // A negative nested `take` was executed as a reversed window — restore the
     // logical order here, exactly as the top level does for its own rows.
     return shape?.reversed ? parsed.reverse() : parsed;
@@ -87,31 +89,10 @@ export function parseRelationValueDefault(
     );
   }
   if (shape) assertExpectedRowKeys(ctx, operation, value, shape);
-  return deserializeWithSchema(
-    ctx,
-    operation,
-    value,
+  return parsers.getRowParser(
     targetModel,
-    shape,
-    parsers
-  );
-}
-
-function deserializeWithSchema(
-  ctx: ResultParser,
-  operation: Operation,
-  obj: Record<string, unknown>,
-  model: Model<any>,
-  shape: ExpectedResultShape | undefined,
-  parsers: RowValueParsers
-): Record<string, unknown> {
-  const keys = Object.keys(obj);
-  return createRowParser(
-    ctx,
+    value,
     operation,
-    keys,
-    model,
-    shape,
-    parsers
-  )(obj);
+    shape
+  )(value);
 }

@@ -21,7 +21,7 @@ import {
   malformedScalarValue,
   type RowValueParsers,
 } from "./result-parser-contract";
-import { parseResultDefault } from "./result-row-parser";
+import { createRowParser, parseResultDefault } from "./result-row-parser";
 import { buildExpectedResultShape } from "./result-shape";
 import { parseFieldValueDefault } from "./scalar-result-parser";
 
@@ -43,6 +43,13 @@ type ResultParserChain = (
   operation: Operation,
   shape?: ExpectedResultShape
 ) => unknown;
+type RowParser = ReturnType<typeof createRowParser>;
+
+interface CachedRowParser {
+  readonly model: Model<any>;
+  readonly operation: Operation;
+  readonly parse: RowParser;
+}
 
 /** Owns provider middleware and identity caches for one result boundary. */
 export class ResultParser {
@@ -54,6 +61,10 @@ export class ResultParser {
   private readonly polymorphicChains = new WeakMap<
     AnyPolymorphicRelation,
     PolymorphicParser
+  >();
+  private readonly nestedRowParsers = new WeakMap<
+    ExpectedResultShape,
+    CachedRowParser[]
   >();
   private resultChain: ResultParserChain | undefined;
 
@@ -157,8 +168,50 @@ export class ResultParser {
     return chain;
   }
 
+  private getNestedRowParser(
+    model: Model<any>,
+    row: Record<string, unknown>,
+    operation: Operation,
+    shape: ExpectedResultShape | undefined,
+    parsers: RowValueParsers,
+    knownKeys?: readonly string[]
+  ): RowParser {
+    if (!shape) {
+      const keys = knownKeys ?? Object.keys(row);
+      return createRowParser(this, operation, keys, model, shape, parsers);
+    }
+
+    const cached = this.nestedRowParsers.get(shape);
+    if (cached) {
+      for (const rowParser of cached) {
+        if (
+          rowParser.model === model &&
+          rowParser.operation === operation
+        ) {
+          return rowParser.parse;
+        }
+      }
+    }
+
+    const keys = knownKeys ?? Object.keys(row);
+    const parse = createRowParser(this, operation, keys, model, shape, parsers);
+    const rowParser: CachedRowParser = { model, operation, parse };
+    if (cached) cached.push(rowParser);
+    else this.nestedRowParsers.set(shape, [rowParser]);
+    return parse;
+  }
+
   private createRowValueParsers(): RowValueParsers {
     const parsers: RowValueParsers = {
+      getRowParser: (model, row, operation, shape, keys) =>
+        this.getNestedRowParser(
+          model,
+          row,
+          operation,
+          shape,
+          parsers,
+          keys
+        ),
       parseField: (scalar, value, operation) =>
         this.getFieldChain(scalar)(value, operation),
       parseRelation: (relation, value, operation, shape) =>

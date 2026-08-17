@@ -1,7 +1,7 @@
 # VibORM Domain
 
-This glossary names the relation concepts that distinguish public cardinality
-from the stored association between records.
+This glossary names the relation and search concepts whose distinctions carry
+domain meaning across VibORM's schema, migration, and query boundaries.
 
 ## Relation language
 
@@ -53,3 +53,57 @@ _Avoid_: Foreign key when the storage is polymorphic or belongs to a junction
 The complete stored fact that identifies one relation membership. It can combine
 stored references with fixed qualifiers such as a polymorphic discriminator.
 _Avoid_: Identity, reference key
+
+## Write-execution language
+
+**Record tree**:
+One record mutation together with the nested record and relation mutations it
+owns.
+_Avoid_: Record series, bulk write
+
+**Record series**:
+An ordered sequence of record trees in which a later member may observe the
+effects of earlier members.
+_Avoid_: Bulk statement, record tree
+
+**Write segment**:
+One provider submission whose user-table writes share one commit or rollback
+decision. A segment can contain part of a record tree or one complete member.
+_Avoid_: Record member, public operation, SQL statement
+
+**Operation-atomic execution**:
+Execution in which every write of one public operation commits or rolls back
+together.
+_Avoid_: Transactional when only one internal segment is atomic
+
+**Segment-atomic execution**:
+Execution in which each ordered write segment commits or rolls back
+independently, so a later failure can leave an earlier segment committed.
+_Avoid_: Atomic operation, best-effort transaction
+
+## Search language
+
+**Search declaration**:
+The model-level intent that names searchable fields, composites, attributes,
+and an optional implementation preset.
+_Avoid_: Search index when referring only to public schema intent
+
+**Resolved search definition**:
+The final-model form of a search declaration, including its ordered row key,
+mapped members, implementation identity, and semantic revision.
+_Avoid_: Search program, search deployment
+
+**Search deployment**:
+The complete reconstructable database artifact group that maintains one
+resolved search definition.
+_Avoid_: Search table, search index when referring to the whole artifact group
+
+**Search query source**:
+The provider-compiled, joinable source that exposes one search row per source
+record, its complete row-key join, rank, and declared attribute expressions.
+_Avoid_: Search predicate when rank or attributes must reach the outer query
+
+**Matched set**:
+The records selected by one normalized search query together with its model and
+attribute filters, before projection or faceting.
+_Avoid_: Hits when pagination or projection has already narrowed the records

@@ -1,4 +1,5 @@
 import type { ScalarState } from "@schema/scalars/common";
+import { lazyScalarSchemas } from "../lazy";
 import v, { type V } from "../primitives/v";
 import { createScalarInterner, scalarInternKey } from "./intern";
 import {
@@ -186,18 +187,20 @@ export const buildBigIntSchema = <
   state: F
 ): BigIntSchemas<F, C> => {
   const key = scalarInternKey(state);
-  return {
-    base: state.base as F["base"],
-    create: v.bigint(state),
-    update: internUpdate(key, () =>
-      state.array
-        ? buildBigIntListUpdateSchema(state.base)
-        : buildBigIntUpdateSchema(state.base)
-    ) as never,
-    filter: internFilter(key, () =>
-      state.array
-        ? buildBigIntListFilterSchema(state.base)
-        : buildBigIntFilterSchema(state.base)
-    ) as never,
-  } as BigIntSchemas<F, C>;
+  return lazyScalarSchemas<BigIntSchemas<F, C>>({
+    base: state.base,
+    create: () => v.bigint(state),
+    update: () =>
+      internUpdate(key, () =>
+        state.array
+          ? buildBigIntListUpdateSchema(state.base)
+          : buildBigIntUpdateSchema(state.base)
+      ) as never,
+    filter: () =>
+      internFilter(key, () =>
+        state.array
+          ? buildBigIntListFilterSchema(state.base)
+          : buildBigIntFilterSchema(state.base)
+      ) as never,
+  });
 };

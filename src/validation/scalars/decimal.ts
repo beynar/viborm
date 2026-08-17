@@ -1,4 +1,5 @@
 import type { ScalarState } from "@schema/scalars/common";
+import { lazyScalarSchemas } from "../lazy";
 import v, { type V } from "../primitives/v";
 import {
   buildNegatableFilterSchema,
@@ -180,14 +181,16 @@ export const buildDecimalSchema = <
 >(
   state: F
 ): DecimalSchemas<F, C> => {
-  return {
-    base: state.base as F["base"],
-    create: v.decimal(state),
-    update: state.array
-      ? buildDecimalListUpdateSchema(state.base)
-      : buildDecimalUpdateSchema(state.base),
-    filter: state.array
-      ? buildDecimalListFilterSchema(state.base)
-      : buildDecimalFilterSchema(state.base),
-  } as DecimalSchemas<F, C>;
+  return lazyScalarSchemas<DecimalSchemas<F, C>>({
+    base: state.base,
+    create: () => v.decimal(state),
+    update: () =>
+      (state.array
+        ? buildDecimalListUpdateSchema(state.base)
+        : buildDecimalUpdateSchema(state.base)) as never,
+    filter: () =>
+      (state.array
+        ? buildDecimalListFilterSchema(state.base)
+        : buildDecimalFilterSchema(state.base)) as never,
+  });
 };

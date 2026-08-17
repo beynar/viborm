@@ -26,6 +26,19 @@ describe("SQL fragment contracts", () => {
     expect(stringsFirst.values).toEqual([1]);
   });
 
+  test("composes a child whose flat representation is already canonical", () => {
+    const child = sql`name = ${"Ada"}`;
+    expect(child.toStatement("$n")).toBe("name = $1");
+
+    const query = sql`SELECT * FROM users WHERE ${child} AND active = ${true}`;
+
+    expect(query.toStatement("$n")).toBe(
+      "SELECT * FROM users WHERE name = $1 AND active = $2"
+    );
+    expect(query.values).toEqual(["Ada", true]);
+    expect(child.toStatement("?")).toBe("name = ?");
+  });
+
   test("renders and caches every placeholder convention", () => {
     const query = sql`a = ${1} AND b = ${2}`;
 
@@ -94,6 +107,20 @@ describe("SQL fragment contracts", () => {
     expect(isSql({ strings: ["SELECT 1"], values: "not-an-array" })).toBe(
       false
     );
+  });
+
+  test("recognizes a local fragment without reading its projections", () => {
+    class ProjectionTrapSql extends Sql {
+      override get strings(): never {
+        throw new Error("strings projection was read");
+      }
+
+      override get values(): never {
+        throw new Error("values projection was read");
+      }
+    }
+
+    expect(isSql(new ProjectionTrapSql(["SELECT 1"], []))).toBe(true);
   });
 });
 

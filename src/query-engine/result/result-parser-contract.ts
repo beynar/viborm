@@ -11,6 +11,13 @@ import { QueryEngineError } from "../types";
 import type { ResultParser } from "./ResultParser";
 
 export interface RowValueParsers {
+  getRowParser(
+    model: Model<any>,
+    row: Record<string, unknown>,
+    operation: Operation,
+    shape?: ExpectedResultShape,
+    keys?: readonly string[]
+  ): (row: Record<string, unknown>) => Record<string, unknown>;
   parseField(scalar: Scalar, value: unknown, operation: Operation): unknown;
   parseRelation(
     relation: AnyRelation,
@@ -85,18 +92,62 @@ export function normalizeResultRows(
   operation: Operation,
   values: unknown[]
 ): Record<string, unknown>[] {
-  const rows: Record<string, unknown>[] = [];
-  for (const value of values) {
+  assertResultRows(ctx, operation, values);
+  return values;
+}
+
+function assertResultRows(
+  ctx: ResultParser,
+  operation: Operation,
+  values: unknown[]
+): asserts values is Record<string, unknown>[] {
+  for (let i = 0; i < values.length; i++) {
+    const value = values[i];
     if (!isResultRow(value)) {
-      return malformedResult(
+      malformedResult(
         ctx,
         operation,
         "every returned row must be a non-null object"
       );
     }
-    rows.push(value);
   }
-  return rows;
+}
+
+export function parseResultRows<T>(
+  rows: readonly Record<string, unknown>[],
+  parseRow: (row: Record<string, unknown>) => T
+): T[] {
+  const parsed: T[] = new Array(rows.length);
+  for (let i = 0; i < rows.length; i++) {
+    parsed[i] = parseRow(rows[i]!);
+  }
+  return parsed;
+}
+
+function countOwnEnumerableKeys(
+  row: Record<string, unknown>,
+  expectedCount: number
+): number {
+  let count = 0;
+  // Plain driver rows take one allocation-free pass. A custom row prototype
+  // with inherited enumerable keys pays the owned-key fallback only on mismatch.
+  for (const _key in row) count++;
+  if (count === expectedCount) return count;
+  count = 0;
+  for (const key in row) {
+    if (Object.hasOwn(row, key)) count++;
+  }
+  return count;
+}
+
+function hasEveryOwnKey(
+  row: Record<string, unknown>,
+  keys: readonly string[]
+): boolean {
+  for (let i = 0; i < keys.length; i++) {
+    if (!Object.hasOwn(row, keys[i]!)) return false;
+  }
+  return true;
 }
 
 export function assertUniformRowKeys(
@@ -106,10 +157,9 @@ export function assertUniformRowKeys(
   keys: readonly string[]
 ): void {
   for (const row of rows) {
-    const rowKeys = Object.keys(row);
     if (
-      rowKeys.length !== keys.length ||
-      !keys.every((key) => Object.hasOwn(row, key))
+      countOwnEnumerableKeys(row, keys.length) !== keys.length ||
+      !hasEveryOwnKey(row, keys)
     ) {
       malformedResult(
         ctx,
@@ -126,10 +176,25 @@ export function assertExpectedRowKeys(
   row: Record<string, unknown>,
   shape: ExpectedResultShape
 ): void {
-  const keys = Object.keys(row);
+  assertExpectedKeySet(
+    ctx,
+    operation,
+    row,
+    shape,
+    countOwnEnumerableKeys(row, shape.rawKeys.length)
+  );
+}
+
+function assertExpectedKeySet(
+  ctx: ResultParser,
+  operation: Operation,
+  row: Record<string, unknown>,
+  shape: ExpectedResultShape,
+  keyCount: number
+): void {
   if (
-    keys.length !== shape.rawKeys.length ||
-    !shape.rawKeys.every((key) => Object.hasOwn(row, key))
+    keyCount !== shape.rawKeys.length ||
+    !hasEveryOwnKey(row, shape.rawKeys)
   ) {
     malformedResult(
       ctx,

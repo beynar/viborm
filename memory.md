@@ -62,3 +62,26 @@
   deriving capabilities: may the public slot be empty, can stored membership be
   cleared while both records survive, and is non-empty membership valid. Do not
   use one `optional` flag as a proxy for all three.
+- When a generated string will be cached, measure retained heap as well as
+  construction throughput. Repeated `+=` can benchmark faster while retaining a
+  large cons-string tree; use flat assembly when the cached representation must
+  stay compact, and verify both first-use latency and post-GC retention.
+- When V8 allocation sampling includes collected objects across many hot-path
+  iterations, use a coarse interval such as 8 KiB; a 128-byte interval can make
+  the inspector response exceed Node's maximum string size. Reserve the fine
+  interval for one cold operation, measure an empty-profile control, and check
+  retained heap in a fresh process without the profiler.
+- When asked to add regression coverage, test the existing public contract. Do
+  not turn a documented limitation into an API or architecture redesign unless
+  the user explicitly asks to change that contract. If an exact assertion would
+  require such a redesign, pin the supported behavior and report the limitation
+  separately.
+- When a user accepts a safety or consistency trade-off while revising an
+  architecture plan, encode it as the recommended route with its exact failure
+  contract. Do not preserve the superseded hard boundary, and do not mistake a
+  plan amendment for authorization to implement production code.
+- When one architecture plan depends on prototypes from another, rebase it on
+  the prototypes' recorded dispositions before implementation. Name retained
+  owners as dependencies, treat rejected concepts as forbidden—not missing—and
+  replace only the narrow responsibility that the downstream plan genuinely
+  still needs.

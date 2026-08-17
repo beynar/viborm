@@ -79,6 +79,45 @@ describe("Vector Select Schema", () => {
     expectTypeOf<keyof Result>().toEqualTypeOf<"id" | "_distance">();
   });
 
+  test("type: omit removes a selected vector field's _distance alias", () => {
+    type Result = OperationResult<
+      "findMany",
+      typeof vectorSelectModels.doc,
+      {
+        select: {
+          id: true;
+          embedding: {
+            _distance: { to: number[]; metric: "cosine" };
+          };
+        };
+        omit: { embedding: true };
+      }
+    >[number];
+
+    expectTypeOf<Result>().toEqualTypeOf<{ id: string }>();
+  });
+
+  test("type: a widened vector omit makes _distance optional", () => {
+    type Result = OperationResult<
+      "findMany",
+      typeof vectorSelectModels.doc,
+      {
+        select: {
+          id: true;
+          embedding: {
+            _distance: { to: number[]; metric: "cosine" };
+          };
+        };
+        omit: { embedding: boolean };
+      }
+    >[number];
+
+    expectTypeOf<Result>().toEqualTypeOf<{
+      id: string;
+      _distance?: number;
+    }>();
+  });
+
   test("runtime: accepts _distance select on vector scalar fields", () => {
     const result = parse(vectorSelectSchemas.core.select, {
       embedding: {
@@ -90,6 +129,26 @@ describe("Vector Select Schema", () => {
     });
 
     expect(result.issues).toBeUndefined();
+  });
+
+  test("runtime: omit removes the vector selection before it becomes _distance", () => {
+    const result = parse(vectorSelectSchemas.args.findMany, {
+      select: {
+        id: true,
+        embedding: {
+          _distance: {
+            to: [0.1, 0.2, 0.3],
+            metric: "l2",
+          },
+        },
+      },
+      omit: { embedding: true },
+    });
+
+    expect(result.issues).toBeUndefined();
+    expect("value" in result ? result.value?.select : undefined).toEqual({
+      id: true,
+    });
   });
 
   test("runtime: rejects _distance select on non-vector scalar fields", () => {

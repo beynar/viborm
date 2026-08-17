@@ -282,8 +282,8 @@ export class UpsertOperation {
       "update"
     );
     // The projection is parsed as ONE object rather than key by key, because
-    // `omit` is only meaningful next to `select`: the schema refuses the pair and
-    // rewrites a surviving `omit` into the `select` it denotes
+    // The projection schema folds `omit` into `select`, whether it starts from
+    // the default scalar set or subtracts from an explicit selection.
     // (@validation/model/args/omit). Everything else about upsert's deliberate
     // no-whole-args-parse stance is unchanged — this schema carries the three
     // projection keys and nothing else, so neither arm is validated here.

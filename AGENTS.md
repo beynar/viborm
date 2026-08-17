@@ -205,6 +205,7 @@ OpenTelemetry is an optional peer dependency. Most users don't need tracing. Dyn
 | Blocking background operations | Slow response times | Move locks/checks inside async callbacks |
 | Fire-and-forget without error handling | Silent failures | Add `.catch()` with logging |
 | DX claim pinned through an internal type alias | The alias is typed, the call site is not | Probe through the public API (see below) |
+| Inferred return on a driver `createClient` wrapper | The language service repeatedly expands the full generic client during query completion | Declare the wrapper's `VibORMClient<C & { driver: D }>` return type explicitly |
 
 ---
 

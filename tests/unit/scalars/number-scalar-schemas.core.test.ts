@@ -1243,6 +1243,14 @@ describe("Decimal Scalar", () => {
         expect(result.value).toEqual(["1.1", "2", "0"]);
       });
     });
+
+    describe("update", () => {
+      test("runtime: push canonicalizes one value and coerces it to a list", () => {
+        const result = parse(schemas.update, { push: "1.10" });
+        if (result.issues) throw new Error("Expected success");
+        expect(result.value).toEqual({ push: ["1.1"] });
+      });
+    });
   });
 
   // ===========================================================================

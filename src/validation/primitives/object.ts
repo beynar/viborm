@@ -367,6 +367,9 @@ const OBJECT_TYPE_ERROR = Object.freeze({
   issues: Object.freeze([Object.freeze({ message: "Expected object" })]),
 });
 
+const EMPTY_METADATA_ARRAY: readonly never[] = Object.freeze([]);
+const EMPTY_KEY_INDEX: ReadonlyMap<string, number> = Object.freeze(new Map());
+
 /**
  * Create an optimized validator for an object schema.
  * Minimal overhead, Valibot-style simplicity.
@@ -384,77 +387,86 @@ function createObjectValidator(
     omit,
     nonEmpty,
   } = options;
-  // Filter out omitted keys
-  const omitSet = omit ? new Set(omit) : null;
-  const keys = Object.keys(entries).filter((k) => !omitSet?.has(k));
-  const keyCount = keys.length;
-  const keySet = new Set(keys);
-  const activeRequiresOneOf = requiresOneOf?.filter(
-    (group) => !group.some((key) => omitSet?.has(key))
-  );
-  const activeRequiresOneOfKeySets = requiresOneOfKeySets?.filter(
-    (group) => !group.some((keySet) => keySet.some((key) => omitSet?.has(key)))
-  );
+  let keys: readonly string[] = EMPTY_METADATA_ARRAY;
+  let keyIndex = EMPTY_KEY_INDEX;
+  let validates: readonly ((value: unknown) => any)[] = EMPTY_METADATA_ARRAY;
+  let activeRequiresOneOf: ObjectOptions["requiresOneOf"];
+  let activeRequiresOneOfKeySets: ObjectOptions["requiresOneOfKeySets"];
+  let isFullyPartial = true;
+  let runOnMissingIdx: readonly number[] = EMPTY_METADATA_ARRAY;
+  let acceptsUndefined: readonly boolean[] = EMPTY_METADATA_ARRAY;
+  let requiredByAtLeast: readonly boolean[] | null = null;
 
-  // Pre-compute which keys are required via atLeast
-  const atLeastSet = atLeast ? new Set(atLeast) : null;
+  // Compile only when a record first reaches this validator. Registry schemas
+  // that are never used retain their public entries, but no lookup structures.
+  let resolve: (() => void) | undefined;
+  resolve = () => {
+    // Release this resolver before resolving thunks. The state arrays are
+    // published below, so a circular thunk observes initialized storage.
+    resolve = undefined;
 
-  // Key -> index lookup for the partial fast path
-  const keyIndex = new Map<string, number>();
-  for (let i = 0; i < keyCount; i++) {
-    keyIndex.set(keys[i]!, i);
-  }
+    const omitSet = omit ? new Set(omit) : null;
+    const resolvedKeys = Object.keys(entries).filter(
+      (key) => !omitSet?.has(key)
+    );
+    const atLeastSet = atLeast ? new Set(atLeast) : null;
+    const resolvedKeyIndex = new Map<string, number>();
+    const resolvedValidates: ((value: unknown) => any)[] = new Array(
+      resolvedKeys.length
+    );
+    const resolvedIsFullyPartial = partial && !atLeastSet;
+    const resolvedActiveRequiresOneOf = requiresOneOf?.filter(
+      (group) => !group.some((key) => omitSet?.has(key))
+    );
+    const resolvedActiveRequiresOneOfKeySets =
+      requiresOneOfKeySets?.filter(
+        (group) =>
+          !group.some((keySet) => keySet.some((key) => omitSet?.has(key)))
+      );
+    let mutableRunOnMissingIdx: number[] | undefined;
+    let mutableAcceptsUndefined: boolean[] | undefined;
 
-  // Fully-partial objects (where/select/orderBy args) can iterate input keys
-  // instead of all schema keys — input is usually far narrower than the schema.
-  const isFullyPartial = partial && !atLeastSet;
-  // Indices of keys that must run on absence (they may apply a default);
-  // populated during resolve().
-  const runOnMissingIdx: number[] = [];
+    keys = resolvedKeys;
+    keyIndex = resolvedKeyIndex;
+    validates = resolvedValidates;
+    activeRequiresOneOf = resolvedActiveRequiresOneOf;
+    activeRequiresOneOfKeySets = resolvedActiveRequiresOneOfKeySets;
+    isFullyPartial = resolvedIsFullyPartial;
 
-  // Lazy resolution flag - for circular refs
-  let resolved = false;
-  // Direct arrays for maximum access speed (no object property lookup)
-  const validates: ((v: unknown) => any)[] = new Array(keyCount);
-  const acceptsUndefined: boolean[] = new Array(keyCount);
-  const isRequired: boolean[] = new Array(keyCount);
-  // Error artifacts (key paths, missing-field messages) are built on first
-  // use: they only matter on validation failure, so constructing them per key
-  // at schema-creation time was pure cold-start cost on the success path.
-  const keyPaths: PropertyKey[][] = new Array(keyCount);
-  const getKeyPath = (i: number): PropertyKey[] => (keyPaths[i] ??= [keys[i]!]);
-  const missingError = (i: number) => ({
-    issues: [
-      { message: `Missing required field: ${keys[i]}`, path: [keys[i]!] },
-    ],
-  });
+    if (resolvedIsFullyPartial) {
+      mutableRunOnMissingIdx = [];
+      runOnMissingIdx = mutableRunOnMissingIdx;
+      acceptsUndefined = EMPTY_METADATA_ARRAY;
+      requiredByAtLeast = null;
+    } else {
+      mutableAcceptsUndefined = new Array(resolvedKeys.length);
+      runOnMissingIdx = EMPTY_METADATA_ARRAY;
+      acceptsUndefined = mutableAcceptsUndefined;
+      // Sparse atLeast schemas cache required flags. Fully-required schemas
+      // derive the answer from partial=false without retaining another array.
+      requiredByAtLeast =
+        partial && atLeastSet
+          ? resolvedKeys.map((key) => atLeastSet.has(key))
+          : null;
+    }
 
-  // Pre-compute required flags
-  for (let i = 0; i < keyCount; i++) {
-    // Key is required if: not partial, OR key is in atLeast list
-    isRequired[i] = !partial || (atLeastSet?.has(keys[i]!) ?? false);
-  }
-
-  // Resolve validators lazily (for circular refs)
-  const resolve = () => {
-    if (resolved) return;
-    resolved = true;
-    for (let i = 0; i < keyCount; i++) {
-      const key = keys[i]!;
+    // Publish the arrays before resolving thunks to preserve circular references.
+    for (let i = 0; i < resolvedKeys.length; i++) {
+      const key = resolvedKeys[i]!;
+      resolvedKeyIndex.set(key, i);
       const entry = entries[key]!;
       const schema = isFunction(entry)
         ? (entry as () => VibSchema<any, any>)()
         : entry;
 
-      const validate = schema["~standard"].validate;
-      validates[i] = validate;
-
-      acceptsUndefined[i] =
+      resolvedValidates[i] = schema["~standard"].validate;
+      const doesAcceptUndefined =
         (schema as { acceptsUndefined?: boolean }).acceptsUndefined === true;
-    }
-    for (let i = 0; i < keyCount; i++) {
-      if (acceptsUndefined[i]) {
-        runOnMissingIdx.push(i);
+
+      if (mutableRunOnMissingIdx) {
+        if (doesAcceptUndefined) mutableRunOnMissingIdx.push(i);
+      } else if (mutableAcceptsUndefined) {
+        mutableAcceptsUndefined[i] = doesAcceptUndefined;
       }
     }
   };
@@ -466,13 +478,13 @@ function createObjectValidator(
     }
 
     const input = value as Record<string, unknown>;
-    resolve(); // Inline the resolution check
+    if (resolve) resolve();
     const output: Record<string, unknown> = {};
 
     // Strict mode: check for extra keys first (fail-fast)
     if (strict) {
       for (const key in input) {
-        if (!keySet.has(key)) {
+        if (!keyIndex.has(key)) {
           return { issues: [{ message: `Unknown key: ${key}`, path: [key] }] };
         }
       }
@@ -555,9 +567,7 @@ function createObjectValidator(
             issues: [
               {
                 message: issue.message,
-                path: issue.path
-                  ? getKeyPath(i).concat(issue.path)
-                  : getKeyPath(i),
+                path: issue.path ? [key].concat(issue.path) : [key],
               },
             ],
           };
@@ -588,7 +598,7 @@ function createObjectValidator(
     // data schemas rely on this to surface defaults; required keys are always
     // present in valid input anyway, so sparse vs dense doesn't diverge there.
     // Validate each field - direct array access, no object property lookup
-    for (let i = 0; i < keyCount; i++) {
+    for (let i = 0; i < keys.length; i++) {
       const key = keys[i]!;
 
       // Handle an ABSENT key — which, per Prisma parity, includes a key that is
@@ -605,8 +615,15 @@ function createObjectValidator(
       // returned `{ count }`.
       if (input[key] === undefined) {
         // Key is required (partial: false OR in atLeast) and schema doesn't accept undefined
-        if (isRequired[i] && !acceptsUndefined[i]) {
-          return missingError(i);
+        if (
+          (!partial || requiredByAtLeast?.[i] === true) &&
+          !acceptsUndefined[i]
+        ) {
+          return {
+            issues: [
+              { message: `Missing required field: ${key}`, path: [key] },
+            ],
+          };
         }
 
         // If schema accepts undefined, run validator to apply defaults
@@ -631,9 +648,7 @@ function createObjectValidator(
           issues: [
             {
               message: issue.message,
-              path: issue.path
-                ? getKeyPath(i).concat(issue.path)
-                : getKeyPath(i),
+              path: issue.path ? [key].concat(issue.path) : [key],
             },
           ],
         };

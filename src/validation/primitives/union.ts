@@ -1,5 +1,5 @@
 import type { InferInput, InferOutput, VibSchema } from "../types";
-import { createSchema, fail, validateSchema } from "./helpers";
+import { createSchema, fail } from "./helpers";
 
 // =============================================================================
 // Union Schema
@@ -26,24 +26,28 @@ export interface UnionSchema<
 export function union<const TOptions extends readonly VibSchema<any, any>[]>(
   options: TOptions
 ): UnionSchema<TOptions> {
+  const validators = options.map((option) => option["~standard"].validate);
   const schema = createSchema<
     InferInput<TOptions[number]>,
     InferOutput<TOptions[number]>
   >("union", (value) => {
-    // Success path allocates nothing extra: the matching member's result is
-    // returned as-is (no ok() re-wrap), and error messages only start
-    // accumulating into an array once a SECOND member has failed — the common
+    // Success returns the matching member's result as-is. Messages only start
+    // accumulating once a SECOND member has failed, so the common
     // "first member misses, second matches" filter pattern (shorthand vs
     // object) stays allocation-free.
     let firstError: string | null = null;
     let restErrors: string[] | null = null;
 
-    for (const option of options) {
-      const result = validateSchema(option, value);
-      if (!result.issues) {
+    for (const validate of validators) {
+      const result = validate(value);
+      let message: string;
+      if ("then" in result) {
+        message = "Async schemas are not supported";
+      } else if (!result.issues) {
         return result as { value: InferOutput<TOptions[number]> };
+      } else {
+        message = result.issues[0]!.message;
       }
-      const message = result.issues[0]!.message;
       if (firstError === null) {
         firstError = message;
       } else {
