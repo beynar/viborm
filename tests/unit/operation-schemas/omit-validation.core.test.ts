@@ -4,8 +4,9 @@
  * Pins the three things the surface promises and the engine relies on:
  *  1. `omit` DESUGARS to the `select` it denotes and disappears — the engine has
  *     one projection vocabulary, not two;
- *  2. `select` + `omit` is refused, on every operation and on nested relation
- *     nodes, and so is an `omit` that leaves nothing to return;
+ *  2. `select` + `omit` subtracts omitted scalars from the selected shape, on
+ *     every operation and on nested relation nodes, while an `omit` that leaves
+ *     nothing to return is refused;
  *  3. model-level `.omit()` outranks both layers above it — the field has no
  *     `select` key and no `omit` key, so neither can bring it back.
  */
@@ -177,26 +178,75 @@ describe("omit on a nested relation node", () => {
   });
 });
 
-describe("refusals", () => {
-  test("select + omit on the same node is refused by name", () => {
+describe("select with omit", () => {
+  test("a disjoint omit leaves the selected shape unchanged", () => {
     const result = parse(schemas.user.args.findMany, {
       select: { id: true },
       omit: { passwordHash: true },
     });
-    expect(messages(result)).toContain(
-      "Mutually exclusive fields cannot be used together: select, omit"
-    );
+    expect(result.issues).toBeUndefined();
+    expect(value(result).select).toEqual({ id: true });
+    expect(value(result)).not.toHaveProperty("omit");
   });
 
-  test("select + omit is refused on a nested relation node too", () => {
+  test("an overlapping omit removes the selected scalar", () => {
     const result = parse(schemas.user.args.findMany, {
-      include: { posts: { select: { id: true }, omit: { title: true } } },
+      select: { id: true, email: true },
+      omit: { email: true },
     });
-    expect(messages(result)).toContain(
-      "Mutually exclusive fields cannot be used together: select, omit"
-    );
+    expect(result.issues).toBeUndefined();
+    expect(value(result).select).toEqual({ id: true });
   });
 
+  test("select + omit composes on a nested relation node too", () => {
+    const result = parse(schemas.user.args.findMany, {
+      include: {
+        posts: {
+          select: { id: true, title: true },
+          omit: { title: true },
+        },
+      },
+    });
+    expect(result.issues).toBeUndefined();
+    expect(value(result).include).toMatchObject({
+      posts: { select: { id: true } },
+    });
+  });
+
+  test("select + omit is refused when subtraction empties the projection", () => {
+    const result = parse(schemas.user.args.findMany, {
+      select: { id: true },
+      omit: { id: true },
+    });
+    expect(messages(result)).toContain("excluded every selected field");
+  });
+
+  test("omit does not weaken select + include exclusivity at either node", () => {
+    const root = parse(schemas.user.args.findMany, {
+      select: { id: true },
+      include: { posts: true },
+      omit: { passwordHash: true },
+    });
+    expect(messages(root)).toContain(
+      "Mutually exclusive fields cannot be used together: select, include"
+    );
+
+    const nested = parse(schemas.user.args.findMany, {
+      include: {
+        posts: {
+          select: { id: true },
+          include: { author: true },
+          omit: { title: true },
+        },
+      },
+    });
+    expect(messages(nested)).toContain(
+      "Mutually exclusive fields cannot be used together: select, include"
+    );
+  });
+});
+
+describe("refusals", () => {
   test("an omit that empties the projection is refused, not answered", () => {
     const result = parse(allHiddenSchemas.allHidden.args.findMany, {
       omit: { id: true, label: true },

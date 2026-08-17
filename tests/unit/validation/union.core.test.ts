@@ -81,5 +81,26 @@ describe("union schema", () => {
       expect(parse(schema, "hello").issues).toBeUndefined();
       expect(parse(schema, 42).issues).toBeDefined();
     });
+
+    test("returns the matching member result without wrapping it", () => {
+      const member = v.string({ optional: true });
+      const expected = member["~standard"].validate(undefined);
+      const schema = v.union([member]);
+
+      expect(schema["~standard"].validate(undefined)).toBe(expected);
+    });
+
+    test("treats an asynchronous member as a failed member", () => {
+      const asynchronous = v.string();
+      Object.defineProperty(asynchronous["~standard"], "validate", {
+        value: async () => ({ value: "unreachable" }),
+      });
+      const schema = v.union([asynchronous, v.number()]);
+
+      expect(parse(schema, 42)).toEqual({ value: 42 });
+      expect(parse(schema, true).issues?.[0]?.message).toContain(
+        "Async schemas are not supported"
+      );
+    });
   });
 });

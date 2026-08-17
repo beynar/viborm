@@ -21,8 +21,8 @@ const SELECT_INCLUDE_EXCLUSIVITY_ERROR = {
  * ...(inc && { include: inc }) }` spelled out, or a helper forwarding two
  * optional props (`{ select: args.select, include: args.include }`) — because an
  * explicitly-`undefined` key is an ABSENT key at the parse boundary
- * (`src/validation/primitives/object.ts`). That is the rule `select` + `omit`
- * already applies (`withOmitProjection`), and the rule the result types state,
+ * (`src/validation/primitives/object.ts`). `withOmitProjection` uses the same
+ * value-based presence rule when it decides whether an explicit select exists,
  * so a payload whose second projection is `undefined` names exactly one
  * projection and must be accepted.
  */

@@ -312,7 +312,7 @@ export function createClient<S extends Schema, C extends DriverConfig<S>>(
     DriverConfig<S> &
     NoExtraDriverConfigKeys<C, D1DriverOptions, S> &
     NoExtraNestedConfigKeys<C, S>
-) {
+): VibORMClient<C & { driver: D1Driver }> {
   const { database, ...restConfig } = config;
 
   const driver = new D1Driver({ database });

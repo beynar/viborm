@@ -72,6 +72,13 @@ function createSQLiteRecursiveRelationContext() {
   );
 }
 
+function createBranchRelationContext() {
+  return new ResultParser(
+    new PostgresAdapter(),
+    recursiveRelationModels.branch
+  );
+}
+
 describe("result parser contracts", () => {
   test("parses recursive relations with repeated names by relation identity", () => {
     const result = parseResult<
@@ -142,6 +149,41 @@ describe("result parser contracts", () => {
         "findMany",
         [{ id: "root-1", unexpected: true }],
         {}
+      )
+    ).toThrow(MALFORMED_RESULT_PATTERN);
+  });
+
+  test("ignores inherited enumerable properties when checking row columns", () => {
+    const row: Record<string, unknown> = Object.create({ inherited: true });
+    row.id = "root-1";
+
+    expect(
+      parseResult(createRecursiveRelationContext(), "findMany", [row], {})
+    ).toEqual([{ id: "root-1" }]);
+  });
+
+  test("checks every repeated to-one relation row after parser reuse", () => {
+    expect(() =>
+      parseResult(
+        createBranchRelationContext(),
+        "findMany",
+        [
+          {
+            id: "branch-1",
+            rootId: "root-1",
+            recordedAt: "2026-07-09T10:00:00.000Z",
+            payload: { source: "first" },
+            parent: { id: "root-1" },
+          },
+          {
+            id: "branch-2",
+            rootId: "root-1",
+            recordedAt: "2026-07-09T11:00:00.000Z",
+            payload: { source: "second" },
+            parent: { id: "root-1", unexpected: true },
+          },
+        ],
+        { include: { parent: true } }
       )
     ).toThrow(MALFORMED_RESULT_PATTERN);
   });

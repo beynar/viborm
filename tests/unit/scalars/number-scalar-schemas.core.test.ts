@@ -797,9 +797,9 @@ describe("Float Scalar", () => {
       });
 
       test("runtime: accepts float", () => {
-        const result = parse(schemas.create, 3.141_59);
+        const result = parse(schemas.create, Math.PI);
         if (result.issues) throw new Error("Expected success");
-        expect(result.value).toBe(3.141_59);
+        expect(result.value).toBe(Math.PI);
       });
 
       test("runtime: rejects undefined (required)", () => {
@@ -1241,6 +1241,14 @@ describe("Decimal Scalar", () => {
         const result = parse(schemas.create, ["1.10", 2, "-0"]);
         if (result.issues) throw new Error("Expected success");
         expect(result.value).toEqual(["1.1", "2", "0"]);
+      });
+    });
+
+    describe("update", () => {
+      test("runtime: push canonicalizes one value and coerces it to a list", () => {
+        const result = parse(schemas.update, { push: "1.10" });
+        if (result.issues) throw new Error("Expected success");
+        expect(result.value).toEqual({ push: ["1.1"] });
       });
     });
   });

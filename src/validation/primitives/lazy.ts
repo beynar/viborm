@@ -16,9 +16,16 @@ import { isFunction } from "../value-guards";
  * @returns A schema typed as T that lazily resolves on first access
  */
 export function lazy<T extends VibSchema>(factory: () => T): T {
-  let cached: T | undefined;
+  let build: (() => T) | undefined = factory;
+  let value: T;
 
-  const resolve = (): T => (cached ??= factory());
+  const resolve = (): T => {
+    if (build) {
+      value = build();
+      build = undefined;
+    }
+    return value;
+  };
 
   // Use a Proxy to transparently forward all operations to the resolved schema
   const proxy = new Proxy({} as T, {
@@ -64,8 +71,15 @@ export function lazy<T extends VibSchema>(factory: () => T): T {
  * core schema references).
  */
 export function lazyRef<T extends VibSchema>(factory: () => T): T {
-  let cached: T | undefined;
-  const resolve = (): T => (cached ??= factory());
+  let build: (() => T) | undefined = factory;
+  let value: T;
+  const resolve = (): T => {
+    if (build) {
+      value = build();
+      build = undefined;
+    }
+    return value;
+  };
 
   return {
     type: "lazyRef",

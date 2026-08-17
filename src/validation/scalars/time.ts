@@ -1,4 +1,5 @@
 import type { ScalarState } from "@schema/scalars/common";
+import { lazyScalarSchemas } from "../lazy";
 import v, { type V } from "../primitives/v";
 import { createScalarInterner, scalarInternKey } from "./intern";
 import {
@@ -168,18 +169,20 @@ export const buildTimeSchema = <
   state: F
 ): TimeSchemas<F, C> => {
   const key = scalarInternKey(state);
-  return {
-    base: state.base as F["base"],
-    create: v.isoTime(state),
-    update: internUpdate(key, () =>
-      state.array
-        ? buildTimeListUpdateSchema(state.base)
-        : buildTimeUpdateSchema(state.base)
-    ) as never,
-    filter: internFilter(key, () =>
-      state.array
-        ? buildTimeListFilterSchema(state.base)
-        : buildTimeFilterSchema(state.base)
-    ) as never,
-  } as TimeSchemas<F, C>;
+  return lazyScalarSchemas<TimeSchemas<F, C>>({
+    base: state.base,
+    create: () => v.isoTime(state),
+    update: () =>
+      internUpdate(key, () =>
+        state.array
+          ? buildTimeListUpdateSchema(state.base)
+          : buildTimeUpdateSchema(state.base)
+      ) as never,
+    filter: () =>
+      internFilter(key, () =>
+        state.array
+          ? buildTimeListFilterSchema(state.base)
+          : buildTimeFilterSchema(state.base)
+      ) as never,
+  });
 };

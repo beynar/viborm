@@ -1,4 +1,3 @@
-import { defineContract } from "@tests/contracts/contract";
 import {
   createClient,
   type VibORMClient,
@@ -8,6 +7,7 @@ import type { AnyDriver } from "@drivers";
 import { ValidationError } from "@errors";
 import { push } from "@migrations";
 import { s } from "@schema";
+import { defineContract } from "@tests/contracts/contract";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
 const account = s
@@ -25,12 +25,14 @@ const note = s
     id: s.string().id(),
     body: s.string(),
     draft: s.string(),
+    internal: s.string(),
     accountId: s.string(),
     account: s
       .manyToOne(() => account)
       .fields("accountId")
       .references("id"),
   })
+  .omit({ internal: true })
   .map("omit_notes");
 
 const vaulted = s
@@ -97,8 +99,20 @@ export function runOmitBehavior({
       });
       await target.note.createMany({
         data: [
-          { id: "n1", body: "first", draft: "wip-1", accountId: "a1" },
-          { id: "n2", body: "second", draft: "wip-2", accountId: "a1" },
+          {
+            id: "n1",
+            body: "first",
+            draft: "wip-1",
+            internal: "hidden-1",
+            accountId: "a1",
+          },
+          {
+            id: "n2",
+            body: "second",
+            draft: "wip-2",
+            internal: "hidden-2",
+            accountId: "a1",
+          },
         ],
       });
       await target.vaulted.create({
@@ -268,9 +282,37 @@ export function runOmitBehavior({
       ).toEqual({ id: "a2", displayName: "Grace Hopper" });
     });
 
+    test("create composes select with omit", async () => {
+      expect(
+        await client!.account.create({
+          data: {
+            id: "a2",
+            email: "grace@example.com",
+            passwordHash: "hash-2",
+            displayName: "Grace",
+          },
+          select: {
+            id: true,
+            email: true,
+            passwordHash: true,
+            displayName: true,
+          },
+          omit: { passwordHash: true },
+        })
+      ).toEqual({ id: "a2", email: "grace@example.com", displayName: "Grace" });
+    });
+
     test("a bulk write with omit returns the projected rows, not a count", async () => {
       const created = await client!.note.createMany({
-        data: [{ id: "n3", body: "third", draft: "wip-3", accountId: "a1" }],
+        data: [
+          {
+            id: "n3",
+            body: "third",
+            draft: "wip-3",
+            internal: "hidden-3",
+            accountId: "a1",
+          },
+        ],
         omit: { draft: true },
       });
       expect(created).toEqual([{ id: "n3", body: "third", accountId: "a1" }]);
@@ -289,6 +331,17 @@ export function runOmitBehavior({
       expect(deleted).toEqual([{ id: "n3", body: "third!" }]);
     });
 
+    test("a bulk write composes select with omit", async () => {
+      expect(
+        await client!.note.updateMany({
+          where: { id: "n1" },
+          data: { body: "selected" },
+          select: { id: true, body: true, draft: true, accountId: true },
+          omit: { draft: true, accountId: true },
+        })
+      ).toEqual([{ id: "n1", body: "selected" }]);
+    });
+
     test("a bulk write WITHOUT a projection still counts", async () => {
       expect(
         await client!.note.updateMany({
@@ -299,16 +352,16 @@ export function runOmitBehavior({
     });
 
     // -----------------------------------------------------------------------
-    // Refusals
+    // Composition and refusals
     // -----------------------------------------------------------------------
 
-    test("select + omit is refused before any I/O", async () => {
-      await expect(
-        client!.account.findMany({
-          select: { id: true },
+    test("select + omit returns the selected shape minus overlaps", async () => {
+      expect(
+        await client!.account.findMany({
+          select: { id: true, email: true, passwordHash: true },
           omit: { passwordHash: true },
-        } as never)
-      ).rejects.toThrow(ValidationError);
+        })
+      ).toEqual([{ id: "a1", email: "ada@example.com" }]);
     });
 
     test("an omit that hides every field is refused", async () => {
@@ -336,6 +389,16 @@ export function runOmitBehavior({
       ).rejects.toThrow(ValidationError);
       await expect(
         client!.vaulted.findMany({ omit: { secret: false } } as never)
+      ).rejects.toThrow(ValidationError);
+    });
+
+    test("a model-level omitted column cannot be selected through a relation", async () => {
+      await expect(
+        client!.account.findMany({
+          select: {
+            notes: { select: { id: true, internal: true } },
+          },
+        } as never)
       ).rejects.toThrow(ValidationError);
     });
 
@@ -395,13 +458,57 @@ export function runOmitBehavior({
       ).toEqual([{ id: "a1", email: "ada@example.com" }]);
     });
 
-    test("an explicit select overrides the client default", async () => {
+    test("an explicit select overrides the client default before local omit subtracts", async () => {
       const scoped = withClientOmit();
       expect(
         await scoped.account.findMany({
-          select: { id: true, passwordHash: true },
+          select: { id: true, passwordHash: true, displayName: true },
+          omit: { displayName: true },
         })
       ).toEqual([{ id: "a1", passwordHash: "hash-1" }]);
+    });
+
+    test("select + omit composes through a selected relation include and all omit layers", async () => {
+      const scoped = withClientOmit();
+      expect(
+        await scoped.account.findMany({
+          select: {
+            email: true,
+            passwordHash: true,
+            notes: {
+              orderBy: { id: "asc" },
+              omit: { accountId: true },
+              include: {
+                account: {
+                  select: {
+                    id: true,
+                    passwordHash: true,
+                    displayName: true,
+                  },
+                  omit: { displayName: true },
+                },
+              },
+            },
+          },
+          omit: { email: true },
+        })
+      ).toEqual([
+        {
+          passwordHash: "hash-1",
+          notes: [
+            {
+              id: "n1",
+              body: "first",
+              account: { id: "a1", passwordHash: "hash-1" },
+            },
+            {
+              id: "n2",
+              body: "second",
+              account: { id: "a1", passwordHash: "hash-1" },
+            },
+          ],
+        },
+      ]);
     });
 
     test("client-level omit does not turn a bulk write into a row-returning one", async () => {

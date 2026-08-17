@@ -204,7 +204,7 @@ export function createClient<S extends Schema, C extends DriverConfig<S>>(
     DriverConfig<S> &
     NoExtraDriverConfigKeys<C, BunSQLDriverOptions, S> &
     NoExtraNestedConfigKeys<C, S>
-) {
+): VibORMClient<C & { driver: BunSQLDriver }> {
   const { client, databaseUrl, options, pgvector, postgis, ...restConfig } =
     config;
 

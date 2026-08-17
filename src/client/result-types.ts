@@ -141,10 +141,159 @@ export type CountResultType<Args> = Args extends { select: infer S }
 // =============================================================================
 
 /**
+ * The non-recursive part of a model that result inference can compare safely.
+ *
+ * Full `Model` equality walks relation getters and collapses mutually-recursive
+ * model consts. These three key sets identify the usual case without touching
+ * any scalar implementation, external schema, or relation target.
+ */
+export type ModelResultSurface<M extends Model<any>> =
+  M extends Model<infer S>
+    ? readonly [
+        Extract<keyof S["scalars"], string>,
+        Extract<keyof S["relations"], string>,
+        Extract<keyof S["polymorphicRelations"], string>,
+      ]
+    : never;
+
+type SameKeySet<Left, Right> = [Exclude<Left, Right>] extends [never]
+  ? [Exclude<Right, Left>] extends [never]
+    ? true
+    : false
+  : false;
+
+type IsUsableModelResultSurface<Surface> = [Surface] extends [never]
+  ? false
+  : Surface extends readonly [infer Scalars, infer Relations, infer Polymorphic]
+    ? string extends Scalars
+      ? false
+      : string extends Relations
+        ? false
+        : string extends Polymorphic
+          ? false
+          : true
+    : false;
+
+/** Exact equality for the three shallow key sets above. */
+export type SameModelResultSurface<Left, Right> =
+  IsUsableModelResultSurface<Left> extends true
+    ? IsUsableModelResultSurface<Right> extends true
+      ? Left extends readonly [infer LS, infer LR, infer LP]
+        ? Right extends readonly [infer RS, infer RR, infer RP]
+          ? SameKeySet<LS, RS> extends true
+            ? SameKeySet<LR, RR> extends true
+              ? SameKeySet<LP, RP>
+              : false
+            : false
+          : false
+        : false
+      : false
+    : false;
+
+/** One configured model's compact, client-owned result default. */
+export interface ClientResultOmitEntry<Surface, Omission, Unique> {
+  readonly surface: Surface;
+  readonly omission: Omission;
+  readonly unique: Unique;
+}
+
+/** Named boundary so TypeScript can cache the carrier during result recursion. */
+export interface ClientResultOmitContext<Entries> {
+  readonly entries: Entries;
+}
+
+type EntrySurface<Entry> =
+  Entry extends ClientResultOmitEntry<infer Surface, unknown, unknown>
+    ? Surface
+    : never;
+
+type MatchingClientOmitEntries<
+  M extends Model<any>,
+  Context,
+  Entries = Context extends ClientResultOmitContext<infer E> ? E : never,
+> = M extends unknown
+  ? Entries extends unknown
+    ? true extends SameModelResultSurface<
+        ModelResultSurface<M>,
+        EntrySurface<Entries>
+      >
+      ? Entries
+      : never
+    : never
+  : never;
+
+type IsUnion<T, Whole = T> = T extends Whole
+  ? [Whole] extends [T]
+    ? false
+    : true
+  : never;
+
+type HasMultipleModelResultSurfaces<
+  M extends Model<any>,
+  WholeSurface = ModelResultSurface<M>,
+> = M extends unknown
+  ? SameModelResultSurface<ModelResultSurface<M>, WholeSurface> extends true
+    ? false
+    : true
+  : never;
+
+type EntryOmission<Entry> =
+  Entry extends ClientResultOmitEntry<unknown, infer Omission, unknown>
+    ? Omission
+    : never;
+
+type EntryUnique<Entry> =
+  Entry extends ClientResultOmitEntry<unknown, unknown, infer Unique>
+    ? Unique
+    : never;
+
+type PossibleOmitKeys<Entry> = Entry extends unknown
+  ? keyof Exclude<EntryOmission<Entry>, undefined>
+  : never;
+
+type SoftenedResolvedOmit<Keys extends PropertyKey> = [Keys] extends [never]
+  ? undefined
+  : { [K in Keys]: boolean };
+
+/**
+ * Resolve a nested target's client default without comparing model graphs.
+ *
+ * A unique shallow surface identifies the configured model exactly. When two
+ * schema models have the same surface, the current public types contain no
+ * nominal identity that can distinguish their runtime objects. In that case,
+ * every possibly omitted field becomes a widened boolean; `ApplyOmit` renders
+ * it optional, which is honest in both runtime worlds.
+ */
+type ResolveClientOmit<
+  M extends Model<any>,
+  Context,
+  Matches = MatchingClientOmitEntries<M, Context>,
+  AmbiguousKeys extends PropertyKey = PossibleOmitKeys<Matches>,
+> = [Context] extends [never]
+  ? undefined
+  : [Matches] extends [never]
+    ? undefined
+    : true extends HasMultipleModelResultSurfaces<M>
+      ? SoftenedResolvedOmit<AmbiguousKeys>
+      : true extends IsUnion<EntryOmission<Matches>>
+        ? SoftenedResolvedOmit<AmbiguousKeys>
+        : false extends EntryUnique<Matches>
+          ? SoftenedResolvedOmit<AmbiguousKeys>
+          : EntryOmission<Matches>;
+
+/** Get the target model itself without resolving its recursive state. */
+type GetTargetModel<R extends AnyRelation> =
+  R["~"]["state"]["getter"] extends () => infer Target
+    ? Target extends Model<any>
+      ? Target
+      : never
+    : never;
+
+/**
  * Get the target model's state from a relation
  */
 export type GetTargetModelState<R extends AnyRelation> =
-  R["~"]["state"]["getter"] extends () => infer T
+  GetTargetModel<R> extends infer T
     ? T extends Model<infer S>
       ? S extends ModelState
         ? S
@@ -228,6 +377,23 @@ export type ApplyOmit<T, O> = [O] extends [undefined]
     : ReduceOmit<T, O>;
 
 /**
+ * Layer a query-local omission over a configured client default, per field.
+ * A local `false` restores one configured field; an optional local omission
+ * softens only the fields whose runtime value remains undecided.
+ */
+export type MergeClientOmit<Default, Local> = [Default] extends [undefined]
+  ? Local
+  : [Local] extends [undefined]
+    ? Default
+    : undefined extends Local
+      ? Prettify<
+          Omit<Default, keyof Exclude<Local, undefined>> & {
+            [F in keyof Exclude<Local, undefined>]: boolean;
+          }
+        >
+      : Prettify<Omit<Default, keyof Local> & Local>;
+
+/**
  * The value a node STATES under one projection key, or `undefined` when it
  * states none.
  *
@@ -249,10 +415,9 @@ type NodeKey<Node, Key extends string> = string extends keyof Node
     : undefined;
 
 /**
- * Exported because the CLIENT-level default is folded into the same key before
- * inference runs (`WithClientOmit`, ./types.ts): one node, one `omit`, one
- * reduction — the same shape the runtime hands the engine after
- * `applyClientOmit` has rewritten the payload.
+ * Exported so the client layer can keep this query-local value distinct from
+ * its configured default: selected worlds apply only this value, while
+ * unselected worlds merge both before reducing the result.
  */
 export type NodeOmit<Node> = NodeKey<Node, "omit">;
 
@@ -277,16 +442,14 @@ export type GetRelationType<R extends AnyRelation> = R["~"]["state"]["type"];
 export type GetRelationOptional<R extends AnyRelation> =
   R["~"]["state"]["optional"];
 
-/** The configured target state at one public discriminator. */
-type GetPolymorphicTargetState<
+/** The configured target model at one public discriminator. */
+type GetPolymorphicTarget<
   R extends AnyPolymorphicRelation,
   PublicType extends PropertyKey,
 > = PublicType extends keyof R["~"]["state"]["targets"]
   ? R["~"]["state"]["targets"][PublicType] extends () => infer Target
-    ? Target extends Model<infer TargetState>
-      ? TargetState extends ModelState
-        ? TargetState
-        : never
+    ? Target extends Model<any>
+      ? Target
       : never
     : never
   : never;
@@ -319,10 +482,49 @@ type WrapRelation<R extends AnyRelation, T> = [GetRelationType<R>] extends [
     ? T | null
     : T;
 
-export type InferRelationResult<R extends AnyRelation> = WrapRelation<
+type WrapRelationNode<R extends AnyRelation, T> = [T] extends [never]
+  ? never
+  : WrapRelation<R, T>;
+
+export type InferRelationResult<
+  R extends AnyRelation,
+  ClientDefaults = never,
+> = WrapRelation<
   R,
-  InferModelOutput<GetTargetModelState<R>>
+  ApplyOmit<
+    InferModelOutput<GetTargetModelState<R>>,
+    ResolveClientOmit<GetTargetModel<R>, ClientDefaults>
+  >
 >;
+
+type InferPolymorphicTargetVariant<
+  Target extends Model<any>,
+  Override,
+  ClientDefaults,
+> = Target extends Model<infer TargetState>
+  ? TargetState extends ModelState
+    ? Override extends true
+      ? ApplyOmit<
+          InferModelOutput<TargetState>,
+          ResolveClientOmit<Target, ClientDefaults>
+        >
+      : Override extends object
+        ? InferSelectInclude<
+            TargetState,
+            Override,
+            NodeSelect<Override>,
+            MergeClientOmit<
+              ResolveClientOmit<Target, ClientDefaults>,
+              NodeOmit<Override>
+            >,
+            ClientDefaults
+          >
+        : ApplyOmit<
+            InferModelOutput<TargetState>,
+            ResolveClientOmit<Target, ClientDefaults>
+          >
+    : never
+  : never;
 
 /**
  * One configured polymorphic target. A missing projection key does not filter
@@ -332,11 +534,12 @@ type InferPolymorphicVariant<
   R extends AnyPolymorphicRelation,
   PublicType extends PolymorphicPublicTypes<R>,
   Override,
-> = Override extends true
-  ? InferModelOutput<GetPolymorphicTargetState<R, PublicType>>
-  : Override extends object
-    ? InferSelectInclude<GetPolymorphicTargetState<R, PublicType>, Override>
-    : InferModelOutput<GetPolymorphicTargetState<R, PublicType>>;
+  ClientDefaults,
+> = GetPolymorphicTarget<R, PublicType> extends infer Target
+  ? Target extends Model<any>
+    ? InferPolymorphicTargetVariant<Target, Override, ClientDefaults>
+    : never
+  : never;
 
 type PolymorphicProjectionAt<
   Projection,
@@ -350,13 +553,15 @@ type PolymorphicProjectionAt<
 type PolymorphicVariants<
   R extends AnyPolymorphicRelation,
   Projection = undefined,
+  ClientDefaults = never,
 > = {
   [PublicType in PolymorphicPublicTypes<R>]: {
     readonly type: PublicType;
     readonly data: InferPolymorphicVariant<
       R,
       PublicType,
-      PolymorphicProjectionAt<Projection, PublicType>
+      PolymorphicProjectionAt<Projection, PublicType>,
+      ClientDefaults
     >;
   };
 }[PolymorphicPublicTypes<R>];
@@ -364,9 +569,10 @@ type PolymorphicVariants<
 export type InferPolymorphicResult<
   R extends AnyPolymorphicRelation,
   Projection = undefined,
+  ClientDefaults = never,
 > = R["~"]["state"]["optional"] extends true
-  ? PolymorphicVariants<R, Projection> | null
-  : PolymorphicVariants<R, Projection>;
+  ? PolymorphicVariants<R, Projection, ClientDefaults> | null
+  : PolymorphicVariants<R, Projection, ClientDefaults>;
 
 // =============================================================================
 // SELECT/INCLUDE RESULT INFERENCE
@@ -385,16 +591,19 @@ export type InferPolymorphicResult<
  * nothing" typed that call `{}`, and `rows[0].id` stopped compiling on a call
  * that returns `id` at runtime.
  *
- * The two refusals — `select` + `include`, `select` + `omit` — are read the same
- * way: a sibling key that is present but `undefined` is not a second projection,
- * so it does not turn a legal payload into `never`.
+ * `select` + `include` is refused only when both keys carry values. `omit`
+ * composes with either projection mode: in the selected world it subtracts
+ * from the selected shape; in the unselected world it subtracts from the
+ * default scalar shape.
  */
 export type InferSelectInclude<
   S extends ModelState,
   Args,
   Selection = NodeSelect<Args>,
+  UnselectedOmit = NodeOmit<Args>,
+  ClientDefaults = never,
 > = [Selection] extends [undefined]
-  ? InferUnselectedRow<S, Args>
+  ? InferUnselectedRow<S, Args, UnselectedOmit, ClientDefaults>
   : undefined extends Selection
     ? // Only the runtime value decides, so the result is the honest UNION of
       // both worlds — the same ambiguous arm `BulkWriteResult` takes for
@@ -403,27 +612,29 @@ export type InferSelectInclude<
       // call that returns one; collapsing it to the projection would claim the
       // opposite. A caller in this position narrows, which is exactly the choice
       // they deferred to runtime.
-        | InferUnselectedRow<S, Args>
-        | InferSelectedRow<S, Args, Exclude<Selection, undefined>>
-    : InferSelectedRow<S, Args, Selection>;
+        | InferUnselectedRow<S, Args, UnselectedOmit, ClientDefaults>
+        | InferSelectedRow<
+            S,
+            Args,
+            Exclude<Selection, undefined>,
+            ClientDefaults
+          >
+    : InferSelectedRow<S, Args, Selection, ClientDefaults>;
 
 /**
  * The row a node returns in the world where its `select` carries a value.
  *
- * `select` is exclusive with `include` and with `omit` — the parse boundary
- * refuses both pairs — so a sibling that DEFINITELY carries a value makes this
- * world impossible, and `never` is precisely the type of a value that is never
- * produced (the call throws). A sibling that merely MAY carry one leaves this
- * world reachable, and the union above keeps the other one.
+ * `select` is exclusive with `include`, so a definite include makes this world
+ * impossible. A local `omit` is different: it subtracts from the selected
+ * result. Keys outside the selected shape have no effect.
  */
 type InferSelectedRow<
   S extends ModelState,
   Args,
   Selection,
+  ClientDefaults,
 > = undefined extends NodeInclude<Args>
-  ? undefined extends NodeOmit<Args>
-    ? InferSelectResult<S, Selection>
-    : never
+  ? InferSelectResult<S, Selection, NodeOmit<Args>, ClientDefaults>
   : never;
 
 /**
@@ -440,21 +651,34 @@ type InferSelectedRow<
 type InferUnselectedRow<
   S extends ModelState,
   Args,
+  Omission = NodeOmit<Args>,
+  ClientDefaults = never,
 > = undefined extends NodeInclude<Args>
-  ? ApplyOmit<InferModelOutput<S>, NodeOmit<Args>>
-  : ApplyOmit<InferIncludeResult<S, NodeInclude<Args>>, NodeOmit<Args>>;
+  ? ApplyOmit<InferModelOutput<S>, Omission>
+  : ApplyOmit<
+      InferIncludeResult<S, NodeInclude<Args>, ClientDefaults>,
+      Omission
+    >;
 
 /**
  * Result when select is provided - ONLY selected fields are returned
  */
-export type InferSelectResult<S extends ModelState, Selection> = Prettify<
-  InferSelectedFields<S, Selection> &
-    InferSelectedPolymorphicFields<S, Selection> &
-    InferVectorDistanceSelection<S, Selection> &
-    InferRelationCountSelection<S, Selection>
+export type InferSelectResult<
+  S extends ModelState,
+  Selection,
+  Omission = undefined,
+  ClientDefaults = never,
+> = Prettify<
+  ApplyOmit<
+    InferSelectedFields<S, Selection, ClientDefaults> &
+      InferSelectedPolymorphicFields<S, Selection, ClientDefaults> &
+      InferRelationCountSelection<S, Selection>,
+    Omission
+  > &
+    InferVectorDistanceSelection<S, Selection, Omission>
 >;
 
-type InferSelectedFields<S extends ModelState, Selection> = {
+type InferSelectedFields<S extends ModelState, Selection, ClientDefaults> = {
   [K in keyof Selection & keyof S["shape"] as S["shape"][K] extends Scalar
     ? Selection[K] extends true
       ? K
@@ -467,9 +691,9 @@ type InferSelectedFields<S extends ModelState, Selection> = {
     ? InferScalarOutput<S["shape"][K]>
     : S["shape"][K] extends AnyRelation
       ? Selection[K] extends true
-        ? InferRelationResult<S["shape"][K]>
+        ? InferRelationResult<S["shape"][K], ClientDefaults>
         : Selection[K] extends object
-          ? InferRelationNodeResult<S["shape"][K], Selection[K]>
+          ? InferRelationNodeResult<S["shape"][K], Selection[K], ClientDefaults>
           : never
       : never;
 };
@@ -477,6 +701,7 @@ type InferSelectedFields<S extends ModelState, Selection> = {
 type InferSelectedPolymorphicFields<
   S extends ModelState,
   Selection,
+  ClientDefaults,
 > = string extends keyof S["polymorphicRelations"]
   ? unknown
   : keyof S["polymorphicRelations"] extends never
@@ -487,11 +712,16 @@ type InferSelectedPolymorphicFields<
           ? K
           : never]: S["polymorphicRelations"][K] extends AnyPolymorphicRelation
           ? Selection[K] extends true
-            ? InferPolymorphicResult<S["polymorphicRelations"][K]>
+            ? InferPolymorphicResult<
+                S["polymorphicRelations"][K],
+                undefined,
+                ClientDefaults
+              >
             : Selection[K] extends object
               ? InferPolymorphicResult<
                   S["polymorphicRelations"][K],
-                  Selection[K]
+                  Selection[K],
+                  ClientDefaults
                 >
               : never
           : never;
@@ -513,11 +743,30 @@ type SelectedVectorDistanceKeys<S extends ModelState, Selection> = {
     : never;
 }[keyof Selection & VectorScalarFieldKeys<S>];
 
-type InferVectorDistanceSelection<S extends ModelState, Selection> = [
-  SelectedVectorDistanceKeys<S, Selection>,
-] extends [never]
-  ? {}
-  : { _distance: number };
+type SelectedVectorDistanceSources<S extends ModelState, Selection> = {
+  [K in SelectedVectorDistanceKeys<S, Selection>]: true;
+};
+
+type RemainingVectorDistanceSources<
+  S extends ModelState,
+  Selection,
+  Omission,
+> = ApplyOmit<SelectedVectorDistanceSources<S, Selection>, Omission>;
+
+type RequiredKeys<T> = {
+  [K in keyof T]-?: Record<never, never> extends Pick<T, K> ? never : K;
+}[keyof T];
+
+type InferVectorDistanceSelection<
+  S extends ModelState,
+  Selection,
+  Omission = undefined,
+  Remaining = RemainingVectorDistanceSources<S, Selection, Omission>,
+> = [keyof Remaining] extends [never]
+  ? Record<never, never>
+  : [RequiredKeys<Remaining>] extends [never]
+    ? { _distance?: number }
+    : { _distance: number };
 
 /**
  * To-many (list) relation keys — the exact set Prisma's `_count: true`
@@ -545,12 +794,16 @@ type InferRelationCountSelection<
     }
   : Selection extends { _count: true }
     ? { _count: { [K in ToManyRelationKeys<S>]: number } }
-    : {};
+    : Record<never, never>;
 
 /**
  * Result when include is provided - base result + included relations
  */
-export type InferIncludeResult<S extends ModelState, Include> = Prettify<
+export type InferIncludeResult<
+  S extends ModelState,
+  Include,
+  ClientDefaults = never,
+> = Prettify<
   InferModelOutput<S> & {
     [K in keyof Include & keyof S["relations"] as Include[K] extends
       | true
@@ -558,18 +811,23 @@ export type InferIncludeResult<S extends ModelState, Include> = Prettify<
       ? K
       : never]: S["relations"][K] extends AnyRelation
       ? Include[K] extends true
-        ? InferRelationResult<S["relations"][K]>
+        ? InferRelationResult<S["relations"][K], ClientDefaults>
         : Include[K] extends object
-          ? InferRelationNodeResult<S["relations"][K], Include[K]>
+          ? InferRelationNodeResult<
+              S["relations"][K],
+              Include[K],
+              ClientDefaults
+            >
           : never
       : never;
-  } & InferIncludedPolymorphicFields<S, Include> &
+  } & InferIncludedPolymorphicFields<S, Include, ClientDefaults> &
     InferRelationCountSelection<S, Include>
 >;
 
 type InferIncludedPolymorphicFields<
   S extends ModelState,
   Include,
+  ClientDefaults,
 > = string extends keyof S["polymorphicRelations"]
   ? unknown
   : keyof S["polymorphicRelations"] extends never
@@ -580,9 +838,17 @@ type InferIncludedPolymorphicFields<
           ? K
           : never]: S["polymorphicRelations"][K] extends AnyPolymorphicRelation
           ? Include[K] extends true
-            ? InferPolymorphicResult<S["polymorphicRelations"][K]>
+            ? InferPolymorphicResult<
+                S["polymorphicRelations"][K],
+                undefined,
+                ClientDefaults
+              >
             : Include[K] extends object
-              ? InferPolymorphicResult<S["polymorphicRelations"][K], Include[K]>
+              ? InferPolymorphicResult<
+                  S["polymorphicRelations"][K],
+                  Include[K],
+                  ClientDefaults
+                >
               : never
           : never;
       };
@@ -606,38 +872,27 @@ export type InferNestedIncludeResult<R extends AnyRelation, NI> = WrapRelation<
 /**
  * A relation node in `select`/`include` position: `{ select }`, `{ include }`,
  * `{ omit }`, pagination-only (`{ where, take, … }`), or any combination the
- * parse boundary accepts. `select` wins outright (it states the projection
- * positively, and `select` + `omit` is refused); otherwise the node's `omit`
- * reduces the relation's own scalars, with `include` still adding relations on
- * top. Pagination-only nodes fall through to the full relation payload, which
- * is what they always did.
+ * parse boundary accepts. A selected node applies its local omit after the
+ * selection. An unselected node applies it to the default/include shape.
+ * Pagination-only nodes fall through to the full relation payload.
  */
 type InferRelationNodeResult<
   R extends AnyRelation,
   Node,
-  NS = NodeSelect<Node>,
-> = [NS] extends [undefined]
-  ? UnselectedRelationNode<R, Node>
-  : undefined extends NS
-    ? // The same ambiguous arm the top-level node takes, one level down.
-        | UnselectedRelationNode<R, Node>
-        | InferNestedSelectResult<R, Exclude<NS, undefined>>
-    : InferNestedSelectResult<R, NS>;
-
-/** A relation node that states no `select`. */
-type UnselectedRelationNode<
-  R extends AnyRelation,
-  Node,
-  NI = NodeInclude<Node>,
-> = undefined extends NI
-  ? WrapRelation<
-      R,
-      ApplyOmit<InferModelOutput<GetTargetModelState<R>>, NodeOmit<Node>>
-    >
-  : WrapRelation<
-      R,
-      ApplyOmit<InferIncludeResult<GetTargetModelState<R>, NI>, NodeOmit<Node>>
-    >;
+  ClientDefaults = never,
+> = WrapRelationNode<
+  R,
+  InferSelectInclude<
+    GetTargetModelState<R>,
+    Node,
+    NodeSelect<Node>,
+    MergeClientOmit<
+      ResolveClientOmit<GetTargetModel<R>, ClientDefaults>,
+      NodeOmit<Node>
+    >,
+    ClientDefaults
+  >
+>;
 
 // =============================================================================
 // AGGREGATE RESULT TYPES

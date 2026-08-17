@@ -27,6 +27,7 @@ import {
   getOwnValue,
   malformedResult,
   normalizeResultRows,
+  parseResultRows,
   type RowValueParsers,
 } from "./result-parser-contract";
 import { type IdentityGuard, identityGuardFor } from "./scalar-identity-parser";
@@ -131,7 +132,8 @@ function parseRequiredSingleRow(
     );
   }
   if (shape) assertExpectedRowKeys(ctx, operation, row, shape);
-  return parseRow(ctx, operation, row, shape, parsers, exactFields);
+  const keys = Object.keys(row);
+  return parseRow(ctx, operation, row, keys, shape, parsers, exactFields);
 }
 
 function parseRowArray(
@@ -148,10 +150,14 @@ function parseRowArray(
     return [];
   }
 
-  const keys = Object.keys(first);
+  let keys: readonly string[];
   if (shape) {
-    for (const row of rows) assertExpectedRowKeys(ctx, operation, row, shape);
+    keys = Object.keys(first);
+    for (const row of rows) {
+      assertExpectedRowKeys(ctx, operation, row, shape);
+    }
   } else {
+    keys = Object.keys(first);
     assertUniformRowKeys(ctx, operation, rows, keys);
   }
   const model = ctx.model;
@@ -164,7 +170,7 @@ function parseRowArray(
     parsers,
     exactFields
   );
-  return rows.map(rowParser);
+  return parseResultRows(rows, rowParser);
 }
 
 /**
@@ -174,12 +180,12 @@ function parseRow(
   ctx: ResultParser,
   operation: Operation,
   row: Record<string, unknown>,
+  keys: readonly string[],
   shape: ExpectedResultShape | undefined,
   parsers: RowValueParsers,
   exactFields?: ExactFieldCapture
 ): Record<string, unknown> {
   const model = ctx.model;
-  const keys = Object.keys(row);
   return createRowParser(
     ctx,
     operation,
@@ -198,7 +204,7 @@ function parseRow(
 export function createRowParser(
   ctx: ResultParser,
   operation: Operation,
-  keys: string[],
+  keys: readonly string[],
   model: Model<any>,
   shape: ExpectedResultShape | undefined,
   parsers: RowValueParsers,

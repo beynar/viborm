@@ -1,5 +1,6 @@
 import type { JsonNullKind } from "@schema/json-null";
 import type { ScalarState } from "@schema/scalars/common";
+import { lazyScalarSchemas } from "../lazy";
 import v, { type V } from "../primitives/v";
 
 // =============================================================================
@@ -203,10 +204,10 @@ export interface JsonSchemas<F extends ScalarState<"json">> {
 export const buildJsonSchema = <F extends ScalarState<"json">>(
   state: F
 ): JsonSchemas<F> => {
-  return {
-    base: state.base as F["base"],
-    create: buildJsonWriteOperand(state, v.json(state)),
-    update: buildJsonUpdateSchema(state, state.base),
-    filter: buildJsonFilterSchema(state.base),
-  } as JsonSchemas<F>;
+  return lazyScalarSchemas<JsonSchemas<F>>({
+    base: state.base,
+    create: () => buildJsonWriteOperand(state, v.json(state)),
+    update: () => buildJsonUpdateSchema<F, F["base"]>(state, state.base),
+    filter: () => buildJsonFilterSchema<F["base"]>(state.base),
+  });
 };

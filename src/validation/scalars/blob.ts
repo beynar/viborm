@@ -1,4 +1,5 @@
 import type { ScalarState } from "@schema/scalars/common";
+import { lazyScalarSchemas } from "../lazy";
 import v, { type V } from "../primitives/v";
 import {
   buildNegatableFilterSchema,
@@ -75,10 +76,10 @@ export interface BlobSchemas<F extends ScalarState<"blob">> {
 export const buildBlobSchema = <F extends ScalarState<"blob">>(
   state: F
 ): BlobSchemas<F> => {
-  return {
-    base: state.base as F["base"],
-    create: v.blob(state),
-    update: buildBlobUpdateSchema(state.base),
-    filter: buildBlobFilterSchema(state.base),
-  } as BlobSchemas<F>;
+  return lazyScalarSchemas<BlobSchemas<F>>({
+    base: state.base,
+    create: () => v.blob(state),
+    update: () => buildBlobUpdateSchema<F["base"]>(state.base),
+    filter: () => buildBlobFilterSchema<F["base"]>(state.base),
+  });
 };

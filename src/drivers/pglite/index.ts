@@ -173,7 +173,7 @@ export function createClient<S extends Schema, C extends DriverConfig<S>>(
     DriverConfig<S> &
     NoExtraDriverConfigKeys<C, PGliteDriverOptions, S> &
     NoExtraNestedConfigKeys<C, S>
-) {
+): VibORMClient<C & { driver: PGliteDriver }> {
   const { client, dataDir, options, pgvector, postgis, ...restConfig } = config;
 
   const driver = new PGliteDriver({

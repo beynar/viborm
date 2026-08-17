@@ -3,7 +3,7 @@ import { createSchemaRegistry, parse, v } from "@validation";
 import { restrictToScalarProjection } from "@validation/model/args/bulk-write-projection";
 import {
   emptyOmitProjectionMessage,
-  SELECT_OMIT_EXCLUSIVITY_MESSAGE,
+  emptySelectedOmitProjectionMessage,
   withOmitProjection,
 } from "@validation/model/args/omit";
 import { rejectSelectInclude } from "@validation/model/args/select-include-exclusivity";
@@ -37,9 +37,14 @@ describe("operation-schema wrapper delegation", () => {
   test("builds and validates lazy upsert and scalar-only projections", () => {
     const core = createSchemaRegistry({ user }).proxy.user.core;
 
+    const upsertProjection = parse(core.upsertProjection, {
+      select: { id: true, name: true },
+      omit: { name: true },
+    });
+    expect(upsertProjection.issues).toBeUndefined();
     expect(
-      parse(core.upsertProjection, { omit: { name: true } }).issues
-    ).toBeUndefined();
+      "value" in upsertProjection ? upsertProjection.value?.select : undefined
+    ).toEqual({ id: true });
     expect(parse(core.scalarSelect, { id: true }).issues).toBeUndefined();
   });
 
@@ -76,10 +81,17 @@ describe("operation-schema wrapper delegation", () => {
     expect(
       parse(wrapped, { omit: { id: true, name: true } }).issues?.[0]?.message
     ).toBe(emptyOmitProjectionMessage(user, "findMany"));
+    const combined = parse(wrapped, {
+      omit: { name: true },
+      select: { id: true },
+    });
+    expect("value" in combined ? combined.value.select : undefined).toEqual({
+      id: true,
+    });
     expect(
-      parse(wrapped, { omit: { name: true }, select: { id: true } }).issues?.[0]
+      parse(wrapped, { omit: { id: true }, select: { id: true } }).issues?.[0]
         ?.message
-    ).toBe(SELECT_OMIT_EXCLUSIVITY_MESSAGE);
+    ).toBe(emptySelectedOmitProjectionMessage(user, "findMany"));
     expect(parse(wrapped, { omit: "name" }).issues?.[0]).toEqual({
       message: "Expected object",
       path: ["omit"],

@@ -1,7 +1,7 @@
 import { s } from "@schema";
 import { hydrateSchemaNames } from "@schema/hydration";
-import { createSchemaRegistry, parse } from "@validation";
-import { describe, expect, test } from "vitest";
+import { createSchemaRegistry, parse, v } from "@validation";
+import { describe, expect, test, vi } from "vitest";
 import { z } from "zod";
 
 describe("scalar schema interning", () => {
@@ -66,6 +66,40 @@ describe("scalar schema interning", () => {
     expect(c.scalars.email.filter).not.toBe(a.scalars.name.filter);
     // but the plain sibling still interns with other models
     expect(c.scalars.plain.filter).toBe(a.scalars.name.filter);
+  });
+
+  test("builds create, update, and filter variants independently", () => {
+    const isolated = s.model({
+      value: s.string().schema(z.string()),
+    });
+    const isolatedRegistry = createSchemaRegistry({ isolated });
+    const createSpy = vi.spyOn(v, "string");
+    const updateSpy = vi.spyOn(v, "shorthandUpdate");
+
+    try {
+      const value = isolatedRegistry.getModelSchemas(isolated).scalars.value;
+      if (!value) throw new Error("Expected the value scalar schema");
+
+      expect(Object.keys(value)).toEqual([
+        "base",
+        "create",
+        "update",
+        "filter",
+      ]);
+      expect(value.filter).toBeDefined();
+      expect(createSpy).not.toHaveBeenCalled();
+      expect(updateSpy).not.toHaveBeenCalled();
+
+      expect(value.create).toBeDefined();
+      expect(createSpy).toHaveBeenCalledOnce();
+      expect(updateSpy).not.toHaveBeenCalled();
+
+      expect(value.update).toBeDefined();
+      expect(updateSpy).toHaveBeenCalledOnce();
+    } finally {
+      createSpy.mockRestore();
+      updateSpy.mockRestore();
+    }
   });
 
   test("shared filter validates identically for both models", () => {

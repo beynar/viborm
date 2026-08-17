@@ -268,7 +268,7 @@ export function createClient<S extends Schema, C extends DriverConfig<S>>(
     DriverConfig<S> &
     NoExtraDriverConfigKeys<C, LibSQLDriverOptions, S> &
     NoExtraNestedConfigKeys<C, S>
-) {
+): VibORMClient<C & { driver: LibSQLDriver }> {
   const { client, databaseUrl, dataDir, authToken, options, ...restConfig } =
     config;
 

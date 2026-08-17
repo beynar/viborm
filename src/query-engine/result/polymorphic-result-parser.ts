@@ -17,14 +17,9 @@ import {
   malformedResult,
   type RowValueParsers,
 } from "./result-parser-contract";
-import { createRowParser } from "./result-row-parser";
 
 const LINKED_KEYS = [POLYMORPHIC_RESULT_STATE_KEY, "type", "data"];
-const INVALID_KEYS = [
-  POLYMORPHIC_RESULT_STATE_KEY,
-  "storedType",
-  "hasId",
-];
+const INVALID_KEYS = [POLYMORPHIC_RESULT_STATE_KEY, "storedType", "hasId"];
 
 export function parsePolymorphicValueDefault(
   ctx: ResultParser,
@@ -68,7 +63,10 @@ export function parsePolymorphicValueDefault(
 
   const state = value[POLYMORPHIC_RESULT_STATE_KEY];
   if (state === POLYMORPHIC_RESULT_STATE_INVALID) {
-    if (!hasExactKeys(value, INVALID_KEYS) || typeof value.hasId !== "boolean") {
+    if (
+      !hasExactKeys(value, INVALID_KEYS) ||
+      typeof value.hasId !== "boolean"
+    ) {
       return malformedResult(
         ctx,
         operation,
@@ -130,13 +128,11 @@ export function parsePolymorphicValueDefault(
   }
 
   assertExpectedRowKeys(ctx, operation, value.data, variant.shape);
-  const parseTarget = createRowParser(
-    ctx,
-    operation,
-    Object.keys(value.data),
+  const parseTarget = parsers.getRowParser(
     variant.model,
-    variant.shape,
-    parsers
+    value.data,
+    operation,
+    variant.shape
   );
   return { type: publicType, data: parseTarget(value.data) };
 }

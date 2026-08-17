@@ -735,7 +735,10 @@ describe("polymorphic operation schema factories", () => {
     expect(accepts(schema, true)).toBe(true);
     const parsed = parse(schema, {
       post: { select: { id: true, title: true } },
-      video: { omit: { duration: true } },
+      video: {
+        select: { id: true, duration: true },
+        omit: { duration: true },
+      },
     });
     expect(parsed.issues).toBeUndefined();
     if (!parsed.issues) {
@@ -765,7 +768,7 @@ describe("polymorphic operation schema factories", () => {
       accepts(schema, {
         video: { select: { id: true }, omit: { duration: true } },
       })
-    ).toBe(false);
+    ).toBe(true);
   });
 });
 

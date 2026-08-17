@@ -149,7 +149,7 @@ const _publicPolymorphicCalls = () => {
   });
 };
 
-void _publicPolymorphicCalls;
+export { _publicPolymorphicCalls };
 
 type DefaultRows = OperationResult<
   "findMany",
@@ -201,21 +201,22 @@ type _omittedVariantKeepsDefaultProjection = Expect<
   >
 >;
 
-type ConfiguredRows = OperationResult<
-  "findMany",
-  typeof comment,
-  {
+const configuredRows = () =>
+  client.comment.findMany({
     select: {
       subject: {
         post: {
-          include: { author: true };
-          omit: { secret: true };
-        };
-        video: { select: { duration: true } };
-      };
-    };
-  }
->;
+          include: { author: true },
+          omit: { secret: true },
+        },
+        video: {
+          select: { id: true, duration: true },
+          omit: { duration: true },
+        },
+      },
+    },
+  });
+type ConfiguredRows = Awaited<ReturnType<typeof configuredRows>>;
 type _configuredNodesReuseOrdinaryProjectionInference = Expect<
   Equal<
     ConfiguredRows[number]["subject"],
@@ -230,7 +231,7 @@ type _configuredNodesReuseOrdinaryProjectionInference = Expect<
       }
     | {
         readonly type: "video";
-        readonly data: { duration: number };
+        readonly data: { id: string };
       }
   >
 >;
@@ -303,10 +304,6 @@ type _relationLevelFalseOmitsTheField = Expect<
   Equal<FalseRows[number], { id: string; body: string }>
 >;
 
-// Inherited client-default ceiling: runtime omit traverses the target model,
-// but result typing cannot recover a schema config key from structural model
-// identity without collapsing recursive models. Keep the wider promise pinned
-// until a nominal identity exists to carry the target-specific default.
 const targetOmitClient = createClient({
   schema: { author, post, video, comment },
   driver: new PGliteDriver(),
@@ -318,12 +315,18 @@ const targetOmitClient = createClient({
 const targetOmitRows = targetOmitClient.comment.findMany({
   include: { subject: true },
 });
-type TargetOmitPost = Extract<
-  Awaited<typeof targetOmitRows>[number]["subject"],
-  { readonly type: "post" }
->;
-type _nestedClientOmitTypingLimitIsExplicit = Expect<
-  Equal<Extract<"secret", keyof TargetOmitPost["data"]>, "secret">
+type _nestedClientOmitNarrowsEveryTarget = Expect<
+  Equal<
+    Awaited<typeof targetOmitRows>[number]["subject"],
+    | {
+        readonly type: "post";
+        readonly data: { id: string; title: string; authorId: string };
+      }
+    | {
+        readonly type: "video";
+        readonly data: { id: string; duration: number };
+      }
+  >
 >;
 
 const treeNode = s.model({

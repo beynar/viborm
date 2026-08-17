@@ -15,8 +15,8 @@
  * projection itself.
  *
  * PRECEDENCE, in the order the rules fire:
- *  1. an explicit `select` on the node wins outright: the caller named the
- *     projection positively, so nothing is injected there (Prisma's rule too);
+ *  1. an explicit `select` on the node overrides the CLIENT default: nothing
+ *     global is injected there, while a query-level `omit` still subtracts;
  *  2. the node's own `omit` wins per FIELD: `{ passwordHash: false }` re-includes
  *     a globally omitted column, `{ other: true }` adds to the default;
  *  3. otherwise the client default applies as written.
@@ -186,8 +186,8 @@ export const applyClientOmit = (
 
 /**
  * One node of the projection tree. `select` present means the caller stated the
- * projection: the node's own `omit` is left alone (the pair is refused
- * downstream anyway) and only its relation children are visited.
+ * projection, so the client default is not injected. The node's own `omit`
+ * remains for validation to subtract, and relation children are still visited.
  */
 const rewriteNode = (
   model: AnyModel,

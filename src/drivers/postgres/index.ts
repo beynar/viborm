@@ -238,7 +238,7 @@ export function createClient<S extends Schema, C extends DriverConfig<S>>(
     DriverConfig<S> &
     NoExtraDriverConfigKeys<C, PostgresDriverOptions, S> &
     NoExtraNestedConfigKeys<C, S>
-) {
+): VibORMClient<C & { driver: PostgresDriver }> {
   const {
     client,
     options = {},

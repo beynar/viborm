@@ -51,7 +51,7 @@ export interface AnyValueSchema extends VibSchema<unknown, unknown> {
  * A STRICT object schema needs an entry for every key it admits, and an ENVELOPE
  * schema admits keys whose values a LATER schema owns. `upsert`'s five optional keys
  * are exactly that: `select` / `include` / `omit` are validated one step on by the
- * projection schema (which alone knows that `omit` is meaningful only beside `select`),
+ * projection schema (which owns how `omit` composes with `select`),
  * and `targetWhere` / `setWhere` by the conditional-filter parse. Declaring them here
  * with a shape of their own would MOVE those decisions, not remove them — measured:
  * a non-object `targetWhere` is accepted today, and an object leaf here would start

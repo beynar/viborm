@@ -3,9 +3,8 @@
  *
  * `omit: { passwordHash: true }` returns every projectable scalar EXCEPT the
  * named ones. It composes with `include` (relations ride alongside the reduced
- * scalar set) and is mutually exclusive with `select` (Prisma's rule, and the
- * only coherent one: `select` states the projection positively, `omit` states
- * it negatively, and a payload carrying both states it twice).
+ * scalar set) and with `select`: `select` names the candidate fields, then
+ * `omit` subtracts selected scalars flagged `true`.
  *
  * DESUGARING. `omit` never reaches the query engine. This wrapper rewrites it
  * into the explicit `select` it denotes, immediately after the payload
@@ -18,12 +17,10 @@
  * hand the read builder (`defaultSelect` + `parsedInclude` in
  * `CreateOperation` / `DeleteOperation`).
  *
- * EMPTY PROJECTIONS FAIL CLOSED. An `omit` that names every projectable scalar
- * denotes `select: {}`, which the read builder refuses ("needs at least one
- * truthy value"). Answering it with the DEFAULT projection instead would return
- * precisely the columns the caller asked to hide, so it is refused here, at the
- * parse boundary, with a message that says which model ran out of fields.
- * Prisma refuses the same payload.
+ * EMPTY PROJECTIONS FAIL CLOSED. An `omit` that removes every default scalar,
+ * or every truthy field of an explicit `select`, denotes `select: {}`. Answering
+ * it with the default projection would return fields the caller asked to hide,
+ * so it is refused here at the parse boundary.
  */
 
 import type { AnyModel } from "@schema/model";
@@ -72,9 +69,6 @@ const issue = (message: string) => ({ issues: [{ message }] });
 const modelLabel = (model: AnyModel): string =>
   model["~"].names.ts ?? model["~"].state.tableName ?? "model";
 
-export const SELECT_OMIT_EXCLUSIVITY_MESSAGE =
-  "Mutually exclusive fields cannot be used together: select, omit";
-
 /**
  * The projection an `omit` denotes: every projectable scalar the value did not
  * flag `true`. `undefined` means "nothing left", which the caller refuses.
@@ -97,11 +91,38 @@ export const emptyOmitProjectionMessage = (
 ): string =>
   `'omit' on '${operation}' excluded every readable field of model '${modelLabel(model)}'. At least one field must remain in the result: drop a field from 'omit', or use 'select' to name what you want.`;
 
+export const emptySelectedOmitProjectionMessage = (
+  model: AnyModel,
+  operation: string
+): string =>
+  `'omit' on '${operation}' excluded every selected field of model '${modelLabel(model)}'. At least one field must remain in the result: remove a field from 'omit' or add another field to 'select'.`;
+
+const hasProjectedValue = (selection: Record<string, unknown>): boolean => {
+  for (const field in selection) {
+    const selected = selection[field];
+    if (selected !== false && selected !== undefined) return true;
+  }
+  return false;
+};
+
+/** Subtract local omit flags from an already-validated explicit selection. */
+const subtractOmitFromSelection = (
+  selection: Record<string, unknown>,
+  omitValue: Record<string, unknown>
+): Record<string, unknown> => {
+  const reduced: Record<string, unknown> = {};
+  for (const field of Object.keys(selection)) {
+    if (omitValue[field] === true) continue;
+    reduced[field] = selection[field];
+  }
+  return reduced;
+};
+
 /**
- * Reject `select` + `omit` on the raw payload, then desugar a surviving `omit`
- * into `select`. Applied OUTSIDE the other projection guards so the exclusivity
- * message wins over a downstream "Unknown key", and so the desugared `select`
- * is produced after — never inspected by — those guards.
+ * Desugar `omit` into the one downstream projection vocabulary. With an
+ * explicit `select`, subtract from that validated selection. Without one,
+ * build the default scalar complement. Applied outside the other projection
+ * guards so the rewrite happens after those guards validate the raw payload.
  */
 export const withOmitProjection = <
   TEntries,
@@ -115,10 +136,6 @@ export const withOmitProjection = <
 
   const validate: typeof standard.validate = (value) => {
     const hasOmit = isRecord(value) && value.omit !== undefined;
-    if (hasOmit && value.select !== undefined) {
-      return issue(SELECT_OMIT_EXCLUSIVITY_MESSAGE);
-    }
-
     const result = standard.validate(value) as Exclude<
       ReturnType<typeof standard.validate>,
       PromiseLike<unknown>
@@ -127,9 +144,20 @@ export const withOmitProjection = <
 
     const validated = result.value as Record<string, unknown>;
     const omitValue = validated.omit as Record<string, unknown>;
-
-    const selection = buildOmitSelection(model, omitValue);
+    const explicitSelection = isRecord(validated.select)
+      ? validated.select
+      : undefined;
+    const selection = explicitSelection
+      ? subtractOmitFromSelection(explicitSelection, omitValue)
+      : buildOmitSelection(model, omitValue);
     if (!selection) return issue(emptyOmitProjectionMessage(model, operation));
+    if (
+      explicitSelection &&
+      hasProjectedValue(explicitSelection) &&
+      !hasProjectedValue(selection)
+    ) {
+      return issue(emptySelectedOmitProjectionMessage(model, operation));
+    }
 
     // The rewrite drops a key the schema declares and adds one it also declares,
     // so the OUTPUT type is unchanged in kind but not provably so to the checker

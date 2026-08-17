@@ -39,19 +39,23 @@ const rows = await client.note.updateMany({
 // Type: { id: string; title: string; archived: boolean }[]
 ```
 
-## omit and select are mutually exclusive
+## omit composes with select
 
-`select` states the projection positively, `omit` states it negatively. A
-payload carrying both states it twice, so it is refused at the parse boundary,
-before any query runs:
+`select` names the candidate result, then `omit` subtracts selected scalar
+fields. An omitted field that was not selected is simply outside the result
+already:
 
 ```ts
 await client.user.findMany({
-  select: { id: true },
+  select: { id: true, email: true, passwordHash: true },
   omit: { passwordHash: true },
 });
-// ValidationError: Mutually exclusive fields cannot be used together: select, omit
+// Type: { id: string; email: string }[]
 ```
+
+`false` keeps a selected field but never adds an unselected one. A widened
+`boolean` makes an overlapping selected key optional, because only the runtime
+value decides.
 
 An `omit` that names *every* readable field is refused for the same reason an
 empty `select: {}` is — there is no such result:
@@ -80,9 +84,8 @@ const users = await client.user.findMany({
 ```
 
 The two are independent: the outer `omit` names fields of `user`, the inner one
-names fields of `post`. A nested node follows the same rules as the top level —
-`select` and `omit` cannot coexist on it, and it cannot empty its own
-projection.
+names fields of `post`. A nested node follows the same rules as the top level:
+it can subtract `omit` from `select`, and it cannot empty its own projection.
 
 ## The three layers, and which one wins
 
@@ -289,11 +292,10 @@ await client.user.findMany();
 // { id: string; email: string; passwordHash?: string }[]
 ```
 
-### What the types can and cannot see
+### Client defaults reach nested result types
 
-One gap, on the record rather than papered over: the client default reduces the
-node the operation is called on, **not** relation payloads reached through
-`include`.
+Client-level defaults reduce relation payloads reached through `select` and
+`include`, in both the runtime value and its return type.
 
 ```ts
 const client = createClient({ schema, driver, omit: { note: { draft: true } } });
@@ -302,16 +304,30 @@ await client.note.findMany();
 // { id: string; body: string }[] — draft is gone from the type
 
 await client.user.findMany({ include: { notes: true } });
-// notes still typed with `draft` — the runtime drops it anyway
+// { id: string; email: string; notes: { id: string; body: string }[] }[]
 ```
 
-The runtime does apply the default there (see the example under "Client-level
-`omit` is a default" above), so the value is genuinely absent; only the type is
-wider than the row. The reason is structural: a relation resolves to a target
-*model*, and the config is written against schema *keys*, so recovering the key
-would mean comparing model types — the comparison that collapses
-mutually-recursive schemas. Name the field in a nested `omit` if you want the
-type to agree:
+The type identifies a relation target from its shallow model surface: its
+scalar, ordinary-relation, and polymorphic-relation field names. When that
+surface identifies one schema model, the nested result applies that model's
+client default exactly. This keeps relation inference precise without expanding
+recursive model getters or custom scalar schemas.
+
+Two distinct schema models can expose the same shallow surface. TypeScript then
+cannot recover the runtime model identity from the relation type alone. In that
+case, a field hidden by only some matching client defaults becomes optional
+instead of being guessed present or absent:
+
+```ts
+// `document` and `revision` expose the same field names, but only `document`
+// hides `internalNote` in this client.
+const rows = await client.folder.findMany({ include: { records: true } });
+// records[].internalNote?: string
+```
+
+This fallback is limited to nested relations whose model surfaces are
+indistinguishable. A root operation still has its schema key and remains exact.
+An explicit nested `omit` also makes the intended result exact at the call site:
 
 ```ts
 await client.user.findMany({ include: { notes: { omit: { draft: true } } } });
@@ -320,11 +336,15 @@ await client.user.findMany({ include: { notes: { omit: { draft: true } } } });
 
 ## Prisma compatibility
 
-Query-level and client-level `omit` match Prisma's semantics, including the
-`select`/`omit` exclusivity, the local-overrides-global rule, and the refusal of
-an `omit` that empties the result.
+Query-level and client-level `omit` mostly match Prisma's semantics, including
+the local-overrides-global rule and the refusal of an `omit` that empties the
+result. VibORM deliberately accepts one useful superset: query-level `omit` can
+subtract from `select`; Prisma rejects the pair.
 
-Two deliberate differences:
+Three deliberate differences:
+
+- **`select` and query-level `omit` compose.** Selection happens first, then
+  omission removes overlapping selected scalars.
 
 - **Model-level `.omit()` has no Prisma counterpart.** Prisma has only the
   client-level default, which a `select` can always undo. viborm's schema-level

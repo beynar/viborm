@@ -64,21 +64,25 @@ describe("e2e: read 20 rows with filter + order", () => {
 });
 
 describe("e2e: read 20 rows with relation", () => {
-  bench("raw SQL string (join)", async () => {
-    await driver._executeRaw(
-      'SELECT p."id", p."title", u."id" AS "authorId", u."name" AS "authorName" FROM "posts" p JOIN "users" u ON u."id" = p."authorId" LIMIT 20'
-    );
+  const args = {
+    select: {
+      id: true,
+      title: true,
+      author: { select: { id: true, name: true } },
+    },
+    take: 20,
+  } satisfies Parameters<typeof client.post.findMany>[0];
+  const prepared = client.post.findMany(args).prepare();
+  if (!prepared) {
+    throw new Error("The relation read did not produce one prepared statement");
+  }
+
+  bench("raw exact prepared SQL", async () => {
+    await driver._executeRaw(prepared.sql, prepared.params);
   });
 
   bench("viborm findMany with include", async () => {
-    await client.post.findMany({
-      select: {
-        id: true,
-        title: true,
-        author: { select: { id: true, name: true } },
-      },
-      take: 20,
-    });
+    await client.post.findMany(args);
   });
 });
 

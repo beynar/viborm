@@ -1,176 +1,1026 @@
-# Full-Text Search — Implementation Plan (implementation-seam revision)
+# Full-Text Search — Architecture-Aligned Implementation Plan
 
-**Date:** 2026-08-01 (rev 3 — database-specific implementations)
-**Spec:** [search-feature-design.md](search-feature-design.md) (rev 3) — normative for the CONTRACT (tiers, semantics, caveats). This plan chooses the cheapest physical shapes that satisfy it; §0 records each choice so later work does not re-inflate. The optional `using` selector added here is a dialect-scoped physical override; it does not weaken the spec's portable contract unless the resolved implementation carries `analysis: "custom"` (spec §3.4; factories derive the bit from analysis-changing options).
-**Status:** plan; not scheduled.
+**Date:** 2026-08-10
 
-## §0 — LOC-minimization decisions (binding for the implementation)
+**Status:** implementation plan; current-architecture revision
 
-Every row trades no contract semantics — only implementation mass.
+**Product contract:** [search-feature-design.md](search-feature-design.md)
+**Scope:** model search declarations, managed search deployments, portable text
+matching, filtering, ordering, cursors, facets, totals, highlighting, and the
+first sealed PostgreSQL extension preset.
 
-| # | Decision | What it replaces | Saved |
-|---|---|---|---|
-| L1 | **The search table compiles to EXISTING serializer artifacts** (`TableDef`, columns, and an in-place extension of `IndexDef`). `IndexDef` gains only the structured physical properties proved necessary by real implementations: PostgreSQL access method, per-column operator class, ordered index parameters, and MySQL parser. The ONLY new DDL kinds remain `TriggerDef` and the FTS5 virtual table. | A new `SearchIndexDef` artifact class or extension-owned opaque DDL callbacks | Separate differ/introspection paths for search tables and indexes; extension properties still round-trip through the existing index owner |
-| L2 | **Triggers compute everything; no generated-column machinery.** The sync triggers (which must exist anyway) write the normalized text AND the tsvector columns as plain columns. Backfill computes the same expressions in its `INSERT … SELECT`. | Generated-column support in the serializer/differ/introspection (a whole new DDL feature) for PG STORED tsvectors and MySQL shadow columns | An entire migration-layer feature; one mechanism (triggers) instead of two |
-| L3 | **PG and FTS5 composites are query-compiled, not materialized.** `$all`/composites compile per term as AND over (OR across per-field matches) — document-level AND semantics, identical result set, zero extra columns/indexes. Only MySQL needs a physical per-composite structure (a multi-column FULLTEXT — one IndexDef via L1). Phrases were already per-field on PG (spec §3.3). | Combined weighted tsvector column + GIN per composite on PG | Storage + write cost + DDL per composite on PG; nothing on FTS5 (inline column filters were already free). PG combined-vector column stays available as a LATER opt-in perf optimization if BitmapOr shows up in benchmarks |
-| L4 | **TriggerDef is engine-owned-only.** Generation + name-and-body-hash diff of `viborm_search_*` triggers exclusively; introspection reads name+body as opaque strings; no parsing, no user-facing trigger feature, foreign triggers invisible to the differ. | General trigger support in the migration layer | Body parsing, user-trigger diffing, docs surface |
-| L5 | **`resync` lives in the migration layer** (a function beside `push`, running generated SQL through the existing migration executor), not a client operation. | A new client operation family entry for resync | Client proxy/validation/routing/census surface for one admin verb |
-| L6 | **The hits path injects a match predicate into the EXISTING findMany compilation** (an internal `WHERE EXISTS (search-table match ∧ pk join)` conjunct + rank ORDER BY threading), reusing the read builders, projection, cursors, and count machinery wholesale. `search()` is still its own public operation (spec ✦), but internally it is findMany + one conjunct + one facet statement. | A parallel read-compilation path for search hits | Everything except the conjunct injection seam and the facet compiler |
-| L7 | Already cut by spec: maintained counters, list-valued facets, vocabulary suggestions, SQL-side snippets. | — | — |
-| L8 | **The declaration is a model method with an object config** (`model.search({ …, using? })`), not a standalone builder. `using` is one dialect-scoped override: `using: pgroonga()` or `using: mysqlFullText({ … })`, never a dialect map or array. | A standalone `s.searchIndex` chainable builder class (UpdateState machinery, registration wiring into the schema map) | The builder class AND the registration surface — the index rides the model into the schema for free |
-| L9 | **One resolved `SearchImplementation<Dialect>` compiles one immutable `SearchProgram` consumed by BOTH migrations and queries.** The program carries a stable manifest, declarative deployment, and match/rank compiler. The active dialect always has a built-in implementation: PostgreSQL tsvector/GIN, MySQL FULLTEXT, SQLite FTS5. A matching `using` value replaces that built-in; a non-applicable override warns once and leaves the active dialect's default unchanged for both paths. No driver-method overrides, arbitrary SQL callbacks, or separate migration/query hooks. | A dialect-keyed `using` map; driver overrides; independent DDL and query extension hooks | One seam and one normalized configuration source; index options cannot diverge from query behavior |
+This revision replaces the former “implementation-seam rev 3” plan. It keeps
+the product direction but corrects assumptions invalidated by the live model,
+migration, adapter, cursor, result, cache, and query-engine architecture.
 
-Estimated implementation mass after L1–L9: **the genuinely new code is ≈ 7 cohesive pieces** — the library tokenizer (+highlighter), the search-implementation seam and its concrete implementations, the per-dialect normalization expressions, the trigger generator, the FTS5 DDL arm, the query→match integration, and the facet-statement compiler — plus the fixed cost of one new operation family. Everything else is wiring into existing machinery.
+The feature design remains the product source of truth. Where that document
+still says `main_pk`, describes search hits as only an `EXISTS` predicate, or
+leaves a contract item open, the fixed contracts below govern implementation.
+Phase S0 updates the feature design before production code begins so the two
+documents become consistent.
 
-## Conventions
+## 1. Required outcome
 
-Standard harness per unit (implementer → contract attacker → theater attacker, ≤2 fix rounds); estate + `test:gates` green per phase; **docker MySQL per phase from S3** (S3's push checks and idempotency acceptance need the real server; FULLTEXT/stopwords/commit-visibility are load-bearing); the conformance suite is cumulative in `tests/drivers/search-conformance-behavior.ts` — identical hit sets, totals, facet counts across engines on the hostile corpus; contextual-typing probes on every new typed literal surface. The PGroonga reference implementation uses the official PGroonga container in S2. **Prerequisite:** query-performance plan Phase 1 (FK indexes) done.
+Implement one portable search feature without adding a parallel query engine or
+a general user-facing trigger framework.
 
-## Phase S0 — Kickoff decisions + capability scaffolding (S)
+The implementation must preserve these boundaries:
 
-Maintainer decisions: NFC policy, indexed-text truncation cap default, naming, per-field index opt-out (§9.5 — if accepted, S2-U1 builds `index: false`), the highlight snippet-window algorithm (§9.3 — BLOCKS S7-U1, decide here not at S9), facet value ordering confirmation (§9.4). Recorded resolution: §9.2 (SQLite attribute storage) is settled by §0 L1's sibling-table choice — noted, no measurement needed.
+- A model owns one immutable public search declaration.
+- Final schema validation resolves that declaration against the complete model.
+- One normalized search definition is the semantic source used by migrations
+  and queries.
+- Migrations own the complete lifecycle of derived search artifacts.
+- Migration drivers own provider-specific deployment SQL.
+- Database adapters and sealed extension compilers own provider-specific match,
+  rank, and search-source SQL.
+- The query engine owns composition with normal `where`, projection,
+  pagination, execution, cache, and result parsing.
+- Plain search remains one statement and one round trip.
+- Facets and/or an explicit total add one statement, not one statement per
+  facet.
+- Search synchronization covers ORM writes, row-triggering raw SQL, and
+  external writers through database triggers. Provider operations that do not
+  fire row triggers, notably MySQL `TRUNCATE`, are an explicit `resyncSearch`
+  boundary rather than a false freshness promise.
+- No adapter method is added for execution. No runtime step kind is added.
+- No generic lifecycle hook, strategy table, opaque DDL callback, or arbitrary
+  public SQL extension is introduced.
 
-| Unit | What | Acceptance |
-|---|---|---|
-| S0-U1 | Capability plumbing: `SQLITE_ENABLE_FTS5` runtime probe; PlanetScale typed refusal; D1 caveats (no interactive tx; virtual-table export); MariaDB named-unsupported; version floors (MySQL ≥8.0, PG ≥12, SQLite ≥3.9/3.38). Reuse the existing capability/refusal machinery (V8003 class) throughout. | Each refusal/warning typed and tested on local dialects + the batch-only driver. |
+The existing query-performance Phase 1 foreign-key indexes are a satisfied
+prerequisite, not pending work.
 
-## Phase S1 — Tokenizer + normalization (M) — the precondition
+## 2. Canonical language and ownership
 
-| Unit | What | Acceptance |
-|---|---|---|
-| S1-U1 | **Library tokenizer** (one module, shared by index expressions, query compiler, highlighter): word = Unicode letters/digits runs; case-folded; accents kept; NFC per S0; offset map to raw text. | Golden-file tokens over the hostile corpus (`foo-bar`, `snake_case`, `aren't`, emails, floats, dates, CJK, empty/huge). |
-| S1-U2 | **Index-side normalization expressions** per dialect as SQL snippets FOR THE TRIGGER BODIES (L2): PG regexp punctuation→space feeding 2-arg `to_tsvector('simple', …)`; MySQL shadow-column expression; FTS5 tokenizer args (`unicode61 remove_diacritics 0` + separators matching U1). | **Cross-engine token identity test** — the falsifiable heart: normalized-text token sets identical to U1's output on PG/FTS5 now, MySQL in S4. Falsify: drop one rule → the test names engine and token. |
-| S1-U3 | **Query normalizer + grammar + escaping** (terms/AND, OR, NOT-with-positive, phrase, prefix; full MySQL boolean escape set; `@` never emitted). | Operator-fuzz property test (no input reaches an engine as an operator); the `foo-bar`-inversion named regression; pure-negation → ValidationError everywhere. |
+Use these terms precisely.
 
-## Phase S2 — Singular database-specific implementations (`using`) (M/L)
+### Search declaration
 
-`using` selects exactly one implementation for the declaration:
+The model-level public intent supplied through `.search({ ... })`. It names
+searchable fields, composites, attributes, a logical name, and an optional
+sealed implementation preset. It contains no resolved database names or SQL.
+
+### Resolved search definition
+
+The immutable, final-graph form of a search declaration. It contains the
+ordered source row key, mapped columns, normalized field and attribute order,
+implementation identity and options, semantic revision, and stable manifest
+fingerprint. It contains no executable lifecycle.
+
+### Search deployment
+
+The engine-managed physical artifact group for one resolved search definition:
+sibling storage, indexes, virtual table when applicable, trigger/function
+artifacts, requirements, manifest row, backfill, verification, and exact
+create/rebuild/drop/resync order. Its contents are derived and reconstructable,
+not user data.
+
+### Search query source
+
+The adapter-compiled, joinable source for one request. It exposes exactly one
+row per source record, the complete row-key join, the match predicate, rank,
+and declared attribute expressions.
+
+### Matched set
+
+The engine-owned composition of one search query source with the normalized
+query, source-model `where`, and search-attribute `filter`. Hit and facet
+statements compile from this same semantic owner.
+
+The dependency shape is:
+
+```text
+SearchDeclaration
+        ↓ final model-graph validation
+ResolvedSearchDefinition
+        ├── SearchDeploymentDef ──→ MigrationDriver
+        └── SearchQuerySource   ──→ DatabaseAdapter
+                                      ↓
+                               SearchMatchedSet
+                                      ↓
+                               SearchOperation
+```
+
+Do not import query-engine `TargetProjection` into schema or migrations. Search
+reuses the underlying ordered model row-key fact from schema/model metadata.
+
+## 3. Fixed public contract
+
+### 3.1 Declaration
 
 ```ts
-model.search({
-  fields: { title: true, content: true },
-  using: pgroonga(),
-});
+const post = s
+  .model({
+    tenantId: s.string(),
+    id: s.string(),
+    title: s.string(),
+    content: s.string(),
+    category: s.string(),
+    price: s.decimal(),
+  })
+  .id(["tenantId", "id"])
+  .search({
+    fields: {
+      title: { weight: 2 },
+      content: true,
+    },
+    composites: {
+      text: ["title", "content"],
+    },
+    attributes: ["category", "price"],
+    name: "post_search",
+    using: pgroonga(),
+  });
+```
 
-// Or, on a MySQL-specific model:
-model.search({
-  fields: { title: true, content: true },
-  using: mysqlFullText({ parser: "ngram" }),
+Rules:
+
+- One declaration per model in v1.
+- At least one searchable field is required.
+- `fields` accepts non-list strings that are not model-omitted.
+- Composite members must be fields named by the same declaration.
+- Composite names are unique, cannot collide with a field, and cannot be
+  `$all`.
+- V1 has no per-field `index: false` option. Every declared field is physically
+  searchable by itself; composites reuse those fields rather than creating a
+  second public indexing policy.
+- Attributes are unique non-list filterable scalars and are not model-omitted.
+- Search requires a real stable primary key and supports every member of a
+  compound primary key in declared order.
+- A model without a real primary key is rejected at definition validation.
+- `_rank` and `_highlights` are reserved public result keys on a model carrying
+  a search declaration. A conflicting model field is rejected.
+- Generated artifact names use bounded deterministic names with a stable hash
+  suffix. Final-graph validation rejects global collisions and an existing user
+  artifact occupying a managed name.
+- Both method orders are protected:
+
+```ts
+model.omit({ secret: true }).search(/* secret is unavailable */);
+model.search(/* uses title */).omit({ title: true }); // rejected
+model.search(/* uses title */).extends({ title: s.int() }); // rejected
+```
+
+Call-site typing gives immediate feedback. Final schema validation owns the
+security and builder-order invariant.
+
+### 3.2 Query input
+
+```ts
+const result = await client.post.search({
+  query: {
+    $all: "typescript OR orm",
+    title: '"type inference"',
+    text: "query engine*",
+  },
+  filter: {
+    category: { in: ["orm", "database"] },
+    price: { lt: "100.00" },
+  },
+  where: {
+    published: true,
+  },
+  orderBy: [{ category: "asc" }],
+  cursor: { tenantId_id: { tenantId: "acme", id: "p42" } },
+  take: 20,
+  skip: 0,
+  total: true,
+  facets: {
+    category: true,
+    price: {
+      ranges: [{ to: "50" }, { from: "50", to: "100" }],
+      stats: true,
+    },
+  },
+  highlight: true,
+  select: { tenantId: true, id: true, title: true },
+  // `include` and `omit` use the same mutually-compatible projection rules as
+  // normal reads; `select` and `include` remain mutually exclusive.
 });
 ```
 
-It is not a dialect map. `using` is one override scoped by the implementation's own `dialect`. Omitting it keeps the active dialect's built-in implementation: PostgreSQL tsvector/GIN, MySQL FULLTEXT, or SQLite FTS5. A matching override replaces that default. A non-applicable override emits one non-throwing warning per schema binding and leaves the active dialect's default unchanged. Thus `using: pgroonga()` affects PostgreSQL only; the same model bound to MySQL still uses MySQL FULLTEXT. The resolved implementation supplies the manifest, deployment, and match plan, so migrations and queries cannot choose different fallbacks.
+Input rules:
 
-The proposed seam is one pure compilation method:
+- A bare string desugars at validation to `{ $all: string }`.
+- Multiple keys in a query object combine with logical AND.
+- Omitting `query` means browse mode.
+- An empty object, an empty string, or whitespace-only query is invalid.
+- Each value uses one versioned portable mini-language. Its parser owns
+  precedence, grouping, quoting, prefix, escaping, and pure-negative refusal;
+  adapters consume only a normalized AST.
+- `filter` accepts declared attributes only. `where` retains the full normal
+  source-model surface.
+- `select`, `include`, and `omit` reuse normal read projection and default-omit
+  behavior. Validation performs the existing `omit`-to-`select` lowering before
+  the query engine sees the request.
+- `orderBy` is `"_rank"` or the normal scalar sort/null syntax restricted to
+  declared attributes, as one object or an ordered array.
+- Omitted order defaults to rank descending plus the complete ordered row key.
+  In browse mode rank is `0`, so the same default becomes row-key order.
+- Rank ordering supports `take` and `skip`, not cursors.
+- Attribute ordering supports the ordinary source-model `whereUnique` cursor.
+  Cursor comparison uses attribute values from the search source and every
+  row-key tie-break member.
+- Negative `take` reverses the compiled order and restores public hit order,
+  as `findMany` does.
+- `distinct` is not part of the v1 search API.
+- Normalized input is capped before SQL expansion. S0 fixes and documents the
+  exact maximum input length, AST node count, depth, prefix count, and facets
+  per request.
+
+### 3.3 Query result
 
 ```ts
-interface SearchImplementation<D extends Dialect> {
-  readonly id: string;
-  readonly revision: number;
-  readonly dialect: D;
-  readonly analysis: "portable" | "custom";
+type SearchResult<Hit, Facets> = {
+  hits: Array<
+    Hit & {
+      _rank: number;
+      _highlights?: Readonly<
+        Partial<Record<string, readonly SearchHighlight[]>>
+      >;
+    }
+  >;
+  total?: number;
+  facets?: Facets;
+};
 
-  compile(context: SearchCompileContext<D>): SearchProgram<D>;
+interface SearchHighlight {
+  readonly snippet: string;
+  /** UTF-16 offsets relative to `snippet`; end is exclusive. */
+  readonly matches: readonly { start: number; end: number }[];
 }
+```
 
-interface SearchProgram<D extends Dialect> {
+- `_rank` is always a finite number and is opaque across providers.
+- `_highlights` is present only when `highlight: true`; it is `{}` when no
+  searchable field is projected.
+- `total` is present only for `total: true` or when facets are requested.
+- `facets` is present only when requested and is keyed by the requested literal.
+- A value facet returns `{ value, count }[]`; SQL null is a `null` bucket sorted
+  after non-null values for equal counts.
+- Ranges are half-open `[from, to)`, with omitted ends unbounded; null is not in
+  a range.
+- Stats preserve scalar decoding and return `min`, `max`, and `avg` only when
+  requested.
+- Disjunctive faceting removes only that attribute's filter. It retains the
+  normalized text query, source `where`, and every other attribute filter.
+
+Plain search is one statement. Facets and/or total produce one additional
+statement. V1 promises that each statement observes committed data; it does not
+promise that the two statements share one database snapshot under concurrent
+writes. Both statements are compiled from the same matched-set definition.
+
+### 3.4 Decimal contract
+
+Do not contradict the existing exact-decimal portability boundary.
+
+- Decimal equality, inequality, membership filters, and value-count facets are
+  portable.
+- Decimal ordering, range comparison, range facets, `min`, `max`, and `avg`
+  require an adapter with exact decimal comparison/arithmetic.
+- SQLite-family adapters keep the existing exact-decimal refusal unless a
+  separately proven order-preserving representation is implemented.
+- A schema can bind to more than one driver, so these operations remain
+  spellable in the public schema-derived type. Bound operation validation fails
+  loudly before SQL on a driver without exact decimal support.
+
+## 4. Final internal contracts
+
+Names may move during implementation, but their semantic boundaries are fixed.
+
+```ts
+interface ResolvedSearchDefinition {
+  readonly logicalName: string;
+  readonly sourceTable: string;
+  readonly rowKey: readonly SearchRowKeyMember[];
+  readonly fields: readonly ResolvedSearchField[];
+  readonly composites: readonly ResolvedSearchComposite[];
+  readonly attributes: readonly ResolvedSearchAttribute[];
+  readonly implementation: SearchImplementationDescriptor;
+  readonly semanticRevision: number;
   readonly manifest: JsonValue;
-  readonly deployment: SearchDeployment<D>;
-
-  match(
-    context: SearchMatchContext<D>,
-    query: NormalizedSearchQuery
-  ): SearchMatchPlan;
-
-  /** Custom-analysis implementations only (spec §5.3 ladder). Pure span
-   *  finder over returned raw text; presentation (windows/markup/_highlights
-   *  shape) stays engine-owned. Portable implementations may not provide it. */
-  highlightSpans?(
-    field: string,
-    rawText: string,
-    query: NormalizedSearchQuery
-  ): ReadonlyArray<{ start: number; end: number }>;
+  readonly fingerprint: string;
 }
 
-interface SearchMatchPlan {
-  readonly predicate: Sql;
+interface SearchRowKeyMember {
+  readonly field: string;
+  readonly column: string;
+  readonly scalar: Scalar;
+}
+```
+
+`rowKey`, fields, composite members, and attributes preserve schema order. No
+identity is concatenated or serialized into one string.
+
+Public implementation factories return sealed descriptors, not callbacks:
+
+```ts
+interface SearchImplementationDescriptor {
+  readonly id: string;
+  readonly dialect: Dialect;
+  readonly analysis: "portable" | "custom";
+  readonly revision: number;
+  readonly options: JsonValue;
+  readonly [SEARCH_IMPLEMENTATION_BRAND]: true;
+}
+```
+
+Only package-owned factories can construct the brand in v1. A public trusted
+third-party compiler protocol is separate future work.
+
+Migrations consume a serializable deployment fact:
+
+```ts
+interface SearchDeploymentDef {
+  readonly name: string;
+  readonly definitionFingerprint: string;
+  readonly sourceTable: string;
+  readonly rowKey: readonly SearchDeploymentKeyMember[];
+  readonly requirements: readonly MigrationRequirement[];
+  readonly storage: TableDef;
+  readonly triggers: readonly TriggerDef[];
+  readonly virtualTables: readonly VirtualTableDef[];
+  readonly manifest: JsonValue;
+}
+
+interface SearchDeploymentKeyMember {
+  readonly sourceColumn: string;
+  readonly storageColumn: string;
+  readonly type: string;
+}
+```
+
+`SearchDeploymentDef` is not an opaque list of SQL strings. Migration drivers
+lower its finite artifact vocabulary and own provider-specific lifecycle order.
+`storage.indexes` is the one index list; the lifecycle owner creates the table
+without those secondary indexes when it must load first, then materializes that
+same list. There is no second parallel index collection. The deployment key is
+fully serializable and does not contain runtime `Scalar` instances.
+
+Queries consume a joinable source:
+
+```ts
+interface SearchQuerySource {
+  readonly source: Sql;
+  readonly joinPredicate: Sql;
+  readonly matchPredicate: Sql | undefined;
   readonly rank: Sql;
   readonly rankDirection: "asc" | "desc";
+  readonly attributes: ReadonlyMap<string, Sql>;
+  readonly rowKey: readonly SearchQueryKeyMember[];
 }
 ```
 
-`compile()` is deterministic and side-effect free. It returns declarative artifacts and `Sql` fragments; it never executes SQL. The migration path consumes `deployment`; the query path consumes `match()` from the same compiled program. The manifest fingerprint includes implementation `id`, `revision`, `dialect`, `analysis`, canonical options, and stable field order. Built-in revision discipline (spec §3.4 ✦): built-ins bump `revision` ONLY on semantics-affecting changes, and a bump is a named breaking-change event with a visible plan-step note — never a refactor side effect. A fingerprint change recreates the managed search artifacts and backfills; an unchanged fingerprint is a no-op.
+The query engine never switches on PostgreSQL, MySQL, SQLite, FTS5, `MATCH`,
+`tsquery`, or PGroonga operators.
 
-`analysis: "portable"` means the implementation consumes the S1 normalized document/query contract and remains in the Tier-1 conformance suite (spec §3.4 — the suite is the enforcement of the same-rows promise). `analysis: "custom"` permits implementation-owned analysis such as an ngram parser; its match set is explicitly dialect-specific. **Factories derive the bit**: `mysqlFullText({ parser: "ngram" })` resolves to `analysis: "custom"` automatically — pinned in S2-U2. Highlighting follows the spec §5.3 ladder: portable → shared highlighter (not overridable); custom with `highlightSpans` → implementation spans; custom without → shared word-based fallback, best-effort (sound marks, possibly incomplete), never a refusal. An option such as `mysqlFullText({ parser: "ngram" })` must put parser availability in `deployment.requirements`; requirements fail before DDL rather than being installed implicitly. Every v1 implementation must support terms, boolean composition, phrases, prefixes, composites, and numeric rank, or refuse the configuration before SQL generation. Only ranking hints retain the existing Tier-4 accept-and-warn rule.
+## 5. Managed deployment lifecycle
 
-| Unit | What | Acceptance |
-|---|---|---|
-| S2-U1 | `model.search({ fields, composites, attributes, name, using? })` — **a model method with an object config** (✦ spec §3; §0 L8). `using` accepts one dialect-scoped `SearchImplementation` override, never an array or dialect map; the supplied value is stored in immutable model state and resolved when the schema is bound to a driver. **STRICT eligibility typing per the spec's table** remains unchanged: `fields` keys complete ONLY non-list string scalars; `composites` members complete ONLY keys of the SAME literal's `fields` property; `attributes` completes ONLY filterable non-list scalar types; model-`.omit()`ed fields are excluded everywhere. Per-field options remain `weight` and, if S0 accepts §9.5, `index: false`. One search declaration per model in v1. | Public call-site probes cover every existing field constraint plus `using`: one implementation accepted; an array/map rejected; a second `.search()` rejected; implementation factory option bags reject unknown keys for fresh AND non-fresh values. Runtime schemas falsify each type-level declaration rule once. A non-applicable override emits one warning and leaves the active dialect's default unchanged. The warning is not repeated per query, and no SQL or requirement from the ignored override is compiled. |
-| S2-U2 | Implement `SearchImplementation<D>` and compile/cache one `SearchProgram<D>` per model+dialect. The three built-in PostgreSQL/MySQL/SQLite implementations move behind the same seam; omission or a non-applicable override resolves to the active dialect's built-in. Factories own option validation and canonicalization before compilation. The snapshot stores only the resolved manifest fingerprint; migration and query consumers receive the same program. Custom-analysis implementations are marked by their factories; `mysqlFullText({ parser: "ngram" }).analysis === "custom"` is pinned. | All three built-ins compile through this interface with no dialect branch in their consumers. `compile()` determinism pinned. Migration and query probes observe the same canonical options and field order. Unchanged resolved manifest → empty diff; a resolved implementation's option, revision, dialect, or analysis change → visible recreate+backfill; changes inside a non-applicable override → empty diff. Unsupported match-set capability fails before SQL generation. |
-| S2-U3 | **First extension implementation: `pgroonga()`**, a PostgreSQL-only `analysis: "portable"` preset. It declares `pgroonga >= 3.1.6` with `mustExist` policy (VibORM does not run `CREATE EXTENSION`), stores normalized fields in one stable-order `text[]` document, and creates one PGroonga index with `TokenDelimit`, `normalizers=''`, and no token filters. Query compilation uses the normalized AST, escaped PGroonga query literals, and per-field/composite weight masks over that stable order. Rank is a plan-independent weighted matched-positive-leaf expression; `pgroonga_score()` is forbidden until its sequential-scan zero behavior can satisfy the rank contract. Extend `IndexDef` in place for PostgreSQL access method, per-column operator class, ordered index parameters, and MySQL parser; extend render/diff/introspection with those same fields. | Official PGroonga-container gate: missing/old extension on PostgreSQL refuses before DDL; create/introspect/re-push is idempotent; access method/operator class/ordered parameters round-trip; option or implementation-revision change recreates+backfills; `$all`, per-field, composite, phrase-boundary, prefix, and hostile escaping cases match the portable corpus; forced index-scan and sequential-scan plans return identical hit sets and deterministic rank order. `using: pgroonga()` on MySQL leaves MySQL FULLTEXT active after one warning; a MySQL override on PostgreSQL leaves built-in PostgreSQL search active after one warning; neither compiles ignored requirements or SQL. A custom-analysis option cannot enter the Tier-1 suite; PGroonga (portable) joins the S1 cross-engine token-identity suite — its TokenDelimit-over-normalized-document tokens must equal the library tokenizer's, same falsification discipline. |
+### 5.1 Why one owner is required
 
-## Phase S3 — DDL via existing machinery (M — was L before §0)
+An ordinary table has independent structural changes. A search deployment has
+coordinated derived artifacts and data movement. Its invariant is not preserved
+if the generic differ independently renames, drops, or confirms destruction for
+its table, virtual table, triggers, and indexes.
 
-| Unit | What | Acceptance |
-|---|---|---|
-| S3-U1 | Consume `SearchProgram.deployment` and lower its declarative columns/indexes through the existing `TableDef`/extended `IndexDef` machinery (L1). Built-in outputs remain: PG normalized text + per-field tsvector columns and GIN indexes; MySQL `as_ci` searchable columns, `_bin` attributes, per-field FULLTEXT plus per-composite multi-column FULLTEXT; SQLite ordinary sibling table plus FTS5 virtual table. Extension implementations may choose another physical shape without adding a second DDL path; PGroonga emits its stable-order `text[]` document and extension index here. | `push` idempotent on all built-ins and PGroonga; model-field `.map()` resolution correct in search columns and trigger projections; introspection round-trips every built-in and extension index property; a declaration or implementation-manifest change produces drop+recreate+backfill. The ONLY new DDL-kind differ/introspection arms are triggers (S3-U2) and FTS5. |
-| S3-U2 | **TriggerDef, engine-owned-only (L4)**: deterministic bodies from the selected deployment (normalization + implementation-owned document projection; FTS5 `'delete'` form; PG TRUNCATE statement trigger; skip-if-unchanged), name+body-hash diff, `viborm_search_` prefix, dry-run visibility. | Create/diff/drop idempotency for every built-in and PGroonga; a planted user trigger is invisible to the differ (falsify by planting one). |
-| S3-U3 | **Backfill + rebuild + push checks** from the selected deployment: backfill `INSERT … SELECT` load-then-index; SQLite rebuild re-emits triggers + forces resync; MySQL checks min token size, version-aware `SET_ANY_DEFINER`, stopword-free build, and **weights-inert warning**; extension requirements are checked before any DDL. | Backfill count parity and a visible long-migration note; a `fields`/`attributes`/implementation change compiles to drop+recreate+backfill; SQLite `alterColumn` rebuild leaves triggers present and FTS5 `integrity-check` clean; MySQL checks pass against docker; missing PGroonga refuses before the first migration statement. |
+The search deployment owner must:
 
-## Phase S4 — Sync correctness (M)
+- bypass ordinary user-table rename similarity;
+- treat dropped derived rows as reconstructable, not user data loss;
+- preserve the old full deployment in generated snapshots for down migration;
+- persist a live fingerprint for `push()` convergence;
+- detect missing or altered managed physical artifacts;
+- order create, rebuild, recovery, resync, and drop;
+- integrate with dry-run, generate, apply, down, reset, and squash.
 
-| Unit | What | Acceptance |
-|---|---|---|
-| S4-U1 | Trigger bodies live on all dialects and PGroonga; conformance: ORM writes, raw SQL writes, `createMany`, nested writes → search-table parity everywhere incl. docker MySQL (this also completes S1-U2's MySQL leg), the PGroonga container, and the batch-only driver (writes via `_executeBatch` fire triggers — D1 model). | Falsify: disable one trigger → parity test names implementation+table+operation. |
-| S4-U2 | The named holes as pinned tests: PG TRUNCATE trigger; MySQL TRUNCATE desync detected + repaired by resync; SQLite no-WHERE DELETE fires; rollback leaves no residue; **MySQL commit-visibility caveat asserted** (in-tx miss, post-commit hit; PG/SQLite in-tx hit). | Each hole falsified once. |
-| S4-U3 | **`resync` in the migration layer (L5)**: full re-derivation through the selected deployment; FTS5 `'rebuild'`; 100k-row lock/time profile documented. Sibling maintenance helpers, same L5 shape: FTS5 `'optimize'` (+ pinned `automerge` defaults in the DDL) and the MySQL `OPTIMIZE TABLE` guidance surfaced as a documented helper. | Parity after induced desync for all built-ins and PGroonga; `integrity-check` clean. |
+### 5.2 Live manifest
 
-## Phase S5 — The `search()` operation (M/L)
+Create one engine-owned `viborm_search_manifest` table when the first search
+deployment is installed. It stores the logical deployment name, source table,
+implementation ID and revision, fingerprint, and owned artifact names.
 
-| Unit | What | Acceptance |
-|---|---|---|
-| S5-U1 | Operation-family scaffolding (the irreducible fixed cost): routing/tokens/census deliberate edits, client proxy entry, validation args (`query: string \| {…}` — **the bare-string form desugars to `{ $all }` via a validation transform**, so the engine sees only the object form; object keys typed from the declaration; `filter` attributes, `where`, `orderBy: "_rank" \| attributes` **defaulting to `"_rank"` when omitted** (✦ spec §5), take/skip, select/include). Typing probes throughout. | Gates edited-not-loosened; typo probes; loud arg validation; string-vs-object equivalence pinned (`search({ query: "x" })` ≡ `search({ query: { $all: "x" } })` — identical SQL and hits); omitted-orderBy ≡ `orderBy: "_rank"` pinned (identical SQL and hits); statement-count contract pinned (no facets and no `total: true` → exactly ONE driver execution; with either → exactly two); `highlight: true` without a projected searchable field → `_highlights` empty, no error (✦ spec §5) — pinned. |
-| S5-U2 | **Match-predicate + filter + rank integration (L3+L6+L9)**: the engine passes the normalized query to the selected `SearchProgram.match()` and injects its predicate/rank into the existing findMany path. It does not switch on PostgreSQL/MySQL/SQLite or name extension operators. **`filter` compilation** remains engine-owned: `equals/not/in/notIn/lt/lte/gt/gte` (+ null forms) become plain conjuncts on the search table through existing expression helpers. Built-in program shapes remain PG per-term AND-over-OR + weighted `ts_rank`, MySQL multi-column FULLTEXT + `MATCH` relevance (weights inert + warning from S3-U3), and FTS5 + `bm25`; PGroonga uses the S2 program. | Consumer test proves a fake implementation can change deployment+match without editing the query engine. Pinned built-in and PGroonga SQL shapes; phrase-boundary and split-terms composite conformance; **filter `_bin` semantics pinned** (`filter: { category: { equals: "Foo" } }` does NOT match "foo" on portable implementations); weight-effect test (PG/SQLite reorder, MySQL warning, PGroonga deterministic implementation-owned rank); **hits projection parity**: search hits with nested include ≡ findMany on the same ids. |
-| S5-U3 | Match-set conformance battery across the three built-ins, PGroonga, and the batch-only driver leg (the D1 stand-in: search after batched writes — the Tier-2 per-batch freshness claim, exercised not assumed); default-orderBy behavior (`_rank` when omitted); attribute sorts + cursors (existing cursor machinery); rank order is take/skip-only (cursor with `"_rank"` = ValidationError). Custom-analysis implementations run their own result-set suite and are excluded from cross-dialect equality claims. | Identical hit sets + totals on pglite/sqlite3/mysql2 and portable PGroonga; `_rank` present and numeric on every hit (opaque value pinned as type+presence, never as a number); `take` omitted returns ALL matches; rank order within-engine deterministic; rank-cursor refusal pinned; batch-driver leg green; custom-analysis results never enter the Tier-1 equality assertion. |
+- File snapshots store the full serializable old and new deployment.
+- Live introspection reads the manifest plus physical artifacts.
+- A matching fingerprint with missing physical artifacts plans repair.
+- A differing fingerprint plans a managed rebuild.
+- The manifest row is written only after successful verification.
+- Removing the final deployment may remove the empty manifest table.
+- A user object occupying a declared managed name is a collision, not ownership.
 
-## Phase S6 — Facets (M)
+Do not use a raw database-deparsed trigger body as the sole ownership or
+revision signal. Provider introspection may normalize bodies, whitespace,
+definers, and SQL modes.
 
-| Unit | What | Acceptance |
-|---|---|---|
-| S6-U1 | **The facet-statement compiler** (the second genuinely new compiler): one SELECT-only-CTE statement — total + scalar facets (top-N **default 10**, per-facet `limit` override, count-desc/binary-value order) + disjunctive (`FILTER`/`SUM(CASE)`) + ranges + stats; JSON aggregation order-independent; per-request cap. Reuses the adapters' existing JSON-aggregation expression helpers. | Identical counts/ranges/stats across portable implementations; mixed-case values distinct everywhere (`_bin` proof); disjunctive equals hand-computed; cap enforced; default-limit-10 pinned; contextual-typing probes on the `facets` argument (typo'd attribute = compile error). |
-| S6-U2 | Browse mode (no-query path through the same compilers). | Browse conformance parity. |
+### 5.3 Statement transport
 
-## Phase S7 — Highlighting + polish (S)
+Before trigger support, replace migration-driver `string` DDL transport and
+`split(";\n")` with explicit atomic statements:
 
-| Unit | What | Acceptance |
-|---|---|---|
-| S7-U1 | Highlighting per the spec §5.3 ladder: shared library highlighter (S1 tokenizer + offset map + pinned snippet-window algorithm) for portable implementations; `program.highlightSpans` for custom implementations that provide it (engine enforces spans-in-bounds + determinism, presentation stays engine-owned so `_highlights` shape is uniform); **shared word-based fallback for custom implementations without one — best-effort, never refused** (✦). `_highlights` for projected fields only. | Byte-identical `_highlights` across portable implementations (golden files); highlighted-term ⊆ matched-term property (falsify via skewed normalizer); custom-spans interface probes (out-of-bounds span rejected loudly; portable implementation providing highlightSpans rejected); fallback case pinned: an ngram-caused hit whose text lacks the whole word shows zero/partial marks and NEVER a fabricated span. |
-| S7-U2 | Autocomplete pattern doc + prefix conformance incl. 1–2-char MySQL prefixes. | Pinned on docker MySQL. |
-
-## Phase S8 — Write-cost gate + docs (M) — acceptance gate
-
-| Unit | What | Acceptance |
-|---|---|---|
-| S8-U1 | A/B write benchmarks (indexed vs unindexed model; create/update/delete/createMany; **docker PG — not pglite/WASM — for the PG numbers**, sqlite3, docker MySQL, and PGroonga; GIN pending-list flush profile). | A stated per-write overhead envelope per implementation, maintainer-signed. **The phase fails if it cannot state one.** |
-| S8-U2 | Truncation policy: user writes never fail from search limits (cap per S0). | Oversized write succeeds, truncated indexing pinned at each implementation's declared limit. |
-| S8-U3 | Docs: user pages (declaration, singular dialect-scoped `using`, built-in vs extension implementations, portable vs native analysis, querying, facets, ranking honesty + dev/prod ordering divergence, scale envelope), ops page (extension installation ownership, replication guidance, CDC note, MySQL OPTIMIZE/`INNODB_FT_DELETED`, FTS5 `'optimize'`, GIN stance), compatibility + capability matrix rows. | Grep-checked doc coverage: every Tier-2 caveat, the Tier-3 PG phrase-length bound, the bulk-write trigger cost, the FTS5 silent-corruption severity + `resync='rebuild'`, Neon, PGroonga requirement/rank caveat, non-applicable-override warning/default behavior, and the native-analysis Tier-1 exclusion — each verbatim on a user-facing page. |
-
-## Phase S9 — Final hardening (S)
-
-Full estate + gates + MySQL/PostgreSQL/PGroonga docker legs; cumulative conformance complete; matrix updated; fast-follow list recorded (list facets, vocabulary, `pg_trgm` flavor, PG combined-vector optimization per L3, **geo point attributes** — portable core: box filter + deterministic haversine `near` ordering, math-function capability floor, spec roadmap note — and **vector in the search document** — three roles per the spec roadmap note: fused rank through the existing `SearchMatchPlan.rank` seam (Tier-3, no contract change), distance-threshold filters and pure semantic retrieval (match-set-affecting → capability-gated with typed refusal on non-vector dialects, NEVER silent divergence; distance thresholds are legal unlike text-rank thresholds because cosine/L2 are defined metrics); PG-first, gated on ANN index declarability); design-doc §9 items resolved or re-owned.
-
-## Ordering
-
-```
-S0 → S1 → S2  (normalization contract before implementations; S0 also feeds S5-U1 naming and S7-U1 snippets)
-             ├→ S3 → S4      (S3 consumes SearchProgram.deployment; S4 proves its triggers)
-             └→ S5-U1        (parallel with S3/S4 — client scaffolding consumes S2 typing)
-S5-U2/U3 after S2+S4 → S6 → S7
-S8 after S4 (benchmarks need live triggers) · S9 last
+```ts
+interface DDLStatement {
+  readonly sql: string;
+  readonly transaction: "normal" | "outside";
+}
 ```
 
-Sizing after §0: S0=S, S1=M, S2=M/L, S3=M (was L), S4=M, S5=M/L, S6=M, S7=S, S8=M, S9=S — **~10–12 harness drives**. The remaining long poles are S2's real extension proof and S5's operation-family fixed cost; neither is interface ceremony.
+The exact transaction discriminator may reuse an existing migration concept.
+The required fact is that a PostgreSQL function or MySQL/SQLite trigger body is
+one statement even when its body contains semicolons.
 
-## Abort criteria (unchanged)
+Update generation, push, apply, down parsing, squash, file writing, and rollback
+together. Do not add a SQL parser.
 
-Token identity unachievable on an input class → loud Tier-1 carve-out, never silent. No statable write-overhead envelope → triggers not on-by-default; design returns with numbers. Any surviving conformance divergence → named tier entry or typed refusal.
+### 5.4 Physical schema vocabulary
+
+Extend existing schema artifacts rather than hiding search properties in type
+strings or parallel arrays:
+
+- `ColumnDef` gains optional physical collation with DDL, differ, and
+  introspection support.
+- Replace raw `IndexDef.columns` internally with ordered `IndexMemberDef[]`,
+  where each member binds its column and optional operator class.
+- `IndexDef.type` remains the existing access-method/index-kind fact.
+- Managed index metadata adds canonical keyed parameters and an optional MySQL
+  parser.
+- Public `.index()` remains closed and unchanged; search uses trusted managed
+  metadata.
+- Add finite `TriggerDef` and `VirtualTableDef` artifacts. A PostgreSQL
+  `TriggerDef` owns the logical body and its driver-owned supporting function as
+  one managed trigger artifact; do not create an unrelated public routine API.
+- SQLite introspection recognizes virtual tables and excludes FTS5 shadow tables
+  from ordinary user tables.
+
+### 5.5 Apply-time requirements
+
+Requirements belong to the target database, not the machine that generated a
+migration. Serialize `MigrationRequirement[]` in generated migration metadata
+or compile target-side assertions that execute before all destructive DDL.
+
+Requirements include:
+
+- exact driver/capability identity, not dialect alone;
+- provider and extension version floor;
+- FTS5 availability;
+- required parser or extension;
+- privileges needed to create triggers/functions;
+- unsupported hosted-driver refusals.
+
+Use boundary-owned errors:
+
+- definition problems use schema validation errors;
+- query request-shape refusals may use V8003;
+- provider capability failures use V8001 or migration
+  `FEATURE_NOT_SUPPORTED`, depending on the boundary.
+
+### 5.6 Backfill, rebuild, and resync
+
+V1 uses a correctness-first blocking protocol where an online protocol cannot
+be proven:
+
+1. Check all requirements before destructive action.
+2. Acquire the provider-specific source/write protection needed for a stable
+   backfill.
+3. Create shadow or empty managed storage.
+4. Install the provider's required virtual/search structure and synchronization
+   artifacts in a safe order.
+5. Backfill through idempotent upsert semantics.
+6. Reconcile source and derived row counts and complete row keys.
+7. Build expensive secondary indexes after load when the provider permits it.
+8. Verify integrity and match smoke probes.
+9. Publish the manifest and release protection.
+
+The concrete order may differ where, for example, an FTS virtual table must
+exist before its trigger. One deployment owner records each dialect's complete
+order; generic operation priorities do not infer it.
+
+MySQL DDL implicitly commits, so a surrounding transaction is not accepted as
+the synchronization proof. The MySQL plan must name its source lock or
+maintenance-window behavior. Interruption leaves either the old deployment
+active or a manifest-visible incomplete deployment that the next push repairs.
+
+`resyncSearch({ models?, optimize? })` lives beside migration `push`. Omitted
+models means every declared search. It uses the same deployment compiler,
+locking, requirements, verification, and manifest ownership as rebuild. It is
+not a query-engine operation.
+
+## 6. Live owner map
+
+The implementer must begin from these current owners instead of creating a
+parallel search subsystem.
+
+| Concern | Existing owner to extend |
+|---|---|
+| Immutable model state and chain methods | `src/schema/model/model.ts` |
+| Final schema hydration and names | `src/schema/hydration.ts`, `src/schema/model/` |
+| Definition validation | `src/schema/validation/` |
+| Operation input schemas and exact typing | `src/validation/model/`, `src/client/types.ts` |
+| Physical schema snapshot | `src/migrations/types.ts`, `src/migrations/serializer.ts` |
+| Structural and managed diffing | `src/migrations/differ.ts`, `src/migrations/utils.ts` |
+| Generate/apply/down/push lifecycle | `src/migrations/generate/`, `src/migrations/apply/`, `src/migrations/push/` |
+| Provider DDL and introspection | `src/migrations/drivers/<provider>/` |
+| Provider query SQL | `src/adapters/<provider>/`, `src/adapters/database-adapter.ts` |
+| Normal find projection | `src/query-engine/operations/find-common.ts`, `src/query-engine/builders/select-builder.ts` |
+| Ordering and cursors | `src/query-engine/operations/cursor-order.ts`, `cursor-condition.ts`, `find-pagination.ts` |
+| Runtime operation and execution atom | `src/query-engine/write-engine/routing.ts`, `OperationFragment.ts`, `OperationExecutor.ts` |
+| Model-row parsing | `src/query-engine/result/ResultParser.ts` and its parser contracts |
+| Default omit | `src/client/omit.ts` |
+| Read caching | `src/query-engine/cache-flow.ts`, `src/cache/` |
+| Operation tracing/logging | `src/query-engine/execution-context.ts`, `src/instrumentation/` |
+
+New concern-named modules may be added beside these owners when one file would
+otherwise mix independent responsibilities. Do not create `search-utils.ts`, a
+search query AST that replaces the normal read engine, or a second migration
+driver hierarchy.
+
+## 7. Ordered implementation phases
+
+Every unit is atomic. Run only the relevant memory-capped layer scripts during
+the unit. Do not run layer or provider suites concurrently.
+
+### Phase S0 — Contract closure and feasibility
+
+#### S0-U1 — Record baseline
+
+- Record branch, commit, dirty files, production LOC, and three warm
+  `pnpm test:types` timings.
+- Preserve unrelated changes.
+- Record provider and driver matrix: pg, postgres, PGlite, Neon and Bun SQL;
+  mysql2 and PlanetScale; sqlite3, Bun SQLite, libSQL, and D1.
+- Mark query-performance Phase 1 as delivered.
+
+#### S0-U2 — Normalize the public contract
+
+Update `search-feature-design.md` to match §3 of this plan:
+
+- complete ordered row keys;
+- result metadata and reserved-key policy;
+- query combination and browse behavior;
+- exact ordering/cursor rules;
+- facet/range/null/decimal semantics;
+- two-statement snapshot statement;
+- request complexity limits;
+- one pinned highlight snippet-window algorithm;
+- all declared fields individually indexed and no v1 `index: false` option;
+- `resyncSearch` API;
+- no remaining contradictory open item.
+
+#### S0-U3 — Tokenizer feasibility spike
+
+Build a throwaway conformance spike before public schema or DDL production code.
+It must compare library, PostgreSQL, MySQL, SQLite FTS5, and PGroonga token sets
+over composed/decomposed accents, Unicode case folds, CJK, punctuation,
+apostrophes, underscores, email-like strings, numbers, phrases, and prefixes.
+
+The proposed portable word is a maximal Unicode letter/digit run; punctuation
+is a separator; case is folded; accents remain significant. The spike must
+decide normalization:
+
+- If NFC is part of the contract, prove every provider can normalize raw SQL
+  writes. PostgreSQL's built-in `normalize()` requires PostgreSQL 13+, so raise
+  the floor when used.
+- If exact parity is impossible, narrow the portable character contract or add
+  a named tier/refusal. Do not silently claim equal hit sets.
+
+Pin UTF-16 highlight offsets and truncation units. Fix request and document
+caps from measurements, not arbitrary SQL limits.
+
+Acceptance: the feature design contains no open implementation decision and the
+hostile corpus has a recorded portable result or an explicit named carve-out.
+
+### Phase S1 — Model declaration and final-graph validation
+
+#### S1-U1 — Immutable declaration state
+
+- Add one optional search declaration to `ModelState` and model construction.
+- Add exact `.search()` contextual typing.
+- Preserve the raw declaration through `.map()`, `.omit()`, `.extends()`,
+  `.index()`, `.id()`, and `.unique()` chains.
+- Reject a second declaration at type and runtime boundaries.
+
+#### S1-U2 — Final-graph search validation
+
+Add definition rules for:
+
+- real primary key presence and compound order;
+- eligible/searchable fields and attributes;
+- at least one field;
+- duplicate/empty composites and attributes;
+- `$all` and result-key reservations;
+- omit/extends invalidation in either method order;
+- mapped fields and table names;
+- implementation descriptor/options;
+- managed name length and global collision.
+
+Client construction must run search rules whenever any model declares search,
+including otherwise ordinary schemas.
+
+#### S1-U3 — Public type probes and cost
+
+Probe real client/model calls with fresh and non-fresh values and typos beside
+real keys at every new nesting level. Search-specific exactness guards must not
+widen the global query exactness types. Run three warm type checks; median may
+not regress by more than 5%.
+
+### Phase S2 — Resolved definition and sealed implementations
+
+#### S2-U1 — One resolver
+
+Build `ResolvedSearchDefinition` after model hydration. It binds:
+
+- complete mapped row key;
+- field, composite, and attribute order;
+- physical scalar metadata;
+- implementation descriptor and canonical options;
+- semantic revision and deterministic manifest/fingerprint.
+
+The resolver is pure and deterministic. Migration and query consumers compare
+the same manifest fixtures.
+
+#### S2-U2 — Schema-binding cache
+
+Cache query-side resolution per schema/client binding and actual driver
+capability profile. Do not put one mutable dialect-specific program on `Model`:
+the same model instance can bind to different clients and dialects.
+
+#### S2-U3 — Built-in and extension descriptors
+
+- Add sealed descriptors for built-in PostgreSQL, MySQL, and SQLite search.
+- Add `pgroonga()` and `mysqlFullText()` as sealed option factories.
+- A non-applicable descriptor falls back to the active built-in.
+- Client binding reports one warning through instrumentation.
+- Migration planning reports the same warning in its result surface.
+- Ignored descriptors compile no requirement or SQL.
+
+Do not implement PGroonga deployment yet; it proves the stable seam in S10.
+
+### Phase S3 — Migration substrate prerequisites
+
+#### S3-U1 — Atomic DDL statements
+
+Implement §5.3 across migration drivers, generate, push, apply, down, squash,
+and file writing. Prove multi-statement trigger/function bodies round-trip as one
+statement. Existing DDL output remains byte-identical where it contains no
+compound body.
+
+#### S3-U2 — Exact column/index metadata
+
+Implement collation, ordered index members/operator classes, canonical options,
+and MySQL parser through serialization, DDL, differ, introspection, and
+idempotent re-push. Existing public indexes retain their SQL.
+
+#### S3-U3 — Trigger and virtual-table vocabulary
+
+Add engine-managed `TriggerDef` and `VirtualTableDef`, not public schema APIs.
+Add SQLite virtual-table recognition and FTS5 shadow filtering before producing
+any search deployment.
+
+#### S3-U4 — Apply-time requirements
+
+Extend generated migration metadata/application so requirements are checked on
+the target before the first deployment statement. Pin missing/old extension,
+missing FTS5, insufficient privilege, PlanetScale, D1, and libSQL behavior.
+
+### Phase S4 — Managed search deployment
+
+#### S4-U1 — Snapshot and differ owner
+
+Add `SearchDeploymentDef[]` to `SchemaSnapshot` and one managed differ for
+create/rebuild/drop/repair. Reuse physical `TableDef`, `ColumnDef`, and
+`IndexDef` children. Exclude managed storage from ordinary table rename and
+destructive-data resolution.
+
+#### S4-U2 — Live manifest
+
+Implement `viborm_search_manifest`, target introspection, fingerprint
+comparison, physical drift detection, and last-deployment cleanup. A revision
+change plans rebuild even when the visible table columns are unchanged.
+
+#### S4-U3 — Provider deployment compilers
+
+Implement built-ins:
+
+- PostgreSQL: sibling table, normalized text, per-field tsvector, GIN, source
+  triggers/function, TRUNCATE handling.
+- MySQL: sibling table, searchable collation, binary attributes, per-field and
+  composite FULLTEXT, parser metadata, source triggers.
+- SQLite/libSQL/D1: sibling table, stable integer FTS rowid, unique complete
+  source row-key tuple, FTS5 external-content table, source triggers.
+
+Migration drivers own all provider SQL. Search definitions contain no dialect
+SQL.
+
+#### S4-U4 — Full lifecycle integration
+
+Cover push, dry-run, generate, apply on another target, down, reset, squash,
+declaration add/remove/rename, implementation revision/options change,
+model/table/column mapping changes, force reset, failed requirements, and
+interrupted rebuild recovery.
+
+### Phase S5 — Synchronization, backfill, and maintenance
+
+#### S5-U1 — Trigger correctness
+
+Prove insert, update, delete, no-WHERE delete, raw SQL, ORM mutations,
+createMany, nested writes, rollback, and complete row-key transitions.
+Skip trigger work when indexed inputs and attributes are unchanged.
+
+#### S5-U2 — Backfill and concurrent-write protocol
+
+Implement §5.6 per provider. Falsify concurrent insert, update, delete, and row
+key transition during deployment. Prove no stale resurrection, lost row, or
+duplicate derived row. Record lock duration and interruption recovery.
+
+#### S5-U3 — Resync and integrity
+
+Implement `resyncSearch`. Cover induced desynchronization, MySQL TRUNCATE,
+SQLite FTS5 rebuild/integrity-check, missing managed artifacts, row-count and
+complete-key reconciliation, and optional optimize maintenance.
+
+### Phase S6 — Query normalization and adapter sources
+
+#### S6-U1 — Versioned query AST
+
+Implement one parser/normalizer with the S0 grammar. Adapters receive only a
+normalized AST. Add fuzz/property tests for operator escaping and bounded SQL
+growth. Pure-negative and malformed expressions fail at validation.
+
+#### S6-U2 — Adapter search source
+
+Add an exact search compiler group to each database adapter or sealed extension
+owner. It returns `SearchQuerySource`. Pin source alias, complete row-key join,
+rank expression, attribute expressions, and query parameters.
+
+#### S6-U3 — Portable match conformance
+
+Run the hostile corpus on PGlite/PostgreSQL, SQLite/libSQL, docker MySQL, and
+the batch-only SQLite leg. Portable implementations must return the same hit
+set within the recorded S0 contract. Ranking is asserted only for finite value
+and deterministic within-provider order.
+
+### Phase S7 — One-statement hits and `SearchOperation`
+
+#### S7-U1 — Complete public operation registration
+
+Add `search` to every live public/runtime owner:
+
+- client operations, payloads, and results;
+- operation-schema registry and validator;
+- routed operation set;
+- cacheable read set and cache flow;
+- client default omit handling;
+- instrumentation/logging names;
+- architecture census and gates.
+
+Do not add `search` to generic model-row result parsing as a second projection
+truth. `SearchOperation` reuses `ResultParser.parse("findMany", ...)` after
+separating private rank transport.
+
+#### S7-U2 — Shared matched-set compiler
+
+Build one `SearchMatchedSet` from definition, normalized query, `where`, and
+attribute filter. It owns the complete-key join once. Hits and facets consume
+it; no verb writes its own match/discriminator/provider predicate.
+
+#### S7-U3 — Minimal trusted find seam
+
+Extend existing find compilation with the exact internal join/source and order
+expressions needed by search. Preserve ordinary find SQL byte-for-byte. Do not
+expose a generic user join hook.
+
+Pin query plans so hit filtering, rank projection, and ordering use one search
+source rather than duplicate correlated search evaluation.
+
+#### S7-U4 — Search operation and strict results
+
+Implement a dedicated operation shell:
+
+- empty planning;
+- one hits `ReadStep`;
+- optional facet/total `ReadStep` added in S9;
+- normal projection parsing for the record;
+- finite rank parsing through a private collision-proof SQL alias;
+- public `_rank`/`_highlights` assembly;
+- negative-take restoration;
+- strict unexpected/missing-column failures.
+
+Plain search must compile to one statement and execute directly in one round
+trip.
+
+#### S7-U5 — Cache and instrumentation
+
+- Cache normalized validated args, so string shorthand and `{ $all }` share a
+  key.
+- Include the search-definition fingerprint in persistent cache namespacing.
+- Preserve normal model mutation invalidation.
+- Trace the operation and both read statements without hot-path diagnostic
+  chatter.
+
+### Phase S8 — Filters, ordering, and cursors
+
+#### S8-U1 — Attribute filters
+
+Compile declared attribute operators from `SearchQuerySource.attributes` with
+binary/equivalent portable semantics. Apply exact-decimal capability rules.
+Pin null, enum, bigint, decimal, date/time, and mapped-column behavior.
+
+#### S8-U2 — Rank and attribute ordering
+
+Rank defaults to descending with every row-key member as tie-breaker. Attribute
+ordering reuses the existing normalized cursor-order representation after it is
+extended to accept trusted field-bound expressions. Ordinary scalar order SQL
+and index-seek plans remain byte-identical.
+
+#### S8-U3 — Cursor source
+
+Extend cursor condition construction so the cursor row can obtain declared
+attribute expressions from the search source while the public cursor remains a
+normal source-model `whereUnique`. Prove mapped and compound keys, null order,
+forward/backward pages, wrong cursor, and no duplicates/gaps. Rank cursor is a
+validation error.
+
+### Phase S9 — Facets and totals
+
+#### S9-U1 — Exact facet schemas and types
+
+Implement value, range, stats, limit, and disjunctive inputs and the conditional
+result types from §3. Probe every literal level through real client calls,
+including non-fresh values and typos beside real keys.
+
+#### S9-U2 — One facet/total statement
+
+Compile one provider-portable aggregate statement from the same
+`SearchMatchedSet`. It computes total and all requested facets without one
+statement per facet. JSON aggregation order is not trusted; final deterministic
+ordering occurs in an owned SQL or parser step.
+
+Decode facet scalars through existing scalar result owners. Preserve decimal
+precision and provider capability refusals.
+
+#### S9-U3 — Two-step operation behavior
+
+Add the aggregate `ReadStep` only when facets or `total: true` require it. Pin:
+
+- plain search: one statement and round trip;
+- facets and/or total: two statements;
+- no duplicated match semantics;
+- documented adjacent-snapshot behavior under concurrent commits;
+- loud substrate refusal only where the existing executor cannot run the
+  multi-step read.
+
+### Phase S10 — Highlighting and sealed PGroonga preset
+
+#### S10-U1 — Structured highlighting
+
+Implement library highlighting over projected searchable raw text with UTF-16
+offsets, structured snippets, no HTML generation, and the pinned S0 window
+algorithm. Portable highlights use the shared tokenizer. Custom analysis may
+provide sealed span compilation; invalid/out-of-bounds spans fail loudly.
+
+#### S10-U2 — PGroonga deployment and query compiler
+
+Implement the already-proven sealed descriptor through the same definition,
+deployment, requirement, query-source, conformance, manifest, and rebuild
+owners. Missing/old extension fails before DDL. PGroonga adds no query-engine
+branch and no new artifact kind beyond the finite vocabulary.
+
+### Phase S11 — Performance, documentation, and final hardening
+
+#### S11-U1 — Read and write performance
+
+Benchmark indexed vs unindexed create/update/delete/createMany and search hit,
+attribute filter, rank, cursor, facet, backfill, rebuild, and resync paths on
+real PostgreSQL and MySQL plus SQLite. Record write overhead, index build time,
+lock duration, storage multiplier, query plan, and scale envelope.
+
+#### S11-U2 — Public and operational documentation
+
+Document declaration, query grammar, result shape, sorting/cursors, facets,
+highlighting, portability tiers, provider requirements, locking/backfill,
+replication/CDC, maintenance, resync, cache revision behavior, scale envelope,
+and the exact unsupported surfaces.
+
+#### S11-U3 — Final validation
+
+Run sequentially through repository launchers:
+
+```bash
+pnpm test:layer:relations
+pnpm test:layer:schema-validation
+pnpm test:layer:operation-schemas
+pnpm test:layer:migrations
+pnpm test:layer:adapters
+pnpm test:layer:drivers
+pnpm test:layer:query-engine
+pnpm test:layer:client
+pnpm test:layer:cache
+pnpm test:layer:instrumentation
+pnpm test:types
+pnpm package:build
+pnpm test
+pnpm test:all
+```
+
+Run `pnpm test:providers` when services are available. Run any new search
+coverage commands through the same memory-capped one-worker launcher. Do not
+restore the obsolete `test:gates` command.
+
+Run three warm final type checks; median regression must remain below 5%.
+
+## 8. Adversarial review protocol
+
+After S2:
+
+- Trace one model instance bound to two different driver families.
+- Search for mutable program state on `Model`.
+- Prove migration and query projections share definition fingerprint, field
+  order, row key, and implementation options.
+
+After S4:
+
+- Attempt to corrupt trigger DDL with internal semicolons.
+- Plant FTS5 shadow tables and foreign user triggers.
+- Change only implementation revision.
+- Remove one managed artifact while leaving the manifest.
+- Generate, apply elsewhere, down, squash, reset, and re-push.
+
+After S5:
+
+- Race insert, update, delete, and compound-key transitions against backfill.
+- Interrupt every lifecycle phase and re-run push.
+- Confirm no derived row is treated as irreplaceable user data.
+
+After S7/S8:
+
+- Inspect emitted SQL for duplicate match/rank evaluation.
+- Confirm every join and tie-break uses the complete ordered row key.
+- Compare ordinary find SQL and cursor plans byte-for-byte.
+- Inject model fields named like private SQL aliases.
+
+After S9:
+
+- Compare hit and facet matched-set predicates structurally.
+- Check decimal and scalar codecs.
+- Commit writes between the two statements and confirm documented semantics.
+
+Before finalization, a fresh-context reviewer traces declaration → final graph
+validation → manifest → deployment → trigger write → query source → matched set
+→ hit/facet parsing without relying on migration history comments.
+
+## 9. Acceptance criteria
+
+The feature is complete only when:
+
+- one resolved search definition owns all logical search semantics;
+- search identity is the complete ordered source row key;
+- one managed deployment owner controls every derived physical artifact;
+- live `push()` observes implementation revision and physical drift;
+- trigger/function bodies are transported atomically;
+- concurrent deployment/resync cannot lose or resurrect writes;
+- SQLite FTS5 shadow tables never enter the ordinary table differ;
+- provider requirements execute on the migration target before DDL;
+- the query engine contains no dialect-specific search SQL or operator names;
+- hits and facets consume one matched-set owner;
+- plain search is exactly one statement and one round trip;
+- facets/total add exactly one statement;
+- no hit SQL duplicates the search scan to obtain rank;
+- compound-key joins, transitions, tie-breakers, and cursors use every member;
+- ordinary find, projection, cursor, cache, and write paths retain their SQL and
+  performance contracts;
+- public types and runtime validation agree for fresh and non-fresh values;
+- decimal operations never silently lose exactness;
+- the type-check median regresses by less than 5%;
+- all provider limitations and adjacent-snapshot semantics are documented.
+
+## 10. Explicit non-goals
+
+- Multiple search declarations per model.
+- User-authored trigger definitions.
+- Arbitrary third-party SQL callbacks.
+- Fuzzy matching, synonyms, stemming/language analysis, typo tolerance.
+- List-valued facets.
+- Rank thresholds or rank cursors.
+- SQL-generated HTML highlighting.
+- Search on models without a stable primary key.
+- One serialized string standing in for a compound row key.
+- Online zero-lock rebuild unless separately proven per provider.
+- Vector or geospatial search in this implementation.
+
+## 11. Size and delivery expectation
+
+This is a W-class-plus feature. The old estimate of roughly seven cohesive
+pieces was too small because it omitted migration statement transport,
+deployment lifecycle, live manifest ownership, compound row keys, cursor-source
+extension, exact result parsing, and provider recovery.
+
+Expected shape:
+
+- 12 ordered phases;
+- 39 named atomic units, including contract, validation, provider, performance,
+  and documentation units;
+- provider work begins before the public query operation;
+- PGroonga proves an established seam rather than defining it;
+- no new architectural layer and no parallel query engine.
+
+The implementation may land as stacked pull requests at phase boundaries. A
+failed optional provider optimization does not invalidate the portable core;
+retain the correct blocking or built-in path and continue with the next unit.

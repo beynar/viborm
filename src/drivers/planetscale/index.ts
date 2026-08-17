@@ -207,7 +207,7 @@ export function createClient<S extends Schema, C extends DriverConfig<S>>(
     DriverConfig<S> &
     NoExtraDriverConfigKeys<C, PlanetScaleDriverOptions, S> &
     NoExtraNestedConfigKeys<C, S>
-) {
+): VibORMClient<C & { driver: PlanetScaleDriver }> {
   const { client, databaseUrl, options, ...restConfig } = config;
 
   const driver = new PlanetScaleDriver({

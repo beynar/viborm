@@ -1,4 +1,5 @@
 import type { ScalarState } from "@schema/scalars/common";
+import { lazyScalarSchemas } from "../lazy";
 import v, { type V } from "../primitives/v";
 import {
   buildNegatableFilterSchema,
@@ -69,10 +70,10 @@ export interface VectorSchemas<F extends ScalarState<"vector">> {
 export const buildVectorSchema = <F extends ScalarState<"vector">>(
   state: F
 ): VectorSchemas<F> => {
-  return {
-    base: state.base as F["base"],
-    create: v.vector(undefined, state),
-    update: buildVectorUpdateSchema(state.base),
-    filter: buildVectorFilterSchema(state.base),
-  } as VectorSchemas<F>;
+  return lazyScalarSchemas<VectorSchemas<F>>({
+    base: state.base,
+    create: () => v.vector(undefined, state),
+    update: () => buildVectorUpdateSchema<F["base"]>(state.base),
+    filter: () => buildVectorFilterSchema<F["base"]>(state.base),
+  });
 };

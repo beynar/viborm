@@ -1,5 +1,6 @@
 import type { ScalarState } from "@schema/scalars/common";
 import type { EnumSchema, EnumValues } from "@validation/primitives/enum";
+import { lazyScalarSchemas } from "../lazy";
 import v, { type V } from "../primitives/v";
 import {
   buildNegatableFilterSchema,
@@ -211,14 +212,16 @@ export const buildEnumSchema = <
   state: F
 ): EnumSchemas<EnumValues<F["base"]>, F, C> => {
   const values = (state.base as EnumSchema<EnumValues<F["base"]>>).values;
-  return {
-    base: state.base as F["base"],
-    create: v.enum(values, state),
-    update: state.array
-      ? buildEnumListUpdateSchema(state.base, values)
-      : buildEnumUpdateSchema(state.base),
-    filter: state.array
-      ? buildEnumListFilterSchema(state.base, values)
-      : buildEnumFilterSchema(state.base, values),
-  } as EnumSchemas<EnumValues<F["base"]>, F, C>;
+  return lazyScalarSchemas<EnumSchemas<EnumValues<F["base"]>, F, C>>({
+    base: state.base,
+    create: () => v.enum(values, state),
+    update: () =>
+      (state.array
+        ? buildEnumListUpdateSchema(state.base, values)
+        : buildEnumUpdateSchema(state.base)) as never,
+    filter: () =>
+      (state.array
+        ? buildEnumListFilterSchema(state.base, values)
+        : buildEnumFilterSchema(state.base, values)) as never,
+  });
 };

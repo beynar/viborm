@@ -28,7 +28,7 @@ type ProjectionInput<Schemas> = Schemas extends () => infer TargetSchemas
         | {
             readonly select: InferInput<Select>;
             readonly include?: never;
-            readonly omit?: never;
+            readonly omit?: InferInput<Omit>;
           }
         | {
             readonly select?: never;
@@ -93,7 +93,10 @@ export function polymorphicSelectFactory(
 > {
   const state = relation["~"].state;
   const schemaGetters = targetSchemas;
-  const targetModels = new Map<string, Parameters<typeof withOmitProjection>[1]>();
+  const targetModels = new Map<
+    string,
+    Parameters<typeof withOmitProjection>[1]
+  >();
   for (const { publicType, targetModel } of relation["~"].targetEntries()) {
     targetModels.set(
       publicType,
@@ -134,10 +137,7 @@ export function polymorphicSelectFactory(
         }),
       ]);
   }
-  return v.union([
-    v.boolean(),
-    v.object(entries),
-  ]) as PolymorphicSelectSchema<
+  return v.union([v.boolean(), v.object(entries)]) as PolymorphicSelectSchema<
     PolymorphicTargetSchemaGetters<PolymorphicRelationState>
   >;
 }

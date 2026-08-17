@@ -253,7 +253,7 @@ export function createClient<S extends Schema, C extends DriverConfig<S>>(
     DriverConfig<S> &
     NoExtraDriverConfigKeys<C, BunSQLiteDriverOptions, S> &
     NoExtraNestedConfigKeys<C, S>
-) {
+): VibORMClient<C & { driver: BunSQLiteDriver }> {
   const { client, dataDir, options, ...restConfig } = config;
 
   const driver = new BunSQLiteDriver({ client, dataDir, options });

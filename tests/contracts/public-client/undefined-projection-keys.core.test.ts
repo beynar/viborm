@@ -161,13 +161,19 @@ describe("the arms that must NOT move", () => {
     >().toEqualTypeOf<never>();
   });
 
-  test("select + omit is still refused", () => {
+  test("select + omit keeps the selected shape minus overlaps", () => {
     expectTypeOf<
       Result<
         "findMany",
         { select: { id: true }; omit: { title: true } }
       >[number]
-    >().toEqualTypeOf<never>();
+    >().toEqualTypeOf<{ id: string }>();
+    expectTypeOf<
+      Result<
+        "findMany",
+        { select: { id: true; title: true }; omit: { title: true } }
+      >[number]
+    >().toEqualTypeOf<{ id: string }>();
   });
 
   test("omit: undefined and include: undefined were already honest", () => {
