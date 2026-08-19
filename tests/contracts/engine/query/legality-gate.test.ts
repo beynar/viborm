@@ -21,9 +21,12 @@ import { describe, expect, test } from "vitest";
  *    either branch's check — doing so would reject an input the frozen engines
  *    accept (a missing-target upsert whose never-executed update branch nests
  *    an unsupported relation write), a new rejection barred by the freeze rule
- *    (§11) and Pin Rule 2 (§5.5). The frozen engines still reject the update
- *    branch when it is actually taken, with the same typed message in both
- *    modes; that branch-scoped check lands in the interpreter at M6.
+ *    (§11) and Pin Rule 2 (§5.5). The subtree the never-taken branch nests is
+ *    no longer unsupported at all: the relation-bearing-bulk and residual
+ *    write-limitation lifts compose it as a nested selected-record series, and
+ *    the taken-branch tests below now pin that it EXECUTES in both modes. The
+ *    hoisting contract is what this file owns, and it is the missing-target
+ *    pair above that proves it.
  */
 
 type BehaviorSchema = typeof nestedWriteBehaviorSchema;
@@ -208,6 +211,9 @@ describe("M2 legality gate", () => {
         const driver = new TxSpyDriver({ client: db });
         const client = bootShared(driver);
         await client.user.create({ data: { id: "u1", name: "A" } });
+        await client.post.create({
+          data: { id: "p1", title: "T", userId: "u1" },
+        });
 
         await client.user.upsert({
           where: { id: "u1" },
@@ -225,12 +231,27 @@ describe("M2 legality gate", () => {
 
         const user = await client.user.findUnique({ where: { id: "u1" } });
         expect(user?.name).toBe("Changed");
+        // The whole composition lands, not just the root: the bulk scalar write
+        // and the relation write inside its `data` both reach the database.
+        await expect(
+          client.post.findUnique({ where: { id: "p1" } })
+        ).resolves.toMatchObject({ title: "X", userId: "u1" });
         await client.$disconnect();
       }
     );
 
+    // RETARGETED (2026-08-19). This test pinned the executor's
+    // "requires ordered series execution" refusal on a batch-only substrate.
+    // `64339541` (residual-write-limitation-lift-plan.md, the 2026-08-14 overlay
+    // and §H2) DELETED that refusal for exactly this shape: any no-transaction
+    // driver with a native atomic batch runs a safe progressive series after a
+    // normalized awaited success, so the nested selected-record series executes
+    // here as an ordered run of atomic batches instead of failing closed. The
+    // executor site still owns the case a plain atomic-batch lowering meets a
+    // `recordSeries` step it cannot order; no public payload on this substrate
+    // reaches it. Retargeted to the LIFTED behavior in both spellings below.
     test(
-      "batch-only mode refuses the nested series before the root write",
+      "batch-only mode executes the nested series after the root write",
       { timeout: 30_000 },
       async () => {
         const db = await setupDb();
@@ -241,27 +262,67 @@ describe("M2 legality gate", () => {
           data: { id: "p1", title: "T", userId: "u1" },
         });
 
-        await expect(
-          client.user.upsert({
-            where: { id: "u1" },
-            create: { id: "u1", name: "New" },
-            update: {
-              name: "Changed",
-              posts: {
-                updateMany: {
-                  where: {},
-                  data: { title: "X", author: { connect: { id: "u1" } } },
-                },
+        await client.user.upsert({
+          where: { id: "u1" },
+          create: { id: "u1", name: "New" },
+          update: {
+            name: "Changed",
+            posts: {
+              updateMany: {
+                where: {},
+                data: { title: "X", author: { connect: { id: "u1" } } },
               },
             },
-          })
-        ).rejects.toThrow("requires ordered series execution");
+          },
+        });
 
         const user = await client.user.findUnique({ where: { id: "u1" } });
-        expect(user?.name).toBe("A");
+        expect(user?.name).toBe("Changed");
         await expect(
           client.post.findUnique({ where: { id: "p1" } })
-        ).resolves.toMatchObject({ title: "T", userId: "u1" });
+        ).resolves.toMatchObject({ title: "X", userId: "u1" });
+        await client.$disconnect();
+      }
+    );
+
+    // The agreeing spelling above cannot tell an executed nested relation write
+    // from a discarded one: `connect: { id: "u1" }` re-states the membership the
+    // post already has. This one DISAGREES — it re-parents to a second owner —
+    // so the post's `userId` is the one value that separates "the nested write
+    // ran" from "the nested write was silently dropped and only the scalar
+    // landed".
+    test(
+      "batch-only mode lands a DISAGREEING nested relation write",
+      { timeout: 30_000 },
+      async () => {
+        const db = await setupDb();
+        const driver = new BatchSpyDriver({ client: db });
+        const client = bootShared(driver);
+        await client.user.create({ data: { id: "u1", name: "A" } });
+        await client.user.create({ data: { id: "u2", name: "B" } });
+        await client.post.create({
+          data: { id: "p1", title: "T", userId: "u1" },
+        });
+
+        await client.user.upsert({
+          where: { id: "u1" },
+          create: { id: "u1", name: "New" },
+          update: {
+            name: "Changed",
+            posts: {
+              updateMany: {
+                where: {},
+                data: { title: "X", author: { connect: { id: "u2" } } },
+              },
+            },
+          },
+        });
+
+        const user = await client.user.findUnique({ where: { id: "u1" } });
+        expect(user?.name).toBe("Changed");
+        await expect(
+          client.post.findUnique({ where: { id: "p1" } })
+        ).resolves.toMatchObject({ title: "X", userId: "u2" });
         await client.$disconnect();
       }
     );

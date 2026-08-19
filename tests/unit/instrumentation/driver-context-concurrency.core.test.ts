@@ -431,7 +431,14 @@ describe("driver execution context concurrency", () => {
         },
       },
     });
-    const secondRequest = secondClient.$queryRawUnsafe(QUERY, "success");
+    // A raw call is lazy: it captures the statement and reaches the driver on
+    // first subscription, never on the call itself. Subscribing is therefore
+    // what puts this second request in flight, and the overlap of two in-flight
+    // requests on the one shared driver is this test's whole subject. The first
+    // request above is subscribed by its own `.catch`.
+    const secondRequest = Promise.resolve(
+      secondClient.$queryRawUnsafe(QUERY, "success")
+    );
     await driver.started.get("success")?.promise;
     driver.releases.get("success")?.resolve();
     driver.releases.get("failure")?.resolve();

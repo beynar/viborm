@@ -9,8 +9,8 @@ import {
   UniqueConstraintError,
 } from "@errors";
 import { push } from "@migrations";
-import { describe, expect, test } from "vitest";
 import { nestedWriteBehaviorSchema } from "@tests/fixtures/nested-write-behavior-schema";
+import { describe, expect, test } from "vitest";
 
 /**
  * M8 gate (DESIGN.md §11 M8, §7.4). The write-race retry is unified above
@@ -36,6 +36,18 @@ import { nestedWriteBehaviorSchema } from "@tests/fixtures/nested-write-behavior
  *
  *  3. Pass-through: a real UniqueConstraintError raised mid-batch is surfaced
  *     unchanged (Pin Rule 2, §7.3 step 1) so the retry wrapper classifies it.
+ *
+ * THE PLANNED-MODE PAYLOADS CARRY A RELATION PROJECTION ON PURPOSE. Since
+ * `64339541` (residual-write-limitation-lift-plan.md Package M) a PostgreSQL
+ * create tree whose arms are order-insensitive and guard-free is merged into ONE
+ * `WITH` statement, and a single statement never reaches a driver's batch entry
+ * at all. `CreateOperation.buildTreeFold` declines when the operation's own
+ * projection reads a table the tree writes (a `WITH` hands the outer SELECT the
+ * pre-statement snapshot), so `include` on the written relation is what keeps
+ * these payloads on the multi-statement atomic batch this file is about. Drop it
+ * and the batch spies below observe nothing — which is the failure these tests
+ * were retargeted out of on 2026-08-19, not a ladder change. The folded route's
+ * own error contract is owned by `mutation-dependency-fold.test.ts`.
  */
 
 type BehaviorSchema = typeof nestedWriteBehaviorSchema;
@@ -155,13 +167,15 @@ describe("M8 race-retry classification", () => {
       try {
         // A guard-free child-holds-FK create tree (no connect, no correlated
         // update) — the ladder has no registered premise to attribute or
-        // re-probe, so the synthetic assertion abort lands on step 4.
+        // re-probe, so the synthetic assertion abort lands on step 4. The
+        // `include` keeps the tree on the batch route (see the file header).
         await client.user.create({
           data: {
             id: "u-floor",
             name: "Floor",
             posts: { create: { id: "p-floor", title: "Floor Post" } },
           },
+          include: { posts: true },
         });
       } catch (caught) {
         error = caught;
@@ -300,6 +314,7 @@ describe("M8 race-retry classification", () => {
         // violates the constraint mid-batch. Pin Rule 2 (§7.3 step 1): the
         // ladder passes the UniqueConstraintError through unchanged so the retry
         // wrapper can classify it — it is NOT rewrapped into an assertion error.
+        // The `include` keeps the tree on the batch route (see the file header).
         await client.post.create({
           data: {
             id: "p-dup",
@@ -312,6 +327,7 @@ describe("M8 race-retry classification", () => {
               },
             },
           },
+          include: { postTags: true },
         });
       } catch (caught) {
         error = caught;
