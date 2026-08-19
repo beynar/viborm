@@ -18,7 +18,7 @@ const video = s.model({
 });
 const requiredOwner = s.model({
   id: s.string().id(),
-  subject: s.polymorphic(
+  subject: s.polymorphicToOne(
     { post: () => post, video: () => video },
     { values: { post: "content.post.v1", video: "content.video.v1" } }
   ),
@@ -26,7 +26,7 @@ const requiredOwner = s.model({
 const optionalOwner = s.model({
   id: s.string().id(),
   subject: s
-    .polymorphic(
+    .polymorphicToOne(
       { post: () => post, video: () => video },
       { values: { post: "content.post.v1", video: "content.video.v1" } }
     )
@@ -40,7 +40,7 @@ const remark = s.model({
   id: s.string().id(),
   body: s.string(),
   commentable: s
-    .polymorphic(
+    .polymorphicToOne(
       { article: () => article },
       { values: { article: "content.article.v1" } }
     )
@@ -54,7 +54,7 @@ const optionalRemark = s.model({
   id: s.string().id(),
   body: s.string(),
   commentable: s
-    .polymorphic(
+    .polymorphicToOne(
       { article: () => optionalArticle },
       { values: { article: "content.optional-article.v1" } }
     )
@@ -71,12 +71,12 @@ const folder = s.model({
 const folderEntry = s.model({
   id: s.string().id(),
   folder: s
-    .polymorphic(
+    .polymorphicToOne(
       { folder: () => folder },
       { values: { folder: "folder.entry.v1" } }
     )
     .name("folderEntry"),
-  audit: s.polymorphic(
+  audit: s.polymorphicToOne(
     { auditLog: () => auditLog },
     { values: { auditLog: "audit.log.v1" } }
   ),
@@ -99,7 +99,7 @@ const featuredComment = s.model({
   id: s.string().id(),
   body: s.string(),
   commentable: s
-    .polymorphic({
+    .polymorphicToOne({
       post: () => featuredPost,
       video: () => featuredVideo,
     })
@@ -124,7 +124,7 @@ const requiredFeaturedComment = s.model({
   id: s.string().id(),
   body: s.string(),
   commentable: s
-    .polymorphic({
+    .polymorphicToOne({
       post: () => requiredFeaturedPost,
       video: () => requiredFeaturedVideo,
     })
@@ -591,7 +591,7 @@ describe("polymorphic operation schema factories", () => {
     });
     const lazyEntry = s.model({
       id: s.string().id(),
-      owner: s.polymorphic(
+      owner: s.polymorphicToOne(
         { parent: () => lazyParent },
         { values: { parent: "lazy.parent.v1" } }
       ),
@@ -884,7 +884,7 @@ describe("coverage low value", () => {
     const emptyTarget = s.model({});
     const emptyOwner = s.model({
       id: s.string().id(),
-      subject: s.polymorphic({ empty: () => emptyTarget }),
+      subject: s.polymorphicToOne({ empty: () => emptyTarget }),
     });
     const emptyRegistry = createSchemaRegistry({ emptyTarget, emptyOwner });
     const schema = polymorphicIncludeFactory(

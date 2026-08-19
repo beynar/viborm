@@ -1,22 +1,38 @@
 # Polymorphic Relations in VibORM
 
-> **Revision 8 — 2026-08-09**
+> **Revision 10 — 2026-08-19**
 >
-> This document describes the current implementation. A polymorphic inverse is
-> now a first-class `BoundRelation`. Inverse `oneToMany` and fields-less
-> `oneToOne` relations use the same relation Parts and record compilers as their
-> ordinary child-held counterparts.
+> This document describes the current implementation. Both cardinalities are
+> shipped: `s.polymorphicToOne` (row-held) and `s.polymorphicToMany`
+> (junction-held), each with direct and inverse read and write surfaces. A
+> polymorphic inverse is a first-class `BoundRelation` in either shape — the
+> row-held inverses (`oneToMany`, fields-less `oneToOne`) use the same relation
+> Parts and record compilers as their ordinary child-held counterparts, and the
+> collection inverses (`manyToMany`, fields-less `manyToOne`) use the ordinary
+> junction owners in reverse orientation.
 >
-> **Implementation contract:**
+> **Implementation contracts:**
 > [`polymorphic-relations-implementation-plan.md`](./polymorphic-relations-implementation-plan.md)
+> for the row-held feature;
+> [`../docs/architecture/polymorphic-cardinality-plan.md`](../docs/architecture/polymorphic-cardinality-plan.md)
+> for the cardinality program (Packages A–F) that added the collection.
 
 ## 1. Verdict
 
 VibORM models polymorphism as a typed polymorphic association, not as table
-inheritance. Every target keeps its own independent table, while the record
-that owns the polymorphic relation stores a discriminator and one compatible
-target identity. There is no shared base row or subtype hierarchy as there
-would be in multi-table inheritance (MTI).
+inheritance. Every target keeps its own independent table. There is no shared
+base row or subtype hierarchy as there would be in multi-table inheritance (MTI).
+
+Polymorphism here is a property of the TARGETS, never of the arity. How many
+memberships a slot holds is a second, orthogonal choice, made by which factory
+declares it — and it decides where the membership lives:
+
+| Factory | Slot | Membership storage |
+|---|---|---|
+| `s.polymorphicToOne` | at most one membership | private `(type, identity)` pair on the owner row |
+| `s.polymorphicToMany` | a collection, variants freely mixed | one fixed-target member junction per variant |
+
+Sections 2–16 describe the row-held shape; §17 describes the collection.
 
 For example, a comment can point to either a post or a video without merging
 post and video columns into one single-table-inheritance table:
@@ -28,16 +44,25 @@ comments.commentable_id   = "post_42"
 
 The pair is one physical membership. Neither value is meaningful alone.
 
-The query engine represents the feature with five distinct facts:
+The query engine represents the feature with six distinct facts:
 
-1. `PolymorphicRelation` is the public multi-target schema relation.
-2. `PolymorphicStorage` owns the private `(type, identity)` columns.
+1. `PolymorphicToOneRelation` / `PolymorphicToManyRelation` are the public
+   multi-target schema relations, built by `s.polymorphicToOne` /
+   `s.polymorphicToMany`.
+2. `PolymorphicStorage` is the validated storage descriptor, a `kind`-tagged
+   union: `kind: "toOne"` owns the private `(type, identity)` columns, and
+   `kind: "toMany"` owns one `PolymorphicJunctionMember` per variant, each
+   carrying a complete `ResolvedJunctionTopology` and its own
+   `inverseCardinality`.
 3. `ResolvedPolymorphicMutation` describes a direct payload that selected one
    target, or an optional direct disconnect.
 4. `ResolvedPolymorphicEdge` is the concrete direct target selected for one
    compilation.
 5. `PolymorphicChildHeldToOne | PolymorphicChildHeldToMany` is the bound
    topology of an inverse relation whose child owns the private pair.
+6. `JunctionBoundRelation` with `membership.polymorphicMember` is the bound
+   topology of a member junction, in either orientation and either arity —
+   direct collection leaf, plural inverse view, or singular inverse slot.
 
 The fifth fact is the important compression. Inverse reads, OwnWrite analysis,
 and inverse mutation emitters no longer rediscover a special inverse binding.
@@ -52,13 +77,27 @@ const comment = s.model({
   id: s.string().id().ulid(),
   body: s.string(),
   commentable: s
-    .polymorphic({
+    .polymorphicToOne({
       post: () => post,
       video: () => video,
     })
     .name("commentableTarget"),
 });
 ```
+
+There are two factories and the one you call IS the cardinality. Both take a
+MAP of named targets; a single target model is an ordinary relation, so a bare
+`() => model` is refused at compile time with an error naming `s.oneToOne`,
+`s.manyToOne`, `s.oneToMany` and `s.manyToMany`.
+
+Both are implemented end to end. `s.polymorphicToOne` stores its membership as a
+private `(type, id)` pair on the owner row. `s.polymorphicToMany` stores each
+variant's memberships in one member junction table (default name
+`<owner_table>_<relation>_<variant>`, composite primary key over both sides,
+reverse index, cascading foreign keys on both sides, and a unique target side for
+any variant whose inverse is a fields-less optional `manyToOne`), and builds all
+six operation-schema families over it: filter, select/include, create, update,
+orderBy and count. §17 below covers the collection surface.
 
 The target-map key is the public discriminator used by query inputs and result
 narrowing. Every target is a lazy getter so recursive model declarations remain
@@ -68,7 +107,7 @@ The second argument is optional. When omitted, each stored discriminator is its
 public key:
 
 ```ts
-s.polymorphic({ post: () => post, video: () => video });
+s.polymorphicToOne({ post: () => post, video: () => video });
 // stored values: "post" and "video"
 ```
 
@@ -76,7 +115,7 @@ An explicit complete map is useful when storage values must survive public API
 renames:
 
 ```ts
-s.polymorphic(
+s.polymorphicToOne(
   { post: () => post, video: () => video },
   {
     values: {
@@ -90,19 +129,28 @@ s.polymorphic(
 When `values` is present, it must contain every target key and no extra key.
 Partial override plus implicit fallback is deliberately not supported.
 
-An optional direct relation uses the normal immutable modifier:
+An optional direct relation uses the normal immutable modifier, which only an
+`s.polymorphicToOne` carrier offers:
 
 ```ts
 commentable: s
-  .polymorphic({ post: () => post, video: () => video })
+  .polymorphicToOne({ post: () => post, video: () => video })
   .name("commentableTarget")
   .optional()
 ```
 
 ### 2.2 Inverse relation
 
-The inverse is declared as an ordinary `oneToMany` relation when a target owns
-several children:
+There are four admitted inverse shapes, and each binds ONLY the group family
+that owns its membership storage. The two ROW-HELD shapes below (`oneToMany`,
+fields-less `oneToOne`) bind a `toOne` group, because the membership they read is
+the owner's private pair; the two junction-shaped ones (fields-less `manyToOne`,
+`manyToMany`) bind a `toMany` group, because the membership they read lives in a
+member junction (§17.2). A row-held shape over a `toMany` group is `R003`-invalid
+unless a real ordinary inverse carries the edge.
+
+The row-held inverse is declared as an ordinary `oneToMany` relation when a
+target owns several children:
 
 ```ts
 const post = s.model({
@@ -224,7 +272,7 @@ VibORM does not provide an untyped search across every target schema.
 
 ## 4. Direct writes
 
-The direct relation stores one membership on its owner. With an inverse
+A row-held direct relation stores one membership on its owner. With an inverse
 `oneToMany`, it is the polymorphic equivalent of an ordinary parent-held
 `manyToOne`: many owners may select the same target, while each owner stores at
 most one `(type, identity)` pair. With an inverse `oneToOne`, the direct API is
@@ -294,7 +342,8 @@ family.
 The relation payload supports:
 
 - `create`
-- scalar-only nested `createMany`
+- nested `createMany` (scalar-only rows keep the grouped fast path;
+  relation-bearing rows compose as an ordered record series)
 - `connect`
 - `connectOrCreate`
 - `upsert`
@@ -304,7 +353,8 @@ The relation payload supports:
 The relation payload supports:
 
 - `create`
-- scalar-only nested `createMany`
+- nested `createMany` (scalar-only rows keep the grouped fast path;
+  relation-bearing rows compose as an ordered record series)
 - `connect`
 - `connectOrCreate`
 - `update`
@@ -313,7 +363,8 @@ The relation payload supports:
 - `deleteMany`
 - `upsert`
 - `disconnect` when the owning direct polymorphic relation is optional
-- `set` when the owning direct polymorphic relation is optional
+- `set` for optional and required membership alike; required membership uses the
+  departing-member guard, so `set: []` succeeds only when already empty
 
 The nested create and update records omit the direct polymorphic relation key
 that owns this inverse. The enclosing inverse relation already supplies that
@@ -340,8 +391,10 @@ extra discriminator condition:
 - `updateMany` and `deleteMany` add exact membership to every affected-row
   predicate, including capped primary-key subqueries.
 - `disconnect` clears both private columns in one assignment.
-- `set` adopts selected rows and clears both columns on departing rows.
-  `set: []` disconnects every current member.
+- `set` adopts selected rows and clears both columns on departing rows when the
+  membership is optional. Required membership rejects clearing but permits a
+  retaining `set`; `set: []` on required membership succeeds only when the
+  collection is already empty.
 
 Found selected updates address the captured primary key, not the original
 selector. Relation-bearing updates recurse through `RecordUpdateCompiler`.
@@ -350,19 +403,23 @@ effects.
 
 ### 5.4 Nested `createMany`
 
-Nested inverse `createMany` remains scalar-only. It is possible because the
-enclosing inverse supplies exactly one required polymorphic relation.
+Nested inverse `createMany` rows use the same projected create schema as
+`create`: the query engine keeps scalar-only rows on its grouped fast path and
+composes relation-bearing rows as an ordered record series. It is possible
+because the enclosing inverse supplies exactly one required polymorphic
+relation.
 
 It remains unavailable when the child has another unsatisfied required
 polymorphic relation. VibORM rejects that shape at the operation-schema
 boundary instead of deferring a private-column `NOT NULL` error to the
 database.
 
-Root `createMany` accepts scalar row data plus connect-only direct polymorphic
-memberships. Each row supplies a complete target selector. VibORM groups target
-lookups by relation and discriminator, then keeps the existing grouped bulk
-INSERT plan. It does not run one target query per row. Nested create and the
-other mutation verbs remain unavailable in root bulk rows. A driver without
+Root `createMany` rows accept the ordinary create data shape; the direct
+polymorphic membership itself stays connect-only. Each membership supplies a
+complete target selector. VibORM groups target lookups by relation and
+discriminator; scalar-only rows keep the existing grouped bulk INSERT plan
+while relation-bearing rows route through the ordered record-series owner. It
+does not run one target query per row. A driver without
 `RETURNING` refuses the combination of `select`, `skipDuplicates`, and a
 polymorphic membership because it cannot observe which attempted rows were
 inserted after the target-resolution reads.
@@ -579,17 +636,30 @@ Definition validation owns:
 - non-empty target maps;
 - exact and unique stored values;
 - lazy target resolution;
-- compatible single-column target identities;
-- inverse ambiguity;
-- private-column and index naming/collisions;
+- compatible single-column target identities on a `toOne` group, and complete
+  owner/target row keys on a `toMany` group (`P018`, `P009` — no
+  portable-representation check applies to a collection);
+- carrier cardinality (`P013` ejects a forged cardinality-less carrier);
+- inverse ambiguity, per-member inverse conflicts (`P015`), the half-pair a
+  member view would leave behind (`P020`), and singular-inverse optionality
+  (`P021`);
+- private-column and index naming/collisions, `.through()` map exactness
+  (`P017`), and member-junction physical names (`P019`);
 - portable discriminator length and characters.
 
-Migration snapshots store the public discriminator, stable stored value,
-target table, and referenced column. Structural DDL owns the private columns and
-index. Member-history comparison owns destructive stored-value changes,
-removals, and retargeting. Those history changes require explicit acknowledgement
-after the application has migrated affected data; VibORM does not invent data
-movement.
+A `toOne` migration snapshot stores the public discriminator, stable stored
+value, target table, and referenced column; a `toMany` snapshot stores the public
+discriminator, stable stored value, target table, member junction table, and that
+member's inverse cardinality. Structural DDL owns the private columns and index
+on one side and the member junction tables on the other. Member-history
+comparison owns data-bearing stored-value changes,
+removals, retargeting, junction moves and cardinality flips. VibORM does not
+invent data movement: those transitions are refused outright, and the only way
+past a refusal is `GenerateOptions.manualMigration` — a complete caller-owned
+`up` artifact plus an honest rollback policy (`{ kind: "manual", sql }` or
+`{ kind: "irreversible", reason }`). Supplying it puts the whole migration in
+manual mode: only those statements are emitted, and the policy is persisted on
+the journal entry so rollback honours it.
 
 ## 13. Performance contract
 
@@ -621,21 +691,23 @@ trip.
 
 ## 15. Constraints
 
-The following remain outside the implemented surface:
+The following remain outside the implemented surface. Every one of them is a
+property of the ROW-HELD storage — one shared `_id` column, and no database
+foreign key that can leave it — so §17's collection is not subject to them:
 
-- target identities must be one scalar field, share one portable `string`,
-  `int`, or `bigint` representation, and use no native type override;
-- polymorphic many-to-many;
+- a to-one slot's target identities must be one scalar field, share one portable
+  `string`, `int`, or `bigint` representation, and use no native type override;
 - inverse binding when one target map names the same model more than once;
-- root `createMany` supports connect-only memberships, not nested creates or
-  other relation verbs;
+- the direct row-held membership in root `createMany` rows stays connect-only,
+  while the rest of each row accepts the ordinary create data shape;
 - database FK constraints across target tables and ORM-emulated referential
-  actions;
-- untyped filters across all targets and order-by through a direct polymorphic
-  target;
-- explicit `_count` through a direct polymorphic target.
+  actions for row-held storage;
+- untyped filters across all targets, and order-by through a direct polymorphic
+  target of either cardinality (the target model is chosen per row, so there is
+  no single column to sort by);
+- explicit `_count` through a row-held to-one target, which has no list to count.
 
-These are separate product or storage decisions, not gaps in inverse membership
+These are separate product or storage decisions, not gaps in membership
 modeling.
 
 ## 16. Ownership map
@@ -655,8 +727,99 @@ modeling.
 | Private-value SQL lowering | `PolymorphicStorageValue` and neutral statement builders |
 | Strict target-specific result parsing | Existing result-shape parser boundary |
 | Snapshot member history | Polymorphic migration-history owner |
+| Member-junction topology resolution | `src/schema/relation/junction-topology.ts` |
+| Direct collection read composition | `builders/polymorphic-read-builder.ts` |
+| Collection quantifier lowering | `builders/polymorphic-collection-filter-builder.ts` |
+| Direct collection write coordination | `write-engine/PolymorphicCollectionPart.ts` |
+| Singular collection inverse lowering | `write-engine/RelationJunctionToOnePart.ts` |
+| Singular member slot replacement | `write-engine/junction-singular-transfer.ts` |
+| Junction SQL for every orientation and arity | `JunctionStatements.ts` |
 
-## 17. References
+## 17. Polymorphic collections
+
+A `s.polymorphicToMany` slot holds several memberships that may mix variants. The
+design rule for the whole feature is that it adds **coordination**, never a
+second junction DML owner, never a new relation-kind cross-product, and never a
+polymorphic scheduler.
+
+### 17.1 Storage
+
+One fixed-target junction per variant, resolved at definition validation by
+`resolvePolymorphicMemberNames` / `resolvePolymorphicMemberJunctionTopology` and
+stored as a `kind: "toMany"` descriptor. Each member table carries a composite
+primary key over both complete sides, one index over the second side, two
+cascading foreign keys, and — for a variant whose inverse is singular — a
+`UNIQUE` over the complete TARGET side.
+
+The single heterogeneous junction was rejected deliberately: it could not carry
+real foreign keys, which is what makes the database rather than the ORM the
+enforcer of membership here.
+
+`.through()` is an exact map keyed by public variant, `{ table, source, target }`
+per entry, exact at the type level and mirrored at runtime by `P017`.
+
+### 17.2 Inverse cardinality is per member
+
+Unlike a to-one group's relation-wide `inverseCardinality`, each collection
+member carries its own: `"one"` for a bound fields-less `manyToOne`, `"many"` for
+a bound `manyToMany`, `"many"` when unbound. A member bound by more than one
+inverse relation is `P015`. An ordinary `manyToMany` pair partner on the target
+would serialize half a pair and is `P020`.
+
+`P021` requires `.optional()` on a singular inverse. Its removal verbs hang on
+`slotMayBeEmpty` alone, and create-time requiredness does not cover a fields-less
+inverse, so without the rule the declaration silently degrades to a slot that can
+be filled and never emptied.
+
+### 17.3 Public surface
+
+Reads are an envelope of exactly two keys — `only` (deduped and canonicalized
+into declaration order at parse) and `variants` (one ordinary to-many node per
+discriminator) — or bare `true` / `false`. The result is always an array, never
+nullable; `only: []` yields `readonly never[]` and a fresh empty array.
+
+Filters are `{ some | every | none }` over the same tagged predicate the to-one
+filter uses, with no null-presence arm. `_count` accepts `true` or a filtered
+form taking that same predicate, and `orderBy: { rel: { _count } }` sorts on the
+same summed expression.
+
+Writes are a keyed bag, every verb accepting one tagged item or an array. A fresh
+owner names four supply verbs; a located owner names all eleven. `upsert` is
+absent from the create bag because its found arm is scoped to this owner's
+membership and a fresh owner has none.
+
+### 17.4 Execution
+
+`PolymorphicCollectionPart` returns exactly one `Part` so the `set` clear-all
+barrier can be expressed at all, and owns only four relation-wide facts: the
+barrier, cross-verb/cross-variant ordering, the single owner-row publication, and
+an empty cache footprint. `set` is lowered into a connect-shaped insert run plus
+the coordinator's own barrier, leaving ordinary junction `set` byte-identical.
+The one shape a batch could split between clear and refill is refused at
+construction, before any effect.
+
+A membership-adding write on a singular member is a slot REPLACEMENT, executed by
+`transferSingularJunctionMembership`: one capture read, then one write sequence
+identical on both substrates — `forUpdate` plus the row lock as premise inside a
+transaction, an in-batch CAS with no unenforceable postcondition in a native
+atomic batch. A freshly created target is proven empty structurally, so its
+capture is elided.
+
+Root `createMany` dispatches on cardinality in `routing.ts`: a row-held `connect`
+stays on the pinned grouped INSERT, a collection key routes the whole call to the
+ordered record series. A skipped root contributes neither a key nor nested
+effects.
+
+### 17.5 Migration
+
+Member tables are emitted from the same descriptor the engine binds. History is
+compared per variant, keyed by the stable stored value. A public rename with
+stable stored value and target is metadata-only; a stored-value change, member
+removal, retarget, junction move, or cardinality flip is data-bearing and refused
+outright (`V11010`) unless a complete caller-owned `manualMigration` artifact
+with an honest rollback policy is supplied.
+
+## 18. References
 
 - [Implementation contract](./polymorphic-relations-implementation-plan.md)
 - [Query-engine compression audit](../docs/architecture/engine-compression-audit.md)

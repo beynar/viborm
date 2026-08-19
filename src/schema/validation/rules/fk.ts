@@ -1,6 +1,7 @@
 // Foreign Key & Referential Action Validation Rules
 
 import type { Model } from "../../model";
+import { getCompatiblePolymorphicInverseBinding } from "../../relation";
 import type {
   Schema,
   SchemaValidationIssue,
@@ -120,8 +121,12 @@ export function fkRequiredForOwning(
 ): SchemaValidationIssue[] {
   const errors: SchemaValidationIssue[] = [];
   for (const [rname, rel] of getRelations(model)) {
-    const type = rel["~"].state.type;
-    if (type === "manyToOne" && !rel["~"].state.fields) {
+    const state = rel["~"].state;
+    if (state.type === "manyToOne" && !state.fields) {
+      // A fields-less manyToOne whose compatible polymorphic binding resolves
+      // (a toMany group) stores its membership in a member junction — there is
+      // no foreign key to advise. The unresolved form keeps today's warning.
+      if (getCompatiblePolymorphicInverseBinding(state, model)) continue;
       errors.push({
         code: "FK004",
         message: `ManyToOne '${rname}' in '${name}' should define .fields()`,

@@ -6,16 +6,29 @@ import {
 import {
   getPolymorphicInverseCandidates,
   isPolymorphicRelation,
-  PolymorphicRelation,
+  PolymorphicToOneRelation,
 } from "@src/schema/relation";
 import { describe, expect, it } from "vitest";
+
+const THROUGH_MAP = {
+  post: {
+    table: "owner_items_post",
+    source: "ownerRef",
+    target: "postRef",
+  },
+  video: {
+    table: "owner_items_video",
+    source: "ownerRef",
+    target: "videoRef",
+  },
+} as const;
 
 describe("polymorphic relation carrier", () => {
   it("defaults stored discriminators to the public target keys", () => {
     let targetReads = 0;
     const post = s.model({ id: s.string().id() });
     const video = s.model({ id: s.string().id() });
-    const relation = s.polymorphic({
+    const relation = s.polymorphicToOne({
       post: () => {
         targetReads += 1;
         return post;
@@ -52,7 +65,7 @@ describe("polymorphic relation carrier", () => {
     const post = s.model({ id: s.string().id() });
     const video = s.model({ id: s.string().id() });
     const commentable = s
-      .polymorphic(
+      .polymorphicToOne(
         { post: () => post, video: () => video },
         {
           values: {
@@ -79,7 +92,7 @@ describe("polymorphic relation carrier", () => {
   it("hydrates the field name without resolving target getters", () => {
     let targetReads = 0;
     const post = s.model({ id: s.string().id() });
-    const commentable = s.polymorphic(
+    const commentable = s.polymorphicToOne(
       {
         post: () => {
           targetReads += 1;
@@ -101,7 +114,7 @@ describe("polymorphic relation carrier", () => {
 
   it("keeps a reused declaration independent of every owner", () => {
     const post = s.model({ id: s.string().id() });
-    const target = s.polymorphic(
+    const target = s.polymorphicToOne(
       { post: () => post },
       { values: { post: "content.post.v1" } }
     );
@@ -118,9 +131,9 @@ describe("polymorphic relation carrier", () => {
     expect(target["~"].state).not.toHaveProperty("source");
   });
 
-  it("keeps builder instances immutable", () => {
+  it("keeps carrier instances immutable", () => {
     const post = s.model({ id: s.string().id() });
-    const base = s.polymorphic(
+    const base = s.polymorphicToOne(
       { post: () => post },
       { values: { post: "content.post.v1" } }
     );
@@ -133,6 +146,40 @@ describe("polymorphic relation carrier", () => {
       name: "target",
       optional: true,
     });
+  });
+
+  // The reuse question the deleted builder used to answer, asked of the two
+  // factories instead: ONE plain target map, handed to both, must produce two
+  // independent carriers and must still invoke no target getter.
+  it("builds independent carriers from one reused target map", () => {
+    let targetReads = 0;
+    const post = s.model({ id: s.string().id() });
+    const targets = {
+      post: () => {
+        targetReads += 1;
+        return post;
+      },
+    };
+    const values = { post: "content.post.v1" } as const;
+    const singular = s.polymorphicToOne(targets, { values });
+    const collection = s.polymorphicToMany(targets, { values });
+
+    expect(singular).not.toBe(collection);
+    expect(singular["~"].state.cardinality).toBe("one");
+    expect(collection["~"].state.cardinality).toBe("many");
+    expect(singular["~"].state.targets).not.toBe(collection["~"].state.targets);
+    expect(targetReads).toBe(0);
+
+    const named = singular.name("target").optional();
+
+    expect(named["~"].state).toMatchObject({
+      cardinality: "one",
+      name: "target",
+      optional: true,
+    });
+    expect(singular["~"].state).not.toHaveProperty("name");
+    expect(collection.name("attachments")["~"].state.cardinality).toBe("many");
+    expect(targetReads).toBe(0);
   });
 
   it("snapshots and freezes non-fresh maps before resolving targets once", () => {
@@ -153,7 +200,7 @@ describe("polymorphic relation carrier", () => {
       post: "content.post.v1",
       video: "content.video.v1",
     };
-    const relation = s.polymorphic(targets, { values });
+    const relation = s.polymorphicToOne(targets, { values });
 
     targets.post = () => video;
     values.post = "mutated";
@@ -186,7 +233,7 @@ describe("polymorphic relation carrier", () => {
     const sole = s.model({
       id: s.string().id(),
       subject: s
-        .polymorphic(
+        .polymorphicToOne(
           { source: () => source },
           { values: { source: "source.sole.v1" } }
         )
@@ -195,13 +242,13 @@ describe("polymorphic relation carrier", () => {
     const multiple = s.model({
       id: s.string().id(),
       first: s
-        .polymorphic(
+        .polymorphicToOne(
           { source: () => source },
           { values: { source: "source.first.v1" } }
         )
         .name("shared"),
       second: s
-        .polymorphic(
+        .polymorphicToOne(
           { source: () => source },
           { values: { source: "source.second.v1" } }
         )
@@ -210,13 +257,13 @@ describe("polymorphic relation carrier", () => {
     const selectedWithUnselectedDuplicate = s.model({
       id: s.string().id(),
       selected: s
-        .polymorphic(
+        .polymorphicToOne(
           { source: () => source },
           { values: { source: "source.selected.v1" } }
         )
         .name("selected"),
       duplicate: s
-        .polymorphic(
+        .polymorphicToOne(
           { first: () => source, second: () => source },
           {
             values: {
@@ -231,19 +278,19 @@ describe("polymorphic relation carrier", () => {
     const identicalVideo = s.model({ id: s.string().id() });
     const identicalTargets = s.model({
       id: s.string().id(),
-      subject: s.polymorphic(
+      subject: s.polymorphicToOne(
         { post: () => identicalPost, video: () => identicalVideo },
         { values: { post: "post.v1", video: "video.v1" } }
       ),
     });
     const unnamedAndNamed = s.model({
       id: s.string().id(),
-      unnamed: s.polymorphic(
+      unnamed: s.polymorphicToOne(
         { source: () => source },
         { values: { source: "source.unnamed.v1" } }
       ),
       named: s
-        .polymorphic(
+        .polymorphicToOne(
           { source: () => source },
           { values: { source: "source.named.v1" } }
         )
@@ -254,13 +301,13 @@ describe("polymorphic relation carrier", () => {
     const separatelyGroupedIdenticalTargets = s.model({
       id: s.string().id(),
       subject: s
-        .polymorphic(
+        .polymorphicToOne(
           { post: () => separateIdenticalPost },
           { values: { post: "post.v1" } }
         )
         .name("subject"),
       attachment: s
-        .polymorphic(
+        .polymorphicToOne(
           { video: () => separateIdenticalVideo },
           { values: { video: "video.v1" } }
         )
@@ -340,7 +387,7 @@ describe("polymorphic relation carrier", () => {
         .fields("parentId")
         .references("id"),
       subject: s
-        .polymorphic(
+        .polymorphicToOne(
           { parent: () => parent, other: () => other },
           { values: { parent: "parent.v1", other: "other.v1" } }
         )
@@ -356,14 +403,62 @@ describe("polymorphic relation carrier", () => {
       storedType: "parent.v1",
     });
   });
+
+  it("carries a deep-frozen .through() map in either chain order", () => {
+    const post = s.model({ id: s.string().id() });
+    const video = s.model({ id: s.string().id() });
+    const targets = { post: () => post, video: () => video };
+    const throughFirst = s
+      .polymorphicToMany(targets)
+      .through(THROUGH_MAP)
+      .name("items");
+    const nameFirst = s
+      .polymorphicToMany(targets)
+      .name("items")
+      .through(THROUGH_MAP);
+
+    for (const relation of [throughFirst, nameFirst]) {
+      expect(relation["~"].state.name).toBe("items");
+      expect(relation["~"].state.through).toEqual(THROUGH_MAP);
+      expect(Object.isFrozen(relation["~"].state.through)).toBe(true);
+      expect(Object.isFrozen(relation["~"].state.through?.post)).toBe(true);
+    }
+  });
+
+  // The `.through()` snapshot is ONE LEVEL DEEPER than the targets/values
+  // snapshot: the map's own properties are entry OBJECTS, so a live accessor on
+  // an ENTRY is the dodge to close — a `table` answering the definition
+  // validator with one name and a later storage reader with another. Every own
+  // property on both levels is read exactly once, at construction.
+  it("pins accessor-supplied through entries at construction", () => {
+    const post = s.model({ id: s.string().id() });
+    let tableReads = 0;
+    const entry = {
+      get table(): string {
+        tableReads += 1;
+        return tableReads === 1 ? "owner_items_post" : "### hostile flip ###";
+      },
+      source: "ownerRef",
+      target: "postRef",
+    };
+    const relation = s
+      .polymorphicToMany({ post: () => post })
+      .through({ post: entry });
+
+    expect(tableReads).toBe(1);
+    expect(relation["~"].state.through?.post.table).toBe("owner_items_post");
+    expect(relation["~"].state.through?.post.table).toBe("owner_items_post");
+    expect(tableReads).toBe(1);
+  });
 });
 
 describe("coverage low value", () => {
   it("fails closed for malformed relation carriers", () => {
     const source = s.model({ id: s.string().id() });
-    const malformedTargets = Reflect.construct(PolymorphicRelation, [
+    const malformedTargets = Reflect.construct(PolymorphicToOneRelation, [
       {
         type: "polymorphic",
+        cardinality: "one",
         targets: {
           [Symbol("ignored")]: () => source,
           badGetter: 42,
@@ -376,12 +471,13 @@ describe("coverage low value", () => {
       },
     ]);
     const target = s.model({ id: s.string().id(), subject: malformedTargets });
-    const malformedState = Reflect.construct(PolymorphicRelation, [
-      { type: "polymorphic", targets: null, values: null },
+    const malformedState = Reflect.construct(PolymorphicToOneRelation, [
+      { type: "polymorphic", cardinality: "one", targets: null, values: null },
     ]);
-    const missingValues = Reflect.construct(PolymorphicRelation, [
+    const missingValues = Reflect.construct(PolymorphicToOneRelation, [
       {
         type: "polymorphic",
+        cardinality: "one",
         targets: { source: () => source },
         values: 42,
       },
@@ -399,8 +495,48 @@ describe("coverage low value", () => {
     ]);
   });
 
+  it("enumerates every carrier a target holds, terminated or not", () => {
+    // Executes the `targetEntries` closure on a FORGED cardinality-less carrier
+    // and on the to-many terminal. Only definition validation reaches them in
+    // anger, and the behavioural contract they serve there — one owned P013
+    // issue instead of a TypeError — is pinned in
+    // `tests/unit/schema-validation/polymorphic-rules.core.test.ts`.
+    const source = s.model({ id: s.string().id() });
+    const ForgedCarrier: new (...args: never) => unknown =
+      PolymorphicToOneRelation;
+    const target = s.model({
+      id: s.string().id(),
+      unfinished: Reflect.construct(ForgedCarrier, [
+        {
+          type: "polymorphic",
+          targets: { source: () => source },
+          values: { source: "source.unfinished.v1" },
+        },
+      ]),
+      collection: s.polymorphicToMany(
+        { source: () => source },
+        { values: { source: "source.collection.v1" } }
+      ),
+    });
+
+    expect(getPolymorphicInverseCandidates(target, source)).toEqual([
+      {
+        relationKey: "unfinished",
+        publicType: "source",
+        storedType: "source.unfinished.v1",
+        pairingName: undefined,
+      },
+      {
+        relationKey: "collection",
+        publicType: "source",
+        storedType: "source.collection.v1",
+        pairingName: undefined,
+      },
+    ]);
+  });
+
   it("recognizes only a complete polymorphic carrier", () => {
-    const relation = s.polymorphic({
+    const relation = s.polymorphicToOne({
       post: () => s.model({ id: s.string().id() }),
     });
 

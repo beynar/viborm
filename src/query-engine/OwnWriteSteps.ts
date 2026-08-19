@@ -356,7 +356,16 @@ export class OwnWriteSteps {
   private processUpdate(
     entry: Extract<RelationMutationEntry, { kind: "update" }>
   ): void {
-    if (this.relation.boundRelation.cardinality === "one") {
+    // The junction exclusion is the semantics boundary, not a redundant guard:
+    // `buildToOneUpdateFootprint` is typed for the two ROW-HELD arms, and a
+    // SINGULAR junction membership — constructible since Package C, and WRITTEN
+    // since Package D's collection family — updates through the member table,
+    // not through a to-one footprint. The condition is unchanged; only the
+    // parenthetical that called the shape unconstructible has stopped being true.
+    if (
+      this.relation.boundRelation.position !== "junction" &&
+      this.relation.boundRelation.cardinality === "one"
+    ) {
       const [input] = entry.items;
       if (!input) return;
       const footprint = buildToOneUpdateFootprint(

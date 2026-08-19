@@ -370,25 +370,70 @@ function getRelationEntryGroups(
   relations: readonly ParsedRelationMutation[],
   family: OwnWriteDependencyFamily["kind"]
 ): RelationAnalysisEntry[][] {
-  const parsedPrograms: ProgramRelationMutation[] = [];
+  const analysed: RelationAnalysisEntry[] = [];
   for (const parsed of relations) {
-    if (parsed.kind !== "polymorphicDisconnect") parsedPrograms.push(parsed);
+    if (parsed.kind === "polymorphicDisconnect") continue;
+    if (parsed.kind === "polymorphicCollection") {
+      analysed.push(...collectionAnalysisEntries(parsed));
+      continue;
+    }
+    analysed.push({ parsed });
   }
   if (family === "update") {
-    return [parsedPrograms.map((parsed) => ({ parsed }))];
+    // Deliberately NOT pre-bound for the two program-carrying arms: `analyze()`
+    // binds them itself, and moving that bind here would move any refusal it
+    // raises ahead of the analysis of every EARLIER relation. The collection
+    // entries above carry their binding because nothing can re-derive it.
+    return [analysed];
   }
   const currentHoldsFk: RelationAnalysisEntry[] = [];
   const relatedHoldsFk: RelationAnalysisEntry[] = [];
-  for (const parsed of parsedPrograms) {
-    const boundRelation = bindRelation(ctx, parsed.program.relationInfo);
-    const entry = { parsed, boundRelation };
+  for (const entry of analysed) {
+    const boundRelation =
+      entry.boundRelation ??
+      bindRelation(ctx, entry.parsed.program.relationInfo);
+    const bound = { parsed: entry.parsed, boundRelation };
     if (boundRelation.position === "parentHeld") {
-      currentHoldsFk.push(entry);
+      currentHoldsFk.push(bound);
     } else {
-      relatedHoldsFk.push(entry);
+      relatedHoldsFk.push(bound);
     }
   }
   return [currentHoldsFk, relatedHoldsFk];
+}
+
+/**
+ * One collection arm, seen as one analysis entry PER (kind, variant) run.
+ *
+ * The synthetic `ordinary` view is faithful, not a lie: the program IS an
+ * ordinary relation program, and the bound relation IS the member junction. Only
+ * how the binding was OBTAINED is polymorphic, and own-write does not care —
+ * what it compares is `getRelationMembershipScope(boundRelation)`, and the
+ * junction arm of that canonicalizes sides through `junctionSourceIsFirst`, so
+ * the owner-first (direct) and variant-first (inverse) views of ONE member table
+ * compare EQUAL while two variants stay disjoint by `junction.table`.
+ *
+ * The binding is carried rather than re-derived because it CANNOT be re-derived:
+ * `bindRelation` on the carrier is refused outright (`classifyRelation`'s carrier
+ * guard), and for a variant that also declares an inverse it would answer the
+ * REVERSED orientation. That is why this is mandatory on both family paths and
+ * not an optimization.
+ *
+ * A member junction is never `parentHeld`, so every entry lands in the create
+ * family's `relatedHoldsFk` group — correct: a collection contributes no
+ * before-parent coverage, because nothing it writes lands on the owner's row.
+ */
+function collectionAnalysisEntries(
+  arm: Extract<ParsedRelationMutation, { kind: "polymorphicCollection" }>
+): RelationAnalysisEntry[] {
+  return arm.entries.map((entry) => ({
+    parsed: {
+      kind: "ordinary" as const,
+      name: entry.junction.relationInfo.name,
+      program: entry.program,
+    },
+    boundRelation: entry.junction,
+  }));
 }
 
 interface RelationAnalysisEntry {

@@ -69,7 +69,7 @@ const clip = s.model({ id: s.string().id() });
 const reel = s.model({ id: s.string().id() });
 const bookmark = s.model({
   id: s.string().id(),
-  subject: s.polymorphic({ clip: () => clip, reel: () => reel }),
+  subject: s.polymorphicToOne({ clip: () => clip, reel: () => reel }),
 });
 
 const errorCodes = (result: ReturnType<typeof validateSchema>): string[] =>

@@ -17,9 +17,13 @@ adapter methods for dialect syntax and keep values parameterized.
 | --- | --- |
 | `relation-mutation-parser.ts` | scalar/relation partition and lossless mutation programs |
 | `relation-data-builder.ts` | bound ordinary/polymorphic inverse topology and relation SQL data |
-| `polymorphic-relation.ts` | direct public discriminator resolution |
-| `polymorphic-read-builder.ts` | direct CASE projection and correlated target filters |
-| `polymorphic-mutation.ts` | resolved direct intent and atomic private `(type, id)` values |
+| `polymorphic-relation.ts` | row-held public discriminator resolution |
+| `polymorphic-read-builder.ts` | row-held CASE projection and correlated target filters |
+| `polymorphic-mutation.ts` | resolved row-held intent and atomic private `(type, id)` values |
+| `polymorphic-collection-read-builder.ts` | collection read: one correlated JSON document, one branch per member junction in declaration order; reads `only` and `variants` and nothing else |
+| `polymorphic-collection-filter-builder.ts` | collection `some`/`every`/`none` over member tables |
+| `polymorphic-collection-mutation.ts` | binds one collection member for a write leaf |
+| `polymorphic-member-join-parts.ts` | the shared member-table join legs collection reads and filters traverse |
 | `where-builder.ts` | scalar and logical filters |
 | `relation-filter-builder.ts` | relation `some`/`every`/`none` and `is`/`isNot` |
 | `include-builder.ts` | nested relation reads and JSON projection |
@@ -73,9 +77,16 @@ changing `RelationMutationProgram`. `buildParsedRelationPrograms` returns
 `{ scalarData, relations }`, and `relations` is an ordered
 `ParsedRelationMutation[]` with one entry per relation key the payload writes:
 `ordinary` (program), `polymorphicTarget` (program plus the resolved edge, once
-the public discriminator names one concrete target), or `polymorphicDisconnect`
+the public discriminator names one concrete target), `polymorphicDisconnect`
 (storage only — a targetless disconnect builds no program and becomes an empty
-private storage assignment). Collection order is every ordinary relation in
+private storage assignment), or `polymorphicCollection` — one
+`PolymorphicCollectionArm` per collection key, carrying that relation, its
+relation-wide `clearsAll` fact, and one entry per named variant holding that
+variant's PRE-BOUND member junction plus an ordinary `RelationMutationProgram`.
+Binding the member here, once, is what the classifier's carrier guard protects.
+Entries keep spelling `set` because the payload did; the write-side coordinator
+owns the rewrite into an insert run plus its own barrier. Collection order is
+every ordinary relation in
 payload key order, then every polymorphic one; it is a behavior surface, so keep
 the two passes. Consumers walk the collection and switch on `kind`; do not
 rebuild a name-keyed map or a companion map beside it.
@@ -102,13 +113,34 @@ orthogonal axes over a single stored membership; nothing downstream stores a
 second copy of any of them, and every question about an edge is asked of the axis
 that owns it:
 
-1. many-to-many → position `junction` (cardinality `many`, junction membership);
-2. current model holds FK → position `parentHeld` (cardinality `one`,
+0. a pre-bound collection member carrier is REFUSED here rather than
+   re-resolved — it is bound once at parse time, owner-oriented, and
+   re-resolving it would silently answer with the variant orientation or fall to
+   the ordinary `manyToMany` arm and compile against a table that does not exist;
+1. resolved inverse of a JUNCTION-HELD polymorphic group → position `junction`,
+   junction membership with `polymorphicMember`, in reverse orientation.
+   Answered BEFORE either ordinary arm and for both asking shapes at once,
+   because a relation bound to a toMany group has its membership in that group's
+   member junction whatever its declared `type` says. Cardinality comes from that
+   member's own `inverseCardinality`: `many` for a bound `manyToMany` (an
+   ordinary to-many view) and `one` for a bound fields-less `manyToOne` —
+   `bindPolymorphicMemberJunction` is the sole producer of a singular junction,
+   backed by that member table's UNIQUE over the complete target side;
+2. many-to-many → position `junction` (cardinality `many`, junction membership);
+3. current model holds FK → position `parentHeld` (cardinality `one`,
    foreign-key membership);
-3. resolved polymorphic inverse → position `childHeld`, polymorphic membership,
-   cardinality from the public relation;
-4. remaining ordinary child-held edge → position `childHeld`, foreign-key
+4. resolved inverse of a ROW-HELD polymorphic group → position `childHeld`,
+   polymorphic membership, cardinality from the public relation;
+5. remaining ordinary child-held edge → position `childHeld`, foreign-key
    membership, cardinality from the public relation.
+
+Step 1's placement is load-bearing in both directions: without it a bound
+`manyToMany` would fall to the ordinary-junction arm and compile against a pair
+table the serializer correctly never emits, and a bound fields-less `manyToOne`
+would fall through the row-held path to `resolveOrdinaryInverse` and answer with
+the generic "Cannot determine FK fields". The resolution is a cheap non-throwing
+schema-state read, so classification itself stays refusal-free apart from the
+carrier guard.
 
 The bound value contains the relation declaration, the source model, and the
 membership: its holder and referenced models, ordered foreign and referenced
@@ -191,11 +223,22 @@ key captured by its owner read, not a re-evaluated selector.
 Compound FK and referenced-field arrays remain in schema order. Do not sort or
 re-pair them in a builder.
 
-A direct polymorphic read uses one portable CASE expression with a correlated
+A ROW-HELD polymorphic read uses one portable CASE expression with a correlated
 target subquery per configured variant. It uses exact-text discriminator
 equality and the existing nested selection builder. The variant count controls
 SQL size; returned row count does not create more statements. Ordinary relation
 LATERAL selection remains unchanged.
+
+A COLLECTION read is the sibling of that shape, not a second mechanism:
+`select-builder.ts` dispatches on cardinality and
+`polymorphic-collection-read-builder.ts` composes one correlated JSON document
+with one branch per member junction, in `storage.members` declaration order —
+which is the single ordering truth, so the `only` allow-list never changes
+result order. Correlated rather than lateral on every adapter, because the
+result boundary decodes exactly one relation value per relation column. It reads
+`only` and `variants` from the validated selection and nothing else; `only` is
+already deduped and canonicalized at the parse boundary, so no builder re-derives
+it.
 
 An inverse polymorphic `oneToMany` or fields-less `oneToOne` is still an
 ordinary public relation, but its membership predicate is two-part: private id
@@ -204,12 +247,21 @@ correlation followed by exact stored-discriminator equality.
 the cardinality-specific include, filter, count, ordering, and null behavior.
 Never rebuild the private conjunction at individual call sites.
 
-`polymorphic-mutation.ts` parses one direct verb into a concrete target edge and
+`polymorphic-mutation.ts` parses one ROW-HELD verb into a concrete target edge and
 an ordinary mutation program. Record compilers own single-record lowering.
 Root createMany is different only because its connect selectors must be grouped
 before the bulk INSERT: `write-engine/bulk-polymorphic-connect.ts` owns that
 shared count/returning preparation. Never add per-row target queries or expose
 private storage columns through public row data.
+
+A COLLECTION key parses into the parser's fourth arm: one
+`PolymorphicCollectionArm` carrying, per named variant, that variant's pre-bound
+member junction (`polymorphic-collection-mutation.ts`, owner-oriented, from
+pre-resolved topology) plus an ordinary `RelationMutationProgram`. The binding
+happens ONCE here, which is what the classifier's carrier guard protects. The
+arm also carries the relation-wide `clearsAll` fact that `set` needs; the entries
+keep spelling `set` because the payload did, and the write-side coordinator owns
+the rewrite.
 
 ## Anti-patterns
 

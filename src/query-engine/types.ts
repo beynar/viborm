@@ -12,6 +12,8 @@ import type {
   AnyPolymorphicRelation,
   AnyRelation,
   PolymorphicStorage,
+  PolymorphicToManyStorage,
+  PolymorphicToOneStorage,
 } from "@schema/relation";
 import type { SchemaRegistryLookup } from "@validation";
 
@@ -157,16 +159,36 @@ export interface ExpectedAggregateResultShape {
   fields?: ReadonlySet<string>;
 }
 
+/**
+ * One configured arm of a polymorphic projection.
+ *
+ * `visible` and `reversed` are COLLECTION facts and ARM-LOCAL by construction: a
+ * collection carries one read window per arm, so `take: -3` on one arm and
+ * `take: 5` on another must reverse different rows. A relation-level flag (the
+ * ordinary `ExpectedResultShape.reversed`) would reverse the concatenated array,
+ * which is a different result. The singular arm sets neither.
+ */
+export interface ExpectedPolymorphicVariantShape {
+  readonly model: Model<any>;
+  readonly shape: ExpectedResultShape;
+  /**
+   * This arm is inside the validated `only` allow-list, so the read emitted its
+   * visible-row branch. The parser reads visibility FROM THE SHAPE, never from
+   * the carrier value: an excluded arm's `rows` is `null` by construction, and a
+   * `null` aggregate over an allow-listed arm normalizes to `[]` — two different
+   * meanings for one JSON value, disambiguated structurally.
+   */
+  readonly visible?: boolean;
+  /** This arm's negative `take` ran as a reversed window; restore its order. */
+  readonly reversed?: boolean;
+}
+
 /** Exact target-specific result contracts for one polymorphic projection. */
 export interface ExpectedPolymorphicResultShape {
+  /** Which carrier the read emitted: the singular tagged CASE, or the collection document. */
+  readonly cardinality: "one" | "many";
   readonly optional: boolean;
-  readonly variants: ReadonlyMap<
-    string,
-    {
-      readonly model: Model<any>;
-      readonly shape: ExpectedResultShape;
-    }
-  >;
+  readonly variants: ReadonlyMap<string, ExpectedPolymorphicVariantShape>;
 }
 
 /** Exact raw columns and nested projections expected for one returned row. */
@@ -198,11 +220,49 @@ export interface QueryScope {
   readonly polymorphicRelations: ReadonlyMap<string, PolymorphicRelationInfo>;
 }
 
-/** One validated direct polymorphic field on the current model. */
-export interface PolymorphicRelationInfo {
+/**
+ * One validated direct polymorphic field on the current model, carrying either
+ * stored descriptor. Package C widened `storage` to the union: `query-scope.ts`
+ * admits both arms and every consumer dispatches on `storage.kind` at the point
+ * where the two storages stop meaning the same thing.
+ */
+export interface PolymorphicRelationInfoOf<Storage extends PolymorphicStorage> {
   readonly name: string;
   readonly relation: AnyPolymorphicRelation;
-  readonly storage: PolymorphicStorage;
+  readonly storage: Storage;
+}
+
+/** The row-held arm: a private `(type, id)` column pair on the owner's row. */
+export type PolymorphicToOneRelationInfo =
+  PolymorphicRelationInfoOf<PolymorphicToOneStorage>;
+
+/** The collection arm: one member junction table per configured variant. */
+export type PolymorphicToManyRelationInfo =
+  PolymorphicRelationInfoOf<PolymorphicToManyStorage>;
+
+/**
+ * Spelled as the UNION of the two arms rather than one shape over the storage
+ * union, so that the narrowing guards below subtract: a caller that rules out
+ * the row-held arm holds the collection arm, with no second test and no cast.
+ */
+export type PolymorphicRelationInfo =
+  | PolymorphicToOneRelationInfo
+  | PolymorphicToManyRelationInfo;
+
+/**
+ * The NARROWING spelling of `info.storage.kind === "toOne"`, for the callers
+ * that must pass the INFO itself into a row-held-only slot.
+ *
+ * It is not a second owner of the question — its body is that one test, and a
+ * caller that only needs the answer asks `storage.kind` inline. It exists
+ * because the storage is a nested discriminant: testing it narrows the storage
+ * reference, never the info holding it. Same reason, same shape, as
+ * `hasPolymorphicMembership` in `relation-data-builder.ts`.
+ */
+export function isPolymorphicToOneRelationInfo(
+  info: PolymorphicRelationInfo
+): info is PolymorphicToOneRelationInfo {
+  return info.storage.kind === "toOne";
 }
 
 /** One direct polymorphic member resolved after schema transformation. */
@@ -211,7 +271,7 @@ export interface ResolvedPolymorphicEdge {
   readonly storedType: string;
   readonly targetModel: Model<any>;
   readonly referencedField: string;
-  readonly storage: PolymorphicStorage;
+  readonly storage: PolymorphicToOneStorage;
   readonly relationInfo: RelationInfo;
 }
 
@@ -231,6 +291,18 @@ export interface RelationInfo {
   fields: string[] | undefined;
   /** Referenced fields on target model */
   references: string[] | undefined;
+  /**
+   * THE PRE-BOUND CARRIER BRAND (plan §1.3).
+   *
+   * A direct polymorphic collection binds ONE member junction per variant, and
+   * those carriers live in no model's relation map — nothing can look them up by
+   * name, which is what makes the re-resolution prohibition structural rather
+   * than a convention. The brand exists so the ONE remaining way to reach a
+   * resolver — handing the carrier to `classifyRelation` — is a named refusal
+   * instead of a silent bind onto an ordinary pair table the serializer never
+   * emits.
+   */
+  readonly polymorphicMemberCarrier?: true;
 }
 
 // ============================================================

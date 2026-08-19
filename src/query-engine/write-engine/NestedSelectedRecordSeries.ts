@@ -10,7 +10,7 @@ import {
   type RelationMutationEntry,
 } from "../builders/relation-mutation-parser";
 import { getTableName } from "../context/query-scope";
-import { ManyToManyStatements } from "../ManyToManyStatements";
+import { JunctionStatements } from "../JunctionStatements";
 import { assertUpdateOwnWriteSafety } from "../OwnWriteAnalyzer";
 import { buildFind, buildFindUnique } from "../operations";
 import { assertPortablePrimaryKeyUpdateInput } from "../operations/mutation-identity";
@@ -491,10 +491,10 @@ export class NestedSelectedRecordSeries implements RecordSeriesOperation {
         "query-engine-v2 internal: junction membership guard received child-held topology."
       );
     }
-    return new ManyToManyStatements(
+    return new JunctionStatements(
       this.input.sourceScope,
       membership.txMode
-    ).materialize(membership.relation.relationInfo, "membershipRead", {
+    ).materialize(membership.relation, "membershipRead", {
       parentValue: membership.parentValue,
       where: {
         AND: capturedTargetFilters(

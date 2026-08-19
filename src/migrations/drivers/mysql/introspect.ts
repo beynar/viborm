@@ -23,7 +23,6 @@ import type {
   MySQLIndex,
   MySQLPrimaryKey,
   MySQLTable,
-  MySQLUniqueConstraint,
 } from "./types";
 
 // =============================================================================
@@ -106,22 +105,6 @@ JOIN information_schema.REFERENTIAL_CONSTRAINTS rc
   AND rc.CONSTRAINT_SCHEMA = tc.TABLE_SCHEMA
 WHERE tc.TABLE_SCHEMA = DATABASE()
   AND tc.CONSTRAINT_TYPE = 'FOREIGN KEY'
-ORDER BY tc.TABLE_NAME, tc.CONSTRAINT_NAME, kcu.ORDINAL_POSITION
-`;
-
-const UNIQUE_CONSTRAINTS_QUERY = `
-SELECT
-  tc.TABLE_NAME,
-  tc.CONSTRAINT_NAME,
-  kcu.COLUMN_NAME,
-  kcu.ORDINAL_POSITION
-FROM information_schema.TABLE_CONSTRAINTS tc
-JOIN information_schema.KEY_COLUMN_USAGE kcu
-  ON tc.CONSTRAINT_NAME = kcu.CONSTRAINT_NAME
-  AND tc.TABLE_SCHEMA = kcu.TABLE_SCHEMA
-  AND tc.TABLE_NAME = kcu.TABLE_NAME
-WHERE tc.TABLE_SCHEMA = DATABASE()
-  AND tc.CONSTRAINT_TYPE = 'UNIQUE'
 ORDER BY tc.TABLE_NAME, tc.CONSTRAINT_NAME, kcu.ORDINAL_POSITION
 `;
 
@@ -259,14 +242,12 @@ export async function introspect(
     primaryKeysResult,
     indexesResult,
     foreignKeysResult,
-    uniqueConstraintsResult,
   ] = await Promise.all([
     executeRaw<MySQLTable>(TABLES_QUERY),
     executeRaw<MySQLColumn>(COLUMNS_QUERY),
     executeRaw<MySQLPrimaryKey>(PRIMARY_KEYS_QUERY),
     executeRaw<MySQLIndex>(INDEXES_QUERY),
     executeRaw<MySQLForeignKey>(FOREIGN_KEYS_QUERY),
-    executeRaw<MySQLUniqueConstraint>(UNIQUE_CONSTRAINTS_QUERY),
   ]);
 
   // Group results
@@ -282,12 +263,6 @@ export async function introspect(
     (fk) => fk.TABLE_NAME,
     (fk) => fk.CONSTRAINT_NAME
   );
-  const uniqueByTable = groupByNested(
-    uniqueConstraintsResult.rows,
-    (uq) => uq.TABLE_NAME,
-    (uq) => uq.CONSTRAINT_NAME
-  );
-
   // Track enum definitions found in columns
   const enumDefs: EnumDef[] = [];
   const seenEnums = new Set<string>();
@@ -396,18 +371,23 @@ export async function introspect(
       }
     }
 
-    // Build unique constraints
+    // MySQL HAS ONE UNIQUE NAMESPACE, so a unique is reported ONCE — as an
+    // index, above, from STATISTICS. TABLE_CONSTRAINTS lists the very same
+    // object a second time (its `UNIQUE` constraint face), and filing that
+    // second face here made every unique-bearing MySQL schema churn forever:
+    // whichever bucket the desired side did not use looked like a stray object
+    // and the differ planned a drop for it (measured on docker MySQL 8 — a
+    // spurious `dropIndex` for a declared unique constraint, a spurious
+    // `dropUniqueConstraint` for a declared unique index).
+    //
+    // The desired side is canonicalized to match by the driver's
+    // `finalizeTable`, which rewrites every unique constraint into a unique
+    // index. Both sides now speak indexes, so a unique round-trips unchanged.
+    //
+    // The bucket stays in the shape (every dialect's snapshot carries it) and
+    // is always empty for MySQL. TABLE_CONSTRAINTS is no longer queried at all:
+    // it can report nothing the STATISTICS rows above do not already carry.
     const uniqueConstraints: UniqueConstraintDef[] = [];
-    const tableUniques = uniqueByTable.get(tableName);
-    if (tableUniques) {
-      for (const [constraintName, uqCols] of tableUniques) {
-        uqCols.sort((a, b) => a.ORDINAL_POSITION - b.ORDINAL_POSITION);
-        uniqueConstraints.push({
-          name: constraintName,
-          columns: uqCols.map((uq) => uq.COLUMN_NAME),
-        });
-      }
-    }
 
     tables.push({
       name: tableName,

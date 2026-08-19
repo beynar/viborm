@@ -7,7 +7,8 @@ import {
   manyToOne,
   oneToMany,
   oneToOne,
-  polymorphic,
+  polymorphicToMany,
+  polymorphicToOne,
 } from "./relation";
 import {
   bigInt,
@@ -83,7 +84,8 @@ export const s = {
   manyToOne,
   oneToMany,
   manyToMany,
-  polymorphic,
+  polymorphicToOne,
+  polymorphicToMany,
 };
 
 // =============================================================================
@@ -112,10 +114,11 @@ export { Model } from "./model";
 export type { Getter, ReferentialAction, RelationType } from "./relation";
 export * from "./relation";
 export {
-  type AnyRelation,
   type AnyPolymorphicRelation,
+  type AnyRelation,
   ManyToManyRelation,
-  PolymorphicRelation,
+  PolymorphicToManyRelation,
+  PolymorphicToOneRelation,
   ToManyRelation,
   ToOneRelation,
 } from "./relation";

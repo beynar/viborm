@@ -152,7 +152,7 @@ const adoptRelationsSchema = (() => {
       id: s.string().id(),
       body: s.string(),
       subject: s
-        .polymorphic(
+        .polymorphicToOne(
           { tag: () => tag, mark: () => mark },
           {
             values: {

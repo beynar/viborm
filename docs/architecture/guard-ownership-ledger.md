@@ -205,12 +205,12 @@ remaining continuation-premise boundary.
 |---:|---|---|---|---|---|---|
 | 4 | `write-engine/final-root-assignment.ts:87` / `:41` | `FinalRootAssignmentTruth.contribute`, raising through `refuseFinalAssignment` | Two contributions claim DIFFERENT final values for one physical root column, or an equality that cannot be proved. | The record's own assignment ledger, seeded at construction and continued per `compile(known)` — the only point that has every contributor for one column. | `parity-e-shared-pk.test.ts` (38) · `shared-pk-update-root.test.ts` (71) · `adopt-owned-fk-agreement.test.ts` (31). All GREEN. | SC |
 | 13 | `write-engine/RelationUpsertPart.ts:1113` / `:1109` | `refuseIncomingParentMutation` | Either a same-incoming delete/global-adopt target mutation lacks a selected continuation, or a correlated re-entry itself changes the incoming parent's row key and cannot publish that second final tuple to its enclosing compiler. Stable correlated update and found-upsert are accepted. | The relation seam owns the general overlap; `RecordUpdateCompiler` owns the key-changing re-entry, and both call this one message owner. | `nested-arm-dispatch.test.ts`: exact selected update/found-upsert and outer key transition succeed; same-incoming delete and inner key change retain distinct exact refusals. | SC |
-| 15 | `write-engine/CreateOperation.ts:3418` / `:3410` | `requireRecordReferenced` (position selects the noun) | A fresh record cannot publish the referenced column an edge at this position needs — neither its primary key, nor knowable in its own create data, nor produced by its own INSERT. | Construction, in `CreateOperation`: `recordReferenced` is total over what an INSERT can publish. | `parity-f-fresh-field.test.ts` · `parent-held-lookup.test.ts` · `fresh-produced-field.test.ts` · `compound-relation-adoption.test.ts`. | MSI |
-| 19 | `write-engine/CreateOperation.ts:3522` / `:3504` | `producedReference` | A NON-returning adapter is asked for a plural database-assigned row key and the create source supplies no complete explicit addressable alternate unique, so no post-insert read can name the row. | This boundary has adapter capability, database-assigned arity, and the create plan's proven post-write locator. | `residual-refusal-falsifiers.test.ts`: scalar and mapped-compound alternate locators publish exact keys; omitted/defaulted, null, `Sql`, raw-index-only, incomplete, and absent locators do not qualify; the unnameable row keeps the exact refusal and the RETURNING control performs no locator read. | PSI |
-| 20 | `write-engine/CreateOperation.ts:3879` / `:3868` | `assertSelectedSharedPkValue` | The selected arm folding this record's OWN primary key resolves to `null`/absent, so the fresh root would key on nothing. | `compile(known)`, after the selected arm's planning lookup has exposed the referenced value and before the fresh root INSERT is built. | `residual-refusal-falsifiers.test.ts`: public alternate-unique connect resolves a nullable referenced key to `null`, raises this exact typed sentence, and leaves the root table empty; the concrete-key twin succeeds. | MSI |
-| 27 | `write-engine/OperationExecutor.ts:1901` / `:1896` | `executionRefusal` | The active driver cannot execute one compiled unit exactly. Live reasons include an indivisible statement above its verified bind limit and progressive placement that would strand an effect before a skipped root. Splittable create-many and junction inserts are chunked before this boundary, and an enclosing key transition is no longer itself a refusal. | The executor is the first boundary with the active driver, final compiled bind count, and progressive placement/segment facts. | `create-many-bind-budget.core.test.ts` · `junction-progressive-preflight.test.ts` · `progressive-parent-rowkey.test.ts` · `record-series-contract.test.ts`. | PSI |
-| 28 | `write-engine/OperationExecutor.ts:2341` / `:2331` | `assertIndivisibleGeneratedOutput` | An indivisible shared batch still needs provider-generated output across internal statements after the compiler tried its exact scalar and mutation-DAG folds. | The executor, before `_executeBatch`; default operations have already taken an exact fold or segmented route, and array operations cannot segment. | `mutation-dependency-fold.test.ts` pins accepted scalar/CTE folds and the retained relation projection over a sibling-mutated table; `extended-where-unique.test.ts` and `produced-compound-identity.test.ts` pin accepted explicit-array scalar outputs. | PSI |
-| 32 | `write-engine/OperationExecutor.ts:2359` / `:2346` | `crossedReferenceContinuationGuards` | SQL crosses a provider-produced value into a later segment, but its publisher supplies no exact row premise to prevent wrong-owner reuse between segments. | Whole-fragment generated-output preflight, where the dependency edge and publisher batch facts meet. | `operation-construction-inventory.test.ts` pins the owner coordinate; continuation shape and identity are falsified in `fragment-validator.core.test.ts`, and live exact-membership races are pinned in `generated-output-continuation-race.test.ts`. | PSI |
+| 15 | `write-engine/CreateOperation.ts:3520` / `:3512` | `requireRecordReferenced` (position selects the noun) | A fresh record cannot publish the referenced column an edge at this position needs — neither its primary key, nor knowable in its own create data, nor produced by its own INSERT. | Construction, in `CreateOperation`: `recordReferenced` is total over what an INSERT can publish. | `parity-f-fresh-field.test.ts` · `parent-held-lookup.test.ts` · `fresh-produced-field.test.ts` · `compound-relation-adoption.test.ts`. | MSI |
+| 19 | `write-engine/CreateOperation.ts:3624` / `:3606` | `producedReference` | A NON-returning adapter is asked for a plural database-assigned row key and the create source supplies no complete explicit addressable alternate unique, so no post-insert read can name the row. | This boundary has adapter capability, database-assigned arity, and the create plan's proven post-write locator. | `residual-refusal-falsifiers.test.ts`: scalar and mapped-compound alternate locators publish exact keys; omitted/defaulted, null, `Sql`, raw-index-only, incomplete, and absent locators do not qualify; the unnameable row keeps the exact refusal and the RETURNING control performs no locator read. | PSI |
+| 20 | `write-engine/CreateOperation.ts:3995` / `:3984` | `assertSelectedSharedPkValue` | The selected arm folding this record's OWN primary key resolves to `null`/absent, so the fresh root would key on nothing. | `compile(known)`, after the selected arm's planning lookup has exposed the referenced value and before the fresh root INSERT is built. | `residual-refusal-falsifiers.test.ts`: public alternate-unique connect resolves a nullable referenced key to `null`, raises this exact typed sentence, and leaves the root table empty; the concrete-key twin succeeds. | MSI |
+| 27 | `write-engine/OperationExecutor.ts:1920` / `:1915` | `executionRefusal` | The active driver cannot execute one compiled unit exactly. Live reasons include an indivisible statement above its verified bind limit and progressive placement that would strand an effect before a skipped root. Splittable create-many and junction inserts are chunked before this boundary, and an enclosing key transition is no longer itself a refusal. | The executor is the first boundary with the active driver, final compiled bind count, and progressive placement/segment facts. | `create-many-bind-budget.core.test.ts` · `junction-progressive-preflight.test.ts` · `progressive-parent-rowkey.test.ts` · `record-series-contract.test.ts`. | PSI |
+| 28 | `write-engine/OperationExecutor.ts:2397` / `:2387` | `assertIndivisibleGeneratedOutput` | An indivisible shared batch still needs provider-generated output across internal statements after the compiler tried its exact scalar and mutation-DAG folds. | The executor, before `_executeBatch`; default operations have already taken an exact fold or segmented route, and array operations cannot segment. | `mutation-dependency-fold.test.ts` pins accepted scalar/CTE folds and the retained relation projection over a sibling-mutated table; `extended-where-unique.test.ts` and `produced-compound-identity.test.ts` pin accepted explicit-array scalar outputs. | PSI |
+| 32 | `write-engine/OperationExecutor.ts:2415` / `:2402` | `crossedReferenceContinuationGuards` | SQL crosses a provider-produced value into a later segment, but its publisher supplies no exact row premise to prevent wrong-owner reuse between segments. | Whole-fragment generated-output preflight, where the dependency edge and publisher batch facts meet. | `operation-construction-inventory.test.ts` pins the owner coordinate; continuation shape and identity are falsified in `fragment-validator.core.test.ts`, and live exact-membership races are pinned in `generated-output-continuation-race.test.ts`. | PSI |
 | 22 | `query-engine/relation-key-legality.ts:110` / `:102` | `assertSingleTargetMembershipMoveAppliesToRecords` | A membership stored on ONE target row is applied to N > 1 roots: the last root would take the child from the rest. | Only after capture — no schema can express an N-dependent rule. | `parity-k-update-many.test.ts` (29) · `update-many-relation-series.test.ts` (57). GREEN. | SC |
 | 24 | `query-engine/builders/decimal-portability.ts:56` / `:48` | `assertExactDecimalOperation` | Ordering, aggregating, or arithmetic over a `decimal` on a dialect with no exact decimal type. | When the adapter is known. | `decimal-refusal-surface.test.ts` (extended-local project). | PSI |
 | 25 | `drivers/shared/transaction-options.ts:144` / `:139` | `refuseTransactionOption` | The driver does not implement the requested transaction option. | The driver capability boundary. | `transaction-options-behavior.core.test.ts` (layer-drivers). | PSI |
@@ -308,7 +308,7 @@ the value comes from UPDATE. Site 20 is moved out of this cluster into cluster 6
 | ~~3~~ | **RETIRED (residual G, split).** `RecordUpdateCompiler.ts:2017` · `resolveCreateParent` · `client.M.update({ where, data: { <arity-1 NON-PK referenced unique>: null \| Sql, <childRel>: { create } } })` | Same invariant as site 2, on the single-member non-primary-key branch. | Same. | `counter.update({ data: { token: null, tags: { create } } })` — arity 1, `token` not a PK member, so site 2's per-member path is never built. | `sql-operand-boundary-behavior.ts:186` ("null on a nullable referenced column is the ONE arm that reaches the engine") via `sql-operand-boundary.test.ts` / `-docker.test.ts`. | MSI | **KEPT — disposition reversed on measurement** (disagreement 1). It refuses a strictly WIDER operand set than site 2 and its accepted arm orders the INSERT differently; delegating would accept operands refused today. |
 | ~~5~~ | **RETIRED → 15 (residual G, folded).** `RecordUpdateCompiler.ts:3612` · `beforeTargetReferencedValue` · `client.M.update({ where, data: { <parentHeldToOne>: { create: {…} } } })` | A before-root create target's referenced column is neither that record's primary key nor a knowable value in its own create data. | Construction — the subtree's `rootReferenced` is total over what an INSERT can publish. | An update root whose parent-held `create` target references a column the target's create data does not spell and the INSERT does not produce. | `parity-f-fresh-field.test.ts:858`; `parent-held-lookup-behavior.ts:619` via `parent-held-lookup.test.ts`. | MSI | **keep** — this is the plan's "one selected-transition owner when the value comes from UPDATE". |
 | 14 | `CreateOperation.ts:991` · `interpretPolymorphicRelation` · `client.M.create({ data: { <direct polymorphic>: { create: {…} } } })` | A before-parent polymorphic create target's referenced column is unknowable. | Construction, in `CreateOperation`. | Nothing measured. Its own `connectOrCreate` twin — at `:1016` when this row was written, `:1027` at HEAD — states the SAME SENTENCE BYTE-IDENTICALLY as a `QueryEngineError`, one branch away. | **NONE** | MSI | **DONE — folded into site 15**, `requireRecordReferenced("beforeParentTarget")`. Its `query-engine` prefix was normalised to `query-engine-v2`, matching its three siblings; nothing pinned the difference. Its `connectOrCreate` twin keeps its `QueryEngineError` class and now shares the owner's message builder — disagreement 3. |
-| 15 | **CURRENT COORDINATE: `CreateOperation.ts:3418`, declared `:3410`.** Historical: `CreateOperation.ts:2772` (declared `:2764`; N3 read the pre-fold position at `:1789`/`:1781`) · `requireRecordReferenced`, formerly `targetReferencedValue` · `client.M.create({ data: { <parentHeldToOne>: { create: {…} } } })` | A before-parent create target's referenced column is neither its primary key nor knowable in its create data. | Construction, in `CreateOperation`. | The create-root twin of site 5: a before-parent target referencing an absent nullable unique. | `parity-f-fresh-field.test.ts:842`. | MSI | **DONE — this IS the owner now.** `requireRecordReferenced(record, referencedField, relationName, position)`; the position selects the noun, the decision is made once. |
+| 15 | **CURRENT COORDINATE: `CreateOperation.ts:3520`, declared `:3512`.** Historical: `CreateOperation.ts:2772` (declared `:2764`; N3 read the pre-fold position at `:1789`/`:1781`) · `requireRecordReferenced`, formerly `targetReferencedValue` · `client.M.create({ data: { <parentHeldToOne>: { create: {…} } } })` | A before-parent create target's referenced column is neither its primary key nor knowable in its create data. | Construction, in `CreateOperation`. | The create-root twin of site 5: a before-parent target referencing an absent nullable unique. | `parity-f-fresh-field.test.ts:842`. | MSI | **DONE — this IS the owner now.** `requireRecordReferenced(record, referencedField, relationName, position)`; the position selects the noun, the decision is made once. |
 | 16 | `CreateOperation.ts:2109` · `referencedValue` · `client.M.create({ data: { <childHeld rel>: { create } } })` | THIS record's referenced column, which a child's foreign key must carry, is neither its primary key nor knowable in its own create data. | Construction, in `CreateOperation`. | A fresh parent whose child edge references a non-primary-key column the create data omits (`fresh-produced-field`'s `latches`/`slot`). | `parity-f-fresh-field.test.ts:813`, `:819`; `fresh-produced-field.test.ts:481`; `fresh-produced-field-behavior.ts:339`. | MSI | **DONE — folded into site 15**, position `childEdge`. |
 | 18 | `CreateOperation.ts:2193` · `referencedParentSource` · adopt / junction / polymorphic child edge under `client.M.create` | The parent id a child edge consumes is unresolvable for the named referenced column. | Construction, in `CreateOperation`. | The whole-value parent-source spelling of site 16 (`compound-relation-adoption`'s `spots`/`slot`). | `parity-f-fresh-field.test.ts:830`; `compound-relation-adoption-behavior.ts:318` via `compound-relation-adoption.test.ts`. | MSI | **DONE — folded into site 15**, position `parentId`. |
 
@@ -425,7 +425,7 @@ cluster 6 gains one.
 | # | Site | Invariant | First knowable boundary | Unique reachable failure | Falsifier | Bucket | Disposition |
 |---|---|---|---|---|---|---|---|
 | 4 | **RELOCATED (residual C/D; coordinate re-measured at residual I): the throw is `write-engine/final-root-assignment.ts:87`, `FinalRootAssignmentTruth.contribute` raising through `refuseFinalAssignment` (declared `:41`). `recordSharedKeyFold` is retired; the shared-key disjuncts now enter the one physical-column ledger with every other contributor, which is why the invariant below reads wider than "shared primary key".** Historical: `RecordUpdateCompiler.ts:3533` · `recordSharedKeyFold` · `client.M.update({ where, data: { <parentHeldToOne whose FK is M's own row key>: { create \| connectOrCreate \| upsert \| connect } } })` | The arm that folds a member of this record's own row key names no one final value for it (absent, `null`, or a root SET that DISAGREES with the fold). | Construction — Package E narrowed the site from refusing a SHAPE to refusing an ARM THAT NAMES NO VALUE, which is exactly what is knowable here. | A shared-PK `connect` resolved by a correlated lookup subquery (no construction value), and a shared-PK `create` beside a root SET spelling the same column with a different value. | `parity-e-shared-pk.test.ts:645`, `:670`, `:690`; `shared-pk-update-root-behavior.ts:399` via `shared-pk-update-root.test.ts` / `-docker.test.ts`. | MSI (+ one SC arm) | **keep**. N3's `(*)` flag stands: the "root SET disagrees" arm is SC while "no value"/`NULL` are MSI. Recommend NOT splitting the sentence — a disagreeing SET is the same "no ONE final value" fact from the other side, and a second site would be a second owner. |
-| 20 | **CURRENT COORDINATE: `CreateOperation.ts:3879`, declared `:3868`, `assertSelectedSharedPkValue`.** Historical: `CreateOperation.ts:3154` (declared `:3140`; N3 read it at `:3091`) · `assertSharedPkResolved` · `client.M.create({ data: { <parentHeldToOne whose FK is M's primary key>: { create \| connect \| connectOrCreate } } })` | Same invariant at the create root: the shared key is not a compile-time literal. | `compile(known)`, after the chosen arm's lookup exposes its referenced tuple and before the root INSERT. A fresh record has no located row, so the update-root derivation cannot apply. | A public alternate-unique `connect` locates one target whose nullable referenced key is `null`; without this site the root INSERT reaches the provider with no key. | `residual-refusal-falsifiers.test.ts` (typed exact refusal, zero root rows, concrete control). | MSI | **keep** |
+| 20 | **CURRENT COORDINATE: `CreateOperation.ts:3995`, declared `:3984`, `assertSelectedSharedPkValue`.** Historical: `CreateOperation.ts:3154` (declared `:3140`; N3 read it at `:3091`) · `assertSharedPkResolved` · `client.M.create({ data: { <parentHeldToOne whose FK is M's primary key>: { create \| connect \| connectOrCreate } } })` | Same invariant at the create root: the shared key is not a compile-time literal. | `compile(known)`, after the chosen arm's lookup exposes its referenced tuple and before the root INSERT. A fresh record has no located row, so the update-root derivation cannot apply. | A public alternate-unique `connect` locates one target whose nullable referenced key is `null`; without this site the root INSERT reaches the provider with no key. | `residual-refusal-falsifiers.test.ts` (typed exact refusal, zero root rows, concrete control). | MSI | **keep** |
 
 ---
 
@@ -475,7 +475,7 @@ ordered commit callbacks only strengthen attribution.
 
 | # | Site | Invariant | First knowable boundary | Unique reachable failure | Falsifier | Bucket | Disposition |
 |---|---|---|---|---|---|---|---|
-| 19 | **CURRENT COORDINATE: `CreateOperation.ts:3522`, declared `:3504`.** Historical: `CreateOperation.ts:2850` (declared `:2839`; N3 read it at `:2788`) · `producedReference` | A plural database-assigned row key on a non-returning adapter has no complete stable selector only when the source supplies no complete explicit addressable alternate unique. | This boundary, where adapter capability, database-assigned arity, and proven post-write locator meet. | The same schema publishes through RETURNING; scalar and mapped-compound alternate uniques locate the non-returning focused read. Null, omitted/defaulted, `Sql`, incomplete, and raw-index-only candidates do not. | `residual-refusal-falsifiers.test.ts`. | PSI | **keep, narrowed to the unnameable row** |
+| 19 | **CURRENT COORDINATE: `CreateOperation.ts:3624`, declared `:3606`.** Historical: `CreateOperation.ts:2850` (declared `:2839`; N3 read it at `:2788`) · `producedReference` | A plural database-assigned row key on a non-returning adapter has no complete stable selector only when the source supplies no complete explicit addressable alternate unique. | This boundary, where adapter capability, database-assigned arity, and proven post-write locator meet. | The same schema publishes through RETURNING; scalar and mapped-compound alternate uniques locate the non-returning focused read. Null, omitted/defaulted, `Sql`, incomplete, and raw-index-only candidates do not. | `residual-refusal-falsifiers.test.ts`. | PSI | **keep, narrowed to the unnameable row** |
 
 Residual-lift Package B adds one distinct executor position: a fragment already
 declares an `insertId`, but the active adapter has no exact statement-local batch
@@ -1403,3 +1403,323 @@ every selected/deeper position as the census's `UnsupportedOperationError`. Row
 root sentence is the same detector's other voice, not a second detector. The
 polymorphic reach of the selected-position guard is exercised through the ROOT
 twin's witness; the selected-position falsifiers are ordinary-relation shaped.
+
+## Addendum — polymorphic cardinality Package D, fence A (bound `JunctionStatements`)
+
+One deletion. No guard added, none moved.
+
+**`ManyToManyStatements.materialize`'s guard — DELETED, its owner is now a type
+(the module is `JunctionStatements.ts`).** The Phase 7 addendum above recorded
+this same guard as REPLACED — `classifyRelation(...).kind !== "junction"` in place
+of `relation.type !== "manyToMany"`, same class, byte-identical sentence
+("Relation statement references unknown many-to-many relation '<n>'."). It is now
+gone entirely, because `materialize` takes a `JunctionBoundRelation` rather than a
+`RelationInfo`: the question the refusal asked is answered by the parameter's
+type, and there is no longer a moment at which a caller could ask it wrongly.
+
+Both call sites already held the bound value and passed it straight back in
+(`RelationJunctionPart` holds `context.relation`; `NestedSelectedRecordSeries`
+holds `membership.relation` and was unwrapping it to `.relationInfo` only to have
+the callee re-bind it), so the emitted SQL is unchanged for every ordinary
+junction — the byte pins in `junction-*`, `m2m-mutation`, `compound-junction` and
+`read-traversal-byte-pins` are the executable statement of that.
+
+This is not a coverage loss: the refusal was unreachable from any public payload
+and uncovered, exactly as the Phase 7 note said of `buildCorrelation`'s. It was
+also the last thing forcing a junction to be re-derivable FROM ITS NAME, which a
+direct polymorphic collection's per-variant member carrier is not — the deletion
+is what admits that binding, and the seam comment at the top of
+`JunctionStatements.ts` records the two operations the singular-junction transfer
+will add to the union.
+
+## Addendum — polymorphic cardinality Package D, fence B (direct collection writes)
+
+**One construction refusal added, one classifier guard added, two grammar
+refusals added, one grammar refusal deleted, one re-pointed. No guard moved.**
+
+**ADDED — `assertClearIsIndivisible` (`PolymorphicCollectionPart.ts`), census
+site 33.** A collection `set` is one indivisible unit: clear every configured
+member table, then refill. `generatedOutputSegments` is the only splitter of a
+non-series atomic batch, and the eligibility checks around it gate PER-STEP
+`expects` and `onUniqueConflict` — nothing marks a GROUP of steps indivisible. So
+on a native batch whose owner row key arrives as a produced output reference the
+batch may legally be split between the two halves and commit an emptied
+collection. Unique coverage, nameable: *the clear committed without its refill*.
+The alternative — an executor-side indivisible-group marker — was declined: it
+would be a second mechanism for a property §13.4 explicitly admits "refuses
+before the clear" as satisfying.
+
+**ADDED — the pre-bound carrier guard in `classifyRelation`.** A direct
+collection binds one member junction per variant, owner-oriented, at parse time.
+Those carriers live in no relation map, so the ONLY way one reaches a resolver is
+by being passed to it — and if it were, `resolvePolymorphicCollectionMember` would
+answer the VARIANT orientation (the reverse of what a direct entry needs) or, for
+an unbound variant, the ordinary `manyToMany` arm would compile against a pair
+table the serializer never emits. Unique coverage, nameable: *a pre-bound carrier
+reached a resolver and would have silently bound the wrong topology*. The brand it
+tests (`RelationInfo.polymorphicMemberCarrier`) exists for this guard and nothing
+else.
+
+**NARROWED, THEN DELETED (grammar) — `inverseCollectionWriteRefusal` →
+`singularInverseCollectionWriteRefusal` → gone
+(`validation/relations/index.ts`).** The refusal Package D had to ADD closed a
+hole open on all three doors:
+`getRelationSchemas` dispatched on cardinality alone, `classifyRelation` bound
+both inverses as real junctions, and `membershipCanBeCleared` answered `true`
+unconditionally — so a fields-less `manyToOne`/`manyToMany` bound to a `.toMany()`
+group received the FULL ordinary write family, and a singular-inverse `connect`
+emitted a bare junction insert with NO vacate.
+
+Package E splits it by the ASKER's arity, which is where plan §9.4/§9.5 put the
+boundary:
+
+- the PLURAL inverse (`manyToMany`) is a fixed-variant ordinary junction VIEW. The
+  binder already supplied the same topology in reverse orientation and
+  `RelationJunctionPart` / `JunctionStatements` are written entirely against
+  `membership.source` / `membership.target`, so every verb works unchanged. The
+  refusal is LIFTED with no engine change, and eight dual-substrate rows in
+  `polymorphic-collection-write-family.test.ts` assert §9.5's five observable
+  consequences against DATABASE STATE plus the DIRECT collection read;
+- the SINGULAR inverse (`manyToOne`) refused for one more round, with a sentence
+  naming the SHAPE rather than a package, per plan §12's rule that a refusal must
+  say which declaration reached it.
+
+**DELETED (grammar) — `singularInverseCollectionWriteRefusal`, and its type half
+with it.** §9.4's lattice now exists, so the sentence stopped being true. The
+singular inverse is a to-one SLOT — one member-junction row under a UNIQUE over
+the complete variant side — and takes the ordinary to-one create and update
+families verbatim; `GetRelationSchemas` dispatches on cardinality alone again,
+and `HasPolymorphicCollectionInverse` / `BindsPolymorphicMemberJunction` are
+deleted from `nested-data-projection.ts` in the SAME commit, because that file's
+own doc says both halves answer together and splitting them re-opens the B3
+advertise/refuse skew in its unsafe direction. What made the sentence necessary
+was never the FAMILIES — it was the LOWERING, and the lowering now has an owner.
+
+**ADDED (engine, no census site) — `RelationJunctionToOnePart`
+(`write-engine/RelationJunctionToOnePart.ts`).** A thin dispatcher and
+orientation adapter over the bound member-table topology and `JunctionStatements`.
+It owns exactly three things, and each replaces a MEASURED wrong answer rather
+than filling a gap:
+
+1. **the composition order.** `(vacate, supplier, modify)` is CONSUMED from
+   `classifyToOneComposition` — the same owner `OwnWriteRelation` reads — never
+   from the parsed entry order, which `RELATION_MUTATION_KEYS` lists as
+   `update` (3rd) before `connect` (9th) and would therefore lower modify before
+   supply.
+2. **the four correlated spellings.** `disconnect: true` deletes THE junction row
+   by the variant side alone (the plural fold raises
+   `m2mDisconnectRequiresSelector`, a sentence written for a relation where
+   "which membership" is a real question); `delete: true` deletes the SINGLE
+   captured owner row addressed by its captured row key (the plural fold lowers it
+   to `{kind: "deleteMany", filters: [{}]}`, whose `compileDeleteMany` sweeps the
+   whole connected set through `membership.target.model` — the polymorphic OWNER
+   in this reversed orientation); `update` and `upsert` correlate through the
+   membership (the plural fold raises "requires a unique target", and an inverse
+   to-one modify is correlated by construction because a to-one payload spells no
+   `where`).
+3. **the owner-orientation projection feeding the transfer.**
+   `bindOwnerOrientedCollectionMember` resolves the OWNER's collection relation
+   and delegates to `bindPolymorphicCollectionMember`, so
+   `polymorphicMemberMembership(member, "owner")` keeps exactly one call site.
+   The traversal's own bind is provably WRONG input there — `membershipOwners`
+   selects `membership.source`'s columns filtered by `membership.target`, so a
+   variant-oriented junction asks "which variant rows sit on this owner" — and the
+   transfer's `cardinality !== "one"` gate does not catch it, because the inverse
+   singular bind IS `"one"`.
+
+Nothing else is its: statement materialization, chunking, target probes, race
+pins and the transfer protocol stay where they are. Its internal invariants are
+`QueryEngineError`s and `NestedWriteError`s, so the `UnsupportedOperationError`
+census stays at **9**.
+
+**ONE ELISION, stated because it is a behaviour and not an optimisation — the
+composed vacate.** When a composition carries a vacate, the supplier does NOT go
+through the slot-replacement protocol: `disconnect: true` deletes the member row
+for this variant and `delete: true` deletes it and the owner row behind it, so the
+slot is empty by construction before the supplier runs. Measured: keeping the
+transfer there made the transaction leg report `the captured owner's membership
+was already removed` and retry into the same state, because the capture is a
+PLANNING read that ran before the composed delete; on the batch leg the transfer's
+premises are evaluated before the composed delete for the same reason. The
+compare-and-swap is then the composed DELETE plus the member table's target-side
+UNIQUE in one atomic unit — which §9.4 already names as the batch leg's
+enforcement. This is the junction twin of the parent-held direction's own elision,
+where a vacate's FK-null is dropped when a sibling supplier rebinds the same
+columns.
+
+**ONE FORK, TWO MOUNTS, ONE WRITER — `isSingularCollectionInverse`.**
+`RecordUpdateCompiler.interpretRelation` and `CreateOperation.interpretRelation`
+both ask it on `position === "junction"` BEFORE `buildJunctionParts`.
+`OwnWriteRelation` already asked the same question in the same words
+(`cardinality === "one"` on a bound junction) when resolving the composed
+continuation and the upsert decision; a compiler that only learned the shape
+INSIDE the plural fold would be the ledger's N5 skew re-opened — one invariant,
+two readers, agreeing by construction. The analyzer learns nothing new: the
+lowering produces exactly the continuation `resolveComposedContinuation` already
+reports.
+
+**ADDED (definition validation) — P021, the singular-inverse optionality rule
+(`schema/validation/rules/polymorphic.ts`).** §6.3 declares a `toMany` group's
+inverse optional and clearable; nothing enforced it. A singular collection
+inverse's removal verbs hang on `slotMayBeEmpty(state)` — i.e. on `.optional()` —
+and on nothing else: `validation/relations/update.ts` reaches
+`membershipCanBeCleared` only on the fields-less `oneToOne` branch, so the
+`manyToMany` arm that would otherwise grant a junction-backed clear is DEAD for
+this shape. `getFkRequirementKeySets` does not fill the gap either (it groups only
+fields-BEARING to-ones and `toOne` polymorphic groups), so a non-optional
+declaration was a slot you could fill and never empty, with no error anywhere.
+Unique coverage, nameable: *a singular collection inverse was declared
+non-optional and silently degraded*. Refusing at definition validation is what
+keeps `slotMayBeEmpty` a pure one-owner state read; the rejected alternative was a
+junction-aware override inside the clearability owner, which would have put a
+second, shape-aware writer on that rule.
+
+**KEPT, and PROMOTED to sole closer (engine) — the bulk-row collection narrowing
+in `bulk-polymorphic-connect.ts`.** `PartitionedModelData` widened to carry both
+storage arms, and this shortcut is the one consumer that cannot follow: it stores
+PRIVATE OWNER COLUMNS, which a collection has no analogue of. It used to be
+belt-and-braces behind a grammar refusal; since Package E the grammar ACCEPTS a
+collection key in a bulk row, and `routing.ts` sends such a call to the record
+series before this file is reached — so on the client path it is unreachable, and
+it stays because a directly-built scope can reach `buildBulkPolymorphicConnects`
+without passing routing. Plan §9.6 states the prohibition normatively ("Do not
+extend the current direct-`toOne` connect-only grouped shortcut to junction
+work").
+
+**DELETED (grammar) — `collectionWriteRefusal`, then `collectionBulkRowRefusal`.**
+The first died with Package D ("a collection is not writable" stopped being true).
+Package E deletes the second: the ROOT-`createMany` ROW now mounts the SAME
+collection `create` family, because `routing.ts`'s `relationBearingRow` is
+cardinality-dispatched over the polymorphic set through the new
+`isPolymorphicCollectionRelation` predicate, so a collection row is
+relation-BEARING and the whole call routes to the record series. The silent-drop
+hazard the sentence closed is now closed by the ROUTE. The direct polymorphic
+TO-ONE row keeps its narrower connect-only union and its grouped INSERT, and
+`parity-j-create-many.test.ts` pins both halves of that asymmetry in one file
+(`isRecordSeries` false for the to-one payload, true for the collection payload,
+false again for a scalar-only row on the same model) with its byte contract
+unmoved.
+
+**MEASURED, THEN CLOSED — the progressive preflight timing gap (§9.6, §10 (a)).**
+`OperationExecutor.prepareProgressiveMember` returned early for any member whose
+planning phase is non-empty, AHEAD of the three eligibility asserts, so such a
+member got `assertProgressiveRootConflictEligibility` at member time rather than
+"before member zero". MEASURED per verb and pinned in
+`junction-progressive-preflight.test.ts`: a collection `connect` /
+`connectOrCreate` contributes ONE planning step (its target probe); `create` /
+`createMany` contribute none. So the gap IS reachable through a collection key —
+but identically reachable WITHOUT one, since an ordinary junction `connect` alone
+makes the member plan. The collection key adds a spelling to a pre-existing shape;
+it does not create the shape. The measurement is kept as the before-picture; the
+gap itself is now closed.
+
+*How it is closed, and why this is a second READER and not a second GUARD.* One
+invariant — "skipping a root must strand no prior effect" — keeps ONE sentence and
+ONE construction: `strandedRootConflictPrefix` in `OperationExecutor.ts`. Two
+readers now feed it, because the invariant is asked at two times about two
+different things:
+
+| reader | input | when | unique coverage |
+|---|---|---|---|
+| `assertProgressiveRootConflictEligibility` | the COMPILED fragment's step order | preflight for empty-planning members; member time for the rest | every arm actually chosen, including the probe-dependent ones no parsed shape can promise |
+| `assertDeclaredRootConflictEligibility` | `CreateOperation.declaredPreRootWriteId`, read off the PARSED shape | preflight, for members the compiled reader structurally cannot reach | **TIMING** — the refusal arrives before member zero for a member whose fragment cannot exist yet |
+
+The second reader is the one the plan's §9.6 sentence makes normative, and it can
+refuse nothing the first would have passed: a parent-held `create` arm ALWAYS
+writes before the root, and a record carrying one never folds (the fold requires
+no parent-held arms and is refused outright under `skipDuplicates`). A parent-held
+`connectOrCreate` is deliberately NOT declared — it writes before the root only on
+the arm its probe picks, so declaring it would refuse the found-arm program that
+runs correctly today; that shape stays with the compiled reader. Falsified by
+restoring the bare early return: the refusal still arrives, but member zero's root
+is durably committed first (`junction-progressive-preflight.test.ts` reddens on
+database state, not on a message).
+
+*The decided asymmetry beside it (§10 (b)), now pinned rather than remembered.*
+The skip rule covers EFFECTS, not PREMISES. A collection `connect` reads its target
+during the member's planning phase, which runs before the root INSERT is attempted
+at all, so a row whose root would have been skipped still raises when its target is
+missing. Accepted rather than fixed: the alternative reorders a premise read behind
+a conditional write, which would make the probe answer a question about a row the
+series has already decided not to write. The pin sits beside the row where the same
+duplicate root with a PRESENT target skips silently — the difference is the
+premise, never the duplicate.
+
+A METHOD NOTE that cost a wrong answer once and is worth carrying: a QueryEngine
+built over models whose polymorphic storage has not yet been resolved
+(`validateClientSchemaOrThrow`) silently reads the collection arm as ABSENT — the
+first measurement of the numbers above answered zero for every collection verb for
+exactly that reason. Any direct-engine test over a polymorphic collection must
+resolve storage first, as `parity-j-create-many.test.ts` already does.
+
+**NOT ADDED, deliberately.** The singular-slot transfer's malformed multi-owner
+state and its plural-junction misuse are `QueryEngineError`s — internal
+invariants, not routes, and therefore not census sites. And the transfer adds no
+BATCH postcondition mechanism: on a native batch its enforcement is the in-batch
+exists/notExists premises plus the membership PK and the target-side UNIQUE, which
+is why §1.7's conflict targeting had to land before it. Three falsifications were
+run and each reddened only the rows that name it: removing the guarded vacate
+fails the transfer on both substrates with a unique violation; treating a
+target-side collision as a duplicate SWALLOWS the transfer on the transaction leg
+and trips the captured-membership premise on the batch leg; moving the clear after
+the refill loses the `set` reinsert and leaves the unmentioned variants filled.
+
+**FOUR MORE FALSIFICATIONS, for the singular-inverse lattice.** Each was applied
+to the shipped source, measured, and reverted with a `shasum` check.
+
+| # | mutation | what reddened |
+|---|---|---|
+| H2 | the Part reads `program.entries` instead of `classifyToOneComposition`'s order | 3 pins × 2 projects: the plan-level order pin and the producing-supplier composition row on both substrates — the modify's membership capture runs before the supplier writes it and silently updates nothing |
+| H5 | the owner delete sweeps the connected set (`buildDeleteMany` + `capturedTargetSetWhere`) instead of the single captured row key | 1 pin × 2 projects: `DELETE FROM "board" WHERE "board"."id" IN ($1)` where the pin demands `… = $1`. NO state assertion can separate these on a well-formed member table, which is why the pin is a plan pin |
+| H1 | the transfer receives `context.relation` (the variant-oriented traversal bind) instead of `context.ownerJunction` | 18 rows × 2 projects, and the SOLE detector on the scalar-keyed fixture is the transfer's own `LIMIT 2` throw: *Member table 'siw\_crate\_slips' holds more than one owner for a singular polymorphic member of relation 'crate'* |
+| H3 | both compiler forks removed, so the singular inverse falls back into `buildJunctionParts` | 18 rows × 2 projects, reporting exactly the four wrong answers the Part exists to replace: `requires a target selector`, `many-to-many update … requires a unique target`, `many-to-many upsert … requires a unique target`, the delete-scoping pin, and a bare-adoption `UniqueConstraintError` |
+
+The H1 row needed a fixture the compound one could not provide. On
+`shelf`/`book` the swapped orientation dies EARLIER, at the side-value seam
+("Compound junction side requires one value for every referenced field"), because
+`(tenantId, code)` and `(region, isbn)` cannot be mistaken for one another — a
+control that would stay red for a plan with the orientation right and the arity
+wrong. `scalarInverseSchema` (`crate`/`slip`, one `int` key each, with a slip id
+that COLLIDES with a crate id) makes the two sides structurally
+interchangeable, so the answer is the only thing left to separate them.
+
+---
+
+## Appendix — the polymorphic API respell (2026-08-19), and what it did to P013
+
+The entry points `s.polymorphic(...).toOne()` / `.toMany()` were replaced by two
+direct factories, `s.polymorphicToOne` / `s.polymorphicToMany`;
+`PolymorphicRelationBuilder` and `PolymorphicBuilderState` were deleted. The
+full argument is the ratified-deviation appendix in
+`docs/architecture/polymorphic-cardinality-plan.md` §16. Two entries belong in
+THIS ledger, because both are about which guard owns what.
+
+**P013 was kept, not deleted, and its unique coverage did not change.** The
+public path can no longer produce a cardinality-less carrier — each factory
+stamps its own — so it is tempting to read P013 as dead. It is not.
+`isPolymorphicRelation` (`src/schema/relation/polymorphic.ts`) is deliberately
+keyed on `state.type` ALONE, so a carrier forged past a terminal's constructor
+by hostile JavaScript is still extracted into `ModelState.polymorphicRelations`
+and still reaches `validatePolymorphicRelations`, which reads the raw
+`cardinality` and ejects it. P013's coverage, stated as one sentence: **a forged
+carrier gets one owned issue instead of a `TypeError` or silence.** Both halves
+are falsified in `tests/unit/schema-validation/polymorphic-rules.core.test.ts` —
+"ejects a forged carrier before its content is diagnosed" (exactly `["P013"]`,
+no content code appended) and "attributes P013 to a forged carrier reached
+through an ordinary inverse" (`["R003", "P013"]`, the carrier's `targetEntries`
+closure reached by two independent readers before the ejecting loop). Removing
+the `continue` reddens the first; removing the whole gate reddens both.
+Its message now names the two factories.
+
+**`TargetMapOnly` is a new type-level refusal with nameable unique coverage, not
+a second guard.** Both factories widen their `Targets` constraint to admit a
+bare `Getter`, precisely so the thunk survives inference and is refused by
+`TargetMapOnly` with a message naming `s.oneToOne` / `s.manyToOne` /
+`s.oneToMany` / `s.manyToMany`. Under the narrow constraint the thunk was
+refused by the CONSTRAINT and the diagnostic named `Record<string, Getter>`.
+So `TargetMapOnly` is the only thing refusing a single-getter carrier — deleting
+it makes `s.polymorphicToOne(() => model)` COMPILE, which is what its
+`@ts-expect-error` pins in `tests/types/relations/polymorphic-carrier.core.types.ts`
+measure (they go TS2578-unused). Why it is refused at all: a single-getter
+carrier reads like an ordinary edge and would silently build private
+`(type, id)` storage where the caller expected a foreign key.

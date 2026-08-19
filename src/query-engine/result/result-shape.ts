@@ -13,6 +13,7 @@ import {
 import {
   type ExpectedAggregateResultShape,
   type ExpectedPolymorphicResultShape,
+  type ExpectedPolymorphicVariantShape,
   type ExpectedResultShape,
   type Operation,
   QueryEngineError,
@@ -167,12 +168,23 @@ function buildModelShape(
     getOwnValue(include, "_count"),
   ];
   const relationCounts = new Set<string>();
+  const modelPolymorphicRelations = model["~"].state.polymorphicRelations;
   for (const countSelection of relationCountSelections) {
     if (!isRecord(countSelection)) continue;
     const countSelect = getOwnValue(countSelection, "select");
     if (!isRecord(countSelect)) continue;
     for (const [relationName] of selectedEntries(countSelect)) {
-      if (!Object.hasOwn(modelRelations, relationName)) continue;
+      // The two namespaces are separate records and stay separate: a polymorphic
+      // COLLECTION joins the count surface (plan §7.4), a row-held polymorphic
+      // slot has no collection to count.
+      if (Object.hasOwn(modelRelations, relationName)) {
+        relationCounts.add(relationName);
+        continue;
+      }
+      if (!Object.hasOwn(modelPolymorphicRelations, relationName)) continue;
+      if (model["~"].getPolymorphicStorage(relationName)?.kind !== "toMany") {
+        continue;
+      }
       relationCounts.add(relationName);
     }
   }
@@ -234,6 +246,14 @@ function addSelectedRelations(
   }
 }
 
+/**
+ * The expected shape of one polymorphic projection, on the SAME cross-boundary
+ * contract the collection read builder compiles against: a validated collection
+ * selection is `true` / `false` verbatim, or
+ * `{ only?: readonly string[]; variants?: { [publicType]: <arm node> } }` with
+ * `only` already deduplicated into declaration order. This reads `only` and
+ * `variants` and nothing else.
+ */
 function addSelectedPolymorphicRelations(
   model: Model<any>,
   selection: Record<string, unknown> | undefined,
@@ -253,26 +273,52 @@ function addSelectedPolymorphicRelations(
     }
 
     const projection = isRecord(value) ? value : undefined;
-    const variants = new Map<
-      string,
-      { readonly model: Model<any>; readonly shape: ExpectedResultShape }
-    >();
-    for (const [publicType, member] of storage.members) {
-      const override = getOwnValue(projection, publicType);
-      variants.set(publicType, {
-        model: member.targetModel,
-        shape: buildModelShape(
-          member.targetModel,
-          override === undefined || override === true
-            ? {}
-            : getNestedSelection(override)
-        ),
-      });
+    const variants = new Map<string, ExpectedPolymorphicVariantShape>();
+
+    if (storage.kind === "toOne") {
+      for (const [publicType, member] of storage.members) {
+        const override = getOwnValue(projection, publicType);
+        variants.set(publicType, {
+          model: member.targetModel,
+          shape: buildModelShape(
+            member.targetModel,
+            override === undefined || override === true
+              ? {}
+              : getNestedSelection(override)
+          ),
+        });
+      }
+    } else {
+      const only = getOwnValue(projection, "only");
+      const allowList = Array.isArray(only) ? new Set(only) : undefined;
+      const armNodes = getOwnValue(projection, "variants");
+      const armProjection = isRecord(armNodes) ? armNodes : undefined;
+      for (const [publicType, member] of storage.members) {
+        const override = getOwnValue(armProjection, publicType);
+        // EVERY configured arm is recorded, INCLUDING one excluded by `only`:
+        // the read still computes its integrity facts, and the parser still
+        // refuses a non-zero orphan count there. Visibility only decides
+        // whether the arm carries rows and whether they reach the result.
+        variants.set(publicType, {
+          model: member.targetModel,
+          shape: buildModelShape(
+            member.targetModel,
+            override === undefined || override === true
+              ? {}
+              : getNestedSelection(override)
+          ),
+          visible: allowList ? allowList.has(publicType) : true,
+          // ARM-LOCAL, unlike the ordinary relation flag: one arm may page
+          // backward while its sibling pages forward.
+          ...(pagesBackward(override) ? { reversed: true } : {}),
+        });
+      }
     }
 
     rawKeys.push(relationName);
     selectedOutputKeys.add(relationName);
     polymorphic.set(relationName, {
+      cardinality: storage.kind === "toOne" ? "one" : "many",
       optional: relation["~"].state.optional === true,
       variants,
     });

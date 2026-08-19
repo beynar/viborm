@@ -102,12 +102,17 @@ import {
 } from "./OperationFragment";
 import type { Part, PlanningKnown } from "./Part";
 import { planningKey } from "./Part";
+import { buildPolymorphicCollectionPart } from "./PolymorphicCollectionPart";
 import { parseValidated } from "./parse-boundary";
 import {
   buildRecordUpdateCompiler,
   type RecordCompilerSeam,
 } from "./RecordUpdateCompiler";
 import { buildJunctionParts } from "./RelationJunctionPart";
+import {
+  buildJunctionToOneParts,
+  isSingularCollectionInverse,
+} from "./RelationJunctionToOnePart";
 import {
   buildConnectOrCreateParts,
   buildToManyUpsertParts,
@@ -989,6 +994,40 @@ export class CreateOperation {
       : undefined;
   }
 
+  /**
+   * The step id of a write this operation is CERTAIN to emit before its root
+   * INSERT — read from the parsed shape alone, with nothing compiled and nothing
+   * probed — or `undefined` when the shape declares none.
+   *
+   * WHO ASKS AND WHY (plan §9.6, "before member zero"). A progressive record
+   * series preflights every member it can COMPILE, and the compiled fragment is
+   * where a prior effect before a skippable root is normally seen. A member whose
+   * planning phase is non-empty cannot be compiled at preflight — compiling it
+   * needs planning outputs that only that member's own turn can read — so its
+   * refusal would otherwise arrive after earlier members had committed. This
+   * getter is what such a member can still be asked, and its only claim is the
+   * one the parse already settled.
+   *
+   * EXACT, NEVER OPTIMISTIC, in both directions:
+   *
+   *  · A parent-held `create` arm ALWAYS writes before the root INSERT
+   *    ({@link emitRecord} step 1), and a record carrying one never folds — the
+   *    fold requires no parent-held arms at all, and is refused outright under
+   *    `skipDuplicates`. So a declared id is a step id the compiled fragment
+   *    will really carry, and this reader can never refuse a shape that would
+   *    have compiled clean.
+   *  · A parent-held `connectOrCreate` is deliberately NOT declared: it writes
+   *    before the root only on the arm its probe selects, so declaring it would
+   *    refuse the found-arm program that runs correctly today. That shape stays
+   *    with the compiled reader, which sees the arm actually chosen.
+   *
+   * The id names the FIRST such write: a before-parent create emits its own
+   * before-parent creates first, so the recursion descends before it answers.
+   */
+  get declaredPreRootWriteId(): string | undefined {
+    return declaredPreRootWriteId(this.root);
+  }
+
   // -------------------------------------------------------------------------
 
   /**
@@ -1069,6 +1108,15 @@ export class CreateOperation {
       // was invisible to the former program map. Refusing it would be a new refusal
       // on a shape with no public spelling.
       if (parsed.kind === "polymorphicDisconnect") continue;
+      if (parsed.kind === "polymorphicCollection") {
+        // NEVER a `parentHeldArm`: a collection stores nothing on the owner's
+        // row, so it has no before-parent phase to join — its member rows can
+        // only be written once this record's key exists.
+        afterParts.push(
+          this.buildCollectionPart(childScope, self, parsed, txMode)
+        );
+        continue;
+      }
       const { name: relationName, program } = parsed;
       if (parsed.kind === "polymorphicTarget") {
         this.interpretPolymorphicRelation({
@@ -1572,6 +1620,12 @@ export class CreateOperation {
     for (const parsed of relations) {
       // No create route (see `buildRecord`), and a disconnect produces no target.
       if (parsed.kind === "polymorphicDisconnect") continue;
+      // A collection contributes NO before-parent coverage: coverage is the set
+      // of keys a sibling `connect` may adopt without a probe because some arm
+      // guarantees the target exists BEFORE the parent INSERT — and every member
+      // row a collection writes lands after it, correlated on the key that
+      // INSERT produces.
+      if (parsed.kind === "polymorphicCollection") continue;
       const { program } = parsed;
       if (parsed.kind === "polymorphicTarget") {
         const edge = parsed.edge;
@@ -1631,6 +1685,58 @@ export class CreateOperation {
     );
   }
 
+  /**
+   * MOUNT 1 of 3 — a direct polymorphic collection under a CREATE root.
+   *
+   * The coordinator gets the same fresh-parent identity every junction arm on
+   * this record gets, and the same `nestedBuilder`, so a collection target
+   * carrying its own relations folds one level deeper exactly as a junction
+   * target does. `membershipReadSource` is that identity too: this record is
+   * being MADE, so no committed value can name it.
+   */
+  private buildCollectionPart(
+    childScope: QueryScope,
+    self: RecordIdentity,
+    arm: Extract<ParsedRelationMutation, { kind: "polymorphicCollection" }>,
+    txMode: boolean
+  ): Part {
+    const engine = this.engine;
+    const scope = this.scope;
+    const freshParentId = this.edgeParentSources(
+      self,
+      getPrimaryKeyFields(self.model),
+      arm.name
+    );
+    return buildPolymorphicCollectionPart({
+      scope,
+      engine,
+      parentScope: childScope,
+      arm,
+      parentId: freshParentId,
+      membershipReadSource: freshParentId,
+      freshParent: true,
+      txMode,
+      recordCompilers: this.recordCompilers,
+      nestedBuilder: (
+        targetScope,
+        parentId,
+        relations,
+        nestedTxMode,
+        membershipReadSource
+      ) =>
+        buildJunctionTargetRelationParts(
+          scope,
+          engine,
+          targetScope,
+          relations,
+          parentId,
+          nestedTxMode,
+          this.recordCompilers,
+          membershipReadSource
+        ),
+    });
+  }
+
   private interpretRelation(input: {
     childScope: QueryScope;
     self: RecordIdentity;
@@ -1678,6 +1784,29 @@ export class CreateOperation {
         getPrimaryKeyFields(input.self.model),
         relationName
       );
+      // THE JUNCTION-TO-ONE FORK, the create-root twin of
+      // `RecordUpdateCompiler`'s. It is asked BEFORE `buildJunctionParts` for the
+      // same reason: one writer for "is this the singular collection inverse", in
+      // the same words the analyzer already uses. A fresh variant row holds no
+      // membership yet, so the transfer's capture is elided rather than read —
+      // the same structural proof `freshParent` gives the plural fold.
+      if (isSingularCollectionInverse(relation)) {
+        input.afterParts.push(
+          ...buildJunctionToOneParts({
+            scope,
+            engine,
+            parentScope: input.childScope,
+            relation,
+            program,
+            parentId: freshParentId,
+            membershipReadSource: freshParentId,
+            freshParent: true,
+            txMode,
+            recordCompilers: this.recordCompilers,
+          })
+        );
+        return;
+      }
       input.afterParts.push(
         ...buildJunctionParts({
           scope,
@@ -3848,6 +3977,20 @@ function collectFoldArmSemantics(
       });
     }
   }
+}
+
+/**
+ * The first write id this record plan is CERTAIN to emit before its own INSERT.
+ * See {@link CreateOperation.declaredPreRootWriteId} for who asks and why only the
+ * `create` arm counts. The descent mirrors {@link CreateOperation.emitRecord}'s
+ * order exactly: a before-parent create emits its own before-parent creates first.
+ */
+function declaredPreRootWriteId(plan: RecordPlan): string | undefined {
+  for (const arm of plan.parentHeldArms) {
+    if (arm.kind !== "create") continue;
+    return declaredPreRootWriteId(arm.before) ?? arm.before.writeStepId;
+  }
+  return undefined;
 }
 
 /** Whether this INSERT leaves a value for the DATABASE to assign — an auto-increment

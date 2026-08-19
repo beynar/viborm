@@ -16,14 +16,16 @@ import {
   getTableName as getModelTableName,
   type ModelState,
 } from "../schema/model";
-import type { AnyRelation } from "../schema/relation";
 import {
-  findPairedManyToManyState,
-  getJunctionConstraintName,
-  getJunctionFieldGroups,
-  getJunctionTableName,
-  junctionSourceSideIsFirst,
-} from "../schema/relation/helpers";
+  type AnyRelation,
+  getCompatiblePolymorphicInverseBinding,
+  type PolymorphicJunctionMember,
+} from "../schema/relation";
+import { getJunctionTableName } from "../schema/relation/helpers";
+import {
+  resolveJunctionPairActions,
+  resolveOrdinaryJunctionTopology,
+} from "../schema/relation/junction-topology";
 import type { Scalar } from "../schema/scalars/base";
 import type { MigrationDriver } from "./drivers";
 import type {
@@ -31,8 +33,10 @@ import type {
   EnumDef,
   ForeignKeyDef,
   IndexDef,
-  PolymorphicSnapshotMember,
   PolymorphicSnapshotStorage,
+  PolymorphicToManySnapshotMember,
+  PolymorphicToOneSnapshotMember,
+  PolymorphicToOneStorageRegistryEntry,
   PrimaryKeyDef,
   ReferentialAction,
   SchemaSnapshot,
@@ -93,6 +97,12 @@ export function serializeModels(
   const enums: EnumDef[] = [];
   const enumsSet = new Set<string>();
   const polymorphicStorage: PolymorphicSnapshotStorage[] = [];
+  // One registry for EVERY junction-shaped table — polymorphic member
+  // junctions (registered by the model loop below, model iteration order then
+  // member declaration order) and ordinary many-to-many junctions (registered
+  // by the walk that follows) — so the "one table name, one definition"
+  // invariant covers both routes through the same map.
+  const junctionTables = new Map<string, { def: TableDef; pairKey: string }>();
 
   for (const [modelName, model] of Object.entries(models)) {
     const modelState = model["~"].state;
@@ -103,6 +113,10 @@ export function serializeModels(
     const indexes: IndexDef[] = [];
     const foreignKeys: ForeignKeyDef[] = [];
     const uniqueConstraints: UniqueConstraintDef[] = [];
+    const relationStorage: Record<
+      string,
+      PolymorphicToOneStorageRegistryEntry
+    > = {};
     let primaryKey: PrimaryKeyDef | undefined;
     const pkColumns: string[] = [];
 
@@ -242,9 +256,59 @@ export function serializeModels(
     }
 
     // Polymorphic storage is relation-owned, so it never appears in the public
-    // scalar map. Its cached descriptor is the single source for the two
-    // private columns, their index, and generated-file member history.
+    // scalar map. Its cached descriptor is the single source for the toOne
+    // private columns and index, the toMany member junction tables, and
+    // generated-file member history.
     for (const storage of model["~"].polymorphicStorage.values()) {
+      if (storage.kind === "toMany") {
+        const members: PolymorphicToManySnapshotMember[] = [];
+        for (const member of storage.members.values()) {
+          const memberDef = serializeMemberJunction(
+            model,
+            tableName,
+            member,
+            migrationDriver
+          );
+          // pairName is always set for a member junction: the stored topology
+          // is built exclusively by definition validation, which passes
+          // `${model}.${relation}.${publicType}` — already distinct from every
+          // ordinary pairKey spelling.
+          const pairKey = member.junction.pairName!;
+          const existing = junctionTables.get(memberDef.name);
+          if (
+            existing &&
+            (existing.pairKey !== pairKey ||
+              JSON.stringify(existing.def) !== JSON.stringify(memberDef))
+          ) {
+            throw new Error(
+              `Junction table "${memberDef.name}" is shared by multiple distinct relation pairs. ` +
+                "Give each pair a distinct .name() or its own .through() table name."
+            );
+          }
+          if (!existing) {
+            junctionTables.set(memberDef.name, { def: memberDef, pairKey });
+          }
+
+          const targetModelName = member.targetModel["~"].names.ts;
+          members.push({
+            publicType: member.publicType,
+            storedType: member.storedType,
+            targetTable: getModelTableName(
+              member.targetModel,
+              targetModelName?.toLowerCase() ?? "unknown"
+            ),
+            memberJunctionTable: member.junction.table,
+            inverseCardinality: member.inverseCardinality,
+          });
+        }
+        polymorphicStorage.push({
+          ownerTable: tableName,
+          relation: storage.relationName,
+          kind: "toMany",
+          members,
+        });
+        continue;
+      }
       const typeScalarState = storage.typeColumn.scalar["~"].state;
       const idScalarState = storage.idColumn.scalar["~"].state;
       columns.push(
@@ -270,8 +334,17 @@ export function serializeModels(
         columns: [storage.typeColumn.name, storage.idColumn.name],
         unique: storage.inverseCardinality === "one",
       });
+      // The physical facts stay in the TableDef above where the structural
+      // differ owns them; the registry annotates which of those parts are
+      // relation-owned, keyed by the storage ref the metadata entry carries.
+      relationStorage[storage.typeColumn.name] = {
+        kind: "polymorphicToOne",
+        typeColumn: storage.typeColumn.name,
+        idColumn: storage.idColumn.name,
+        index: storage.indexName,
+      };
 
-      const members: PolymorphicSnapshotMember[] = [];
+      const members: PolymorphicToOneSnapshotMember[] = [];
       for (const [publicType, member] of storage.members) {
         const targetModelName = member.targetModel["~"].names.ts;
         members.push({
@@ -281,16 +354,13 @@ export function serializeModels(
             member.targetModel,
             targetModelName?.toLowerCase() ?? "unknown"
           ),
-          referencedColumn: member.targetModel["~"].getFieldName(
-            member.referencedField
-          ).sql,
         });
       }
       polymorphicStorage.push({
         ownerTable: tableName,
         relation: storage.relationName,
-        typeColumn: storage.typeColumn.name,
-        idColumn: storage.idColumn.name,
+        kind: "toOne",
+        storageRef: storage.typeColumn.name,
         members,
       });
     }
@@ -461,14 +531,14 @@ export function serializeModels(
       indexes,
       foreignKeys,
       uniqueConstraints,
+      // Key omitted when empty so ordinary tables keep their exact shape.
+      ...(Object.keys(relationStorage).length > 0 ? { relationStorage } : {}),
     });
   }
 
   // ==========================================================================
   // JUNCTION TABLES FOR MANY-TO-MANY RELATIONS
   // ==========================================================================
-  const junctionTables = new Map<string, { def: TableDef; pairKey: string }>();
-
   for (const [modelName, model] of Object.entries(models)) {
     const modelState = model["~"].state;
     const sourceTableName =
@@ -482,6 +552,13 @@ export function serializeModels(
 
       const targetModel = relState.getter();
       if (!targetModel?.["~"]) continue;
+
+      // A fields-less manyToMany whose compatible polymorphic binding
+      // resolves is a polymorphic member VIEW: its storage is the member
+      // junction tables serialized above, so it owns no ordinary junction —
+      // byte-parallel to the validator's reservation skip
+      // (`rules/polymorphic.ts` junctionPhysicalNames).
+      if (getCompatiblePolymorphicInverseBinding(relState, model)) continue;
 
       // Target model must have hydrated names
       const targetModelName = targetModel["~"].names.ts;
@@ -510,88 +587,58 @@ export function serializeModels(
       // Referential actions may be configured on either side of the pair.
       // Prisma parity: implicit junction FKs default to CASCADE so deleting
       // an endpoint row removes its associations.
-      const paired = findPairedManyToManyState(relation as AnyRelation);
-      if (
-        relState.onDelete &&
-        paired?.onDelete &&
-        relState.onDelete !== paired.onDelete
-      ) {
-        throw new Error(
-          `Many-to-many relation pair for junction "${junctionTableName}" disagrees on onDelete: '${relState.onDelete}' vs '${paired.onDelete}'.`
-        );
-      }
-      if (
-        relState.onUpdate &&
-        paired?.onUpdate &&
-        relState.onUpdate !== paired.onUpdate
-      ) {
-        throw new Error(
-          `Many-to-many relation pair for junction "${junctionTableName}" disagrees on onUpdate: '${relState.onUpdate}' vs '${paired.onUpdate}'.`
-        );
-      }
-      const onDelete = mapReferentialAction(
-        relState.onDelete ?? paired?.onDelete,
-        "cascade"
+      const pairActions = resolveJunctionPairActions(
+        relation as AnyRelation,
+        junctionTableName
       );
-      const onUpdate = mapReferentialAction(
-        relState.onUpdate ?? paired?.onUpdate,
-        "cascade"
-      );
+      const onDelete = mapReferentialAction(pairActions.onDelete, "cascade");
+      const onUpdate = mapReferentialAction(pairActions.onUpdate, "cascade");
 
       const sourcePkFields = getPrimaryKeyFieldDefs(model, migrationDriver);
       const targetPkFields = getPrimaryKeyFieldDefs(
         targetModel,
         migrationDriver
       );
-      const fieldGroups = getJunctionFieldGroups(
-        relation as AnyRelation,
-        modelName,
-        targetModelName,
-        sourcePkFields.map((field) => field.field),
-        targetPkFields.map((field) => field.field)
-      );
-      const sourceMembers = sourcePkFields.map((pk, index) => {
-        const column = fieldGroups.source.fields[index];
-        if (column === undefined) {
-          throw new Error(
-            "Junction source expansion did not match its primary-key arity."
-          );
-        }
-        return { column, pk };
+      const topology = resolveOrdinaryJunctionTopology({
+        relation: relation as AnyRelation,
+        table: junctionTableName,
+        source: {
+          model,
+          modelName,
+          rowKey: sourcePkFields.map((field) => field.field),
+        },
+        target: {
+          model: targetModel,
+          modelName: targetModelName,
+          rowKey: targetPkFields.map((field) => field.field),
+        },
       });
-      const targetMembers = targetPkFields.map((pk, index) => {
-        const column = fieldGroups.target.fields[index];
-        if (column === undefined) {
-          throw new Error(
-            "Junction target expansion did not match its primary-key arity."
-          );
-        }
-        return { column, pk };
-      });
+      // Decorate the owner's members with the driver-typed key defs by index:
+      // the members were zipped from these same row-key lists, so both sides
+      // carry exactly one member per key def and the lookup cannot miss.
+      const sourceMembers = topology.source.members.map((member, index) => ({
+        column: member.junctionField,
+        pk: sourcePkFields[index]!,
+      }));
+      const targetMembers = topology.target.members.map((member, index) => ({
+        column: member.junctionField,
+        pk: targetPkFields[index]!,
+      }));
 
       // Canonical column order: sorted model names decide (as the generated
       // table name does), so both sides serialize the identical table.
       const sourceSide = {
-        group: fieldGroups.source,
         members: sourceMembers,
         table: sourceTableName,
         sortKey: modelName.toLowerCase(),
       };
       const targetSide = {
-        group: fieldGroups.target,
         members: targetMembers,
         table: targetTableName,
         sortKey: targetModelName.toLowerCase(),
       };
       let [first, second] = [sourceSide, targetSide];
-      if (
-        !junctionSourceSideIsFirst(
-          modelName,
-          fieldGroups.source.fields,
-          targetModelName,
-          fieldGroups.target.fields
-        )
-      ) {
+      if (!topology.sourceIsFirst) {
         [first, second] = [second, first];
       }
 
@@ -617,21 +664,15 @@ export function serializeModels(
         // index over the complete second-side stored reference.
         indexes: [
           {
-            name: getJunctionConstraintName(
-              junctionTableName,
-              second.group,
-              "idx"
-            ),
+            name: topology.reverseIndexName(),
             columns: secondColumns,
             unique: false,
           },
         ],
         foreignKeys: [
           {
-            name: getJunctionConstraintName(
-              junctionTableName,
-              first.group,
-              "fkey"
+            name: topology.foreignKeyName(
+              topology.sourceIsFirst ? "source" : "target"
             ),
             columns: firstColumns,
             referencedTable: first.table,
@@ -640,10 +681,8 @@ export function serializeModels(
             onUpdate,
           },
           {
-            name: getJunctionConstraintName(
-              junctionTableName,
-              second.group,
-              "fkey"
+            name: topology.foreignKeyName(
+              topology.sourceIsFirst ? "target" : "source"
             ),
             columns: secondColumns,
             referencedTable: second.table,
@@ -660,7 +699,7 @@ export function serializeModels(
       // Pair identity (models + relation name) catches collisions even when
       // the column defs happen to be byte-identical.
       const pairKey = `${[first.sortKey, second.sortKey].join("::")}::${
-        relState.name ?? paired?.name ?? ""
+        topology.pairName ?? ""
       }`;
       const existing = junctionTables.get(junctionTableName);
       if (existing) {
@@ -694,6 +733,137 @@ export function serializeModels(
 // =============================================================================
 // HELPER FUNCTIONS
 // =============================================================================
+
+/**
+ * Serialize ONE polymorphic collection member's junction table, byte-reusing
+ * the ordinary junction template: canonical orientation, driver types zipped
+ * BY INDEX against the stored topology's sides, PK without a name, one
+ * unconditional reverse index, and two FIXED-cascade foreign keys —
+ * `resolveJunctionPairActions` is NEVER called on this path (member actions
+ * are cascade by design; a hostile referential-action spelling never reaches
+ * this DDL). Consumes ONLY the stored `ResolvedJunctionTopology`: every
+ * physical name comes from the topology's own methods, never reconstructed
+ * from naming conventions.
+ */
+function serializeMemberJunction(
+  ownerModel: AnyModel,
+  ownerTableName: string,
+  member: PolymorphicJunctionMember,
+  migrationDriver: MigrationDriver
+): TableDef {
+  const junction = member.junction;
+  const targetModelName = member.targetModel["~"].names.ts;
+  const targetTableName = getModelTableName(
+    member.targetModel,
+    targetModelName?.toLowerCase() ?? "unknown"
+  );
+  const sourcePkFields = getPrimaryKeyFieldDefs(ownerModel, migrationDriver);
+  const targetPkFields = getPrimaryKeyFieldDefs(
+    member.targetModel,
+    migrationDriver
+  );
+  // Decorate the sides with the driver-typed key defs by index: the stored
+  // topology zipped its members from the same model-key-catalog row keys these
+  // defs come from, so both lists carry exactly one entry per key def.
+  const sourceMembers = junction.source.members.map(
+    (junctionMember, index) => ({
+      column: junctionMember.junctionField,
+      pk: sourcePkFields[index]!,
+    })
+  );
+  const targetMembers = junction.target.members.map(
+    (junctionMember, index) => ({
+      column: junctionMember.junctionField,
+      pk: targetPkFields[index]!,
+    })
+  );
+
+  const sourceSide = { members: sourceMembers, table: ownerTableName };
+  const targetSide = { members: targetMembers, table: targetTableName };
+  let [first, second] = [sourceSide, targetSide];
+  if (!junction.sourceIsFirst) {
+    [first, second] = [second, first];
+  }
+
+  const firstColumns = first.members.map(
+    (junctionMember) => junctionMember.column
+  );
+  const secondColumns = second.members.map(
+    (junctionMember) => junctionMember.column
+  );
+
+  return {
+    name: junction.table,
+    columns: [
+      ...first.members.map((junctionMember) => ({
+        name: junctionMember.column,
+        type: junctionMember.pk.type,
+        nullable: false,
+      })),
+      ...second.members.map((junctionMember) => ({
+        name: junctionMember.column,
+        type: junctionMember.pk.type,
+        nullable: false,
+      })),
+    ],
+    primaryKey: { columns: [...firstColumns, ...secondColumns] },
+    // The PK covers first-side lookups; reverse traversal needs one index
+    // over the complete second-side stored reference — emitted
+    // UNCONDITIONALLY so every member table shares one template shape.
+    // Accepted redundancy: when a SINGULAR-inverse member's target sorts
+    // canonical-second, the unique constraint below covers the same columns;
+    // DDL shape must not become conditional on canonical sort order.
+    indexes: [
+      {
+        name: junction.reverseIndexName(),
+        columns: secondColumns,
+        unique: false,
+      },
+    ],
+    foreignKeys: [
+      {
+        name: junction.foreignKeyName(
+          junction.sourceIsFirst ? "source" : "target"
+        ),
+        columns: firstColumns,
+        referencedTable: first.table,
+        referencedColumns: first.members.map(
+          (junctionMember) => junctionMember.pk.column
+        ),
+        onDelete: "cascade",
+        onUpdate: "cascade",
+      },
+      {
+        name: junction.foreignKeyName(
+          junction.sourceIsFirst ? "target" : "source"
+        ),
+        columns: secondColumns,
+        referencedTable: second.table,
+        referencedColumns: second.members.map(
+          (junctionMember) => junctionMember.pk.column
+        ),
+        onDelete: "cascade",
+        onUpdate: "cascade",
+      },
+    ],
+    // The unique side is the complete ordered TARGET side, NOT the reverse
+    // index flipped: when the target sorts canonical-first the reverse index
+    // covers the OWNER side, and the PK prefix does not make target columns
+    // unique. The name is asked LAST (idx → first fkey → second fkey → key)
+    // so the other three refusal positions stay where they are.
+    uniqueConstraints:
+      member.inverseCardinality === "one"
+        ? [
+            {
+              name: junction.uniqueTargetName(),
+              columns: targetMembers.map(
+                (junctionMember) => junctionMember.column
+              ),
+            },
+          ]
+        : [],
+  };
+}
 
 /**
  * Get every primary-key member in model-key order.

@@ -6,10 +6,13 @@
  */
 
 import { createHash } from "node:crypto";
+import { MigrationError, VibORMErrorCode } from "../../errors";
 import type {
   Dialect,
   MigrationEntry,
   MigrationJournal,
+  MigrationMode,
+  MigrationRollback,
   SchemaSnapshot,
 } from "../types";
 
@@ -17,7 +20,12 @@ import type {
 // CONSTANTS
 // =============================================================================
 
-const JOURNAL_VERSION = "1";
+/**
+ * Journal format version. Bumped "1" → "2" when migration entries gained their
+ * required `mode`/`rollback` policy. There is deliberately no legacy reader and
+ * no dual serializer: a version-"1" journal is refused, not upgraded.
+ */
+const JOURNAL_VERSION = "2";
 const JOURNAL_PATH = "meta/_journal.json";
 const SNAPSHOT_PATH = "meta/_snapshot.json";
 const BACKUP_PREFIX = "meta/_backup/";
@@ -73,13 +81,20 @@ export abstract class MigrationStorageDriver {
   /**
    * Read the migration journal.
    * Returns null if no journal exists.
+   *
+   * This is the SINGLE journal-reading funnel: every verb (apply, down, squash,
+   * reset, status, the client accessors) reaches the journal through here, so
+   * the format/policy invariant is checked exactly once. After this call
+   * `entry.mode` and `entry.rollback` are total — no caller re-checks them.
    */
   async readJournal(): Promise<MigrationJournal | null> {
     const content = await this.get(JOURNAL_PATH);
     if (!content) {
       return null;
     }
-    return JSON.parse(content) as MigrationJournal;
+    const parsed: unknown = JSON.parse(content);
+    assertValidJournal(parsed);
+    return parsed;
   }
 
   /**
@@ -229,6 +244,82 @@ export abstract class MigrationStorageDriver {
 }
 
 // =============================================================================
+// JOURNAL VALIDATION (one invariant, one throw site)
+// =============================================================================
+
+function refuseJournal(description: string): never {
+  throw new MigrationError(
+    `Migration journal cannot be read: ${description}. VibORM is unreleased and ships no journal migrator or legacy reader — regenerate the migration estate against the current format instead.`,
+    VibORMErrorCode.MIGRATION_INVALID_STATE
+  );
+}
+
+/**
+ * The single journal invariant: the journal this process reads is a complete,
+ * policy-bearing journal of the CURRENT format. Version drift and a
+ * policy-less or malformed entry are the same failure — an unreadable journal.
+ *
+ * The input is untrusted JSON, so every field is reached reflectively; the
+ * assertion signature is what lets `readJournal` return the parsed value
+ * without a type assertion.
+ */
+function assertValidJournal(
+  parsed: unknown
+): asserts parsed is MigrationJournal {
+  if (typeof parsed !== "object" || parsed === null) {
+    refuseJournal("the journal file does not contain a JSON object");
+  }
+  const version: unknown = Reflect.get(parsed, "version");
+  if (version !== JOURNAL_VERSION) {
+    refuseJournal(
+      `it declares format version ${JSON.stringify(version)} but this build reads version ${JSON.stringify(JOURNAL_VERSION)} (entries carry a required mode and rollback policy)`
+    );
+  }
+  const entries: unknown = Reflect.get(parsed, "entries");
+  if (!Array.isArray(entries)) {
+    refuseJournal("its `entries` field is not an array");
+  }
+  for (const entry of entries) {
+    assertEntryPolicy(entry);
+  }
+}
+
+function assertEntryPolicy(entry: unknown): void {
+  if (typeof entry !== "object" || entry === null) {
+    refuseJournal("one of its entries is not a JSON object");
+  }
+  const label = `entry ${JSON.stringify(Reflect.get(entry, "name"))} (idx ${JSON.stringify(Reflect.get(entry, "idx"))})`;
+
+  const mode: unknown = Reflect.get(entry, "mode");
+  if (mode !== "generated" && mode !== "manual") {
+    refuseJournal(
+      `${label} declares no valid mode (found ${JSON.stringify(mode)})`
+    );
+  }
+
+  const rollback: unknown = Reflect.get(entry, "rollback");
+  if (typeof rollback !== "object" || rollback === null) {
+    refuseJournal(`${label} carries no rollback policy`);
+  }
+  const kind: unknown = Reflect.get(rollback, "kind");
+  if (kind === "automatic" || kind === "manual") {
+    return;
+  }
+  if (kind === "irreversible") {
+    const reason: unknown = Reflect.get(rollback, "reason");
+    if (typeof reason !== "string" || reason.trim().length === 0) {
+      refuseJournal(
+        `${label} is marked irreversible but states no reason, so a rollback could not explain itself`
+      );
+    }
+    return;
+  }
+  refuseJournal(
+    `${label} declares an unknown rollback kind ${JSON.stringify(kind)}`
+  );
+}
+
+// =============================================================================
 // HELPERS
 // =============================================================================
 
@@ -317,12 +408,21 @@ export function toKebabCase(name: string): string {
 
 /**
  * Create a migration entry.
+ *
+ * The policy is a required argument, not an option with a default: an entry
+ * whose rollback policy defaulted would be exactly the bypass the journal
+ * validator exists to close (an irreversible migration silently rolling back
+ * as automatic). Every construction site must state its policy.
  */
 export function createMigrationEntry(
   idx: number,
   name: string,
   sqlContent: string,
-  tag?: string
+  policy: {
+    mode: MigrationMode;
+    rollback: MigrationRollback;
+    tag?: string;
+  }
 ): MigrationEntry {
   const kebabName = toKebabCase(name);
   const version = generateVersion();
@@ -334,7 +434,9 @@ export function createMigrationEntry(
     name: kebabName,
     when: Date.now(),
     checksum,
-    ...(tag ? { tag } : {}),
+    mode: policy.mode,
+    rollback: policy.rollback,
+    ...(policy.tag ? { tag: policy.tag } : {}),
   };
 }
 

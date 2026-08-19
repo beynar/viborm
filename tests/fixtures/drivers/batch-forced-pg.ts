@@ -121,3 +121,64 @@ export class PgBeforeFirstBatchDriver extends PgBatchForcedDriver {
     }
   }
 }
+
+/** Does this batch entry mutate? The atomic write unit is the only batch that
+ *  carries one; a planning level is reads only. */
+const MUTATION_STATEMENT = /^\s*(?:insert|update|delete)\b/i;
+
+/**
+ * A `PgBatchForcedDriver` that runs a callback ONCE, just before the first
+ * atomic batch that CONTAINS A MUTATION — after every plan-time read has already
+ * committed its answer into the plan, and before the atomic write unit that
+ * re-asserts those answers.
+ *
+ * `PgBeforeFirstBatchDriver` cannot serve that window. A planning level holding
+ * more than one INDEPENDENT read is itself dispatched through `_executeBatch`
+ * (`OperationExecutor.runPlanningLevel`), so its hook fires before the plan has
+ * read anything — which is harmless for a plan whose planning reads are all
+ * single-step levels, and silently wrong for one whose reads are not.
+ *
+ * Used by the §9.4 singular slot-transfer races: to commit a competing adoption
+ * on a SECOND REAL CONNECTION against an already-captured plan, and to latch two
+ * such connections together at the same boundary.
+ */
+export class PgBeforeFirstWriteBatchDriver extends PgBatchForcedDriver {
+  private fired = false;
+  private readonly beforeFirstWriteBatch: () => Promise<void>;
+  private readonly onBatchError: (error: unknown) => void;
+
+  constructor(
+    beforeFirstWriteBatch: () => Promise<void>,
+    onBatchError: (error: unknown) => void,
+    options: ConstructorParameters<typeof PgDriver>[0]
+  ) {
+    super(options);
+    this.beforeFirstWriteBatch = beforeFirstWriteBatch;
+    this.onBatchError = onBatchError;
+  }
+
+  protected override async executeBatch<T>(
+    client: Pool | PoolClient,
+    queries: BatchQuery[]
+  ): Promise<QueryResult<T>[]> {
+    if (
+      !this.fired &&
+      queries.some((query) => MUTATION_STATEMENT.test(query.sql))
+    ) {
+      this.fired = true;
+      await this.beforeFirstWriteBatch();
+    }
+    return super.executeBatch<T>(client, queries);
+  }
+
+  override async _executeBatch<T = Record<string, unknown>>(
+    ...args: Parameters<PgDriver["_executeBatch"]>
+  ): Promise<QueryResult<T>[]> {
+    try {
+      return (await super._executeBatch(...args)) as QueryResult<T>[];
+    } catch (error) {
+      this.onBatchError(error);
+      throw error;
+    }
+  }
+}

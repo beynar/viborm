@@ -71,13 +71,21 @@ type NonVectorScalarKeys<M extends AnyModel> = Exclude<
   VectorScalarKeys<M>
 >;
 
+/**
+ * A polymorphic slot is orderable exactly as far as its cardinality allows: a
+ * COLLECTION offers `{ _count }` like any list relation, a to-one slot offers a
+ * named refusal (there is no single column to sort by when the target model is
+ * chosen per row). Both entries exist, because the family key set is identical
+ * across cardinalities — see `relations/polymorphic/index.ts` for why.
+ */
 export type OrderBySchema<
   M extends AnyModel,
   F extends ScalarSchemas<M>,
 > = V.Object<
   V.FromKeys<NonVectorScalarKeys<M>[], SortOrderSchema>["entries"] &
     V.FromKeys<VectorScalarKeys<M>[], VectorSortOrderSchema>["entries"] &
-    V.FromObject<F["relations"], "orderBy">["entries"]
+    V.FromObject<F["relations"], "orderBy">["entries"] &
+    V.FromObject<F["polymorphic"], "orderBy">["entries"]
 >;
 export const getOrderBySchema = <
   M extends AnyModel,
@@ -115,10 +123,15 @@ export const getOrderBySchema = <
     fieldSchemas.relations,
     "orderBy"
   );
+  const polymorphicEntries = v.fromObject<F["polymorphic"], "orderBy">(
+    fieldSchemas.polymorphic,
+    "orderBy"
+  );
 
   return v.object({
     ...scalarEntries.entries,
     ...vectorEntries.entries,
     ...relationEntries.entries,
+    ...polymorphicEntries.entries,
   });
 };

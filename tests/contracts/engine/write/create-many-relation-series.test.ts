@@ -331,6 +331,44 @@ describe("J2 — select keeps its typed refusal while default batch routes", () 
     await expect(batchOnly.post.count({})).resolves.toBe(0);
     await batchOnly.$disconnect();
   }, 60_000);
+
+  test("PACKAGE E §10.3 — a COLLECTION-bearing member reaches the same array refusal, before any write", async () => {
+    // §10.3: an explicit `$transaction([...])` must decide preparability BEFORE it
+    // writes anything. A collection row is prepared by exactly the machinery an
+    // ordinary relation row is — it contributes no shared batch because it is a
+    // record series — so the refusal is the same client sentence, reached one
+    // payload shape wider. The pin is that E did NOT open a path where a
+    // collection member is prepared as a merged fragment and half-lands.
+    const database = new PGlite();
+    const setup = createClient({
+      schema: createManySeriesSchema,
+      driver: new PGliteDriver({ client: database }),
+    }) as any;
+    const { push } = await import("@migrations");
+    await push(setup, { force: true });
+    await setup.seal.create({ data: { id: 3, label: "target" } });
+    const batchOnly = createClient({
+      schema: createManySeriesSchema,
+      driver: new BatchOnlyPGliteDriver({ client: database }),
+    }) as any;
+
+    await expect(
+      batchOnly.$transaction([
+        batchOnly.author.createMany({
+          data: [
+            {
+              name: "arrayed",
+              badges: { connect: [{ type: "seal", where: { id: 3 } }] },
+            },
+          ],
+        }),
+      ])
+    ).rejects.toThrow(
+      'Driver "pglite" does not support callback transactions and this transaction contains operations that cannot be batched atomically.'
+    );
+    await expect(batchOnly.author.count({})).resolves.toBe(0);
+    await batchOnly.$disconnect();
+  }, 60_000);
 });
 
 describe("record-series skip outcome integrity", () => {

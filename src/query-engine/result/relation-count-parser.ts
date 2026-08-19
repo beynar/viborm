@@ -1,5 +1,5 @@
 import { tryParseJsonString } from "@adapters/shared/result-parsing";
-import type { AnyRelation } from "@schema/relation";
+import type { AnyPolymorphicRelation, AnyRelation } from "@schema/relation";
 import { type Operation, QueryEngineError } from "../types";
 import type { ResultParser } from "./ResultParser";
 import { parseSafeCountValue } from "./result-count-parser";
@@ -43,12 +43,20 @@ function assignRelationCount(
   result._count = countResult;
 }
 
+/**
+ * @param relations - the model's ordinary relations.
+ * @param polymorphicRelations - the model's polymorphic relations. A SECOND
+ *   record rather than one merged lookup: a collection joins the count surface
+ *   (plan §7.4) while the two namespaces stay provably separate at the check,
+ *   which is what keeps a name colliding across them from silently passing.
+ */
 export function assignRelationCounts(
   ctx: ResultParser,
   operation: Operation,
   result: Record<string, unknown>,
   value: unknown,
   relations: Record<string, AnyRelation>,
+  polymorphicRelations: Record<string, AnyPolymorphicRelation>,
   expectedRelations: ReadonlySet<string>
 ): void {
   const decoded = typeof value === "string" ? tryParseJsonString(value) : value;
@@ -75,7 +83,12 @@ export function assignRelationCounts(
   }
 
   for (const [relationName, count] of entries) {
-    if (!Object.hasOwn(relations, relationName)) {
+    if (
+      !(
+        Object.hasOwn(relations, relationName) ||
+        Object.hasOwn(polymorphicRelations, relationName)
+      )
+    ) {
       throw relationCountError(
         ctx,
         operation,

@@ -7,7 +7,14 @@
 import { type Sql, sql } from "@sql";
 import { isRecord } from "@validation/value-guards";
 import { createChildScope } from "../context";
-import { QueryEngineError, type QueryScope, type RelationInfo } from "../types";
+import {
+  type PolymorphicToManyRelationInfo,
+  QueryEngineError,
+  type QueryScope,
+  type RelationInfo,
+} from "../types";
+import { buildPolymorphicCollectionCount } from "./polymorphic-collection-filter-builder";
+import type { BuildNestedWhere } from "./relation-filter-builder";
 import { buildRelationTraversal } from "./relation-traversal";
 import { buildWhere } from "./where-builder";
 
@@ -72,5 +79,31 @@ export function buildRelationCount(
       ],
       " "
     )
+  );
+}
+
+/** The nested-where seam a collection count compiles its tagged predicate through. */
+const buildNestedWhere: BuildNestedWhere = (ctx, where) =>
+  buildWhere(ctx, where, ctx.rootAlias);
+
+/**
+ * Count one direct polymorphic COLLECTION.
+ *
+ * The ONE entry both count owners take — the `_count` projection and the
+ * `_count` parent ordering — so the summed expression and its parameter order
+ * are the same in both statements by construction (plan §8.4).
+ */
+export function buildPolymorphicRelationCount(
+  ctx: QueryScope,
+  relation: PolymorphicToManyRelationInfo,
+  config: unknown,
+  parentAlias: string
+): Sql {
+  return buildPolymorphicCollectionCount(
+    buildNestedWhere,
+    ctx,
+    relation,
+    config,
+    parentAlias
   );
 }

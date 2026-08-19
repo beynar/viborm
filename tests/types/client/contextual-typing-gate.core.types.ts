@@ -52,6 +52,7 @@ import {
   createClient as pgliteCreateClient,
 } from "@drivers/pglite";
 import { down } from "@migrations/apply/down";
+import { createMigrationClient } from "@migrations/client";
 import { push } from "@migrations/push";
 import { createFsStorageDriver } from "@migrations/storage/fs";
 import { s } from "@schema";
@@ -1434,6 +1435,28 @@ describe("file-based migration options are fresh-literal keyed only", () => {
 });
 
 /**
+ * `down()` is the ONLY rollback verb on the migration client. The
+ * tracking-only `rollback()` — which removed tracking rows while leaving the
+ * schema live, bypassing any manual or irreversible policy — is gone from the
+ * surface, not renamed.
+ */
+describe("migrations.rollback does not exist", () => {
+  const migrations = createMigrationClient(client, {
+    storageDriver: createFsStorageDriver("./m"),
+  });
+
+  // @ts-expect-error - rollback() was deleted; use down()
+  const _rollbackGone = () => migrations.rollback({ count: 1 });
+
+  const _downSurvives = () => migrations.down({ steps: 1 });
+
+  test("the deleted verb is the assertion, down() is the pin", () => {
+    expectTypeOf(_rollbackGone).toBeFunction();
+    expectTypeOf(_downSurvives).toBeFunction();
+  });
+});
+
+/**
  * `$invalidate` takes CACHE KEYS, not model names — arbitrary strings, and a
  * prefix may end in `*`. There is no key set, so nothing to misspell against.
  */
@@ -1505,5 +1528,274 @@ describe("a field reference is keyed to the model's scalars", () => {
     expectTypeOf(_callbackKeyed).toBeFunction();
     expectTypeOf(_callbackTypo).toBeFunction();
     expectTypeOf(_callbackScope).toBeFunction();
+  });
+});
+
+// =============================================================================
+// POLYMORPHIC PROJECTIONS — the depth-two guard boundary, both cardinalities
+// =============================================================================
+
+const note = s.model({ id: s.string().id(), body: s.string() });
+const image = s.model({ id: s.string().id(), url: s.string() });
+const board = s.model({
+  id: s.string().id(),
+  pinned: s.polymorphicToOne(
+    { note: () => note, image: () => image },
+    { values: { note: "gate.note.v1", image: "gate.image.v1" } }
+  ),
+  items: s.polymorphicToMany(
+    { note: () => note, image: () => image },
+    { values: { note: "gate.items.note.v1", image: "gate.items.image.v1" } }
+  ),
+});
+const boardClient = createClient({
+  schema: { note, image, board },
+  driver: new PGliteDriver(),
+});
+
+describe("polymorphic projection nodes are keyed to their cardinality's shape", () => {
+  // A TO-ONE projection IS the discriminator map, so a variant typo beside a
+  // real variant is refused.
+  const _slotKeyed = () =>
+    boardClient.board.findMany({ include: { pinned: { note: true } } });
+  const _slotVariantTypo = () =>
+    boardClient.board.findMany({
+      // @ts-expect-error - "imag" is not a configured variant of `pinned`
+      include: { pinned: { note: true, imag: true } },
+    });
+
+  // A COLLECTION projection is an ENVELOPE, so the guarded key set is
+  // `only` / `variants` — and the VARIANT names are refused AT THIS LEVEL,
+  // which is the dispatch working.
+  const _collectionKeyed = () =>
+    boardClient.board.findMany({
+      include: { items: { only: ["note"], variants: { note: true } } },
+    });
+  const _collectionEnvelopeTypo = () =>
+    boardClient.board.findMany({
+      // @ts-expect-error - "variantss" is not an envelope key
+      include: { items: { only: ["note"], variantss: { note: true } } },
+    });
+  const _collectionVariantAtTopLevel = () =>
+    boardClient.board.findMany({
+      // @ts-expect-error - arms live under `variants`, not at the envelope's top level
+      include: { items: { only: ["note"], note: true } },
+    });
+
+  /**
+   * THE UNGUARDED LEVEL, recorded rather than assumed (decision D7).
+   *
+   * A typo INSIDE `variants` is depth three: sealing it would resolve the
+   * target model during generic inference, which is the measured cost frontier
+   * documented on `NoExtraClauseKeys`. So this COMPILES, and the strict
+   * envelope refuses it at runtime ("Unknown key: nte") — pinned in
+   * `tests/unit/operation-schemas/relations/polymorphic-collection-selection.core.test.ts`.
+   *
+   * A future TypeScript that can carry depth three turns the two probes below
+   * red, which is the signal to move the boundary.
+   */
+  const _variantTypoInsideVariantsCompiles = () =>
+    boardClient.board.findMany({
+      include: { items: { variants: { note: true, nte: true } } },
+    });
+  const _armKeyTypoInsideVariantsCompiles = () =>
+    boardClient.board.findMany({
+      include: { items: { variants: { note: { take: 2, takee: 2 } } } },
+    });
+
+  test("the probes above compile (assertions live in @ts-expect-error)", () => {
+    expectTypeOf(_slotKeyed).toBeFunction();
+    expectTypeOf(_slotVariantTypo).toBeFunction();
+    expectTypeOf(_collectionKeyed).toBeFunction();
+    expectTypeOf(_collectionEnvelopeTypo).toBeFunction();
+    expectTypeOf(_collectionVariantAtTopLevel).toBeFunction();
+    expectTypeOf(_variantTypoInsideVariantsCompiles).toBeFunction();
+    expectTypeOf(_armKeyTypoInsideVariantsCompiles).toBeFunction();
+  });
+});
+
+// =============================================================================
+// POLYMORPHIC COLLECTIONS — the WRITE bags, and the DRIVER-WRAPPER entry
+// =============================================================================
+
+/**
+ * The two halves criterion §15.12 of `polymorphic-cardinality-plan.md` asks for,
+ * which the read section above does not supply on its own.
+ *
+ * HALF ONE — the WRITE bags. The section above probes `include` only. A
+ * collection's mutation grammar is where a silently-accepted key does damage a
+ * projection typo cannot: an unread `connct` bag is memberships that were never
+ * written, reported as success. The type half of that grammar is pinned in
+ * `tests/types/relations/polymorphic-operation-schemas.core.types.ts`, but every
+ * probe there is `satisfies OperationPayload<…>` — the internal alias this file's
+ * rule 1 exists to exclude. Typing the alias is not typing the call.
+ *
+ * HALF TWO — the DRIVER WRAPPER. 2f7bd59's whole finding (see this file's header)
+ * was that keying the core `createClient` left eleven wrappers open, and the
+ * collection surfaces had never been walked through one. The wrapper reaches the
+ * same operation types by a different generic route, so "the core client refuses
+ * it" is not evidence about the entry point most apps import.
+ *
+ * Both halves keep the paired discipline: every typo sits BESIDE A REAL KEY.
+ */
+const boardWrapperClient = pgliteCreateClient({
+  schema: { note, image, board },
+  dataDir: "memory://",
+});
+
+describe("the collection surfaces are keyed through the driver wrapper too", () => {
+  const _wrapperCollectionKeyed = () =>
+    boardWrapperClient.board.findMany({
+      include: { items: { only: ["note"], variants: { note: true } } },
+    });
+
+  const _wrapperEnvelopeTypoBesideReal = () =>
+    boardWrapperClient.board.findMany({
+      // @ts-expect-error - "variantss" is refused next to the real "only"
+      include: { items: { only: ["note"], variantss: { note: true } } },
+    });
+
+  const _wrapperSlotVariantTypoBesideReal = () =>
+    boardWrapperClient.board.findMany({
+      // @ts-expect-error - "imag" is refused next to the real "note"
+      include: { pinned: { note: true, imag: true } },
+    });
+
+  const _wrapperOnlyValueTypo = () =>
+    boardWrapperClient.board.findMany({
+      // @ts-expect-error - "nte" is not a configured variant of `items`
+      include: { items: { only: ["note", "nte"] } },
+    });
+
+  test("the probes above compile (assertions live in @ts-expect-error)", () => {
+    expectTypeOf(_wrapperCollectionKeyed).toBeFunction();
+    expectTypeOf(_wrapperEnvelopeTypoBesideReal).toBeFunction();
+    expectTypeOf(_wrapperSlotVariantTypoBesideReal).toBeFunction();
+    expectTypeOf(_wrapperOnlyValueTypo).toBeFunction();
+  });
+});
+
+/**
+ * The write half, and the boundary it lands on — MEASURED, not assumed.
+ *
+ * `data` / `create` / `update` are on `ClauseGuard`'s NOT-GUARDED list, and the
+ * reason is recorded on `NoExtraClauseKeys` in `src/client/types.ts`: reaching
+ * for a write clause's key set expands the recursive nested-write union, which
+ * turned six estate sites into `TS2589` and took the type-check to 172s. So the
+ * collection's verb bag is NOT sealed at compile time, and the two `…Compiles`
+ * pins below are that boundary stated out loud rather than left to be
+ * rediscovered — the same idiom the `variants` pins above use.
+ *
+ * The ordinary-relation twin is what makes the pin a BOUNDARY rather than a
+ * collection defect: `author.books` misspells its verb and compiles for exactly
+ * the same reason. The collection did not open a hole; it inherited a measured
+ * one, and it is refused at runtime by the same strict bag every nested write
+ * uses — pinned in
+ * `tests/unit/operation-schemas/relations/polymorphic-collection-mutation.core.test.ts`
+ * ("a misspelled verb is refused by the bag, in both contexts").
+ *
+ * What IS keyed at compile time is the DISCRIMINATOR, because a verb entry's
+ * `type` is a literal union rather than a walk into a target model. Both entry
+ * points are probed for it.
+ */
+describe("the collection write bags land on the measured `data` boundary", () => {
+  const _updateBagKeyed = () =>
+    boardClient.board.update({
+      where: { id: "b1" },
+      data: {
+        items: {
+          set: [],
+          connect: [{ type: "note", where: { id: "n1" } }],
+        },
+      },
+    });
+
+  const _updateBagVerbTypoBesideRealCompiles = () =>
+    boardClient.board.update({
+      where: { id: "b1" },
+      data: {
+        items: {
+          connect: [{ type: "note", where: { id: "n1" } }],
+          connct: [{ type: "note", where: { id: "n2" } }],
+        },
+      },
+    });
+
+  const _ordinaryToManyVerbTypoBesideRealCompiles = () =>
+    client.author.update({
+      where: { id: "a1" },
+      data: {
+        books: {
+          connect: [{ id: "b1" }],
+          connct: [{ id: "b2" }],
+        },
+      },
+    });
+
+  const _createBagKeyed = () =>
+    boardClient.board.create({
+      data: {
+        id: "b1",
+        pinned: { connect: { type: "note", where: { id: "n1" } } },
+        items: { create: [{ type: "note", data: { id: "n1", body: "b" } }] },
+      },
+    });
+
+  // The DISCRIMINATOR is depth two — a literal union, not a walk into a target
+  // model — so it IS refused, beside a real verb, on BOTH entry points.
+  const _variantTypoInsideAVerb = () =>
+    boardClient.board.update({
+      where: { id: "b1" },
+      data: {
+        items: {
+          connect: [
+            { type: "note", where: { id: "n1" } },
+            // @ts-expect-error - "nte" is not a configured variant of `items`
+            { type: "nte", where: { id: "n2" } },
+          ],
+        },
+      },
+    });
+
+  const _wrapperUpdateBagKeyed = () =>
+    boardWrapperClient.board.update({
+      where: { id: "b1" },
+      data: {
+        items: { connect: [{ type: "note", where: { id: "n1" } }], set: [] },
+      },
+    });
+
+  const _wrapperCreateBagKeyed = () =>
+    boardWrapperClient.board.create({
+      data: {
+        id: "b2",
+        pinned: { connect: { type: "image", where: { id: "i1" } } },
+        items: { connect: [{ type: "note", where: { id: "n1" } }] },
+      },
+    });
+
+  const _wrapperVariantTypoInsideAVerb = () =>
+    boardWrapperClient.board.update({
+      where: { id: "b1" },
+      data: {
+        items: {
+          connect: [
+            { type: "note", where: { id: "n1" } },
+            // @ts-expect-error - "nte" is not a configured variant of `items`
+            { type: "nte", where: { id: "n2" } },
+          ],
+        },
+      },
+    });
+
+  test("the probes above compile (assertions live in @ts-expect-error)", () => {
+    expectTypeOf(_updateBagKeyed).toBeFunction();
+    expectTypeOf(_updateBagVerbTypoBesideRealCompiles).toBeFunction();
+    expectTypeOf(_ordinaryToManyVerbTypoBesideRealCompiles).toBeFunction();
+    expectTypeOf(_createBagKeyed).toBeFunction();
+    expectTypeOf(_variantTypoInsideAVerb).toBeFunction();
+    expectTypeOf(_wrapperUpdateBagKeyed).toBeFunction();
+    expectTypeOf(_wrapperCreateBagKeyed).toBeFunction();
+    expectTypeOf(_wrapperVariantTypoInsideAVerb).toBeFunction();
   });
 });

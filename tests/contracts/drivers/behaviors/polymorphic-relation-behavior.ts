@@ -32,7 +32,7 @@ const polymorphicRelationSchema = (() => {
       id: s.int().id().increment(),
       body: s.string(),
       commentable: s
-        .polymorphic(
+        .polymorphicToOne(
           { post: () => post, video: () => video },
           {
             values: {
@@ -50,7 +50,7 @@ const polymorphicRelationSchema = (() => {
     .model({
       id: s.int().id().increment(),
       body: s.string(),
-      subject: s.polymorphic({
+      subject: s.polymorphicToOne({
         post: () => post,
         video: () => video,
       }),

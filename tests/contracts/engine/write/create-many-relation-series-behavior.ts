@@ -32,8 +32,30 @@ export const createManySeriesSchema = (() => {
       id: s.int().id().increment(),
       name: s.string().unique(),
       posts: s.oneToMany(() => post),
+      // PACKAGE E (§9.6) — a POLYMORPHIC COLLECTION on a bulk row. Its membership
+      // lives in per-variant member junction rows that cannot exist before this
+      // author's row does, so a row spelling it routes the whole call to the
+      // series. Both publication directions are reachable from here: the OWNER key
+      // is produced (increment above) and one variant's TARGET key is produced too
+      // (`stamp`), so a member tuple gets both halves from a preceding INSERT.
+      badges: s.polymorphicToMany(
+        { stamp: () => stamp, seal: () => seal },
+        {
+          values: {
+            stamp: "jseries.stamp.v1",
+            seal: "jseries.seal.v1",
+          },
+        }
+      ),
     })
     .map("jseries_authors");
+
+  const stamp = s
+    .model({ id: s.int().id().increment(), label: s.string() })
+    .map("jseries_stamps");
+  const seal = s
+    .model({ id: s.int().id(), label: s.string().unique() })
+    .map("jseries_seals");
 
   const post = s
     .model({
@@ -78,7 +100,7 @@ export const createManySeriesSchema = (() => {
         .manyToOne(() => post)
         .fields("postId")
         .references("id"),
-      media: s.polymorphic(
+      media: s.polymorphicToOne(
         { image: () => image, clip: () => clip },
         { values: { image: "jseries.image.v1", clip: "jseries.clip.v1" } }
       ),
@@ -113,6 +135,8 @@ export const createManySeriesSchema = (() => {
     attachment,
     kindOwner,
     kindRecord,
+    stamp,
+    seal,
   };
 })();
 
@@ -143,6 +167,8 @@ export function registerCreateManySeriesBehavior(
         "author",
         "image",
         "clip",
+        "stamp",
+        "seal",
       ]) {
         await client[model].deleteMany({});
       }
@@ -640,6 +666,106 @@ export function registerCreateManySeriesBehavior(
         skipDuplicates: true,
       });
       expect(second).toEqual({ count: 1 });
+    });
+
+    /**
+     * PACKAGE E, §9.6 — PUBLICATION THREADING through a collection-bearing row.
+     *
+     * A member junction tuple needs BOTH halves of an edge, and on this row both
+     * are produced by a preceding INSERT in the same member: the owner key by the
+     * author's increment, the `stamp` target key by its own. Two rows, each with
+     * its own members, is what makes a mis-threaded key visible — a stale or
+     * shared publication would cross-link the two authors rather than fail.
+     *
+     * It also states the count rule for the collection: `count` is ROOT rows (2),
+     * never the three member tuples they wrote.
+     */
+    test("a collection row publishes the produced OWNER key and the produced TARGET key into the exact member tuple", async () => {
+      await client.seal.create({ data: { id: 7, label: "adopted" } });
+
+      const result = await client.author.createMany({
+        data: [
+          {
+            name: "first",
+            badges: {
+              create: [
+                { type: "stamp", data: { label: "s-one" } },
+                { type: "stamp", data: { label: "s-two" } },
+              ],
+            },
+          },
+          {
+            name: "second",
+            badges: { connect: [{ type: "seal", where: { id: 7 } }] },
+          },
+        ],
+      });
+
+      expect(result).toEqual({ count: 2 });
+      const authors = await client.author.findMany({
+        orderBy: { name: "asc" },
+        include: { badges: true },
+      });
+      expect(
+        authors.map((author: any) => [
+          author.name,
+          author.badges
+            .map((badge: any) => `${badge.type}:${badge.data.label}`)
+            .sort(),
+        ])
+      ).toEqual([
+        ["first", ["stamp:s-one", "stamp:s-two"]],
+        ["second", ["seal:adopted"]],
+      ]);
+      // The produced TARGET key is the stamp row's own generated id, not a
+      // placeholder the member tuple happened to accept.
+      const stamps = await client.stamp.findMany({ orderBy: { label: "asc" } });
+      expect(
+        authors[0].badges
+          .map((badge: any) => badge.data.id)
+          .sort((left: number, right: number) => left - right)
+      ).toEqual(
+        stamps
+          .map((stamp: any) => stamp.id)
+          .sort((left: number, right: number) => left - right)
+      );
+    });
+
+    /**
+     * PACKAGE E, §9.6 — THE SETTLED SUBTREE, collection half. A skipped root
+     * contributes neither a key nor nested effects, and "nested effects" now
+     * includes member junction rows. The sibling proves the suppression is the
+     * row's and not the call's.
+     */
+    test("a duplicate collection-bearing root suppresses its members, and the sibling lands its own", async () => {
+      await client.author.create({ data: { name: "existing" } });
+      await client.seal.create({ data: { id: 9, label: "shared" } });
+
+      const result = await client.author.createMany({
+        data: [
+          {
+            name: "existing",
+            badges: { connect: [{ type: "seal", where: { id: 9 } }] },
+          },
+          {
+            name: "fresh",
+            badges: { connect: [{ type: "seal", where: { id: 9 } }] },
+          },
+        ],
+        skipDuplicates: true,
+      });
+
+      expect(result).toEqual({ count: 1 });
+      const authors = await client.author.findMany({
+        orderBy: { name: "asc" },
+        include: { badges: true },
+      });
+      expect(
+        authors.map((author: any) => [author.name, author.badges.length])
+      ).toEqual([
+        ["existing", 0],
+        ["fresh", 1],
+      ]);
     });
   });
 }

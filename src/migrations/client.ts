@@ -6,13 +6,7 @@
 
 import { MigrationError, VibORMErrorCode } from "../errors";
 import { type DownOptions, type DownResult, down } from "./apply/down";
-import {
-  type ApplyResult,
-  apply,
-  pending,
-  rollback,
-  status,
-} from "./apply/index";
+import { type ApplyResult, apply, pending, status } from "./apply/index";
 import { generate, preview } from "./generate";
 import {
   type MigrationClient,
@@ -126,12 +120,11 @@ export interface Migrations {
   apply(options?: ApplyOptions): Promise<ApplyResult>;
 
   /**
-   * Rollback migrations (remove from tracking table only).
-   */
-  rollback(options?: { count?: number }): Promise<MigrationEntry[]>;
-
-  /**
-   * Roll back migrations with down SQL execution.
+   * Roll back migrations by executing their down artifacts.
+   *
+   * This is the ONLY rollback verb. There is no tracking-only variant: an
+   * entry's persisted rollback policy (`manual`, `irreversible`) cannot be
+   * bypassed by deleting tracking rows while the schema stays live.
    */
   down(
     options?: Omit<DownOptions, "dir" | "tableName" | "storageDriver">
@@ -252,9 +245,6 @@ export function createMigrationClient(
       preview(client, { ...opts, storageDriver: requireStorage("preview") }),
 
     apply: (opts = {}) => apply(client, { ...getContextOptions(), ...opts }),
-
-    rollback: (opts = {}) =>
-      rollback(client, { ...getContextOptions(), ...opts }),
 
     down: (opts = {}) => down(client, { ...getContextOptions(), ...opts }),
 

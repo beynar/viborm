@@ -23,8 +23,7 @@
 import type { AnyModel } from "@schema/model";
 import {
   type CanBindPolymorphicInverse,
-  canBindPolymorphicInverse,
-  getPolymorphicInverseBinding,
+  getCompatiblePolymorphicInverseBinding,
 } from "@schema/relation/inverse";
 import type { GetPolymorphicInverseBinding } from "@schema/relation/polymorphic";
 import type { RelationState } from "@schema/relation/types";
@@ -235,9 +234,7 @@ export const nestedRelationDataProjection = <
   source: Source,
   targetSchemas: T
 ): NestedRelationDataSchemas => {
-  const binding = canBindPolymorphicInverse(state)
-    ? getPolymorphicInverseBinding(state.getter(), source, state.name)
-    : undefined;
+  const binding = getCompatiblePolymorphicInverseBinding(state, source);
 
   if (binding) {
     const relationKey = binding.relationKey;

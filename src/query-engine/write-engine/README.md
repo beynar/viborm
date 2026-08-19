@@ -74,11 +74,19 @@ The field pairing is lazy: it owns the mismatched-metadata refusal and must not
 move it earlier. It is also the only pairing — consumers read `membership.members`
 instead of re-pairing the two field lists by index.
 
-The polymorphic child-held variant means one exact physical membership:
+The polymorphic child-held variant — the inverse of a ROW-HELD group — means one
+exact physical membership:
 private identity equals the parent referenced value and private type equals the
 stored discriminator. Reads, probes, bulk filters, OwnWrite, and set membership
 all consume that same bound fact. Direct payload-selected polymorphic edges stay
 outside `BoundRelation`.
+
+A JUNCTION-HELD group's edges bind as `position: "junction"` with
+`membership.polymorphicMember` — direct collection leaf, plural inverse view, or
+singular inverse slot, all over the same `ResolvedJunctionTopology` in one
+orientation or the other. `cardinality: "one"` on a junction is reachable only
+there, for a fields-less `manyToOne` bound to a member whose target side carries
+a UNIQUE; ordinary junction binding still writes `"many"` unconditionally.
 
 ### Record mutation
 
@@ -138,9 +146,54 @@ relation and discriminator, resolves one private pair per row, and hands the
 rows back to the existing grouped INSERT planner. Count and returning shells
 consume the same preparation; neither performs one lookup per input row.
 
-For a singular inverse, the relation-wide unique `(type, identity)` index is
-the occupied-slot guard. A concurrent slot occupation is reported as a genuine
-unique conflict and is not treated as a retryable missing-target race.
+For a singular ROW-HELD inverse, the relation-wide unique `(type, identity)`
+index is the occupied-slot guard. A concurrent slot occupation is reported as a
+genuine unique conflict and is not treated as a retryable missing-target race.
+
+### Polymorphic collections
+
+A direct `s.polymorphicToMany` key compiles through `PolymorphicCollectionPart`,
+which returns exactly ONE `Part` rather than one per variant. The reason is
+placement: sibling Parts' statements are concatenated in list order, so N
+independent variant Parts could not express a clear-once barrier and `set`'s
+meaning would depend on emission order. The coordinator owns four relation-wide
+facts and nothing else — the `set` clear-all barrier, cross-verb and
+cross-variant ordering, the single owner-row publication every leaf correlates
+on, and a cache footprint that is empty as a measured fact. Every other decision
+is a leaf's: one `buildJunctionParts` call per entry against that entry's
+pre-bound member junction, with the same `parentId` for all of them. Its compile
+order is the contract — all leaves' guards, then the barrier, then all leaves'
+writes — spelled explicitly so the property does not depend on someone else's
+bucketing.
+
+`set` is lowered rather than special-cased: the parser keeps emitting `set`
+entries, the coordinator rewrites each into a connect-shaped insert run and owns
+the clear half itself, so `RelationJunctionPart.compileSet` and ordinary junction
+`set` stay byte-identical. Membership adds lowered from `set` use
+`reinsertAfterOwnerClear`, because the barrier has already removed this owner's
+rows and "it is already there" is false by then. The one shape a batch could
+legally split between clear and refill — no transaction, `clearsAll`, and an
+owner row key arriving as a produced output reference — is refused at
+construction, before the clear.
+
+`RelationJunctionToOnePart` lowers the SINGULAR collection inverse: it consumes
+the `(vacate, supplier, modify)` order from `classifyToOneComposition` rather
+than the parsed key order, owns the four correlated spellings (`disconnect: true`
+deletes the junction row by the variant side alone; `delete: true` deletes the
+single captured owner row by its captured row key, never the plural fold's sweep
+of the connected set; correlated `update`; guarded `upsert`), and supplies an
+owner-oriented membership projection to the transfer. `RecordUpdateCompiler` and
+`CreateOperation` fork on `isSingularCollectionInverse(relation)` BEFORE
+`buildJunctionParts`, so that decision has one writer. A composed vacate empties
+the slot by construction, so the supplier after it inserts plainly instead of
+re-running the replacement protocol against a row already removed.
+
+`junction-singular-transfer.ts` owns that replacement protocol for both
+directions. One capture read, then one write sequence identical on both
+substrates: inside a transaction the capture is `forUpdate` and the row lock is
+the premise, so the junction estate emits no guards; in a native atomic batch
+there are no `expects` at all and the CAS carries the premise in-batch. A
+freshly created target has a provably empty slot, so its capture is elided.
 
 ## Record series
 
@@ -277,14 +330,15 @@ First-create-wins is local to connect-or-create. Do not generalize it to upsert.
 `createMany`, `updateMany`, `deleteMany`, relation `set`, skip-duplicate capture,
 and many-and-return folds remain specialized OVER THE PAYLOADS THE BULK PATH
 EXPRESSES. For the two root bulk writes that is the scalar shape: scalar
-`createMany` rows (plus a direct polymorphic `connect`) and scalar `updateMany`
+`createMany` rows (plus a direct ROW-HELD polymorphic `connect`; a polymorphic
+COLLECTION key is relation-bearing) and scalar `updateMany`
 data. A root `createMany` row carrying a general relation program, or root
 `updateMany` data carrying one, routes the whole operation to a record series
 whose members are ordinary `CreateOperation` / `UpdateOperation` instances —
 `CreateManyRecordSeries.ts` and `UpdateManyRecordSeries.ts`, which parse the bulk
 envelope, construct ordinary record operations, and shape the public bulk result.
 They contain no relation-kind switches and are not record compilers. See ATOM §17
-for why the semantics require it. `ManyToManyStatements` remains the junction SQL
+for why the semantics require it. `JunctionStatements` remains the junction SQL
 owner. Keep adapter `batchRefs` and the type-only `QueryMetadata` compatibility
 export; the latter is not a runtime boundary.
 

@@ -110,7 +110,12 @@ import {
 } from "./OperationFragment";
 import type { Part, PlanningKnown } from "./Part";
 import { conditionalArmPlanning, planningKey } from "./Part";
+import { buildPolymorphicCollectionPart } from "./PolymorphicCollectionPart";
 import { buildJunctionParts } from "./RelationJunctionPart";
+import {
+  buildJunctionToOneParts,
+  isSingularCollectionInverse,
+} from "./RelationJunctionToOnePart";
 import { buildToManyLinkParts } from "./RelationLinkPart";
 import {
   buildConnectOrCreateParts,
@@ -1054,6 +1059,21 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       // target mutation has been interpreted — the order the two former maps
       // produced, and the order the private columns are assembled in.
       if (parsed.kind === "polymorphicDisconnect") continue;
+      if (parsed.kind === "polymorphicCollection") {
+        // MOUNT 2 of 3 — a direct polymorphic collection under a LOCATED record.
+        // A `childPart`, never a parent-held link: nothing it writes lands on
+        // this row, so it has no assignment to reconcile into the root SET.
+        childParts.push(
+          this.buildCollectionPart({
+            scope: input.scope,
+            parent: input.targetScope,
+            arm: parsed,
+            parentIdSource,
+            txMode,
+          })
+        );
+        continue;
+      }
       const { program } = parsed;
       if (parsed.kind === "polymorphicTarget") {
         const entry = program.entries[0];
@@ -1865,6 +1885,62 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     };
   }
 
+  /**
+   * MOUNT 2 of 3 — the collection coordinator under a located record.
+   *
+   * It takes the SAME `parentIdSource` the junction arm above takes, broadcast
+   * over the owner's row-key members, and the same nested builder — so a
+   * collection target that carries its own relations folds one level deeper
+   * exactly as a junction target does. There is no key-transition case to name
+   * here that the junction arm does not already name: `interpretRelation`
+   * returns for a junction before it classifies a referenced-key transition, and
+   * a member junction inherits that reading with the same `ON UPDATE CASCADE`
+   * ownership.
+   */
+  private buildCollectionPart(input: {
+    scope: StepScope;
+    parent: QueryScope;
+    arm: Extract<ParsedRelationMutation, { kind: "polymorphicCollection" }>;
+    parentIdSource: FinalReferenceSource;
+    txMode: boolean;
+  }): Part {
+    const engine = this.engine;
+    const scope = input.scope;
+    const ownerSources = Object.fromEntries(
+      getPrimaryKeyFields(input.parent.model).map((field) => [
+        field,
+        input.parentIdSource,
+      ])
+    );
+    return buildPolymorphicCollectionPart({
+      scope,
+      engine,
+      parentScope: input.parent,
+      arm: input.arm,
+      parentId: ownerSources,
+      membershipReadSource: ownerSources,
+      txMode: input.txMode,
+      recordCompilers: this.recordCompilers,
+      nestedBuilder: (
+        targetScope,
+        parentId,
+        relations,
+        nestedTxMode,
+        membershipReadSource
+      ) =>
+        buildJunctionTargetRelationParts(
+          scope,
+          engine,
+          targetScope,
+          relations,
+          parentId,
+          nestedTxMode,
+          this.recordCompilers,
+          membershipReadSource
+        ),
+    });
+  }
+
   private interpretRelation(input: {
     scope: StepScope;
     parent: QueryScope;
@@ -1914,6 +1990,30 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
           input.parentIdSource,
         ])
       );
+      // THE JUNCTION-TO-ONE FORK, asked BEFORE `buildJunctionParts` so the
+      // decision has ONE writer. `OwnWriteRelation` already answers the same
+      // question in the same words — `cardinality === "one"` on a bound junction —
+      // when it resolves the composed continuation and the upsert decision, and a
+      // compiler that only learned the shape INSIDE the plural fold would be the
+      // ledger's N5 skew re-opened: one invariant, two readers, agreeing by
+      // construction. A singular member table's four correlated spellings are the
+      // to-one Part's; nothing else about the topology differs.
+      if (isSingularCollectionInverse(relation)) {
+        input.childParts.push(
+          ...buildJunctionToOneParts({
+            scope,
+            engine,
+            parentScope: input.parent,
+            relation,
+            program,
+            parentId: junctionParentSources,
+            membershipReadSource: junctionParentSources,
+            txMode: input.txMode,
+            recordCompilers: this.recordCompilers,
+          })
+        );
+        return;
+      }
       input.childParts.push(
         ...buildJunctionParts({
           scope,

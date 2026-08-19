@@ -1,10 +1,10 @@
 import type {
-  PolymorphicStorage,
   PolymorphicStorageColumn,
+  PolymorphicToOneStorage,
 } from "@schema/relation";
 import { isRecord } from "@validation/value-guards";
 import type {
-  PolymorphicRelationInfo,
+  PolymorphicToOneRelationInfo,
   QueryScope,
   ResolvedPolymorphicEdge,
 } from "../types";
@@ -15,14 +15,14 @@ import { resolvePolymorphicEdge } from "./polymorphic-relation";
 export type PolymorphicStorageValue<Id> =
   | {
       readonly kind: "linked";
-      readonly storage: PolymorphicStorage;
+      readonly storage: PolymorphicToOneStorage;
       readonly storedType: string;
       readonly referencedField: string;
       readonly id: Id;
     }
   | {
       readonly kind: "empty";
-      readonly storage: PolymorphicStorage;
+      readonly storage: PolymorphicToOneStorage;
     };
 
 export interface PolymorphicStorageMemberValue<Id> {
@@ -89,7 +89,7 @@ type ResolvedPolymorphicMutationIntent =
     }
   | {
       readonly kind: "disconnect";
-      readonly storage: PolymorphicStorage;
+      readonly storage: PolymorphicToOneStorage;
     };
 
 /**
@@ -99,7 +99,7 @@ type ResolvedPolymorphicMutationIntent =
  */
 export function resolvePolymorphicMutationIntent(
   scope: QueryScope,
-  relation: PolymorphicRelationInfo,
+  relation: PolymorphicToOneRelationInfo,
   parsedPayload: unknown
 ): ResolvedPolymorphicMutationIntent {
   if (!isRecord(parsedPayload)) {

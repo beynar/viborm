@@ -304,6 +304,10 @@ export const createOnConflictBuilders = (): Pick<
     return sql`UPDATE SET ${sets}`;
   },
 
+  // The UNTARGETED skip, and the only caller left is top-level `createMany`,
+  // whose `skipDuplicates: true` means "any unique constraint". Junction
+  // membership inserts want the opposite — only an exact repeat of the complete
+  // membership key — and reach `onConflict` above with that key as the target.
   skipDuplicates: () => ({
     prefix: sql``,
     suffix: sql`ON CONFLICT DO NOTHING`,

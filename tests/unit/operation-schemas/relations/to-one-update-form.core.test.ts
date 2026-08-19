@@ -2,6 +2,7 @@ import {
   readToOneUpdateForm,
   splitToOneUpdateTarget,
   toOneUpdateEnvelope,
+  toOneUpdateSourceData,
 } from "@validation/relations/to-one-update-form";
 import { describe, expect, test } from "vitest";
 
@@ -55,5 +56,17 @@ describe("to-one update forms", () => {
       data,
       filter: { active: true },
     });
+  });
+
+  test("projects the caller's update data from the exact source spelling", () => {
+    const data = { name: "Ada" };
+
+    expect(toOneUpdateSourceData(undefined)).toBeUndefined();
+    expect(toOneUpdateSourceData({ data })).toBe(data);
+    expect(toOneUpdateSourceData(data)).toBe(data);
+    // Non-object sources project no update data: the relation schema already
+    // refused them, so the projection stays a pure record reader.
+    expect(toOneUpdateSourceData("Ada")).toBeUndefined();
+    expect(toOneUpdateSourceData([data])).toBeUndefined();
   });
 });

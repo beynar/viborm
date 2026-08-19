@@ -9,6 +9,10 @@
 import type { PendingOperation } from "@query-engine/pending-operation";
 import type { Model, ModelState } from "@schema/model";
 import type { ModelShape } from "@schema/model/helper";
+import type {
+  PolymorphicCardinalityOf,
+  PolymorphicRelationState,
+} from "@schema/relation";
 import type { Prettify } from "@validation";
 import type { ModelCoreInput, ModelOperationInput } from "@validation/model";
 import type { CacheDriver } from "../cache/driver";
@@ -618,6 +622,38 @@ type PolymorphicVariantMapGuard<Projection, Relation> = Record<
   never
 >;
 
+/**
+ * A COLLECTION projection is an envelope, not a discriminator map, so the key
+ * set to seal against is `only` / `variants` — sealing against the VARIANT
+ * names would resolve both of them to `never` and refuse every legal payload.
+ *
+ * The guard stops HERE, at depth two. Descending into `variants` to seal one
+ * arm's key set is depth three, the measured cost frontier documented above:
+ * it walks INTO a target model mid-inference, which is exactly what
+ * `RelationState.getter: any` exists to prevent. A misspelling inside
+ * `variants` therefore compiles and is refused at runtime by the strict
+ * envelope — pinned as such in `contextual-typing-gate.core.types.ts`, so the
+ * boundary stays a measured fact rather than an assumption.
+ */
+type PolymorphicCollectionEnvelopeGuard<Projection> = Record<
+  Exclude<
+    SpelledClauseKeys<Exclude<Projection, boolean | null | undefined>>,
+    "only" | "variants"
+  >,
+  never
+>;
+
+/** ONE dispatch on cardinality, through the shared type twin. */
+type PolymorphicProjectionNodeGuard<Projection, Relation> = Relation extends {
+  readonly "~": {
+    readonly state: infer State extends PolymorphicRelationState;
+  };
+}
+  ? PolymorphicCardinalityOf<State> extends "many"
+    ? PolymorphicCollectionEnvelopeGuard<Projection>
+    : PolymorphicVariantMapGuard<Projection, Relation>
+  : unknown;
+
 type PolymorphicClauseGuard<Clause, Relations> = [
   UsedPolymorphicFields<Clause, Relations>,
 ] extends [never]
@@ -626,16 +662,18 @@ type PolymorphicClauseGuard<Clause, Relations> = [
       [RelationName in UsedPolymorphicFields<
         Clause,
         Relations
-      >]?: PolymorphicVariantMapGuard<
+      >]?: PolymorphicProjectionNodeGuard<
         ValueAt<NonNullable<Clause>, RelationName>,
         Relations[RelationName]
       >;
     };
 
 /**
- * Seal only the finite discriminator map at a direct polymorphic projection.
- * Looking inside one variant would resolve recursive target models during
- * generic inference and crosses the measured depth-three type-cost boundary.
+ * Seal the finite key set at a direct polymorphic projection — the
+ * discriminator map for a to-one slot, the `only` / `variants` envelope for a
+ * collection. Looking inside either (one variant, or one arm under `variants`)
+ * would resolve recursive target models during generic inference and crosses
+ * the measured depth-three type-cost boundary.
  */
 type DirectPolymorphicProjectionGuard<
   Arg,

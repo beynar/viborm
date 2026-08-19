@@ -26,8 +26,7 @@
 import type { AnyModel } from "@schema/model";
 import {
   type CanBindPolymorphicInverse,
-  canBindPolymorphicInverse,
-  getPolymorphicInverseBinding,
+  getCompatiblePolymorphicInverseBinding,
 } from "./inverse";
 import type { GetPolymorphicInverseBinding } from "./polymorphic";
 import type { GetInverseRelationMap, RelationState } from "./types";
@@ -77,18 +76,17 @@ type PolymorphicInverseBindingFor<
 type PolymorphicInverseMembershipState<
   S extends RelationState,
   Source extends AnyModel,
-> =
-  CanBindPolymorphicInverse<S> extends true
-    ? PolymorphicInverseBindingFor<S, Source> extends {
-        readonly relationKey: infer RelationKey;
-      }
-      ? [RelationKey] extends [never]
-        ? never
-        : RelationKey extends keyof RelationTarget<S>["~"]["state"]["polymorphicRelations"]
-          ? RelationTarget<S>["~"]["state"]["polymorphicRelations"][RelationKey]["~"]["state"]
-          : never
-      : never
-    : never;
+> = CanBindPolymorphicInverse<S> extends true
+  ? PolymorphicInverseBindingFor<S, Source> extends {
+      readonly relationKey: infer RelationKey;
+    }
+    ? [RelationKey] extends [never]
+      ? never
+      : RelationKey extends keyof RelationTarget<S>["~"]["state"]["polymorphicRelations"]
+        ? RelationTarget<S>["~"]["state"]["polymorphicRelations"][RelationKey]["~"]["state"]
+        : never
+    : never
+  : never;
 
 type NullableScalarKeys<Model extends AnyModel> = {
   [Key in keyof Model["~"]["state"]["scalars"]]: Model["~"]["state"]["scalars"][Key]["~"]["state"] extends {
@@ -102,31 +100,33 @@ type NullableScalarKeys<Model extends AnyModel> = {
 type InverseFkMembershipCanBeCleared<
   S extends RelationState,
   Source extends AnyModel,
-> =
-  Extract<
-    GetInverseRelationMap<S, Source>,
-    readonly string[]
-  > extends infer Fields
-    ? [Fields] extends [never]
-      ? false
-      : Fields extends readonly string[]
-        ? [Fields[number]] extends [never]
-          ? false
-          : Exclude<
-                Fields[number],
-                NullableScalarKeys<RelationTarget<S>>
-              > extends never
-            ? true
-            : false
-        : false
-    : false;
+> = Extract<
+  GetInverseRelationMap<S, Source>,
+  readonly string[]
+> extends infer Fields
+  ? [Fields] extends [never]
+    ? false
+    : Fields extends readonly string[]
+      ? [Fields[number]] extends [never]
+        ? false
+        : Exclude<
+              Fields[number],
+              NullableScalarKeys<RelationTarget<S>>
+            > extends never
+          ? true
+          : false
+      : false
+  : false;
 
 /**
  * Can the membership be CLEARED while both records survive? Physical storage only.
  *
  * Ordinary edge: every inverse foreign-key scalar on the target is nullable.
- * Polymorphic inverse: the target's direct polymorphic relation is optional, which is
- * the same statement about its private `(type, id)` columns.
+ * Polymorphic inverse bound to a toOne group: the target's direct polymorphic
+ * relation is optional, which is the same statement about its private
+ * `(type, id)` columns. Bound to a toMany group: always clearable — junction
+ * membership clears by deleting the member row, singular inverse (one row) and
+ * plural inverse (rows) alike, never by nulling a column.
  *
  * This is the availability rule for `disconnect` (and, on a to-many, the one the
  * junction case bypasses — a `manyToMany` membership always clears, because clearing
@@ -136,10 +136,9 @@ export const membershipCanBeCleared = (
   state: RelationState,
   source: AnyModel
 ): boolean => {
-  const binding = canBindPolymorphicInverse(state)
-    ? getPolymorphicInverseBinding(state.getter(), source, state.name)
-    : undefined;
+  const binding = getCompatiblePolymorphicInverseBinding(state, source);
   if (binding) {
+    if (binding.groupCardinality === "many") return true;
     const targetModel: AnyModel = state.getter();
     return (
       targetModel["~"].state.polymorphicRelations[binding.relationKey]?.["~"]
@@ -156,12 +155,24 @@ export const membershipCanBeCleared = (
   );
 };
 
-/** The type twin of {@link membershipCanBeCleared} — one rule, both levels. */
+/**
+ * The type twin of {@link membershipCanBeCleared} — one rule, both levels.
+ *
+ * `PolymorphicInverseMembershipState` still gates on the UNWIDENED
+ * `CanBindPolymorphicInverse`, so the `cardinality: "many"` arm is
+ * type-reachable exactly for the retained shapes over a toMany group — matching
+ * the runtime projection's B2 answer for those shapes. For `manyToOne` /
+ * `manyToMany` the type level stays conservative (the twin's documented
+ * divergence #2 in `./inverse`); the operation-schema surface is already
+ * correct without it.
+ */
 export type MembershipCanBeCleared<
   S extends RelationState,
   Source extends AnyModel,
 > = [PolymorphicInverseMembershipState<S, Source>] extends [never]
   ? InverseFkMembershipCanBeCleared<S, Source>
-  : PolymorphicInverseMembershipState<S, Source> extends { optional: true }
+  : PolymorphicInverseMembershipState<S, Source> extends { cardinality: "many" }
     ? true
-    : false;
+    : PolymorphicInverseMembershipState<S, Source> extends { optional: true }
+      ? true
+      : false;

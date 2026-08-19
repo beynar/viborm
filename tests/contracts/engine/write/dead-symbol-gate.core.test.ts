@@ -15,7 +15,7 @@ import { describe, expect, it } from "vitest";
  * `RelationRemovals.set` message, byte-identical”), which are history, exactly like
  * the design docs (`*.md`). A dead-SYMBOL gate targets symbols — imports and
  * identifiers — not prose. Matching is whole-identifier (`\bNAME\b`) so a kept
- * lookalike (`RelationMutationPlan`, `ManyToManyStatements`, `OperationExecutor`,
+ * lookalike (`RelationMutationPlan`, `buildManyToManyJoinParts`, `OperationExecutor`,
  * `OperationProgram`) never trips it.
  *
  * Falsified: re-add any deleted name to `src` CODE (e.g. resurrect the

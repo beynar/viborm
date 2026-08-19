@@ -1,7 +1,10 @@
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { createQueryScope, getRelationInfo } from "@query-engine/context";
 import { hydrateSchemaNames, s } from "@schema";
-import { relationCardinality } from "@schema/relation/cardinality";
+import {
+  polymorphicCardinality,
+  relationCardinality,
+} from "@schema/relation/cardinality";
 import { describe, expect, test } from "vitest";
 
 /**
@@ -58,5 +61,26 @@ describe("relationCardinality", () => {
 
     const childScope = createQueryScope(new PostgresAdapter(), child);
     expect(getRelationInfo(childScope, "parent")?.cardinality).toBe("one");
+  });
+});
+
+/**
+ * The polymorphic half of the same reading.
+ *
+ * A carrier does not encode MANY vs ONE in its `type`, so the factory the
+ * declaration was spelled with is the whole fact. `create` requiredness already
+ * branches on it (`validation/model/core/create.ts`) and Package C adds the
+ * result wrapper, which is why this reader exists at all.
+ */
+describe("polymorphicCardinality", () => {
+  test("answers the factory the declaration was spelled with", () => {
+    const targets = { target: () => target };
+
+    expect(polymorphicCardinality(s.polymorphicToOne(targets)["~"].state)).toBe(
+      "one"
+    );
+    expect(
+      polymorphicCardinality(s.polymorphicToMany(targets)["~"].state)
+    ).toBe("many");
   });
 });

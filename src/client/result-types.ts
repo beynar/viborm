@@ -7,7 +7,12 @@
 
 import type { Model, ModelState } from "@schema/model";
 import type { ModelShape } from "@schema/model/helper";
-import type { AnyPolymorphicRelation, AnyRelation } from "@schema/relation";
+import type {
+  AnyPolymorphicRelation,
+  AnyRelation,
+  PolymorphicCardinalityOf,
+  PolymorphicRelationState,
+} from "@schema/relation";
 import type { Scalar, ScalarState } from "@schema/scalars";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { Prettify } from "@validation";
@@ -431,6 +436,10 @@ export type NodeSelect<Node> = NodeKey<Node, "select">;
 
 export type NodeInclude<Node> = NodeKey<Node, "include">;
 
+/** The two keys of a polymorphic COLLECTION projection envelope. */
+type NodeOnly<Projection> = NodeKey<Projection, "only">;
+type NodeVariants<Projection> = NodeKey<Projection, "variants">;
+
 /**
  * Get relation type (oneToMany, manyToMany, oneToOne, manyToOne)
  */
@@ -547,6 +556,24 @@ type PolymorphicProjectionAt<
 > = PublicType extends keyof Projection ? Projection[PublicType] : undefined;
 
 /**
+ * One arm out of a collection's `variants` container.
+ *
+ * The `Exclude` + re-added `undefined` is not decoration: `PolymorphicProjectionAt`
+ * distributes over the KEY, not over the container, and `keyof (X | undefined)`
+ * is `never` — so a container that MAY be undefined would answer `undefined`
+ * for every arm, i.e. "no projection stated", i.e. the full default row. That
+ * is the unsafe direction: the runtime may well apply the projection and return
+ * fewer columns than the type promised.
+ *
+ * Splitting the container instead hands `InferPolymorphicTargetVariant` a
+ * `Configured | undefined` override, which it already distributes into
+ * `Selected | Default` — the honest union a caller in this position narrows.
+ */
+type PolymorphicArmAt<Variants, PublicType extends PropertyKey> =
+  | PolymorphicProjectionAt<Exclude<Variants, undefined>, PublicType>
+  | (undefined extends Variants ? undefined : never);
+
+/**
  * Exhaustive direct polymorphic result. Projection objects override individual
  * targets; omitted targets remain in the union with their default projection.
  */
@@ -566,13 +593,78 @@ type PolymorphicVariants<
   };
 }[PolymorphicPublicTypes<R>];
 
+/**
+ * The variants a COLLECTION projection can still produce, after `only`.
+ *
+ * The two `undefined` tests are ordered, and the order is the whole point:
+ *
+ *  - `[Only] extends [undefined]` — the key is ABSENT (or the payload has an
+ *    index signature, which states nothing). Every variant survives.
+ *  - `undefined extends Only` — the key MAY be undefined, the shape real code
+ *    produces (`only: cond ? ["post"] : undefined`, or a forwarded optional
+ *    property). Only the runtime knows, so nothing is narrowed. This MUST be
+ *    tested BEFORE the element extraction: `readonly ["post"] | undefined`
+ *    matches `readonly (infer T)[]` on its defined member and would otherwise
+ *    narrow to `"post"` on a call that may not narrow at all.
+ *  - the tuple/array case narrows to the named members.
+ *  - anything else (a `string[]` built at runtime, an unresolvable generic)
+ *    narrows nothing, which is the honest answer.
+ */
+type AllowedPublicTypes<R extends AnyPolymorphicRelation, Only> = [
+  Only,
+] extends [undefined]
+  ? PolymorphicPublicTypes<R>
+  : undefined extends Only
+    ? PolymorphicPublicTypes<R>
+    : Only extends readonly (infer T)[]
+      ? Extract<T, PolymorphicPublicTypes<R>>
+      : PolymorphicPublicTypes<R>;
+
+/**
+ * One element of a collection result: the same `{ type, data }` envelope the
+ * to-one slot produces, but reached through `variants` rather than through the
+ * projection's top level — which is what lets a public variant literally named
+ * `only` or `variants` keep working.
+ */
+type PolymorphicCollectionVariants<
+  R extends AnyPolymorphicRelation,
+  Projection,
+  ClientDefaults,
+> = {
+  [PublicType in AllowedPublicTypes<R, NodeOnly<Projection>>]: {
+    readonly type: PublicType;
+    readonly data: InferPolymorphicVariant<
+      R,
+      PublicType,
+      PolymorphicArmAt<NodeVariants<Projection>, PublicType>,
+      ClientDefaults
+    >;
+  };
+}[AllowedPublicTypes<R, NodeOnly<Projection>>];
+
+/**
+ * CARDINALITY FIRST, through the type twin of `polymorphicCardinality` — never
+ * by testing `state.cardinality` inline, so one rule governs both levels.
+ *
+ * A collection is NEVER `| null`: an empty collection is `[]`, and `optional`
+ * is unspellable on a collection state precisely so emptiness has one reading.
+ *
+ * The array wrapper is applied UNCONDITIONALLY, outside `WrapRelationNode`'s
+ * never-collapse. `only: []` legitimately produces a `never` element union, and
+ * collapsing that to `never` would type a call that returns a fresh empty array
+ * as returning nothing at all; `readonly never[]` is the shape that matches.
+ */
 export type InferPolymorphicResult<
   R extends AnyPolymorphicRelation,
   Projection = undefined,
   ClientDefaults = never,
-> = R["~"]["state"]["optional"] extends true
-  ? PolymorphicVariants<R, Projection, ClientDefaults> | null
-  : PolymorphicVariants<R, Projection, ClientDefaults>;
+> = PolymorphicCardinalityOf<
+  Extract<R["~"]["state"], PolymorphicRelationState>
+> extends "many"
+  ? readonly PolymorphicCollectionVariants<R, Projection, ClientDefaults>[]
+  : R["~"]["state"]["optional"] extends true
+    ? PolymorphicVariants<R, Projection, ClientDefaults> | null
+    : PolymorphicVariants<R, Projection, ClientDefaults>;
 
 // =============================================================================
 // SELECT/INCLUDE RESULT INFERENCE
@@ -780,6 +872,37 @@ type ToManyRelationKeys<S extends ModelState> = {
     : never;
 }[keyof S["relations"]];
 
+/**
+ * The polymorphic keys that HAVE a count: the collections.
+ *
+ * A polymorphic to-one slot is excluded for exactly the reason an ordinary
+ * `manyToOne` is, and its `countFilter` family is a named refusal — so naming
+ * it under `_count.select` does not compile and does not parse.
+ *
+ * Both early exits are load-bearing and mirror `InferSelectedPolymorphicFields`:
+ * an index-signature `polymorphicRelations` states no key, and an empty one has
+ * no key to state. Mapping either would put `string` in a result key position.
+ */
+type PolymorphicCollectionKeys<S extends ModelState> =
+  string extends keyof S["polymorphicRelations"]
+    ? never
+    : keyof S["polymorphicRelations"] extends never
+      ? never
+      : {
+          [K in keyof S["polymorphicRelations"]]: S["polymorphicRelations"][K] extends AnyPolymorphicRelation
+            ? [
+                PolymorphicCardinalityOf<
+                  Extract<
+                    S["polymorphicRelations"][K]["~"]["state"],
+                    PolymorphicRelationState
+                  >
+                >,
+              ] extends ["many"]
+              ? K
+              : never
+            : never;
+        }[keyof S["polymorphicRelations"]];
+
 type InferRelationCountSelection<
   S extends ModelState,
   Selection,
@@ -787,13 +910,18 @@ type InferRelationCountSelection<
   ? {
       _count: {
         [K in keyof CountSelection &
-          keyof S["relations"] as CountSelection[K] extends true | object
-          ? K
-          : never]: number;
+          (
+            | keyof S["relations"]
+            | PolymorphicCollectionKeys<S>
+          ) as CountSelection[K] extends true | object ? K : never]: number;
       };
     }
   : Selection extends { _count: true }
-    ? { _count: { [K in ToManyRelationKeys<S>]: number } }
+    ? {
+        _count: {
+          [K in ToManyRelationKeys<S> | PolymorphicCollectionKeys<S>]: number;
+        };
+      }
     : Record<never, never>;
 
 /**

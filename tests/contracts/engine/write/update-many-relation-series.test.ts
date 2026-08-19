@@ -88,7 +88,7 @@ const polySchema = (() => {
         .fields("boardId")
         .references("id"),
       media: s
-        .polymorphic(
+        .polymorphicToOne(
           { image: () => image, clip: () => clip },
           { values: { image: "kpoly.image.v1", clip: "kpoly.clip.v1" } }
         )

@@ -84,6 +84,33 @@ export function m2mMembershipRace(
 }
 
 /**
+ * The SINGULAR member-junction slot's three premises, in one home so their
+ * wording cannot drift apart (plan §1.6).
+ *
+ * A singular member has a UNIQUE over its complete target side, so adding a
+ * membership is a slot REPLACEMENT and every premise is about who holds the slot:
+ *
+ *  - `slot` — no owner other than the one captured holds this target. An ABSENCE
+ *    premise, necessarily raceable; a retry re-captures.
+ *  - `captured` — the membership row this plan captured is still there. An
+ *    EXISTING-ROW premise, and by the Pin Rule NOT raceable: a row that was there
+ *    and is gone is a genuine replacement, not something a retry can win.
+ *  - `vacated` — the transaction-mode `affectedRows(1)` on the vacate. Raceable,
+ *    so a concurrent vacate converges instead of reporting a false success.
+ */
+export function singularMembershipSlotRace(
+  relationName: string,
+  premise: "slot" | "captured" | "vacated"
+): string {
+  const detail = {
+    slot: "another owner holds the target",
+    captured: "the captured membership is gone",
+    vacated: "the captured owner's membership was already removed",
+  }[premise];
+  return `Concurrent membership change on the singular polymorphic member of relation '${relationName}': ${detail}; retry to converge.`;
+}
+
+/**
  * The found-premise replacement message V1 raises when a nested `upsert` or
  * `connectOrCreate` located a row at planning that a concurrent transaction
  * replaced before the write (V1's `RelationBranches.replacementFailure`). It is

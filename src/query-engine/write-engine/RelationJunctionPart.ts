@@ -20,9 +20,9 @@ import {
 import { buildInsert } from "../builders/values-builder";
 import { createQueryScope, getTableName } from "../context/query-scope";
 import {
-  type ManyToManyOperation,
-  ManyToManyStatements,
-} from "../ManyToManyStatements";
+  type JunctionOperation,
+  JunctionStatements,
+} from "../JunctionStatements";
 import {
   buildCreate,
   buildCreateMany,
@@ -52,6 +52,12 @@ import {
   type JunctionCreateManyRowRoute,
   routeJunctionCreateManyRow,
 } from "./junction-create-many-routing";
+import {
+  type JunctionSingularTransfer,
+  type JunctionTransferAddress,
+  type JunctionTransferMode,
+  transferSingularJunctionMembership,
+} from "./junction-singular-transfer";
 import {
   m2mDisconnectRequiresSelector,
   m2mMembershipRace,
@@ -133,6 +139,15 @@ interface JunctionContext {
   readonly membershipReadSource: JunctionReferenceSources;
   readonly txMode: boolean;
   readonly recordCompilers: RecordCompilerSeam;
+  /**
+   * How a SINGULAR member's slot replacement must behave (plan §1.6). Absent —
+   * and therefore `"preserveExact"` — for every ordinary junction, whose
+   * cardinality is always `"many"` and which never reaches the transfer at all.
+   * The collection coordinator sets `"reinsertAfterOwnerClear"` on the runs it
+   * lowered from `set`, because its relation-wide clear already removed the row
+   * the idempotent-reconnect shortcut would otherwise decline to re-add.
+   */
+  readonly membershipAddMode?: JunctionTransferMode;
 }
 
 type JunctionReferenceSources = FinalReferenceSources;
@@ -368,8 +383,14 @@ export class RelationJunctionPart implements Part {
   private readonly childName: string;
   private readonly childScope: QueryScope;
   private readonly targetProjection: TargetProjection;
-  private readonly statements: ManyToManyStatements;
+  private readonly statements: JunctionStatements;
   private readonly plan: JunctionPlan;
+  /**
+   * One transfer per membership-adding write id, or EMPTY for every plural
+   * junction — which is every ordinary many-to-many, so the whole estate outside
+   * a singular polymorphic member is byte-identical.
+   */
+  private readonly transfers = new Map<string, JunctionSingularTransfer>();
 
   private get relationInfo() {
     return this.context.relation.relationInfo;
@@ -398,8 +419,159 @@ export class RelationJunctionPart implements Part {
       input.relation.relationInfo.targetModel
     );
     this.targetProjection = buildTargetProjection(this.childScope.model);
-    this.statements = new ManyToManyStatements(input.parentScope, input.txMode);
+    this.statements = new JunctionStatements(input.parentScope, input.txMode);
     this.plan = this.allocatePlan(scope, input);
+    this.allocateMembershipTransfers(scope);
+  }
+
+  // -------------------------------------------------------------------------
+  // MEMBERSHIP ADD — the ONE branch every insert point takes (plan §1.6).
+  //
+  // Six sites add a membership row: `connect`, the coordinator's lowered `set`
+  // runs, the fresh-target join, `connectOrCreate`'s found arm, both `upsert`
+  // joins, and the createMany leaf/adopt joins. Rather than six copies of "is
+  // this member singular", they all call {@link membershipAddWrites}, and the
+  // captures they need are allocated once here.
+  // -------------------------------------------------------------------------
+
+  /**
+   * Allocate one transfer per membership-adding write, addressed by whatever
+   * names the target AT PLANNING TIME.
+   *
+   * A selector-addressed slot uses its `where` (the capture lowers it to the
+   * same scalar subqueries `junctionDelete`'s `targetWhere` already builds), so
+   * the capture is an ordinary planning read BESIDE the target probe rather than
+   * one that waits on it. A literal create key addresses itself. A produced
+   * identity addresses nothing — and needs to address nothing, because no
+   * membership can reference a row that does not exist yet.
+   */
+  private allocateMembershipTransfers(scope: StepScope): void {
+    if (this.context.relation.cardinality !== "one") return;
+    for (const [writeId, address] of this.membershipAddSites()) {
+      this.transfers.set(
+        writeId,
+        transferSingularJunctionMembership({
+          scope,
+          statements: this.statements,
+          junction: this.context.relation,
+          stepPrefix: `${this.childName}.slot`,
+          address,
+          mode: this.context.membershipAddMode ?? "preserveExact",
+          txMode: this.context.txMode,
+        })
+      );
+    }
+  }
+
+  /** Every membership-adding write id in this plan, with its planning address. */
+  private membershipAddSites(): [string, JunctionTransferAddress][] {
+    const freshAddress = (slot: CreateSlot | AdoptSlot | UpsertSlotBase) =>
+      slot.identity.kind === "literal"
+        ? ({ kind: "values", values: slot.identity.values } as const)
+        : ({ kind: "fresh" } as const);
+    // biome-ignore lint/style/useDefaultSwitchClause: JunctionPlan is exhaustive.
+    switch (this.plan.kind) {
+      case "connect":
+      case "set":
+        return this.plan.slots.map(
+          (slot): [string, JunctionTransferAddress] => [
+            slot.writeId,
+            { kind: "selector", where: slot.where },
+          ]
+        );
+      case "create":
+      case "createMany":
+        return this.plan.slots.map(
+          (slot): [string, JunctionTransferAddress] => [
+            slot.joinId,
+            freshAddress(slot),
+          ]
+        );
+      case "connectOrCreate":
+        return this.plan.slots.map(
+          (slot): [string, JunctionTransferAddress] => [
+            slot.joinId,
+            // The FOUND arm adopts an existing row, so the selector is the honest
+            // address; the missing arm's capture is trivially empty and costs one
+            // read that also proves the slot.
+            { kind: "selector", where: slot.where },
+          ]
+        );
+      case "upsert":
+        return this.plan.slots.map(
+          (slot): [string, JunctionTransferAddress] => [
+            slot.joinId,
+            { kind: "selector", where: slot.where },
+          ]
+        );
+      case "disconnect":
+      case "delete":
+      case "deleteMany":
+      case "update":
+      case "updateMany":
+        return [];
+    }
+  }
+
+  private membershipAddPlanning(): readonly StatementStep[] {
+    const steps: StatementStep[] = [];
+    for (const transfer of this.transfers.values()) {
+      steps.push(...transfer.planning);
+    }
+    return steps;
+  }
+
+  /**
+   * The membership row(s) one site adds: a plain idempotent insert for a plural
+   * member table, or the slot-replacement protocol for a singular one.
+   */
+  private membershipAddWrites(
+    writeId: string,
+    parent: unknown,
+    targetValue: unknown,
+    known: PlanningKnown,
+    insert: () => WriteStep
+  ): readonly OperationStep[] {
+    const transfer = this.transfers.get(writeId);
+    if (!transfer) return [insert()];
+    return transfer.compile(known, {
+      // A non-record target value is a PRODUCED identity, which reaches the
+      // transfer only on the `fresh` address — where the slot is provably empty
+      // and the key is never read.
+      targetKey: isRecord(targetValue) ? targetValue : {},
+      desiredOwner: isRecord(parent) ? parent : {},
+      insert,
+    });
+  }
+
+  /**
+   * The bulk membership insert for `connect` / `set`, or one transfer per target
+   * when the member table is singular.
+   *
+   * Bind-budget chunking is the plural path's alone by construction: a singular
+   * slot writes ONE row per target, so there is nothing to chunk, and the chunked
+   * statement's historical id and SQL are untouched for every ordinary junction.
+   */
+  private membershipInsertWrites(
+    parent: unknown,
+    slots: readonly TargetSlot[],
+    targetPks: readonly JunctionRowKey[],
+    known: PlanningKnown,
+    idForChunk: (start: number, index: number) => string
+  ): readonly OperationStep[] {
+    if (this.transfers.size === 0) {
+      return this.junctionInsertManyWrites(parent, targetPks, idForChunk);
+    }
+    const writes: OperationStep[] = [];
+    for (const [index, slot] of slots.entries()) {
+      const targetPk = targetPks[index]!;
+      writes.push(
+        ...this.membershipAddWrites(slot.writeId, parent, targetPk, known, () =>
+          this.joinInsert(slot.writeId, parent, targetPk)
+        )
+      );
+    }
+    return writes;
   }
 
   planning(scope: StepScope): readonly StatementStep[] {
@@ -459,6 +631,7 @@ export class RelationJunctionPart implements Part {
       case "updateMany":
         break;
     }
+    steps.push(...this.membershipAddPlanning());
     return steps;
   }
 
@@ -525,9 +698,11 @@ export class RelationJunctionPart implements Part {
     if (targetPks.length === 0) return guards;
     return [
       ...guards,
-      ...this.junctionInsertManyWrites(
+      ...this.membershipInsertWrites(
         parent,
+        slots,
         targetPks,
+        known,
         (start) => slots[start]!.writeId
       ),
     ];
@@ -568,8 +743,13 @@ export class RelationJunctionPart implements Part {
     ];
     if (targetPks.length > 0) {
       writes.push(
-        ...this.junctionInsertManyWrites(parent, targetPks, (start, index) =>
-          index === 0 ? plan.insertId : plan.slots[start]!.writeId
+        ...this.membershipInsertWrites(
+          parent,
+          plan.slots,
+          targetPks,
+          known,
+          (start, index) =>
+            index === 0 ? plan.insertId : plan.slots[start]!.writeId
         )
       );
     }
@@ -727,7 +907,7 @@ export class RelationJunctionPart implements Part {
         id: slot.writeId,
         kind: "write",
         statement: this.statements.materialize(
-          this.relationInfo,
+          this.context.relation,
           "membershipUpdateMany",
           {
             parentValue: parent,
@@ -783,13 +963,26 @@ export class RelationJunctionPart implements Part {
         if (!this.context.txMode) {
           steps.push(this.adoptFoundGuard(slot, capturedPk));
         }
-        steps.push(this.joinInsert(slot.joinId, parent, capturedPk));
+        steps.push(
+          ...this.membershipAddWrites(
+            slot.joinId,
+            parent,
+            capturedPk,
+            known,
+            () => this.joinInsert(slot.joinId, parent, capturedPk)
+          )
+        );
         continue;
       }
       const key = adoptDedupKey(slot);
       if (created.has(key)) {
         // The earlier item owns the complete create payload and descendants.
-        steps.push(this.joinInsert(slot.joinId, parent, created.get(key)));
+        const adopted = created.get(key);
+        steps.push(
+          ...this.membershipAddWrites(slot.joinId, parent, adopted, known, () =>
+            this.joinInsert(slot.joinId, parent, adopted)
+          )
+        );
         continue;
       }
       created.set(key, slot.identity.values);
@@ -895,7 +1088,11 @@ export class RelationJunctionPart implements Part {
         );
         steps.push(...compiled);
       }
-      steps.push(this.joinInsert(slot.joinId, parent, joinedPk));
+      steps.push(
+        ...this.membershipAddWrites(slot.joinId, parent, joinedPk, known, () =>
+          this.joinInsert(slot.joinId, parent, joinedPk)
+        )
+      );
     }
     return steps;
   }
@@ -1287,7 +1484,8 @@ export class RelationJunctionPart implements Part {
   }
 
   // -------------------------------------------------------------------------
-  // Leaf builders — junction (V1's ManyToManyStatements) and child (V2 ops).
+  // Leaf builders — junction (V1's ManyToManyStatements, now JunctionStatements)
+  // and child (V2 ops).
   // -------------------------------------------------------------------------
   private planFreshTarget(
     target: PreparedFreshTarget,
@@ -1320,7 +1518,13 @@ export class RelationJunctionPart implements Part {
     if (slot.target.kind === "record") {
       return [
         ...slot.target.record.compile(scope, known),
-        this.joinInsert(slot.joinId, parent, slot.identity.values),
+        ...this.membershipAddWrites(
+          slot.joinId,
+          parent,
+          slot.identity.values,
+          known,
+          () => this.joinInsert(slot.joinId, parent, slot.identity.values)
+        ),
       ];
     }
     const steps: OperationStep[] = [
@@ -1333,11 +1537,18 @@ export class RelationJunctionPart implements Part {
           : undefined,
         slot.skipDuplicates === true
       ),
-      this.joinInsert(
+      ...this.membershipAddWrites(
         slot.joinId,
         parent,
         slot.identity.values,
-        slot.joinWhenTargetExists === true
+        known,
+        () =>
+          this.joinInsert(
+            slot.joinId,
+            parent,
+            slot.identity.values,
+            slot.joinWhenTargetExists === true
+          )
       ),
     ];
     for (const descendant of slot.target.descendants) {
@@ -1364,36 +1575,40 @@ export class RelationJunctionPart implements Part {
     additionalColumns?: readonly Sql[];
     predicate?: Sql;
   }) {
-    return this.statements.materialize(this.relationInfo, "membershipRead", {
-      parentValue: args.parentValue,
-      ...(args.whereUnique ? { whereUnique: args.whereUnique } : {}),
-      ...(args.where && Object.keys(args.where).length > 0
-        ? { where: args.where }
-        : {}),
-      select:
-        args.select ??
-        targetProjectionRowKeySelect(
-          buildTargetProjection(this.childScope.model)
-        ),
-      ...(args.additionalColumns?.length
-        ? { additionalColumns: args.additionalColumns }
-        : {}),
-      ...(args.predicate ? { predicate: args.predicate } : {}),
-      ...(args.take === undefined ? {} : { take: args.take }),
-      lock: "transaction",
-    });
+    return this.statements.materialize(
+      this.context.relation,
+      "membershipRead",
+      {
+        parentValue: args.parentValue,
+        ...(args.whereUnique ? { whereUnique: args.whereUnique } : {}),
+        ...(args.where && Object.keys(args.where).length > 0
+          ? { where: args.where }
+          : {}),
+        select:
+          args.select ??
+          targetProjectionRowKeySelect(
+            buildTargetProjection(this.childScope.model)
+          ),
+        ...(args.additionalColumns?.length
+          ? { additionalColumns: args.additionalColumns }
+          : {}),
+        ...(args.predicate ? { predicate: args.predicate } : {}),
+        ...(args.take === undefined ? {} : { take: args.take }),
+        lock: "transaction",
+      }
+    );
   }
 
   private junctionWrite(
     id: string,
-    operation: ManyToManyOperation,
+    operation: JunctionOperation,
     args: Record<string, unknown>
   ): WriteStep {
     return {
       id,
       kind: "write",
       statement: this.statements.materialize(
-        this.relationInfo,
+        this.context.relation,
         operation,
         args
       ),
@@ -1416,10 +1631,14 @@ export class RelationJunctionPart implements Part {
       targetValues.length,
       this.context.engine.maxBindParametersPerStatement,
       (start, end) =>
-        this.statements.materialize(this.relationInfo, "junctionInsertMany", {
-          parentValue,
-          targetValues: targetValues.slice(start, end),
-        })
+        this.statements.materialize(
+          this.context.relation,
+          "junctionInsertMany",
+          {
+            parentValue,
+            targetValues: targetValues.slice(start, end),
+          }
+        )
     );
     return chunks.map((chunk, index) => ({
       id: idForChunk(chunk.start, index),
@@ -1683,7 +1902,7 @@ export class RelationJunctionPart implements Part {
       premise: {
         kind: "notExists",
         statement: this.statements.materialize(
-          this.relationInfo,
+          this.context.relation,
           "membershipDifference",
           {
             parentValue: parent,
@@ -1843,7 +2062,7 @@ export class RelationJunctionPart implements Part {
    * constant, so the membership read is `WHERE parentColumn = <literal>`, exactly
    * as the write correlation ({@link parentLiteral}) already does. The membership
    * read's `parentValue` is materialized identically for a `Ref` or a literal
-   * (both ride through `ManyToManyStatements.materialize`), so no leaf learns which.
+   * (both ride through `JunctionStatements.materialize`), so no leaf learns which.
    *
    * The read source differs from the write source only across a key transition.
    */
@@ -1984,6 +2203,10 @@ export function buildJunctionParts(input: {
   freshParent?: boolean;
   txMode: boolean;
   recordCompilers: RecordCompilerSeam;
+  /** Threaded straight onto every Part this fold builds (plan §1.6). Only the
+   *  polymorphic collection coordinator ever sets it, and only on the runs it
+   *  lowered from `set`. */
+  membershipAddMode?: JunctionTransferMode;
   /** T3b-2: the depth-recursive child-Part builder (mechanism 2 / mechanism 1
    *  reuse). REQUIRED — every `buildJunctionParts` caller threads it: the root
    *  (UpdateOperation.ts:977, CreateOperation.ts:653) and depth
@@ -2009,12 +2232,21 @@ export function buildJunctionParts(input: {
     membershipReadSource: input.membershipReadSource,
     txMode,
     recordCompilers: input.recordCompilers,
+    ...(input.membershipAddMode
+      ? { membershipAddMode: input.membershipAddMode }
+      : {}),
   } as const;
 
   const requiresWholeFreshRecordCompiler = (
     relations: readonly ParsedRelationMutation[]
   ): boolean => {
     const targetPrimaryKeys = getPrimaryKeyFields(childScope.model);
+    // A polymorphic COLLECTION arm nested in this target's create data reaches
+    // the same verdict as an ordinary junction and reaches it one step earlier
+    // (plan §1.2): every entry it carries is `position: "junction"`, which the
+    // `continue` below returns on, so it does NOT force the whole-fresh
+    // compiler. Its own Parts are built by the coordinator through
+    // `nestedBuilder`, which is where that recursion is visible.
     for (const mutation of relationMutationPrograms(relations)) {
       const bound = bindRelation(childScope, mutation.relationInfo);
       if (bound.position === "junction") continue;
@@ -2608,7 +2840,7 @@ function buildJunctionCreateManySeriesPart(input: {
   };
 }
 
-function progressiveJunctionParentGuard(input: {
+export function progressiveJunctionParentGuard(input: {
   readonly engine: QueryEngine;
   readonly parentScope: QueryScope;
   readonly member?: {

@@ -6,17 +6,20 @@
 
 import { getModelKeyCatalog, type Model } from "@schema/model";
 import {
-  type PolymorphicStorage,
+  getCompatiblePolymorphicInverseBinding,
+  type PolymorphicJunctionMember,
+  type PolymorphicToOneStorage,
   type ReferentialAction,
+  type RelationState,
   type ResolvedInverseRelation,
   resolveInverseRelation,
   resolveOrdinaryInverse,
 } from "@schema/relation";
 import {
-  getJunctionFieldGroups,
   getJunctionFieldNames,
   getJunctionTableName,
 } from "@schema/relation/helpers";
+import { resolveOrdinaryJunctionTopology } from "@schema/relation/junction-topology";
 import { type Sql, sql } from "@sql";
 import {
   createChildScope,
@@ -93,7 +96,7 @@ export interface BoundPolymorphicMembership {
   readonly referencedField: string;
   /** A private polymorphic column pair declares no referential action. */
   readonly onUpdate: undefined;
-  readonly storage: PolymorphicStorage;
+  readonly storage: PolymorphicToOneStorage;
   readonly storedType: string;
 }
 
@@ -125,6 +128,15 @@ export interface BoundJunctionMembership {
   readonly source: JunctionSide;
   /** The end this relation is traversed TO: `relationInfo.targetModel`. */
   readonly target: JunctionSide;
+  /**
+   * This is a polymorphic collection MEMBER table, not an ordinary pair table.
+   *
+   * A read leaf owes a member table an integrity carrier — the membership row
+   * must be observable even when its target row is gone — which an ordinary
+   * pair table does not get, so the flag is what keeps ordinary many-to-many
+   * bytes unchanged while the member view gains the check.
+   */
+  readonly polymorphicMember?: true;
 }
 
 /** How a bound relation's membership is physically stored. */
@@ -183,7 +195,14 @@ export type ChildHeldRelation =
 
 export type JunctionBoundRelation = BoundRelationBase & {
   readonly position: "junction";
-  readonly cardinality: "many";
+  /**
+   * Widened for the polymorphic member view (plan §6.1): a fields-less
+   * manyToOne bound to a toMany group will classify as a SINGULAR junction in
+   * Package C. No producer writes `"one"` yet — `bindJunctionRelation` still
+   * writes `"many"` unconditionally — so no junction `"one"` is constructible
+   * in B2.
+   */
+  readonly cardinality: "one" | "many";
   readonly membership: BoundJunctionMembership;
 };
 
@@ -229,6 +248,94 @@ interface JunctionTopology {
   readonly target: JunctionSide;
 }
 
+/**
+ * Project one collection member's PRE-RESOLVED junction topology into the
+ * engine's bound membership.
+ *
+ * There is no resolver here and there must not be one: B2 materialized
+ * `PolymorphicJunctionMember.junction` at definition validation, and
+ * `ResolvedJunctionSide` already carries `{junctionField, referencedField}` —
+ * a superset of {@link JunctionSide}. So this is a projection, never a second
+ * owner: it never calls `resolvePolymorphicMemberJunctionTopology` again, and
+ * it never synthesizes a relation the way `resolvePolymorphicEdge` does for the
+ * row-held arm (the storage contract on `PolymorphicJunctionMember` forbids it).
+ *
+ * @param from - which end the traversal STARTS at. The stored topology is
+ *   always owner-side-`source`, variant-side-`target`; a traversal that starts
+ *   at the variant (every inverse) reads the same table with the sides swapped.
+ *   The table is the same table either way — one member junction, one owner.
+ */
+export function polymorphicMemberMembership(
+  member: PolymorphicJunctionMember,
+  from: "owner" | "variant"
+): BoundJunctionMembership {
+  const { junction } = member;
+  const owner: JunctionSide = {
+    model: junction.source.model,
+    members: junction.source.members,
+  };
+  const variant: JunctionSide = {
+    model: junction.target.model,
+    members: junction.target.members,
+  };
+  return {
+    kind: "junction",
+    table: junction.table,
+    source: from === "owner" ? owner : variant,
+    target: from === "owner" ? variant : owner,
+    polymorphicMember: true,
+  };
+}
+
+/**
+ * Bind an INVERSE edge onto one collection member — the member-table view.
+ *
+ * The FIRST producer of `JunctionBoundRelation.cardinality === "one"`: a
+ * fields-less `manyToOne` bound to a member whose `inverseCardinality` is
+ * `"one"` is a singular junction, physically backed by the UNIQUE over the
+ * complete target side. `bindJunctionRelation` still writes `"many"`
+ * unconditionally for ordinary pairs.
+ */
+export function bindPolymorphicMemberJunction(
+  ctx: QueryScope,
+  relationInfo: RelationInfo,
+  member: PolymorphicJunctionMember,
+  cardinality: "one" | "many"
+): JunctionBoundRelation {
+  return {
+    position: "junction",
+    cardinality,
+    relationInfo,
+    sourceModel: ctx.model,
+    membership: polymorphicMemberMembership(member, "variant"),
+  };
+}
+
+/**
+ * The collection member one relation edge binds onto, or `undefined` when the
+ * edge is not a compatible polymorphic inverse.
+ *
+ * `getCompatiblePolymorphicInverseBinding` already decided WHICH group and
+ * whether the asking shape is compatible (a `manyToOne`/`manyToMany` asker binds
+ * a `"many"` group and nothing else) — this only reads the member off the
+ * bound group's storage. It never throws: classification stays refusal-free.
+ */
+function resolvePolymorphicCollectionMember(
+  ctx: QueryScope,
+  relationInfo: RelationInfo
+): PolymorphicJunctionMember | undefined {
+  const binding = getCompatiblePolymorphicInverseBinding(
+    relationInfo.relation["~"].state as RelationState,
+    ctx.model
+  );
+  if (!binding) return undefined;
+  const storage = relationInfo.targetModel["~"].getPolymorphicStorage(
+    binding.relationKey
+  );
+  if (storage?.kind !== "toMany") return undefined;
+  return storage.members.get(binding.publicType);
+}
+
 function resolveJunctionTopology(
   ctx: QueryScope,
   relationInfo: RelationInfo
@@ -252,40 +359,29 @@ function resolveJunctionTopology(
   );
   const sourceReferenced = getRequiredPrimaryKeyFields(sourceModel);
   const targetReferenced = getRequiredPrimaryKeyFields(targetModel);
-  const fields = getJunctionFieldGroups(
-    relationInfo.relation,
-    sourceModelName,
-    targetModelName,
-    sourceReferenced,
-    targetReferenced
-  );
-  const sourceMembers = sourceReferenced.map((referencedField, index) => {
-    const junctionField = fields.source.fields[index];
-    if (junctionField === undefined) {
-      throw new QueryEngineError(
-        "Internal junction source expansion did not match its row-key arity."
-      );
-    }
-    return { junctionField, referencedField };
-  });
-  const targetMembers = targetReferenced.map((referencedField, index) => {
-    const junctionField = fields.target.fields[index];
-    if (junctionField === undefined) {
-      throw new QueryEngineError(
-        "Internal junction target expansion did not match its row-key arity."
-      );
-    }
-    return { junctionField, referencedField };
-  });
-  return {
+  const topology = resolveOrdinaryJunctionTopology({
+    relation: relationInfo.relation,
     table,
     source: {
       model: sourceModel,
-      members: sourceMembers,
+      modelName: sourceModelName,
+      rowKey: sourceReferenced,
     },
     target: {
       model: targetModel,
-      members: targetMembers,
+      modelName: targetModelName,
+      rowKey: targetReferenced,
+    },
+  });
+  return {
+    table: topology.table,
+    source: {
+      model: topology.source.model,
+      members: topology.source.members,
+    },
+    target: {
+      model: topology.target.model,
+      members: topology.target.members,
     },
   };
 }
@@ -405,7 +501,7 @@ function buildForeignKeyMembership(
 export function buildPolymorphicMembership(
   holder: Model<any>,
   referenced: Model<any>,
-  storage: PolymorphicStorage,
+  storage: PolymorphicToOneStorage,
   member: {
     readonly storedType: string;
     readonly referencedField: string;
@@ -452,6 +548,49 @@ export function classifyRelation(
   ctx: QueryScope,
   relationInfo: RelationInfo
 ): ClassifiedRelation {
+  // THE CARRIER GUARD (plan §1.3). A direct polymorphic collection's member
+  // junctions are bound ONCE, at parse time, by `bindPolymorphicCollectionMember`
+  // — owner-oriented, from pre-resolved topology. The carrier they travel on is
+  // in no relation map, so it can only arrive here by being passed, and if it
+  // did the resolution below would answer with the VARIANT orientation
+  // (`resolvePolymorphicCollectionMember` → `bindPolymorphicMemberJunction`) or,
+  // for an unbound variant, fall to the ordinary `manyToMany` arm and compile
+  // against a pair table the serializer never emits. Both are silent wrong
+  // answers, which is the coverage this guard uniquely has.
+  if (relationInfo.polymorphicMemberCarrier) {
+    throw new QueryEngineError(
+      `query-engine-v2 internal: polymorphic collection member '${relationInfo.name}' is pre-bound and must not be re-resolved; pass its bound junction instead of its relation info.`
+    );
+  }
+  // The COLLECTION-INVERSE seam, answered before either ordinary arm and for
+  // BOTH asking shapes at once. A relation bound to a toMany group has its
+  // membership in that group's member junction, so it is a junction whatever
+  // its declared `type` says:
+  //
+  // - a fields-less `manyToMany` would otherwise fall to the ordinary-junction
+  //   arm and compile against a pair table the serializer (correctly) never
+  //   emits — a missing-table error raised only by the database;
+  // - a fields-less `manyToOne` would otherwise fall through `rowHeld` to
+  //   `resolveOrdinaryInverse`, which answers `missing` and produces the
+  //   generic "Cannot determine FK fields" message.
+  //
+  // The resolution is a cheap, non-throwing schema-state read, so
+  // classification itself stays refusal-free per the `ClassifiedRelation`
+  // contract above; the member's own `inverseCardinality` supplies the arity.
+  const member = resolvePolymorphicCollectionMember(ctx, relationInfo);
+  if (member) {
+    return {
+      kind: "junction",
+      bind: () =>
+        bindPolymorphicMemberJunction(
+          ctx,
+          relationInfo,
+          member,
+          member.inverseCardinality
+        ),
+    };
+  }
+
   if (relationInfo.type === "manyToMany") {
     return {
       kind: "junction",
@@ -498,9 +637,11 @@ function bindRowHeldRelation(
   // The one candidate scan lives in the schema layer (`@schema/relation`'s
   // resolver); this binder only translates its verdicts into the engine's
   // established errors and bound shapes. A fields-less `manyToOne` (the
-  // FK004-warned compatibility form) can never bind a polymorphic inverse, so
-  // it asks for the ordinary-only resolution — the same gate the deleted
-  // `bindPolymorphicInverse` kept.
+  // FK004-warned compatibility form) can never bind a ROW-HELD polymorphic
+  // inverse, so it asks for the ordinary-only resolution — the same gate the
+  // deleted `bindPolymorphicInverse` kept. Its toMany-group binding is a
+  // MEMBER-TABLE view, which Package C lifts at the `classifyRelation` seam
+  // above, never here.
   const relationName = relationInfo.relation["~"].state.name;
   const resolved =
     relationInfo.type === "oneToOne" || relationInfo.type === "oneToMany"
@@ -561,9 +702,14 @@ function bindResolvedPolymorphicInverse(
   relationInfo: RelationInfo,
   resolved: Extract<ResolvedInverseRelation, { kind: "polymorphic" }>
 ): PolymorphicChildHeldRelation {
-  const storage = relationInfo.targetModel["~"].getPolymorphicStorage(
+  const resolvedStorage = relationInfo.targetModel["~"].getPolymorphicStorage(
     resolved.relationKey
   );
+  // One of the four union-narrowing boundaries: a toMany group's descriptor is
+  // not a row-held `(type, id)` pair, so a binding onto it is refused exactly
+  // like missing storage until Package C binds the member-table view.
+  const storage =
+    resolvedStorage?.kind === "toOne" ? resolvedStorage : undefined;
   const member = storage?.members.get(resolved.publicType);
   if (!(storage && member)) {
     throw new QueryEngineError(

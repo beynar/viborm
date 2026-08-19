@@ -13,7 +13,11 @@ import {
   normalizeWhereUniqueTargetConstraint,
   type TargetConstraint,
 } from "../TargetConstraint";
-import type { QueryScope, ResolvedPolymorphicEdge } from "../types";
+import {
+  isPolymorphicToOneRelationInfo,
+  type QueryScope,
+  type ResolvedPolymorphicEdge,
+} from "../types";
 import { nestedWriteFailure, presenceGuard } from "./fragment-builders";
 import { relationTargetNotFound } from "./messages";
 import type { GuardStep, ReadStep } from "./OperationFragment";
@@ -70,6 +74,27 @@ export function prepareBulkPolymorphicConnects(
     for (const { relation, payload } of Object.values(
       parsed.polymorphicPayloads
     )) {
+      // THE NARROWING, and since Package E the SOLE closer of the silent-drop
+      // hazard (plan §9.6 states the prohibition normatively: "Do not extend the
+      // current direct-`toOne` connect-only grouped shortcut to junction work").
+      // Package D widened the partition to carry both storage arms, and this
+      // shortcut is the one consumer that cannot follow: it stores PRIVATE OWNER
+      // COLUMNS on the bulk row, which a collection has no analogue of. Without
+      // the narrowing a collection payload would reach the to-one-only intent
+      // resolver and be read as a row-held connect.
+      //
+      // The ROW-context grammar no longer refuses a collection key — E mounts the
+      // full collection `create` family there — and `routing.ts` sends any such
+      // row to the record series before this file is reached. So on the CLIENT
+      // path this is unreachable; it stays because a directly-built scope can
+      // reach `buildBulkPolymorphicConnects` without passing routing, and a
+      // narrowing that only holds "when the caller came the usual way" is not a
+      // narrowing.
+      if (!isPolymorphicToOneRelationInfo(relation)) {
+        throw new QueryEngineError(
+          `createMany polymorphic relation '${relation.name}' is a collection; its membership lives in per-variant member junction tables and cannot be written from a bulk row.`
+        );
+      }
       const intent = resolvePolymorphicMutationIntent(
         parent,
         relation,

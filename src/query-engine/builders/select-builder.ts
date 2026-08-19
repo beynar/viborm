@@ -22,7 +22,12 @@ import {
   RELATION_COUNTS_RESULT_KEY,
   VECTOR_DISTANCE_RESULT_KEY,
 } from "../result-aliases";
-import { QueryEngineError, type QueryScope, type RelationInfo } from "../types";
+import {
+  isPolymorphicToOneRelationInfo,
+  QueryEngineError,
+  type QueryScope,
+  type RelationInfo,
+} from "../types";
 import {
   type BuildIncludeOptions,
   type BuildNestedSelection,
@@ -31,8 +36,12 @@ import {
   type IncludeResult,
   type IncludeStrategy,
 } from "./include-builder";
-import { buildRelationCount } from "./relation-count-builder";
+import { buildPolymorphicCollectionRead } from "./polymorphic-collection-read-builder";
 import { buildPolymorphicRead } from "./polymorphic-read-builder";
+import {
+  buildPolymorphicRelationCount,
+  buildRelationCount,
+} from "./relation-count-builder";
 import { buildVectorDistanceExpression } from "./vector-distance-builder";
 
 /**
@@ -291,22 +300,7 @@ function buildSelectPairs(
       }
 
       if (isPolymorphicRelation(ctx.model, key)) {
-        const relation = getPolymorphicRelationInfo(ctx, key);
-        if (!relation) {
-          throw new QueryEngineError(
-            `Polymorphic relation '${key}' has no validated storage metadata.`
-          );
-        }
-        pairs.push([
-          key,
-          buildPolymorphicRead(
-            buildSubquerySelection,
-            ctx,
-            relation,
-            value,
-            alias
-          ),
-        ]);
+        pairs.push([key, buildPolymorphicProjection(ctx, key, value, alias)]);
       }
     }
     if (hasDistanceSelect && hasDistanceOutputField) {
@@ -397,22 +391,7 @@ function buildSelectPairs(
       }
 
       if (isPolymorphicRelation(ctx.model, key)) {
-        const relation = getPolymorphicRelationInfo(ctx, key);
-        if (!relation) {
-          throw new QueryEngineError(
-            `Polymorphic relation '${key}' has no validated storage metadata.`
-          );
-        }
-        pairs.push([
-          key,
-          buildPolymorphicRead(
-            buildSubquerySelection,
-            ctx,
-            relation,
-            value,
-            alias
-          ),
-        ]);
+        pairs.push([key, buildPolymorphicProjection(ctx, key, value, alias)]);
       }
     }
   }
@@ -439,6 +418,37 @@ function buildSelectPairs(
   }
 
   return { pairs, lateralJoins };
+}
+
+/**
+ * Dispatch one polymorphic projection on its STORED descriptor.
+ *
+ * The two carriers are different documents built by different owners — the
+ * row-held tagged CASE over the private `(type, id)` pair, and the collection's
+ * per-arm document over the member junctions — so the split is here, at the one
+ * place a projection becomes SQL, rather than inside either owner.
+ */
+function buildPolymorphicProjection(
+  ctx: QueryScope,
+  key: string,
+  value: unknown,
+  alias: string
+): Sql {
+  const relation = getPolymorphicRelationInfo(ctx, key);
+  if (!relation) {
+    throw new QueryEngineError(
+      `Polymorphic relation '${key}' has no validated storage metadata.`
+    );
+  }
+  return isPolymorphicToOneRelationInfo(relation)
+    ? buildPolymorphicRead(buildSubquerySelection, ctx, relation, value, alias)
+    : buildPolymorphicCollectionRead(
+        buildSubquerySelection,
+        ctx,
+        relation,
+        value,
+        alias
+      );
 }
 
 /**
@@ -500,12 +510,25 @@ function buildCountPairs(
     }
 
     const relationInfo = getRelationInfo(ctx, relationName);
-    if (!relationInfo) {
+    if (relationInfo) {
+      pairs.push([
+        relationName,
+        buildRelationCount(ctx, relationInfo, config, parentAlias),
+      ]);
       continue;
     }
 
-    const countSql = buildRelationCount(ctx, relationInfo, config, parentAlias);
-    pairs.push([relationName, countSql]);
+    // A polymorphic COLLECTION joins the ordinary count surface (plan §7.4).
+    // A row-held polymorphic slot does not — it has no collection to count —
+    // and still leaves silently, exactly as an unknown name always has.
+    const polymorphic = getPolymorphicRelationInfo(ctx, relationName);
+    if (!polymorphic || isPolymorphicToOneRelationInfo(polymorphic)) {
+      continue;
+    }
+    pairs.push([
+      relationName,
+      buildPolymorphicRelationCount(ctx, polymorphic, config, parentAlias),
+    ]);
   }
 
   return pairs;

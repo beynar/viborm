@@ -1,5 +1,9 @@
 import type { AnyModel, ModelState } from "@schema/model";
 import type { RequiredScalarKeys as ModelRequiredScalarKeys } from "@schema/model/helper";
+import {
+  type PolymorphicCardinalityOf,
+  polymorphicCardinality,
+} from "@schema/relation/cardinality";
 import type { RelationState } from "@schema/relation/types";
 import type { Scalar } from "@schema/scalars";
 import type { ObjectSchema } from "../../primitives/object";
@@ -34,11 +38,15 @@ type CreateRequirementKeySetGroup<M extends AnyModel> = {
     : never;
 }[keyof ModelStateOf<M>["relations"]];
 type PolymorphicCreateRequirementKeySetGroup<M extends AnyModel> = {
-  [K in keyof ModelStateOf<M>["polymorphicRelations"]]: ModelStateOf<M>["polymorphicRelations"][K]["~"]["state"] extends {
-    optional: true;
-  }
-    ? never
-    : readonly [readonly [Extract<K, string>]];
+  [K in keyof ModelStateOf<M>["polymorphicRelations"]]: PolymorphicCardinalityOf<
+    ModelStateOf<M>["polymorphicRelations"][K]["~"]["state"]
+  > extends "one"
+    ? ModelStateOf<M>["polymorphicRelations"][K]["~"]["state"] extends {
+        optional: true;
+      }
+      ? never
+      : readonly [readonly [Extract<K, string>]]
+    : never;
 }[keyof ModelStateOf<M>["polymorphicRelations"]];
 type CreateRequirementGroup<M extends AnyModel> =
   | CreateRequirementKeySetGroup<M>
@@ -119,15 +127,29 @@ export const getScalarCreate = <M extends AnyModel, F extends ScalarSchemas<M>>(
  * Root `createMany` rows: the ORDINARY create data shape (plan §6 J1), minus the
  * one exclusion root `createMany` keeps.
  *
- * The entries are the create schema's, key for key, with ONE substitution: the
- * polymorphic memberships stay at mode `"createMany"` — the connect-only union
- * (`relations/polymorphic/create-many.ts`). That is not a leftover. A row whose
- * ONLY relation work is a direct polymorphic `connect` is still bulk-compatible,
- * and the engine groups those connects into one probe per (relation, variant)
- * across the whole payload (`bulk-polymorphic-connect.ts`); plan §5.1 keeps that
- * route's SQL. Widening the membership to the full `"create"` union would make
- * such a row relation-BEARING and route it to the record series a row at a time,
- * which the plan does not ask for.
+ * The entries are the create schema's, key for key, with ONE substitution — and
+ * that substitution is now CARDINALITY-DISPATCHED, inside the `"createMany"`
+ * family itself (`relations/polymorphic/index.ts`), not here:
+ *
+ *   - a direct polymorphic TO-ONE membership stays at the connect-only union
+ *     (`relations/polymorphic/create-many.ts`). That is not a leftover. A row
+ *     whose ONLY relation work is a direct polymorphic `connect` is still
+ *     bulk-compatible, and the engine groups those connects into one probe per
+ *     (relation, variant) across the whole payload
+ *     (`bulk-polymorphic-connect.ts`); plan §5.1 keeps that route's SQL.
+ *     Widening it to the full `"create"` union would make such a row
+ *     relation-BEARING and route it to the record series a row at a time, which
+ *     the plan does not ask for.
+ *   - a polymorphic COLLECTION membership mounts the SAME family its `create`
+ *     context does (plan §9.6). Its memberships are per-variant member junction
+ *     rows that cannot exist before the owner row does, so the grouped INSERT
+ *     could never express them; `routing.ts`'s `relationBearingRow` reads the
+ *     collection half of the polymorphic set and routes the whole call to the
+ *     relation-bearing record series.
+ *
+ * `getBulkCreate` itself is unchanged by that dispatch: it still asks
+ * `v.fromObject(fieldSchemas.polymorphic, "createMany")` and the family key set
+ * is still eight, so this function stays byte-identical across the change.
  *
  * Everything else is `getCreateSchema` verbatim, including WHY: foreign-key
  * columns become optional (a row may spell the edge as a relation instead), and
@@ -263,7 +285,10 @@ function getFkRequirementKeySets(state: ModelState): string[][][] {
   for (const [relationName, relation] of Object.entries(
     state.polymorphicRelations
   )) {
-    if (!relation["~"].state.optional) {
+    if (
+      polymorphicCardinality(relation["~"].state) === "one" &&
+      !relation["~"].state.optional
+    ) {
       groups.push([[relationName]]);
     }
   }

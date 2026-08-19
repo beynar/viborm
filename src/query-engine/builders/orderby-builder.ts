@@ -7,13 +7,20 @@
 import { type Sql, sql } from "@sql";
 import {
   getColumnName,
+  getPolymorphicRelationInfo,
   getRelationInfo,
+  isPolymorphicRelation,
   isRelation,
   isScalarField,
 } from "../context";
-import { QueryEngineError, type QueryScope } from "../types";
+import {
+  isPolymorphicToOneRelationInfo,
+  QueryEngineError,
+  type QueryScope,
+} from "../types";
 import { assertExactDecimalOperation } from "./decimal-portability";
 import {
+  buildPolymorphicRelationOrders,
   buildRelationOrders,
   type RelationOrderAlias,
 } from "./relation-orderby-builder";
@@ -74,6 +81,24 @@ function buildOrderByInternal(
               alias,
               relationAliases
             )
+          );
+          continue;
+        }
+        if (isPolymorphicRelation(ctx.model, field)) {
+          if (!allowRelationOrder) {
+            throw new QueryEngineError(
+              `Relation orderBy '${field}' is not supported in this context.`
+            );
+          }
+          const polymorphic = getPolymorphicRelationInfo(ctx, field);
+          // A row-held polymorphic slot adds NO root ordering (plan §7.4), so it
+          // stays the unknown key it has always been; only a collection's
+          // `_count` reaches the order surface.
+          if (!polymorphic || isPolymorphicToOneRelationInfo(polymorphic)) {
+            throw new QueryEngineError(`Unknown orderBy field '${field}'.`);
+          }
+          orders.push(
+            ...buildPolymorphicRelationOrders(ctx, polymorphic, value, alias)
           );
           continue;
         }

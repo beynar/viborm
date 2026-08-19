@@ -44,6 +44,7 @@
  */
 
 import type { AnyModel } from "@schema/model";
+import { polymorphicCardinality } from "./cardinality";
 import {
   getPolymorphicInverseCandidates,
   type PolymorphicInverseBinding,
@@ -136,36 +137,99 @@ export function getPolymorphicInverseBinding(
 }
 
 /**
- * Which relation SHAPES may take a polymorphic inverse at all: a `oneToMany`, and a
- * fields-LESS `oneToOne`. Every other shape records its membership in a physical
- * foreign key on one of the two rows, so asking the polymorphic precedence about it
- * would let a name-paired polymorphic edge shadow a real column.
+ * Which relation SHAPES may take a polymorphic inverse at all: the four
+ * fields-LESS shapes — `oneToMany`, fields-less `oneToOne`, fields-less
+ * `manyToOne`, and fields-less `manyToMany` (`manyToMany` never carries
+ * `.fields()`, so every one qualifies). A fields-BEARING shape records its
+ * membership in a physical foreign key on one of the two rows, so asking the
+ * polymorphic precedence about it would let a name-paired polymorphic edge
+ * shadow a real column.
  *
- * A PRECONDITION of {@link getPolymorphicInverseBinding} rather than part of it: the
- * resolver answers "which back-reference carries the membership between these two
- * models", and this answers "may THIS edge take that answer". Both readers of the
- * polymorphic binding — the operation-schema nested-data projection and
- * {@link file://./clearability.ts} — gate on this one function, so neither can widen
- * the set of shapes on its own.
+ * The SHAPE fact only — compatibility with the bound group's cardinality is
+ * {@link getCompatiblePolymorphicInverseBinding}'s to decide, and that
+ * projection is the ONE gate every reader consumes this fact through, so no
+ * reader can widen the admitted shapes on its own.
  *
  * A `.fields()` spelled with ZERO arguments is fields-LESS here too, the same
  * aligned reading the rest of this module applies.
  */
 export const canBindPolymorphicInverse = (state: RelationState): boolean =>
   state.type === "oneToMany" ||
-  (state.type === "oneToOne" &&
+  ((state.type === "oneToOne" ||
+    state.type === "manyToOne" ||
+    state.type === "manyToMany") &&
     (state.fields === undefined || state.fields.length === 0));
 
+/** The compatible-binding projection's verdict: the one resolution plus the bound group's declared cardinality. */
+export interface CompatiblePolymorphicBinding
+  extends PolymorphicInverseBinding {
+  readonly groupCardinality: "one" | "many";
+}
+
 /**
- * The type twin of {@link canBindPolymorphicInverse} — with ONE known divergence:
- * a `.fields()` spelled with ZERO arguments infers `fields: []`, which IS
- * assignable to `readonly string[]`, so this twin answers `false` where the
- * runtime answers `true`. Pre-existing (the deleted private copy read the same
- * way), inherited unchanged by this relocation: on that shape the type level
- * falls to the ordinary-FK reading and withholds keys the runtime grants
- * (`nested-update-owned-fk.test.ts` casts around exactly this). Aligning the
- * twin to the siblings' non-empty-tuple spelling is a type-surface widening
- * with its own measurement obligation — a later unit, not this one.
+ * The COMPATIBLE polymorphic binding of one relation edge — a named projection
+ * of the one resolution in {@link resolveInverseRelation}, never a second
+ * precedence: (1) the shape fact ({@link canBindPolymorphicInverse}), (2) the
+ * resolution itself, (3) the bound group's declared cardinality
+ * (`polymorphicCardinality`), and (4) the compatibility rule — each asking
+ * shape binds ONLY the group family that owns its membership storage. A
+ * `manyToOne` or `manyToMany` asker binds a `groupCardinality: "many"` group,
+ * because its membership would live in a member junction, which only a
+ * collection group owns; the row-held shapes (`oneToMany`, fields-less
+ * `oneToOne`) bind a `"one"` group, because their membership is the owner's
+ * private `(type, id)` pair, which only a toOne group owns (B3's tightening,
+ * landed with the P014 deletion that made collection schemas constructible).
+ * Incompatible means `undefined`, which IS the fallback to the edge's
+ * ordinary meaning: a name-paired toOne group cannot shadow the retained
+ * ordinary-compat `manyToOne` or an ordinary junction pair, R004/R005 and the
+ * junction rules keep firing for those spellings exactly as before, and a
+ * row-held shape over a toMany group is R003-invalid unless a real ordinary
+ * inverse carries the edge — clearability and the nested-data projection fall
+ * to their ordinary arms for it.
+ */
+export function getCompatiblePolymorphicInverseBinding(
+  state: RelationState,
+  source: AnyModel
+): CompatiblePolymorphicBinding | undefined {
+  if (!canBindPolymorphicInverse(state)) return undefined;
+  const target: AnyModel = state.getter();
+  const binding = getPolymorphicInverseBinding(target, source, state.name);
+  if (!binding) return undefined;
+  // The resolver only ever answers with a relation key it enumerated on the
+  // target, so the group read cannot miss; a forced carrier with no terminal
+  // yields no cardinality and therefore never satisfies either family.
+  const groupCardinality = polymorphicCardinality(
+    target["~"].state.polymorphicRelations[binding.relationKey]!["~"].state
+  );
+  const askerStorageFamily =
+    state.type === "manyToOne" || state.type === "manyToMany" ? "many" : "one";
+  if (groupCardinality !== askerStorageFamily) {
+    return undefined;
+  }
+  return { ...binding, groupCardinality };
+}
+
+/**
+ * The type twin of {@link canBindPolymorphicInverse} — with TWO known divergences,
+ * both runtime-true / type-conservative:
+ *
+ * 1. A `.fields()` spelled with ZERO arguments infers `fields: []`, which IS
+ *    assignable to `readonly string[]`, so this twin answers `false` where the
+ *    runtime answers `true`. Pre-existing (the deleted private copy read the same
+ *    way), inherited unchanged by this relocation: on that shape the type level
+ *    falls to the ordinary-FK reading and withholds keys the runtime grants
+ *    (`nested-update-owned-fk.test.ts` casts around exactly this). Aligning the
+ *    twin to the siblings' non-empty-tuple spelling is a type-surface widening
+ *    with its own measurement obligation — a later unit, not this one.
+ * 2. B2's runtime widening to fields-less `manyToOne` / `manyToMany` is
+ *    DELIBERATELY not mirrored here. Measured consequence of leaving the twin
+ *    narrow: none — `ToManyUpdateSchema`'s `manyToMany` arm already grants
+ *    `disconnect` to plural views, and the non-fields-less-one-to-one arm of the
+ *    optional to-one update entries already grants `disconnect`/`delete` to an
+ *    optional `manyToOne` — so the operation-schema type surface is already
+ *    correct for both new shapes with zero edits. Widening the twin would churn
+ *    the mutually-recursive model consts this type participates in (see the
+ *    any-collapse memory) for no key it could add.
  */
 export type CanBindPolymorphicInverse<S extends RelationState> =
   S["type"] extends "manyToMany" | "oneToMany"

@@ -77,7 +77,7 @@ const polymorphicWriteSchema = (() => {
         .optional()
         .name("boardEntry"),
       commentable: s
-        .polymorphic(
+        .polymorphicToOne(
           { post: () => post, video: () => video },
           {
             values: {
@@ -95,7 +95,7 @@ const polymorphicWriteSchema = (() => {
     .model({
       id: s.int().id().increment(),
       body: s.string(),
-      subject: s.polymorphic(
+      subject: s.polymorphicToOne(
         { post: () => post, video: () => video },
         {
           values: {
@@ -120,7 +120,7 @@ const polymorphicWriteSchema = (() => {
         .name("featuredBoard")
         .optional(),
       commentable: s
-        .polymorphic(
+        .polymorphicToOne(
           { post: () => post, video: () => video },
           {
             values: {
@@ -140,7 +140,10 @@ const polymorphicWriteSchema = (() => {
       label: s.string(),
       children: s.oneToMany(() => node).name("tree"),
       parent: s
-        .polymorphic({ node: () => node }, { values: { node: "tree.node.v1" } })
+        .polymorphicToOne(
+          { node: () => node },
+          { values: { node: "tree.node.v1" } }
+        )
         .name("tree")
         .optional(),
     })

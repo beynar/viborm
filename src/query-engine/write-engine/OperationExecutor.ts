@@ -89,6 +89,13 @@ export interface ExecutableOperation {
   readonly mode: "transaction" | "batch";
   /** Exact private disposition for a root INSERT whose duplicate skips its member. */
   readonly seriesRootConflict?: SeriesRootConflictDisposition;
+  /**
+   * A write this operation's PARSED SHAPE already promises to emit before its
+   * root write — the only thing a member that cannot be compiled at preflight can
+   * still be asked about its step order. Absent means "the shape declares none",
+   * never "there is none": the compiled reader stays the general owner.
+   */
+  readonly declaredPreRootWriteId?: string;
   planning(): PlanningFragment;
   compile(known: Readonly<Record<string, unknown>>): OperationFragment;
   parse<T>(outputs: Readonly<Record<string, unknown>>): T;
@@ -555,7 +562,19 @@ export class OperationExecutor {
       );
     }
     assertStaticFragmentCapacity(planning, driver, bindLimit);
-    if (planning.steps.length !== 0) return { operation, planning };
+    if (planning.steps.length !== 0) {
+      // This member cannot be compiled here: compiling it needs planning outputs
+      // only its own turn can read. Its DECLARED shape can still be read, and
+      // that is this reader's entire unique coverage — TIMING. Without it a
+      // member that both plans and promises a write before a skippable root
+      // takes its root-conflict refusal at member time, after earlier members
+      // have durably committed, which is exactly what plan §9.6 forbids by
+      // asking for the refusal "before member zero". The compiled reader below
+      // stays the general owner of the same invariant for every member it can
+      // reach, including the probe-dependent arms a shape cannot promise.
+      assertDeclaredRootConflictEligibility(operation, driver);
+      return { operation, planning };
+    }
     // Empty planning makes compilation independent of predecessor effects.
     // Every such member is compiled during series preflight, before the first
     // segment commit, so a statically knowable capacity refusal cannot strand a
@@ -1951,6 +1970,14 @@ function assertOperationPlanCapacity(
   }
 }
 
+/**
+ * THE COMPILED READER of "a skipped root must strand nothing" — the general owner.
+ * It sees the member's real step order, so it answers for every arm actually
+ * chosen, including the probe-dependent ones no parsed shape can promise. It runs
+ * at series preflight for members with empty planning, and at member time for the
+ * rest; {@link assertDeclaredRootConflictEligibility} is what covers the timing
+ * that leaves open.
+ */
 function assertProgressiveRootConflictEligibility(
   fragment: OperationFragment,
   disposition: SeriesRootConflictDisposition | undefined,
@@ -1970,9 +1997,38 @@ function assertProgressiveRootConflictEligibility(
     .slice(0, rootIndex)
     .find((step) => step.kind === "write" || step.kind === "recordSeries");
   if (!priorEffect) return;
-  throw progressiveSeriesRefusal(
+  throw strandedRootConflictPrefix(disposition, priorEffect.id, driver);
+}
+
+/**
+ * THE DECLARED READER of the same invariant, for the members the compiled one
+ * structurally cannot reach at preflight (plan §9.6, "before member zero").
+ *
+ * It adds no sentence and no second refusal: both readers throw
+ * {@link strandedRootConflictPrefix}. What it adds is WHEN — a member whose
+ * planning phase is non-empty is compiled only on its own turn, and by then a
+ * predecessor may hold a durable segment. The operation's parsed shape is the one
+ * thing available earlier, and an operation only declares a write it is certain
+ * to emit, so this can refuse nothing the compiled reader would have passed.
+ */
+function assertDeclaredRootConflictEligibility(
+  operation: ExecutableOperation,
+  driver: AnyDriver
+): void {
+  const disposition = operation.seriesRootConflict;
+  const declared = operation.declaredPreRootWriteId;
+  if (!(disposition && declared)) return;
+  throw strandedRootConflictPrefix(disposition, declared, driver);
+}
+
+function strandedRootConflictPrefix(
+  disposition: SeriesRootConflictDisposition,
+  priorEffectId: string,
+  driver: AnyDriver
+): UnsupportedOperationError {
+  return progressiveSeriesRefusal(
     driver,
-    `skipping root '${disposition.rootWriteId}' would leave prior effect '${priorEffect.id}' committed`
+    `skipping root '${disposition.rootWriteId}' would leave prior effect '${priorEffectId}' committed`
   );
 }
 

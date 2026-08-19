@@ -16,7 +16,12 @@ import {
   formatMigrationFilename,
   getNextMigrationIndex,
 } from "../storage";
-import type { GenerateOptions, GenerateResult } from "../types";
+import type {
+  GenerateOptions,
+  GenerateResult,
+  MigrationMode,
+  MigrationRollback,
+} from "../types";
 import {
   DEFAULT_MIGRATIONS_DIR,
   extractForwardReferenceForeignKeys,
@@ -24,9 +29,17 @@ import {
   normalizeDialect,
   resolveEnumValueRemovals,
 } from "../utils";
-import { formatDownMigrationContent, invertOperations } from "./down";
+import {
+  formatDownMigrationContent,
+  formatIrreversibleDownContent,
+  invertOperations,
+} from "./down";
 import { formatMigrationContent } from "./file-writer";
-import { resolvePolymorphicMemberHistory } from "./polymorphic-history";
+import { resolveManualArtifact } from "./manual-artifact";
+import {
+  pairPolymorphicMemberRenames,
+  resolvePolymorphicMemberHistory,
+} from "./polymorphic-history";
 
 /**
  * Generates a new migration file by comparing the schema with the last snapshot.
@@ -45,8 +58,8 @@ export async function generate(
     storageDriver,
     resolver = strictResolver,
     enumValueResolver,
-    polymorphicMemberResolver,
     dryRun = false,
+    manualMigration,
   } = options;
 
   const driver = client.$driver;
@@ -64,6 +77,14 @@ export async function generate(
 
   // Get the migration driver
   const migrationDriver = getMigrationDriver(driver.driverName, driver.dialect);
+
+  // 0. Validate the caller-owned artifact BEFORE any snapshot read: supplying
+  // it elects manual mode for the whole migration (whether or not a
+  // data-bearing transition exists), so an incomplete artifact must not reach
+  // the diff, let alone a write.
+  const manualArtifact = manualMigration
+    ? resolveManualArtifact(manualMigration, name, dialect)
+    : null;
 
   // 1. Read previous snapshot (or create empty for first migration)
   const previousSnapshot = await storage.getSnapshotOrEmpty();
@@ -90,16 +111,29 @@ export async function generate(
     enumValueResolver
   );
 
+  // 5c. Deterministic member-junction rename pairing: a renamed public
+  // variant moves its default-named member junction table AND its
+  // variant-derived target columns, a shape the Jaccard rename heuristic can
+  // never offer. The stable stored value proves the member's identity, so the
+  // drop+create pair is rewritten into renameTable+renameColumn here — before
+  // member history classifies it. Push deliberately keeps add/drop.
+  finalOperations = pairPolymorphicMemberRenames(
+    previousSnapshot,
+    currentSnapshot,
+    finalOperations
+  );
+
   // Structural renames establish the physical identity used by polymorphic
-  // member history. The history check never emits SQL; it only refuses unsafe
-  // metadata advancement unless the caller attests that separate DML ran.
-  const polymorphicMetadataChanged =
-    await resolvePolymorphicMemberHistory(
-      previousSnapshot,
-      currentSnapshot,
-      finalOperations,
-      polymorphicMemberResolver
-    );
+  // member history. The history check never emits SQL; it refuses every
+  // data-bearing polymorphic transition outright — before the journal read,
+  // SQL generation and every storage write below, dry-run included — unless the
+  // caller supplied the complete artifact, which makes them its author.
+  const polymorphicMetadataChanged = resolvePolymorphicMemberHistory(
+    previousSnapshot,
+    currentSnapshot,
+    finalOperations,
+    { manualArtifactSupplied: manualArtifact !== null }
+  );
 
   // 5b. Lift forward-reference FKs out of CREATE TABLE so the generated
   // migration file orders every referenced table before its constraint
@@ -109,8 +143,12 @@ export async function generate(
     migrationDriver
   );
 
-  // 6. Check if there are any changes
-  if (finalOperations.length === 0) {
+  // 6. Check if there are any changes.
+  // A manual migration is never zero-op: its statements ARE the migration, and
+  // the flagship case — a toOne stored-value rewrite — produces no structural
+  // operations at all. Returning early here would silently discard the
+  // caller's artifact and write only the snapshot.
+  if (finalOperations.length === 0 && !manualArtifact) {
     if (polymorphicMetadataChanged && !dryRun) {
       await storage.writeSnapshot(currentSnapshot);
     }
@@ -122,6 +160,8 @@ export async function generate(
       operations: [],
       downSql: [],
       downWarnings: [],
+      mode: "generated",
+      rollback: { kind: "automatic" },
       written: polymorphicMetadataChanged && !dryRun,
       message: polymorphicMetadataChanged
         ? dryRun
@@ -134,61 +174,92 @@ export async function generate(
   // 7. Get or create journal
   const journal = await storage.getOrCreateJournal(dialect);
 
-  // 8. Generate DDL statements. The snapshot describes the database before the
-  // migration; the operations already written have moved it on, and SQLite's
-  // table recreation needs both (see `DDLContext.precedingOperations`).
+  // 8. Emit the migration's SQL.
+  //
+  // Manual mode substitutes wholesale: the caller's statements ARE the
+  // migration, so neither the up DDL loop nor the inversion below runs and
+  // nothing generated is ever appended around them. `downWarnings` is empty
+  // because no inversion ran — an irreversible `reason` is policy, not a
+  // warning, and it rides on the entry.
   const sql: string[] = [];
-
-  for (const [position, op] of finalOperations.entries()) {
-    const ddl = migrationDriver.generateDDL(op, {
-      currentSchema: previousSnapshot,
-      precedingOperations: finalOperations.slice(0, position),
-    });
-    // Split multi-statement DDL
-    const statements = ddl.split(";\n").filter((s) => s.trim());
-    for (const stmt of statements) {
-      // Ensure statement ends with semicolon
-      const trimmed = stmt.trim();
-      sql.push(trimmed.endsWith(";") ? trimmed : `${trimmed};`);
-    }
-  }
-
-  // 8b. Generate down (rollback) DDL from inverted operations.
-  // Down statements run against the post-migration schema.
-  const inverted = invertOperations(finalOperations, previousSnapshot);
   const downSql: string[] = [];
+  const downWarnings: string[] = [];
+  const mode: MigrationMode = manualArtifact ? "manual" : "generated";
+  const rollback: MigrationRollback = manualArtifact
+    ? manualArtifact.rollback
+    : { kind: "automatic" };
 
-  for (const [position, op] of inverted.operations.entries()) {
-    const ddl = migrationDriver.generateDDL(op, {
-      currentSchema: currentSnapshot,
-      precedingOperations: inverted.operations.slice(0, position),
-    });
-    const statements = ddl.split(";\n").filter((s) => s.trim());
-    for (const stmt of statements) {
-      const trimmed = stmt.trim();
-      downSql.push(trimmed.endsWith(";") ? trimmed : `${trimmed};`);
+  if (manualArtifact) {
+    sql.push(...manualArtifact.sql);
+    downSql.push(...manualArtifact.downSql);
+  } else {
+    // 8a. Generate DDL statements. The snapshot describes the database before
+    // the migration; the operations already written have moved it on, and
+    // SQLite's table recreation needs both (see
+    // `DDLContext.precedingOperations`).
+    for (const [position, op] of finalOperations.entries()) {
+      const ddl = migrationDriver.generateDDL(op, {
+        currentSchema: previousSnapshot,
+        precedingOperations: finalOperations.slice(0, position),
+      });
+      // Split multi-statement DDL
+      const statements = ddl.split(";\n").filter((s) => s.trim());
+      for (const stmt of statements) {
+        // Ensure statement ends with semicolon
+        const trimmed = stmt.trim();
+        sql.push(trimmed.endsWith(";") ? trimmed : `${trimmed};`);
+      }
     }
+
+    // 8b. Generate down (rollback) DDL from inverted operations.
+    // Down statements run against the post-migration schema.
+    const inverted = invertOperations(finalOperations, previousSnapshot);
+
+    for (const [position, op] of inverted.operations.entries()) {
+      const ddl = migrationDriver.generateDDL(op, {
+        currentSchema: currentSnapshot,
+        precedingOperations: inverted.operations.slice(0, position),
+      });
+      const statements = ddl.split(";\n").filter((s) => s.trim());
+      for (const stmt of statements) {
+        const trimmed = stmt.trim();
+        downSql.push(trimmed.endsWith(";") ? trimmed : `${trimmed};`);
+      }
+    }
+    downWarnings.push(...inverted.warnings);
   }
 
   // 9. Create migration entry
   const idx = getNextMigrationIndex(journal);
-  const migrationName = name || generateMigrationName(finalOperations);
+  const migrationName = manualArtifact
+    ? manualArtifact.name
+    : name || generateMigrationName(finalOperations);
   const content = formatMigrationContent(
-    { idx, version: "", name: migrationName, when: Date.now(), checksum: "" },
+    {
+      idx,
+      version: "",
+      name: migrationName,
+      when: Date.now(),
+      checksum: "",
+      mode,
+      rollback,
+    },
     sql,
     dialect
   );
 
-  const entry = createMigrationEntry(idx, migrationName, content);
+  const entry = createMigrationEntry(idx, migrationName, content, {
+    mode,
+    rollback,
+  });
 
   // Re-format content with the actual entry (which has checksum)
   const finalContent = formatMigrationContent(entry, sql, dialect);
 
-  const downContent = formatDownMigrationContent(
-    migrationName,
-    downSql,
-    inverted.warnings
-  );
+  const downContent =
+    rollback.kind === "irreversible"
+      ? formatIrreversibleDownContent(migrationName, rollback.reason)
+      : formatDownMigrationContent(migrationName, downSql, downWarnings);
 
   // 10. Write files (unless dry run)
   if (!dryRun) {
@@ -206,17 +277,20 @@ export async function generate(
     await storage.writeSnapshot(currentSnapshot);
   }
 
+  const kindLabel = manualArtifact ? "manual migration" : "migration";
   return {
     entry,
     sql,
     content: finalContent,
     operations: finalOperations,
     downSql,
-    downWarnings: inverted.warnings,
+    downWarnings,
+    mode,
+    rollback,
     written: !dryRun,
     message: dryRun
-      ? `Would generate migration: ${formatMigrationFilename(entry)}`
-      : `Generated migration: ${formatMigrationFilename(entry)}`,
+      ? `Would generate ${kindLabel}: ${formatMigrationFilename(entry)}`
+      : `Generated ${kindLabel}: ${formatMigrationFilename(entry)}`,
   };
 }
 
@@ -234,5 +308,4 @@ export async function preview(
 export { formatMigrationFilename, getNextMigrationIndex } from "../storage";
 export { generateMigrationName } from "../utils";
 export { getMigrationFilePath, parseStatements } from "./file-writer";
-export { readJournal } from "./journal";
 export { getSnapshotOrEmpty, readSnapshot } from "./snapshot";

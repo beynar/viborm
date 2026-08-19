@@ -33,6 +33,9 @@ import { nestedWriteAdvancedContract } from "@tests/contracts/drivers/behaviors/
 import { nestedWriteContract } from "@tests/contracts/drivers/behaviors/nested-write-behavior";
 import { nestedWriteConcurrencyContract } from "@tests/contracts/drivers/behaviors/nested-write-concurrency-behavior";
 import { omitContract } from "@tests/contracts/drivers/behaviors/omit-behavior";
+import { polymorphicCollectionReadContract } from "@tests/contracts/drivers/behaviors/polymorphic-collection-read-behavior";
+import { polymorphicCollectionWriteContract } from "@tests/contracts/drivers/behaviors/polymorphic-collection-write-behavior";
+import { polymorphicMemberJunctionContract } from "@tests/contracts/drivers/behaviors/polymorphic-member-junction-behavior";
 import { polymorphicRelationContract } from "@tests/contracts/drivers/behaviors/polymorphic-relation-behavior";
 import { rawArrayTransactionContract } from "@tests/contracts/drivers/behaviors/raw-array-transaction-behavior";
 import { relationReadAggregateContract } from "@tests/contracts/drivers/behaviors/relation-read-aggregate-behavior";
@@ -69,6 +72,7 @@ import { runUpsertFamilyBehavior } from "@tests/contracts/engine/write/upsert-fa
 import {
   PgBatchForcedDriver,
   PgBeforeFirstBatchDriver,
+  PgBeforeFirstWriteBatchDriver,
   PgRacePlantingBatchDriver,
 } from "@tests/fixtures/drivers/batch-forced-pg";
 
@@ -538,6 +542,10 @@ describeIf("pg Driver", () => {
     driverName: "pg",
     createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
   });
+  polymorphicMemberJunctionContract.register({
+    driverName: "pg",
+    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
   // Decision 7.4 on the real server rather than the WASM one: the deparse this
   // reconciles is PostgreSQL's, and `pg` reaches it through a POOL, where the
   // canonicalization's session-local scratch would scatter across connections
@@ -575,6 +583,15 @@ describeIf("pg Driver", () => {
       new PgBatchForcedDriver({ databaseUrl: TEST_CONNECTION_STRING }),
     createRacePlantingBatchDriver: ({ plant, onBatchError }) =>
       new PgRacePlantingBatchDriver(plant, onBatchError, {
+        databaseUrl: TEST_CONNECTION_STRING,
+      }),
+    // §9.4/§13.4: the singular polymorphic slot transfer's two-adopter
+    // arbitration. The hook has to sit at the ATOMIC WRITE UNIT's boundary, not
+    // the first batch's: this plan's independent planning reads are dispatched
+    // as a batch of their own, so the earlier boundary would fire before the
+    // owner capture instead of after it.
+    createCapturedPlanBatchDriver: ({ beforeFirstWriteBatch, onBatchError }) =>
+      new PgBeforeFirstWriteBatchDriver(beforeFirstWriteBatch, onBatchError, {
         databaseUrl: TEST_CONNECTION_STRING,
       }),
   });
@@ -669,6 +686,14 @@ describeIf("pg Driver", () => {
     createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
   });
   polymorphicRelationContract.register({
+    name: "pg",
+    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+  polymorphicCollectionReadContract.register({
+    name: "pg",
+    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+  polymorphicCollectionWriteContract.register({
     name: "pg",
     createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
   });

@@ -458,8 +458,14 @@ export const toManyUpdateFactory = <
   );
 
   // A `manyToMany` membership always clears (the junction row goes, no column is
-  // nulled), and every other edge asks the clearability owner. A polymorphic inverse
-  // is never `manyToMany`, so its clearability alone decides — one expression.
+  // nulled), and every other edge asks the clearability owner — one expression.
+  //
+  // The `manyToMany` arm now covers a real polymorphic shape rather than only
+  // ordinary pairs: a PLURAL collection inverse (plan §9.5) IS a polymorphic-bound
+  // `manyToMany`, and it clears for exactly the stated reason — its membership is a
+  // member-junction row that goes away, and no column on either row is nulled. The
+  // sentence that used to stand here ("a polymorphic inverse is never `manyToMany`")
+  // was true only while the collection grammar was closed.
   const canDisconnect =
     state.type === "manyToMany" || membershipCanBeCleared(state, source);
   const disconnectEntry = canDisconnect

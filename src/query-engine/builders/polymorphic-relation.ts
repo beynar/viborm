@@ -1,6 +1,6 @@
 import { manyToOne } from "@schema/relation";
 import {
-  type PolymorphicRelationInfo,
+  type PolymorphicToOneRelationInfo,
   QueryEngineError,
   type QueryScope,
   type ResolvedPolymorphicEdge,
@@ -10,10 +10,18 @@ import {
   buildPolymorphicMembership,
 } from "./relation-data-builder";
 
-/** Resolve one validated public discriminator without conflating direct and inverse topology. */
+/**
+ * Resolve one validated public discriminator without conflating direct and
+ * inverse topology.
+ *
+ * DELIBERATELY row-held-only, and not widened by Package C: the synthetic
+ * `manyToOne` it builds addresses the owner's private `(type, id)` pair, which
+ * a collection has no analogue of. A collection member's junction facts are
+ * pre-resolved on its storage and bound by `bindPolymorphicMemberJunction`.
+ */
 export function resolvePolymorphicEdge(
   scope: QueryScope,
-  relation: PolymorphicRelationInfo,
+  relation: PolymorphicToOneRelationInfo,
   publicType: string
 ): ResolvedPolymorphicEdge {
   const member = relation.storage.members.get(publicType);

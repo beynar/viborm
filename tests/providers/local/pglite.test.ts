@@ -40,6 +40,8 @@ import { omitContract } from "@tests/contracts/drivers/behaviors/omit-behavior";
 import { optionalRelationParityContract } from "@tests/contracts/drivers/behaviors/optional-relation-parity-behavior";
 import { orderingArrayCreateContract } from "@tests/contracts/drivers/behaviors/ordering-array-create-behavior";
 import { orderingPlanContract } from "@tests/contracts/drivers/behaviors/ordering-plan-behavior";
+import { polymorphicCollectionReadContract } from "@tests/contracts/drivers/behaviors/polymorphic-collection-read-behavior";
+import { polymorphicCollectionWriteContract } from "@tests/contracts/drivers/behaviors/polymorphic-collection-write-behavior";
 import { polymorphicRelationContract } from "@tests/contracts/drivers/behaviors/polymorphic-relation-behavior";
 import { prismaParityContract } from "@tests/contracts/drivers/behaviors/prisma-parity-behavior";
 import { readPathRegressionContract } from "@tests/contracts/drivers/behaviors/read-path-regression-behavior";
@@ -211,6 +213,31 @@ describe("PGlite Driver", () => {
   polymorphicRelationContract.register({
     name: "PGlite",
     pgliteMode: "transaction",
+  });
+  // BOTH substrates, which is the §12 land gate read honestly: PGlite in
+  // `transaction` mode is the transactional substrate, and `atomicBatch` — the
+  // only native-batch substrate in the estate that actually runs contracts — is
+  // the native-batch one.
+  polymorphicCollectionReadContract.register({
+    name: "PGlite",
+    pgliteMode: "transaction",
+  });
+  polymorphicCollectionReadContract.register({
+    name: "PGlite atomic batch",
+    pgliteMode: "atomicBatch",
+  });
+  // BOTH substrates for the WRITE half too, and for a stronger reason than the
+  // read half's: §1.6's slot-replacement protocol enforces its premises
+  // DIFFERENTLY on each — a row lock in a transaction, in-batch assertions plus
+  // the target-side UNIQUE in a native batch — so a single-substrate run would
+  // leave half of the design unmeasured.
+  polymorphicCollectionWriteContract.register({
+    name: "PGlite",
+    pgliteMode: "transaction",
+  });
+  polymorphicCollectionWriteContract.register({
+    name: "PGlite atomic batch",
+    pgliteMode: "atomicBatch",
   });
   readPathRegressionContract.register({
     driverName: "PGlite",

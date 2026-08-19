@@ -10,7 +10,7 @@
 
 import * as p from "@clack/prompts";
 import { Command } from "commander";
-import { apply, pending, rollback, status } from "../../migrations/apply";
+import { apply, pending, status } from "../../migrations/apply";
 import { down } from "../../migrations/apply/down";
 import { generate } from "../../migrations/generate";
 import { createFsStorageDriver } from "../../migrations/storage/drivers/fs";
@@ -24,13 +24,15 @@ import { formatDuration, loadConfig } from "../utils";
 // MAIN MIGRATE COMMAND
 // =============================================================================
 
+// There is deliberately no `drop` subcommand: untracking an applied migration
+// without reverting it is the bypass a persisted rollback policy exists to
+// close. `migrate down` executes the down artifact and untracks together.
 export const migrateCommand = new Command("migrate")
   .description("Generate and apply SQL migration files")
   .addCommand(generateCommand())
   .addCommand(applyCommand())
   .addCommand(downCommand())
-  .addCommand(statusCommand())
-  .addCommand(dropCommand());
+  .addCommand(statusCommand());
 
 // =============================================================================
 // GENERATE SUBCOMMAND
@@ -78,10 +80,18 @@ function generateCommand(): Command {
         spinner.stop("Schema analysis complete");
 
         // 3. Display results
-        if (result.operations.length === 0 || !result.entry) {
-          p.note(result.message, "Status");
-        } else {
+        if (result.entry) {
           displayOperations(result.operations);
+
+          // In manual mode the operations above are the DETECTED DIFF, while
+          // the file holds only the caller's statements — say so between the
+          // two displays rather than let them read as one thing.
+          if (result.mode === "manual") {
+            p.note(
+              `Manual migration: ${result.sql.length} supplied statement(s). The operations above are the detected schema diff, not the emitted SQL.`,
+              "Manual mode"
+            );
+          }
 
           if (options.dryRun) {
             displaySQL(result.sql);
@@ -95,6 +105,8 @@ function generateCommand(): Command {
               "Success"
             );
           }
+        } else {
+          p.note(result.message, "Status");
         }
 
         const duration = Date.now() - startTime;
@@ -412,107 +424,6 @@ function statusCommand(): Command {
         }
 
         // 5. Disconnect
-        if (driver.disconnect) {
-          await driver.disconnect();
-        }
-
-        const duration = Date.now() - startTime;
-        p.outro(`Done in ${formatDuration(duration)}`);
-      } catch (error) {
-        exitWithError(error);
-      }
-    });
-}
-
-// =============================================================================
-// DROP SUBCOMMAND
-// =============================================================================
-
-function dropCommand(): Command {
-  return new Command("drop")
-    .description("Remove migration tracking (does NOT revert database changes)")
-    .option("--config <path>", "Path to viborm.config.ts file")
-    .option("--dir <dir>", "Migrations directory (default: ./migrations)")
-    .option("--table-name <name>", "Name of the migrations tracking table")
-    .option("--last", "Drop only the last migration", false)
-    .option("--count <n>", "Drop the last N migrations")
-    .option("--force", "Skip confirmation prompts", false)
-    .action(async (options) => {
-      const startTime = Date.now();
-
-      p.intro("viborm migrate drop");
-
-      try {
-        // 1. Load configuration
-        const spinner = p.spinner();
-        spinner.start("Loading configuration...");
-
-        const { client, driver, migrations } = await loadConfig({
-          config: options.config,
-        });
-
-        spinner.stop("Configuration loaded");
-
-        // 2. Connect to database if needed
-        if (driver.connect) {
-          spinner.start("Connecting to database...");
-          await driver.connect();
-          spinner.stop("Connected to database");
-        }
-
-        // 3. Resolve storage driver: CLI option > config > default
-        const dir = options.dir || migrations?.dir || "./migrations";
-        const storageDriver =
-          migrations?.storageDriver || createFsStorageDriver(dir);
-        const tableName = options.tableName || migrations?.tableName;
-
-        // 4. Determine count
-        let count = 1;
-        if (options.count) {
-          count = Number.parseInt(options.count);
-        } else if (options.last) {
-          count = 1;
-        }
-
-        // 5. Warn user and confirm (skip if --force)
-        if (!options.force) {
-          p.note(
-            "This will remove migration tracking from the database.\n" +
-              "It does NOT revert any database changes made by the migrations.\n" +
-              "To revert schema changes, use `viborm migrate down` instead.\n" +
-              "Use this only if you know what you're doing.",
-            "Warning"
-          );
-
-          const confirm = await p.confirm({
-            message: `Drop the last ${count} migration(s) from tracking?`,
-            initialValue: false,
-          });
-
-          if (p.isCancel(confirm) || !confirm) {
-            p.cancel("Operation cancelled.");
-            if (driver.disconnect) await driver.disconnect();
-            process.exit(0);
-          }
-        }
-
-        // 6. Rollback
-        spinner.start("Removing migration tracking...");
-
-        const dropped = await rollback(client, {
-          storageDriver,
-          tableName,
-          count,
-        });
-
-        spinner.stop(`Removed ${dropped.length} migration(s) from tracking`);
-
-        // 6. Display results
-        for (const entry of dropped) {
-          p.log.warn(`○ ${formatMigrationFilename(entry)} (untracked)`);
-        }
-
-        // 7. Disconnect
         if (driver.disconnect) {
           await driver.disconnect();
         }

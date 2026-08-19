@@ -12,19 +12,63 @@ export interface SchemaSnapshot {
   polymorphicStorage?: readonly PolymorphicSnapshotStorage[] | undefined;
 }
 
-export interface PolymorphicSnapshotMember {
+export interface PolymorphicToOneSnapshotMember {
   readonly publicType: string;
   readonly storedType: string;
   readonly targetTable: string;
-  readonly referencedColumn: string;
 }
 
-export interface PolymorphicSnapshotStorage {
+/**
+ * Logical-only history for a to-one polymorphic relation. The physical
+ * facts (columns, index) live in the owner's {@link TableDef} where the
+ * structural differ owns them; `storageRef` is the join key into the owner
+ * table's `relationStorage` registry — the physical type-column name at
+ * serialization time, opaque to every reader and normalized through accepted
+ * rename operations before history joins.
+ */
+export interface PolymorphicToOneSnapshot {
   readonly ownerTable: string;
   readonly relation: string;
+  readonly kind: "toOne";
+  readonly storageRef: string;
+  readonly members: readonly PolymorphicToOneSnapshotMember[];
+}
+
+export interface PolymorphicToManySnapshotMember {
+  readonly publicType: string;
+  readonly storedType: string;
+  readonly targetTable: string;
+  readonly memberJunctionTable: string;
+  readonly inverseCardinality: "one" | "many";
+}
+
+/**
+ * Logical-only history for a collection polymorphic relation: nothing
+ * physical (no side columns, constraint names, or referential actions) — each
+ * member names its junction table and the structural differ owns that table's
+ * shape entirely.
+ */
+export interface PolymorphicToManySnapshot {
+  readonly ownerTable: string;
+  readonly relation: string;
+  readonly kind: "toMany";
+  readonly members: readonly PolymorphicToManySnapshotMember[];
+}
+
+export type PolymorphicSnapshotStorage =
+  | PolymorphicToOneSnapshot
+  | PolymorphicToManySnapshot;
+
+/**
+ * One relation-owned physical storage annotation on the table that carries it,
+ * keyed in {@link TableDef.relationStorage} by the storage ref (the physical
+ * type-column name at serialization time).
+ */
+export interface PolymorphicToOneStorageRegistryEntry {
+  readonly kind: "polymorphicToOne";
   readonly typeColumn: string;
   readonly idColumn: string;
-  readonly members: readonly PolymorphicSnapshotMember[];
+  readonly index: string;
 }
 
 export interface TableDef {
@@ -34,6 +78,16 @@ export interface TableDef {
   indexes: IndexDef[];
   foreignKeys: ForeignKeyDef[];
   uniqueConstraints: UniqueConstraintDef[];
+  /**
+   * Relation-owned storage registry, annotation ONLY: the structural differ
+   * ignores it, drivers pass it through `finalizeTable` untouched, no DDL
+   * reads it, and introspected snapshots never carry it. Its sole reader is
+   * polymorphic member history, which joins
+   * {@link PolymorphicToOneSnapshot.storageRef} into it.
+   */
+  relationStorage?:
+    | Readonly<Record<string, PolymorphicToOneStorageRegistryEntry>>
+    | undefined;
 }
 
 export interface ColumnDef {
@@ -614,6 +668,21 @@ export interface MigrationJournal {
   entries: MigrationEntry[];
 }
 
+/** How a migration's up artifact was produced. */
+export type MigrationMode = "generated" | "manual";
+
+/**
+ * The rollback policy a migration entry commits to, persisted in the journal.
+ *
+ * `manual` carries no `sql`: manual rollback SQL is written to the ordinary
+ * down artifact, never duplicated in the journal. `irreversible` keeps its
+ * `reason` because no artifact holds it and `down()` quotes it when refusing.
+ */
+export type MigrationRollback =
+  | { kind: "automatic" }
+  | { kind: "manual" }
+  | { kind: "irreversible"; reason: string };
+
 export interface MigrationEntry {
   /** Sequential index (0, 1, 2...) */
   idx: number;
@@ -625,6 +694,10 @@ export interface MigrationEntry {
   when: number;
   /** SHA256 hash of SQL content for integrity verification */
   checksum: string;
+  /** How the up artifact was produced. */
+  mode: MigrationMode;
+  /** Rollback policy this entry commits to. */
+  rollback: MigrationRollback;
   /** Optional tag for grouping migrations */
   tag?: string;
 }
@@ -644,38 +717,26 @@ export interface GenerateOptions {
   resolver?: Resolver;
   /** Resolver for enum value removals */
   enumValueResolver?: EnumValueResolver;
-  /**
-   * Acknowledges that separate DML has migrated a destructive polymorphic
-   * discriminator-history change. VibORM does not generate that DML.
-   */
-  polymorphicMemberResolver?: PolymorphicMemberResolver;
   /** Don't write files, just return what would be generated */
   dryRun?: boolean;
+  /**
+   * Complete caller-owned migration artifact. Supplying this puts the WHOLE
+   * migration in manual mode: generation emits only these statements and never
+   * appends generated structural SQL around them.
+   *
+   * There is deliberately no `automatic` rollback arm here: `automatic` means
+   * "generation inverted the operations it emitted", and manual mode emits no
+   * generated operations. A caller who wants automatic inversion must not pass
+   * `manualMigration`.
+   */
+  manualMigration?: {
+    /** Complete ordered up artifact: structural DDL and data DML. */
+    readonly up: readonly string[];
+    readonly rollback:
+      | { kind: "manual"; sql: readonly string[] }
+      | { kind: "irreversible"; reason: string };
+  };
 }
-
-export interface PolymorphicMemberHistoryChange {
-  readonly kind:
-    | "storedValueChanged"
-    | "memberRemoved"
-    | "memberRetargeted";
-  readonly ownerTable: string;
-  readonly relation: string;
-  readonly typeColumn: string;
-  readonly from: PolymorphicSnapshotMember;
-  readonly to: PolymorphicSnapshotMember | undefined;
-  readonly description: string;
-  acknowledgeMigrated(): "acknowledged";
-  reject(): "reject";
-}
-
-export type PolymorphicMemberResolver = (
-  change: PolymorphicMemberHistoryChange
-) =>
-  | "acknowledged"
-  | "reject"
-  | undefined
-  | void
-  | Promise<"acknowledged" | "reject" | undefined | void>;
 
 export interface GenerateResult {
   /** Generated migration entry (null if no changes) */
@@ -690,6 +751,14 @@ export interface GenerateResult {
   downSql: string[];
   /** Warnings about lossy or non-invertible operations in the down migration */
   downWarnings: string[];
+  /**
+   * How this migration's up artifact was produced. Reported at the top level
+   * because `entry` is null in the no-changes return, so callers cannot read
+   * the policy off the entry uniformly.
+   */
+  mode: MigrationMode;
+  /** Rollback policy the generated entry commits to. */
+  rollback: MigrationRollback;
   /** Whether files were written */
   written: boolean;
   /** Message describing the result */

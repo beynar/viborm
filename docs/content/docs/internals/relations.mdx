@@ -35,7 +35,7 @@ JavaScript can't reference a variable before it's declared. We solve this with *
 | `manyToOne` | Many records belong to one | On this side |
 | `oneToOne` | One-to-one relationship | Configurable |
 | `manyToMany` | Many-to-many via join table | Join table |
-| `polymorphic` | One stored slot can reference one of several target models | Private type and identity columns on this model |
+| `polymorphic` | One slot references one of several target models; the factory (`s.polymorphicToOne`/`s.polymorphicToMany`) declares its cardinality | to-one: private type and identity columns on this model; collection: one member junction table per variant |
 
 ## Chainable API
 
@@ -58,7 +58,7 @@ const post = s.model({
 | `manyToOne` | `.fields()`, `.references()`, `.optional()`, `.onDelete()`, `.onUpdate()`, `.name()` |
 | `oneToMany` | `.name()` only (FK is on other side) |
 | `manyToMany` | `.through()`, `.A()`, `.B()`, `.onDelete()`, `.onUpdate()`, `.name()` |
-| `polymorphic` | `.name()`, `.optional()`; the constructor accepts a target map and optional stable stored values |
+| `polymorphic` | `s.polymorphicToOne` then `.name()`, `.optional()`; `s.polymorphicToMany` then `.name()`, `.through()` (an exact map keyed by public variant, each `{ table, source, target }`); both factories accept a target MAP and optional stable stored values, and both read, filter, count, write and migrate |
 
 A fields-less `oneToOne` is non-owning and must call `.optional()`: it has no
 local foreign key that can require the related row to exist. Its slot may be
@@ -113,15 +113,30 @@ one it needs. There is one stored topology, several derived views:
 
 The union forbids the impossible combinations rather than enumerating the legal
 ones: a parent-held edge holds one foreign-key tuple per source row and is
-therefore always to-one, and a junction row set is always to-many. Both
-child-held storages admit either arity.
+therefore always to-one. Both child-held storages admit either arity, and so
+does a junction — an ordinary junction pair is always to-many, but a member
+junction whose target side carries a unique is a genuine singular junction slot.
+That combination has exactly one producer, the polymorphic collection's member
+view; ordinary junction binding still writes `many` unconditionally.
 
 The bound value carries the relation declaration, the source model, and the
 membership. It carries no query scope, record identity, SQL, branch, or
 execution policy. A fields-less `manyToOne` whose inverse stores the FK is
-therefore `childHeld` and to-one. A resolved polymorphic inverse is child-held
-with a `polymorphic` membership, because what it stores is the private
-`(type, identity)` pair rather than an ordinary FK.
+therefore `childHeld` and to-one. A resolved inverse of a `s.polymorphicToOne`
+group is child-held with a `polymorphic` membership, because what it stores is
+the private `(type, identity)` pair rather than an ordinary FK.
+
+An inverse of a `s.polymorphicToMany` group binds differently, and the three
+axes are what make it cheap: its membership lives in that variant's member
+junction, so it binds as `junction` position with a `junction` membership,
+supplied in reverse orientation. The plural inverse (`manyToMany`) is then an
+ordinary to-many junction edge and needs no polymorphic-specific code at all.
+The singular inverse (fields-less `manyToOne`) is the one shape the union
+already admitted but nothing produced before: a `junction` position with
+cardinality `one`, legal because its member table carries a unique over the
+complete target side. Both directions read the same
+`ResolvedJunctionTopology`, so the direct collection and its inverses can never
+disagree about a member table.
 
 `BoundRelation` also stays separate from `RelationMutationProgram`: one says
 where an edge is stored, while the other says what the user requested. Relation
@@ -155,6 +170,47 @@ tags: s.manyToMany(() => tag)
   .B("tagId"),            // Target FK column
 ```
 
+## Polymorphic Collections
+
+`s.polymorphicToMany` reuses that junction machinery rather than inventing a
+heterogeneous one. Definition validation resolves each variant into a complete
+member-junction topology, and `junction-topology.ts` is the single owner of that
+resolution for ordinary pairs and polymorphic members alike:
+
+```typescript
+const shelf = s.model({
+  id: s.string().id(),
+  items: s.polymorphicToMany({ book: () => book, video: () => video }),
+});
+// one ordinary-shaped junction per variant: shelf_items_book, shelf_items_video
+```
+
+Three consequences follow from "one fixed-target junction per variant", and they
+are why the feature adds so little machinery:
+
+- **Real foreign keys.** Each member table's two sides reference real tables, so
+  the database enforces membership. A single heterogeneous junction could not,
+  which is why that design was rejected.
+- **Per-variant inverse cardinality.** A unique over the complete target side
+  makes that variant singular; its absence makes it plural. This is a per-member
+  fact, unlike a to-one group's relation-wide `inverseCardinality`.
+- **Orientation, not duplication.** The direct collection and its inverses read
+  the same `ResolvedJunctionTopology` in opposite orientations, so a plural
+  inverse is an ordinary many-to-many view and needs no polymorphic-specific
+  code.
+
+`.through()` overrides the generated names. Unlike the many-to-many triple it
+takes one exact map keyed by public variant:
+
+```typescript
+items: s
+  .polymorphicToMany({ book: () => book, video: () => video })
+  .through({
+    book: { table: "shelf_books", source: "holder", target: "entry" },
+    video: { table: "shelf_videos", source: "holder", target: "entry" },
+  }),
+```
+
 ## Why Thunks?
 
 The `() => model` pattern is essential for two reasons:
@@ -184,6 +240,8 @@ posts: s.oneToMany(() => post)
 
 - **L3 (Query Schemas)**: Relations generate nested schemas for include/select
 - **L6 (Query Engine)**: Binds relation storage positions for joins and nested mutations
-- **L12 (Migrations)**: Ordinary relations inform foreign-key constraints;
-  polymorphic relations add private storage columns and a composite membership
-  index because one database FK cannot target several tables
+- **L12 (Migrations)**: Ordinary relations inform foreign-key constraints; a
+  `s.polymorphicToOne` slot adds private storage columns and a composite
+  membership index because one database FK cannot target several tables; a
+  `s.polymorphicToMany` slot adds one member junction table per variant, each
+  with real foreign keys on both sides

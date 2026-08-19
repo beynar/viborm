@@ -153,14 +153,15 @@ viborm migrate down
 
 viborm migrate status
 # Shows applied vs pending migrations
-
-viborm migrate drop
-# Removes migration tracking (does NOT revert database changes)
 ```
+
+Four subcommands. There is deliberately no tracking-only "drop": removing a
+tracking row while its schema changes stay live bypasses the rollback policy
+each migration commits to.
 
 Best for: Production, team workflows
 
-See `src/cli/commands/migrate.ts` for the CLI and `viborm/migrations` for the programmatic API (`generate`, `apply`, `down`, `status`, `push`, `reset`, `squash`, ...).
+See `src/cli/commands/migrate.ts` for the CLI and `viborm/migrations` for the programmatic API (`generate`, `apply`, `down`, `status`, `push`, `reset`, `squash`, ...). `down()` is the only rollback verb.
 
 ## Connection to Other Layers
 

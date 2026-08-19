@@ -9,7 +9,7 @@ import type { ManyToManyRelationState, RelationState } from "./types";
 // =============================================================================
 
 /** Any object with ["~"].state matching RelationState */
-type RelationLike = { "~": { state: RelationState } };
+export type RelationLike = { "~": { state: RelationState } };
 
 /**
  * Generate a junction table name from two model names
@@ -167,7 +167,7 @@ export interface JunctionFieldGroups {
   readonly target: JunctionFieldGroup;
 }
 
-export type JunctionConstraintKind = "fkey" | "idx";
+export type JunctionConstraintKind = "fkey" | "idx" | "key";
 
 export class JunctionPhysicalNameError extends Error {
   readonly kind: "collision" | "invalidIdentifier";
@@ -210,6 +210,40 @@ export function getJunctionFieldGroups(
   sourceRowKeyFields: readonly string[],
   targetRowKeyFields: readonly string[]
 ): JunctionFieldGroups {
+  const [sourceToken, targetToken] = resolveJunctionFieldTokens(
+    relation,
+    sourceModelName,
+    targetModelName,
+    sourceRowKeyFields.length > 1,
+    targetRowKeyFields.length > 1
+  );
+  return expandJunctionFieldGroups(
+    sourceModelName,
+    targetModelName,
+    sourceToken,
+    targetToken,
+    sourceRowKeyFields,
+    targetRowKeyFields
+  );
+}
+
+/**
+ * The relation-free guard core of {@link getJunctionFieldGroups}: expand the two
+ * side naming tokens over their complete row keys. The four guards live HERE and
+ * only here — row-key emptiness per side, token identifier validity, expanded
+ * field identifier validity, and the cross-side field collision. The ordinary
+ * pair path reaches them through {@link getJunctionFieldGroups}; the polymorphic
+ * member path reaches them through `resolvePolymorphicMemberJunctionTopology`
+ * (`./junction-topology`), so both spellings share one refusal set.
+ */
+export function expandJunctionFieldGroups(
+  sourceModelName: string,
+  targetModelName: string,
+  sourceToken: string,
+  targetToken: string,
+  sourceRowKeyFields: readonly string[],
+  targetRowKeyFields: readonly string[]
+): JunctionFieldGroups {
   if (sourceRowKeyFields.length === 0) {
     throw new Error(
       `Model '${sourceModelName}' has no primary key; a junction side requires a complete row key.`
@@ -220,13 +254,6 @@ export function getJunctionFieldGroups(
       `Model '${targetModelName}' has no primary key; a junction side requires a complete row key.`
     );
   }
-  const [sourceToken, targetToken] = resolveJunctionFieldTokens(
-    relation,
-    sourceModelName,
-    targetModelName,
-    sourceRowKeyFields.length > 1,
-    targetRowKeyFields.length > 1
-  );
   for (const token of [sourceToken, targetToken]) {
     if (!isValidSchemaIdentifier(token)) {
       throw new JunctionPhysicalNameError(

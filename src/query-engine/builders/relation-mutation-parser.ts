@@ -1,4 +1,7 @@
-import type { PolymorphicStorage } from "@schema/relation";
+import type {
+  PolymorphicJunctionMember,
+  PolymorphicToOneStorage,
+} from "@schema/relation";
 import {
   splitToOneUpdateTarget,
   type ToOneUpdateEnvelope,
@@ -12,12 +15,17 @@ import {
   isRelation,
 } from "../context";
 import {
+  isPolymorphicToOneRelationInfo,
   NestedWriteError,
+  type PolymorphicRelationInfo,
+  type PolymorphicToManyRelationInfo,
   type QueryScope,
   type RelationInfo,
   type ResolvedPolymorphicEdge,
 } from "../types";
+import { bindPolymorphicCollectionMember } from "./polymorphic-collection-mutation";
 import { resolvePolymorphicMutationIntent } from "./polymorphic-mutation";
+import type { JunctionBoundRelation } from "./relation-data-builder";
 
 export interface ConnectOrCreateInput {
   readonly where: Record<string, unknown>;
@@ -87,13 +95,19 @@ export interface PartitionedModelData {
       }
     >
   >;
+  /**
+   * WIDENED IN PACKAGE D to carry either storage arm. A collection key
+   * partitions here now, because its write family is real; every consumer
+   * dispatches on `storage.kind` at the point where the two storages stop
+   * meaning the same thing, and the ONE consumer that cannot — the bulk
+   * `createMany` shortcut, which stores private owner columns — narrows with
+   * `isPolymorphicToOneRelationInfo` before it reads.
+   */
   readonly polymorphicPayloads: Readonly<
     Record<
       string,
       {
-        readonly relation: NonNullable<
-          ReturnType<typeof getPolymorphicRelationInfo>
-        >;
+        readonly relation: PolymorphicRelationInfo;
         readonly payload: unknown;
       }
     >
@@ -196,9 +210,7 @@ export function partitionModelData(
   const polymorphicPayloads: Record<
     string,
     {
-      readonly relation: NonNullable<
-        ReturnType<typeof getPolymorphicRelationInfo>
-      >;
+      readonly relation: PolymorphicRelationInfo;
       readonly payload: unknown;
     }
   > = {};
@@ -207,7 +219,14 @@ export function partitionModelData(
     if (value === undefined) continue;
     if (isPolymorphicRelation(ctx.model, key)) {
       const relation = getPolymorphicRelationInfo(ctx, key);
-      if (relation) polymorphicPayloads[key] = { relation, payload: value };
+      // BOTH ARMS, since Package D. Package C widened the scope to carry
+      // collection storage for READS only, and a collection key partitioned into
+      // nothing because its write family was refused by name. D makes that family
+      // real, so the key partitions here and `buildPolymorphicMutationProgram`
+      // dispatches on the storage arm.
+      if (relation) {
+        polymorphicPayloads[key] = { relation, payload: value };
+      }
       continue;
     }
     if (!isRelation(ctx.model, key)) {
@@ -402,13 +421,52 @@ export type ParsedRelationMutation =
   | {
       readonly kind: "polymorphicDisconnect";
       readonly name: string;
-      readonly storage: PolymorphicStorage;
-    };
+      readonly storage: PolymorphicToOneStorage;
+    }
+  | PolymorphicCollectionArm;
 
-/** The program-carrying arms — everything a `RelationMutationProgram` reader sees. */
-export type ProgramRelationMutation = Exclude<
+/**
+ * The FOURTH arm (Package D): one direct polymorphic COLLECTION key, lowered
+ * into per-(kind, variant) runs against per-variant member junctions.
+ *
+ * `name` is the PAYLOAD KEY ("items"). This is the ONE place the invariant in
+ * the union's doc above does not hold: for the two program-carrying arms
+ * `name === program.relationInfo.name`, while here each entry's program carries
+ * its own VARIANT-QUALIFIED carrier name ("items.post"), because one payload key
+ * writes several member tables and their step ids must not collide.
+ *
+ * `relation` and `clearsAll` are carried because two of this arm's facts are
+ * RELATION-WIDE and cannot be recovered from the entries:
+ *
+ *  - the CONFIGURED variant set, which the `set` clear-all barrier must cover in
+ *    `storage.members` declaration order INCLUDING variants the payload never
+ *    mentions (that is what "clears unmentioned variants" means);
+ *  - whether `set` was spelled AT ALL, which `set: []` makes unrecoverable from
+ *    the entries: it clears every variant and has no runs to derive from.
+ */
+export interface PolymorphicCollectionArm {
+  readonly kind: "polymorphicCollection";
+  readonly name: string;
+  readonly relation: PolymorphicToManyRelationInfo;
+  readonly entries: readonly PolymorphicCollectionEntry[];
+  /** `set` was spelled — `set: []` included, which clears and adds nothing. */
+  readonly clearsAll: boolean;
+}
+
+/**
+ * The arms that carry ONE `RelationMutationProgram`.
+ *
+ * Spelled POSITIVELY (Package D). It used to subtract the one armless arm, which
+ * meant a new arm joined the set by default — and the collection arm is armless
+ * in a second way the subtraction could not have caught: it carries a LIST of
+ * programs, each against a pre-bound member junction whose topology
+ * `bindRelation` cannot recover (`classifyRelation` resolves the VARIANT
+ * orientation, the reverse of what a direct entry needs, and refuses the carrier
+ * outright). A future fifth arm now has to opt IN.
+ */
+export type ProgramRelationMutation = Extract<
   ParsedRelationMutation,
-  { kind: "polymorphicDisconnect" }
+  { kind: "ordinary" | "polymorphicTarget" }
 >;
 
 /**
@@ -441,20 +499,64 @@ export function relationMutationPrograms(
 ): readonly RelationMutationProgram[] {
   const programs: RelationMutationProgram[] = [];
   for (const entry of relations) {
-    if (entry.kind !== "polymorphicDisconnect") programs.push(entry.program);
+    if (entry.kind === "ordinary" || entry.kind === "polymorphicTarget") {
+      programs.push(entry.program);
+    }
   }
   return programs;
 }
 
+/**
+ * Every direct polymorphic COLLECTION key, in collection order.
+ *
+ * The sibling of {@link relationMutationPrograms} for the arm that arm cannot
+ * carry. Every consumer of the programs walk got a NAMED decision when this was
+ * introduced (plan §1.2's table) rather than inheriting a silent skip; the two
+ * that must VISIT — the junction-target recursion and the collection
+ * coordinator's own mounts — walk this.
+ */
+export function polymorphicCollectionArms(
+  relations: readonly ParsedRelationMutation[]
+): readonly PolymorphicCollectionArm[] {
+  const arms: PolymorphicCollectionArm[] = [];
+  for (const entry of relations) {
+    if (entry.kind === "polymorphicCollection") arms.push(entry);
+  }
+  return arms;
+}
+
 export function buildPolymorphicMutationProgram(
   ctx: QueryScope,
-  relation: NonNullable<ReturnType<typeof getPolymorphicRelationInfo>>,
+  relation: PolymorphicRelationInfo,
   parsedPayload: unknown,
   sourcePayload?: unknown
 ): Extract<
   ParsedRelationMutation,
-  { kind: "polymorphicTarget" | "polymorphicDisconnect" }
+  {
+    kind:
+      | "polymorphicTarget"
+      | "polymorphicDisconnect"
+      | "polymorphicCollection";
+  }
 > {
+  // THE ONE STORAGE DISPATCH on the write path, so the three record producers
+  // (`buildParsedRelationPrograms`, `UpdateOperation`, `UpsertOperation`) stay
+  // byte-identical to each other and none of them learns which arm it holds.
+  if (!isPolymorphicToOneRelationInfo(relation)) {
+    const { entries, clearsAll } = resolvePolymorphicCollectionEntries(
+      ctx,
+      relation,
+      parsedPayload,
+      sourcePayload
+    );
+    return {
+      kind: "polymorphicCollection",
+      name: relation.name,
+      relation,
+      entries,
+      clearsAll,
+    };
+  }
   const intent = resolvePolymorphicMutationIntent(ctx, relation, parsedPayload);
   if (intent.kind === "disconnect") {
     return {
@@ -479,6 +581,233 @@ export function buildPolymorphicMutationProgram(
     name: relation.name,
     program,
     edge: intent.edge,
+  };
+}
+
+/**
+ * ONE (kind, variant) CONTIGUOUS RUN of a collection payload, lowered into
+ * ordinary relation-mutation vocabulary against ONE pre-bound member junction.
+ */
+export interface PolymorphicCollectionEntry {
+  readonly publicType: string;
+  readonly member: PolymorphicJunctionMember;
+  /** OWNER-oriented, pre-bound. `cardinality === member.inverseCardinality`. */
+  readonly junction: JunctionBoundRelation;
+  /** Exactly ONE {@link RelationMutationEntry}, built by the ordinary builder. */
+  readonly program: RelationMutationProgram;
+  /** Attribution, e.g. `items.connect[1..3]`; callers prefix their own path. */
+  readonly path: string;
+}
+
+/**
+ * Untag one verb item: strip the discriminator, hand back the ORDINARY payload
+ * the shared builder already knows how to parse.
+ *
+ * Exhaustive over the eleven §9.1 verbs, so a twelfth is a compile error here
+ * rather than an item that silently lowers to `undefined`.
+ */
+function untagCollectionItem(
+  kind: (typeof RELATION_MUTATION_KEYS)[number],
+  item: Record<string, unknown>
+): unknown {
+  switch (kind) {
+    case "connect":
+    case "set":
+    case "disconnect":
+    case "delete":
+    case "deleteMany":
+      return item.where;
+    case "create":
+      return item.data;
+    case "createMany":
+      return {
+        data: item.data,
+        ...(item.skipDuplicates === undefined
+          ? {}
+          : { skipDuplicates: item.skipDuplicates }),
+      };
+    case "connectOrCreate":
+      return { where: item.where, create: item.create };
+    case "update":
+      return { where: item.where, data: item.data };
+    case "updateMany":
+      return {
+        data: item.data,
+        ...(item.where === undefined ? {} : { where: item.where }),
+      };
+    case "upsert":
+      return {
+        where: item.where,
+        create: item.create,
+        update: item.update,
+      };
+    default: {
+      const exhaustive: never = kind;
+      throw new TypeError(`Unknown collection mutation kind: ${exhaustive}`);
+    }
+  }
+}
+
+/** Every tagged item of one verb, as a list, whatever arity the caller spelled. */
+function collectionVerbItems(
+  relation: PolymorphicToManyRelationInfo,
+  kind: string,
+  value: unknown
+): Record<string, unknown>[] {
+  const items = Array.isArray(value) ? value : [value];
+  return items.map((item) => {
+    if (isRecord(item) && typeof item.type === "string") return item;
+    throw new NestedWriteError(
+      `Malformed nested '${kind}' operation on polymorphic collection '${relation.name}': every item must carry its 'type' discriminator.`,
+      relation.name,
+      { meta: { operation: kind } }
+    );
+  });
+}
+
+/**
+ * Lower one direct polymorphic COLLECTION payload into per-(kind, variant) runs.
+ *
+ * It repeats the trick the to-one arm already uses — unwrap the tagged envelope
+ * into ordinary verb vocabulary, then feed {@link buildRelationMutationProgram} —
+ * with {@link bindPolymorphicCollectionMember} supplying topology in place of
+ * `resolvePolymorphicEdge`. What is new is the GRANULARITY.
+ *
+ * ENTRY GRANULARITY = per (kind, variant) MAXIMAL CONTIGUOUS RUN. A per-item
+ * entry could not carry a BULK program (`createMany`, `deleteMany`,
+ * `updateMany`), which §9.3 requires an entry to be able to; a per-variant
+ * regrouping would reorder declared positions, which the junction estate's own
+ * `contiguousJunctionCreateManyRuns` is built never to do. So
+ * `connect: [post, video, post]` is THREE runs, never two.
+ *
+ * ORDER is {@link RELATION_MUTATION_KEYS} outer — the own-write linearization,
+ * unchanged — and declared array position inner.
+ *
+ * `createMany` is the one verb whose run is always ONE GROUP: each group is
+ * already a bulk unit and carries its own `skipDuplicates`, so merging two
+ * adjacent same-variant groups would either lose a flag or invent a third
+ * meaning for it.
+ */
+function resolvePolymorphicCollectionEntries(
+  ctx: QueryScope,
+  relation: PolymorphicToManyRelationInfo,
+  parsedPayload: unknown,
+  sourcePayload: unknown
+): {
+  readonly entries: readonly PolymorphicCollectionEntry[];
+  readonly clearsAll: boolean;
+} {
+  if (!isRecord(parsedPayload)) {
+    throw new NestedWriteError(
+      `Polymorphic collection '${relation.name}' produced an invalid mutation payload.`,
+      relation.name
+    );
+  }
+  const entries: PolymorphicCollectionEntry[] = [];
+  let clearsAll = false;
+  for (const kind of RELATION_MUTATION_KEYS) {
+    const value = parsedPayload[kind];
+    if (value === undefined) continue;
+    if (kind === "set") clearsAll = true;
+    const items = collectionVerbItems(relation, kind, value);
+    const sources = collectionVerbSources(
+      relation,
+      kind,
+      sourcePayload,
+      items.length
+    );
+    let start = 0;
+    while (start < items.length) {
+      const publicType = String(items[start]!.type);
+      let end = start + 1;
+      // `createMany` groups never merge (see the doc above); every other verb's
+      // run extends while the discriminator holds.
+      if (kind !== "createMany") {
+        while (end < items.length && items[end]!.type === publicType) end += 1;
+      }
+      entries.push(
+        buildCollectionEntry({
+          ctx,
+          relation,
+          kind,
+          publicType,
+          items: items.slice(start, end),
+          sources: sources?.slice(start, end),
+          start,
+          end,
+        })
+      );
+      start = end;
+    }
+  }
+  return { entries, clearsAll };
+}
+
+/** The caller's own record for one verb, aligned index for index with the parse. */
+function collectionVerbSources(
+  relation: PolymorphicToManyRelationInfo,
+  kind: string,
+  sourcePayload: unknown,
+  parsedCount: number
+): Record<string, unknown>[] | undefined {
+  const value = isRecord(sourcePayload) ? sourcePayload[kind] : undefined;
+  if (value === undefined) return undefined;
+  const sources = collectionVerbItems(relation, kind, value);
+  if (sources.length !== parsedCount) {
+    throw new TypeError(
+      `Polymorphic collection '${relation.name}' mutation source has ${sources.length} '${kind}' item(s) for ${parsedCount} parsed item(s).`
+    );
+  }
+  return sources;
+}
+
+function buildCollectionEntry(input: {
+  ctx: QueryScope;
+  relation: PolymorphicToManyRelationInfo;
+  kind: (typeof RELATION_MUTATION_KEYS)[number];
+  publicType: string;
+  items: readonly Record<string, unknown>[];
+  sources: readonly Record<string, unknown>[] | undefined;
+  start: number;
+  end: number;
+}): PolymorphicCollectionEntry {
+  const { ctx, relation, kind, publicType } = input;
+  const member = relation.storage.members.get(publicType);
+  if (!member) {
+    throw new NestedWriteError(
+      `Unknown polymorphic target '${publicType}' for collection '${relation.name}'.`,
+      relation.name,
+      { meta: { operation: kind } }
+    );
+  }
+  const junction = bindPolymorphicCollectionMember(ctx, relation, member);
+  const untagged = input.items.map((item) => untagCollectionItem(kind, item));
+  // `createMany` is a BARE envelope in the ordinary vocabulary, not a list —
+  // which is exactly why its run is one group.
+  const parsedVerb = kind === "createMany" ? untagged[0] : untagged;
+  const sourceVerb = input.sources
+    ? kind === "createMany"
+      ? untagCollectionItem(kind, input.sources[0]!)
+      : input.sources.map((item) => untagCollectionItem(kind, item))
+    : undefined;
+  const program = buildRelationMutationProgram(
+    junction.relationInfo,
+    { [kind]: parsedVerb },
+    sourceVerb === undefined ? undefined : { [kind]: sourceVerb }
+  );
+  if (!program) {
+    throw new NestedWriteError(
+      `Polymorphic collection '${relation.name}' produced no '${kind}' mutation for variant '${publicType}'.`,
+      relation.name,
+      { meta: { operation: kind } }
+    );
+  }
+  return {
+    publicType,
+    member,
+    junction,
+    program,
+    path: `${relation.name}.${kind}[${input.start}..${input.end - 1}]`,
   };
 }
 

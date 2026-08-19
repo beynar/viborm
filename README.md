@@ -539,7 +539,7 @@ Most tests run against PGlite (in-memory PostgreSQL). Driver tests in `tests/dri
 
 **Core features working:**
 - All CRUD operations (create, read, update, delete, upsert)
-- Relations (oneToOne, oneToMany, manyToOne, manyToMany)
+- Relations (oneToOne, oneToMany, manyToOne, manyToMany, and both polymorphic cardinalities — `s.polymorphicToOne` and `s.polymorphicToMany` — each with direct and inverse read/write surfaces)
 - Supported nested writes (`create`, `createMany`, `connect`, `connectOrCreate`, `disconnect`, `delete`, `set`, `update`, `updateMany`, `upsert`, `deleteMany`) across callback-transaction and atomic-batch paths
 - Select/include with typed results
 - All scalar types (string, int, float, boolean, dateTime, json, enum, etc.)
@@ -557,7 +557,6 @@ Most tests run against PGlite (in-memory PostgreSQL). Driver tests in `tests/dri
 - Local nested-write conformance is proven on PGlite/Postgres-style and SQLite-family paths; hosted D1 binding and Neon HTTP need external runs before claiming hosted verification.
 
 **Future features** (documented in `features-docs/`):
-- Polymorphic relations
 - Recursive queries (WITH RECURSIVE)
 
 See `PENDING_WORK.md` for detailed tracking.
@@ -572,7 +571,7 @@ All internal state is accessed via `["~"]`:
 scalar["~"].state          // ScalarState - configuration object
 scalar["~"].state.base     // Base scalar schema
 schemaRegistry.proxy.user.core.where // Operation schema for this model
-relation["~"].targetModel // Thunk to target model
+relation["~"].state.getter // Thunk to target model
 ```
 
 This keeps the public API clean and signals "internal" to developers.

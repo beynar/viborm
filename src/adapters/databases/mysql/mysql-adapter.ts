@@ -498,6 +498,14 @@ export class MySQLAdapter implements DatabaseAdapter {
 
     // A self-assignment reacts only to duplicate-key conflicts. Unlike
     // INSERT IGNORE, unrelated constraint and conversion failures still abort.
+    //
+    // It stays the JUNCTION insert's clause on MySQL as well, because
+    // `ON DUPLICATE KEY UPDATE` cannot name a target (`onConflict` above says
+    // so) — correct for every junction whose PK is its sole unique constraint,
+    // which is every ordinary pair table. A polymorphic member table with a
+    // SINGULAR inverse also carries a target-side UNIQUE that this clause would
+    // swallow; the seam for that case is documented at `junctionDuplicateSkip`
+    // in `query-engine/builders/many-to-many-utils.ts`.
     skipDuplicates: (duplicateNoopColumn: string) => {
       const column = sql.raw`${quoteIdent(duplicateNoopColumn)}`;
       return {

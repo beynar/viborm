@@ -294,8 +294,12 @@ type ChildHeldRelation =
   membership is physically stored, and decides lowering.
 
 Each consumer branches on exactly the axis its question names. The union still
-forbids the impossible combinations: parent-held is always to-one, junction is
-always to-many, and both child-held storages admit either arity.
+forbids the impossible combinations: parent-held is always to-one, and both
+child-held storages admit either arity. A junction is to-many for every ordinary
+pair, but the axis is not collapsed to it — a polymorphic collection member whose
+inverse is singular binds as a junction with `cardinality: "one"`, physically
+backed by that member table's UNIQUE over the complete target side, and
+`bindPolymorphicMemberJunction` is its only producer.
 
 ONE dispatcher per position, not one per position × membership. A child-held
 entry is compiled once for both storages, with the parent's read source, its
@@ -384,7 +388,8 @@ update and upsert; optional storage accepts disconnect and typed target delete.
 The locate exposes private storage columns only for verbs whose branch depends
 on current membership.
 
-Root createMany's BULK path accepts connect-only polymorphic memberships per
+Root createMany's BULK path accepts connect-only ROW-HELD polymorphic
+memberships per
 row. Its bulk preparation groups selectors by relation and stored discriminator,
 resolves the private pair once per row, and preserves the existing contiguous
 row-shape grouping. Count and returning operations use this same owner.
@@ -394,6 +399,14 @@ operation becomes a record series (§9, §17), and the membership is then owned 
 the member's own fresh-record compilation above — a different plan for the same
 stored pair, correctly so, because a series member is one row and has nothing to
 group across.
+
+A row naming a polymorphic COLLECTION leaves it for the same reason, and the
+asymmetry is deliberate rather than an omission. A row-held `connect` contributes
+two literal column values to the owner's own INSERT, so it can ride the grouped
+plan; a collection membership is a separate member-table write that cannot exist
+before the owner row does, so no grouped INSERT can express it.
+`routing.ts` reads the raw rows and dispatches the polymorphic half through
+`polymorphicCardinality`, never an inline cardinality test.
 
 ## 8. Source-bound relation membership
 
@@ -866,7 +879,7 @@ because its decision read is locked.
 
 ## 16. Junction relations
 
-`ManyToManyStatements` owns junction SQL and argument validation.
+`JunctionStatements` owns junction SQL and argument validation.
 `RelationJunctionPart` owns membership decisions and join-row effects.
 
 Junction updates use the selected-record compiler for the target record but
@@ -888,6 +901,39 @@ Membership reads during a key transition use the old correlated source. Join
 assignments use the final source. Generated target identities flow to the join
 through declared record outputs.
 
+### 16.1 Member junctions
+
+A polymorphic collection's member junctions reuse every owner above; the feature
+adds no second junction DML owner. `JunctionStatements` is written against
+`membership.source` / `membership.target`, so it serves the direct collection
+leaf, the plural inverse view and the singular inverse slot unchanged.
+
+Three things are added, and each names one fact the existing owners could not
+answer:
+
+1. `PolymorphicCollectionPart` — ONE `Part` for a direct collection key, not one
+   per variant. Sibling Parts' statements are concatenated in list order, so N
+   variant Parts could not place a clear-once barrier. It owns exactly the
+   relation-wide facts: the `set` barrier over EVERY configured member table in
+   declaration order (including variants the payload never named), cross-verb
+   and cross-variant ordering, one owner-row publication shared by every leaf,
+   and an empty cache footprint. Its compile order is guards → barrier → writes.
+   `set` is lowered into a connect-shaped run so `compileSet` stays untouched.
+   The one shape a batch could split between clear and refill is refused at
+   construction, before the clear.
+2. `RelationJunctionToOnePart` — the singular inverse's dispatcher and
+   orientation adapter. It consumes `(vacate, supplier, modify)` from
+   `classifyToOneComposition`, owns the four correlated spellings, and supplies
+   an owner-oriented membership projection to the transfer. Both record
+   compilers fork on `isSingularCollectionInverse` before `buildJunctionParts`,
+   so that decision has one writer.
+3. `junction-singular-transfer.ts` — the slot-replacement protocol for a member
+   whose `inverseCardinality` is `"one"`. One capture read, then one write
+   sequence identical on both substrates: `forUpdate` with the row lock as the
+   premise in a transaction (so the junction estate still emits no guards), and
+   an in-batch CAS with no `expects` in a native atomic batch. A freshly created
+   target's slot is provably empty, so its capture is elided rather than read.
+
 ## 17. Bulk specializations
 
 The one-record compilers do not absorb set-oriented operations.
@@ -895,7 +941,8 @@ The one-record compilers do not absorb set-oriented operations.
 These remain specialized:
 
 - `createMany` over rows the bulk path expresses — scalar rows, and rows whose
-  only relation work is a direct polymorphic `connect`;
+  only relation work is a direct ROW-HELD polymorphic `connect` (a polymorphic
+  COLLECTION key is relation-bearing and routes to the series);
 - `updateMany` over data the bulk path expresses — scalar-only data;
 - `deleteMany`;
 - relation `set`;
@@ -1225,7 +1272,7 @@ Run PostgreSQL and MySQL parity suites when Docker is available. If they are not
 run, report that fact; do not treat a skipped suite as passing.
 
 The retained runtime boundaries are adapter `batchRefs`,
-`ManyToManyStatements`, fragment types, mutation programs, bound relations,
+`JunctionStatements`, fragment types, mutation programs, bound relations,
 field-bound FK sources, the two record compilers, specialized bulk Parts, and
 explicit branch pins. `QueryMetadata` remains only as a deprecated type-only
 compatibility alias. Everything else can be simplified when evidence shows a

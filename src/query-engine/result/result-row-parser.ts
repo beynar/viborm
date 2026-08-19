@@ -314,6 +314,7 @@ export function createRowParser(
           result,
           value,
           relations,
+          polymorphicRelations,
           expectedRelations
         );
       continue;

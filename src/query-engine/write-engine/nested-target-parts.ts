@@ -12,6 +12,7 @@ import {
   type ParsedRelationMutation,
   type RelationMutationEntry,
   type RelationMutationProgram,
+  polymorphicCollectionArms,
   relationMutationPrograms,
 } from "../builders/relation-mutation-parser";
 import { buildValueGroups } from "../builders/values-builder";
@@ -28,6 +29,7 @@ import { referenceScalarSql, referenceSql } from "./fragment-builders";
 import type { OperationStep, StatementStep } from "./OperationFragment";
 import type { Part, PlanningKnown } from "./Part";
 import type { RecordCompilerSeam } from "./RecordUpdateCompiler";
+import { buildPolymorphicCollectionPart } from "./PolymorphicCollectionPart";
 import { buildJunctionParts } from "./RelationJunctionPart";
 import { buildToManyLinkParts } from "./RelationLinkPart";
 import {
@@ -116,7 +118,70 @@ export function buildJunctionTargetRelationParts(
       parts,
     });
   }
+  // MOUNT 3 of 3 — a direct polymorphic collection nested under a junction
+  // target's create/update. VISITED, not skipped: `relationMutationPrograms` is
+  // deliberately a positive filter now, so this arm is invisible to the loop
+  // above, and letting it stay invisible here is precisely the silent-drop class
+  // this estate keeps recording.
+  for (const arm of polymorphicCollectionArms(relations)) {
+    parts.push(
+      buildPolymorphicCollectionPart({
+        scope,
+        engine,
+        parentScope: targetScope,
+        arm,
+        parentId: singleFieldOwnerSources(targetScope, arm.name, parentId),
+        membershipReadSource: singleFieldOwnerSources(
+          targetScope,
+          arm.name,
+          membershipReadSource
+        ),
+        txMode,
+        recordCompilers,
+        nestedBuilder: (
+          deeperScope,
+          deeperParentId,
+          deeperRelations,
+          deeperTxMode,
+          deeperCorrelationParentId
+        ) =>
+          buildJunctionTargetRelationParts(
+            scope,
+            engine,
+            deeperScope,
+            deeperRelations,
+            deeperParentId,
+            deeperTxMode,
+            recordCompilers,
+            deeperCorrelationParentId
+          ),
+      })
+    );
+  }
   return parts;
+}
+
+/**
+ * Broadcast this seam's ONE positional parent source over the owner's row key.
+ *
+ * The seam carries a single `FinalReferenceSource` by construction, so a
+ * compound-keyed owner is refused here for the same reason and in the same voice
+ * as the compound junction parent above: the complete record compiler owns that
+ * target, and inventing a second source for the missing members would be a guess.
+ */
+function singleFieldOwnerSources(
+  targetScope: QueryScope,
+  relationKey: string,
+  source: FinalReferenceSource
+): Record<string, FinalReferenceSource> {
+  const ownerFields = getPrimaryKeyFields(targetScope.model);
+  const ownerField = ownerFields[0];
+  if (ownerFields.length !== 1 || !ownerField) {
+    throw new QueryEngineError(
+      `query-engine-v2 internal: a compound-keyed owner reached the scalar nested-target seam for polymorphic collection '${relationKey}'; the complete record compiler must own that target.`
+    );
+  }
+  return { [ownerField]: source };
 }
 
 function foldJunctionTargetRelation(input: {

@@ -132,13 +132,29 @@ const parityJSchema = (() => {
     .model({
       id: s.int().id(),
       note: s.string(),
-      subject: s.polymorphic(
+      subject: s.polymorphicToOne(
         { label: () => label, sticker: () => sticker },
         { values: { label: "pj.label.v1", sticker: "pj.sticker.v1" } }
       ),
     })
     .map("pj_tags");
-  return { crate, autoCrate, blank, parcel, bin, label, sticker, tag };
+  // PACKAGE E adds the OTHER half of the same discriminant. `relationBearingRow`
+  // is now cardinality-dispatched over the polymorphic set (plan §9.6): a
+  // COLLECTION key routes to the record series, because its memberships live in
+  // per-variant member junction rows that cannot exist before the owner row does.
+  // The twin below is what keeps that widening from silently swallowing `tag`'s
+  // grouped route, which is the byte contract this whole file exists to hold.
+  const board = s
+    .model({
+      id: s.int().id(),
+      note: s.string(),
+      subjects: s.polymorphicToMany(
+        { label: () => label, sticker: () => sticker },
+        { values: { label: "pj.blabel.v1", sticker: "pj.bsticker.v1" } }
+      ),
+    })
+    .map("pj_boards");
+  return { crate, autoCrate, blank, parcel, bin, label, sticker, tag, board };
 })();
 
 hydrateSchemaNames(parityJSchema);
@@ -769,9 +785,10 @@ describe("parity J — the direct-polymorphic bulk connect route", () => {
     });
   });
 
-  test("a polymorphic-only payload is NOT a record series, on either arm", () => {
-    // J2's discriminant reads the ORDINARY relation set. This is the assertion that
-    // keeps the route above reachable at all.
+  test("a polymorphic TO-ONE payload is NOT a record series, on either arm", () => {
+    // J2's discriminant read the ORDINARY relation set; Package E widened it by
+    // CARDINALITY, not by set. This is the assertion that keeps the route above
+    // reachable at all — and, since E, the negative half of a pair.
     const driver = new PGliteDriver();
     const engine = engineFor(driver);
     const arms = [
@@ -787,6 +804,42 @@ describe("parity J — the direct-polymorphic bulk connect route", () => {
       false,
       false,
     ]);
+  });
+
+  test("a polymorphic COLLECTION payload IS a record series, on either arm", () => {
+    // PACKAGE E (§9.6). The positive half of the pair above, in the same file and
+    // against the same router, so the asymmetry is one measurement rather than
+    // two files that agree by luck. The grouped INSERT cannot express a member
+    // junction row, so the whole call goes to the series.
+    const driver = new PGliteDriver();
+    const engine = engineFor(driver);
+    const rows = [
+      {
+        id: 1,
+        note: "a",
+        subjects: { connect: [{ type: "label", where: { id: 10 } }] },
+      },
+    ];
+    const arms = [
+      constructRoutedOperation(engine, parityJSchema.board, "createMany", {
+        data: rows,
+      }),
+      constructRoutedOperation(engine, parityJSchema.board, "createMany", {
+        data: rows,
+        select: { id: true },
+      }),
+    ];
+    expect(arms.map((arm) => arm && isRecordSeries(arm))).toEqual([true, true]);
+
+    // …and a SCALAR-ONLY row on the very same model keeps the grouped owner: the
+    // discriminant is the ROW's keys, never the model's declaration.
+    const scalarOnly = constructRoutedOperation(
+      engine,
+      parityJSchema.board,
+      "createMany",
+      { data: [{ id: 2, note: "b" }] }
+    );
+    expect(scalarOnly && isRecordSeries(scalarOnly)).toBe(false);
   });
 
   test("the non-returning select+skipDuplicates+polymorphic refusal, verbatim", () => {

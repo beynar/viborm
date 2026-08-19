@@ -130,7 +130,7 @@ describe("loadConfig", () => {
         const target = s.model({ id: s.string().id() });
         const owner = s.model({
           id: s.string().id(),
-          target: s.polymorphic(
+          target: s.polymorphicToOne(
             { target: () => target },
             { values: {} }
           ),

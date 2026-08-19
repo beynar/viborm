@@ -1,7 +1,11 @@
 import type { AnyDriver, QueryExecutionContext } from "@drivers";
 import { hasCommittedRecordSeriesProgress, TransactionError } from "@errors";
 import type { Model } from "@schema/model";
-import { isPolymorphicRelation, isRelation } from "../context/query-scope";
+import {
+  isPolymorphicCollectionRelation,
+  isPolymorphicRelation,
+  isRelation,
+} from "../context/query-scope";
 import type { QueryEngine } from "../query-engine";
 import { BulkCountOperation } from "./BulkCountOperation";
 import { CreateManyOperation } from "./CreateManyOperation";
@@ -219,13 +223,14 @@ function constructOperation(
       //     instead inherit `withTransaction`'s generic "does not support callback
       //     transactions". Reaching for the existing owner keeps the specific
       //     message without minting a second copy of it.
-      // (2) Any row carrying a general relation program routes the WHOLE operation
-      //     to the record series (§5.1). Empty data has no row, so it never reaches
-      //     here — and that matters more than it looks: a series REQUIRES an
-      //     interactive transaction, so `createMany({ data: [] })` (what every caller
-      //     spreading a possibly-empty array sends) would turn from `{ count: 0 }`
-      //     into a TransactionError on every batch-only driver. Measured: the cost
-      //     is NOT an extra BEGIN/COMMIT — the existing
+      // (2) Any row carrying a general relation program — an ordinary relation key,
+      //     or (plan §9.6) a polymorphic COLLECTION key, never a polymorphic to-one —
+      //     routes the WHOLE operation to the record series (§5.1). Empty data has no
+      //     row, so it never reaches here — and that matters more than it looks: a
+      //     series REQUIRES an interactive transaction, so `createMany({ data: [] })`
+      //     (what every caller spreading a possibly-empty array sends) would turn from
+      //     `{ count: 0 }` into a TransactionError on every batch-only driver.
+      //     Measured: the cost is NOT an extra BEGIN/COMMIT — the existing
       //     empty arm already opens one, because its plan is not a single statement.
       // (3) Otherwise the two existing owners, constructed unchanged.
       if (
@@ -314,9 +319,17 @@ function returnsRows(args: Record<string, unknown>): boolean {
  * schema nor the polymorphic `createMany` union renames a key, and `undefined` is
  * absent on every path — so this agrees with what `partitionModelData` will later see.
  *
- * `isRelation` is the ORDINARY relation set: a direct polymorphic membership is a
- * different set and stays bulk-compatible, which is what keeps the grouped
- * cross-row probe route in `bulk-polymorphic-connect.ts` reachable (§5.1).
+ * THE POLYMORPHIC HALF IS CARDINALITY-DISPATCHED (plan §9.6), and the asymmetry is
+ * the whole point. A direct polymorphic TO-ONE key stays OUT of this set: it stores
+ * private owner columns on the bulk row, and the grouped cross-row probe route in
+ * `bulk-polymorphic-connect.ts` compiles it into the maximal grouped INSERT — a
+ * shipped SQL contract pinned byte-for-byte (`parity-j-create-many.test.ts`). A
+ * polymorphic COLLECTION key is IN: its membership lives in per-variant member
+ * junction rows that cannot exist before the owner row does, so the grouped INSERT
+ * cannot express it and the whole call belongs to the record series. Both halves
+ * are read through one predicate pair — `isRelation` for the ordinary set,
+ * `isPolymorphicCollectionRelation` for the collection half — and the collection
+ * half branches through `polymorphicCardinality`, not an inline cardinality test.
  *
  * Total and non-throwing by construction. Anything it cannot see with certainty — a
  * `data` that is not an array, a row that is not a record, a relation key holding
@@ -329,17 +342,21 @@ function returnsRows(args: Record<string, unknown>): boolean {
  * builds no program — and it costs a transaction that writes nothing extra. The other
  * direction, raw-false while the parser builds a program, would send a relation-bearing
  * payload to the grouped INSERT and silently drop it; it requires a relation schema
- * that renames or invents a key, and none does. The hazard is asymmetric and this
- * predicate is safe on it, which is why the duplication stays rather than merging into
- * a parse-once routing envelope (that would move validation timing and error text).
- * The same property, one key set wider, holds for {@link relationBearingData}.
+ * that renames or invents a key, and none does — including the collection `create`
+ * family root `createMany` now mounts, which renames nothing. The hazard is asymmetric
+ * and this predicate is safe on it, which is why the duplication stays rather than
+ * merging into a parse-once routing envelope (that would move validation timing and
+ * error text). The same property, one key set wider, holds for
+ * {@link relationBearingData}.
  */
 function relationBearingRow(model: Model<any>, data: unknown): boolean {
   if (!Array.isArray(data)) return false;
   for (const row of data) {
     if (!isRecord(row)) continue;
     for (const key of Object.keys(row)) {
-      if (row[key] !== undefined && isRelation(model, key)) return true;
+      if (row[key] === undefined) continue;
+      if (isRelation(model, key) || isPolymorphicCollectionRelation(model, key))
+        return true;
     }
   }
   return false;

@@ -10,6 +10,19 @@ export const EMPTY_ROW_RESULT_KEY = "0viborm_empty_row" as const;
 export const POLYMORPHIC_RESULT_STATE_KEY = "__viborm_state" as const;
 export const POLYMORPHIC_RESULT_STATE_LINKED = "linked" as const;
 export const POLYMORPHIC_RESULT_STATE_INVALID = "invalid" as const;
+/** The direct polymorphic COLLECTION carrier: one document per relation column. */
+export const POLYMORPHIC_RESULT_STATE_COLLECTION = "collection" as const;
+/**
+ * The collection carrier's PRIVATE arm container.
+ *
+ * Arms live one level down, under this key, precisely so a user variant named
+ * `only`, `variants` or `__viborm_state` cannot collide with a carrier key —
+ * the same hostility the public grammar owes.
+ */
+export const POLYMORPHIC_COLLECTION_ARMS_KEY = "arms" as const;
+export const POLYMORPHIC_COLLECTION_MEMBERSHIP_KEY = "membership" as const;
+export const POLYMORPHIC_COLLECTION_ORPHANS_KEY = "orphans" as const;
+export const POLYMORPHIC_COLLECTION_ROWS_KEY = "rows" as const;
 
 export type AggregateResultName = "_count" | "_avg" | "_sum" | "_min" | "_max";
 

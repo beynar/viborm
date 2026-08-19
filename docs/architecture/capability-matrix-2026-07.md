@@ -163,7 +163,7 @@ Defects 1 and `findFirst({ take })` are the same shape: **validation accepts wha
 7. ~~**`Decimal` is a JS `number`.**~~ — **CLOSED by W6-U1**: `s.decimal()` is string-backed. It reads as the exact canonical decimal string, accepts `string | number` on write (a `number` is documented as possibly carrying float error the caller already made), and every comparison and arithmetic happens in SQL — `CAST(? AS NUMERIC)` on PG, `CAST(? AS DECIMAL(65,30))` on MySQL (uncast, MySQL would compare an exact column as a *double*). SQLite stores `TEXT` (was `REAL`): reads, writes and equality are exact, while ordering, aggregation and atomic arithmetic are a typed `UnsupportedOperationError` rather than a double-precision guess. A one-release `decimal: "number"` client option restores the old decode at runtime only.
 8. **Nested `create`/`createMany` under `update` is conditionally refused.** Works only when the referenced parent column is single-field *and* pinned by the unique `where` or rewritten by the root SET ([UpdateOperation.ts:1327-1382](../../src/query-engine/write-engine/UpdateOperation.ts:1327)). Inverse-side to-one nested `create`/`createMany`/`updateMany`/`deleteMany` are absent outright (`:1671-1676`). Prisma has no such condition.
 9. ~~**No `omit`, no query-level projection sugar.**~~ — **CLOSED by W5-U4**: query-level `omit` (every returning operation, plus nested relation nodes) and client-level `omit` both ship, desugaring in validation into the `select` they denote ([args/omit.ts](../../src/validation/model/args/omit.ts), [client/omit.ts](../../src/client/omit.ts)). Model-level `.omit()` ([model.ts:155](../../src/schema/model/model.ts:155)) became a HARD exclusion in the same unit — the field has neither a `select` nor an `omit` key — so the three layers rank schema > client > query. ~~`_count: true` shorthand fails strict validation~~ — **CLOSED by W1-B**: the shorthand desugars to `{ select: { <every to-many relation>: true } }` in validation (see §1.4).
-10. **Tooling is a fraction of Prisma's CLI.** Two commands: `viborm push` and `viborm migrate {generate,apply,down,status,drop}`. No Studio, no `db seed`, no `db pull` command, no drift detection, no shadow DB.
+10. **Tooling is a fraction of Prisma's CLI.** Two commands: `viborm push` and `viborm migrate {generate,apply,down,status}`. No Studio, no `db seed`, no `db pull` command, no drift detection, no shadow DB. (`migrate drop` was deleted in B4: untracking an applied migration while its schema stays live bypasses the rollback policy each migration now persists.)
 
 ## 1.2 Model queries
 
@@ -382,7 +382,7 @@ Opening that surface exposed two latent engine bugs, both fixed in review, and b
 | `migrate deploy` | `migrate apply` | 🟡 near-full — per-migration transaction, checksum verification, PG advisory lock. ↔️ **interactive by default**, needs `--force` for CI. ➕ `--to <index>` partial apply |
 | `migrate reset` | `reset()` API only | 🟡 not a CLI subcommand; no seed step; no test coverage |
 | `migrate diff` | `diff()`/`preview()`/`generateDDL()` primitives | 🟡 no command; can't diff DB↔DB |
-| `migrate resolve` | `migrate drop` ≈ `--rolled-back` | 🟡 no `--applied` equivalent |
+| `migrate resolve` | — | ❌ no equivalent in either direction. The old `migrate drop` ≈ `--rolled-back` was **deleted in B4**: it removed tracking rows while leaving the schema live, which bypasses a migration's persisted `manual`/`irreversible` rollback policy |
 | `migrate status` | `migrate status` | 🟡 tracking table stores only `name/checksum/applied_at` — no failed-migration state, no drift report |
 | `db push` | `viborm push` | ✅➕ `--force-reset`, `--strict`, `--verbose`, `--dry-run`, interactive resolver. ⚠️ `--accept-data-loss` is spelled `--force`. **See defect 2** |
 | `db pull` / introspection | full introspectors for PG/MySQL/SQLite | 🟡 **internal only** — return a `SchemaSnapshot`, no TS emitter, no CLI command |
@@ -393,13 +393,13 @@ Opening that surface exposed two latent engine bugs, both fixed in review, and b
 | Shadow DB | — | ❌ (snapshot-based instead) |
 | `migration_lock.toml` | journal `dialect` + `validateJournalDialect` | ✅ equivalent |
 | `_prisma_migrations` | `_viborm_migrations`, ➕ configurable via `--table-name` | ✅ |
-| Concurrency lock | PG advisory lock; MySQL `GET_LOCK`; **SQLite/LibSQL return null → no lock** | 🟡 |
+| Concurrency lock | PG advisory lock; MySQL `GET_LOCK`; **SQLite/LibSQL return null → no lock** | 🟡 `down()`/`squash()` read journal, applied state and every artifact INSIDE the lock and recompute their decision there, so a concurrent change is observed rather than executed from stale state. That is the actual guarantee: the lock is **not** serialization — SQLite/libSQL take none, and on PG/MySQL it is session-scoped and issued outside the transaction, so it is not connection-pinned. `apply()` takes no lock at all |
 | Providers | postgresql, mysql, sqlite3, libsql | 🟡 no SQL Server / MongoDB / CockroachDB. **D1 has no migration driver** (falls through to sqlite3, untested) and `migrate apply` **cannot work on D1 or neon-http** — `apply()` requires `withTransaction`, which both throw |
 
 **DDL differ covers:** create/drop table, add/drop/alter column, indexes (incl. PG partial), unique constraints, primary keys, foreign keys with forward-reference ordering, enum create/drop/alter with value-removal data remapping.
 **Not supported:** automatic rename detection, data migrations / custom SQL steps, views, triggers, sequences, extensions, partitions, RLS, CHECK constraints, comments, collations, column reordering, multi-schema.
 
-➕ **viborm-only tooling:** down migrations with lossy-operation warnings, `squash` with backup archive, pluggable storage drivers (S3/DB/edge-capable), programmatic `createMigrationClient()` with storage-less push for Workers, per-change resolve callbacks (`proceed/reject/rename/addAndDrop/mapValues/useNull`), `push --strict`.
+➕ **viborm-only tooling:** down migrations with lossy-operation warnings and a per-migration persisted rollback policy (`automatic`/`manual`/`irreversible`, refused pre-effect group-wide), caller-owned `manualMigration` artifacts for data-bearing transitions, `squash` with backup archive (S3/DB/edge-capable), programmatic `createMigrationClient()` with storage-less push for Workers, per-change resolve callbacks (`proceed/reject/rename/addAndDrop/mapValues/useNull`), `push --strict`.
 
 ## 1.11 viborm superset — things Prisma does not have
 
@@ -619,6 +619,64 @@ The stand-in for hosted batch drivers is `BatchOnlyPGliteDriver` / `BatchOnlySQL
 
 The repo is honest about this in its own docs (`tests/drivers/README.md:38`, `nested-write-provider-gaps.md:10-20`, `AGENTS.md:556`). **Nothing enforces those admissions.**
 
+## 2.8.1 Polymorphic collections — measured per provider family (2026-08-19)
+
+> **Later than this file's snapshot.** `s.polymorphicToMany` did not exist on
+> 2026-07-25. This block is a fresh measurement, added when the cardinality
+> program (`polymorphic-cardinality-plan.md`, Packages A–F) landed, and it obeys
+> the same honesty rule as §2.8: **a cell with no executed run says NOT RUN.**
+> Nothing here is inferred from a sibling dialect.
+
+The shared behaviors are `tests/contracts/drivers/behaviors/`:
+`polymorphic-collection-read-behavior.ts` (12 tests — envelope, `only`,
+arm-local order/window/distinct, tagged quantifiers, total and filtered counts,
+count ordering, orphan integrity, both inverse arities),
+`polymorphic-collection-write-behavior.ts` (18 tests — all eleven direct verbs,
+the guarded singular transfer, both inverse arities, and one write-then-read
+crossover), and `polymorphic-member-junction-behavior.ts` (1 test — member-table
+DDL, database-enforced singular/plural inverse, both cascade directions, and an
+**empty second push**). Which provider suite mounts which is declared in
+`tests/providers/matrix.ts` (`PROVIDER_RUNS`), so every cell below is a
+registration fact plus an executed run, not a claim.
+
+| Provider | Collection read | Collection write | Member junction DDL + 2nd push | Run |
+|---|---|---|---|---|
+| `pglite` | ✅ | ✅ | **NOT RUN** — contract not registered for this fixture | `--project=provider-pglite` → **839 passed / 1 skipped**, 318s |
+| `sqlite3` | ✅ | ✅ | ✅ | `--project=provider-sqlite3` → **1209 tests / 1 skipped** |
+| `libsql` | **NOT RUN** | **NOT RUN** | **NOT RUN** | `--project=provider-libsql` → **1125 tests / 1 skipped**; it registers `polymorphicRelationContract` (the to-one path) only |
+| `pg` (docker) | ✅ | ✅ | ✅ | `PG_TEST_CONNECTION_STRING=… --project=provider-pg` → **922 passed / 7 skipped**, 43s |
+| `postgres` (postgres.js, docker) | **NOT RUN** | **NOT RUN** | **NOT RUN** | registers no polymorphic contract at all; it delegates to the canonical PG fixture |
+| `mysql2` (docker) | ✅ | ✅ | ✅ | `MYSQL_TEST_CONNECTION_STRING=… --project=provider-mysql2` → **1108 passed / 1 skipped**, 92s |
+| `d1` | **NOT RUN** | **NOT RUN** | **NOT RUN** | `--project=provider-d1` fails at COLLECT time — `@paralleldrive/cuid2` generates a random value in global scope, which workerd forbids. **Pre-existing and unrelated to this feature**: zero tests execute, so nothing about D1 is measured either way |
+| `neon-http` | **NOT RUN** | **NOT RUN** | **NOT RUN** | no credentials on this machine (`availability: "neon-credentials"`) |
+| `planetscale` | **NOT RUN** | **NOT RUN** | **NOT RUN** | no credentials on this machine (`availability: "planetscale-credentials"`) |
+| `bun-sql`, `bun-sqlite` | **NOT RUN** | **NOT RUN** | **NOT RUN** | platform runtime probes only; shared database contracts run on the canonical fixtures |
+
+**What that buys, honestly.** Three dialect families execute the complete
+collection surface against a real database: PostgreSQL (`pg`), MySQL (`mysql2`)
+and SQLite (`sqlite3`), plus PGlite for the read/write halves. The member
+junction's compound primary keys, dual FK groups, reverse indexes and singular
+unique side are introspected back and found stable by an **empty second push** on
+all three of those families — which is the check that would fail if the
+serializer and the introspector disagreed on any spelling.
+
+**What it does not buy.** libsql runs the to-one path only; postgres.js runs
+neither. Both are SQLite-family and PostgreSQL-family respectively, so the
+dialect SQL is exercised elsewhere, but the *driver* is not — and this file does
+not let a sibling dialect stand in for a driver. D1, Neon, PlanetScale and Bun
+remain unmeasured for this feature exactly as they are for the rest of §2.8.
+
+**Specific dialect facts the runs pinned**, each from the member-junction
+behavior rather than from reading code:
+
+| Fact | postgres | mysql | sqlite |
+|---|---|---|---|
+| Member table quoting of camelCase owner row-key columns | `"..."` | `` `...` `` | `"..."` |
+| Singular inverse enforced by the database | ✅ unique constraint | ✅ unique index | ✅ table-level `CONSTRAINT … UNIQUE` |
+| Dropping that unique side to falsify the pin | ✅ `ALTER TABLE … DROP CONSTRAINT` | ✅ but only after dropping the FKs first — MySQL satisfies the FK's index requirement with that very unique index (errno 1553) | ❌ backed by an internal auto-index SQLite refuses to drop; the duplicate-row arm measures the invariant from the other side there |
+| Cascade from owner and from target | ✅ | ✅ | ✅ (FKs enforced per connection; the driver enables them) |
+| Second forced push | ✅ empty | ✅ empty | ✅ empty |
+
 ## 2.9 Interop defects found while building this matrix
 
 1. **`push({ forceReset: true })` is broken on the entire SQLite family.** [reset.ts:23](../../src/migrations/push/reset.ts:23) and [reset.ts:95](../../src/migrations/reset.ts:95) call `generateDropTableSQL(name, /*cascade*/ true)`; the SQLite driver does not override [base.ts:555](../../src/migrations/drivers/base.ts:555), which emits `DROP TABLE IF EXISTS "x" CASCADE`. Confirmed against better-sqlite3: `near "CASCADE": syntax error`. The CLI's `--force-reset` path passes no cascade and is safe, which is why no test caught it (`tests/cli/push.test.ts:396` runs on PGlite).
@@ -820,7 +878,7 @@ These are ordinary Prisma payloads:
 
 **C8. Dead-but-implemented adapter capability surface.** Fully implemented across all three dialect adapters, **never called by the engine**: pgvector similarity filters (`l2`, `cosine`); PostGIS operators (`intersects`/`contains`/`within`/`crosses`/`overlaps`/`touches`/`covers`/`dWithin`); `greatest`/`least`; array `length`/index get/index set. Validation types are deliberately truncated to `equals`/`not` to match. Plan doc: `docs/architecture/vector-similarity-plan.md`.
 
-**C9. Genuinely unimplemented features with written specs.** Polymorphic relations (8 phases, "Large"); recursive queries (`WITH RECURSIVE`, "Medium"); Redis cache driver. *(Query-level `omit` was on this list; shipped in W5-U4.)*
+**C9. Genuinely unimplemented features with written specs.** Recursive queries (`WITH RECURSIVE`, "Medium"); Redis cache driver. *(Query-level `omit` was on this list; shipped in W5-U4. Polymorphic relations were on this list at the July snapshot; the row-held `s.polymorphicToOne` slot shipped, and the `s.polymorphicToMany` collection followed with the cardinality program — see §2.8.1 for the per-provider evidence.)*
 
 **C10. Resolved after this audit.** The empty `enumValueValid` rule and its unreachable database-rule subsystem were deleted instead of being covered by artificial tests.
 

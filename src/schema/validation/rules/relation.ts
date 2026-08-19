@@ -3,18 +3,17 @@
 import { isValidSchemaIdentifier } from "../../identifier";
 import { getModelKeyCatalog, type Model } from "../../model";
 import {
-  getPolymorphicInverseBinding,
+  getCompatiblePolymorphicInverseBinding,
+  type RelationState,
   type RelationType,
 } from "../../relation";
 import {
   generateJunctionFieldName,
   generateJunctionTableName,
-  getJunctionConstraintName,
-  getJunctionFieldGroups,
   getJunctionTableName,
   JunctionPhysicalNameError,
-  junctionSourceSideIsFirst,
 } from "../../relation/helpers";
+import { resolveOrdinaryJunctionTopology } from "../../relation/junction-topology";
 import type {
   Schema,
   SchemaValidationIssue,
@@ -55,7 +54,17 @@ function isFirstModel(schema: Schema, name: string): boolean {
 // RELATION RULES (R002-R008)
 // =============================================================================
 
-/** R008: A non-owning one-to-one cannot guarantee that a member exists. */
+/**
+ * R008: A non-owning to-one slot cannot guarantee that a member exists.
+ *
+ * Two arms, one rule. A fields-less `oneToOne` stores no foreign key here, so
+ * required-ness is unenforceable — unconditional. A fields-less `manyToOne` is
+ * refused ONLY when its compatible polymorphic binding resolves (a toMany
+ * group): its membership then lives in a member junction row that may simply
+ * be absent, forcing "optional and clearable" (plan §6.3). The required
+ * ordinary-compat form stays legal — an unresolved binding means R004/FK004
+ * keep owning that spelling.
+ */
 export function inverseOneToOneMustBeOptional(
   _schema: Schema,
   name: string,
@@ -64,20 +73,31 @@ export function inverseOneToOneMustBeOptional(
   const errors: SchemaValidationIssue[] = [];
   for (const [relationName, relation] of getRelations(model)) {
     const state = relation["~"].state;
-    if (
-      state.type !== "oneToOne" ||
-      (state.fields !== undefined && state.fields.length > 0) ||
-      state.optional === true
-    ) {
+    const fieldsLess = state.fields === undefined || state.fields.length === 0;
+    if (state.type === "oneToOne" && fieldsLess && state.optional !== true) {
+      errors.push({
+        code: "R008",
+        message: `Non-owning one-to-one '${relationName}' in '${name}' must call .optional() because this model stores no foreign key fields.`,
+        severity: "error",
+        model: name,
+        relation: relationName,
+      });
       continue;
     }
-    errors.push({
-      code: "R008",
-      message: `Non-owning one-to-one '${relationName}' in '${name}' must call .optional() because this model stores no foreign key fields.`,
-      severity: "error",
-      model: name,
-      relation: relationName,
-    });
+    if (
+      state.type === "manyToOne" &&
+      fieldsLess &&
+      state.optional !== true &&
+      getCompatiblePolymorphicInverseBinding(state, model)
+    ) {
+      errors.push({
+        code: "R008",
+        message: `Non-owning many-to-one '${relationName}' in '${name}' must call .optional() because its membership lives in a polymorphic member junction.`,
+        severity: "error",
+        model: name,
+        relation: relationName,
+      });
+    }
   }
   return errors;
 }
@@ -120,21 +140,7 @@ export function relationHasInverse(
     if (!targetName) continue;
 
     const expected = INVERSE[type];
-    const fields = rel["~"].state.fields;
-    const canBindPolymorphic =
-      type === "oneToMany" ||
-      (type === "oneToOne" && (fields === undefined || fields.length === 0));
-    if (
-      !hasInverse(
-        target,
-        model,
-        name,
-        expected,
-        rel["~"].state.name,
-        canBindPolymorphic,
-        ctx
-      )
-    ) {
+    if (!hasInverse(target, model, name, expected, rel["~"].state, ctx)) {
       errors.push({
         code: MISSING_INVERSE_CODE[type],
         message: `'${rname}' (${type}) in '${name}' missing inverse ${expected} in '${targetName}'`,
@@ -269,24 +275,18 @@ export function junctionFieldsValid(
     }
     try {
       const table = getJunctionTableName(rel, name, targetName);
-      const groups = getJunctionFieldGroups(
-        rel,
-        name,
-        targetName,
-        sourceRowKey,
-        targetRowKey
-      );
-      getJunctionConstraintName(table, groups.source, "fkey");
-      getJunctionConstraintName(table, groups.target, "fkey");
-      const second = junctionSourceSideIsFirst(
-        name,
-        groups.source.fields,
-        targetName,
-        groups.target.fields
-      )
-        ? groups.target
-        : groups.source;
-      getJunctionConstraintName(table, second, "idx");
+      // This rule's name-probe order (source fkey, target fkey, reverse idx)
+      // is NOT the serializer's — the topology's caller-sequenced name methods
+      // exist so each consumer keeps its own historical first refusal.
+      const topology = resolveOrdinaryJunctionTopology({
+        relation: rel,
+        table,
+        source: { model, modelName: name, rowKey: sourceRowKey },
+        target: { model: target, modelName: targetName, rowKey: targetRowKey },
+      });
+      topology.foreignKeyName("source");
+      topology.foreignKeyName("target");
+      topology.reverseIndexName();
     } catch (error) {
       if (!(error instanceof JunctionPhysicalNameError)) continue;
       errors.push({
@@ -333,6 +333,25 @@ export function junctionFieldsDistinct(
  * of a self-ref M:N therefore legitimately has A > B - no alphabetical
  * heuristics here.) Also catches self-ref M:N without explicit .A()/.B(),
  * where both columns would generate the same name.
+ *
+ * DELIBERATELY NOT cut over to `resolveOrdinaryJunctionTopology`: this rule is
+ * not a reconstruction of the resolved topology. It reads only RAW config
+ * (through/A/B) and applies the mirror contract above — it never expands
+ * tokens, orders sides, or names constraints — and it must keep firing for
+ * PK-less models, which the row-key-fed owner cannot serve. The raw
+ * `columnsCollide` check below is load-bearing: mirrored EXPLICIT
+ * compound-vs-scalar EQUAL tokens are rejected only here (their token
+ * expansions differ in arity, so the expanded-field collision guard never
+ * sees them), and that rejection is the sole guard against emitting duplicate
+ * `${table}_${token}_fkey` constraint names for such pairs.
+ *
+ * The SAME token equality arising from a GENERATED compound prefix escapes
+ * this rule (its fallback derivation is `generateJunctionFieldName` =
+ * `modelId`, blind to compound expansion). That hazard is now owned by the
+ * topology's own `foreignKeyName()` (`@schema/relation/junction-topology`),
+ * which refuses equal side tokens lazily on the first fkey ask —
+ * `junctionFieldsValid` above surfaces it as JT003 through its existing
+ * `JunctionPhysicalNameError` mapping.
  */
 export function junctionConfigConsistent(
   schema: Schema,
@@ -624,18 +643,18 @@ function hasInverse(
   source: Model<any>,
   sourceName: string,
   expectedType: RelationType,
-  pairingName: string | undefined,
-  canBindPolymorphic: boolean,
+  state: RelationState,
   ctx: ValidationContext
 ): boolean {
   for (const rel of getRelationValues(target)) {
     const t = findModelName(ctx, rel["~"].state.getter());
     if (t === sourceName && rel["~"].state.type === expectedType) return true;
   }
-  if (
-    canBindPolymorphic &&
-    getPolymorphicInverseBinding(target, source, pairingName)
-  ) {
+  // The compatible-binding projection replaces the old shape-gate + resolver
+  // composition: a fields-less manyToOne/manyToMany bound to a toMany group is
+  // a satisfied inverse; over a toOne group the projection answers undefined
+  // and R004/R005 keep firing exactly as before.
+  if (getCompatiblePolymorphicInverseBinding(state, source)) {
     return true;
   }
   return false;

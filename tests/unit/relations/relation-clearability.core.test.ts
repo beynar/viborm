@@ -1,5 +1,6 @@
 import { s } from "@schema";
 import {
+  type MembershipCanBeCleared,
   membershipCanBeCleared,
   slotMayBeEmpty,
 } from "@schema/relation/clearability";
@@ -35,13 +36,23 @@ describe("slotMayBeEmpty — the public slot", () => {
 });
 
 describe("canBindPolymorphicInverse — which shapes may take a polymorphic inverse", () => {
-  test("a oneToMany and a fields-less oneToOne may; every fields-bearing shape may not", () => {
+  // AMENDED with B2's widening: the shape fact admits the four FIELDS-LESS
+  // shapes (compatibility with the bound group is the projection's question,
+  // not this one's); every fields-bearing shape still may not.
+  test("the four fields-less shapes may; every fields-bearing shape may not", () => {
     const target = s.model({ id: s.string().id() });
 
     expect(canBindPolymorphicInverse(stateOf(s.oneToMany(() => target)))).toBe(
       true
     );
     expect(canBindPolymorphicInverse(stateOf(s.oneToOne(() => target)))).toBe(
+      true
+    );
+    expect(canBindPolymorphicInverse(stateOf(s.manyToOne(() => target)))).toBe(
+      true
+    );
+    // A manyToMany never carries `.fields()`, so every one is fields-less.
+    expect(canBindPolymorphicInverse(stateOf(s.manyToMany(() => target)))).toBe(
       true
     );
     // A zero-argument `.fields()` is fields-LESS — the aligned reading.
@@ -68,9 +79,6 @@ describe("canBindPolymorphicInverse — which shapes may take a polymorphic inve
         )
       )
     ).toBe(false);
-    expect(canBindPolymorphicInverse(stateOf(s.manyToMany(() => target)))).toBe(
-      false
-    );
   });
 });
 
@@ -83,7 +91,7 @@ describe("membershipCanBeCleared — the physical membership", () => {
     const optionalEntry = s.model({
       id: s.string().id(),
       owner: s
-        .polymorphic(
+        .polymorphicToOne(
           { owner: () => optionalOwner },
           { values: { owner: "clearability.optional.v1" } }
         )
@@ -97,7 +105,7 @@ describe("membershipCanBeCleared — the physical membership", () => {
     const requiredEntry = s.model({
       id: s.string().id(),
       owner: s
-        .polymorphic(
+        .polymorphicToOne(
           { owner: () => requiredOwner },
           { values: { owner: "clearability.required.v1" } }
         )
@@ -224,3 +232,148 @@ describe("membershipCanBeCleared — the physical membership", () => {
     ).toBe(false);
   });
 });
+
+describe("membershipCanBeCleared — collection-group (toMany) bindings", () => {
+  test("junction membership always clears, whatever the asking shape", () => {
+    const collectionHolder = s.manyToOne(() => collectionOwner).optional();
+    const collectionHolders = s.manyToMany(() => collectionOwner);
+    const collectionParents = s.oneToMany(() => collectionOwner);
+    const collectionMember = s.model({
+      id: s.string().id(),
+      holder: collectionHolder,
+      holders: collectionHolders,
+      parents: collectionParents,
+    });
+    const collectionOwner = s.model({
+      id: s.string().id(),
+      items: s.polymorphicToMany(
+        { member: () => collectionMember },
+        { values: { member: "clearability.collection.v1" } }
+      ),
+    });
+
+    // Junction membership clears by DELETING the member row — singular inverse
+    // (one row) and plural inverse (rows) alike; no column is ever nulled.
+    expect(
+      membershipCanBeCleared(stateOf(collectionHolder), collectionMember)
+    ).toBe(true);
+    expect(
+      membershipCanBeCleared(stateOf(collectionHolders), collectionMember)
+    ).toBe(true);
+    // AMENDED BY B3's tightening (the conscious amendment the B2 dormancy note
+    // demanded). The retained `oneToMany` shape no longer binds a collection
+    // group, so it falls to its ORDINARY arm — and there it finds no
+    // fields-bearing back-reference on the member at all, which is the same
+    // `false` the "no resolvable back-reference means nothing to clear" pin
+    // above records. Nothing about junction membership changed; this shape
+    // simply stopped claiming to be junction membership.
+    expect(
+      membershipCanBeCleared(stateOf(collectionParents), collectionMember)
+    ).toBe(false);
+  });
+
+  test("a fields-less manyToOne over a toOne group keeps the ordinary reading", () => {
+    const singularHolder = s.manyToOne(() => singularOwner).optional();
+    const singularMember = s.model({
+      id: s.string().id(),
+      holder: singularHolder,
+    });
+    const singularOwner = s.model({
+      id: s.string().id(),
+      item: s.polymorphicToOne(
+        { member: () => singularMember },
+        { values: { member: "clearability.singular.v1" } }
+      ),
+    });
+
+    // The projection refuses the binding (toOne group, junction-shaped asker),
+    // and undefined IS the ordinary fallback: no resolvable back-reference on
+    // the owner records this membership, so there is nothing to clear.
+    expect(
+      membershipCanBeCleared(stateOf(singularHolder), singularMember)
+    ).toBe(false);
+  });
+});
+
+// =============================================================================
+// Type-twin probes — one rule, both levels, with the documented divergence
+// =============================================================================
+
+const twinHolder = s.manyToOne(() => twinOwner).optional();
+const twinHolders = s.manyToMany(() => twinOwner);
+const twinParents = s.oneToMany(() => twinOwner);
+const twinTwin = s.oneToOne(() => twinOwner).optional();
+const twinMember = s.model({
+  id: s.string().id(),
+  holder: twinHolder,
+  holders: twinHolders,
+  parents: twinParents,
+  twin: twinTwin,
+});
+const twinOwner = s.model({
+  id: s.string().id(),
+  items: s.polymorphicToMany(
+    { member: () => twinMember },
+    { values: { member: "clearability.twin.v1" } }
+  ),
+});
+const twinSingularHolder = s.manyToOne(() => twinSingularOwner).optional();
+const twinSingularMember = s.model({
+  id: s.string().id(),
+  holder: twinSingularHolder,
+});
+const twinSingularOwner = s.model({
+  id: s.string().id(),
+  item: s.polymorphicToOne(
+    { member: () => twinSingularMember },
+    { values: { member: "clearability.twin.singular.v1" } }
+  ),
+});
+
+type Expect<Value extends true> = Value;
+type TypeEqual<Left, Right> =
+  (<Value>() => Value extends Left ? 1 : 2) extends <
+    Value,
+  >() => Value extends Right ? 1 : 2
+    ? true
+    : false;
+
+// The retained shapes reach the twin's `cardinality: "many"` arm over a toMany
+// group — matching the runtime projection's B2 answer for those shapes.
+type _oneToManyTwinClearsOverCollection = Expect<
+  MembershipCanBeCleared<(typeof twinParents)["~"]["state"], typeof twinMember>
+>;
+type _fieldsLessOneToOneTwinClearsOverCollection = Expect<
+  MembershipCanBeCleared<(typeof twinTwin)["~"]["state"], typeof twinMember>
+>;
+// The junction shapes stay TYPE-CONSERVATIVE (runtime true, twin false) — the
+// twin's documented divergence #2 in `@schema/relation/inverse`; the operation
+// surface is already correct for both shapes without the widening.
+type _manyToOneTwinStaysConservative = Expect<
+  TypeEqual<
+    MembershipCanBeCleared<
+      (typeof twinHolder)["~"]["state"],
+      typeof twinMember
+    >,
+    false
+  >
+>;
+type _manyToManyTwinStaysConservative = Expect<
+  TypeEqual<
+    MembershipCanBeCleared<
+      (typeof twinHolders)["~"]["state"],
+      typeof twinMember
+    >,
+    false
+  >
+>;
+// Over a toOne group the ordinary reading answers at BOTH levels.
+type _manyToOneOverSingularGroupMirrorsRuntime = Expect<
+  TypeEqual<
+    MembershipCanBeCleared<
+      (typeof twinSingularHolder)["~"]["state"],
+      typeof twinSingularMember
+    >,
+    false
+  >
+>;

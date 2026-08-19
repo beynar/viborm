@@ -165,7 +165,9 @@ operation shells.
 | relation payload meaning | `relation-mutation-parser.ts` |
 | relation topology | `relation-data-builder.ts` |
 | physical read traversal of a relation | `relation-traversal.ts` |
-| many-to-many junction SQL | `many-to-many-utils.ts`, `ManyToManyStatements.ts` |
+| junction SQL — ordinary many-to-many and polymorphic member junctions alike | `many-to-many-utils.ts`, `JunctionStatements.ts` |
+| polymorphic reads | `polymorphic-read-builder.ts` (row-held), `polymorphic-collection-read-builder.ts` (collection) |
+| polymorphic collection writes | `write-engine/PolymorphicCollectionPart.ts`, `RelationJunctionToOnePart.ts`, `junction-singular-transfer.ts` |
 
 The golden rule is absolute: query-engine code decides what a query means;
 adapters decide how that meaning is written in a dialect.

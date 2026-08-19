@@ -4,8 +4,10 @@
 
 import { existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { MigrationStorageDriver } from "@src/migrations/storage";
+import {
+  createEmptyJournal,
+  MigrationStorageDriver,
+} from "@src/migrations/storage";
 import {
   createFsStorageDriver,
   FsStorageDriver,
@@ -15,12 +17,20 @@ import type {
   MigrationJournal,
   SchemaSnapshot,
 } from "@src/migrations/types";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 // =============================================================================
 // HELPERS
 // =============================================================================
 
 const TEST_DIR = join(__dirname, ".test-storage");
+
+const STALE_FORMAT_VERSION = /format version "1".*version "2"/s;
+const NO_VALID_MODE = /entry "policyless".*declares no valid mode/;
+const NO_IRREVERSIBLE_REASON = /marked irreversible but states no reason/;
+
+/** The journal format version this build writes, read off the code itself. */
+const JOURNAL_VERSION = createEmptyJournal("postgresql").version;
 
 function makeEntry(idx: number, name: string): MigrationEntry {
   return {
@@ -29,6 +39,8 @@ function makeEntry(idx: number, name: string): MigrationEntry {
     name,
     when: Date.now(),
     checksum: "abc123def456",
+    mode: "generated",
+    rollback: { kind: "automatic" },
   };
 }
 
@@ -91,7 +103,7 @@ describe("MigrationStorageDriver", () => {
 
     it("should write and read journal", async () => {
       const journal: MigrationJournal = {
-        version: "1",
+        version: JOURNAL_VERSION,
         dialect: "postgresql",
         entries: [makeEntry(0, "initial")],
       };
@@ -100,7 +112,7 @@ describe("MigrationStorageDriver", () => {
       const read = await storage.readJournal();
 
       expect(read).not.toBeNull();
-      expect(read!.version).toBe("1");
+      expect(read!.version).toBe(JOURNAL_VERSION);
       expect(read!.dialect).toBe("postgresql");
       expect(read!.entries).toHaveLength(1);
       expect(read!.entries[0]?.name).toBe("initial");
@@ -115,7 +127,7 @@ describe("MigrationStorageDriver", () => {
 
     it("should return existing journal with matching dialect", async () => {
       const journal: MigrationJournal = {
-        version: "1",
+        version: JOURNAL_VERSION,
         dialect: "postgresql",
         entries: [makeEntry(0, "existing")],
       };
@@ -128,7 +140,7 @@ describe("MigrationStorageDriver", () => {
 
     it("should throw on dialect mismatch", async () => {
       const journal: MigrationJournal = {
-        version: "1",
+        version: JOURNAL_VERSION,
         dialect: "postgresql",
         entries: [],
       };
@@ -136,6 +148,82 @@ describe("MigrationStorageDriver", () => {
 
       await expect(storage.getOrCreateJournal("sqlite")).rejects.toThrow(
         "Journal dialect mismatch"
+      );
+    });
+
+    // readJournal is the SINGLE funnel: every verb reaches the journal through
+    // it, so a stale-format or policy-less journal is refused once, here, and
+    // no downstream verb re-checks.
+    it("refuses a previous-format journal instead of upgrading it", async () => {
+      await storage.put(
+        "meta/_journal.json",
+        JSON.stringify({
+          version: "1",
+          dialect: "postgresql",
+          entries: [
+            {
+              idx: 0,
+              version: "20240101000000",
+              name: "initial",
+              when: 1,
+              checksum: "abc",
+            },
+          ],
+        })
+      );
+
+      await expect(storage.readJournal()).rejects.toMatchObject({
+        code: "V11009",
+      });
+      await expect(storage.readJournal()).rejects.toThrow(STALE_FORMAT_VERSION);
+    });
+
+    it("refuses a current-format journal whose entry carries no policy", async () => {
+      await storage.put(
+        "meta/_journal.json",
+        JSON.stringify({
+          version: JOURNAL_VERSION,
+          dialect: "postgresql",
+          entries: [
+            {
+              idx: 0,
+              version: "20240101000000",
+              name: "policyless",
+              when: 1,
+              checksum: "abc",
+            },
+          ],
+        })
+      );
+
+      await expect(storage.readJournal()).rejects.toMatchObject({
+        code: "V11009",
+      });
+      await expect(storage.readJournal()).rejects.toThrow(NO_VALID_MODE);
+    });
+
+    it("refuses an irreversible entry whose reason is blank", async () => {
+      await storage.put(
+        "meta/_journal.json",
+        JSON.stringify({
+          version: JOURNAL_VERSION,
+          dialect: "postgresql",
+          entries: [
+            {
+              idx: 0,
+              version: "20240101000000",
+              name: "unexplained",
+              when: 1,
+              checksum: "abc",
+              mode: "manual",
+              rollback: { kind: "irreversible", reason: "   " },
+            },
+          ],
+        })
+      );
+
+      await expect(storage.readJournal()).rejects.toThrow(
+        NO_IRREVERSIBLE_REASON
       );
     });
   });

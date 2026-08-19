@@ -1073,6 +1073,14 @@ function assertNoIncomingTargetMutationOverlap(
   parsed: ParsedRelationMutation
 ): void {
   if (parsed.kind === "polymorphicDisconnect") return;
+  // A COLLECTION arm can never overlap the incoming membership this asks about:
+  // the overlap it detects is a PARENT-HELD edge whose stored membership is the
+  // very foreign key the upsert's own supplier writes, and a collection's
+  // membership is member-junction rows on a third table. Every entry it carries
+  // is `position: "junction"`, which the `parentHeld` test below returns on
+  // anyway — so this is the same verdict, reached one step earlier because the
+  // arm has no single `program` to bind.
+  if (parsed.kind === "polymorphicCollection") return;
   const relation = bindRelation(child, parsed.program.relationInfo);
   if (relation.position !== "parentHeld") return;
   const mutationScope =

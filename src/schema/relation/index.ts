@@ -5,6 +5,8 @@
 // CARDINALITY
 // =============================================================================
 export {
+  type PolymorphicCardinalityOf,
+  polymorphicCardinality,
   type RelationCardinality,
   relationCardinality,
 } from "./cardinality";
@@ -28,8 +30,10 @@ export {
 } from "./helpers";
 export {
   type CanBindPolymorphicInverse,
+  type CompatiblePolymorphicBinding,
   canBindPolymorphicInverse,
   collectInverseCandidates,
+  getCompatiblePolymorphicInverseBinding,
   getPolymorphicInverseBinding,
   type ResolvedInverseCandidate,
   type ResolvedInverseRelation,
@@ -42,15 +46,25 @@ export {
   type GetPolymorphicInverseBinding,
   getPolymorphicInverseCandidates,
   isPolymorphicRelation,
+  type PolymorphicCardinality,
   type PolymorphicInverseBinding,
   type PolymorphicInverseCardinality,
-  PolymorphicRelation,
+  type PolymorphicJunctionMember,
   type PolymorphicRelationState,
+  type PolymorphicStateOf,
   type PolymorphicStorage,
   type PolymorphicStorageColumn,
   type PolymorphicStorageMember,
   type PolymorphicTargetGetters,
-  polymorphic,
+  type PolymorphicThroughEntry,
+  PolymorphicToManyRelation,
+  type PolymorphicToManyState,
+  type PolymorphicToManyStorage,
+  PolymorphicToOneRelation,
+  type PolymorphicToOneState,
+  type PolymorphicToOneStorage,
+  polymorphicToMany,
+  polymorphicToOne,
 } from "./polymorphic";
 export { oneToMany, ToManyRelation } from "./to-many";
 // =============================================================================

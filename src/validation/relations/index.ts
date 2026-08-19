@@ -73,7 +73,7 @@ const toOneSchemas = <
   state: S,
   source: Source,
   targetSchemas: T
-): ToOneSchemas<S, Source> => {
+) => {
   return {
     filter: v.lazy(() => toOneFilterFactory(state, targetSchemas)),
     create: v.lazy(() => toOneCreateFactory(state, source, targetSchemas)),
@@ -93,7 +93,7 @@ const toManySchemas = <
   state: S,
   source: Source,
   targetSchemas: T
-): ToManySchemas<S, Source> => {
+) => {
   return {
     filter: v.lazy(() => toManyFilterFactory(state, targetSchemas)),
     create: v.lazy(() => toManyCreateFactory(state, source, targetSchemas)),
@@ -130,13 +130,29 @@ export type ToManySchemas<S extends RelationState, Source extends AnyModel> = {
 };
 
 /**
- * A relation's schemas are decided by ITS OWN cardinality and nothing else.
+ * A relation's schemas are decided by ITS OWN cardinality, and by nothing else.
  *
  * The polymorphic-inverse dispatch that used to live here — a second to-one and a
  * second to-many family, spelled key by key — is gone: what differs about a
- * polymorphic inverse is which target schema its nested payloads write into and
- * whether its membership can be cleared, and both facts are now the
+ * ROW-HELD polymorphic inverse is which target schema its nested payloads write
+ * into and whether its membership can be cleared, and both facts are now the
  * `nested-data-projection` owner's, read by the same four verb factories.
+ *
+ * BOTH COLLECTION INVERSE ARITIES ARE ORDINARY. A polymorphic-bound `manyToMany`
+ * is a fixed-variant ordinary junction VIEW (§9.5): the binder supplies the same
+ * `ResolvedJunctionTopology` in reverse orientation, and `RelationJunctionPart` /
+ * `JunctionStatements` — written entirely against `membership.source` /
+ * `membership.target` — own every verb unchanged. A polymorphic-bound `manyToOne`
+ * is the SINGULAR slot (§9.4): its membership is one member-junction row under a
+ * UNIQUE over the complete variant side, which is a to-one slot with a to-one
+ * slot's vocabulary. `RelationJunctionToOnePart` lowers its four correlated
+ * spellings — `disconnect: true` deletes THE junction row, `delete: true` deletes
+ * the single connected owner, `update`/`upsert` correlate — so the ordinary to-one
+ * families serve it verbatim and there is nothing left here to substitute.
+ *
+ * The removal verbs still hang on the SLOT fact alone (`slotMayBeEmpty`), which
+ * `P021` makes true by construction for this shape rather than hoping a schema
+ * author wrote `.optional()`.
  */
 export type GetRelationSchemas<
   S extends RelationState,
@@ -149,10 +165,7 @@ export type GetRelationSchemas<
 // MAIN EXPORT
 // =============================================================================
 
-/**
- * Get all schemas for a relation based on its type
- */
-
+/** Get all schemas for a relation based on its type. */
 export const getRelationSchemas = <
   S extends RelationState,
   Source extends AnyModel,
@@ -163,11 +176,18 @@ export const getRelationSchemas = <
   targetSchemas: T
 ) => {
   const isToMany = relationCardinality(state) === "many";
-  return (
-    isToMany
-      ? toManySchemas(state, source, targetSchemas)
-      : toOneSchemas(state, source, targetSchemas)
-  ) as GetRelationSchemas<S, Source>;
+  // The bundle builders are left to INFER, so the union each write family really
+  // carries is visible inside this function; {@link GetRelationSchemas} is the
+  // type-level owner of which arm a given `<S, Source>` lands on, and this is the
+  // single seam where the two meet — the same boundary crossing this return has
+  // always performed.
+  return (isToMany
+    ? toManySchemas(state, source, targetSchemas)
+    : toOneSchemas(
+        state,
+        source,
+        targetSchemas
+      )) as unknown as GetRelationSchemas<S, Source>;
 };
 
 /**

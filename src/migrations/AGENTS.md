@@ -19,13 +19,15 @@ Provides two approaches for syncing TypeScript schema to the database:
 | `push/` | Direct push workflow (serialize → diff → execute) |
 | `client.ts` | `createMigrationClient()` programmatic API |
 | `generate/index.ts` | Generate migration files |
-| `apply/index.ts` | Apply/rollback migrations |
+| `apply/index.ts` | Apply migrations, status, pending |
+| `apply/down.ts` | The ONLY rollback verb (executes down artifacts under the lock) |
 | `context.ts` | Shared context (locking, tracking, execution) |
 | `serializer.ts` | Model → SchemaSnapshot |
 | `differ.ts` | Compare snapshots, detect changes |
 | `resolver.ts` | Ambiguous/destructive change resolution |
 | `types.ts` | SchemaSnapshot, DiffOperation, MigrationEntry types |
 | `generate/polymorphic-history.ts` | Non-SQL history for stable polymorphic members |
+| `generate/manual-artifact.ts` | Validates `GenerateOptions.manualMigration` (all five refusals) |
 
 ### Subdirectories
 
@@ -34,7 +36,7 @@ Provides two approaches for syncing TypeScript schema to the database:
 | `drivers/` | Migration-specific drivers (DDL generation, introspection) |
 | `storage/` | Storage drivers for migration files (filesystem, etc.) |
 | `generate/` | Migration file generation and formatting |
-| `apply/` | Apply, rollback, status, down operations |
+| `apply/` | Apply, status, pending, down operations |
 | `push/` | Push workflow internals (planner, executor, format, enum-removals) |
 
 ---
@@ -103,25 +105,68 @@ interface TableDef {
 `polymorphicStorage` is descriptive generated-file history. It is not a table
 or DDL operation, and the structural differ ignores it.
 
+It is a `kind`-tagged union, one arm per slot cardinality, and both arms are
+LOGICAL ONLY — no physical fact is duplicated into either:
+
+```typescript
+type PolymorphicSnapshotStorage =
+  | PolymorphicToOneSnapshot   // kind: "toOne"
+  | PolymorphicToManySnapshot; // kind: "toMany"
+```
+
+A `toOne` arm carries `{ ownerTable, relation, storageRef, members }`, each
+member `{ publicType, storedType, targetTable }`. `storageRef` is the join key
+into the owner table's `relationStorage` registry — the physical type-column name
+at serialization time, opaque to every reader and normalized through accepted
+rename operations before history joins.
+
+A `toMany` arm carries `{ ownerTable, relation, members }`, each member
+`{ publicType, storedType, targetTable, memberJunctionTable, inverseCardinality }`.
+It needs no `storageRef`: each member names its junction table directly, and the
+structural differ owns that table's shape — columns, primary key, reverse index,
+both foreign keys, and the singular member's unique constraint — entirely.
+
 ### Migration Journal
 
 Tracks migration history in `meta/_journal.json`:
 
 ```typescript
 interface MigrationJournal {
-  version: string;
+  version: string;   // "2" — bumped when entries gained their policy
   dialect: Dialect;
   entries: MigrationEntry[];
 }
 
 interface MigrationEntry {
-  idx: number;       // Sequential index
-  version: string;   // Timestamp version
-  name: string;      // kebab-case name
-  when: number;      // Unix timestamp
-  checksum: string;  // SHA256 of SQL content
+  idx: number;                 // Sequential index
+  version: string;             // Timestamp version
+  name: string;                // kebab-case name
+  when: number;                // Unix timestamp
+  checksum: string;            // SHA256 of SQL content
+  mode: "generated" | "manual";        // How the up artifact was produced
+  rollback:                            // The policy this entry commits to
+    | { kind: "automatic" }
+    | { kind: "manual" }
+    | { kind: "irreversible"; reason: string };
 }
 ```
+
+`mode` and `rollback` are REQUIRED. An entry with no policy would have to be
+given a default, and the only available default (`automatic`) is exactly the
+bypass the policy exists to close.
+
+`readJournal()` is the SINGLE journal funnel — `apply`, `down`, `squash`,
+`reset`, `status` and the client accessors all reach the journal through it — so
+it validates once: a journal whose `version` is not `"2"`, or any entry missing
+`mode`, missing `rollback`, carrying an unknown rollback kind, or declaring
+`irreversible` with a blank `reason`, is refused with `V11009`. There is no
+legacy reader and no journal migrator; regenerate the estate instead. After that
+guard `entry.rollback` is total and no downstream verb re-checks it.
+
+**What checksum verification proves.** Only that the journal entry and the
+tracking row agree (`apply/index.ts`, `apply/down.ts`). The written file embeds
+the checksum it would have to hash to, so artifact bytes are never re-verified
+against the journal. Do not describe checksums as artifact integrity.
 
 ### Storage Drivers
 
@@ -198,9 +243,13 @@ viborm push --accept-data-loss
 # Migrate (file-based)
 viborm migrate generate --name add-users
 viborm migrate apply
+viborm migrate down --steps 1
 viborm migrate status
-viborm migrate drop --last
 ```
+
+Four subcommands, and `down` is the only rollback. There is deliberately no
+`drop`: untracking an applied migration while its schema changes stay live is
+the bypass a persisted rollback policy exists to close.
 
 ---
 
@@ -229,10 +278,10 @@ Each migration is applied in a transaction. Failure rolls back that migration.
 
 The journal tracks which migrations exist. The database tracks which are applied.
 
-### Rule 6: Polymorphic Storage Is Relation-Owned
+### Rule 6: Polymorphic Storage Is Relation-Owned, And Its History Is Refused Or Owned
 
-A direct polymorphic field serializes two private columns and one composite
-index from its validated `PolymorphicStorage` descriptor:
+A to-one polymorphic field serializes two private columns and one composite
+index from its validated storage descriptor:
 
 ```text
 <relation>_type
@@ -241,30 +290,93 @@ index from its validated `PolymorphicStorage` descriptor:
 ```
 
 Required relations make both columns non-null; optional relations make both
-nullable. The existing composite index is non-unique for an inverse `oneToMany`
-and unique for an inverse `oneToOne`; its name and column order do not change.
+nullable. The composite index is non-unique for an inverse `oneToMany` and
+unique for an inverse `oneToOne`.
 
-Changing inverse cardinality therefore uses the normal drop-index/create-index
-diff. Existing duplicate pairs make a many-to-one cardinality migration fail
-transactionally; VibORM does not synthesize deduplication DML. The private
-columns never enter public scalar state, and no cross-target database FK or V1
-CHECK constraint is emitted. Existing migration-driver scalar and index
-primitives generate PostgreSQL, MySQL, SQLite, and libSQL DDL.
+A collection polymorphic field instead serializes ONE MEMBER JUNCTION TABLE PER
+VARIANT, emitted by `serializeMemberJunction` from the same
+`PolymorphicJunctionMember.junction` topology the engine binds — never
+reconstructed from naming conventions. Each member table carries a composite
+primary key over both complete sides in canonical order, one non-unique index
+over the complete SECOND side (emitted unconditionally so every member table
+shares one template shape), two `cascade`/`cascade` foreign keys, and — when that
+member's `inverseCardinality` is `"one"` — a `UNIQUE` over the complete TARGET
+side. The unique side is the target group itself, never the reverse index
+flipped and never a primary-key prefix, because when the target sorts
+canonical-first neither of those makes the target columns unique. Referential
+actions on a member junction are fixed, so `resolveJunctionPairActions` is never
+called on that path and no synthetic `manyToMany` state exists anywhere.
 
-The snapshot also records each public discriminator, stable stored value,
-physical target table, and referenced column. `generate/polymorphic-history.ts`
-is the sole comparator after accepted structural renames. Public-key rename
-with stable storage/target metadata is safe. Stored-value change, member
-removal, or member retarget is refused unless
-`polymorphicMemberResolver` returns that change's
-`acknowledgeMigrated()` result after separate DML has migrated the data. VibORM
-does not synthesize that DML.
+Changing inverse cardinality is therefore an ordinary structural diff — an index
+or unique-constraint flip on a to-one slot, an added or dropped unique
+constraint on the one affected member table for a collection. Existing duplicate
+rows make the restricting direction fail
+transactionally at the database; VibORM does not synthesize deduplication DML.
+The private columns never enter public scalar state, and no cross-target FK or
+CHECK constraint is emitted for row-held storage. A polymorphic-bound
+`manyToMany` is a member VIEW and is excluded from the serializer's ordinary
+junction walk; the half-pair such a view could otherwise leave behind is refused
+at definition validation as `P020`.
 
-Adding a target can be metadata-only. `generate()` then updates the snapshot
-without creating SQL, a migration file, or a journal entry. `push()` compares
-live structure only: introspected text columns cannot recover discriminator
-history, so push cannot detect a stored-value rename, removal, or retarget.
-Push users must migrate data before changing those mappings.
+`generate/polymorphic-history.ts` is the SOLE comparator after accepted
+structural renames, and classification is total. A public rename with stable
+storage and target metadata is metadata-only. A stored-value change, member
+removal, retarget, unexplained junction move, or cardinality flip is
+**data-bearing**, and generation refuses it outright (`V11010`) — there is no
+acknowledgement API and no resolver escape.
+
+The one input that lifts that refusal is a complete caller-owned artifact:
+
+```typescript
+await migrations.generate({
+  name: "subject-to-many",
+  manualMigration: {
+    up: [/* create destination, copy membership, remove source */],
+    rollback: { kind: "manual", sql: [/* ... */] },
+    // or: { kind: "irreversible", reason: "…" }
+  },
+});
+```
+
+Supplying it puts the WHOLE migration in manual mode — caller-elected and
+unconditional, whether or not a data-bearing transition exists. Generation emits
+only those statements and never appends generated DDL around them, while still
+computing the complete diff and snapshot for reporting and history. It is a
+suppression INPUT to classification, never an output of it, and it does not
+suppress snapshot-coherence or stale-format refusals: those mean the snapshot
+itself is wrong, not that a transition needs executing.
+
+`generate/manual-artifact.ts` owns every artifact refusal (all `V11010`): an
+`up` that parses empty, a `manual` rollback whose `sql` parses empty, a blank
+`irreversible` reason, and a missing `name`. "Parses empty" is
+`parseStatements(addStatementBreakpoints(...))` — the same parser `apply()` and
+`down()` read artifacts back with, so comment-only and whitespace-only artifacts
+are empty everywhere, by one definition.
+
+An irreversible migration still gets a comment-only down artifact written, which
+is safe only because `down()` dispatches on the persisted policy strictly BEFORE
+it opens any artifact — while the same comment-only bytes under an `automatic`
+or `manual` policy are fatal.
+
+`push()` compares live structure only: introspected text columns cannot recover
+discriminator history, so push cannot detect a stored-value rename, removal, or
+retarget. Push users must migrate data before changing those mappings.
+
+### Rule 6b: Rollback Reads Everything Under The Lock — And The Lock Is Weak
+
+`down()` and `squash()` do all of it inside `ctx.withLock`: read the journal,
+read applied state, recompute the group, verify checksums, refuse on policy,
+validate every artifact, and only then execute. The dry-run return comes AFTER
+the whole preflight, because the CLI confirms against the dry run and a preview
+that cannot report a refusal is not a preview.
+
+State that honestly: this closes the window between the caller's request and
+lock acquisition by recomputing, not by serializing. The lock itself is weaker
+than it looks — SQLite and libSQL take no lock at all and report success, and on
+PostgreSQL/MySQL the advisory lock is session-scoped and issued outside the
+transaction, so it is not connection-pinned. On the substrates the round-trip
+tests run on, the in-lock recomputation is the ONLY defence. `apply()` still
+does not take the lock at all; that is a known gap, not a claim.
 
 ### Rule 7: Junction Sides Are Complete Stored References
 
@@ -287,6 +399,9 @@ first member or rederive positional names in migration code.
 | Silent destructive ops | Unexpected data loss | Require confirmation |
 | Treating polymorphic metadata as DDL | Duplicates structural ownership | Keep history in `generate/polymorphic-history.ts` |
 | Expecting push to infer discriminator history | Live text columns contain no public-member history | Use generated snapshots and explicit data migration |
+| Untracking an applied migration to "undo" it | Leaves the schema live and bypasses manual/irreversible policy | `migrations.down()` — it executes the artifact and untracks together |
+| Writing an empty or comment-only down artifact | Rollback would advance tracking past SQL that never ran | Declare `{ kind: "irreversible", reason }` |
+| A second journal reader or SQL parser | Two definitions of "current format" or "non-empty" cannot agree | `storage.readJournal()` and `parseStatements()` are the only ones |
 
 ---
 
@@ -342,13 +457,13 @@ src/migrations/
 ├── generate/
 │   ├── index.ts       # generate(), preview()
 │   ├── polymorphic-history.ts # Stable member-history comparison
-│   ├── file-writer.ts # Migration file formatting
-│   ├── journal.ts     # Journal operations
+│   ├── manual-artifact.ts # manualMigration parsing + refusals
+│   ├── file-writer.ts # Migration file formatting + the ONE SQL parser
+│   ├── journal.ts     # Migrations-directory layout helpers only
 │   └── snapshot.ts    # Snapshot operations
 └── apply/
-    ├── index.ts       # apply(), status(), pending(), rollback()
-    ├── down.ts        # Down migrations
-    └── tracker.ts     # Tracking table operations
+    ├── index.ts       # apply(), status(), pending()
+    └── down.ts        # Down migrations (the only rollback verb)
 ```
 
 ---

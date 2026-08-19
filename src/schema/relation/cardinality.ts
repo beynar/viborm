@@ -13,10 +13,14 @@
 // every adapter author restate a fact the schema already owns. The parser consumes
 // this function BESIDE the published kind instead.
 //
-// No type twin (unlike `clearability.ts`, which has two): nothing branches on
-// cardinality at the TYPE level — `getRelationSchemas` casts its result — so a twin
-// would be a second declaration with no reader.
+// The ORDINARY reader has no type twin: nothing branches on an ordinary relation's
+// cardinality at the TYPE level — `getRelationSchemas` casts its result
+// (`validation/relations/index.ts:170`) — so a twin would be a second declaration
+// with no reader. The POLYMORPHIC reader has one from the day it lands, because
+// create requiredness branches on it at both levels
+// (`validation/model/core/create.ts`), and Package C adds the result wrapper.
 
+import type { PolymorphicRelationState } from "./polymorphic";
 import type { RelationState } from "./types";
 
 /** MANY rows on the far side, or at most one. */
@@ -33,3 +37,20 @@ export const relationCardinality = (
   state: RelationState
 ): RelationCardinality =>
   state.type === "oneToMany" || state.type === "manyToMany" ? "many" : "one";
+
+/**
+ * Does this polymorphic SLOT hold one membership, or a collection?
+ *
+ * Unlike an ordinary relation, a carrier does not encode this in its `type`: the
+ * factory the declaration is spelled with (`s.polymorphicToOne` /
+ * `s.polymorphicToMany`) is the whole fact,
+ * so this is a plain read. Consumers must branch through it rather than testing
+ * `state.cardinality` inline.
+ */
+export const polymorphicCardinality = (
+  state: PolymorphicRelationState
+): RelationCardinality => state.cardinality;
+
+/** The type twin of {@link polymorphicCardinality} — one rule, both levels. */
+export type PolymorphicCardinalityOf<S extends PolymorphicRelationState> =
+  S["cardinality"];

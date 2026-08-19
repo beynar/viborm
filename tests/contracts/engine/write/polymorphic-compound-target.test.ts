@@ -57,7 +57,7 @@ const polymorphicCompoundSchema = (() => {
       code: s.string(),
       note: s.string(),
       holder: s
-        .polymorphic(
+        .polymorphicToOne(
           { hub: () => hub, vault: () => vault },
           {
             values: { hub: "polyc.hub.v1", vault: "polyc.vault.v1" },

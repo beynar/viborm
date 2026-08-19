@@ -21,16 +21,16 @@ const requiredChild = s.model({
     .references("id")
     .name("requiredChildren"),
   preview: s
-    .polymorphic(
+    .polymorphicToOne(
       { post: () => post, video: () => video },
       { values: { post: "preview.post.v1", video: "preview.video.v1" } }
     )
     .optional(),
-  subject: s.polymorphic(
+  subject: s.polymorphicToOne(
     { post: () => post, video: () => video },
     { values: { post: "post.v1", video: "video.v1" } }
   ),
-  secondary: s.polymorphic(
+  secondary: s.polymorphicToOne(
     { post: () => post, video: () => video },
     { values: { post: "secondary.post.v1", video: "secondary.video.v1" } }
   ),
@@ -46,7 +46,7 @@ const optionalChild = s.model({
     .name("optionalChildren")
     .optional(),
   subject: s
-    .polymorphic(
+    .polymorphicToOne(
       { post: () => post, video: () => video },
       { values: { post: "post.v1", video: "video.v1" } }
     )
@@ -184,6 +184,26 @@ describe("polymorphic createMany relation requirements", () => {
       0,
       "parentId",
     ]);
+  });
+
+  test("a collection slot is never a createMany row requirement", () => {
+    const attachmentPost = s.model({ id: s.string().id() });
+    const collectionOwner = s.model({
+      id: s.string().id(),
+      attachments: s.polymorphicToMany(
+        { post: () => attachmentPost },
+        { values: { post: "attachment.post.v1" } }
+      ),
+    });
+    const collectionModels = { attachmentPost, collectionOwner };
+    hydrateSchemaNames(collectionModels);
+    const collectionSchemas = createSchemaRegistry(collectionModels).proxy;
+
+    const result = parse(collectionSchemas.collectionOwner.args.createMany, {
+      data: [{ id: "owner-1" }],
+    });
+
+    expect(result.issues).toBeUndefined();
   });
 
   test("optional-only polymorphic targets retain root and nested createMany", () => {

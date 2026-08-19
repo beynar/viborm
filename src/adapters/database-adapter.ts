@@ -496,6 +496,16 @@ export interface DatabaseAdapter {
      * Skip duplicate key errors (for createMany with skipDuplicates: true)
      * PostgreSQL/SQLite: ON CONFLICT DO NOTHING (suffix)
      * MySQL: duplicate-key-only no-op update (suffix)
+     *
+     * UNTARGETED ON PURPOSE, and that is the whole distinction from
+     * {@link DatabaseAdapter.mutations.onConflict}: `createMany({
+     * skipDuplicates: true })` promises to skip a row that collides with ANY
+     * unique constraint, so naming one would be the wrong answer. A JUNCTION
+     * membership insert asks the opposite question — skip only an exact repeat
+     * of this complete `(owner, target)` key, and let a target-side UNIQUE
+     * (a singular polymorphic member's occupied slot) raise — so it goes
+     * through the targeted door instead. See `junctionDuplicateSkip` in
+     * `query-engine/builders/many-to-many-utils.ts`; do not route it back here.
      */
     skipDuplicates: (duplicateNoopColumn: string) => {
       prefix: Sql;

@@ -210,6 +210,11 @@ export function buildRootUpdateMembershipFootprints(
 ): RootMembershipFootprint[] {
   const constraints = getUpdateConstraints(ctx, scalarData, selector);
   const footprints: RootMembershipFootprint[] = [];
+  // A polymorphic COLLECTION arm is SKIPPED, and the skip is the decision (plan
+  // §1.2): a root membership footprint names the HOLDER row whose stored key this
+  // update moves, and every entry a collection carries is `position: "junction"`
+  // — the case the loop below already `continue`s on, because a member junction
+  // has no holder row to move.
   for (const mutation of relationMutationPrograms(relations)) {
     const relationInfo = mutation.relationInfo;
     const relation = bindRelation(ctx, relationInfo);

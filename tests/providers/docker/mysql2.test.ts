@@ -50,6 +50,9 @@ import { nonReturningMutationAtomicityContract } from "@tests/contracts/drivers/
 import { omitContract } from "@tests/contracts/drivers/behaviors/omit-behavior";
 import { optionalRelationParityContract } from "@tests/contracts/drivers/behaviors/optional-relation-parity-behavior";
 import { orderingArrayCreateContract } from "@tests/contracts/drivers/behaviors/ordering-array-create-behavior";
+import { polymorphicCollectionReadContract } from "@tests/contracts/drivers/behaviors/polymorphic-collection-read-behavior";
+import { polymorphicCollectionWriteContract } from "@tests/contracts/drivers/behaviors/polymorphic-collection-write-behavior";
+import { polymorphicMemberJunctionContract } from "@tests/contracts/drivers/behaviors/polymorphic-member-junction-behavior";
 import { polymorphicRelationContract } from "@tests/contracts/drivers/behaviors/polymorphic-relation-behavior";
 import { prismaParityContract } from "@tests/contracts/drivers/behaviors/prisma-parity-behavior";
 import { rawArrayTransactionContract } from "@tests/contracts/drivers/behaviors/raw-array-transaction-behavior";
@@ -286,6 +289,10 @@ describeIf("MySQL2 Driver", () => {
     driverName: "MySQL2",
     createDriver: createMySQL2Driver,
   });
+  polymorphicMemberJunctionContract.register({
+    driverName: "MySQL2",
+    createDriver: createMySQL2Driver,
+  });
 
   readPathRegressionContract.register({
     driverName: "MySQL2",
@@ -306,6 +313,17 @@ describeIf("MySQL2 Driver", () => {
     createDriver: createMySQL2Driver,
   });
   polymorphicRelationContract.register({
+    name: "MySQL2",
+    createDriver: createMySQL2Driver,
+  });
+  polymorphicCollectionReadContract.register({
+    name: "MySQL2",
+    createDriver: createMySQL2Driver,
+  });
+  // MySQL is the one dialect whose conflict grammar cannot TARGET, so the
+  // singular-slot rows here are the only place the per-dialect half of §1.7 is
+  // measured against a real server rather than reasoned about.
+  polymorphicCollectionWriteContract.register({
     name: "MySQL2",
     createDriver: createMySQL2Driver,
   });

@@ -33,7 +33,10 @@
 
 import { VibORMError, VibORMErrorCode } from "@errors";
 import type { AnyModel } from "@schema/model";
-import type { AnyPolymorphicRelation } from "@schema/relation";
+import {
+  type AnyPolymorphicRelation,
+  polymorphicCardinality,
+} from "@schema/relation";
 import { projectableScalarNames } from "@validation/model/core/projection";
 import { isRecord as isPlainRecord } from "@validation/value-guards";
 import type { Operations } from "./types";
@@ -298,11 +301,52 @@ const rewriteRelationMap = (
 };
 
 /**
- * A polymorphic projection object overrides individual variants; absent keys
- * still project that target's default scalars. Visit every configured target so
- * client defaults apply to both explicit and defaulted variants.
+ * WHERE a polymorphic arm lives depends on the slot's CARDINALITY, and getting
+ * that wrong is not a missed default — it is a thrown query.
+ *
+ * A to-one slot's projection IS the discriminator map, so an arm is written at
+ * the projection's top level. A collection's projection is an envelope whose
+ * top level holds exactly two keys, `only` and `variants`; an arm written
+ * beside them is an unknown key the strict envelope refuses. Since this rewrite
+ * runs BEFORE validation, a top-level arm would make
+ * `include: { items: true }` throw on any client that configures an `omit` for
+ * a variant's target model — a client-option-shaped failure in a query that
+ * never mentioned the option.
  */
 const rewritePolymorphicRelation = (
+  relation: AnyPolymorphicRelation,
+  value: unknown,
+  resolve: ClientOmitResolver
+): unknown =>
+  polymorphicCardinality(relation["~"].state) === "many"
+    ? rewritePolymorphicCollection(relation, value, resolve)
+    : rewritePolymorphicSlot(relation, value, resolve);
+
+/**
+ * The arm a client default produces for one target, or `undefined` when that
+ * target is unconfigured (leave the caller's payload — and its cache key —
+ * exactly as written).
+ */
+const defaultedArm = (
+  target: AnyModel,
+  variant: unknown,
+  resolve: ClientOmitResolver
+): unknown => {
+  if (isPlainRecord(variant)) {
+    const rewritten = rewriteNode(target, variant, resolve);
+    return rewritten === variant ? undefined : rewritten;
+  }
+  if (variant !== true && variant !== undefined) return undefined;
+  const defaults = resolve(target);
+  return defaults ? { omit: { ...defaults } } : undefined;
+};
+
+/**
+ * A to-one polymorphic projection object overrides individual variants; absent
+ * keys still project that target's default scalars. Visit every configured
+ * target so client defaults apply to both explicit and defaulted variants.
+ */
+const rewritePolymorphicSlot = (
   relation: AnyPolymorphicRelation,
   value: unknown,
   resolve: ClientOmitResolver
@@ -318,31 +362,51 @@ const rewritePolymorphicRelation = (
     // any query rewrite, so the cached hostile-boundary value is now a model.
     const target = targetModel as AnyModel;
     const variant = value === true ? undefined : value[publicType];
-
-    if (variant === true) {
-      const defaults = resolve(target);
-      if (!defaults) continue;
-      projection[publicType] = { omit: { ...defaults } };
-      changed = true;
-      continue;
-    }
-
-    if (isPlainRecord(variant)) {
-      const rewritten = rewriteNode(target, variant, resolve);
-      if (rewritten !== variant) {
-        projection[publicType] = rewritten;
-        changed = true;
-      }
-      continue;
-    }
-
-    if (variant === undefined) {
-      const defaults = resolve(target);
-      if (!defaults) continue;
-      projection[publicType] = { omit: { ...defaults } };
-      changed = true;
-    }
+    const arm = defaultedArm(target, variant, resolve);
+    if (arm === undefined) continue;
+    projection[publicType] = arm;
+    changed = true;
   }
 
   return changed ? projection : value;
+};
+
+/**
+ * A collection projection: arms go UNDER `variants`, and an allow-list is
+ * obeyed rather than worked around.
+ *
+ * Synthesizing an arm for a variant `only` excludes would fabricate the exact
+ * "Variant 'x' is not in 'only'" refusal the envelope raises — a client option
+ * producing a parse error about a key the caller never wrote.
+ */
+const rewritePolymorphicCollection = (
+  relation: AnyPolymorphicRelation,
+  value: unknown,
+  resolve: ClientOmitResolver
+): unknown => {
+  if (value !== true && !isPlainRecord(value)) return value;
+
+  const envelope = value === true ? undefined : value;
+  const only = envelope?.only;
+  const existing = envelope?.variants;
+  // A malformed envelope is left ALONE: validation owns the message, and a
+  // rewrite here would only add keys to a payload that is already failing.
+  if (only !== undefined && !Array.isArray(only)) return value;
+  if (existing !== undefined && !isPlainRecord(existing)) return value;
+  const allowed = Array.isArray(only) ? new Set<unknown>(only) : undefined;
+
+  const variants: Record<string, unknown> = { ...existing };
+  let changed = false;
+
+  for (const { publicType, targetModel } of relation["~"].targetEntries()) {
+    if (allowed && !allowed.has(publicType)) continue;
+    const target = targetModel as AnyModel;
+    const arm = defaultedArm(target, existing?.[publicType], resolve);
+    if (arm === undefined) continue;
+    variants[publicType] = arm;
+    changed = true;
+  }
+
+  if (!changed) return value;
+  return { ...envelope, variants };
 };

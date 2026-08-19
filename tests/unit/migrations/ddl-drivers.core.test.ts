@@ -4,13 +4,13 @@
  * Tests SQLite3, LibSQL, MySQL, and PostgreSQL drivers for DDL generation.
  */
 
-import { describe, expect, it } from "vitest";
 import { libsqlMigrationDriver } from "@src/migrations/drivers/libsql";
 import { mysqlMigrationDriver } from "@src/migrations/drivers/mysql";
 import { postgresMigrationDriver } from "@src/migrations/drivers/postgres";
 import { sqlite3MigrationDriver } from "@src/migrations/drivers/sqlite";
 import type { DiffOperation, SchemaSnapshot } from "@src/migrations/types";
 import type { ScalarState, ScalarType } from "@src/schema/scalars/common";
+import { describe, expect, it } from "vitest";
 
 // =============================================================================
 // SQLITE3 DRIVER TESTS
@@ -1512,6 +1512,95 @@ describe("MySQL DDL Generation", () => {
     it("should generate RELEASE_LOCK for release", () => {
       const sql = mysqlMigrationDriver.generateReleaseLock(12_345);
       expect(sql).toBe("SELECT RELEASE_LOCK('viborm_migration_12345')");
+    });
+  });
+
+  /**
+   * MySQL HAS ONE UNIQUE NAMESPACE — the canonicalization that makes a
+   * unique-bearing schema converge on a second push.
+   *
+   * `information_schema` reports a single unique object twice: as a UNIQUE
+   * constraint in TABLE_CONSTRAINTS and as its backing index in STATISTICS.
+   * Before this canonicalization the differ saw a phantom in whichever bucket
+   * the desired schema had not used, and planned a drop for it on EVERY push.
+   * Measured on docker MySQL 8 before the fix:
+   *   declared unique constraint → [dropIndex "<t>_<cols>_key"]
+   *   declared unique index      → [dropUniqueConstraint "<declared name>"]
+   * Both are now empty; the live proof is the second-push-empty arm of every
+   * MySQL provider contract.
+   *
+   * These pins own the DESIRED half. The introspection half is pinned by those
+   * same provider contracts, which is the only place a real information_schema
+   * exists to read.
+   */
+  describe("unique canonicalization (finalizeTable)", () => {
+    const tableWithUnique = {
+      name: "widgets",
+      columns: [
+        { name: "id", type: "VARCHAR(191)", nullable: false },
+        { name: "email", type: "VARCHAR(191)", nullable: false },
+      ],
+      primaryKey: { columns: ["id"] },
+      indexes: [],
+      foreignKeys: [],
+      uniqueConstraints: [{ name: "widgets_email_key", columns: ["email"] }],
+    };
+
+    it("rewrites a unique constraint into a unique index", () => {
+      const finalized = mysqlMigrationDriver.finalizeTable(tableWithUnique);
+
+      expect(finalized.uniqueConstraints).toEqual([]);
+      expect(finalized.indexes).toEqual([
+        { name: "widgets_email_key", columns: ["email"], unique: true },
+      ]);
+    });
+
+    it("keeps declared indexes and appends the rewritten uniques after them", () => {
+      const finalized = mysqlMigrationDriver.finalizeTable({
+        ...tableWithUnique,
+        indexes: [
+          { name: "widgets_email_idx", columns: ["email"], unique: false },
+        ],
+      });
+
+      expect(finalized.indexes).toEqual([
+        { name: "widgets_email_idx", columns: ["email"], unique: false },
+        { name: "widgets_email_key", columns: ["email"], unique: true },
+      ]);
+    });
+
+    it("never puts two entries under one index name", () => {
+      // A schema may spell BOTH a unique constraint and an index under the same
+      // name. Two entries with one name put two CREATE INDEX statements into
+      // the snapshot, and the second fails the whole push — so the declared
+      // index wins and the constraint folds into it.
+      const finalized = mysqlMigrationDriver.finalizeTable({
+        ...tableWithUnique,
+        indexes: [
+          { name: "widgets_email_key", columns: ["email"], unique: false },
+        ],
+      });
+
+      expect(finalized.indexes).toEqual([
+        { name: "widgets_email_key", columns: ["email"], unique: false },
+      ]);
+      expect(finalized.uniqueConstraints).toEqual([]);
+    });
+
+    it("still widens TEXT columns that a unique constraint keys", () => {
+      // The pre-existing TEXT→VARCHAR(191) rewrite reads `uniqueConstraints`,
+      // so it must run against the ORIGINAL table, not the emptied one.
+      const finalized = mysqlMigrationDriver.finalizeTable({
+        ...tableWithUnique,
+        columns: [
+          { name: "id", type: "VARCHAR(191)", nullable: false },
+          { name: "email", type: "TEXT", nullable: false },
+        ],
+      });
+
+      expect(
+        finalized.columns.find((column) => column.name === "email")?.type
+      ).toBe("VARCHAR(191)");
     });
   });
 

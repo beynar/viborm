@@ -610,7 +610,13 @@ for (const substrate of [
             {
               id: "tag.set.insert",
               kind: "write",
-              sql: 'INSERT  INTO "owner_tag" ("ownerId", "tagId") VALUES ($1, $2) ON CONFLICT DO NOTHING',
+              // §1.7 conflict policy: the junction skip NAMES the complete
+              // membership key `(ownerId, tagId)`, uniformly for every junction
+              // (§9.4 open question 1). Identical rows skipped, identically —
+              // what changed is that a target-side UNIQUE, which only a
+              // singular polymorphic member table has, can now raise instead of
+              // being swallowed.
+              sql: 'INSERT  INTO "owner_tag" ("ownerId", "tagId") VALUES ($1, $2) ON CONFLICT ("ownerId", "tagId") DO NOTHING',
               params: ["o1", "gCaptured"],
               outputs: {},
               expects: null,

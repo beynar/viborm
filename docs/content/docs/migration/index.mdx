@@ -17,7 +17,7 @@ Both approaches work by comparing your VibORM schema definitions against the cur
 |--|------|---------|
 | **Use case** | Development, prototyping | Production, team collaboration |
 | **Version control** | No migration files | Yes, SQL files committed to git |
-| **Rollback** | Manual | Supported via down migrations |
+| **Rollback** | Manual | `down()` executes the stored down artifact, honouring each migration's persisted rollback policy |
 | **CI/CD** | Not recommended | Fully supported |
 
 ## CLI vs API
@@ -73,7 +73,7 @@ await migrations.push({
 ```
 
 :::info[Storage Driver Required]
-File-based operations (`generate`, `apply`, `status`, `reset`, `rollback`) require a storage driver. The `push()` method works without a storage driver since it doesn't use migration files.
+File-based operations (`generate`, `apply`, `status`, `down`, `reset`, `squash`) require a storage driver. The `push()` method works without a storage driver since it doesn't use migration files.
 :::
 
 ### Migration Client Options

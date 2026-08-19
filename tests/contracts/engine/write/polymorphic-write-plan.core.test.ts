@@ -5,6 +5,7 @@ import {
   getPolymorphicRelationInfo,
 } from "@query-engine/context";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
+import { isPolymorphicToOneRelationInfo } from "@query-engine/types";
 import { hydrateSchemaNames, s } from "@schema";
 import { validateSchemaOrThrow } from "@schema/validation";
 import { resolvePolymorphicEdge } from "@src/query-engine/builders/polymorphic-relation";
@@ -14,10 +15,251 @@ import type {
   PlanningFragment,
   StatementStep,
 } from "@src/query-engine/write-engine/OperationFragment";
+import { UpdateOperation } from "@src/query-engine/write-engine/UpdateOperation";
 import { UpsertOperation } from "@src/query-engine/write-engine/UpsertOperation";
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { createSchemaRegistry } from "@validation";
 import { expect, test } from "vitest";
+
+const collectionPlanSchema = (() => {
+  const post = s.model({ id: s.int().id(), title: s.string() });
+  const clip = s.model({
+    id: s.int().id(),
+    title: s.string(),
+    // SINGULAR inverse: `clip` may hang on at most one board, which is the
+    // shape the slot-replacement transfer exists for.
+    board: s.manyToOne(() => board).optional(),
+  });
+  const board = s.model({
+    id: s.int().id(),
+    label: s.string(),
+    items: s.polymorphicToMany(
+      { post: () => post, clip: () => clip },
+      { values: { post: "plan.post.v1", clip: "plan.clip.v1" } }
+    ),
+  });
+  return { post, clip, board };
+})();
+
+hydrateSchemaNames(collectionPlanSchema);
+validateSchemaOrThrow(collectionPlanSchema);
+
+function collectionUpdate(
+  driver: PGliteDriver,
+  data: Record<string, unknown>
+): UpdateOperation {
+  const registry = createSchemaRegistry(collectionPlanSchema);
+  const engine = new QueryEngine(
+    driver,
+    createModelRegistry(collectionPlanSchema, registry)
+  );
+  return new UpdateOperation(engine, collectionPlanSchema.board, {
+    where: { id: 1 },
+    data,
+    select: { id: true },
+  });
+}
+
+test("collection step ids are VARIANT-QUALIFIED, so no `#N` suffix appears", () => {
+  // The carrier's name is `items.post` / `items.clip`, not `items`. A shared
+  // `items` name across variants would allocate `items.find`, `items.find#1`,
+  // `items.find#2` — ids whose meaning depends on emission order. This is the
+  // pin that says the qualification is a decision, not an accident.
+  const operation = collectionUpdate(new PGliteDriver(), {
+    items: {
+      connect: [
+        { type: "post", where: { id: 10 } },
+        { type: "clip", where: { id: 20 } },
+      ],
+    },
+  });
+  const planned = ids(operation.planning());
+  expect(planned).toContain("post.find");
+  expect(planned).toContain("clip.find");
+  expect(planned.filter((id) => id.includes("#"))).toEqual([]);
+});
+
+test("the batch singular transfer compiles NO write postcondition", () => {
+  // `OperationExecutor.compileToEntries` fails closed on a postcondition it
+  // cannot enforce in batch mode, and §9.4 adds no batch-postcondition
+  // mechanism for this feature. So the transfer's ONLY enforcement on this
+  // substrate is its in-batch premises plus the target-side UNIQUE — this is a
+  // PLAN-level assertion of that, not a behavioral one.
+  const operation = collectionUpdate(new BatchOnlyPGliteDriver(), {
+    items: { connect: [{ type: "clip", where: { id: 20 } }] },
+  });
+  const planning = operation.planning();
+  const known: Record<string, unknown> = {};
+  for (const step of planning.steps) {
+    known[`${step.id}.rows`] =
+      step.id === "board.find" ? [{ id: 1 }] : [{ id: 20 }];
+  }
+  // The owner capture answers "someone else holds it", which is the arm that
+  // WRITES — a vacate followed by an insert. Neither may carry `expects`.
+  const capture = planning.steps.find((step) =>
+    step.id.endsWith(".slot.owners")
+  );
+  if (!capture) throw new Error("expected a singular-slot owner capture");
+  known[`${capture.id}.rows`] = [{ boardId: 2 }];
+  const compiled = operation.compile(known);
+  for (const step of compiled.steps) {
+    if (step.kind === "write") expect(step.expects).toBeUndefined();
+  }
+});
+
+test("the collection `set` barrier sits BETWEEN the guards and the writes", () => {
+  // §4's order, spelled by the coordinator rather than inherited from the
+  // root's bucketing: every leaf's captured-fact guards, then ONE clear per
+  // configured member table in declaration order, then every leaf's writes.
+  const operation = collectionUpdate(new BatchOnlyPGliteDriver(), {
+    items: { set: [{ type: "post", where: { id: 10 } }] },
+  });
+  const planning = operation.planning();
+  const known: Record<string, unknown> = {};
+  for (const step of planning.steps) {
+    known[`${step.id}.rows`] =
+      step.id === "board.find" ? [{ id: 1 }] : [{ id: 10 }];
+  }
+  const steps = operation.compile(known).steps;
+  const clears = steps
+    .map((step, index) => ({ id: step.id, kind: step.kind, index }))
+    .filter((step) => step.id.endsWith(".set.clear"));
+  // BOTH configured variants clear — including `clip`, which this payload never
+  // mentions — and each clears exactly once.
+  expect(clears).toHaveLength(2);
+  expect(new Set(clears.map((clear) => clear.id)).size).toBe(2);
+  // THE BARRIER POSITION, as three ordered facts: every guard precedes the
+  // first clear, every clear precedes the first membership INSERT, and the
+  // clears are contiguous. Asserting only "guards come first" would stay green
+  // for a plan that cleared AFTER refilling — which is the exact regression.
+  const lastGuard = steps.map((step) => step.kind).lastIndexOf("guard");
+  const firstClear = clears[0]!.index;
+  const lastClear = clears.at(-1)!.index;
+  const firstInsert = steps.findIndex(
+    (step) => step.kind === "write" && !step.id.endsWith(".set.clear")
+  );
+  expect(lastGuard).toBeLessThan(firstClear);
+  expect(lastClear).toBeLessThan(firstInsert);
+  expect(lastClear - firstClear).toBe(clears.length - 1);
+});
+
+/**
+ * The SINGULAR COLLECTION INVERSE's own plan, read from the VARIANT end
+ * (`clip.board`). Every row below is a shape claim the behavioural matrix cannot
+ * make: two lowerings can leave one well-formed database in the same state and
+ * still differ in what they would do to a malformed or concurrently-moving one.
+ */
+function inverseUpdate(
+  driver: PGliteDriver,
+  data: Record<string, unknown>
+): UpdateOperation {
+  const registry = createSchemaRegistry(collectionPlanSchema);
+  const engine = new QueryEngine(
+    driver,
+    createModelRegistry(collectionPlanSchema, registry)
+  );
+  return new UpdateOperation(engine, collectionPlanSchema.clip, {
+    where: { id: 20 },
+    data,
+    select: { id: true },
+  });
+}
+
+/** Every planning read answered: the root locate, then the owner probes. */
+function inversePlanning(
+  operation: UpdateOperation,
+  ownerRows: readonly Record<string, unknown>[]
+): Record<string, unknown> {
+  const known: Record<string, unknown> = {};
+  for (const step of operation.planning().steps) {
+    known[`${step.id}.rows`] =
+      step.id === "clip.locate" ? [{ id: 20 }] : ownerRows;
+  }
+  return known;
+}
+
+test("the singular inverse `delete` scopes to ONE captured owner, never a connected set", () => {
+  // H5. The dead junction lowering turned `delete: true` into
+  // `{kind: "deleteMany", filters: [{}]}`, whose `compileDeleteMany` takes the
+  // whole CONNECTED SET over the empty filter and deletes it through
+  // `membership.target.model` — in this reversed orientation, the polymorphic
+  // OWNER. On a well-formed member table the connected set has one element, so
+  // NO state assertion can tell the two apart; the SQL can.
+  const operation = inverseUpdate(new PGliteDriver(), {
+    board: { delete: true },
+  });
+  const compiled = operation.compile(inversePlanning(operation, [{ id: 2 }]));
+  const ownerDelete = compiled.steps.find((step) => step.id === "board.delete");
+  if (!ownerDelete || ownerDelete.kind !== "write") {
+    throw new Error("expected one owner delete");
+  }
+  const prepared = new PGliteDriver()._prepare(ownerDelete.statement);
+  // ONE row, addressed by its captured row key — not `IN (…)` over a set, and
+  // not a correlated subquery over the membership.
+  expect(prepared.sql).toBe(
+    'DELETE FROM "board" WHERE "board"."id" = $1 RETURNING "id" AS "id", "label" AS "label"'
+  );
+  expect(prepared.params).toEqual([2]);
+  // …and exactly one owner delete exists, so a second captured row could not
+  // quietly ride along.
+  expect(
+    compiled.steps.filter((step) => step.id.startsWith("board.delete"))
+  ).toHaveLength(1);
+
+  // The MEMBER row goes by the variant side alone — a singular slot names no
+  // selector, so nothing scopes this delete to a particular owner.
+  const memberDelete = compiled.steps.find(
+    (step) => step.id === "board.junction.delete"
+  );
+  if (!memberDelete || memberDelete.kind !== "write") {
+    throw new Error("expected one member delete");
+  }
+  const memberSql = new PGliteDriver()._prepare(memberDelete.statement);
+  expect(memberSql.sql).toBe(
+    'DELETE FROM "board_items_clip" WHERE "clipId" = $1'
+  );
+  expect(memberSql.params).toEqual([20]);
+});
+
+test("`disconnect: true` is ONE member-row delete and no probe at all", () => {
+  const operation = inverseUpdate(new PGliteDriver(), {
+    board: { disconnect: true },
+  });
+  // No membership probe: a singular slot needs no selector, so there is nothing
+  // to resolve before the delete. Only the root locate plans.
+  expect(operation.planning().steps.map((step) => step.id)).toEqual([
+    "clip.locate",
+  ]);
+  const compiled = operation.compile(inversePlanning(operation, []));
+  expect(
+    compiled.steps
+      .filter((step) => step.id.startsWith("board."))
+      .map((s) => s.id)
+  ).toEqual(["board.junction.delete"]);
+});
+
+test("a composed payload lowers vacate, then supplier, then modify", () => {
+  // H2. `RELATION_MUTATION_KEYS` lists `update` third and `connect` ninth, so
+  // the PARSED entry order is (disconnect, update, connect). The Part reads the
+  // order from `classifyToOneComposition` — the same owner `OwnWriteRelation`
+  // reads — so the emitted steps are the canonical order instead.
+  const operation = inverseUpdate(new PGliteDriver(), {
+    board: {
+      disconnect: true,
+      connect: { id: 2 },
+      update: { label: "supplied" },
+    },
+  });
+  const compiled = operation.compile(inversePlanning(operation, [{ id: 2 }]));
+  const emitted = compiled.steps
+    .map((step) => step.id)
+    .filter((id) => id.startsWith("board."));
+  expect(emitted).toEqual([
+    "board.junction.delete",
+    "board.junction.insert",
+    "board.update",
+  ]);
+});
 
 const polymorphicPlanSchema = (() => {
   const author = s.model({
@@ -36,13 +278,13 @@ const polymorphicPlanSchema = (() => {
       .fields("authorId")
       .references("id"),
     primary: s
-      .polymorphic(
+      .polymorphicToOne(
         { post: () => post, video: () => video },
         { values: { post: "primary.post.v1", video: "primary.video.v1" } }
       )
       .optional(),
     secondary: s
-      .polymorphic(
+      .polymorphicToOne(
         { post: () => post, video: () => video },
         {
           values: {
@@ -173,7 +415,11 @@ test("the direct polymorphic target boundary refuses at construction, eagerly", 
     polymorphicPlanSchema.comment
   );
   const info = getPolymorphicRelationInfo(scope, "primary");
-  if (!info) throw new Error("expected polymorphic relation info for primary");
+  // Package C widened the scope to carry both stored descriptors; the row-held
+  // edge resolver stays row-held-only, so the arm is named at the call.
+  if (!(info && isPolymorphicToOneRelationInfo(info))) {
+    throw new Error("expected row-held polymorphic relation info for primary");
+  }
   // The engine boundary owns this sentence; the validation layer refuses the
   // public spelling earlier, so this message is an internal contract.
   expect(() => resolvePolymorphicEdge(scope, info, "bogus")).toThrow(

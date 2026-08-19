@@ -6,7 +6,7 @@ import {
   POLYMORPHIC_RESULT_STATE_KEY,
   POLYMORPHIC_RESULT_STATE_LINKED,
 } from "../result-aliases";
-import type { PolymorphicRelationInfo, QueryScope } from "../types";
+import type { PolymorphicToOneRelationInfo, QueryScope } from "../types";
 import type { BuildNestedSelection } from "./include-builder";
 import { assembleInnerQuery } from "./include-query";
 import { resolvePolymorphicEdge } from "./polymorphic-relation";
@@ -20,7 +20,7 @@ export type BuildPolymorphicNestedWhere = (
 export function buildPolymorphicRead(
   buildNestedSelection: BuildNestedSelection,
   scope: QueryScope,
-  relation: PolymorphicRelationInfo,
+  relation: PolymorphicToOneRelationInfo,
   projection: unknown,
   parentAlias: string
 ): Sql {
@@ -101,7 +101,7 @@ export function buildPolymorphicRead(
 export function buildPolymorphicFilterSql(
   buildNestedWhere: BuildPolymorphicNestedWhere,
   scope: QueryScope,
-  relation: PolymorphicRelationInfo,
+  relation: PolymorphicToOneRelationInfo,
   filter: unknown,
   parentAlias: string
 ): Sql {

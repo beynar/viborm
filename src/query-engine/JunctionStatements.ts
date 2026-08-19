@@ -1,4 +1,4 @@
-// biome-ignore-all lint/style/useFilenamingConvention: Architecture names this compiler child ManyToManyStatements.
+// biome-ignore-all lint/style/useFilenamingConvention: Architecture names this compiler child JunctionStatements.
 import { isSql, type Sql, sql } from "@sql";
 import { isRecord } from "@validation/value-guards";
 import {
@@ -12,33 +12,35 @@ import {
   buildJunctionSourceMatch,
   buildJunctionTargetSubqueriesMatch,
   buildJunctionTargetValue,
+  buildJunctionTargetValuesMatch,
   buildTargetPkSubqueries,
   type JunctionSqlValues,
 } from "./builders/many-to-many-utils";
-import {
-  classifyRelation,
-  type JunctionBoundRelation,
-  type JunctionSide,
+import type {
+  JunctionBoundRelation,
+  JunctionSide,
 } from "./builders/relation-data-builder";
 import { buildSelect } from "./builders/select-builder";
 import { buildSet } from "./builders/set-builder";
 import { buildWhere } from "./builders/where-builder";
 import { buildWhereUnique } from "./builders/where-unique-builder";
 import { createChildScope, getColumnName, getTableName } from "./context";
-import type { QueryScope, RelationInfo } from "./types";
+import type { QueryScope } from "./types";
 import { QueryEngineError } from "./types";
 
-export type ManyToManyOperation =
+export type JunctionOperation =
   | "junctionDelete"
+  | "junctionDeleteExact"
   | "junctionDeleteTargets"
   | "junctionInsert"
   | "junctionInsertMany"
   | "membershipDifference"
+  | "membershipOwners"
   | "membershipRead"
   | "membershipUpdateMany";
 
 /** Materializes declarative junction and membership statements for the compiler. */
-export class ManyToManyStatements {
+export class JunctionStatements {
   private readonly ctx: QueryScope;
   private readonly lockReads: boolean;
 
@@ -47,29 +49,39 @@ export class ManyToManyStatements {
     this.lockReads = lockReads;
   }
 
+  /**
+   * Materialize one junction statement against an ALREADY-BOUND junction.
+   *
+   * The bound value is the whole input, which is what retired the refusal that
+   * used to stand here ("Relation statement references unknown many-to-many
+   * relation '<n>'."): the question it asked — is this relation a junction? — is
+   * now answered by {@link JunctionBoundRelation}, so no caller can ask it
+   * wrongly and no classification runs twice. Every caller already held the
+   * bound value, so the emitted SQL is unchanged.
+   *
+   * Taking the binding rather than re-deriving it is also what admits a junction
+   * whose topology CANNOT be recovered from a name — a direct polymorphic
+   * collection binds one member table per variant, and none of those carriers
+   * lives in the source model's relation map.
+   */
   materialize(
-    relation: RelationInfo,
-    operation: ManyToManyOperation,
+    junction: JunctionBoundRelation,
+    operation: JunctionOperation,
     args: Record<string, unknown>
   ): Sql {
-    // This guard IS the classification: it asks the engine's one classifier the
-    // question it used to ask of `relation.type` itself, and refuses the same shape
-    // with the same sentence. Classifying binds nothing, so a junction's sides are
-    // still resolved where they are read, below.
-    const classified = classifyRelation(this.ctx, relation);
-    if (classified.kind !== "junction") {
-      throw new QueryEngineError(
-        `Relation statement references unknown many-to-many relation '${relation.name}'.`
-      );
+    const relationName = junction.relationInfo.name;
+    // ANSWERED BEFORE THE PARENT VALUE EXISTS, deliberately: this is the ONE
+    // statement that asks about a target tuple with NO owner in hand — "who, if
+    // anyone, holds this target" — and building a parent value from an absent
+    // owner would refuse the question rather than answer it.
+    if (operation === "membershipOwners") {
+      return this.membershipOwners(junction, args);
     }
-    // One bound junction serves every statement below, where each used to
-    // re-derive the same topology.
-    const junction = classified.bind();
     const parentValues = buildJunctionParentValue(
       this.ctx,
       junction,
       sideValueRecord(junction.membership.source, args.parentValue),
-      relation.name
+      relationName
     );
 
     switch (operation) {
@@ -132,6 +144,20 @@ export class ManyToManyStatements {
           condition
         );
       }
+      case "junctionDeleteExact": {
+        // ONE `(owner, target)` row. `junctionDeleteTargets` scopes to *this*
+        // owner and deletes whatever it holds; the transfer must delete the
+        // CAPTURED PREVIOUS owner's row, which is a different question and
+        // therefore a different statement.
+        const target = this.targetValue(junction, args);
+        return this.ctx.adapter.mutations.delete(
+          this.ctx.adapter.identifiers.escape(junction.membership.table),
+          this.ctx.adapter.operators.and(
+            buildJunctionSourceMatch(this.ctx, junction, parentValues),
+            buildJunctionTargetValuesMatch(this.ctx, junction, [target])
+          )
+        );
+      }
       case "membershipRead":
         return this.membershipRead(junction, parentValues, args);
       case "membershipDifference":
@@ -145,6 +171,37 @@ export class ManyToManyStatements {
         );
       }
     }
+  }
+
+  /**
+   * Who owns one complete target tuple, in the MEMBER TABLE's own columns.
+   *
+   * `LIMIT 2` and not `LIMIT 1`: one row is the answer, and TWO rows are the
+   * malformed multi-owner state a singular member must never be in — a limit of
+   * one would silently pick a winner instead of reporting it. `forUpdate` when
+   * reads lock, because in an interactive transaction the row lock IS the
+   * premise the transfer relies on.
+   */
+  private membershipOwners(
+    junction: JunctionBoundRelation,
+    args: Record<string, unknown>
+  ): Sql {
+    const target = this.targetValue(junction, args);
+    const source = junction.membership.source;
+    return this.ctx.adapter.assemble.select({
+      columns: sql.join(
+        source.members.map((member) =>
+          this.ctx.adapter.identifiers.escape(member.junctionField)
+        ),
+        ", "
+      ),
+      from: this.ctx.adapter.identifiers.escape(junction.membership.table),
+      where: buildJunctionTargetValuesMatch(this.ctx, junction, [target]),
+      limit: this.ctx.adapter.literals.value(2),
+      ...(this.lockReads && args.lock === "transaction"
+        ? { forUpdate: true }
+        : {}),
+    });
   }
 
   private membershipRead(

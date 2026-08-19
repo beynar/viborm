@@ -209,7 +209,7 @@ const polymorphicSchema = (() => {
   const comment = s.model({
     id: s.string().id(),
     body: s.string(),
-    subject: s.polymorphic(
+    subject: s.polymorphicToOne(
       { post: () => post, video: () => video },
       {
         values: {
@@ -227,7 +227,7 @@ const polymorphicSchema = (() => {
       .manyToOne(() => post)
       .fields("postId")
       .references("id"),
-    subject: s.polymorphic(
+    subject: s.polymorphicToOne(
       { post: () => post, video: () => video },
       {
         values: {
@@ -252,7 +252,10 @@ const polymorphicSchema = (() => {
     id: s.string().id(),
     body: s.string(),
     commentable: s
-      .polymorphic({ post: () => singularPost, video: () => singularVideo })
+      .polymorphicToOne({
+        post: () => singularPost,
+        video: () => singularVideo,
+      })
       .name("featuredCommentable")
       .optional(),
   });
@@ -271,8 +274,51 @@ const polymorphicSchema = (() => {
 hydrateSchemaNames(polymorphicSchema);
 validateSchemaOrThrow(polymorphicSchema);
 
+/**
+ * The polymorphic COLLECTION traversal — a THIRD registry, for the same reason
+ * the second one exists: member-junction topology is materialized by
+ * `validateSchemaOrThrow`, and running that over an unrelated schema is not this
+ * file's business.
+ *
+ * `gallery.items` is the direct collection; `article.gallery` is its SINGULAR
+ * inverse (a fields-less `manyToOne`) and `clip.galleries` its PLURAL one (a
+ * fields-less `manyToMany`).
+ */
+const collectionSchema = (() => {
+  const article = s.model({
+    id: s.string().id(),
+    title: s.string(),
+    gallery: s.manyToOne(() => gallery).optional(),
+  });
+
+  const clip = s.model({
+    id: s.string().id(),
+    seconds: s.int(),
+    galleries: s.manyToMany(() => gallery),
+  });
+
+  const gallery = s.model({
+    id: s.string().id(),
+    name: s.string(),
+    items: s.polymorphicToMany(
+      { article: () => article, clip: () => clip },
+      { values: { article: "rtb.article.v1", clip: "rtb.clip.v1" } }
+    ),
+  });
+
+  return { article, clip, gallery };
+})();
+
+hydrateSchemaNames(collectionSchema);
+validateSchemaOrThrow(collectionSchema);
+
 const { user, author, post, tenant, membership } = traversalSchema;
 const { post: subjectPost, singularPost } = polymorphicSchema;
+const {
+  article: collectionArticle,
+  clip: collectionClip,
+  gallery: collectionGallery,
+} = collectionSchema;
 
 // =============================================================================
 // PINS
@@ -343,6 +389,12 @@ const sqlitePin = readPin(traversalRegistry, SQLITE);
 const mysqlPin = readPin(traversalRegistry, MYSQL);
 const pgPolyPin = readPin(polymorphicRegistry, POSTGRES);
 const sqlitePolyPin = readPin(polymorphicRegistry, SQLITE);
+const collectionRegistry = createModelRegistry(
+  collectionSchema,
+  createSchemaRegistry(collectionSchema)
+);
+const pgCollectionPin = readPin(collectionRegistry, POSTGRES);
+const sqliteCollectionPin = readPin(collectionRegistry, SQLITE);
 
 // =============================================================================
 // A–D. SELF-RELATION MANY-TO-MANY — the strategy with no read witness at HEAD
@@ -833,5 +885,93 @@ describe("nested include read SQL", () => {
         "sql": "SELECT "t0"."id" AS "id", "t0"."name" AS "name", (SELECT COALESCE(json_group_array(json("t5"."_json")), json_array()) FROM (SELECT json_object(?, "t1"."id", ?, "t1"."title", ?, "t1"."authorId", ?, (SELECT COALESCE(json_group_array(json("t4"."_json")), json_array()) FROM (SELECT json_object(?, "t3"."id", ?, "t3"."name") AS "_json" FROM "post_tag" AS "t2", "rtb_tags" AS "t3" WHERE ("t2"."postId" = "t1"."id" AND "t3"."id" = "t2"."tagId" AND instr("t3"."name", ?) > 0) ORDER BY "t3"."name" DESC, "t3"."id" ASC LIMIT ?) "t4")) AS "_json" FROM "rtb_posts" AS "t1" WHERE "t0"."id" = "t1"."authorId") "t5") AS "posts" FROM "rtb_authors" AS "t0"",
       }
     `);
+  });
+});
+
+// =============================================================================
+// P–S. POLYMORPHIC COLLECTION
+//
+// These go through `QueryEngine.build`, which VALIDATES args first — so they
+// also witness that the operation-schema half admits the collection grammar.
+// =============================================================================
+
+describe("polymorphic collection read SQL", () => {
+  test("PostgreSQL direct collection include, every variant", () => {
+    expect(
+      pgCollectionPin(collectionGallery, "findMany", {
+        include: { items: true },
+      })
+    ).toMatchSnapshot();
+  });
+
+  test("SQLite direct collection include, every variant", () => {
+    expect(
+      sqliteCollectionPin(collectionGallery, "findMany", {
+        include: { items: true },
+      })
+    ).toMatchSnapshot();
+  });
+
+  test("PostgreSQL direct collection include narrowed by only", () => {
+    expect(
+      pgCollectionPin(collectionGallery, "findMany", {
+        include: {
+          items: {
+            only: ["article"],
+            variants: { article: { orderBy: { title: "asc" }, take: 2 } },
+          },
+        },
+      })
+    ).toMatchSnapshot();
+  });
+
+  test("PostgreSQL collection quantifier filters", () => {
+    expect(
+      pgCollectionPin(collectionGallery, "findMany", {
+        where: { items: { some: { type: "article", is: { title: "x" } } } },
+      })
+    ).toMatchSnapshot();
+    expect(
+      pgCollectionPin(collectionGallery, "findMany", {
+        where: { items: { every: { type: "article", is: { title: "x" } } } },
+      })
+    ).toMatchSnapshot();
+  });
+
+  test("PostgreSQL collection _count projection and ordering", () => {
+    expect(
+      pgCollectionPin(collectionGallery, "findMany", {
+        select: { id: true, _count: { select: { items: true } } },
+      })
+    ).toMatchSnapshot();
+    expect(
+      pgCollectionPin(collectionGallery, "findMany", {
+        orderBy: { items: { _count: "desc" } },
+      })
+    ).toMatchSnapshot();
+  });
+
+  test("PostgreSQL singular collection inverse include", () => {
+    expect(
+      pgCollectionPin(collectionArticle, "findMany", {
+        include: { gallery: true },
+      })
+    ).toMatchSnapshot();
+  });
+
+  test("PostgreSQL plural collection inverse include", () => {
+    expect(
+      pgCollectionPin(collectionClip, "findMany", {
+        include: { galleries: true },
+      })
+    ).toMatchSnapshot();
+  });
+
+  test("PostgreSQL parent ordering through a singular collection inverse", () => {
+    expect(
+      pgCollectionPin(collectionArticle, "findMany", {
+        orderBy: { gallery: { name: "asc" } },
+      })
+    ).toMatchSnapshot();
   });
 });

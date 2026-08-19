@@ -22,12 +22,12 @@ const requiredChild = s.model({
     .references("id")
     .name("requiredChildren"),
   preview: s
-    .polymorphic(
+    .polymorphicToOne(
       { post: () => post, video: () => video },
       { values: { post: "preview.post.v1", video: "preview.video.v1" } }
     )
     .optional(),
-  subject: s.polymorphic(
+  subject: s.polymorphicToOne(
     { post: () => post, video: () => video },
     { values: { post: "post.v1", video: "video.v1" } }
   ),
@@ -43,7 +43,7 @@ const optionalChild = s.model({
     .name("optionalChildren")
     .optional(),
   subject: s
-    .polymorphic(
+    .polymorphicToOne(
       { post: () => post, video: () => video },
       { values: { post: "post.v1", video: "video.v1" } }
     )
@@ -183,6 +183,22 @@ const optionalNestedUpdate = () =>
     },
   });
 
+/**
+ * A collection slot is never a create requirement: the empty collection is the
+ * default, so `PolymorphicCreateRequirementKeySetGroup` must drop it.
+ */
+const collectionOwner = s.model({
+  id: s.string().id(),
+  attachments: s.polymorphicToMany(
+    { post: () => post, video: () => video },
+    { values: { post: "attachment.post.v1", video: "attachment.video.v1" } }
+  ),
+});
+
+const collectionSlotIsNeverRequiredOnCreate = {
+  data: { id: "owner-1" },
+} satisfies OperationPayload<"create", typeof collectionOwner>;
+
 test("public createMany rows preserve polymorphic relation requirements", () => {
   expectTypeOf(rootRequiredConnect).toBeFunction();
   expectTypeOf(rootRelationInsteadOfFk).toBeFunction();
@@ -193,4 +209,5 @@ test("public createMany rows preserve polymorphic relation requirements", () => 
   expectTypeOf(optionalRoot).toBeFunction();
   expectTypeOf(optionalNestedCreate).toBeFunction();
   expectTypeOf(optionalNestedUpdate).toBeFunction();
+  expectTypeOf(collectionSlotIsNeverRequiredOnCreate).toBeObject();
 });

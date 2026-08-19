@@ -66,6 +66,13 @@ function invertOperation(
 ): DiffOperation[] | null {
   switch (op.type) {
     case "createTable":
+      // Structurally exact, and destructive in the ordinary way: the inverse
+      // drops the table with every row written since the migration ran. Said
+      // out loud so reversing an added polymorphic member makes no
+      // data-preservation claim it cannot keep.
+      warnings.push(
+        `createTable "${op.table.name}" inverts to dropTable: rolling back drops the table and every row created after this migration. No data is preserved.`
+      );
       return [{ type: "dropTable", tableName: op.table.name }];
 
     case "dropTable": {
@@ -277,6 +284,24 @@ function invertOperation(
       );
       return null;
   }
+}
+
+/**
+ * Format the down artifact of an irreversible migration: a comment-only record
+ * of WHY it cannot be rolled back.
+ *
+ * This artifact is never executed and cannot be mistaken for a rollback:
+ * `down()` dispatches on the entry's persisted rollback policy strictly before
+ * it reads any artifact, so an irreversible entry refuses before this file is
+ * opened — while a comment-only artifact under an automatic or manual policy is
+ * fatal. Writing it keeps the four generated artifacts uniform and leaves a
+ * readable record on disk.
+ */
+export function formatIrreversibleDownContent(
+  migrationName: string,
+  reason: string
+): string {
+  return `-- Down migration for: ${migrationName}\n-- IRREVERSIBLE: ${reason}\n`;
 }
 
 /**

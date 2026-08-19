@@ -1,0 +1,159 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`polymorphic collection read SQL > PostgreSQL collection _count projection and ordering 1`] = `
+{
+  "params": [
+    "items",
+  ],
+  "sql": "SELECT "t0"."id" AS "id", json_build_object($1::text, ((SELECT COUNT(*) FROM "gallery_items_article" AS "t1" WHERE "t1"."galleryId" = "t0"."id") + (SELECT COUNT(*) FROM "gallery_items_clip" AS "t3" WHERE "t3"."galleryId" = "t0"."id"))) AS "0viborm_relation_counts" FROM "gallery" AS "t0"",
+}
+`;
+
+exports[`polymorphic collection read SQL > PostgreSQL collection _count projection and ordering 2`] = `
+{
+  "params": [],
+  "sql": "SELECT "t0"."id" AS "id", "t0"."name" AS "name" FROM "gallery" AS "t0" ORDER BY ((SELECT COUNT(*) FROM "gallery_items_article" AS "t1" WHERE "t1"."galleryId" = "t0"."id") + (SELECT COUNT(*) FROM "gallery_items_clip" AS "t3" WHERE "t3"."galleryId" = "t0"."id")) DESC",
+}
+`;
+
+exports[`polymorphic collection read SQL > PostgreSQL collection quantifier filters 1`] = `
+{
+  "params": [
+    "x",
+  ],
+  "sql": "SELECT "t0"."id" AS "id", "t0"."name" AS "name" FROM "gallery" AS "t0" WHERE EXISTS (SELECT 1 FROM "gallery_items_article" AS "t1", "article" AS "t2" WHERE ("t1"."galleryId" = "t0"."id" AND "t2"."id" = "t1"."articleId" AND "t2"."title" = $1))",
+}
+`;
+
+exports[`polymorphic collection read SQL > PostgreSQL collection quantifier filters 2`] = `
+{
+  "params": [
+    "x",
+  ],
+  "sql": "SELECT "t0"."id" AS "id", "t0"."name" AS "name" FROM "gallery" AS "t0" WHERE (NOT EXISTS (SELECT 1 FROM "gallery_items_article" AS "t1" LEFT JOIN "article" AS "t2" ON "t2"."id" = "t1"."articleId" WHERE ("t1"."galleryId" = "t0"."id" AND ("t2"."id" IS NULL OR NOT ("t2"."title" = $1)))) AND NOT EXISTS (SELECT 1 FROM "gallery_items_clip" AS "t3" WHERE "t3"."galleryId" = "t0"."id"))",
+}
+`;
+
+exports[`polymorphic collection read SQL > PostgreSQL direct collection include narrowed by only 1`] = `
+{
+  "params": [
+    "__viborm_state",
+    "collection",
+    "arms",
+    "article",
+    "membership",
+    "orphans",
+    "rows",
+    "__viborm_state",
+    "linked",
+    "type",
+    "article",
+    "data",
+    "id",
+    "title",
+    2,
+    "clip",
+    "membership",
+    "orphans",
+    "rows",
+  ],
+  "sql": "SELECT "t0"."id" AS "id", "t0"."name" AS "name", json_build_object($1::text, CAST($2 AS TEXT), $3::text, json_build_object($4::text, json_build_object($5::text, (SELECT COUNT(*) FROM "gallery_items_article" AS "t1" WHERE "t1"."galleryId" = "t0"."id"), $6::text, (SELECT COUNT(*) FROM "gallery_items_article" AS "t1" LEFT JOIN "article" AS "t2" ON "t2"."id" = "t1"."articleId" WHERE ("t1"."galleryId" = "t0"."id" AND "t2"."id" IS NULL)), $7::text, (SELECT COALESCE(json_agg("t3"."_json"), '[]'::json) FROM (SELECT json_build_object($8::text, CAST($9 AS TEXT), $10::text, CAST($11 AS TEXT), $12::text, json_build_object($13::text, "t2"."id", $14::text, "t2"."title")) AS "_json" FROM "gallery_items_article" AS "t1", "article" AS "t2" WHERE ("t1"."galleryId" = "t0"."id" AND "t2"."id" = "t1"."articleId") ORDER BY "t2"."title" ASC, "t2"."id" ASC LIMIT $15) "t3")), $16::text, json_build_object($17::text, (SELECT COUNT(*) FROM "gallery_items_clip" AS "t4" WHERE "t4"."galleryId" = "t0"."id"), $18::text, (SELECT COUNT(*) FROM "gallery_items_clip" AS "t4" LEFT JOIN "clip" AS "t5" ON "t5"."id" = "t4"."clipId" WHERE ("t4"."galleryId" = "t0"."id" AND "t5"."id" IS NULL)), $19::text, NULL))) AS "items" FROM "gallery" AS "t0"",
+}
+`;
+
+exports[`polymorphic collection read SQL > PostgreSQL direct collection include, every variant 1`] = `
+{
+  "params": [
+    "__viborm_state",
+    "collection",
+    "arms",
+    "article",
+    "membership",
+    "orphans",
+    "rows",
+    "__viborm_state",
+    "linked",
+    "type",
+    "article",
+    "data",
+    "id",
+    "title",
+    "clip",
+    "membership",
+    "orphans",
+    "rows",
+    "__viborm_state",
+    "linked",
+    "type",
+    "clip",
+    "data",
+    "id",
+    "seconds",
+  ],
+  "sql": "SELECT "t0"."id" AS "id", "t0"."name" AS "name", json_build_object($1::text, CAST($2 AS TEXT), $3::text, json_build_object($4::text, json_build_object($5::text, (SELECT COUNT(*) FROM "gallery_items_article" AS "t1" WHERE "t1"."galleryId" = "t0"."id"), $6::text, (SELECT COUNT(*) FROM "gallery_items_article" AS "t1" LEFT JOIN "article" AS "t2" ON "t2"."id" = "t1"."articleId" WHERE ("t1"."galleryId" = "t0"."id" AND "t2"."id" IS NULL)), $7::text, (SELECT COALESCE(json_agg("t3"."_json"), '[]'::json) FROM (SELECT json_build_object($8::text, CAST($9 AS TEXT), $10::text, CAST($11 AS TEXT), $12::text, json_build_object($13::text, "t2"."id", $14::text, "t2"."title")) AS "_json" FROM "gallery_items_article" AS "t1", "article" AS "t2" WHERE ("t1"."galleryId" = "t0"."id" AND "t2"."id" = "t1"."articleId")) "t3")), $15::text, json_build_object($16::text, (SELECT COUNT(*) FROM "gallery_items_clip" AS "t4" WHERE "t4"."galleryId" = "t0"."id"), $17::text, (SELECT COUNT(*) FROM "gallery_items_clip" AS "t4" LEFT JOIN "clip" AS "t5" ON "t5"."id" = "t4"."clipId" WHERE ("t4"."galleryId" = "t0"."id" AND "t5"."id" IS NULL)), $18::text, (SELECT COALESCE(json_agg("t6"."_json"), '[]'::json) FROM (SELECT json_build_object($19::text, CAST($20 AS TEXT), $21::text, CAST($22 AS TEXT), $23::text, json_build_object($24::text, "t5"."id", $25::text, "t5"."seconds")) AS "_json" FROM "gallery_items_clip" AS "t4", "clip" AS "t5" WHERE ("t4"."galleryId" = "t0"."id" AND "t5"."id" = "t4"."clipId")) "t6")))) AS "items" FROM "gallery" AS "t0"",
+}
+`;
+
+exports[`polymorphic collection read SQL > PostgreSQL parent ordering through a singular collection inverse 1`] = `
+{
+  "params": [],
+  "sql": "SELECT "t0"."id" AS "id", "t0"."title" AS "title" FROM "article" AS "t0" LEFT JOIN "gallery_items_article" AS "t1" ON "t1"."articleId" = "t0"."id" LEFT JOIN "gallery" AS "t2" ON "t2"."id" = "t1"."galleryId" ORDER BY "t2"."name" ASC",
+}
+`;
+
+exports[`polymorphic collection read SQL > PostgreSQL plural collection inverse include 1`] = `
+{
+  "params": [
+    0,
+    "id",
+    "name",
+  ],
+  "sql": "SELECT "t0"."id" AS "id", "t0"."seconds" AS "seconds", CASE WHEN (SELECT COUNT(*) FROM "gallery_items_clip" AS "t1" LEFT JOIN "gallery" AS "t2" ON "t2"."id" = "t1"."galleryId" WHERE ("t1"."clipId" = "t0"."id" AND "t2"."id" IS NULL)) > $1 THEN '{}'::json ELSE (SELECT COALESCE(json_agg("t3"."_json"), '[]'::json) FROM (SELECT json_build_object($2::text, "t2"."id", $3::text, "t2"."name") AS "_json" FROM "gallery_items_clip" AS "t1", "gallery" AS "t2" WHERE ("t1"."clipId" = "t0"."id" AND "t2"."id" = "t1"."galleryId")) "t3") END AS "galleries" FROM "clip" AS "t0"",
+}
+`;
+
+exports[`polymorphic collection read SQL > PostgreSQL singular collection inverse include 1`] = `
+{
+  "params": [
+    0,
+    1,
+    "id",
+    "name",
+    1,
+  ],
+  "sql": "SELECT "t0"."id" AS "id", "t0"."title" AS "title", CASE WHEN (SELECT COUNT(*) FROM "gallery_items_article" AS "t1" LEFT JOIN "gallery" AS "t2" ON "t2"."id" = "t1"."galleryId" WHERE ("t1"."articleId" = "t0"."id" AND "t2"."id" IS NULL)) > $1 THEN '[]'::json WHEN (SELECT COUNT(*) FROM "gallery_items_article" AS "t1" WHERE "t1"."articleId" = "t0"."id") > $2 THEN '[]'::json ELSE (SELECT json_build_object($3::text, "t2"."id", $4::text, "t2"."name") FROM "gallery_items_article" AS "t1", "gallery" AS "t2" WHERE ("t1"."articleId" = "t0"."id" AND "t2"."id" = "t1"."galleryId") LIMIT $5) END AS "gallery" FROM "article" AS "t0"",
+}
+`;
+
+exports[`polymorphic collection read SQL > SQLite direct collection include, every variant 1`] = `
+{
+  "params": [
+    "__viborm_state",
+    "collection",
+    "arms",
+    "article",
+    "membership",
+    "orphans",
+    "rows",
+    "__viborm_state",
+    "linked",
+    "type",
+    "article",
+    "data",
+    "id",
+    "title",
+    "clip",
+    "membership",
+    "orphans",
+    "rows",
+    "__viborm_state",
+    "linked",
+    "type",
+    "clip",
+    "data",
+    "id",
+    "seconds",
+  ],
+  "sql": "SELECT "t0"."id" AS "id", "t0"."name" AS "name", json_object(?, CAST(? AS TEXT), ?, json(json_object(?, json_object(?, (SELECT COUNT(*) FROM "gallery_items_article" AS "t1" WHERE "t1"."galleryId" = "t0"."id"), ?, (SELECT COUNT(*) FROM "gallery_items_article" AS "t1" LEFT JOIN "article" AS "t2" ON "t2"."id" = "t1"."articleId" WHERE ("t1"."galleryId" = "t0"."id" AND "t2"."id" IS NULL)), ?, (SELECT COALESCE(json_group_array(json("t3"."_json")), json_array()) FROM (SELECT json_object(?, CAST(? AS TEXT), ?, CAST(? AS TEXT), ?, json(json_object(?, "t2"."id", ?, "t2"."title"))) AS "_json" FROM "gallery_items_article" AS "t1", "article" AS "t2" WHERE ("t1"."galleryId" = "t0"."id" AND "t2"."id" = "t1"."articleId")) "t3")), ?, json_object(?, (SELECT COUNT(*) FROM "gallery_items_clip" AS "t4" WHERE "t4"."galleryId" = "t0"."id"), ?, (SELECT COUNT(*) FROM "gallery_items_clip" AS "t4" LEFT JOIN "clip" AS "t5" ON "t5"."id" = "t4"."clipId" WHERE ("t4"."galleryId" = "t0"."id" AND "t5"."id" IS NULL)), ?, (SELECT COALESCE(json_group_array(json("t6"."_json")), json_array()) FROM (SELECT json_object(?, CAST(? AS TEXT), ?, CAST(? AS TEXT), ?, json(json_object(?, "t5"."id", ?, "t5"."seconds"))) AS "_json" FROM "gallery_items_clip" AS "t4", "clip" AS "t5" WHERE ("t4"."galleryId" = "t0"."id" AND "t5"."id" = "t4"."clipId")) "t6"))))) AS "items" FROM "gallery" AS "t0"",
+}
+`;

@@ -7,7 +7,7 @@ import {
   validateSchemaOrThrow,
 } from "@src/index";
 import { s } from "@src/schema";
-import { PolymorphicRelation } from "@src/schema/relation";
+import { PolymorphicToOneRelation } from "@src/schema/relation";
 import {
   validateClientSchemaOrThrow,
   validatePolymorphicSchemaOrThrow,
@@ -25,8 +25,9 @@ describe("SchemaValidator boundaries", () => {
     const target = s.model({ id: s.string().id() });
     const owner = s.model({
       id: s.string().id(),
-      target: new PolymorphicRelation({
+      target: new PolymorphicToOneRelation({
         type: "polymorphic",
+        cardinality: "one",
         targets: { target: () => target },
         values: {},
       }),
@@ -37,6 +38,35 @@ describe("SchemaValidator boundaries", () => {
     ).toThrowError(
       expect.objectContaining({
         issues: [expect.objectContaining({ code: "P003" })],
+      })
+    );
+  });
+
+  it("refuses a carrier that carries no cardinality", () => {
+    const target = s.model({ id: s.string().id() });
+    // Laundered through a bare construct signature on purpose: the two public
+    // factories each stamp their own cardinality, so this carrier has no
+    // spelling — only a hostile caller reaching the terminal's constructor with
+    // a state that omits `cardinality` produces it. This test asks what the
+    // RUNTIME gate does once such a caller gets past the typed surface.
+    const ForgedCarrier: new (...args: never) => unknown =
+      PolymorphicToOneRelation;
+    const owner = s.model({
+      id: s.string().id(),
+      target: Reflect.construct(ForgedCarrier, [
+        {
+          type: "polymorphic",
+          targets: { target: () => target },
+          values: { target: "target" },
+        },
+      ]),
+    });
+
+    expect(() =>
+      validatePolymorphicSchemaOrThrow({ target, owner })
+    ).toThrowError(
+      expect.objectContaining({
+        issues: [expect.objectContaining({ code: "P013" })],
       })
     );
   });

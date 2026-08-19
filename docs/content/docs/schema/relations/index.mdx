@@ -22,7 +22,8 @@ The thunk `() => targetModel` comes first to handle circular references between 
 | `s.oneToMany()` | One record relates to many | User → Posts |
 | `s.manyToOne()` | Many records relate to one | Post → Author |
 | `s.manyToMany()` | Many relate to many | Post ↔ Tags |
-| `s.polymorphic()` | One record relates to one of several model types | Comment → Post or Video |
+| `s.polymorphicToOne()` | One record relates to one of several model types | Comment → Post or Video |
+| `s.polymorphicToMany()` | One record relates to many of several model types | Shelf → Books and Videos |
 
 ## Quick Example
 
@@ -106,13 +107,21 @@ groups.
 ### Polymorphic Relations
 
 ```ts
-s.polymorphic({
-  post: () => post,
-  video: () => video,
+s.polymorphicToOne({
+  post: () => post,          // The factory name IS the cardinality:
+  video: () => video,        // this slot holds at most one membership
 })
-  .optional()               // Both private storage columns may be null
-  .name("commentable")      // Pairing label for inverse relations
+  .optional()                // Both private storage columns may be null
+  .name("commentable")       // Pairing label for inverse relations
 ```
+
+The factory you call declares the cardinality, and both are first-class.
+`s.polymorphicToOne()` holds at most one membership, stored as a private
+`(type, id)` pair on the owner row. `s.polymorphicToMany()` holds a collection of
+memberships that may mix variants, stored as one junction table per variant; it
+reads, filters, counts, orders, writes and migrates like any other relation.
+Both take a MAP of named targets; for a single target model use an ordinary
+relation.
 
 The public target keys are also the stored discriminators by default. Pass an
 exact `{ values }` second argument only when you need custom persistent values.

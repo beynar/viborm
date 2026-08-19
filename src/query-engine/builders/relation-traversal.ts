@@ -11,9 +11,13 @@
  * builder constructs one traversal per relation occurrence and keeps its own
  * statement shape around it.
  *
- * DIRECT polymorphic reads are deliberately outside: `polymorphic-read-builder.ts`
- * traverses a payload-selected variant target-first, and a payload-selected
- * polymorphic field is not a bound relation.
+ * DIRECT polymorphic `toOne` reads are deliberately outside:
+ * `polymorphic-read-builder.ts` traverses a payload-selected variant
+ * target-first, and a payload-selected row-held polymorphic field is not a bound
+ * relation. A direct polymorphic COLLECTION arm IS inside: its membership is a
+ * junction, so it enters through {@link buildMembershipJunctionTraversal} —
+ * which takes the membership alone, because a collection arm has no
+ * `RelationInfo` and Package C may not synthesize one.
  */
 
 import type { Sql } from "@sql";
@@ -22,9 +26,9 @@ import type { QueryScope, RelationInfo } from "../types";
 import { buildCorrelation } from "./correlation-utils";
 import { buildManyToManyJoinParts } from "./many-to-many-utils";
 import {
+  type BoundJunctionMembership,
   type ChildHeldRelation,
   classifyRelation,
-  type JunctionBoundRelation,
   type ParentHeldRelation,
 } from "./relation-data-builder";
 
@@ -47,7 +51,9 @@ export type OrdinaryRelationTraversal = {
   /** `target AS tN` */
   readonly from: () => Sql;
   /** The parent correlation, pre-folded — always one element. */
-  readonly conditions: () => readonly Sql[];
+  readonly conditions: () => readonly [Sql];
+  /** The same traversal as OUTER JOINS — always one element for a row-held edge. */
+  readonly joins: () => readonly [Sql];
   readonly tables: () => readonly string[];
 };
 
@@ -64,11 +70,28 @@ export type JunctionRelationTraversal = {
   readonly junctionAlias: string;
   /** The alias the traversed rows are read under. */
   readonly targetAlias: string;
-  readonly junction: () => JunctionBoundRelation;
+  /** The two complete ordered stored references this traversal walks. */
+  readonly membership: () => BoundJunctionMembership;
+  /**
+   * How many targets the traversed slot admits. `"one"` since Package C: a
+   * fields-less `manyToOne` bound to a collection member whose inverse is
+   * singular walks the same junction and returns at most one row.
+   */
+  readonly cardinality: () => "one" | "many";
   /** `junction AS tJ, target AS tT` */
   readonly from: () => Sql;
   /** Parent correlation and junction join, in that order — always two elements. */
-  readonly conditions: () => readonly Sql[];
+  readonly conditions: () => readonly [Sql, Sql];
+  /**
+   * The same traversal as OUTER JOINS — always TWO elements: source to member
+   * table, then member table to target.
+   *
+   * A junction `from()` is a comma pair, so folding it into ONE
+   * `LEFT JOIN (a, b) ON (…)` emits invalid SQL. Splitting the same two
+   * conditions across the two joins is the only lowering that keeps a parent
+   * row when either hop is absent, which is what an outer join owes.
+   */
+  readonly joins: () => readonly [Sql, Sql];
   readonly tables: () => readonly string[];
 };
 
@@ -103,9 +126,16 @@ export function buildRelationTraversal(
   if (classified.kind === "junction") {
     const junctionAlias = ctx.nextAlias();
     const targetAlias = ctx.nextAlias();
+    const { bind } = classified;
+    let bound: ReturnType<typeof bind> | undefined;
+    const junction = () => {
+      bound ??= bind();
+      return bound;
+    };
     return buildJunctionTraversal(
       ctx,
-      classified.bind,
+      () => junction().membership,
+      () => junction().cardinality,
       parentAlias,
       junctionAlias,
       targetAlias
@@ -118,6 +148,35 @@ export function buildRelationTraversal(
     relationInfo,
     classified.bind,
     parentAlias,
+    targetAlias
+  );
+}
+
+/**
+ * Build a junction traversal from a bare MEMBERSHIP — the entry a direct
+ * polymorphic collection arm takes.
+ *
+ * A collection arm's junction facts are pre-resolved on its storage
+ * (`PolymorphicJunctionMember.junction`, materialized at definition validation),
+ * and the arm is not a declared relation on the owner model, so there is no
+ * `RelationInfo` to classify and none may be invented. Alias spend order matches
+ * {@link buildRelationTraversal} exactly — junction alias, then target alias —
+ * so the emitted bytes stay uniform across both entries.
+ */
+export function buildMembershipJunctionTraversal(
+  ctx: QueryScope,
+  membership: () => BoundJunctionMembership,
+  cardinality: "one" | "many",
+  parentAlias: string
+): JunctionRelationTraversal {
+  const junctionAlias = ctx.nextAlias();
+  const targetAlias = ctx.nextAlias();
+  return buildJunctionTraversal(
+    ctx,
+    membership,
+    () => cardinality,
+    parentAlias,
+    junctionAlias,
     targetAlias
   );
 }
@@ -141,37 +200,35 @@ function buildOrdinaryTraversal(
   const targetTable = (): string => getTableName(relationInfo.targetModel);
 
   let correlation: Sql | undefined;
+  const conditions = (): readonly [Sql] => {
+    correlation ??= buildCorrelation(ctx, relation(), parentAlias, targetAlias);
+    return [correlation];
+  };
+  const from = () => ctx.adapter.identifiers.table(targetTable(), targetAlias);
   return {
     kind: "ordinary",
     targetAlias,
     relation,
-    from: () => ctx.adapter.identifiers.table(targetTable(), targetAlias),
-    conditions: () => {
-      correlation ??= buildCorrelation(
-        ctx,
-        relation(),
-        parentAlias,
-        targetAlias
-      );
-      return [correlation];
-    },
+    from,
+    conditions,
+    joins: () => [
+      ctx.adapter.joins.left(
+        from(),
+        ctx.adapter.operators.and(...conditions())
+      ),
+    ],
     tables: () => [targetTable()],
   };
 }
 
 function buildJunctionTraversal(
   ctx: QueryScope,
-  bind: () => JunctionBoundRelation,
+  membership: () => BoundJunctionMembership,
+  cardinality: () => "one" | "many",
   parentAlias: string,
   junctionAlias: string,
   targetAlias: string
 ): JunctionRelationTraversal {
-  let bound: JunctionBoundRelation | undefined;
-  const junction = (): JunctionBoundRelation => {
-    bound ??= bind();
-    return bound;
-  };
-
   // One resolution of the junction algebra, whichever part is asked for first —
   // the single `buildManyToManyJoinParts` call the four call prologues each made.
   type JoinParts = ReturnType<typeof buildManyToManyJoinParts>;
@@ -179,7 +236,7 @@ function buildJunctionTraversal(
   const resolve = (): JoinParts => {
     parts ??= buildManyToManyJoinParts(
       ctx,
-      junction(),
+      membership(),
       parentAlias,
       junctionAlias,
       targetAlias
@@ -191,14 +248,32 @@ function buildJunctionTraversal(
     kind: "junction",
     junctionAlias,
     targetAlias,
-    junction,
+    membership,
+    cardinality,
     from: () => resolve().fromClause,
     conditions: () => {
       const { correlationCondition, joinCondition } = resolve();
       return [correlationCondition, joinCondition];
     },
+    joins: () => {
+      const { correlationCondition, joinCondition } = resolve();
+      const { table, target } = membership();
+      return [
+        ctx.adapter.joins.left(
+          ctx.adapter.identifiers.table(table, junctionAlias),
+          correlationCondition
+        ),
+        ctx.adapter.joins.left(
+          ctx.adapter.identifiers.table(
+            getTableName(target.model),
+            targetAlias
+          ),
+          joinCondition
+        ),
+      ];
+    },
     tables: () => {
-      const { table, target } = junction().membership;
+      const { table, target } = membership();
       return [table, getTableName(target.model)];
     },
   };

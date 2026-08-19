@@ -310,12 +310,18 @@ native atomic batch.
 
 ## Polymorphic relation path
 
-A polymorphic field defines a direct multi-target to-one relation with an exact
-lazy getter map and a separate stable stored-value map:
+There are two storage shapes and the declaring factory picks one:
+`s.polymorphicToOne` is row-held and `s.polymorphicToMany` is junction-held.
+Everything up to the [collection path](#polymorphic-collection-path) describes
+the row-held one.
+
+A polymorphic field declared with `s.polymorphicToOne` defines a direct
+multi-target to-one relation with an exact lazy getter map and a separate stable
+stored-value map:
 
 ```typescript
 subject: s
-  .polymorphic(
+  .polymorphicToOne(
     {
       post: () => post,
       video: () => video,
@@ -375,19 +381,97 @@ discriminators and half-null storage are malformed provider results.
 
 Direct owner creation exposes connect, create, and connect-or-create. A selected
 owner also exposes update and upsert, plus disconnect and delete when the direct
-membership is optional. The direct edge is to-one, so collection set does not
-apply. A bound inverse `oneToMany` exposes
+membership is optional. A row-held edge stores one membership, so collection set
+does not apply to it. A bound inverse `oneToMany` exposes
 create/createMany/connect/connectOrCreate/upsert on create, the ordinary
 targeted and bulk update/delete family on update. Disconnect requires clearable
 membership. Set is available for both storage modes; required membership uses a
 materialized departing-member guard. A bound inverse `oneToOne` always has an
 optional public slot: delete may empty it, while disconnect additionally
 requires clearable child storage. Exact membership always includes both the
-fixed discriminator and parent identity. Root createMany accepts direct connect-only
-memberships; inverse nested createMany can satisfy its owning required relation
-but not another required polymorphic relation. The feature adds no runtime step
-kind, executor protocol, adapter semantic namespace, or round trip beyond the
-ordinary child-held analogue.
+fixed discriminator and parent identity. Root createMany accepts a row-held
+connect-only membership; inverse nested createMany can satisfy its owning
+required relation but not another required polymorphic relation. The feature
+adds no runtime step kind, executor protocol, adapter semantic namespace, or
+round trip beyond the ordinary child-held analogue.
+
+## Polymorphic collection path
+
+A field declared with `s.polymorphicToMany` stores each variant's memberships in
+its own fixed-target member junction, so the engine's junction owners serve it
+whole. The design rule is that the collection adds **coordination**, never a
+second junction DML owner and never a polymorphic scheduler.
+
+**Reads.** `select-builder.ts` dispatches on cardinality, and
+`builders/polymorphic-collection-read-builder.ts` composes one correlated JSON
+document with one branch per member junction, in `storage.members` declaration
+order — correlated rather than lateral on every adapter, because the result
+boundary decodes exactly one relation value per relation column. The statement
+grows with variant count, never with owner-row count.
+The validated selection reaches the engine as `true`, `false`, or an envelope of
+exactly two keys — `only` (already deduped and canonicalized into declaration
+order by the parse boundary) and `variants` (one ordinary to-many node per
+public discriminator). The engine reads those two keys and nothing else, which
+is what keeps allow-list order out of result order and collapses two spellings
+of one allow-list into one compiled statement and one cache entry.
+
+Filters, counts and count ordering compose the same leaves: quantifiers lower to
+correlated existence over the named variant's member table (`every` as an
+explicit conjunction rather than trusting a `NOT EXISTS` spelling to mean it),
+and `_count` sums one correlated count per member table in declaration order —
+the same summed expression `orderBy: { rel: { _count } }` sorts on.
+
+**Result parsing.** The shared strict element parser is reused, wrapped for a
+collection: the result is always an array, never nullable. Elements are grouped
+by declaration order, and every configured arm's integrity facts are computed
+even under `only`, so an orphan in an excluded variant still fails the read.
+
+**Writes.** `write-engine/PolymorphicCollectionPart.ts` returns exactly **one**
+`Part`, not a list, and that is the whole reason it exists — sibling Parts are
+concatenated in list order, so N independent variant Parts could not express a
+clear-once barrier. It owns exactly four relation-wide facts: the `set`
+clear-all barrier, cross-verb and cross-variant ordering, the single owner-row
+publication every leaf correlates on, and a cache footprint that is empty by
+measurement (invalidation lives above the engine). Everything else is a leaf's:
+one `buildJunctionParts` call per entry against that entry's pre-bound member
+junction. The compile order is the contract — every leaf's guards, then the one
+barrier, then every leaf's writes.
+
+`set` is lowered rather than special-cased: the parser keeps emitting `set`
+entries, the coordinator rewrites each into its insert half and owns the clear
+half itself, and ordinary junction `set` stays byte-identical. Because the clear
+and the refill must commit together, the one shape that a batch could legally
+split between them — no transaction, `clearsAll`, and an owner row key arriving
+as a produced output reference — is refused at construction, before any effect.
+
+**Inverse writes.** Both arities are ordinary. A polymorphic-bound `manyToMany`
+is a fixed-variant junction view: the binder supplies the same
+`ResolvedJunctionTopology` in reverse orientation, and `RelationJunctionPart` /
+`JunctionStatements` — written against `membership.source` / `membership.target`
+— serve every verb unchanged. A polymorphic-bound fields-less `manyToOne` is the
+singular slot, and `write-engine/RelationJunctionToOnePart.ts` is a thin
+dispatcher and orientation adapter over it, owning three things: the
+`(vacate, supplier, modify)` order consumed from `classifyToOneComposition`; the
+four correlated spellings (`disconnect: true` deletes the junction row by the
+variant side alone, `delete: true` deletes the single captured owner row,
+correlated `update`, guarded `upsert`); and an owner-oriented membership
+projection feeding the transfer.
+
+**The singular transfer.** A member whose inverse cardinality is `one` has a
+unique over its complete target side, so adding a membership is a slot
+replacement, not an insert. `write-engine/junction-singular-transfer.ts` owns
+that protocol for both directions: one capture read, then the same write
+sequence on both substrates — inside a transaction the capture is `forUpdate`
+and the row lock is the premise, in a native atomic batch the CAS is in-batch
+with no postcondition the executor cannot enforce. A freshly created target is
+proven empty structurally, so its capture is elided rather than paid for.
+
+**Bulk routing.** `write-engine/routing.ts` reads raw rows before any parse and
+dispatches the polymorphic half on cardinality. A row-held `connect` stays OUT of
+the relation-bearing set — it contributes literal column values to the grouped
+`INSERT` and keeps the pinned grouped bulk contract. A collection key is IN: its
+memberships cannot exist before the owner row does, so the whole call routes to
+the ordered record series and each row runs as an ordinary create.
 
 ## SQL and adapter boundary
 

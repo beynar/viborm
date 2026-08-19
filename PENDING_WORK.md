@@ -1,6 +1,6 @@
 # VibORM - Pending Work Summary
 
-**Last Updated:** July 2026
+**Last Updated:** August 2026
 
 This document tracks the actual remaining work for VibORM, replacing outdated planning documents.
 
@@ -24,29 +24,9 @@ _No `TODO`/`FIXME` markers currently tracked in `src/`. The MySQL migrations ada
 
 ---
 
-## 🔵 Future Features (Documented but not implemented)
+## 🔵 Future Features
 
-### 1. Polymorphic Relations
-
-**Spec:** `features-docs/polymorphic-relations.md`
-
-Full implementation plan for polymorphic relations allowing models to belong to multiple types:
-
-```typescript
-const comment = s.model({
-  commentable: s.polymorphic(() => ({
-    post: Post,
-    video: Video,
-    photo: Photo,
-  })),
-});
-```
-
-**Estimated effort:** Large (8 phases documented)
-
----
-
-### 2. Recursive Queries
+### 1. Recursive Queries
 
 **Spec:** `features-docs/recursive-query.md`
 
@@ -101,9 +81,11 @@ For historical reference, these were previously documented as pending but are no
 | **`skip` without `take`** | `src/adapters/databases/{postgres,mysql,sqlite}/*-adapter.ts` |
 | **`NULLS FIRST`/`NULLS LAST` ordering** | `src/query-engine/builders/sort-order-builder.ts`, `src/adapters/shared/standard-sql.ts` |
 | **Case-insensitive mode on `equals`/`in`** | `src/query-engine/builders/where-builder.ts` |
+| **Polymorphic to-one slots** (`s.polymorphicToOne`) | `src/schema/relation/polymorphic.ts`; `features-docs/polymorphic-relations.md` §§2–16 |
+| **Polymorphic collection slots** (`s.polymorphicToMany`) — declaration, migration, reads, direct writes, both inverse arities, and the bulk/progressive routes | `src/schema/relation/junction-topology.ts`, `src/query-engine/write-engine/PolymorphicCollectionPart.ts`, `RelationJunctionToOnePart.ts`, `junction-singular-transfer.ts`; `features-docs/polymorphic-relations.md` §17 |
 
 ---
 
 ## Priority Order
 
-1. **Future:** polymorphic relations, recursive queries
+1. **Future:** recursive queries

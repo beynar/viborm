@@ -106,10 +106,33 @@ export class MySQLMigrationDriver extends MigrationDriver {
   }
 
   /**
-   * MySQL cannot index TEXT columns without an explicit key length.
-   * Rewrite TEXT columns that participate in the primary key, a unique
-   * constraint, an index, or a foreign key to VARCHAR(191) (Prisma's
-   * default: 191 * 4 bytes fits the 767-byte InnoDB key limit).
+   * TWO canonicalizations, both required before the differ compares anything.
+   *
+   * 1. MySQL cannot index TEXT columns without an explicit key length.
+   *    Rewrite TEXT columns that participate in the primary key, a unique
+   *    constraint, an index, or a foreign key to VARCHAR(191) (Prisma's
+   *    default: 191 * 4 bytes fits the 767-byte InnoDB key limit).
+   *
+   * 2. MySQL HAS ONE UNIQUE NAMESPACE. A `UNIQUE` constraint and a unique
+   *    index are the same object: `information_schema.TABLE_CONSTRAINTS`
+   *    reports it as a UNIQUE constraint and `information_schema.STATISTICS`
+   *    reports its backing index, so introspection sees ONE database object
+   *    under TWO buckets. Whichever bucket the desired schema did not use then
+   *    looks like a stray object and the differ plans a drop for it — measured
+   *    on docker MySQL 8 as a spurious `dropIndex` for every declared unique
+   *    CONSTRAINT and a spurious `dropUniqueConstraint` for every declared
+   *    unique INDEX, on every push, forever.
+   *
+   *    So MySQL picks ONE bucket and both sides speak it: every unique becomes
+   *    a unique INDEX here, and introspection (`introspect.ts`) files uniques
+   *    only under `indexes` to match. Indexes are the right survivor because
+   *    they carry the strictly larger vocabulary — a unique index can express
+   *    a unique constraint, not the reverse.
+   *
+   *    Existing databases need no migration: the object already exists under
+   *    the name the desired side now spells as an index, so the two sides
+   *    simply agree. `generateCreateTable` emits nothing for the (now empty)
+   *    unique-constraint bucket and the index bucket is created as usual.
    */
   override finalizeTable(table: TableDef): TableDef {
     const keyedColumns = new Set<string>([
@@ -119,6 +142,19 @@ export class MySQLMigrationDriver extends MigrationDriver {
       ...table.foreignKeys.flatMap((fk) => fk.columns),
     ]);
 
+    const declaredIndexNames = new Set(
+      table.indexes.map((index) => index.name)
+    );
+    const uniquesAsIndexes = table.uniqueConstraints
+      // A name already spelled as an index is the SAME object; keeping both
+      // would put two entries under one name into the snapshot.
+      .filter((unique) => !declaredIndexNames.has(unique.name))
+      .map((unique) => ({
+        name: unique.name,
+        columns: unique.columns,
+        unique: true,
+      }));
+
     return {
       ...table,
       columns: table.columns.map((column) =>
@@ -126,6 +162,8 @@ export class MySQLMigrationDriver extends MigrationDriver {
           ? { ...column, type: "VARCHAR(191)" }
           : column
       ),
+      indexes: [...table.indexes, ...uniquesAsIndexes],
+      uniqueConstraints: [],
     };
   }
 

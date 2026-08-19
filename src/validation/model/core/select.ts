@@ -2,7 +2,11 @@
 
 import type { AnyModel } from "@schema/model";
 import type { StringKeyOf } from "@schema/model/helper";
-import type { AnyRelation } from "@schema/relation";
+import {
+  type AnyPolymorphicRelation,
+  type AnyRelation,
+  polymorphicCardinality,
+} from "@schema/relation";
 import type { ScalarState } from "@schema/scalars";
 import v, { type V } from "../../primitives/v";
 import type { ScalarSchemas } from "../index";
@@ -61,18 +65,36 @@ const vectorDistanceMetricSchema = v.enum(["l2", "cosine"]);
 /** The desugared shorthand: one `true` entry per counted relation. */
 type CountAllSelection = Record<string, true>;
 
+/** Both relation namespaces a `_count` (and an `include`) reaches across. */
+type RelationSchemaBundle = {
+  relations: Record<string, any>;
+  polymorphic: Record<string, any>;
+};
+
 /**
  * `_count` accepts either Prisma's shorthand `true` or the explicit
  * `{ select: { <relation>: true | { where } } }` object. The shorthand is
  * desugared here, so everything downstream (query engine, result parser) only
  * ever sees the object form.
  */
-export type CountSchema<F extends { relations: Record<string, any> }> = V.Union<
+export type CountSchema<F extends RelationSchemaBundle> = V.Union<
   readonly [
     V.Coerce<V.Literal<true>, { select: CountAllSelection }>,
     V.Object<
       {
-        select: V.FromObject<F["relations"], "countFilter", { optional: true }>;
+        select: V.Object<
+          V.FromObject<
+            F["relations"],
+            "countFilter",
+            { optional: true }
+          >["entries"] &
+            V.FromObject<
+              F["polymorphic"],
+              "countFilter",
+              { optional: true }
+            >["entries"],
+          { optional: true }
+        >;
       },
       { optional: true }
     >,
@@ -100,14 +122,36 @@ const toManyRelationNames = (model: AnyModel): string[] => {
       names.push(name);
     }
   }
+  // A polymorphic COLLECTION is a list relation by every reading that matters
+  // here — it holds many rows, it has a count, and Prisma's rule is about
+  // lists, not about how the far side is addressed. A polymorphic to-one slot
+  // is excluded for the same reason an ordinary `manyToOne` is, and its
+  // `countFilter` family is a named refusal rather than a missing key.
+  const polymorphic: Record<string, AnyPolymorphicRelation> =
+    model["~"].state.polymorphicRelations;
+  for (const name of Object.keys(polymorphic)) {
+    if (polymorphicCardinality(polymorphic[name]!["~"].state) === "many") {
+      names.push(name);
+    }
+  }
   return names;
 };
 
-const getCountSchema = <F extends { relations: Record<string, any> }>(
+const getCountSchema = <F extends RelationSchemaBundle>(
   model: AnyModel,
   schemas: F
 ): CountSchema<F> => {
   const countAllNames = toManyRelationNames(model);
+  const relationEntries = v.fromObject<
+    F["relations"],
+    "countFilter",
+    { optional: true }
+  >(schemas.relations, "countFilter", { optional: true });
+  const polymorphicEntries = v.fromObject<
+    F["polymorphic"],
+    "countFilter",
+    { optional: true }
+  >(schemas.polymorphic, "countFilter", { optional: true });
 
   return v.union([
     // A fresh object per parse — the desugared value is handed to the engine
@@ -121,9 +165,8 @@ const getCountSchema = <F extends { relations: Record<string, any> }>(
     }),
     v.object(
       {
-        select: v.fromObject<F["relations"], "countFilter", { optional: true }>(
-          schemas.relations,
-          "countFilter",
+        select: v.object(
+          { ...relationEntries.entries, ...polymorphicEntries.entries },
           { optional: true }
         ),
       },
@@ -156,7 +199,7 @@ export type SelectSchema<
   M extends AnyModel,
   F extends ScalarSchemas<M>,
 > = V.Object<
-    V.FromKeys<NonVectorScalarKeys<M>[], typeof scalarSelectSchema>["entries"] &
+  V.FromKeys<NonVectorScalarKeys<M>[], typeof scalarSelectSchema>["entries"] &
     V.FromKeys<VectorScalarKeys<M>[], VectorScalarSelectSchema>["entries"] &
     V.FromObject<F["relations"], "select">["entries"] &
     V.FromObject<F["polymorphic"], "select">["entries"] & {
@@ -255,11 +298,6 @@ export const getSelectSchema = <M extends AnyModel, F extends ScalarSchemas<M>>(
 /**
  * Build include schema - nested include for each relation
  */
-
-type RelationSchemaBundle = {
-  relations: Record<string, any>;
-  polymorphic: Record<string, any>;
-};
 
 export type IncludeSchema<F extends RelationSchemaBundle> = V.Object<
   V.FromObject<F["relations"], "include", { optional: true }>["entries"] & {

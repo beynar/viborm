@@ -83,9 +83,14 @@ function returningEveryColumn(
     }
     const relation = getPolymorphicRelationInfo(ctx, relationName);
     if (!relation) continue;
+    // A COLLECTION key contributes no private columns: its membership lives in
+    // member junction tables, not on the mutated row, so the CTE has nothing to
+    // carry for it and the outer projection reads the junctions directly.
+    const { storage } = relation;
+    if (storage.kind !== "toOne") continue;
     columns.push(
-      ctx.adapter.identifiers.escape(relation.storage.typeColumn.name),
-      ctx.adapter.identifiers.escape(relation.storage.idColumn.name)
+      ctx.adapter.identifiers.escape(storage.typeColumn.name),
+      ctx.adapter.identifiers.escape(storage.idColumn.name)
     );
   }
   return sql.join(columns, ", ");

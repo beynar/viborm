@@ -240,47 +240,8 @@ export async function pending(
   return statuses.filter((s) => !s.applied).map((s) => s.entry);
 }
 
-/**
- * Rollback the last N migrations (marks them as not applied).
- * Note: This does NOT run down migrations - it only removes from tracking table.
- */
-export async function rollback(
-  client: MigrationClient,
-  options: {
-    count?: number;
-    dir?: string;
-    tableName?: string;
-    storageDriver: MigrationStorageDriver;
-  }
-): Promise<MigrationEntry[]> {
-  const { count = 1, dir, tableName, storageDriver } = options;
-
-  // Use MigrationContext for proper driver delegation
-  const ctx = new MigrationContext(client, { dir, tableName, storageDriver });
-
-  // Read journal
-  const journal = await ctx.storage.readJournal();
-
-  if (!journal) {
-    return [];
-  }
-
-  // Get applied migrations
-  const appliedMigrations = await ctx.getAppliedMigrations();
-
-  // Get the last N applied migrations
-  const toRollback = appliedMigrations.slice(-count).reverse();
-
-  // Remove from tracking table
-  const rolledBack: MigrationEntry[] = [];
-
-  for (const applied of toRollback) {
-    const entry = journal.entries.find((e) => e.name === applied.name);
-    if (!entry) continue;
-
-    await ctx.markMigrationRolledBack(applied.name);
-    rolledBack.push(entry);
-  }
-
-  return rolledBack;
-}
+// There is deliberately NO tracking-only rollback verb here. Deleting tracking
+// rows while leaving the schema live is exactly the bypass a persisted
+// `manual`/`irreversible` policy exists to prevent, and renaming it to another
+// convenient public verb would not make it safe. `down()` is the only rollback:
+// it executes the down artifact and untracks in one transaction.

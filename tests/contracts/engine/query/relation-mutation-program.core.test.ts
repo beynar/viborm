@@ -34,7 +34,7 @@ const polymorphicSchema = (() => {
   const reaction = s.model({
     id: s.int().id(),
     subject: s
-      .polymorphic({ article: () => article, video: () => video })
+      .polymorphicToOne({ article: () => article, video: () => video })
       .optional(),
   });
   return { article, video, reaction };
@@ -42,6 +42,34 @@ const polymorphicSchema = (() => {
 
 hydrateSchemaNames(polymorphicSchema);
 validateSchemaOrThrow(polymorphicSchema);
+
+const collectionSchema = (() => {
+  const post = s.model({ id: s.int().id(), title: s.string() });
+  const video = s.model({ id: s.int().id(), title: s.string() });
+  const board = s.model({
+    id: s.int().id(),
+    items: s.polymorphicToMany({ post: () => post, video: () => video }),
+  });
+  return { post, video, board };
+})();
+
+hydrateSchemaNames(collectionSchema);
+validateSchemaOrThrow(collectionSchema);
+
+/** The one collection arm of a parsed board payload. */
+function collectionArm(payload: Record<string, unknown>, source?: unknown) {
+  const ctx = createQueryScope(adapter, collectionSchema.board);
+  const parsed = buildParsedRelationPrograms(
+    ctx,
+    { items: payload },
+    source === undefined ? undefined : { items: source }
+  );
+  const arm = parsed.relations[0];
+  if (arm?.kind !== "polymorphicCollection") {
+    throw new Error("expected a polymorphic collection arm");
+  }
+  return arm;
+}
 
 function requireRelationInfo(
   model: typeof user | typeof post,
@@ -385,6 +413,101 @@ describe("relation mutation program", () => {
         ? wrapped.entries[0].items[0]?.data.source
         : undefined
     ).toBe(wrappedSource);
+  });
+
+  test("collection entries are MUTATION-KIND order outer, declared position inner", () => {
+    // The outer order is `RELATION_MUTATION_KEYS` — the own-write linearization,
+    // unchanged by this arm — so `disconnect` precedes `connect` however the
+    // payload spelled them.
+    const arm = collectionArm({
+      connect: [{ type: "post", where: { id: 1 } }],
+      disconnect: [{ type: "video", where: { id: 2 } }],
+    });
+    expect(arm.entries.map((entry) => entry.program.entries[0]?.kind)).toEqual([
+      "disconnect",
+      "connect",
+    ]);
+    expect(arm.entries.map((entry) => entry.publicType)).toEqual([
+      "video",
+      "post",
+    ]);
+  });
+
+  test("runs are MAXIMAL CONTIGUOUS: post, video, post is THREE entries", () => {
+    // Never regrouped into two. Declared position is a behavior surface — the
+    // junction estate's own `contiguousJunctionCreateManyRuns` preserves it for
+    // the same reason — so a batching regroup would silently reorder writes.
+    const arm = collectionArm({
+      connect: [
+        { type: "post", where: { id: 1 } },
+        { type: "video", where: { id: 2 } },
+        { type: "post", where: { id: 3 } },
+      ],
+    });
+    expect(arm.entries.map((entry) => entry.publicType)).toEqual([
+      "post",
+      "video",
+      "post",
+    ]);
+    // …while ADJACENT same-variant items DO share one run.
+    const merged = collectionArm({
+      connect: [
+        { type: "post", where: { id: 1 } },
+        { type: "post", where: { id: 3 } },
+      ],
+    });
+    expect(merged.entries).toHaveLength(1);
+    const only = merged.entries[0]?.program.entries[0];
+    expect(only?.kind === "connect" ? only.targets : []).toEqual([
+      { id: 1 },
+      { id: 3 },
+    ]);
+  });
+
+  test("each entry carries its variant, an OWNER-oriented junction, and a path", () => {
+    const arm = collectionArm({
+      connect: [
+        { type: "post", where: { id: 1 } },
+        { type: "video", where: { id: 2 } },
+      ],
+    });
+    expect(arm.name).toBe("items");
+    const [first, second] = arm.entries;
+    expect(first?.path).toBe("items.connect[0..0]");
+    expect(second?.path).toBe("items.connect[1..1]");
+    // The arm's `name` is the PAYLOAD KEY while each entry's program carries the
+    // VARIANT-QUALIFIED carrier name — the one place the union's
+    // `name === program.relationInfo.name` invariant does not hold.
+    expect(first?.program.relationInfo.name).toBe("items.post");
+    expect(second?.program.relationInfo.name).toBe("items.video");
+    // OWNER-oriented: the junction's SOURCE side is the board, not the variant.
+    expect(first?.junction.membership.source.model).toBe(
+      collectionSchema.board
+    );
+    expect(first?.junction.membership.target.model).toBe(collectionSchema.post);
+    // And the binding is refused a second resolution by its own brand.
+    expect(first?.junction.relationInfo.polymorphicMemberCarrier).toBe(true);
+  });
+
+  test("`set: []` records the clear even though it produces no entries", () => {
+    // The only fact `entries` cannot carry: `set: []` clears every configured
+    // variant and has no run to derive that from.
+    const cleared = collectionArm({ set: [] });
+    expect(cleared.entries).toEqual([]);
+    expect(cleared.clearsAll).toBe(true);
+    expect(collectionArm({ connect: [] }).clearsAll).toBe(false);
+  });
+
+  test("`source` provenance survives the tagged unwrap", () => {
+    const sourceData = { id: 9, title: "source" };
+    const arm = collectionArm(
+      { create: [{ type: "post", data: { id: 9, title: "parsed" } }] },
+      { create: [{ type: "post", data: sourceData }] }
+    );
+    const create = arm.entries[0]?.program.entries[0];
+    expect(
+      create?.kind === "create" ? create.items[0]?.source : undefined
+    ).toBe(sourceData);
   });
 
   test("keeps direct polymorphic record provenance through concrete-edge lowering", () => {

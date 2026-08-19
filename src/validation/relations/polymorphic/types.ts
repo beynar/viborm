@@ -1,12 +1,31 @@
 import type { PolymorphicRelationState } from "@schema/relation";
 import type { InferInput, InferOutput, VibSchema } from "@validation/types";
 
+/**
+ * The slice of a target model's `ModelSchemas` a polymorphic family reaches
+ * for. The runtime value is always the full `ModelSchemas`; this interface is
+ * the DECLARED reach, and it is the thing hand-built doubles in the type tests
+ * must satisfy.
+ *
+ * `orderBy` is here because a COLLECTION arm node is the ordinary to-many nested
+ * node (`buildToManyNestedNode`), which offers `orderBy` on the related model.
+ * The to-one families never asked for it, which is why it was absent.
+ *
+ * `whereUniqueExtended` is here because the COLLECTION WRITE family addresses a
+ * member exactly where the ordinary to-many operation does (`toManyUpdateFactory`:
+ * `update`, `upsert` and `delete` all take it). That is a deliberate divergence
+ * from the to-one polymorphic `update`, whose `where` merely FILTERS the one
+ * connected record and is therefore the plain `where` — a slot already names its
+ * target, a collection member does not.
+ */
 interface PolymorphicTargetSchemas {
   readonly core: {
     readonly create: VibSchema;
     readonly update: VibSchema;
     readonly where: VibSchema;
     readonly whereUnique: VibSchema;
+    readonly whereUniqueExtended: VibSchema;
+    readonly orderBy: VibSchema;
     readonly select: VibSchema;
     readonly include: VibSchema;
     readonly omit: VibSchema;

@@ -13,6 +13,7 @@ import {
 import { rejectSelectInclude } from "../model/args/select-include-exclusivity";
 import { projectableScalarNames } from "../model/core/projection";
 import v, { type V } from "../primitives/v";
+import type { VibSchema } from "../types";
 import type { GetTargetSchemas, SchemaGetter, TargetModel } from "./helpers";
 
 // =============================================================================
@@ -26,11 +27,9 @@ const getTargetState = <S extends RelationState>(
 const getTargetModel = <S extends RelationState>(relationState: S): AnyModel =>
   relationState.getter() as AnyModel;
 
-const buildSelectionFromState = <S extends RelationState>(
-  relationState: S
-): Record<string, true> => {
+const buildSelectionForModel = (target: AnyModel): Record<string, true> => {
   const select: Record<string, true> = {};
-  for (const field of projectableScalarNames(getTargetModel(relationState))) {
+  for (const field of projectableScalarNames(target)) {
     select[field] = true;
   }
   return select;
@@ -52,15 +51,21 @@ const nestedOmitLabel = <S extends RelationState>(relationState: S): string =>
  * from drifting — and it runs BEFORE `includeToField`, which then finds a
  * `select` already in place and leaves it alone.
  */
+const withOmitForModel = <Schema extends V.Object<any>>(
+  target: AnyModel,
+  label: string,
+  schema: Schema
+): Schema => withOmitProjection(schema as never, target, label) as never;
+
 const withNestedOmit = <S extends RelationState, Schema extends V.Object<any>>(
   relationState: S,
   schema: Schema
 ): Schema =>
-  withOmitProjection(
-    schema as never,
+  withOmitForModel(
     getTargetModel(relationState),
-    nestedOmitLabel(relationState)
-  ) as never;
+    nestedOmitLabel(relationState),
+    schema
+  );
 
 /**
  * Nested `distinct`: scalar field names of the RELATED model, deduplicating
@@ -72,30 +77,27 @@ type NestedDistinctSchema<S extends RelationState> = V.Enum<
   { array: true }
 >;
 
-const nestedDistinct = <S extends RelationState>(
+const nestedDistinctNames = <S extends RelationState>(
   relationState: S
-): NestedDistinctSchema<S> =>
-  v.enum(
-    Object.keys(getTargetState(relationState).scalars) as StringKeyOf<
-      TargetModel<S>["~"]["state"]["scalars"]
-    >[],
-    { array: true }
-  );
+): StringKeyOf<TargetModel<S>["~"]["state"]["scalars"]>[] =>
+  Object.keys(getTargetState(relationState).scalars) as StringKeyOf<
+    TargetModel<S>["~"]["state"]["scalars"]
+  >[];
 
 type IncludeToField<Schema extends V.Object<any>> = V.Coerce<
   Schema,
   Schema[" vibInferred"]["1"] & { select?: Record<string, true> }
 >;
 
-const includeToField =
-  <S extends RelationState>(relationState: S) =>
+const includeToFieldForModel =
+  (target: AnyModel) =>
   <V extends Record<string, any>>(
     value: V
   ): V & { select?: Record<string, true> } => {
     if (Object.hasOwn(value, "select") && value.select !== false) {
       return value;
     }
-    const select = buildSelectionFromState(relationState);
+    const select = buildSelectionForModel(target);
     if (Object.keys(select).length === 0) return value;
     return {
       ...value,
@@ -103,10 +105,26 @@ const includeToField =
     };
   };
 
+const includeToField = <S extends RelationState>(relationState: S) =>
+  includeToFieldForModel(getTargetModel(relationState));
+
 type BooleanToSelect = V.Coerce<
   V.Boolean,
   { select?: Record<string, true> } | false
 >;
+
+/**
+ * The node a bare `true` desugars to: an explicit projection of the target's
+ * projectable scalars, FRESH on every parse so the engine never receives a
+ * schema-level singleton it could mutate. A target with nothing projectable
+ * yields `{}`, which the builder reads as "default row".
+ */
+export const defaultSelectionNode = (
+  target: AnyModel
+): { select?: Record<string, true> } => {
+  const select = buildSelectionForModel(target);
+  return Object.keys(select).length > 0 ? { select } : {};
+};
 
 // `false` stays `false` so the query engine omits the relation entirely
 // (Prisma parity: include/select `rel: false` must not return the relation)
@@ -115,13 +133,8 @@ const booleanToSelect = <S extends RelationState>(
 ): BooleanToSelect =>
   v.coerce(
     v.boolean(),
-    (value: boolean): { select?: Record<string, true> } | false => {
-      if (value) {
-        const select = buildSelectionFromState(relationState);
-        return Object.keys(select).length > 0 ? { select } : {};
-      }
-      return false;
-    }
+    (value: boolean): { select?: Record<string, true> } | false =>
+      value ? defaultSelectionNode(getTargetModel(relationState)) : false
   );
 
 // =============================================================================
@@ -171,9 +184,9 @@ export const toOneIncludeFactory = <
 };
 
 /**
- * To-many include: true or nested
- * { where, orderBy, take, skip, cursor, distinct, select, include }
- * `select` and `include` are mutually exclusive on the same node (Prisma parity)
+ * THE TO-MANY NESTED NODE — `{ where, orderBy, take, skip, cursor, distinct,
+ * select, include, omit }`, with `select`/`include` mutually exclusive on the
+ * same node (Prisma parity).
  *
  * `take`/`skip`/`cursor`/`distinct` are the very schemas the top level uses: a
  * negative `take` is Prisma's "last N" (the relation subquery runs the reversed
@@ -181,27 +194,97 @@ export const toOneIncludeFactory = <
  * non-integer take or a negative skip is refused with the top-level message,
  * `cursor` is a whereUnique of the RELATED model applied per parent, and
  * `distinct` names scalars of the RELATED model.
+ *
+ * DECOUPLED FROM `RelationState` on purpose. Everything the node needs reduces
+ * to four facts — the target model (default projection + `omit` desugaring),
+ * the label an `omit` failure carries, the target's core schemas, and the
+ * target's scalar names for `distinct`. Naming those four directly is what lets
+ * a SECOND caller build the identical node without a relation to read them off:
+ * a polymorphic collection's per-variant arm
+ * (`./polymorphic/select-include.ts`), whose target is chosen by a
+ * discriminator rather than by an edge.
+ *
+ * Extracted rather than hand-copied. Two hand-written copies of these nine keys
+ * under `rejectSelectInclude` + `withOmitProjection` + `includeToField` would be
+ * two things to keep in step, and the drift would be silent — a polymorphic arm
+ * quietly missing `cursor`, say, reads as "not supported" rather than as a bug.
+ * `to-many.core.test.ts` is the regression net for the extraction itself.
  */
+/** The six core schemas of the related model a to-many node reaches for. */
+export type ToManyNestedTargetCore = {
+  readonly where: VibSchema<any, any>;
+  readonly orderBy: VibSchema<any, any>;
+  readonly whereUnique: VibSchema<any, any>;
+  readonly select: VibSchema<any, any>;
+  readonly include: VibSchema<any, any>;
+  readonly omit: VibSchema<any, any>;
+};
+
+export type ToManyNestedNodeSchema<
+  Core extends ToManyNestedTargetCore,
+  Distinct,
+> = IncludeToField<
+  V.Object<{
+    where: () => Core["where"];
+    orderBy: () => V.Union<
+      readonly [Core["orderBy"], V.Array<Core["orderBy"]>]
+    >;
+    take: PaginationTakeSchema;
+    skip: PaginationSkipSchema;
+    cursor: () => Core["whereUnique"];
+    distinct: Distinct;
+    select: () => Core["select"];
+    include: () => Core["include"];
+    omit: () => Core["omit"];
+  }>
+>;
+
+export const buildToManyNestedNode = <
+  Core extends ToManyNestedTargetCore,
+  ScalarNames extends string[],
+>(config: {
+  readonly targetModel: AnyModel;
+  readonly label: string;
+  readonly core: () => Core;
+  readonly scalarNames: ScalarNames;
+}): ToManyNestedNodeSchema<Core, V.Enum<ScalarNames, { array: true }>> => {
+  const { targetModel, label, scalarNames } = config;
+  // ELEMENT access, not `core().where`: a dotted read on a value of generic
+  // type collapses to the CONSTRAINT's property (`VibSchema<any, any>`), which
+  // erases the caller's real schema and with it the whole nested node's input
+  // type. Keying with a generic `K` keeps the deferred `Core[K]`.
+  const at = <K extends keyof Core>(key: K): Core[K] => config.core()[key];
+  return v.coerce(
+    withOmitForModel(
+      targetModel,
+      label,
+      rejectSelectInclude(
+        v.object({
+          where: () => at("where"),
+          orderBy: () => {
+            const orderBySchema = at("orderBy");
+            return v.union([orderBySchema, v.array(orderBySchema)]);
+          },
+          take: paginationTake(),
+          skip: paginationSkip(),
+          cursor: () => at("whereUnique"),
+          distinct: v.enum(scalarNames, { array: true }),
+          select: () => at("select"),
+          include: () => at("include"),
+          omit: () => at("omit"),
+        })
+      )
+    ),
+    includeToFieldForModel(targetModel)
+  );
+};
+
 export type ToManyIncludeSchema<S extends RelationState> = V.Union<
   readonly [
     BooleanToSelect,
-    IncludeToField<
-      V.Object<{
-        where: () => GetTargetSchemas<S>["core"]["where"];
-        orderBy: () => V.Union<
-          readonly [
-            GetTargetSchemas<S>["core"]["orderBy"],
-            V.Array<GetTargetSchemas<S>["core"]["orderBy"]>,
-          ]
-        >;
-        take: PaginationTakeSchema;
-        skip: PaginationSkipSchema;
-        cursor: () => GetTargetSchemas<S>["core"]["whereUnique"];
-        distinct: NestedDistinctSchema<S>;
-        select: () => GetTargetSchemas<S>["core"]["select"];
-        include: () => GetTargetSchemas<S>["core"]["include"];
-        omit: () => GetTargetSchemas<S>["core"]["omit"];
-      }>
+    ToManyNestedNodeSchema<
+      GetTargetSchemas<S>["core"],
+      NestedDistinctSchema<S>
     >,
   ]
 >;
@@ -214,28 +297,12 @@ export const toManyIncludeFactory = <
 ): ToManyIncludeSchema<S> => {
   return v.union([
     booleanToSelect(state),
-    v.coerce(
-      withNestedOmit(
-        state,
-        rejectSelectInclude(
-          v.object({
-            where: () => targetSchemas().core.where,
-            orderBy: () => {
-              const orderBySchema = targetSchemas().core.orderBy;
-              return v.union([orderBySchema, v.array(orderBySchema)]);
-            },
-            take: paginationTake(),
-            skip: paginationSkip(),
-            cursor: () => targetSchemas().core.whereUnique,
-            distinct: nestedDistinct(state),
-            select: () => targetSchemas().core.select,
-            include: () => targetSchemas().core.include,
-            omit: () => targetSchemas().core.omit,
-          })
-        )
-      ),
-      includeToField(state)
-    ),
+    buildToManyNestedNode({
+      targetModel: getTargetModel(state),
+      label: nestedOmitLabel(state),
+      core: () => targetSchemas().core,
+      scalarNames: nestedDistinctNames(state),
+    }),
   ]);
 };
 

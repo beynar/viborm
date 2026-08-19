@@ -7,6 +7,7 @@ import { hydrateSchemaNames } from "@schema/hydration";
 import type { AnyModel, Model } from "@schema/model";
 import {
   collectInverseCandidates,
+  getCompatiblePolymorphicInverseBinding,
   getPolymorphicInverseBinding,
   resolveInverseRelation,
   resolveOrdinaryInverse,
@@ -797,7 +798,7 @@ describe("inverse resolution parity", () => {
         .fields("parentId")
         .references("id"),
       subject: s
-        .polymorphic(
+        .polymorphicToOne(
           { parent: () => parent, other: () => other },
           { values: { parent: "parent.v1", other: "other.v1" } }
         )
@@ -815,7 +816,7 @@ describe("inverse resolution parity", () => {
       // zero arguments.
       parent: s.manyToOne(() => ghostParent).fields(),
       subject: s
-        .polymorphic(
+        .polymorphicToOne(
           { parent: () => ghostParent, other: () => ghostOther },
           { values: { parent: "parent.v1", other: "other.v1" } }
         )
@@ -980,13 +981,13 @@ describe("inverse resolution parity", () => {
       const twinChild = s.model({
         id: s.string().id(),
         first: s
-          .polymorphic(
+          .polymorphicToOne(
             { source: () => twinSource },
             { values: { source: "source.first.v1" } }
           )
           .name("subject"),
         second: s
-          .polymorphic(
+          .polymorphicToOne(
             { source: () => twinSource },
             { values: { source: "source.second.v1" } }
           )
@@ -1012,7 +1013,7 @@ describe("inverse resolution parity", () => {
       // two candidates, which is not a binding.
       const pairChild = s.model({
         id: s.string().id(),
-        subject: s.polymorphic(
+        subject: s.polymorphicToOne(
           { primary: () => pairSource, backup: () => pairSource },
           {
             values: {
@@ -1027,7 +1028,7 @@ describe("inverse resolution parity", () => {
       const strangerOther = s.model({ id: s.string().id() });
       const strangerChild = s.model({
         id: s.string().id(),
-        subject: s.polymorphic(
+        subject: s.polymorphicToOne(
           { other: () => strangerOther },
           { values: { other: "other.v1" } }
         ),
@@ -1072,6 +1073,177 @@ describe("inverse resolution parity", () => {
         },
       } as unknown as AnyModel;
       expect(collectInverseCandidates(carrier, source)).toEqual([]);
+    });
+  });
+
+  describe("16. the compatible-binding projection — four shapes, one resolver", () => {
+    // `getCompatiblePolymorphicInverseBinding` is a PROJECTION of the one
+    // resolution above, never a second precedence: the four fields-less shapes
+    // ask it, and compatibility with the bound group's declared cardinality
+    // decides whether the answer stands or falls back to the ordinary meaning.
+
+    test("retained shapes bind ANY group; junction shapes refuse a toOne group", () => {
+      const soloParents = s.oneToMany(() => soloOwner);
+      const soloTwin = s.oneToOne(() => soloOwner).optional();
+      const soloCompat = s.manyToOne(() => soloOwner).optional();
+      const soloJunctions = s.manyToMany(() => soloOwner);
+      const soloMember = s.model({
+        id: s.string().id(),
+        parents: soloParents,
+        twin: soloTwin,
+        compat: soloCompat,
+        junctions: soloJunctions,
+      });
+      const soloOwner = s.model({
+        id: s.string().id(),
+        subject: s.polymorphicToOne(
+          { member: () => soloMember },
+          { values: { member: "solo.member.v1" } }
+        ),
+      });
+
+      const expected = {
+        relationKey: "subject",
+        publicType: "member",
+        storedType: "solo.member.v1",
+        groupCardinality: "one",
+      };
+      expect(
+        getCompatiblePolymorphicInverseBinding(
+          soloParents["~"].state,
+          soloMember
+        )
+      ).toEqual(expected);
+      expect(
+        getCompatiblePolymorphicInverseBinding(soloTwin["~"].state, soloMember)
+      ).toEqual(expected);
+      // Incompatible → undefined IS the ordinary fallback: R004/R005 and the
+      // junction rules keep firing for these spellings exactly as before.
+      expect(
+        getCompatiblePolymorphicInverseBinding(
+          soloCompat["~"].state,
+          soloMember
+        )
+      ).toBeUndefined();
+      expect(
+        getCompatiblePolymorphicInverseBinding(
+          soloJunctions["~"].state,
+          soloMember
+        )
+      ).toBeUndefined();
+    });
+
+    test("only the two junction-shaped shapes bind a toMany group", () => {
+      const collectionParents = s.oneToMany(() => collectionOwner);
+      const collectionTwin = s.oneToOne(() => collectionOwner).optional();
+      const collectionHolder = s.manyToOne(() => collectionOwner).optional();
+      const collectionHolders = s.manyToMany(() => collectionOwner);
+      const collectionMember = s.model({
+        id: s.string().id(),
+        parents: collectionParents,
+        twin: collectionTwin,
+        holder: collectionHolder,
+        holders: collectionHolders,
+      });
+      const collectionOwner = s.model({
+        id: s.string().id(),
+        items: s.polymorphicToMany(
+          { member: () => collectionMember },
+          { values: { member: "collection.member.v1" } }
+        ),
+      });
+
+      const expected = {
+        relationKey: "items",
+        publicType: "member",
+        storedType: "collection.member.v1",
+        groupCardinality: "many",
+      };
+      // AMENDED BY B3's tightening (the conscious amendment the B2 dormancy
+      // note demanded). Each asking shape binds ONLY the group family that owns
+      // its membership storage: a `manyToOne`/`manyToMany` asker's membership
+      // would live in a member junction, which only a collection group owns, so
+      // these two still bind.
+      for (const asker of [collectionHolder, collectionHolders] as const) {
+        expect(
+          getCompatiblePolymorphicInverseBinding(
+            asker["~"].state,
+            collectionMember
+          )
+        ).toEqual(expected);
+      }
+      // The row-held shapes no longer bind: their membership is the owner's
+      // private `(type, id)` pair, which a collection group does not have. The
+      // `undefined` IS the fallback to the edge's ordinary meaning — with no
+      // ordinary back-reference to carry it, such a schema is R003-invalid
+      // (pinned in `tests/unit/schema-validation/polymorphic-rules.core.test.ts`).
+      for (const asker of [collectionParents, collectionTwin] as const) {
+        expect(
+          getCompatiblePolymorphicInverseBinding(
+            asker["~"].state,
+            collectionMember
+          )
+        ).toBeUndefined();
+      }
+    });
+
+    test("a fields-bearing shape never asks the polymorphic precedence, even name-paired", () => {
+      const shadowHolder = s
+        .manyToOne(() => shadowOwner)
+        .fields("ownerId")
+        .references("id")
+        .name("shared");
+      const shadowMember = s.model({
+        id: s.string().id(),
+        ownerId: s.string(),
+        holder: shadowHolder,
+      });
+      const shadowOwner = s.model({
+        id: s.string().id(),
+        items: s
+          .polymorphicToMany(
+            { member: () => shadowMember },
+            { values: { member: "shadow.member.v1" } }
+          )
+          .name("shared"),
+      });
+
+      expect(
+        getCompatiblePolymorphicInverseBinding(
+          shadowHolder["~"].state,
+          shadowMember
+        )
+      ).toBeUndefined();
+    });
+
+    test("a zero-argument .fields() manyToOne is fields-less here too (ALIGNED)", () => {
+      const alignedHolder = s
+        .manyToOne(() => alignedOwner)
+        .fields()
+        .optional();
+      const alignedMember = s.model({
+        id: s.string().id(),
+        holder: alignedHolder,
+      });
+      const alignedOwner = s.model({
+        id: s.string().id(),
+        items: s.polymorphicToMany(
+          { member: () => alignedMember },
+          { values: { member: "aligned.member.v1" } }
+        ),
+      });
+
+      expect(
+        getCompatiblePolymorphicInverseBinding(
+          alignedHolder["~"].state,
+          alignedMember
+        )
+      ).toEqual({
+        relationKey: "items",
+        publicType: "member",
+        storedType: "aligned.member.v1",
+        groupCardinality: "many",
+      });
     });
   });
 });

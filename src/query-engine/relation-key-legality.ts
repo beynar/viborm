@@ -81,6 +81,12 @@ export function findSingleTargetMembershipMove(
   source: QueryScope,
   relations: readonly ParsedRelationMutation[]
 ): { readonly relationName: string; readonly kind: string } | undefined {
+  // A polymorphic COLLECTION arm is SKIPPED, and the skip is the decision (plan
+  // §1.2): the contention this looks for is a CHILD-HELD membership that only one
+  // source row can store. A member junction stores memberships in a third table
+  // that admits many parents, so `connect`/`set` on a collection is meaningful for
+  // any number of source rows — exactly like the ordinary junctions the
+  // `childHeld` test below already excludes.
   for (const program of relationMutationPrograms(relations)) {
     if (bindRelation(source, program.relationInfo).position !== "childHeld") {
       continue;
@@ -142,6 +148,11 @@ export function assertRelationKeyUpdatesAreCompilable(
 ): void {
   const primaryKeyFields = new Set(getPrimaryKeyFields(ctx.model));
 
+  // A polymorphic COLLECTION arm reaches the same verdict as an ordinary
+  // junction and reaches it one step earlier (plan §1.2): every entry it carries
+  // is `position: "junction"`, which the `continue` below returns on. Walking the
+  // arm to arrive at that same `continue` would be a loop whose unique coverage
+  // cannot be named, so the decision is recorded here instead of enacted.
   for (const mutation of relationMutationPrograms(relations)) {
     const relation = bindRelation(ctx, mutation.relationInfo);
     if (relation.position === "junction") continue;

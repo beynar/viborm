@@ -1284,3 +1284,158 @@ describe("compound key serialization", () => {
     ]);
   });
 });
+
+// =============================================================================
+// JUNCTION PAIR RECONCILIATION REFUSALS AND THEIR ORDER (B1 Step 0 pins)
+// =============================================================================
+
+/**
+ * Pre-cut-over falsifiers for the junction-topology extraction
+ * (docs/architecture/polymorphic-cardinality-plan.md, Package B step B.1):
+ * the serializer's pair-reconciliation refusals byte for byte, and the ORDER
+ * the serializer asks its questions in — referential actions, then row keys,
+ * then the raw A/B pair. The engine asks in a DIFFERENT order (pinned in
+ * tests/contracts/engine/query/junction-topology-order.core.test.ts); each
+ * consumer's order is a contract of its own, and a shared topology owner must
+ * preserve both.
+ */
+describe("junction pair reconciliation refusals", () => {
+  /** Hydrate outside the capture so only serialization refusals are pinned. */
+  function serializationError(schema: Record<string, any>): unknown {
+    hydrateSchemaNames(schema);
+    try {
+      serializeModels(schema, { migrationDriver: postgresMigrationDriver });
+    } catch (error) {
+      return error;
+    }
+    return undefined;
+  }
+
+  it("refuses an onDelete disagreement with the exact pair message", () => {
+    const Post = s.model({
+      id: s.string().id(),
+      tags: s.manyToMany(() => Tag).onDelete("cascade"),
+    });
+    const Tag = s.model({
+      id: s.string().id(),
+      posts: s.manyToMany(() => Post).onDelete("restrict"),
+    });
+
+    const thrown = serializationError({ post: Post, tag: Tag });
+
+    expect(thrown).toBeInstanceOf(Error);
+    if (!(thrown instanceof Error)) {
+      throw new Error("Expected serialization to throw.");
+    }
+    expect(thrown.message).toBe(
+      "Many-to-many relation pair for junction \"post_tag\" disagrees on onDelete: 'cascade' vs 'restrict'."
+    );
+  });
+
+  it("refuses an onUpdate disagreement with the exact pair message", () => {
+    const Post = s.model({
+      id: s.string().id(),
+      tags: s.manyToMany(() => Tag).onUpdate("cascade"),
+    });
+    const Tag = s.model({
+      id: s.string().id(),
+      posts: s.manyToMany(() => Post).onUpdate("restrict"),
+    });
+
+    const thrown = serializationError({ post: Post, tag: Tag });
+
+    expect(thrown).toBeInstanceOf(Error);
+    if (!(thrown instanceof Error)) {
+      throw new Error("Expected serialization to throw.");
+    }
+    expect(thrown.message).toBe(
+      "Many-to-many relation pair for junction \"post_tag\" disagrees on onUpdate: 'cascade' vs 'restrict'."
+    );
+  });
+
+  it("refuses one junction table shared by two distinct relation pairs", () => {
+    const Post = s.model({
+      id: s.string().id(),
+      tags: s.manyToMany(() => Tag).through("shared_junction"),
+    });
+    const Tag = s.model({
+      id: s.string().id(),
+      posts: s.manyToMany(() => Post).through("shared_junction"),
+    });
+    const User = s.model({
+      id: s.string().id(),
+      roles: s.manyToMany(() => Role).through("shared_junction"),
+    });
+    const Role = s.model({
+      id: s.string().id(),
+      users: s.manyToMany(() => User).through("shared_junction"),
+    });
+
+    const thrown = serializationError({
+      post: Post,
+      tag: Tag,
+      user: User,
+      role: Role,
+    });
+
+    expect(thrown).toBeInstanceOf(Error);
+    if (!(thrown instanceof Error)) {
+      throw new Error("Expected serialization to throw.");
+    }
+    expect(thrown.message).toBe(
+      'Junction table "shared_junction" is shared by multiple distinct many-to-many relation pairs. ' +
+        "Give each pair a distinct .name() or its own .through() table name."
+    );
+  });
+
+  // ORDER FALSIFIER: with BOTH a missing primary key and a mirrored .A()/.B()
+  // disagreement present, the serializer resolves row keys first — the raw
+  // pair reconciliation lives inside the later group expansion. The engine
+  // answers this same double defect the other way around.
+  it("resolves row keys before the raw A/B pair", () => {
+    const Post = s.model({
+      title: s.string(),
+      tags: s.manyToMany(() => Tag).A("postCol"),
+    });
+    const Tag = s.model({
+      id: s.string().id(),
+      posts: s.manyToMany(() => Post).B("tagCol"),
+    });
+
+    const thrown = serializationError({ post: Post, tag: Tag });
+
+    expect(thrown).toBeInstanceOf(Error);
+    if (!(thrown instanceof Error)) {
+      throw new Error("Expected serialization to throw.");
+    }
+    expect(thrown.message).toBe(
+      'Model "post" has no primary key. Schema may not be hydrated.'
+    );
+    expect(thrown.message).not.toContain("disagree on junction columns");
+  });
+
+  // ORDER FALSIFIER: with BOTH a missing primary key and a referential-action
+  // disagreement present, the action merge answers first — it runs before
+  // either endpoint's row key is requested.
+  it("resolves referential actions before row keys", () => {
+    const Post = s.model({
+      title: s.string(),
+      tags: s.manyToMany(() => Tag).onDelete("cascade"),
+    });
+    const Tag = s.model({
+      id: s.string().id(),
+      posts: s.manyToMany(() => Post).onDelete("restrict"),
+    });
+
+    const thrown = serializationError({ post: Post, tag: Tag });
+
+    expect(thrown).toBeInstanceOf(Error);
+    if (!(thrown instanceof Error)) {
+      throw new Error("Expected serialization to throw.");
+    }
+    expect(thrown.message).toBe(
+      "Many-to-many relation pair for junction \"post_tag\" disagrees on onDelete: 'cascade' vs 'restrict'."
+    );
+    expect(thrown.message).not.toContain("has no primary key");
+  });
+});

@@ -7,6 +7,7 @@
 
 import { MigrationError, VibORMErrorCode } from "../errors";
 import { MigrationContext, type MigrationContextOptions } from "./context";
+import { formatDownMigrationContent } from "./generate/down";
 import {
   formatMigrationContent,
   parseStatements,
@@ -43,6 +44,8 @@ export interface SquashResult {
   squashedCount: number;
   /** Combined SQL statements */
   sql: string[];
+  /** Composed down statements, in reverse migration order */
+  downSql: string[];
   /** Paths to archived migration files (if cleanup was enabled) */
   archivedFiles?: string[];
 }
@@ -55,14 +58,26 @@ export interface SquashResult {
  * Squashes multiple migrations into a single migration.
  * Throws MigrationError on failure.
  *
- * This will:
- * 1. Read all migrations in the range
- * 2. Combine their SQL into a single migration
- * 3. Update the journal with the new squashed entry
- * 4. Update the database tracking table (if migrations were applied)
- * 5. Optionally remove old migration files
+ * Everything happens inside the migration lock, in one order: read the journal,
+ * select the range, refuse it (suffix, policy, uniform applied state), read and
+ * validate every source artifact, then write. Every refusal is pre-effect — no
+ * migration file, journal, snapshot, down artifact or tracking row is touched
+ * before the last of them passes.
  *
- * NOTE: Only squash migrations that haven't been applied to production!
+ * V1 restrictions, each named in its own refusal:
+ * - The range must be a SUFFIX of the journal. Squashing a prefix would
+ *   re-index later entries without renaming their artifacts, orphaning every
+ *   one of them.
+ * - Every source must be `mode: "generated"` with `rollback: automatic`. A
+ *   manual or irreversible source cannot be composed into a single reversible
+ *   migration by concatenation.
+ * - The range must be uniformly applied or uniformly pending. A mixed range has
+ *   no single truthful tracking outcome.
+ *
+ * Writes go artifacts-first, tracking-last: neither order is atomic (blob
+ * storage has no transaction and the DB transaction cannot span it), and this
+ * one leaves the estate re-squashable when it fails instead of leaving the
+ * database claiming a migration whose file does not exist.
  *
  * @param client - VibORM client with driver
  * @param options - Squash options
@@ -77,137 +92,179 @@ export async function squash(
 
   const ctx = new MigrationContext(client, options);
 
-  // Read journal
-  const journal = await ctx.storage.readJournal();
-  if (!journal) {
-    throw new MigrationError(
-      "No migrations found",
-      VibORMErrorCode.MIGRATION_NOT_FOUND
-    );
-  }
-
-  // Determine range to squash
-  const maxIdx = to ?? Math.max(...journal.entries.map((e) => e.idx));
-  const entriesToSquash = journal.entries.filter(
-    (e) => e.idx >= from && e.idx <= maxIdx
-  );
-
-  if (entriesToSquash.length < 2) {
-    throw new MigrationError(
-      "Need at least 2 migrations to squash",
-      VibORMErrorCode.MIGRATION_INVALID_STATE
-    );
-  }
-
-  // Collect all SQL statements
-  const allStatements: string[] = [];
-
-  for (const entry of entriesToSquash) {
-    const content = await ctx.storage.readMigration(entry);
-    if (!content) {
+  return ctx.withLock(async () => {
+    // 1. Read journal (format- and policy-validated by the storage driver)
+    const journal = await ctx.storage.readJournal();
+    if (!journal) {
       throw new MigrationError(
-        `Migration file not found: ${formatMigrationFilename(entry)}`,
-        VibORMErrorCode.MIGRATION_FILE_NOT_FOUND,
-        { meta: { migrationName: entry.name } }
+        "No migrations found",
+        VibORMErrorCode.MIGRATION_NOT_FOUND
       );
     }
 
-    const statements = parseStatements(content);
-    for (const stmt of statements) {
-      const trimmed = stmt.trim();
-      if (trimmed && !trimmed.startsWith("--")) {
-        allStatements.push(trimmed.endsWith(";") ? trimmed : `${trimmed};`);
+    // 2. Determine range to squash
+    const maxIdx = to ?? Math.max(...journal.entries.map((e) => e.idx));
+    const entriesToSquash = journal.entries.filter(
+      (e) => e.idx >= from && e.idx <= maxIdx
+    );
+
+    if (entriesToSquash.length < 2) {
+      throw new MigrationError(
+        "Need at least 2 migrations to squash",
+        VibORMErrorCode.MIGRATION_INVALID_STATE
+      );
+    }
+
+    // 3. Suffix restriction
+    const entriesAfter = journal.entries.filter((e) => e.idx > maxIdx);
+    if (entriesAfter.length > 0) {
+      throw new MigrationError(
+        `Squash range ${from}..${maxIdx} is not a suffix of the journal: ${entriesAfter.length} migration(s) follow it (${entriesAfter.map((e) => e.name).join(", ")}). ` +
+          "Squashing a prefix would re-index those entries without renaming their migration and down artifacts, orphaning every one of them. Squash up to the latest migration instead.",
+        VibORMErrorCode.MIGRATION_INVALID_STATE
+      );
+    }
+
+    // 4. Policy refusal, before any artifact read or write
+    for (const entry of entriesToSquash) {
+      if (entry.mode !== "generated" || entry.rollback.kind !== "automatic") {
+        throw new MigrationError(
+          `Migration "${entry.name}" is ${entry.mode} with rollback policy "${entry.rollback.kind}" and cannot be squashed. ` +
+            "Squash composes generated migrations with automatic rollback: a caller-authored or irreversible migration is not reproduced by concatenating SQL.",
+          VibORMErrorCode.MIGRATION_INVALID_STATE,
+          { meta: { migrationName: entry.name } }
+        );
       }
     }
-  }
 
-  // Generate migration name
-  const migrationName = name || `squash-${from}-to-${maxIdx}`;
-
-  // Create placeholder entry for initial content formatting (checksum computed from content)
-  const placeholderEntry: MigrationEntry = {
-    idx: 0,
-    version: "",
-    name: migrationName,
-    when: Date.now(),
-    checksum: "",
-  };
-
-  // Create the new entry
-  const content = formatMigrationContent(
-    placeholderEntry,
-    allStatements,
-    ctx.dialect
-  );
-  const newEntry = createMigrationEntry(0, migrationName, content);
-
-  // Re-format with actual checksum
-  const finalContent = formatMigrationContent(
-    newEntry,
-    allStatements,
-    ctx.dialect
-  );
-
-  if (dryRun) {
-    return {
-      entry: { ...newEntry, idx: from },
-      squashedCount: entriesToSquash.length,
-      sql: allStatements,
-    };
-  }
-
-  // Use lock for database operations
-  return ctx.withLock(async () => {
-    // 1. Update database tracking table (if migrations were applied)
+    // 5. Uniform applied-state premise. A mixed range has no truthful outcome:
+    // marking it applied strands the pending DDL forever.
     const appliedMigrations = await ctx.getAppliedMigrations();
     const appliedNames = new Set(appliedMigrations.map((m) => m.name));
-
     const squashedAppliedEntries = entriesToSquash.filter((e) =>
       appliedNames.has(e.name)
     );
+    const pendingEntries = entriesToSquash.filter(
+      (e) => !appliedNames.has(e.name)
+    );
+    if (squashedAppliedEntries.length > 0 && pendingEntries.length > 0) {
+      throw new MigrationError(
+        `Squash range ${from}..${maxIdx} mixes applied and pending migrations: applied [${squashedAppliedEntries.map((e) => e.name).join(", ")}], pending [${pendingEntries.map((e) => e.name).join(", ")}]. ` +
+          "Squash requires a uniformly applied or uniformly pending range — apply the pending migrations first, or roll back the applied ones.",
+        VibORMErrorCode.MIGRATION_INVALID_STATE
+      );
+    }
 
+    // 6. Compose the up artifact forward, preserving in-file statement order
+    const allStatements: string[] = [];
+    for (const entry of entriesToSquash) {
+      const content = await ctx.storage.readMigration(entry);
+      if (!content) {
+        throw new MigrationError(
+          `Migration file not found: ${formatMigrationFilename(entry)}`,
+          VibORMErrorCode.MIGRATION_FILE_NOT_FOUND,
+          { meta: { migrationName: entry.name } }
+        );
+      }
+      for (const stmt of parseStatements(content)) {
+        allStatements.push(normalizeStatement(stmt));
+      }
+    }
+
+    // 7. Compose the down artifact in REVERSE migration order, preserving
+    // in-file statement order. The squashed migration is only as reversible as
+    // its sources, so a missing or empty source down artifact refuses here
+    // rather than producing a squashed entry that cannot be rolled back.
+    const downStatements: string[] = [];
+    for (const entry of [...entriesToSquash].reverse()) {
+      const content = await ctx.storage.readDownMigration(entry);
+      if (content === null) {
+        throw new MigrationError(
+          `Migration "${entry.name}" has no down artifact at meta/_down/${formatMigrationFilename(entry)}, so the squashed migration could not be rolled back.`,
+          VibORMErrorCode.MIGRATION_INVALID_STATE,
+          { meta: { migrationName: entry.name } }
+        );
+      }
+      const statements = parseStatements(content);
+      if (statements.length === 0) {
+        throw new MigrationError(
+          `Migration "${entry.name}" has an empty down artifact at meta/_down/${formatMigrationFilename(entry)} (no statements survive parsing), so the squashed migration could not be rolled back.`,
+          VibORMErrorCode.MIGRATION_INVALID_STATE,
+          { meta: { migrationName: entry.name } }
+        );
+      }
+      for (const stmt of statements) {
+        downStatements.push(normalizeStatement(stmt));
+      }
+    }
+
+    // 8. Build the new entry at idx `from` directly
+    const migrationName = name || `squash-${from}-to-${maxIdx}`;
+    const policy = {
+      mode: "generated",
+      rollback: { kind: "automatic" },
+    } as const;
+    const placeholderEntry: MigrationEntry = {
+      idx: from,
+      version: "",
+      name: migrationName,
+      when: Date.now(),
+      checksum: "",
+      ...policy,
+    };
+    const content = formatMigrationContent(
+      placeholderEntry,
+      allStatements,
+      ctx.dialect
+    );
+    const newEntry = createMigrationEntry(from, migrationName, content, policy);
+
+    // Re-format with actual checksum
+    const finalContent = formatMigrationContent(
+      newEntry,
+      allStatements,
+      ctx.dialect
+    );
+    const downContent = formatDownMigrationContent(
+      migrationName,
+      downStatements,
+      []
+    );
+
+    // 9. Dry run reports what would be written — after every refusal
+    if (dryRun) {
+      return {
+        entry: newEntry,
+        squashedCount: entriesToSquash.length,
+        sql: allStatements,
+        downSql: downStatements,
+      };
+    }
+
+    // 10. Write artifacts, then the journal. The snapshot is deliberately left
+    // verbatim: squash never changes the schema, and the next `generate` must
+    // re-check its coherence against exactly the bytes already stored.
+    await ctx.storage.writeMigration(newEntry, finalContent);
+    await ctx.storage.writeDownMigration(newEntry, downContent);
+
+    const newJournal: MigrationJournal = {
+      ...journal,
+      entries: [...journal.entries.filter((e) => e.idx < from), newEntry],
+    };
+    await ctx.storage.writeJournal(newJournal);
+
+    // 11. Tracking. After the uniformity premise this is the all-applied case;
+    // an all-pending range leaves tracking untouched by construction.
     if (squashedAppliedEntries.length > 0) {
       await ctx.transaction(async (txCtx) => {
-        // Delete old entries from tracking table
         for (const entry of squashedAppliedEntries) {
           await txCtx.deleteMigration(entry.name);
         }
-        // Insert new squashed entry
         await txCtx.markMigrationApplied(newEntry);
       });
     }
 
-    // 2. Update journal - replace squashed entries with new one
-    const entriesBefore = journal.entries.filter((e) => e.idx < from);
-    const entriesAfter = journal.entries.filter((e) => e.idx > maxIdx);
-
-    // New entry takes the index of `from`
-    const newEntryWithIdx = { ...newEntry, idx: from };
-
-    // Entries after get re-indexed starting from from + 1
-    const reindexedAfter = entriesAfter.map((e, i) => ({
-      ...e,
-      idx: from + 1 + i,
-    }));
-
-    const newJournal: MigrationJournal = {
-      ...journal,
-      entries: [...entriesBefore, newEntryWithIdx, ...reindexedAfter],
-    };
-
-    // 3. Write new migration file
-    await ctx.storage.writeMigration(newEntryWithIdx, finalContent);
-
-    // 4. Update journal
-    await ctx.storage.writeJournal(newJournal);
-
-    // 5. Update snapshot (keep current)
-    const snapshot = await ctx.storage.readSnapshot();
-    if (snapshot) {
-      await ctx.storage.writeSnapshot(snapshot);
-    }
-
-    // 6. Cleanup old migration files if requested (archive to meta/_backup)
+    // 12. Cleanup old migration files if requested (archive to meta/_backup)
     let archivedFiles: string[] | undefined;
     if (cleanup) {
       archivedFiles = [];
@@ -220,10 +277,17 @@ export async function squash(
     }
 
     return {
-      entry: newEntryWithIdx,
+      entry: newEntry,
       squashedCount: entriesToSquash.length,
       sql: allStatements,
+      downSql: downStatements,
       ...(archivedFiles ? { archivedFiles } : {}),
     };
   });
+}
+
+/** Trim a parsed statement and guarantee its terminating semicolon. */
+function normalizeStatement(statement: string): string {
+  const trimmed = statement.trim();
+  return trimmed.endsWith(";") ? trimmed : `${trimmed};`;
 }

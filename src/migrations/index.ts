@@ -15,7 +15,6 @@ export {
   type ApplyResult,
   apply,
   pending,
-  rollback,
   status,
 } from "./apply/index";
 export type { MigrationClientOptions, Migrations } from "./client";
@@ -99,10 +98,12 @@ export type {
   IndexDef,
   MigrationEntry,
   MigrationStatus,
-  PolymorphicMemberHistoryChange,
-  PolymorphicMemberResolver,
-  PolymorphicSnapshotMember,
   PolymorphicSnapshotStorage,
+  PolymorphicToManySnapshot,
+  PolymorphicToManySnapshotMember,
+  PolymorphicToOneSnapshot,
+  PolymorphicToOneSnapshotMember,
+  PolymorphicToOneStorageRegistryEntry,
   PrimaryKeyDef,
   PushResult,
   ReferentialAction,

@@ -75,6 +75,52 @@ const preview = await migrations.preview();
 | Dry run | `--dry-run` | `dryRun: boolean` | Preview without creating files |
 | Resolver | - | `resolver: Resolver` | Handle ambiguous changes |
 | Enum resolver | - | `enumValueResolver: EnumValueResolver` | Handle enum value removals |
+| Manual artifact | - | `manualMigration: { up, rollback }` | Caller-owned SQL for the whole migration (no CLI flag) |
+
+### Manual Migrations
+
+Some transitions move data, not just structure — a polymorphic relation
+changing cardinality, or a stored discriminator being rewritten. VibORM refuses
+to invent that data movement. You supply the whole migration instead:
+
+```ts
+await migrations.generate({
+  name: "subject-to-many",
+  manualMigration: {
+    // The complete ordered up artifact: structural DDL and data DML.
+    up: [
+      `CREATE TABLE "content_subject_post" (...);`,
+      `INSERT INTO "content_subject_post" ("contentId", "postId")
+         SELECT "id", "subject_id" FROM "content" WHERE "subject_type" = 'content.post.v1';`,
+      `DROP INDEX "content_subject_poly_idx";`,
+      `ALTER TABLE "content" DROP COLUMN "subject_type";`,
+      `ALTER TABLE "content" DROP COLUMN "subject_id";`,
+    ],
+    rollback: { kind: "manual", sql: [/* ... */] },
+    // or, when the transition genuinely cannot be undone:
+    // rollback: { kind: "irreversible", reason: "discarded memberships are unrecoverable" },
+  },
+});
+```
+
+Rules, each of which is a refusal rather than a warning:
+
+- Supplying `manualMigration` puts the **whole** migration in manual mode,
+  whether or not a data-bearing transition exists. Only your statements are
+  emitted; no generated DDL is appended around them. The complete diff and the
+  snapshot are still computed, so history, reporting and dry runs stay honest.
+- `up` must parse to at least one statement. Empty, whitespace-only and
+  comment-only artifacts are all empty.
+- `rollback` is `{ kind: "manual", sql }` or `{ kind: "irreversible", reason }`.
+  There is no `automatic` arm: automatic means "VibORM inverted the operations it
+  emitted", and manual mode emits none.
+- A `manual` rollback's `sql` must parse to at least one statement. If there is
+  nothing to run, say `irreversible` and give a reason — a blank reason is
+  refused too.
+- Manual mode requires an explicit `name`.
+
+The policy is persisted on the journal entry (`mode`, `rollback`), so
+`down()` can honour it later, and `squash()` refuses to compose it.
 
 ## Check Migration Status
 
@@ -163,10 +209,32 @@ await migrations.apply({ dryRun: true });
 
 ## Roll Back Migrations
 
-Every generated migration includes a down migration (stored in
-`meta/_down/`) that reverses its operations. Lossy operations (dropped
-tables or columns) are annotated with warnings in the down file — the
+Every migration carries a rollback policy, decided when it is generated and
+stored in the journal:
+
+| `rollback.kind` | Meaning | `down()` behaviour |
+|---|---|---|
+| `automatic` | VibORM inverted the operations it emitted | Executes `meta/_down/<file>.sql` |
+| `manual` | You supplied the rollback SQL | Executes `meta/_down/<file>.sql` |
+| `irreversible` | You declared it cannot be undone | Refuses, quoting your reason |
+
+Generated migrations are `automatic`; their down artifact lives in
+`meta/_down/`. Destructive operations (dropped tables or columns, and the
+inverse of a created table) are annotated with warnings in the down file — the
 structure is restored, but not the data.
+
+`down()` rolls back a GROUP, and it validates the whole group before it touches
+anything:
+
+- Every input is read under the migration lock, so a concurrent change between
+  your call and the rollback is observed rather than executed from stale state.
+- If any entry in the group is `irreversible`, the whole group is refused and
+  nothing runs — including the perfectly reversible migrations beside it.
+- If any entry's down artifact is missing, empty, or comments only, the whole
+  group is refused. A rollback never removes a tracking row while leaving the
+  schema live.
+- Dry runs report those refusals too, because the CLI confirms against the dry
+  run.
 
 <Tabs>
   <Tab title="CLI">
@@ -210,37 +278,13 @@ await migrations.down({ steps: 1, dryRun: true });
 | Dry run | `--dry-run` | `dryRun: boolean` | Preview without executing |
 | Force | `--force` | - | Skip confirmation prompts |
 
-## Drop Migration Tracking
+## No Tracking-Only Rollback
 
-`migrate drop` removes the last N migrations (default: 1) from the tracking table. It does **not** revert any database changes — to undo schema changes, use `migrate down` instead:
-
-<Tabs>
-  <Tab title="CLI">
-```bash
-# Remove the last migration from tracking
-npx viborm migrate drop
-
-# Remove the last 3 migrations from tracking
-npx viborm migrate drop --count 3
-```
-  </Tab>
-  <Tab title="Migration Client">
-```ts
-// Removes from tracking only (doesn't touch tables or data)
-await migrations.rollback({ count: 1 });
-```
-  </Tab>
-</Tabs>
-
-### Drop Options
-
-| Option | CLI | API | Description |
-|--------|-----|-----|-------------|
-| Last | `--last` | - | Drop only the last migration (the default) |
-| Count | `--count <n>` | `count: number` | Drop the last N migrations |
-| Directory | `--dir <dir>` | - | Migrations directory (default: `./migrations`) |
-| Table name | `--table-name <name>` | `tableName: string` | Migrations tracking table name |
-| Force | `--force` | - | Skip confirmation prompts |
+There is deliberately no `migrate drop` and no `migrations.rollback()`.
+Removing tracking rows while the schema changes stay live bypasses every
+`manual` and `irreversible` policy, and a confirmation prompt is not a
+safeguard for that. `migrations.down()` executes the down artifact and removes
+the tracking row in one transaction — it is the only rollback verb.
 
 ## Reset Database (API only)
 
@@ -271,15 +315,35 @@ const result = await migrations.squash({
   cleanup: true, // Delete original files
 });
 
-console.log(`Squashed into: ${result.newEntry.name}`);
+console.log(`Squashed into: ${result.entry.name}`);
+console.log(`Composed down statements: ${result.downSql.length}`);
 ```
+
+Squash composes artifacts, so it refuses anything it cannot compose truthfully.
+Every refusal happens before any file, journal, snapshot or tracking row is
+written:
+
+- **Automatic sources only.** A `manual` or `irreversible` migration is not
+  reproduced by concatenating SQL.
+- **Uniform applied state.** The range must be entirely applied or entirely
+  pending; a mixed range has no truthful tracking outcome.
+- **Suffix only.** The range must run to the latest migration. Squashing a
+  prefix would re-index later entries without renaming their artifacts.
+- **Every source must have a non-empty down artifact.** The composed down
+  reverses the sources in reverse order, so a squashed migration stays as
+  reversible as the migrations it replaced.
+
+Writes go artifacts-first, tracking-last. Neither order is atomic — blob storage
+has no transaction and the database transaction cannot span it — but this one
+leaves the estate re-squashable if it fails, instead of leaving the database
+claiming a migration whose file does not exist.
 
 ### Squash Options
 
 | Option | Type | Description |
 |--------|------|-------------|
 | `from` | `number` | Starting migration index |
-| `to` | `number` | Ending migration index (inclusive) |
+| `to` | `number` | Ending migration index (inclusive; must be the latest) |
 | `name` | `string` | Name for the squashed migration |
 | `cleanup` | `boolean` | Delete original migration files |
 | `dryRun` | `boolean` | Preview without squashing |
@@ -329,7 +393,7 @@ Tracks migration metadata:
 
 ```json title="migrations/meta/_journal.json"
 {
-  "version": "1",
+  "version": "2",
   "dialect": "postgresql",
   "entries": [
     {
@@ -337,11 +401,39 @@ Tracks migration metadata:
       "version": "20240115120000",
       "name": "initial",
       "when": 1705320000000,
-      "checksum": "sha256:abc123..."
+      "checksum": "sha256:abc123...",
+      "mode": "generated",
+      "rollback": { "kind": "automatic" }
+    },
+    {
+      "idx": 1,
+      "version": "20240115130000",
+      "name": "collapse-memberships",
+      "when": 1705323600000,
+      "checksum": "sha256:def456...",
+      "mode": "manual",
+      "rollback": {
+        "kind": "irreversible",
+        "reason": "the discarded membership rows cannot be reconstructed"
+      }
     }
   ]
 }
 ```
+
+`mode` and `rollback` are required on every entry. A journal from an older
+format, or an entry without a policy, is refused rather than upgraded —
+regenerate the migration estate instead.
+
+An irreversible migration still gets a down file, as a readable record:
+
+```sql title="migrations/meta/_down/0001_collapse-memberships.sql"
+-- Down migration for: collapse-memberships
+-- IRREVERSIBLE: the discarded membership rows cannot be reconstructed
+```
+
+It can never be mistaken for a rollback script: `down()` checks the persisted
+policy before it opens any artifact.
 
 ### Snapshot
 

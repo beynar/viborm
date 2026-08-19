@@ -1,6 +1,9 @@
 /**
- * INTEGRATION tests for `viborm migrate` and its five subcommands
- * (generate / apply / down / status / drop).
+ * INTEGRATION tests for `viborm migrate` and its four subcommands
+ * (generate / apply / down / status), plus an absence pin for the deleted
+ * `drop`: untracking an applied migration while its schema stays live bypasses
+ * the rollback policy each journal entry now persists, so `down` is the only
+ * rollback verb.
  *
  * Everything runs for real: a temp project with a real `viborm.config.ts`
  * (in-memory PGlite client + real schema), the real migration engine, the real
@@ -25,7 +28,6 @@
 import { readdirSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   CANCEL,
   invokeCLI,
@@ -34,6 +36,7 @@ import {
   type TempProject,
   writeConfigFixture,
 } from "@tests/contracts/public-client/cli/_harness";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 interface PersistentConfigOptions {
   schemaBody?: string;
@@ -198,12 +201,12 @@ describe("migrate", () => {
   // =========================================================================
 
   describe("parent command", () => {
-    it("with no subcommand prints help listing the five subcommands and exits 1", async () => {
+    it("with no subcommand prints help listing the four subcommands and exits 1", async () => {
       const result = await cli(["migrate"], project.dir);
 
       // Commander emits the usage/help text (a real side effect) and, under
       // exitOverride with no dispatched subcommand, exits with code 1.
-      for (const name of ["generate", "apply", "down", "status", "drop"]) {
+      for (const name of ["generate", "apply", "down", "status"]) {
         expect(result.output).toContain(name);
       }
       expect(result.exitCode).toBe(1);
@@ -938,45 +941,17 @@ describe("migrate", () => {
   });
 
   // =========================================================================
-  // migrate drop
+  // migrate drop is GONE
   // =========================================================================
 
   describe("drop", () => {
-    it("default: warns + confirm; confirm=true untracks but does NOT drop the table", async () => {
-      writePersistentConfig(project);
-      await cli(
-        ["migrate", "generate", "--config", project.configPath],
-        project.dir
-      );
-      await cli(
-        ["migrate", "apply", "--force", "--config", project.configPath],
-        project.dir
-      );
-      expect(await tableExists(project.configPath, "user")).toBe(true);
-
-      queueAnswers([true]); // confirm (initialValue false)
-      const result = await cli(
-        ["migrate", "drop", "--config", project.configPath],
-        project.dir
-      );
-
-      expect(result.exitCode).toBeNull();
-      expect(result.output).toContain("Warning");
-      expect(result.output).toContain("Removed 1 migration(s) from tracking");
-      expect(result.output).toContain("(untracked)");
-
-      // drop only untracks: the table still exists
-      expect(await tableExists(project.configPath, "user")).toBe(true);
-
-      // tracking removed -> status shows pending again
-      const status = await cli(
-        ["migrate", "status", "--config", project.configPath],
-        project.dir
-      );
-      expect(status.output).toContain("Applied: 0, Pending: 1");
-    });
-
-    it("--force skips the warning + confirm and drops directly", async () => {
+    /**
+     * `drop` untracked applied migrations while leaving their schema changes
+     * live — precisely the bypass a persisted rollback policy exists to close,
+     * behind nothing but a confirmation prompt. It was deleted rather than
+     * renamed: `migrate down` executes the down artifact and untracks together.
+     */
+    it("is not a subcommand: `migrate drop` fails and changes no tracking", async () => {
       writePersistentConfig(project);
       await cli(
         ["migrate", "generate", "--config", project.configPath],
@@ -992,83 +967,17 @@ describe("migrate", () => {
         project.dir
       );
 
-      expect(result.exitCode).toBeNull();
-      expect(result.output).toContain("Removed 1 migration(s) from tracking");
-    });
+      expect(result.exitCode).not.toBeNull();
+      expect(result.exitCode).not.toBe(0);
+      expect(result.output).not.toContain("from tracking");
 
-    it("--count 2 untracks the last two migrations (neither table dropped)", async () => {
-      const cfg2 = await setupTwoAppliedMigrations(project);
-
-      const result = await cli(
-        ["migrate", "drop", "--count", "2", "--force", "--config", cfg2],
-        project.dir
-      );
-
-      expect(result.exitCode).toBeNull();
-      expect(result.output).toContain("Removed 2 migration(s) from tracking");
-      // drop only untracks — both tables still exist
-      expect(await tableExists(cfg2, "user")).toBe(true);
-      expect(await tableExists(cfg2, "post")).toBe(true);
-
-      const status = await cli(
-        ["migrate", "status", "--config", cfg2],
-        project.dir
-      );
-      expect(status.output).toContain("Applied: 0, Pending: 2");
-    });
-
-    it("--last keeps the count at 1", async () => {
-      const cfg2 = await setupTwoAppliedMigrations(project);
-
-      const result = await cli(
-        ["migrate", "drop", "--last", "--force", "--config", cfg2],
-        project.dir
-      );
-
-      expect(result.exitCode).toBeNull();
-      expect(result.output).toContain("Removed 1 migration(s) from tracking");
-
-      const status = await cli(
-        ["migrate", "status", "--config", cfg2],
-        project.dir
-      );
-      expect(status.output).toContain("Applied: 1, Pending: 1");
-    });
-
-    it("confirm=false cancels and leaves tracking unchanged", async () => {
-      writePersistentConfig(project);
-      await cli(
-        ["migrate", "generate", "--config", project.configPath],
-        project.dir
-      );
-      await cli(
-        ["migrate", "apply", "--force", "--config", project.configPath],
-        project.dir
-      );
-
-      queueAnswers([false]);
-      const result = await cli(
-        ["migrate", "drop", "--config", project.configPath],
-        project.dir
-      );
-
-      // Cancel message emitted; tracking untouched (still applied).
-      expect(result.exitCode).toBe(0);
-      expect(result.output).toContain("Operation cancelled.");
-
+      // The applied migration is still applied, and its table is still there.
+      expect(await tableExists(project.configPath, "user")).toBe(true);
       const status = await cli(
         ["migrate", "status", "--config", project.configPath],
         project.dir
       );
       expect(status.output).toContain("Applied: 1, Pending: 0");
-    });
-
-    it("bad config exits 1", async () => {
-      const result = await cli(
-        ["migrate", "drop", "--config", `${project.dir}/nope.config.ts`],
-        project.dir
-      );
-      expect(result.exitCode).toBe(1);
     });
   });
 

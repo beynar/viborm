@@ -11,6 +11,39 @@ The public position whose cardinality determines whether having no member is a
 valid state.
 _Avoid_: Relation field when discussing absence semantics
 
+**Slot cardinality**:
+Whether one relation slot holds at most one membership or a collection of
+memberships. It belongs to that slot, not to the relationship as a whole.
+_Avoid_: Relation kind, when only one endpoint's one/many choice is meant
+
+**Relation topology**:
+The one-to-one, many-to-one, one-to-many, or many-to-many shape derived from
+the cardinalities of both relation slots.
+_Avoid_: Stored relation type, cardinality of one slot
+
+**Polymorphic variant**:
+One named target-model alternative in a polymorphic relation. Its public name
+and stable storage identity are distinct facts.
+_Avoid_: Type when target model, public name, or stored identity must be clear
+
+**Polymorphic collection**:
+A to-many relation slot whose memberships can use different polymorphic
+variants while remaining one public collection.
+_Avoid_: Polymorphic many-to-many, because the inverse slot may be singular
+
+**Member junction**:
+The fixed-target junction table that stores one polymorphic collection
+variant's memberships between the owner and that variant's model.
+_Avoid_: Ordinary junction, because a member junction has an owner side and a
+variant side rather than two reconciled peers
+
+**Member view**:
+An inverse relation slot whose membership is stored in a member junction it
+does not own — a fields-less `manyToOne` or `manyToMany` bound to a polymorphic
+collection. It declares no storage of its own and emits no junction table.
+_Avoid_: Inverse junction, because the view reads a table the collection owner
+declared rather than one reconciled between two peers
+
 **Membership**:
 The stored association between an owner and a target.
 _Avoid_: Slot, target row

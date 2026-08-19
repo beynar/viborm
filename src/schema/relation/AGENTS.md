@@ -6,8 +6,16 @@
 
 ## Purpose
 
-Defines ordinary single-target relations and polymorphic multi-target to-one
-relations with immutable chainable APIs and lazy target getters.
+Defines ordinary single-target relations and polymorphic multi-target carriers
+with immutable chainable APIs and lazy target getters. A carrier declares its
+own cardinality by the factory it is spelled with — `s.polymorphicToOne` or
+`s.polymorphicToMany`. BOTH ARE FULLY IMPLEMENTED, and neither is the special
+case: a to-one slot builds a row-held `(type, id)` storage descriptor, a
+collection slot builds a complete member-junction descriptor (one fixed-target
+junction per variant), and `getPolymorphicRelationsSchemas` builds all six
+operation-schema families over either one. Cardinality is a property of the
+SLOT; polymorphism is a property of the TARGETS. Nothing in this layer treats
+to-one as the default reading.
 
 In schema taxonomy, relations are one concrete kind of model field. The other
 concrete kind is scalar. Keep `field` wording when referring to model keys,
@@ -32,13 +40,15 @@ The solution: **thunks** `() => Model` defer model resolution, and **chainable m
 | File | Purpose |
 |------|---------|
 | `types.ts` | Shared types: `RelationState`, `ReferentialAction`, `Getter` |
+| `cardinality.ts` | The one declared-slot cardinality reading: `relationCardinality`, `polymorphicCardinality` + type twin `PolymorphicCardinalityOf` |
 | `to-one.ts` | `ToOneRelation` class + `oneToOne`, `manyToOne` factories |
 | `to-many.ts` | `ToManyRelation` class + `oneToMany` factory |
 | `many-to-many.ts` | `ManyToManyRelation` class + `manyToMany` factory |
-| `polymorphic.ts` | `PolymorphicRelation`, private-storage metadata, and inverse binding |
+| `polymorphic.ts` | The `polymorphicToOne` / `polymorphicToMany` factories + the `PolymorphicToOneRelation` / `PolymorphicToManyRelation` terminals, private-storage metadata, and inverse binding |
 | `inverse.ts` | The one candidate discovery/resolution owner, and which shapes may bind a polymorphic inverse |
 | `clearability.ts` | The two emptying facts: `slotMayBeEmpty`, `membershipCanBeCleared` |
 | `helpers.ts` | Junction table utilities for many-to-many |
+| `junction-topology.ts` | The one owner of resolved junction physical facts — table, both complete ordered sides, canonical order, pair identity, derived constraint names — for ordinary `manyToMany` pairs (`resolveOrdinaryJunctionTopology`) and for polymorphic collection members (`resolvePolymorphicMemberNames`, `resolvePolymorphicMemberJunctionTopology`). Deliberately NOT re-exported from `index.ts`; consumers deep-import it |
 | `index.ts` | Re-exports everything |
 
 ---
@@ -51,7 +61,8 @@ The solution: **thunks** `() => Model` defer model resolution, and **chainable m
 | `manyToOne` | This model | post → author | `is`, `isNot` | `.fields()`, `.references()`, `.optional()`, `.onDelete()`, `.onUpdate()` |
 | `oneToMany` | Other model | author → posts | `some`, `every`, `none` | `.name()` only (FK is on other side) |
 | `manyToMany` | Join table | posts ↔ tags | `some`, `every`, `none` | `.through()`, `.A()`, `.B()`, `.onDelete()`, `.onUpdate()` |
-| `polymorphic` | Private `(type, id)` pair on this model | comment → post or video | correlated `type` + `is`/`isNot`; optional fields also accept null-presence forms | `.name()`, `.optional()` |
+| `polymorphicToOne` | Private `(type, id)` pair on this model | comment → post or video | correlated `type` + `is`/`isNot`; optional fields also accept null-presence forms | `.name()`, `.optional()` |
+| `polymorphicToMany` | One fixed-target member junction per variant | shelf → books and videos | `some`/`every`/`none`, each over a correlated `type` + `is`/`isNot` | `.name()`, `.through()` |
 
 `manyToOne` normally owns the FK. The retained fields-less compatibility form
 can resolve storage from an inverse edge and binds as child-held singular; full
@@ -104,15 +115,35 @@ column-to-referenced-field correspondence.
 ### Polymorphic Relations
 
 ```typescript
-s.polymorphic(
-  {
-    post: () => post,
-    video: () => video,
-  }
-)
+s.polymorphicToOne({
+  post: () => post,
+  video: () => video,
+})
   .name("commentable")
   .optional()
 ```
+
+TWO FACTORIES, and the one you call IS the cardinality — there is no
+cardinality-less carrier on the public surface any more. Both take a MAP of
+named targets: a bare `() => model` is refused at the TYPE level by
+`TargetMapOnly`, whose message names `s.oneToOne` / `s.manyToOne` /
+`s.oneToMany` / `s.manyToMany`, because a single-getter carrier would silently
+build a private `(type, id)` pair where the caller expected a foreign key. A
+carrier that carries NO cardinality is only reachable by forging a state past a
+terminal's constructor, and definition validation ejects it as P013.
+`s.polymorphicToMany` declares a collection slot whose storage is ONE
+FIXED-TARGET MEMBER JUNCTION PER VARIANT: definition validation resolves each member's names and complete
+topology (`resolvePolymorphicMemberNames` /
+`resolvePolymorphicMemberJunctionTopology` in `junction-topology.ts`) into a
+`kind: "toMany"` storage descriptor, and `.through()` — an EXACT map keyed by
+public variant, `{ table, source, target }` per entry, exact at both levels and
+P017 at runtime — overrides a member's names. ONE descriptor, three readers: the
+serializer emits it as DDL, the engine binder projects each member into a
+`JunctionBoundRelation` (direct leaf, plural inverse view, or singular inverse
+slot), and `getPolymorphicRelationsSchemas` builds the collection's six
+operation-schema families over it. Only a to-one carrier carries `.optional()` —
+an empty collection is already the empty case, and a collection state cannot
+carry `optional` at all.
 
 The target-map key is the public query/result discriminator and, by default,
 the stored discriminator. Pass the optional exact `{ values }` argument when
@@ -120,14 +151,48 @@ storage needs stable namespaced or versioned values. There is no partial
 fallback when that argument is present. Each target has its own getter so
 recursive declarations stay lazy without widening the outer key map.
 
-An inverse can be an ordinary `oneToMany` or a fields-less `oneToOne`. All
-inverses that share one private `(type, id)` pair must use the same cardinality.
-The validated `PolymorphicStorage.inverseCardinality` is therefore relation-wide,
-not discriminator-specific. Mixed inverse cardinalities are rejected as P012.
+An inverse is one of the four FIELDS-LESS shapes, admitted through the one
+compatible-binding projection (`getCompatiblePolymorphicInverseBinding` in
+`inverse.ts`): each asking shape binds ONLY the group family that owns its
+membership storage. The row-held shapes (`oneToMany`, fields-less `oneToOne`)
+bind a toOne group, because their membership is the owner's private `(type,
+id)` pair; the junction-shaped ones (fields-less `manyToOne`, `manyToMany`)
+bind a toMany group, because their membership lives in a member junction.
+Incompatible means `undefined`, which is the fallback to the ordinary meaning
+(R004/R005 and the junction rules fire exactly as before) — and a row-held shape
+over a toMany group is R003-invalid unless a real ordinary inverse carries the
+edge. A polymorphic-bound `manyToMany` is a member VIEW: it owns no ordinary
+junction (the serializer skips it), so an ordinary `manyToMany` pair partner on
+the target would serialize half a pair and is refused as P020. On a toOne group all
+inverses share one private `(type, id)` pair and must use the same cardinality:
+the validated `PolymorphicToOneStorage.inverseCardinality` is relation-wide and
+mixed cardinalities are rejected as P012. On a toMany group each MEMBER keeps
+its own `inverseCardinality` ("one" for a bound `manyToOne`, "many" for a bound
+`manyToMany`, "many" when unbound), and a member bound by more than one inverse
+relation is rejected as P015. A SINGULAR collection inverse must call
+`.optional()` or it is rejected as P021: its `disconnect` / `delete` hang on
+`slotMayBeEmpty` alone (the clearability owner's `manyToMany` arm is never
+consulted for that shape) and `getFkRequirementKeySets` gives a fields-less
+inverse no create obligation either, so without the rule the declaration
+silently degrades to a slot that can be filled and never emptied. Refusing at
+definition validation is what keeps `slotMayBeEmpty` a pure one-owner state read
+instead of putting a junction-aware override inside `clearability.ts`. The
+inverse cardinality is a separate fact from
+the declared slot cardinality: the factory describes the owner's
+own slot, while `inverseCardinality` describes the slot on the target side.
 A fields-less `oneToOne` is non-owning and must call `.optional()` because no
 local FK can require a related row to exist. This slot optionality is distinct
 from membership clearability: inverse delete removes the child, while inverse
 disconnect preserves it and therefore requires nullable child-side storage.
+
+`cardinality.ts` owns the declared slot cardinality for both kinds of relation:
+`relationCardinality(state)` for an ordinary edge, and
+`polymorphicCardinality(state)` plus its type twin `PolymorphicCardinalityOf<S>`
+for a carrier. Consumers must branch through those readers rather than testing
+`state.cardinality` inline. The one exception is
+`schema/validation/rules/polymorphic.ts`, whose input is an untrusted carrier
+that may not carry a cardinality at all (a forged one) — that site reads raw to
+raise P013.
 
 `clearability.ts` owns both readings, runtime and type together:
 `slotMayBeEmpty(state)` is the declaration's own optionality, and
@@ -202,10 +267,22 @@ const post = s.model({
 
 ### Rule 5: Polymorphic Relations Are a Third Field Category
 
-`PolymorphicRelation` is not an `AnyRelation` and `"polymorphic"` is not an
-ordinary `RelationType`. A model stores polymorphic fields separately in
+A configured polymorphic carrier is not an `AnyRelation` and `"polymorphic"` is
+not an ordinary `RelationType`. A model stores polymorphic fields separately in
 `ModelState.polymorphicRelations`; private storage never enters
 `ModelState.scalars` or the public field surface.
+
+A model field must be a CONFIGURED carrier — `PolymorphicToOneRelation` or
+`PolymorphicToManyRelation`. Both public factories return one, so there is no
+unconfigured shape for `s.model()` to refuse any more; the cardinality-less
+carrier that P013 ejects can only be forged past a terminal's constructor.
+
+A shared base class does not conflate the two terminals with each other: they
+are held apart by `State["cardinality"]`, and `"one"` is not assignable to
+`"many"` whatever the private fields do. The measured reason to keep them
+separate is the one recorded further down this file — inheritance was tried and
+caused inference problems — not a type hole. Do not invent a stronger reason
+than the probe supports.
 
 Client construction hydrates field names and always enforces the non-owning
 one-to-one optionality rule. When any polymorphic field exists, it additionally
@@ -277,13 +354,32 @@ class ManyToManyRelation<State extends ManyToManyRelationState> {
   get "~"(): { state: State; setSource(source: AnyModel): void }
 }
 
-// PolymorphicRelation - for a private multi-target to-one edge
-class PolymorphicRelation<State extends PolymorphicRelationState> {
-  name(name: string): PolymorphicRelation<State & { name: string }>
-  optional(): PolymorphicRelation<State & { optional: true }>
+// The two factories - MAP ONLY, and each stamps its own cardinality.
+// `Targets` also admits a bare `Getter` so `TargetMapOnly` can refuse it with a
+// message naming the four ordinary factories; the conditional return strips it.
+function polymorphicToOne<const Targets, const Values>(targets, options?): PolymorphicToOneRelation<{ cardinality: "one"; targets: Targets; values: Values }>
+function polymorphicToMany<const Targets, const Values>(targets, options?): PolymorphicToManyRelation<{ cardinality: "many"; targets: Targets; values: Values }>
+
+// PolymorphicToOneRelation - the slot holds at most one membership
+class PolymorphicToOneRelation<State extends PolymorphicToOneState> {
+  name(name: string): PolymorphicToOneRelation<State & { name: string }>
+  optional(): PolymorphicToOneRelation<State & { optional: true }>
+  get "~"(): { state: State; targetEntries(): readonly ResolvedPolymorphicTargetEntry[] }
+}
+
+// PolymorphicToManyRelation - the slot holds a collection; no optional()
+class PolymorphicToManyRelation<State extends PolymorphicToManyState> {
+  name(name: string): PolymorphicToManyRelation<State & { name: string }>
+  // EXACT map keyed by public variant, both directions, fresh and non-fresh.
+  through<const Map extends Record<PublicType, PolymorphicThroughEntry>>(map: Map): PolymorphicToManyRelation<State & { through: Map }>
   get "~"(): { state: State; targetEntries(): readonly ResolvedPolymorphicTargetEntry[] }
 }
 ```
+
+`PolymorphicStateOf<Relation>` is the ONE place both terminal classes are named
+together. Every type that needs a carrier's state goes through it; matching the
+classes ad hoc, or widening the match structurally, collapses
+`GetPolymorphicInverseBinding` to `never` with no compile error anywhere.
 
 **Why standalone classes?** Inheritance caused TypeScript inference issues. Each class defines its own methods for cleaner types.
 
@@ -339,6 +435,8 @@ update: {
 
 ### Polymorphic Inputs
 
+#### Row-held (`s.polymorphicToOne`)
+
 Direct create accepts exactly one of `connect`, `create`, or
 `connectOrCreate`:
 
@@ -353,8 +451,9 @@ correlated `update`, and `upsert`. Optional storage also accepts `disconnect`
 and typed target `delete`. A bound inverse `oneToMany` keeps its ordinary read,
 filter, count, order, and pagination surface and exposes the safe child-held
 write family: create/createMany/connect/connectOrCreate/upsert on create, plus
-targeted update with full child update data, updateMany with selected-arm
-scalar-only legality, and delete/deleteMany on update. Clearable child storage
+targeted update with full child update data, updateMany with full
+relation-bearing child update data (the owning direct polymorphic key omitted),
+and delete/deleteMany on update. Clearable child storage
 also exposes disconnect.
 To-many set is present for optional and required storage; required storage
 rejects departing members. A bound inverse `oneToOne` returns one record or `null` and
@@ -363,12 +462,44 @@ create/connect/connectOrCreate/update/upsert on update. Its public slot is
 always optional, so delete is available; disconnect is available only when the
 child's direct polymorphic storage is optional and can be cleared.
 
-The direct edge stores one membership, so collection `set` does not apply. Root
-`createMany` accepts scalar row fields plus connect-only polymorphic
-memberships. Target probes are grouped by relation and discriminator before the
+A row-held edge stores one membership, so collection `set` does not apply to it.
+Root `createMany` rows accept the ordinary create data shape; the row-held
+polymorphic membership itself stays connect-only. Target probes are grouped by relation and discriminator before the
 existing grouped INSERT plan. Inverse nested createMany may satisfy its one
 owning required polymorphic relation, but remains unavailable when another
 required polymorphic relation would be unsatisfied.
+
+#### Junction-held (`s.polymorphicToMany`)
+
+A collection's input is a keyed BAG, not a one-intent union: several verbs may
+appear together and an empty bag is inert. Every verb takes one tagged item or an
+array of them, and the discriminator sits INSIDE each item — which is what
+correlates the `type` literal with that variant's own `where` / `data` schemas.
+
+A fresh owner names four supply verbs — `create`, `createMany`, `connect`,
+`connectOrCreate`. A located owner names all ELEVEN: those four plus `set`,
+`disconnect`, `delete`, `deleteMany`, `update`, `updateMany`, `upsert`.
+`upsert` is deliberately absent from the create bag: its found arm is scoped to
+THIS owner's membership and a fresh owner has none, so the only alternatives
+would be a silent global adopt or a grammar the engine must refuse.
+
+`disconnect` is UNCONDITIONAL — a member junction row always clears, because the
+row goes and no column is nulled — and there is no `disconnect: true` spelling;
+`set: []` carries that meaning. `set` clears every configured variant exactly
+once, including variants the payload never mentions, then refills.
+
+Root `createMany` is NOT restricted here. A row naming a collection is
+relation-bearing, so the whole call routes to the ordered record series and the
+row mounts the same four supply verbs any other create context does.
+
+Both inverse arities are ORDINARY. A polymorphic-bound `manyToMany` is a
+fixed-variant junction view and takes the ordinary to-many families whole. A
+polymorphic-bound fields-less `manyToOne` is a to-one SLOT — one member-junction
+row under a UNIQUE over the complete target side — and takes the ordinary to-one
+create and update families verbatim, with `disconnect: true` deleting the
+junction row and `delete: true` deleting the connected owner row.
+`GetRelationSchemas` dispatches on cardinality alone; there is no polymorphic
+inverse family.
 
 ---
 

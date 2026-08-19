@@ -387,6 +387,22 @@ function payloadReachesAnyTable(
   return false;
 }
 
+/**
+ * The FOUR payload shapes a polymorphic key can wear, all of which can reach a
+ * table under mutation. A false `false` here lets a mutation fold read the very
+ * table the statement mutates (PostgreSQL 0A000), so the collection shapes are
+ * enumerated rather than left to the arm-target pre-check:
+ *
+ * - `{ type, is|isNot }`         — the singular tagged predicate;
+ * - `{ some|every|none: {…} }`   — the collection quantifiers, each carrying one
+ *                                  tagged predicate of the same shape;
+ * - `{ <publicType>: projection }` — the singular flat variant map;
+ * - `{ only?, variants: {…} }`   — the collection selection envelope.
+ *
+ * The final loop's arm-target pre-check answers the self-target case for every
+ * shape (both member kinds carry `targetModel`); what the explicit branches add
+ * is NESTED reach — a `where` or a nested include one hop inside an arm.
+ */
 function polymorphicPayloadReachesAnyTable(
   scope: QueryScope,
   relation: NonNullable<ReturnType<typeof getPolymorphicRelationInfo>>,
@@ -394,28 +410,70 @@ function polymorphicPayloadReachesAnyTable(
   tables: ReadonlySet<string>
 ): boolean {
   if (isRecordValue(value) && typeof value.type === "string") {
-    const nested = isRecordValue(value.is)
-      ? value.is
-      : isRecordValue(value.isNot)
-        ? value.isNot
-        : undefined;
-    if (!nested) return false;
-    const member = relation.storage.members.get(value.type);
-    if (!member) return false;
-    if (tables.has(getTableName(member.targetModel))) return true;
-    const child = createChildScope(scope, member.targetModel, scope.rootAlias);
-    return payloadReachesAnyTable(child, nested, tables);
+    return taggedPredicateReachesAnyTable(
+      scope,
+      relation,
+      value.type,
+      value,
+      tables
+    );
   }
+
+  if (isRecordValue(value)) {
+    for (const quantifier of ["some", "every", "none"] as const) {
+      const tagged = value[quantifier];
+      if (!(isRecordValue(tagged) && typeof tagged.type === "string")) continue;
+      if (
+        taggedPredicateReachesAnyTable(
+          scope,
+          relation,
+          tagged.type,
+          tagged,
+          tables
+        )
+      ) {
+        return true;
+      }
+    }
+  }
+
+  const variants =
+    isRecordValue(value) && isRecordValue(value.variants)
+      ? value.variants
+      : undefined;
 
   for (const [publicType, member] of relation.storage.members) {
     if (tables.has(getTableName(member.targetModel))) return true;
-    if (!isRecordValue(value)) continue;
-    const override = value[publicType];
+    const override = variants
+      ? variants[publicType]
+      : isRecordValue(value)
+        ? value[publicType]
+        : undefined;
     if (!isRecordValue(override)) continue;
     const child = createChildScope(scope, member.targetModel, scope.rootAlias);
     if (payloadReachesAnyTable(child, override, tables)) return true;
   }
   return false;
+}
+
+function taggedPredicateReachesAnyTable(
+  scope: QueryScope,
+  relation: NonNullable<ReturnType<typeof getPolymorphicRelationInfo>>,
+  publicType: string,
+  tagged: Readonly<Record<string, unknown>>,
+  tables: ReadonlySet<string>
+): boolean {
+  const nested = isRecordValue(tagged.is)
+    ? tagged.is
+    : isRecordValue(tagged.isNot)
+      ? tagged.isNot
+      : undefined;
+  if (!nested) return false;
+  const member = relation.storage.members.get(publicType);
+  if (!member) return false;
+  if (tables.has(getTableName(member.targetModel))) return true;
+  const child = createChildScope(scope, member.targetModel, scope.rootAlias);
+  return payloadReachesAnyTable(child, nested, tables);
 }
 
 /**

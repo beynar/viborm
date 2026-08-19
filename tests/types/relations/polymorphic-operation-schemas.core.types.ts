@@ -21,7 +21,7 @@ type Expect<Value extends true> = Value;
 const post = s.model({ id: s.string().id(), title: s.string() });
 const video = s.model({ id: s.string().id(), duration: s.int() });
 const relation = s
-  .polymorphic(
+  .polymorphicToOne(
     { post: () => post, video: () => video },
     { values: { post: "post.v1", video: "video.v1" } }
   )
@@ -32,6 +32,11 @@ const postSchemas = {
     update: v.object({ title: v.string({ optional: true }) }),
     where: v.object({ title: v.string() }),
     whereUnique: v.object({ id: v.string() }),
+    // Package D: the collection write family addresses a member exactly where
+    // the ordinary to-many operation does, so the DECLARED reach grew one key
+    // and this hand-built double must satisfy it.
+    whereUniqueExtended: v.object({ id: v.string() }),
+    orderBy: v.object({ id: v.enum(["asc", "desc"]) }),
     select: v.object({ id: v.boolean(), title: v.boolean() }),
     include: v.object({}),
     omit: v.object({ id: v.boolean(), title: v.boolean() }),
@@ -43,6 +48,11 @@ const videoSchemas = {
     update: v.object({ duration: v.number({ optional: true }) }),
     where: v.object({ duration: v.number() }),
     whereUnique: v.object({ id: v.string() }),
+    // Package D: the collection write family addresses a member exactly where
+    // the ordinary to-many operation does, so the DECLARED reach grew one key
+    // and this hand-built double must satisfy it.
+    whereUniqueExtended: v.object({ id: v.string() }),
+    orderBy: v.object({ id: v.enum(["asc", "desc"]) }),
     select: v.object({ id: v.boolean(), duration: v.boolean() }),
     include: v.object({}),
     omit: v.object({ id: v.boolean(), duration: v.boolean() }),
@@ -57,7 +67,7 @@ const createSchema = polymorphicCreateFactory(relation["~"].state, getters);
 const updateSchema = polymorphicUpdateFactory(relation["~"].state, getters);
 const filterSchema = polymorphicFilterFactory(relation["~"].state, getters);
 const requiredFilterSchema = polymorphicFilterFactory(
-  s.polymorphic({ post: () => post, video: () => video })["~"].state,
+  s.polymorphicToOne({ post: () => post, video: () => video })["~"].state,
   getters
 );
 
@@ -107,12 +117,12 @@ const folder = s.model({
 const folderEntry = s.model({
   id: s.string().id(),
   folder: s
-    .polymorphic(
+    .polymorphicToOne(
       { folder: () => folder },
       { values: { folder: "folder.entry.v1" } }
     )
     .name("folderEntry"),
-  audit: s.polymorphic(
+  audit: s.polymorphicToOne(
     { auditLog: () => auditLog },
     { values: { auditLog: "audit.log.v1" } }
   ),
@@ -124,7 +134,9 @@ const article = s.model({
 const remark = s.model({
   id: s.string().id(),
   body: s.string(),
-  commentable: s.polymorphic({ article: () => article }).name("commentable"),
+  commentable: s
+    .polymorphicToOne({ article: () => article })
+    .name("commentable"),
 });
 const optionalArticle = s.model({
   id: s.string().id(),
@@ -134,7 +146,7 @@ const optionalRemark = s.model({
   id: s.string().id(),
   body: s.string(),
   commentable: s
-    .polymorphic({ article: () => optionalArticle })
+    .polymorphicToOne({ article: () => optionalArticle })
     .name("optionalCommentable")
     .optional(),
 });
@@ -271,6 +283,14 @@ const inverseUpdateSurface = () =>
     },
   });
 
+// `satisfies` is load-bearing here, not decoration: without it this call measures
+// nothing — withholding `disconnect` from every optional polymorphic membership
+// leaves it green, because a bare call argument is checked against a weak type
+// and `set` alone satisfies the shared-property rule. Other public-surface calls
+// do catch that mutation (polymorphic-write-family.test.ts:427 and :2128,
+// polymorphic-compound-target.test.ts:200), so this is not the only pin on the
+// positive direction; its own coverage is `disconnect` and `set` in ONE payload,
+// which is what no other site spells.
 const optionalDisconnectAndSet = () =>
   inverseClient.optionalArticle.update({
     where: { id: "article-1" },
@@ -280,7 +300,7 @@ const optionalDisconnectAndSet = () =>
         set: [{ id: "comment-2" }],
       },
     },
-  });
+  } satisfies OperationPayload<"update", typeof optionalArticle>);
 
 const inverseCreateManySatisfiesItsRequiredOwner = () =>
   inverseClient.article.create({
@@ -721,7 +741,7 @@ const featuredComment = s.model({
   id: s.string().id(),
   body: s.string(),
   commentable: s
-    .polymorphic({ post: () => featuredPost, video: () => featuredVideo })
+    .polymorphicToOne({ post: () => featuredPost, video: () => featuredVideo })
     .name("featuredCommentable")
     .optional(),
 });
@@ -818,7 +838,7 @@ const requiredMembershipComment = s.model({
   id: s.string().id(),
   body: s.string(),
   commentable: s
-    .polymorphic({
+    .polymorphicToOne({
       post: () => requiredMembershipPost,
       video: () => requiredMembershipVideo,
     })
@@ -1066,7 +1086,7 @@ const dualTaggedChild = s.model({
   id: s.string().id(),
   label: s.string(),
   owner: s
-    .polymorphic(
+    .polymorphicToOne(
       { parent: () => dualParent },
       { values: { parent: "dual.parent.v1" } }
     )
@@ -1127,7 +1147,258 @@ const dualInverseNestingRefusals = () => {
   } satisfies OperationPayload<"create", typeof dualParent>);
 };
 
+/**
+ * PACKAGE D — THE COLLECTION WRITE TYPE HALF.
+ *
+ * The runtime and the types must flip together: under Package C a collection's
+ * `create`/`update` families were `v.refused`, which types as `never`, and every
+ * public-client pin carried a `@ts-expect-error` that would become an
+ * unused-directive build error the moment the runtime became real. These probes
+ * are the positive half — the shapes that must now COMPILE — beside the ones that
+ * must still not.
+ */
+const collectionWriteSurface = () => {
+  const post = s.model({ id: s.string().id(), title: s.string() });
+  const clip = s.model({ id: s.string().id(), seconds: s.int() });
+  const board = s.model({
+    id: s.string().id(),
+    items: s.polymorphicToMany(
+      { post: () => post, clip: () => clip },
+      { values: { post: "t.post.v1", clip: "t.clip.v1" } }
+    ),
+  });
+
+  const _create = {
+    data: {
+      id: "b1",
+      items: {
+        connect: [{ type: "post", where: { id: "p1" } }],
+        create: { type: "clip", data: { id: "c1", seconds: 12 } },
+        createMany: [{ type: "post", data: [{ id: "p2", title: "t" }] }],
+      },
+    },
+  } satisfies OperationPayload<"create", typeof board>;
+
+  const _update = {
+    where: { id: "b1" },
+    data: {
+      items: {
+        set: [],
+        disconnect: { type: "post", where: { id: "p1" } },
+        update: [{ type: "clip", where: { id: "c1" }, data: { seconds: 13 } }],
+        upsert: [
+          {
+            type: "post",
+            where: { id: "p3" },
+            create: { id: "p3", title: "t" },
+            update: { title: "t2" },
+          },
+        ],
+      },
+    },
+  } satisfies OperationPayload<"update", typeof board>;
+};
+
+const collectionWriteRefusals = () => {
+  const post = s.model({ id: s.string().id(), title: s.string() });
+  const clip = s.model({ id: s.string().id(), seconds: s.int() });
+  const board = s.model({
+    id: s.string().id(),
+    items: s.polymorphicToMany(
+      { post: () => post, clip: () => clip },
+      { values: { post: "r.post.v1", clip: "r.clip.v1" } }
+    ),
+  });
+
+  const _noUpsertOnCreate = {
+    data: {
+      id: "b1",
+      items: {
+        // @ts-expect-error - the create bag carries no `upsert` (the pinned asymmetry)
+        upsert: [
+          {
+            type: "post",
+            where: { id: "p1" },
+            create: { id: "p1", title: "t" },
+            update: { title: "t" },
+          },
+        ],
+      },
+    },
+  } satisfies OperationPayload<"create", typeof board>;
+
+  const _untaggedIsNotThisGrammar = {
+    where: { id: "b1" },
+    data: {
+      items: {
+        // @ts-expect-error - the discriminator lives INSIDE each verb
+        connect: [{ post: { id: "p1" } }],
+      },
+    },
+  } satisfies OperationPayload<"update", typeof board>;
+
+  // PACKAGE E — the ROOT `createMany` ROW now mounts the SAME collection `create`
+  // family, because the row is relation-BEARING and routes to the record series.
+  // The directive that used to sit on `items` here is deliberately gone: an unused
+  // `@ts-expect-error` is a build error, so this line proves the flip in the type
+  // half as loudly as the runtime half.
+  const _bulkRowCarriesTheCreateFamily = {
+    data: [
+      {
+        id: "b1",
+        items: { connect: [{ type: "post", where: { id: "p1" } }] },
+      },
+    ],
+  } satisfies OperationPayload<"createMany", typeof board>;
+
+  // ...and the row's family really is the COLLECTION one, not the to-one
+  // connect-only union: a tagged `create` verb is only in the former.
+  const _bulkRowTakesTaggedCreate = {
+    data: [
+      {
+        id: "b2",
+        items: { create: [{ type: "post", data: { id: "p2", title: "t" } }] },
+      },
+    ],
+  } satisfies OperationPayload<"createMany", typeof board>;
+};
+
+/**
+ * THE INVERSE COLLECTION LATTICE, type half — BOTH ARITIES OPEN (plan §9.4/§9.5).
+ *
+ * The PLURAL inverse is a fixed-variant ordinary junction view and takes the
+ * ordinary to-many families. The SINGULAR inverse takes the ordinary TO-ONE
+ * families, whole: a member-junction row under a UNIQUE over the complete variant
+ * side is a to-one slot, and `RelationJunctionToOnePart` lowers its four
+ * correlated spellings. Neither half is spelled with a `type` discriminator —
+ * the variant is fixed by the declaration.
+ *
+ * The `@ts-expect-error` that used to sit on the singular row is deliberately
+ * gone. It was load-bearing in BOTH directions — an unused directive is itself a
+ * build error — so this file could not compile until the pin was revisited, which
+ * is exactly what happened to the plural row before it.
+ */
+const inverseCollectionWriteFamilies = () => {
+  const shelf = s.model({
+    id: s.string().id(),
+    label: s.string(),
+    items: s.polymorphicToMany(
+      { book: () => book, clip: () => clip },
+      { values: { book: "i.book.v1", clip: "i.clip.v1" } }
+    ),
+  });
+  const book = s.model({
+    id: s.string().id(),
+    shelf: s.manyToOne(() => shelf).optional(),
+  });
+  const clip = s.model({
+    id: s.string().id(),
+    shelves: s.manyToMany(() => shelf),
+  });
+
+  const _singularInverseCreate = {
+    data: {
+      id: "b1",
+      shelf: { connect: { id: "s1" } },
+    },
+  } satisfies OperationPayload<"create", typeof book>;
+
+  // The UPDATE family carries both removal verbs, because `P021` forces
+  // `.optional()` on this shape and `slotMayBeEmpty` is the only fact they hang
+  // on — plus the two correlated modifies, which spell no `where` at all.
+  const _singularInverseUpdate = {
+    where: { id: "b1" },
+    data: {
+      shelf: {
+        disconnect: true,
+      },
+    },
+  } satisfies OperationPayload<"update", typeof book>;
+
+  const _singularInverseComposition = {
+    where: { id: "b1" },
+    data: {
+      shelf: {
+        disconnect: true,
+        connect: { id: "s2" },
+        update: { label: "renamed" },
+      },
+    },
+  } satisfies OperationPayload<"update", typeof book>;
+
+  const _singularInverseUpsert = {
+    where: { id: "b1" },
+    data: {
+      shelf: {
+        upsert: {
+          create: { id: "s3", label: "made" },
+          update: { label: "kept" },
+        },
+      },
+    },
+  } satisfies OperationPayload<"update", typeof book>;
+
+  // ...and it is still a TO-ONE family: no array spelling, and no to-many verb.
+  const _singularInverseIsNotPlural = {
+    where: { id: "b1" },
+    data: {
+      shelf: {
+        // @ts-expect-error - a singular slot has no `set`
+        set: [{ id: "s1" }],
+      },
+    },
+  } satisfies OperationPayload<"update", typeof book>;
+
+  // THE PLURAL INVERSE, FLIPPED. It is a polymorphic-bound `manyToMany`, so it
+  // takes `ToManySchemas` verbatim — every ordinary junction verb, in reversed
+  // orientation, with no `type` field because the variant is fixed by the
+  // declaration.
+  const _pluralInverseSet = {
+    where: { id: "c1" },
+    data: { shelves: { set: [] } },
+  } satisfies OperationPayload<"update", typeof clip>;
+
+  const _pluralInverseFullLattice = {
+    where: { id: "c1" },
+    data: {
+      shelves: {
+        connect: [{ id: "s1" }],
+        disconnect: [{ id: "s2" }],
+        create: [{ id: "s3", label: "L" }],
+        update: [{ where: { id: "s4" }, data: { label: "L4" } }],
+        deleteMany: [{ id: { equals: "s5" } }],
+      },
+    },
+  } satisfies OperationPayload<"update", typeof clip>;
+
+  const _pluralInverseCreateRoot = {
+    data: {
+      id: "c2",
+      shelves: {
+        connectOrCreate: [
+          { where: { id: "s6" }, create: { id: "s6", label: "L6" } },
+        ],
+      },
+    },
+  } satisfies OperationPayload<"create", typeof clip>;
+
+  // …and the family carries NO `type` discriminator: the variant is already
+  // fixed by which model declares the inverse.
+  const _pluralInverseHasNoTypeField = {
+    where: { id: "c1" },
+    data: {
+      shelves: {
+        // @ts-expect-error - a fixed-variant inverse takes the ORDINARY junction verbs
+        connect: [{ type: "clip", where: { id: "s1" } }],
+      },
+    },
+  } satisfies OperationPayload<"update", typeof clip>;
+};
+
 const _publicSurfaceProbes = [
+  collectionWriteSurface,
+  collectionWriteRefusals,
+  inverseCollectionWriteFamilies,
   inverseCreateSurface,
   inverseUpdateSurface,
   optionalDisconnectAndSet,

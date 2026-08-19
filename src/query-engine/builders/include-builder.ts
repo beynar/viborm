@@ -15,6 +15,7 @@ import type { QueryScope, RelationInfo } from "../types";
 import {
   buildManyToManyInclude,
   buildManyToManyLateralInclude,
+  buildSingularJunctionInclude,
 } from "./include-many-to-many";
 import { assembleInnerQuery, type IncludeOptions } from "./include-query";
 import {
@@ -86,6 +87,22 @@ export function buildSubqueryInclude(
   // junction, junction) alias — the dedicated junction builder takes it from here.
   const traversal = buildRelationTraversal(ctx, relationInfo, ctx.rootAlias);
   if (traversal.kind === "junction") {
+    // CARDINALITY BEFORE ROUTE. Every junction traversal used to go straight to
+    // the to-many aggregation; a singular inverse over a collection member walks
+    // the same junction and returns one row or null, and the to-one branches
+    // below read `traversal.relation()`, which a junction traversal does not
+    // expose. So the singular junction leaf is its own route, taken here.
+    if (traversal.cardinality() === "one") {
+      return {
+        column: buildSingularJunctionInclude(
+          buildNestedSelection,
+          ctx,
+          relationInfo,
+          includeValue,
+          traversal
+        ),
+      };
+    }
     return {
       column: buildManyToManyInclude(
         buildNestedSelection,
@@ -155,6 +172,34 @@ export function buildLateralInclude(
   // come first, exactly as the junction builder's prologue allocated them.
   const traversal = buildRelationTraversal(ctx, relationInfo, ctx.rootAlias);
   if (traversal.kind === "junction") {
+    if (traversal.cardinality() === "one") {
+      return {
+        column: buildSingularJunctionInclude(
+          buildNestedSelection,
+          ctx,
+          relationInfo,
+          includeValue,
+          traversal
+        ),
+      };
+    }
+    // A polymorphic MEMBER table takes the correlated route on every adapter,
+    // matching the direct collection read (decision D3). Its integrity guard
+    // wraps the projected value in the OUTER select, where the lateral form's
+    // own aliases are already in scope — the two cannot share alias names, and
+    // the correlated form has no such conflict because both subqueries are
+    // siblings.
+    if (traversal.membership().polymorphicMember) {
+      return {
+        column: buildManyToManyInclude(
+          buildNestedSelection,
+          ctx,
+          relationInfo,
+          includeValue,
+          traversal
+        ),
+      };
+    }
     return buildManyToManyLateralInclude(
       buildNestedSelection,
       ctx,

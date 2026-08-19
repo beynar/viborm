@@ -135,7 +135,14 @@ the update factories — the create surfaces have no removal verb to gate.
 
 The four verb factories (`toOne`/`toMany` × `create`/`update`) consume the projection
 without asking which edge they are on. A polymorphic inverse therefore has no verb
-surface of its own; it is the same factory with a different projection.
+surface of its own; it is the same factory with a different projection. That holds
+for all four admitted inverse shapes: the row-held ones (`oneToMany`, fields-less
+`oneToOne`) and the collection ones (`manyToMany` — a fixed-variant junction view —
+and fields-less `manyToOne` — a member-junction to-one SLOT). `GetRelationSchemas`
+dispatches on cardinality alone; there is no polymorphic inverse family, and the
+removal verbs on the singular collection inverse hang on `slotMayBeEmpty` alone,
+which `P021` makes true by construction rather than hoping a schema author wrote
+`.optional()`.
 
 Two invariants live here rather than in the factories:
 
@@ -165,10 +172,21 @@ to-one payload may carry, at both levels, and publishes exactly two rules:
 
 - `lattice` (default) — the accepted set: at most one intent, or one of the ordered
   vacate/supply/modify compositions, gated by the relation DIRECTION;
-- `exactlyOne` — no empty payload and no composition. Used by the direct polymorphic
+- `exactlyOne` — no empty payload and no composition. Used by the direct ROW-HELD
+  polymorphic
   edge, whose payload writes one atomic `(type, id)` pair and whose engine resolver
   takes one intent per payload, so an empty payload names no target for a membership
   that may be required and two intents would silently drop one.
+
+A direct polymorphic COLLECTION uses neither rule. Its bags are plain `v.object`s
+(`relations/polymorphic/collection-mutation.ts`), deliberately not
+`toOneMutationSchema`, because a collection is exactly the shape where several
+verbs legitimately coexist — `disconnect` some, `create` others — and where an
+empty bag is inert rather than malformed. Every verb is a UNION over the
+configured public types with the discriminator carried INSIDE each item, so the
+`type` literal correlates that item's `where` / `data` / `create` / `update` with
+one variant's schemas. All eleven verbs take one item or an array and normalize to
+a list.
 
 Active means `value !== undefined && value !== false` in both modes, and the ACTIVE
 LIST is built by iterating `Object.keys(entries)` — so the declaration order of every

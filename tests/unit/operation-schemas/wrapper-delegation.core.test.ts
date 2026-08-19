@@ -7,6 +7,7 @@ import {
   withOmitProjection,
 } from "@validation/model/args/omit";
 import { rejectSelectInclude } from "@validation/model/args/select-include-exclusivity";
+import { rejectVariantsOutsideOnly } from "@validation/relations/polymorphic/select-include";
 import { describe, expect, test } from "vitest";
 
 const user = s.model({
@@ -126,6 +127,47 @@ describe("operation-schema wrapper delegation", () => {
     ).toEqual({
       message: "Unknown key: posts",
       path: ["select", "posts"],
+    });
+  });
+
+  test("collection allow-list wrapper delegates metadata and names the stray arm", () => {
+    // Same wrapper shape as `rejectSelectInclude`, and the same reason it is
+    // tested against the BARE object rather than through a built relation
+    // schema: the two accessors exist to keep introspection (types, JSON
+    // Schema) reaching the wrapped schema, and nothing in a parse path touches
+    // them.
+    const base = v.object({
+      only: v.array(v.string()),
+      variants: v.object({ post: v.boolean({ optional: true }) }),
+    });
+    const wrapped = rejectVariantsOutsideOnly(base);
+
+    expect(wrapped["~standard"].types).toBe(base["~standard"].types);
+    expect(wrapped["~standard"].jsonSchema).toBe(base["~standard"].jsonSchema);
+    expect(
+      parse(wrapped, { only: ["post"], variants: { post: true } }).issues
+    ).toBeUndefined();
+    // `only` absent leaves `variants` unconstrained, and so does a `variants`
+    // that is not an object — a malformed pair is the wrapped schema's refusal
+    // to phrase, not this rule's.
+    expect(parse(wrapped, { variants: { post: true } }).issues).toBeUndefined();
+    expect(parse(wrapped, { only: ["post"] }).issues).toBeUndefined();
+    // A non-object payload falls through to the wrapped schema's own refusal
+    // rather than the cross-key one.
+    expect(parse(wrapped, null).issues?.[0]).toEqual({
+      message: "Expected object",
+    });
+    // The rule runs AFTER the wrapped schema, so a payload that fails for its
+    // own reasons keeps its own message even with a well-formed pair.
+    expect(
+      parse(wrapped, { only: [1], variants: { post: true } }).issues?.[0]
+        ?.message
+    ).toBe("Expected string");
+    expect(
+      parse(wrapped, { only: [], variants: { post: true } }).issues?.[0]
+    ).toEqual({
+      message: "Variant 'post' is not in 'only'",
+      path: ["variants", "post"],
     });
   });
 });

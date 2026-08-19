@@ -3,13 +3,14 @@
  *
  * Shared logic for building M2M join conditions.
  * Read consumer: relation-traversal (the one traversal source — byte changes here
- * propagate through it to every read builder). Write consumer: ManyToManyStatements.
+ * propagate through it to every read builder). Write consumer: JunctionStatements.
  */
 
 import { type Sql, sql } from "@sql";
 import { createChildScope, getColumnName, getTableName } from "../context";
 import { NestedWriteError, QueryEngineError, type QueryScope } from "../types";
 import type {
+  BoundJunctionMembership,
   JunctionBoundRelation,
   JunctionReferenceMember,
   JunctionSide,
@@ -24,13 +25,17 @@ import { buildWhereUnique } from "./where-unique-builder";
  * `operators.and` returns the single conjunct unchanged, so the emitted SQL is
  * the bare equality it has always been; compound sides retain every member.
  *
+ * Takes the MEMBERSHIP rather than the bound relation: the two complete ordered
+ * references are the whole input, and a direct polymorphic collection arm has a
+ * membership without a `RelationInfo` to wrap it in.
+ *
  * @returns correlationCondition: jt.sourceId = parent.id
  * @returns joinCondition: target.id = jt.targetId
  * @returns fromClause: junction_table jt, target_table t
  */
 export function buildManyToManyJoinParts(
   ctx: QueryScope,
-  junction: JunctionBoundRelation,
+  membership: BoundJunctionMembership,
   parentAlias: string,
   junctionAlias: string,
   targetAlias: string
@@ -40,7 +45,7 @@ export function buildManyToManyJoinParts(
   fromClause: Sql;
 } {
   const { adapter } = ctx;
-  const { table, source, target } = junction.membership;
+  const { table, source, target } = membership;
 
   // 1. Correlation: jt.sourceId = parent.id
   const correlationCondition = adapter.operators.and(
@@ -142,6 +147,72 @@ function buildJunctionSideValues(
 }
 
 /**
+ * The duplicate-skip clause for a junction INSERT, TARGETED at the complete
+ * membership key — every source junction column, then every target one.
+ *
+ * WHAT THE TARGET SEPARATES. An identical `(owner, target)` membership row is
+ * idempotent, so it is skipped. A DIFFERENT owner already holding the target is
+ * NOT a duplicate: on a polymorphic member table whose inverse is singular, the
+ * serializer emits a UNIQUE over the complete target side, and that collision is
+ * the whole slot-occupancy signal. A verb with transfer semantics vacates the
+ * slot through its own primitive first; a plain insert that bypasses the
+ * primitive must surface the native unique failure. The UNTARGETED
+ * `ON CONFLICT DO NOTHING` this used to emit swallows both alike — measured on
+ * PGlite: with a `(o,t)` PK and a `UNIQUE (t)`, inserting a second owner for an
+ * occupied `t` raises under `ON CONFLICT (o,t)` and returns silently under
+ * `ON CONFLICT`.
+ *
+ * UNIFORM across every junction, ordinary pair tables included (polymorphic
+ * cardinality plan §9.4, open question 1). A pair table's PK is its only unique
+ * constraint, so naming it changes which rows are skipped not at all — while a
+ * `cardinality`-shaped branch here would be a SECOND answer to "how does a
+ * junction insert skip duplicates", and one answer per question is the rule this
+ * estate is built on. The cost is byte churn in the junction pins, nothing else.
+ *
+ * COLUMN ORDER is the INSERT's own — source side then target side — which need
+ * not be the member table's declared PK order (the serializer declares it in
+ * canonical `sourceIsFirst` order). PostgreSQL and SQLite infer the arbiter
+ * index from the conflict target as a SET: a reordered COMPLETE key infers the
+ * same index, an INCOMPLETE one infers nothing and raises. Both were measured
+ * before this was written, so the reordering is a fact rather than a hope.
+ *
+ * MYSQL keeps the untargeted no-op update, because `ON DUPLICATE KEY UPDATE`
+ * carries no target at all — that is what
+ * `capabilities.supportsTargetedUpsert` names, and its own doc comment explains
+ * why the difference is a wrong answer rather than a missing optimization. It
+ * stays correct for every junction whose PK is its sole unique constraint.
+ *
+ * SEAM — Package D fence B (plan §1.7). A member table with a SINGULAR inverse
+ * also carries the target-side UNIQUE, which MySQL would swallow here. §1.7
+ * answers that with a plain INSERT plus a `TargetConstraintPin` naming the
+ * membership PK, so an exact duplicate still converges as an idempotent
+ * reconnect while an occupied slot does not. The pin can only be attached by the
+ * Part that owns the write step; it is not expressible in an `Sql`, which is why
+ * the branch lands with its consumer rather than ahead of it.
+ */
+function junctionDuplicateSkip(
+  ctx: QueryScope,
+  sourceFields: readonly string[],
+  targetFields: readonly string[],
+  duplicateNoopColumn: string
+): { readonly prefix: Sql; readonly suffix: Sql } {
+  const { adapter } = ctx;
+  if (!adapter.capabilities.supportsTargetedUpsert) {
+    return adapter.mutations.skipDuplicates(duplicateNoopColumn);
+  }
+  const membershipKey = sql.join(
+    [...sourceFields, ...targetFields].map((field) =>
+      adapter.identifiers.escape(field)
+    ),
+    ", "
+  );
+  return {
+    prefix: sql.empty,
+    suffix: adapter.mutations.onConflict(membershipKey, sql`NOTHING`),
+  };
+}
+
+/**
  * INSERT a junction row, ignoring duplicates (connect is idempotent — the
  * junction PK (source, target) makes a repeat connect a no-op conflict).
  */
@@ -197,7 +268,12 @@ export function buildJunctionInsertWhenTargetExists(
       targetTable
     ),
   });
-  const { prefix, suffix } = adapter.mutations.skipDuplicates(sourceField);
+  const { prefix, suffix } = junctionDuplicateSkip(
+    ctx,
+    sourceFields,
+    targetFields,
+    sourceField
+  );
   const insert = adapter.mutations.insert(
     adapter.identifiers.escape(junction.membership.table),
     [...sourceFields, ...targetFields],
@@ -233,7 +309,12 @@ export function buildJunctionInsertMany(
     );
   }
   const table = adapter.identifiers.escape(membership.table);
-  const { prefix, suffix } = adapter.mutations.skipDuplicates(sourceField);
+  const { prefix, suffix } = junctionDuplicateSkip(
+    ctx,
+    sourceFields,
+    targetFields,
+    sourceField
+  );
   const insertSql = adapter.mutations.insert(
     table,
     [...sourceFields, ...targetFields],

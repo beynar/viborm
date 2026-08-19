@@ -1115,6 +1115,22 @@ describe("write engine route inventory (P6 accounting)", () => {
   // or nested series before that root still refuses pre-effect through site 27 because
   // skipping would otherwise preserve the wrong prefix. Ordered committed-segment
   // callbacks strengthen commit attribution but are no longer an eligibility gate.
+  // 8 -> 9 (POLYMORPHIC COLLECTION `set`, PACKAGE D). Site 33 is NEW and is the only
+  // site this package adds: a direct polymorphic collection `set` is ONE INDIVISIBLE
+  // UNIT — clear every configured member table, then refill — and on a native atomic
+  // batch whose owner row key arrives as a PRODUCED output reference,
+  // `generatedOutputSegments` may legally split the batch between the two halves and
+  // commit an emptied collection. Nothing in the executor marks a GROUP of steps
+  // indivisible (the eligibility checks gate per-step `expects` and `onUniqueConflict`
+  // only), so the answer is a CONSTRUCTION refusal before any effect rather than a new
+  // executor mechanism — which is also what §13.4 admits as satisfying. Bind-budget
+  // chunking is deliberately NOT part of the predicate: it chunks inside one
+  // fragment/batch and an atomic batch rolls every chunk back together.
+  //   * Package D adds no other construction refusal. The singular member-junction
+  //     transfer refuses a MALFORMED multi-owner state and the pre-bound carrier guard
+  //     refuses re-resolution, but both are `QueryEngineError` — internal invariants,
+  //     not routes — and the inverse-collection and bulk-row refusals are grammar-level
+  //     (`v.refused`), which never reaches this count.
   test("no UnsupportedOperationError throw site exists outside the reviewed set", async () => {
     const { readdir, readFile } = await import("node:fs/promises");
     const { join } = await import("node:path");
@@ -1125,7 +1141,7 @@ describe("write engine route inventory (P6 accounting)", () => {
       const source = await readFile(join(dir, file), "utf8");
       sites += source.split("new UnsupportedOperationError(").length - 1;
     }
-    expect(sites).toBe(8);
+    expect(sites).toBe(9);
   });
 
   /**
@@ -1205,57 +1221,64 @@ describe("write engine route inventory (P6 accounting)", () => {
       [
         13,
         "query-engine/write-engine/RelationUpsertPart.ts",
-        1113,
-        1109,
+        1121,
+        1117,
         "refuseIncomingParentMutation",
       ],
       [
         15,
         "query-engine/write-engine/CreateOperation.ts",
-        3418,
-        3410,
+        3547,
+        3539,
         "requireRecordReferenced",
       ],
       [
         19,
         "query-engine/write-engine/CreateOperation.ts",
-        3522,
-        3504,
+        3651,
+        3633,
         "producedReference",
       ],
       [
         20,
         "query-engine/write-engine/CreateOperation.ts",
-        3879,
-        3868,
+        4022,
+        4011,
         "assertSelectedSharedPkValue",
+      ],
+      [
+        33,
+        "query-engine/write-engine/PolymorphicCollectionPart.ts",
+        216,
+        209,
+        "assertClearIsIndivisible",
       ],
       [
         27,
         "query-engine/write-engine/OperationExecutor.ts",
-        1901,
-        1896,
+        1920,
+        1915,
         "executionRefusal",
       ],
       [
         28,
         "query-engine/write-engine/OperationExecutor.ts",
-        2341,
-        2331,
+        2397,
+        2387,
         "assertIndivisibleGeneratedOutput",
       ],
       [
         32,
         "query-engine/write-engine/OperationExecutor.ts",
-        2359,
-        2346,
+        2415,
+        2402,
         "crossedReferenceContinuationGuards",
       ],
       [
         22,
         "query-engine/relation-key-legality.ts",
-        110,
-        102,
+        116,
+        108,
         "assertSingleTargetMembershipMoveAppliesToRecords",
       ],
       [
@@ -1304,7 +1327,7 @@ describe("write engine route inventory (P6 accounting)", () => {
     }
     expect(misses).toEqual([]);
     // The list itself must stay complete, or a site could be dropped to keep it green.
-    expect(CLASSIFIED.length).toBe(11);
+    expect(CLASSIFIED.length).toBe(12);
   });
 });
 

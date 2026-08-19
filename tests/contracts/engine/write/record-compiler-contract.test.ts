@@ -117,7 +117,7 @@ const polymorphicArmSchema = (() => {
         .references("id")
         .optional(),
       subject: s
-        .polymorphic(
+        .polymorphicToOne(
           { article: () => article, clip: () => clip },
           { values: { article: "poly.article.v1", clip: "poly.clip.v1" } }
         )
@@ -1226,10 +1226,20 @@ describe("one record, one compiler parity", () => {
       sql: 'INSERT INTO "e4u3_notes" ("id", "body", "stampId") VALUES ($1, $2, CAST($3 AS INTEGER))',
       params: ["n1", "deep", reference("stamp.create", "id")],
     });
+    // The junction skip's conflict target — AMENDED by the polymorphic
+    // cardinality plan's §1.7, and it moves the bytes of every junction pin in
+    // this file. The clause now names the complete membership key instead of
+    // arbitrating on any unique constraint. UNIFORM across ordinary pair tables
+    // too (§9.4 open question 1): a pair table's PK is its only unique
+    // constraint, so exactly the same rows are skipped, while a
+    // cardinality-shaped branch inside the SQL builder would be a second answer
+    // to one question. What the target buys is elsewhere — a polymorphic member
+    // table with a SINGULAR inverse also carries a target-side UNIQUE, and an
+    // occupied slot has to raise there rather than be silently swallowed.
     expect(
       prepared(driver, statementStep(final, "stamp.junction.insert"))
     ).toEqual({
-      sql: 'INSERT  INTO "post_stamp" ("postId", "stampId") VALUES ($1, CAST($2 AS INTEGER)) ON CONFLICT DO NOTHING',
+      sql: 'INSERT  INTO "post_stamp" ("postId", "stampId") VALUES ($1, CAST($2 AS INTEGER)) ON CONFLICT ("postId", "stampId") DO NOTHING',
       params: ["p1", reference("stamp.create", "id")],
     });
     expect(statementStep(final, "post.select").expects).toEqual(
@@ -1310,7 +1320,7 @@ describe("one record, one compiler parity", () => {
       prepared(driver, statementStep(final, "stamp.junction.insert#1"))
     ).toEqual(firstJoin);
     expect(firstJoin).toEqual({
-      sql: 'INSERT  INTO "post_stamp" ("postId", "stampId") VALUES ($1, CAST($2 AS INTEGER)) ON CONFLICT DO NOTHING',
+      sql: 'INSERT  INTO "post_stamp" ("postId", "stampId") VALUES ($1, CAST($2 AS INTEGER)) ON CONFLICT ("postId", "stampId") DO NOTHING',
       params: ["p1", reference("stamp.create", "id")],
     });
     expect(JSON.stringify(fragmentContract(driver, final))).not.toContain(
@@ -1377,7 +1387,7 @@ describe("one record, one compiler parity", () => {
     expect(
       prepared(driver, statementStep(missing, "topic.junction.insert"))
     ).toEqual({
-      sql: 'INSERT  INTO "article_topic" ("articleId", "topicId") VALUES (CAST($1 AS INTEGER), CAST($2 AS INTEGER)) ON CONFLICT DO NOTHING',
+      sql: 'INSERT  INTO "article_topic" ("articleId", "topicId") VALUES (CAST($1 AS INTEGER), CAST($2 AS INTEGER)) ON CONFLICT ("articleId", "topicId") DO NOTHING',
       params: [
         reference("article.create", "id"),
         reference("topic.create", "id"),
@@ -1390,7 +1400,7 @@ describe("one record, one compiler parity", () => {
     expect(
       prepared(driver, statementStep(found, "topic.junction.insert"))
     ).toEqual({
-      sql: 'INSERT  INTO "article_topic" ("articleId", "topicId") VALUES (CAST($1 AS INTEGER), $2) ON CONFLICT DO NOTHING',
+      sql: 'INSERT  INTO "article_topic" ("articleId", "topicId") VALUES (CAST($1 AS INTEGER), $2) ON CONFLICT ("articleId", "topicId") DO NOTHING',
       params: [reference("article.create", "id"), 11],
     });
     expect(outputContract(missing)).toEqual({

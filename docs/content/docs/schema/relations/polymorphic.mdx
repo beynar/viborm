@@ -4,20 +4,32 @@ description: Relate one record to one of several independent target models with 
 icon: waypoints
 ---
 
-A polymorphic relation lets one field reference one of several independent
-models. A comment, for example, can belong to either a post or a video while
-exposing one `commentable` field in queries.
+A polymorphic relation lets one field reference several independent models. A
+comment, for example, can belong to either a post or a video while exposing one
+`commentable` field in queries; a shelf can hold books and videos side by side in
+one `items` collection.
 
-> **VibORM implements a polymorphic association, not table inheritance.** The
-> owner stores a private `(type, id)` pair. Each target remains an independent
-> model and table.
+> **VibORM implements a polymorphic association, not table inheritance.** Each
+> target remains an independent model and table.
 
 ## Choose the relation shape
 
-Use an ordinary relation when a field always references the same model. Use
-`s.polymorphic()` when one field must select between heterogeneous models such
-as posts and videos, attachments and messages, or audit subjects of several
+Use an ordinary relation when a field always references the same model. Use a
+polymorphic relation when one field must select between heterogeneous models
+such as posts and videos, attachments and messages, or audit subjects of several
 types.
+
+**Polymorphism is a property of the targets, not of the arity.** How many
+memberships the slot holds is a separate choice, and you make it by which
+factory you call:
+
+| Factory | Slot holds | Membership stored in |
+|---------|-----------|----------------------|
+| `s.polymorphicToOne(map, options?)` | at most one membership | a private `(type, id)` pair on the owner row |
+| `s.polymorphicToMany(map, options?)` | a collection of memberships, each free to use a different variant | one member junction table per variant |
+
+Both are first-class: both read, filter, count, write, and migrate. Nothing in
+the feature is to-one by nature.
 
 This differs from the two common
 [table-inheritance patterns](https://www.prisma.io/docs/orm/prisma-schema/data-model/table-inheritance):
@@ -26,10 +38,10 @@ This differs from the two common
 |---------|---------|---------|
 | Single-table inheritance (STI) | All variants share one table and a discriminator | Represent a hierarchy in one wide table |
 | Multi-table inheritance (MTI, or delegated types) | A base table holds shared identity and subtype tables hold variant data | Represent a normalized hierarchy |
-| VibORM polymorphic association | The referring row stores a target type and target ID | Reference one of several independent models |
+| VibORM polymorphic association | The membership names a target type and a target identity | Reference one of several independent models |
 
-`s.polymorphic()` does not create a base model, shared identity, or inherited
-fields. Model STI or MTI explicitly when the variants form a domain hierarchy.
+Neither factory creates a base model, shared identity, or inherited fields.
+Model STI or MTI explicitly when the variants form a domain hierarchy.
 
 ## Define the direct relation
 
@@ -55,7 +67,7 @@ const comment = s.model({
   id: s.string().id().ulid(),
   body: s.string(),
   commentable: s
-    .polymorphic({
+    .polymorphicToOne({
       post: () => post,
       video: () => video,
     })
@@ -68,11 +80,74 @@ const comment = s.model({
 |-------------|----------------|
 | `post` and `video` | Discriminators used in inputs and result narrowing |
 | `() => post` and `() => video` | Lazy target getters that allow circular declarations |
+| `s.polymorphicToOne` | The slot holds at most one membership |
 | `.name("commentable")` | Pairing label shared with inverse relations |
 | `.optional()` | Allows the direct field to be absent |
 
-The direct field is a to-one slot: each `comment` references at most one target,
-regardless of which inverse cardinality you declare.
+There are two factories and the one you call IS the cardinality:
+`s.polymorphicToOne` makes the field a to-one slot, so each `comment`
+references at most one target — independently of which inverse cardinality you
+declare — and `s.polymorphicToMany` makes it a collection. Both take a MAP of
+named targets; a single target model is an ordinary relation, so a bare
+`() => model` is refused at compile time and points you at `s.oneToOne`,
+`s.manyToOne`, `s.oneToMany` and `s.manyToMany`. A carrier that reaches client
+construction with no cardinality at all — only forgeable from hostile
+JavaScript, never from these factories — is refused with `P013`.
+
+### Collection slots
+
+`s.polymorphicToMany()` declares a slot that holds several memberships, each of
+which may use a different variant. VibORM creates **one junction table per
+variant**, named `<owner_table>_<relation>_<variant>` by default, with a
+composite primary key over both sides, a reverse index, and cascading foreign
+keys on both sides.
+
+```ts
+const shelf = s.model({
+  id: s.string().id(),
+  items: s.polymorphicToMany({ book: () => book, video: () => video }),
+});
+// migrates to: shelf_items_book, shelf_items_video
+```
+
+A collection slot reads, writes, filters, counts, and orders through the same
+client as any other relation. The sections below cover each surface.
+
+Each variant's membership is independent, so each gets its own cardinality from
+its inverse: declare a fields-less `manyToOne` back to the owner and that
+variant is **singular** (one shelf per book — enforced by a unique constraint
+over the complete target side of that member table). Declare a fields-less
+`manyToMany` and it is **plural**, the shareable default that also applies to a
+variant with no declared inverse.
+
+A singular inverse must call `.optional()`. Its membership is one member-junction
+row, and its removal verbs hang on that declaration alone; without it you would
+get a slot you can fill and never empty. Client construction reports `P021`.
+
+`.through()` names the member junctions explicitly. Unlike an ordinary
+many-to-many's `.through()/.A()/.B()` triple, it takes one **exact map keyed by
+public variant** — every variant present, no extra key, at both the type level
+and at runtime (`P017`):
+
+```ts
+items: s
+  .polymorphicToMany({ book: () => book, video: () => video })
+  .through({
+    book: { table: "shelf_books", source: "holder", target: "entry" },
+    video: { table: "shelf_videos", source: "holder", target: "entry" },
+  })
+```
+
+`source` and `target` are the owner-side and variant-side naming tokens — the
+`.A()`/`.B()` idea, directed instead of alphabetical. For a one-field row key the
+token IS the column name; for a compound row key it expands positionally
+(`holder_1`, `holder_2`, …) in that model's row-key order.
+
+Without `.through()`, the table is `<owner_table>_<relation>_<variant>`, the
+owner token is `<ownerModel>Id` (or the lowercased model name as a prefix for a
+compound key), and the variant token is derived from the **public variant name**
+rather than the target model's — which is what keeps two variants pointing at the
+same model, and self-targets, naturally distinct.
 
 ### Customize stored discriminator values
 
@@ -81,7 +156,7 @@ argument is optional. Supply it when database values must be namespaced,
 versioned, or independent of public API names:
 
 ```ts
-commentable: s.polymorphic(
+commentable: s.polymorphicToOne(
   {
     post: () => post,
     video: () => video,
@@ -100,10 +175,10 @@ database identifiers; keep them stable after data exists.
 
 ### Required and optional direct fields
 
-A direct polymorphic field is required by default:
+An `s.polymorphicToOne()` field is required by default:
 
 ```ts
-commentable: s.polymorphic({
+commentable: s.polymorphicToOne({
   post: () => post,
   video: () => video,
 })
@@ -111,13 +186,24 @@ commentable: s.polymorphic({
 
 Add `.optional()` when the owner may have no target. This controls whether the
 stored membership may be cleared and therefore whether direct `disconnect` is
-available.
+available. `.optional()` is only offered on `s.polymorphicToOne()`: a
+collection slot is already empty when it holds nothing.
 
 ## Define an inverse relation
 
-An inverse exposes owners from the selected target. It uses an ordinary
-`oneToMany` or a fields-less `oneToOne` with the same pairing name as the direct
-field.
+An inverse exposes owners from the selected target. Which shapes are admitted
+depends on where the membership is stored, so it depends on the direct slot's
+cardinality:
+
+| Direct slot | Membership storage | Admitted inverse shapes |
+|-------------|--------------------|-------------------------|
+| `s.polymorphicToOne` | the owner's private `(type, id)` pair | `oneToMany`, fields-less `oneToOne` |
+| `s.polymorphicToMany` | that variant's member junction | fields-less `manyToOne` (singular), `manyToMany` (plural) |
+
+Each shape binds only the group that owns its membership storage. Every inverse
+uses the same pairing name as the direct field. The two subsections below cover
+the to-one group; [collection inverses](#define-a-collection-inverse) follow the
+collection's own sections.
 
 ### One-to-many inverse
 
@@ -155,7 +241,53 @@ fields-less `oneToOne`; mixing them is invalid. A one-to-one inverse makes the
 composite storage index unique for every discriminator, including variants
 without a declared inverse.
 
+## Define a collection inverse
+
+A collection stores each variant's memberships in its own member junction, so
+inverse cardinality is **per variant**, not relation-wide. Declare it on the
+target model with the same pairing name as the collection.
+
+A fields-less `manyToOne` makes that variant **singular**: at most one owner may
+hold a given target, enforced by a unique constraint over the complete target
+side of that member table.
+
+```ts
+const book = s.model({
+  id: s.string().id(),
+  title: s.string(),
+  shelf: s
+    .manyToOne(() => shelf)
+    .name("items")
+    .optional(),
+});
+```
+
+The public shape is `Shelf | null`. `.optional()` is required here (`P021`): the
+slot's `disconnect` and `delete` hang on it, so without it the slot could be
+filled and never emptied.
+
+A `manyToMany` makes that variant **plural** — the shareable default, and also
+what an undeclared variant gets:
+
+```ts
+const video = s.model({
+  id: s.string().id(),
+  title: s.string(),
+  shelves: s.manyToMany(() => shelf).name("items"),
+});
+```
+
+The public shape is `Shelf[]`. A plural inverse is the same member junction read
+in reverse orientation, so it takes the ordinary many-to-many read, filter,
+count, order and write surface unchanged — it declares no storage of its own and
+emits no junction table. A variant bound by more than one inverse relation is
+rejected as `P015`, and an ordinary `manyToMany` pair partner on the target would
+serialize half a pair and is rejected as `P020`.
+
 ## Read the direct relation
+
+This section describes a `s.polymorphicToOne` slot. A collection has its own
+read grammar — see [Read a collection slot](#read-a-collection-slot).
 
 ### Include the selected target
 
@@ -251,7 +383,159 @@ has no untyped form that searches all target schemas.
 target does not match.” Use root `NOT` when you need the global complement
 across every variant.
 
+## Read a collection slot
+
+### The result is always an array
+
+```ts
+const shelves = await client.shelf.findMany({
+  include: { items: true },
+});
+```
+
+```ts
+type Item =
+  | { type: "book"; data: Book }
+  | { type: "video"; data: Video };
+// shelves[0].items: readonly Item[]
+```
+
+A collection is **never** `null`. An empty collection is a fresh empty array, so
+emptiness has exactly one reading — which is also why `.optional()` does not
+exist on a collection carrier. Elements arrive grouped in **target-map
+declaration order**: every `book` member, then every `video` member.
+
+Two target tables may hold rows with equal identities. They are different
+memberships and come back as two correctly tagged elements.
+
+### The `only` / `variants` envelope
+
+`items: true` reads every configured variant at its default scalar projection,
+and `items: false` emits no key and no relation SQL at all. Anything finer is
+one envelope with exactly two keys:
+
+```ts
+const shelves = await client.shelf.findMany({
+  include: {
+    items: {
+      only: ["book"],
+      variants: {
+        book: {
+          select: { id: true, title: true },
+          where: { pages: { gt: 100 } },
+          orderBy: { title: "asc" },
+          take: 5,
+        },
+      },
+    },
+  },
+});
+```
+
+`only` is an exact allow-list over the public variant names. It narrows the
+result union — with `only: ["book"]` the element type has no `video` arm — and
+it also narrows the SQL: no member table outside the list is read. Duplicates
+are rejected, and the list is canonicalized into declaration order, so
+`["video", "book"]` and `["book", "video"]` are one query and one cache entry.
+`only: []` is legal and returns a fresh empty array.
+
+`variants` configures one arm per public variant. Naming a variant that `only`
+excludes is a contradiction and is rejected by name, not as an unknown key.
+There is deliberately no `false` arm: "do not read this variant" is spelled by
+leaving it out of `only`.
+
+Each arm takes `true`, or an ordinary to-many relation node:
+
+| Arm key | Meaning |
+|---------|---------|
+| `select` / `include` | Mutually exclusive, as everywhere else |
+| `omit` | Subtracts from that variant's projection |
+| `where` | That variant's own filter |
+| `orderBy`, `take`, `skip`, `cursor`, `distinct` | Ordinary list controls |
+
+Every one of those is **arm-local**. Ordering, windowing and distinct apply
+inside one variant; they never reorder or truncate across variants, and a
+negative `take` restores the logical order within its own arm exactly as it does
+on an ordinary relation. An omitted arm uses that model's default scalar
+projection, so the result union stays exhaustive over whatever `only` admits.
+
+The envelope is identical in `select` and `include` position; the two differ
+only in whether the owner's own scalars come along.
+
+### Filter parents by their members
+
+A collection accepts `some`, `every`, and `none`. There is no null-presence arm —
+an empty collection is the empty array, not `null` — and every quantifier is
+**tagged**, taking the same `{ type }` / `{ type, is }` / `{ type, isNot }`
+predicate the to-one filter takes:
+
+```ts
+const shelves = await client.shelf.findMany({
+  where: {
+    items: { some: { type: "book", is: { title: { contains: "SQL" } } } },
+  },
+});
+```
+
+The tag is part of the question, so read the three carefully:
+
+| Filter | True when |
+|--------|-----------|
+| `some: { type: "book", is: P }` | at least one `book` member satisfies `P` |
+| `every: { type: "book", is: P }` | every member is a `book` **and** satisfies `P` — a member of another variant makes it false |
+| `none: { type: "book", is: P }` | no `book` member satisfies `P` |
+
+`every` and `none` are vacuously true on an empty collection; `some` is false.
+"Every book satisfies `P`, other variants allowed" is therefore spelled
+`none: { type: "book", isNot: P }`.
+
+### Count and order by count
+
+```ts
+const shelves = await client.shelf.findMany({
+  select: {
+    id: true,
+    _count: { select: { items: true } },
+  },
+  orderBy: { items: { _count: "desc" } },
+});
+```
+
+`items: true` counts every member of every configured variant — one correlated
+count per member table, summed in declaration order. The filtered form takes the
+same tagged predicate the quantifiers take, so "count the books matching `P`"
+and "some book matches `P`" are two readings of one grammar:
+
+```ts
+_count: {
+  select: {
+    items: { where: { type: "book", is: { pages: { gt: 100 } } } },
+  },
+}
+```
+
+`orderBy: { items: { _count: "asc" | "desc" } }` is the only ordering a
+collection offers, and it lowers through the same summed-count expression.
+Ordering a parent by a *member column* is not offered: which table a column
+lives in is decided per row by the discriminator. A to-one slot has no
+collection to count, so `_count` and `orderBy` on one are refused by name rather
+than reported as an unknown key.
+
+### Integrity
+
+A membership row whose target no longer exists fails the read with a
+`QueryEngineError` naming the relation and variant. `only` cannot hide it: even
+`only: []` still computes every arm's integrity facts, so an orphan under an
+excluded variant still fails. Member junctions carry real foreign keys with
+cascade on both sides, so reaching that state requires a disabled constraint or
+a hostile raw write.
+
 ## Read an inverse relation
+
+This section describes the inverse of a `s.polymorphicToOne` slot. A collection
+inverse is an ordinary relation in reverse orientation — a `manyToMany` reads
+like any other many-to-many, and a fields-less `manyToOne` returns one record or
+`null` — so it needs no special read grammar.
 
 ### One-to-many inverse
 
@@ -318,6 +602,9 @@ A video with the same ID cannot appear in a post relation.
 
 ## Write the direct relation
 
+This section describes a `s.polymorphicToOne` slot. A collection has its own
+write grammar — see [Write a collection slot](#write-a-collection-slot).
+
 Direct relation inputs contain exactly one operation. The selected variant is
 inside that operation's payload.
 
@@ -371,7 +658,7 @@ await client.comment.update({
     commentable: {
       update: {
         type: "post",
-        where: { published: true },
+        where: { title: { contains: "Launch" } },
         data: { title: "Revised" },
       },
     },
@@ -401,11 +688,220 @@ await client.comment.createMany({
 });
 ```
 
-Other relation operations are not accepted in root bulk rows. A model with a
-required polymorphic field must therefore provide one `connect` membership per
-row.
+Other relation operations are not accepted in root bulk rows for a **to-one**
+slot. A model with a required polymorphic to-one field must therefore provide
+one `connect` membership per row. A collection slot is not restricted this way —
+see [Root createMany](#root-createmany-with-a-collection) below.
+
+## Write a collection slot
+
+Unlike a to-one slot, a collection's input is a **keyed bag**: several verbs may
+appear together, and an empty bag is inert rather than malformed. Every verb
+takes one tagged item or an array of them, and each item carries its own `type`
+literal, which is what correlates the discriminator with the payload:
+
+```ts
+await client.shelf.update({
+  where: { id: "shelf_1" },
+  data: {
+    items: {
+      connect: [{ type: "book", where: { id: "book_1" } }],
+      create: { type: "video", data: { title: "Reel" } },
+      disconnect: [{ type: "video", where: { id: "video_9" } }],
+    },
+  },
+});
+```
+
+Because the discriminator sits inside each item, `where`, `data`, `create` and
+`update` beside it are that variant's own schemas: naming a `book` field under
+`type: "video"` is a type error, not a runtime surprise.
+
+In the tables below, `TargetWhereUnique`, `TargetWhere`, `TargetCreate` and
+`TargetUpdate` are the named variant's ordinary inputs, and
+`TargetWhereUniqueExtended` is its extended unique selector — a unique key plus
+optional non-unique filters, the same shape a targeted write on an ordinary
+to-many relation addresses its member with.
+
+### Verbs by context
+
+A **fresh** owner (`create`, or the create branch of `upsert`) may name four
+supply verbs:
+
+| Verb | Payload |
+|------|---------|
+| `create` | `{ type, data: TargetCreate }` |
+| `createMany` | `{ type, data: TargetCreate[], skipDuplicates? }` |
+| `connect` | `{ type, where: TargetWhereUnique }` |
+| `connectOrCreate` | `{ type, where: TargetWhereUnique, create: TargetCreate }` |
+
+There is no `upsert` on a fresh owner. A collection `upsert` scopes its found arm
+to *this owner's* membership, and a fresh owner has none to scope to; rather than
+silently adopt globally or accept a shape the engine must refuse, the key is
+absent.
+
+A **located** owner (`update`, `updateMany`, the update branch of `upsert`) names
+all eleven:
+
+| Verb | Payload |
+|------|---------|
+| `create` | `{ type, data: TargetCreate }` |
+| `createMany` | `{ type, data: TargetCreate[], skipDuplicates? }` |
+| `connect` | `{ type, where: TargetWhereUnique }` |
+| `connectOrCreate` | `{ type, where: TargetWhereUnique, create: TargetCreate }` |
+| `set` | `{ type, where: TargetWhereUnique }` |
+| `disconnect` | `{ type, where: TargetWhereUnique }` |
+| `delete` | `{ type, where: TargetWhereUniqueExtended }` |
+| `deleteMany` | `{ type, where: TargetWhere }` |
+| `update` | `{ type, where: TargetWhereUniqueExtended, data: TargetUpdate }` |
+| `updateMany` | `{ type, where?: TargetWhere, data: TargetUpdate }` |
+| `upsert` | `{ type, where: TargetWhereUniqueExtended, create: TargetCreate, update: TargetUpdate }` |
+
+Semantics:
+
+- `connect` is idempotent for the same owner and target.
+- `disconnect` is unconditional — a member junction row simply goes, and no
+  column is nulled, so there is nothing for optionality to gate. There is no
+  `disconnect: true` spelling; `set: []` is how you empty the collection.
+- `delete` deletes the *target row*; its membership goes with it through the
+  member junction's own cascade. `deleteMany` does the same over a filter.
+- `update`, `updateMany`, `deleteMany` and the found arm of `upsert` reach only
+  targets that are members of **this** owner.
+- `createMany` writes one bulk group per variant. `skipDuplicates` behaves as it
+  does on an ordinary bulk insert for that dialect.
+- On a variant whose inverse is **singular**, a membership-adding verb is a slot
+  *replacement*, not an insert: the unique over the complete target side means at
+  most one owner may hold a given target, and the previous owner's row is removed
+  in the same unit rather than colliding on a constraint the caller never named.
+
+### `set` is one indivisible unit
+
+`set` clears **every configured variant exactly once** — including variants the
+payload never mentions — and then inserts the desired memberships. `set: []`
+therefore empties the whole collection while deleting no target row, and a
+`set` naming only books still empties the video and note member tables.
+
+```ts
+await client.shelf.update({
+  where: { id: "shelf_1" },
+  data: {
+    items: {
+      set: [
+        { type: "book", where: { id: "book_1" } },
+        { type: "video", where: { id: "video_2" } },
+      ],
+    },
+  },
+});
+```
+
+The clear and the refill must commit together. On an interactive driver they do.
+On a driver without transactions, if the owner's own row key arrives as a
+produced output the batch could legally be split between the two halves — so
+that shape is refused at construction, **before the clear**, with an
+`UnsupportedOperationError` naming the relation. A refusal, never a committed
+empty collection.
+
+### Root createMany with a collection
+
+A `createMany` row that names a collection slot is a relation-bearing row. The
+whole call therefore routes to the ordered record series and each row runs as an
+ordinary `create` — the collection mounts the same four supply verbs it does
+anywhere else, with no bulk-only restriction:
+
+```ts
+await client.shelf.createMany({
+  data: [
+    {
+      id: "shelf_1",
+      items: { connect: [{ type: "book", where: { id: "book_1" } }] },
+    },
+  ],
+});
+```
+
+This is the opposite of the to-one rule above, and deliberately so: a to-one
+`connect` contributes two literal column values to a grouped `INSERT`, which is
+why that row stays on the grouped path; a collection membership is a separate
+member-table write and cannot ride the owner's `INSERT` at all.
+
+`skipDuplicates` still applies to the root rows, and a skipped root contributes
+neither a key nor nested effects: its **complete settled subtree** is suppressed,
+so the memberships that row would have written never run. `count` remains the
+number of inserted root rows.
+
+## Write a collection inverse
+
+A collection inverse writes through the same member junction in reverse
+orientation, so both arities use ordinary vocabulary.
+
+### Plural inverse (`manyToMany`)
+
+A plural inverse is an ordinary many-to-many view over a fixed variant. It takes
+the ordinary junction write family whole — `create`, `createMany`, `connect`,
+`connectOrCreate`, `set`, `disconnect`, `delete`, `deleteMany`, `update`,
+`updateMany`, `upsert` — with untagged payloads, because the variant is already
+fixed by which model you are writing from.
+
+```ts
+await client.video.update({
+  where: { id: "video_1" },
+  data: { shelves: { connect: [{ id: "shelf_1" }] } },
+});
+```
+
+### Singular inverse (`manyToOne`)
+
+A singular inverse is a to-one **slot** whose membership is one member-junction
+row under a unique over the complete target side. It takes the ordinary to-one
+create and update families:
+
+| Verb | Payload | Meaning |
+|------|---------|---------|
+| `create` | `OwnerCreate` | Create the owner and the membership |
+| `connect` | `OwnerWhereUnique` | **Transfer** the slot to that owner |
+| `connectOrCreate` | `{ where, create }` | Locate or create, then hold the slot |
+| `update` | `OwnerUpdate` or `{ where?, data }` | Update the currently connected owner |
+| `upsert` | `{ create, update }` | Update the connected owner, or create and connect one |
+| `disconnect` | `true` | Delete **the junction row**; both records survive |
+| `delete` | `true` | Delete **the connected owner row** |
+
+```ts
+await client.book.update({
+  where: { id: "book_1" },
+  data: { shelf: { connect: { id: "shelf_right" } } },
+});
+```
+
+`connect` on an occupied slot **transfers** it: the target-side unique makes a
+bare insert impossible and an untargeted duplicate-skip silently ineffective, so
+the previous membership row is removed and the new one written as one unit.
+Deleting the owner takes its other memberships with it through the member
+tables' own source-side cascade; the variant target itself survives.
+
+One update may also compose a vacate with a supply and a modify. The order is
+`(vacate, supplier, modify)` — not the key order you wrote — so a
+`{ disconnect: true, connect: …, update: … }` payload updates the **incoming**
+owner:
+
+```ts
+await client.book.update({
+  where: { id: "book_1" },
+  data: {
+    shelf: {
+      disconnect: true,
+      connect: { id: "shelf_right" },
+      update: { label: "Supplied" },
+    },
+  },
+});
+```
 
 ## Write an inverse one-to-many relation
+
+This section and the next describe inverses of a `s.polymorphicToOne` slot —
+`oneToMany` and fields-less `oneToOne`. For collection inverses see
+[Write a collection inverse](#write-a-collection-inverse).
 
 The parent supplies both the variant and its identity. Child `create` and
 `update` data must omit the direct polymorphic field owned by the enclosing
@@ -563,6 +1059,12 @@ be cleared.
 
 ## Storage and integrity
 
+A `s.polymorphicToOne` slot is **row-held**: the membership lives in two private
+columns on the owner. A `s.polymorphicToMany` slot is **junction-held**: the
+membership lives in one member junction per variant, and the owner table gains
+no columns at all. The rest of this section describes the row-held storage; see
+[Collection storage](#collection-storage) for the other.
+
 VibORM generates two private columns on the owner table:
 
 ```sql
@@ -613,27 +1115,77 @@ rows with care and keep related cleanup in the same application transaction
 when possible. Optionality permits genuinely empty storage; it never turns a
 non-empty membership with a missing target into `null`.
 
+### Collection storage
+
+A collection stores nothing on the owner. Each variant gets one ordinary junction
+table whose owner side and variant side are both **real, complete foreign keys**:
+
+```sql
+CREATE TABLE shelf_items_book (
+  book_id   <target row key> NOT NULL REFERENCES book  (id) ON DELETE CASCADE,
+  shelf_id  <owner row key>  NOT NULL REFERENCES shelf (id) ON DELETE CASCADE,
+  PRIMARY KEY (book_id, shelf_id)
+);
+-- the primary key covers first-side lookups; one index covers the second side
+CREATE INDEX ON shelf_items_book (shelf_id);
+```
+
+The two sides are laid out in canonical order, so which one comes first is
+decided by the topology rather than by the direction you declared. Each side
+expands to as many columns as that endpoint's row key has, so a compound key on
+either end simply contributes more columns to its group. A variant whose inverse
+is singular additionally carries a `UNIQUE` over the **complete target side** —
+never the reverse index flipped, and never a primary-key prefix — which is what
+makes at most one owner able to hold a given target, and what the
+slot-replacement protocol arbitrates on.
+
+Because both sides are genuine foreign keys, the database enforces the
+membership: an orphan cannot be created, and deleting either endpoint cascades
+its membership rows away. A dangling membership is therefore only reachable
+through a disabled constraint or a hostile raw write, and VibORM answers it with
+the same integrity error the row-held storage raises.
+
+The stored discriminator is not a column here — the *member table* is the
+discriminator. `{ values }` still matters: it is what member history compares
+across migrations.
+
 ## Constraints
 
-- **Target identity:** every target needs one scalar primary key. All targets
-  must use the same portable `string`, `int`, or `bigint` representation.
-  Compound IDs, array IDs, mixed scalar kinds, and database-native type
-  overrides are not supported.
-- **Topology:** polymorphic many-to-many is not supported. The same model cannot
-  appear more than once in one target map when an inverse would be ambiguous.
-  Inverse cardinality must be consistent across the relation.
-- **Cross-target queries:** `orderBy` and explicit `_count` cannot traverse a
-  direct polymorphic relation. Target-specific direct filters must select one
-  `type`; optional presence filters are type-free.
-- **Root bulk create:** a polymorphic membership in a `createMany` row is
-  `connect` only — the grouped bulk path has no `create` or `connectOrCreate`
-  arm for one. (Ordinary relations in such a row are unrestricted; a row that
-  carries one simply leaves the grouped path.) On a driver without `RETURNING`,
-  combining `select`, `skipDuplicates`, and a polymorphic membership is not
+- **To-one target identity:** every target of a `s.polymorphicToOne` slot needs
+  one scalar primary key, and all of them must share the same portable `string`,
+  `int`, or `bigint` representation — because they all land in one private `_id`
+  column. Compound IDs, array IDs, mixed scalar kinds, and database-native type
+  overrides are not supported there.
+- **Collection target identity:** a `s.polymorphicToMany` slot has no shared
+  column, so this restriction does not apply. Each member junction carries its
+  own complete owner-side and target-side key groups, so compound owner keys,
+  compound target keys, and variants whose key kinds differ from each other are
+  all supported. What it does require is that the owner and every target have a
+  complete row key (`P018`, `P009`).
+- **Topology:** the same model cannot appear more than once in one target map
+  when an inverse would be ambiguous. On a to-one slot, inverse cardinality is
+  relation-wide and every declared inverse must agree. On a collection it is
+  per variant, and a variant bound by more than one inverse relation is rejected
+  (`P015`).
+- **Cross-target queries:** a **to-one** slot cannot be traversed by `orderBy` or
+  by an explicit `_count` — the target model is chosen per row, so there is no
+  single column to sort by and no list to count. Both are refused by name. A
+  **collection** offers `_count` and `orderBy: { rel: { _count } }`, but not
+  ordering by a member column, for the same per-row reason. Target-specific
+  direct filters must select one `type`; optional presence filters are type-free.
+- **Root bulk create:** a polymorphic **to-one** membership in a `createMany`
+  row is `connect` only — the grouped bulk path has no `create` or
+  `connectOrCreate` arm for one. (Ordinary relations and collection slots in
+  such a row are unrestricted; a row that carries one simply leaves the grouped
+  path for the record series.) On a driver without `RETURNING`, combining
+  `select`, `skipDuplicates`, and a polymorphic to-one membership is not
   supported.
-- **Referential actions:** the database cannot enforce a cross-table foreign
-  key. VibORM does not emulate cascade, restrict, or set-null when a target is
-  changed or deleted.
+- **Referential actions on a to-one slot:** the database cannot enforce a
+  cross-table foreign key from one private `_id` column. VibORM does not emulate
+  cascade, restrict, or set-null when a target is changed or deleted, and neither
+  `.onDelete()` nor `.onUpdate()` exists on the carrier. A **collection** does not
+  share this limit — its member junctions carry real foreign keys on both sides —
+  but its actions are not configurable either: both sides are fixed `cascade`.
 
 Unsupported schemas and mutation shapes are rejected before SQL execution.
 
@@ -650,6 +1202,20 @@ Stored discriminator values are database identifiers:
 The public target key shapes TypeScript inputs and results. The stored value
 protects database history, so the two may evolve independently.
 
-Changing inverse cardinality recreates the same composite index as unique or
-non-unique. Before changing from `oneToMany` to `oneToOne`, remove duplicate
-`(type, id)` pairs. VibORM does not choose which duplicate row to keep.
+Changing a to-one slot's inverse cardinality recreates the same composite index
+as unique or non-unique. Before changing from `oneToMany` to `oneToOne`, remove
+duplicate `(type, id)` pairs. VibORM does not choose which duplicate row to keep.
+
+Changing one collection variant's inverse cardinality adds or drops that member
+table's `UNIQUE` over the complete target side, and nothing else — the other
+variants are untouched, because each member keeps its own cardinality. Before
+going from `manyToMany` to `manyToOne`, remove the member rows that would make
+the target side non-unique.
+
+Member history is compared per variant, keyed by the stable stored value. A
+public rename with a stable stored value and target is metadata-only. A
+stored-value change, a member removal, a retarget, an unexplained junction move,
+or a direct-cardinality flip is **data-bearing**: generation refuses it outright
+(`V11010`). The only way past that refusal is a complete caller-owned
+`manualMigration` artifact with an honest rollback policy — see
+[Migrations](/docs/migration).

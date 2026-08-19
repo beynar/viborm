@@ -2,6 +2,8 @@ import type { DatabaseAdapter } from "@adapters";
 import { getModelKeyCatalog, type Model } from "@schema/model";
 import {
   type AnyPolymorphicRelation,
+  type PolymorphicStorage,
+  polymorphicCardinality,
   relationCardinality,
 } from "@schema/relation";
 import type {
@@ -55,10 +57,33 @@ function getPolymorphicRelations(
     model["~"].state.polymorphicRelations;
   for (const [name, relation] of Object.entries(relations)) {
     const storage = model["~"].getPolymorphicStorage(name);
-    if (storage) fields.set(name, { name, relation, storage });
+    // Both stored descriptors enter the scope since Package C. A missing one
+    // still does not: an unvalidated group has no materialized storage, and the
+    // read/write builders answer "no validated storage metadata" for it.
+    if (storage) {
+      fields.set(name, toPolymorphicRelationInfo(name, relation, storage));
+    }
   }
   polymorphicRelationsByModel.set(model, fields);
   return fields;
+}
+
+/**
+ * Pair one relation with its stored descriptor.
+ *
+ * The narrow is what makes the pair ASSIGNABLE: `PolymorphicRelationInfo` is a
+ * union of the two arms — spelled that way so its guards subtract — and a
+ * literal whose `storage` is still the descriptor union belongs to neither arm
+ * until the descriptor itself is narrowed.
+ */
+function toPolymorphicRelationInfo(
+  name: string,
+  relation: AnyPolymorphicRelation,
+  storage: PolymorphicStorage
+): PolymorphicRelationInfo {
+  return storage.kind === "toOne"
+    ? { name, relation, storage }
+    : { name, relation, storage };
 }
 
 export function getPolymorphicRelationInfo(
@@ -163,4 +188,31 @@ export function isPolymorphicRelation(
   fieldName: string
 ): boolean {
   return model["~"].polymorphicRelationSet.has(fieldName);
+}
+
+/**
+ * The COLLECTION half of {@link isPolymorphicRelation}, split out because root
+ * `createMany` routing needs exactly that half and nothing wider.
+ *
+ * A direct polymorphic TO-ONE key in a bulk row stores private owner columns on
+ * the row itself, and the grouped cross-row probe route
+ * (`write-engine/bulk-polymorphic-connect.ts`) compiles it into the maximal
+ * grouped INSERT — a shipped SQL contract pinned byte-for-byte. A COLLECTION key
+ * has no such analogue: its membership lives in per-variant member junction rows
+ * that only exist after the owner row does, so the row is relation-BEARING and
+ * belongs to the record series.
+ *
+ * It branches through {@link polymorphicCardinality} rather than reading
+ * `state.cardinality`, so the terminal the declaration selected stays the one
+ * reading of this fact.
+ */
+export function isPolymorphicCollectionRelation(
+  model: Model<any>,
+  fieldName: string
+): boolean {
+  const relation = model["~"].state.polymorphicRelations[fieldName];
+  return (
+    relation !== undefined &&
+    polymorphicCardinality(relation["~"].state) === "many"
+  );
 }

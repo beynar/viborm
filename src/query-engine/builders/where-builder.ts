@@ -23,14 +23,20 @@ import {
   isRelation,
   isScalarField,
 } from "../context";
-import { QueryEngineError, type QueryScope, type RelationInfo } from "../types";
+import {
+  isPolymorphicToOneRelationInfo,
+  QueryEngineError,
+  type QueryScope,
+  type RelationInfo,
+} from "../types";
 import { assertExactDecimalOperation } from "./decimal-portability";
 import { buildJsonFilter } from "./json-filter-builder";
+import { buildPolymorphicCollectionFilterSql } from "./polymorphic-collection-filter-builder";
+import { buildPolymorphicFilterSql } from "./polymorphic-read-builder";
 import {
   type BuildNestedWhere,
   buildRelationFilterSql,
 } from "./relation-filter-builder";
-import { buildPolymorphicFilterSql } from "./polymorphic-read-builder";
 import { assertSupportedScalarFilterOperator } from "./scalar-filter-operators";
 import { scalarValueLiteral } from "./values-builder";
 
@@ -124,14 +130,26 @@ export function buildWhere(
           `Polymorphic relation '${key}' has no validated storage metadata.`
         );
       }
+      // The two storages take different predicates: the row-held pair answers a
+      // tagged `{type, is|isNot}` plus null presence, a collection answers the
+      // ordinary quantifiers over one tagged member predicate and has no null
+      // state at all.
       conditions.push(
-        buildPolymorphicFilterSql(
-          buildNestedWhere,
-          ctx,
-          relation,
-          value,
-          alias
-        )
+        isPolymorphicToOneRelationInfo(relation)
+          ? buildPolymorphicFilterSql(
+              buildNestedWhere,
+              ctx,
+              relation,
+              value,
+              alias
+            )
+          : buildPolymorphicCollectionFilterSql(
+              buildNestedWhere,
+              ctx,
+              relation,
+              value,
+              alias
+            )
       );
       continue;
     }

@@ -102,7 +102,12 @@ ONE STORED TOPOLOGY, SEVERAL DERIVED VIEWS. `bindRelation` classifies an edge on
 THREE ORTHOGONAL AXES: `position` (`parentHeld` | `childHeld` | `junction`),
 `cardinality` (`one` | `many`), and `membership.kind` (`foreignKey` |
 `polymorphic` | `junction`), with impossible combinations unrepresentable
-(parent-held is always to-one; a junction is always to-many). Cardinality,
+(parent-held is always to-one). A junction is to-many for every ordinary pair —
+`bindJunctionRelation` writes `"many"` unconditionally — but the axis is NOT
+collapsed to it: `bindPolymorphicMemberJunction` is the one producer of a
+singular junction, for a fields-less `manyToOne` bound to a member whose
+`inverseCardinality` is `"one"`, backed by that member table's UNIQUE over the
+complete target side. Cardinality,
 clearability and physical membership are DERIVED from that one stored
 declaration, each by one named owner (`@schema/relation/cardinality`,
 `@schema/relation/clearability`, the bound membership itself) — never
@@ -117,12 +122,22 @@ the same reason, because it owns the mismatched-metadata refusal.
 The OwnWrite membership scope is a READER of that bound membership, not a second
 constructor of it.
 
-A polymorphic child-held relation is a fixed inverse topology. Both cardinality
+A polymorphic child-held relation is a fixed inverse topology — the inverse of a
+ROW-HELD group. Both cardinality
 variants carry the private type/id storage, the inverse's stored discriminator,
 and the one parent field the private identity references. Their physical
 membership is exactly `child.id = parent.referenced AND child.type = storedType`.
 The `ToOne` variant changes public arity and operation shape; it does not create
 another storage or execution owner.
+
+An inverse of a JUNCTION-HELD group is not one of those: its membership lives in
+a member junction, so it binds as `position: "junction"` with a `junction`
+membership, in reverse orientation, carrying `membership.polymorphicMember`. The
+plural inverse (`manyToMany`) is then an ordinary to-many junction edge and needs
+no polymorphic-specific engine code at all; the singular inverse (fields-less
+`manyToOne`) is the junction-`"one"` combination above. Direct collection leaf,
+plural view and singular slot all read the same `ResolvedJunctionTopology`, so
+they cannot disagree about a member table.
 
 Direct polymorphic payloads remain a distinct FACT, carried in the one parsed
 relation collection rather than a companion map. After schema transformation the
@@ -498,10 +513,55 @@ transition, membership reads use the old value and create/adopt writes use the
 new value. Existing members are not rewritten because the database has no
 polymorphic foreign key or automatic referential action.
 
-A singular inverse reuses the ordinary child-held-to-one Parts and record
-compilers. The composite storage index supplies portable occupied-slot
+A singular ROW-HELD inverse reuses the ordinary child-held-to-one Parts and
+record compilers. The composite storage index supplies portable occupied-slot
 uniqueness. A slot collision is a genuine unique conflict, not a retryable
 missing-target race.
+
+### Polymorphic collections
+
+A `s.polymorphicToMany` slot stores each variant's memberships in one
+fixed-target member junction, so the junction owners serve it whole. The rule is
+that the collection adds COORDINATION only: no second junction DML owner, no new
+relation-kind cross-product, no polymorphic scheduler, no provider-name branch.
+
+Reads compose one branch per member junction in `storage.members` declaration
+order. Filters lower `some`/`none` to correlated existence over the named
+variant's member table and `every` to an explicit TWO-conjunct `NOT EXISTS` — no
+member of the selected arm violates the predicate (read membership-first through
+a LEFT JOIN, so an orphan counts as a violation), and no member of any other
+configured arm exists. This is deliberately not `negateInner`, which would
+compute "every post satisfies P while other variants are allowed" — a silently
+wrong truth table whose correct public spelling is `none: { type, isNot: P }`.
+`_count` sums one correlated count per member table in declaration order, and
+`orderBy: { rel: { _count } }` sorts on that same expression.
+
+`PolymorphicCollectionPart` returns ONE `Part`, not a list, because sibling Parts
+are concatenated in list order and N variant Parts could not express a
+clear-once barrier. It owns exactly four relation-wide facts — the `set`
+clear-all barrier, cross-verb/cross-variant ordering, the single owner-row
+publication every leaf correlates on, and a cache footprint that is empty by
+measurement (invalidation lives above the engine in `client.ts`). Its compile
+order IS the contract: every leaf's guards, then the barrier, then every leaf's
+writes. `set` is LOWERED — the parser keeps emitting `set`, the coordinator
+rewrites each entry into its insert half and owns the clear half, so ordinary
+junction `set` stays byte-identical. The one shape a batch could split between
+clear and refill (no transaction, `clearsAll`, owner row key arriving as a
+produced output reference) is refused at construction, before any effect.
+
+A membership add on a member whose `inverseCardinality` is `"one"` is a SLOT
+REPLACEMENT, owned by `junction-singular-transfer.ts` for both directions: one
+capture read, then one write sequence identical on both substrates —
+`forUpdate` with the row lock as the premise inside a transaction, an in-batch
+CAS with no `expects` in a native atomic batch. A freshly created target is
+proven empty structurally, so its capture is elided rather than paid for.
+
+Root `createMany` dispatches on cardinality in `routing.ts`, reading raw rows
+before any parse: a ROW-HELD `connect` stays out of the relation-bearing set and
+keeps the pinned grouped INSERT; a COLLECTION key is in it, because member
+junction rows cannot exist before the owner row does, so the whole call routes to
+the ordered record series. A skipped root contributes neither a key nor nested
+effects.
 
 Strict results keep a separate polymorphic expected-shape map and parser. The
 existing adapter/driver relation decode chain receives result kind
@@ -580,16 +640,23 @@ the existing guard; it does not add a statement or round trip.
 | `builders/relation-mutation-parser.ts` | parsed mutation programs |
 | `builders/relation-data-builder.ts` | bound relation topology, and the classifier every entry point goes through |
 | `builders/relation-traversal.ts` | the one read-side physical traversal of a relation occurrence |
-| `builders/polymorphic-relation.ts` | direct member resolution |
-| `builders/polymorphic-read-builder.ts` | direct CASE projection and correlated filters |
-| `builders/polymorphic-mutation.ts` | resolved direct intent and atomic private storage value |
+| `builders/polymorphic-relation.ts` | row-held member resolution |
+| `builders/polymorphic-read-builder.ts` | row-held CASE projection and correlated filters |
+| `builders/polymorphic-collection-read-builder.ts` | collection read: one correlated JSON document, one branch per variant in declaration order, reading `only` and `variants` and nothing else |
+| `builders/polymorphic-member-join-parts.ts` | the shared member-table join legs both collection reads and filters traverse |
+| `builders/polymorphic-mutation.ts` | resolved row-held intent and atomic private storage value |
+| `builders/polymorphic-collection-mutation.ts` | binds one collection member for a write leaf |
+| `builders/polymorphic-collection-filter-builder.ts` | `some`/`every`/`none` lowering over member tables (`every` as an explicit two-conjunct `NOT EXISTS`, never `negateInner`) |
+| `write-engine/PolymorphicCollectionPart.ts` | the ONE direct-collection coordinator: `set` clear-all barrier, cross-verb/cross-variant order, one owner-row publication, empty cache footprint |
+| `write-engine/RelationJunctionToOnePart.ts` | singular collection inverse: composition order, the four correlated spellings, owner-oriented membership projection |
+| `write-engine/junction-singular-transfer.ts` | the singular member slot-replacement protocol, both substrates |
 | `write-engine/relation-membership.ts` | child-held membership and value provenance |
-| `ManyToManyStatements.ts` | junction SQL materialization |
+| `JunctionStatements.ts` | junction SQL materialization — one owner, every orientation and arity |
 | `result/ResultParser.ts` | result-boundary middleware chains and nested row-parser reuse |
 | `result/polymorphic-result-parser.ts` | strict discriminator dispatch and orphan semantics |
 
 Keep the type-only `QueryMetadata` compatibility export, adapter `batchRefs`,
-and `ManyToManyStatements`. `QueryMetadata` is not a runtime boundary. Do not
+and `JunctionStatements`. `QueryMetadata` is not a runtime boundary. Do not
 add a generic mutation DSL, payload walker, branch-step IR, locator, strategy,
 lifecycle hook, or shared utility landfill.
 

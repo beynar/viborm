@@ -429,9 +429,20 @@ describe("the link IN-list fold — statement traffic", () => {
     // Three INSERTs became one. The duplicate skip is the same clause — the
     // single-row builder IS the many-row builder over a one-element list — so
     // connecting an already-connected label stays idempotent (below).
+    //
+    // AMENDED by the polymorphic cardinality plan's §1.7 conflict policy: the
+    // skip now NAMES the complete membership key instead of arbitrating on any
+    // unique. Uniform across every junction (§9.4 open question 1) — a pair
+    // table's PK is its only unique constraint, so which rows are skipped is
+    // unchanged, and one answer to "how does a junction insert skip duplicates"
+    // is worth more than zero byte churn. What the target buys is a member
+    // table whose singular inverse carries a target-side UNIQUE: an occupied
+    // slot must raise there, and the untargeted clause swallowed it.
     const inserts = statements.filter((sql) => sql.startsWith("INSERT"));
     expect(inserts).toHaveLength(1);
-    expect(inserts[0]).toContain("ON CONFLICT DO NOTHING");
+    expect(inserts[0]).toContain(
+      'ON CONFLICT ("authorId", "labelId") DO NOTHING'
+    );
     expect(inserts[0]).toContain("($1, $2), ($3, $4), ($5, $6)");
 
     const author1 = await client.author.findUnique({

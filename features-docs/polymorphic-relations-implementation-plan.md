@@ -10,6 +10,18 @@
 > relation-wide cardinality and reused the ordinary child-held-to-one owners.
 >
 > **Architecture:** consolidated query engine; no `query-engine-v2`
+>
+> **SCOPE NOTE (2026-08-19).** This plan is the ROW-HELD feature's contract —
+> the slot now spelled `s.polymorphicToOne`, whose membership is a private
+> `(type, identity)` pair on the owner row. Everything below is still true of
+> that slot. Its "out of scope" lists, including "polymorphic many-to-many" in
+> §1 and §10, describe THIS plan's boundary and are not a statement about the
+> product: the collection slot `s.polymorphicToMany` shipped afterwards under
+> [`../docs/architecture/polymorphic-cardinality-plan.md`](../docs/architecture/polymorphic-cardinality-plan.md)
+> (Packages A–F), with one fixed-target member junction per variant, per-variant
+> inverse cardinality, and full read/write/migration surfaces. Its semantics are
+> in `polymorphic-relations.md` §17. Read this document as history of the
+> row-held phases, not as the current feature boundary.
 
 ## 1. Required outcome
 

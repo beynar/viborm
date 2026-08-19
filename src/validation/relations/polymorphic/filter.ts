@@ -4,47 +4,19 @@ import { createSchema, fail, validateSchema } from "../../primitives/helpers";
 import type { VibSchema } from "../../types";
 import { isRecord } from "../../value-guards";
 import type {
-  CoreInputAt,
-  CoreOutputAt,
+  TaggedPredicateInput,
+  TaggedPredicateOutput,
+} from "./tagged-predicate";
+import { taggedTargetPredicate } from "./tagged-predicate";
+import type {
   ExactPolymorphicTargetSchemaGetters,
   PolymorphicSchema,
   PolymorphicTargetSchemaGetters,
 } from "./types";
-import { polymorphicPublicTypes } from "./types";
 
-type FilterInputFor<Getters, PublicType extends keyof Getters> =
-  | { readonly type: PublicType; readonly is?: never; readonly isNot?: never }
-  | {
-      readonly type: PublicType;
-      readonly is: CoreInputAt<Getters, PublicType, "where">;
-      readonly isNot?: never;
-    }
-  | {
-      readonly type: PublicType;
-      readonly is?: never;
-      readonly isNot: CoreInputAt<Getters, PublicType, "where">;
-    };
+type FilterInput<Getters> = TaggedPredicateInput<Getters>;
 
-type FilterOutputFor<Getters, PublicType extends keyof Getters> =
-  | { readonly type: PublicType; readonly is?: never; readonly isNot?: never }
-  | {
-      readonly type: PublicType;
-      readonly is: CoreOutputAt<Getters, PublicType, "where">;
-      readonly isNot?: never;
-    }
-  | {
-      readonly type: PublicType;
-      readonly is?: never;
-      readonly isNot: CoreOutputAt<Getters, PublicType, "where">;
-    };
-
-type FilterInput<Getters> = {
-  [PublicType in keyof Getters]: FilterInputFor<Getters, PublicType>;
-}[keyof Getters];
-
-type FilterOutput<Getters> = {
-  [PublicType in keyof Getters]: FilterOutputFor<Getters, PublicType>;
-}[keyof Getters];
+type FilterOutput<Getters> = TaggedPredicateOutput<Getters>;
 
 type PresenceFilter =
   | { readonly is: null; readonly isNot?: never }
@@ -68,27 +40,7 @@ export function polymorphicFilterFactory<
   targetSchemas: ExactPolymorphicTargetSchemaGetters<State, Getters>
 ): PolymorphicFilterSchema<State, Getters> {
   const schemaGetters: PolymorphicTargetSchemaGetters<State> = targetSchemas;
-  const targetMembers = polymorphicPublicTypes(state).flatMap((publicType) => {
-    const schemas = schemaGetters[publicType];
-    return [
-      v.object({ type: v.literal(publicType) }, { partial: false }),
-      v.object(
-        {
-          type: v.literal(publicType),
-          is: () => schemas().core.where,
-        },
-        { partial: false }
-      ),
-      v.object(
-        {
-          type: v.literal(publicType),
-          isNot: () => schemas().core.where,
-        },
-        { partial: false }
-      ),
-    ];
-  });
-  const targetFilter = v.union(targetMembers);
+  const targetFilter = taggedTargetPredicate(state, schemaGetters);
   const isNull = v.object({ is: v.literal(null) }, { partial: false });
   const isNotNull = v.object({ isNot: v.literal(null) }, { partial: false });
   const presenceMembers: readonly [typeof isNull, typeof isNotNull] = [
@@ -119,4 +71,58 @@ export function polymorphicFilterFactory<
   });
   (schema as { options?: unknown }).options = options;
   return schema as PolymorphicFilterSchema<State, Getters>;
+}
+
+// =============================================================================
+// COLLECTION QUANTIFIERS — cardinality `"many"`
+// =============================================================================
+
+/**
+ * `{ some | every | none }` over the SAME tagged predicate the to-one filter
+ * uses, and nothing else.
+ *
+ * NO null-presence arm. A collection has no null state — an empty collection is
+ * the empty array, not `null` — so `is: null` / `isNot: null` would be a second
+ * spelling of "empty" that disagrees with the result type. Callers asking
+ * "is it empty" write `none: { type: … }` or a `_count` filter.
+ *
+ * NO hand-written `Object.hasOwn(value, "type")` dispatcher either. That lives
+ * in the to-one factory to disambiguate the bare-`null` shorthand from the
+ * tagged form; with no shorthand and no presence arm there is nothing to
+ * disambiguate, and the strict object's own "Unknown key" is already the right
+ * message.
+ *
+ * Every quantifier carries a TYPE. `some: { type: "post", is: … }` asks about
+ * post members specifically — the plan's §7.3 rule that `every` means "every
+ * member of the named variant satisfies the predicate AND no member of another
+ * variant exists", which the engine lowers as a conjunction rather than trusting
+ * a `NOT EXISTS` spelling to mean it.
+ */
+export type PolymorphicCollectionFilterSchema<Getters> = PolymorphicSchema<
+  {
+    readonly some?: FilterInput<Getters>;
+    readonly every?: FilterInput<Getters>;
+    readonly none?: FilterInput<Getters>;
+  },
+  {
+    readonly some?: FilterOutput<Getters>;
+    readonly every?: FilterOutput<Getters>;
+    readonly none?: FilterOutput<Getters>;
+  }
+>;
+
+export function polymorphicCollectionFilterFactory<
+  State extends PolymorphicRelationState,
+  Getters extends PolymorphicTargetSchemaGetters<State>,
+>(
+  state: State,
+  targetSchemas: ExactPolymorphicTargetSchemaGetters<State, Getters>
+): PolymorphicCollectionFilterSchema<Getters> {
+  const schemaGetters: PolymorphicTargetSchemaGetters<State> = targetSchemas;
+  const predicate = taggedTargetPredicate(state, schemaGetters);
+  return v.object({
+    some: predicate,
+    every: predicate,
+    none: predicate,
+  }) as PolymorphicCollectionFilterSchema<Getters>;
 }
