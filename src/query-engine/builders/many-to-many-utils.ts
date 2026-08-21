@@ -92,6 +92,12 @@ export function buildManyToManyJoinParts(
  */
 export type JunctionSqlValues = readonly Sql[];
 
+/** Whether a junction INSERT absorbs only an exact membership duplicate or surfaces it. */
+export type JunctionDuplicatePolicy =
+  | "skip"
+  | "surface"
+  | "exactMembershipNoop";
+
 export function buildJunctionParentValue(
   ctx: QueryScope,
   junction: JunctionBoundRelation,
@@ -194,8 +200,10 @@ function junctionDuplicateSkip(
   ctx: QueryScope,
   sourceFields: readonly string[],
   targetFields: readonly string[],
-  duplicateNoopColumn: string
-): { readonly prefix: Sql; readonly suffix: Sql } {
+  duplicateNoopColumn: string,
+  policy: JunctionDuplicatePolicy
+): { readonly prefix: Sql; readonly suffix: Sql } | undefined {
+  if (policy !== "skip") return undefined;
   const { adapter } = ctx;
   if (!adapter.capabilities.supportsTargetedUpsert) {
     return adapter.mutations.skipDuplicates(duplicateNoopColumn);
@@ -220,9 +228,16 @@ export function buildJunctionInsert(
   ctx: QueryScope,
   junction: JunctionBoundRelation,
   parentValues: JunctionSqlValues,
-  targetValues: JunctionSqlValues
+  targetValues: JunctionSqlValues,
+  policy: JunctionDuplicatePolicy = "skip"
 ): Sql {
-  return buildJunctionInsertMany(ctx, junction, parentValues, [targetValues]);
+  return buildJunctionInsertMany(
+    ctx,
+    junction,
+    parentValues,
+    [targetValues],
+    policy
+  );
 }
 
 /**
@@ -237,7 +252,8 @@ export function buildJunctionInsertWhenTargetExists(
   ctx: QueryScope,
   junction: JunctionBoundRelation,
   parentValues: JunctionSqlValues,
-  targetValues: JunctionSqlValues
+  targetValues: JunctionSqlValues,
+  policy: JunctionDuplicatePolicy = "skip"
 ): Sql {
   const { adapter } = ctx;
   const { source, target } = junction.membership;
@@ -252,35 +268,101 @@ export function buildJunctionInsertWhenTargetExists(
     );
   }
   const targetTable = getTableName(target.model);
-  const selectedTargetValues = target.members.map((member) =>
-    adapter.identifiers.column(
-      targetTable,
-      getColumnName(target.model, member.referencedField)
-    )
-  );
-  const select = adapter.assemble.select({
-    columns: sql.join([...parentValues, ...selectedTargetValues], ", "),
-    from: adapter.identifiers.escape(targetTable),
-    where: buildJunctionReferencedValuesMatch(
+  let select: Sql;
+  if (policy === "exactMembershipNoop") {
+    select = buildJunctionInsertSelectWithoutExactMembership(
       ctx,
-      target,
+      junction,
+      parentValues,
       targetValues,
-      targetTable
-    ),
-  });
-  const { prefix, suffix } = junctionDuplicateSkip(
+      targetTable,
+      sourceField
+    );
+  } else {
+    const selectedTargetValues = target.members.map((member) =>
+      adapter.identifiers.column(
+        targetTable,
+        getColumnName(target.model, member.referencedField)
+      )
+    );
+    select = adapter.assemble.select({
+      columns: sql.join([...parentValues, ...selectedTargetValues], ", "),
+      from: adapter.identifiers.escape(targetTable),
+      where: buildJunctionReferencedValuesMatch(
+        ctx,
+        target,
+        targetValues,
+        targetTable
+      ),
+    });
+  }
+  const duplicateSkip = junctionDuplicateSkip(
     ctx,
     sourceFields,
     targetFields,
-    sourceField
+    sourceField,
+    policy
   );
   const insert = adapter.mutations.insert(
     adapter.identifiers.escape(junction.membership.table),
     [...sourceFields, ...targetFields],
     { select },
-    prefix
+    duplicateSkip?.prefix
   );
-  return sql`${insert} ${suffix}`;
+  return duplicateSkip ? sql`${insert} ${duplicateSkip.suffix}` : insert;
+}
+
+function buildJunctionInsertSelectWithoutExactMembership(
+  ctx: QueryScope,
+  junction: JunctionBoundRelation,
+  parentValues: JunctionSqlValues,
+  targetValues: JunctionSqlValues,
+  targetTable: string,
+  membershipProbeField: string
+): Sql {
+  const { adapter } = ctx;
+  const targetAlias = "__viborm_junction_target";
+  const membershipAlias = "__viborm_junction_membership";
+  const target = junction.membership.target;
+  const selectedTargetValues = target.members.map((member) =>
+    adapter.identifiers.column(
+      targetAlias,
+      getColumnName(target.model, member.referencedField)
+    )
+  );
+
+  // MySQL permits the INSERT target in the outer FROM, but rejects a subquery
+  // that reads it. Keep the exact-membership probe in this outer anti-join.
+  const exactMembership = adapter.operators.and(
+    buildJunctionSourceMatch(ctx, junction, parentValues, membershipAlias),
+    buildJunctionTargetValuesMatch(
+      ctx,
+      junction,
+      [selectedTargetValues],
+      membershipAlias
+    )
+  );
+  return adapter.assemble.select({
+    columns: sql.join([...parentValues, ...selectedTargetValues], ", "),
+    from: adapter.identifiers.table(targetTable, targetAlias),
+    joins: [
+      adapter.joins.left(
+        adapter.identifiers.table(junction.membership.table, membershipAlias),
+        exactMembership
+      ),
+    ],
+    where: adapter.operators.and(
+      buildJunctionReferencedValuesMatch(
+        ctx,
+        target,
+        targetValues,
+        targetAlias
+      ),
+      adapter.operators.isNull(
+        adapter.identifiers.column(membershipAlias, membershipProbeField)
+      )
+    ),
+  });
 }
 
 /** INSERT junction rows in one portable duplicate-skipping statement. */
@@ -288,7 +370,8 @@ export function buildJunctionInsertMany(
   ctx: QueryScope,
   junction: JunctionBoundRelation,
   parentValues: JunctionSqlValues,
-  targetValues: readonly JunctionSqlValues[]
+  targetValues: readonly JunctionSqlValues[],
+  policy: JunctionDuplicatePolicy = "skip"
 ): Sql {
   const { adapter } = ctx;
   const membership = junction.membership;
@@ -309,19 +392,20 @@ export function buildJunctionInsertMany(
     );
   }
   const table = adapter.identifiers.escape(membership.table);
-  const { prefix, suffix } = junctionDuplicateSkip(
+  const duplicateSkip = junctionDuplicateSkip(
     ctx,
     sourceFields,
     targetFields,
-    sourceField
+    sourceField,
+    policy
   );
   const insertSql = adapter.mutations.insert(
     table,
     [...sourceFields, ...targetFields],
     targetValues.map((target) => [...parentValues, ...target]),
-    prefix
+    duplicateSkip?.prefix
   );
-  return sql`${insertSql} ${suffix}`;
+  return duplicateSkip ? sql`${insertSql} ${duplicateSkip.suffix}` : insertSql;
 }
 
 /** Condition: junction.source = parentValue (unqualified, for junction DML). */

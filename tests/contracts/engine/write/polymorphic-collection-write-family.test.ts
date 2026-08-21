@@ -41,7 +41,9 @@ const collectionWriteSchema = (() => {
     .model({
       region: s.string(),
       isbn: s.string(),
-      title: s.string(),
+      // A second addressable key lets the duplicate-connect witness prove that
+      // coalescing follows the resolved compound target, not selector syntax.
+      title: s.string().unique(),
       // SINGULAR inverse: at most one shelf may hold a given book, which is the
       // target-side UNIQUE the transfer arbitrates on.
       shelf: s.manyToOne(() => shelf).optional(),
@@ -247,16 +249,26 @@ for (const mode of ["transaction", "atomicBatch"] as const) {
       await family.reset();
       await seed(family);
 
-      const connectBook = (code: string) =>
+      const connectBook = (code: string, duplicate = false) =>
         family.client.shelf.update({
           where: { tenantId_code: { tenantId: "t1", code } },
           data: {
             items: {
               connect: [
                 {
-                  type: "book",
+                  type: "book" as const,
                   where: { region_isbn: { region: "eu", isbn: "111" } },
                 },
+                ...(duplicate
+                  ? [
+                      {
+                        type: "book" as const,
+                        where: {
+                          region_isbn: { region: "eu", isbn: "111" },
+                        },
+                      },
+                    ]
+                  : []),
               ],
             },
           },
@@ -270,13 +282,73 @@ for (const mode of ["transaction", "atomicBatch"] as const) {
       await connectBook("left");
       expect(await bookMembers(family)).toEqual(["t1/left/eu/111"]);
 
-      // A DIFFERENT owner is NOT a duplicate. The slot is occupied, so the
-      // transfer vacates the captured owner's row and inserts the new one. An
-      // untargeted duplicate-skip would swallow this and report success having
-      // changed nothing — which is exactly what §1.7's conflict targeting and
-      // this protocol exist to prevent.
-      await connectBook("right");
+      // Two input slots name the SAME target. They must coalesce to ONE slot
+      // transition: both planning captures see `left`, but only one may vacate
+      // it before `right` is inserted. The transaction substrate catches the
+      // old second-vacate failure through its affectedRows(1) postcondition.
+      await connectBook("right", true);
       expect(await bookMembers(family)).toEqual(["t1/right/eu/111"]);
+
+      // These selectors are syntactically different but resolve to the same
+      // complete compound row key. Coalescing selector text instead of the
+      // captured target tuple would run the transfer twice here.
+      await family.client.shelf.update({
+        where: { tenantId_code: { tenantId: "t1", code: "left" } },
+        data: {
+          items: {
+            connect: [
+              {
+                type: "book",
+                where: { region_isbn: { region: "eu", isbn: "111" } },
+              },
+              { type: "book", where: { title: "Book one" } },
+            ],
+          },
+        },
+      });
+      expect(await bookMembers(family)).toEqual(["t1/left/eu/111"]);
+
+      // The parser preserves input order, so these two book entries become
+      // separate junction leaves around the video entry. They still resolve to
+      // the same book slot and must share one transfer decision across leaves.
+      await family.client.shelf.update({
+        where: { tenantId_code: { tenantId: "t1", code: "right" } },
+        data: {
+          items: {
+            connect: [
+              {
+                type: "book",
+                where: { region_isbn: { region: "eu", isbn: "111" } },
+              },
+              { type: "video", where: { id: 1 } },
+              { type: "book", where: { title: "Book one" } },
+            ],
+          },
+        },
+      });
+      expect(await bookMembers(family)).toEqual(["t1/right/eu/111"]);
+      expect(await videoMembers(family)).toEqual(["t1/right/1"]);
+
+      // `set` lowers its entries through the same leaves after its clear-all
+      // barrier. The first book transfer vacates `right`; the second must see
+      // the collection-wide resolved target and emit no second vacate.
+      await family.client.shelf.update({
+        where: { tenantId_code: { tenantId: "t1", code: "left" } },
+        data: {
+          items: {
+            set: [
+              {
+                type: "book",
+                where: { region_isbn: { region: "eu", isbn: "111" } },
+              },
+              { type: "video", where: { id: 1 } },
+              { type: "book", where: { title: "Book one" } },
+            ],
+          },
+        },
+      });
+      expect(await bookMembers(family)).toEqual(["t1/left/eu/111"]);
+      expect(await videoMembers(family)).toEqual(["t1/left/1", "t1/right/1"]);
     });
 
     test("connectOrCreate takes its FOUND arm, then its MISSING arm, per variant", async () => {
@@ -347,6 +419,103 @@ for (const mode of ["transaction", "atomicBatch"] as const) {
         "Book two",
       ]);
       expect(await noteIds(family)).toEqual(["n1", "n2"]);
+    });
+
+    test("connectOrCreate FOUND duplicates coalesce one singular transfer", async () => {
+      const family = getFamily();
+      await family.reset();
+      await seed(family);
+
+      // Put the singular book in `left` first. Both book entries below find
+      // this same row, so their planning captures see the same occupied slot.
+      await family.client.shelf.update({
+        where: { tenantId_code: { tenantId: "t1", code: "left" } },
+        data: {
+          items: {
+            connect: [
+              {
+                type: "book",
+                where: { region_isbn: { region: "eu", isbn: "111" } },
+              },
+            ],
+          },
+        },
+      });
+
+      // Repeating one selector is the public shape the own-write ledger admits:
+      // both probes capture the same occupied slot, but only one transfer may
+      // vacate it. The impossible create titles prove that neither found arm
+      // falls through to its MISSING branch.
+      await family.client.shelf.update({
+        where: { tenantId_code: { tenantId: "t1", code: "right" } },
+        data: {
+          items: {
+            connectOrCreate: [
+              {
+                type: "book",
+                where: { region_isbn: { region: "eu", isbn: "111" } },
+                create: {
+                  region: "eu",
+                  isbn: "111",
+                  title: "must never create from compound selector",
+                },
+              },
+              {
+                type: "book",
+                where: { region_isbn: { region: "eu", isbn: "111" } },
+                create: {
+                  region: "eu",
+                  isbn: "111",
+                  title: "must never create from repeated selector",
+                },
+              },
+            ],
+          },
+        },
+      });
+
+      expect(await bookMembers(family)).toEqual(["t1/right/eu/111"]);
+      expect(await bookTitles(family)).toEqual(["Book one", "Book two"]);
+    });
+
+    test("connectOrCreate MISSING duplicates keep the first target and membership", async () => {
+      const family = getFamily();
+      await family.reset();
+      await seed(family);
+
+      // Every probe sees the repeated selector missing, but the first create arm
+      // owns both the target and its singular membership; the second may not
+      // repeat either effect.
+      await family.client.shelf.update({
+        where: { tenantId_code: { tenantId: "t1", code: "right" } },
+        data: {
+          items: {
+            connectOrCreate: [
+              {
+                type: "book",
+                where: { region_isbn: { region: "us", isbn: "333" } },
+                create: { region: "us", isbn: "333", title: "Book three" },
+              },
+              {
+                type: "book",
+                where: { region_isbn: { region: "us", isbn: "333" } },
+                create: {
+                  region: "us",
+                  isbn: "333",
+                  title: "must never use second create",
+                },
+              },
+            ],
+          },
+        },
+      });
+
+      expect(await bookMembers(family)).toEqual(["t1/right/us/333"]);
+      expect(await bookTitles(family)).toEqual([
+        "Book one",
+        "Book three",
+        "Book two",
+      ]);
     });
 
     test("SINGULAR member: `set` of an already-owned target clears then REINSERTS", async () => {
@@ -636,6 +805,99 @@ for (const mode of ["transaction", "atomicBatch"] as const) {
       });
       expect(await noteMembers(family)).toEqual(["t1/left/b1", "t1/left/b2"]);
       expect(await videoMembers(family)).toEqual([]);
+    });
+
+    test("createMany skipDuplicates coalesces an existing singular target transition", async () => {
+      const family = getFamily();
+      await family.reset();
+      await seed(family);
+
+      await family.client.shelf.update({
+        where: { tenantId_code: { tenantId: "t1", code: "left" } },
+        data: {
+          items: {
+            connect: [
+              {
+                type: "book",
+                where: { region_isbn: { region: "eu", isbn: "111" } },
+              },
+            ],
+          },
+        },
+      });
+
+      // `connect` is ordered before `createMany` in one collection program. Its
+      // transfer moves the target from left to right; both skipped createMany
+      // rows then name that same key. They retain their child INSERTs, but neither
+      // may repeat the transfer captured before any writes ran.
+      await family.client.shelf.update({
+        where: { tenantId_code: { tenantId: "t1", code: "right" } },
+        data: {
+          items: {
+            connect: [
+              {
+                type: "book",
+                where: { region_isbn: { region: "eu", isbn: "111" } },
+              },
+            ],
+            createMany: [
+              {
+                type: "book",
+                skipDuplicates: true,
+                data: [
+                  { region: "eu", isbn: "111", title: "Book one" },
+                  { region: "eu", isbn: "111", title: "Book one" },
+                ],
+              },
+            ],
+          },
+        },
+      });
+
+      expect(await bookMembers(family)).toEqual(["t1/right/eu/111"]);
+      expect(await bookTitles(family)).toEqual(["Book one", "Book two"]);
+    });
+
+    test("createMany skipDuplicates joins a later same-key row after an alternate conflict", async () => {
+      const family = getFamily();
+      await family.reset();
+      await seed(family);
+
+      // A1 skips because `Book one` owns the alternate unique title while A1's
+      // `(eu, 999)` key is absent. B separates A1 from A2 into distinct direct
+      // collection leaves. A2 then creates that same key, so its membership must
+      // be the direct exact-key no-op insert, not a suppressed transfer.
+      await family.client.shelf.update({
+        where: { tenantId_code: { tenantId: "t1", code: "right" } },
+        data: {
+          items: {
+            createMany: [
+              {
+                type: "book",
+                skipDuplicates: true,
+                data: [{ region: "eu", isbn: "999", title: "Book one" }],
+              },
+              {
+                type: "video",
+                data: [{ id: 2, title: "Video two" }],
+              },
+              {
+                type: "book",
+                skipDuplicates: true,
+                data: [{ region: "eu", isbn: "999", title: "Book three" }],
+              },
+            ],
+          },
+        },
+      });
+
+      expect(await bookMembers(family)).toEqual(["t1/right/eu/999"]);
+      expect(await videoMembers(family)).toEqual(["t1/right/2"]);
+      expect(await bookTitles(family)).toEqual([
+        "Book one",
+        "Book three",
+        "Book two",
+      ]);
     });
 
     test("delete is membership-scoped and cascades every owner's membership", async () => {

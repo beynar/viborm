@@ -20,6 +20,7 @@ import {
 import { buildInsert } from "../builders/values-builder";
 import { createQueryScope, getTableName } from "../context/query-scope";
 import {
+  type JunctionInsertMaterializationMode,
   type JunctionOperation,
   JunctionStatements,
 } from "../JunctionStatements";
@@ -113,6 +114,8 @@ import {
   capturedTargetValues,
   capturedTargetWhere,
   completeTargetPresenceGuard,
+  rowKeysEqual,
+  rowKeyToken,
   type TargetProjection,
   targetProjectionColumns,
   targetProjectionRowKeySelect,
@@ -151,7 +154,45 @@ interface JunctionContext {
 }
 
 type JunctionReferenceSources = FinalReferenceSources;
-type JunctionRowKey = Readonly<Record<string, unknown>>;
+export type JunctionRowKey = Readonly<Record<string, unknown>>;
+
+/**
+ * One compilation's resolved singular-membership targets. The member table and
+ * target-model object keep variants disjoint;
+ * each innermost bucket still confirms candidates by complete row-key equality.
+ */
+export type ResolvedJunctionMembershipRegistry = Map<
+  string,
+  Map<object, Map<string, JunctionRowKey[]>>
+>;
+
+export function createResolvedJunctionMembershipRegistry(): ResolvedJunctionMembershipRegistry {
+  return new Map();
+}
+
+/**
+ * One compilation's missing-arm first-create ledger. The member table and
+ * target-model object keep separate polymorphic variants from sharing a key.
+ */
+export type SharedAdoptCreatedRegistry = Map<
+  string,
+  Map<object, Map<string, JunctionRowKey>>
+>;
+
+export function createSharedAdoptCreatedRegistry(): SharedAdoptCreatedRegistry {
+  return new Map();
+}
+
+/** A junction Part may receive collection-wide compile coordination from its
+ * direct-polymorphic parent. Plain Parts ignore those optional arguments. */
+export interface JunctionCompilePart extends Part {
+  compile(
+    scope: StepScope,
+    known: PlanningKnown,
+    sharedAdoptCreated?: SharedAdoptCreatedRegistry,
+    resolvedMemberships?: ResolvedJunctionMembershipRegistry
+  ): readonly OperationStep[];
+}
 
 type JunctionIdentity =
   | { readonly kind: "literal"; readonly values: JunctionRowKey }
@@ -378,7 +419,7 @@ type JunctionPlan =
       readonly slots: readonly FreshUpsertSlot[];
     };
 
-export class RelationJunctionPart implements Part {
+export class RelationJunctionPart implements JunctionCompilePart {
   private readonly context: JunctionContext;
   private readonly childName: string;
   private readonly childScope: QueryScope;
@@ -530,8 +571,10 @@ export class RelationJunctionPart implements Part {
     parent: unknown,
     targetValue: unknown,
     known: PlanningKnown,
-    insert: () => WriteStep
+    insert: () => WriteStep,
+    mode: JunctionInsertMaterializationMode = "default"
   ): readonly OperationStep[] {
+    if (mode === "exactMembershipNoop") return [insert()];
     const transfer = this.transfers.get(writeId);
     if (!transfer) return [insert()];
     return transfer.compile(known, {
@@ -545,8 +588,8 @@ export class RelationJunctionPart implements Part {
   }
 
   /**
-   * The bulk membership insert for `connect` / `set`, or one transfer per target
-   * when the member table is singular.
+   * The bulk membership insert for `connect` / `set`, or one transfer per
+   * resolved target when the member table is singular.
    *
    * Bind-budget chunking is the plural path's alone by construction: a singular
    * slot writes ONE row per target, so there is nothing to chunk, and the chunked
@@ -557,14 +600,25 @@ export class RelationJunctionPart implements Part {
     slots: readonly TargetSlot[],
     targetPks: readonly JunctionRowKey[],
     known: PlanningKnown,
-    idForChunk: (start: number, index: number) => string
+    idForChunk: (start: number, index: number) => string,
+    resolvedMemberships?: ResolvedJunctionMembershipRegistry
   ): readonly OperationStep[] {
     if (this.transfers.size === 0) {
       return this.junctionInsertManyWrites(parent, targetPks, idForChunk);
     }
     const writes: OperationStep[] = [];
+    const resolvedTargets = new Map<string, JunctionRowKey[]>();
     for (const [index, slot] of slots.entries()) {
       const targetPk = targetPks[index]!;
+      if (
+        !this.registerResolvedMembership(
+          resolvedTargets,
+          resolvedMemberships,
+          targetPk
+        )
+      ) {
+        continue;
+      }
       writes.push(
         ...this.membershipAddWrites(slot.writeId, parent, targetPk, known, () =>
           this.joinInsert(slot.writeId, parent, targetPk)
@@ -572,6 +626,78 @@ export class RelationJunctionPart implements Part {
       );
     }
     return writes;
+  }
+
+  private collectionResolvedTargets(
+    registry: ResolvedJunctionMembershipRegistry
+  ): Map<string, JunctionRowKey[]> {
+    const table = this.context.relation.membership.table;
+    let modelTargets = registry.get(table);
+    if (!modelTargets) {
+      modelTargets = new Map();
+      registry.set(table, modelTargets);
+    }
+    let targets = modelTargets.get(this.childScope.model);
+    if (!targets) {
+      targets = new Map();
+      modelTargets.set(this.childScope.model, targets);
+    }
+    return targets;
+  }
+
+  private collectionCreatedAdopts(
+    registry: SharedAdoptCreatedRegistry
+  ): Map<string, JunctionRowKey> {
+    const table = this.context.relation.membership.table;
+    let modelKeys = registry.get(table);
+    if (!modelKeys) {
+      modelKeys = new Map();
+      registry.set(table, modelKeys);
+    }
+    let keys = modelKeys.get(this.childScope.model);
+    if (!keys) {
+      keys = new Map();
+      modelKeys.set(this.childScope.model, keys);
+    }
+    return keys;
+  }
+
+  private registerResolvedTarget(
+    targets: Map<string, JunctionRowKey[]>,
+    targetPk: JunctionRowKey
+  ): boolean {
+    const token = rowKeyToken(this.childScope.model, targetPk);
+    const candidates = targets.get(token);
+    if (
+      candidates?.some((candidate) =>
+        rowKeysEqual(this.childScope.model, candidate, targetPk)
+      )
+    ) {
+      return false;
+    }
+    if (candidates) candidates.push(targetPk);
+    else targets.set(token, [targetPk]);
+    return true;
+  }
+
+  /**
+   * Keep one singular transition for a resolved target, both within this leaf
+   * and across the direct polymorphic collection that owns its registry.
+   */
+  private registerResolvedMembership(
+    resolvedTargets: Map<string, JunctionRowKey[]> | undefined,
+    registry: ResolvedJunctionMembershipRegistry | undefined,
+    targetPk: JunctionRowKey
+  ): boolean {
+    if (!resolvedTargets) return true;
+    return (
+      this.registerResolvedTarget(resolvedTargets, targetPk) &&
+      (!registry ||
+        this.registerResolvedTarget(
+          this.collectionResolvedTargets(registry),
+          targetPk
+        ))
+    );
   }
 
   planning(scope: StepScope): readonly StatementStep[] {
@@ -638,16 +764,22 @@ export class RelationJunctionPart implements Part {
   compile(
     scope: StepScope,
     known: PlanningKnown,
-    sharedAdoptCreated?: Map<string, unknown>
+    sharedAdoptCreated?: SharedAdoptCreatedRegistry,
+    resolvedMemberships?: ResolvedJunctionMembershipRegistry
   ): readonly OperationStep[] {
     const parent = this.parentLiteral(known);
     switch (this.plan.kind) {
       case "connect":
-        return this.compileConnect(parent, known, this.plan.slots);
+        return this.compileConnect(
+          parent,
+          known,
+          this.plan.slots,
+          resolvedMemberships
+        );
       case "disconnect":
         return this.compileDisconnect(parent, this.plan.slots);
       case "set":
-        return this.compileSet(parent, known, this.plan);
+        return this.compileSet(parent, known, this.plan, resolvedMemberships);
       case "delete":
         return this.compileDelete(parent, known, this.plan.slots);
       case "deleteMany":
@@ -658,19 +790,38 @@ export class RelationJunctionPart implements Part {
         return this.compileUpdateMany(parent, known, this.plan.slots);
       case "create":
       case "createMany":
-        return this.compileCreate(scope, parent, known, this.plan.slots);
+        return this.compileCreate(
+          scope,
+          parent,
+          known,
+          this.plan.slots,
+          resolvedMemberships
+        );
       case "connectOrCreate":
         return this.compileConnectOrCreate(
           scope,
           parent,
           known,
           this.plan.slots,
-          sharedAdoptCreated
+          sharedAdoptCreated,
+          resolvedMemberships
         );
       case "upsert":
         return this.plan.parentState === "fresh"
-          ? this.compileFreshUpsert(scope, parent, known, this.plan.slots)
-          : this.compileUpsert(scope, parent, known, this.plan.slots);
+          ? this.compileFreshUpsert(
+              scope,
+              parent,
+              known,
+              this.plan.slots,
+              resolvedMemberships
+            )
+          : this.compileUpsert(
+              scope,
+              parent,
+              known,
+              this.plan.slots,
+              resolvedMemberships
+            );
       default: {
         const exhaustive: never = this.plan;
         throw new QueryEngineError(
@@ -684,7 +835,8 @@ export class RelationJunctionPart implements Part {
   private compileConnect(
     parent: unknown,
     known: PlanningKnown,
-    slots: readonly TargetSlot[]
+    slots: readonly TargetSlot[],
+    resolvedMemberships?: ResolvedJunctionMembershipRegistry
   ): readonly OperationStep[] {
     const guards: OperationStep[] = [];
     const targetPks: JunctionRowKey[] = [];
@@ -703,7 +855,8 @@ export class RelationJunctionPart implements Part {
         slots,
         targetPks,
         known,
-        (start) => slots[start]!.writeId
+        (start) => slots[start]!.writeId,
+        resolvedMemberships
       ),
     ];
   }
@@ -725,7 +878,8 @@ export class RelationJunctionPart implements Part {
   private compileSet(
     parent: unknown,
     known: PlanningKnown,
-    plan: Extract<JunctionPlan, { kind: "set" }>
+    plan: Extract<JunctionPlan, { kind: "set" }>,
+    resolvedMemberships?: ResolvedJunctionMembershipRegistry
   ): readonly OperationStep[] {
     const guards: OperationStep[] = [];
     const targetPks: JunctionRowKey[] = [];
@@ -749,7 +903,8 @@ export class RelationJunctionPart implements Part {
           targetPks,
           known,
           (start, index) =>
-            index === 0 ? plan.insertId : plan.slots[start]!.writeId
+            index === 0 ? plan.insertId : plan.slots[start]!.writeId,
+          resolvedMemberships
         )
       );
     }
@@ -930,12 +1085,33 @@ export class RelationJunctionPart implements Part {
     scope: StepScope,
     parent: unknown,
     known: PlanningKnown,
-    slots: readonly CreateSlot[]
+    slots: readonly CreateSlot[],
+    resolvedMemberships?: ResolvedJunctionMembershipRegistry
   ): readonly OperationStep[] {
     const steps: OperationStep[] = [];
+    const resolvedTargets =
+      this.transfers.size > 0 ? new Map<string, JunctionRowKey[]>() : undefined;
     for (const slot of slots) {
+      // A later skip must still keep its child INSERT and exact-key join: an
+      // earlier row can skip on another unique while this key remains absent.
+      const firstResolvedMembership =
+        slot.identity.kind !== "literal" ||
+        this.registerResolvedMembership(
+          resolvedTargets,
+          resolvedMemberships,
+          slot.identity.values
+        );
       steps.push(
-        ...this.compileFreshTarget(scope, known, parent, slot, undefined)
+        ...this.compileFreshTarget(
+          scope,
+          known,
+          parent,
+          slot,
+          undefined,
+          slot.skipDuplicates && !firstResolvedMembership
+            ? "exactMembershipNoop"
+            : "default"
+        )
       );
     }
     return steps;
@@ -950,11 +1126,21 @@ export class RelationJunctionPart implements Part {
     parent: unknown,
     known: PlanningKnown,
     slots: readonly AdoptSlot[],
-    sharedCreated?: Map<string, unknown>
+    sharedCreated?: SharedAdoptCreatedRegistry,
+    resolvedMemberships?: ResolvedJunctionMembershipRegistry
   ): readonly OperationStep[] {
     const steps: OperationStep[] = [];
-    // Sequential first-create-wins: a later duplicate adopts the earlier row.
-    const created = sharedCreated ?? new Map<string, unknown>();
+    // Sequential first-create-wins: a later missing duplicate keeps its probe.
+    // Singular members leave its target creation and membership to the first
+    // arm; plural members replay their historical idempotent membership join.
+    const created = sharedCreated
+      ? this.collectionCreatedAdopts(sharedCreated)
+      : new Map<string, JunctionRowKey>();
+    // Only a singular member has a transition to coalesce. A FOUND arm registers
+    // after its probe captured the complete target key; a MISSING arm can register
+    // its literal key because its child insert is non-skippable.
+    const resolvedTargets =
+      this.transfers.size > 0 ? new Map<string, JunctionRowKey[]>() : undefined;
     for (const slot of slots) {
       const rows = known[planningKey(slot.probeId, "rows")];
       const found = Array.isArray(rows) && rows.length > 0;
@@ -962,6 +1148,16 @@ export class RelationJunctionPart implements Part {
         const capturedPk = this.pkOf(rows[0]);
         if (!this.context.txMode) {
           steps.push(this.adoptFoundGuard(slot, capturedPk));
+        }
+        if (
+          resolvedTargets &&
+          !this.registerResolvedMembership(
+            resolvedTargets,
+            resolvedMemberships,
+            capturedPk
+          )
+        ) {
+          continue;
         }
         steps.push(
           ...this.membershipAddWrites(
@@ -975,17 +1171,31 @@ export class RelationJunctionPart implements Part {
         continue;
       }
       const key = adoptDedupKey(slot);
-      if (created.has(key)) {
-        // The earlier item owns the complete create payload and descendants.
-        const adopted = created.get(key);
-        steps.push(
-          ...this.membershipAddWrites(slot.joinId, parent, adopted, known, () =>
-            this.joinInsert(slot.joinId, parent, adopted)
-          )
-        );
+      const adopted = created.get(key);
+      if (adopted) {
+        // A singular member must not repeat its captured transfer. Plural members
+        // retain their ordinary idempotent join on the duplicate missing arm.
+        if (this.transfers.size === 0) {
+          steps.push(
+            ...this.membershipAddWrites(
+              slot.joinId,
+              parent,
+              adopted,
+              known,
+              () => this.joinInsert(slot.joinId, parent, adopted)
+            )
+          );
+        }
         continue;
       }
       created.set(key, slot.identity.values);
+      if (slot.identity.kind === "literal") {
+        this.registerResolvedMembership(
+          resolvedTargets,
+          resolvedMemberships,
+          slot.identity.values
+        );
+      }
       steps.push(
         ...this.compileFreshTarget(scope, known, parent, slot, slot.where)
       );
@@ -1001,14 +1211,17 @@ export class RelationJunctionPart implements Part {
     scope: StepScope,
     parent: unknown,
     known: PlanningKnown,
-    slots: readonly LocatedUpsertSlot[]
+    slots: readonly LocatedUpsertSlot[],
+    resolvedMemberships?: ResolvedJunctionMembershipRegistry
   ): readonly OperationStep[] {
     const steps: OperationStep[] = [];
+    const resolvedTargets =
+      this.transfers.size > 0 ? new Map<string, JunctionRowKey[]>() : undefined;
     // Upsert never deduplicates: every item must update the row its own selector names.
     for (const slot of slots) {
       const memberRows = known[planningKey(slot.membershipProbeId, "rows")];
       if (Array.isArray(memberRows) && memberRows.length > 0) {
-        const memberPk = this.pkOf(memberRows[0]);
+        let memberPk = this.pkOf(memberRows[0]);
         const capturedColumns =
           slot.update.kind === "member"
             ? this.capturedCompilerPredicate(
@@ -1029,8 +1242,15 @@ export class RelationJunctionPart implements Part {
         }
         if (slot.update.kind === "member") {
           slot.update.assertLegality();
-          steps.push(...slot.update.compiler.compile(known));
+          const compiler = slot.update.compiler;
+          steps.push(...compiler.compile(known));
+          memberPk = this.updatedTargetPk(compiler, memberRows[0]);
         }
+        this.registerResolvedMembership(
+          resolvedTargets,
+          resolvedMemberships,
+          memberPk
+        );
         continue;
       }
       const globalRows = known[planningKey(slot.globalProbeId, "rows")];
@@ -1042,7 +1262,16 @@ export class RelationJunctionPart implements Part {
           this.relationName
         );
       }
-      steps.push(...this.upsertCreateArm(scope, slot, parent, known));
+      steps.push(
+        ...this.upsertCreateArm(
+          scope,
+          slot,
+          parent,
+          known,
+          resolvedTargets,
+          resolvedMemberships
+        )
+      );
     }
     return steps;
   }
@@ -1053,13 +1282,25 @@ export class RelationJunctionPart implements Part {
     scope: StepScope,
     parent: unknown,
     known: PlanningKnown,
-    slots: readonly FreshUpsertSlot[]
+    slots: readonly FreshUpsertSlot[],
+    resolvedMemberships?: ResolvedJunctionMembershipRegistry
   ): readonly OperationStep[] {
     const steps: OperationStep[] = [];
+    const resolvedTargets =
+      this.transfers.size > 0 ? new Map<string, JunctionRowKey[]>() : undefined;
     for (const slot of slots) {
       const globalRows = known[planningKey(slot.globalProbeId, "rows")];
       if (!(Array.isArray(globalRows) && globalRows.length > 0)) {
-        steps.push(...this.upsertCreateArm(scope, slot, parent, known));
+        steps.push(
+          ...this.upsertCreateArm(
+            scope,
+            slot,
+            parent,
+            known,
+            resolvedTargets,
+            resolvedMemberships
+          )
+        );
         continue;
       }
       const captured = globalRows[0];
@@ -1080,14 +1321,14 @@ export class RelationJunctionPart implements Part {
         slot.update.assertLegality();
         const compiler = slot.update.compiler;
         const compiled = compiler.compile(known);
-        joinedPk = Object.fromEntries(
-          this.targetProjection.identityFields.map((field) => [
-            field,
-            compiler.updatedFieldValue(field, captured),
-          ])
-        );
+        joinedPk = this.updatedTargetPk(compiler, captured);
         steps.push(...compiled);
       }
+      this.registerResolvedMembership(
+        resolvedTargets,
+        resolvedMemberships,
+        joinedPk
+      );
       steps.push(
         ...this.membershipAddWrites(slot.joinId, parent, joinedPk, known, () =>
           this.joinInsert(slot.joinId, parent, joinedPk)
@@ -1104,9 +1345,30 @@ export class RelationJunctionPart implements Part {
     scope: StepScope,
     slot: UpsertSlotBase,
     parent: unknown,
-    known: PlanningKnown
+    known: PlanningKnown,
+    resolvedTargets: Map<string, JunctionRowKey[]> | undefined,
+    resolvedMemberships: ResolvedJunctionMembershipRegistry | undefined
   ): readonly OperationStep[] {
+    if (slot.identity.kind === "literal") {
+      this.registerResolvedMembership(
+        resolvedTargets,
+        resolvedMemberships,
+        slot.identity.values
+      );
+    }
     return this.compileFreshTarget(scope, known, parent, slot, slot.where);
+  }
+
+  private updatedTargetPk(
+    compiler: RecordUpdateCompiler,
+    captured: Record<string, unknown>
+  ): JunctionRowKey {
+    return Object.fromEntries(
+      this.targetProjection.identityFields.map((field) => [
+        field,
+        compiler.updatedFieldValue(field, captured),
+      ])
+    );
   }
 
   // -------------------------------------------------------------------------
@@ -1513,7 +1775,8 @@ export class RelationJunctionPart implements Part {
       readonly skipDuplicates?: boolean;
       readonly joinWhenTargetExists?: boolean;
     },
-    where: Record<string, unknown> | undefined
+    where: Record<string, unknown> | undefined,
+    membershipMode: JunctionInsertMaterializationMode = "default"
   ): readonly OperationStep[] {
     if (slot.target.kind === "record") {
       return [
@@ -1523,7 +1786,15 @@ export class RelationJunctionPart implements Part {
           parent,
           slot.identity.values,
           known,
-          () => this.joinInsert(slot.joinId, parent, slot.identity.values)
+          () =>
+            this.joinInsert(
+              slot.joinId,
+              parent,
+              slot.identity.values,
+              membershipMode === "exactMembershipNoop",
+              membershipMode
+            ),
+          membershipMode
         ),
       ];
     }
@@ -1547,8 +1818,11 @@ export class RelationJunctionPart implements Part {
             slot.joinId,
             parent,
             slot.identity.values,
-            slot.joinWhenTargetExists === true
-          )
+            slot.joinWhenTargetExists === true ||
+              membershipMode === "exactMembershipNoop",
+            membershipMode
+          ),
+        membershipMode
       ),
     ];
     for (const descendant of slot.target.descendants) {
@@ -1653,13 +1927,25 @@ export class RelationJunctionPart implements Part {
     id: string,
     parent: unknown,
     targetValue: unknown,
-    joinWhenTargetExists = false
-  ) {
-    return this.junctionWrite(id, "junctionInsert", {
-      parentValue: parent,
-      targetValue,
-      ...(joinWhenTargetExists ? { joinWhenTargetExists: true } : {}),
-    });
+    joinWhenTargetExists = false,
+    mode: JunctionInsertMaterializationMode = "default"
+  ): WriteStep {
+    const insert = this.statements.materializeJunctionInsert(
+      this.context.relation,
+      {
+        parentValue: parent,
+        targetValue,
+        ...(joinWhenTargetExists ? { joinWhenTargetExists: true } : {}),
+      },
+      mode
+    );
+    return {
+      id,
+      kind: "write",
+      statement: insert.statement,
+      outputs: {},
+      ...(insert.racePin ? { racePin: insert.racePin } : {}),
+    };
   }
 
   /** A selector pins a missing adopt premise. A produced identity is captured by
@@ -2214,7 +2500,7 @@ export function buildJunctionParts(input: {
    *  folds those relations one level deeper through it; the type makes threading it
    *  mandatory so no caller can silently fall back to a scalar-only boundary. */
   nestedBuilder: JunctionTargetRelationsBuilder;
-}): Part[] {
+}): JunctionCompilePart[] {
   const { scope, engine, parentScope, relation, program, parentId, txMode } =
     input;
   const { relationInfo } = relation;
@@ -2366,7 +2652,7 @@ export function buildJunctionParts(input: {
         : { kind: "literal", values },
     };
   };
-  const parts: Part[] = [];
+  const parts: JunctionCompilePart[] = [];
   // A stable, V1-mirroring kind order: adopt/link first, then set, then the
   // correlated writes, then removals — every kind independent (the own-write
   // preflight has already rejected any overlapping pair).
@@ -2538,7 +2824,7 @@ export function buildJunctionParts(input: {
             )
           );
           const runs = contiguousJunctionCreateManyRuns(routed);
-          const routedParts: Part[] = [];
+          const routedParts: JunctionCompilePart[] = [];
           for (const run of runs) {
             if (run.kind === "leaf") {
               routedParts.push(
@@ -2811,7 +3097,7 @@ function buildJunctionCreateManySeriesPart(input: {
   /** Dropping the flag removes suppression. A relation-bearing series remains,
    * but native atomic batch segments can run it. */
   readonly droppingFlagHelps: boolean;
-}): Part {
+}): JunctionCompilePart {
   const stepId = input.scope.allocate(`${input.childName}.createManySeries`);
   return {
     planning: () => [],
@@ -3019,19 +3305,20 @@ function orderedJunctionCreateManyParts(input: {
   readonly childName: string;
   readonly txMode: boolean;
   readonly sequentialPlanning: boolean;
-  readonly parts: readonly Part[];
-}): Part {
+  readonly parts: readonly JunctionCompilePart[];
+}): JunctionCompilePart {
   const [only] = input.parts;
   if (input.parts.length === 1 && only) return only;
   if (!input.sequentialPlanning) {
     return {
       planning: (scope) => input.parts.flatMap((part) => part.planning(scope)),
-      compile: (scope, known) => {
-        const sharedAdoptCreated = new Map<string, unknown>();
+      compile: (scope, known, sharedAdoptCreated, resolvedMemberships) => {
+        const sharedCreated =
+          sharedAdoptCreated ?? createSharedAdoptCreatedRegistry();
+        const memberships =
+          resolvedMemberships ?? createResolvedJunctionMembershipRegistry();
         return input.parts.flatMap((part) =>
-          part instanceof RelationJunctionPart
-            ? part.compile(scope, known, sharedAdoptCreated)
-            : part.compile(scope, known)
+          part.compile(scope, known, sharedCreated, memberships)
         );
       },
     };
@@ -3096,7 +3383,7 @@ function orderedJunctionCreateManyRuns(
     executionKind: "recordSeries",
     capture: (): PlanningFragment => ({ steps: [] }),
     compileMembers: () => {
-      const sharedAdoptCreated = new Map<string, unknown>();
+      const sharedAdoptCreated = createSharedAdoptCreatedRegistry();
       return parts.map(
         (part): ExecutableOperation => ({
           mode,

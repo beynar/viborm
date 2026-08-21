@@ -1,25 +1,43 @@
+import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
+import {
+  type AnyDriver,
+  Driver,
+  type QueryExecutionContext,
+  type QueryResult,
+} from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
+import { UniqueConstraintError } from "@errors";
 import {
   createQueryScope,
   getPolymorphicRelationInfo,
 } from "@query-engine/context";
+import { JunctionStatements } from "@query-engine/JunctionStatements";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { isPolymorphicToOneRelationInfo } from "@query-engine/types";
 import { hydrateSchemaNames, s } from "@schema";
 import { validateSchemaOrThrow } from "@schema/validation";
+import { bindPolymorphicCollectionMember } from "@src/query-engine/builders/polymorphic-collection-mutation";
 import { resolvePolymorphicEdge } from "@src/query-engine/builders/polymorphic-relation";
 import { CreateOperation } from "@src/query-engine/write-engine/CreateOperation";
 import type {
   OperationFragment,
   PlanningFragment,
   StatementStep,
+  WriteStep,
 } from "@src/query-engine/write-engine/OperationFragment";
+import {
+  isRetryableRace,
+  markRaceIfPinned,
+} from "@src/query-engine/write-engine/race-retry";
 import { UpdateOperation } from "@src/query-engine/write-engine/UpdateOperation";
 import { UpsertOperation } from "@src/query-engine/write-engine/UpsertOperation";
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { createSchemaRegistry } from "@validation";
 import { expect, test } from "vitest";
+
+const INVALID_POLYMORPHIC_TARGET =
+  /Validation failed|Unknown polymorphic target/;
 
 const collectionPlanSchema = (() => {
   const post = s.model({ id: s.int().id(), title: s.string() });
@@ -45,7 +63,7 @@ hydrateSchemaNames(collectionPlanSchema);
 validateSchemaOrThrow(collectionPlanSchema);
 
 function collectionUpdate(
-  driver: PGliteDriver,
+  driver: AnyDriver,
   data: Record<string, unknown>
 ): UpdateOperation {
   const registry = createSchemaRegistry(collectionPlanSchema);
@@ -150,7 +168,7 @@ test("the collection `set` barrier sits BETWEEN the guards and the writes", () =
  * still differ in what they would do to a malformed or concurrently-moving one.
  */
 function inverseUpdate(
-  driver: PGliteDriver,
+  driver: AnyDriver,
   data: Record<string, unknown>
 ): UpdateOperation {
   const registry = createSchemaRegistry(collectionPlanSchema);
@@ -177,6 +195,163 @@ function inversePlanning(
   }
   return known;
 }
+
+/** A compiler-only MySQL carrier: the test observes planned steps, never a server. */
+class MySqlPlanDriver extends Driver<null, null> {
+  readonly adapter = new MySQLAdapter();
+
+  constructor() {
+    super("mysql", "singular-member-junction-plan");
+  }
+
+  protected async initClient(): Promise<null> {
+    return null;
+  }
+
+  protected async closeClient(_client: null): Promise<void> {
+    // This compiler-only driver owns no client.
+  }
+
+  protected async execute<T>(
+    _client: null,
+    _statement: string,
+    _params: unknown[],
+    _context?: QueryExecutionContext
+  ): Promise<QueryResult<T>> {
+    return { rows: [], rowCount: 0 };
+  }
+
+  protected async executeRaw<T>(
+    client: null,
+    statement: string,
+    params: unknown[] | undefined,
+    context?: QueryExecutionContext
+  ): Promise<QueryResult<T>> {
+    return this.execute<T>(client, statement, params ?? [], context);
+  }
+
+  protected async transaction<T>(
+    _client: null,
+    execute: (transaction: null) => Promise<T>
+  ): Promise<T> {
+    return execute(null);
+  }
+}
+
+function emptySlotPlanning(
+  operation: UpdateOperation
+): Record<string, unknown> {
+  const known: Record<string, unknown> = {};
+  for (const step of operation.planning().steps) {
+    known[`${step.id}.rows`] = step.id.endsWith(".slot.owners")
+      ? []
+      : [{ id: 1 }];
+  }
+  return known;
+}
+
+function junctionInsert(fragment: OperationFragment): WriteStep {
+  const inserts = fragment.steps.filter(
+    (step): step is WriteStep =>
+      step.kind === "write" &&
+      step.statement.toStatement("?").includes("INSERT INTO `board_items_clip`")
+  );
+  const [insert] = inserts;
+  if (!insert || inserts.length !== 1) {
+    throw new Error("expected exactly one singular member junction insert");
+  }
+  return insert;
+}
+
+test("a MySQL singular member insert surfaces a different-owner collision", () => {
+  const direct = collectionUpdate(new MySqlPlanDriver(), {
+    items: { connect: [{ type: "clip", where: { id: 20 } }] },
+  });
+  const inverse = inverseUpdate(new MySqlPlanDriver(), {
+    board: { connect: { id: 1 } },
+  });
+  const inserts = [
+    junctionInsert(direct.compile(emptySlotPlanning(direct))),
+    junctionInsert(inverse.compile(emptySlotPlanning(inverse))),
+  ];
+  const membershipPin = {
+    fields: ["boardId", "clipId"],
+    table: "board_items_clip",
+    columns: ["boardId", "clipId"],
+    constraints: ["board_items_clip_pkey", "PRIMARY"],
+  };
+
+  for (const insert of inserts) {
+    // A no-op MySQL duplicate update would make the target-side UNIQUE disappear
+    // as a successful reconnect. The plain INSERT lets that occupancy conflict
+    // reach the pin classifier instead.
+    expect(insert.statement.toStatement("?")).not.toContain(
+      "ON DUPLICATE KEY UPDATE"
+    );
+    expect(insert.racePin).toEqual(membershipPin);
+    const pin = insert.racePin;
+    if (!pin) throw new Error("expected a membership-primary-key race pin");
+
+    const exactDuplicate = new UniqueConstraintError("exact membership", {
+      meta: {
+        table: "board_items_clip",
+        columns: ["boardId", "clipId"],
+      },
+    });
+    markRaceIfPinned(exactDuplicate, pin);
+    expect(isRetryableRace(exactDuplicate)).toBe(true);
+
+    // A synchronized second adopter has the same target but a different owner.
+    // Its target-side UNIQUE must surface, so the routed retry cannot report two
+    // successful adopters from the same observed-empty slot.
+    const occupiedTarget = new UniqueConstraintError("occupied target", {
+      meta: { table: "board_items_clip", columns: ["clipId"] },
+    });
+    markRaceIfPinned(occupiedTarget, pin);
+    expect(isRetryableRace(occupiedTarget)).toBe(false);
+  }
+});
+
+test("a MySQL exact-membership no-op checks only the membership key", () => {
+  const adapter = new MySQLAdapter();
+  const scope = createQueryScope(adapter, collectionPlanSchema.board);
+  const relation = getPolymorphicRelationInfo(scope, "items");
+  if (!relation || isPolymorphicToOneRelationInfo(relation)) {
+    throw new Error("expected the direct polymorphic collection");
+  }
+  const member = relation.storage.members.get("clip");
+  if (!member) throw new Error("expected the singular clip member");
+  const junction = bindPolymorphicCollectionMember(scope, relation, member);
+  const materialized = new JunctionStatements(
+    scope,
+    false
+  ).materializeJunctionInsert(
+    junction,
+    { parentValue: { id: 1 }, targetValue: { id: 20 } },
+    "exactMembershipNoop"
+  );
+
+  const statement = materialized.statement.toStatement("?");
+  expect(statement).toContain(
+    "LEFT JOIN `board_items_clip` AS `__viborm_junction_membership`"
+  );
+  expect(statement).toContain(
+    "ON (`__viborm_junction_membership`.`boardId` = ? AND `__viborm_junction_membership`.`clipId` IN (`__viborm_junction_target`.`id`))"
+  );
+  expect(statement).toContain(
+    "`__viborm_junction_membership`.`boardId` IS NULL"
+  );
+  expect(statement).not.toContain("NOT EXISTS");
+  expect(statement).toContain("FROM `clip` AS `__viborm_junction_target`");
+  expect(statement).toContain("`__viborm_junction_target`.`id` = ?");
+  expect(statement).not.toContain("ON DUPLICATE KEY UPDATE");
+  expect(materialized.racePin).toEqual({
+    fields: ["boardId", "clipId"],
+    table: "board_items_clip",
+    columns: ["boardId", "clipId"],
+    constraints: ["board_items_clip_pkey", "PRIMARY"],
+  });
+});
 
 test("the singular inverse `delete` scopes to ONE captured owner, never a connected set", () => {
   // H5. The dead junction lowering turned `delete: true` into
@@ -446,7 +621,7 @@ test("the direct polymorphic target boundary refuses at construction, eagerly", 
       }
     );
     operation.planning();
-  }).toThrow(/Validation failed|Unknown polymorphic target/);
+  }).toThrow(INVALID_POLYMORPHIC_TARGET);
 });
 
 test("a tree carrying a direct-polymorphic create arm DECLINES the CTE fold", () => {

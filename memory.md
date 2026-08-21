@@ -127,3 +127,13 @@
   owners as dependencies, treat rejected concepts as forbidden—not missing—and
   replace only the narrow responsibility that the downstream plan genuinely
   still needs.
+- Assert one concurrent winner only when the contenders are synchronized to the
+  same captured premise. Unsynchronized transactions can serialize, observe
+  different states, and both succeed under legitimate last-writer semantics.
+- In a duplicate-skipping pipeline, an attempted key is not yet a resolved row.
+  Preserve every child attempt in input order and coalesce only the downstream
+  effect after the target's existence is known or tested by the write itself.
+- For MySQL same-table insertion, distinguish an allowed aliased outer
+  `INSERT ... SELECT ... FROM target` from a forbidden same-table subquery.
+  Verify the final SQL on a real server instead of inferring legality from a
+  nearby subquery restriction.

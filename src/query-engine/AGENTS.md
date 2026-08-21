@@ -538,23 +538,31 @@ wrong truth table whose correct public spelling is `none: { type, isNot: P }`.
 
 `PolymorphicCollectionPart` returns ONE `Part`, not a list, because sibling Parts
 are concatenated in list order and N variant Parts could not express a
-clear-once barrier. It owns exactly four relation-wide facts — the `set`
+clear-once barrier. It owns exactly five relation-wide facts — the `set`
 clear-all barrier, cross-verb/cross-variant ordering, the single owner-row
-publication every leaf correlates on, and a cache footprint that is empty by
-measurement (invalidation lives above the engine in `client.ts`). Its compile
-order IS the contract: every leaf's guards, then the barrier, then every leaf's
-writes. `set` is LOWERED — the parser keeps emitting `set`, the coordinator
-rewrites each entry into its insert half and owns the clear half, so ordinary
-junction `set` stays byte-identical. The one shape a batch could split between
-clear and refill (no transaction, `clearsAll`, owner row key arriving as a
-produced output reference) is refused at construction, before any effect.
+publication every leaf correlates on, a cache footprint that is empty by
+measurement (invalidation lives above the engine in `client.ts`), and one
+compile-local registry that prevents repeated singular-target transitions and
+repeated missing-arm creates across its direct leaves. The registry is rebuilt
+for every compile and is not carried into record-series members, which re-plan
+after earlier effects. Its compile order IS the contract: every leaf's guards,
+then the barrier, then every leaf's writes. `set` is LOWERED — the parser keeps
+emitting `set`, the coordinator rewrites each entry into its insert half and
+owns the clear half, so ordinary junction `set` stays byte-identical. The one
+shape a batch could split between clear and refill (no transaction, `clearsAll`,
+owner row key arriving as a produced output reference) is refused at
+construction, before any effect.
 
 A membership add on a member whose `inverseCardinality` is `"one"` is a SLOT
 REPLACEMENT, owned by `junction-singular-transfer.ts` for both directions: one
 capture read, then one write sequence identical on both substrates —
 `forUpdate` with the row lock as the premise inside a transaction, an in-batch
 CAS with no `expects` in a native atomic batch. A freshly created target is
-proven empty structurally, so its capture is elided rather than paid for.
+proven empty structurally, so its capture is elided rather than paid for. On an
+adapter without targeted upsert, the final member-row insert is plain SQL: only
+its complete membership primary key is pinned as retryable, while a target-side
+slot collision surfaces. A later duplicate uses an exact-membership anti-join,
+so it preserves child-attempt order without repeating the captured transfer.
 
 Root `createMany` dispatches on cardinality in `routing.ts`, reading raw rows
 before any parse: a ROW-HELD `connect` stays out of the relation-bearing set and
@@ -598,7 +606,10 @@ cannot decide a branch.
   not match the conditional with a raceable absence guard. Keep that order.
 - Transaction found arm: use the locked read; do not duplicate the guard.
 - Missing same-target insert arm: use the constraint and root-write `racePin`.
-- Same-operation duplicate: add neither guard nor race pin.
+- Same-operation target duplicate: add neither target guard nor target race pin.
+  A singular MySQL member-row insert may still carry its separate exact
+  membership-primary-key pin; that pin classifies only a concurrent identical
+  membership, never target-side slot occupancy.
 - Keep explicit absence guards only when no same-target constraint enforces the
   premise.
 

@@ -1031,20 +1031,13 @@ export function validatePolymorphicRelations(
         ownerTable,
       });
       /**
-       * NO BLANKET REFUSAL HERE. P014 stood at exactly this point until
-       * Package B3, because a collection descriptor existed with no DDL behind
-       * it. It has DDL now — the serializer emits one member junction table per
-       * variant from this same stored topology — so a well-formed collection
-       * schema is a legal schema, and `validateCollectionRelation` above is its
-       * only judge.
+       * A polymorphic collection has member-junction storage, so a well-formed
+       * collection schema is legal. `validateCollectionRelation` is its one
+       * definition-time guard.
        *
-       * What a collection schema still cannot do is be READ or WRITTEN through
-       * the client: that refusal moved to the grammar owner, where
-       * `getPolymorphicRelationsSchemas` omits all six operation-schema
-       * families for a `"many"` group and the strict object refuses every
-       * collection key as unknown at parse. Reinstating a definition-level
-       * refusal here would be a second guard on that invariant and would also
-       * make the schema unmigratable, which is precisely what B3 fixed.
+       * Collection operation schemas support reads and writes through their
+       * relation owners. Rejecting the relation here would duplicate that guard
+       * and make a supported schema unmigratable.
        */
       continue;
     }

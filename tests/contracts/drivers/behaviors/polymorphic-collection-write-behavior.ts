@@ -525,6 +525,45 @@ export function runPolymorphicCollectionWriteBehavior(
       expect(await clipMembers()).toHaveLength(1);
     });
 
+    test("duplicate singular createMany targets transfer once", async () => {
+      const { client } = requireDatabase();
+      await seed();
+
+      await client.shelf.update({
+        where: shelfWhere("left"),
+        data: {
+          items: {
+            connect: [
+              {
+                type: "book",
+                where: { region_isbn: { region: "eu", isbn: "111" } },
+              },
+            ],
+          },
+        },
+      });
+
+      await client.shelf.update({
+        where: shelfWhere("right"),
+        data: {
+          items: {
+            createMany: [
+              {
+                type: "book",
+                data: [
+                  { region: "eu", isbn: "111", title: "Book one" },
+                  { region: "eu", isbn: "111", title: "Book one" },
+                ],
+                skipDuplicates: true,
+              },
+            ],
+          },
+        },
+      });
+
+      expect(await bookMembers()).toEqual(["t1/right/eu/111"]);
+    });
+
     test("delete and deleteMany are membership-scoped and cascade the membership", async () => {
       const { client } = requireDatabase();
       await seed();

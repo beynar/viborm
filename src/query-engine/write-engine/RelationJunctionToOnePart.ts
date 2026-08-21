@@ -602,16 +602,19 @@ export class RelationJunctionToOnePart implements Part {
     known: PlanningKnown
   ): readonly OperationStep[] {
     const targetKey = this.variantWriteKey(known);
-    const insert = (): WriteStep => ({
-      id: writeId,
-      kind: "write",
-      statement: this.statements.materialize(
+    const insert = (): WriteStep => {
+      const materialized = this.statements.materializeJunctionInsert(
         this.context.ownerJunction,
-        "junctionInsert",
         { parentValue: owner, targetValue: targetKey }
-      ),
-      outputs: {},
-    });
+      );
+      return {
+        id: writeId,
+        kind: "write",
+        statement: materialized.statement,
+        outputs: {},
+        ...(materialized.racePin ? { racePin: materialized.racePin } : {}),
+      };
+    };
     if (!this.transfer) return [insert()];
     return this.transfer.compile(known, {
       targetKey,

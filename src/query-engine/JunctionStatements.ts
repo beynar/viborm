@@ -14,6 +14,7 @@ import {
   buildJunctionTargetValue,
   buildJunctionTargetValuesMatch,
   buildTargetPkSubqueries,
+  type JunctionDuplicatePolicy,
   type JunctionSqlValues,
 } from "./builders/many-to-many-utils";
 import type {
@@ -27,6 +28,7 @@ import { buildWhereUnique } from "./builders/where-unique-builder";
 import { createChildScope, getColumnName, getTableName } from "./context";
 import type { QueryScope } from "./types";
 import { QueryEngineError } from "./types";
+import type { TargetConstraintPin } from "./write-engine/OperationFragment";
 
 export type JunctionOperation =
   | "junctionDelete"
@@ -39,6 +41,16 @@ export type JunctionOperation =
   | "membershipRead"
   | "membershipUpdateMany";
 
+/** A junction INSERT statement with its retry classification when one is needed. */
+export interface JunctionInsertMaterialization {
+  readonly statement: Sql;
+  readonly racePin?: TargetConstraintPin;
+}
+
+export type JunctionInsertMaterializationMode =
+  | "default"
+  | "exactMembershipNoop";
+
 /** Materializes declarative junction and membership statements for the compiler. */
 export class JunctionStatements {
   private readonly ctx: QueryScope;
@@ -47,6 +59,34 @@ export class JunctionStatements {
   constructor(ctx: QueryScope, lockReads: boolean) {
     this.ctx = ctx;
     this.lockReads = lockReads;
+  }
+
+  /**
+   * Materialize the one-row INSERT shape used by a singular member transition.
+   *
+   * MySQL cannot target its duplicate clause. On a singular member table its
+   * target-side UNIQUE is slot occupancy, not an idempotent membership repeat,
+   * so the statement must be plain INSERT and only the membership PK is pinned
+   * as retryable. Targeted-upsert adapters retain the ordinary targeted clause.
+   */
+  materializeJunctionInsert(
+    junction: JunctionBoundRelation,
+    args: Record<string, unknown>,
+    mode: JunctionInsertMaterializationMode = "default"
+  ): JunctionInsertMaterialization {
+    const racePin = this.singularMemberRacePin(junction);
+    let duplicatePolicy: JunctionDuplicatePolicy = "skip";
+    if (racePin) {
+      duplicatePolicy =
+        mode === "exactMembershipNoop" ? "exactMembershipNoop" : "surface";
+    }
+    return {
+      statement: this.materialize(junction, "junctionInsert", {
+        ...args,
+        duplicatePolicy,
+      }),
+      ...(racePin ? { racePin } : {}),
+    };
   }
 
   /**
@@ -83,23 +123,29 @@ export class JunctionStatements {
       sideValueRecord(junction.membership.source, args.parentValue),
       relationName
     );
+    const duplicatePolicy = junctionDuplicatePolicy(args.duplicatePolicy);
 
     switch (operation) {
       case "junctionInsert": {
         const targetValue = this.targetValue(junction, args);
-        if (args.joinWhenTargetExists === true) {
+        if (
+          args.joinWhenTargetExists === true ||
+          duplicatePolicy === "exactMembershipNoop"
+        ) {
           return buildJunctionInsertWhenTargetExists(
             this.ctx,
             junction,
             parentValues,
-            targetValue
+            targetValue,
+            duplicatePolicy
           );
         }
         return buildJunctionInsert(
           this.ctx,
           junction,
           parentValues,
-          targetValue
+          targetValue,
+          duplicatePolicy
         );
       }
       case "junctionInsertMany": {
@@ -202,6 +248,29 @@ export class JunctionStatements {
         ? { forUpdate: true }
         : {}),
     });
+  }
+
+  private singularMemberRacePin(
+    junction: JunctionBoundRelation
+  ): TargetConstraintPin | undefined {
+    if (
+      junction.cardinality !== "one" ||
+      junction.membership.polymorphicMember !== true ||
+      this.ctx.adapter.capabilities.supportsTargetedUpsert
+    ) {
+      return undefined;
+    }
+    const columns = [
+      ...junction.membership.source.members,
+      ...junction.membership.target.members,
+    ].map((member) => member.junctionField);
+    const table = junction.membership.table;
+    return {
+      fields: columns,
+      table,
+      columns,
+      constraints: [`${table}_pkey`, "PRIMARY"],
+    };
   }
 
   private membershipRead(
@@ -456,6 +525,11 @@ function sideValueRecord(
   throw new QueryEngineError(
     "Compound junction side requires one value for every referenced field."
   );
+}
+
+function junctionDuplicatePolicy(value: unknown): JunctionDuplicatePolicy {
+  if (value === "surface" || value === "exactMembershipNoop") return value;
+  return "skip";
 }
 
 function requireArray(value: unknown, field: string): unknown[] {

@@ -393,8 +393,8 @@ function sameOwner(
 }
 
 function ownerKey(value: unknown): string {
-  if (value === null) return " null";
-  if (value instanceof Date) return ` d:${value.toISOString()}`;
-  if (typeof value === "object") return ` o:${JSON.stringify(value)}`;
+  if (value === null) return "\0null";
+  if (value instanceof Date) return `\0d:${value.toISOString()}`;
+  if (typeof value === "object") return `\0o:${JSON.stringify(value)}`;
   return String(value);
 }

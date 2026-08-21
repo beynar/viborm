@@ -15,7 +15,11 @@ import {
 } from "./OperationFragment";
 import type { Part } from "./Part";
 import type { RecordCompilerSeam } from "./RecordUpdateCompiler";
-import { buildJunctionParts } from "./RelationJunctionPart";
+import {
+  buildJunctionParts,
+  createResolvedJunctionMembershipRegistry,
+  createSharedAdoptCreatedRegistry,
+} from "./RelationJunctionPart";
 import type { FinalReferenceSources } from "./relation-membership";
 import type { StepScope } from "./StepScope";
 
@@ -43,7 +47,7 @@ export interface PolymorphicCollectionPartInput {
  * happened to sit, and the `set` semantics — "clear every configured variant
  * exactly once, THEN insert the desired rows" — would depend on emission order.
  *
- * It owns exactly FOUR relation-wide facts and nothing else:
+ * It owns exactly FIVE relation-wide facts and nothing else:
  *
  *  1. the `set` clear-all barrier,
  *  2. cross-verb / cross-variant ordering,
@@ -55,6 +59,8 @@ export interface PolymorphicCollectionPartInput {
  *     `Part` anywhere in the estate invokes a cache callback. Adding target-model
  *     invalidation here would be exactly the "private dependency-invalidation
  *     system that ordinary relations do not have" §10.6 forbids.
+ *  5. one compile-local singular-target coordination state shared by its leaves:
+ *     resolved membership targets and missing-arm first creates.
  *
  * Everything else is a LEAF's: one `buildJunctionParts` call per entry, against
  * that entry's pre-bound member junction, with the same `parentId` and
@@ -97,6 +103,10 @@ export function buildPolymorphicCollectionPart(
       return steps;
     },
     compile: (scope, known) => {
+      // Each execution re-captures ownership, so these registries must begin
+      // empty for every compile and only coordinate this fragment's leaves.
+      const resolvedMemberships = createResolvedJunctionMembershipRegistry();
+      const sharedAdoptCreated = createSharedAdoptCreatedRegistry();
       // THE ORDER IS THE CONTRACT (§4): every leaf's captured-fact GUARDS, then
       // the one clear-all barrier, then every leaf's WRITES.
       //
@@ -107,7 +117,11 @@ export function buildPolymorphicCollectionPart(
       const guards: OperationStep[] = [];
       const writes: OperationStep[] = [];
       for (const leaf of leaves) {
-        bucketOperationSteps(leaf.compile(scope, known), guards, writes);
+        bucketOperationSteps(
+          leaf.compile(scope, known, sharedAdoptCreated, resolvedMemberships),
+          guards,
+          writes
+        );
       }
       const clears: OperationStep[] = [];
       for (const clear of barrier) clears.push(...clear.compile(scope, known));

@@ -917,10 +917,12 @@ answer:
    relation-wide facts: the `set` barrier over EVERY configured member table in
    declaration order (including variants the payload never named), cross-verb
    and cross-variant ordering, one owner-row publication shared by every leaf,
-   and an empty cache footprint. Its compile order is guards → barrier → writes.
-   `set` is lowered into a connect-shaped run so `compileSet` stays untouched.
-   The one shape a batch could split between clear and refill is refused at
-   construction, before the clear.
+   an empty cache footprint, and compile-local resolved-target / first-create
+   registries shared by its direct leaves. Those registries are rebuilt for each
+   compile and never cross a record-series member boundary. Its compile order is
+   guards → barrier → writes. `set` is lowered into a connect-shaped run so
+   `compileSet` stays untouched. The one shape a batch could split between clear
+   and refill is refused at construction, before the clear.
 2. `RelationJunctionToOnePart` — the singular inverse's dispatcher and
    orientation adapter. It consumes `(vacate, supplier, modify)` from
    `classifyToOneComposition`, owns the four correlated spellings, and supplies
@@ -933,6 +935,11 @@ answer:
    premise in a transaction (so the junction estate still emits no guards), and
    an in-batch CAS with no `expects` in a native atomic batch. A freshly created
    target's slot is provably empty, so its capture is elided rather than read.
+   On MySQL-family adapters, which cannot target a duplicate clause, the final
+   insert is plain and pins only the complete membership primary key. A later
+   same-operation duplicate keeps its child attempt but uses an exact-membership
+   anti-join instead of replaying the transfer; target-side occupancy still
+   surfaces as a non-retryable unique failure.
 
 ## 17. Bulk specializations
 
