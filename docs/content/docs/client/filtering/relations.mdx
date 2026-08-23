@@ -13,7 +13,7 @@ use their declared to-one or to-many cardinality.
 
 ## To-One Relations
 
-For `oneToOne` and `manyToOne` relations:
+For singular slots (`s.toOne`):
 
 | Operator | Description |
 |----------|-------------|
@@ -22,7 +22,7 @@ For `oneToOne` and `manyToOne` relations:
 
 ## To-Many Relations
 
-For `oneToMany` and `manyToMany` relations:
+For collection slots (`s.toMany`):
 
 | Operator | Description |
 |----------|-------------|
@@ -74,12 +74,12 @@ await client.post.findMany({
 <CardGroup>
   <Card
     title="To-One Filters"
-    description="Filter by oneToOne and manyToOne relations"
+    description="Filter by singular relation slots"
     href="/docs/client/filtering/relations-to-one"
   />
   <Card
     title="To-Many Filters"
-    description="Filter by oneToMany and manyToMany relations"
+    description="Filter by collection relation slots"
     href="/docs/client/filtering/relations-to-many"
   />
   <Card

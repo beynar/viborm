@@ -14,7 +14,7 @@ import {
   type ParsedRelationMutation,
   relationMutationPrograms,
 } from "./builders/relation-mutation-parser";
-import { getRelationInfo, getRelationNames } from "./context";
+import { getRelationNames, lookupRelation } from "./context";
 import {
   buildScalarUpdatePredicateFootprints,
   type TargetConstraint,
@@ -23,7 +23,7 @@ import type { QueryScope } from "./types";
 
 export type RelationMembershipScope =
   | {
-      readonly kind: "manyToMany";
+      readonly kind: "junction";
       readonly junctionTable: string;
       /**
        * The junction's two sides in ORIENTATION-ERASED order, so that the two
@@ -97,7 +97,7 @@ export function getMembershipScope(
   if (membership.kind === "junction") {
     const sourceIsFirst = junctionSourceIsFirst(membership);
     return {
-      kind: "manyToMany",
+      kind: "junction",
       junctionTable: membership.table,
       first: sourceIsFirst
         ? membership.source.members
@@ -162,7 +162,7 @@ export function relationMembershipScopesEqual(
   right: RelationMembershipScope
 ): boolean {
   if (left.kind !== right.kind) return false;
-  if (left.kind === "manyToMany" && right.kind === "manyToMany") {
+  if (left.kind === "junction" && right.kind === "junction") {
     // `sourceIsFirst` is EXCLUDED on purpose — see its declaration.
     return (
       left.junctionTable === right.junctionTable &&
@@ -216,12 +216,12 @@ export function buildRootUpdateMembershipFootprints(
   // — the case the loop below already `continue`s on, because a member junction
   // has no holder row to move.
   for (const mutation of relationMutationPrograms(relations)) {
-    const relationInfo = mutation.relationInfo;
-    const relation = bindRelation(ctx, relationInfo);
+    const relationRef = mutation.relationRef;
+    const relation = bindRelation(ctx, relationRef);
     if (relation.position === "junction") continue;
     if (
       relation.position === "parentHeld" ||
-      relation.relationInfo.targetModel !== ctx.model ||
+      relation.relationRef.targetModel !== ctx.model ||
       !hasChangedForeignKey(relation.membership.foreignFields, scalarData)
     ) {
       continue;
@@ -241,13 +241,13 @@ export function buildTransitiveUpdateMembershipFootprints(
   const relations: (ParentHeldRelation | ChildHeldRelation)[] = [];
   const membershipScopes: RelationMembershipScope[] = [];
   for (const relationName of getRelationNames(ctx.model)) {
-    const relationInfo = getRelationInfo(ctx, relationName);
-    if (!relationInfo) continue;
-    const relation = bindRelation(ctx, relationInfo);
+    const relationRef = lookupRelation(ctx, relationName);
+    if (!relationRef) continue;
+    const relation = bindRelation(ctx, relationRef);
     if (relation.position === "junction") continue;
     if (
       (relation.position !== "parentHeld" &&
-        relation.relationInfo.targetModel !== ctx.model) ||
+        relation.relationRef.targetModel !== ctx.model) ||
       !hasChangedForeignKey(relation.membership.foreignFields, scalarData)
     ) {
       continue;

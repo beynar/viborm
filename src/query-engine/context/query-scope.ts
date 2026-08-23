@@ -1,34 +1,32 @@
-import type { DatabaseAdapter } from "@adapters";
 import { getModelKeyCatalog, type Model } from "@schema/model";
-import {
-  type AnyPolymorphicRelation,
-  type PolymorphicStorage,
-  polymorphicCardinality,
-  relationCardinality,
-} from "@schema/relation";
 import type {
-  PolymorphicRelationInfo,
+  AnyRelation,
+  RelationCardinality,
+  RelationSlot,
+} from "@schema/relation";
+import type { ResolvedSlot } from "@schema/validation/relation-resolution";
+import type {
   QueryScope,
-  RelationInfo,
+  RelationRef,
+  ScopeSource,
+  VariantCarrierSlot,
+  VariantJunctionCarrierSlot,
 } from "../types";
 
-const polymorphicRelationsByModel = new WeakMap<
-  Model<any>,
-  ReadonlyMap<string, PolymorphicRelationInfo>
->();
-
 export function createQueryScope(
-  adapter: DatabaseAdapter,
+  source: ScopeSource,
   model: Model<any>
 ): QueryScope {
   let nextAliasId = 0;
   const nextAlias = () => `t${nextAliasId++}`;
   return {
-    adapter,
+    adapter: source.adapter,
     model,
     nextAlias,
     rootAlias: nextAlias(),
-    polymorphicRelations: getPolymorphicRelations(model),
+    // BY IDENTITY: the composition root resolved once and every scope opened
+    // from it shares that index object (§11.4.10).
+    relations: source.relations,
   };
 }
 
@@ -43,78 +41,153 @@ export function createChildScope(
     nextAlias: parent.nextAlias,
     rootAlias: alias,
     mutationTable: parent.mutationTable,
-    polymorphicRelations: getPolymorphicRelations(model),
+    // BY IDENTITY, never rebuilt: one resolution serves every scope in a client
+    // (§11.4.10), so a child scope shares the parent's index object.
+    relations: parent.relations,
   };
-}
-
-function getPolymorphicRelations(
-  model: Model<any>
-): ReadonlyMap<string, PolymorphicRelationInfo> {
-  const cached = polymorphicRelationsByModel.get(model);
-  if (cached) return cached;
-  const fields = new Map<string, PolymorphicRelationInfo>();
-  const relations: Readonly<Record<string, AnyPolymorphicRelation>> =
-    model["~"].state.polymorphicRelations;
-  for (const [name, relation] of Object.entries(relations)) {
-    const storage = model["~"].getPolymorphicStorage(name);
-    // Both stored descriptors enter the scope since Package C. A missing one
-    // still does not: an unvalidated group has no materialized storage, and the
-    // read/write builders answer "no validated storage metadata" for it.
-    if (storage) {
-      fields.set(name, toPolymorphicRelationInfo(name, relation, storage));
-    }
-  }
-  polymorphicRelationsByModel.set(model, fields);
-  return fields;
 }
 
 /**
- * Pair one relation with its stored descriptor.
+ * The ONE graph lookup: this scope's model, this field.
  *
- * The narrow is what makes the pair ASSIGNABLE: `PolymorphicRelationInfo` is a
- * union of the two arms — spelled that way so its guards subtract — and a
- * literal whose `storage` is still the descriptor union belongs to neither arm
- * until the descriptor itself is narrowed.
+ * A schema reaches the engine only through a boundary that resolved it, so a
+ * name the model declares always has a slot here; `undefined` means the name is
+ * not a relation on this model.
  */
-function toPolymorphicRelationInfo(
-  name: string,
-  relation: AnyPolymorphicRelation,
-  storage: PolymorphicStorage
-): PolymorphicRelationInfo {
-  return storage.kind === "toOne"
-    ? { name, relation, storage }
-    : { name, relation, storage };
-}
-
-export function getPolymorphicRelationInfo(
+export function resolvedSlot(
   scope: QueryScope,
   relationName: string
-): PolymorphicRelationInfo | undefined {
-  return scope.polymorphicRelations.get(relationName);
+): ResolvedSlot | undefined {
+  return scope.relations.get(scope.model)?.get(relationName);
 }
 
-export function getRelationInfo(
+/**
+ * The carrier slot of a direct variant relation, or `undefined` when the name is
+ * not one.
+ *
+ * A bound variant INVERSE is deliberately excluded: it carries a `member`, so it
+ * addresses exactly one member of someone else's carrier and belongs to the
+ * ordinary reference below, which is how the two traversal directions keep their
+ * separate vocabularies.
+ */
+export function variantCarrier(
   scope: QueryScope,
   relationName: string
-): RelationInfo | undefined {
-  const relations = scope.model["~"].state.relations;
-  const relation = Object.hasOwn(relations, relationName)
-    ? relations[relationName]
-    : undefined;
-  if (!relation) return undefined;
+): VariantCarrierSlot | undefined {
+  const resolved = resolvedSlot(scope, relationName);
+  if (!resolved || resolved.member) return undefined;
+  const edge = resolved.edge;
+  // TWO branches, not one test over the edge union: `VariantCarrierSlot` is the
+  // union of its two arms — spelled that way so `isVariantRowCarrier` subtracts
+  // — and a pair whose `edge` is still the union belongs to neither arm.
+  if (edge.kind === "variantRowCarrier") return { slot: resolved.slot, edge };
+  if (edge.kind === "variantJunctionCarrier") {
+    return { slot: resolved.slot, edge };
+  }
+  return undefined;
+}
 
-  const state = relation["~"].state;
-  const targetModel = state.getter();
+/**
+ * A contextual reference to one addressable relation: an ordinary slot, or a
+ * bound inverse view of one variant member.
+ *
+ * A direct variant CARRIER answers `undefined` here — it spans several targets,
+ * so there is no single `targetModel` to address it by, and its callers reach it
+ * through {@link variantCarrier} instead.
+ */
+export function lookupRelation(
+  scope: QueryScope,
+  relationName: string
+): RelationRef | undefined {
+  const resolved = resolvedSlot(scope, relationName);
+  if (!resolved) return undefined;
+  const targetModel = referenceTarget(resolved);
+  if (!targetModel) return undefined;
   return {
     name: relationName,
-    relation,
+    resolved,
     targetModel,
-    type: state.type,
-    cardinality: relationCardinality(state),
-    isOptional: state.optional ?? false,
-    fields: state.fields,
-    references: state.references,
+    cardinality: slotCardinality(resolved),
   };
+}
+
+/** The reference a caller already holding the resolved slot addresses it by. */
+export function refFromSlot(resolved: ResolvedSlot): RelationRef | undefined {
+  const targetModel = referenceTarget(resolved);
+  if (!targetModel) return undefined;
+  return {
+    name: resolved.slot.field,
+    resolved,
+    targetModel,
+    cardinality: slotCardinality(resolved),
+  };
+}
+
+/**
+ * The OWNER-oriented reference to one member of a junction carrier.
+ *
+ * `name` is VARIANT-QUALIFIED — `items.post`, not `items` — and that is a
+ * decision, not an accident. `getStepModelName(targetModel, relationName)`
+ * drives the step-id prefix and `StepScope.allocate` appends `#N` on repeats, so
+ * a shared `items` across three variants would allocate `items.find`,
+ * `items.find#1`, `items.find#2` — ids whose meaning depends on emission order.
+ * Variant-qualified names give `items.post.find`, `items.video.find`:
+ * deterministic, readable, collision-free.
+ */
+export function memberRef(
+  carrier: VariantJunctionCarrierSlot,
+  member: VariantJunctionCarrierSlot["edge"]["members"][number]
+): RelationRef {
+  return {
+    name: `${carrier.slot.field}.${member.variant}`,
+    resolved: { slot: carrier.slot, edge: carrier.edge, member },
+    targetModel: member.topology.target.model,
+    // The PUBLIC slot's shape, which is what the relation-mutation parser reads
+    // to choose its vocabulary: a collection takes the ordinary to-many verbs
+    // (`updateMany`/`deleteMany` legal, `update` addressed by a unique `where`)
+    // whatever a given variant's inverse cardinality is. The member's own arity
+    // lives on the BOUND relation, where slot replacement consults it.
+    cardinality: "many",
+  };
+}
+
+/**
+ * How many targets one resolved slot's public shape admits — the ONE fact the
+ * declaration still states directly (§3.1), read off the model's own relation
+ * map. The index is built from that map, so the lookup cannot miss.
+ */
+function slotCardinality(resolved: ResolvedSlot): RelationCardinality {
+  const relations: Record<string, AnyRelation> =
+    resolved.slot.source["~"].state.relations;
+  return relations[resolved.slot.field]!["~"].state.cardinality;
+}
+
+/**
+ * The model a reference traverses TO, or `undefined` for a spanning carrier.
+ *
+ * The ASKING SLOT decides, never the scope's model: a self edge names one model
+ * on both sides, and only its two fields tell the directions apart.
+ */
+function referenceTarget(resolved: ResolvedSlot): Model<any> | undefined {
+  const edge = resolved.edge;
+  if (edge.kind === "foreignKey" || edge.kind === "junction") {
+    const [first, second] = edge.endpoints;
+    return isSlot(first, resolved.slot) ? second.source : first.source;
+  }
+  // A carrier slot spans every member and reaches no single model; a
+  // member-RESTRICTED slot reaches the other end of that one member — the
+  // variant when the asking slot is the carrier, the carrier's own model when it
+  // is the bound inverse.
+  if (!resolved.member) return undefined;
+  if (!isSlot(edge.carrier, resolved.slot)) return edge.carrier.source;
+  return "targetModel" in resolved.member
+    ? resolved.member.targetModel
+    : resolved.member.topology.target.model;
+}
+
+/** `(model, field)` is the whole contextual identity of a slot. */
+function isSlot(one: RelationSlot, other: RelationSlot): boolean {
+  return one.source === other.source && one.field === other.field;
 }
 
 /**
@@ -183,36 +256,30 @@ export function isRelation(model: Model<any>, fieldName: string): boolean {
   return model["~"].relationSet.has(fieldName);
 }
 
-export function isPolymorphicRelation(
-  model: Model<any>,
+export function isVariantRelation(
+  scope: QueryScope,
   fieldName: string
 ): boolean {
-  return model["~"].polymorphicRelationSet.has(fieldName);
+  return variantCarrier(scope, fieldName) !== undefined;
 }
 
 /**
- * The COLLECTION half of {@link isPolymorphicRelation}, split out because root
+ * The COLLECTION half of {@link isVariantRelation}, split out because root
  * `createMany` routing needs exactly that half and nothing wider.
  *
- * A direct polymorphic TO-ONE key in a bulk row stores private owner columns on
+ * A direct variant TO-ONE key in a bulk row stores private owner columns on
  * the row itself, and the grouped cross-row probe route
  * (`write-engine/bulk-polymorphic-connect.ts`) compiles it into the maximal
  * grouped INSERT — a shipped SQL contract pinned byte-for-byte. A COLLECTION key
  * has no such analogue: its membership lives in per-variant member junction rows
  * that only exist after the owner row does, so the row is relation-BEARING and
  * belongs to the record series.
- *
- * It branches through {@link polymorphicCardinality} rather than reading
- * `state.cardinality`, so the terminal the declaration selected stays the one
- * reading of this fact.
  */
-export function isPolymorphicCollectionRelation(
-  model: Model<any>,
+export function isVariantCollectionRelation(
+  scope: QueryScope,
   fieldName: string
 ): boolean {
-  const relation = model["~"].state.polymorphicRelations[fieldName];
   return (
-    relation !== undefined &&
-    polymorphicCardinality(relation["~"].state) === "many"
+    variantCarrier(scope, fieldName)?.edge.kind === "variantJunctionCarrier"
   );
 }

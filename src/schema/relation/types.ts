@@ -1,288 +1,262 @@
-// Relation Types and Shared Interfaces
+// The canonical relation declaration representation.
+//
+// A declaration states exactly two independent facts: the SLOT CARDINALITY the
+// factory was spelled with (`toOne` / `toMany`) and the TARGET DOMAIN its
+// argument names (one model, or named variants). Everything else about an edge —
+// which endpoint owns the foreign key, whether storage is a row FK or a
+// junction, whether the pair is one-to-one or many-to-many, whether a
+// model-target singular slot may be empty — is DERIVED by the full-schema
+// topology owner and is deliberately absent from this union.
 
 import type { AnyModel } from "@schema/model";
-import { resolveOrdinaryInverse } from "./inverse";
 
 /** Workaround to allow circular dependencies */
 export type Getter = () => any;
 
-/** Relation cardinality types */
-export type RelationType =
-  | "oneToOne"
-  | "oneToMany"
-  | "manyToOne"
-  | "manyToMany";
-
 /** Referential action for foreign key constraints */
 export type ReferentialAction = "cascade" | "setNull" | "restrict" | "noAction";
 
-// =============================================================================
-// RELATION STATE
-// =============================================================================
+/**
+ * `setNull` is absent because every junction side is a non-null membership-key
+ * member: the action would null a column that carries the membership itself.
+ */
+export type JunctionReferentialAction = Exclude<ReferentialAction, "setNull">;
 
 /**
- * Unified relation state interface
- * All properties are optional except type and getter
- * Specific relation types will only use relevant properties
+ * Last-call-wins at the type level: every modifier returns a new value whose
+ * state REPLACES its own fact rather than intersecting with the prior one, so
+ * repeating `.name(...)` keeps the last literal instead of collapsing to
+ * `never`.
  */
-export interface RelationState {
-  type: RelationType;
-  // Deliberately `any`, NOT `Getter`: when a relation state is structurally
-  // compared against this interface (e.g. model()'s ModelShape constraint or
-  // a relation class's State constraint), a function-typed member forces
-  // TypeScript to resolve the getter's return type. In mutually-recursive
-  // schemas with chained relation builders on both sides (e.g. .name() on a
-  // to-many plus .fields() on its inverse) that resolution is circular and
-  // silently collapses both model consts to `any`. Comparing against `any`
-  // short-circuits without touching the return type. Concrete states still
-  // carry the precise `() => typeof model` type for inference.
-  // biome-ignore lint/suspicious/noExplicitAny: see above
-  getter: any;
-  name?: string;
-  // ToOne properties (oneToOne, manyToOne)
-  fields?: string[];
-  references?: string[];
-  optional?: boolean;
-  // Referential actions (ToOne and ManyToMany)
-  onDelete?: ReferentialAction;
-  onUpdate?: ReferentialAction;
-  // ManyToMany properties
-  through?: string;
-  A?: string;
-  B?: string;
-  source?: AnyModel;
-}
+export type Replace<State, Patch> = Omit<State, keyof Patch> & Patch;
 
-/** State for ToOne relations (oneToOne, manyToOne) */
-export interface ToOneRelationState extends RelationState {
-  type: "oneToOne" | "manyToOne";
-}
+/**
+ * The getter overload's phantom refusal — the counterpart of
+ * `VariantMapGuard`. It uniquely owns "not a map at all and not a getter": the
+ * map overload is tried first, so without this guard a direct model object or a
+ * malformed map reaching the getter overload would answer `never`, and `never`
+ * is assignable to a model shape, which makes the refusal vanish.
+ */
+export type GetterOnly<G> = G extends Getter
+  ? unknown
+  : {
+      readonly "a relation target is either `() => model` or a map of named `() => model` getters": never;
+    };
 
-/** State for ToMany relations (oneToMany) */
-export interface ToManyRelationState extends RelationState {
-  type: "oneToMany";
-}
-
-/** State for ManyToMany relations */
-export interface ManyToManyRelationState extends RelationState {
-  type: "manyToMany";
-}
+/** How many rows one slot addresses. */
+export type RelationCardinality = "one" | "many";
 
 // =============================================================================
-// INVERSE RELATION FIELDS
+// TARGET DOMAIN
 // =============================================================================
 
-/** Any relation type (for generic constraints) */
-export type AnyRelation = { "~": { state: RelationState } };
+export type ModelTarget<G = any> = {
+  readonly kind: "model";
+  readonly getter: G;
+};
 
-/** ToOneRelation shape (for type matching) */
-export type ToOneRelationShape<
-  State extends ToOneRelationState = ToOneRelationState,
+/** One member junction's table and its two DIRECTED side naming tokens. */
+export type VariantJunctionOverride = {
+  readonly table: string;
+  readonly source: string;
+  readonly target: string;
+};
+
+/**
+ * One normalized variant. The public map key stays the query/result/mutation
+ * discriminator; `storedValue` is the string written to storage. They are two
+ * facts, and a renamed public key with a preserved stored value is
+ * metadata-only.
+ */
+export type VariantEntry<G = any> = {
+  readonly getter: G;
+  readonly storedValue: string;
+};
+
+export type VariantOneEntry<G = any> = VariantEntry<G> & {
+  readonly junction?: never;
+};
+
+export type VariantManyEntry<G = any> = VariantEntry<G> & {
+  readonly junction?: VariantJunctionOverride;
+};
+
+export type VariantTarget<
+  Entries extends Readonly<Record<string, VariantEntry<any>>>,
 > = {
-  "~": { state: State };
+  readonly kind: "variants";
+  readonly entries: Entries;
 };
 
-/** Model shape for extracting relations */
-type ModelWithRelations = {
-  "~": { state: { relations: Record<string, AnyRelation> } };
+// =============================================================================
+// FOREIGN KEY AND JUNCTION CONFIGURATION
+// =============================================================================
+
+export type NonEmptyFieldTuple = readonly [string, ...string[]];
+
+/**
+ * The complete result of `.fields(...).references(...)`, plus the referential
+ * actions that are only meaningful once that complete reference exists. A
+ * partial foreign key is never a value of this type: the transient references
+ * stage holds the local tuple until `.references(...)` completes the pair.
+ */
+export type ForeignKeyDeclaration<
+  Fields extends NonEmptyFieldTuple = NonEmptyFieldTuple,
+  References extends NonEmptyFieldTuple = NonEmptyFieldTuple,
+> = {
+  readonly fields: Fields;
+  readonly references: References;
+  readonly onDelete?: ReferentialAction;
+  readonly onUpdate?: ReferentialAction;
 };
 
-/** `(U extends unknown ? … )` distributed into a parameter position, so a union
- *  becomes an intersection — the standard vehicle for {@link IsSingleMember}. */
-type UnionToIntersection<U> = (
-  U extends unknown
-    ? (x: U) => void
-    : never
-) extends (x: infer I) => void
-  ? I
-  : never;
+type AtLeastOne<Value> = {
+  [Key in keyof Value]-?: Required<Pick<Value, Key>> &
+    Partial<Omit<Value, Key>>;
+}[keyof Value];
 
 /**
- * True exactly when `U` has ONE member — the type-level form of the runtime
- * scan's `candidates.length === 1`. `never` (no candidate) is false, and a
- * union of two or more is false because a union is not assignable to its own
- * intersection.
- *
- * It is asked about the target model's RELATION KEYS, never about the field
- * tuples those relations carry: two relations can name the same column, and
- * counting tuples would fuse two candidates into one and take the
- * single-candidate branch for an ambiguous edge.
+ * Any subset of the canonical junction defaults, but never the empty object:
+ * trusted state stores an override only when an override was declared.
  */
-export type IsSingleMember<U> = [U] extends [never]
-  ? false
-  : [U] extends [UnionToIntersection<U>]
-    ? true
-    : false;
+export type OrdinaryJunctionOverrides = AtLeastOne<{
+  readonly table?: string;
+  readonly source?: string;
+  readonly target?: string;
+  readonly onDelete?: JunctionReferentialAction;
+  readonly onUpdate?: JunctionReferentialAction;
+}>;
 
-/** Every to-one back-reference on the target model that carries a foreign key to
- *  the source — the candidate set the runtime scan collects BEFORE the name is
- *  asked. Keyed by relation name, which is unique by construction. */
-type InverseCandidateKeys<TTargetModel, TSourceModel> =
-  TTargetModel extends ModelWithRelations
-    ? {
-        [K in keyof TTargetModel["~"]["state"]["relations"]]: TTargetModel["~"]["state"]["relations"][K] extends ToOneRelationShape<
-          infer State
-        >
-          ? State["getter"] extends () => TSourceModel
-            ? State extends { fields: string[] }
-              ? State["fields"] extends readonly []
-                ? never
-                : K
-              : never
-            : never
-          : never;
-      }[keyof TTargetModel["~"]["state"]["relations"]]
-    : never;
-
-/** The candidates whose `.name()` matches — what the name is FOR when several
- *  back-references compete. */
-type NamedInverseCandidateKeys<TTargetModel, TSourceModel, TName> =
-  TTargetModel extends ModelWithRelations
-    ? {
-        [K in keyof TTargetModel["~"]["state"]["relations"]]: TTargetModel["~"]["state"]["relations"][K] extends ToOneRelationShape<
-          infer State
-        >
-          ? State["getter"] extends () => TSourceModel
-            ? State extends { fields: string[] }
-              ? State["fields"] extends readonly []
-                ? never
-                : TName extends string
-                  ? State["name"] extends TName
-                    ? K
-                    : never
-                  : K
-              : never
-            : never
-          : never;
-      }[keyof TTargetModel["~"]["state"]["relations"]]
-    : never;
-
-/** The `.fields()` tuple of one named candidate. */
-type InverseFieldsAt<TTargetModel, K> = TTargetModel extends ModelWithRelations
-  ? K extends keyof TTargetModel["~"]["state"]["relations"]
-    ? TTargetModel["~"]["state"]["relations"][K] extends ToOneRelationShape<
-        infer State
-      >
-      ? State extends { fields: infer Fields extends string[] }
-        ? Fields
-        : never
-      : never
-    : never
-  : never;
-
-/** Helper to extract fields from target model's relations */
-type ExtractInverseFieldsRaw<TTargetModel, TSourceModel, TName> =
-  TTargetModel extends ModelWithRelations
-    ? IsSingleMember<
-        InverseCandidateKeys<TTargetModel, TSourceModel>
-      > extends true
-      ? InverseFieldsAt<
-          TTargetModel,
-          InverseCandidateKeys<TTargetModel, TSourceModel>
-        >
-      : InverseFieldsAt<
-          TTargetModel,
-          NamedInverseCandidateKeys<TTargetModel, TSourceModel, TName>
-        >
-    : undefined;
-
-/** Convert never to undefined */
-type ExtractInverseFields<TTargetModel, TSourceModel, TName> = [
-  ExtractInverseFieldsRaw<TTargetModel, TSourceModel, TName>,
-] extends [never]
-  ? undefined
-  : ExtractInverseFieldsRaw<TTargetModel, TSourceModel, TName>;
+// =============================================================================
+// THE CLOSED STATE UNION
+// =============================================================================
 
 /**
- * Get the FK fields from the inverse relation.
- * - For to-one relations with `.fields()`: returns its own fields
- * - For inverse one-to-one, one-to-many, and many-to-many relations: finds the
- *   inverse to-one relation in the target model and returns its fields
- *
- * The target model's relations are inferred from S["getter"].
- *
- * The relation name DISAMBIGUATES; it does not reject — the SAME rule the one
- * candidate scan (`./inverse`) applies for every consumer. A SOLE
- * back-reference IS this relation's foreign key whether or not it echoes the name, and
- * the name only picks among SEVERAL competing back-references.
- *
- * THE TYPE LEVEL AND THE RUNTIME ANSWER THIS IDENTICALLY, and must. The name check
- * used to REJECT at the type level while the runtime demoted it, so on a schema whose
- * lone back-reference does not echo the name the two disagreed about one edge and a
- * legal nested `createMany` row demanded a foreign key the runtime had already made
- * optional. The alignment is expressible because `.fields()` keeps its literal tuple
- * through the model type and {@link IsSingleMember} answers `candidates.length === 1`
- * over the target's RELATION KEYS — counting keys rather than tuples is what keeps a
- * `.fields()` collapse to `string[]` from fusing two candidates.
+ * The broad state arms deliberately use `any` for the getter, not `G extends
+ * Getter`: constraining a function-typed member forces TypeScript to resolve
+ * recursive getter returns, and that resolution is circular in mutually
+ * recursive schemas and silently collapses both model consts to `any`.
+ * Comparing against `any` short-circuits without touching the return type.
+ * Concrete factory states retain the exact getter or getter-map generic.
  */
-export type GetInverseRelationMap<
-  S extends RelationState,
-  TSourceModel,
-> = S extends {
-  type: "manyToOne" | "oneToOne";
-  fields: readonly string[];
-}
-  ? S["fields"] extends readonly []
-    ? // A zero-argument `.fields()` is fields-LESS — the aligned reading — so
-      // the edge falls to the inverse scan exactly as the runtime does.
-      S["getter"] extends () => infer TTargetModel
-      ? ExtractInverseFields<TTargetModel, TSourceModel, S["name"]>
-      : undefined
-    : S["fields"]
-  : S["getter"] extends () => infer TTargetModel
-    ? ExtractInverseFields<TTargetModel, TSourceModel, S["name"]>
-    : undefined;
+export type ModelToOneState<
+  G = any,
+  ForeignKey extends ForeignKeyDeclaration | undefined =
+    | ForeignKeyDeclaration
+    | undefined,
+> = {
+  readonly kind: "relation";
+  readonly cardinality: "one";
+  readonly target: ModelTarget<G>;
+  readonly name?: string;
+  readonly junction?: never;
+  readonly optional?: never;
+} & (ForeignKey extends ForeignKeyDeclaration
+  ? { readonly foreignKey: ForeignKey }
+  : { readonly foreignKey?: never });
+
+export type ModelToManyState<G = any> = {
+  readonly kind: "relation";
+  readonly cardinality: "many";
+  readonly target: ModelTarget<G>;
+  readonly name?: string;
+  readonly junction?: OrdinaryJunctionOverrides;
+  readonly foreignKey?: never;
+  readonly optional?: never;
+};
+
+export type VariantToOneState<
+  Entries extends Readonly<Record<string, VariantOneEntry<any>>> = Readonly<
+    Record<string, VariantOneEntry<any>>
+  >,
+> = {
+  readonly kind: "relation";
+  readonly cardinality: "one";
+  readonly target: VariantTarget<Entries>;
+  readonly name?: string;
+  readonly optional?: true;
+  readonly foreignKey?: never;
+  readonly junction?: never;
+};
+
+export type VariantToManyState<
+  Entries extends Readonly<Record<string, VariantManyEntry<any>>> = Readonly<
+    Record<string, VariantManyEntry<any>>
+  >,
+> = {
+  readonly kind: "relation";
+  readonly cardinality: "many";
+  readonly target: VariantTarget<Entries>;
+  readonly name?: string;
+  readonly foreignKey?: never;
+  readonly junction?: never;
+  readonly optional?: never;
+};
 
 /**
- * Get the FK fields from the inverse relation at runtime.
- * - For to-one relations with `.fields()`: returns its own fields
- * - For inverse one-to-one, one-to-many, and many-to-many relations: derives the
- *   FK-omission projection from the one candidate scan in `./inverse`: the
- *   relation name disambiguates competing back-references, it never rejects the
- *   only one.
- *
- * @param state - The current relation state
- * @param sourceModel - The source model (to verify the inverse points back)
+ * Optional properties use one canonical representation: the property is absent,
+ * or it holds the one normalized value. Trusted state never stores explicit
+ * `undefined`, `false`, an empty override object, or a partial foreign key. The
+ * `?: never` exclusions make illegal cross-arm configuration fail under
+ * structural assignment too, so the algebra does not rely on excess-property
+ * checking or factory etiquette.
  */
-export function getInverseRelationMap<S extends RelationState, TSourceModel>(
-  state: S,
-  sourceModel: TSourceModel
-): GetInverseRelationMap<S, TSourceModel> {
-  // To-one relations with explicit NON-EMPTY fields hold the FK on this side —
-  // the aligned reading (`fields.length > 0`) the engine has always applied. A
-  // zero-argument `.fields()` is fields-less and falls to the inverse scan,
-  // which is what retired guard-ledger site 11's only route.
-  if (
-    (state.type === "manyToOne" || state.type === "oneToOne") &&
-    state.fields &&
-    state.fields.length > 0
-  ) {
-    return state.fields as GetInverseRelationMap<S, TSourceModel>;
-  }
+export type RelationState =
+  | ModelToOneState
+  | ModelToManyState
+  | VariantToOneState
+  | VariantToManyState;
 
-  // The FK-OMISSION projection of the one ordinary resolution (`inverse.ts`).
-  //
-  // This view deliberately never consults the polymorphic arms: it answers
-  // "which fields might the enclosing edge supply to nested data", and a
-  // name-paired polymorphic edge does not stop the physical foreign key from
-  // being the fields the child data must omit. What differs from the engine's
-  // consumption of the same resolution is ONE policy, preserved exactly: on an
-  // `ambiguous` verdict with no `.name()` the FIRST declared candidate answers
-  // (the historical omission behavior), where `bindRelation` refuses; with a
-  // `.name()` matching none, this view answers undefined.
-  const resolved = resolveOrdinaryInverse(
-    state.getter() as AnyModel,
-    sourceModel,
-    state.name
-  );
-  if (resolved.kind === "ordinary") {
-    return resolved.fields as GetInverseRelationMap<S, TSourceModel>;
-  }
-  if (resolved.kind === "ambiguous" && !state.name) {
-    return resolved.candidates[0]?.fields as GetInverseRelationMap<
-      S,
-      TSourceModel
-    >;
-  }
-  return undefined as GetInverseRelationMap<S, TSourceModel>;
-}
+/**
+ * The two arms of one TARGET DOMAIN, named because the derived views split on
+ * that axis before they split on anything else (§8.2): a variant target has a
+ * discriminated element union, a discriminated projection envelope, and its own
+ * family key set, whatever its cardinality.
+ */
+export type VariantRelationState = VariantToOneState | VariantToManyState;
+
+/**
+ * The predicate for {@link VariantRelationState} — one declared property read,
+ * spelled once so both halves of a target-domain partition ask it the same way.
+ * It classifies a declaration; it resolves nothing.
+ */
+export const isVariantRelationState = (
+  state: RelationState
+): state is VariantRelationState => state.target.kind === "variants";
+
+// =============================================================================
+// INTERNAL ACCESSOR
+// =============================================================================
+
+/**
+ * The internal accessor every terminal exposes under `"~"`.
+ *
+ * `settleTarget` is the source-independent lazy once-cell required by the
+ * declaration algebra: the first caller settles a target's raw getter return OR
+ * one normalized `Error`, and every later consumer — in this schema graph or
+ * another one reusing the same immutable terminal — observes that same outcome.
+ * It is derived cache state, not a declaration fact; the resolver decides
+ * whether a settled return is a registered model and owns the contextual
+ * diagnostic, so nothing model-specific is cached here.
+ */
+export type RelationInternal<State> = {
+  readonly state: State;
+  /** Variant key for a variant target; omitted for a model target. */
+  readonly settleTarget: (variantKey?: string) => unknown;
+};
+
+/** Any relation terminal, matched by its internal brand. */
+export type AnyRelation = { readonly "~": RelationInternal<RelationState> };
+
+/**
+ * The identity of a contextual relation reference.
+ *
+ * A relation object does not store its source model: `.extends()` may reuse one
+ * terminal under more than one model or key, so the source model plus the field
+ * key is the whole identity and the declaration is read from that model's
+ * canonical relation map rather than copied into the identity.
+ */
+export type RelationSlot = {
+  readonly source: AnyModel;
+  readonly field: string;
+};

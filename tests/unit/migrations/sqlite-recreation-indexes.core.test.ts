@@ -390,7 +390,7 @@ describe("SQLite table recreation — the batch's own unique constraints and key
 const recreationUser = s
   .model({
     id: s.string().id(),
-    posts: s.oneToMany(() => recreationPost),
+    posts: s.toMany(() => recreationPost),
   })
   .map("recreation_users");
 
@@ -399,7 +399,7 @@ const recreationPost = s
     id: s.string().id(),
     authorId: s.string(),
     author: s
-      .manyToOne(() => recreationUser)
+      .toOne(() => recreationUser)
       .fields("authorId")
       .references("id"),
   })

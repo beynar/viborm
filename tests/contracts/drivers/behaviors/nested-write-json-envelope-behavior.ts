@@ -29,7 +29,7 @@ const collar = s
     id: s.string().id(),
     color: s.string(),
     spec: s.json().nullable(),
-    pets: s.oneToMany(() => pet),
+    pets: s.toMany(() => pet),
   })
   .map("json_envelope_collar");
 
@@ -40,13 +40,12 @@ const pet = s
     meta: s.json().nullable(),
     collarId: s.string().nullable(),
     collar: s
-      .manyToOne(() => collar)
+      .toOne(() => collar)
       .fields("collarId")
-      .references("id")
-      .optional(),
-    people: s.oneToMany(() => person),
-    members: s.oneToMany(() => member),
-    docs: s.oneToMany(() => doc),
+      .references("id"),
+    people: s.toMany(() => person),
+    members: s.toMany(() => member),
+    docs: s.toMany(() => doc),
   })
   .map("json_envelope_pet");
 
@@ -58,11 +57,10 @@ const person = s
     payload: s.json().nullable(),
     petId: s.string().nullable(),
     pet: s
-      .manyToOne(() => pet)
+      .toOne(() => pet)
       .fields("petId")
-      .references("id")
-      .optional(),
-    orgs: s.oneToMany(() => org),
+      .references("id"),
+    orgs: s.toMany(() => org),
   })
   .map("json_envelope_person");
 
@@ -72,16 +70,14 @@ const member = s
     blob: s.json().nullable(),
     orgId: s.string().nullable(),
     org: s
-      .manyToOne(() => org)
+      .toOne(() => org)
       .fields("orgId")
-      .references("id")
-      .optional(),
+      .references("id"),
     petId: s.string().nullable(),
     pet: s
-      .manyToOne(() => pet)
+      .toOne(() => pet)
       .fields("petId")
-      .references("id")
-      .optional(),
+      .references("id"),
   })
   .map("json_envelope_member");
 
@@ -90,11 +86,10 @@ const org = s
     id: s.string().id(),
     headId: s.string().nullable(),
     head: s
-      .manyToOne(() => person)
+      .toOne(() => person)
       .fields("headId")
-      .references("id")
-      .optional(),
-    members: s.oneToMany(() => member),
+      .references("id"),
+    members: s.toMany(() => member),
   })
   .map("json_envelope_org");
 
@@ -105,11 +100,10 @@ const doc = s
     data: s.json().nullable(),
     petId: s.string().nullable(),
     pet: s
-      .manyToOne(() => pet)
+      .toOne(() => pet)
       .fields("petId")
-      .references("id")
-      .optional(),
-    folders: s.oneToMany(() => folder),
+      .references("id"),
+    folders: s.toMany(() => folder),
   })
   .map("json_envelope_doc");
 
@@ -118,10 +112,9 @@ const folder = s
     id: s.string().id(),
     docId: s.string().nullable(),
     doc: s
-      .manyToOne(() => doc)
+      .toOne(() => doc)
       .fields("docId")
-      .references("id")
-      .optional(),
+      .references("id"),
   })
   .map("json_envelope_folder");
 

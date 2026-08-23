@@ -1,4 +1,5 @@
-import type { PolymorphicRelationState } from "@schema/relation";
+import type { VariantRelationState } from "@schema/relation";
+import type { VariantEntries } from "@schema/relation/static-membership";
 import type { InferInput, InferOutput, VibSchema } from "@validation/types";
 
 /**
@@ -32,16 +33,16 @@ interface PolymorphicTargetSchemas {
   };
 }
 
-export type PolymorphicTargetSchemaGetters<
-  State extends PolymorphicRelationState,
-> = {
-  readonly [PublicType in keyof State["targets"]]: () => PolymorphicTargetSchemas;
-};
+export type PolymorphicTargetSchemaGetters<State extends VariantRelationState> =
+  {
+    readonly [PublicType in keyof VariantEntries<State>]: () => PolymorphicTargetSchemas;
+  };
 
 export type ExactPolymorphicTargetSchemaGetters<
-  State extends PolymorphicRelationState,
+  State extends VariantRelationState,
   Getters extends PolymorphicTargetSchemaGetters<State>,
-> = Getters & Record<Exclude<keyof Getters, keyof State["targets"]>, never>;
+> = Getters &
+  Record<Exclude<keyof Getters, keyof VariantEntries<State>>, never>;
 
 type SchemasAt<
   Getters,
@@ -52,13 +53,14 @@ type CoreSchemaAt<
   Getters,
   PublicType extends keyof Getters,
   CoreKey extends PropertyKey,
-> = SchemasAt<Getters, PublicType> extends {
-  readonly core: infer Core;
-}
-  ? CoreKey extends keyof Core
-    ? Core[CoreKey]
-    : never
-  : never;
+> =
+  SchemasAt<Getters, PublicType> extends {
+    readonly core: infer Core;
+  }
+    ? CoreKey extends keyof Core
+      ? Core[CoreKey]
+      : never
+    : never;
 
 export type CoreInputAt<
   Getters,
@@ -74,7 +76,10 @@ export type CoreOutputAt<
 
 export type PolymorphicSchema<Input, Output = Input> = VibSchema<Input, Output>;
 
-export const polymorphicPublicTypes = <State extends PolymorphicRelationState>(
+export const polymorphicPublicTypes = <State extends VariantRelationState>(
   state: State
-): Extract<keyof State["targets"], string>[] =>
-  Object.keys(state.targets) as Extract<keyof State["targets"], string>[];
+): Extract<keyof VariantEntries<State>, string>[] =>
+  Object.keys(state.target.entries) as Extract<
+    keyof VariantEntries<State>,
+    string
+  >[];

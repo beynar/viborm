@@ -7,6 +7,7 @@ import { serializeModels } from "@src/migrations/serializer";
 import { s } from "@src/schema";
 import { hydrateSchemaNames } from "@src/schema/hydration";
 import { validateSchema, validateSchemaOrThrow } from "@src/schema/validation";
+import { resolveSchemaOrThrow } from "@src/schema/validation/validator";
 import { describe, expect, it } from "vitest";
 
 const RELATION_CONSTRAINT_KEYWORDS = /\b(?:FOREIGN KEY|CHECK|UNIQUE)\b/i;
@@ -19,7 +20,7 @@ function polymorphicSchema(optional = false) {
   const video = s
     .model({ id: s.string().id().map("video_pk"), title: s.string() })
     .map("clips");
-  const relation = s.polymorphicToOne(
+  const relation = s.toOne(
     { post: () => post, video: () => video },
     {
       values: {
@@ -43,22 +44,16 @@ function polymorphicSchema(optional = false) {
 function polymorphicOneToOneSchema() {
   const post = s.model({
     id: s.string().id(),
-    featuredComment: s
-      .oneToOne(() => comment)
-      .name("commentable")
-      .optional(),
+    featuredComment: s.toOne(() => comment).name("commentable"),
   });
   const video = s.model({
     id: s.string().id(),
-    featuredComment: s
-      .oneToOne(() => comment)
-      .name("commentable")
-      .optional(),
+    featuredComment: s.toOne(() => comment).name("commentable"),
   });
   const comment = s.model({
     id: s.string().id(),
     commentable: s
-      .polymorphicToOne({ post: () => post, video: () => video })
+      .toOne({ post: () => post, video: () => video })
       .name("commentable"),
   });
   const schema = { post, video, comment };
@@ -275,7 +270,7 @@ describe("polymorphic migration serialization", () => {
     const video = s.model({ id: s.int().id().increment() });
     const comment = s.model({
       id: s.string().id(),
-      subject: s.polymorphicToOne(
+      subject: s.toOne(
         { post: () => post, video: () => video },
         { values: { post: "content.post.v1", video: "content.video.v1" } }
       ),
@@ -333,20 +328,14 @@ function memberMatrixSchema() {
   const post = s.model({
     id: s.string().id(),
     title: s.string(),
-    galleryOwner: s
-      .manyToOne(() => owner)
-      .name("gallery")
-      .optional(),
+    galleryOwner: s.toOne(() => owner).name("gallery"),
   });
   const video = s.model({ id: s.int().id() });
   const doc = s
     .model({
       region: s.string().map("region_code"),
       serial: s.string().map("serial_no"),
-      galleryOwner: s
-        .manyToOne(() => owner)
-        .name("gallery")
-        .optional(),
+      galleryOwner: s.toOne(() => owner).name("gallery"),
     })
     .id(["region", "serial"])
     .map("legal_documents");
@@ -355,7 +344,7 @@ function memberMatrixSchema() {
       tenantId: s.string(),
       localId: s.string(),
       gallery: s
-        .polymorphicToMany(
+        .toMany(
           {
             post: () => post,
             video: () => video,
@@ -373,7 +362,7 @@ function memberMatrixSchema() {
         )
         .name("gallery"),
       attachments: s
-        .polymorphicToMany(
+        .toMany(
           { post: () => post, video: () => video },
           {
             values: {
@@ -786,11 +775,15 @@ describe("polymorphic member-table serialization", () => {
 
   it("serializes every physical name from the stored topology alone", () => {
     const { schema, owner } = memberMatrixSchema();
-    const storage = owner["~"].getPolymorphicStorage("gallery");
-    if (storage?.kind !== "toMany") {
-      throw new Error("gallery storage must be a toMany descriptor");
+    // The RESOLVED EDGE is the only topology input now: the gate expanded this
+    // member junction once, and the serializer reads that same object.
+    const edge = resolveSchemaOrThrow(schema).get(owner)?.get("gallery")?.edge;
+    if (edge?.kind !== "variantJunctionCarrier") {
+      throw new Error("gallery must resolve to a member-junction carrier");
     }
-    const docJunction = storage.members.get("doc")?.junction;
+    const docJunction = edge.members.find(
+      (member) => member.variant === "doc"
+    )?.topology;
     if (!docJunction) throw new Error("doc member must exist");
 
     const snapshot = serializeModels(schema, {
@@ -819,34 +812,24 @@ describe("polymorphic member-table serialization", () => {
   it("excludes the bound manyToMany view while member tables and an ordinary pair emit", () => {
     const tag = s.model({
       id: s.string().id(),
-      // The VIEW spelling of the collection inverse — and a HOSTILE
-      // referential action on it (P016 refuses it at validation; the
-      // serializer must still never let it reach DDL).
-      holders: s
-        .manyToMany(() => holder)
-        .name("labels")
-        .onDelete("restrict"),
+      // The VIEW spelling of the collection inverse: a bound member of the
+      // carrier, which owns every physical fact for it.
+      holders: s.toMany(() => holder).name("labels"),
     });
     const holder = s.model({
       id: s.string().id(),
       labels: s
-        .polymorphicToMany(
-          { tag: () => tag },
-          { values: { tag: "labels.tag" } }
-        )
+        .toMany({ tag: () => tag }, { values: { tag: "labels.tag" } })
         .name("labels"),
-      categories: s.manyToMany(() => category),
+      categories: s.toMany(() => category),
     });
     const category = s.model({
       id: s.string().id(),
-      holders: s.manyToMany(() => holder),
+      holders: s.toMany(() => holder),
     });
     const schema = { tag, holder, category };
     hydrateSchemaNames(schema);
-    const result = validateSchema(schema);
-    // P016 alone — the view's forbidden physical configuration. The collection
-    // declaration itself is legal.
-    expect(result.errors.map((entry) => entry.code)).toEqual(["P016"]);
+    expect(validateSchema(schema).errors).toEqual([]);
 
     const snapshot = serializeModels(schema, {
       migrationDriver: postgresMigrationDriver,
@@ -872,8 +855,8 @@ describe("polymorphic member-table serialization", () => {
       ordinaryJunction?.foreignKeys.map((fk) => fk.referencedTable).sort()
     ).toEqual(["category", "holder"]);
 
-    // Hostile action never reaches DDL: the member junction's FKs are the
-    // FIXED cascade pair regardless of the view's configured action.
+    // A member junction's FKs are the FIXED cascade pair — no configuration
+    // reaches them, because the carrier owns every physical fact for the member.
     expect(
       memberTable?.foreignKeys.map((fk) => [fk.onDelete, fk.onUpdate])
     ).toEqual([
@@ -882,13 +865,41 @@ describe("polymorphic member-table serialization", () => {
     ]);
   });
 
+  // The hostile half of the cell above, now a GATE refusal: a bound member view
+  // that configures a physical fact the carrier owns is R012, and a refused
+  // schema cannot reach DDL at all because `serializeModels` resolves it.
+  it("refuses a bound member view that configures a referential action", () => {
+    const tag = s.model({
+      id: s.string().id(),
+      holders: s
+        .toMany(() => holder)
+        .name("labels")
+        .onDelete("restrict"),
+    });
+    const holder = s.model({
+      id: s.string().id(),
+      labels: s
+        .toMany({ tag: () => tag }, { values: { tag: "labels.tag" } })
+        .name("labels"),
+    });
+    const schema = { tag, holder };
+    hydrateSchemaNames(schema);
+
+    expect(validateSchema(schema).errors.map((entry) => entry.code)).toEqual([
+      "R012",
+    ]);
+    expect(() =>
+      serializeModels(schema, { migrationDriver: postgresMigrationDriver })
+    ).toThrow("[R012]");
+  });
+
   it("refuses colliding member junction names at validation, before DDL", () => {
     const a = s.model({ id: s.string().id() });
     const clash = s.model({
       id: s.string().id(),
-      items: s.polymorphicToMany({ a: () => a }, { values: { a: "items.a" } }),
+      items: s.toMany({ a: () => a }, { values: { a: "items.a" } }),
       extra: s
-        .polymorphicToMany({ a: () => a }, { values: { a: "extra.a" } })
+        .toMany({ a: () => a }, { values: { a: "extra.a" } })
         .name("extra")
         .through({
           // Explicitly claims the table name `items` generates.
@@ -900,11 +911,10 @@ describe("polymorphic member-table serialization", () => {
     const result = validateSchema(schema);
 
     expect(result.errors.map((entry) => entry.code)).toEqual(["P019", "P019"]);
-    // The refused members store no descriptor, so no DDL is ever emitted for
-    // the colliding name.
-    const snapshot = serializeModels(schema, {
-      migrationDriver: postgresMigrationDriver,
-    });
-    expect(snapshot.tables.map((table) => table.name)).toEqual(["a", "clash"]);
+    // A refused schema never reaches DDL: the serializer resolves what it is
+    // given, so the colliding name has no route to a table at all.
+    expect(() =>
+      serializeModels(schema, { migrationDriver: postgresMigrationDriver })
+    ).toThrow("[P019]");
   });
 });

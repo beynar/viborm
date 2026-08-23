@@ -1,7 +1,8 @@
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { D1Driver } from "@drivers/d1";
-import { parseResult, ResultParser } from "@query-engine/result/ResultParser";
+import { parseResult } from "@query-engine/result/ResultParser";
 import { s } from "@schema";
+import { parserFor, prepareSchema } from "@tests/fixtures/query-scope";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 const models = {
@@ -11,12 +12,14 @@ const models = {
   }),
 };
 
+prepareSchema(models);
+
 const UNSUPPORTED_D1_BLOB_REGEX =
   /Driver "d1" returned an unsupported .* blob representation/i;
 
 function parseBlob(raw: unknown): Uint8Array {
   const driver = new D1Driver({ database: Object.create(null) });
-  const ctx = new ResultParser(new SQLiteAdapter(), models.binary, driver);
+  const ctx = parserFor(new SQLiteAdapter(), models.binary, driver);
   const [row] = parseResult<Array<{ id: string; payload: Uint8Array }>>(
     ctx,
     "findMany",

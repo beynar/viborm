@@ -4,26 +4,45 @@ description: Define ordinary and polymorphic relationships between models
 icon: git-branch
 ---
 
-## Chainable API
+## Two Factories
 
-VibORM uses a chainable API for defining relations:
+VibORM has exactly two relation factories. The one you call states the **slot
+cardinality** — how many records this side addresses — and its argument states
+the **target domain** — one model, or a map of named variants:
 
 ```ts
-s.manyToOne(() => targetModel).fields("fk").references("id")
+s.toOne(() => targetModel).fields("fk").references("id")
 ```
 
 The thunk `() => targetModel` comes first to handle circular references between models, then configuration methods are chained.
 
-## Relation Types
+Everything else about a relationship — which endpoint stores the foreign key,
+whether the pair is one-to-one or many-to-one, whether storage is a foreign key
+or a junction table, whether a singular slot may be empty — is **derived** from
+the whole schema. You never declare it twice.
 
-| Relation | Description | Example |
-|----------|-------------|---------|
-| `s.oneToOne()` | Each side relates to at most one record | User → Profile |
-| `s.oneToMany()` | One record relates to many | User → Posts |
-| `s.manyToOne()` | Many records relate to one | Post → Author |
-| `s.manyToMany()` | Many relate to many | Post ↔ Tags |
-| `s.polymorphicToOne()` | One record relates to one of several model types | Comment → Post or Video |
-| `s.polymorphicToMany()` | One record relates to many of several model types | Shelf → Books and Videos |
+| Factory | Target argument | Meaning |
+|---------|-----------------|---------|
+| `s.toOne(() => model)` | one model | this side addresses at most one record |
+| `s.toMany(() => model)` | one model | this side addresses a collection |
+| `s.toOne({ ... })` | a variant map | at most one record, of one of several models |
+| `s.toMany({ ... })` | a variant map | a collection whose members may mix models |
+
+## Cardinality Is the Pair
+
+A relationship is two slots. Its familiar name is what the **pair** spells, not
+a factory you call:
+
+| Both endpoints | Relationship | Storage |
+|----------------|--------------|---------|
+| `toOne` + `toOne` | one-to-one | a foreign key on the endpoint that declares `.fields(...)` , under a unique constraint |
+| `toOne` + `toMany` | many-to-one / one-to-many | a foreign key on the `toOne` endpoint |
+| `toMany` + `toMany` | many-to-many | a junction table |
+
+Every ordinary relation needs a complete inverse: a slot whose target model
+declares nothing back is refused with `R002`. A `toOne`/`toOne` or
+`toOne`/`toMany` pair also needs exactly one physical owner — the endpoint that
+completes `.fields(...).references(...)`. None is `FK004`; both is `CM003`.
 
 ## Quick Example
 
@@ -33,15 +52,15 @@ import { s } from "viborm";
 const user = s.model({
   id: s.string().id().ulid(),
   email: s.string().unique(),
-  profile: s.oneToOne(() => profile).optional(),
-  posts: s.oneToMany(() => post),
+  profile: s.toOne(() => profile),
+  posts: s.toMany(() => post),
 });
 
 const profile = s.model({
   id: s.string().id().ulid(),
   bio: s.string(),
   userId: s.string().unique(),
-  user: s.oneToOne(() => user)
+  user: s.toOne(() => user)
     .fields("userId")
     .references("id"),
 });
@@ -50,82 +69,123 @@ const post = s.model({
   id: s.string().id().ulid(),
   title: s.string(),
   authorId: s.string(),
-  author: s.manyToOne(() => user)
+  author: s.toOne(() => user)
     .fields("authorId")
     .references("id"),
-  tags: s.manyToMany(() => tag),
+  tags: s.toMany(() => tag),
 });
 
 const tag = s.model({
   id: s.string().id().ulid(),
   name: s.string().unique(),
-  posts: s.manyToMany(() => post),
+  posts: s.toMany(() => post),
 });
 ```
 
-## Methods by Relation Type
+`user.profile` and `profile.user` are both `toOne`, so the pair is one-to-one and
+`profile.userId` carries the foreign key. `user.posts` is a collection whose
+partner `post.author` is singular, so the pair is one-to-many and `post.authorId`
+carries the foreign key. `post.tags` and `tag.posts` are both collections, so the
+pair is many-to-many and gets a junction table.
 
-### ToOne Relations (`oneToOne`, `manyToOne`)
+## Methods by Slot
+
+### Singular slots (`s.toOne`)
 
 ```ts
-s.manyToOne(() => target)
-  .fields("authorId")       // FK field on current model
-  .references("id")         // Referenced field on target model
-  .optional()               // Mark as optional (FK can be null)
+s.toOne(() => target)
+  .name("author")           // Pairing label, matched exactly on both endpoints
+  .fields("authorId")       // FK field(s) on THIS model — makes this side the owner
+  .references("id")         // Referenced field(s) on the target model
   .onDelete("cascade")      // Referential action on delete
   .onUpdate("cascade")      // Referential action on update
-  .name("author")           // Custom relation name
 ```
 
-### ToMany Relations (`oneToMany`)
+`.fields(...)` needs at least one field and must reach `.references(...)` with
+the same number of fields; the value in between is not a relation and `s.model()`
+refuses it. `.onDelete()` / `.onUpdate()` appear only after the reference is
+complete, because there is no foreign key to act on before it.
+
+A singular slot that declares no foreign key is the **non-owning** side. It needs
+no configuration at all, and it is always nullable in results: the membership
+lives on the other row and may simply be missing.
+
+There is no `.optional()`. Whether an owner's slot may be empty follows from the
+foreign-key scalars themselves — if any member of the tuple is `.nullable()`, the
+membership is absent-able and `disconnect` is offered.
 
 ```ts
-s.oneToMany(() => target)
-  .name("posts")            // Custom relation name (only method needed)
+const post = s.model({
+  authorId: s.string().nullable(),          // ← this is the optionality
+  author: s.toOne(() => user).fields("authorId").references("id"),
+});
 ```
 
-The FK configuration is done on the `manyToOne` side, not here.
-
-### ManyToMany Relations
+### Collection slots (`s.toMany`)
 
 ```ts
-s.manyToMany(() => target)
+s.toMany(() => target)
+  .name("tags")             // Pairing label, matched exactly on both endpoints
   .through("post_tags")     // Junction table name
-  .A("postId")              // Source column, or prefix for a compound source key
-  .B("tagId")               // Target column, or prefix for a compound target key
-  .onDelete("cascade")      // Referential action (applies to both FKs)
-  .onUpdate("cascade")      // Referential action (applies to both FKs)
-  .name("tags")             // Custom relation name
+  .source("postId")         // This side's column, or prefix for a compound key
+  .target("tagId")          // The other side's column, or prefix for a compound key
+  .onDelete("cascade")      // Referential action (applies to both junction FKs)
+  .onUpdate("cascade")      // Referential action (applies to both junction FKs)
 ```
 
-`.A()` and `.B()` always take one string. For a one-field primary key, that
-string is the exact junction column name. For a compound primary key, it is a
-prefix: `.A("post")` expands to `post_1`, `post_2`, and so on, in the primary
-key's declared field order. The inverse relation swaps the complete A and B
-groups.
+`.through()`, `.source()`, `.target()`, `.onDelete()` and `.onUpdate()` describe
+one physical junction, so **exactly one endpoint carries them**. Configuring both
+sides is refused with `R011` — the mirrored view is derived for the other side.
+`.source()` is always oriented from the endpoint that declares it.
 
-### Polymorphic Relations
+`.source()` and `.target()` always take one string. For a one-field primary key
+that string is the exact junction column name. For a compound primary key it is
+a prefix: `.source("post")` expands to `post_1`, `post_2`, and so on in the
+primary key's declared field order.
+
+A collection paired with a singular slot owns no junction and needs no
+configuration: the foreign key lives on the singular side.
+
+### Variant slots (polymorphic)
 
 ```ts
-s.polymorphicToOne({
-  post: () => post,          // The factory name IS the cardinality:
+s.toOne({
+  post: () => post,          // A map argument makes the target domain variant:
   video: () => video,        // this slot holds at most one membership
 })
   .optional()                // Both private storage columns may be null
   .name("commentable")       // Pairing label for inverse relations
 ```
 
-The factory you call declares the cardinality, and both are first-class.
-`s.polymorphicToOne()` holds at most one membership, stored as a private
-`(type, id)` pair on the owner row. `s.polymorphicToMany()` holds a collection of
-memberships that may mix variants, stored as one junction table per variant; it
-reads, filters, counts, orders, writes and migrates like any other relation.
-Both take a MAP of named targets; for a single target model use an ordinary
-relation.
+The same two factories carry variant targets; only the argument changes.
+`s.toOne({ ... })` holds at most one membership, stored as a private
+`(type, id)` pair on the owner row, and it is the one relation shape that keeps
+`.optional()` — that flag *is* the nullability of those two private columns.
+`s.toMany({ ... })` holds a collection of memberships that may mix variants,
+stored as one junction table per variant, and names those junctions through an
+exact `.through({ variant: { table, source, target } })` map. It has no
+`.optional()`: an empty collection is already the empty case.
 
 The public target keys are also the stored discriminators by default. Pass an
 exact `{ values }` second argument only when you need custom persistent values.
 See [Polymorphic Relations](/docs/schema/relations/polymorphic).
+
+## Relation Names
+
+`.name()` is a pairing label, not a column. It matters when two models are joined
+by more than one relationship, or when a model relates to itself: the two
+endpoints of one relationship must claim the **same exact name**, and slots
+claiming different names never pair.
+
+```ts
+const user = s.model({
+  authored: s.toMany(() => post).name("authored"),
+  reviewed: s.toMany(() => post).name("reviewed"),
+});
+```
+
+A name that no candidate on the target model matches is `R010`. Several unnamed
+candidates between the same two models are ambiguous and reported as `R009`.
 
 ## Referential Actions
 
@@ -134,11 +194,14 @@ See [Polymorphic Relations](/docs/schema/relations/polymorphic).
 | Action | Description |
 |--------|-------------|
 | `cascade` | Delete/update related records |
-| `setNull` | Set FK to NULL (requires nullable FK and `.optional()`) |
+| `setNull` | Set FK to NULL (requires every foreign-key member to be `.nullable()`) |
 | `restrict` | Prevent delete/update if related records exist |
 | `noAction` | Database default behavior |
 
-This is the canonical reference — the per-relation pages link back here.
+Junction actions accept only `cascade`, `restrict` and `noAction`: every junction
+column carries the membership itself, so there is nothing there to null.
+
+This is the canonical reference — the per-relationship pages link back here.
 
 ## Pages
 

@@ -33,14 +33,14 @@ const schema = (() => {
     .model({
       id: s.int().id().increment(),
       name: s.string(),
-      nodes: s.oneToMany(() => node),
+      nodes: s.toMany(() => node),
     })
     .map("x1b_cds_tag");
   const label = s
     .model({
       id: s.string().id(),
       name: s.string(),
-      nodes: s.manyToMany(() => node),
+      nodes: s.toMany(() => node),
     })
     .map("x1b_cds_label");
   const node = s
@@ -49,18 +49,16 @@ const schema = (() => {
       name: s.string(),
       parentId: s.string().nullable(),
       parent: s
-        .manyToOne(() => node)
+        .toOne(() => node)
         .fields("parentId")
-        .references("id")
-        .optional(),
-      children: s.oneToMany(() => node),
+        .references("id"),
+      children: s.toMany(() => node),
       tagId: s.int().nullable(),
       tag: s
-        .manyToOne(() => tag)
+        .toOne(() => tag)
         .fields("tagId")
-        .references("id")
-        .optional(),
-      labels: s.manyToMany(() => label),
+        .references("id"),
+      labels: s.toMany(() => label),
     })
     .map("x1b_cds_node");
   // Referenced models first (migration DDL orders tables by schema key position).

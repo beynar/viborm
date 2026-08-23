@@ -3,15 +3,15 @@ import type { BatchQuery, QueryExecutionContext, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
 import type { PGlite, Transaction } from "@electric-sql/pglite";
 import { NestedWriteError } from "@errors";
-import { createQueryScope } from "@query-engine/context/query-scope";
-import { hydrateSchemaNames, s } from "@schema";
-import { beforeAll, describe, expect, test } from "vitest";
-import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
+import { s } from "@schema";
 import {
   countDistinctTargets,
   groupLinkTargets,
   linkGroupSelector,
 } from "@src/query-engine/write-engine/link-target-groups";
+import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
+import { prepareSchema, scopeFor } from "@tests/fixtures/query-scope";
+import { describe, expect, test } from "vitest";
 
 /**
  * PHASE 4 — the link IN-list fold (query-performance-plan).
@@ -34,9 +34,9 @@ const author = s
   .model({
     id: s.int().id(),
     name: s.string(),
-    posts: s.oneToMany(() => post),
-    notes: s.oneToMany(() => note),
-    labels: s.manyToMany(() => label),
+    posts: s.toMany(() => post),
+    notes: s.toMany(() => note),
+    labels: s.toMany(() => label),
   })
   .map("p4_authors");
 
@@ -44,7 +44,7 @@ const label = s
   .model({
     id: s.int().id(),
     text: s.string().unique(),
-    authors: s.manyToMany(() => author),
+    authors: s.toMany(() => author),
   })
   .map("p4_labels");
 
@@ -57,10 +57,9 @@ const post = s
     stamp: s.dateTime().unique(),
     authorId: s.int().nullable(),
     author: s
-      .manyToOne(() => author)
+      .toOne(() => author)
       .fields("authorId")
-      .references("id")
-      .optional(),
+      .references("id"),
   })
   .map("p4_posts");
 
@@ -73,19 +72,18 @@ const note = s
     ref: s.string(),
     authorId: s.int().nullable(),
     author: s
-      .manyToOne(() => author)
+      .toOne(() => author)
       .fields("authorId")
-      .references("id")
-      .optional(),
+      .references("id"),
   })
   .unique(["org", "ref"])
   .map("p4_notes");
 
 const schema = { author, label, note, post };
 
-beforeAll(() => {
-  hydrateSchemaNames(schema);
-});
+// Module level, not `beforeAll`: a `describe` body below opens a scope while the
+// suite is being COLLECTED, which is before any hook runs.
+prepareSchema(schema);
 
 const getFamily = usePGliteSchemaFamily(schema);
 
@@ -605,7 +603,7 @@ describe("the link IN-list fold — what may share a group", () => {
  * where they live is what keeps them from being an unfalsifiable branch.
  */
 describe("the link IN-list fold — the grouping rule itself", () => {
-  const childScope = createQueryScope(new PGliteDriver().adapter, post);
+  const childScope = scopeFor(new PGliteDriver().adapter, post);
 
   test("targets of one shape and primitive values become ONE group", () => {
     expect(
@@ -653,7 +651,7 @@ describe("the link IN-list fold — the grouping rule itself", () => {
     expect(linkGroupSelector(childScope, [{ id: 10 }, { id: 11 }])).toEqual({
       id: { in: [10, 11] },
     });
-    const noteScope = createQueryScope(new PGliteDriver().adapter, note);
+    const noteScope = scopeFor(new PGliteDriver().adapter, note);
     expect(
       linkGroupSelector(noteScope, [
         { org_ref: { org: "acme", ref: "r20" } },

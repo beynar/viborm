@@ -51,7 +51,7 @@ export const parentHeldCompoundEdgeSchema = (() => {
       region: s.string(),
       code: s.string(),
       note: s.string(),
-      stations: s.oneToMany(() => station),
+      stations: s.toMany(() => station),
     })
     .map("e64_depots")
     .unique(["region", "code"]);
@@ -63,10 +63,9 @@ export const parentHeldCompoundEdgeSchema = (() => {
       depotRegion: s.string().nullable(),
       depotCode: s.string().nullable(),
       depot: s
-        .manyToOne(() => depot)
+        .toOne(() => depot)
         .fields("depotRegion", "depotCode")
-        .references("region", "code")
-        .optional(),
+        .references("region", "code"),
     })
     .map("e64_stations");
 
@@ -78,7 +77,7 @@ export const parentHeldCompoundEdgeSchema = (() => {
       tenantId: s.string(),
       slot: s.string(),
       note: s.string(),
-      docks: s.oneToMany(() => dock),
+      docks: s.toMany(() => dock),
     })
     .id(["tenantId", "slot"])
     .map("e64_berths");
@@ -89,10 +88,9 @@ export const parentHeldCompoundEdgeSchema = (() => {
       berthTenant: s.string().nullable(),
       berthSlot: s.string().nullable(),
       berth: s
-        .manyToOne(() => berth)
+        .toOne(() => berth)
         .fields("berthTenant", "berthSlot")
-        .references("tenantId", "slot")
-        .optional(),
+        .references("tenantId", "slot"),
     })
     .map("e64_docks");
 

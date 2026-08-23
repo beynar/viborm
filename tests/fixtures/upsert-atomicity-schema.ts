@@ -5,7 +5,7 @@ export const upsertAtomicitySchema = (() => {
     .model({
       id: s.string().id(),
       name: s.string(),
-      posts: s.oneToMany(() => post),
+      posts: s.toMany(() => post),
     })
     .map("upsert_atomicity_users");
 
@@ -15,10 +15,9 @@ export const upsertAtomicitySchema = (() => {
       title: s.string(),
       userId: s.string().nullable(),
       author: s
-        .manyToOne(() => user)
+        .toOne(() => user)
         .fields("userId")
-        .references("id")
-        .optional(),
+        .references("id"),
     })
     .map("upsert_atomicity_posts");
 

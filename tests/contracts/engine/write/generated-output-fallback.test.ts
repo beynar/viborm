@@ -12,7 +12,7 @@ const generatedOutputSchema = (() => {
     .model({
       id: s.int().id().increment(),
       label: s.string(),
-      children: s.oneToMany(() => child),
+      children: s.toMany(() => child),
     })
     .map("generated_output_owners");
   const child = s
@@ -20,7 +20,7 @@ const generatedOutputSchema = (() => {
       id: s.string().id(),
       ownerId: s.int(),
       owner: s
-        .manyToOne(() => owner)
+        .toOne(() => owner)
         .fields("ownerId")
         .references("id"),
     })
@@ -36,7 +36,7 @@ const compoundGeneratedOutputSchema = (() => {
       tenantId: s.int().increment().unique(),
       recordId: s.int().increment(),
       label: s.string(),
-      profiles: s.oneToMany(() => profile),
+      profiles: s.toMany(() => profile),
     })
     .id(["tenantId", "recordId"])
     .map("compound_generated_accounts");
@@ -45,7 +45,7 @@ const compoundGeneratedOutputSchema = (() => {
       id: s.string().id(),
       accountTenantId: s.int(),
       account: s
-        .manyToOne(() => account)
+        .toOne(() => account)
         .fields("accountTenantId")
         .references("tenantId"),
     })
@@ -60,7 +60,10 @@ const consumedPublicationSchema = (() => {
     .model({
       id: s.string().id(),
       name: s.string(),
-      accounts: s.oneToMany(() => account),
+      // A to-ONE: `account.providerId` is unique, and a unique foreign key
+      // contradicting a remote collection is FK009. The badge edge references
+      // that same unique, so the uniqueness is the fact that must stay.
+      account: s.toOne(() => account),
     })
     .map("consumed_publication_providers");
   const account = s
@@ -68,10 +71,10 @@ const consumedPublicationSchema = (() => {
       id: s.int().id().increment(),
       providerId: s.string().unique(),
       provider: s
-        .manyToOne(() => provider)
+        .toOne(() => provider)
         .fields("providerId")
         .references("id"),
-      badges: s.oneToMany(() => badge),
+      badges: s.toMany(() => badge),
     })
     .map("consumed_publication_accounts");
   const badge = s
@@ -79,7 +82,7 @@ const consumedPublicationSchema = (() => {
       id: s.string().id(),
       accountProviderId: s.string(),
       account: s
-        .manyToOne(() => account)
+        .toOne(() => account)
         .fields("accountProviderId")
         .references("providerId"),
     })

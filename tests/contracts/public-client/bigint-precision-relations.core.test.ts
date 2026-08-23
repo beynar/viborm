@@ -41,7 +41,7 @@ const author = s.model({
   // BigInt scalars that will be fetched through relations
   followerCount: s.bigInt(),
   totalViews: s.bigInt().nullable(),
-  posts: s.oneToMany(() => post),
+  posts: s.toMany(() => post),
 });
 
 const post = s.model({
@@ -53,7 +53,7 @@ const post = s.model({
   // Foreign key
   authorId: s.string(),
   author: s
-    .manyToOne(() => author)
+    .toOne(() => author)
     .fields("authorId")
     .references("id"),
 });

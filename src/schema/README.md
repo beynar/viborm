@@ -55,14 +55,14 @@ const user = s.model({
   email: s.string(TYPES.PG.STRING.CITEXT).unique(),
   name: s.string().nullable(),
   createdAt: s.dateTime().default(() => new Date()),
-  posts: s.oneToMany(() => post),
+  posts: s.toMany(() => post),
 });
 
 const post = s.model({
   id: s.string().id().ulid(),
   title: s.string(),
   authorId: s.string(),
-  author: s.manyToOne(() => user)
+  author: s.toOne(() => user)
     .fields("authorId")
     .references("id"),
 });
@@ -130,11 +130,15 @@ src/schema/
 ├── model/                # Model class & structural metadata
 │   ├── model.ts          # Model class implementation
 │   └── helper.ts         # ModelShape, extraction helpers (ScalarKeys, RelationKeys, etc.)
-├── relation/             # Relation class hierarchy
-│   ├── to-one.ts         # ToOneRelation (oneToOne, manyToOne)
-│   ├── to-many.ts        # OneToManyRelation
-│   ├── many-to-many.ts   # ManyToManyRelation
-│   └── helpers.ts        # Relation type helpers
+├── relation/             # The two relation factories and their state
+│   ├── types.ts          # The closed declaration-state union
+│   ├── to-one.ts         # s.toOne + its model-target terminal
+│   ├── to-many.ts        # s.toMany + its model-target terminal
+│   ├── polymorphic.ts    # Variant normalization + the two variant terminals
+│   ├── terminal.ts       # Shared refusal vocabulary + target once-cell
+│   ├── clearability.ts   # slotMayBeEmpty / clearableMembership
+│   ├── junction-topology.ts  # Resolved junction physical facts
+│   └── helpers.ts        # Junction physical naming
 └── validation/           # Schema validation rules
     ├── validator.ts      # SchemaValidator class
     ├── types.ts          # ValidationError, ValidationResult
@@ -160,8 +164,8 @@ export const s = {
   string, boolean, int, float, decimal, bigInt,
   dateTime, json, blob, enum: enumScalar, vector,
 
-  // Relations
-  oneToOne, oneToMany, manyToOne, manyToMany,
+  // Relations — two factories; the argument states the target domain
+  toOne, toMany,
 };
 ```
 
@@ -303,7 +307,7 @@ const user = s.model({
   id: s.string().id().ulid(),
   name: s.string(),
   email: s.string().unique(),
-  posts: s.oneToMany(() => post),
+  posts: s.toMany(() => post),
 });
 ```
 
@@ -373,53 +377,70 @@ Relations define how models connect. VibORM uses a class hierarchy for type-safe
 
 ### Relation Types
 
-VibORM uses a **config-first, getter-last** pattern for relations:
+A declaration states TWO facts and no more: the slot cardinality its factory was
+spelled with, and the target domain its argument names.
 
-| Relation | Returns | Example |
+| Declaration | Returns | Example |
 |----------|---------|---------|
-| `s.oneToOne()` | Single object or null | User → Profile |
-| `s.oneToMany()` | Array | User → Posts |
-| `s.manyToOne()` | Single object or null | Post → Author |
-| `s.manyToMany()` | Array | Post ↔ Tags |
+| `s.toOne(() => model)` | Single object or null | Post → Author, User → Profile |
+| `s.toMany(() => model)` | Array | User → Posts, Post ↔ Tags |
+| `s.toOne({ ... })` | A discriminated union or null | Comment → Post or Video |
+| `s.toMany({ ... })` | An array of discriminated members | Shelf → Books and Videos |
+
+The familiar cardinality cells are readings of the PAIR, derived by
+`validation/relation-resolution.ts`: `toOne`+`toOne` is one-to-one,
+`toOne`+`toMany` is many-to-one/one-to-many, `toMany`+`toMany` is many-to-many.
 
 ### Relation Configuration
 
 ```ts
-// Owner side (has foreign key)
-s.manyToOne(() => user)
+// Owner side (completes a foreign key — exactly one endpoint may)
+s.toOne(() => user)
   .fields("authorId")              // FK scalar field-key on this model
   .references("id")                // Referenced scalar field-key on target
   .onDelete("cascade")             // cascade | setNull | restrict | noAction
   .onUpdate("cascade")
-  .optional()                      // Allow NULL (to-one only)
 
 // Inverse side (no FK)
-s.oneToMany(() => post)            // No configuration needed
+s.toMany(() => post)               // No configuration needed
 ```
+
+There is no `.optional()` on a model-target relation: an owner's emptiness comes
+from its foreign-key scalars, and a non-owner's is derived. There is no
+`.unique()`: the paired slot cardinality is the one statement of remote
+uniqueness. `.fields(...)` returns a transient stage that carries no relation
+brand, so an incomplete foreign key can never reach `s.model()`.
 
 ### Many-to-Many Relations
 
+Every junction override lives on ONE endpoint; the other reads the mirrored view:
+
 ```ts
 const post = s.model({
-  tags: s.manyToMany(() => tag)
+  tags: s.toMany(() => tag)
     .through("post_tags")          // Junction table name
-    .A("postId")                   // Source FK column
-    .B("tagId"),                   // Target FK column
+    .source("postId")              // This endpoint's FK column
+    .target("tagId"),              // The other endpoint's FK column
+});
+
+const tag = s.model({
+  posts: s.toMany(() => post),     // mirrors the configuration above
 });
 ```
 
-### Relation Class Hierarchy
+### Terminal Capability Surfaces
+
+Four private terminals, reached only through the two factories:
 
 ```
-Relation<G, T, TOptional>  (abstract base)
-├── ToOneRelation          (oneToOne, manyToOne) - has .optional()
-├── OneToManyRelation      (oneToMany) - no optional, no through
-└── ManyToManyRelation     (manyToMany) - has .through(), .A(), .B()
+s.toOne(() => model)  → .name(), .fields() → .references() → .onDelete()/.onUpdate()
+s.toMany(() => model) → .name(), .through(), .source(), .target(), .onDelete(), .onUpdate()
+s.toOne({ ... })      → .name(), .optional()
+s.toMany({ ... })     → .name(), .through({ variant: { table, source, target } })
 ```
 
-This ensures only valid methods appear in IntelliSense:
-- `.optional()` only on `oneToOne` / `manyToOne`
-- `.through()`, `.A()`, `.B()` only on `manyToMany`
+Only valid methods appear in IntelliSense, and every modifier is
+last-call-wins: repeating one replaces its own fact instead of intersecting.
 
 ---
 
@@ -521,9 +542,8 @@ UniqueScalarKeys<T>         // Keys marked as id or unique
 NumericScalarKeys<T>       // Numeric scalar field keys
 
 // Relation analysis
-GetRelationMap<R>          // Target model relations
-GetRelationType<R>         // "oneToOne" | "oneToMany" | etc.
-GetRelationOptional<R>     // Is relation optional?
+RelationCardinality        // "one" | "many" — the declared slot cardinality
+ResolvedSlot               // One contextual (model, field) edge view
 
 // Scalar type inference
 InferScalarBase<F>         // Result type (what you get back)
@@ -694,30 +714,26 @@ model["~"].state.infer      // Phantom type for inference
 ### Relation Internals
 
 ```ts
-const rel = s.manyToOne(() => user).fields("authorId").references("id");
+const rel = s.toOne(() => user).fields("authorId").references("id");
 
-rel["~"].state.type       // "manyToOne"
-rel["~"].state.getter     // () => Model (lazy reference)
-rel["~"].state.name       // undefined | the disambiguating relation name
-rel["~"].state.fields     // FK scalar field keys, e.g. ["authorId"]
-rel["~"].state.references // ["id"]
-rel["~"].state.optional   // undefined | true
-rel["~"].state.onDelete   // undefined | ReferentialAction
-rel["~"].state.onUpdate   // undefined | ReferentialAction
-rel["~"].state.through    // Junction table (manyToMany only)
-rel["~"].state.A          // Source junction column (manyToMany only)
-rel["~"].state.B          // Target junction column (manyToMany only)
-rel["~"].state.source     // The model this relation was declared on
-rel["~"].setSource(model) // Bind that source (called by `model()`)
+rel["~"].state.cardinality       // "one" | "many" — the factory that was called
+rel["~"].state.target            // { kind: "model", getter } | { kind: "variants", entries }
+rel["~"].state.name              // undefined | the disambiguating relation name
+rel["~"].state.foreignKey        // undefined | { fields, references, onDelete?, onUpdate? }
+rel["~"].state.junction          // undefined | ordinary junction overrides (toMany only)
+rel["~"].state.optional          // undefined | true (variant toOne only)
+rel["~"].settleTarget()          // Lazy once-cell over the target getter
 ```
 
-The state carries the declared edge; every DERIVED view of it has one owner
-beside it, and there is no stored copy of any of them:
+The state stores NO source model — `.extends()` may reuse one terminal under
+several models, so `(model, field)` is the whole contextual identity — and no
+partner, ownership flag or derived optionality. Every derived view has one owner,
+and each reads the RESOLVED slot the topology owner published:
 
 ```ts
-relationCardinality(rel["~"].state); // "one" | "many" — @schema/relation/cardinality
-slotMayBeEmpty(rel["~"].state); // public optionality — @schema/relation/clearability
-membershipCanBeCleared(rel["~"].state, sourceModel); // physical storage — same module
+slotMayBeEmpty(resolved);          // may this slot hold nothing — @schema/relation/clearability
+clearableMembership(resolved);     // HOW a membership is emptied — same module
+membershipCanBeCleared(resolved);  // the boolean projection of the above
 ```
 
 ---

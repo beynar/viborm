@@ -19,13 +19,13 @@ describe("junction table generation", () => {
     const Post = s.model({
       id: s.string().id(),
       title: s.string(),
-      tags: s.manyToMany(() => Tag),
+      tags: s.toMany(() => Tag),
     });
 
     const Tag = s.model({
       id: s.string().id(),
       name: s.string(),
-      posts: s.manyToMany(() => Post),
+      posts: s.toMany(() => Post),
     });
 
     const schema = { post: Post, tag: Tag };
@@ -52,13 +52,14 @@ describe("junction table generation", () => {
     const Post = s.model({
       id: s.string().id(),
       title: s.string(),
-      tags: s.manyToMany(() => Tag).through("custom_junction"),
+      // ONE endpoint owns every junction override (§4.4, R011).
+      tags: s.toMany(() => Tag).through("custom_junction"),
     });
 
     const Tag = s.model({
       id: s.string().id(),
       name: s.string(),
-      posts: s.manyToMany(() => Post).through("custom_junction"),
+      posts: s.toMany(() => Post),
     });
 
     const schema = { post: Post, tag: Tag };
@@ -74,23 +75,20 @@ describe("junction table generation", () => {
     expect(junctionTable).toBeDefined();
   });
 
-  it("uses custom A()/B() field names", () => {
+  it("uses custom source()/target() field names", () => {
     const Post = s.model({
       id: s.string().id(),
       title: s.string(),
       tags: s
-        .manyToMany(() => Tag)
-        .A("post_fk")
-        .B("tag_fk"),
+        .toMany(() => Tag)
+        .source("post_fk")
+        .target("tag_fk"),
     });
 
     const Tag = s.model({
       id: s.string().id(),
       name: s.string(),
-      posts: s
-        .manyToMany(() => Post)
-        .A("tag_fk")
-        .B("post_fk"),
+      posts: s.toMany(() => Post),
     });
 
     const schema = { post: Post, tag: Tag };
@@ -114,19 +112,16 @@ describe("junction table generation", () => {
         tenant: s.string().map("post_tenant"),
         slug: s.string().map("post_slug"),
         tags: s
-          .manyToMany(() => Tag)
-          .A("post")
-          .B("tag"),
+          .toMany(() => Tag)
+          .source("post")
+          .target("tag"),
       })
       .id(["tenant", "slug"]);
     const Tag = s
       .model({
         locale: s.string().map("tag_locale"),
         code: s.int().map("tag_code"),
-        posts: s
-          .manyToMany(() => Post)
-          .A("tag")
-          .B("post"),
+        posts: s.toMany(() => Post),
       })
       .id(["locale", "code"]);
     const schema = { post: Post, tag: Tag };
@@ -177,13 +172,13 @@ describe("junction table generation", () => {
     const Post = s.model({
       id: s.string().id(),
       title: s.string(),
-      tags: s.manyToMany(() => Tag),
+      tags: s.toMany(() => Tag),
     });
 
     const Tag = s.model({
       id: s.string().id(),
       name: s.string(),
-      posts: s.manyToMany(() => Post),
+      posts: s.toMany(() => Post),
     });
 
     const schema = { post: Post, tag: Tag };
@@ -216,13 +211,13 @@ describe("junction table generation", () => {
     const Post = s.model({
       id: s.string().id(),
       title: s.string(),
-      tags: s.manyToMany(() => Tag),
+      tags: s.toMany(() => Tag),
     });
 
     const Tag = s.model({
       id: s.int().id(),
       name: s.string(),
-      posts: s.manyToMany(() => Post),
+      posts: s.toMany(() => Post),
     });
 
     const schema = { post: Post, tag: Tag };
@@ -247,13 +242,13 @@ describe("junction table generation", () => {
     const Post = s.model({
       id: s.string().id(),
       title: s.string(),
-      tags: s.manyToMany(() => Tag),
+      tags: s.toMany(() => Tag),
     });
 
     const Tag = s.model({
       id: s.string().id(),
       name: s.string(),
-      posts: s.manyToMany(() => Post),
+      posts: s.toMany(() => Post),
     });
 
     const schema = { post: Post, tag: Tag };
@@ -280,19 +275,18 @@ describe("junction table generation", () => {
       id: s.string().id(),
       parentId: s.string().nullable(),
       parent: s
-        .manyToOne(() => Category)
+        .toOne(() => Category)
         .fields("parentId")
-        .references("id")
-        .optional(),
-      children: s.oneToMany(() => Category),
-      items: s.oneToMany(() => Item),
+        .references("id"),
+      children: s.toMany(() => Category),
+      items: s.toMany(() => Item),
     });
 
     const Item = s.model({
       id: s.string().id(),
       categoryId: s.string(),
       category: s
-        .manyToOne(() => Category)
+        .toOne(() => Category)
         .fields("categoryId")
         .references("id"),
     });
@@ -318,17 +312,16 @@ describe("junction table generation", () => {
   it("keeps explicit referential action overrides", () => {
     const Parent = s.model({
       id: s.string().id(),
-      children: s.oneToMany(() => Child),
+      children: s.toMany(() => Child),
     });
 
     const Child = s.model({
       id: s.string().id(),
       parentId: s.string().nullable(),
       parent: s
-        .manyToOne(() => Parent)
+        .toOne(() => Parent)
         .fields("parentId")
         .references("id")
-        .optional()
         .onDelete("cascade")
         .onUpdate("restrict"),
     });
@@ -352,13 +345,13 @@ describe("junction table generation", () => {
     const Post = s.model({
       id: s.string().id(),
       title: s.string(),
-      tags: s.manyToMany(() => Tag),
+      tags: s.toMany(() => Tag),
     });
 
     const Tag = s.model({
       id: s.string().id(),
       name: s.string(),
-      posts: s.manyToMany(() => Post),
+      posts: s.toMany(() => Post),
     });
 
     const schema = { post: Post, tag: Tag };
@@ -382,14 +375,14 @@ describe("junction table generation", () => {
       .model({
         title: s.string(),
         version: s.int(),
-        tags: s.manyToMany(() => Tag),
+        tags: s.toMany(() => Tag),
       })
       .id(["title", "version"]);
 
     const Tag = s.model({
       id: s.string().id(),
       name: s.string(),
-      posts: s.manyToMany(() => Post),
+      posts: s.toMany(() => Post),
     });
 
     const schema = { post: Post, tag: Tag };
@@ -412,16 +405,20 @@ describe("junction table generation", () => {
     ]);
   });
 
-  it("throws on missing primary key", () => {
+  // The row-key refusal is the GATE's now, and this is the witness that the
+  // serializer cannot get past it: `serializeModels` resolves the schema when no
+  // index is handed to it, so a junction endpoint with no row key stops the call
+  // before one column of DDL exists.
+  it("refuses a junction endpoint with no primary key, at the gate", () => {
     const Post = s.model({
       title: s.string(),
-      tags: s.manyToMany(() => Tag),
+      tags: s.toMany(() => Tag),
     });
 
     const Tag = s.model({
       id: s.string().id(),
       name: s.string(),
-      posts: s.manyToMany(() => Post),
+      posts: s.toMany(() => Post),
     });
 
     const schema = { post: Post, tag: Tag };
@@ -431,20 +428,20 @@ describe("junction table generation", () => {
       serializeModels(schema, {
         migrationDriver: postgresMigrationDriver,
       })
-    ).toThrow('Model "post" has no primary key. Schema may not be hydrated.');
+    ).toThrow("[JT002]");
   });
 
   it("avoids duplicate junction table when both sides define relation", () => {
     const Post = s.model({
       id: s.string().id(),
       title: s.string(),
-      tags: s.manyToMany(() => Tag),
+      tags: s.toMany(() => Tag),
     });
 
     const Tag = s.model({
       id: s.string().id(),
       name: s.string(),
-      posts: s.manyToMany(() => Post),
+      posts: s.toMany(() => Post),
     });
 
     const schema = { post: Post, tag: Tag };
@@ -498,15 +495,13 @@ describe("one-to-one FK unique constraint", () => {
     function snapshot(optional: boolean) {
       const User = s.model({
         id: s.string().id(),
-        profile: optional
-          ? s.oneToOne(() => Profile).optional()
-          : s.oneToOne(() => Profile),
+        profile: optional ? s.toOne(() => Profile) : s.toOne(() => Profile),
       });
       const Profile = s.model({
         id: s.string().id(),
         userId: s.string().unique(),
         user: s
-          .oneToOne(() => User)
+          .toOne(() => User)
           .fields("userId")
           .references("id"),
       });
@@ -523,14 +518,14 @@ describe("one-to-one FK unique constraint", () => {
   it("emits a unique constraint on the owning 1:1 FK column", () => {
     const User = s.model({
       id: s.string().id(),
-      profile: s.oneToOne(() => Profile).optional(),
+      profile: s.toOne(() => Profile),
     });
 
     const Profile = s.model({
       id: s.string().id(),
       userId: s.string(),
       user: s
-        .oneToOne(() => User)
+        .toOne(() => User)
         .fields("userId")
         .references("id"),
     });
@@ -551,14 +546,14 @@ describe("one-to-one FK unique constraint", () => {
   it("does not duplicate the constraint when the FK is already .unique()", () => {
     const User = s.model({
       id: s.string().id(),
-      profile: s.oneToOne(() => Profile).optional(),
+      profile: s.toOne(() => Profile),
     });
 
     const Profile = s.model({
       id: s.string().id(),
       userId: s.string().unique(),
       user: s
-        .oneToOne(() => User)
+        .toOne(() => User)
         .fields("userId")
         .references("id"),
     });
@@ -580,14 +575,14 @@ describe("one-to-one FK unique constraint", () => {
   it("does not add unique constraints for manyToOne FKs", () => {
     const User = s.model({
       id: s.string().id(),
-      posts: s.oneToMany(() => Post),
+      posts: s.toMany(() => Post),
     });
 
     const Post = s.model({
       id: s.string().id(),
       authorId: s.string(),
       author: s
-        .manyToOne(() => User)
+        .toOne(() => User)
         .fields("authorId")
         .references("id"),
     });
@@ -730,14 +725,14 @@ describe("foreign-key index for to-many relations", () => {
   it("emits an index on the manyToOne FK column", () => {
     const User = s.model({
       id: s.string().id(),
-      posts: s.oneToMany(() => Post),
+      posts: s.toMany(() => Post),
     });
 
     const Post = s.model({
       id: s.string().id(),
       authorId: s.string(),
       author: s
-        .manyToOne(() => User)
+        .toOne(() => User)
         .fields("authorId")
         .references("id"),
     });
@@ -755,14 +750,14 @@ describe("foreign-key index for to-many relations", () => {
   it("names the mapped column, not the TypeScript field", () => {
     const User = s.model({
       id: s.string().id(),
-      posts: s.oneToMany(() => Post),
+      posts: s.toMany(() => Post),
     });
 
     const Post = s.model({
       id: s.string().id(),
       authorId: s.string().map("author_id"),
       author: s
-        .manyToOne(() => User)
+        .toOne(() => User)
         .fields("authorId")
         .references("id"),
     });
@@ -779,7 +774,7 @@ describe("foreign-key index for to-many relations", () => {
       .model({
         tenantId: s.string(),
         code: s.string(),
-        members: s.oneToMany(() => Member),
+        members: s.toMany(() => Member),
       })
       .id(["tenantId", "code"]);
 
@@ -788,7 +783,7 @@ describe("foreign-key index for to-many relations", () => {
       orgTenantId: s.string(),
       orgCode: s.string(),
       org: s
-        .manyToOne(() => Org)
+        .toOne(() => Org)
         .fields("orgTenantId", "orgCode")
         .references("tenantId", "code"),
     });
@@ -807,7 +802,7 @@ describe("foreign-key index for to-many relations", () => {
   it("does not duplicate a user-declared index on the FK column", () => {
     const User = s.model({
       id: s.string().id(),
-      posts: s.oneToMany(() => Post),
+      posts: s.toMany(() => Post),
     });
 
     const Post = s
@@ -815,7 +810,7 @@ describe("foreign-key index for to-many relations", () => {
         id: s.string().id(),
         authorId: s.string(),
         author: s
-          .manyToOne(() => User)
+          .toOne(() => User)
           .fields("authorId")
           .references("id"),
       })
@@ -837,7 +832,7 @@ describe("foreign-key index for to-many relations", () => {
   it("compares the declared index by its mapped column name", () => {
     const User = s.model({
       id: s.string().id(),
-      posts: s.oneToMany(() => Post),
+      posts: s.toMany(() => Post),
     });
 
     const Post = s
@@ -845,7 +840,7 @@ describe("foreign-key index for to-many relations", () => {
         id: s.string().id(),
         authorId: s.string().map("author_id"),
         author: s
-          .manyToOne(() => User)
+          .toOne(() => User)
           .fields("authorId")
           .references("id"),
       })
@@ -871,7 +866,7 @@ describe("foreign-key index for to-many relations", () => {
   it("skips the index when the FK columns prefix a declared compound index", () => {
     const User = s.model({
       id: s.string().id(),
-      posts: s.oneToMany(() => Post),
+      posts: s.toMany(() => Post),
     });
 
     const Post = s
@@ -880,7 +875,7 @@ describe("foreign-key index for to-many relations", () => {
         authorId: s.string(),
         createdAt: s.string(),
         author: s
-          .manyToOne(() => User)
+          .toOne(() => User)
           .fields("authorId")
           .references("id"),
       })
@@ -896,7 +891,7 @@ describe("foreign-key index for to-many relations", () => {
   it("emits the index when the FK columns only SUFFIX a declared index", () => {
     const User = s.model({
       id: s.string().id(),
-      posts: s.oneToMany(() => Post),
+      posts: s.toMany(() => Post),
     });
 
     const Post = s
@@ -905,7 +900,7 @@ describe("foreign-key index for to-many relations", () => {
         authorId: s.string(),
         createdAt: s.string(),
         author: s
-          .manyToOne(() => User)
+          .toOne(() => User)
           .fields("authorId")
           .references("id"),
       })
@@ -920,20 +915,27 @@ describe("foreign-key index for to-many relations", () => {
     ).toEqual(["post_createdAt_authorId_idx", "post_authorId_idx"]);
   });
 
-  it("skips the index when the FK column is unique", () => {
+  // RE-FOUNDED (§9.4, FK009): a unique key over EXACTLY a plural edge's foreign
+  // key now contradicts the collection and is refused at the gate, so the
+  // coverage this cell exists for — a declared unique constraint suppressing the
+  // automatic FK index — is reached through a COMPOUND unique the FK prefixes.
+  it("skips the index when a declared unique prefixes the FK column", () => {
     const User = s.model({
       id: s.string().id(),
-      posts: s.oneToMany(() => Post),
+      posts: s.toMany(() => Post),
     });
 
-    const Post = s.model({
-      id: s.string().id(),
-      authorId: s.string().unique(),
-      author: s
-        .manyToOne(() => User)
-        .fields("authorId")
-        .references("id"),
-    });
+    const Post = s
+      .model({
+        id: s.string().id(),
+        authorId: s.string(),
+        slug: s.string(),
+        author: s
+          .toOne(() => User)
+          .fields("authorId")
+          .references("id"),
+      })
+      .unique(["authorId", "slug"]);
 
     const snapshot = serialize({ user: User, post: Post });
 
@@ -943,12 +945,12 @@ describe("foreign-key index for to-many relations", () => {
   it("skips the index when the FK columns prefix the primary key", () => {
     const Post = s.model({
       id: s.string().id(),
-      tags: s.oneToMany(() => PostTag),
+      tags: s.toMany(() => PostTag),
     });
 
     const Tag = s.model({
       id: s.string().id(),
-      posts: s.oneToMany(() => PostTag),
+      posts: s.toMany(() => PostTag),
     });
 
     // An explicit junction model: its PK already indexes (postId, tagId), so
@@ -958,11 +960,11 @@ describe("foreign-key index for to-many relations", () => {
         postId: s.string(),
         tagId: s.string(),
         post: s
-          .manyToOne(() => Post)
+          .toOne(() => Post)
           .fields("postId")
           .references("id"),
         tag: s
-          .manyToOne(() => Tag)
+          .toOne(() => Tag)
           .fields("tagId")
           .references("id"),
       })
@@ -986,7 +988,7 @@ describe("foreign-key index for to-many relations", () => {
   it("does not let a partial declared index cover the FK columns", () => {
     const User = s.model({
       id: s.string().id(),
-      posts: s.oneToMany(() => Post),
+      posts: s.toMany(() => Post),
     });
 
     const Post = s
@@ -995,7 +997,7 @@ describe("foreign-key index for to-many relations", () => {
         authorId: s.string(),
         published: s.boolean(),
         author: s
-          .manyToOne(() => User)
+          .toOne(() => User)
           .fields("authorId")
           .references("id"),
       })
@@ -1028,7 +1030,7 @@ describe("foreign-key index for to-many relations", () => {
   it("keeps the preferred name when the partial index does not hold it", () => {
     const User = s.model({
       id: s.string().id(),
-      posts: s.oneToMany(() => Post),
+      posts: s.toMany(() => Post),
     });
 
     const Post = s
@@ -1037,7 +1039,7 @@ describe("foreign-key index for to-many relations", () => {
         authorId: s.string().map("author_id"),
         published: s.boolean(),
         author: s
-          .manyToOne(() => User)
+          .toOne(() => User)
           .fields("authorId")
           .references("id"),
       })
@@ -1061,7 +1063,7 @@ describe("foreign-key index for to-many relations", () => {
   it("emits no FK index when the schema holds both candidate names", () => {
     const User = s.model({
       id: s.string().id(),
-      posts: s.oneToMany(() => Post),
+      posts: s.toMany(() => Post),
     });
 
     const Post = s
@@ -1070,7 +1072,7 @@ describe("foreign-key index for to-many relations", () => {
         authorId: s.string(),
         title: s.string(),
         author: s
-          .manyToOne(() => User)
+          .toOne(() => User)
           .fields("authorId")
           .references("id"),
       })
@@ -1091,14 +1093,14 @@ describe("foreign-key index for to-many relations", () => {
   it("adds no FK index for a oneToOne relation", () => {
     const User = s.model({
       id: s.string().id(),
-      profile: s.oneToOne(() => Profile).optional(),
+      profile: s.toOne(() => Profile),
     });
 
     const Profile = s.model({
       id: s.string().id(),
       userId: s.string(),
       user: s
-        .oneToOne(() => User)
+        .toOne(() => User)
         .fields("userId")
         .references("id"),
     });
@@ -1118,7 +1120,7 @@ describe("foreign-key index for to-many relations", () => {
   it("accepts a total declared UNIQUE index as the 1:1 uniqueness", () => {
     const User = s.model({
       id: s.string().id(),
-      profile: s.oneToOne(() => Profile).optional(),
+      profile: s.toOne(() => Profile),
     });
 
     const Profile = s
@@ -1126,7 +1128,7 @@ describe("foreign-key index for to-many relations", () => {
         id: s.string().id(),
         userId: s.string(),
         user: s
-          .oneToOne(() => User)
+          .toOne(() => User)
           .fields("userId")
           .references("id"),
       })
@@ -1146,7 +1148,7 @@ describe("foreign-key index for to-many relations", () => {
   it("does not accept a partial UNIQUE index as the 1:1 uniqueness", () => {
     const User = s.model({
       id: s.string().id(),
-      profile: s.oneToOne(() => Profile).optional(),
+      profile: s.toOne(() => Profile),
     });
 
     const Profile = s
@@ -1155,7 +1157,7 @@ describe("foreign-key index for to-many relations", () => {
         userId: s.string(),
         active: s.boolean(),
         user: s
-          .oneToOne(() => User)
+          .toOne(() => User)
           .fields("userId")
           .references("id"),
       })
@@ -1178,13 +1180,22 @@ describe("foreign-key index for to-many relations", () => {
     ["manyToOne first", true],
     ["oneToOne first", false],
   ])("emits no FK index when a 1:1 on the same columns makes them unique (%s)", (_name, manyFirst) => {
-    const Target = s.model({ id: s.string().id(), n: s.string() });
+    // TWO named pairs over one column: one plural (which wants the FK index)
+    // and one singular (which emits the unique constraint that covers it).
+    const Target = s.model({
+      id: s.string().id(),
+      n: s.string(),
+      children: s.toMany(() => Child).name("plural"),
+      child: s.toOne(() => Child).name("singular"),
+    });
     const manyRelation = s
-      .manyToOne(() => Target)
+      .toOne(() => Target)
+      .name("plural")
       .fields("ownerId")
       .references("id");
     const oneRelation = s
-      .oneToOne(() => Target)
+      .toOne(() => Target)
+      .name("singular")
       .fields("ownerId")
       .references("id");
     const Child = s.model({
@@ -1286,20 +1297,24 @@ describe("compound key serialization", () => {
 });
 
 // =============================================================================
-// JUNCTION PAIR RECONCILIATION REFUSALS AND THEIR ORDER (B1 Step 0 pins)
+// THE SERIALIZER IS GATE-BOUND
 // =============================================================================
 
 /**
- * Pre-cut-over falsifiers for the junction-topology extraction
- * (docs/architecture/polymorphic-cardinality-plan.md, Package B step B.1):
- * the serializer's pair-reconciliation refusals byte for byte, and the ORDER
- * the serializer asks its questions in — referential actions, then row keys,
- * then the raw A/B pair. The engine asks in a DIFFERENT order (pinned in
- * tests/contracts/engine/query/junction-topology-order.core.test.ts); each
- * consumer's order is a contract of its own, and a shared topology owner must
- * preserve both.
+ * RE-FOUNDED (plan §7.3, §10 Package E item 6). This block used to pin the
+ * serializer's OWN junction pair-reconciliation refusals and the order it asked
+ * its questions in — a cross-side A/B merge that no longer exists: exactly one
+ * endpoint owns every junction override (§4.4, R011), so there is nothing to
+ * reconcile, and the physical owner's refusal ORDER is pinned by its own suite
+ * (`tests/unit/relations/junction-topology.core.test.ts`).
+ *
+ * What survives is the one fact only this file can state: `serializeModels`
+ * cannot see an unproven schema. Its public surface hydrates and resolves for
+ * itself, so every refusal the definition gate owns lands before a single
+ * column of DDL exists — the hazard being closed is a direct
+ * `serializeModels(...)` call emitting DDL for a topology nothing proved.
  */
-describe("junction pair reconciliation refusals", () => {
+describe("serializeModels is gate-bound", () => {
   /** Hydrate outside the capture so only serialization refusals are pinned. */
   function serializationError(schema: Record<string, any>): unknown {
     hydrateSchemaNames(schema);
@@ -1311,14 +1326,14 @@ describe("junction pair reconciliation refusals", () => {
     return undefined;
   }
 
-  it("refuses an onDelete disagreement with the exact pair message", () => {
+  it("refuses a schema whose junction is configured on both endpoints", () => {
     const Post = s.model({
       id: s.string().id(),
-      tags: s.manyToMany(() => Tag).onDelete("cascade"),
+      tags: s.toMany(() => Tag).onDelete("cascade"),
     });
     const Tag = s.model({
       id: s.string().id(),
-      posts: s.manyToMany(() => Post).onDelete("restrict"),
+      posts: s.toMany(() => Post).onDelete("restrict"),
     });
 
     const thrown = serializationError({ post: Post, tag: Tag });
@@ -1327,48 +1342,99 @@ describe("junction pair reconciliation refusals", () => {
     if (!(thrown instanceof Error)) {
       throw new Error("Expected serialization to throw.");
     }
-    expect(thrown.message).toBe(
-      "Many-to-many relation pair for junction \"post_tag\" disagrees on onDelete: 'cascade' vs 'restrict'."
-    );
+    expect(thrown.message).toContain("[R011]");
+    expect(thrown.message).toContain("'post.tags' and 'tag.posts'");
   });
 
-  it("refuses an onUpdate disagreement with the exact pair message", () => {
+  it("ignores a hostile relations option and resolves the public schema", () => {
+    const missing = s.model({ id: s.string().id() });
+    const owner = s.model({
+      id: s.string().id(),
+      missing: s.toOne(() => missing),
+    });
+
+    expect(() =>
+      Reflect.apply(serializeModels, undefined, [
+        { owner },
+        { migrationDriver: postgresMigrationDriver, relations: new Map() },
+      ])
+    ).toThrow("[R006]");
+  });
+
+  it("publishes no snapshot for a target covered only by a partial unique index", () => {
+    const user = s
+      .model({
+        id: s.string().id(),
+        handle: s.string(),
+        posts: s.toMany(() => post),
+      })
+      .index(["handle"], { unique: true, where: "handle IS NOT NULL" });
+    const post = s.model({
+      id: s.string().id(),
+      authorHandle: s.string(),
+      author: s
+        .toOne(() => user)
+        .fields("authorHandle")
+        .references("handle"),
+    });
+
+    expect(() =>
+      serializeModels(
+        { user, post },
+        {
+          migrationDriver: postgresMigrationDriver,
+        }
+      )
+    ).toThrow("[FK005]");
+  });
+
+  it("serializes a foreign key to a predicate-free unique index", () => {
+    const user = s
+      .model({
+        id: s.string().id(),
+        handle: s.string(),
+        posts: s.toMany(() => post),
+      })
+      .index(["handle"], { unique: true });
+    const post = s.model({
+      id: s.string().id(),
+      authorHandle: s.string(),
+      author: s
+        .toOne(() => user)
+        .fields("authorHandle")
+        .references("handle"),
+    });
+    const snapshot = serializeModels(
+      { user, post },
+      { migrationDriver: postgresMigrationDriver }
+    );
+
+    expect(
+      snapshot.tables.find((table) => table.name === "post")?.foreignKeys
+    ).toEqual([
+      expect.objectContaining({
+        columns: ["authorHandle"],
+        referencedColumns: ["handle"],
+      }),
+    ]);
+  });
+
+  it("refuses one junction table claimed by two distinct pairs", () => {
     const Post = s.model({
       id: s.string().id(),
-      tags: s.manyToMany(() => Tag).onUpdate("cascade"),
+      tags: s.toMany(() => Tag).through("shared_junction"),
     });
     const Tag = s.model({
       id: s.string().id(),
-      posts: s.manyToMany(() => Post).onUpdate("restrict"),
-    });
-
-    const thrown = serializationError({ post: Post, tag: Tag });
-
-    expect(thrown).toBeInstanceOf(Error);
-    if (!(thrown instanceof Error)) {
-      throw new Error("Expected serialization to throw.");
-    }
-    expect(thrown.message).toBe(
-      "Many-to-many relation pair for junction \"post_tag\" disagrees on onUpdate: 'cascade' vs 'restrict'."
-    );
-  });
-
-  it("refuses one junction table shared by two distinct relation pairs", () => {
-    const Post = s.model({
-      id: s.string().id(),
-      tags: s.manyToMany(() => Tag).through("shared_junction"),
-    });
-    const Tag = s.model({
-      id: s.string().id(),
-      posts: s.manyToMany(() => Post).through("shared_junction"),
+      posts: s.toMany(() => Post),
     });
     const User = s.model({
       id: s.string().id(),
-      roles: s.manyToMany(() => Role).through("shared_junction"),
+      roles: s.toMany(() => Role).through("shared_junction"),
     });
     const Role = s.model({
       id: s.string().id(),
-      users: s.manyToMany(() => User).through("shared_junction"),
+      users: s.toMany(() => User),
     });
 
     const thrown = serializationError({
@@ -1382,60 +1448,7 @@ describe("junction pair reconciliation refusals", () => {
     if (!(thrown instanceof Error)) {
       throw new Error("Expected serialization to throw.");
     }
-    expect(thrown.message).toBe(
-      'Junction table "shared_junction" is shared by multiple distinct many-to-many relation pairs. ' +
-        "Give each pair a distinct .name() or its own .through() table name."
-    );
-  });
-
-  // ORDER FALSIFIER: with BOTH a missing primary key and a mirrored .A()/.B()
-  // disagreement present, the serializer resolves row keys first — the raw
-  // pair reconciliation lives inside the later group expansion. The engine
-  // answers this same double defect the other way around.
-  it("resolves row keys before the raw A/B pair", () => {
-    const Post = s.model({
-      title: s.string(),
-      tags: s.manyToMany(() => Tag).A("postCol"),
-    });
-    const Tag = s.model({
-      id: s.string().id(),
-      posts: s.manyToMany(() => Post).B("tagCol"),
-    });
-
-    const thrown = serializationError({ post: Post, tag: Tag });
-
-    expect(thrown).toBeInstanceOf(Error);
-    if (!(thrown instanceof Error)) {
-      throw new Error("Expected serialization to throw.");
-    }
-    expect(thrown.message).toBe(
-      'Model "post" has no primary key. Schema may not be hydrated.'
-    );
-    expect(thrown.message).not.toContain("disagree on junction columns");
-  });
-
-  // ORDER FALSIFIER: with BOTH a missing primary key and a referential-action
-  // disagreement present, the action merge answers first — it runs before
-  // either endpoint's row key is requested.
-  it("resolves referential actions before row keys", () => {
-    const Post = s.model({
-      title: s.string(),
-      tags: s.manyToMany(() => Tag).onDelete("cascade"),
-    });
-    const Tag = s.model({
-      id: s.string().id(),
-      posts: s.manyToMany(() => Post).onDelete("restrict"),
-    });
-
-    const thrown = serializationError({ post: Post, tag: Tag });
-
-    expect(thrown).toBeInstanceOf(Error);
-    if (!(thrown instanceof Error)) {
-      throw new Error("Expected serialization to throw.");
-    }
-    expect(thrown.message).toBe(
-      "Many-to-many relation pair for junction \"post_tag\" disagrees on onDelete: 'cascade' vs 'restrict'."
-    );
-    expect(thrown.message).not.toContain("has no primary key");
+    expect(thrown.message).toContain("[JT001]");
+    expect(thrown.message).toContain("shared_junction");
   });
 });

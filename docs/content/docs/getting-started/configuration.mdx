@@ -118,6 +118,7 @@ export const user = s.model({
   name: s.string(),
   email: s.string().unique(),
   status: Status.default("PENDING"),
+  posts: s.toMany(() => post),
 });
 
 export const post = s.model({
@@ -125,7 +126,7 @@ export const post = s.model({
   title: s.string(),
   content: s.string().nullable(),
   authorId: s.string(),
-  author: s.manyToOne(() => user).fields("authorId").references("id"),
+  author: s.toOne(() => user).fields("authorId").references("id"),
 });
 ```
 

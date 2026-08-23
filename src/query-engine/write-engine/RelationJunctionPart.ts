@@ -433,12 +433,12 @@ export class RelationJunctionPart implements JunctionCompilePart {
    */
   private readonly transfers = new Map<string, JunctionSingularTransfer>();
 
-  private get relationInfo() {
-    return this.context.relation.relationInfo;
+  private get relationRef() {
+    return this.context.relation.relationRef;
   }
 
   private get relationName(): string {
-    return this.relationInfo.name;
+    return this.relationRef.name;
   }
 
   private get sourceSide(): JunctionSide {
@@ -452,12 +452,12 @@ export class RelationJunctionPart implements JunctionCompilePart {
   constructor(scope: StepScope, input: RelationJunctionInput) {
     this.context = input;
     this.childName = getStepModelName(
-      input.relation.relationInfo.targetModel,
-      input.relation.relationInfo.name
+      input.relation.relationRef.targetModel,
+      input.relation.relationRef.name
     );
     this.childScope = createQueryScope(
-      input.engine.adapter,
-      input.relation.relationInfo.targetModel
+      input.engine,
+      input.relation.relationRef.targetModel
     );
     this.targetProjection = buildTargetProjection(this.childScope.model);
     this.statements = new JunctionStatements(input.parentScope, input.txMode);
@@ -1042,7 +1042,7 @@ export class RelationJunctionPart implements JunctionCompilePart {
             engine: this.context.engine,
             sourceScope: this.context.parentScope,
             targetScope: this.childScope,
-            relationInfo: this.relationInfo,
+            relationRef: this.relationRef,
             member: { kind: "replayPerRecord", data: slot.data },
             capture,
             recordCompilers: this.context.recordCompilers,
@@ -1531,7 +1531,7 @@ export class RelationJunctionPart implements JunctionCompilePart {
         ? {
             expects: exactlyOneRow(
               nestedWriteFailure(
-                relationTargetNotFound(this.relationInfo, "update"),
+                relationTargetNotFound(this.relationRef, "update"),
                 this.relationName,
                 false
               )
@@ -2219,7 +2219,7 @@ export class RelationJunctionPart implements JunctionCompilePart {
       // selector, so `set`/`connect` cannot adopt a replacement that inherited it.
       this.capturedSelectorRead(target.where, capturedPk),
       nestedWriteFailure(
-        relationTargetNotFound(this.relationInfo, op),
+        relationTargetNotFound(this.relationRef, op),
         this.relationName,
         false
       )
@@ -2251,7 +2251,7 @@ export class RelationJunctionPart implements JunctionCompilePart {
         }),
       },
       failure: nestedWriteFailure(
-        relationTargetNotFound(this.relationInfo, op),
+        relationTargetNotFound(this.relationRef, op),
         this.relationName,
         false
       ),
@@ -2269,7 +2269,7 @@ export class RelationJunctionPart implements JunctionCompilePart {
     const rows = known[planningKey(target.probeId, "rows")];
     if (!Array.isArray(rows) || rows.length === 0) {
       throw new NestedWriteError(
-        relationTargetNotFound(this.relationInfo, op),
+        relationTargetNotFound(this.relationRef, op),
         this.relationName
       );
     }
@@ -2503,10 +2503,10 @@ export function buildJunctionParts(input: {
 }): JunctionCompilePart[] {
   const { scope, engine, parentScope, relation, program, parentId, txMode } =
     input;
-  const { relationInfo } = relation;
-  const relationName = relationInfo.name;
-  const childName = getStepModelName(relationInfo.targetModel, relationName);
-  const childScope = createQueryScope(engine.adapter, relationInfo.targetModel);
+  const { relationRef } = relation;
+  const relationName = relationRef.name;
+  const childName = getStepModelName(relationRef.targetModel, relationName);
+  const childScope = createQueryScope(engine, relationRef.targetModel);
   const targetFields = relation.membership.target.members.map(
     (member) => member.referencedField
   );
@@ -2534,7 +2534,7 @@ export function buildJunctionParts(input: {
     // compiler. Its own Parts are built by the coordinator through
     // `nestedBuilder`, which is where that recursion is visible.
     for (const mutation of relationMutationPrograms(relations)) {
-      const bound = bindRelation(childScope, mutation.relationInfo);
+      const bound = bindRelation(childScope, mutation.relationRef);
       if (bound.position === "junction") continue;
       if (bound.position === "parentHeld") return true;
       const referenced = membershipReferencedFields(bound.membership);
@@ -3148,7 +3148,7 @@ export function progressiveJunctionParentGuard(input: {
       reason: "this execution substrate does not use progressive commits",
     };
   }
-  const relationName = input.relation.relationInfo.name;
+  const relationName = input.relation.relationRef.name;
   const identity = resolveFinalReferenceRowKey(
     input.parentScope.model,
     input.relation.membership.source.members.map((member) => {

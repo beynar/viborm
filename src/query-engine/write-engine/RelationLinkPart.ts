@@ -395,8 +395,8 @@ export class RelationLinkPart implements Part {
    * can compare exactly.
    */
   private requireProbeFoundAll(known: PlanningKnown, kind: LinkKind): void {
-    const { relationInfo } = this.config.membership.relation;
-    const relationName = relationInfo.name;
+    const { relationRef } = this.config.membership.relation;
+    const relationName = relationRef.name;
     const rows = known[planningKey(this.probeId, "rows")];
     if (!Array.isArray(rows)) {
       throw new NestedWriteError(
@@ -407,27 +407,27 @@ export class RelationLinkPart implements Part {
     if (rows.length < this.distinctTargets) {
       throw new NestedWriteError(
         kind === "connect"
-          ? relationTargetNotFound(relationInfo, "connect")
-          : relationTargetNotFound(relationInfo, "disconnect"),
+          ? relationTargetNotFound(relationRef, "connect")
+          : relationTargetNotFound(relationRef, "disconnect"),
         relationName
       );
     }
   }
 
   private connectFailure() {
-    const { relationInfo } = this.config.membership.relation;
+    const { relationRef } = this.config.membership.relation;
     return nestedWriteFailure(
-      relationTargetNotFound(relationInfo, "connect"),
-      relationInfo.name,
+      relationTargetNotFound(relationRef, "connect"),
+      relationRef.name,
       false
     );
   }
 
   private disconnectFailure() {
-    const { relationInfo } = this.config.membership.relation;
+    const { relationRef } = this.config.membership.relation;
     return nestedWriteFailure(
-      relationTargetNotFound(relationInfo, "disconnect"),
-      relationInfo.name,
+      relationTargetNotFound(relationRef, "disconnect"),
+      relationRef.name,
       false
     );
   }
@@ -444,7 +444,7 @@ export class RelationLinkPart implements Part {
     const wheres = this.config.wheres;
     if (!wheres || wheres.length === 0) {
       throw new QueryEngineError(
-        `query-engine-v2 ${this.config.kind} for relation '${this.config.membership.relation.relationInfo.name}' requires a unique where.`
+        `query-engine-v2 ${this.config.kind} for relation '${this.config.membership.relation.relationRef.name}' requires a unique where.`
       );
     }
     return wheres;
@@ -489,7 +489,7 @@ export function buildToManyLinkParts(
   }
   const membership = bindCorrelatedRelationMembership(
     relation,
-    planningSourceFromFinal(parentId, relation.relationInfo.name, "disconnect"),
+    planningSourceFromFinal(parentId, relation.relationRef.name, "disconnect"),
     parentId
   );
   if (entry.target.kind === "current") {

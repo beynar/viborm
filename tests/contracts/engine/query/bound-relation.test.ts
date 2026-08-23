@@ -5,41 +5,45 @@ import {
   type BoundRelation,
   bindRelation,
 } from "@query-engine/builders/relation-data-builder";
-import { createQueryScope, getRelationInfo } from "@query-engine/context";
+import { lookupRelation } from "@query-engine/context";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { constructRoutedOperation } from "@query-engine/write-engine/routing";
 import { s } from "@schema";
 import { hydrateSchemaNames } from "@schema/hydration";
 import type { Model } from "@schema/model";
+import { resolveSchemaOrThrow } from "@schema/validation/validator";
+import { prepareSchema, scopeFor } from "@tests/fixtures/query-scope";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
 
 const team = s.model({
   id: s.string().id(),
-  members: s.oneToMany(() => member),
+  members: s.toMany(() => member),
 });
 
 const member = s.model({
   id: s.string().id(),
   teamId: s.string(),
   team: s
-    .manyToOne(() => team)
+    .toOne(() => team)
     .fields("teamId")
     .references("id"),
 });
 
-const tenant = s.model({
-  region: s.string().id(),
-  slug: s.string().id(),
-  memberships: s.oneToMany(() => membership),
-});
+const tenant = s
+  .model({
+    region: s.string(),
+    slug: s.string(),
+    memberships: s.toMany(() => membership),
+  })
+  .id(["region", "slug"]);
 
 const membership = s.model({
   id: s.string().id(),
   tenantRegion: s.string(),
   tenantSlug: s.string(),
   tenant: s
-    .manyToOne(() => tenant)
+    .toOne(() => tenant)
     .fields("tenantRegion", "tenantSlug")
     .references("region", "slug")
     .onUpdate("cascade"),
@@ -47,17 +51,14 @@ const membership = s.model({
 
 const user = s.model({
   id: s.string().id(),
-  profile: s
-    .oneToOne(() => profile)
-    .name("profile")
-    .optional(),
+  profile: s.toOne(() => profile).name("profile"),
 });
 
 const profile = s.model({
   id: s.string().id(),
-  userId: s.string(),
+  userId: s.string().nullable(),
   user: s
-    .oneToOne(() => user)
+    .toOne(() => user)
     .fields("userId")
     .references("id")
     .name("profile")
@@ -66,14 +67,14 @@ const profile = s.model({
 
 const left = s.model({
   id: s.string().id(),
-  inverse: s.manyToOne(() => right).name("edge"),
+  inverse: s.toOne(() => right).name("edge"),
 });
 
 const right = s.model({
   id: s.string().id(),
   leftId: s.string(),
   left: s
-    .manyToOne(() => left)
+    .toOne(() => left)
     .fields("leftId")
     .references("id")
     .name("edge"),
@@ -81,8 +82,8 @@ const right = s.model({
 
 const namedParent = s.model({
   id: s.string().id(),
-  authored: s.oneToMany(() => namedPost).name("author"),
-  edited: s.oneToMany(() => namedPost).name("editor"),
+  authored: s.toMany(() => namedPost).name("author"),
+  edited: s.toMany(() => namedPost).name("editor"),
 });
 
 const namedPost = s.model({
@@ -90,12 +91,12 @@ const namedPost = s.model({
   authorId: s.string(),
   editorId: s.string(),
   author: s
-    .manyToOne(() => namedParent)
+    .toOne(() => namedParent)
     .fields("authorId")
     .references("id")
     .name("author"),
   editor: s
-    .manyToOne(() => namedParent)
+    .toOne(() => namedParent)
     .fields("editorId")
     .references("id")
     .name("editor"),
@@ -105,42 +106,47 @@ const selfNode: Model<any> = s.model({
   id: s.string().id(),
   parentId: s.string().nullable(),
   parent: s
-    .manyToOne(() => selfNode)
+    .toOne(() => selfNode)
     .fields("parentId")
     .references("id")
-    .optional()
     .name("tree"),
-  children: s.oneToMany(() => selfNode).name("tree"),
+  children: s.toMany(() => selfNode).name("tree"),
 });
 
 const organization = s.model({
   id: s.string().id(),
   code: s.string().unique(),
-  workers: s.oneToMany(() => worker),
+  workers: s.toMany(() => worker),
 });
 
 const worker = s.model({
   id: s.string().id(),
   organizationCode: s.string(),
   organization: s
-    .manyToOne(() => organization)
+    .toOne(() => organization)
     .fields("organizationCode")
     .references("code"),
 });
 
 const article = s.model({
   id: s.string().id(),
-  tags: s.manyToMany(() => tag),
+  tags: s.toMany(() => tag),
 });
 
 const tag = s.model({
   id: s.string().id(),
-  articles: s.manyToMany(() => article),
+  articles: s.toMany(() => article),
 });
 
+/**
+ * The edge with NO inverse, kept out of the prepared schema below. The engine
+ * used to meet it at bind time and answer "Cannot determine FK fields"; that
+ * sentence is gone with the inverse scanners, and §9.4 makes an ordinary slot
+ * without a complete inverse a definition error, so the schema never resolves.
+ */
 const orphanSource = s.model({
   id: s.string().id(),
-  targets: s.oneToMany(() => orphanTarget),
+  targets: s.toMany(() => orphanTarget),
 });
 
 const orphanTarget = s.model({
@@ -150,16 +156,24 @@ const orphanTarget = s.model({
 const errorOwner: Model<any> = s.model({
   id: s.string().id(),
   code: s.int().unique(),
-  kids: s.oneToMany(() => errorKid),
+  kids: s.toMany(() => errorKid),
 });
 
+/**
+ * The foreign key is well-formed now. It used to pair TWO local fields against
+ * ONE reference, so that the relation-key legality refusal could be shown to
+ * answer before the engine's "mismatched foreign-key metadata" complaint — and
+ * an unequal pair is refused at CONSTRUCTION today (`.references(...)` pairs
+ * positionally, V4002, witnessed at
+ * `tests/unit/schema-validation/foreign-key-rules.core.test.ts`). There is no
+ * later error left to order against; the refusal itself is what stays pinned.
+ */
 const errorKid: Model<any> = s.model({
   id: s.string().id(),
   ownerA: s.int(),
-  ownerB: s.int(),
   owner: s
-    .manyToOne(() => errorOwner)
-    .fields("ownerA", "ownerB")
+    .toOne(() => errorOwner)
+    .fields("ownerA")
     .references("code"),
 });
 
@@ -171,12 +185,12 @@ const errorKid: Model<any> = s.model({
 const junctionSchema = (() => {
   const post = s.model({
     id: s.string().id(),
-    labels: s.manyToMany(() => label),
+    labels: s.toMany(() => label),
   });
 
   const label = s.model({
     id: s.string().id(),
-    posts: s.manyToMany(() => post),
+    posts: s.toMany(() => post),
   });
 
   // One self-referential pair with explicit columns on ONE side; the other side
@@ -184,28 +198,47 @@ const junctionSchema = (() => {
   const follower: Model<any> = s.model({
     id: s.string().id(),
     follows: s
-      .manyToMany(() => follower)
-      .A("followerId")
-      .B("followedId"),
-    followedBy: s.manyToMany(() => follower),
+      .toMany(() => follower)
+      .source("followerId")
+      .target("followedId"),
+    followedBy: s.toMany(() => follower),
   });
 
   const compoundDoc = s
     .model({
       tenantId: s.string().map("tenant_col"),
       id: s.string().map("doc_id"),
-      labels: s.manyToMany(() => compoundLabel),
+      labels: s.toMany(() => compoundLabel),
     })
     .id(["tenantId", "id"]);
 
   const compoundLabel = s.model({
     id: s.string().id(),
-    docs: s.manyToMany(() => compoundDoc),
+    docs: s.toMany(() => compoundDoc),
   });
 
   return { post, label, follower, compoundDoc, compoundLabel };
 })();
-hydrateSchemaNames(junctionSchema);
+prepareSchema(junctionSchema);
+
+/** Every valid model above shares one composition root, as a client's would. */
+prepareSchema({
+  team,
+  member,
+  tenant,
+  membership,
+  user,
+  profile,
+  left,
+  right,
+  namedParent,
+  namedPost,
+  selfNode,
+  organization,
+  worker,
+  article,
+  tag,
+});
 
 const adapter = new PostgresAdapter();
 
@@ -328,21 +361,21 @@ const cases: readonly ClassificationCase[] = [
 
 describe("bound relation classification", () => {
   test.each(cases)("$label", (classification) => {
-    const scope = createQueryScope(adapter, classification.source);
-    const relationInfo = getRelationInfo(scope, classification.relationName);
-    if (!relationInfo) {
+    const scope = scopeFor(adapter, classification.source);
+    const relationRef = lookupRelation(scope, classification.relationName);
+    if (!relationRef) {
       throw new Error(
         `Expected relation '${classification.relationName}' on the test model.`
       );
     }
 
-    const relation = bindRelation(scope, relationInfo);
+    const relation = bindRelation(scope, relationRef);
 
     expect(relation.position).toBe(classification.position);
     expect(relation.cardinality).toBe(classification.cardinality);
     expect(relation.membership.kind).toBe(classification.membership);
     expect(relation.sourceModel).toBe(classification.source);
-    expect(relation.relationInfo).toBe(relationInfo);
+    expect(relation.relationRef).toBe(relationRef);
 
     if (relation.position === "junction") {
       expect(classification.foreignFields).toBeUndefined();
@@ -354,10 +387,10 @@ describe("bound relation classification", () => {
     // position ternary every consumer used to re-run.
     const parentHeld = relation.position === "parentHeld";
     expect(relation.membership.holder).toBe(
-      parentHeld ? relation.sourceModel : relation.relationInfo.targetModel
+      parentHeld ? relation.sourceModel : relation.relationRef.targetModel
     );
     expect(relation.membership.referenced).toBe(
-      parentHeld ? relation.relationInfo.targetModel : relation.sourceModel
+      parentHeld ? relation.relationRef.targetModel : relation.sourceModel
     );
 
     expect(relation.membership.foreignFields).toEqual(
@@ -381,17 +414,13 @@ describe("bound relation classification", () => {
     expect(relation.membership.onUpdate).toBe(classification.onUpdate);
   });
 
-  test("a relation without an inverse keeps the existing direction error", () => {
-    const scope = createQueryScope(adapter, orphanSource);
-    const relationInfo = getRelationInfo(scope, "targets");
-    if (!relationInfo) throw new Error("Expected relation 'targets'.");
-
-    expect(() => bindRelation(scope, relationInfo)).toThrow(
-      "Cannot determine FK fields for relation 'targets'. Define the inverse relation with .fields([...]) or use explicit FK fields."
-    );
+  test("a relation without an inverse never reaches a bind", () => {
+    expect(() =>
+      resolveSchemaOrThrow({ source: orphanSource, target: orphanTarget })
+    ).toThrow("[R002]");
   });
 
-  test("relation-key legality still answers before mismatched FK arity", () => {
+  test("relation-key legality refuses a non-literal write to a referenced field", () => {
     const schema = { owner: errorOwner, kid: errorKid };
     hydrateSchemaNames(schema);
     const engine = new QueryEngine(
@@ -419,18 +448,17 @@ describe("bound relation classification", () => {
     expect(thrown.message).toBe(
       "Cannot update relation key field 'code' with a non-literal operation while mutating relation 'kids'. Use a literal value or '{ set: ... }'."
     );
-    expect(thrown.message).not.toContain("mismatched foreign-key metadata");
   });
 });
 
 /** The bound junction's MEMBERSHIP — the two sides and the table they join. */
 function bindJunctionMembership(source: Model<any>, relationName: string) {
-  const scope = createQueryScope(adapter, source);
-  const relationInfo = getRelationInfo(scope, relationName);
-  if (!relationInfo) {
+  const scope = scopeFor(adapter, source);
+  const relationRef = lookupRelation(scope, relationName);
+  if (!relationRef) {
     throw new Error(`Expected relation '${relationName}' on the test model.`);
   }
-  const relation = bindRelation(scope, relationInfo);
+  const relation = bindRelation(scope, relationRef);
   if (relation.position !== "junction") {
     throw new Error(`Expected relation '${relationName}' to bind a junction.`);
   }
@@ -494,11 +522,11 @@ describe("bound junction sides", () => {
   });
 
   test("classification stays lazy and a compound side binds every ordered member", () => {
-    const scope = createQueryScope(adapter, junctionSchema.compoundDoc);
-    const relationInfo = getRelationInfo(scope, "labels");
-    if (!relationInfo) throw new Error("Expected relation 'labels'.");
+    const scope = scopeFor(adapter, junctionSchema.compoundDoc);
+    const relationRef = lookupRelation(scope, "labels");
+    if (!relationRef) throw new Error("Expected relation 'labels'.");
 
-    const relation = bindRelation(scope, relationInfo);
+    const relation = bindRelation(scope, relationRef);
     expect(relation.position).toBe("junction");
     if (relation.position !== "junction") {
       throw new Error("Expected a junction.");

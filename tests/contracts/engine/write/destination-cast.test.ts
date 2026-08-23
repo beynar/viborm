@@ -1,23 +1,15 @@
-import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { createClient } from "@client/client";
-import {
-  type BatchQuery,
-  type Dialect,
-  Driver,
-  type QueryResult,
-} from "@drivers";
+import { type Dialect, Driver } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
-import { PGlite, type Transaction } from "@electric-sql/pglite";
+import { PGlite } from "@electric-sql/pglite";
 import { push } from "@migrations";
 import { buildScalarSqlValue } from "@query-engine/builders/values-builder";
 import { createQueryScope } from "@query-engine/context";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
-import { createSchemaRegistry } from "@validation";
-import { describe, expect, test } from "vitest";
 import { CreateOperation } from "@src/query-engine/write-engine/CreateOperation";
 import { referenceSql } from "@src/query-engine/write-engine/fragment-builders";
 import type {
@@ -29,6 +21,9 @@ import {
   FOUND_AT,
   registerDestinationCastBehavior,
 } from "@tests/contracts/engine/write/destination-cast-behavior";
+import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
+import { createSchemaRegistry } from "@validation";
+import { describe, expect, test } from "vitest";
 
 const substrates = [
   {
@@ -274,7 +269,7 @@ describe.each(
     // parent's own key column is written the same. This is the decimal note's
     // invariant (W6), now enforced for the second type.
     const engine = engineFor();
-    const scope = createQueryScope(engine.adapter, destinationCastSchema.slot);
+    const scope = createQueryScope(engine, destinationCastSchema.slot);
     expect(
       rendered(referenceSql(engine, destinationCastSchema.entry, "atRef", ISO))
     ).toEqual(

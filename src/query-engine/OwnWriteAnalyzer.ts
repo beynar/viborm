@@ -163,7 +163,7 @@ export class OwnWriteNode {
         const { parsed } = entry;
         const mutation = parsed.program;
         const boundRelation =
-          entry.boundRelation ?? bindRelation(this.ctx, mutation.relationInfo);
+          entry.boundRelation ?? bindRelation(this.ctx, mutation.relationRef);
         OwnWriteRelation.create(
           this,
           mutation,
@@ -241,9 +241,9 @@ export class OwnWriteNode {
   ): void {
     for (const mutation of relations) {
       if (mutation.kind !== "polymorphicDisconnect") continue;
-      // ONE write per storage member, because a targetless disconnect names no
-      // member: every model the storage can hold is a model it may be clearing.
-      for (const member of mutation.storage.members.values()) {
+      // ONE write per carrier member, because a targetless disconnect names no
+      // member: every model the carrier can hold is a model it may be clearing.
+      for (const member of mutation.carrier.edge.members) {
         this.ledger.appendMembership(
           "disconnect",
           {
@@ -254,7 +254,7 @@ export class OwnWriteNode {
             buildPolymorphicMembership(
               this.ctx.model,
               member.targetModel,
-              mutation.storage,
+              mutation.carrier.edge,
               member
             )
           ),
@@ -391,7 +391,7 @@ function getRelationEntryGroups(
   for (const entry of analysed) {
     const boundRelation =
       entry.boundRelation ??
-      bindRelation(ctx, entry.parsed.program.relationInfo);
+      bindRelation(ctx, entry.parsed.program.relationRef);
     const bound = { parsed: entry.parsed, boundRelation };
     if (boundRelation.position === "parentHeld") {
       currentHoldsFk.push(bound);
@@ -429,7 +429,7 @@ function collectionAnalysisEntries(
   return arm.entries.map((entry) => ({
     parsed: {
       kind: "ordinary" as const,
-      name: entry.junction.relationInfo.name,
+      name: entry.junction.relationRef.name,
       program: entry.program,
     },
     boundRelation: entry.junction,

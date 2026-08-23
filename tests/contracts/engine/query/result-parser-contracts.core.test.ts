@@ -3,21 +3,24 @@ import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { COUNT_RESULT_KEY } from "@adapters/shared/result-parsing";
 import { D1Driver } from "@drivers/d1";
 import { QueryEngineError } from "@errors";
-import { parseResult, ResultParser } from "@query-engine/result/ResultParser";
+import { parseResult } from "@query-engine/result/ResultParser";
 import {
   getAggregateResultKey,
   RELATION_COUNTS_RESULT_KEY,
 } from "@query-engine/result-aliases";
 import { s } from "@schema";
+import { parserFor, prepareSchema } from "@tests/fixtures/query-scope";
 import { describe, expect, test } from "vitest";
 
 const MALFORMED_RESULT_PATTERN = /result|payload|rows/i;
 const RELATION_COUNT_PATTERN = /relation count/i;
+const REQUIRED_RELATION_NULL_PATTERN =
+  /a required included relation returned null/;
 
 const recursiveRelationModels = (() => {
   const root = s.model({
     id: s.string().id(),
-    children: s.oneToMany(() => branch),
+    children: s.toMany(() => branch),
   });
 
   const branch = s.model({
@@ -26,10 +29,10 @@ const recursiveRelationModels = (() => {
     recordedAt: s.dateTime(),
     payload: s.json(),
     parent: s
-      .manyToOne(() => root)
+      .toOne(() => root)
       .fields("rootId")
       .references("id"),
-    children: s.oneToMany(() => leaf),
+    children: s.toMany(() => leaf),
   });
 
   const leaf = s.model({
@@ -38,13 +41,15 @@ const recursiveRelationModels = (() => {
     amount: s.bigInt(),
     payload: s.blob(),
     parent: s
-      .manyToOne(() => branch)
+      .toOne(() => branch)
       .fields("branchId")
       .references("id"),
   });
 
   return { root, branch, leaf };
 })();
+
+prepareSchema(recursiveRelationModels);
 
 const RECURSIVE_CHILDREN_ARGS = {
   include: { children: { include: { children: true } } },
@@ -59,25 +64,57 @@ const RELATION_COUNT_ARGS = {
 };
 
 function createRecursiveRelationContext() {
-  return new ResultParser(new PostgresAdapter(), recursiveRelationModels.root);
+  return parserFor(new PostgresAdapter(), recursiveRelationModels.root);
 }
 
 function createSQLiteRecursiveRelationContext() {
   const driver = new D1Driver({ database: Object.create(null) });
 
-  return new ResultParser(
-    new SQLiteAdapter(),
-    recursiveRelationModels.root,
-    driver
-  );
+  return parserFor(new SQLiteAdapter(), recursiveRelationModels.root, driver);
 }
 
 function createBranchRelationContext() {
-  return new ResultParser(
-    new PostgresAdapter(),
-    recursiveRelationModels.branch
-  );
+  return parserFor(new PostgresAdapter(), recursiveRelationModels.branch);
 }
+
+/**
+ * ONE relation terminal, TWO source models (plan §11.4.7).
+ *
+ * `.extends()` spreads the base shape, so `image.owner` and `video.owner` are
+ * the SAME immutable relation object. `video` overrides only the foreign-key
+ * SCALAR, which is a fact of the resolved EDGE rather than of the declaration:
+ * `image.owner` cannot be empty and `video.owner` can. A parser chain cached
+ * against the shared declaration would hand the second source model the first
+ * one's chain and lose that difference.
+ */
+const sharedTerminalModels = (() => {
+  const media = s.model({
+    id: s.string().id(),
+    ownerId: s.string(),
+    owner: s
+      .toOne(() => owner)
+      .fields("ownerId")
+      .references("id"),
+  });
+  const image = media.extends({ width: s.int() });
+  const video = media.extends({ ownerId: s.string().nullable() });
+  const owner = s.model({
+    id: s.string().id(),
+    images: s.toMany(() => image),
+    videos: s.toMany(() => video),
+  });
+
+  return { owner, image, video };
+})();
+
+prepareSchema(sharedTerminalModels);
+
+const SHARED_TERMINAL_ARGS = {
+  include: {
+    images: { include: { owner: true } },
+    videos: { include: { owner: true } },
+  },
+};
 
 describe("result parser contracts", () => {
   test("parses recursive relations with repeated names by relation identity", () => {
@@ -129,6 +166,63 @@ describe("result parser contracts", () => {
       leafAmount: 9007199254740993n,
       leafBlob: [0, 128, 255],
     });
+  });
+
+  test("keys a shared relation terminal by its contextual slot, not the declaration", () => {
+    // The premise, stated rather than assumed: it really is one object.
+    expect(sharedTerminalModels.image["~"].state.relations.owner).toBe(
+      sharedTerminalModels.video["~"].state.relations.owner
+    );
+
+    const context = parserFor(
+      new PostgresAdapter(),
+      sharedTerminalModels.owner
+    );
+    const parsed = parseResult<
+      Array<{
+        images: Array<{ owner: { id: string } }>;
+        videos: Array<{ owner: null }>;
+      }>
+    >(
+      context,
+      "findMany",
+      [
+        {
+          id: "owner-1",
+          images: [
+            {
+              id: "image-1",
+              ownerId: "owner-1",
+              width: 4,
+              owner: { id: "owner-1" },
+            },
+          ],
+          videos: [{ id: "video-1", ownerId: null, owner: null }],
+        },
+      ],
+      SHARED_TERMINAL_ARGS
+    );
+
+    expect(parsed[0]?.images[0]?.owner).toEqual({ id: "owner-1" });
+    expect(parsed[0]?.videos[0]?.owner).toBeNull();
+
+    // Same parser, both chains now warm: the required slot still refuses null.
+    expect(() =>
+      parseResult(
+        context,
+        "findMany",
+        [
+          {
+            id: "owner-1",
+            images: [
+              { id: "image-1", ownerId: "owner-1", width: 4, owner: null },
+            ],
+            videos: [],
+          },
+        ],
+        SHARED_TERMINAL_ARGS
+      )
+    ).toThrow(REQUIRED_RELATION_NULL_PATTERN);
   });
 
   test.each([
@@ -369,43 +463,41 @@ describe("result parser contracts", () => {
     ).toThrow(RELATION_COUNT_PATTERN);
   });
 
-  test.each([
-    "count",
-    "exist",
-  ] as const)("rejects unknown %s result keys", (operation) => {
-    expect(() =>
-      parseResult(
-        createRecursiveRelationContext(),
-        operation,
-        [{ unexpected: 1 }],
-        {}
-      )
-    ).toThrow(MALFORMED_RESULT_PATTERN);
-  });
+  test.each(["count", "exist"] as const)(
+    "rejects unknown %s result keys",
+    (operation) => {
+      expect(() =>
+        parseResult(
+          createRecursiveRelationContext(),
+          operation,
+          [{ unexpected: 1 }],
+          {}
+        )
+      ).toThrow(MALFORMED_RESULT_PATTERN);
+    }
+  );
 
-  test.each([
-    "01",
-    "0x10",
-    "1e2",
-    " 1 ",
-  ])("rejects non-canonical count value %s", (count) => {
-    const ctx = createRecursiveRelationContext();
+  test.each(["01", "0x10", "1e2", " 1 "])(
+    "rejects non-canonical count value %s",
+    (count) => {
+      const ctx = createRecursiveRelationContext();
 
-    expect(() =>
-      parseResult(ctx, "count", [{ [COUNT_RESULT_KEY]: count }], {})
-    ).toThrow(MALFORMED_RESULT_PATTERN);
-    expect(() =>
-      parseResult(ctx, "exist", [{ [COUNT_RESULT_KEY]: count }], {})
-    ).toThrow(MALFORMED_RESULT_PATTERN);
-    expect(() =>
-      parseResult(
-        ctx,
-        "aggregate",
-        [{ [getAggregateResultKey("_count")]: count }],
-        { _count: true }
-      )
-    ).toThrow(MALFORMED_RESULT_PATTERN);
-  });
+      expect(() =>
+        parseResult(ctx, "count", [{ [COUNT_RESULT_KEY]: count }], {})
+      ).toThrow(MALFORMED_RESULT_PATTERN);
+      expect(() =>
+        parseResult(ctx, "exist", [{ [COUNT_RESULT_KEY]: count }], {})
+      ).toThrow(MALFORMED_RESULT_PATTERN);
+      expect(() =>
+        parseResult(
+          ctx,
+          "aggregate",
+          [{ [getAggregateResultKey("_count")]: count }],
+          { _count: true }
+        )
+      ).toThrow(MALFORMED_RESULT_PATTERN);
+    }
+  );
 
   test("SQLite count middleware does not collapse duplicate COUNT rows", () => {
     expect(() =>

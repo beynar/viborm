@@ -72,7 +72,7 @@ const parentModel = s.model({
   blobNullable: s.blob().nullable(),
 
   // Relation
-  children: s.oneToMany(() => childModel),
+  children: s.toMany(() => childModel),
 });
 
 // Child model references parent
@@ -86,7 +86,7 @@ const childModel = s.model({
   // Foreign key
   parentId: s.string(),
   parent: s
-    .manyToOne(() => parentModel)
+    .toOne(() => parentModel)
     .fields("parentId")
     .references("id"),
 });

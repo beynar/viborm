@@ -79,7 +79,7 @@ const user = s.model({
   name: s.string(),
   email: s.string().unique(),
   age: s.int(),
-  posts: s.oneToMany(() => post),
+  posts: s.toMany(() => post),
 });
 
 const post = s.model({
@@ -87,7 +87,7 @@ const post = s.model({
   title: s.string(),
   content: s.string(),
   authorId: s.string(),
-  author: s.manyToOne(() => user)
+  author: s.toOne(() => user)
     .fields("authorId")
     .references("id"),
 });

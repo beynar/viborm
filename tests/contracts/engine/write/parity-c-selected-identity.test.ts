@@ -92,9 +92,9 @@ const paritySelectedSchema = (() => {
     .model({
       id: s.string().id(),
       name: s.string(),
-      items: s.oneToMany(() => item),
-      pairs: s.oneToMany(() => pair),
-      tags: s.manyToMany(() => tag),
+      items: s.toMany(() => item),
+      pairs: s.toMany(() => pair),
+      tags: s.toMany(() => tag),
     })
     .map("parity_c_owners");
   const item = s
@@ -104,10 +104,9 @@ const paritySelectedSchema = (() => {
       label: s.string(),
       ownerId: s.string().nullable(),
       owner: s
-        .manyToOne(() => owner)
+        .toOne(() => owner)
         .fields("ownerId")
-        .references("id")
-        .optional(),
+        .references("id"),
     })
     .map("parity_c_items");
   /** The compound-row-key child: its captured handle is the PAIR, never one field. */
@@ -118,10 +117,9 @@ const paritySelectedSchema = (() => {
       note: s.string(),
       ownerId: s.string().nullable(),
       owner: s
-        .manyToOne(() => owner)
+        .toOne(() => owner)
         .fields("ownerId")
-        .references("id")
-        .optional(),
+        .references("id"),
     })
     .id(["tenantId", "slot"])
     .map("parity_c_pairs");
@@ -129,8 +127,8 @@ const paritySelectedSchema = (() => {
     .model({
       id: s.string().id(),
       name: s.string().unique(),
-      owners: s.manyToMany(() => owner),
-      slots: s.oneToMany(() => tagSlot),
+      owners: s.toMany(() => owner),
+      slots: s.toMany(() => tagSlot),
     })
     .map("parity_c_tags");
   /** The same compound-primary-key shape one level deeper than a junction target. */
@@ -141,10 +139,9 @@ const paritySelectedSchema = (() => {
       note: s.string(),
       tagId: s.string().nullable(),
       tag: s
-        .manyToOne(() => tag)
+        .toOne(() => tag)
         .fields("tagId")
-        .references("id")
-        .optional(),
+        .references("id"),
     })
     .id(["tenantId", "slot"])
     .map("parity_c_tag_slots");
@@ -160,7 +157,7 @@ const paritySelectedSchema = (() => {
       tenantId: s.string(),
       code: s.string(),
       note: s.string(),
-      refs: s.oneToMany(() => ref),
+      refs: s.toMany(() => ref),
     })
     .unique(["tenantId", "code"])
     .map("parity_c_anchors");
@@ -172,10 +169,9 @@ const paritySelectedSchema = (() => {
       tenantId: s.string().nullable(),
       targetCode: s.string().nullable(),
       anchor: s
-        .manyToOne(() => anchor)
+        .toOne(() => anchor)
         .fields("tenantId", "targetCode")
-        .references("tenantId", "code")
-        .optional(),
+        .references("tenantId", "code"),
     })
     .map("parity_c_refs");
 

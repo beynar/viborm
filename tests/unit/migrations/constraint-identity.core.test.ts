@@ -290,7 +290,7 @@ describe("unique-constraint identity by shape", () => {
 const quietUser = s
   .model({
     id: s.string().id(),
-    posts: s.oneToMany(() => quietPost),
+    posts: s.toMany(() => quietPost),
   })
   .map("quiet_users");
 
@@ -301,7 +301,7 @@ const quietPost = s
     slug: s.string(),
     tenant: s.string(),
     author: s
-      .manyToOne(() => quietUser)
+      .toOne(() => quietUser)
       .fields("authorId")
       .references("id"),
   })

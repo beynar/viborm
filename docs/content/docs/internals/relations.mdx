@@ -13,13 +13,13 @@ ORMs need to express database relationships in a type-safe way. The challenge: *
 ```typescript
 const user = s.model({
   id: s.string().id(),
-  posts: s.oneToMany(() => post),  // User references Post
+  posts: s.toMany(() => post),  // User references Post
 });
 
 const post = s.model({
   id: s.string().id(),
   authorId: s.string(),
-  author: s.manyToOne(() => user)  // Post references User
+  author: s.toOne(() => user)  // Post references User
     .fields("authorId")
     .references("id"),
 });
@@ -27,15 +27,34 @@ const post = s.model({
 
 JavaScript can't reference a variable before it's declared. We solve this with **thunks** - functions that defer evaluation until the model is used.
 
-## Relation Types
+## Two Declared Facts
 
-| Type | Meaning | Foreign Key Location |
+A declaration states exactly two things: the **slot cardinality** its factory was
+spelled with, and the **target domain** its argument names.
+
+| Declaration | Slot cardinality | Target domain |
 |------|---------|---------------------|
-| `oneToMany` | One record has many related | On the "many" side |
-| `manyToOne` | Many records belong to one | On this side |
-| `oneToOne` | One-to-one relationship | Configurable |
-| `manyToMany` | Many-to-many via join table | Join table |
-| `polymorphic` | One slot references one of several target models; the factory (`s.polymorphicToOne`/`s.polymorphicToMany`) declares its cardinality | to-one: private type and identity columns on this model; collection: one member junction table per variant |
+| `s.toOne(() => model)` | one | one model |
+| `s.toMany(() => model)` | many | one model |
+| `s.toOne({ ... })` | one | named variants |
+| `s.toMany({ ... })` | many | named variants |
+
+Everything else is DERIVED, once per schema, by the topology owner in
+`schema/validation/relation-resolution.ts`:
+
+| Derived fact | From |
+|------|---------|
+| the partner slot | exact `.name()` match, then structural degree |
+| foreign-key ownership | which endpoint completed `.fields(...).references(...)` |
+| one-to-one vs many-to-one | the partner slot's cardinality |
+| junction vs foreign key | both endpoints being collections |
+| remote uniqueness | the partner slot's cardinality |
+| may the slot be empty | the stored tuple's nullability, or non-ownership |
+
+The familiar cardinality cells are readings of a PAIR: `toOne`+`toOne` is
+one-to-one, `toOne`+`toMany` is many-to-one/one-to-many, `toMany`+`toMany` is
+many-to-many. A variant `s.toOne` stores private type and identity columns on
+this model; a variant `s.toMany` stores one member junction table per variant.
 
 ## Chainable API
 
@@ -44,7 +63,7 @@ Relations use a chainable API where the thunk comes first:
 ```typescript
 const post = s.model({
   authorId: s.string(),  // Foreign key column
-  author: s.manyToOne(() => user)
+  author: s.toOne(() => user)
     .fields("authorId")      // Local FK column
     .references("id"),       // Remote PK column
 });
@@ -52,37 +71,47 @@ const post = s.model({
 
 ### Available Methods by Type
 
-| Relation | Methods |
+| Declaration | Methods |
 |----------|---------|
-| `oneToOne` | `.fields()`, `.references()`, `.optional()`, `.onDelete()`, `.onUpdate()`, `.name()` |
-| `manyToOne` | `.fields()`, `.references()`, `.optional()`, `.onDelete()`, `.onUpdate()`, `.name()` |
-| `oneToMany` | `.name()` only (FK is on other side) |
-| `manyToMany` | `.through()`, `.A()`, `.B()`, `.onDelete()`, `.onUpdate()`, `.name()` |
-| `polymorphic` | `s.polymorphicToOne` then `.name()`, `.optional()`; `s.polymorphicToMany` then `.name()`, `.through()` (an exact map keyed by public variant, each `{ table, source, target }`); both factories accept a target MAP and optional stable stored values, and both read, filter, count, write and migrate |
+| `s.toOne(() => model)` | `.name()`, `.fields()` → `.references()`, then `.onDelete()`, `.onUpdate()` |
+| `s.toMany(() => model)` | `.name()`, `.through()`, `.source()`, `.target()`, `.onDelete()`, `.onUpdate()` |
+| `s.toOne({ ... })` | `.name()`, `.optional()` |
+| `s.toMany({ ... })` | `.name()`, `.through()` (an exact map keyed by public variant, each `{ table, source, target }`) |
 
-A fields-less `oneToOne` is non-owning and must call `.optional()`: it has no
-local foreign key that can require the related row to exist. Its slot may be
-empty even when the child-side membership is required. These are separate
-facts: `delete` can remove the child and leave the slot empty, while
-`disconnect` must preserve the child and is valid only when the owning
-membership storage is nullable.
+Both variant forms take a target MAP plus optional stable stored values, and both
+read, filter, count, write and migrate.
+
+There is no `.optional()` on a model-target relation and no `.unique()`
+anywhere. `.fields(...)` returns a transient stage that is NOT a relation — it
+carries no brand, exposes only `.references()` and `.name()`, and `s.model()`
+refuses it — so an incomplete foreign key can never become schema state. The
+junction methods are meaningful only when the partner is also a collection, and
+exactly one endpoint may carry them.
+
+A `s.toOne` without `.fields(...)` is non-owning: it has no local foreign key
+that can require the related row to exist, so its public slot is DERIVED
+nullable. Slot emptiness and membership clearability stay separate facts:
+`delete` can remove the child and leave the slot empty, while `disconnect` must
+preserve the child and is valid only when the owning membership storage can be
+cleared.
 
 ## Bidirectional Relations
 
-Both sides of a relation can be defined:
+Both sides of a relation MUST be defined — a slot whose target model declares
+nothing back is refused with `R002`:
 
 ```typescript
 // On User - the "one" side (doesn't own FK)
 const user = s.model({
   id: s.string().id(),
-  posts: s.oneToMany(() => post),  // "I have many posts"
+  posts: s.toMany(() => post),  // "I have many posts"
 });
 
 // On Post - the "many" side (owns FK)
 const post = s.model({
   id: s.string().id(),
   authorId: s.string(),
-  author: s.manyToOne(() => user)
+  author: s.toOne(() => user)
     .fields("authorId")
     .references("id"),             // "I belong to one user"
 });
@@ -95,9 +124,11 @@ VibORM uses these definitions to:
 
 ## Schema Relation and Bound Relation
 
-L4 stores the durable schema declaration: relation type, target thunk, local
-fields, referenced fields, name, and referential actions. It does not decide how
-one nested mutation is executed.
+L4 stores the durable schema declaration: slot cardinality, target domain,
+optional pairing name, and — where the author supplied them — the complete
+foreign key or the junction overrides. It stores no partner, no ownership flag
+and no derived optionality, and it does not decide how one nested mutation is
+executed.
 
 When L6 reaches its first topology decision, `bindRelation` interprets that
 declaration relative to the current model:
@@ -121,17 +152,17 @@ view; ordinary junction binding still writes `many` unconditionally.
 
 The bound value carries the relation declaration, the source model, and the
 membership. It carries no query scope, record identity, SQL, branch, or
-execution policy. A fields-less `manyToOne` whose inverse stores the FK is
-therefore `childHeld` and to-one. A resolved inverse of a `s.polymorphicToOne`
-group is child-held with a `polymorphic` membership, because what it stores is
+execution policy. A non-owning `s.toOne` whose partner stores the FK is
+therefore `childHeld` and to-one. A resolved inverse of a variant `s.toOne`
+carrier is child-held with a `polymorphic` membership, because what it stores is
 the private `(type, identity)` pair rather than an ordinary FK.
 
-An inverse of a `s.polymorphicToMany` group binds differently, and the three
+An inverse of a variant `s.toMany` carrier binds differently, and the three
 axes are what make it cheap: its membership lives in that variant's member
 junction, so it binds as `junction` position with a `junction` membership,
-supplied in reverse orientation. The plural inverse (`manyToMany`) is then an
+supplied in reverse orientation. The plural inverse (an `s.toMany`) is then an
 ordinary to-many junction edge and needs no polymorphic-specific code at all.
-The singular inverse (fields-less `manyToOne`) is the one shape the union
+The singular inverse (a non-owning `s.toOne`) is the one shape the union
 already admitted but nothing produced before: a `junction` position with
 cardinality `one`, legal because its member table carries a unique over the
 complete target side. Both directions read the same
@@ -151,36 +182,42 @@ Many-to-many uses an implicit junction table:
 const post = s.model({
   id: s.string().id(),
   title: s.string(),
-  tags: s.manyToMany(() => tag),  // Auto-creates post_tag table
+  tags: s.toMany(() => tag),  // Auto-creates post_tag table
 });
 
 const tag = s.model({
   id: s.string().id(),
   name: s.string(),
-  posts: s.manyToMany(() => post),
+  posts: s.toMany(() => post),
 });
 ```
 
-With explicit junction table configuration:
+The implicit table and non-self side tokens use the models' schema object keys,
+not their JavaScript variable names or `.map()` table names. A schema-key rename
+therefore renames generated junction storage. The complete
+`.through().source().target()` chain pins the table and both tokens.
+
+With explicit junction table configuration — on ONE endpoint, the other side
+reading the mirrored view (`R011` refuses a second configuring endpoint):
 
 ```typescript
-tags: s.manyToMany(() => tag)
+tags: s.toMany(() => tag)
   .through("post_tags")   // Custom table name
-  .A("postId")            // Source FK column
-  .B("tagId"),            // Target FK column
+  .source("postId")       // This endpoint's FK column
+  .target("tagId"),       // The other endpoint's FK column
 ```
 
 ## Polymorphic Collections
 
-`s.polymorphicToMany` reuses that junction machinery rather than inventing a
-heterogeneous one. Definition validation resolves each variant into a complete
+A variant `s.toMany` reuses that junction machinery rather than inventing a
+heterogeneous one. The topology owner resolves each variant into a complete
 member-junction topology, and `junction-topology.ts` is the single owner of that
-resolution for ordinary pairs and polymorphic members alike:
+resolution for ordinary pairs and variant members alike:
 
 ```typescript
 const shelf = s.model({
   id: s.string().id(),
-  items: s.polymorphicToMany({ book: () => book, video: () => video }),
+  items: s.toMany({ book: () => book, video: () => video }),
 });
 // one ordinary-shaped junction per variant: shelf_items_book, shelf_items_video
 ```
@@ -193,23 +230,28 @@ are why the feature adds so little machinery:
   which is why that design was rejected.
 - **Per-variant inverse cardinality.** A unique over the complete target side
   makes that variant singular; its absence makes it plural. This is a per-member
-  fact, unlike a to-one group's relation-wide `inverseCardinality`.
+  fact, unlike a row-held carrier's relation-wide one.
 - **Orientation, not duplication.** The direct collection and its inverses read
   the same `ResolvedJunctionTopology` in opposite orientations, so a plural
   inverse is an ordinary many-to-many view and needs no polymorphic-specific
   code.
 
-`.through()` overrides the generated names. Unlike the many-to-many triple it
-takes one exact map keyed by public variant:
+`.through()` overrides the generated names. Unlike the ordinary junction's
+fluent setters it takes one exact map keyed by public variant:
 
 ```typescript
 items: s
-  .polymorphicToMany({ book: () => book, video: () => video })
+  .toMany({ book: () => book, video: () => video })
   .through({
     book: { table: "shelf_books", source: "holder", target: "entry" },
     video: { table: "shelf_videos", source: "holder", target: "entry" },
   }),
 ```
+
+Member defaults deliberately combine two namespaces: the table prefix is the
+owner's mapped SQL table, while the owner-side token comes from the owner schema
+key. The target token comes from the public variant. An exact `.through()` map
+pins `table`, `source`, and `target` for every member.
 
 ## Why Thunks?
 
@@ -221,7 +263,7 @@ Without thunks, this would fail:
 
 ```typescript
 const user = s.model({
-  posts: s.oneToMany(post),  // ❌ ReferenceError: post is not defined
+  posts: s.toMany(post),  // ❌ ReferenceError: post is not defined
 });
 const post = s.model({ ... });
 ```
@@ -233,7 +275,7 @@ Thunks let TypeScript infer the return type **before** the variable is initializ
 ```typescript
 // TypeScript can infer () => typeof post
 // even though post isn't assigned yet
-posts: s.oneToMany(() => post)
+posts: s.toMany(() => post)
 ```
 
 ## Connection to Other Layers
@@ -241,7 +283,7 @@ posts: s.oneToMany(() => post)
 - **L3 (Query Schemas)**: Relations generate nested schemas for include/select
 - **L6 (Query Engine)**: Binds relation storage positions for joins and nested mutations
 - **L12 (Migrations)**: Ordinary relations inform foreign-key constraints; a
-  `s.polymorphicToOne` slot adds private storage columns and a composite
+  variant `s.toOne` slot adds private storage columns and a composite
   membership index because one database FK cannot target several tables; a
-  `s.polymorphicToMany` slot adds one member junction table per variant, each
+  variant `s.toMany` slot adds one member junction table per variant, each
   with real foreign keys on both sides

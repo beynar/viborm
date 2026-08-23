@@ -49,7 +49,7 @@ export const postTransitionAdoptSchema = (() => {
     .model({
       id: s.int().id(),
       name: s.string().unique(),
-      items: s.oneToMany(() => item),
+      items: s.toMany(() => item),
     })
     .map("n5_pta_lists");
   const item = s
@@ -58,10 +58,9 @@ export const postTransitionAdoptSchema = (() => {
       label: s.string(),
       listId: s.int().nullable(),
       list: s
-        .manyToOne(() => list)
+        .toOne(() => list)
         .fields("listId")
         .references("id")
-        .optional()
         .onUpdate("setNull"),
     })
     .map("n5_pta_items");
@@ -72,7 +71,7 @@ export const postTransitionAdoptSchema = (() => {
     .model({
       id: s.int().id(),
       name: s.string(),
-      boxes: s.oneToMany(() => box),
+      boxes: s.toMany(() => box),
     })
     .map("n5_pta_crates");
   const box = s
@@ -81,7 +80,7 @@ export const postTransitionAdoptSchema = (() => {
       tag: s.string(),
       crateId: s.int(),
       crate: s
-        .manyToOne(() => crate)
+        .toOne(() => crate)
         .fields("crateId")
         .references("id")
         .onUpdate("restrict"),
@@ -92,7 +91,7 @@ export const postTransitionAdoptSchema = (() => {
     .model({
       id: s.int().id(),
       name: s.string(),
-      badge: s.oneToOne(() => badge).optional(),
+      badge: s.toOne(() => badge),
     })
     .map("n5_pta_owners");
   const badge = s
@@ -101,10 +100,9 @@ export const postTransitionAdoptSchema = (() => {
       code: s.string(),
       ownerId: s.int().unique().nullable(),
       owner: s
-        .oneToOne(() => owner)
+        .toOne(() => owner)
         .fields("ownerId")
         .references("id")
-        .optional()
         .onUpdate("setNull"),
     })
     .map("n5_pta_badges");
@@ -115,7 +113,7 @@ export const postTransitionAdoptSchema = (() => {
     .model({
       id: s.int().id(),
       name: s.string().unique(),
-      entries: s.oneToMany(() => entry),
+      entries: s.toMany(() => entry),
     })
     .map("n5_pta_feeds");
   const entry = s
@@ -124,10 +122,9 @@ export const postTransitionAdoptSchema = (() => {
       text: s.string(),
       feedId: s.int().nullable(),
       feed: s
-        .manyToOne(() => feed)
+        .toOne(() => feed)
         .fields("feedId")
         .references("id")
-        .optional()
         .onUpdate("cascade"),
     })
     .map("n5_pta_entries");
@@ -137,7 +134,7 @@ export const postTransitionAdoptSchema = (() => {
       country: s.string(),
       city: s.string(),
       label: s.string(),
-      kiosks: s.oneToMany(() => kiosk),
+      kiosks: s.toMany(() => kiosk),
     })
     .id(["country", "city"])
     .map("n5_pta_zones");
@@ -148,10 +145,9 @@ export const postTransitionAdoptSchema = (() => {
       zoneCountry: s.string().nullable(),
       zoneCity: s.string().nullable(),
       zone: s
-        .manyToOne(() => zone)
+        .toOne(() => zone)
         .fields("zoneCountry", "zoneCity")
         .references("country", "city")
-        .optional()
         .onUpdate("cascade"),
     })
     .map("n5_pta_kiosks");

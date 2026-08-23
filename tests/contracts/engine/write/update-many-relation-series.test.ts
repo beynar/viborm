@@ -10,7 +10,7 @@ import {
 } from "@query-engine/builders/relation-mutation-parser";
 import {
   createQueryScope,
-  getRelationInfo,
+  lookupRelation,
 } from "@query-engine/context/query-scope";
 import { assertUpdateOwnWriteSafety } from "@query-engine/OwnWriteAnalyzer";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
@@ -75,7 +75,7 @@ const polySchema = (() => {
     .model({
       id: s.int().id(),
       name: s.string(),
-      slots: s.oneToMany(() => slot),
+      slots: s.toMany(() => slot),
     })
     .map("kpoly_boards");
   const slot = s
@@ -84,11 +84,11 @@ const polySchema = (() => {
       caption: s.string(),
       boardId: s.int(),
       board: s
-        .manyToOne(() => board)
+        .toOne(() => board)
         .fields("boardId")
         .references("id"),
       media: s
-        .polymorphicToOne(
+        .toOne(
           { image: () => image, clip: () => clip },
           { values: { image: "kpoly.image.v1", clip: "kpoly.clip.v1" } }
         )
@@ -107,7 +107,7 @@ const replayOwnWriteSchema = (() => {
   const shelf = s
     .model({
       id: s.int().id(),
-      bins: s.oneToMany(() => bin),
+      bins: s.toMany(() => bin),
     })
     .map("k_replay_own_write_shelves");
   const bin = s
@@ -115,13 +115,10 @@ const replayOwnWriteSchema = (() => {
       id: s.int().id(),
       shelfId: s.int().nullable(),
       shelf: s
-        .manyToOne(() => shelf)
+        .toOne(() => shelf)
         .fields("shelfId")
-        .references("id")
-        .optional(),
-      targets: s
-        .manyToMany(() => target)
-        .through("k_replay_own_write_bin_target"),
+        .references("id"),
+      targets: s.toMany(() => target).through("k_replay_own_write_bin_target"),
     })
     .map("k_replay_own_write_bins");
   const target = s
@@ -133,7 +130,8 @@ const replayOwnWriteSchema = (() => {
           replayOwnWriteDefaultCalls += 1;
           return replayOwnWriteDefaultValue;
         }),
-      bins: s.manyToMany(() => bin).through("k_replay_own_write_bin_target"),
+      // One endpoint owns every junction override (R011).
+      bins: s.toMany(() => bin),
     })
     .map("k_replay_own_write_targets");
   return { shelf, bin, target };
@@ -565,25 +563,24 @@ describe("K4 — the N-dependent refusal runs before any member is built", () =>
     [planningKey(`${model}.updateManySeries.capture`, "rows")]: rows,
   });
 
-  test.each([
-    "connect",
-    "connectOrCreate",
-    "set",
-  ])("child-held %s is refused at N = 2 and allowed at N = 1", (kind) => {
-    const payload =
-      kind === "connectOrCreate"
-        ? { connectOrCreate: [{ where: { id: 1 }, create: { name: "x" } }] }
-        : { [kind]: [{ id: 1 }] };
-    const series = seriesFor({ data: { gadgets: payload } });
-    expect(() =>
-      series.compileMembers(capturedRows("bin", [{ id: 1 }, { id: 2 }]))
-    ).toThrow(`it cannot apply '${kind}' to relation 'gadgets'`);
-    expect(
-      seriesFor({ data: { gadgets: payload } }).compileMembers(
-        capturedRows("bin", [{ id: 1 }])
-      )
-    ).toHaveLength(1);
-  });
+  test.each(["connect", "connectOrCreate", "set"])(
+    "child-held %s is refused at N = 2 and allowed at N = 1",
+    (kind) => {
+      const payload =
+        kind === "connectOrCreate"
+          ? { connectOrCreate: [{ where: { id: 1 }, create: { name: "x" } }] }
+          : { [kind]: [{ id: 1 }] };
+      const series = seriesFor({ data: { gadgets: payload } });
+      expect(() =>
+        series.compileMembers(capturedRows("bin", [{ id: 1 }, { id: 2 }]))
+      ).toThrow(`it cannot apply '${kind}' to relation 'gadgets'`);
+      expect(
+        seriesFor({ data: { gadgets: payload } }).compileMembers(
+          capturedRows("bin", [{ id: 1 }])
+        )
+      ).toHaveLength(1);
+    }
+  );
 
   test("child-held create, update, delete and deleteMany are NOT refused", () => {
     for (const payload of [
@@ -642,19 +639,13 @@ describe("nested updateMany replay owns its replayed OwnWrite footprint", () => 
       new PGliteDriver(),
       createModelRegistry(replayOwnWriteSchema, schemas)
     );
-    const sourceScope = createQueryScope(
-      engine.adapter,
-      replayOwnWriteSchema.shelf
-    );
-    const targetScope = createQueryScope(
-      engine.adapter,
-      replayOwnWriteSchema.bin
-    );
-    const relationInfo = getRelationInfo(sourceScope, "bins");
+    const sourceScope = createQueryScope(engine, replayOwnWriteSchema.shelf);
+    const targetScope = createQueryScope(engine, replayOwnWriteSchema.bin);
+    const relationRef = lookupRelation(sourceScope, "bins");
     const relationSchemas = engine.schemaRegistry.getModelSchemas(
       replayOwnWriteSchema.shelf
     ).relations.bins;
-    if (!(relationInfo && relationSchemas)) {
+    if (!(relationRef && relationSchemas)) {
       throw new Error("expected the replay OwnWrite relation schema");
     }
 
@@ -675,7 +666,7 @@ describe("nested updateMany replay owns its replayed OwnWrite footprint", () => 
       "data.bins"
     );
     const program = buildRelationMutationProgram(
-      relationInfo,
+      relationRef,
       parsedPayload,
       sourcePayload
     );
@@ -716,7 +707,7 @@ describe("nested updateMany replay owns its replayed OwnWrite footprint", () => 
       createFresh: unreachableCompiler,
       updateSelected: unreachableCompiler,
     };
-    const boundRelation = bindRelation(sourceScope, relationInfo);
+    const boundRelation = bindRelation(sourceScope, relationRef);
     if (boundRelation.position !== "childHeld") {
       throw new Error("expected child-held replay relation topology");
     }
@@ -724,7 +715,7 @@ describe("nested updateMany replay owns its replayed OwnWrite footprint", () => 
       engine,
       sourceScope,
       targetScope,
-      relationInfo,
+      relationRef,
       member: { kind: "replayPerRecord", data: mutationData },
       capture,
       recordCompilers,
@@ -1067,7 +1058,7 @@ const depthSchema = (() => {
     .model({
       id: s.int().id(),
       label: s.string(),
-      posts: s.oneToMany(() => post),
+      posts: s.toMany(() => post),
     })
     .map("kdepth_owners");
   const post = s
@@ -1076,11 +1067,10 @@ const depthSchema = (() => {
       title: s.string(),
       ownerId: s.int().nullable(),
       owner: s
-        .manyToOne(() => owner)
+        .toOne(() => owner)
         .fields("ownerId")
-        .references("id")
-        .optional(),
-      comments: s.oneToMany(() => comment),
+        .references("id"),
+      comments: s.toMany(() => comment),
     })
     .map("kdepth_posts");
   const comment = s
@@ -1089,10 +1079,9 @@ const depthSchema = (() => {
       body: s.string(),
       postId: s.int().nullable(),
       post: s
-        .manyToOne(() => post)
+        .toOne(() => post)
         .fields("postId")
-        .references("id")
-        .optional(),
+        .references("id"),
     })
     .map("kdepth_comments");
   return { owner, post, comment };

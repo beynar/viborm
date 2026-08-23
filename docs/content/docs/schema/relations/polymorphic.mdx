@@ -19,14 +19,16 @@ polymorphic relation when one field must select between heterogeneous models
 such as posts and videos, attachments and messages, or audit subjects of several
 types.
 
-**Polymorphism is a property of the targets, not of the arity.** How many
-memberships the slot holds is a separate choice, and you make it by which
-factory you call:
+**Polymorphism is a property of the targets, not of the arity.** There is no
+separate polymorphic factory: you call the same `s.toOne` / `s.toMany` as any
+other relation and hand it a **map of named variants** instead of one getter.
+The factory states how many memberships the slot holds; the argument states
+which models it may address:
 
-| Factory | Slot holds | Membership stored in |
+| Declaration | Slot holds | Membership stored in |
 |---------|-----------|----------------------|
-| `s.polymorphicToOne(map, options?)` | at most one membership | a private `(type, id)` pair on the owner row |
-| `s.polymorphicToMany(map, options?)` | a collection of memberships, each free to use a different variant | one member junction table per variant |
+| `s.toOne(map, options?)` | at most one membership | a private `(type, id)` pair on the owner row |
+| `s.toMany(map, options?)` | a collection of memberships, each free to use a different variant | one member junction table per variant |
 
 Both are first-class: both read, filter, count, write, and migrate. Nothing in
 the feature is to-one by nature.
@@ -53,21 +55,21 @@ import { s } from "viborm";
 const post = s.model({
   id: s.string().id().ulid(),
   title: s.string(),
-  comments: s.oneToMany(() => comment).name("commentable"),
+  comments: s.toMany(() => comment).name("commentable"),
 });
 
 const video = s.model({
   id: s.string().id().ulid(),
   title: s.string(),
   duration: s.int(),
-  comments: s.oneToMany(() => comment).name("commentable"),
+  comments: s.toMany(() => comment).name("commentable"),
 });
 
 const comment = s.model({
   id: s.string().id().ulid(),
   body: s.string(),
   commentable: s
-    .polymorphicToOne({
+    .toOne({
       post: () => post,
       video: () => video,
     })
@@ -80,23 +82,20 @@ const comment = s.model({
 |-------------|----------------|
 | `post` and `video` | Discriminators used in inputs and result narrowing |
 | `() => post` and `() => video` | Lazy target getters that allow circular declarations |
-| `s.polymorphicToOne` | The slot holds at most one membership |
+| `s.toOne({ ... })` | The slot holds at most one membership |
 | `.name("commentable")` | Pairing label shared with inverse relations |
 | `.optional()` | Allows the direct field to be absent |
 
-There are two factories and the one you call IS the cardinality:
-`s.polymorphicToOne` makes the field a to-one slot, so each `comment`
-references at most one target — independently of which inverse cardinality you
-declare — and `s.polymorphicToMany` makes it a collection. Both take a MAP of
-named targets; a single target model is an ordinary relation, so a bare
-`() => model` is refused at compile time and points you at `s.oneToOne`,
-`s.manyToOne`, `s.oneToMany` and `s.manyToMany`. A carrier that reaches client
-construction with no cardinality at all — only forgeable from hostile
-JavaScript, never from these factories — is refused with `P013`.
+The factory you call IS the cardinality: `s.toOne` makes the field a singular
+slot, so each `comment` references at most one target — independently of which
+inverse cardinality you declare — and `s.toMany` makes it a collection. The
+variant form needs a MAP of named targets, with at least one literal key; a
+single target model is an ordinary relation, so pass `() => model` for that and
+keep the map form for genuine variants.
 
 ### Collection slots
 
-`s.polymorphicToMany()` declares a slot that holds several memberships, each of
+`s.toMany({ ... })` declares a slot that holds several memberships, each of
 which may use a different variant. VibORM creates **one junction table per
 variant**, named `<owner_table>_<relation>_<variant>` by default, with a
 composite primary key over both sides, a reverse index, and cascading foreign
@@ -105,7 +104,7 @@ keys on both sides.
 ```ts
 const shelf = s.model({
   id: s.string().id(),
-  items: s.polymorphicToMany({ book: () => book, video: () => video }),
+  items: s.toMany({ book: () => book, video: () => video }),
 });
 // migrates to: shelf_items_book, shelf_items_video
 ```
@@ -114,40 +113,43 @@ A collection slot reads, writes, filters, counts, and orders through the same
 client as any other relation. The sections below cover each surface.
 
 Each variant's membership is independent, so each gets its own cardinality from
-its inverse: declare a fields-less `manyToOne` back to the owner and that
-variant is **singular** (one shelf per book — enforced by a unique constraint
-over the complete target side of that member table). Declare a fields-less
-`manyToMany` and it is **plural**, the shareable default that also applies to a
-variant with no declared inverse.
+its inverse: declare a storage-less `s.toOne` back to the owner and that variant
+is **singular** (one shelf per book — enforced by a unique constraint over the
+complete target side of that member table). Declare an `s.toMany` and it is
+**plural**, the shareable default that also applies to a variant with no declared
+inverse.
 
-A singular inverse must call `.optional()`. Its membership is one member-junction
-row, and its removal verbs hang on that declaration alone; without it you would
-get a slot you can fill and never empty. Client construction reports `P021`.
+A singular inverse needs nothing extra to be emptiable: its membership is one
+member-junction row, and deleting that row clears it whatever the inverse
+cardinality says. `disconnect` is always offered.
 
 `.through()` names the member junctions explicitly. Unlike an ordinary
-many-to-many's `.through()/.A()/.B()` triple, it takes one **exact map keyed by
-public variant** — every variant present, no extra key, at both the type level
-and at runtime (`P017`):
+many-to-many's `.through()/.source()/.target()` triple, it takes one **exact map
+keyed by public variant** — every variant present, no extra key, at both the type
+level and at construction time:
 
 ```ts
 items: s
-  .polymorphicToMany({ book: () => book, video: () => video })
+  .toMany({ book: () => book, video: () => video })
   .through({
     book: { table: "shelf_books", source: "holder", target: "entry" },
     video: { table: "shelf_videos", source: "holder", target: "entry" },
   })
 ```
 
-`source` and `target` are the owner-side and variant-side naming tokens — the
-`.A()`/`.B()` idea, directed instead of alphabetical. For a one-field row key the
-token IS the column name; for a compound row key it expands positionally
-(`holder_1`, `holder_2`, …) in that model's row-key order.
+`source` and `target` are the owner-side and variant-side naming tokens, exactly
+as they are on an ordinary junction. For a one-field row key the token IS the
+column name; for a compound row key it expands positionally (`holder_1`,
+`holder_2`, …) in that model's row-key order.
 
-Without `.through()`, the table is `<owner_table>_<relation>_<variant>`, the
-owner token is `<ownerModel>Id` (or the lowercased model name as a prefix for a
-compound key), and the variant token is derived from the **public variant name**
-rather than the target model's — which is what keeps two variants pointing at the
-same model, and self-targets, naturally distinct.
+Without `.through()`, the table is `<owner_table>_<relation>_<variant>`, where
+`<owner_table>` is the owner's mapped SQL table name. The owner token is derived
+from the **owner schema key** (`<lowercasedOwnerSchemaKey>Id`, or that
+lowercased key as the prefix for a compound key). The variant token is derived from the **public
+variant name** rather than the target model's name, which keeps two variants
+pointing at the same model, and self-targets, naturally distinct. An exact
+`.through({ ... })` entry pins all three physical names: `table`, `source`, and
+`target`.
 
 ### Customize stored discriminator values
 
@@ -156,7 +158,7 @@ argument is optional. Supply it when database values must be namespaced,
 versioned, or independent of public API names:
 
 ```ts
-commentable: s.polymorphicToOne(
+commentable: s.toOne(
   {
     post: () => post,
     video: () => video,
@@ -175,10 +177,10 @@ database identifiers; keep them stable after data exists.
 
 ### Required and optional direct fields
 
-An `s.polymorphicToOne()` field is required by default:
+A variant `s.toOne()` field is required by default:
 
 ```ts
-commentable: s.polymorphicToOne({
+commentable: s.toOne({
   post: () => post,
   video: () => video,
 })
@@ -186,8 +188,10 @@ commentable: s.polymorphicToOne({
 
 Add `.optional()` when the owner may have no target. This controls whether the
 stored membership may be cleared and therefore whether direct `disconnect` is
-available. `.optional()` is only offered on `s.polymorphicToOne()`: a
-collection slot is already empty when it holds nothing.
+available. It is the one place `.optional()` still exists on a relation, because
+it IS the nullability of those two private columns — an ordinary relation reads
+its optionality from the foreign-key scalars instead, and a collection slot is
+already empty when it holds nothing.
 
 ## Define an inverse relation
 
@@ -195,24 +199,27 @@ An inverse exposes owners from the selected target. Which shapes are admitted
 depends on where the membership is stored, so it depends on the direct slot's
 cardinality:
 
-| Direct slot | Membership storage | Admitted inverse shapes |
+| Direct slot | Membership storage | Inverse slot |
 |-------------|--------------------|-------------------------|
-| `s.polymorphicToOne` | the owner's private `(type, id)` pair | `oneToMany`, fields-less `oneToOne` |
-| `s.polymorphicToMany` | that variant's member junction | fields-less `manyToOne` (singular), `manyToMany` (plural) |
+| `s.toOne({ ... })` | the owner's private `(type, id)` pair | `s.toMany` (plural), `s.toOne` (singular) |
+| `s.toMany({ ... })` | that variant's member junction | `s.toMany` (plural), `s.toOne` (singular) |
 
-Each shape binds only the group that owns its membership storage. Every inverse
-uses the same pairing name as the direct field. The two subsections below cover
-the to-one group; [collection inverses](#define-a-collection-inverse) follow the
+An inverse is an ordinary declaration: the same two factories, one model target,
+and **no `.fields(...)`** — the membership is already stored by the carrier, so
+the inverse owns no foreign key of its own. Every inverse uses the same pairing
+name as the direct field; a slot whose `.name(...)` matches no variant of the
+carrier is not an inverse of it. The two subsections below cover the row-held
+carrier; [collection inverses](#define-a-collection-inverse) follow the
 collection's own sections.
 
 ### One-to-many inverse
 
-Use `oneToMany` when one post or video can own several comments:
+Use `s.toMany` when one post or video can own several comments:
 
 ```ts
 const post = s.model({
   id: s.string().id().ulid(),
-  comments: s.oneToMany(() => comment).name("commentable"),
+  comments: s.toMany(() => comment).name("commentable"),
 });
 ```
 
@@ -220,26 +227,26 @@ The public shape is `Comment[]`.
 
 ### One-to-one inverse
 
-Use a fields-less `oneToOne` when one exact target may own at most one comment:
+Use a storage-less `s.toOne` when one exact target may own at most one comment:
 
 ```ts
 const post = s.model({
   id: s.string().id().ulid(),
   featuredComment: s
-    .oneToOne(() => comment)
-    .name("commentable")
-    .optional(),
+    .toOne(() => comment)
+    .name("commentable"),
 });
 ```
 
-The public shape is `Comment | null`. A fields-bearing `oneToOne` is an
-ordinary foreign-key relation, not a polymorphic inverse.
+The public shape is `Comment | null` — a non-owning singular slot is always
+nullable, so nothing declares that twice. A `toOne` that DOES declare
+`.fields(...)` is an ordinary foreign-key relation, not a polymorphic inverse.
 
 Inverse cardinality applies to the complete direct relation. All inverses that
-share one private `(type, id)` pair must consistently use `oneToMany` or
-fields-less `oneToOne`; mixing them is invalid. A one-to-one inverse makes the
-composite storage index unique for every discriminator, including variants
-without a declared inverse.
+share one private `(type, id)` pair must consistently be collections or
+consistently be singular; mixing them is rejected with `P012`, because one
+composite index serves the whole carrier. A singular inverse makes that index
+unique for every discriminator, including variants without a declared inverse.
 
 ## Define a collection inverse
 
@@ -247,7 +254,7 @@ A collection stores each variant's memberships in its own member junction, so
 inverse cardinality is **per variant**, not relation-wide. Declare it on the
 target model with the same pairing name as the collection.
 
-A fields-less `manyToOne` makes that variant **singular**: at most one owner may
+A storage-less `s.toOne` makes that variant **singular**: at most one owner may
 hold a given target, enforced by a unique constraint over the complete target
 side of that member table.
 
@@ -256,37 +263,36 @@ const book = s.model({
   id: s.string().id(),
   title: s.string(),
   shelf: s
-    .manyToOne(() => shelf)
-    .name("items")
-    .optional(),
+    .toOne(() => shelf)
+    .name("items"),
 });
 ```
 
-The public shape is `Shelf | null`. `.optional()` is required here (`P021`): the
-slot's `disconnect` and `delete` hang on it, so without it the slot could be
-filled and never emptied.
+The public shape is `Shelf | null`. Nothing else is declared: a non-owning
+singular slot is derived nullable, and its membership is one junction row, so
+`disconnect` and `delete` are both available.
 
-A `manyToMany` makes that variant **plural** — the shareable default, and also
+An `s.toMany` makes that variant **plural** — the shareable default, and also
 what an undeclared variant gets:
 
 ```ts
 const video = s.model({
   id: s.string().id(),
   title: s.string(),
-  shelves: s.manyToMany(() => shelf).name("items"),
+  shelves: s.toMany(() => shelf).name("items"),
 });
 ```
 
 The public shape is `Shelf[]`. A plural inverse is the same member junction read
 in reverse orientation, so it takes the ordinary many-to-many read, filter,
 count, order and write surface unchanged — it declares no storage of its own and
-emits no junction table. A variant bound by more than one inverse relation is
-rejected as `P015`, and an ordinary `manyToMany` pair partner on the target would
-serialize half a pair and is rejected as `P020`.
+emits no junction table. Two slots on the target claiming the same variant are
+ambiguous and rejected as `R009`; a slot claiming a name no variant answers is
+rejected as `R010`.
 
 ## Read the direct relation
 
-This section describes a `s.polymorphicToOne` slot. A collection has its own
+This section describes a row-held variant `s.toOne` slot. A collection has its own
 read grammar — see [Read a collection slot](#read-a-collection-slot).
 
 ### Include the selected target
@@ -532,14 +538,14 @@ a hostile raw write.
 
 ## Read an inverse relation
 
-This section describes the inverse of a `s.polymorphicToOne` slot. A collection
-inverse is an ordinary relation in reverse orientation — a `manyToMany` reads
-like any other many-to-many, and a fields-less `manyToOne` returns one record or
-`null` — so it needs no special read grammar.
+This section describes the inverse of a row-held variant `s.toOne` slot. A
+collection inverse is an ordinary relation in reverse orientation — a plural
+`s.toMany` reads like any other many-to-many, and a singular `s.toOne` returns
+one record or `null` — so it needs no special read grammar.
 
 ### One-to-many inverse
 
-An inverse `oneToMany` uses the ordinary to-many read shape:
+A plural inverse (`s.toMany`) uses the ordinary to-many read shape:
 
 ```ts
 const posts = await client.post.findMany({
@@ -561,8 +567,8 @@ both match the current parent.
 
 ### One-to-one inverse
 
-An inverse `oneToOne` uses the ordinary to-one read shape and returns an object
-or `null`:
+A singular inverse (`s.toOne`) uses the ordinary to-one read shape and returns an
+object or `null`:
 
 ```ts
 const posts = await client.post.findMany({
@@ -602,7 +608,7 @@ A video with the same ID cannot appear in a post relation.
 
 ## Write the direct relation
 
-This section describes a `s.polymorphicToOne` slot. A collection has its own
+This section describes a row-held variant `s.toOne` slot. A collection has its own
 write grammar — see [Write a collection slot](#write-a-collection-slot).
 
 Direct relation inputs contain exactly one operation. The selected variant is
@@ -835,7 +841,7 @@ number of inserted root rows.
 A collection inverse writes through the same member junction in reverse
 orientation, so both arities use ordinary vocabulary.
 
-### Plural inverse (`manyToMany`)
+### Plural inverse (`s.toMany`)
 
 A plural inverse is an ordinary many-to-many view over a fixed variant. It takes
 the ordinary junction write family whole — `create`, `createMany`, `connect`,
@@ -850,7 +856,7 @@ await client.video.update({
 });
 ```
 
-### Singular inverse (`manyToOne`)
+### Singular inverse (`s.toOne`)
 
 A singular inverse is a to-one **slot** whose membership is one member-junction
 row under a unique over the complete target side. It takes the ordinary to-one
@@ -899,8 +905,8 @@ await client.book.update({
 
 ## Write an inverse one-to-many relation
 
-This section and the next describe inverses of a `s.polymorphicToOne` slot —
-`oneToMany` and fields-less `oneToOne`. For collection inverses see
+This section and the next describe inverses of a row-held variant `s.toOne` slot
+— a plural `s.toMany` and a singular `s.toOne`. For collection inverses see
 [Write a collection inverse](#write-a-collection-inverse).
 
 The parent supplies both the variant and its identity. Child `create` and
@@ -1059,8 +1065,8 @@ be cleared.
 
 ## Storage and integrity
 
-A `s.polymorphicToOne` slot is **row-held**: the membership lives in two private
-columns on the owner. A `s.polymorphicToMany` slot is **junction-held**: the
+A variant `s.toOne` slot is **row-held**: the membership lives in two private
+columns on the owner. A variant `s.toMany` slot is **junction-held**: the
 membership lives in one member junction per variant, and the owner table gains
 no columns at all. The rest of this section describes the row-held storage; see
 [Collection storage](#collection-storage) for the other.
@@ -1073,7 +1079,7 @@ commentable_id   <target PK>  -- identity in the selected target table
 INDEX (commentable_type, commentable_id)
 ```
 
-For an inverse `oneToOne`, the composite index is unique. Equal IDs remain
+For a singular inverse, the composite index is unique. Equal IDs remain
 legal under different discriminators.
 
 The private columns are migration storage. They do not appear as public model
@@ -1151,12 +1157,12 @@ across migrations.
 
 ## Constraints
 
-- **To-one target identity:** every target of a `s.polymorphicToOne` slot needs
+- **To-one target identity:** every target of a variant `s.toOne` slot needs
   one scalar primary key, and all of them must share the same portable `string`,
   `int`, or `bigint` representation — because they all land in one private `_id`
   column. Compound IDs, array IDs, mixed scalar kinds, and database-native type
   overrides are not supported there.
-- **Collection target identity:** a `s.polymorphicToMany` slot has no shared
+- **Collection target identity:** a variant `s.toMany` slot has no shared
   column, so this restriction does not apply. Each member junction carries its
   own complete owner-side and target-side key groups, so compound owner keys,
   compound target keys, and variants whose key kinds differ from each other are
@@ -1165,8 +1171,8 @@ across migrations.
 - **Topology:** the same model cannot appear more than once in one target map
   when an inverse would be ambiguous. On a to-one slot, inverse cardinality is
   relation-wide and every declared inverse must agree. On a collection it is
-  per variant, and a variant bound by more than one inverse relation is rejected
-  (`P015`).
+  per variant, and two slots on one target claiming the same variant are
+  ambiguous (`R009`).
 - **Cross-target queries:** a **to-one** slot cannot be traversed by `orderBy` or
   by an explicit `_count` — the target model is chosen per row, so there is no
   single column to sort by and no list to count. Both are refused by name. A
@@ -1203,14 +1209,15 @@ The public target key shapes TypeScript inputs and results. The stored value
 protects database history, so the two may evolve independently.
 
 Changing a to-one slot's inverse cardinality recreates the same composite index
-as unique or non-unique. Before changing from `oneToMany` to `oneToOne`, remove
-duplicate `(type, id)` pairs. VibORM does not choose which duplicate row to keep.
+as unique or non-unique. Before changing the inverse from a collection to a
+singular slot, remove duplicate `(type, id)` pairs. VibORM does not choose which
+duplicate row to keep.
 
 Changing one collection variant's inverse cardinality adds or drops that member
 table's `UNIQUE` over the complete target side, and nothing else — the other
 variants are untouched, because each member keeps its own cardinality. Before
-going from `manyToMany` to `manyToOne`, remove the member rows that would make
-the target side non-unique.
+turning a plural inverse into a singular one, remove the member rows that would
+make the target side non-unique.
 
 Member history is compared per variant, keyed by the stable stored value. A
 public rename with a stable stored value and target is metadata-only. A

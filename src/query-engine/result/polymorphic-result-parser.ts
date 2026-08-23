@@ -1,5 +1,5 @@
 import type { Model } from "@schema/model";
-import type { AnyPolymorphicRelation } from "@schema/relation";
+import type { AnyRelation } from "@schema/relation";
 import {
   POLYMORPHIC_COLLECTION_ARMS_KEY,
   POLYMORPHIC_COLLECTION_MEMBERSHIP_KEY,
@@ -42,7 +42,7 @@ export function parsePolymorphicValueDefault(
   ctx: ResultParser,
   ownerModel: Model<any>,
   relationName: string,
-  _relation: AnyPolymorphicRelation,
+  _relation: AnyRelation,
   value: unknown,
   operation: Operation,
   shape: ExpectedPolymorphicResultShape | undefined,

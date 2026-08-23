@@ -67,14 +67,14 @@ import { createClient } from "viborm/drivers/pglite";
 const user = s.model({
   id: s.string().id().ulid(),
   email: s.string().unique(),
-  posts: s.oneToMany(() => post),
+  posts: s.toMany(() => post),
 });
 
 const post = s.model({
   id: s.string().id().ulid(),
   title: s.string(),
   authorId: s.string(),
-  author: s.manyToOne(() => user).fields("authorId").references("id"),
+  author: s.toOne(() => user).fields("authorId").references("id"),
 });
 
 // Fully typed queries - no codegen!
@@ -109,7 +109,7 @@ export const user = s.model({
   name: s.string(),
   email: s.string().unique(),
   createdAt: s.dateTime().now(),
-  posts: s.oneToMany(() => post),
+  posts: s.toMany(() => post),
 });
 
 export const post = s.model({
@@ -117,7 +117,7 @@ export const post = s.model({
   title: s.string(),
   content: s.string().nullable(),
   authorId: s.string(),
-  author: s.manyToOne(() => user).fields("authorId").references("id"),
+  author: s.toOne(() => user).fields("authorId").references("id"),
 });
 
 export const schema = { user, post };
@@ -387,7 +387,7 @@ src/
 ├── schema/            L2-L5  Schema definition
 │   ├── scalars/             Scalar types with State generic pattern
 │   ├── model/               Model composition, query schemas
-│   ├── relation/            Relation types (oneToMany, manyToOne, etc.)
+│   ├── relation/            The two relation factories and their state
 │   └── validation/          Definition-time schema validation
 │
 ├── query-engine/      L6  Database-agnostic query building
@@ -539,7 +539,7 @@ Most tests run against PGlite (in-memory PostgreSQL). Driver tests in `tests/dri
 
 **Core features working:**
 - All CRUD operations (create, read, update, delete, upsert)
-- Relations (oneToOne, oneToMany, manyToOne, manyToMany, and both polymorphic cardinalities — `s.polymorphicToOne` and `s.polymorphicToMany` — each with direct and inverse read/write surfaces)
+- Relations: two factories, `s.toOne` and `s.toMany`, over one model or a map of named variants. Every ordinary cardinality cell (one-to-one, one-to-many, many-to-many) and both variant cardinalities are derived from the declared pair, each with direct and inverse read/write surfaces
 - Supported nested writes (`create`, `createMany`, `connect`, `connectOrCreate`, `disconnect`, `delete`, `set`, `update`, `updateMany`, `upsert`, `deleteMany`) across callback-transaction and atomic-batch paths
 - Select/include with typed results
 - All scalar types (string, int, float, boolean, dateTime, json, enum, etc.)

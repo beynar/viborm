@@ -1,11 +1,13 @@
 import { applyClientOmit, createClientOmitResolver } from "@client/omit";
 import { s } from "@schema";
+import { indexFor, prepareSchema } from "@tests/fixtures/query-scope";
 import { describe, expect, test } from "vitest";
 
 const author = s.model({
   id: s.string().id(),
   name: s.string(),
   credential: s.string(),
+  posts: s.toMany(() => post),
 });
 
 const post = s.model({
@@ -14,7 +16,7 @@ const post = s.model({
   secret: s.string(),
   authorId: s.string(),
   author: s
-    .manyToOne(() => author)
+    .toOne(() => author)
     .fields("authorId")
     .references("id"),
 });
@@ -27,7 +29,7 @@ const video = s.model({
 
 const comment = s.model({
   id: s.string().id(),
-  subject: s.polymorphicToOne(
+  subject: s.toOne(
     { post: () => post, video: () => video },
     { values: { post: "content.post.v1", video: "content.video.v1" } }
   ),
@@ -35,12 +37,18 @@ const comment = s.model({
 
 const schema = { author, post, video, comment };
 
+prepareSchema(schema);
+
 function configuredResolver() {
-  const resolver = createClientOmitResolver(schema, {
-    author: { credential: true },
-    post: { secret: true },
-    video: { token: true },
-  });
+  const resolver = createClientOmitResolver(
+    schema,
+    {
+      author: { credential: true },
+      post: { secret: true },
+      video: { token: true },
+    },
+    indexFor(comment)
+  );
   if (!resolver) throw new Error("Expected a configured omit resolver");
   return resolver;
 }
@@ -87,7 +95,10 @@ describe("client omit through polymorphic projections", () => {
 
   test("leaves relation-level false and an unaffected payload identical", () => {
     const falseArgs = { include: { subject: false } };
-    const unconfigured = () => undefined;
+    const unconfigured = {
+      omit: () => undefined,
+      relations: indexFor(comment),
+    };
     const trueArgs = { include: { subject: true } };
 
     expect(
@@ -105,7 +116,7 @@ describe("client omit through polymorphic projections", () => {
 
 const gallery = s.model({
   id: s.string().id(),
-  items: s.polymorphicToMany(
+  items: s.toMany(
     { post: () => post, video: () => video },
     { values: { post: "gal.post.v1", video: "gal.video.v1" } }
   ),
@@ -115,7 +126,7 @@ const gallery = s.model({
 const onlyTarget = s.model({ id: s.string().id(), token: s.string() });
 const hostile = s.model({
   id: s.string().id(),
-  items: s.polymorphicToMany(
+  items: s.toMany(
     { only: () => onlyTarget, variants: () => video },
     { values: { only: "h.only.v1", variants: "h.variants.v1" } }
   ),
@@ -123,13 +134,19 @@ const hostile = s.model({
 
 const collectionSchema = { author, post, video, gallery, onlyTarget, hostile };
 
+prepareSchema(collectionSchema);
+
 function collectionResolver() {
-  const resolver = createClientOmitResolver(collectionSchema, {
-    author: { credential: true },
-    post: { secret: true },
-    video: { token: true },
-    onlyTarget: { token: true },
-  });
+  const resolver = createClientOmitResolver(
+    collectionSchema,
+    {
+      author: { credential: true },
+      post: { secret: true },
+      video: { token: true },
+      onlyTarget: { token: true },
+    },
+    indexFor(gallery)
+  );
   if (!resolver) throw new Error("Expected a configured omit resolver");
   return resolver;
 }
@@ -250,9 +267,11 @@ describe("client omit through a polymorphic collection", () => {
 
   test("an unconfigured collection payload is returned IDENTICAL", () => {
     const args = { include: { items: { only: ["post"] } } };
-    expect(applyClientOmit(gallery, "findMany", args, () => undefined)).toBe(
-      args
-    );
+    const unconfigured = {
+      omit: () => undefined,
+      relations: indexFor(gallery),
+    };
+    expect(applyClientOmit(gallery, "findMany", args, unconfigured)).toBe(args);
     const falseArgs = { include: { items: false } };
     expect(
       applyClientOmit(gallery, "findMany", falseArgs, collectionResolver())
@@ -268,5 +287,106 @@ describe("client omit through a polymorphic collection", () => {
     expect(
       applyClientOmit(gallery, "findMany", badVariants, collectionResolver())
     ).toBe(badVariants);
+  });
+});
+
+// =============================================================================
+// §11.4.11 — THE SETTLED TARGET, IN ALL THREE PROJECTION FAMILIES
+// =============================================================================
+
+/**
+ * Getters that answer their REAL target once and a decoy ever after.
+ *
+ * The once-cell settles every target during declaration settlement, and the
+ * resolver publishes the settled model on the edge. So the omit recursion must
+ * reach the real model — the one the SCHEMA is made of — for an ordinary slot, a
+ * row-carrier arm and a member-junction arm alike. Anything that re-invokes a
+ * getter (or re-walks `targetEntries()`) reaches the decoy, which is configured
+ * in NO client omit, so the rewrite silently writes nothing.
+ *
+ * Each getter is spelled INLINE rather than built by a helper: a variant map
+ * whose value is a call expression loses `const` key inference and is refused by
+ * the map overload's literal-key guard.
+ */
+describe("client omit reaches the SETTLED target", () => {
+  // The ordinary pair's target carries the back-reference; the variant targets
+  // deliberately carry none, so the variant MAPS do not close a type cycle
+  // through `holder` (the recursive-model collapse `MEMORY.md` records).
+  const ordinaryTarget = s.model({
+    id: s.string().id(),
+    secret: s.string(),
+    holders: s.toMany(() => holder),
+  });
+  const variantTarget = s.model({
+    id: s.string().id(),
+    secret: s.string(),
+  });
+  const decoy = s.model({ id: s.string().id(), secret: s.string() });
+
+  const settled = { direct: false, slot: false, items: false };
+
+  const holder = s.model({
+    id: s.string().id(),
+    targetId: s.string(),
+    // ORDINARY: one stateful getter behind a stored reference.
+    direct: s
+      .toOne(() => {
+        if (settled.direct) return decoy;
+        settled.direct = true;
+        return ordinaryTarget;
+      })
+      .fields("targetId")
+      .references("id"),
+    // ROW CARRIER: one stateful getter behind a variant entry.
+    slot: s.toOne(
+      {
+        real: () => {
+          if (settled.slot) return decoy;
+          settled.slot = true;
+          return variantTarget;
+        },
+      },
+      { values: { real: "settled.slot.real.v1" } }
+    ),
+    // MEMBER JUNCTION: the same, one storage family over.
+    items: s.toMany(
+      {
+        real: () => {
+          if (settled.items) return decoy;
+          settled.items = true;
+          return variantTarget;
+        },
+      },
+      { values: { real: "settled.items.real.v1" } }
+    ),
+  });
+  const settledSchema = { ordinaryTarget, variantTarget, decoy, holder };
+  prepareSchema(settledSchema);
+
+  function settledResolver() {
+    const resolver = createClientOmitResolver(
+      settledSchema,
+      { ordinaryTarget: { secret: true }, variantTarget: { secret: true } },
+      indexFor(holder)
+    );
+    if (!resolver) throw new Error("Expected a configured omit resolver");
+    return resolver;
+  }
+
+  test("an ordinary slot, a row carrier and a member junction all reach it", () => {
+    expect(
+      applyClientOmit(
+        holder,
+        "findMany",
+        { include: { direct: true, slot: true, items: true } },
+        settledResolver()
+      )
+    ).toEqual({
+      include: {
+        direct: { omit: { secret: true } },
+        slot: { real: { omit: { secret: true } } },
+        items: { variants: { real: { omit: { secret: true } } } },
+      },
+    });
   });
 });

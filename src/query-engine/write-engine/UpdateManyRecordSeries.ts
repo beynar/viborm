@@ -255,7 +255,7 @@ export class UpdateManyRecordSeries implements RecordSeriesOperation {
       ),
       kind: "read",
       statement: buildFind(
-        createQueryScope(this.engine.adapter, this.model),
+        createQueryScope(this.engine, this.model),
         {
           ...(isRecord(this.args.where) ? { where: this.args.where } : {}),
           select: Object.fromEntries(
@@ -333,7 +333,7 @@ export class UpdateManyRecordSeries implements RecordSeriesOperation {
    * shell supplies only the captured record count and the parsed root programs.
    */
   private assertMembershipAppliesToEveryRoot(rootCount: number): void {
-    const parent = createQueryScope(this.engine.adapter, this.model);
+    const parent = createQueryScope(this.engine, this.model);
     // The RAW data, which is what the members compile: the guard and the writes read
     // one source. Building programs is not parsing — no scalar transform runs here,
     // and the members' own parses are untouched.

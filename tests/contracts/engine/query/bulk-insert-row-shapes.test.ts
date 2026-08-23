@@ -11,7 +11,7 @@ const parent = s
   .model({
     id: s.int().id().increment(),
     name: s.string(),
-    children: s.oneToMany(() => child),
+    children: s.toMany(() => child),
   })
   .map("bulk_shape_parents");
 
@@ -22,7 +22,7 @@ const child = s
     label: s.string(),
     parentId: s.int(),
     parent: s
-      .manyToOne(() => parent)
+      .toOne(() => parent)
       .fields("parentId")
       .references("id"),
   })
@@ -31,7 +31,7 @@ const child = s
 const defaultChild = s
   .model({
     id: s.int().id().increment(),
-    parents: s.oneToMany(() => defaultParent),
+    parents: s.toMany(() => defaultParent),
   })
   .map("bulk_shape_default_children");
 
@@ -40,7 +40,7 @@ const defaultParent = s
     id: s.string().id(),
     childId: s.int(),
     child: s
-      .manyToOne(() => defaultChild)
+      .toOne(() => defaultChild)
       .fields("childId")
       .references("id"),
   })

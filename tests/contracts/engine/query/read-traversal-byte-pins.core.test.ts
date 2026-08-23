@@ -116,12 +116,12 @@ const traversalSchema = (() => {
       id: s.string().id(),
       name: s.string(),
       follows: s
-        .manyToMany(() => user)
+        .toMany(() => user)
         .name("follows")
         .through("user_follows")
-        .A("followerId")
-        .B("followedId"),
-      followedBy: s.manyToMany(() => user).name("follows"),
+        .source("followerId")
+        .target("followedId"),
+      followedBy: s.toMany(() => user).name("follows"),
     })
     .map("rtb_users");
 
@@ -129,7 +129,7 @@ const traversalSchema = (() => {
     .model({
       id: s.string().id(),
       name: s.string(),
-      posts: s.oneToMany(() => post),
+      posts: s.toMany(() => post),
     })
     .map("rtb_authors");
 
@@ -139,10 +139,10 @@ const traversalSchema = (() => {
       title: s.string(),
       authorId: s.string(),
       author: s
-        .manyToOne(() => author)
+        .toOne(() => author)
         .fields("authorId")
         .references("id"),
-      tags: s.manyToMany(() => tag),
+      tags: s.toMany(() => tag),
     })
     .map("rtb_posts");
 
@@ -150,7 +150,7 @@ const traversalSchema = (() => {
     .model({
       id: s.string().id(),
       name: s.string().unique(),
-      posts: s.manyToMany(() => post),
+      posts: s.toMany(() => post),
     })
     .map("rtb_tags");
 
@@ -159,7 +159,7 @@ const traversalSchema = (() => {
       id: s.string().id(),
       region: s.string(),
       slug: s.string(),
-      memberships: s.oneToMany(() => membership),
+      memberships: s.toMany(() => membership),
     })
     .unique(["region", "slug"])
     .map("rtb_tenants");
@@ -171,7 +171,7 @@ const traversalSchema = (() => {
       tenantRegion: s.string(),
       tenantSlug: s.string(),
       tenant: s
-        .manyToOne(() => tenant)
+        .toOne(() => tenant)
         .fields("tenantRegion", "tenantSlug")
         .references("region", "slug"),
     })
@@ -198,8 +198,10 @@ hydrateSchemaNames(traversalSchema);
 const polymorphicSchema = (() => {
   const post = s.model({
     id: s.string().id().map("post_pk"),
-    comments: s.oneToMany(() => comment),
-    notes: s.oneToMany(() => note),
+    comments: s.toMany(() => comment),
+    // NAMED so the ordinary pair partitions away from the variant member that
+    // also points back here (§6.2 rule 3).
+    notes: s.toMany(() => note).name("notePost"),
   });
 
   const video = s.model({
@@ -209,7 +211,7 @@ const polymorphicSchema = (() => {
   const comment = s.model({
     id: s.string().id(),
     body: s.string(),
-    subject: s.polymorphicToOne(
+    subject: s.toOne(
       { post: () => post, video: () => video },
       {
         values: {
@@ -224,10 +226,11 @@ const polymorphicSchema = (() => {
     id: s.string().id(),
     postId: s.string().map("post_fk"),
     post: s
-      .manyToOne(() => post)
+      .toOne(() => post)
+      .name("notePost")
       .fields("postId")
       .references("id"),
-    subject: s.polymorphicToOne(
+    subject: s.toOne(
       { post: () => post, video: () => video },
       {
         values: {
@@ -240,10 +243,7 @@ const polymorphicSchema = (() => {
 
   const singularPost = s.model({
     id: s.string().id().map("post_pk"),
-    featuredComment: s
-      .oneToOne(() => singularComment)
-      .name("featuredCommentable")
-      .optional(),
+    featuredComment: s.toOne(() => singularComment).name("featuredCommentable"),
   });
 
   const singularVideo = s.model({ id: s.string().id() });
@@ -252,7 +252,7 @@ const polymorphicSchema = (() => {
     id: s.string().id(),
     body: s.string(),
     commentable: s
-      .polymorphicToOne({
+      .toOne({
         post: () => singularPost,
         video: () => singularVideo,
       })
@@ -288,19 +288,19 @@ const collectionSchema = (() => {
   const article = s.model({
     id: s.string().id(),
     title: s.string(),
-    gallery: s.manyToOne(() => gallery).optional(),
+    gallery: s.toOne(() => gallery),
   });
 
   const clip = s.model({
     id: s.string().id(),
     seconds: s.int(),
-    galleries: s.manyToMany(() => gallery),
+    galleries: s.toMany(() => gallery),
   });
 
   const gallery = s.model({
     id: s.string().id(),
     name: s.string(),
-    items: s.polymorphicToMany(
+    items: s.toMany(
       { article: () => article, clip: () => clip },
       { values: { article: "rtb.article.v1", clip: "rtb.clip.v1" } }
     ),

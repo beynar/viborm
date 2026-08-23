@@ -122,8 +122,9 @@ when `select`, `include`, or `omit` should change it.
 
 ### Rule 5: Keep Nested Client Omit Client-Local
 Client-level `omit` reaches nested result types through a minimal, client-only
-surface carrier. A model surface contains only its scalar, ordinary-relation,
-and polymorphic-relation key sets plus that client's configured omission.
+surface carrier. A model surface contains only its scalar key set and its ONE
+relation key set — a model has one canonical relation map, whatever target
+domain each slot names — plus that client's configured omission.
 
 Resolve a unique surface match exactly. When several schema models have the
 same surface, widen the candidate omission flags so affected result fields are

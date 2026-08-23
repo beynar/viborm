@@ -53,7 +53,7 @@ const user = s.model({
   id: s.string().id().ulid(),
   email: s.string().unique(),
   name: s.string().nullable(),
-  posts: s.oneToMany(() => post),
+  posts: s.toMany(() => post),
 });
 
 const post = s.model({
@@ -61,7 +61,7 @@ const post = s.model({
   title: s.string(),
   published: s.boolean().default(false),
   authorId: s.string(),
-  author: s.manyToOne(() => user)
+  author: s.toOne(() => user)
     .fields("authorId")
     .references("id"),
 });
@@ -550,7 +550,7 @@ Combine multiple conditions with logical operators.
 
 Filter records based on their related records.
 
-### To-One Relations (`oneToOne`, `manyToOne`)
+### To-One Relations (`s.toOne`)
 
 Use `is` and `isNot` operators to filter by related record.
 
@@ -604,7 +604,7 @@ const linkedProfiles = await client.profile.findMany({
 | `is` | `WhereInput \| null` | Related record matches (or is null) |
 | `isNot` | `WhereInput \| null` | Related record doesn't match (or isn't null) |
 
-### To-Many Relations (`oneToMany`, `manyToMany`)
+### To-Many Relations (`s.toMany`)
 
 Use `some`, `every`, and `none` operators to filter by related records.
 

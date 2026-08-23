@@ -22,8 +22,8 @@ const user = s
     id: s.string().id(),
     name: s.string(),
     email: s.string(),
-    profile: s.oneToOne(() => profile).optional(),
-    posts: s.oneToMany(() => post),
+    profile: s.toOne(() => profile),
+    posts: s.toMany(() => post),
   })
   .map("shorthand_users");
 
@@ -33,10 +33,9 @@ const profile = s
     bio: s.string(),
     userId: s.string().unique().nullable(),
     user: s
-      .oneToOne(() => user)
+      .toOne(() => user)
       .fields("userId")
-      .references("id")
-      .optional(),
+      .references("id"),
   })
   .map("shorthand_profiles");
 
@@ -46,7 +45,7 @@ const post = s
     title: s.string(),
     authorId: s.string(),
     author: s
-      .manyToOne(() => user)
+      .toOne(() => user)
       .fields("authorId")
       .references("id"),
   })

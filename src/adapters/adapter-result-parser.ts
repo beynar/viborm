@@ -1,7 +1,3 @@
-import type { RelationType } from "../schema/relation/types";
-
-export type RelationResultKind = RelationType | "polymorphic";
-
 export interface AdapterResultParser {
   /**
    * When `true`, {@link AdapterResultParser.parseField} performs NO
@@ -46,7 +42,6 @@ export interface AdapterResultParser {
    * Parse relation value (nested JSON from includes)
    *
    * @param value - Raw relation value from database
-   * @param type - Relation type (oneToMany, manyToOne, etc.)
    * @param next - Call to continue with default parsing
    *   - `next()` uses original value
    *   - `next(parsed)` uses the parsed value
@@ -55,14 +50,13 @@ export interface AdapterResultParser {
    *
    * @example
    * // Parse JSON strings (MySQL/SQLite)
-   * parseRelation: (value, type, next) => {
+   * parseRelation: (value, next) => {
    *   const parsed = tryParseJsonString(value);
    *   return parsed !== undefined ? next(parsed) : next();
    * }
    */
   parseRelation: (
     value: unknown,
-    type: RelationResultKind,
     next: (value?: unknown) => unknown
   ) => unknown;
 

@@ -9,10 +9,10 @@ const compoundJunctionSchema = (() => {
       slug: s.string().map("author_slug"),
       name: s.string(),
       books: s
-        .manyToMany(() => book)
+        .toMany(() => book)
         .through("compound_author_book")
-        .A("author")
-        .B("book")
+        .source("author")
+        .target("book")
         .onUpdate("cascade"),
     })
     .id(["tenantId", "slug"])
@@ -24,12 +24,9 @@ const compoundJunctionSchema = (() => {
       code: s.string().map("book_code"),
       isbn: s.string().unique(),
       title: s.string(),
-      authors: s
-        .manyToMany(() => author)
-        .through("compound_author_book")
-        .A("book")
-        .B("author")
-        .onUpdate("cascade"),
+      // One endpoint owns every override (R011); `author.books` above spells
+      // the same table, sides and action, and the resolver mirrors them here.
+      authors: s.toMany(() => author),
     })
     .id(["region", "code"])
     .map("compound_books");
@@ -52,10 +49,10 @@ const asymmetricJunctionSchema = (() => {
       slug: s.string().map("workspace_slug"),
       name: s.string(),
       labels: s
-        .manyToMany(() => label)
+        .toMany(() => label)
         .through("compound_workspace_label")
-        .A("workspace")
-        .B("label"),
+        .source("workspace")
+        .target("label"),
     })
     .id(["tenantId", "slug"])
     .map("compound_workspaces");
@@ -63,11 +60,7 @@ const asymmetricJunctionSchema = (() => {
     .model({
       id: s.string().id().map("label_id"),
       name: s.string(),
-      workspaces: s
-        .manyToMany(() => workspace)
-        .through("compound_workspace_label")
-        .A("label")
-        .B("workspace"),
+      workspaces: s.toMany(() => workspace),
     })
     .map("compound_labels");
   return { label, workspace };
@@ -81,7 +74,7 @@ const memberUniqueJunctionSchema = (() => {
   const catalog = s
     .model({
       id: s.string().id(),
-      entries: s.manyToMany(() => entry).through("compound_catalog_entry"),
+      entries: s.toMany(() => entry).through("compound_catalog_entry"),
     })
     .map("compound_catalogs");
   const entry = s
@@ -89,7 +82,7 @@ const memberUniqueJunctionSchema = (() => {
       tenantId: s.string().unique(),
       localId: s.string(),
       label: s.string(),
-      catalogs: s.manyToMany(() => catalog).through("compound_catalog_entry"),
+      catalogs: s.toMany(() => catalog),
     })
     .id(["tenantId", "localId"])
     .map("compound_catalog_entries");
@@ -103,33 +96,35 @@ const compoundSelfJunctionSchema = (() => {
       key: s.string(),
       label: s.string(),
       outgoing: s
-        .manyToMany(() => node)
+        .toMany(() => node)
         .name("directed")
         .through("compound_node_links")
-        .A("source")
-        .B("target"),
-      incoming: s
-        .manyToMany(() => node)
-        .name("directed")
-        .through("compound_node_links")
-        .A("target")
-        .B("source"),
+        .source("source")
+        .target("target"),
+      incoming: s.toMany(() => node).name("directed"),
     })
     .id(["tenantId", "key"])
     .map("compound_nodes");
   return { node };
 })();
 
-const compoundUnpairedSelfJunctionSchema = (() => {
+/**
+ * A self junction whose two halves configure NOTHING but the table: §9.4 lets a
+ * paired self `toMany` use the field-derived default side tokens instead of
+ * forcing `.source()`/`.target()`. It was a LONE self slot here until the
+ * unified language made an ordinary slot without an inverse an error.
+ */
+const compoundDefaultSelfJunctionSchema = (() => {
   const node = s
     .model({
       tenantId: s.string(),
       key: s.string(),
       label: s.string(),
       peers: s
-        .manyToMany(() => node)
+        .toMany(() => node)
         .name("peers")
         .through("compound_node_peers"),
+      peeredBy: s.toMany(() => node).name("peers"),
     })
     .id(["tenantId", "key"])
     .map("compound_peer_nodes");
@@ -146,7 +141,7 @@ const generatedCompoundJunctionSchema = (() => {
       scope: s.string(),
       id: s.string(),
       targets: s
-        .manyToMany(() => target)
+        .toMany(() => target)
         .through("generated_compound_owner_target"),
     })
     .id(["scope", "id"])
@@ -156,9 +151,7 @@ const generatedCompoundJunctionSchema = (() => {
       tenantId: s.string(),
       serial: s.int().increment(),
       label: s.string(),
-      owners: s
-        .manyToMany(() => owner)
-        .through("generated_compound_owner_target"),
+      owners: s.toMany(() => owner),
     })
     .id(["tenantId", "serial"])
     .map("generated_compound_targets");
@@ -707,13 +700,13 @@ for (const mode of ["transaction", "atomicBatch"] as const) {
     });
   });
 
-  describe(`unpaired compound self-junction orientation (${mode})`, () => {
+  describe(`default-token compound self-junction orientation (${mode})`, () => {
     const family = usePGliteSchemaFamily(
-      compoundUnpairedSelfJunctionSchema,
+      compoundDefaultSelfJunctionSchema,
       mode
     );
 
-    test("an unpaired self relation stores both complete default sides", async () => {
+    test("a paired self relation stores both complete default sides", async () => {
       const { client } = family();
       for (const [tenantId, key] of [
         ["t1", "a"],
@@ -742,6 +735,13 @@ for (const mode of ["transaction", "atomicBatch"] as const) {
           include: { peers: true },
         })
       ).resolves.toMatchObject({ peers: [] });
+      // The opposite side of the same default-token junction (§11.2.11).
+      await expect(
+        client.node.findUnique({
+          where: nodeKey("t2", "b"),
+          include: { peeredBy: true },
+        })
+      ).resolves.toMatchObject({ peeredBy: [{ tenantId: "t1", key: "a" }] });
     });
   });
 

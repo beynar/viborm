@@ -58,7 +58,7 @@ const deepSchema = (() => {
     .model({
       id: s.string().id(),
       name: s.string(),
-      teams: s.oneToMany(() => team),
+      teams: s.toMany(() => team),
     })
     .map("create_family_orgs");
   const team = s
@@ -66,10 +66,10 @@ const deepSchema = (() => {
       id: s.string().id(),
       orgId: s.string(),
       org: s
-        .manyToOne(() => org)
+        .toOne(() => org)
         .fields("orgId")
         .references("id"),
-      members: s.oneToMany(() => member),
+      members: s.toMany(() => member),
     })
     .map("create_family_teams");
   const member = s
@@ -77,7 +77,7 @@ const deepSchema = (() => {
       id: s.string().id(),
       teamId: s.string(),
       team: s
-        .manyToOne(() => member2team())
+        .toOne(() => member2team())
         .fields("teamId")
         .references("id"),
     })

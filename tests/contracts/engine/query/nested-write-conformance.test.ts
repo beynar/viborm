@@ -20,7 +20,7 @@ const nonPkReferenceSchema = (() => {
     .model({
       id: s.string().id(),
       code: s.string().unique(),
-      members: s.oneToMany(() => member),
+      members: s.toMany(() => member),
     })
     .map("conformance_d4_orgs");
 
@@ -29,10 +29,9 @@ const nonPkReferenceSchema = (() => {
       id: s.string().id(),
       orgCode: s.string().nullable(),
       org: s
-        .manyToOne(() => org)
+        .toOne(() => org)
         .fields("orgCode")
-        .references("code")
-        .optional(),
+        .references("code"),
     })
     .map("conformance_d4_members");
 
@@ -53,11 +52,10 @@ const selfRefFkSchema = (() => {
       name: s.string(),
       parentId: s.string().nullable(),
       parent: s
-        .manyToOne(() => category)
+        .toOne(() => category)
         .fields("parentId")
-        .references("id")
-        .optional(),
-      children: s.oneToMany(() => category),
+        .references("id"),
+      children: s.toMany(() => category),
     })
     .map("conformance_selfref_categories");
 
@@ -77,8 +75,8 @@ const createRootFkDeclineSchema = (() => {
       id: s.string().id(),
       email: s.string().unique(),
       name: s.string(),
-      profile: s.oneToOne(() => profile).optional(),
-      notes: s.oneToMany(() => note),
+      profile: s.toOne(() => profile),
+      notes: s.toMany(() => note),
     })
     .map("conformance_crd_users");
 
@@ -87,7 +85,7 @@ const createRootFkDeclineSchema = (() => {
       userId: s.string().id(),
       bio: s.string(),
       user: s
-        .oneToOne(() => user)
+        .toOne(() => user)
         .fields("userId")
         .references("id"),
     })
@@ -99,10 +97,9 @@ const createRootFkDeclineSchema = (() => {
       text: s.string(),
       userId: s.string().nullable(),
       author: s
-        .manyToOne(() => user)
+        .toOne(() => user)
         .fields("userId")
-        .references("id")
-        .optional(),
+        .references("id"),
     })
     .map("conformance_crd_notes");
 
@@ -116,16 +113,17 @@ const createRootDependencySchema = (() => {
       label: s.string(),
       parentId: s.int().nullable(),
       parent: s
-        .manyToOne(() => node)
+        .toOne(() => node)
         .fields("parentId")
         .references("id")
-        .optional(),
-      children: s.oneToMany(() => node),
+        .name("tree"),
+      children: s.toMany(() => node).name("tree"),
       links: s
-        .manyToMany(() => node)
-        .A("sourceId")
-        .B("targetId"),
-      linkedBy: s.manyToMany(() => node),
+        .toMany(() => node)
+        .name("link")
+        .source("sourceId")
+        .target("targetId"),
+      linkedBy: s.toMany(() => node).name("link"),
     })
     .map("conformance_create_root_nodes");
 
@@ -136,7 +134,7 @@ const membershipDependencySchema = (() => {
   const container = s
     .model({
       id: s.int().id(),
-      nodes: s.oneToMany(() => node),
+      nodes: s.toMany(() => node),
     })
     .map("conformance_membership_containers");
 
@@ -146,30 +144,24 @@ const membershipDependencySchema = (() => {
       label: s.string(),
       containerId: s.int().nullable(),
       container: s
-        .manyToOne(() => container)
+        .toOne(() => container)
         .fields("containerId")
         .references("id")
-        .onUpdate("cascade")
-        .optional(),
+        .onUpdate("cascade"),
       parentId: s.int().nullable(),
       parent: s
-        .manyToOne(() => node)
+        .toOne(() => node)
         .fields("parentId")
         .references("id")
-        .name("parent")
-        .optional(),
-      children: s.oneToMany(() => node).name("parent"),
+        .name("parent"),
+      children: s.toMany(() => node).name("parent"),
       partnerId: s.int().unique().nullable(),
       partner: s
-        .oneToOne(() => node)
+        .toOne(() => node)
         .fields("partnerId")
         .references("id")
-        .name("partner")
-        .optional(),
-      partnerOf: s
-        .oneToOne(() => node)
-        .name("partner")
-        .optional(),
+        .name("partner"),
+      partnerOf: s.toOne(() => node).name("partner"),
     })
     .map("conformance_membership_nodes");
 
@@ -181,8 +173,8 @@ const numericDependencySchema = (() => {
     .model({
       id: s.int().id(),
       name: s.string(),
-      items: s.oneToMany(() => item),
-      profile: s.oneToOne(() => profile).optional(),
+      items: s.toMany(() => item),
+      profile: s.toOne(() => profile),
     })
     .map("conformance_dependency_owners");
 
@@ -192,10 +184,9 @@ const numericDependencySchema = (() => {
       label: s.string(),
       ownerId: s.int().nullable(),
       owner: s
-        .manyToOne(() => owner)
+        .toOne(() => owner)
         .fields("ownerId")
-        .references("id")
-        .optional(),
+        .references("id"),
     })
     .map("conformance_dependency_items");
 
@@ -205,10 +196,9 @@ const numericDependencySchema = (() => {
       bio: s.string(),
       ownerId: s.int().unique().nullable(),
       owner: s
-        .oneToOne(() => owner)
+        .toOne(() => owner)
         .fields("ownerId")
-        .references("id")
-        .optional(),
+        .references("id"),
     })
     .map("conformance_dependency_profiles");
 
@@ -220,8 +210,8 @@ const crossRelationTargetSchema = (() => {
     .model({
       id: s.int().id(),
       label: s.string(),
-      primaryRecords: s.oneToMany(() => record).name("primary"),
-      secondaryRecords: s.oneToMany(() => record).name("secondary"),
+      primaryRecords: s.toMany(() => record).name("primary"),
+      secondaryRecords: s.toMany(() => record).name("secondary"),
     })
     .map("conformance_cross_target_accounts");
 
@@ -231,17 +221,15 @@ const crossRelationTargetSchema = (() => {
       primaryId: s.int().nullable(),
       secondaryId: s.int().nullable(),
       primary: s
-        .manyToOne(() => account)
+        .toOne(() => account)
         .fields("primaryId")
         .references("id")
-        .name("primary")
-        .optional(),
+        .name("primary"),
       secondary: s
-        .manyToOne(() => account)
+        .toOne(() => account)
         .fields("secondaryId")
         .references("id")
-        .name("secondary")
-        .optional(),
+        .name("secondary"),
     })
     .map("conformance_cross_target_records");
 
@@ -252,34 +240,34 @@ const transitiveTargetDependencySchema = (() => {
   const workspace = s
     .model({
       id: s.int().id(),
-      projects: s.manyToMany(() => project).name("workspaceProjects"),
-      tags: s.manyToMany(() => tag).name("workspaceTags"),
+      projects: s.toMany(() => project).name("workspaceProjects"),
+      tags: s.toMany(() => tag).name("workspaceTags"),
     })
     .map("conformance_transitive_workspaces");
 
   const project = s
     .model({
       id: s.int().id(),
-      workspaces: s.manyToMany(() => workspace).name("workspaceProjects"),
-      tags: s.manyToMany(() => tag).name("projectTags"),
-      components: s.manyToMany(() => component).name("projectComponents"),
+      workspaces: s.toMany(() => workspace).name("workspaceProjects"),
+      tags: s.toMany(() => tag).name("projectTags"),
+      components: s.toMany(() => component).name("projectComponents"),
     })
     .map("conformance_transitive_projects");
 
   const tag = s
     .model({
       id: s.int().id(),
-      workspaces: s.manyToMany(() => workspace).name("workspaceTags"),
-      projects: s.manyToMany(() => project).name("projectTags"),
-      components: s.manyToMany(() => component).name("componentTags"),
+      workspaces: s.toMany(() => workspace).name("workspaceTags"),
+      projects: s.toMany(() => project).name("projectTags"),
+      components: s.toMany(() => component).name("componentTags"),
     })
     .map("conformance_transitive_tags");
 
   const component = s
     .model({
       id: s.int().id(),
-      projects: s.manyToMany(() => project).name("projectComponents"),
-      tags: s.manyToMany(() => tag).name("componentTags"),
+      projects: s.toMany(() => project).name("projectComponents"),
+      tags: s.toMany(() => tag).name("componentTags"),
     })
     .map("conformance_transitive_components");
 
@@ -290,8 +278,8 @@ const transitiveCreateManySchema = (() => {
   const owner = s
     .model({
       id: s.int().id(),
-      cohorts: s.oneToMany(() => cohort),
-      selectedItems: s.manyToMany(() => item).name("selectedItems"),
+      cohorts: s.toMany(() => cohort),
+      selectedItems: s.toMany(() => item).name("selectedItems"),
     })
     .map("conformance_transitive_create_many_owners");
 
@@ -300,12 +288,11 @@ const transitiveCreateManySchema = (() => {
       id: s.int().id(),
       groupId: s.int().nullable(),
       creator: s
-        .manyToOne(() => cohort)
+        .toOne(() => cohort)
         .fields("groupId")
         .references("id")
-        .name("createdItems")
-        .optional(),
-      selectedBy: s.manyToMany(() => owner).name("selectedItems"),
+        .name("createdItems"),
+      selectedBy: s.toMany(() => owner).name("selectedItems"),
     })
     .map("conformance_transitive_create_many_items");
 
@@ -314,11 +301,10 @@ const transitiveCreateManySchema = (() => {
       id: s.int().id(),
       ownerId: s.int().nullable(),
       owner: s
-        .manyToOne(() => owner)
+        .toOne(() => owner)
         .fields("ownerId")
-        .references("id")
-        .optional(),
-      createdItems: s.oneToMany(() => item).name("createdItems"),
+        .references("id"),
+      createdItems: s.toMany(() => item).name("createdItems"),
     })
     .map("conformance_transitive_create_many_groups");
 
@@ -329,16 +315,16 @@ const transitivePredicateDependencySchema = (() => {
   const workspace = s
     .model({
       id: s.int().id(),
-      projects: s.manyToMany(() => project).name("predicateProjects"),
-      tags: s.manyToMany(() => tag).name("predicateWorkspaceTags"),
+      projects: s.toMany(() => project).name("predicateProjects"),
+      tags: s.toMany(() => tag).name("predicateWorkspaceTags"),
     })
     .map("conformance_transitive_predicate_workspaces");
 
   const project = s
     .model({
       id: s.int().id(),
-      workspaces: s.manyToMany(() => workspace).name("predicateProjects"),
-      tags: s.manyToMany(() => tag).name("predicateProjectTags"),
+      workspaces: s.toMany(() => workspace).name("predicateProjects"),
+      tags: s.toMany(() => tag).name("predicateProjectTags"),
     })
     .map("conformance_transitive_predicate_projects");
 
@@ -346,8 +332,8 @@ const transitivePredicateDependencySchema = (() => {
     .model({
       id: s.int().id(),
       label: s.string(),
-      workspaces: s.manyToMany(() => workspace).name("predicateWorkspaceTags"),
-      projects: s.manyToMany(() => project).name("predicateProjectTags"),
+      workspaces: s.toMany(() => workspace).name("predicateWorkspaceTags"),
+      projects: s.toMany(() => project).name("predicateProjectTags"),
     })
     .map("conformance_transitive_predicate_tags");
 
@@ -361,24 +347,23 @@ const transitiveMembershipDependencySchema = (() => {
       label: s.string(),
       parentId: s.int().nullable(),
       parent: s
-        .manyToOne(() => node)
+        .toOne(() => node)
         .fields("parentId")
         .references("id")
-        .name("membershipParent")
-        .optional(),
-      children: s.oneToMany(() => node).name("membershipParent"),
+        .name("membershipParent"),
+      children: s.toMany(() => node).name("membershipParent"),
       friends: s
-        .manyToMany(() => node)
+        .toMany(() => node)
         .name("membershipFriends")
-        .A("friendSourceId")
-        .B("friendTargetId"),
-      friendedBy: s.manyToMany(() => node).name("membershipFriends"),
+        .source("friendSourceId")
+        .target("friendTargetId"),
+      friendedBy: s.toMany(() => node).name("membershipFriends"),
       allies: s
-        .manyToMany(() => node)
+        .toMany(() => node)
         .name("membershipAllies")
-        .A("allySourceId")
-        .B("allyTargetId"),
-      alliedBy: s.manyToMany(() => node).name("membershipAllies"),
+        .source("allySourceId")
+        .target("allyTargetId"),
+      alliedBy: s.toMany(() => node).name("membershipAllies"),
     })
     .map("conformance_transitive_membership_nodes");
 

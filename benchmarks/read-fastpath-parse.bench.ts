@@ -10,6 +10,8 @@
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { ResultParser } from "@query-engine/result/ResultParser";
 import { s } from "@schema";
+import { hydrateSchemaNames } from "@schema/hydration";
+import { resolveSchemaOrThrow } from "@schema/validation/validator";
 import { bench, describe } from "vitest";
 
 const post = s.model({
@@ -20,6 +22,12 @@ const post = s.model({
   views: s.int().default(0),
   authorId: s.string(),
 });
+
+const schema = { post };
+hydrateSchemaNames(schema);
+// The parse boundary reads slot emptiness from the resolved index; this model
+// declares no relation, so resolving it is one empty map.
+const relations = resolveSchemaOrThrow(schema);
 
 function makeRows(): Record<string, unknown>[] {
   const rows: Record<string, unknown>[] = new Array(1000);
@@ -46,9 +54,17 @@ const fullAdapter = new PostgresAdapter();
 
 describe("read result parser: findMany 1000 rows (parse only)", () => {
   bench("fast path ON (identity + whole-row passthrough)", () => {
-    new ResultParser(fastAdapter, post).parse("findMany", makeRows(), {});
+    new ResultParser({ adapter: fastAdapter, relations }, post).parse(
+      "findMany",
+      makeRows(),
+      {}
+    );
   });
   bench("fast path OFF (full typed parse)", () => {
-    new ResultParser(fullAdapter, post).parse("findMany", makeRows(), {});
+    new ResultParser({ adapter: fullAdapter, relations }, post).parse(
+      "findMany",
+      makeRows(),
+      {}
+    );
   });
 });

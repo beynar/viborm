@@ -8,14 +8,14 @@
  */
 
 import { s } from "@schema";
-import { createSchemaRegistry, type InferInput, parse } from "@validation";
-import { describe, expect, expectTypeOf, test } from "vitest";
 import {
   authorSchemas,
   compoundIdSchemas,
   compoundUniqueSchemas,
   simpleSchemas,
 } from "@tests/unit/operation-schemas/fixtures";
+import { createSchemaRegistry, type InferInput, parse } from "@validation";
+import { describe, expect, expectTypeOf, test } from "vitest";
 
 type ArgsOutput = {
   readonly where?: unknown;
@@ -32,30 +32,43 @@ const argsOutput = (value: unknown): ArgsOutput => value as ArgsOutput;
 const nestedAuthorModel = s.model({
   id: s.string().id(),
   name: s.string(),
-  posts: s.oneToMany(() => nestedPostModel),
+  posts: s.toMany(() => nestedPostModel),
 });
 
 const nestedPostModel = s.model({
   id: s.string().id(),
   title: s.string(),
   authorId: s.string(),
-  author: s.manyToOne(() => nestedAuthorModel),
+  author: s
+    .toOne(() => nestedAuthorModel)
+    .fields("authorId")
+    .references("id"),
+  comments: s.toMany(() => nestedCommentModel),
 });
 
 const nestedCommentModel = s.model({
   id: s.string().id(),
   postId: s.string(),
-  post: s.manyToOne(() => nestedPostModel),
+  post: s
+    .toOne(() => nestedPostModel)
+    .fields("postId")
+    .references("id"),
 });
 
 const nestedUserModel = s.model({
   id: s.string().id(),
   username: s.string(),
   managerId: s.string().nullable(),
-  manager: s.manyToOne(() => nestedUserModel).optional(),
+  manager: s
+    .toOne(() => nestedUserModel)
+    .fields("managerId")
+    .references("id"),
+  reports: s.toMany(() => nestedUserModel),
 });
 
 const nestedOrderByRegistry = createSchemaRegistry({
+  author: nestedAuthorModel,
+  post: nestedPostModel,
   comment: nestedCommentModel,
   user: nestedUserModel,
 });

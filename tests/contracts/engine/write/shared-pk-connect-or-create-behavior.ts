@@ -12,7 +12,7 @@ export const sharedPkConnectOrCreateSchema = (() => {
       id: s.string().id(),
       email: s.string().unique(),
       name: s.string(),
-      profile: s.oneToOne(() => profile).optional(),
+      profile: s.toOne(() => profile),
     })
     .map("e63_users");
   const profile = s
@@ -21,7 +21,7 @@ export const sharedPkConnectOrCreateSchema = (() => {
       userId: s.string().id(),
       bio: s.string(),
       user: s
-        .oneToOne(() => user)
+        .toOne(() => user)
         .fields("userId")
         .references("id"),
     })

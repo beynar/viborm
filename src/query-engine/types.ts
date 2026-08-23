@@ -8,13 +8,15 @@ import type { DatabaseAdapter } from "@adapters";
 import type { QueryExecutionContext } from "@drivers/driver";
 import type { QueryResult } from "@drivers/types";
 import type { Model } from "@schema/model";
+import type { RelationCardinality } from "@schema/relation";
 import type {
-  AnyPolymorphicRelation,
-  AnyRelation,
-  PolymorphicStorage,
-  PolymorphicToManyStorage,
-  PolymorphicToOneStorage,
-} from "@schema/relation";
+  ResolvedRelationIndex,
+  ResolvedSlot,
+  ResolvedVariantJunctionEdge,
+  ResolvedVariantJunctionMember,
+  ResolvedVariantRowEdge,
+  ResolvedVariantRowMember,
+} from "@schema/validation/relation-resolution";
 import type { SchemaRegistryLookup } from "@validation";
 
 // Re-export errors from unified error hierarchy
@@ -151,6 +153,8 @@ export interface ModelRegistry {
   get(name: string): Model<any> | undefined;
   getByTableName(tableName: string): Model<any> | undefined;
   readonly schemas: SchemaRegistryLookup;
+  /** The one resolved topology index this client was composed over. */
+  readonly relations: ResolvedRelationIndex;
 }
 
 /** Requested fields inside one aggregate JSON carrier. */
@@ -209,100 +213,152 @@ export interface ExpectedResultShape {
   reversed?: boolean;
 }
 
-/** Minimal SQL-construction state shared by related model scopes. */
-export interface QueryScope {
-  readonly adapter: DatabaseAdapter;
+/**
+ * Minimal SQL-construction state shared by related model scopes.
+ *
+ * `relations` is the ONE index the composition root resolved, passed by
+ * identity: a scope answers every topology question by looking this model's
+ * slot up in it, so no scope, model or module holds a second topology view
+ * (§8.3, §11.4.10).
+ */
+export interface QueryScope extends ScopeSource {
   readonly model: Model<any>;
   readonly nextAlias: () => string;
   readonly rootAlias: string;
   readonly mutationTable?: string;
-  /** Validated direct polymorphic fields, cached for this model scope. */
-  readonly polymorphicRelations: ReadonlyMap<string, PolymorphicRelationInfo>;
 }
 
 /**
- * One validated direct polymorphic field on the current model, carrying either
- * stored descriptor. Package C widened `storage` to the union: `query-scope.ts`
- * admits both arms and every consumer dispatches on `storage.kind` at the point
- * where the two storages stop meaning the same thing.
+ * What a root scope is opened FROM: the dialect and the one resolved index.
+ *
+ * Both the engine and any existing scope satisfy it, which is what lets the
+ * index travel by identity from the composition root to every scope without a
+ * wrapper that copies it (§10E.10).
  */
-export interface PolymorphicRelationInfoOf<Storage extends PolymorphicStorage> {
+export interface ScopeSource {
+  readonly adapter: DatabaseAdapter;
+  readonly relations: ResolvedRelationIndex;
+}
+
+/**
+ * A contextual relation reference: the resolved slot the gate published, plus
+ * the two facts a builder ADDRESSES it by.
+ *
+ * It stores no topology. `name` is the slot's own field key — variant-qualified
+ * on a member view, which is what keeps step ids deterministic (§8.3) — and
+ * `targetModel`/`cardinality` are projections of the resolved EDGE, taken where
+ * the reference is made. There is no declared relation type, no foreign-key
+ * field list, no optionality flag and no carrier brand to copy, because
+ * `resolved.edge` answers each of those questions itself.
+ */
+export interface RelationRef {
   readonly name: string;
-  readonly relation: AnyPolymorphicRelation;
-  readonly storage: Storage;
+  readonly resolved: ResolvedSlot;
+  readonly targetModel: Model<any>;
+  readonly cardinality: RelationCardinality;
 }
 
 /** The row-held arm: a private `(type, id)` column pair on the owner's row. */
-export type PolymorphicToOneRelationInfo =
-  PolymorphicRelationInfoOf<PolymorphicToOneStorage>;
+export interface VariantRowCarrierSlot {
+  readonly slot: ResolvedSlot["slot"];
+  readonly edge: ResolvedVariantRowEdge;
+  /** The public carrier slot spans the edge's complete member collection. */
+  readonly member?: never;
+}
 
 /** The collection arm: one member junction table per configured variant. */
-export type PolymorphicToManyRelationInfo =
-  PolymorphicRelationInfoOf<PolymorphicToManyStorage>;
+export interface VariantJunctionCarrierSlot {
+  readonly slot: ResolvedSlot["slot"];
+  readonly edge: ResolvedVariantJunctionEdge;
+  readonly member?: never;
+}
 
 /**
- * Spelled as the UNION of the two arms rather than one shape over the storage
- * union, so that the narrowing guards below subtract: a caller that rules out
+ * A direct variant relation's carrier slot.
+ *
+ * Spelled as the UNION of the two arms rather than one shape over the edge
+ * union, so that the narrowing guard below SUBTRACTS: a caller that rules out
  * the row-held arm holds the collection arm, with no second test and no cast.
  */
-export type PolymorphicRelationInfo =
-  | PolymorphicToOneRelationInfo
-  | PolymorphicToManyRelationInfo;
+export type VariantCarrierSlot =
+  | VariantRowCarrierSlot
+  | VariantJunctionCarrierSlot;
 
 /**
- * The NARROWING spelling of `info.storage.kind === "toOne"`, for the callers
- * that must pass the INFO itself into a row-held-only slot.
+ * The NARROWING spelling of `carrier.edge.kind === "variantRowCarrier"`, for
+ * the callers that must pass the CARRIER SLOT itself into a row-held-only slot.
  *
  * It is not a second owner of the question — its body is that one test, and a
- * caller that only needs the answer asks `storage.kind` inline. It exists
- * because the storage is a nested discriminant: testing it narrows the storage
- * reference, never the info holding it. Same reason, same shape, as
+ * caller that only needs the answer asks `edge.kind` inline. It exists because
+ * the edge is a nested discriminant: testing it narrows the edge reference,
+ * never the slot holding it. Same reason, same shape, as
  * `hasPolymorphicMembership` in `relation-data-builder.ts`.
  */
-export function isPolymorphicToOneRelationInfo(
-  info: PolymorphicRelationInfo
-): info is PolymorphicToOneRelationInfo {
-  return info.storage.kind === "toOne";
+export function isVariantRowCarrier(
+  carrier: VariantCarrierSlot
+): carrier is VariantRowCarrierSlot {
+  return carrier.edge.kind === "variantRowCarrier";
 }
 
-/** One direct polymorphic member resolved after schema transformation. */
-export interface ResolvedPolymorphicEdge {
-  readonly publicType: string;
-  readonly storedType: string;
-  readonly targetModel: Model<any>;
-  readonly referencedField: string;
-  readonly storage: PolymorphicToOneStorage;
-  readonly relationInfo: RelationInfo;
+/** A bound inverse: one existing member of someone else's row carrier. */
+export interface VariantRowInverseSlot {
+  readonly slot: ResolvedSlot["slot"];
+  readonly edge: ResolvedVariantRowEdge;
+  readonly member: ResolvedVariantRowMember;
+}
+
+/** A bound inverse: one existing member of someone else's junction carrier. */
+export interface VariantJunctionInverseSlot {
+  readonly slot: ResolvedSlot["slot"];
+  readonly edge: ResolvedVariantJunctionEdge;
+  readonly member: ResolvedVariantJunctionMember;
 }
 
 /**
- * Relation info extracted from model for query building
+ * The two NARROWING spellings of "this slot is a bound inverse of that carrier
+ * family", for the callers that must hand the slot's edge and its member to one
+ * function together.
+ *
+ * `edge` is a nested discriminant: testing `edge.kind` narrows the edge alone
+ * and leaves `member` the union of both families, which is precisely the pairing
+ * these two exist to keep. They are two because the two member records are two
+ * types — one predicate returning either would hand its caller the union back.
  */
-export interface RelationInfo {
-  name: string;
-  relation: AnyRelation;
-  targetModel: Model<any>;
-  /** Relation type: oneToOne, oneToMany, manyToOne, manyToMany */
-  type: "oneToOne" | "oneToMany" | "manyToOne" | "manyToMany";
-  /** How many targets the public slot admits — the one arity fact. */
-  cardinality: "one" | "many";
-  isOptional: boolean;
-  /** Foreign key fields on current model */
-  fields: string[] | undefined;
-  /** Referenced fields on target model */
-  references: string[] | undefined;
-  /**
-   * THE PRE-BOUND CARRIER BRAND (plan §1.3).
-   *
-   * A direct polymorphic collection binds ONE member junction per variant, and
-   * those carriers live in no model's relation map — nothing can look them up by
-   * name, which is what makes the re-resolution prohibition structural rather
-   * than a convention. The brand exists so the ONE remaining way to reach a
-   * resolver — handing the carrier to `classifyRelation` — is a named refusal
-   * instead of a silent bind onto an ordinary pair table the serializer never
-   * emits.
-   */
-  readonly polymorphicMemberCarrier?: true;
+export function isVariantRowInverse(
+  resolved: ResolvedSlot
+): resolved is VariantRowInverseSlot {
+  return (
+    resolved.edge.kind === "variantRowCarrier" && resolved.member !== undefined
+  );
+}
+
+export function isVariantJunctionInverse(
+  resolved: ResolvedSlot
+): resolved is VariantJunctionInverseSlot {
+  return (
+    resolved.edge.kind === "variantJunctionCarrier" &&
+    resolved.member !== undefined
+  );
+}
+
+/**
+ * One member of a row carrier, selected by a payload's public discriminator.
+ *
+ * The two objects the gate published, carried together — never a copy of their
+ * contents, and never a synthesized relation (§8.3, D9). `ref` is the addressing
+ * view the write parts spell error sentences and step ids with.
+ */
+export interface SelectedVariantRow {
+  readonly carrier: VariantRowCarrierSlot;
+  readonly member: ResolvedVariantRowMember;
+  readonly ref: RelationRef;
+}
+
+/** One member of a junction carrier, selected by a payload's discriminator. */
+export interface SelectedVariantMember {
+  readonly carrier: VariantJunctionCarrierSlot;
+  readonly member: ResolvedVariantJunctionMember;
+  readonly ref: RelationRef;
 }
 
 // ============================================================

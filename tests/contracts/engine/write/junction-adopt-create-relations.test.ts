@@ -49,15 +49,15 @@ const adoptRelationsSchema = (() => {
     .model({
       id: s.string().id(),
       name: s.string(),
-      tags: s.oneToMany(() => tag),
+      tags: s.toMany(() => tag),
     })
     .map("e2u2_users");
   const post = s
     .model({
       id: s.string().id(),
       title: s.string(),
-      tags: s.manyToMany(() => tag),
-      stamps: s.manyToMany(() => stamp),
+      tags: s.toMany(() => tag),
+      stamps: s.toMany(() => stamp),
     })
     .map("e2u2_posts");
   const tag = s
@@ -68,13 +68,12 @@ const adoptRelationsSchema = (() => {
       // The parent-held to-one that routes a create arm into the whole-create
       // delegation — the carve-out this file pins.
       owner: s
-        .manyToOne(() => user)
+        .toOne(() => user)
         .fields("ownerId")
-        .references("id")
-        .optional(),
-      posts: s.manyToMany(() => post),
-      notes: s.oneToMany(() => note),
-      polymorphicNotes: s.oneToMany(() => polymorphicNote).name("subject"),
+        .references("id"),
+      posts: s.toMany(() => post),
+      notes: s.toMany(() => note),
+      polymorphicNotes: s.toMany(() => polymorphicNote).name("subject"),
     })
     .map("e2u2_tags");
   const note = s
@@ -83,7 +82,7 @@ const adoptRelationsSchema = (() => {
       body: s.string(),
       tagId: s.string(),
       tag: s
-        .manyToOne(() => tag)
+        .toOne(() => tag)
         .fields("tagId")
         .references("id"),
     })
@@ -93,8 +92,8 @@ const adoptRelationsSchema = (() => {
     .model({
       id: s.int().id().increment(),
       name: s.string().unique(),
-      posts: s.manyToMany(() => post),
-      notes: s.oneToMany(() => stampNote),
+      posts: s.toMany(() => post),
+      notes: s.toMany(() => stampNote),
     })
     .map("e2u2_stamps");
   const stampNote = s
@@ -103,7 +102,7 @@ const adoptRelationsSchema = (() => {
       body: s.string(),
       stampId: s.int(),
       stamp: s
-        .manyToOne(() => stamp)
+        .toOne(() => stamp)
         .fields("stampId")
         .references("id"),
     })
@@ -113,7 +112,7 @@ const adoptRelationsSchema = (() => {
     .model({
       id: s.string().id(),
       name: s.string(),
-      posts: s.oneToMany(() => boardPost),
+      posts: s.toMany(() => boardPost),
     })
     .map("e2u2_boards");
   const boardPost = s
@@ -122,18 +121,18 @@ const adoptRelationsSchema = (() => {
       title: s.string(),
       boardId: s.string(),
       board: s
-        .manyToOne(() => board)
+        .toOne(() => board)
         .fields("boardId")
         .references("id"),
-      marks: s.manyToMany(() => mark),
+      marks: s.toMany(() => mark),
     })
     .map("e2u2_board_posts");
   const mark = s
     .model({
       id: s.string().id(),
       name: s.string().unique(),
-      posts: s.manyToMany(() => boardPost),
-      notes: s.oneToMany(() => markNote),
+      posts: s.toMany(() => boardPost),
+      notes: s.toMany(() => markNote),
     })
     .map("e2u2_marks");
   const markNote = s
@@ -142,7 +141,7 @@ const adoptRelationsSchema = (() => {
       body: s.string(),
       markId: s.string(),
       mark: s
-        .manyToOne(() => mark)
+        .toOne(() => mark)
         .fields("markId")
         .references("id"),
     })
@@ -152,7 +151,7 @@ const adoptRelationsSchema = (() => {
       id: s.string().id(),
       body: s.string(),
       subject: s
-        .polymorphicToOne(
+        .toOne(
           { tag: () => tag, mark: () => mark },
           {
             values: {

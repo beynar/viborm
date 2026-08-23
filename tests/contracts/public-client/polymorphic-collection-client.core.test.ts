@@ -84,18 +84,15 @@ function cellBare() {
   const post = s.model({ id: s.string().id() });
   const owner = s.model({
     id: s.string().id(),
-    items: s.polymorphicToMany(
-      { post: () => post },
-      { values: { post: "c1.post.v1" } }
-    ),
+    items: s.toMany({ post: () => post }, { values: { post: "c1.post.v1" } }),
   });
   return {
     schema: { post, owner },
     tables: ["owner_items_post"],
-    // P011 is the PRE-EXISTING single-variant advisory ("use an ordinary
-    // relation unless future variants are required") — a warning, unrelated to
-    // cardinality, and it fires identically on a one-variant to-one carrier.
-    warnings: ["P011"],
+    // §9.4 DELETES the single-variant advisory (P011): a one-key variant map is
+    // a legal declaration, and "you might have meant an ordinary relation" is
+    // not a fact about the graph.
+    warnings: [],
   };
 }
 
@@ -105,7 +102,7 @@ function cellMultiVariant() {
   const video = s.model({ id: s.string().id() });
   const owner = s.model({
     id: s.string().id(),
-    items: s.polymorphicToMany(
+    items: s.toMany(
       { post: () => post, video: () => video },
       { values: { post: "c2.post.v1", video: "c2.video.v1" } }
     ),
@@ -121,16 +118,16 @@ function cellMultiVariant() {
 function cellMixedInverses() {
   const book = s.model({
     id: s.string().id(),
-    shelf: s.manyToOne(() => shelf).optional(),
+    shelf: s.toOne(() => shelf),
   });
   const video = s.model({
     id: s.string().id(),
-    shelves: s.manyToMany(() => shelf),
+    shelves: s.toMany(() => shelf),
   });
   const note = s.model({ id: s.string().id() });
   const shelf = s.model({
     id: s.string().id(),
-    items: s.polymorphicToMany(
+    items: s.toMany(
       { book: () => book, video: () => video, note: () => note },
       {
         values: {
@@ -156,10 +153,7 @@ function cellCompoundThrough() {
       tenantId: s.string(),
       localId: s.string(),
       items: s
-        .polymorphicToMany(
-          { post: () => post },
-          { values: { post: "c4.post.v1" } }
-        )
+        .toMany({ post: () => post }, { values: { post: "c4.post.v1" } })
         .through({
           post: { table: "owner_catalog", source: "holder", target: "entry" },
         }),
@@ -169,7 +163,7 @@ function cellCompoundThrough() {
   return {
     schema: { post, owner },
     tables: ["owner_catalog"],
-    warnings: ["P011"],
+    warnings: [],
   };
 }
 

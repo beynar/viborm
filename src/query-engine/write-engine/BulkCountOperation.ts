@@ -108,7 +108,7 @@ export class BulkCountOperation {
     // Route through the same ResultParser + `{ rowCount }` carrier V1 uses for
     // batch mutations, so the public `{ count }` shape is byte-identical.
     return new ResultParser(
-      this.engine.adapter,
+      this.engine,
       this.model,
       this.engine.driver,
       this.engine.decimalDecode
@@ -121,7 +121,7 @@ export class BulkCountOperation {
   }
 
   private buildWriteSql(): Sql {
-    const ctx = createQueryScope(this.engine.adapter, this.model);
+    const ctx = createQueryScope(this.engine, this.model);
     const where = isRecord(this.args.where) ? this.args.where : undefined;
     const limit = this.limit();
     const scope = {

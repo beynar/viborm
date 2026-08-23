@@ -17,12 +17,12 @@
  * relation. A direct polymorphic COLLECTION arm IS inside: its membership is a
  * junction, so it enters through {@link buildMembershipJunctionTraversal} —
  * which takes the membership alone, because a collection arm has no
- * `RelationInfo` and Package C may not synthesize one.
+ * `RelationRef` and Package C may not synthesize one.
  */
 
 import type { Sql } from "@sql";
 import { getTableName } from "../context";
-import type { QueryScope, RelationInfo } from "../types";
+import type { QueryScope, RelationRef } from "../types";
 import { buildCorrelation } from "./correlation-utils";
 import { buildManyToManyJoinParts } from "./many-to-many-utils";
 import {
@@ -73,9 +73,9 @@ export type JunctionRelationTraversal = {
   /** The two complete ordered stored references this traversal walks. */
   readonly membership: () => BoundJunctionMembership;
   /**
-   * How many targets the traversed slot admits. `"one"` since Package C: a
-   * fields-less `manyToOne` bound to a collection member whose inverse is
-   * singular walks the same junction and returns at most one row.
+   * How many targets the traversed slot admits. `"one"` is reachable: a
+   * non-owning `s.toOne` bound to a collection member whose inverse is singular
+   * walks the same junction and returns at most one row.
    */
   readonly cardinality: () => "one" | "many";
   /** `junction AS tJ, target AS tT` */
@@ -118,10 +118,10 @@ export type RelationTraversal =
  */
 export function buildRelationTraversal(
   ctx: QueryScope,
-  relationInfo: RelationInfo,
+  relationRef: RelationRef,
   parentAlias: string
 ): RelationTraversal {
-  const classified = classifyRelation(ctx, relationInfo);
+  const classified = classifyRelation(ctx, relationRef);
 
   if (classified.kind === "junction") {
     const junctionAlias = ctx.nextAlias();
@@ -145,7 +145,7 @@ export function buildRelationTraversal(
   const targetAlias = ctx.nextAlias();
   return buildOrdinaryTraversal(
     ctx,
-    relationInfo,
+    relationRef,
     classified.bind,
     parentAlias,
     targetAlias
@@ -159,7 +159,7 @@ export function buildRelationTraversal(
  * A collection arm's junction facts are pre-resolved on its storage
  * (`PolymorphicJunctionMember.junction`, materialized at definition validation),
  * and the arm is not a declared relation on the owner model, so there is no
- * `RelationInfo` to classify and none may be invented. Alias spend order matches
+ * `RelationRef` to classify and none may be invented. Alias spend order matches
  * {@link buildRelationTraversal} exactly — junction alias, then target alias —
  * so the emitted bytes stay uniform across both entries.
  */
@@ -183,7 +183,7 @@ export function buildMembershipJunctionTraversal(
 
 function buildOrdinaryTraversal(
   ctx: QueryScope,
-  relationInfo: RelationInfo,
+  relationRef: RelationRef,
   bind: () => ParentHeldRelation | ChildHeldRelation,
   parentAlias: string,
   targetAlias: string
@@ -197,7 +197,7 @@ function buildOrdinaryTraversal(
   // The target TABLE is knowable from the relation's public target model, so
   // neither the FROM source nor the mutation-target table list forces a bind —
   // the same order the builders read them in today.
-  const targetTable = (): string => getTableName(relationInfo.targetModel);
+  const targetTable = (): string => getTableName(relationRef.targetModel);
 
   let correlation: Sql | undefined;
   const conditions = (): readonly [Sql] => {

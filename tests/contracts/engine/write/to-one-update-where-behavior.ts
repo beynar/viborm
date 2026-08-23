@@ -55,20 +55,19 @@ export const toOneUpdateWhereSchema = (() => {
       profileId: s.int().nullable().unique(),
       // 1 + 2: the PARENT holds this FK.
       profile: s
-        .oneToOne(() => profile)
+        .toOne(() => profile)
         .fields("profileId")
-        .references("id")
-        .optional(),
+        .references("id"),
       // 3 + 4: the CHILD holds the FK (inverse side).
-      badge: s.oneToOne(() => badge).optional(),
+      badge: s.toOne(() => badge),
       // The collision witness: a model whose scalar is literally named `data`.
-      box: s.oneToOne(() => box).optional(),
+      box: s.toOne(() => box),
       // The collision witness that can actually WRITE somewhere else: a JSON
       // document column named `data`, on a model that also owns an ordinary
       // column and a relation the document's keys can name. See section 8b.
-      blob: s.oneToOne(() => blob).optional(),
+      blob: s.toOne(() => blob),
       // Depth: a to-many whose target carries its own inverse-side to-one.
-      notes: s.oneToMany(() => note),
+      notes: s.toMany(() => note),
     })
     .map("tou_owners");
 
@@ -80,13 +79,12 @@ export const toOneUpdateWhereSchema = (() => {
       avatarId: s.int().nullable().unique(),
       // A parent-held to-one INSIDE the target's data forces path 2 (delegation).
       avatar: s
-        .oneToOne(() => avatar)
+        .toOne(() => avatar)
         .fields("avatarId")
-        .references("id")
-        .optional(),
-      owner: s.oneToOne(() => owner).optional(),
+        .references("id"),
+      owner: s.toOne(() => owner),
       // The relation the DEEP wrapper filter reaches through.
-      marks: s.oneToMany(() => mark),
+      marks: s.toMany(() => mark),
     })
     .map("tou_profiles");
 
@@ -94,7 +92,7 @@ export const toOneUpdateWhereSchema = (() => {
     .model({
       id: s.int().id(),
       url: s.string(),
-      profile: s.oneToOne(() => profile).optional(),
+      profile: s.toOne(() => profile),
     })
     .map("tou_avatars");
 
@@ -104,7 +102,7 @@ export const toOneUpdateWhereSchema = (() => {
       flag: s.boolean(),
       profileId: s.int(),
       profile: s
-        .manyToOne(() => profile)
+        .toOne(() => profile)
         .fields("profileId")
         .references("id"),
     })
@@ -117,17 +115,15 @@ export const toOneUpdateWhereSchema = (() => {
       active: s.boolean(),
       ownerId: s.int().nullable().unique(),
       owner: s
-        .oneToOne(() => owner)
+        .toOne(() => owner)
         .fields("ownerId")
-        .references("id")
-        .optional(),
+        .references("id"),
       themeId: s.int().nullable().unique(),
       // A parent-held to-one INSIDE the target's data forces path 4 (delegation).
       theme: s
-        .oneToOne(() => theme)
+        .toOne(() => theme)
         .fields("themeId")
-        .references("id")
-        .optional(),
+        .references("id"),
     })
     .map("tou_badges");
 
@@ -135,7 +131,7 @@ export const toOneUpdateWhereSchema = (() => {
     .model({
       id: s.int().id(),
       tint: s.string(),
-      badge: s.oneToOne(() => badge).optional(),
+      badge: s.toOne(() => badge),
     })
     .map("tou_themes");
 
@@ -145,11 +141,10 @@ export const toOneUpdateWhereSchema = (() => {
       title: s.string(),
       ownerId: s.int().nullable(),
       owner: s
-        .manyToOne(() => owner)
+        .toOne(() => owner)
         .fields("ownerId")
-        .references("id")
-        .optional(),
-      detail: s.oneToOne(() => detail).optional(),
+        .references("id"),
+      detail: s.toOne(() => detail),
     })
     .map("tou_notes");
 
@@ -164,10 +159,9 @@ export const toOneUpdateWhereSchema = (() => {
       data: s.int(),
       noteId: s.int().nullable().unique(),
       note: s
-        .oneToOne(() => note)
+        .toOne(() => note)
         .fields("noteId")
-        .references("id")
-        .optional(),
+        .references("id"),
     })
     .map("tou_details");
 
@@ -179,10 +173,9 @@ export const toOneUpdateWhereSchema = (() => {
       data: s.int(),
       ownerId: s.int().nullable().unique(),
       owner: s
-        .oneToOne(() => owner)
+        .toOne(() => owner)
         .fields("ownerId")
-        .references("id")
-        .optional(),
+        .references("id"),
     })
     .map("tou_boxes");
 
@@ -199,10 +192,9 @@ export const toOneUpdateWhereSchema = (() => {
       ownerId: s.int().nullable().unique(),
       // …and a relation whose nested-write keys they can collide with.
       owner: s
-        .oneToOne(() => owner)
+        .toOne(() => owner)
         .fields("ownerId")
-        .references("id")
-        .optional(),
+        .references("id"),
     })
     .map("tou_blobs");
 

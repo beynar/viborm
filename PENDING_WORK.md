@@ -81,8 +81,8 @@ For historical reference, these were previously documented as pending but are no
 | **`skip` without `take`** | `src/adapters/databases/{postgres,mysql,sqlite}/*-adapter.ts` |
 | **`NULLS FIRST`/`NULLS LAST` ordering** | `src/query-engine/builders/sort-order-builder.ts`, `src/adapters/shared/standard-sql.ts` |
 | **Case-insensitive mode on `equals`/`in`** | `src/query-engine/builders/where-builder.ts` |
-| **Polymorphic to-one slots** (`s.polymorphicToOne`) | `src/schema/relation/polymorphic.ts`; `features-docs/polymorphic-relations.md` §§2–16 |
-| **Polymorphic collection slots** (`s.polymorphicToMany`) — declaration, migration, reads, direct writes, both inverse arities, and the bulk/progressive routes | `src/schema/relation/junction-topology.ts`, `src/query-engine/write-engine/PolymorphicCollectionPart.ts`, `RelationJunctionToOnePart.ts`, `junction-singular-transfer.ts`; `features-docs/polymorphic-relations.md` §17 |
+| **Polymorphic to-one slots** (a variant `s.toOne`) | `src/schema/relation/polymorphic.ts`; `features-docs/polymorphic-relations.md` §§2–16 |
+| **Polymorphic collection slots** (a variant `s.toMany`) — declaration, migration, reads, direct writes, both inverse arities, and the bulk/progressive routes | `src/schema/relation/junction-topology.ts`, `src/query-engine/write-engine/PolymorphicCollectionPart.ts`, `RelationJunctionToOnePart.ts`, `junction-singular-transfer.ts`; `features-docs/polymorphic-relations.md` §17 |
 
 ---
 

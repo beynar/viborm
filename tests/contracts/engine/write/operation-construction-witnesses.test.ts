@@ -2,16 +2,13 @@
 // is the shared witness assertion of this whole file and is invoked only from test cases.
 import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
-import {
-  NestedWriteError,
-  UnsupportedOperationError,
-  ValidationError,
-} from "@errors";
+import { UnsupportedOperationError, ValidationError } from "@errors";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
-import type { RelationInfo } from "@query-engine/types";
 import { s } from "@schema";
 import { hydrateSchemaNames } from "@schema/hydration";
 import type { Model } from "@schema/model";
+import type { ResolvedRelationEdge } from "@schema/validation/relation-resolution";
+import { resolveSchemaOrThrow } from "@schema/validation/validator";
 import {
   constructRoutedOperation,
   ROUTED_OPERATIONS,
@@ -39,9 +36,8 @@ import { describe, expect, test } from "vitest";
  *   · Nineteen sites HAVE a public spelling. Each gets a test that feeds the shape through
  *     the PUBLIC client surface — `await client.<model>.<op>(payload)`, the same path
  *     `PendingOperation` walks — and asserts the class that answers FIRST is the parse
- *     boundary's `ValidationError` (or, for the mismatched-arity edge, the upstream
- *     `NestedWriteError` the own-write analyzer raises), never the converted site. Each also asserts it is NOT an
- *     `UnsupportedOperationError`, which is the claim the census pin now encodes.
+ *     boundary's `ValidationError`, never the converted site. Each also asserts it is NOT
+ *     an `UnsupportedOperationError`, which is the claim the census pin now encodes.
  *
  *   · Four sites have NO public spelling at all (`UpdateOperation` :622 / :1202,
  *     `nested-target-parts` :308, `ReadOperation` :90). The law's own escape clause
@@ -66,7 +62,6 @@ const EXPECTED_BOOLEAN = /Expected boolean/;
 const NO_UNION_MEMBER = /did not match any union member/;
 const MISSING_REQUIRED = /Missing required field/;
 const NO_UNIQUE_DISCRIMINATOR = /requires at least one unique discriminator/;
-const MISMATCHED_FK = /mismatched foreign-key metadata/;
 const NON_NULLABLE_PK = /Expected integer|Expected object/;
 const NOT_A_READ_BASE = /is not a read base/;
 
@@ -139,14 +134,14 @@ const nowPkJunctionSchema = (() => {
     .model({
       id: s.string().id(),
       title: s.string(),
-      marks: s.manyToMany(() => mark),
+      marks: s.toMany(() => mark),
     })
     .map("n7_now_docs");
   const mark: any = s
     .model({
       id: s.dateTime().id().now(),
       name: s.string(),
-      docs: s.manyToMany(() => doc),
+      docs: s.toMany(() => doc),
     })
     .map("n7_now_marks");
   return { doc, mark };
@@ -161,40 +156,32 @@ const requiredPkJunctionSchema = (() => {
     .model({
       id: s.string().id(),
       title: s.string(),
-      stamps: s.manyToMany(() => stamp),
+      stamps: s.toMany(() => stamp),
     })
     .map("n7_req_pages");
   const stamp: any = s
     .model({
       id: s.int().id(),
       name: s.string(),
-      pages: s.manyToMany(() => page),
+      pages: s.toMany(() => page),
     })
     .map("n7_req_stamps");
   return { page, stamp };
 })();
 
 // ---------------------------------------------------------------------------
-// A child FK whose arity does NOT match its references — the second half of
-// `RelationUpsertPart`'s child-held-FK invariant.
+// GONE: the mismatched-arity child FK (`.fields("a","b").references("id")`).
+//
+// It was the only reachable input to two downstream refusals — `pairMembers`'
+// `NestedWriteError: … has mismatched foreign-key metadata.` and
+// `buildOneUpsertPart`'s length re-assertion — and to the `:814` witness that
+// ordered them. `.references(...)` pairs positionally and refuses an unequal
+// chain at CONSTRUCTION now (V4002, witnessed at
+// `tests/unit/schema-validation/foreign-key-rules.core.test.ts`), so the schema
+// cannot be declared, both guards were deleted as unreachable (D27, recorded in
+// `docs/architecture/guard-ownership-ledger.md`), and the engine holds ONE
+// resolved pair list instead of two field lists that could disagree.
 // ---------------------------------------------------------------------------
-const mismatchedAritySchema = (() => {
-  const owner: any = s
-    .model({ id: s.string().id(), kids: s.oneToMany(() => kid) })
-    .map("n7_arity_owners");
-  const kid: any = s
-    .model({
-      id: s.string().id(),
-      ownerA: s.string(),
-      ownerB: s.string(),
-      owner: s
-        .manyToOne(() => owner)
-        .fields("ownerA", "ownerB")
-        .references("id"),
-    })
-    .map("n7_arity_kids");
-  return { owner, kid };
-})();
 
 // ---------------------------------------------------------------------------
 // A `manyToOne` declared WITHOUT `.fields()` — the shape that FALSIFIED
@@ -206,7 +193,7 @@ const fieldsLessManyToOneSchema = (() => {
       id: s.string().id(),
       name: s.string(),
       // No `.fields()`: `holdsFK` is false, `type` stays "manyToOne".
-      inverse: s.manyToOne(() => right).optional(),
+      inverse: s.toOne(() => right),
     })
     .map("n7_inverse_lefts");
   const right: any = s
@@ -215,10 +202,9 @@ const fieldsLessManyToOneSchema = (() => {
       title: s.string(),
       leftId: s.string().nullable(),
       left: s
-        .manyToOne(() => left)
+        .toOne(() => left)
         .fields("leftId")
-        .references("id")
-        .optional(),
+        .references("id"),
     })
     .map("n7_inverse_rights");
   return { left, right };
@@ -487,35 +473,31 @@ describe("N7-U-A (c-i) conversion witnesses — UpdateOperation", () => {
     // a relation that is neither many-to-many (dispatched to the junction above) nor
     // parent-held (dispatched to the to-one family), and it is gone — the bound
     // relation's own classification narrows the arm now. The argument it rested on is
-    // what this test still pins, and it is the reason the guard could go:
-    // `RelationInfo["type"]` is a closed four-member union, and every member that can
-    // arrive satisfies the predicate, so the guard was false for all of them.
-    const types: RelationInfo["type"][] = [
-      "oneToOne",
-      "oneToMany",
-      "manyToOne",
-      "manyToMany",
+    // what this test still pins, re-founded on the fact that replaced the four-way
+    // declared type: a slot resolves to a CLOSED set of edge kinds, and every one of
+    // them is either dispatched away or admitted by the child-held gate. The old
+    // guard was false for all of them, which is why it could go.
+    const kinds: ResolvedRelationEdge["kind"][] = [
+      "foreignKey",
+      "junction",
+      "variantRowCarrier",
+      "variantJunctionCarrier",
     ];
-    for (const type of types) {
-      const dispatchedAway = type === "manyToMany";
-      const isToOne = type === "oneToOne" || type === "manyToOne";
+    for (const kind of kinds) {
+      const dispatchedAway = kind !== "foreignKey";
       expect(
-        dispatchedAway || isToOne || type === "oneToMany",
-        `relation type '${type}' must be dispatched away or admitted by the child-held gate`
+        dispatchedAway || kind === "foreignKey",
+        `edge kind '${kind}' must be dispatched away or admitted by the child-held gate`
       ).toBe(true);
     }
-    // The same claim, on live schema metadata rather than on the union alone: every
-    // relation in both fixture corpora is m2m, to-one, or one-to-many.
+    // The same claim, on live topology rather than on the union alone: every slot in
+    // both fixture corpora resolves to one of those kinds, and nothing else.
     for (const corpus of [nestedWriteBehaviorSchema, manyToManySchema]) {
-      for (const model of Object.values(corpus)) {
-        for (const relation of Object.values(
-          (model as any)["~"].state.relations ?? {}
-        )) {
-          const relationType = (relation as any)["~"].state.type as
-            | RelationInfo["type"]
-            | undefined;
-          if (!relationType) continue;
-          expect(types).toContain(relationType);
+      hydrateSchemaNames(corpus);
+      const index = resolveSchemaOrThrow(corpus);
+      for (const slots of index.values()) {
+        for (const resolved of slots.values()) {
+          expect(kinds).toContain(resolved.edge.kind);
         }
       }
     }
@@ -572,54 +554,6 @@ describe("N7-U-A (c-i) conversion witnesses — the Part builders", () => {
         )
       ).toBeDefined();
     }
-  });
-
-  test("RelationUpsertPart :814 — a mismatched-arity child FK is refused UPSTREAM", async () => {
-    const client = publicClient(mismatchedAritySchema);
-    for (const payload of [
-      {
-        kids: {
-          upsert: { where: { id: "k" }, create: { id: "k" }, update: {} },
-        },
-      },
-      {
-        kids: { connectOrCreate: { where: { id: "k" }, create: { id: "k" } } },
-      },
-    ]) {
-      const error = await refusalOf(() =>
-        client.owner.update({ where: { id: "o" }, data: payload })
-      );
-      // The relation-mutation legality walk runs before any Part is built.
-      expect(error).toBeInstanceOf(NestedWriteError);
-      expect(error).not.toBeInstanceOf(UnsupportedOperationError);
-      expect(error.message).toMatch(MISMATCHED_FK);
-    }
-    // The :708 lesson applied here: a "no reachable payload" claim is only as strong as
-    // the caller list, and the GRANDCHILD fold is the caller that was missing from :708's.
-    // The own-write analyzer walks the WHOLE tree before any Part is built, so the deeper
-    // spelling is refused by the same legality walk, at the same place in time.
-    const deep = await refusalOf(() =>
-      client.owner.update({
-        where: { id: "o" },
-        data: {
-          kids: {
-            update: {
-              where: { id: "k" },
-              data: {
-                owner: {
-                  connectOrCreate: {
-                    where: { id: "o2" },
-                    create: { id: "o2" },
-                  },
-                },
-              },
-            },
-          },
-        },
-      })
-    );
-    expect(deep).not.toBeInstanceOf(UnsupportedOperationError);
-    expect(deep.message).toMatch(MISMATCHED_FK);
   });
 
   test("RelationUpsertPart :1134 / :1144 — the upsert-item narrowings", async () => {
@@ -913,7 +847,7 @@ describe("N7-U-A — the TWO (c-i) claims that failed re-verification", () => {
    *
    * E3 removed that kind dispatch. The arm now routes by DIRECTION first, through the
    * same located-target seam every other located-target caller uses, so the wrong
-   * `relationInfo.type` no longer reaches the child-held adopt builder — its type gate is
+   * `relationRef.type` no longer reaches the child-held adopt builder — its type gate is
    * an engine invariant again, and the (c-i) claim it lost is restored WITH the reason.
    *
    * B3 of the earlier limitation lift tried to delete `assertArmEdgeIsChildHeld` and was
@@ -984,7 +918,7 @@ describe("compound many-to-many construction", () => {
         tenantId: s.string(),
         id: s.string(),
         title: s.string(),
-        labels: s.manyToMany(() => label),
+        labels: s.toMany(() => label),
       })
       .id(["tenantId", "id"])
       .map("o_compound_docs");
@@ -993,7 +927,7 @@ describe("compound many-to-many construction", () => {
       .model({
         id: s.string().id(),
         name: s.string(),
-        docs: s.manyToMany(() => doc),
+        docs: s.toMany(() => doc),
       })
       .map("o_compound_labels");
 

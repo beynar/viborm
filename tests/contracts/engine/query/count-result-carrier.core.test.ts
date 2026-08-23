@@ -3,10 +3,14 @@ import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { COUNT_RESULT_KEY } from "@adapters/shared/result-parsing";
-import { createQueryScope } from "@query-engine/context/query-scope";
 import { buildCount } from "@query-engine/operations/count";
-import { parseResult, ResultParser } from "@query-engine/result/ResultParser";
-import { hydrateSchemaNames, s } from "@schema";
+import { parseResult } from "@query-engine/result/ResultParser";
+import { s } from "@schema";
+import {
+  parserFor,
+  prepareSchema,
+  scopeFor,
+} from "@tests/fixtures/query-scope";
 import { describe, expect, test } from "vitest";
 
 const schema = {
@@ -17,7 +21,7 @@ const schema = {
   }),
 };
 
-hydrateSchemaNames(schema);
+prepareSchema(schema);
 
 const dialects: Array<{
   name: string;
@@ -43,11 +47,11 @@ const dialects: Array<{
 
 describe.each(dialects)("$name count result carrier", (dialect) => {
   function createParser() {
-    return new ResultParser(dialect.adapter, schema.metric);
+    return parserFor(dialect.adapter, schema.metric);
   }
 
   function createScope() {
-    return createQueryScope(dialect.adapter, schema.metric);
+    return scopeFor(dialect.adapter, schema.metric);
   }
 
   test("aliases and parses a plain count with the private carrier", () => {

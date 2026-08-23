@@ -33,10 +33,11 @@
 
 import { VibORMError, VibORMErrorCode } from "@errors";
 import type { AnyModel } from "@schema/model";
-import {
-  type AnyPolymorphicRelation,
-  polymorphicCardinality,
-} from "@schema/relation";
+import type {
+  ResolvedRelationIndex,
+  ResolvedSlot,
+  ResolvedVariantEdge,
+} from "@schema/validation/relation-resolution";
 import { projectableScalarNames } from "@validation/model/core/projection";
 import { isRecord as isPlainRecord } from "@validation/value-guards";
 import type { Operations } from "./types";
@@ -89,10 +90,20 @@ export type ClientModelOmit<M extends AnyModel> = Partial<
   Record<ProjectableKeysOf<M>, true>
 >;
 
-/** Resolves a model to the fields this client hides by default. */
-export type ClientOmitResolver = (
-  model: AnyModel
-) => Record<string, boolean> | undefined;
+/**
+ * Resolves a model to the fields this client hides by default, and carries the
+ * one resolved topology index the recursion walks.
+ *
+ * The index travels WITH the resolver because the two are used together at every
+ * node and are settled together, once, at client construction: the resolver
+ * answers "which columns", the index answers "which model is on the other side
+ * of this key" — without ever invoking a target getter (§11.4.11).
+ */
+export interface ClientOmitResolver {
+  /** The fields this client hides by default for one model. */
+  readonly omit: (model: AnyModel) => Record<string, boolean> | undefined;
+  readonly relations: ResolvedRelationIndex;
+}
 
 const hasEntries = (value: Record<string, boolean>): boolean =>
   Object.keys(value).length > 0;
@@ -100,11 +111,13 @@ const hasEntries = (value: Record<string, boolean>): boolean =>
 /**
  * Build the model → default-omit lookup, or `undefined` when the client
  * configured nothing worth walking for. Keyed by model IDENTITY so a nested
- * relation resolves through `relation.getter()` without a name round-trip.
+ * relation resolves through its `ResolvedSlot` target without a name
+ * round-trip.
  */
 export const createClientOmitResolver = <S extends Record<string, AnyModel>>(
   schema: S,
-  config: ClientOmitConfig<S> | undefined
+  config: ClientOmitConfig<S> | undefined,
+  relations: ResolvedRelationIndex
 ): ClientOmitResolver | undefined => {
   if (!config) return undefined;
   const byModel = new Map<AnyModel, Record<string, boolean>>();
@@ -139,7 +152,7 @@ export const createClientOmitResolver = <S extends Record<string, AnyModel>>(
     if (hasEntries(flags)) byModel.set(model, flags);
   }
   if (byModel.size === 0) return undefined;
-  return (model: AnyModel) => byModel.get(model);
+  return { omit: (model: AnyModel) => byModel.get(model), relations };
 };
 
 /**
@@ -208,7 +221,7 @@ const rewriteNode = (
     ? rewriteRelationMap(model, includeValue, resolve)
     : includeValue;
 
-  const defaults = hasSelect ? undefined : resolve(model);
+  const defaults = hasSelect ? undefined : resolve.omit(model);
   const nextOmit = defaults ? mergeOmit(defaults, node.omit) : node.omit;
 
   if (
@@ -253,24 +266,22 @@ const rewriteRelationMap = (
   map: Record<string, unknown>,
   resolve: ClientOmitResolver
 ): Record<string, unknown> => {
-  const relations = model["~"].state.relations;
-  const polymorphicRelations = model["~"].state.polymorphicRelations;
+  const slots = resolve.relations.get(model);
   let changed = false;
   const next: Record<string, unknown> = { ...map };
 
   for (const key of Object.keys(map)) {
-    const relation = Object.hasOwn(relations, key) ? relations[key] : undefined;
+    const resolved = slots?.get(key);
+    if (!resolved) continue;
     const value = map[key];
 
-    const polymorphicRelation = Object.hasOwn(polymorphicRelations, key)
-      ? polymorphicRelations[key]
-      : undefined;
-    if (polymorphicRelation) {
-      const rewritten = rewritePolymorphicRelation(
-        polymorphicRelation,
-        value,
-        resolve
-      );
+    // ONE index, split here by the settled EDGE: a direct variant carrier spans
+    // several targets and projects a tagged envelope; every other slot — an
+    // ordinary pair, or a bound inverse view of one carrier member — reaches
+    // exactly one model.
+    const carrier = directVariantCarrier(resolved);
+    if (carrier) {
+      const rewritten = rewriteVariantCarrier(carrier, value, resolve);
       if (rewritten !== value) {
         next[key] = rewritten;
         changed = true;
@@ -278,11 +289,11 @@ const rewriteRelationMap = (
       continue;
     }
 
-    if (!relation) continue;
-    const target = relation["~"].state.getter() as AnyModel;
+    const target = slotTarget(resolved, model);
+    if (!target) continue;
 
     if (value === true) {
-      const defaults = resolve(target);
+      const defaults = resolve.omit(target);
       if (!defaults) continue;
       next[key] = { omit: { ...defaults } };
       changed = true;
@@ -300,6 +311,39 @@ const rewriteRelationMap = (
   return changed ? next : map;
 };
 
+/** The direct carrier edge of a variant slot — never a bound inverse's view. */
+const directVariantCarrier = (
+  resolved: ResolvedSlot
+): ResolvedVariantEdge | undefined => {
+  if (resolved.member) return undefined;
+  const edge = resolved.edge;
+  return edge.kind === "variantRowCarrier" ||
+    edge.kind === "variantJunctionCarrier"
+    ? edge
+    : undefined;
+};
+
+/**
+ * The SETTLED model on the other side of one slot.
+ *
+ * Every model here came out of the gate's own registration, so no getter is
+ * invoked and no `targetEntries()` is walked: the edge already names both
+ * endpoints, and a bound inverse names the carrier that holds the storage.
+ */
+const slotTarget = (
+  resolved: ResolvedSlot,
+  source: AnyModel
+): AnyModel | undefined => {
+  const edge = resolved.edge;
+  if (edge.kind === "foreignKey" || edge.kind === "junction") {
+    const [first, second] = edge.endpoints;
+    return first.source === source && first.field === resolved.slot.field
+      ? second.source
+      : first.source;
+  }
+  return edge.carrier.source;
+};
+
 /**
  * WHERE a polymorphic arm lives depends on the slot's CARDINALITY, and getting
  * that wrong is not a missed default — it is a thrown query.
@@ -313,14 +357,14 @@ const rewriteRelationMap = (
  * a variant's target model — a client-option-shaped failure in a query that
  * never mentioned the option.
  */
-const rewritePolymorphicRelation = (
-  relation: AnyPolymorphicRelation,
+const rewriteVariantCarrier = (
+  edge: ResolvedVariantEdge,
   value: unknown,
   resolve: ClientOmitResolver
 ): unknown =>
-  polymorphicCardinality(relation["~"].state) === "many"
-    ? rewritePolymorphicCollection(relation, value, resolve)
-    : rewritePolymorphicSlot(relation, value, resolve);
+  edge.kind === "variantJunctionCarrier"
+    ? rewritePolymorphicCollection(edge, value, resolve)
+    : rewritePolymorphicSlot(edge, value, resolve);
 
 /**
  * The arm a client default produces for one target, or `undefined` when that
@@ -337,7 +381,7 @@ const defaultedArm = (
     return rewritten === variant ? undefined : rewritten;
   }
   if (variant !== true && variant !== undefined) return undefined;
-  const defaults = resolve(target);
+  const defaults = resolve.omit(target);
   return defaults ? { omit: { ...defaults } } : undefined;
 };
 
@@ -347,7 +391,7 @@ const defaultedArm = (
  * target so client defaults apply to both explicit and defaulted variants.
  */
 const rewritePolymorphicSlot = (
-  relation: AnyPolymorphicRelation,
+  edge: Extract<ResolvedVariantEdge, { kind: "variantRowCarrier" }>,
   value: unknown,
   resolve: ClientOmitResolver
 ): unknown => {
@@ -357,14 +401,11 @@ const rewritePolymorphicSlot = (
     value === true ? {} : { ...value };
   let changed = false;
 
-  for (const { publicType, targetModel } of relation["~"].targetEntries()) {
-    // Client construction runs the mandatory polymorphic definition gate before
-    // any query rewrite, so the cached hostile-boundary value is now a model.
-    const target = targetModel as AnyModel;
-    const variant = value === true ? undefined : value[publicType];
-    const arm = defaultedArm(target, variant, resolve);
+  for (const member of edge.members) {
+    const variant = value === true ? undefined : value[member.variant];
+    const arm = defaultedArm(member.targetModel, variant, resolve);
     if (arm === undefined) continue;
-    projection[publicType] = arm;
+    projection[member.variant] = arm;
     changed = true;
   }
 
@@ -380,7 +421,7 @@ const rewritePolymorphicSlot = (
  * producing a parse error about a key the caller never wrote.
  */
 const rewritePolymorphicCollection = (
-  relation: AnyPolymorphicRelation,
+  edge: Extract<ResolvedVariantEdge, { kind: "variantJunctionCarrier" }>,
   value: unknown,
   resolve: ClientOmitResolver
 ): unknown => {
@@ -398,12 +439,15 @@ const rewritePolymorphicCollection = (
   const variants: Record<string, unknown> = { ...existing };
   let changed = false;
 
-  for (const { publicType, targetModel } of relation["~"].targetEntries()) {
-    if (allowed && !allowed.has(publicType)) continue;
-    const target = targetModel as AnyModel;
-    const arm = defaultedArm(target, existing?.[publicType], resolve);
+  for (const member of edge.members) {
+    if (allowed && !allowed.has(member.variant)) continue;
+    const arm = defaultedArm(
+      member.topology.target.model,
+      existing?.[member.variant],
+      resolve
+    );
     if (arm === undefined) continue;
-    variants[publicType] = arm;
+    variants[member.variant] = arm;
     changed = true;
   }
 

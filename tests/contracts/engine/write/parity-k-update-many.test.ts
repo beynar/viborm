@@ -88,17 +88,16 @@ const parityKSchema = (() => {
       qty: s.int(),
       binId: s.int().nullable(),
       bin: s
-        .manyToOne(() => bin)
+        .toOne(() => bin)
         .fields("binId")
-        .references("id")
-        .optional(),
+        .references("id"),
     })
     .map("pk_gadgets");
   const bin = s
     .model({
       id: s.int().id(),
       name: s.string(),
-      gadgets: s.oneToMany(() => gadget),
+      gadgets: s.toMany(() => gadget),
     })
     .map("pk_bins");
   return { gadget, bin };

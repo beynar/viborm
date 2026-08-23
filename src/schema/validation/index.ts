@@ -2,41 +2,34 @@
 
 export {
   allRules,
-  cascadeOnRequiredWarning,
   compoundFieldsExist,
-  fkCardinalityMatch,
-  fkFieldExists,
-  fkOneToOneUnique,
-  fkReferenceExists,
-  fkReferencesUnique,
-  fkRequiredForOwning,
-  fkRules,
-  fkTypeMatch,
   indexFieldsExist,
   indexNameUnique,
-  junctionConfigConsistent,
-  junctionFieldsDistinct,
-  junctionFieldsValid,
-  junctionTableUnique,
   modelHasFields,
   modelMappedNameValid,
   modelNameNotReserved,
   modelNameValid,
   modelRules,
-  noCircularRequiredChain,
   noOrphanFkFields,
   polymorphicRelationWarning,
-  polymorphicRules,
-  validatePolymorphicRelations,
-  relationHasInverse,
-  relationNameUnique,
-  relationPairFkSingleSide,
   relationRules,
-  relationTargetExists,
-  setNullRequiresNullable,
   validateFieldsSinglePass,
 } from "./rules";
 export { SchemaValidationError, isSchemaValidationError } from "./error";
+export type {
+  RelationResolution,
+  ResolvedRelationEdge,
+  ResolvedRelationIndex,
+  ResolvedSlot,
+  ResolvedStoredReference,
+  ResolvedVariantEdge,
+  ResolvedVariantJunctionEdge,
+  ResolvedVariantJunctionMember,
+  ResolvedVariantRowEdge,
+  ResolvedVariantRowMember,
+  ResolvedVariantRowStorage,
+} from "./relation-resolution";
+export { resolvedEdges, resolveSchemaRelations } from "./relation-resolution";
 export type {
   Schema,
   SchemaValidationIssue,
@@ -47,7 +40,8 @@ export type {
 } from "./types";
 export {
   SchemaValidator,
+  resolveSchemaOrThrow,
+  validateClientSchemaOrThrow,
   validateSchema,
   validateSchemaOrThrow,
-  validatePolymorphicSchemaOrThrow,
 } from "./validator";

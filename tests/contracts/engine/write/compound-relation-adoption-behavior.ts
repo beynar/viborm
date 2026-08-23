@@ -32,7 +32,7 @@ export const compoundAdoptSchema = (() => {
       id: s.int().id(),
       region: s.string(),
       code: s.string(),
-      seats: s.oneToMany(() => seat),
+      seats: s.toMany(() => seat),
     })
     .map("e4u2_orgs")
     .unique(["region", "code"]);
@@ -44,10 +44,9 @@ export const compoundAdoptSchema = (() => {
       orgRegion: s.string().nullable(),
       orgCode: s.string().nullable(),
       org: s
-        .manyToOne(() => org)
+        .toOne(() => org)
         .fields("orgRegion", "orgCode")
-        .references("region", "code")
-        .optional(),
+        .references("region", "code"),
     })
     .map("e4u2_seats");
 
@@ -60,7 +59,7 @@ export const compoundAdoptSchema = (() => {
     .model({
       id: s.int().id().increment(),
       tag: s.string(),
-      members: s.oneToMany(() => member),
+      members: s.toMany(() => member),
     })
     .map("e4u2_crews")
     .unique(["id", "tag"]);
@@ -72,10 +71,9 @@ export const compoundAdoptSchema = (() => {
       crewId: s.int().nullable(),
       crewTag: s.string().nullable(),
       crew: s
-        .manyToOne(() => crew)
+        .toOne(() => crew)
         .fields("crewId", "crewTag")
-        .references("id", "tag")
-        .optional(),
+        .references("id", "tag"),
     })
     .map("e4u2_members");
 
@@ -85,7 +83,7 @@ export const compoundAdoptSchema = (() => {
       id: s.int().id(),
       area: s.string(),
       slot: s.string().nullable(),
-      spots: s.oneToMany(() => spot),
+      spots: s.toMany(() => spot),
     })
     .map("e4u2_zones")
     .unique(["area", "slot"]);
@@ -97,10 +95,9 @@ export const compoundAdoptSchema = (() => {
       zoneArea: s.string().nullable(),
       zoneSlot: s.string().nullable(),
       zone: s
-        .manyToOne(() => zone)
+        .toOne(() => zone)
         .fields("zoneArea", "zoneSlot")
-        .references("area", "slot")
-        .optional(),
+        .references("area", "slot"),
     })
     .map("e4u2_zone_spots");
 

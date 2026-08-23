@@ -25,13 +25,18 @@ import { describe, expect, test } from "vitest";
  * decision exists to remove.
  */
 
+// `owner` holds TWO variant carriers that both admit `article` and `photo`, so
+// the BOUND one names its carrier explicitly on both endpoints — the §6.2 repair
+// for competing candidates. The other carrier claims no name and binds nothing:
+// its members are evaluated after the label partition, so the `Gallery` inverses
+// are not candidates of theirs at all and they stay valid direct-only members.
 const article = s.model({
   id: s.string().id(),
-  gallery: s.manyToOne(() => owner).optional(),
+  gallery: s.toOne(() => owner).name("Gallery"),
 });
 const photo = s.model({
   id: s.string().id(),
-  galleries: s.manyToMany(() => owner),
+  galleries: s.toMany(() => owner).name("Gallery"),
 });
 const owner = s.model({
   id: s.string().id(),
@@ -39,12 +44,14 @@ const owner = s.model({
   // A COLLECTION group beside a toOne group on the same model: every pin below
   // asserts the collection key is refused AND the singular key still works, so
   // an omission that over-reached would be visible immediately.
-  items: s.polymorphicToMany(
-    { article: () => article, photo: () => photo },
-    { values: { article: "omit.article.v1", photo: "omit.photo.v1" } }
-  ),
+  items: s
+    .toMany(
+      { article: () => article, photo: () => photo },
+      { values: { article: "omit.article.v1", photo: "omit.photo.v1" } }
+    )
+    .name("Gallery"),
   feature: s
-    .polymorphicToOne(
+    .toOne(
       { article: () => article, photo: () => photo },
       { values: { article: "feat.article.v1", photo: "feat.photo.v1" } }
     )

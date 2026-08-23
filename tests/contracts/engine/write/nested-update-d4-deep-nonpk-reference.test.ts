@@ -37,7 +37,7 @@ const d4DeepSchema = (() => {
     .model({
       id: s.int().id(),
       name: s.string(),
-      orgs: s.oneToMany(() => org),
+      orgs: s.toMany(() => org),
     })
     .map("d4_deep_companies");
   const org = s
@@ -46,11 +46,11 @@ const d4DeepSchema = (() => {
       code: s.string().unique(),
       companyId: s.int(),
       company: s
-        .manyToOne(() => company)
+        .toOne(() => company)
         .fields("companyId")
         .references("id"),
       // member.orgCode references org.code (a NON-PK unique) — the D4-style edge.
-      members: s.oneToMany(() => member),
+      members: s.toMany(() => member),
     })
     .map("d4_deep_orgs");
   const member = s
@@ -58,7 +58,7 @@ const d4DeepSchema = (() => {
       id: s.string().id(),
       orgCode: s.string(),
       org: s
-        .manyToOne(() => org)
+        .toOne(() => org)
         .fields("orgCode")
         .references("code"),
     })

@@ -140,12 +140,15 @@ describe("ToOne Create - Required (Post.author)", () => {
           },
         },
       ],
-    ] as const)("runtime: rejects connectOrCreate envelope %s", (_, envelope) => {
-      const result = parse(schema, {
-        connectOrCreate: envelope,
-      });
-      expect(result.issues).toBeDefined();
-    });
+    ] as const)(
+      "runtime: rejects connectOrCreate envelope %s",
+      (_, envelope) => {
+        const result = parse(schema, {
+          connectOrCreate: envelope,
+        });
+        expect(result.issues).toBeDefined();
+      }
+    );
 
     test("runtime: rejects create with missing required field", () => {
       const result = parse(schema, {
@@ -225,7 +228,6 @@ describe("ToMany Create - Required (Author.posts)", () => {
           id: string;
           title: string;
           content: string;
-          authorId: string;
         };
       }>().toMatchTypeOf<CreateInput>();
     });
@@ -236,7 +238,6 @@ describe("ToMany Create - Required (Author.posts)", () => {
           id: string;
           title: string;
           content: string;
-          authorId: string;
         }>;
       }>().toMatchTypeOf<CreateInput>();
     });
@@ -261,7 +262,6 @@ describe("ToMany Create - Required (Author.posts)", () => {
             id: string;
             title: string;
             content: string;
-            authorId: string;
           }>;
           skipDuplicates?: boolean;
         };
@@ -281,7 +281,6 @@ describe("ToMany Create - Required (Author.posts)", () => {
             id: string;
             title: string;
             content: string;
-            authorId: string;
           };
         };
       }>().not.toMatchTypeOf<CreateInput>();
@@ -292,7 +291,6 @@ describe("ToMany Create - Required (Author.posts)", () => {
             id: string;
             title: string;
             content: string;
-            authorId: string;
           };
         };
       }>().toMatchTypeOf<CreateInput>();
@@ -308,7 +306,6 @@ describe("ToMany Create - Required (Author.posts)", () => {
             id: string;
             title: string;
             content: string;
-            authorId: string;
           };
         }>;
       }>().not.toMatchTypeOf<CreateInput>();
@@ -322,7 +319,6 @@ describe("ToMany Create - Required (Author.posts)", () => {
           id: "post-1",
           title: "Hello World",
           content: "Content",
-          authorId: "author-1",
         },
       };
       const result = parse(schema, input);
@@ -334,7 +330,6 @@ describe("ToMany Create - Required (Author.posts)", () => {
         expect(result.value.create?.[0].id).toBe("post-1");
         expect(result.value.create?.[0].title).toBe("Hello World");
         expect(result.value.create?.[0].content).toBe("Content");
-        expect(result.value.create?.[0].authorId).toBe("author-1");
       }
     });
 
@@ -345,13 +340,11 @@ describe("ToMany Create - Required (Author.posts)", () => {
             id: "post-1",
             title: "Post 1",
             content: "Content 1",
-            authorId: "a1",
           },
           {
             id: "post-2",
             title: "Post 2",
             content: "Content 2",
-            authorId: "a1",
           },
         ],
       };
@@ -404,7 +397,6 @@ describe("ToMany Create - Required (Author.posts)", () => {
             id: "post-1",
             title: "Hello",
             content: "World",
-            authorId: "a1",
           },
         },
       };
@@ -430,16 +422,18 @@ describe("ToMany Create - Required (Author.posts)", () => {
             id: "post-1",
             title: "Hello",
             content: "World",
-            authorId: "a1",
           },
         },
       ],
-    ] as const)("runtime: rejects connectOrCreate envelope %s", (_, envelope) => {
-      const result = parse(schema, {
-        connectOrCreate: envelope,
-      });
-      expect(result.issues).toBeDefined();
-    });
+    ] as const)(
+      "runtime: rejects connectOrCreate envelope %s",
+      (_, envelope) => {
+        const result = parse(schema, {
+          connectOrCreate: envelope,
+        });
+        expect(result.issues).toBeDefined();
+      }
+    );
 
     test("runtime: accepts array of connectOrCreate objects", () => {
       const input = {
@@ -450,7 +444,6 @@ describe("ToMany Create - Required (Author.posts)", () => {
               id: "post-1",
               title: "P1",
               content: "C1",
-              authorId: "a1",
             },
           },
           {
@@ -459,7 +452,6 @@ describe("ToMany Create - Required (Author.posts)", () => {
               id: "post-2",
               title: "P2",
               content: "C2",
-              authorId: "a1",
             },
           },
         ],
@@ -482,31 +474,32 @@ describe("ToMany Create - Required (Author.posts)", () => {
             id: "post-1",
             title: "Hello",
             content: "World",
-            authorId: "a1",
           },
         },
       ],
-    ] as const)("runtime: rejects connectOrCreate array item %s", (_, invalidItem) => {
-      const result = parse(schema, {
-        connectOrCreate: [
-          {
-            where: { id: "post-valid" },
-            create: {
-              id: "post-valid",
-              title: "Valid",
-              content: "World",
-              authorId: "a1",
+    ] as const)(
+      "runtime: rejects connectOrCreate array item %s",
+      (_, invalidItem) => {
+        const result = parse(schema, {
+          connectOrCreate: [
+            {
+              where: { id: "post-valid" },
+              create: {
+                id: "post-valid",
+                title: "Valid",
+                content: "World",
+              },
             },
-          },
-          invalidItem,
-        ],
-      });
-      expect(result.issues).toBeDefined();
-    });
+            invalidItem,
+          ],
+        });
+        expect(result.issues).toBeDefined();
+      }
+    );
 
     test("runtime: accepts combined create and connect", () => {
       const input = {
-        create: { id: "post-1", title: "New", content: "Post", authorId: "a1" },
+        create: { id: "post-1", title: "New", content: "Post" },
         connect: { id: "existing-post" },
       };
       const result = parse(schema, input);
@@ -525,7 +518,6 @@ describe("ToMany Create - Required (Author.posts)", () => {
           id: "post-1",
           title: "Hello",
           content: "World",
-          authorId: "a1",
         },
       });
       expect(result.issues).toBeUndefined();
@@ -550,7 +542,7 @@ describe("ToMany Create - Required (Author.posts)", () => {
       const result = parse(schema, {
         connectOrCreate: {
           where: { id: "post-1" },
-          create: { id: "post-1", title: "T", content: "C", authorId: "a1" },
+          create: { id: "post-1", title: "T", content: "C" },
         },
       });
       expect(result.issues).toBeUndefined();
@@ -563,8 +555,8 @@ describe("ToMany Create - Required (Author.posts)", () => {
     test("output: preserves array create as-is", () => {
       const result = parse(schema, {
         create: [
-          { id: "post-1", title: "P1", content: "C1", authorId: "a1" },
-          { id: "post-2", title: "P2", content: "C2", authorId: "a1" },
+          { id: "post-1", title: "P1", content: "C1" },
+          { id: "post-2", title: "P2", content: "C2" },
         ],
       });
       expect(result.issues).toBeUndefined();

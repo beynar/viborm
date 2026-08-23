@@ -959,7 +959,7 @@ const compoundRootSchema = (() => {
       id: s.int().id(),
       email: s.string().unique(),
       count: s.int(),
-      posts: s.oneToMany(() => post),
+      posts: s.toMany(() => post),
     })
     .unique(["id", "count"])
     .map("cmp_root_users");
@@ -969,10 +969,9 @@ const compoundRootSchema = (() => {
       title: s.string(),
       userId: s.int().nullable(),
       author: s
-        .manyToOne(() => user)
+        .toOne(() => user)
         .fields("userId")
-        .references("id")
-        .optional(),
+        .references("id"),
     })
     .map("cmp_root_posts");
   return { user, post };

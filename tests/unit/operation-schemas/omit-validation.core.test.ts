@@ -20,7 +20,7 @@ const user = s.model({
   id: s.string().id(),
   email: s.string(),
   passwordHash: s.string(),
-  posts: s.oneToMany(() => post).name("author"),
+  posts: s.toMany(() => post).name("author"),
 });
 
 const post = s.model({
@@ -29,7 +29,7 @@ const post = s.model({
   draftNotes: s.string(),
   authorId: s.string(),
   author: s
-    .manyToOne(() => user)
+    .toOne(() => user)
     .fields("authorId")
     .references("id")
     .name("author"),

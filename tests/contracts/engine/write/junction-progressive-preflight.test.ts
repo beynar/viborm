@@ -191,7 +191,7 @@ const progressiveSkipSchema = (() => {
     .model({
       id: s.string().id(),
       marker: s.string(),
-      buckets: s.oneToMany(() => bucket),
+      buckets: s.toMany(() => bucket),
     })
     .map("f2_owners");
   const bucket = s
@@ -200,19 +200,19 @@ const progressiveSkipSchema = (() => {
       label: s.string(),
       ownerId: s.string().nullable(),
       owner: s
-        .manyToOne(() => owner)
+        .toOne(() => owner)
         .fields("ownerId")
-        .references("id")
-        .optional(),
-      gems: s.manyToMany(() => gem).through("f2_bucket_gem"),
-      boards: s.manyToMany(() => board).through("f2_board_bucket"),
+        .references("id"),
+      gems: s.toMany(() => gem).through("f2_bucket_gem"),
+      boards: s.toMany(() => board).through("f2_board_bucket"),
     })
     .map("f2_buckets");
   const gem = s
     .model({
       id: s.int().id().increment(),
       tag: s.string(),
-      buckets: s.manyToMany(() => bucket).through("f2_bucket_gem"),
+      // One endpoint owns every junction override (R011).
+      buckets: s.toMany(() => bucket),
     })
     .index(["tag"], { unique: true, name: "f2_gems_tag_uq" })
     .map("f2_gems");
@@ -220,7 +220,8 @@ const progressiveSkipSchema = (() => {
     .model({
       id: s.string().id(),
       marker: s.string(),
-      buckets: s.manyToMany(() => bucket).through("f2_board_bucket"),
+      // One endpoint owns every junction override (R011).
+      buckets: s.toMany(() => bucket),
     })
     .map("f2_boards");
   return { board, bucket, gem, owner };
@@ -357,7 +358,7 @@ function alternatingDefaultSkipSchema(replay: { complete: boolean }) {
     .model({
       id: s.string().id(),
       marker: s.string(),
-      buckets: s.oneToMany(() => bucket),
+      buckets: s.toMany(() => bucket),
     })
     .map("f2_alt_owners");
   const bucket = s
@@ -365,11 +366,10 @@ function alternatingDefaultSkipSchema(replay: { complete: boolean }) {
       id: s.string().id(),
       ownerId: s.string().nullable(),
       owner: s
-        .manyToOne(() => owner)
+        .toOne(() => owner)
         .fields("ownerId")
-        .references("id")
-        .optional(),
-      gems: s.manyToMany(() => gem).through("f2_alt_bucket_gem"),
+        .references("id"),
+      gems: s.toMany(() => gem).through("f2_alt_bucket_gem"),
     })
     .map("f2_alt_buckets");
   const gem = s
@@ -381,7 +381,8 @@ function alternatingDefaultSkipSchema(replay: { complete: boolean }) {
         .nullable()
         .default(() => (replay.complete ? "dynamic" : null))
         .unique(),
-      buckets: s.manyToMany(() => bucket).through("f2_alt_bucket_gem"),
+      // One endpoint owns every junction override (R011).
+      buckets: s.toMany(() => bucket),
     })
     .map("f2_alt_gems");
   return { bucket, gem, owner };
@@ -446,15 +447,16 @@ const vacuousProgressiveSchema = (() => {
   const owner = s
     .model({
       id: s.string().id(),
-      targets: s.manyToMany(() => target).through("f3_owner_target"),
+      targets: s.toMany(() => target).through("f3_owner_target"),
     })
     .map("f3_owners");
   const target = s
     .model({
       id: s.int().id().increment(),
       label: s.string(),
-      owners: s.manyToMany(() => owner).through("f3_owner_target"),
-      details: s.oneToMany(() => detail),
+      // One endpoint owns every junction override (R011).
+      owners: s.toMany(() => owner),
+      details: s.toMany(() => detail),
     })
     .map("f3_targets");
   const detail = s
@@ -463,10 +465,9 @@ const vacuousProgressiveSchema = (() => {
       body: s.string(),
       targetId: s.int().nullable(),
       target: s
-        .manyToOne(() => target)
+        .toOne(() => target)
         .fields("targetId")
-        .references("id")
-        .optional(),
+        .references("id"),
     })
     .map("f3_details");
   return { detail, owner, target };
@@ -548,14 +549,14 @@ const collectionBulkSchema = (() => {
     .model({
       id: s.string().id(),
       name: s.string(),
-      boxes: s.manyToMany(() => box).through("e6_box_crate"),
+      boxes: s.toMany(() => box).through("e6_box_crate"),
     })
     .map("e6_crates");
   const holder = s
     .model({
       id: s.string().id(),
       name: s.string(),
-      boxes: s.oneToMany(() => box),
+      boxes: s.toMany(() => box),
     })
     .map("e6_holders");
   const box = s
@@ -566,14 +567,12 @@ const collectionBulkSchema = (() => {
       // PARENT-HELD: this arm's target write must execute BEFORE the root INSERT,
       // which is exactly the "prior effect" the root-conflict preflight refuses.
       holder: s
-        .manyToOne(() => holder)
+        .toOne(() => holder)
         .fields("holderId")
         .references("id"),
-      crates: s.manyToMany(() => crate).through("e6_box_crate"),
-      items: s.polymorphicToMany(
-        { note: () => note },
-        { values: { note: "e6.note.v1" } }
-      ),
+      // One endpoint owns every junction override (R011).
+      crates: s.toMany(() => crate),
+      items: s.toMany({ note: () => note }, { values: { note: "e6.note.v1" } }),
     })
     .index(["title"], { unique: true, name: "e6_boxes_title_uq" })
     .map("e6_boxes");

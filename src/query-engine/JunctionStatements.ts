@@ -109,7 +109,7 @@ export class JunctionStatements {
     operation: JunctionOperation,
     args: Record<string, unknown>
   ): Sql {
-    const relationName = junction.relationInfo.name;
+    const relationName = junction.relationRef.name;
     // ANSWERED BEFORE THE PARENT VALUE EXISTS, deliberately: this is the ONE
     // statement that asks about a target tuple with NO owner in hand — "who, if
     // anyone, holds this target" — and building a parent value from an absent
@@ -427,7 +427,7 @@ export class JunctionStatements {
     junction: JunctionBoundRelation,
     args: Record<string, unknown>
   ): JunctionSqlValues {
-    const relationName = junction.relationInfo.name;
+    const relationName = junction.relationRef.name;
     if (args.targetValue !== undefined) {
       return buildJunctionTargetValue(
         this.ctx,
@@ -453,7 +453,7 @@ export class JunctionStatements {
         this.ctx,
         junction,
         sideValueRecord(junction.membership.target, value),
-        junction.relationInfo.name
+        junction.relationRef.name
       )
     );
   }

@@ -2,14 +2,14 @@ import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { D1Driver } from "@drivers/d1";
 import { QueryEngineError } from "@errors";
-import { parseResult, ResultParser } from "@query-engine/result/ResultParser";
+import { parseResult } from "@query-engine/result/ResultParser";
 import {
   POLYMORPHIC_RESULT_STATE_INVALID,
   POLYMORPHIC_RESULT_STATE_KEY,
   POLYMORPHIC_RESULT_STATE_LINKED,
 } from "@query-engine/result-aliases";
-import { hydrateSchemaNames, s } from "@schema";
-import { validateSchemaOrThrow } from "@schema/validation";
+import { s } from "@schema";
+import { parserFor, prepareSchema } from "@tests/fixtures/query-scope";
 import { describe, expect, it } from "vitest";
 
 const models = (() => {
@@ -21,7 +21,7 @@ const models = (() => {
     id: s.string().id(),
     publishedAt: s.dateTime(),
     attachment: s
-      .polymorphicToOne(
+      .toOne(
         { video: () => video },
         { values: { video: "attachment.video.v1" } }
       )
@@ -29,7 +29,7 @@ const models = (() => {
   });
   const requiredComment = s.model({
     id: s.string().id(),
-    subject: s.polymorphicToOne(
+    subject: s.toOne(
       { post: () => post, video: () => video },
       {
         values: {
@@ -42,7 +42,7 @@ const models = (() => {
   const optionalComment = s.model({
     id: s.string().id(),
     subject: s
-      .polymorphicToOne(
+      .toOne(
         { post: () => post, video: () => video },
         {
           values: {
@@ -54,8 +54,8 @@ const models = (() => {
       .optional(),
   });
   const schema = { video, post, requiredComment, optionalComment };
-  hydrateSchemaNames(schema);
-  validateSchemaOrThrow(schema);
+  prepareSchema(schema);
+  prepareSchema(schema);
   return schema;
 })();
 
@@ -85,7 +85,7 @@ function linked(type: string, data: unknown): Record<string, unknown> {
 
 function parseRequired(rawSubject: unknown): unknown {
   return parseResult(
-    new ResultParser(new PostgresAdapter(), models.requiredComment),
+    parserFor(new PostgresAdapter(), models.requiredComment),
     "findMany",
     [{ id: "comment-1", subject: rawSubject }],
     projection
@@ -136,7 +136,7 @@ describe("polymorphic result parsing", () => {
   });
 
   it("decodes SQLite JSON text before validating the carrier", () => {
-    const parser = new ResultParser(
+    const parser = parserFor(
       new SQLiteAdapter(),
       models.requiredComment,
       new D1Driver({ database: Object.create(null) })
@@ -167,7 +167,7 @@ describe("polymorphic result parsing", () => {
   });
 
   it("returns null only for empty optional storage", () => {
-    const optionalParser = new ResultParser(
+    const optionalParser = parserFor(
       new PostgresAdapter(),
       models.optionalComment
     );
@@ -265,14 +265,14 @@ const collectionModels = (() => {
   });
   const gallery = s.model({
     id: s.string().id(),
-    items: s.polymorphicToMany(
+    items: s.toMany(
       { article: () => article, clip: () => clip },
       { values: { article: "coll.article.v1", clip: "coll.clip.v1" } }
     ),
   });
   const schema = { article, clip, gallery };
-  hydrateSchemaNames(schema);
-  validateSchemaOrThrow(schema);
+  prepareSchema(schema);
+  prepareSchema(schema);
   return schema;
 })();
 
@@ -299,7 +299,7 @@ function parseCollection(
   projection: Record<string, unknown> = { select: { id: true, items: true } }
 ): unknown {
   return parseResult(
-    new ResultParser(new PostgresAdapter(), collectionModels.gallery),
+    parserFor(new PostgresAdapter(), collectionModels.gallery),
     "findMany",
     [{ id: "gallery-1", items: rawItems }],
     projection

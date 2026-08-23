@@ -195,7 +195,7 @@ export class ManyAndReturnOperation {
       }
       this.bulkPolymorphic = prepareBulkPolymorphicConnects(
         engine,
-        createQueryScope(engine.adapter, model),
+        createQueryScope(engine, model),
         data,
         this.scope,
         this.mode === "transaction"
@@ -399,7 +399,7 @@ export class ManyAndReturnOperation {
       );
     }
     return new ResultParser(
-      this.engine.adapter,
+      this.engine,
       this.model,
       this.engine.driver,
       this.engine.decimalDecode
@@ -811,7 +811,7 @@ export class ManyAndReturnOperation {
   }
 
   private ctx(): QueryScope {
-    return createQueryScope(this.engine.adapter, this.model);
+    return createQueryScope(this.engine, this.model);
   }
 
   private modelName(): string {

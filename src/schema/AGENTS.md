@@ -15,7 +15,7 @@ VibORM's type safety comes from schema definitions carrying type information thr
 // Schema definition
 const user = s.model({
   email: s.string().unique(),
-  posts: s.oneToMany(() => post),
+  posts: s.toMany(() => post),
 });
 
 // Query is fully typed - no codegen needed
@@ -67,7 +67,10 @@ Primitive/value field definitions with the State generic pattern. Each scalar (s
 Model class that composes fields: scalar fields and relation fields. Owns structural metadata; operation schemas are built by the validation registry.
 
 ### 3. Relations (`relation/`)
-Relation types (oneToOne, manyToOne, oneToMany, manyToMany) using thunks for circular references.
+Two factories — `s.toOne` and `s.toMany` — using thunks for circular references.
+The factory states the slot's cardinality; its argument states the target domain
+(one model, or a map of named variants). Pairing, foreign-key ownership,
+uniqueness and junction topology are derived by `validation/relation-resolution.ts`.
 
 ### 4. Schema Validation (`validation/`)
 Definition-time validation to catch schema errors before runtime (e.g., relation references non-existent model).
@@ -102,7 +105,7 @@ nullable() {
 Circular references use `() => Model` thunks:
 
 ```typescript
-s.oneToMany(() => post)  // Thunk defers evaluation
+s.toMany(() => post)  // Thunk defers evaluation
 ```
 
 **Why:** JavaScript can't reference variables before declaration.

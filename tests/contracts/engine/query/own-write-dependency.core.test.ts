@@ -1,7 +1,6 @@
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { bindRelation } from "@query-engine/builders/relation-data-builder";
 import { buildParsedRelationPrograms } from "@query-engine/builders/relation-mutation-parser";
-import { createQueryScope } from "@query-engine/context/query-scope";
 import {
   analyzeOwnWriteTree,
   assertNoRelationsOwnWriteDependencies,
@@ -12,7 +11,8 @@ import {
 } from "@query-engine/OwnWriteLedger";
 import { getRelationMembershipScope } from "@query-engine/RelationMembership";
 import { selectorConstraint } from "@query-engine/TargetConstraint";
-import { hydrateSchemaNames, s } from "@schema";
+import { s } from "@schema";
+import { prepareSchema, scopeFor } from "@tests/fixtures/query-scope";
 import { describe, expect, test } from "vitest";
 
 const target = s
@@ -20,12 +20,17 @@ const target = s
     id: s.int().id(),
     code: s.string().unique(),
     enabled: s.boolean(),
+    parentId: s.int().nullable(),
+    parent: s
+      .toOne(() => parent)
+      .fields("parentId")
+      .references("id"),
   })
   .unique(["enabled"], { name: "enabled_key" });
 
 const parent = s.model({
   id: s.int().id(),
-  targets: s.manyToMany(() => target),
+  targets: s.toMany(() => target),
 });
 
 const generatedTarget = s.model({
@@ -34,23 +39,27 @@ const generatedTarget = s.model({
     .string()
     .default(() => "generated")
     .unique(),
+  parentId: s.int().nullable(),
+  parent: s
+    .toOne(() => generatedParent)
+    .fields("parentId")
+    .references("id"),
 });
 
 const generatedParent = s.model({
   id: s.int().id(),
-  targets: s.manyToMany(() => generatedTarget),
+  targets: s.toMany(() => generatedTarget),
 });
 
 const selfNode = s.model({
   id: s.int().id(),
   parentId: s.int().nullable(),
   parent: s
-    .manyToOne(() => selfNode)
+    .toOne(() => selfNode)
     .fields("parentId")
     .references("id")
-    .name("parent")
-    .optional(),
-  children: s.oneToMany(() => selfNode).name("parent"),
+    .name("parent"),
+  children: s.toMany(() => selfNode).name("parent"),
 });
 
 function relationMutation(
@@ -58,8 +67,8 @@ function relationMutation(
   parentModel: ReturnType<typeof s.model>,
   input: Record<string, unknown>
 ) {
-  hydrateSchemaNames(schema);
-  const ctx = createQueryScope(new PostgresAdapter(), parentModel);
+  prepareSchema(schema);
+  const ctx = scopeFor(new PostgresAdapter(), parentModel);
   const relations = buildParsedRelationPrograms(ctx, {
     targets: input,
   }).relations;
@@ -74,8 +83,8 @@ const generatedSchema = { parent: generatedParent, target: generatedTarget };
 
 function selfRelationMutation(input: Record<string, unknown>) {
   const selfSchema = { node: selfNode };
-  hydrateSchemaNames(selfSchema);
-  const ctx = createQueryScope(new PostgresAdapter(), selfNode);
+  prepareSchema(selfSchema);
+  const ctx = scopeFor(new PostgresAdapter(), selfNode);
   return { ctx, ...buildParsedRelationPrograms(ctx, input) };
 }
 
@@ -99,7 +108,7 @@ function summarizeSelfChildrenStep(
   });
   const currentConstraint = selectorConstraint(selfNode, { id: 1 });
   const targetConstraint = selectorConstraint(selfNode, { id: 2 });
-  const boundRelation = bindRelation(plan.ctx, relation.relationInfo);
+  const boundRelation = bindRelation(plan.ctx, relation.relationRef);
   const membershipScope = getRelationMembershipScope(boundRelation);
   return {
     ledger,

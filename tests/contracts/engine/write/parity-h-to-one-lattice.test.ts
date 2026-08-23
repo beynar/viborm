@@ -87,14 +87,13 @@ const parityHSchema = (() => {
       id: s.string().id(),
       label: s.string(),
       // Child-held to-one: `badge.hubId` is unique, a real 1:1 slot.
-      badge: s.oneToOne(() => badge).optional(),
+      badge: s.toOne(() => badge),
       ownerId: s.string().nullable(),
       // Parent-held to-one: this row holds the foreign key.
       owner: s
-        .manyToOne(() => owner)
+        .toOne(() => owner)
         .fields("ownerId")
-        .references("id")
-        .optional(),
+        .references("id"),
     })
     .map("ph_hubs");
   const badge = s
@@ -103,17 +102,16 @@ const parityHSchema = (() => {
       tag: s.string(),
       hubId: s.string().unique().nullable(),
       hub: s
-        .oneToOne(() => hub)
+        .toOne(() => hub)
         .fields("hubId")
-        .references("id")
-        .optional(),
+        .references("id"),
     })
     .map("ph_badges");
   const owner = s
     .model({
       id: s.string().id(),
       name: s.string(),
-      hubs: s.oneToMany(() => hub),
+      hubs: s.toMany(() => hub),
     })
     .map("ph_owners");
   return { hub, badge, owner };

@@ -16,7 +16,7 @@ const account = s
     email: s.string(),
     passwordHash: s.string(),
     displayName: s.string(),
-    notes: s.oneToMany(() => note),
+    notes: s.toMany(() => note),
   })
   .map("omit_accounts");
 
@@ -28,7 +28,7 @@ const note = s
     internal: s.string(),
     accountId: s.string(),
     account: s
-      .manyToOne(() => account)
+      .toOne(() => account)
       .fields("accountId")
       .references("id"),
   })

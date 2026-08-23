@@ -49,7 +49,7 @@ export const adoptOwnedFkSchema = (() => {
     .model({
       id: s.string().id(),
       email: s.string().unique(),
-      things: s.oneToMany(() => thing),
+      things: s.toMany(() => thing),
     })
     .map("e5u2_owners");
 
@@ -60,11 +60,10 @@ export const adoptOwnedFkSchema = (() => {
       label: s.string().default("x"),
       ownerId: s.string().nullable().map("owner_fk"),
       owner: s
-        .manyToOne(() => owner)
+        .toOne(() => owner)
         .fields("ownerId")
-        .references("id")
-        .optional(),
-      notes: s.oneToMany(() => note),
+        .references("id"),
+      notes: s.toMany(() => note),
     })
     .map("e5u2_things");
 
@@ -74,7 +73,7 @@ export const adoptOwnedFkSchema = (() => {
       body: s.string(),
       thingId: s.string(),
       thing: s
-        .manyToOne(() => thing)
+        .toOne(() => thing)
         .fields("thingId")
         .references("id"),
     })
@@ -86,7 +85,7 @@ export const adoptOwnedFkSchema = (() => {
     .model({
       id: s.int().id().increment(),
       email: s.string().unique(),
-      items: s.oneToMany(() => item),
+      items: s.toMany(() => item),
     })
     .map("e5u2_gen_owners");
 
@@ -96,7 +95,7 @@ export const adoptOwnedFkSchema = (() => {
       slug: s.string().unique(),
       genId: s.int(),
       genOwner: s
-        .manyToOne(() => genOwner)
+        .toOne(() => genOwner)
         .fields("genId")
         .references("id"),
     })
@@ -108,7 +107,7 @@ export const adoptOwnedFkSchema = (() => {
       a: s.string(),
       b: s.string(),
       email: s.string().unique(),
-      kids: s.oneToMany(() => kid),
+      kids: s.toMany(() => kid),
     })
     .id(["a", "b"])
     .map("e5u2_pairs");
@@ -120,7 +119,7 @@ export const adoptOwnedFkSchema = (() => {
       pa: s.string(),
       pb: s.string(),
       pair: s
-        .manyToOne(() => pair)
+        .toOne(() => pair)
         .fields("pa", "pb")
         .references("a", "b"),
     })
@@ -128,7 +127,7 @@ export const adoptOwnedFkSchema = (() => {
 
   // M6's referenced-scalar table, one spelled-key pair per type.
   const intOwner = s
-    .model({ id: s.int().id(), rows: s.oneToMany(() => intRow) })
+    .model({ id: s.int().id(), rows: s.toMany(() => intRow) })
     .map("e5u2_int_owners");
   const intRow = s
     .model({
@@ -136,14 +135,14 @@ export const adoptOwnedFkSchema = (() => {
       slug: s.string().unique(),
       oid: s.int(),
       owner: s
-        .manyToOne(() => intOwner)
+        .toOne(() => intOwner)
         .fields("oid")
         .references("id"),
     })
     .map("e5u2_int_rows");
 
   const bigOwner = s
-    .model({ id: s.bigInt().id(), rows: s.oneToMany(() => bigRow) })
+    .model({ id: s.bigInt().id(), rows: s.toMany(() => bigRow) })
     .map("e5u2_big_owners");
   const bigRow = s
     .model({
@@ -151,14 +150,14 @@ export const adoptOwnedFkSchema = (() => {
       slug: s.string().unique(),
       oid: s.bigInt(),
       owner: s
-        .manyToOne(() => bigOwner)
+        .toOne(() => bigOwner)
         .fields("oid")
         .references("id"),
     })
     .map("e5u2_big_rows");
 
   const timeOwner = s
-    .model({ at: s.dateTime().id(), rows: s.oneToMany(() => timeRow) })
+    .model({ at: s.dateTime().id(), rows: s.toMany(() => timeRow) })
     .map("e5u2_time_owners");
   const timeRow = s
     .model({
@@ -166,14 +165,14 @@ export const adoptOwnedFkSchema = (() => {
       slug: s.string().unique(),
       atRef: s.dateTime(),
       owner: s
-        .manyToOne(() => timeOwner)
+        .toOne(() => timeOwner)
         .fields("atRef")
         .references("at"),
     })
     .map("e5u2_time_rows");
 
   const moneyOwner = s
-    .model({ amount: s.decimal().id(), rows: s.oneToMany(() => moneyRow) })
+    .model({ amount: s.decimal().id(), rows: s.toMany(() => moneyRow) })
     .map("e5u2_money_owners");
   const moneyRow = s
     .model({
@@ -181,7 +180,7 @@ export const adoptOwnedFkSchema = (() => {
       slug: s.string().unique(),
       amt: s.decimal(),
       owner: s
-        .manyToOne(() => moneyOwner)
+        .toOne(() => moneyOwner)
         .fields("amt")
         .references("amount"),
     })

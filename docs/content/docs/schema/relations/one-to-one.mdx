@@ -4,6 +4,9 @@ description: Define relations in which each side can reference at most one recor
 icon: link
 ---
 
+A one-to-one relationship is what **two `s.toOne` slots** spell. Neither factory
+name says "one-to-one": the pair does.
+
 ## Basic Example
 
 ```ts
@@ -13,15 +16,15 @@ import { s } from "viborm";
 const user = s.model({
   id: s.string().id().ulid(),
   email: s.string().unique(),
-  profile: s.oneToOne(() => profile).optional(),
+  profile: s.toOne(() => profile),
 });
 
 // Profile belongs to one user
 const profile = s.model({
   id: s.string().id().ulid(),
   bio: s.string(),
-  userId: s.string().unique(),  // FK field, unique for 1:1
-  user: s.oneToOne(() => user)
+  userId: s.string(),   // FK field
+  user: s.toOne(() => user)
     .fields("userId")
     .references("id"),
 });
@@ -29,25 +32,35 @@ const profile = s.model({
 
 ## Which Side Owns the FK?
 
-The distinctive rule of one-to-one: exactly one side has the foreign key, and **the FK field must be `.unique()`** — that's what makes the relation 1:1 instead of many-to-one.
+Exactly one side completes `.fields(...).references(...)`; that side stores the
+foreign key. Because its partner is also a `toOne`, the referenced tuple is
+**derived unique** — VibORM emits the unique constraint for you.
 
 | Side | Has FK | Configuration |
 |------|--------|---------------|
 | Owner (Profile) | Yes | `.fields("userId").references("id")` |
-| Non-owner (User) | No | `.optional()` is required |
+| Non-owner (User) | No | none |
+
+Declaring `userId` `.unique()` yourself is no longer needed to make the relation
+one-to-one. Declare it only when callers must address that column through
+`whereUnique` — that is a model-key decision, not a relation rule.
+
+Neither endpoint may be left out: a `toOne` whose target model declares nothing
+back is refused with `R002`. Two owners are `CM003`; no owner is `FK004`.
 
 ## Configuration
 
-One-to-one relations use the shared to-one methods — see the [relation method reference](/docs/schema/relations) for details and [referential actions](/docs/schema/relations#referential-actions):
+One-to-one relations use the shared singular methods — see the [relation method
+reference](/docs/schema/relations) for details and [referential
+actions](/docs/schema/relations#referential-actions):
 
 ```ts
-s.oneToOne(() => user)
+s.toOne(() => user)
+  .name("owner")        // Pairing label, matched exactly on both endpoints
   .fields("userId")     // FK field(s) on this model (owning side only)
   .references("id")     // Referenced field(s) on the target
-  .optional()           // Relation can be null
   .onDelete("cascade")  // Referential action on delete
   .onUpdate("cascade")  // Referential action on update
-  .name("owner")        // Custom relation name
 ```
 
 ## Complete Example
@@ -57,17 +70,17 @@ const user = s.model({
   id: s.string().id().ulid(),
   email: s.string().unique(),
   // Non-owning side - no FK, so zero related rows is valid
-  profile: s.oneToOne(() => profile).optional(),
+  profile: s.toOne(() => profile),
 });
 
 const profile = s.model({
   id: s.string().id().ulid(),
   bio: s.string().nullable(),
   avatar: s.string().nullable(),
-  // FK field - unique for 1:1
-  userId: s.string().unique(),
+  // FK field - the pair derives its unique constraint
+  userId: s.string(),
   // Owning side - has FK configuration
-  user: s.oneToOne(() => user)
+  user: s.toOne(() => user)
     .fields("userId")
     .references("id")
     .onDelete("cascade"),
@@ -99,26 +112,28 @@ See [To-One Relation Filters](/docs/client/filtering/relations-to-one) for all o
 ## Ownership and absence
 
 ```ts
-// Non-owning: the related row may not exist, so .optional() is required
-profile: s.oneToOne(() => profile).optional()
+// Non-owning: the related row may not exist, so this view is always nullable
+profile: s.toOne(() => profile)
 
 // Owning and required: this model stores a non-null foreign key
-user: s.oneToOne(() => user)
+user: s.toOne(() => user)
   .fields("userId")
   .references("id")
 ```
 
-A fields-less `oneToOne` is the non-owning side. It has no local foreign key
-that can require another row to exist, so its public slot is always zero-or-one
-and must call `.optional()`. VibORM reports `R008` when it does not.
-Adding `.optional()` to this non-owning declaration changes only its public
-cardinality contract; it adds no column and produces no DDL change.
+There is no `.optional()` on a model-target relation, and none is needed.
 
-An owning `oneToOne` has `.fields()` and `.references()`. It may remain required
-when its foreign-key scalars are required, or become optional when its storage
-is nullable.
+A `toOne` without `.fields(...)` is the non-owning side. It has no local foreign
+key that can require another row to exist, so its public slot is **derived**
+zero-or-one. Nothing to declare, nothing to keep in sync.
+
+An owning `toOne` follows its own scalars: required while its foreign-key fields
+are required, empty-able as soon as one of them is `.nullable()`. A compound
+foreign key mixing nullable and required members is nullable too — clearing its
+nullable members empties the membership while the required context members stay.
 
 For nested updates through the non-owning side, `delete` is available because
-removing the child leaves the slot empty. `disconnect` is available only when
-the child's owning foreign key is nullable: disconnect preserves the child and
-must therefore be able to clear its membership.
+removing the child leaves the slot empty. `disconnect` is available only when the
+child's owning foreign key is nullable: disconnect preserves the child and must
+therefore be able to clear its membership. Database `setNull` is stricter still —
+it needs **every** foreign-key member to be nullable.

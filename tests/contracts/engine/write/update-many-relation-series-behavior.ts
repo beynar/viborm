@@ -32,19 +32,18 @@ export const updateManySeriesSchema = (() => {
       label: s.string(),
       // Child-held: the GADGET row stores which bin it is in, so `connect` here can
       // only mean one bin — the N>1 refusal's subject.
-      gadgets: s.oneToMany(() => gadget),
+      gadgets: s.toMany(() => gadget),
       // Parent-held: the BIN row stores its own shelf, so N bins each get a copy.
       shelfId: s.int().nullable(),
       shelf: s
-        .manyToOne(() => shelf)
+        .toOne(() => shelf)
         .fields("shelfId")
-        .references("id")
-        .optional(),
+        .references("id"),
       // The junction is named explicitly: the generated name is derived from the two
       // MODEL KEYS, which the shared Docker database would hand to every other suite
       // whose models are also called `bin` and `zone`.
-      zones: s.manyToMany(() => zone).through("kseries_bin_zone"),
-      tickets: s.oneToMany(() => ticket),
+      zones: s.toMany(() => zone).through("kseries_bin_zone"),
+      tickets: s.toMany(() => ticket),
     })
     .map("kseries_bins");
 
@@ -56,10 +55,9 @@ export const updateManySeriesSchema = (() => {
       name: s.string(),
       binId: s.int().nullable(),
       bin: s
-        .manyToOne(() => bin)
+        .toOne(() => bin)
         .fields("binId")
-        .references("id")
-        .optional(),
+        .references("id"),
     })
     .map("kseries_gadgets");
 
@@ -67,7 +65,7 @@ export const updateManySeriesSchema = (() => {
     .model({
       id: s.int().id(),
       room: s.string(),
-      bins: s.oneToMany(() => bin),
+      bins: s.toMany(() => bin),
     })
     .map("kseries_shelves");
 
@@ -75,7 +73,8 @@ export const updateManySeriesSchema = (() => {
     .model({
       id: s.int().id(),
       name: s.string(),
-      bins: s.manyToMany(() => bin).through("kseries_bin_zone"),
+      // One endpoint owns every junction override (R011).
+      bins: s.toMany(() => bin),
     })
     .map("kseries_zones");
 
@@ -91,10 +90,9 @@ export const updateManySeriesSchema = (() => {
       note: s.string(),
       binId: s.int().nullable(),
       bin: s
-        .manyToOne(() => bin)
+        .toOne(() => bin)
         .fields("binId")
-        .references("id")
-        .optional(),
+        .references("id"),
     })
     .map("kseries_tickets");
 
@@ -109,11 +107,10 @@ export const updateManySeriesSchema = (() => {
       label: s.string(),
       parentId: s.int().nullable(),
       parent: s
-        .manyToOne(() => node)
+        .toOne(() => node)
         .fields("parentId")
-        .references("id")
-        .optional(),
-      children: s.oneToMany(() => node),
+        .references("id"),
+      children: s.toMany(() => node),
     })
     .map("kseries_nodes");
 

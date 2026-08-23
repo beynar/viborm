@@ -38,10 +38,9 @@ const rebindSchema = (() => {
       name: s.string(),
       profileId: s.string().nullable(),
       profile: s
-        .manyToOne(() => profile)
+        .toOne(() => profile)
         .fields("profileId")
-        .references("id")
-        .optional(),
+        .references("id"),
     })
     .map("m1_user");
   const profile = s
@@ -53,18 +52,17 @@ const rebindSchema = (() => {
       // names, and therefore the trigger that delegates the whole profile update.
       avatarId: s.string().nullable(),
       avatar: s
-        .manyToOne(() => avatar)
+        .toOne(() => avatar)
         .fields("avatarId")
-        .references("id")
-        .optional(),
-      users: s.oneToMany(() => user),
+        .references("id"),
+      users: s.toMany(() => user),
     })
     .map("m1_profile");
   const avatar = s
     .model({
       id: s.string().id(),
       url: s.string(),
-      profiles: s.oneToMany(() => profile),
+      profiles: s.toMany(() => profile),
     })
     .map("m1_avatar");
   return { user, profile, avatar };

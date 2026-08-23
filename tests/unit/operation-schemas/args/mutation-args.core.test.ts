@@ -8,9 +8,12 @@
  * - upsert
  */
 
+import {
+  authorSchemas,
+  simpleSchemas,
+} from "@tests/unit/operation-schemas/fixtures";
 import { type InferInput, parse } from "@validation";
 import { describe, expect, expectTypeOf, test } from "vitest";
-import { authorSchemas, simpleSchemas } from "@tests/unit/operation-schemas/fixtures";
 
 // =============================================================================
 // CREATE ARGS
@@ -118,7 +121,7 @@ describe("Create Args - Author Model Runtime (with relations)", () => {
         id: "author-1",
         name: "Alice",
         posts: {
-          create: { id: "post-1", title: "Hello", authorId: "author-1" },
+          create: { id: "post-1", title: "Hello" },
         },
       },
     });
@@ -384,7 +387,7 @@ describe("Update Args - Author Model Runtime (with relations)", () => {
       data: {
         name: "Updated Name",
         posts: {
-          create: { id: "new-post", title: "New Post", authorId: "author-1" },
+          create: { id: "new-post", title: "New Post" },
         },
       },
     });

@@ -38,7 +38,7 @@ const memberJunctionProviderSchema = (() => {
       isbn: s.string(),
       title: s.string(),
       // SINGULAR inverse → unique target side on the member table.
-      shelf: s.manyToOne(() => shelf).optional(),
+      shelf: s.toOne(() => shelf),
     })
     .id(["region", "isbn"])
     .map("provider_pmj_books");
@@ -48,7 +48,7 @@ const memberJunctionProviderSchema = (() => {
       id: s.string().id(),
       title: s.string(),
       // PLURAL inverse → no unique constraint on that member table.
-      shelves: s.manyToMany(() => shelf),
+      shelves: s.toMany(() => shelf),
     })
     .map("provider_pmj_videos");
 
@@ -58,7 +58,7 @@ const memberJunctionProviderSchema = (() => {
       code: s.string(),
       label: s.string(),
       items: s
-        .polymorphicToMany(
+        .toMany(
           { book: () => book, video: () => video },
           { values: { book: "pmj.book.v1", video: "pmj.video.v1" } }
         )

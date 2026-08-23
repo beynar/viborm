@@ -1,304 +1,170 @@
-// Foreign Key & Referential Action Validation Rules
+// The stored-reference subowner.
+//
+// It proves that a declared `.fields(...).references(...)` pair is physically
+// legal — every member exists, aligns by position with its counterpart, matches
+// scalar types, and references a key the target can be addressed by — and
+// returns the one `ResolvedStoredReference` the trusted edge carries. The
+// mandatory relation-definition gate is its only caller; no consumer repeats
+// these checks and none receives the untrusted declaration.
+//
+// Arity is not checked here: `.references(...)` accepts only an equal-arity
+// tuple, so an unequal pair cannot be constructed.
 
-import type { Model } from "../../model";
-import { getCompatiblePolymorphicInverseBinding } from "../../relation";
-import type {
-  Schema,
-  SchemaValidationIssue,
-  ValidationContext,
-} from "../types";
-import { getCompoundIdFields, getCompoundUniques } from "./model";
-import { findModelName, getRelations } from "./model-members";
+import { getModelKeyCatalog, isTotalIndex, type Model } from "../../model";
+import type { ForeignKeyDeclaration } from "../../relation";
+import type { ResolvedStoredReference } from "../relation-resolution";
+import type { SchemaValidationIssue } from "../types";
 
-// =============================================================================
-// FK RULES (FK001-FK007)
-// =============================================================================
-
-/** FK001: .fields() must reference existing scalar fields */
-export function fkFieldExists(
-  _s: Schema,
-  name: string,
-  model: Model<any>
-): SchemaValidationIssue[] {
-  const errors: SchemaValidationIssue[] = [];
-  const fields = new Set(Object.keys(model["~"].state.scalars));
-  for (const [rname, rel] of getRelations(model)) {
-    const fks = rel["~"].state.fields;
-    if (!fks) continue;
-    for (const fk of fks) {
-      if (!fields.has(fk)) {
-        errors.push({
-          code: "FK001",
-          message: `FK '${fk}' in '${rname}' not in '${name}'`,
-          severity: "error",
-          model: name,
-          relation: rname,
-          field: fk,
-        });
-      }
-    }
-  }
-  return errors;
+export interface StoredReferenceInput {
+  readonly modelName: string;
+  readonly model: Model<any>;
+  readonly relationName: string;
+  readonly targetName: string;
+  readonly target: Model<any>;
+  readonly foreignKey: ForeignKeyDeclaration;
 }
 
-/** FK002: .references() must reference existing fields in target */
-export function fkReferenceExists(
-  _schema: Schema,
-  name: string,
-  model: Model<any>,
-  ctx: ValidationContext
-): SchemaValidationIssue[] {
-  const errors: SchemaValidationIssue[] = [];
-  for (const [rname, rel] of getRelations(model)) {
-    const refs = rel["~"].state.references;
-    if (!refs) continue;
-    const target = rel["~"].state.getter();
-    const targetName = findModelName(ctx, target);
-    if (!targetName) continue;
-    const targetFields = new Set(Object.keys(target["~"].state.scalars));
-    for (const ref of refs) {
-      if (!targetFields.has(ref)) {
-        errors.push({
-          code: "FK002",
-          message: `Reference '${ref}' not in '${targetName}'`,
-          severity: "error",
-          model: name,
-          relation: rname,
-          field: ref,
-        });
-      }
-    }
-  }
-  return errors;
+export interface StoredReferenceCheck {
+  /** Present only when every structural fact above held. */
+  readonly reference: ResolvedStoredReference | undefined;
+  readonly issues: readonly SchemaValidationIssue[];
+  /** Ordered local members whose scalar accepts NULL. */
+  readonly nullableForeignFields: readonly string[];
 }
 
-/** FK003: FK type must match referenced scalar type */
-export function fkTypeMatch(
-  _schema: Schema,
-  name: string,
-  model: Model<any>,
-  ctx: ValidationContext
-): SchemaValidationIssue[] {
-  const errors: SchemaValidationIssue[] = [];
-  for (const [rname, rel] of getRelations(model)) {
-    const fks = rel["~"].state.fields;
-    const refs = rel["~"].state.references;
-    if (!(fks && refs)) continue;
+export function checkStoredReference(
+  input: StoredReferenceInput
+): StoredReferenceCheck {
+  const { modelName, model, relationName, targetName, target } = input;
+  const { fields, references, onDelete, onUpdate } = input.foreignKey;
+  const issues: SchemaValidationIssue[] = [];
+  const localScalars = model["~"].state.scalars;
+  const targetScalars = target["~"].state.scalars;
+  const nullableForeignFields: string[] = [];
+  let legal = true;
 
-    const target = rel["~"].state.getter();
-    const targetName = findModelName(ctx, target);
-    if (!targetName) continue;
-
-    const len = Math.min(fks.length, refs.length);
-    for (let i = 0; i < len; i++) {
-      const fkName = fks[i]!;
-      const refName = refs[i]!;
-      const local = model["~"].state.scalars[fkName];
-      const remote = target["~"].state.scalars[refName];
-      if (!(local && remote)) continue;
-
-      const localType = local["~"].state.type;
-      const remoteType = remote["~"].state.type;
-      if (localType !== remoteType) {
-        errors.push({
-          code: "FK003",
-          message: `Type mismatch: '${fkName}' (${localType}) → '${refName}' (${remoteType}) in ${targetName}`,
-          severity: "error",
-          model: name,
-          relation: rname,
-        });
-      }
-    }
-  }
-  return errors;
-}
-
-/** FK004: manyToOne/owning oneToOne should have FK defined */
-export function fkRequiredForOwning(
-  _s: Schema,
-  name: string,
-  model: Model<any>
-): SchemaValidationIssue[] {
-  const errors: SchemaValidationIssue[] = [];
-  for (const [rname, rel] of getRelations(model)) {
-    const state = rel["~"].state;
-    if (state.type === "manyToOne" && !state.fields) {
-      // A fields-less manyToOne whose compatible polymorphic binding resolves
-      // (a toMany group) stores its membership in a member junction — there is
-      // no foreign key to advise. The unresolved form keeps today's warning.
-      if (getCompatiblePolymorphicInverseBinding(state, model)) continue;
-      errors.push({
-        code: "FK004",
-        message: `ManyToOne '${rname}' in '${name}' should define .fields()`,
-        severity: "warning",
-        model: name,
-        relation: rname,
-      });
-    }
-  }
-  return errors;
-}
-
-/** FK005: Referenced field should be unique (ID or unique constraint) */
-export function fkReferencesUnique(
-  _schema: Schema,
-  name: string,
-  model: Model<any>,
-  ctx: ValidationContext
-): SchemaValidationIssue[] {
-  const errors: SchemaValidationIssue[] = [];
-  for (const [rname, rel] of getRelations(model)) {
-    const refs = rel["~"].state.references;
-    if (!refs) continue;
-
-    const target = rel["~"].state.getter();
-    const targetName = findModelName(ctx, target);
-    if (!targetName) continue;
-
-    for (const ref of refs) {
-      const scalar = target["~"].state.scalars[ref];
-      if (!scalar) continue;
-      const st = scalar["~"].state;
-      if (!(st.isId || st.isUnique)) {
-        errors.push({
-          code: "FK005",
-          message: `'${ref}' in '${targetName}' should be unique/ID`,
-          severity: "warning",
-          model: name,
-          relation: rname,
-        });
-      }
-    }
-  }
-  return errors;
-}
-
-/** FK007: fields() and references() must have same cardinality */
-export function fkCardinalityMatch(
-  _s: Schema,
-  name: string,
-  model: Model<any>
-): SchemaValidationIssue[] {
-  const errors: SchemaValidationIssue[] = [];
-  for (const [rname, rel] of getRelations(model)) {
-    const fks = rel["~"].state.fields;
-    const refs = rel["~"].state.references;
-
-    // Only check if both are defined
-    if (!(fks && refs)) continue;
-
-    if (fks.length !== refs.length) {
-      errors.push({
-        code: "FK007",
-        message: `'${rname}': fields(${fks.length}) != references(${refs.length})`,
+  for (const [position, foreignField] of fields.entries()) {
+    const local = localScalars[foreignField];
+    if (!local) {
+      legal = false;
+      issues.push({
+        code: "FK001",
+        message: `FK '${foreignField}' in '${relationName}' not in '${modelName}'`,
         severity: "error",
-        model: name,
-        relation: rname,
+        model: modelName,
+        relation: relationName,
+        field: foreignField,
+        repair: `Declare a scalar '${foreignField}' on '${modelName}' or name an existing one in .fields(...)`,
       });
+      continue;
     }
-  }
-  return errors;
-}
-
-/** FK008: Owning oneToOne FK must be unique, or the relation is effectively many-to-one */
-export function fkOneToOneUnique(
-  _s: Schema,
-  name: string,
-  model: Model<any>
-): SchemaValidationIssue[] {
-  const errors: SchemaValidationIssue[] = [];
-  for (const [rname, rel] of getRelations(model)) {
-    const fks = rel["~"].state.fields;
-    if (rel["~"].state.type !== "oneToOne" || !fks) continue;
-
-    const fkSet = [...fks].sort().join(",");
-    const singleFieldState = model["~"].state.scalars[fks[0]!]?.["~"].state;
-    const singleFieldUnique =
-      fks.length === 1 &&
-      !!(singleFieldState?.isId || singleFieldState?.isUnique);
-    const coveredByCompound =
-      getCompoundIdFields(model).sort().join(",") === fkSet ||
-      getCompoundUniques(model).some(
-        (cu) => [...cu.fields].sort().join(",") === fkSet
-      );
-    const coveredByIndex = model["~"].state.indexes.some(
-      (idx) => idx.options.unique && [...idx.fields].sort().join(",") === fkSet
-    );
-
-    if (!(singleFieldUnique || coveredByCompound || coveredByIndex)) {
-      errors.push({
-        code: "FK008",
-        message: `1:1 '${rname}' in '${name}': FK [${fks.join(", ")}] must be unique - add .unique() or a compound unique constraint`,
+    if (local["~"].state.nullable) nullableForeignFields.push(foreignField);
+    const referencedField = references[position]!;
+    const remote = targetScalars[referencedField];
+    if (!remote) {
+      legal = false;
+      issues.push({
+        code: "FK002",
+        message: `Reference '${referencedField}' not in '${targetName}'`,
         severity: "error",
-        model: name,
-        relation: rname,
+        model: modelName,
+        relation: relationName,
+        field: referencedField,
+        repair: `Reference a scalar declared on '${targetName}'`,
+      });
+      continue;
+    }
+    const localType = local["~"].state.type;
+    const remoteType = remote["~"].state.type;
+    if (localType !== remoteType) {
+      legal = false;
+      issues.push({
+        code: "FK003",
+        message: `Type mismatch: '${foreignField}' (${localType}) → '${referencedField}' (${remoteType}) in ${targetName}`,
+        severity: "error",
+        model: modelName,
+        relation: relationName,
+        repair: `Give '${foreignField}' the same scalar type as '${targetName}.${referencedField}'`,
       });
     }
   }
-  return errors;
-}
 
-// =============================================================================
-// REFERENTIAL ACTION RULES (RA001-RA004)
-// =============================================================================
-
-/** RA003: CASCADE on required relation warning */
-export function cascadeOnRequiredWarning(
-  _s: Schema,
-  name: string,
-  model: Model<any>
-): SchemaValidationIssue[] {
-  const errors: SchemaValidationIssue[] = [];
-  for (const [rname, rel] of getRelations(model)) {
-    if (rel["~"].state.onDelete === "cascade" && !rel["~"].state.optional) {
-      errors.push({
-        code: "RA003",
-        message: `CASCADE on required '${rname}' may cause data loss`,
-        severity: "warning",
-        model: name,
-        relation: rname,
-      });
-    }
+  if (!addressesTargetKey(target, references)) {
+    legal = false;
+    issues.push({
+      code: "FK005",
+      message: `[${references.join(", ")}] in '${targetName}' should be unique/ID`,
+      severity: "error",
+      model: modelName,
+      relation: relationName,
+      repair: `Declare the referenced tuple on '${targetName}' with .id(), .unique(), or a compound key`,
+    });
   }
-  return errors;
-}
 
-/** RA004: SET NULL requires nullable FK field */
-export function setNullRequiresNullable(
-  _s: Schema,
-  name: string,
-  model: Model<any>
-): SchemaValidationIssue[] {
-  const errors: SchemaValidationIssue[] = [];
-  for (const [rname, rel] of getRelations(model)) {
-    const action = rel["~"].state.onDelete;
-    const fks = rel["~"].state.fields;
-    if (action === "setNull" && fks) {
-      for (const fk of fks) {
-        const scalar = model["~"].state.scalars[fk];
-        if (scalar && !scalar["~"].state.nullable) {
-          errors.push({
-            code: "RA004",
-            message: `SET NULL on '${rname}' but '${fk}' not nullable`,
-            severity: "error",
-            model: name,
-            relation: rname,
-          });
-        }
+  if (onDelete === "setNull" || onUpdate === "setNull") {
+    for (const foreignField of fields) {
+      const local = localScalars[foreignField];
+      if (local && !local["~"].state.nullable) {
+        legal = false;
+        issues.push({
+          code: "RA004",
+          message: `SET NULL on '${relationName}' but '${foreignField}' not nullable`,
+          severity: "error",
+          model: modelName,
+          relation: relationName,
+          repair: `Make '${foreignField}' .nullable() or choose another referential action`,
+        });
       }
     }
   }
-  return errors;
+
+  if (onDelete === "cascade" && nullableForeignFields.length === 0) {
+    issues.push({
+      code: "RA003",
+      message: `CASCADE on required '${relationName}' may cause data loss`,
+      severity: "warning",
+      model: modelName,
+      relation: relationName,
+    });
+  }
+
+  const [head, ...rest] = fields.map((foreignField, position) => ({
+    foreignField,
+    referencedField: references[position]!,
+  }));
+  return {
+    reference:
+      legal && head
+        ? {
+            members: [head, ...rest],
+            ...(onDelete ? { onDelete } : {}),
+            ...(onUpdate ? { onUpdate } : {}),
+          }
+        : undefined,
+    issues,
+    nullableForeignFields,
+  };
 }
 
-export const fkRules = [
-  fkFieldExists,
-  fkReferenceExists,
-  fkTypeMatch,
-  fkRequiredForOwning,
-  fkReferencesUnique,
-  fkCardinalityMatch,
-  fkOneToOneUnique,
-  cascadeOnRequiredWarning,
-  setNullRequiresNullable,
-];
+/**
+ * Is the COMPLETE referenced tuple a key the target row can be addressed by?
+ *
+ * The whole tuple, not each member separately: a compound primary key's members
+ * carry no individual `isId`, so a per-scalar reading advises against
+ * referencing the very key the target declares.
+ */
+function addressesTargetKey(
+  target: Model<any>,
+  references: readonly string[]
+): boolean {
+  const wanted = [...references].sort().join(",");
+  for (const key of getModelKeyCatalog(target).addressableKeys) {
+    if ([...key.fields].sort().join(",") === wanted) return true;
+  }
+  return target["~"].state.indexes.some(
+    (index) =>
+      index.options.unique &&
+      isTotalIndex(index.options) &&
+      [...index.fields].sort().join(",") === wanted
+  );
+}

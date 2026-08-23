@@ -43,7 +43,7 @@ const liveSchema = (() => {
     .model({
       id: s.int().id().increment(),
       name: s.string(),
-      spans: s.oneToMany(() => span),
+      spans: s.toMany(() => span),
     })
     .map("pmd_hubs");
   const span = s
@@ -51,10 +51,9 @@ const liveSchema = (() => {
       id: s.string().id(),
       hubId: s.int().nullable(),
       hub: s
-        .manyToOne(() => hub)
+        .toOne(() => hub)
         .fields("hubId")
-        .references("id")
-        .optional(),
+        .references("id"),
     })
     .map("pmd_spans");
   /** The `producer > 0` chain: an application-known root, a generated middle whose
@@ -63,7 +62,7 @@ const liveSchema = (() => {
   const crate = s
     .model({
       id: s.string().id().map("crate_pk"),
-      pallets: s.oneToMany(() => pallet),
+      pallets: s.toMany(() => pallet),
     })
     .map("pmd_crates");
   const pallet = s
@@ -71,11 +70,10 @@ const liveSchema = (() => {
       id: s.int().id().increment().map("pallet_pk"),
       crateId: s.string().nullable(),
       crate: s
-        .manyToOne(() => crate)
+        .toOne(() => crate)
         .fields("crateId")
-        .references("id")
-        .optional(),
-      labels: s.oneToMany(() => label),
+        .references("id"),
+      labels: s.toMany(() => label),
     })
     .map("pmd_pallets");
   const label = s
@@ -83,10 +81,9 @@ const liveSchema = (() => {
       id: s.string().id(),
       palletId: s.int().nullable(),
       pallet: s
-        .manyToOne(() => pallet)
+        .toOne(() => pallet)
         .fields("palletId")
-        .references("id")
-        .optional(),
+        .references("id"),
     })
     .map("pmd_labels");
   return { hub, span, crate, pallet, label };

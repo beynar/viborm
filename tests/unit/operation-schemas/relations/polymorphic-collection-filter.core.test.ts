@@ -23,17 +23,17 @@ const video = s.model({ id: s.string().id(), duration: s.int() });
 // where both namespaces are live rather than on a polymorphic-only one.
 const tag = s.model({
   id: s.string().id(),
-  galleries: s.manyToMany(() => gallery),
+  galleries: s.toMany(() => gallery),
 });
 const gallery = s.model({
   id: s.string().id(),
-  tags: s.manyToMany(() => tag),
-  items: s.polymorphicToMany(
+  tags: s.toMany(() => tag),
+  items: s.toMany(
     { post: () => post, video: () => video },
     { values: { post: "flt.post.v1", video: "flt.video.v1" } }
   ),
   feature: s
-    .polymorphicToOne(
+    .toOne(
       { post: () => post, video: () => video },
       { values: { post: "featflt.post.v1", video: "featflt.video.v1" } }
     )

@@ -104,13 +104,12 @@ THREE ORTHOGONAL AXES: `position` (`parentHeld` | `childHeld` | `junction`),
 `polymorphic` | `junction`), with impossible combinations unrepresentable
 (parent-held is always to-one). A junction is to-many for every ordinary pair —
 `bindJunctionRelation` writes `"many"` unconditionally — but the axis is NOT
-collapsed to it: `bindPolymorphicMemberJunction` is the one producer of a
-singular junction, for a fields-less `manyToOne` bound to a member whose
+collapsed to it: `bindMemberJunction` is the one producer of a
+singular junction, for a non-owning `s.toOne` bound to a member whose
 `inverseCardinality` is `"one"`, backed by that member table's UNIQUE over the
-complete target side. Cardinality,
-clearability and physical membership are DERIVED from that one stored
-declaration, each by one named owner (`@schema/relation/cardinality`,
-`@schema/relation/clearability`, the bound membership itself) — never
+complete target side. Slot emptiness, clearability and physical membership are
+DERIVED from the resolved edge L5 published, each by one named owner
+(`@schema/relation/clearability`, the bound membership itself) — never
 re-derived inline and never stored twice.
 `BoundRelation` carries ordered topology only — including which model HOLDS the
 membership and which it references, and the foreign/referenced fields paired
@@ -120,7 +119,9 @@ transition state, SQL, or branch policy. Bind at the first topology decision so
 error order and untaken arm behavior do not move; the field pairing is lazy for
 the same reason, because it owns the mismatched-metadata refusal.
 The OwnWrite membership scope is a READER of that bound membership, not a second
-constructor of it.
+constructor of it. Its `RelationMembershipScope.kind` and
+`MembershipReadOrientation` both spell junction storage as `"junction"`;
+“many-to-many” describes topology, not a runtime relation-state discriminant.
 
 A polymorphic child-held relation is a fixed inverse topology — the inverse of a
 ROW-HELD group. Both cardinality
@@ -133,9 +134,9 @@ another storage or execution owner.
 An inverse of a JUNCTION-HELD group is not one of those: its membership lives in
 a member junction, so it binds as `position: "junction"` with a `junction`
 membership, in reverse orientation, carrying `membership.polymorphicMember`. The
-plural inverse (`manyToMany`) is then an ordinary to-many junction edge and needs
-no polymorphic-specific engine code at all; the singular inverse (fields-less
-`manyToOne`) is the junction-`"one"` combination above. Direct collection leaf,
+plural inverse (an `s.toMany`) is then an ordinary to-many junction edge and
+needs no polymorphic-specific engine code at all; the singular inverse (a
+non-owning `s.toOne`) is the junction-`"one"` combination above. Direct collection leaf,
 plural view and singular slot all read the same `ResolvedJunctionTopology`, so
 they cannot disagree about a member table.
 
@@ -143,7 +144,7 @@ Direct polymorphic payloads remain a distinct FACT, carried in the one parsed
 relation collection rather than a companion map. After schema transformation the
 payload resolves to one concrete direct target or a targetless disconnect, and
 becomes a `polymorphicTarget` or `polymorphicDisconnect` entry of
-`ParsedRelationMutation`. `ResolvedPolymorphicEdge` reuses ordinary target
+`ParsedRelationMutation`. A payload-selected variant reuses ordinary target
 lookup/create semantics, while `PolymorphicStorageValue` owns the atomic private
 `(type, id)` assignment. A payload-selected direct edge and a schema-fixed
 inverse topology are different facts and must not be coerced into one carrier.
@@ -520,7 +521,7 @@ missing-target race.
 
 ### Polymorphic collections
 
-A `s.polymorphicToMany` slot stores each variant's memberships in one
+A variant `s.toMany` slot stores each variant's memberships in one
 fixed-target member junction, so the junction owners serve it whole. The rule is
 that the collection adds COORDINATION only: no second junction DML owner, no new
 relation-kind cross-product, no polymorphic scheduler, no provider-name branch.
@@ -548,10 +549,11 @@ for every compile and is not carried into record-series members, which re-plan
 after earlier effects. Its compile order IS the contract: every leaf's guards,
 then the barrier, then every leaf's writes. `set` is LOWERED — the parser keeps
 emitting `set`, the coordinator rewrites each entry into its insert half and
-owns the clear half, so ordinary junction `set` stays byte-identical. The one
-shape a batch could split between clear and refill (no transaction, `clearsAll`,
-owner row key arriving as a produced output reference) is refused at
-construction, before any effect.
+owns the clear half, so ordinary junction `set` stays byte-identical. After that
+final order exists, the coordinator shares the executor's generated-output
+boundary analysis and refuses before effects only when a non-transactional
+`clearsAll` would split after its first clear. Boundaries before the clear and
+insert-id dependencies served by real batch scratch remain accepted.
 
 A membership add on a member whose `inverseCardinality` is `"one"` is a SLOT
 REPLACEMENT, owned by `junction-singular-transfer.ts` for both directions: one

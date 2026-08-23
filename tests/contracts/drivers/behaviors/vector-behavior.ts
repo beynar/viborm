@@ -13,7 +13,7 @@ const schema = (() => {
   const collection = s
     .model({
       id: s.string().id(),
-      docs: s.oneToMany(() => doc),
+      docs: s.toMany(() => doc),
     })
     .map("vector_behavior_collections");
 
@@ -22,7 +22,7 @@ const schema = (() => {
       id: s.string().id(),
       collectionId: s.string(),
       collection: s
-        .manyToOne(() => collection)
+        .toOne(() => collection)
         .fields("collectionId")
         .references("id"),
       embedding: s.vector().dimension(3),

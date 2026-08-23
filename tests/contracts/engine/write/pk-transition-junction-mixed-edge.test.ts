@@ -51,7 +51,7 @@ const mixedEdgeSchema = (() => {
     .model({
       id: s.string().id(),
       name: s.string(),
-      posts: s.oneToMany(() => post),
+      posts: s.toMany(() => post),
     })
     .map("e2u3_authors");
   const post = s
@@ -63,15 +63,15 @@ const mixedEdgeSchema = (() => {
       slug: s.string().unique(),
       authorId: s.string(),
       author: s
-        .manyToOne(() => author)
+        .toOne(() => author)
         .fields("authorId")
         .references("id"),
       // The non-cascade edge: a child-held foreign key defaults to NO ACTION, which is
       // what makes this target's transition take the post-transition ordering.
-      comments: s.oneToMany(() => comment),
-      notes: s.oneToMany(() => note),
+      comments: s.toMany(() => comment),
+      notes: s.toMany(() => note),
       // The junction edge: an implicit m2m foreign key is ON UPDATE CASCADE.
-      tags: s.manyToMany(() => tag),
+      tags: s.toMany(() => tag),
     })
     .map("e2u3_posts");
   const comment = s
@@ -80,7 +80,7 @@ const mixedEdgeSchema = (() => {
       body: s.string(),
       postId: s.string(),
       post: s
-        .manyToOne(() => post)
+        .toOne(() => post)
         .fields("postId")
         .references("id"),
     })
@@ -91,7 +91,7 @@ const mixedEdgeSchema = (() => {
       body: s.string(),
       postId: s.string().nullable(),
       post: s
-        .manyToOne(() => post)
+        .toOne(() => post)
         .fields("postId")
         .references("id")
         .onUpdate("cascade"),
@@ -101,7 +101,7 @@ const mixedEdgeSchema = (() => {
     .model({
       id: s.string().id(),
       name: s.string(),
-      posts: s.manyToMany(() => post),
+      posts: s.toMany(() => post),
     })
     .map("e2u3_tags");
   return { author, post, comment, note, tag };

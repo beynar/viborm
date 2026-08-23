@@ -594,14 +594,13 @@ function inverseOneSchemas() {
   const postOne = s.model({
     id: s.string().id(),
     galleryOwner: s
-      .manyToOne(() => ownerOne)
-      .name("gallery")
-      .optional(),
+      .toOne(() => ownerOne)
+      .name("gallery"),
   });
   const ownerOne = s.model({
     id: s.string().id(),
     gallery: s
-      .polymorphicToMany(
+      .toMany(
         { post: () => postOne },
         { values: { post: "gallery.post" } }
       )
@@ -614,7 +613,7 @@ function inverseOneSchemas() {
   const ownerMany = s.model({
     id: s.string().id(),
     gallery: s
-      .polymorphicToMany(
+      .toMany(
         { post: () => postMany },
         { values: { post: "gallery.post" } }
       )

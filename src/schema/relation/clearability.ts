@@ -1,178 +1,112 @@
-// The TWO facts about EMPTYING a relation — deliberately two, at both levels.
+// The TWO facts about EMPTYING a relation — deliberately two.
 //
-// `slotMayBeEmpty` is the PUBLIC shape: may this relation hold nothing? It is the
-// declaration's own `.optional()`, and it is what makes `delete` spellable — deleting
-// the related record leaves the slot empty, whatever the storage looks like.
+// `slotMayBeEmpty` is the PUBLIC shape: may this relation hold nothing? It is
+// what makes `delete` spellable — deleting the related record leaves the slot
+// empty, whatever the storage looks like.
 //
-// `membershipCanBeCleared` is PHYSICAL storage: can the columns that record the
-// membership be set to NULL while both records survive? That is what makes
-// `disconnect` spellable.
+// `clearableMembership` is PHYSICAL storage: HOW the membership is cleared while
+// both records survive. That is what makes `disconnect` spellable, and it is not
+// a boolean: a junction clears by deleting its membership row, while a row
+// reference clears by nulling an exact ordered subset of its columns — a mixed
+// compound foreign key nulls its nullable members and keeps its required
+// context ones.
 //
-// On a polymorphic edge the two coincide by DEFINITION — the private `(type, id)`
-// pair's nullability IS the relation's optionality (`schema/validation/rules/
-// polymorphic.ts`). On an ordinary edge they diverge, and that divergence is a real
-// schema: an optional slot whose child-side foreign key is NOT nullable may be
-// emptied by deleting the child and may not be emptied by disconnecting it. A rule
-// forcing relation optionality and foreign-key nullability to agree would be
-// source-breaking, and the compression plan (§8.2) explicitly leaves it as a separate
-// product decision — so these stay two functions, and no caller may derive one from
-// the other.
-//
-// The ENGINE does not read this module. It answers the same physical question from
-// BOUND membership (`write-engine/relation-nullability.ts`), which is the
-// only reading available to it on a trusted internal program that never passed the
-// public schema — see the guard-ownership ledger.
+// Both read the RESOLVED edge. Neither rescans the graph, and neither reads a
+// declared `.optional()` flag on a model-target relation — that flag no longer
+// exists, because emptiness follows from the stored tuple's nullability.
 
 import type { AnyModel } from "@schema/model";
-import {
-  type CanBindPolymorphicInverse,
-  getCompatiblePolymorphicInverseBinding,
-} from "./inverse";
-import type { GetPolymorphicInverseBinding } from "./polymorphic";
-import type { GetInverseRelationMap, RelationState } from "./types";
-import { getInverseRelationMap } from "./types";
+import type {
+  ResolvedRelationEdge,
+  ResolvedSlot,
+} from "@schema/validation/relation-resolution";
+import type { RelationSlot } from "./types";
 
-/** The target model of a relation, inferred through its getter (never constrained). */
-type RelationTarget<S extends RelationState> = S["getter"] extends () => infer T
-  ? T extends AnyModel
-    ? T
-    : never
-  : never;
+/** How a membership is emptied without deleting either record. */
+export type ClearableMembership =
+  | { readonly kind: "none" }
+  /** Deleting the junction row clears it, whatever the inverse cardinality. */
+  | { readonly kind: "junctionRow" }
+  | {
+      readonly kind: "columns";
+      readonly fields: readonly [string, ...string[]];
+    };
 
 // =============================================================================
 // FACT 1 — the public slot
 // =============================================================================
 
 /**
- * May this relation's slot be EMPTY? Public cardinality/optionality only.
+ * May this relation's slot be EMPTY?
  *
- * This is the availability rule for `delete` on a to-one surface. It says nothing
- * about whether the membership can be cleared without removing the record — see
- * {@link membershipCanBeCleared}, which is a different question with a different
- * answer on an ordinary edge.
+ * A to-many slot is empty when its collection is; a foreign-key owner when any
+ * local member accepts NULL, because one absent member makes the whole
+ * membership absent; a non-owner always, because the membership lives on the
+ * other row and may simply be missing; a row-held variant carrier exactly when
+ * it was declared `.optional()`, which IS the nullability of its private
+ * `(type, id)` pair.
  */
-export const slotMayBeEmpty = (state: RelationState): boolean =>
-  state.optional === true;
-
-/** The type twin of {@link slotMayBeEmpty} — one rule, both levels. */
-export type SlotMayBeEmpty<S extends RelationState> = S["optional"] extends true
-  ? true
-  : false;
+export const slotMayBeEmpty = (resolved: ResolvedSlot): boolean => {
+  const edge = resolved.edge;
+  if (edge.kind === "junction" || edge.kind === "variantJunctionCarrier") {
+    return true;
+  }
+  if (edge.kind === "variantRowCarrier") {
+    return isSlot(edge.carrier, resolved.slot)
+      ? edge.storage.typeColumn.nullable
+      : true;
+  }
+  return isSlot(edge.owner, resolved.slot)
+    ? nullableForeignFields(edge).length > 0
+    : true;
+};
 
 // =============================================================================
 // FACT 2 — the physical membership
 // =============================================================================
 
-type PolymorphicInverseBindingFor<
-  S extends RelationState,
-  Source extends AnyModel,
-> = GetPolymorphicInverseBinding<RelationTarget<S>, Source, S["name"]>;
-
-/**
- * The TARGET's own polymorphic relation state, when this edge is the inverse of one.
- * `never` when the edge's shape cannot bind a polymorphic inverse, or when no binding
- * resolves — which is exactly when the ordinary reading applies.
- */
-type PolymorphicInverseMembershipState<
-  S extends RelationState,
-  Source extends AnyModel,
-> = CanBindPolymorphicInverse<S> extends true
-  ? PolymorphicInverseBindingFor<S, Source> extends {
-      readonly relationKey: infer RelationKey;
-    }
-    ? [RelationKey] extends [never]
-      ? never
-      : RelationKey extends keyof RelationTarget<S>["~"]["state"]["polymorphicRelations"]
-        ? RelationTarget<S>["~"]["state"]["polymorphicRelations"][RelationKey]["~"]["state"]
-        : never
-    : never
-  : never;
-
-type NullableScalarKeys<Model extends AnyModel> = {
-  [Key in keyof Model["~"]["state"]["scalars"]]: Model["~"]["state"]["scalars"][Key]["~"]["state"] extends {
-    nullable: true;
+export const clearableMembership = (
+  resolved: ResolvedSlot
+): ClearableMembership => {
+  const edge = resolved.edge;
+  if (edge.kind === "junction" || edge.kind === "variantJunctionCarrier") {
+    return { kind: "junctionRow" };
   }
-    ? Key
-    : never;
-}[keyof Model["~"]["state"]["scalars"]];
-
-/** The ordinary reading: EVERY inverse foreign-key column must accept NULL. */
-type InverseFkMembershipCanBeCleared<
-  S extends RelationState,
-  Source extends AnyModel,
-> = Extract<
-  GetInverseRelationMap<S, Source>,
-  readonly string[]
-> extends infer Fields
-  ? [Fields] extends [never]
-    ? false
-    : Fields extends readonly string[]
-      ? [Fields[number]] extends [never]
-        ? false
-        : Exclude<
-              Fields[number],
-              NullableScalarKeys<RelationTarget<S>>
-            > extends never
-          ? true
-          : false
-      : false
-  : false;
-
-/**
- * Can the membership be CLEARED while both records survive? Physical storage only.
- *
- * Ordinary edge: every inverse foreign-key scalar on the target is nullable.
- * Polymorphic inverse bound to a toOne group: the target's direct polymorphic
- * relation is optional, which is the same statement about its private
- * `(type, id)` columns. Bound to a toMany group: always clearable — junction
- * membership clears by deleting the member row, singular inverse (one row) and
- * plural inverse (rows) alike, never by nulling a column.
- *
- * This is the availability rule for `disconnect` (and, on a to-many, the one the
- * junction case bypasses — a `manyToMany` membership always clears, because clearing
- * it removes a junction row rather than nulling a column).
- */
-export const membershipCanBeCleared = (
-  state: RelationState,
-  source: AnyModel
-): boolean => {
-  const binding = getCompatiblePolymorphicInverseBinding(state, source);
-  if (binding) {
-    if (binding.groupCardinality === "many") return true;
-    const targetModel: AnyModel = state.getter();
-    return (
-      targetModel["~"].state.polymorphicRelations[binding.relationKey]?.["~"]
-        .state.optional === true
-    );
+  if (edge.kind === "variantRowCarrier") {
+    return edge.storage.typeColumn.nullable
+      ? {
+          kind: "columns",
+          fields: [edge.storage.typeColumn.name, edge.storage.idColumn.name],
+        }
+      : { kind: "none" };
   }
-  const inverseFields: unknown = getInverseRelationMap(state, source);
-  if (!Array.isArray(inverseFields) || inverseFields.length === 0) return false;
-  const targetModel = state.getter();
-  return inverseFields.every(
-    (field) =>
-      typeof field === "string" &&
-      targetModel["~"].state.scalars[field]?.["~"].state.nullable === true
-  );
+  // ONE answer per edge, asked from either end: the columns that record the
+  // membership live on the owner's row, and clearing them is what "disconnect"
+  // means from the owner slot AND from its inverse (§8.4).
+  const [head, ...rest] = nullableForeignFields(edge);
+  return head ? { kind: "columns", fields: [head, ...rest] } : { kind: "none" };
 };
 
 /**
- * The type twin of {@link membershipCanBeCleared} — one rule, both levels.
- *
- * `PolymorphicInverseMembershipState` still gates on the UNWIDENED
- * `CanBindPolymorphicInverse`, so the `cardinality: "many"` arm is
- * type-reachable exactly for the retained shapes over a toMany group — matching
- * the runtime projection's B2 answer for those shapes. For `manyToOne` /
- * `manyToMany` the type level stays conservative (the twin's documented
- * divergence #2 in `./inverse`); the operation-schema surface is already
- * correct without it.
+ * Can the membership be cleared at all? The boolean projection of
+ * {@link clearableMembership}, for callers that only decide whether to expose
+ * `disconnect`.
  */
-export type MembershipCanBeCleared<
-  S extends RelationState,
-  Source extends AnyModel,
-> = [PolymorphicInverseMembershipState<S, Source>] extends [never]
-  ? InverseFkMembershipCanBeCleared<S, Source>
-  : PolymorphicInverseMembershipState<S, Source> extends { cardinality: "many" }
-    ? true
-    : PolymorphicInverseMembershipState<S, Source> extends { optional: true }
-      ? true
-      : false;
+export const membershipCanBeCleared = (resolved: ResolvedSlot): boolean =>
+  clearableMembership(resolved).kind !== "none";
+
+/** `(model, field)` is the whole contextual identity of a slot. */
+function isSlot(one: RelationSlot, other: RelationSlot): boolean {
+  return one.source === other.source && one.field === other.field;
+}
+
+/** The ordered subset of the stored tuple whose scalars accept NULL. */
+function nullableForeignFields(
+  edge: Extract<ResolvedRelationEdge, { kind: "foreignKey" }>
+): readonly string[] {
+  const scalars: Record<string, AnyModel["~"]["state"]["scalars"][string]> =
+    edge.owner.source["~"].state.scalars;
+  return edge.reference.members
+    .map((member) => member.foreignField)
+    .filter((field) => scalars[field]?.["~"].state.nullable === true);
+}

@@ -1,5 +1,5 @@
 import type { Model } from "@schema/model";
-import type { AnyPolymorphicRelation, AnyRelation } from "@schema/relation";
+import { type AnyRelation, isVariantRelationState } from "@schema/relation";
 import type { Scalar } from "@schema/scalars";
 import {
   EMPTY_ROW_RESULT_KEY,
@@ -212,8 +212,6 @@ export function createRowParser(
 ): (row: Record<string, unknown>) => Record<string, unknown> {
   const scalars: Record<string, Scalar> = model["~"].state.scalars;
   const relations: Record<string, AnyRelation> = model["~"].state.relations;
-  const polymorphicRelations: Record<string, AnyPolymorphicRelation> =
-    model["~"].state.polymorphicRelations;
   const len = keys.length;
   const steps: ((
     result: Record<string, unknown>,
@@ -314,7 +312,6 @@ export function createRowParser(
           result,
           value,
           relations,
-          polymorphicRelations,
           expectedRelations
         );
       continue;
@@ -323,30 +320,31 @@ export function createRowParser(
     const relation = getOwnValue(relations, key);
     if (relation) {
       allIdentity = false;
+      // ONE map, dispatched on TARGET KIND: a variant slot arrives as a tagged
+      // carrier with per-arm sub-shapes, an ordinary one as a nested row set.
+      if (isVariantRelationState(relation["~"].state)) {
+        const polymorphicShape = shape?.polymorphic.get(key);
+        steps[i] = (result, value) => {
+          result[key] = parsers.parsePolymorphic(
+            model,
+            key,
+            relation,
+            value,
+            operation,
+            polymorphicShape
+          );
+        };
+        continue;
+      }
       const relationShape = shape?.relations.get(key);
       steps[i] = (result, value) => {
         result[key] = parsers.parseRelation(
+          model,
+          key,
           relation,
           value,
           operation,
           relationShape
-        );
-      };
-      continue;
-    }
-
-    const polymorphicRelation = getOwnValue(polymorphicRelations, key);
-    if (polymorphicRelation) {
-      allIdentity = false;
-      const polymorphicShape = shape?.polymorphic.get(key);
-      steps[i] = (result, value) => {
-        result[key] = parsers.parsePolymorphic(
-          model,
-          key,
-          polymorphicRelation,
-          value,
-          operation,
-          polymorphicShape
         );
       };
       continue;

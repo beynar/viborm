@@ -113,7 +113,7 @@ export class UpdateOperation {
     const txMode = this.mode === "transaction";
     this.scope = new StepScope();
     const scope = this.scope;
-    const parent = createQueryScope(engine.adapter, model);
+    const parent = createQueryScope(engine, model);
     const parentSchemas = engine.schemaRegistry.getModelSchemas(model);
 
     // K5 — a CAPTURED-ROOT member of a relation-bearing `updateMany`. The bulk
@@ -167,7 +167,7 @@ export class UpdateOperation {
         `data.${relationName}`
       );
       const program = buildRelationMutationProgram(
-        relationPayload.relationInfo,
+        relationPayload.relationRef,
         parsedRelation,
         relationPayload.payload
       );
@@ -434,7 +434,7 @@ export class UpdateOperation {
       );
     }
     return new ResultParser(
-      this.engine.adapter,
+      this.engine,
       this.model,
       this.engine.driver,
       this.resultDecimalDecode
@@ -444,7 +444,7 @@ export class UpdateOperation {
   private buildRootPresenceGuard(
     locatedRow: Record<string, unknown>
   ): OperationStep {
-    const parent = createQueryScope(this.engine.adapter, this.model);
+    const parent = createQueryScope(this.engine, this.model);
     const failure = notFoundFailure(
       `query-engine-v2 update located no '${getStepModelName(this.model, "record")}' row for its unique where.`
     );
@@ -492,7 +492,7 @@ export class UpdateOperation {
   }
 
   private selectorNamesPrimaryKey(): boolean {
-    const parent = createQueryScope(this.engine.adapter, this.model);
+    const parent = createQueryScope(this.engine, this.model);
     const named = new Set(
       getWhereUniqueEntries(parent, this.parentWhere).map(
         (entry) => entry.fieldName
@@ -519,7 +519,7 @@ export class UpdateOperation {
   }
 
   private buildTerminal(locatedRow: Record<string, unknown>): ReadStep {
-    const parent = createQueryScope(this.engine.adapter, this.model);
+    const parent = createQueryScope(this.engine, this.model);
     const terminalWhere = this.compiler
       ? this.compiler.updatedPrimaryKeyWhere(locatedRow)
       : buildPrimaryKeyWhereUnique(

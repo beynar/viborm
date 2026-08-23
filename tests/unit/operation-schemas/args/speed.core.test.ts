@@ -47,8 +47,8 @@ const Author = s.model({
   name: s.string(),
   email: s.string().unique(),
   bio: s.string().nullable(),
-  posts: s.oneToMany(() => Post),
-  profile: s.oneToOne(() => Profile).optional(),
+  posts: s.toMany(() => Post),
+  profile: s.toOne(() => Profile),
 });
 
 const Post = s.model({
@@ -58,8 +58,11 @@ const Post = s.model({
   published: s.boolean().default(false),
   views: s.int().default(0),
   authorId: s.string(),
-  author: s.manyToOne(() => Author),
-  comments: s.oneToMany(() => Comment),
+  author: s
+    .toOne(() => Author)
+    .fields("authorId")
+    .references("id"),
+  comments: s.toMany(() => Comment),
   tags: s.string().array(),
 });
 
@@ -67,7 +70,10 @@ const Comment = s.model({
   id: s.string().id(),
   text: s.string(),
   postId: s.string(),
-  post: s.manyToOne(() => Post),
+  post: s
+    .toOne(() => Post)
+    .fields("postId")
+    .references("id"),
   authorId: s.string().nullable(),
 });
 
@@ -76,7 +82,10 @@ const Profile = s.model({
   avatar: s.string().nullable(),
   website: s.string().nullable(),
   userId: s.string().unique(),
-  user: s.oneToOne(() => Author).optional(),
+  user: s
+    .toOne(() => Author)
+    .fields("userId")
+    .references("id"),
 });
 
 const schemaRegistry = createSchemaRegistry({
@@ -345,8 +354,8 @@ describe("Validation Speed (Pre-built Schema)", () => {
             email: "new@example.com",
             posts: {
               create: [
-                { id: "post-1", title: "Post 1", authorId: "author-new" },
-                { id: "post-2", title: "Post 2", authorId: "author-new" },
+                { id: "post-1", title: "Post 1" },
+                { id: "post-2", title: "Post 2" },
               ],
             },
             profile: {
@@ -388,14 +397,12 @@ describe("Validation Speed (Pre-built Schema)", () => {
               create: {
                 id: "new-post",
                 title: "New Post",
-                authorId: "author-1",
               },
               createMany: {
                 data: [
                   {
                     id: "new-post-2",
                     title: "Second New Post",
-                    authorId: "author-1",
                   },
                 ],
               },
@@ -474,8 +481,8 @@ describe("Serverless Request Simulation (Schema Build + Validate)", () => {
             email: "new@example.com",
             posts: {
               create: [
-                { id: "p1", title: "Post 1", authorId: "author-new" },
-                { id: "p2", title: "Post 2", authorId: "author-new" },
+                { id: "p1", title: "Post 1" },
+                { id: "p2", title: "Post 2" },
               ],
             },
           },
@@ -494,9 +501,9 @@ describe("Serverless Request Simulation (Schema Build + Validate)", () => {
           data: {
             name: "Updated",
             posts: {
-              create: { id: "new", title: "New", authorId: "author-1" },
+              create: { id: "new", title: "New" },
               createMany: {
-                data: [{ id: "new-2", title: "New 2", authorId: "author-1" }],
+                data: [{ id: "new-2", title: "New 2" }],
               },
               set: { id: "existing-post" },
             },

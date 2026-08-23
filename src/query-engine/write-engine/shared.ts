@@ -1,5 +1,9 @@
 import { TransactionError } from "@errors";
 import { getModelKeyCatalog, type Model } from "@schema/model";
+import type {
+  ResolvedVariantJunctionEdge,
+  ResolvedVariantRowEdge,
+} from "@schema/validation/relation-resolution";
 import { isSql } from "@sql";
 import { isRecord as isRecordValue } from "@validation/value-guards";
 
@@ -12,9 +16,9 @@ import {
 } from "../builders/where-unique-builder";
 import {
   createChildScope,
-  getPolymorphicRelationInfo,
-  getRelationInfo,
   getTableName,
+  lookupRelation,
+  variantCarrier,
 } from "../context/query-scope";
 import type { QueryEngine } from "../query-engine";
 import { getForeignKeyTargetFields } from "../TargetConstraint";
@@ -211,10 +215,7 @@ export function selectProjectsRelation(
 ): boolean {
   if (!select) return false;
   return Object.keys(select).some(
-    (key) =>
-      key === "_count" ||
-      model["~"].relationSet.has(key) ||
-      model["~"].polymorphicRelationSet.has(key)
+    (key) => key === "_count" || model["~"].relationSet.has(key)
   );
 }
 
@@ -362,7 +363,7 @@ function payloadReachesAnyTable(
     // NOT in this set: `where: { manager: null }` is a to-one absence filter,
     // which reads the related table to establish the absence.
     if (entry === false || entry === undefined) continue;
-    const polymorphic = getPolymorphicRelationInfo(scope, key);
+    const polymorphic = variantCarrier(scope, key);
     if (polymorphic) {
       if (
         polymorphicPayloadReachesAnyTable(scope, polymorphic, entry, tables)
@@ -371,7 +372,7 @@ function payloadReachesAnyTable(
       }
       continue;
     }
-    const relation = getRelationInfo(scope, key);
+    const relation = lookupRelation(scope, key);
     if (relation) {
       if (tables.has(getTableName(relation.targetModel))) return true;
       const child = createChildScope(
@@ -405,7 +406,7 @@ function payloadReachesAnyTable(
  */
 function polymorphicPayloadReachesAnyTable(
   scope: QueryScope,
-  relation: NonNullable<ReturnType<typeof getPolymorphicRelationInfo>>,
+  relation: NonNullable<ReturnType<typeof variantCarrier>>,
   value: unknown,
   tables: ReadonlySet<string>
 ): boolean {
@@ -442,23 +443,36 @@ function polymorphicPayloadReachesAnyTable(
       ? value.variants
       : undefined;
 
-  for (const [publicType, member] of relation.storage.members) {
-    if (tables.has(getTableName(member.targetModel))) return true;
+  for (const member of relation.edge.members) {
+    const publicType = member.variant;
+    const targetModel = memberTarget(member);
+    if (tables.has(getTableName(targetModel))) return true;
     const override = variants
       ? variants[publicType]
       : isRecordValue(value)
         ? value[publicType]
         : undefined;
     if (!isRecordValue(override)) continue;
-    const child = createChildScope(scope, member.targetModel, scope.rootAlias);
+    const child = createChildScope(scope, targetModel, scope.rootAlias);
     if (payloadReachesAnyTable(child, override, tables)) return true;
   }
   return false;
 }
 
+/** The model one carrier member reaches, whichever storage family it uses. */
+function memberTarget(
+  member:
+    | ResolvedVariantRowEdge["members"][number]
+    | ResolvedVariantJunctionEdge["members"][number]
+): Model<any> {
+  return "targetModel" in member
+    ? member.targetModel
+    : member.topology.target.model;
+}
+
 function taggedPredicateReachesAnyTable(
   scope: QueryScope,
-  relation: NonNullable<ReturnType<typeof getPolymorphicRelationInfo>>,
+  relation: NonNullable<ReturnType<typeof variantCarrier>>,
   publicType: string,
   tagged: Readonly<Record<string, unknown>>,
   tables: ReadonlySet<string>
@@ -469,10 +483,13 @@ function taggedPredicateReachesAnyTable(
       ? tagged.isNot
       : undefined;
   if (!nested) return false;
-  const member = relation.storage.members.get(publicType);
+  const member = relation.edge.members.find(
+    (candidate) => candidate.variant === publicType
+  );
   if (!member) return false;
-  if (tables.has(getTableName(member.targetModel))) return true;
-  const child = createChildScope(scope, member.targetModel, scope.rootAlias);
+  const targetModel = memberTarget(member);
+  if (tables.has(getTableName(targetModel))) return true;
+  const child = createChildScope(scope, targetModel, scope.rootAlias);
   return payloadReachesAnyTable(child, nested, tables);
 }
 

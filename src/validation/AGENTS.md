@@ -136,9 +136,10 @@ the update factories — the create surfaces have no removal verb to gate.
 The four verb factories (`toOne`/`toMany` × `create`/`update`) consume the projection
 without asking which edge they are on. A polymorphic inverse therefore has no verb
 surface of its own; it is the same factory with a different projection. That holds
-for all four admitted inverse shapes: the row-held ones (`oneToMany`, fields-less
-`oneToOne`) and the collection ones (`manyToMany` — a fixed-variant junction view —
-and fields-less `manyToOne` — a member-junction to-one SLOT). `GetRelationSchemas`
+for every admitted inverse shape: the row-held ones (a plural `s.toMany`, a
+singular non-owning `s.toOne`) and the collection ones (a plural `s.toMany` — a
+fixed-variant junction view — and a singular non-owning `s.toOne` — a
+member-junction to-one SLOT). `GetRelationSchemas`
 dispatches on cardinality alone; there is no polymorphic inverse family, and the
 removal verbs on the singular collection inverse hang on `slotMayBeEmpty` alone,
 which `P021` makes true by construction rather than hoping a schema author wrote
@@ -146,8 +147,9 @@ which `P021` makes true by construction rather than hoping a schema author wrote
 
 Two invariants live here rather than in the factories:
 
-- **Laziness is a non-termination hazard.** The projection resolves `state.getter()`
-  (schema-layer state, cheap) but returns THUNKS for every schema. Call it from
+- **Laziness is a non-termination hazard.** The projection reads the settled
+  target off the resolved slot (schema-layer state, cheap) but returns THUNKS
+  for every schema. Call it from
   inside a verb factory — each is reached through `v.lazy` — never from
   `getRelationSchemas`. Resolving a target model's schemas while the enclosing
   model's are still under construction never terminates for a self-referential

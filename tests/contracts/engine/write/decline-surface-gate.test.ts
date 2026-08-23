@@ -74,8 +74,8 @@ const t1CrossSchema = (() => {
     .model({
       id: s.int().id(),
       label: s.string(),
-      primaryRecords: s.oneToMany(() => record).name("primary"),
-      secondaryRecords: s.oneToMany(() => record).name("secondary"),
+      primaryRecords: s.toMany(() => record).name("primary"),
+      secondaryRecords: s.toMany(() => record).name("secondary"),
     })
     .map("decline_gate_cross_accounts");
   const record = s
@@ -84,17 +84,15 @@ const t1CrossSchema = (() => {
       primaryId: s.int().nullable(),
       secondaryId: s.int().nullable(),
       primary: s
-        .manyToOne(() => account)
+        .toOne(() => account)
         .fields("primaryId")
         .references("id")
-        .name("primary")
-        .optional(),
+        .name("primary"),
       secondary: s
-        .manyToOne(() => account)
+        .toOne(() => account)
         .fields("secondaryId")
         .references("id")
-        .name("secondary")
-        .optional(),
+        .name("secondary"),
     })
     .map("decline_gate_cross_records");
   return { account, record };
@@ -437,7 +435,7 @@ describe("decline-surface gate: absorbed create shapes execute on the one engine
 // throwing on relations, or `parentHeldUpdateData` throwing) makes them throw instead.
 const t3bMembershipSchema = (() => {
   const container = s
-    .model({ id: s.int().id(), nodes: s.oneToMany(() => node) })
+    .model({ id: s.int().id(), nodes: s.toMany(() => node) })
     .map("t3b_gate_containers");
   const node: ReturnType<typeof s.model> = s
     .model({
@@ -445,35 +443,31 @@ const t3bMembershipSchema = (() => {
       label: s.string(),
       containerId: s.int().nullable(),
       container: s
-        .manyToOne(() => container)
+        .toOne(() => container)
         .fields("containerId")
-        .references("id")
-        .optional(),
+        .references("id"),
       parentId: s.int().nullable(),
       parent: s
-        .manyToOne(() => node)
+        .toOne(() => node)
         .fields("parentId")
         .references("id")
-        .name("t3bParent")
-        .optional(),
-      children: s.oneToMany(() => node).name("t3bParent"),
+        .name("t3bParent"),
+      children: s.toMany(() => node).name("t3bParent"),
       friends: s
-        .manyToMany(() => node)
+        .toMany(() => node)
         .name("t3bFriends")
-        .A("friendSourceId")
-        .B("friendTargetId"),
-      friendedBy: s.manyToMany(() => node).name("t3bFriends"),
+        .source("friendSourceId")
+        .target("friendTargetId"),
+      friendedBy: s.toMany(() => node).name("t3bFriends"),
       partnerId: s.int().unique().nullable(),
       partner: s
-        .oneToOne(() => node)
+        .toOne(() => node)
         .fields("partnerId")
         .references("id")
-        .name("t3bPartner")
-        .optional(),
+        .name("t3bPartner"),
       partnerOf: s
-        .oneToOne(() => node)
-        .name("t3bPartner")
-        .optional(),
+        .toOne(() => node)
+        .name("t3bPartner"),
     })
     .map("t3b_gate_nodes");
   return { container, node };
@@ -881,7 +875,7 @@ const n5AdoptSchema = (() => {
     .model({
       id: s.int().id(),
       name: s.string(),
-      books: s.oneToMany(() => book),
+      books: s.toMany(() => book),
     })
     .map("n5_gate_shelves");
   const book = s
@@ -890,10 +884,9 @@ const n5AdoptSchema = (() => {
       title: s.string(),
       shelfId: s.int().nullable(),
       shelf: s
-        .manyToOne(() => shelf)
+        .toOne(() => shelf)
         .fields("shelfId")
         .references("id")
-        .optional()
         .onUpdate("setNull"),
     })
     .map("n5_gate_books");

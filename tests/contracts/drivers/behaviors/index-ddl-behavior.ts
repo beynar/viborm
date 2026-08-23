@@ -46,7 +46,7 @@ import { afterEach, describe, expect, test } from "vitest";
 const mappedUser = s
   .model({
     id: s.string().id(),
-    posts: s.oneToMany(() => mappedPost),
+    posts: s.toMany(() => mappedPost),
   })
   .map("idx_map_users");
 
@@ -56,7 +56,7 @@ const mappedPost = s
     authorId: s.string().map("author_id"),
     publishedAt: s.dateTime().map("published_at"),
     author: s
-      .manyToOne(() => mappedUser)
+      .toOne(() => mappedUser)
       .fields("authorId")
       .references("id"),
   })
@@ -73,7 +73,7 @@ const mappedIndexSchema = { mappedUser, mappedPost };
 const partialUser = s
   .model({
     id: s.string().id(),
-    posts: s.oneToMany(() => partialPost),
+    posts: s.toMany(() => partialPost),
   })
   .map("idx_part_users");
 
@@ -84,7 +84,7 @@ const partialPost = s
     published: s.boolean(),
     authorId: s.string(),
     author: s
-      .manyToOne(() => partialUser)
+      .toOne(() => partialUser)
       .fields("authorId")
       .references("id"),
   })
@@ -119,7 +119,7 @@ const refusedIndexSchema = { refusedPost };
 const coverUser = s
   .model({
     id: s.string().id(),
-    posts: s.oneToMany(() => coverPost),
+    posts: s.toMany(() => coverPost),
   })
   .map("idx_cov_users");
 
@@ -129,7 +129,7 @@ const coverPost = s
     views: s.int(),
     authorId: s.string(),
     author: s
-      .manyToOne(() => coverUser)
+      .toOne(() => coverUser)
       .fields("authorId")
       .references("id"),
   })
@@ -142,7 +142,7 @@ const coverIndexSchema = { coverUser, coverPost };
 const coverOwner = s
   .model({
     id: s.string().id(),
-    profile: s.oneToOne(() => coverProfile).optional(),
+    profile: s.toOne(() => coverProfile),
   })
   .map("idx_cov_owners");
 
@@ -152,7 +152,7 @@ const coverProfile = s
     views: s.int(),
     ownerId: s.string(),
     owner: s
-      .oneToOne(() => coverOwner)
+      .toOne(() => coverOwner)
       .fields("ownerId")
       .references("id"),
   })

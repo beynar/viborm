@@ -27,7 +27,7 @@ const collectionSchema = (() => {
       id: s.int().id().increment(),
       title: s.string(),
       rank: s.int(),
-      gallery: s.manyToOne(() => gallery).optional(),
+      gallery: s.toOne(() => gallery),
       // THE CONTROL EDGE. An ordinary, foreign-key-backed to-one with the same
       // shape of nullability as the singular inverse above, so parent ordering
       // through the junction can be compared against parent ordering through a
@@ -36,9 +36,9 @@ const collectionSchema = (() => {
       // and the invariant here is that the junction path does not CHANGE it.
       sectionId: s.int().nullable(),
       section: s
-        .manyToOne(() => section)
+        .toOne(() => section)
         .fields("sectionId")
-        .optional(),
+        .references("id"),
     })
     .map("coll_contract_articles");
 
@@ -46,7 +46,7 @@ const collectionSchema = (() => {
     .model({
       id: s.int().id().increment(),
       name: s.string(),
-      articles: s.oneToMany(() => article),
+      articles: s.toMany(() => article),
     })
     .map("coll_contract_sections");
 
@@ -55,7 +55,7 @@ const collectionSchema = (() => {
       id: s.int().id().increment(),
       label: s.string(),
       seconds: s.int(),
-      galleries: s.manyToMany(() => gallery),
+      galleries: s.toMany(() => gallery),
     })
     .map("coll_contract_clips");
 
@@ -63,7 +63,7 @@ const collectionSchema = (() => {
     .model({
       id: s.int().id().increment(),
       name: s.string(),
-      items: s.polymorphicToMany(
+      items: s.toMany(
         { article: () => article, clip: () => clip },
         {
           values: {

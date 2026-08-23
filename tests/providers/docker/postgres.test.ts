@@ -40,7 +40,7 @@ const user = s
     name: s.string().nullable(),
     email: s.string(),
     age: s.int().nullable(),
-    posts: s.oneToMany(() => post),
+    posts: s.toMany(() => post),
   })
   .map("postgresjs_test_users");
 
@@ -52,7 +52,7 @@ const post = s
     published: s.boolean().default(false),
     authorId: s.string(),
     author: s
-      .manyToOne(() => user)
+      .toOne(() => user)
       .fields("authorId")
       .references("id"),
   })

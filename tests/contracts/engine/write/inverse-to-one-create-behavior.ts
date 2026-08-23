@@ -54,8 +54,8 @@ export const inverseToOneCreateSchema = (() => {
       // value only the located row carries.
       code: s.string().unique(),
       label: s.string(),
-      profile: s.oneToOne(() => profile).optional(),
-      badge: s.oneToOne(() => badge).optional(),
+      profile: s.toOne(() => profile),
+      badge: s.toOne(() => badge),
     })
     .map("n2_ito_accounts");
   const profile = s
@@ -66,12 +66,11 @@ export const inverseToOneCreateSchema = (() => {
       // whose foreign key is not unique. It is the occupied-slot guard.
       accountId: s.int().unique().nullable(),
       account: s
-        .oneToOne(() => account)
+        .toOne(() => account)
         .fields("accountId")
-        .references("id")
-        .optional(),
+        .references("id"),
       // The depth witness: a created inverse-to-one child carrying its own nested writes.
-      tags: s.oneToMany(() => profileTag),
+      tags: s.toMany(() => profileTag),
     })
     .map("n2_ito_profiles");
   const profileTag = s
@@ -80,7 +79,7 @@ export const inverseToOneCreateSchema = (() => {
       name: s.string(),
       profileId: s.int(),
       profile: s
-        .manyToOne(() => profile)
+        .toOne(() => profile)
         .fields("profileId")
         .references("id"),
     })
@@ -93,10 +92,9 @@ export const inverseToOneCreateSchema = (() => {
       kind: s.string(),
       accountCode: s.string().unique().nullable(),
       account: s
-        .oneToOne(() => account)
+        .toOne(() => account)
         .fields("accountCode")
-        .references("code")
-        .optional(),
+        .references("code"),
     })
     .map("n2_ito_badges");
   return { account, profile, profileTag, badge };

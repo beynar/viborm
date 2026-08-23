@@ -1,15 +1,17 @@
-// Relation Helpers
-// Junction table utility functions for many-to-many relations
+// Junction physical naming — table, side tokens, expanded columns, constraint
+// names.
+//
+// Nothing here discovers a pair. The full-schema relation resolver decides which
+// two slots share a junction and which single endpoint owns the overrides, then
+// hands this owner the already-oriented facts. That is why no function below
+// reads a relation object or a second endpoint's declaration.
 
 import { isValidSchemaIdentifier } from "../identifier";
-import type { ManyToManyRelationState, RelationState } from "./types";
+import type { JunctionReferentialAction } from "./types";
 
 // =============================================================================
-// JUNCTION TABLE HELPERS
+// DEFAULT NAMES
 // =============================================================================
-
-/** Any object with ["~"].state matching RelationState */
-export type RelationLike = { "~": { state: RelationState } };
 
 /**
  * Generate a junction table name from two model names
@@ -38,125 +40,8 @@ export function generateJunctionFieldName(modelName: string): string {
   return `${modelName.toLowerCase()}Id`;
 }
 
-/**
- * Find the paired manyToMany relation on the target model that points back at
- * this relation's source model. Junction identity (.through()/.A()/.B()) may
- * be configured on either side of the pair; resolving through the pair keeps
- * both sides agreeing on the same table and columns.
- *
- * Requires the relation's source model to be bound (hydrateSchemaNames);
- * returns undefined otherwise, or when no unambiguous pair exists.
- */
-export function findPairedManyToManyState(
-  relation: RelationLike
-): ManyToManyRelationState | undefined {
-  const state = relation["~"].state;
-  if (state.type !== "manyToMany" || !state.source) {
-    return undefined;
-  }
-  const targetModel = state.getter();
-  if (!targetModel?.["~"]) {
-    return undefined;
-  }
-
-  const candidates: ManyToManyRelationState[] = [];
-  for (const rel of Object.values(
-    targetModel["~"].state.relations
-  ) as RelationLike[]) {
-    const relState = rel["~"].state;
-    if (relState === state) {
-      continue;
-    }
-    if (relState.type !== "manyToMany") {
-      continue;
-    }
-    if (relState.getter() !== state.source) {
-      continue;
-    }
-    candidates.push(relState as ManyToManyRelationState);
-  }
-
-  if (candidates.length <= 1) {
-    const paired = candidates[0];
-    // Differently-named relations belong to different pairs, not each other.
-    if (
-      paired?.name !== undefined &&
-      state.name !== undefined &&
-      paired.name !== state.name
-    ) {
-      return undefined;
-    }
-    return paired;
-  }
-  // Multiple M2M pairs between the same models — match by .name() (both
-  // unnamed counts as the single default pair).
-  const matched = candidates.filter(
-    (candidate) => candidate.name === state.name
-  );
-  if (matched.length === 1) {
-    return matched[0];
-  }
-  const sourceName = state.source["~"].names.ts;
-  const targetName = targetModel["~"].names.ts;
-  throw new Error(
-    `Multiple many-to-many relation pairs between '${sourceName}' and '${targetName}' are ambiguous — give each pair a distinct .name() on both sides.`
-  );
-}
-
-/**
- * Get the junction table name for a many-to-many relation
- * Uses explicit .through() from either side of the relation pair if set,
- * otherwise generates from model names.
- */
-export function getJunctionTableName(
-  relation: RelationLike,
-  sourceModelName: string,
-  targetModelName: string
-): string {
-  const state = relation["~"].state;
-  if (state.type !== "manyToMany") {
-    return generateJunctionTableName(sourceModelName, targetModelName);
-  }
-  const paired = findPairedManyToManyState(relation);
-  if (state.through && paired?.through && state.through !== paired.through) {
-    throw new Error(
-      `Many-to-many relations between '${sourceModelName}' and '${targetModelName}' disagree on .through(): '${state.through}' vs '${paired.through}'.`
-    );
-  }
-  const explicit = state.through ?? paired?.through;
-  if (explicit) {
-    return explicit;
-  }
-  // Named pairs get their own junction (Prisma gives each named pair its own
-  // _RelName table); the bare generated name stays for the default pair.
-  const base = generateJunctionTableName(sourceModelName, targetModelName);
-  const pairName = state.name ?? paired?.name;
-  return pairName ? `${base}_${pairName}` : base;
-}
-
-/**
- * Get the legacy scalar junction column names.
- *
- * @deprecated This two-string projection cannot represent compound junction
- * sides. Engine and migration consumers must use the schema-owned complete group
- * resolver instead. It remains exported only for scalar API compatibility.
- */
-export function getJunctionFieldNames(
-  relation: RelationLike,
-  sourceModelName: string,
-  targetModelName: string
-): [string, string] {
-  return resolveJunctionFieldTokens(
-    relation,
-    sourceModelName,
-    targetModelName,
-    false,
-    false
-  );
-}
-
 export interface JunctionFieldGroup {
-  /** The public `.A()` / `.B()` token, or its generated equivalent. */
+  /** The declared side token, or its generated equivalent. */
   readonly token: string;
   /** Complete ordered junction columns for this endpoint's row key. */
   readonly fields: readonly string[];
@@ -196,45 +81,11 @@ export function getJunctionConstraintName(
 }
 
 /**
- * Resolve both complete junction sides from the two scalar naming tokens.
- *
- * `.A()` and `.B()` keep their historical exact-column meaning for a scalar
- * row key. For a compound row key they are prefixes, expanded positionally in
- * the model key catalog's order. Public configuration therefore never owns a
- * second list of primary-key members or their pairing.
- */
-export function getJunctionFieldGroups(
-  relation: RelationLike,
-  sourceModelName: string,
-  targetModelName: string,
-  sourceRowKeyFields: readonly string[],
-  targetRowKeyFields: readonly string[]
-): JunctionFieldGroups {
-  const [sourceToken, targetToken] = resolveJunctionFieldTokens(
-    relation,
-    sourceModelName,
-    targetModelName,
-    sourceRowKeyFields.length > 1,
-    targetRowKeyFields.length > 1
-  );
-  return expandJunctionFieldGroups(
-    sourceModelName,
-    targetModelName,
-    sourceToken,
-    targetToken,
-    sourceRowKeyFields,
-    targetRowKeyFields
-  );
-}
-
-/**
- * The relation-free guard core of {@link getJunctionFieldGroups}: expand the two
- * side naming tokens over their complete row keys. The four guards live HERE and
- * only here — row-key emptiness per side, token identifier validity, expanded
- * field identifier validity, and the cross-side field collision. The ordinary
- * pair path reaches them through {@link getJunctionFieldGroups}; the polymorphic
- * member path reaches them through `resolvePolymorphicMemberJunctionTopology`
- * (`./junction-topology`), so both spellings share one refusal set.
+ * Expand the two side naming tokens over their complete row keys. The four
+ * guards live HERE and only here — row-key emptiness per side, token identifier
+ * validity, expanded field identifier validity, and the cross-side field
+ * collision — so the ordinary pair path and the variant member path share one
+ * refusal set.
  */
 export function expandJunctionFieldGroups(
   sourceModelName: string,
@@ -314,58 +165,97 @@ function junctionFieldGroup(
   };
 }
 
-function resolveJunctionFieldTokens(
-  relation: RelationLike,
-  sourceModelName: string,
-  targetModelName: string,
-  sourceIsCompound: boolean,
-  targetIsCompound: boolean
-): [string, string] {
-  const state = relation["~"].state as ManyToManyRelationState;
-  const paired =
-    state.type === "manyToMany"
-      ? findPairedManyToManyState(relation)
-      : undefined;
+// =============================================================================
+// ORDINARY PAIR NAMES
+// =============================================================================
 
-  if (state.A && paired?.B && state.A !== paired.B) {
-    throw new Error(
-      `Many-to-many relations between '${sourceModelName}' and '${targetModelName}' disagree on junction columns: .A('${state.A}') vs paired .B('${paired.B}').`
-    );
-  }
-  if (state.B && paired?.A && state.B !== paired.A) {
-    throw new Error(
-      `Many-to-many relations between '${sourceModelName}' and '${targetModelName}' disagree on junction columns: .B('${state.B}') vs paired .A('${paired.A}').`
-    );
-  }
+/**
+ * One resolved ordinary junction pair, oriented source → target by the caller.
+ * `overrides` are the SINGLE owning endpoint's, already mirrored into this
+ * orientation; a pair whose two endpoints both configure the junction never
+ * reaches here.
+ */
+export interface OrdinaryJunctionNameInput {
+  readonly sourceModelName: string;
+  readonly targetModelName: string;
+  /** Field keys of the two paired slots — the self-junction token defaults. */
+  readonly sourceField: string;
+  readonly targetField: string;
+  readonly sourceRowKeyIsCompound: boolean;
+  readonly targetRowKeyIsCompound: boolean;
+  /** The agreed relation-name claim, which suffixes a generated table name. */
+  readonly pairName: string | undefined;
+  readonly overrides: JunctionOverrideView | undefined;
+}
 
-  const sourceFieldName = state.A ?? paired?.B;
-  const targetFieldName = state.B ?? paired?.A;
+/**
+ * One endpoint's declared junction overrides, seen from the SOURCE side of the
+ * resolved pair. The declaration type refuses an empty object; this resolved
+ * view does not, because mirroring the owner's facts onto the other side is a
+ * derivation, not a declaration.
+ */
+export interface JunctionOverrideView {
+  readonly table?: string;
+  readonly source?: string;
+  readonly target?: string;
+  readonly onDelete?: JunctionReferentialAction;
+  readonly onUpdate?: JunctionReferentialAction;
+}
 
-  if (sourceModelName === targetModelName) {
-    if (paired && !(sourceFieldName && targetFieldName)) {
-      // With two self-relations and no explicit columns, there is no stable
-      // rule for which side traverses A→B vs B→A.
-      throw new Error(
-        `Self-referential many-to-many relations on '${sourceModelName}' require explicit junction columns: set .A() and .B() on one side of the pair.`
-      );
-    }
-    // ponytail: single self-relation traverses A→B only; the reverse direction
-    // needs a paired relation with explicit .A()/.B()
-    const lower = sourceModelName.toLowerCase();
-    return [
-      sourceFieldName ?? `${lower}A${sourceIsCompound ? "" : "Id"}`,
-      targetFieldName ?? `${lower}B${targetIsCompound ? "" : "Id"}`,
-    ];
-  }
+export interface OrdinaryJunctionNames {
+  readonly table: string;
+  readonly sourceToken: string;
+  readonly targetToken: string;
+}
 
-  return [
-    sourceFieldName ??
-      (sourceIsCompound
-        ? sourceModelName.toLowerCase()
-        : generateJunctionFieldName(sourceModelName)),
-    targetFieldName ??
-      (targetIsCompound
-        ? targetModelName.toLowerCase()
-        : generateJunctionFieldName(targetModelName)),
-  ];
+/**
+ * The ONE owner of an ordinary junction's default names.
+ *
+ * A self junction takes its side tokens from the two FIELD keys, because the
+ * model name is the same on both sides and cannot separate them. A non-self
+ * junction keeps the model-name derivation its stored bytes were generated
+ * from. A compound row key turns the token into a positional prefix, so it
+ * drops the scalar `Id` suffix.
+ */
+export function resolveOrdinaryJunctionNames(
+  input: OrdinaryJunctionNameInput
+): OrdinaryJunctionNames {
+  const overrides = input.overrides;
+  const isSelf = input.sourceModelName === input.targetModelName;
+  const base = generateJunctionTableName(
+    input.sourceModelName,
+    input.targetModelName
+  );
+  return {
+    table:
+      overrides?.table ?? (input.pairName ? `${base}_${input.pairName}` : base),
+    sourceToken:
+      overrides?.source ??
+      defaultSideToken(
+        isSelf,
+        input.sourceField,
+        input.sourceModelName,
+        input.sourceRowKeyIsCompound
+      ),
+    targetToken:
+      overrides?.target ??
+      defaultSideToken(
+        isSelf,
+        input.targetField,
+        input.targetModelName,
+        input.targetRowKeyIsCompound
+      ),
+  };
+}
+
+function defaultSideToken(
+  isSelf: boolean,
+  field: string,
+  modelName: string,
+  isCompound: boolean
+): string {
+  if (isSelf) return isCompound ? field : `${field}Id`;
+  return isCompound
+    ? modelName.toLowerCase()
+    : generateJunctionFieldName(modelName);
 }

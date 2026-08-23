@@ -16,7 +16,7 @@ const User = s
   .model({
     id: s.string().id(),
     name: s.string(),
-    profile: s.oneToOne(() => Profile).optional(),
+    profile: s.toOne(() => Profile),
   })
   .map("o2o_users");
 
@@ -29,7 +29,7 @@ const Profile = s
     bio: s.string(),
     userId: s.string(),
     user: s
-      .oneToOne(() => User)
+      .toOne(() => User)
       .fields("userId")
       .references("id"),
   })

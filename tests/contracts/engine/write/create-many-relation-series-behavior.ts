@@ -31,14 +31,14 @@ export const createManySeriesSchema = (() => {
       // it did not know at construction, which is the shape F's machinery answers.
       id: s.int().id().increment(),
       name: s.string().unique(),
-      posts: s.oneToMany(() => post),
+      posts: s.toMany(() => post),
       // PACKAGE E (§9.6) — a POLYMORPHIC COLLECTION on a bulk row. Its membership
       // lives in per-variant member junction rows that cannot exist before this
       // author's row does, so a row spelling it routes the whole call to the
       // series. Both publication directions are reachable from here: the OWNER key
       // is produced (increment above) and one variant's TARGET key is produced too
       // (`stamp`), so a member tuple gets both halves from a preceding INSERT.
-      badges: s.polymorphicToMany(
+      badges: s.toMany(
         { stamp: () => stamp, seal: () => seal },
         {
           values: {
@@ -65,14 +65,14 @@ export const createManySeriesSchema = (() => {
       title: s.string(),
       authorId: s.int(),
       author: s
-        .manyToOne(() => author)
+        .toOne(() => author)
         .fields("authorId")
         .references("id"),
       // The junction is named explicitly: the generated name is derived from the two
       // MODEL KEYS (`post_tag`), which the shared Docker database would hand to every
       // other suite whose models are also called `post` and `tag`.
-      tags: s.manyToMany(() => tag).through("jseries_post_tag"),
-      attachments: s.oneToMany(() => attachment),
+      tags: s.toMany(() => tag).through("jseries_post_tag"),
+      attachments: s.toMany(() => attachment),
     })
     .map("jseries_posts");
 
@@ -80,7 +80,8 @@ export const createManySeriesSchema = (() => {
     .model({
       id: s.int().id(),
       name: s.string().unique(),
-      posts: s.manyToMany(() => post).through("jseries_post_tag"),
+      // One endpoint owns every junction override (R011).
+      posts: s.toMany(() => post),
     })
     .map("jseries_tags");
 
@@ -97,10 +98,10 @@ export const createManySeriesSchema = (() => {
       caption: s.string(),
       postId: s.int(),
       post: s
-        .manyToOne(() => post)
+        .toOne(() => post)
         .fields("postId")
         .references("id"),
-      media: s.polymorphicToOne(
+      media: s.toOne(
         { image: () => image, clip: () => clip },
         { values: { image: "jseries.image.v1", clip: "jseries.clip.v1" } }
       ),
@@ -111,7 +112,7 @@ export const createManySeriesSchema = (() => {
     .model({
       id: s.int().id().increment(),
       name: s.string().unique(),
-      records: s.oneToMany(() => kindRecord),
+      records: s.toMany(() => kindRecord),
     })
     .map("jseries_kind_owners");
 
@@ -120,7 +121,7 @@ export const createManySeriesSchema = (() => {
       kind: s.string().id(),
       ownerId: s.int(),
       owner: s
-        .manyToOne(() => kindOwner)
+        .toOne(() => kindOwner)
         .fields("ownerId")
         .references("id"),
     })

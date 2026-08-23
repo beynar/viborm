@@ -8,10 +8,10 @@ import { type Sql, sql } from "@sql";
 import { isRecord } from "@validation/value-guards";
 import { createChildScope } from "../context";
 import {
-  type PolymorphicToManyRelationInfo,
   QueryEngineError,
   type QueryScope,
-  type RelationInfo,
+  type RelationRef,
+  type VariantJunctionCarrierSlot,
 } from "../types";
 import { buildPolymorphicCollectionCount } from "./polymorphic-collection-filter-builder";
 import type { BuildNestedWhere } from "./relation-filter-builder";
@@ -36,14 +36,14 @@ const getWhereConfig = (
  * Build a COUNT subquery for a relation.
  *
  * @param ctx - Query context
- * @param relationInfo - Relation metadata
+ * @param relationRef - Relation metadata
  * @param config - true or { where: ... }
  * @param parentAlias - Parent table alias
  * @returns SQL for COUNT subquery
  */
 export function buildRelationCount(
   ctx: QueryScope,
-  relationInfo: RelationInfo,
+  relationRef: RelationRef,
   config: unknown,
   parentAlias: string
 ): Sql {
@@ -51,7 +51,7 @@ export function buildRelationCount(
 
   // One traversal counts either shape: a junction count reads junction + target
   // and carries the junction join as its own conjunct.
-  const traversal = buildRelationTraversal(ctx, relationInfo, parentAlias);
+  const traversal = buildRelationTraversal(ctx, relationRef, parentAlias);
   const { targetAlias } = traversal;
   const conditions: Sql[] = [...traversal.conditions()];
 
@@ -59,7 +59,7 @@ export function buildRelationCount(
   if (rawWhere) {
     const childCtx = createChildScope(
       ctx,
-      relationInfo.targetModel,
+      relationRef.targetModel,
       targetAlias
     );
     const innerWhere = buildWhere(childCtx, rawWhere, targetAlias);
@@ -95,7 +95,7 @@ const buildNestedWhere: BuildNestedWhere = (ctx, where) =>
  */
 export function buildPolymorphicRelationCount(
   ctx: QueryScope,
-  relation: PolymorphicToManyRelationInfo,
+  relation: VariantJunctionCarrierSlot,
   config: unknown,
   parentAlias: string
 ): Sql {

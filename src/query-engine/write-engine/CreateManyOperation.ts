@@ -83,7 +83,7 @@ export class CreateManyOperation {
     this.skipDuplicates = skipDuplicates;
 
     const parentName = getStepModelName(model, "record");
-    const parent = createQueryScope(engine.adapter, model);
+    const parent = createQueryScope(engine, model);
     this.parentName = parentName;
     this.parent = parent;
     this.polymorphic = prepareBulkPolymorphicConnects(

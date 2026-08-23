@@ -46,7 +46,7 @@ export function buildCorrelation(
   relatedAlias: string
 ): Sql {
   const { adapter } = ctx;
-  const { relationInfo } = relation;
+  const { relationRef } = relation;
   if (hasPolymorphicMembership(relation)) {
     const parentIdentity = adapter.identifiers.column(
       parentAlias,
@@ -74,7 +74,7 @@ export function buildCorrelation(
   // NestedWriteError) which would otherwise displace this one.
   if (parentFields.length !== relatedFields.length) {
     throw new QueryEngineError(
-      `Relation '${relationInfo.name}' has mismatched fields (${parentFields.length}) and references (${relatedFields.length}).`
+      `Relation '${relationRef.name}' has mismatched fields (${parentFields.length}) and references (${relatedFields.length}).`
     );
   }
 
@@ -84,7 +84,7 @@ export function buildCorrelation(
       parentHeld ? member.foreignField : member.referencedField
     );
     const relatedColumnName = getColumnName(
-      relationInfo.targetModel,
+      relationRef.targetModel,
       parentHeld ? member.referencedField : member.foreignField
     );
     const parentCol = adapter.identifiers.column(parentAlias, parentColumnName);

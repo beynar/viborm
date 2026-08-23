@@ -86,7 +86,7 @@ const user = s.model({
   id: s.string().id().ulid(),
   name: s.string(),
   email: s.string().unique(),
-  posts: s.oneToMany(() => post),
+  posts: s.toMany(() => post),
 }).map("users");
 
 // Access model internals
@@ -147,7 +147,7 @@ console.log(relNames.sql);  // "posts"
 ```typescript
 import { s } from "viborm";
 
-const author = s.manyToOne(() => user)
+const author = s.toOne(() => user)
   .fields("authorId")
   .references("id")
   .onDelete("cascade");
@@ -155,62 +155,64 @@ const author = s.manyToOne(() => user)
 // Access relation state
 const state = author["~"].state;
 
-console.log(state.type);       // "manyToOne"
-console.log(state.getter);     // () => user (thunk to target model)
-console.log(state.fields);     // ["authorId"] (FK fields on this model)
-console.log(state.references); // ["id"] (referenced fields on target)
-console.log(state.onDelete);   // "cascade"
-console.log(state.onUpdate);   // undefined
-console.log(state.optional);   // false
+console.log(state.cardinality);          // "one" (the factory that was called)
+console.log(state.target.kind);          // "model"
+console.log(state.target.getter);        // () => user (thunk to target model)
+console.log(state.foreignKey.fields);    // ["authorId"] (FK fields on this model)
+console.log(state.foreignKey.references);// ["id"] (referenced fields on target)
+console.log(state.foreignKey.onDelete);  // "cascade"
+console.log(state.foreignKey.onUpdate);  // undefined
 
-// Many-to-many relation
-const tags = s.manyToMany(() => tag)
+// A collection slot carrying junction overrides
+const tags = s.toMany(() => tag)
   .through("post_tags")
-  .A("postId")
-  .B("tagId");
+  .source("postId")
+  .target("tagId");
 
-const m2mState = tags["~"].state;
-console.log(m2mState.type);    // "manyToMany"
-console.log(m2mState.through); // "post_tags" (junction table name)
-console.log(m2mState.A);       // "postId" (source field in junction)
-console.log(m2mState.B);       // "tagId" (target field in junction)
+const junctionState = tags["~"].state;
+console.log(junctionState.cardinality);      // "many"
+console.log(junctionState.junction.table);   // "post_tags" (junction table name)
+console.log(junctionState.junction.source);  // "postId" (this endpoint's column)
+console.log(junctionState.junction.target);  // "tagId" (the other endpoint's column)
 ```
+
+The state carries what was DECLARED and nothing else. Whether this endpoint owns
+the foreign key, who its partner is, and whether the slot may be empty are
+derived by the schema-wide resolver, which publishes one `ResolvedSlot` per
+`(model, field)`.
 
 ### Relation State Properties
 
-#### ToOne Relations (oneToOne, manyToOne)
+Every arm shares two properties and adds only what its own arm may carry. An
+absent property means the fact was not declared; trusted state never stores an
+explicit `undefined`, a `false`, or an empty override object.
+
+#### Shared by all four arms
 
 | Property | Type | Description |
 |----------|------|-------------|
-| `type` | `"oneToOne" \| "manyToOne"` | Relation type |
-| `getter` | `() => Model` | Thunk returning target model |
-| `fields` | `string[]` | FK field(s) on this model |
-| `references` | `string[]` | Referenced field(s) on target |
-| `optional` | `boolean` | Whether relation is optional |
-| `onDelete` | `ReferentialAction` | Action on delete |
-| `onUpdate` | `ReferentialAction` | Action on update |
-| `name` | `string \| undefined` | Custom relation name |
+| `cardinality` | `"one" \| "many"` | The factory that was called |
+| `target` | `{ kind: "model", getter } \| { kind: "variants", entries }` | The target domain the argument named |
+| `name` | `string \| undefined` | Pairing label, matched exactly on both endpoints |
 
-#### ToMany Relations (oneToMany)
+#### Singular over one model (`s.toOne(() => Model)`)
 
 | Property | Type | Description |
 |----------|------|-------------|
-| `type` | `"oneToMany"` | Relation type |
-| `getter` | `() => Model` | Thunk returning target model |
-| `name` | `string \| undefined` | Custom relation name |
+| `foreignKey` | `{ fields, references, onDelete?, onUpdate? } \| undefined` | Present only on the owning endpoint |
 
-#### ManyToMany Relations
+#### Collection over one model (`s.toMany(() => Model)`)
 
 | Property | Type | Description |
 |----------|------|-------------|
-| `type` | `"manyToMany"` | Relation type |
-| `getter` | `() => Model` | Thunk returning target model |
-| `through` | `string` | Junction table name |
-| `A` | `string` | Source FK field in junction table |
-| `B` | `string` | Target FK field in junction table |
-| `onDelete` | `ReferentialAction` | Action on delete |
-| `onUpdate` | `ReferentialAction` | Action on update |
-| `name` | `string \| undefined` | Custom relation name |
+| `junction` | `{ table?, source?, target?, onDelete?, onUpdate? } \| undefined` | Present only on the endpoint that configured the junction |
+
+#### Variant targets (`s.toOne({ ... })` / `s.toMany({ ... })`)
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `target.entries` | `Record<string, { getter, storedValue, junction? }>` | Normalized variants; `storedValue` defaults to the public key |
+| `optional` | `true \| undefined` | Singular variant slots only — the nullability of the private `(type, id)` pair |
 
 ## Introspection Patterns
 

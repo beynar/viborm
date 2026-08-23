@@ -73,7 +73,7 @@ export const junctionSkipAdoptSchema = (() => {
     .model({
       id: s.int().id().increment(),
       title: s.string(),
-      labels: s.manyToMany(() => label).through("e68_article_label"),
+      labels: s.toMany(() => label).through("e68_article_label"),
     })
     .map("e68_articles");
   const label = s
@@ -81,21 +81,23 @@ export const junctionSkipAdoptSchema = (() => {
       id: s.int().id().increment(),
       slug: s.string().unique(),
       note: s.string(),
-      articles: s.manyToMany(() => article).through("e68_article_label"),
+      // One endpoint owns every junction override (R011).
+      articles: s.toMany(() => article),
     })
     .map("e68_labels");
   // VACUOUS: a DB-generated key and NOTHING else to conflict on.
   const board = s
     .model({
       id: s.string().id(),
-      marks: s.manyToMany(() => mark).through("e68_board_mark"),
+      marks: s.toMany(() => mark).through("e68_board_mark"),
     })
     .map("e68_boards");
   const mark = s
     .model({
       id: s.int().id().increment(),
       text: s.string(),
-      boards: s.manyToMany(() => board).through("e68_board_mark"),
+      // One endpoint owns every junction override (R011).
+      boards: s.toMany(() => board),
     })
     .map("e68_marks");
   // SUPPRESSED: two nameable uniques, both spelled — no single probe names the skipped-on
@@ -103,7 +105,7 @@ export const junctionSkipAdoptSchema = (() => {
   const shelf = s
     .model({
       id: s.string().id(),
-      books: s.manyToMany(() => book).through("e68_book_shelf"),
+      books: s.toMany(() => book).through("e68_book_shelf"),
     })
     .map("e68_shelves");
   const book = s
@@ -112,7 +114,8 @@ export const junctionSkipAdoptSchema = (() => {
       isbn: s.string().unique(),
       code: s.string().unique(),
       title: s.string(),
-      shelves: s.manyToMany(() => shelf).through("e68_book_shelf"),
+      // One endpoint owns every junction override (R011).
+      shelves: s.toMany(() => shelf),
     })
     .map("e68_books");
   // SUPPRESSED: the only nameable unique is COMPOUND with a nullable member the rows leave
@@ -122,7 +125,7 @@ export const junctionSkipAdoptSchema = (() => {
   const plate = s
     .model({
       id: s.string().id(),
-      slices: s.manyToMany(() => slice).through("e68_plate_slice"),
+      slices: s.toMany(() => slice).through("e68_plate_slice"),
     })
     .map("e68_plates");
   const slice = s
@@ -131,7 +134,8 @@ export const junctionSkipAdoptSchema = (() => {
       family: s.string(),
       variant: s.string().nullable(),
       text: s.string(),
-      plates: s.manyToMany(() => plate).through("e68_plate_slice"),
+      // One endpoint owns every junction override (R011).
+      plates: s.toMany(() => plate),
     })
     .unique(["family", "variant"])
     .map("e68_slices");
@@ -140,7 +144,7 @@ export const junctionSkipAdoptSchema = (() => {
   const crate = s
     .model({
       id: s.string().id(),
-      parcels: s.manyToMany(() => parcel).through("e68_crate_parcel"),
+      parcels: s.toMany(() => parcel).through("e68_crate_parcel"),
     })
     .map("e68_crates");
   const parcel = s
@@ -149,7 +153,8 @@ export const junctionSkipAdoptSchema = (() => {
       slug: s.string().unique(),
       code: s.string(),
       note: s.string(),
-      crates: s.manyToMany(() => crate).through("e68_crate_parcel"),
+      // One endpoint owns every junction override (R011).
+      crates: s.toMany(() => crate),
     })
     .index(["code"], { unique: true, name: "e68_parcels_code_uq" })
     .map("e68_parcels");
@@ -158,7 +163,7 @@ export const junctionSkipAdoptSchema = (() => {
   const stack = s
     .model({
       id: s.string().id(),
-      items: s.manyToMany(() => item).through("e68_stack_item"),
+      items: s.toMany(() => item).through("e68_stack_item"),
     })
     .map("e68_stacks");
   const item = s
@@ -166,7 +171,8 @@ export const junctionSkipAdoptSchema = (() => {
       id: s.int().id().increment(),
       tag: s.string(),
       text: s.string(),
-      stacks: s.manyToMany(() => stack).through("e68_stack_item"),
+      // One endpoint owns every junction override (R011).
+      stacks: s.toMany(() => stack),
     })
     .index(["tag"], { unique: true, name: "e68_items_tag_uq" })
     .map("e68_items");
@@ -176,7 +182,7 @@ export const junctionSkipAdoptSchema = (() => {
   const vault = s
     .model({
       id: s.string().id(),
-      gems: s.manyToMany(() => gem).through("e68_vault_gem"),
+      gems: s.toMany(() => gem).through("e68_vault_gem"),
     })
     .map("e68_vaults");
   // The NON-UNIQUE side of the same member root (review L3). `holderId` is a nullable
@@ -189,7 +195,7 @@ export const junctionSkipAdoptSchema = (() => {
   const holder = s
     .model({
       id: s.string().id(),
-      gems: s.oneToMany(() => gem),
+      gems: s.toMany(() => gem),
     })
     .map("e68_holders");
   const gem = s
@@ -199,12 +205,12 @@ export const junctionSkipAdoptSchema = (() => {
       text: s.string(),
       holderId: s.string().nullable(),
       holder: s
-        .manyToOne(() => holder)
+        .toOne(() => holder)
         .fields("holderId")
-        .references("id")
-        .optional(),
-      facets: s.oneToMany(() => facet),
-      vaults: s.manyToMany(() => vault).through("e68_vault_gem"),
+        .references("id"),
+      facets: s.toMany(() => facet),
+      // One endpoint owns every junction override (R011).
+      vaults: s.toMany(() => vault),
     })
     .index(["tag"], { unique: true, name: "e68_gems_tag_uq" })
     .map("e68_gems");
@@ -214,7 +220,7 @@ export const junctionSkipAdoptSchema = (() => {
       slug: s.string().unique(),
       gemId: s.int(),
       gem: s
-        .manyToOne(() => gem)
+        .toOne(() => gem)
         .fields("gemId")
         .references("id"),
     })
@@ -423,109 +429,23 @@ export function runJunctionSkipAdoptBehavior(options: {
       // exact generated-output segments. An unnameable row takes the root-isolated
       // suppression route; both execute on a native atomic-batch substrate.
       if (!interactive) {
-        test(
-          "the adopt route publishes a fresh generated identity and links both rows",
-          { timeout: 30_000 },
-          async () => {
-            const { client, run, dispose } = await setup();
-            try {
-              // Raw setup keeps this case focused on update-root adopt-and-link. PostgreSQL
-              // spelling is safe: the only batch leg is PGlite (the docker legs are
-              // interactive).
-              await (client as any).$executeRawUnsafe(
-                `INSERT INTO "e68_labels" ("slug", "note") VALUES ('one', 'ORIGINAL')`
-              );
-              await (client as any).$executeRawUnsafe(
-                `INSERT INTO "e68_articles" ("title") VALUES ('a')`
-              );
-              const [article] = await client.article.findMany({});
-              await run.update("article", junctionSkipAdoptSchema.article, {
-                where: { id: article?.id },
-                data: {
-                  labels: {
-                    createMany: {
-                      data: [
-                        { slug: "one", note: "OVERWRITTEN" },
-                        { slug: "two", note: "fresh" },
-                      ],
-                      skipDuplicates: true,
-                    },
-                  },
-                },
-              });
-              await expect(
-                client.label.findUnique({ where: { slug: "one" } })
-              ).resolves.toMatchObject({ note: "ORIGINAL" });
-              await expect(
-                client.label.findUnique({ where: { slug: "two" } })
-              ).resolves.toMatchObject({ note: "fresh" });
-              expect(await labelsOf(client, article?.id as number)).toEqual([
-                "one",
-                "two",
-              ]);
-            } finally {
-              await dispose();
-            }
-          }
-        );
-
-        test(
-          "a batch-only substrate suppresses the duplicate root and dispatches no dependent join",
-          { timeout: 30_000 },
-          async () => {
-            const { client, run, dispose } = await setup();
-            try {
-              await client.stack.create({ data: { id: "k1" } });
-              await run.update("stack", junctionSkipAdoptSchema.stack, {
-                where: { id: "k1" },
-                data: {
-                  items: {
-                    createMany: {
-                      data: [
-                        { tag: "t", text: "one" },
-                        { tag: "t", text: "two" },
-                      ],
-                      skipDuplicates: true,
-                    },
-                  },
-                },
-              });
-              await expect(
-                client.item.findMany({ orderBy: { id: "asc" } })
-              ).resolves.toMatchObject([{ tag: "t", text: "one" }]);
-              await expect(
-                client.item.findMany({
-                  where: { stacks: { some: { id: "k1" } } },
-                })
-              ).resolves.toMatchObject([{ tag: "t", text: "one" }]);
-            } finally {
-              await dispose();
-            }
-          }
-        );
-        return;
-      }
-
-      // ------------------------------------------------- the adopt sub-shape (b)
-
-      test(
-        "a PRE-EXISTING row is left untouched and still linked — the pinned skip semantics",
-        { timeout: 30_000 },
-        async () => {
+        test("the adopt route publishes a fresh generated identity and links both rows", {
+          timeout: 30_000,
+        }, async () => {
           const { client, run, dispose } = await setup();
           try {
-            // A decoy label seeded FIRST so "some label" or a stale insertId lands on it.
-            await client.label.create({
-              data: { slug: "decoy", note: "DECOY" },
-            });
-            const existing = await client.label.create({
-              data: { slug: "one", note: "ORIGINAL" },
-            });
-            const article = await client.article.create({
-              data: { title: "a" },
-            });
+            // Raw setup keeps this case focused on update-root adopt-and-link. PostgreSQL
+            // spelling is safe: the only batch leg is PGlite (the docker legs are
+            // interactive).
+            await (client as any).$executeRawUnsafe(
+              `INSERT INTO "e68_labels" ("slug", "note") VALUES ('one', 'ORIGINAL')`
+            );
+            await (client as any).$executeRawUnsafe(
+              `INSERT INTO "e68_articles" ("title") VALUES ('a')`
+            );
+            const [article] = await client.article.findMany({});
             await run.update("article", junctionSkipAdoptSchema.article, {
-              where: { id: article.id },
+              where: { id: article?.id },
               data: {
                 labels: {
                   createMany: {
@@ -538,288 +458,27 @@ export function runJunctionSkipAdoptBehavior(options: {
                 },
               },
             });
-            // Half one: the row that was already there is NOT rewritten.
             await expect(
               client.label.findUnique({ where: { slug: "one" } })
-            ).resolves.toMatchObject({ id: existing.id, note: "ORIGINAL" });
-            // Half two: it is still linked to this parent, together with the fresh row.
-            expect(await labelsOf(client, article.id)).toEqual(["one", "two"]);
-            // The decoy is not linked: the join rows carry the probed key and the produced
-            // Ref, never "a label".
-            const decoy = await client.label.findUnique({
-              where: { slug: "decoy" },
-            });
-            expect(decoy?.note).toBe("DECOY");
-            expect(await labelsOf(client, article.id)).not.toContain("decoy");
-          } finally {
-            await dispose();
-          }
-        }
-      );
-
-      test(
-        "a duplicate WITHIN the payload creates one row and links it once",
-        { timeout: 30_000 },
-        async () => {
-          const { client, run, dispose } = await setup();
-          try {
-            const article = await client.article.create({
-              data: { title: "a" },
-            });
-            await run.update("article", junctionSkipAdoptSchema.article, {
-              where: { id: article.id },
-              data: {
-                labels: {
-                  createMany: {
-                    data: [
-                      { slug: "dup", note: "first" },
-                      { slug: "dup", note: "second" },
-                      { slug: "other", note: "n" },
-                    ],
-                    skipDuplicates: true,
-                  },
-                },
-              },
-            });
-            // First create wins, whole: one row, carrying the FIRST item's payload.
-            const rows = await client.label.findMany({
-              orderBy: { slug: "asc" },
-            });
-            expect(rows.map((row) => [row.slug, row.note])).toEqual([
-              ["dup", "first"],
-              ["other", "n"],
-            ]);
-            expect(await labelsOf(client, article.id)).toEqual([
-              "dup",
-              "other",
-            ]);
-          } finally {
-            await dispose();
-          }
-        }
-      );
-
-      test(
-        "under a CREATE root the fresh parent adopts and creates the same way",
-        { timeout: 30_000 },
-        async () => {
-          const { client, run, dispose } = await setup();
-          try {
-            await client.label.create({ data: { slug: "old", note: "KEEP" } });
-            await run.create("article", junctionSkipAdoptSchema.article, {
-              data: {
-                title: "fresh",
-                labels: {
-                  createMany: {
-                    data: [
-                      { slug: "old", note: "IGNORED" },
-                      { slug: "new", note: "made" },
-                    ],
-                    skipDuplicates: true,
-                  },
-                },
-              },
-            });
-            const article = await client.article.findFirst({
-              where: { title: "fresh" },
-            });
-            expect(article).not.toBeNull();
+            ).resolves.toMatchObject({ note: "ORIGINAL" });
             await expect(
-              client.label.findUnique({ where: { slug: "old" } })
-            ).resolves.toMatchObject({ note: "KEEP" });
+              client.label.findUnique({ where: { slug: "two" } })
+            ).resolves.toMatchObject({ note: "fresh" });
             expect(await labelsOf(client, article?.id as number)).toEqual([
-              "new",
-              "old",
+              "one",
+              "two",
             ]);
           } finally {
             await dispose();
           }
-        }
-      );
+        });
 
-      test(
-        "with nothing pre-existing every row is inserted and linked to its own new id",
-        { timeout: 30_000 },
-        async () => {
-          const { client, run, dispose } = await setup();
-          try {
-            // A decoy ARTICLE too: the join rows must name the located parent.
-            const decoyArticle = await client.article.create({
-              data: { title: "decoy" },
-            });
-            const article = await client.article.create({
-              data: { title: "a" },
-            });
-            await run.update("article", junctionSkipAdoptSchema.article, {
-              where: { id: article.id },
-              data: {
-                labels: {
-                  createMany: {
-                    data: [
-                      { slug: "one", note: "n1" },
-                      { slug: "two", note: "n2" },
-                    ],
-                    skipDuplicates: true,
-                  },
-                },
-              },
-            });
-            expect(await labelsOf(client, article.id)).toEqual(["one", "two"]);
-            expect(await labelsOf(client, decoyArticle.id)).toEqual([]);
-          } finally {
-            await dispose();
-          }
-        }
-      );
-
-      // ----------------------------------------------- the vacuous sub-shape (a)
-
-      test(
-        "a target with nothing to conflict on ignores the flag and writes every row",
-        { timeout: 30_000 },
-        async () => {
-          const { client, run, dispose } = await setup();
-          try {
-            await client.board.create({ data: { id: "decoy-owner" } });
-            await run.update("board", junctionSkipAdoptSchema.board, {
-              where: { id: "decoy-owner" },
-              data: { marks: { create: [{ text: "decoy" }] } },
-            });
-            await client.board.create({ data: { id: "b1" } });
-            await run.update("board", junctionSkipAdoptSchema.board, {
-              where: { id: "b1" },
-              data: {
-                marks: {
-                  createMany: {
-                    // Two IDENTICAL payloads: with no unique to conflict on they are two
-                    // different rows, and `skipDuplicates` cannot mean anything about them.
-                    data: [{ text: "same" }, { text: "same" }],
-                    skipDuplicates: true,
-                  },
-                },
-              },
-            });
-            expect(await marksOf(client, "b1")).toEqual(["same", "same"]);
-            expect(await marksOf(client, "decoy-owner")).toEqual(["decoy"]);
-          } finally {
-            await dispose();
-          }
-        }
-      );
-
-      // ------------------------------------------ raw unique index beside a selector
-
-      test(
-        "a unique INDEX no selector can name suppresses without adopting",
-        { timeout: 30_000 },
-        async () => {
-          const { client, run, dispose } = await setup();
-          try {
-            await client.parcel.create({
-              data: { slug: "sitting", code: "SHARED", note: "ORIGINAL" },
-            });
-            await client.crate.create({ data: { id: "c1" } });
-            await run.update("crate", junctionSkipAdoptSchema.crate, {
-              where: { id: "c1" },
-              data: {
-                parcels: {
-                  createMany: {
-                    data: [{ slug: "arriving", code: "SHARED", note: "new" }],
-                    skipDuplicates: true,
-                  },
-                },
-              },
-            });
-            // The pre-existing index owner is untouched and, because no selector can
-            // prove it is the requested row, it is not linked.
-            await expect(
-              client.parcel.findMany({ orderBy: { slug: "asc" } })
-            ).resolves.toMatchObject([
-              { slug: "sitting", code: "SHARED", note: "ORIGINAL" },
-            ]);
-            const joined = await client.parcel.findMany({
-              where: { crates: { some: { id: "c1" } } },
-            });
-            expect(joined).toEqual([]);
-          } finally {
-            await dispose();
-          }
-        }
-      );
-
-      // ----------------------------------- the suppress sub-shape (residual Package F)
-      //
-      // The full suppression matrix stays on the interactive legs; the compact batch
-      // branch above pins root isolation without repeating every rollback-sensitive case.
-      test(
-        "two nameable uniques: the conflicting member is suppressed and its siblings land",
-        { timeout: 30_000 },
-        async () => {
-          const { client, run, dispose } = await setup();
-          try {
-            // THE WRONG-ROW DECOY, unchanged from the refusal this replaces. Two
-            // pre-existing rows, one per constraint: A owns the isbn the payload spells, B
-            // owns the code. A probe by EITHER unique names one of them, and the constraint
-            // that would actually fire may name the other — which is why suppression NEVER
-            // adopts. If the disposition is widened to "take the first spelled unique", the
-            // operation joins the shelf to whichever row that probe found and the last two
-            // assertions fail.
-            const rowA = await client.book.create({
-              data: { isbn: "i1", code: "cA", title: "A" },
-            });
-            const rowB = await client.book.create({
-              data: { isbn: "iB", code: "c1", title: "B" },
-            });
-            await client.shelf.create({ data: { id: "s1" } });
-            await run.update("shelf", junctionSkipAdoptSchema.shelf, {
-              where: { id: "s1" },
-              data: {
-                books: {
-                  createMany: {
-                    data: [
-                      // Conflicts on `isbn` (row A) — suppressed, member and join both.
-                      { isbn: "i1", code: "c1", title: "t" },
-                      // Conflicts on nothing — lands, and is the sibling that proves the
-                      // series continued past the suppressed member.
-                      { isbn: "i9", code: "c9", title: "kept" },
-                    ],
-                    skipDuplicates: true,
-                  },
-                },
-              },
-            });
-            // The suppressed target is ABSENT: the decoys are untouched and no third row
-            // carries the payload's title.
-            await expect(
-              client.book.findMany({ orderBy: { isbn: "asc" } })
-            ).resolves.toMatchObject([
-              { id: rowA.id, isbn: "i1", code: "cA", title: "A" },
-              { isbn: "i9", code: "c9", title: "kept" },
-              { id: rowB.id, isbn: "iB", code: "c1", title: "B" },
-            ]);
-            // The suppressed member's JOIN row is absent and NEITHER decoy was adopted:
-            // the only membership is the sibling that actually inserted.
-            const linked = await client.book.findMany({
-              where: { shelves: { some: { id: "s1" } } },
-              orderBy: { isbn: "asc" },
-            });
-            expect(linked.map((row) => row.isbn)).toEqual(["i9"]);
-          } finally {
-            await dispose();
-          }
-        }
-      );
-
-      test(
-        "an unnameable unique INDEX suppresses the duplicate and keeps the first row",
-        { timeout: 30_000 },
-        async () => {
+        test("a batch-only substrate suppresses the duplicate root and dispatches no dependent join", {
+          timeout: 30_000,
+        }, async () => {
           const { client, run, dispose } = await setup();
           try {
             await client.stack.create({ data: { id: "k1" } });
-            // NOT vacuous: `.index(["tag"], { unique: true })` is something an INSERT can
-            // violate, and no `whereUnique` names it — so there is nothing to probe by and
-            // nothing to drop the flag for either. The savepoint is what answers instead.
             await run.update("stack", junctionSkipAdoptSchema.stack, {
               where: { id: "k1" },
               data: {
@@ -828,50 +487,7 @@ export function runJunctionSkipAdoptBehavior(options: {
                     data: [
                       { tag: "t", text: "one" },
                       { tag: "t", text: "two" },
-                      { tag: "u", text: "three" },
                     ],
-                    skipDuplicates: true,
-                  },
-                },
-              },
-            });
-            const rows = await client.item.findMany({
-              orderBy: { tag: "asc" },
-            });
-            expect(rows.map((row) => [row.tag, row.text])).toEqual([
-              ["t", "one"],
-              ["u", "three"],
-            ]);
-            const linked = await client.item.findMany({
-              where: { stacks: { some: { id: "k1" } } },
-              orderBy: { tag: "asc" },
-            });
-            expect(linked.map((row) => row.text)).toEqual(["one", "three"]);
-          } finally {
-            await dispose();
-          }
-        }
-      );
-
-      test(
-        "a PRE-EXISTING unnameable row is neither rewritten nor linked",
-        { timeout: 30_000 },
-        async () => {
-          const { client, run, dispose } = await setup();
-          try {
-            // THE WHOLE DIFFERENCE between suppress and adopt, in one case. On the adopt
-            // route the pre-existing row is linked; here no probe can prove it is the row
-            // the constraint fired on, so it is left alone AND left unlinked.
-            const existing = await client.item.create({
-              data: { tag: "t", text: "ORIGINAL" },
-            });
-            await client.stack.create({ data: { id: "k1" } });
-            await run.update("stack", junctionSkipAdoptSchema.stack, {
-              where: { id: "k1" },
-              data: {
-                items: {
-                  createMany: {
-                    data: [{ tag: "t", text: "OVERWRITTEN" }],
                     skipDuplicates: true,
                   },
                 },
@@ -879,307 +495,657 @@ export function runJunctionSkipAdoptBehavior(options: {
             });
             await expect(
               client.item.findMany({ orderBy: { id: "asc" } })
-            ).resolves.toMatchObject([{ id: existing.id, text: "ORIGINAL" }]);
+            ).resolves.toMatchObject([{ tag: "t", text: "one" }]);
             await expect(
               client.item.findMany({
                 where: { stacks: { some: { id: "k1" } } },
               })
-            ).resolves.toEqual([]);
+            ).resolves.toMatchObject([{ tag: "t", text: "one" }]);
           } finally {
             await dispose();
           }
-        }
-      );
+        });
+        return;
+      }
 
-      test(
-        "a compound unique with a NULL member has nothing to conflict on, so it writes",
-        { timeout: 30_000 },
-        async () => {
-          const { client, run, dispose } = await setup();
-          try {
-            // NULL is distinct from NULL in a unique index, so the pre-existing row's
-            // constraint does not fire and neither member is suppressed. The refusal this
-            // replaces asserted `slice.findMany()` was EMPTY; the honest answer is that
-            // both rows land and the original is untouched.
-            const original = await client.slice.create({
-              data: { family: "f", text: "ORIGINAL" },
-            });
-            await client.plate.create({ data: { id: "p1" } });
-            await run.update("plate", junctionSkipAdoptSchema.plate, {
-              where: { id: "p1" },
-              data: {
-                slices: {
-                  createMany: {
-                    // `variant` absent → NULL: the compound constraint is not complete,
-                    // so no probe names the row it would fire on.
-                    data: [
-                      { family: "f", text: "t" },
-                      { family: "f", text: "u" },
-                    ],
-                    skipDuplicates: true,
-                  },
+      // ------------------------------------------------- the adopt sub-shape (b)
+
+      test("a PRE-EXISTING row is left untouched and still linked — the pinned skip semantics", {
+        timeout: 30_000,
+      }, async () => {
+        const { client, run, dispose } = await setup();
+        try {
+          // A decoy label seeded FIRST so "some label" or a stale insertId lands on it.
+          await client.label.create({
+            data: { slug: "decoy", note: "DECOY" },
+          });
+          const existing = await client.label.create({
+            data: { slug: "one", note: "ORIGINAL" },
+          });
+          const article = await client.article.create({
+            data: { title: "a" },
+          });
+          await run.update("article", junctionSkipAdoptSchema.article, {
+            where: { id: article.id },
+            data: {
+              labels: {
+                createMany: {
+                  data: [
+                    { slug: "one", note: "OVERWRITTEN" },
+                    { slug: "two", note: "fresh" },
+                  ],
+                  skipDuplicates: true,
                 },
               },
-            });
-            await expect(
-              client.slice.findUnique({ where: { id: original.id } })
-            ).resolves.toMatchObject({ text: "ORIGINAL" });
-            const linked = await client.slice.findMany({
-              where: { plates: { some: { id: "p1" } } },
-              orderBy: { text: "asc" },
-            });
-            expect(linked.map((row) => row.text)).toEqual(["t", "u"]);
-          } finally {
-            await dispose();
-          }
+            },
+          });
+          // Half one: the row that was already there is NOT rewritten.
+          await expect(
+            client.label.findUnique({ where: { slug: "one" } })
+          ).resolves.toMatchObject({ id: existing.id, note: "ORIGINAL" });
+          // Half two: it is still linked to this parent, together with the fresh row.
+          expect(await labelsOf(client, article.id)).toEqual(["one", "two"]);
+          // The decoy is not linked: the join rows carry the probed key and the produced
+          // Ref, never "a label".
+          const decoy = await client.label.findUnique({
+            where: { slug: "decoy" },
+          });
+          expect(decoy?.note).toBe("DECOY");
+          expect(await labelsOf(client, article.id)).not.toContain("decoy");
+        } finally {
+          await dispose();
         }
-      );
+      });
 
-      test(
-        "a MIXED spelled/generated list is PARTITIONED: the spelled row keeps the leaf's skip-and-link contract",
-        { timeout: 30_000 },
-        async () => {
-          // Review M1: a spelled-key row's skip semantics must not depend on an
-          // unrelated sibling. The spelled conflicting row is skipped AND STILL
-          // LINKED (the leaf's pinned contract, junction-create-many-behavior);
-          // only the generated row consults its own disposition (here: nothing
-          // to conflict on, so it simply lands).
-          const { client, run, dispose } = await setup();
-          try {
-            await client.item.create({
-              data: { id: 100, tag: "taken", text: "ORIGINAL" },
-            });
-            await client.stack.create({ data: { id: "k1" } });
-            await run.update("stack", junctionSkipAdoptSchema.stack, {
-              where: { id: "k1" },
-              data: {
-                items: {
-                  createMany: {
-                    data: [
-                      // Spelled key, already taken — skipped, row untouched, LINKED.
-                      { id: 100, tag: "x", text: "OVERWRITTEN" },
-                      // Generated key, nothing to conflict on — lands.
-                      { tag: "y", text: "fresh" },
-                    ],
-                    skipDuplicates: true,
-                  },
+      test("a duplicate WITHIN the payload creates one row and links it once", {
+        timeout: 30_000,
+      }, async () => {
+        const { client, run, dispose } = await setup();
+        try {
+          const article = await client.article.create({
+            data: { title: "a" },
+          });
+          await run.update("article", junctionSkipAdoptSchema.article, {
+            where: { id: article.id },
+            data: {
+              labels: {
+                createMany: {
+                  data: [
+                    { slug: "dup", note: "first" },
+                    { slug: "dup", note: "second" },
+                    { slug: "other", note: "n" },
+                  ],
+                  skipDuplicates: true,
                 },
               },
-            });
-            await expect(
-              client.item.findUnique({ where: { id: 100 } })
-            ).resolves.toMatchObject({ tag: "taken", text: "ORIGINAL" });
-            const linked = await client.item.findMany({
+            },
+          });
+          // First create wins, whole: one row, carrying the FIRST item's payload.
+          const rows = await client.label.findMany({
+            orderBy: { slug: "asc" },
+          });
+          expect(rows.map((row) => [row.slug, row.note])).toEqual([
+            ["dup", "first"],
+            ["other", "n"],
+          ]);
+          expect(await labelsOf(client, article.id)).toEqual(["dup", "other"]);
+        } finally {
+          await dispose();
+        }
+      });
+
+      test("under a CREATE root the fresh parent adopts and creates the same way", {
+        timeout: 30_000,
+      }, async () => {
+        const { client, run, dispose } = await setup();
+        try {
+          await client.label.create({ data: { slug: "old", note: "KEEP" } });
+          await run.create("article", junctionSkipAdoptSchema.article, {
+            data: {
+              title: "fresh",
+              labels: {
+                createMany: {
+                  data: [
+                    { slug: "old", note: "IGNORED" },
+                    { slug: "new", note: "made" },
+                  ],
+                  skipDuplicates: true,
+                },
+              },
+            },
+          });
+          const article = await client.article.findFirst({
+            where: { title: "fresh" },
+          });
+          expect(article).not.toBeNull();
+          await expect(
+            client.label.findUnique({ where: { slug: "old" } })
+          ).resolves.toMatchObject({ note: "KEEP" });
+          expect(await labelsOf(client, article?.id as number)).toEqual([
+            "new",
+            "old",
+          ]);
+        } finally {
+          await dispose();
+        }
+      });
+
+      test("with nothing pre-existing every row is inserted and linked to its own new id", {
+        timeout: 30_000,
+      }, async () => {
+        const { client, run, dispose } = await setup();
+        try {
+          // A decoy ARTICLE too: the join rows must name the located parent.
+          const decoyArticle = await client.article.create({
+            data: { title: "decoy" },
+          });
+          const article = await client.article.create({
+            data: { title: "a" },
+          });
+          await run.update("article", junctionSkipAdoptSchema.article, {
+            where: { id: article.id },
+            data: {
+              labels: {
+                createMany: {
+                  data: [
+                    { slug: "one", note: "n1" },
+                    { slug: "two", note: "n2" },
+                  ],
+                  skipDuplicates: true,
+                },
+              },
+            },
+          });
+          expect(await labelsOf(client, article.id)).toEqual(["one", "two"]);
+          expect(await labelsOf(client, decoyArticle.id)).toEqual([]);
+        } finally {
+          await dispose();
+        }
+      });
+
+      // ----------------------------------------------- the vacuous sub-shape (a)
+
+      test("a target with nothing to conflict on ignores the flag and writes every row", {
+        timeout: 30_000,
+      }, async () => {
+        const { client, run, dispose } = await setup();
+        try {
+          await client.board.create({ data: { id: "decoy-owner" } });
+          await run.update("board", junctionSkipAdoptSchema.board, {
+            where: { id: "decoy-owner" },
+            data: { marks: { create: [{ text: "decoy" }] } },
+          });
+          await client.board.create({ data: { id: "b1" } });
+          await run.update("board", junctionSkipAdoptSchema.board, {
+            where: { id: "b1" },
+            data: {
+              marks: {
+                createMany: {
+                  // Two IDENTICAL payloads: with no unique to conflict on they are two
+                  // different rows, and `skipDuplicates` cannot mean anything about them.
+                  data: [{ text: "same" }, { text: "same" }],
+                  skipDuplicates: true,
+                },
+              },
+            },
+          });
+          expect(await marksOf(client, "b1")).toEqual(["same", "same"]);
+          expect(await marksOf(client, "decoy-owner")).toEqual(["decoy"]);
+        } finally {
+          await dispose();
+        }
+      });
+
+      // ------------------------------------------ raw unique index beside a selector
+
+      test("a unique INDEX no selector can name suppresses without adopting", {
+        timeout: 30_000,
+      }, async () => {
+        const { client, run, dispose } = await setup();
+        try {
+          await client.parcel.create({
+            data: { slug: "sitting", code: "SHARED", note: "ORIGINAL" },
+          });
+          await client.crate.create({ data: { id: "c1" } });
+          await run.update("crate", junctionSkipAdoptSchema.crate, {
+            where: { id: "c1" },
+            data: {
+              parcels: {
+                createMany: {
+                  data: [{ slug: "arriving", code: "SHARED", note: "new" }],
+                  skipDuplicates: true,
+                },
+              },
+            },
+          });
+          // The pre-existing index owner is untouched and, because no selector can
+          // prove it is the requested row, it is not linked.
+          await expect(
+            client.parcel.findMany({ orderBy: { slug: "asc" } })
+          ).resolves.toMatchObject([
+            { slug: "sitting", code: "SHARED", note: "ORIGINAL" },
+          ]);
+          const joined = await client.parcel.findMany({
+            where: { crates: { some: { id: "c1" } } },
+          });
+          expect(joined).toEqual([]);
+        } finally {
+          await dispose();
+        }
+      });
+
+      // ----------------------------------- the suppress sub-shape (residual Package F)
+      //
+      // The full suppression matrix stays on the interactive legs; the compact batch
+      // branch above pins root isolation without repeating every rollback-sensitive case.
+      test("two nameable uniques: the conflicting member is suppressed and its siblings land", {
+        timeout: 30_000,
+      }, async () => {
+        const { client, run, dispose } = await setup();
+        try {
+          // THE WRONG-ROW DECOY, unchanged from the refusal this replaces. Two
+          // pre-existing rows, one per constraint: A owns the isbn the payload spells, B
+          // owns the code. A probe by EITHER unique names one of them, and the constraint
+          // that would actually fire may name the other — which is why suppression NEVER
+          // adopts. If the disposition is widened to "take the first spelled unique", the
+          // operation joins the shelf to whichever row that probe found and the last two
+          // assertions fail.
+          const rowA = await client.book.create({
+            data: { isbn: "i1", code: "cA", title: "A" },
+          });
+          const rowB = await client.book.create({
+            data: { isbn: "iB", code: "c1", title: "B" },
+          });
+          await client.shelf.create({ data: { id: "s1" } });
+          await run.update("shelf", junctionSkipAdoptSchema.shelf, {
+            where: { id: "s1" },
+            data: {
+              books: {
+                createMany: {
+                  data: [
+                    // Conflicts on `isbn` (row A) — suppressed, member and join both.
+                    { isbn: "i1", code: "c1", title: "t" },
+                    // Conflicts on nothing — lands, and is the sibling that proves the
+                    // series continued past the suppressed member.
+                    { isbn: "i9", code: "c9", title: "kept" },
+                  ],
+                  skipDuplicates: true,
+                },
+              },
+            },
+          });
+          // The suppressed target is ABSENT: the decoys are untouched and no third row
+          // carries the payload's title.
+          await expect(
+            client.book.findMany({ orderBy: { isbn: "asc" } })
+          ).resolves.toMatchObject([
+            { id: rowA.id, isbn: "i1", code: "cA", title: "A" },
+            { isbn: "i9", code: "c9", title: "kept" },
+            { id: rowB.id, isbn: "iB", code: "c1", title: "B" },
+          ]);
+          // The suppressed member's JOIN row is absent and NEITHER decoy was adopted:
+          // the only membership is the sibling that actually inserted.
+          const linked = await client.book.findMany({
+            where: { shelves: { some: { id: "s1" } } },
+            orderBy: { isbn: "asc" },
+          });
+          expect(linked.map((row) => row.isbn)).toEqual(["i9"]);
+        } finally {
+          await dispose();
+        }
+      });
+
+      test("an unnameable unique INDEX suppresses the duplicate and keeps the first row", {
+        timeout: 30_000,
+      }, async () => {
+        const { client, run, dispose } = await setup();
+        try {
+          await client.stack.create({ data: { id: "k1" } });
+          // NOT vacuous: `.index(["tag"], { unique: true })` is something an INSERT can
+          // violate, and no `whereUnique` names it — so there is nothing to probe by and
+          // nothing to drop the flag for either. The savepoint is what answers instead.
+          await run.update("stack", junctionSkipAdoptSchema.stack, {
+            where: { id: "k1" },
+            data: {
+              items: {
+                createMany: {
+                  data: [
+                    { tag: "t", text: "one" },
+                    { tag: "t", text: "two" },
+                    { tag: "u", text: "three" },
+                  ],
+                  skipDuplicates: true,
+                },
+              },
+            },
+          });
+          const rows = await client.item.findMany({
+            orderBy: { tag: "asc" },
+          });
+          expect(rows.map((row) => [row.tag, row.text])).toEqual([
+            ["t", "one"],
+            ["u", "three"],
+          ]);
+          const linked = await client.item.findMany({
+            where: { stacks: { some: { id: "k1" } } },
+            orderBy: { tag: "asc" },
+          });
+          expect(linked.map((row) => row.text)).toEqual(["one", "three"]);
+        } finally {
+          await dispose();
+        }
+      });
+
+      test("a PRE-EXISTING unnameable row is neither rewritten nor linked", {
+        timeout: 30_000,
+      }, async () => {
+        const { client, run, dispose } = await setup();
+        try {
+          // THE WHOLE DIFFERENCE between suppress and adopt, in one case. On the adopt
+          // route the pre-existing row is linked; here no probe can prove it is the row
+          // the constraint fired on, so it is left alone AND left unlinked.
+          const existing = await client.item.create({
+            data: { tag: "t", text: "ORIGINAL" },
+          });
+          await client.stack.create({ data: { id: "k1" } });
+          await run.update("stack", junctionSkipAdoptSchema.stack, {
+            where: { id: "k1" },
+            data: {
+              items: {
+                createMany: {
+                  data: [{ tag: "t", text: "OVERWRITTEN" }],
+                  skipDuplicates: true,
+                },
+              },
+            },
+          });
+          await expect(
+            client.item.findMany({ orderBy: { id: "asc" } })
+          ).resolves.toMatchObject([{ id: existing.id, text: "ORIGINAL" }]);
+          await expect(
+            client.item.findMany({
               where: { stacks: { some: { id: "k1" } } },
-              orderBy: { tag: "asc" },
-            });
-            expect(linked.map((row) => row.text)).toEqual([
-              "ORIGINAL",
-              "fresh",
-            ]);
-          } finally {
-            await dispose();
-          }
+            })
+          ).resolves.toEqual([]);
+        } finally {
+          await dispose();
         }
-      );
+      });
+
+      test("a compound unique with a NULL member has nothing to conflict on, so it writes", {
+        timeout: 30_000,
+      }, async () => {
+        const { client, run, dispose } = await setup();
+        try {
+          // NULL is distinct from NULL in a unique index, so the pre-existing row's
+          // constraint does not fire and neither member is suppressed. The refusal this
+          // replaces asserted `slice.findMany()` was EMPTY; the honest answer is that
+          // both rows land and the original is untouched.
+          const original = await client.slice.create({
+            data: { family: "f", text: "ORIGINAL" },
+          });
+          await client.plate.create({ data: { id: "p1" } });
+          await run.update("plate", junctionSkipAdoptSchema.plate, {
+            where: { id: "p1" },
+            data: {
+              slices: {
+                createMany: {
+                  // `variant` absent → NULL: the compound constraint is not complete,
+                  // so no probe names the row it would fire on.
+                  data: [
+                    { family: "f", text: "t" },
+                    { family: "f", text: "u" },
+                  ],
+                  skipDuplicates: true,
+                },
+              },
+            },
+          });
+          await expect(
+            client.slice.findUnique({ where: { id: original.id } })
+          ).resolves.toMatchObject({ text: "ORIGINAL" });
+          const linked = await client.slice.findMany({
+            where: { plates: { some: { id: "p1" } } },
+            orderBy: { text: "asc" },
+          });
+          expect(linked.map((row) => row.text)).toEqual(["t", "u"]);
+        } finally {
+          await dispose();
+        }
+      });
+
+      test("a MIXED spelled/generated list is PARTITIONED: the spelled row keeps the leaf's skip-and-link contract", {
+        timeout: 30_000,
+      }, async () => {
+        // Review M1: a spelled-key row's skip semantics must not depend on an
+        // unrelated sibling. The spelled conflicting row is skipped AND STILL
+        // LINKED (the leaf's pinned contract, junction-create-many-behavior);
+        // only the generated row consults its own disposition (here: nothing
+        // to conflict on, so it simply lands).
+        const { client, run, dispose } = await setup();
+        try {
+          await client.item.create({
+            data: { id: 100, tag: "taken", text: "ORIGINAL" },
+          });
+          await client.stack.create({ data: { id: "k1" } });
+          await run.update("stack", junctionSkipAdoptSchema.stack, {
+            where: { id: "k1" },
+            data: {
+              items: {
+                createMany: {
+                  data: [
+                    // Spelled key, already taken — skipped, row untouched, LINKED.
+                    { id: 100, tag: "x", text: "OVERWRITTEN" },
+                    // Generated key, nothing to conflict on — lands.
+                    { tag: "y", text: "fresh" },
+                  ],
+                  skipDuplicates: true,
+                },
+              },
+            },
+          });
+          await expect(
+            client.item.findUnique({ where: { id: 100 } })
+          ).resolves.toMatchObject({ tag: "taken", text: "ORIGINAL" });
+          const linked = await client.item.findMany({
+            where: { stacks: { some: { id: "k1" } } },
+            orderBy: { tag: "asc" },
+          });
+          expect(linked.map((row) => row.text)).toEqual(["ORIGINAL", "fresh"]);
+        } finally {
+          await dispose();
+        }
+      });
 
       // ------------------------------------- the fatal side of the same member savepoint
 
-      test(
-        "a conflict INSIDE the target subtree aborts the complete operation",
-        { timeout: 30_000 },
-        async () => {
-          const { client, run, dispose } = await setup();
-          try {
-            await client.gem.create({
-              data: {
-                tag: "seed",
-                text: "SEED",
-                facets: { create: [{ slug: "dup" }] },
-              },
-            });
-            await client.vault.create({ data: { id: "v1" } });
-            // The gem root INSERT does not conflict (`tag: "fresh"` is free); the FACET it
-            // creates does. That conflict is not the annotated root's, so it escapes the
-            // member savepoint and the whole operation rolls back — including the sibling
-            // member that had already landed.
-            await expect(
-              run.update("vault", junctionSkipAdoptSchema.vault, {
-                where: { id: "v1" },
-                data: {
-                  gems: {
-                    createMany: {
-                      data: [
-                        { tag: "sibling", text: "landed first" },
-                        {
-                          tag: "fresh",
-                          text: "doomed",
-                          facets: { create: [{ slug: "dup" }] },
-                        },
-                      ],
-                      skipDuplicates: true,
-                    },
-                  },
-                },
-              })
-            ).rejects.toThrow(UNIQUE_VIOLATION);
-            await expect(
-              client.gem.findMany({ orderBy: { tag: "asc" } })
-            ).resolves.toMatchObject([{ tag: "seed", text: "SEED" }]);
-            await expect(
-              client.gem.findMany({
-                where: { vaults: { some: { id: "v1" } } },
-              })
-            ).resolves.toEqual([]);
-          } finally {
-            await dispose();
-          }
-        }
-      );
-
-      test(
-        "the same member's ROOT conflict is suppressed while its subtree stays intact",
-        { timeout: 30_000 },
-        async () => {
-          const { client, run, dispose } = await setup();
-          try {
-            await client.gem.create({
-              data: { tag: "taken", text: "ORIGINAL" },
-            });
-            await client.vault.create({ data: { id: "v1" } });
-            await run.update("vault", junctionSkipAdoptSchema.vault, {
+      test("a conflict INSIDE the target subtree aborts the complete operation", {
+        timeout: 30_000,
+      }, async () => {
+        const { client, run, dispose } = await setup();
+        try {
+          await client.gem.create({
+            data: {
+              tag: "seed",
+              text: "SEED",
+              facets: { create: [{ slug: "dup" }] },
+            },
+          });
+          await client.vault.create({ data: { id: "v1" } });
+          // The gem root INSERT does not conflict (`tag: "fresh"` is free); the FACET it
+          // creates does. That conflict is not the annotated root's, so it escapes the
+          // member savepoint and the whole operation rolls back — including the sibling
+          // member that had already landed.
+          await expect(
+            run.update("vault", junctionSkipAdoptSchema.vault, {
               where: { id: "v1" },
               data: {
                 gems: {
                   createMany: {
                     data: [
-                      // Root conflicts on the unnameable tag index: the gem, its facet and
-                      // its join row all roll back together.
+                      { tag: "sibling", text: "landed first" },
                       {
-                        tag: "taken",
-                        text: "OVERWRITTEN",
-                        facets: { create: [{ slug: "ghost" }] },
-                      },
-                      {
-                        tag: "kept",
-                        text: "fresh",
-                        facets: { create: [{ slug: "real" }] },
+                        tag: "fresh",
+                        text: "doomed",
+                        facets: { create: [{ slug: "dup" }] },
                       },
                     ],
                     skipDuplicates: true,
                   },
                 },
               },
-            });
-            await expect(
-              client.gem.findMany({ orderBy: { tag: "asc" } })
-            ).resolves.toMatchObject([
-              { tag: "kept", text: "fresh" },
-              { tag: "taken", text: "ORIGINAL" },
-            ]);
-            // The suppressed member's DESCENDANT is gone with it.
-            await expect(
-              client.facet.findMany({ orderBy: { slug: "asc" } })
-            ).resolves.toMatchObject([{ slug: "real" }]);
-            const linked = await client.gem.findMany({
+            })
+          ).rejects.toThrow(UNIQUE_VIOLATION);
+          await expect(
+            client.gem.findMany({ orderBy: { tag: "asc" } })
+          ).resolves.toMatchObject([{ tag: "seed", text: "SEED" }]);
+          await expect(
+            client.gem.findMany({
               where: { vaults: { some: { id: "v1" } } },
-            });
-            expect(linked.map((row) => row.tag)).toEqual(["kept"]);
-          } finally {
-            await dispose();
-          }
+            })
+          ).resolves.toEqual([]);
+        } finally {
+          await dispose();
         }
-      );
+      });
 
-      test(
-        "a NON-UNIQUE failure on the same member ROOT aborts the complete operation",
-        { timeout: 30_000 },
-        async () => {
-          // Review L3. The two witnesses above vary WHERE the failure happens (root vs
-          // descendant) while holding its CLASS fixed at "unique". This one varies the
-          // CLASS and holds the position at the ROOT — the position the savepoint
-          // absorbs — so that "suppression means a root UNIQUE conflict" is measured
-          // rather than inferred from the root/descendant split alone.
-          //
-          // `holderId` names a holder that does not exist, so the gem's own root INSERT
-          // raises a FOREIGN KEY violation. `executeSkippableWrite` absorbs
-          // `UNIQUE_CONSTRAINT` and nothing else, so the member savepoint re-raises,
-          // the enclosing scope rolls back, and the SIBLING that already landed goes
-          // with it.
-          const { client, run, dispose } = await setup();
-          try {
-            await client.vault.create({ data: { id: "v1" } });
-            await expect(
-              run.update("vault", junctionSkipAdoptSchema.vault, {
-                where: { id: "v1" },
-                data: {
-                  gems: {
-                    createMany: {
-                      data: [
-                        { tag: "sibling", text: "landed first" },
-                        {
-                          tag: "fresh",
-                          text: "doomed",
-                          holderId: "ghost",
-                        },
-                      ],
-                      skipDuplicates: true,
+      test("the same member's ROOT conflict is suppressed while its subtree stays intact", {
+        timeout: 30_000,
+      }, async () => {
+        const { client, run, dispose } = await setup();
+        try {
+          await client.gem.create({
+            data: { tag: "taken", text: "ORIGINAL" },
+          });
+          await client.vault.create({ data: { id: "v1" } });
+          await run.update("vault", junctionSkipAdoptSchema.vault, {
+            where: { id: "v1" },
+            data: {
+              gems: {
+                createMany: {
+                  data: [
+                    // Root conflicts on the unnameable tag index: the gem, its facet and
+                    // its join row all roll back together.
+                    {
+                      tag: "taken",
+                      text: "OVERWRITTEN",
+                      facets: { create: [{ slug: "ghost" }] },
                     },
-                  },
+                    {
+                      tag: "kept",
+                      text: "fresh",
+                      facets: { create: [{ slug: "real" }] },
+                    },
+                  ],
+                  skipDuplicates: true,
                 },
-              })
-            ).rejects.toThrow(FOREIGN_KEY_VIOLATION);
-            // Not absorbed as a skip: neither the failing member NOR the sibling that
-            // preceded it survives, and no join row was written.
-            await expect(client.gem.findMany({})).resolves.toEqual([]);
-            await expect(
-              client.gem.findMany({
-                where: { vaults: { some: { id: "v1" } } },
-              })
-            ).resolves.toEqual([]);
-          } finally {
-            await dispose();
-          }
+              },
+            },
+          });
+          await expect(
+            client.gem.findMany({ orderBy: { tag: "asc" } })
+          ).resolves.toMatchObject([
+            { tag: "kept", text: "fresh" },
+            { tag: "taken", text: "ORIGINAL" },
+          ]);
+          // The suppressed member's DESCENDANT is gone with it.
+          await expect(
+            client.facet.findMany({ orderBy: { slug: "asc" } })
+          ).resolves.toMatchObject([{ slug: "real" }]);
+          const linked = await client.gem.findMany({
+            where: { vaults: { some: { id: "v1" } } },
+          });
+          expect(linked.map((row) => row.tag)).toEqual(["kept"]);
+        } finally {
+          await dispose();
         }
-      );
+      });
 
-      test(
-        "the same compound unique COMPLETELY spelled is absorbed",
-        { timeout: 30_000 },
-        async () => {
-          const { client, run, dispose } = await setup();
-          try {
-            await client.slice.create({
-              data: { family: "f", variant: "v", text: "ORIGINAL" },
-            });
-            await client.plate.create({ data: { id: "p1" } });
-            await run.update("plate", junctionSkipAdoptSchema.plate, {
-              where: { id: "p1" },
+      test("a NON-UNIQUE failure on the same member ROOT aborts the complete operation", {
+        timeout: 30_000,
+      }, async () => {
+        // Review L3. The two witnesses above vary WHERE the failure happens (root vs
+        // descendant) while holding its CLASS fixed at "unique". This one varies the
+        // CLASS and holds the position at the ROOT — the position the savepoint
+        // absorbs — so that "suppression means a root UNIQUE conflict" is measured
+        // rather than inferred from the root/descendant split alone.
+        //
+        // `holderId` names a holder that does not exist, so the gem's own root INSERT
+        // raises a FOREIGN KEY violation. `executeSkippableWrite` absorbs
+        // `UNIQUE_CONSTRAINT` and nothing else, so the member savepoint re-raises,
+        // the enclosing scope rolls back, and the SIBLING that already landed goes
+        // with it.
+        const { client, run, dispose } = await setup();
+        try {
+          await client.vault.create({ data: { id: "v1" } });
+          await expect(
+            run.update("vault", junctionSkipAdoptSchema.vault, {
+              where: { id: "v1" },
               data: {
-                slices: {
+                gems: {
                   createMany: {
                     data: [
-                      { family: "f", variant: "v", text: "OVERWRITTEN" },
-                      { family: "f", variant: "w", text: "fresh" },
+                      { tag: "sibling", text: "landed first" },
+                      {
+                        tag: "fresh",
+                        text: "doomed",
+                        holderId: "ghost",
+                      },
                     ],
                     skipDuplicates: true,
                   },
                 },
               },
-            });
-            const rows = await client.slice.findMany({
-              where: { plates: { some: { id: "p1" } } },
-              orderBy: { variant: "asc" },
-            });
-            expect(rows.map((row) => [row.variant, row.text])).toEqual([
-              ["v", "ORIGINAL"],
-              ["w", "fresh"],
-            ]);
-          } finally {
-            await dispose();
-          }
+            })
+          ).rejects.toThrow(FOREIGN_KEY_VIOLATION);
+          // Not absorbed as a skip: neither the failing member NOR the sibling that
+          // preceded it survives, and no join row was written.
+          await expect(client.gem.findMany({})).resolves.toEqual([]);
+          await expect(
+            client.gem.findMany({
+              where: { vaults: { some: { id: "v1" } } },
+            })
+          ).resolves.toEqual([]);
+        } finally {
+          await dispose();
         }
-      );
+      });
+
+      test("the same compound unique COMPLETELY spelled is absorbed", {
+        timeout: 30_000,
+      }, async () => {
+        const { client, run, dispose } = await setup();
+        try {
+          await client.slice.create({
+            data: { family: "f", variant: "v", text: "ORIGINAL" },
+          });
+          await client.plate.create({ data: { id: "p1" } });
+          await run.update("plate", junctionSkipAdoptSchema.plate, {
+            where: { id: "p1" },
+            data: {
+              slices: {
+                createMany: {
+                  data: [
+                    { family: "f", variant: "v", text: "OVERWRITTEN" },
+                    { family: "f", variant: "w", text: "fresh" },
+                  ],
+                  skipDuplicates: true,
+                },
+              },
+            },
+          });
+          const rows = await client.slice.findMany({
+            where: { plates: { some: { id: "p1" } } },
+            orderBy: { variant: "asc" },
+          });
+          expect(rows.map((row) => [row.variant, row.text])).toEqual([
+            ["v", "ORIGINAL"],
+            ["w", "fresh"],
+          ]);
+        } finally {
+          await dispose();
+        }
+      });
     }
   );
 }

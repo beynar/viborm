@@ -53,11 +53,7 @@ import {
 } from "../operations/mutation-identity";
 import type { QueryEngine } from "../query-engine";
 import { ResultParser } from "../result/ResultParser";
-import type {
-  QueryScope,
-  RelationInfo,
-  ResolvedPolymorphicEdge,
-} from "../types";
+import type { QueryScope, RelationRef, SelectedVariantRow } from "../types";
 import {
   type CreateRacePin,
   createDataSpellsRacePin,
@@ -279,7 +275,7 @@ type ParentHeldArm =
     }
   | {
       readonly kind: "connect-probe";
-      readonly relationInfo: RelationInfo;
+      readonly relationRef: RelationRef;
       readonly guardId: string;
       readonly probeId: string;
       readonly guard: CapturedGuard;
@@ -294,7 +290,7 @@ type ParentHeldArm =
     }
   | {
       readonly kind: "connectOrCreate";
-      readonly relationInfo: RelationInfo;
+      readonly relationRef: RelationRef;
       readonly probeId: string;
       readonly guardId: string;
       readonly guard: CapturedGuard;
@@ -613,7 +609,7 @@ export class CreateOperation {
       };
     }
 
-    const parent = createQueryScope(engine.adapter, model);
+    const parent = createQueryScope(engine, model);
     // Own-write preflight (ATOM “OwnWrite legality”): reject any payload whose nested decision
     // reads depend on this operation's own writes, before planning. As an upsert
     // create arm — or a nested fresh subtree — the caller runs this per-arm / on
@@ -791,7 +787,7 @@ export class CreateOperation {
     const incoming = this.incomingMembership
       ? lowerMembershipWrite(
           this.engine,
-          createQueryScope(this.engine.adapter, this.model),
+          createQueryScope(this.engine, this.model),
           this.incomingMembership,
           known,
           "create"
@@ -899,7 +895,7 @@ export class CreateOperation {
     // The arms this tree can classify, by step id.
     const semantics = new Map<string, FoldArmSemantics>();
     collectFoldArmSemantics(this.root, semantics);
-    const parent = createQueryScope(this.engine.adapter, this.model);
+    const parent = createQueryScope(this.engine, this.model);
     const mutatedTables = new Set(
       statementWrites.flatMap((step) => {
         const arm = semantics.get(step.id);
@@ -907,7 +903,7 @@ export class CreateOperation {
       })
     );
     const projectionIsSnapshotSafe = !projectionReadsAnyTable(
-      createQueryScope(this.engine.adapter, this.model),
+      createQueryScope(this.engine, this.model),
       this.parsedSelect,
       this.parsedInclude,
       mutatedTables
@@ -974,7 +970,7 @@ export class CreateOperation {
       );
     }
     return new ResultParser(
-      this.engine.adapter,
+      this.engine,
       this.model,
       this.engine.driver,
       this.resultDecimalDecode
@@ -1135,7 +1131,7 @@ export class CreateOperation {
         self,
         sharedPkWriteStepId: sharedPk.producedBy.get(relationName),
         selectedSharedPkFields: sharedPk.selectedBy.get(relationName),
-        relation: bindRelation(childScope, program.relationInfo),
+        relation: bindRelation(childScope, program.relationRef),
         program,
         txMode,
         coverage,
@@ -1174,12 +1170,12 @@ export class CreateOperation {
     readonly childScope: QueryScope;
     readonly self: RecordIdentity;
     readonly program: RelationMutationProgram;
-    readonly edge: ResolvedPolymorphicEdge;
+    readonly edge: SelectedVariantRow;
     readonly txMode: boolean;
     readonly coverage: readonly CreatedTarget[];
     readonly parentHeldArms: ParentHeldArm[];
   }): void {
-    const relationName = input.edge.relationInfo.name;
+    const relationName = input.edge.ref.name;
     const entry = input.program.entries[0];
     if (!(entry && input.program.entries.length === 1)) {
       throw new QueryEngineError(
@@ -1187,8 +1183,8 @@ export class CreateOperation {
       );
     }
     const childScope = createQueryScope(
-      this.engine.adapter,
-      input.edge.targetModel
+      this.engine,
+      input.edge.member.targetModel
     );
     if (entry.kind === "create") {
       const createData = entry.items[0];
@@ -1204,7 +1200,7 @@ export class CreateOperation {
       // pinned that difference and it was not a distinction.
       const source = this.requireRecordReferenced(
         before,
-        input.edge.referencedField,
+        input.edge.member.referencedField,
         relationName,
         "beforeParentTarget"
       );
@@ -1231,7 +1227,7 @@ export class CreateOperation {
       const before = this.buildRecord(childScope, spec.create, input.txMode);
       const missingSource = this.recordReferenced(
         before,
-        input.edge.referencedField
+        input.edge.member.referencedField
       );
       if (!missingSource) {
         // ONE SENTENCE, TWO CLASSES — the estate's oldest instance of it, and the
@@ -1245,19 +1241,22 @@ export class CreateOperation {
         throw new QueryEngineError(
           unresolvedFreshReferenceMessage(
             "beforeParentTarget",
-            input.edge.referencedField,
+            input.edge.member.referencedField,
             relationName
           )
         );
       }
-      const childName = getStepModelName(input.edge.targetModel, relationName);
+      const childName = getStepModelName(
+        input.edge.member.targetModel,
+        relationName
+      );
       const probeId = this.scope.allocate(`${childName}.find`);
       const guardId = this.scope.allocate(`${childName}.guard.exists`);
-      const guardField = input.edge.referencedField;
+      const guardField = input.edge.member.referencedField;
       const select = { [guardField]: true };
       input.parentHeldArms.push({
         kind: "connectOrCreate",
-        relationInfo: input.edge.relationInfo,
+        relationRef: input.edge.ref,
         probeId,
         guardId,
         guard: {
@@ -1310,9 +1309,12 @@ export class CreateOperation {
       );
     }
     if (
-      this.connectIsCovered(input.coverage, input.edge.targetModel, where, [
-        input.edge.referencedField,
-      ])
+      this.connectIsCovered(
+        input.coverage,
+        input.edge.member.targetModel,
+        where,
+        [input.edge.member.referencedField]
+      )
     ) {
       input.parentHeldArms.push({
         kind: "connect-covered",
@@ -1327,14 +1329,17 @@ export class CreateOperation {
       });
       return;
     }
-    const childName = getStepModelName(input.edge.targetModel, relationName);
+    const childName = getStepModelName(
+      input.edge.member.targetModel,
+      relationName
+    );
     const probeId = this.scope.allocate(`${childName}.find`);
     const guardId = this.scope.allocate(`${childName}.guard.exists`);
-    const guardField = input.edge.referencedField;
+    const guardField = input.edge.member.referencedField;
     const select = { [guardField]: true };
     input.parentHeldArms.push({
       kind: "connect-probe",
-      relationInfo: input.edge.relationInfo,
+      relationRef: input.edge.ref,
       probeId,
       guardId,
       guard: {
@@ -1368,18 +1373,21 @@ export class CreateOperation {
 
   private polymorphicConnectAssignment(
     owner: QueryScope,
-    edge: ResolvedPolymorphicEdge,
+    edge: SelectedVariantRow,
     where: Record<string, unknown>
   ): PolymorphicStorageValue<FinalReferenceSource> {
-    const id: FinalReferenceSource = Object.hasOwn(where, edge.referencedField)
-      ? { kind: "literal", value: where[edge.referencedField] }
+    const id: FinalReferenceSource = Object.hasOwn(
+      where,
+      edge.member.referencedField
+    )
+      ? { kind: "literal", value: where[edge.member.referencedField] }
       : {
           kind: "lookup",
           statement: buildConnectSubqueryForField(
             owner,
-            edge.relationInfo,
+            edge.ref,
             where,
-            edge.referencedField
+            edge.member.referencedField
           ),
         };
     return linkedPolymorphicStorage(directPolymorphicMembership(edge), id);
@@ -1456,7 +1464,7 @@ export class CreateOperation {
       // so it can never be a member of this record's row key.
       if (parsed.kind !== "ordinary") continue;
       const { name: relationName, program } = parsed;
-      const relation = bindRelation(childScope, program.relationInfo);
+      const relation = bindRelation(childScope, program.relationRef);
       if (relation.position !== "parentHeld") continue;
       const suppliesRowKey = relation.membership.foreignFields.some(
         (foreignField) => recordPk.includes(foreignField)
@@ -1534,7 +1542,7 @@ export class CreateOperation {
           armsAgree &&
           spelled !== undefined &&
           !isMissingGeneratedIncrement(
-            relation.relationInfo.targetModel["~"].state.scalars[referenced],
+            relation.relationRef.targetModel["~"].state.scalars[referenced],
             spelled
           )
         ) {
@@ -1556,7 +1564,7 @@ export class CreateOperation {
         // measured obstacle is untouched: a NON-referenced connect's lookup subquery and
         // a `connectOrCreate` whose two arms name different keys still resolve nothing,
         // and still refuse below.
-        const targetModel = relation.relationInfo.targetModel;
+        const targetModel = relation.relationRef.targetModel;
         if (
           suppliesRowKey &&
           entry.kind === "create" &&
@@ -1631,17 +1639,17 @@ export class CreateOperation {
         const edge = parsed.edge;
         const create = program.entries.find((entry) => entry.kind === "create");
         const data = create?.items[0]?.parsed;
-        if (data && Object.hasOwn(data, edge.referencedField)) {
+        if (data && Object.hasOwn(data, edge.member.referencedField)) {
           targets.push({
-            model: edge.targetModel,
+            model: edge.member.targetModel,
             key: {
-              [edge.referencedField]: data[edge.referencedField],
+              [edge.member.referencedField]: data[edge.member.referencedField],
             },
           });
         }
         continue;
       }
-      const relation = bindRelation(childScope, program.relationInfo);
+      const relation = bindRelation(childScope, program.relationRef);
       if (relation.position !== "parentHeld") continue;
       const createEntry = program.entries.find(
         (entry) => entry.kind === "create"
@@ -1660,7 +1668,7 @@ export class CreateOperation {
         }
       }
       if (hasAny) {
-        targets.push({ model: relation.relationInfo.targetModel, key });
+        targets.push({ model: relation.relationRef.targetModel, key });
       }
     }
     return targets;
@@ -1755,8 +1763,8 @@ export class CreateOperation {
     afterParts: Part[];
   }): void {
     const { relation, program, txMode } = input;
-    const { relationInfo } = relation;
-    const relationName = relationInfo.name;
+    const { relationRef } = relation;
+    const relationName = relationRef.name;
     const entries = program.entries;
 
     if (relation.position === "junction") {
@@ -1852,8 +1860,8 @@ export class CreateOperation {
       this.interpretParentHeld(input, relation, entries);
       return;
     }
-    // A child-held relation this record is the referenced side of: to-many
-    // (`oneToMany`) or a to-one inverse (`oneToOne`, the child holding the FK).
+    // A child-held relation this record is the referenced side of: a collection,
+    // or a singular inverse whose child holds the FK.
     // The create-tree mechanics are direction-based, not arity-based — a child
     // INSERTs AFTER the parent with `fk = parent`, riding the same already-certified
     // own-write machinery (a sibling reading a just-created child is still rejected
@@ -1861,21 +1869,17 @@ export class CreateOperation {
     // mixed-directions conformance scenario and the create-family oracle certify the
     // one-to-one `create`.
     //
-    // And the fields-less `manyToOne` too, which used to be REFUSED here by a
-    // type-name predicate (`oneToMany || oneToOne`). That refusal was measured: a
-    // `manyToOne` declared without `.fields()` (the inverse side spelled with the
-    // many-side helper, its FK resolved from the target's own back-reference) has
-    // a child-held position and `type === "manyToOne"`, so it landed here and was refused,
-    // while the SAME relation on the SAME schema constructed under `update` —
-    // `RecordUpdateCompiler`'s sibling gate asks the bound position and routes
-    // it down this very path. It was a create-root capability gap with a narrower
-    // predicate than its own update-root twin.
+    // This line once carried a NAME-based predicate over the retired four-way
+    // relation family, and that predicate was measured to be a create-root
+    // capability gap: it refused a child-held singular inverse the SAME schema's
+    // `update` root accepted, because `RecordUpdateCompiler`'s sibling gate asks
+    // the bound POSITION and routes it down this very path.
     //
-    // The predicate is deleted rather than extended by one member, because the union it
-    // tested is closed and every other member left before this line: `manyToMany`
-    // returned at the top, the parent-held position returned just above, and an edge with
-    // NO inverse to resolve never arrives — `bindRelation` raises its typed "Cannot
-    // determine FK fields for relation" before a position exists. What remains is one
+    // The predicate is deleted rather than extended, because the union it tested is
+    // closed and every other member left before this line: a junction position
+    // returned at the top, the parent-held position returned just above, and an edge
+    // with no partner never arrives — the schema-wide resolver refuses it before a
+    // client exists. What remains is one
     // mechanism, not three names: the child INSERTs after the parent with `fk = parent`, and all three
     // create-root kinds the parse admits (`create` / `connect` / `connectOrCreate`) have
     // a child-held arm below. The to-one slot's own contradiction — two kinds naming one
@@ -1899,8 +1903,8 @@ export class CreateOperation {
     relation: ParentHeldRelation,
     entries: readonly RelationMutationEntry[]
   ): void {
-    const { relationInfo } = relation;
-    const relationName = relationInfo.name;
+    const { relationRef } = relation;
+    const relationName = relationRef.name;
     // H3/R1 — an ENGINE FAULT, not a shape this layer declines. Under the CREATE root
     // the to-one input owns neither `update` nor a vacate key, so the only multi-entry
     // payload the parse could deliver is supplier + supplier, which
@@ -1921,10 +1925,7 @@ export class CreateOperation {
     // `input.self.identity`, which by then could hold an application-materialized
     // `ulid` DEFAULT for the key rather than the edge's value; see that method's note
     // for the measurement.
-    const childScope = createQueryScope(
-      this.engine.adapter,
-      relationInfo.targetModel
-    );
+    const childScope = createQueryScope(this.engine, relationRef.targetModel);
     const entry = entries[0];
     if (!entry) return;
     switch (entry.kind) {
@@ -1962,8 +1963,8 @@ export class CreateOperation {
     childScope: QueryScope,
     entry: Extract<RelationMutationEntry, { kind: "connect" }>
   ): void {
-    const { relationInfo } = relation;
-    const relationName = relationInfo.name;
+    const { relationRef } = relation;
+    const relationName = relationRef.name;
     const where = entry.targets[0];
     if (!where) {
       throw new QueryEngineError(
@@ -1974,7 +1975,7 @@ export class CreateOperation {
     if (
       this.connectIsCovered(
         input.coverage,
-        relationInfo.targetModel,
+        relationRef.targetModel,
         where,
         relation.membership.referencedFields
       )
@@ -1988,7 +1989,7 @@ export class CreateOperation {
       });
       return;
     }
-    const childName = getStepModelName(relationInfo.targetModel, relationName);
+    const childName = getStepModelName(relationRef.targetModel, relationName);
     const probeId = this.scope.allocate(`${childName}.find`);
     const guardId = this.scope.allocate(`${childName}.guard.exists`);
     const pkSelect = Object.fromEntries(
@@ -2006,7 +2007,7 @@ export class CreateOperation {
     };
     input.parentHeldArms.push({
       kind: "connect-probe",
-      relationInfo: relation.relationInfo,
+      relationRef: relation.relationRef,
       guardId,
       probeId,
       guard: input.selectedSharedPkFields
@@ -2044,7 +2045,7 @@ export class CreateOperation {
     const createData = entry.items[0];
     if (!createData) {
       throw new QueryEngineError(
-        `query-engine-v2 internal: parent-held create on relation '${relation.relationInfo.name}' has no item.`
+        `query-engine-v2 internal: parent-held create on relation '${relation.relationRef.name}' has no item.`
       );
     }
     // When this record's own primary key IS the foreign key this arm resolves,
@@ -2074,8 +2075,8 @@ export class CreateOperation {
     childScope: QueryScope,
     entry: Extract<RelationMutationEntry, { kind: "connectOrCreate" }>
   ): void {
-    const { relationInfo } = relation;
-    const relationName = relationInfo.name;
+    const { relationRef } = relation;
+    const relationName = relationRef.name;
     const spec = entry.items[0];
     if (!spec) {
       throw new QueryEngineError(
@@ -2090,7 +2091,7 @@ export class CreateOperation {
       where
     );
     const before = this.buildRecord(childScope, createData, input.txMode);
-    const childName = getStepModelName(relationInfo.targetModel, relationName);
+    const childName = getStepModelName(relationRef.targetModel, relationName);
     const probeId = this.scope.allocate(`${childName}.find`);
     const guardId = this.scope.allocate(`${childName}.guard.exists`);
     const pkSelect = Object.fromEntries(
@@ -2098,7 +2099,7 @@ export class CreateOperation {
     );
     input.parentHeldArms.push({
       kind: "connectOrCreate",
-      relationInfo,
+      relationRef,
       probeId,
       guardId,
       guard: input.selectedSharedPkFields
@@ -2159,9 +2160,9 @@ export class CreateOperation {
     relation: ParentHeldRelation,
     where: Record<string, unknown>
   ): Extract<CreateRootAssignment, { kind: "foreignKey" }> {
-    const { relationInfo } = relation;
-    const relationName = relationInfo.name;
-    const recordScope = createQueryScope(this.engine.adapter, recordModel);
+    const { relationRef } = relation;
+    const relationName = relationRef.name;
+    const recordScope = createQueryScope(this.engine, recordModel);
     const fkAssign: Record<string, unknown> = {};
     const members: ForeignKeyMember[] = [];
     for (const { foreignField, referencedField: referenced } of relation
@@ -2175,7 +2176,7 @@ export class CreateOperation {
               kind: "lookup",
               statement: buildConnectSubqueryForField(
                 recordScope,
-                relationInfo,
+                relationRef,
                 where,
                 referenced
               ),
@@ -2206,7 +2207,7 @@ export class CreateOperation {
     probeId: string,
     selectedFields: ReadonlySet<string>
   ): Extract<CreateRootAssignment, { kind: "foreignKey" }> {
-    const recordScope = createQueryScope(this.engine.adapter, recordModel);
+    const recordScope = createQueryScope(this.engine, recordModel);
     const members = relation.membership.members.map(
       ({ foreignField, referencedField }): ForeignKeyMember => ({
         foreignField,
@@ -2219,7 +2220,7 @@ export class CreateOperation {
                 kind: "lookup",
                 statement: buildConnectSubqueryForField(
                   recordScope,
-                  relation.relationInfo,
+                  relation.relationRef,
                   where,
                   referencedField
                 ),
@@ -2231,7 +2232,7 @@ export class CreateOperation {
       data: {},
       members,
       publishedFields: selectedFields,
-      relationName: relation.relationInfo.name,
+      relationName: relation.relationRef.name,
     };
   }
 
@@ -2249,7 +2250,7 @@ export class CreateOperation {
         writeSource: this.requireRecordReferenced(
           target,
           referencedField,
-          relation.relationInfo.name,
+          relation.relationRef.name,
           "beforeParentTarget"
         ),
       })
@@ -2259,7 +2260,7 @@ export class CreateOperation {
       data: {},
       members,
       publishedFields,
-      relationName: relation.relationInfo.name,
+      relationName: relation.relationRef.name,
     };
   }
 
@@ -2270,7 +2271,7 @@ export class CreateOperation {
     relation: ParentHeldRelation,
     target: RecordPlan
   ): Extract<CreateRootAssignment, { kind: "foreignKey" }> {
-    const relationName = relation.relationInfo.name;
+    const relationName = relation.relationRef.name;
     const fkAssign: Record<string, unknown> = {};
     const members: ForeignKeyMember[] = [];
     for (const { foreignField, referencedField } of relation.membership
@@ -2309,8 +2310,8 @@ export class CreateOperation {
     entries: readonly RelationMutationEntry[]
   ): void {
     const { txMode } = input;
-    const { relationInfo } = relation;
-    const relationName = relationInfo.name;
+    const { relationRef } = relation;
+    const relationName = relationRef.name;
     // H3/R1 — the child-held twin of the parent-held line above, and an ENGINE FAULT for
     // the same reason: under the CREATE root the to-one input owns neither `update` nor a
     // vacate, so the lattice's only multi-entry create-root payload is supplier +
@@ -2318,7 +2319,7 @@ export class CreateOperation {
     // (`parity-h-to-one-lattice` pins both sentences). What used to justify a DECLINED
     // shape here — that without it the loop built every arm and the user got a database
     // `UniqueConstraintError` on a 1:1 leg, or TWO ROWS in the to-one slot and no
-    // diagnostic at all on a fields-less `manyToOne` inverse — is the consequence of the
+    // diagnostic at all on a non-owning singular inverse — is the consequence of the
     // engine and the schema disagreeing, which is what this now says.
     //
     // `> 1`, not `!== 1`: a payload naming NO kind (`{ card: {} }`) asks for nothing and
@@ -2329,10 +2330,7 @@ export class CreateOperation {
         `query-engine-v2 internal: an uncomposable child-held to-one payload reached the create dispatch on relation '${relationName}'; it has ${entries.map((entry) => entry.kind).join(", ")}.`
       );
     }
-    const childScope = createQueryScope(
-      this.engine.adapter,
-      relationInfo.targetModel
-    );
+    const childScope = createQueryScope(this.engine, relationRef.targetModel);
     for (const entry of entries) {
       switch (entry.kind) {
         case "create":
@@ -2350,7 +2348,7 @@ export class CreateOperation {
                 engine: this.engine,
                 childScope,
                 childName: getStepModelName(
-                  relationInfo.targetModel,
+                  relationRef.targetModel,
                   relationName
                 ),
                 wheres,
@@ -2457,7 +2455,7 @@ export class CreateOperation {
             this.referencedParentSource(
               input.self,
               relation.membership.referencedField,
-              relation.relationInfo.name
+              relation.relationRef.name
             )
           )
         : {
@@ -2493,7 +2491,7 @@ export class CreateOperation {
     const parsedRows = userRows.map((row) => row.parsed);
     if (userRows.length === 0) return;
     if (createManyCarriesRelations(childScope, entry)) {
-      const relationName = relation.relationInfo.name;
+      const relationName = relation.relationRef.name;
       const incomingMembership = hasPolymorphicMembership(relation)
         ? bindRelationMembership(
             relation,
@@ -2574,7 +2572,7 @@ export class CreateOperation {
       skipDuplicates &&
       this.engine.adapter.mutations.skipDuplicatesStrategy ===
         "recoverableUniqueError";
-    const base = getStepModelName(childScope.model, relation.relationInfo.name);
+    const base = getStepModelName(childScope.model, relation.relationRef.name);
     input.createManyWork.push({
       kind: "group",
       group: {
@@ -2614,7 +2612,7 @@ export class CreateOperation {
     relation: OrdinaryChildHeldRelation,
     childModel: Model<any>
   ): Record<string, unknown> {
-    const relationName = relation.relationInfo.name;
+    const relationName = relation.relationRef.name;
     const assign: Record<string, unknown> = {};
     for (const { foreignField, referencedField } of relation.membership
       .members) {
@@ -2635,16 +2633,18 @@ export class CreateOperation {
     PolymorphicStorageValue<FinalReferenceSource>,
     { kind: "linked" }
   > {
-    const { storage, storedType, referencedField } = relation.membership;
+    const { carrier, storage, storedType, referencedField } =
+      relation.membership;
     return {
       kind: "linked",
+      carrier,
       storage,
       storedType,
       referencedField,
       id: this.referencedParentSource(
         self,
         referencedField,
-        relation.relationInfo.name
+        relation.relationRef.name
       ),
     };
   }
@@ -2709,7 +2709,7 @@ export class CreateOperation {
     self: RecordIdentity,
     relation: OrdinaryChildHeldRelation
   ): ForeignKeyMember[] {
-    const relationName = relation.relationInfo.name;
+    const relationName = relation.relationRef.name;
     const { members } = relation.membership;
     const sources = members.map((member) =>
       this.referencedParentSource(self, member.referencedField, relationName)
@@ -2759,14 +2759,14 @@ export class CreateOperation {
         const value = foreignKeyWriteValue(
           member,
           known,
-          initialMembership.relation.relationInfo.name,
+          initialMembership.relation.relationRef.name,
           "create"
         );
         assignmentTruth.contribute(
           getColumnName(plan.model, member.foreignField),
           assignmentIdentityFromFieldValue(member.foreignField, value),
           "membership",
-          `query-engine-v2 create has conflicting final assignments for column '${getColumnName(plan.model, member.foreignField)}' on relation '${initialMembership.relation.relationInfo.name}'.`
+          `query-engine-v2 create has conflicting final assignments for column '${getColumnName(plan.model, member.foreignField)}' on relation '${initialMembership.relation.relationRef.name}'.`
         );
         effectiveScalarValues[member.foreignField] = value;
       }
@@ -2886,7 +2886,7 @@ export class CreateOperation {
         );
         return;
       case "connect-probe":
-        this.requireConnectFound(arm.probeId, arm.relationInfo, known);
+        this.requireConnectFound(arm.probeId, arm.relationRef, known);
         this.assignParentHeld(
           arm.assignment,
           known,
@@ -2905,10 +2905,10 @@ export class CreateOperation {
               this.parentHeldGuardProbe(
                 arm.guard,
                 arm.probeId,
-                arm.relationInfo,
+                arm.relationRef,
                 known
               ),
-              arm.relationInfo
+              arm.relationRef
             )
           );
         }
@@ -2951,14 +2951,14 @@ export class CreateOperation {
                 this.parentHeldGuardProbe(
                   arm.guard,
                   arm.probeId,
-                  arm.relationInfo,
+                  arm.relationRef,
                   known
                 ),
                 nestedWriteFailure(
                   // V1's found-arm captured guard: the planning-seen target vanished
                   // before the batch — a replacement race, not a plain not-found.
                   nestedReplacement("connectOrCreate"),
-                  arm.relationInfo.name,
+                  arm.relationRef.name,
                   false
                 )
               )
@@ -3070,20 +3070,17 @@ export class CreateOperation {
   private parentHeldGuardProbe(
     guard: CapturedGuard,
     probeId: string,
-    relationInfo: RelationInfo,
+    relationRef: RelationRef,
     known: Readonly<Record<string, unknown>>
   ): Sql {
     if (guard.kind === "precompiled") return guard.probe;
     const target = this.capturedConnectValues(
       probeId,
       guard.fields,
-      relationInfo,
+      relationRef,
       known
     );
-    const childScope = createQueryScope(
-      this.engine.adapter,
-      relationInfo.targetModel
-    );
+    const childScope = createQueryScope(this.engine, relationRef.targetModel);
     return buildFind(
       childScope,
       {
@@ -3124,14 +3121,14 @@ export class CreateOperation {
   private connectGuard(
     guardId: string,
     guardProbe: Sql,
-    relationInfo: RelationInfo
+    relationRef: RelationRef
   ): OperationStep {
-    const relationName = relationInfo.name;
+    const relationName = relationRef.name;
     return presenceGuard(
       guardId,
       guardProbe,
       nestedWriteFailure(
-        relationTargetNotFound(relationInfo, "connect"),
+        relationTargetNotFound(relationRef, "connect"),
         relationName,
         false
       )
@@ -3140,10 +3137,10 @@ export class CreateOperation {
 
   private requireConnectFound(
     probeId: string,
-    relationInfo: RelationInfo,
+    relationRef: RelationRef,
     known: Readonly<Record<string, unknown>>
   ): void {
-    const relationName = relationInfo.name;
+    const relationName = relationRef.name;
     const rows = known[planningKey(probeId, "rows")];
     if (!Array.isArray(rows)) {
       throw new NestedWriteError(
@@ -3153,7 +3150,7 @@ export class CreateOperation {
     }
     if (rows.length === 0) {
       throw new NestedWriteError(
-        relationTargetNotFound(relationInfo, "connect"),
+        relationTargetNotFound(relationRef, "connect"),
         relationName
       );
     }
@@ -3162,18 +3159,18 @@ export class CreateOperation {
   private capturedConnectValues(
     probeId: string,
     fields: readonly string[],
-    relationInfo: RelationInfo,
+    relationRef: RelationRef,
     known: Readonly<Record<string, unknown>>
   ): Readonly<Record<string, unknown>> {
-    this.requireConnectFound(probeId, relationInfo, known);
+    this.requireConnectFound(probeId, relationRef, known);
     const rows = known[planningKey(probeId, "rows")];
     const row = Array.isArray(rows) ? rows[0] : undefined;
     const captured: Record<string, unknown> = {};
     for (const field of fields) {
       if (!isRecord(row) || row[field] === undefined || row[field] === null) {
         throw new NestedWriteError(
-          `query-engine create connect probe for relation '${relationInfo.name}' did not expose '${field}'.`,
-          relationInfo.name
+          `query-engine create connect probe for relation '${relationRef.name}' did not expose '${field}'.`,
+          relationRef.name
         );
       }
       captured[field] = row[field];
@@ -3389,10 +3386,10 @@ export class CreateOperation {
     return {
       id: read.stepId,
       kind: "read",
-      statement: buildFindUnique(
-        createQueryScope(this.engine.adapter, plan.model),
-        { where: this.createdRowWhere(plan), select }
-      ),
+      statement: buildFindUnique(createQueryScope(this.engine, plan.model), {
+        where: this.createdRowWhere(plan),
+        select,
+      }),
       outputs,
       progressiveContinuation: this.producedValueContinuationGuard(
         plan,
@@ -3450,7 +3447,7 @@ export class CreateOperation {
       );
     }
     return completeTargetPresenceGuard(
-      createQueryScope(this.engine.adapter, plan.model),
+      createQueryScope(this.engine, plan.model),
       `${publisherStepId}.continuation`,
       identity,
       queryFailure(
@@ -3729,7 +3726,7 @@ export class CreateOperation {
   }
 
   private buildTerminal(plan: RecordPlan): ReadStep {
-    const parent = createQueryScope(this.engine.adapter, this.model);
+    const parent = createQueryScope(this.engine, this.model);
     const txMode = this.mode === "transaction";
     return {
       id: this.terminalId,
@@ -3770,7 +3767,7 @@ export class CreateOperation {
     // With `upsert` in, this is an ENGINE INVARIANT, not a capability boundary — the
     // X1c disposition. The kinds it names are EXACTLY the kinds the parse boundary
     // admits in a create-context to-many payload, measured through the public client on
-    // both relation spellings (`s.manyToMany` and the self-relation): `delete`,
+    // both junction spellings (a two-model pair and a self-relation): `delete`,
     // `deleteMany`, `disconnect`, `set`, `update` and `updateMany` are refused upstream
     // by `ToManyCreateSchema` with `ValidationError: … Unknown key: <kind>`, so no
     // payload arrives carrying one. The check stays because the union it walks is the
@@ -4085,7 +4082,7 @@ class ChildConnectPart implements Part {
   private readonly probe: ReadStep;
 
   private get relationName(): string {
-    return this.config.relation.relationInfo.name;
+    return this.config.relation.relationRef.name;
   }
 
   constructor(scope: StepScope, config: ChildConnectConfig) {
@@ -4129,7 +4126,7 @@ class ChildConnectPart implements Part {
     // the named targets is absent. Same message, same attribution, same phase.
     if (!Array.isArray(rows) || rows.length < this.distinctTargets) {
       throw new NestedWriteError(
-        relationTargetNotFound(this.config.relation.relationInfo, "connect"),
+        relationTargetNotFound(this.config.relation.relationRef, "connect"),
         this.relationName
       );
     }
@@ -4145,7 +4142,7 @@ class ChildConnectPart implements Part {
             }),
             nestedWriteFailure(
               relationTargetNotFound(
-                this.config.relation.relationInfo,
+                this.config.relation.relationRef,
                 "connect"
               ),
               this.relationName,

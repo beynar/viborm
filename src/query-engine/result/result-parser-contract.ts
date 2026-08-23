@@ -1,6 +1,6 @@
 import { publicOperationName } from "@errors";
 import type { Model } from "@schema/model";
-import type { AnyPolymorphicRelation, AnyRelation } from "@schema/relation";
+import type { AnyRelation } from "@schema/relation";
 import type { Scalar } from "@schema/scalars";
 import type {
   ExpectedAggregateResultShape,
@@ -25,16 +25,23 @@ export interface RowValueParsers {
     operation: Operation,
     captureExact?: (value: unknown) => void
   ): unknown;
+  /**
+   * `(source, field)` is the CONTEXTUAL SLOT identity — the whole identity of a
+   * relation reference, because `.extends()` may reuse one terminal under more
+   * than one model. Both relation parsers take it, and both cache by it.
+   */
   parseRelation(
+    source: Model<any>,
+    field: string,
     relation: AnyRelation,
     value: unknown,
     operation: Operation,
     shape?: ExpectedResultShape
   ): unknown;
   parsePolymorphic(
-    model: Model<any>,
-    relationName: string,
-    relation: AnyPolymorphicRelation,
+    source: Model<any>,
+    field: string,
+    relation: AnyRelation,
     value: unknown,
     operation: Operation,
     shape?: ExpectedPolymorphicResultShape

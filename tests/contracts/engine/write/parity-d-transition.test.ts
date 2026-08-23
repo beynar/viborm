@@ -162,7 +162,7 @@ const cascadeSchema = (() => {
   const depot = s
     .model({
       id: s.string().id(),
-      bins: s.oneToMany(() => bin),
+      bins: s.toMany(() => bin),
     })
     .map("parity_d_depots");
   const bin = s
@@ -170,10 +170,9 @@ const cascadeSchema = (() => {
       id: s.string().id(),
       depotId: s.string().nullable(),
       depot: s
-        .manyToOne(() => depot)
+        .toOne(() => depot)
         .fields("depotId")
         .references("id")
-        .optional()
         .onUpdate("cascade"),
     })
     .map("parity_d_bins");
@@ -191,7 +190,7 @@ const polymorphicSchema = (() => {
     .model({
       id: s.int().id(),
       slug: s.string().unique(),
-      comments: s.oneToMany(() => comment).name("commentable"),
+      comments: s.toMany(() => comment).name("commentable"),
     })
     .map("parity_d_posts");
   const comment = s
@@ -199,7 +198,7 @@ const polymorphicSchema = (() => {
       id: s.int().id(),
       body: s.string(),
       commentable: s
-        .polymorphicToOne(
+        .toOne(
           { post: () => post },
           { values: { post: "parity.d.v1" } }
         )
@@ -1542,8 +1541,8 @@ const twinTransitionSchema = (() => {
   const hub = s
     .model({
       id: s.string().id(),
-      seats: s.oneToMany(() => seat),
-      ticks: s.oneToMany(() => tick),
+      seats: s.toMany(() => seat),
+      ticks: s.toMany(() => tick),
     })
     .map("parity_d_hubs");
   const seat = s
@@ -1551,10 +1550,9 @@ const twinTransitionSchema = (() => {
       id: s.string().id(),
       hubId: s.string().nullable(),
       hub: s
-        .manyToOne(() => hub)
+        .toOne(() => hub)
         .fields("hubId")
         .references("id")
-        .optional()
         .onUpdate("setNull"),
     })
     .map("parity_d_seats");
@@ -1563,10 +1561,9 @@ const twinTransitionSchema = (() => {
       id: s.string().id(),
       hubId: s.string().nullable(),
       hub: s
-        .manyToOne(() => hub)
+        .toOne(() => hub)
         .fields("hubId")
         .references("id")
-        .optional()
         .onUpdate("setNull"),
     })
     .map("parity_d_ticks");

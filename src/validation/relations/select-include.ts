@@ -2,6 +2,7 @@
 
 import type { AnyModel, ModelState } from "@schema/model";
 import type { StringKeyOf } from "@schema/model/helper";
+import type { AnyRelation } from "@schema/relation";
 import type { RelationState } from "@schema/relation/types";
 import { withOmitProjection } from "../model/args/omit";
 import {
@@ -20,12 +21,16 @@ import type { GetTargetSchemas, SchemaGetter, TargetModel } from "./helpers";
 // TRANSFORM HELPERS
 // =============================================================================
 
-const getTargetState = <S extends RelationState>(
-  relationState: S
-): ModelState => relationState.getter()["~"].state as ModelState;
+const getTargetState = (relation: AnyRelation): ModelState =>
+  getTargetModel(relation)["~"].state as ModelState;
 
-const getTargetModel = <S extends RelationState>(relationState: S): AnyModel =>
-  relationState.getter() as AnyModel;
+/**
+ * `settleTarget` is the one sanctioned getter invocation: the target is settled
+ * once per declaration and every schema graph reusing this terminal observes
+ * the same return or the same normalized `Error`.
+ */
+const getTargetModel = (relation: AnyRelation): AnyModel =>
+  relation["~"].settleTarget() as AnyModel;
 
 const buildSelectionForModel = (target: AnyModel): Record<string, true> => {
   const select: Record<string, true> = {};
@@ -40,8 +45,10 @@ const buildSelectionForModel = (target: AnyModel): Record<string, true> => {
  * when the schema disambiguated them (`.name()`); otherwise the message still
  * names the target model, which is the part a caller needs.
  */
-const nestedOmitLabel = <S extends RelationState>(relationState: S): string =>
-  relationState.name ? `include.${relationState.name}` : "a nested include";
+const nestedOmitLabel = (relation: AnyRelation): string => {
+  const name = relation["~"].state.name;
+  return name ? `include.${name}` : "a nested include";
+};
 
 /**
  * A relation node accepts `omit` exactly like a top-level operation does:
@@ -57,15 +64,11 @@ const withOmitForModel = <Schema extends V.Object<any>>(
   schema: Schema
 ): Schema => withOmitProjection(schema as never, target, label) as never;
 
-const withNestedOmit = <S extends RelationState, Schema extends V.Object<any>>(
-  relationState: S,
+const withNestedOmit = <Schema extends V.Object<any>>(
+  relation: AnyRelation,
   schema: Schema
 ): Schema =>
-  withOmitForModel(
-    getTargetModel(relationState),
-    nestedOmitLabel(relationState),
-    schema
-  );
+  withOmitForModel(getTargetModel(relation), nestedOmitLabel(relation), schema);
 
 /**
  * Nested `distinct`: scalar field names of the RELATED model, deduplicating
@@ -78,9 +81,9 @@ type NestedDistinctSchema<S extends RelationState> = V.Enum<
 >;
 
 const nestedDistinctNames = <S extends RelationState>(
-  relationState: S
+  relation: AnyRelation
 ): StringKeyOf<TargetModel<S>["~"]["state"]["scalars"]>[] =>
-  Object.keys(getTargetState(relationState).scalars) as StringKeyOf<
+  Object.keys(getTargetState(relation).scalars) as StringKeyOf<
     TargetModel<S>["~"]["state"]["scalars"]
   >[];
 
@@ -105,8 +108,8 @@ const includeToFieldForModel =
     };
   };
 
-const includeToField = <S extends RelationState>(relationState: S) =>
-  includeToFieldForModel(getTargetModel(relationState));
+const includeToField = (relation: AnyRelation) =>
+  includeToFieldForModel(getTargetModel(relation));
 
 type BooleanToSelect = V.Coerce<
   V.Boolean,
@@ -128,13 +131,11 @@ export const defaultSelectionNode = (
 
 // `false` stays `false` so the query engine omits the relation entirely
 // (Prisma parity: include/select `rel: false` must not return the relation)
-const booleanToSelect = <S extends RelationState>(
-  relationState: S
-): BooleanToSelect =>
+const booleanToSelect = (relation: AnyRelation): BooleanToSelect =>
   v.coerce(
     v.boolean(),
     (value: boolean): { select?: Record<string, true> } | false =>
-      value ? defaultSelectionNode(getTargetModel(relationState)) : false
+      value ? defaultSelectionNode(getTargetModel(relation)) : false
   );
 
 // =============================================================================
@@ -162,14 +163,14 @@ export const toOneIncludeFactory = <
   S extends RelationState,
   T extends SchemaGetter<S>,
 >(
-  state: S,
+  relation: AnyRelation,
   targetSchemas: T
 ): ToOneIncludeSchema<S> => {
   return v.union([
-    booleanToSelect(state),
+    booleanToSelect(relation),
     v.coerce(
       withNestedOmit(
-        state,
+        relation,
         rejectSelectInclude(
           v.object({
             select: () => targetSchemas().core.select,
@@ -178,7 +179,7 @@ export const toOneIncludeFactory = <
           })
         )
       ),
-      includeToField(state)
+      includeToField(relation)
     ),
   ]);
 };
@@ -292,16 +293,16 @@ export const toManyIncludeFactory = <
   S extends RelationState,
   T extends SchemaGetter<S>,
 >(
-  state: S,
+  relation: AnyRelation,
   targetSchemas: T
 ): ToManyIncludeSchema<S> => {
   return v.union([
-    booleanToSelect(state),
+    booleanToSelect(relation),
     buildToManyNestedNode({
-      targetModel: getTargetModel(state),
-      label: nestedOmitLabel(state),
+      targetModel: getTargetModel(relation),
+      label: nestedOmitLabel(relation),
       core: () => targetSchemas().core,
-      scalarNames: nestedDistinctNames(state),
+      scalarNames: nestedDistinctNames<S>(relation),
     }),
   ]);
 };

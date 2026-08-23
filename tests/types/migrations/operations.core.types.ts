@@ -4,9 +4,13 @@ import {
   type PolymorphicSnapshotStorage,
   type PolymorphicToManySnapshot,
   type PolymorphicToOneSnapshot,
+  type SerializeOptions,
+  serializeModels,
   sortOperations,
   type TableDef,
 } from "@src/migrations";
+import { postgresMigrationDriver } from "@src/migrations/drivers/postgres";
+import { s } from "@src/schema";
 
 type Expect<Value extends true> = Value;
 type Equal<Left, Right> =
@@ -163,3 +167,20 @@ type _manualSeamIsLive = [
   typeof manualCannotClaimAutomatic,
   typeof manualRequiresItsSql,
 ];
+
+const publicSerializerSchema = {
+  user: s.model({ id: s.string().id() }),
+};
+serializeModels(publicSerializerSchema, {
+  migrationDriver: postgresMigrationDriver,
+});
+
+const publicSerializeOptions: SerializeOptions = {
+  migrationDriver: postgresMigrationDriver,
+  // @ts-expect-error -- resolved topology is not a public serializer option
+  relations: new Map(),
+};
+
+type _publicSerializeOptionsRemainTyped = Expect<
+  Equal<typeof publicSerializeOptions, SerializeOptions>
+>;

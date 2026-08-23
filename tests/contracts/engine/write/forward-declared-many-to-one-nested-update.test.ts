@@ -11,7 +11,7 @@ test("nested update resolves a manyToOne target declared later", async () => {
     .model({
       id: s.string().id(),
       name: s.string(),
-      members: s.oneToMany(() => member),
+      members: s.toMany(() => member),
     })
     .map("forward_team");
   // This declaration order is the regression: member's FK target does not exist yet.
@@ -21,23 +21,21 @@ test("nested update resolves a manyToOne target declared later", async () => {
       name: s.string(),
       teamId: s.string().nullable(),
       team: s
-        .manyToOne(() => team)
+        .toOne(() => team)
         .fields("teamId")
-        .references("id")
-        .optional(),
+        .references("id"),
       badgeId: s.int().nullable(),
       badge: s
-        .manyToOne(() => badge)
+        .toOne(() => badge)
         .fields("badgeId")
-        .references("id")
-        .optional(),
+        .references("id"),
     })
     .map("forward_member");
   const badge = s
     .model({
       id: s.int().id().increment(),
       code: s.string(),
-      members: s.oneToMany(() => member),
+      members: s.toMany(() => member),
     })
     .map("forward_badge");
   const schema = { team, member, badge };

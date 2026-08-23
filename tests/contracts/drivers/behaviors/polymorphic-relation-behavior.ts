@@ -15,7 +15,7 @@ const polymorphicRelationSchema = (() => {
       id: s.int().id().increment(),
       slug: s.string().unique(),
       title: s.string(),
-      comments: s.oneToMany(() => comment).name("commentable"),
+      comments: s.toMany(() => comment).name("commentable"),
     })
     .map("poly_contract_posts");
 
@@ -32,7 +32,7 @@ const polymorphicRelationSchema = (() => {
       id: s.int().id().increment(),
       body: s.string(),
       commentable: s
-        .polymorphicToOne(
+        .toOne(
           { post: () => post, video: () => video },
           {
             values: {
@@ -50,7 +50,7 @@ const polymorphicRelationSchema = (() => {
     .model({
       id: s.int().id().increment(),
       body: s.string(),
-      subject: s.polymorphicToOne({
+      subject: s.toOne({
         post: () => post,
         video: () => video,
       }),

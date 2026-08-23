@@ -130,13 +130,13 @@ Relations work seamlessly with the field system:
 ```typescript
 const userModel = s.model({
   id: s.string().id(),
-  posts: s.oneToMany(() => postModel), // One-to-many relation
+  posts: s.toMany(() => postModel), // Collection slot
 });
 
 const postModel = s.model({
   id: s.string().id(),
   authorId: s.string(),
-  author: s.manyToOne(() => userModel) // Many-to-one relation
+  author: s.toOne(() => userModel) // Singular slot; this side owns the FK
     .fields("authorId")
     .references("id"),
 });
@@ -253,22 +253,20 @@ const post = s.model({
   published: s.boolean().default(false),
   publishedAt: s.dateTime().nullable(),
   authorId: s.string(),
-  author: s.manyToOne(() => user)
+  author: s.toOne(() => user)
     .fields("authorId")
     .references("id"),
-  tags: s.manyToMany(() => tag)
+  tags: s.toMany(() => tag)
     .through("post_tags")
-    .A("postId")
-    .B("tagId"),
+    .source("postId")
+    .target("tagId"),
 });
 
 const tag = s.model({
   id: s.string().id().ulid(),
   name: s.string().unique(),
-  posts: s.manyToMany(() => post)
-    .through("post_tags")
-    .A("tagId")
-    .B("postId"),
+  // The junction is configured once, on post.tags; this side mirrors it
+  posts: s.toMany(() => post),
 });
 
 // Full type inference across relations:

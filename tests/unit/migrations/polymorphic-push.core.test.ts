@@ -15,7 +15,7 @@ function polymorphicSchema() {
   const comment = s
     .model({
       id: s.string().id(),
-      subject: s.polymorphicToOne(
+      subject: s.toOne(
         { post: () => post, video: () => video },
         {
           values: {
@@ -36,9 +36,8 @@ function polymorphicOneToOneSchema() {
       id: s.string().id(),
       title: s.string(),
       featuredComment: s
-        .oneToOne(() => comment)
-        .name("subject")
-        .optional(),
+        .toOne(() => comment)
+        .name("subject"),
     })
     .map("poly_push_posts");
   const video = s
@@ -46,16 +45,15 @@ function polymorphicOneToOneSchema() {
       id: s.string().id(),
       title: s.string(),
       featuredComment: s
-        .oneToOne(() => comment)
-        .name("subject")
-        .optional(),
+        .toOne(() => comment)
+        .name("subject"),
     })
     .map("poly_push_videos");
   const comment = s
     .model({
       id: s.string().id(),
       subject: s
-        .polymorphicToOne(
+        .toOne(
           { post: () => post, video: () => video },
           {
             values: {
@@ -181,20 +179,20 @@ function collectionSchema() {
     .model({
       id: s.string().id(),
       title: s.string(),
-      shelf: s.manyToOne(() => shelf).optional(),
+      shelf: s.toOne(() => shelf),
     })
     .map("poly_coll_books");
   const video = s
     .model({
       id: s.string().id(),
       title: s.string(),
-      shelves: s.manyToMany(() => shelf),
+      shelves: s.toMany(() => shelf),
     })
     .map("poly_coll_videos");
   const shelf = s
     .model({
       id: s.string().id(),
-      items: s.polymorphicToMany(
+      items: s.toMany(
         { book: () => book, video: () => video },
         { values: { book: "coll.book.v1", video: "coll.video.v1" } }
       ),
@@ -210,14 +208,14 @@ function collectionSchemaWithNote() {
     .model({
       id: s.string().id(),
       title: s.string(),
-      shelf: s.manyToOne(() => shelf).optional(),
+      shelf: s.toOne(() => shelf),
     })
     .map("poly_coll_books");
   const video = s
     .model({
       id: s.string().id(),
       title: s.string(),
-      shelves: s.manyToMany(() => shelf),
+      shelves: s.toMany(() => shelf),
     })
     .map("poly_coll_videos");
   const note = s
@@ -226,7 +224,7 @@ function collectionSchemaWithNote() {
   const shelf = s
     .model({
       id: s.string().id(),
-      items: s.polymorphicToMany(
+      items: s.toMany(
         { book: () => book, video: () => video, note: () => note },
         {
           values: {

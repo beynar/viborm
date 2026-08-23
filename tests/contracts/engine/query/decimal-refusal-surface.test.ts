@@ -38,7 +38,7 @@ const account = s
   .model({
     id: s.string().id(),
     fee: s.decimal(),
-    entries: s.oneToMany(() => entry),
+    entries: s.toMany(() => entry),
   })
   .map("decimal_surface_accounts");
 
@@ -54,7 +54,7 @@ const entry = s
     optionalAmount: s.decimal().nullable(),
     accountId: s.string(),
     account: s
-      .manyToOne(() => account)
+      .toOne(() => account)
       .fields("accountId")
       .references("id"),
   })

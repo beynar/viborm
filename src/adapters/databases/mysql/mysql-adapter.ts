@@ -623,7 +623,6 @@ export class MySQLAdapter implements DatabaseAdapter {
 
     parseRelation: (
       value: unknown,
-      _type: import("../../adapter-result-parser").RelationResultKind,
       next: (value?: unknown) => unknown
     ): unknown => {
       // MySQL returns JSON as strings - parse before delegating

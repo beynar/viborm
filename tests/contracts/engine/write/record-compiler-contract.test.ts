@@ -40,7 +40,7 @@ const compoundUpsertSchema = (() => {
     .model({
       id: s.string().id(),
       name: s.string(),
-      slot: s.oneToOne(() => slot).optional(),
+      slot: s.toOne(() => slot),
     })
     .map("g_compound_owners");
   const slot = s
@@ -50,10 +50,9 @@ const compoundUpsertSchema = (() => {
       note: s.string(),
       ownerId: s.string().unique().nullable(),
       owner: s
-        .oneToOne(() => owner)
+        .toOne(() => owner)
         .fields("ownerId")
-        .references("id")
-        .optional(),
+        .references("id"),
     })
     .id(["tenantId", "code"])
     .map("g_compound_slots");
@@ -70,7 +69,7 @@ const portabilityUpsertSchema = (() => {
     .model({
       id: s.string().id(),
       name: s.string(),
-      slot: s.oneToOne(() => slot).optional(),
+      slot: s.toOne(() => slot),
     })
     .map("g_portable_owners");
   const slot = s
@@ -79,10 +78,9 @@ const portabilityUpsertSchema = (() => {
       note: s.string(),
       ownerId: s.string().unique().nullable(),
       owner: s
-        .oneToOne(() => owner)
+        .toOne(() => owner)
         .fields("ownerId")
-        .references("id")
-        .optional(),
+        .references("id"),
     })
     .map("g_portable_slots");
   return { owner, slot };
@@ -97,7 +95,7 @@ const polymorphicArmSchema = (() => {
     .model({
       id: s.string().id(),
       name: s.string(),
-      card: s.oneToOne(() => card).optional(),
+      card: s.toOne(() => card),
     })
     .map("g_poly_owners");
   const article = s
@@ -112,12 +110,11 @@ const polymorphicArmSchema = (() => {
       body: s.string(),
       ownerId: s.string().unique().nullable(),
       owner: s
-        .oneToOne(() => owner)
+        .toOne(() => owner)
         .fields("ownerId")
-        .references("id")
-        .optional(),
+        .references("id"),
       subject: s
-        .polymorphicToOne(
+        .toOne(
           { article: () => article, clip: () => clip },
           { values: { article: "poly.article.v1", clip: "poly.clip.v1" } }
         )

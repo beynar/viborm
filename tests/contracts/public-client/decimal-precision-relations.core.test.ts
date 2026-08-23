@@ -73,7 +73,7 @@ const merchant = s.model({
   // Decimal scalars that will be fetched through relations
   totalRevenue: s.decimal(),
   averageRating: s.decimal().nullable(),
-  transactions: s.oneToMany(() => transaction),
+  transactions: s.toMany(() => transaction),
 });
 
 const transaction = s.model({
@@ -85,7 +85,7 @@ const transaction = s.model({
   // Foreign key
   merchantId: s.string(),
   merchant: s
-    .manyToOne(() => merchant)
+    .toOne(() => merchant)
     .fields("merchantId")
     .references("id"),
 });

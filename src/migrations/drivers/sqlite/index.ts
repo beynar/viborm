@@ -399,7 +399,7 @@ export class SQLite3MigrationDriver extends MigrationDriver {
    *
    * - INDEXES. `createIndex` runs at priority 15 and `addForeignKey` at 16, and
    *   SQLite recreates the table for every foreign-key change — so on a database
-   *   that predates the FK index each `manyToOne` push created the index and
+   *   that predates the FK index each foreign-key push created the index and
    *   then threw it away, forever.
    *
    * - FOREIGN KEYS. `dropForeignKey` runs at 2 and `addForeignKey` at 16, and

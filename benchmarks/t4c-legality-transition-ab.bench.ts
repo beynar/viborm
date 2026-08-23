@@ -25,7 +25,7 @@ const schema = (() => {
     .model({
       id: s.int().id(),
       name: s.string(),
-      child: s.oneToOne(() => child).optional(),
+      child: s.toOne(() => child),
     })
     .map("t4c_parents");
   const child = s
@@ -34,10 +34,9 @@ const schema = (() => {
       label: s.string(),
       parentId: s.int().unique().nullable(),
       parent: s
-        .oneToOne(() => parent)
+        .toOne(() => parent)
         .fields("parentId")
         .references("id")
-        .optional()
         .onUpdate("setNull"),
     })
     .map("t4c_children");

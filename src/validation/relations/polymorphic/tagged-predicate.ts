@@ -1,4 +1,4 @@
-import type { PolymorphicRelationState } from "@schema/relation";
+import type { VariantRelationState } from "@schema/relation";
 import v from "@validation/primitives/v";
 import type {
   CoreInputAt,
@@ -57,7 +57,7 @@ export type TaggedPredicateOutput<Getters> = {
   >;
 }[keyof Getters];
 
-export function taggedTargetPredicate<State extends PolymorphicRelationState>(
+export function taggedTargetPredicate<State extends VariantRelationState>(
   state: State,
   targetSchemas: PolymorphicTargetSchemaGetters<State>
 ) {

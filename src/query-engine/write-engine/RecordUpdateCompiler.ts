@@ -55,11 +55,7 @@ import {
 } from "../RelationMembership";
 import { assertRelationKeyUpdatesAreCompilable } from "../relation-key-legality";
 import { classifyRelationKeyScalarUpdate } from "../TargetConstraint";
-import type {
-  QueryScope,
-  RelationInfo,
-  ResolvedPolymorphicEdge,
-} from "../types";
+import type { QueryScope, RelationRef, SelectedVariantRow } from "../types";
 import type { FreshRecordBuilder, FreshRecordPart } from "./CreateOperation";
 import { type CreateRacePin, createRacePin } from "./create-race-pin";
 import {
@@ -160,7 +156,7 @@ import {
   selectedRowContinuity,
   transitionedParentId,
 } from "./relation-membership";
-import { assertRelationCanDisconnect } from "./relation-nullability";
+import { clearableForeignKeyFields } from "./relation-nullability";
 import type { StepScope } from "./StepScope";
 import {
   capturedSelectorWhere,
@@ -271,7 +267,7 @@ function resolveStepAddress(scope: StepScope, address: StepAddress): string {
 }
 
 interface ToOneLink {
-  readonly relationInfo: RelationInfo;
+  readonly relationRef: RelationRef;
   readonly referencedFields: readonly string[];
   /** FK assignment merged into the parent SET clause. */
   readonly assignment?: FinalRootAssignment;
@@ -430,14 +426,14 @@ class FinalAssignmentLedger {
     if (binding.kind === "foreignKey") {
       const members = binding.members;
       const failure = relationOwnsForeignKey(
-        binding.relation.relationInfo.name,
+        binding.relation.relationRef.name,
         members.map((member) => member.foreignField)
       );
       for (const member of members) {
         const finalValue = foreignKeyWriteValue(
           member,
           this.known,
-          binding.relation.relationInfo.name,
+          binding.relation.relationRef.name,
           operation
         );
         const value = referenceSql(
@@ -635,7 +631,7 @@ type ParentHeldTarget =
     }
   | {
       readonly kind: "connectOrCreate";
-      readonly relationInfo: RelationInfo;
+      readonly relationRef: RelationRef;
       readonly probeId: string;
       readonly guardId: string;
       readonly lookup: ParentHeldLookup;
@@ -725,7 +721,7 @@ type ParentHeldTarget =
    */
   | {
       readonly kind: "polymorphicUpdate";
-      readonly edge: ResolvedPolymorphicEdge;
+      readonly edge: SelectedVariantRow;
       readonly childScope: QueryScope;
       readonly probeId: string;
       readonly guardId: string;
@@ -735,13 +731,13 @@ type ParentHeldTarget =
     }
   | {
       readonly kind: "polymorphicDelete";
-      readonly edge: ResolvedPolymorphicEdge;
+      readonly edge: SelectedVariantRow;
       readonly childScope: QueryScope;
       readonly deleteWriteId: string;
     }
   | {
       readonly kind: "polymorphicUpsert";
-      readonly edge: ResolvedPolymorphicEdge;
+      readonly edge: SelectedVariantRow;
       readonly childScope: QueryScope;
       readonly probeId: string;
       readonly guardId: string;
@@ -1083,8 +1079,8 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
           entry?.kind === "upsert"
         ) {
           for (const column of [
-            parsed.edge.storage.typeColumn,
-            parsed.edge.storage.idColumn,
+            parsed.edge.carrier.edge.storage.typeColumn,
+            parsed.edge.carrier.edge.storage.idColumn,
           ]) {
             targetColumns.set(column.name, column);
           }
@@ -1120,7 +1116,8 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       if (parsed.kind !== "polymorphicDisconnect") continue;
       polymorphicStorage.push({
         kind: "empty",
-        storage: parsed.storage,
+        carrier: parsed.carrier.slot,
+        storage: parsed.carrier.edge.storage,
       });
     }
     this.childParts = childParts;
@@ -1230,7 +1227,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
         this.compiledSelectedRowKey
       );
     }
-    const target = createQueryScope(this.engine.adapter, this.model);
+    const target = createQueryScope(this.engine, this.model);
     const modelName = getStepModelName(
       this.model,
       this.relationName || "record"
@@ -1465,7 +1462,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       ) {
         continue;
       }
-      const relationName = guard.relation.relationInfo.name;
+      const relationName = guard.relation.relationRef.name;
       const message = relationKeyOccupiedMessage(
         relationName,
         guard.relation.membership.onUpdate ?? "restrict"
@@ -1497,7 +1494,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
 
   private interpretPolymorphicRelation(input: {
     readonly scope: StepScope;
-    readonly edge: ResolvedPolymorphicEdge;
+    readonly edge: SelectedVariantRow;
     readonly program: RelationMutationProgram;
     readonly txMode: boolean;
     readonly toOneLinks: ToOneLink[];
@@ -1505,8 +1502,8 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     readonly polymorphicStorage: PolymorphicStorageValue<FinalReferenceSource>[];
   }): void {
     const { edge, program } = input;
-    const relationName = edge.relationInfo.name;
-    const childScope = createQueryScope(this.engine.adapter, edge.targetModel);
+    const relationName = edge.ref.name;
+    const childScope = createQueryScope(this.engine, edge.member.targetModel);
     const entry = program.entries[0];
     if (!(entry && program.entries.length === 1)) {
       throw new QueryEngineError(
@@ -1521,10 +1518,10 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
         );
       }
       const before = this.buildBeforeTarget(childScope, data);
-      const source = before.subtree.rootReferenced(edge.referencedField);
+      const source = before.subtree.rootReferenced(edge.member.referencedField);
       if (!source) {
         throw new QueryEngineError(
-          `query-engine update cannot resolve referenced field '${edge.referencedField}' for relation '${relationName}'.`
+          `query-engine update cannot resolve referenced field '${edge.member.referencedField}' for relation '${relationName}'.`
         );
       }
       input.parentHeldTargets.push({
@@ -1552,16 +1549,16 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
         spec.create,
         createRacePin(childScope, spec.where)
       );
-      const source = before.subtree.rootReferenced(edge.referencedField);
+      const source = before.subtree.rootReferenced(edge.member.referencedField);
       if (!source) {
         throw new QueryEngineError(
-          `query-engine update cannot resolve referenced field '${edge.referencedField}' for relation '${relationName}'.`
+          `query-engine update cannot resolve referenced field '${edge.member.referencedField}' for relation '${relationName}'.`
         );
       }
-      const childName = getStepModelName(edge.targetModel, relationName);
+      const childName = getStepModelName(edge.member.targetModel, relationName);
       const probeId = input.scope.allocate(`${childName}.find`);
       const guardId = input.scope.allocate(`${childName}.guard.exists`);
-      const guardField = edge.referencedField;
+      const guardField = edge.member.referencedField;
       const select = { [guardField]: true };
       const probe: ReadStep = {
         id: probeId,
@@ -1575,7 +1572,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       };
       input.parentHeldTargets.push({
         kind: "connectOrCreate",
-        relationInfo: edge.relationInfo,
+        relationRef: edge.ref,
         probeId,
         guardId,
         lookup: {
@@ -1626,7 +1623,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
         edge,
         childScope,
         deleteWriteId: input.scope.allocate(
-          `${getStepModelName(edge.targetModel, relationName)}.delete`
+          `${getStepModelName(edge.member.targetModel, relationName)}.delete`
         ),
       });
       return;
@@ -1661,7 +1658,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
         `query-engine internal: polymorphic connect on relation '${relationName}' has no target.`
       );
     }
-    const childName = getStepModelName(edge.targetModel, relationName);
+    const childName = getStepModelName(edge.member.targetModel, relationName);
     const probeId = input.scope.allocate(`${childName}.find`);
     const guardId = input.scope.allocate(`${childName}.guard.exists`);
     const id: FinalReferenceSource = {
@@ -1670,17 +1667,18 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     };
     input.polymorphicStorage.push({
       kind: "linked",
-      storage: edge.storage,
-      storedType: edge.storedType,
-      referencedField: edge.referencedField,
+      carrier: edge.carrier.slot,
+      storage: edge.carrier.edge.storage,
+      storedType: edge.member.entry.storedValue,
+      referencedField: edge.member.referencedField,
       id,
     });
 
-    const capturedGuardField = edge.referencedField;
+    const capturedGuardField = edge.member.referencedField;
     const select = { [capturedGuardField]: true };
     input.toOneLinks.push({
-      relationInfo: edge.relationInfo,
-      referencedFields: [edge.referencedField],
+      relationRef: edge.ref,
+      referencedFields: [edge.member.referencedField],
       connect: {
         probeId,
         guardId,
@@ -1702,13 +1700,13 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
 
   private buildPolymorphicSelectedTarget(
     scope: StepScope,
-    edge: ResolvedPolymorphicEdge,
+    edge: SelectedVariantRow,
     childScope: QueryScope,
     data: RecordMutationData,
     filter: Record<string, unknown> | undefined,
     txMode: boolean
   ): Extract<ParentHeldTarget, { kind: "polymorphicUpdate" }> | undefined {
-    const relationName = edge.relationInfo.name;
+    const relationName = edge.ref.name;
     const selectedTarget = this.selectedIncomingParentForPolymorphicEdge(edge);
     const parsed = buildParsedRelationPrograms(
       childScope,
@@ -1731,7 +1729,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
         relationName
       );
     }
-    const childName = getStepModelName(edge.targetModel, relationName);
+    const childName = getStepModelName(edge.member.targetModel, relationName);
     const compiler = this.recordCompilers.updateSelected({
       scope,
       engine: this.engine,
@@ -1767,19 +1765,19 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
 
   private buildPolymorphicUpsert(
     scope: StepScope,
-    edge: ResolvedPolymorphicEdge,
+    edge: SelectedVariantRow,
     childScope: QueryScope,
     create: RecordMutationData,
     update: RecordMutationData,
     txMode: boolean
   ): Extract<ParentHeldTarget, { kind: "polymorphicUpsert" }> {
-    const relationName = edge.relationInfo.name;
+    const relationName = edge.ref.name;
     const selectedTarget = this.selectedIncomingParentForPolymorphicEdge(edge);
     const before = this.buildBeforeTarget(childScope, create);
-    const source = before.subtree.rootReferenced(edge.referencedField);
+    const source = before.subtree.rootReferenced(edge.member.referencedField);
     if (!source) {
       throw new QueryEngineError(
-        `query-engine update cannot resolve referenced field '${edge.referencedField}' for relation '${relationName}'.`
+        `query-engine update cannot resolve referenced field '${edge.member.referencedField}' for relation '${relationName}'.`
       );
     }
     const parsed = buildParsedRelationPrograms(
@@ -1797,7 +1795,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
         relationName
       );
     }
-    const childName = getStepModelName(edge.targetModel, relationName);
+    const childName = getStepModelName(edge.member.targetModel, relationName);
     const compiler = hasUpdate
       ? this.recordCompilers.updateSelected({
           scope,
@@ -1808,7 +1806,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
           targetRead: { label: `${childName}.find` },
           rootWrite: { label: `${childName}.update` },
           relationName,
-          requiredTargetFields: [edge.referencedField],
+          requiredTargetFields: [edge.member.referencedField],
           ...(selectedTarget
             ? { selectedTargetContinuity: selectedTarget }
             : {}),
@@ -1842,7 +1840,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
 
   private buildPolymorphicTargetProbe(
     id: string,
-    edge: ResolvedPolymorphicEdge,
+    edge: SelectedVariantRow,
     childScope: QueryScope,
     projection: TargetProjection,
     filter: Record<string, unknown> | undefined,
@@ -1852,9 +1850,9 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     const columns = targetProjectionColumns(childScope, projection);
     const identity = referenceScalarSql(
       this.engine,
-      edge.storage.idColumn.scalar,
-      edge.storage.idColumn.name,
-      ref(this.targetReadId, edge.storage.idColumn.name)
+      edge.carrier.edge.storage.idColumn.scalar,
+      edge.carrier.edge.storage.idColumn.name,
+      ref(this.targetReadId, edge.carrier.edge.storage.idColumn.name)
     );
     return {
       id,
@@ -1864,7 +1862,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
         {
           where: {
             AND: [
-              { [edge.referencedField]: { equals: identity } },
+              { [edge.member.referencedField]: { equals: identity } },
               ...(filter ? [filter] : []),
             ],
           },
@@ -1964,8 +1962,8 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     rootScalarData: Record<string, unknown>;
   }): void {
     const { program } = input;
-    const relationInfo = program.relationInfo;
-    const relation = bindRelation(input.parent, relationInfo);
+    const relationRef = program.relationRef;
+    const relation = bindRelation(input.parent, relationRef);
     const entries = program.entries;
 
     if (entries.length === 0) {
@@ -2122,8 +2120,8 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     relation: OrdinaryChildHeldRelation,
     entries: readonly RelationMutationEntry[]
   ): ChildHeldDispatch {
-    const relationInfo = relation.relationInfo;
-    const relationName = relationInfo.name;
+    const relationRef = relation.relationRef;
+    const relationName = relationRef.name;
     // Compound foreign keys are per-field (ATOM “Field-bound foreign-key provenance”): every referenced parent
     // column — the PK, a subset of it, or a non-PK unique — is added
     // to the locate read's select/outputs so a per-field child part reads or refs
@@ -2143,11 +2141,8 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
         input.locateFields.add(field);
       }
     }
-    const childScope = createQueryScope(
-      this.engine.adapter,
-      relationInfo.targetModel
-    );
-    const childName = getStepModelName(relationInfo.targetModel, relationName);
+    const childScope = createQueryScope(this.engine, relationRef.targetModel);
+    const childName = getStepModelName(relationRef.targetModel, relationName);
     // CLASS IV (T4c-fix) — V1's relation-level occupied guard for a non-cascade
     // referenced-PK transition, emitted ONCE for the relation before the per-kind
     // dispatch. It rejects an occupied old slot for any nested mutation and tells
@@ -2239,7 +2234,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     relation: PolymorphicChildHeldRelation,
     entries: readonly RelationMutationEntry[]
   ): ChildHeldDispatch {
-    const relationName = relation.relationInfo.name;
+    const relationName = relation.relationRef.name;
     // H3 — the fixed inverse topology takes the SAME composition as the ordinary
     // child-held to-one: it is the same lattice owner (`to-one-mutation-schema.ts` via
     // the polymorphic relation input), the same `buildToOneUpdatePart` leaf, and the same
@@ -2255,11 +2250,11 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       entries
     );
     const childScope = createQueryScope(
-      this.engine.adapter,
-      relation.relationInfo.targetModel
+      this.engine,
+      relation.relationRef.targetModel
     );
     const childName = getStepModelName(
-      relation.relationInfo.targetModel,
+      relation.relationRef.targetModel,
       relationName
     );
     const parent = this.resolvePolymorphicParent(input, relation);
@@ -2319,7 +2314,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       dispatch;
     const { relation, childScope, childName, targetProjection, scope, txMode } =
       writeBase;
-    const relationName = relation.relationInfo.name;
+    const relationName = relation.relationRef.name;
     const isInverseToOne = relation.cardinality === "one";
     const push = (built: readonly Part[]) => parts.push(...built);
     // An ADOPT kind writes the post-transition source and lands in the adopt list;
@@ -2421,11 +2416,11 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
         );
         return;
       case "disconnect":
-        // A required child FK cannot be nulled — V1's verbatim typed rejection, asked
-        // here on every side because the answer is a property of the edge. A release
-        // addresses the rows that carry the parent's CURRENT value, so it reads the
-        // membership source and keeps its place among the ordinary child parts.
-        assertRelationCanDisconnect(relation);
+        // A release addresses the rows that carry the parent's CURRENT value, so
+        // it reads the membership source and keeps its place among the ordinary
+        // child parts. Whether the membership can be released at all is settled
+        // before the payload exists: the operation schema publishes `disconnect`
+        // only when `clearableMembership` says the columns can be nulled.
         push(
           buildToManyLinkParts(
             scope,
@@ -2630,7 +2625,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       read,
       write: this.postTransitionReference(
         input.rootScalarData,
-        relation.relationInfo.name
+        relation.relationRef.name
       ),
       afterRoot: true,
     };
@@ -2751,7 +2746,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     rootScalarData: Record<string, unknown>,
     executionProjection: Set<string>
   ): SelectedIncomingParentContinuity {
-    const relationName = membership.relation.relationInfo.name;
+    const relationName = membership.relation.relationRef.name;
     const planningSource: PlanningReferenceSource = {
       kind: "planningField",
       step: this.targetReadId,
@@ -2829,7 +2824,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     input: Parameters<RecordUpdateCompilerState["interpretRelation"]>[0];
   }): void {
     const { entry, relation, childScope, childName, input } = args;
-    const relationName = relation.relationInfo.name;
+    const relationName = relation.relationRef.name;
     const { members, afterRoot } = this.resolveCreateParent(input, relation);
     const isLiteralParent = members.every((member) =>
       literalReferenceSource(member.writeSource)
@@ -2938,7 +2933,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     input: Parameters<RecordUpdateCompilerState["interpretRelation"]>[0],
     relation: OrdinaryChildHeldRelation
   ): { members: ForeignKeyMember[]; afterRoot: boolean } {
-    const relationName = relation.relationInfo.name;
+    const relationName = relation.relationRef.name;
     const referencedFields = relation.membership.referencedFields;
     // E1 — a shared-primary-key fold rewrites a referenced column exactly as the scalar
     // SET does; only the channel differs. Asking one and not the other is what would
@@ -3070,7 +3065,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     }
     const write = this.postTransitionReference(
       input.rootScalarData,
-      relation.relationInfo.name
+      relation.relationRef.name
     );
     return {
       members: pairForeignKeyMembers(
@@ -3197,7 +3192,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
   }): { regime: "none" } | { regime: "guarded"; write: FinalReferenceSource } {
     const { input, relation, childScope, childName } = args;
     const { referencedFields } = relation.membership;
-    const relationName = relation.relationInfo.name;
+    const relationName = relation.relationRef.name;
     if (relation.membership.onUpdate === "cascade") return { regime: "none" };
     // Does the root SET rewrite a referenced parent column — or, E1, does a
     // shared-primary-key arm fold a new value into one? Both are the same fact about
@@ -3356,7 +3351,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
             foreignKeyResolvedReadValue(
               member,
               known,
-              relation.relationInfo.name,
+              relation.relationRef.name,
               "update"
             ) != null
         ),
@@ -3405,7 +3400,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
         childScope,
         data: upsertInput.create,
         incomingMembership: bindRelationMembership(relation, write),
-        relationName: relation.relationInfo.name,
+        relationName: relation.relationRef.name,
       })
     );
   }
@@ -3429,15 +3424,14 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
    *
    * Two consequences follow from the same fact and are spelled at their own sites:
    * {@link interpretParentHeldDelete} elides the FK-null UPDATE (its correlated DELETE
-   * still addresses the OLD value), and `assertRelationCanDisconnect` is not consulted
-   * — it answers "may this slot become EMPTY", and a replaced slot never does.
+   * still addresses the OLD value), so a replaced slot writes no NULL at all.
    */
   private interpretParentHeldComposition(
     input: Parameters<RecordUpdateCompilerState["interpretRelation"]>[0],
     relation: ParentHeldRelation,
     entries: readonly RelationMutationEntry[]
   ): void {
-    const relationName = relation.relationInfo.name;
+    const relationName = relation.relationRef.name;
     if (entries.length === 1) {
       this.interpretParentHeld(input, relation, entries[0]!);
       return;
@@ -3500,8 +3494,8 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     relation: ParentHeldRelation,
     entry: RelationMutationEntry
   ): void {
-    const { relationInfo } = relation;
-    const relationName = relationInfo.name;
+    const { relationRef } = relation;
+    const relationName = relationRef.name;
     switch (entry.kind) {
       case "connect":
       case "disconnect":
@@ -3598,7 +3592,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
   }
 
   private selectedIncomingParentForPolymorphicEdge(
-    edge: ResolvedPolymorphicEdge
+    edge: SelectedVariantRow
   ): SelectedIncomingParentContinuity | undefined {
     const continuity = this.incomingParentContinuity;
     if (!continuity) return undefined;
@@ -3646,7 +3640,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
         members,
         override: {},
         suppliedFilters: uniqueSelectorConjuncts(
-          { model: relation.relationInfo.targetModel },
+          { model: relation.relationRef.targetModel },
           suppliedTarget
         ),
       };
@@ -3675,12 +3669,9 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     /** H3/R2 — the sibling supplier's selector, when this modify composes with one. */
     suppliedTarget?: Record<string, unknown>
   ): ParentHeldTarget | undefined {
-    const { relationInfo } = relation;
-    const relationName = relationInfo.name;
-    const childScope = createQueryScope(
-      this.engine.adapter,
-      relationInfo.targetModel
-    );
+    const { relationRef } = relation;
+    const relationName = relationRef.name;
+    const childScope = createQueryScope(this.engine, relationRef.targetModel);
     const selectedTarget = suppliedTarget
       ? undefined
       : this.selectedIncomingParentForRelation(relation);
@@ -3690,7 +3681,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       suppliedTarget,
       selectedTarget
     );
-    const childName = getStepModelName(relationInfo.targetModel, relationName);
+    const childName = getStepModelName(relationRef.targetModel, relationName);
     const childUpdate = buildParsedRelationPrograms(
       childScope,
       target.data.parsed,
@@ -3758,7 +3749,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
         ? {
             expects: exactlyOneRow(
               nestedWriteFailure(
-                relationTargetNotFound(relationInfo, "update"),
+                relationTargetNotFound(relationRef, "update"),
                 relationName,
                 false
               )
@@ -3793,18 +3784,11 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
      */
     rebound = false
   ): ParentHeldTarget {
-    const { relationInfo } = relation;
-    const relationName = relationInfo.name;
-    // A required (non-nullable) FK cannot be nulled — V1's verbatim typed rejection.
-    // It answers "may this slot become EMPTY", so a rebound edge is not its question:
-    // the pair is a replacement and the column ends holding the supplier's value.
-    if (!rebound) assertRelationCanDisconnect(relation);
-    const childScope = createQueryScope(
-      this.engine.adapter,
-      relationInfo.targetModel
-    );
+    const { relationRef } = relation;
+    const relationName = relationRef.name;
+    const childScope = createQueryScope(this.engine, relationRef.targetModel);
     const correlation = this.parentHeldCorrelation(input, relation);
-    const childName = getStepModelName(relationInfo.targetModel, relationName);
+    const childName = getStepModelName(relationRef.targetModel, relationName);
     return {
       kind: "delete",
       relation,
@@ -3824,12 +3808,9 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     relation: ParentHeldRelation,
     entry: Extract<RelationMutationEntry, { kind: "upsert" }>
   ): ParentHeldTarget {
-    const { relationInfo } = relation;
-    const relationName = relationInfo.name;
-    const childScope = createQueryScope(
-      this.engine.adapter,
-      relationInfo.targetModel
-    );
+    const { relationRef } = relation;
+    const relationName = relationRef.name;
+    const childScope = createQueryScope(this.engine, relationRef.targetModel);
     const selectedTarget = this.selectedIncomingParentForRelation(relation);
     const correlation = this.parentHeldCorrelation(
       input,
@@ -3844,7 +3825,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       );
     }
     const before = this.buildBeforeTarget(childScope, spec.create);
-    const childName = getStepModelName(relationInfo.targetModel, relationName);
+    const childName = getStepModelName(relationRef.targetModel, relationName);
     const childUpdate = buildParsedRelationPrograms(
       childScope,
       spec.update.parsed,
@@ -4057,12 +4038,9 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     relation: ParentHeldRelation,
     entry: Extract<RelationMutationEntry, { kind: "create" }>
   ): ParentHeldTarget {
-    const { relationInfo } = relation;
-    const relationName = relationInfo.name;
-    const childScope = createQueryScope(
-      this.engine.adapter,
-      relationInfo.targetModel
-    );
+    const { relationRef } = relation;
+    const relationName = relationRef.name;
+    const childScope = createQueryScope(this.engine, relationRef.targetModel);
     const createData = entry.items[0];
     if (!createData) {
       throw new QueryEngineError(
@@ -4098,9 +4076,9 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     relation: ParentHeldRelation,
     entry: Extract<RelationMutationEntry, { kind: "connectOrCreate" }>
   ): ParentHeldTarget {
-    const { relationInfo } = relation;
+    const { relationRef } = relation;
     const { referencedFields } = relation.membership;
-    const relationName = relationInfo.name;
+    const relationName = relationRef.name;
     const spec = entry.items[0];
     if (!spec) {
       throw new QueryEngineError(
@@ -4108,16 +4086,13 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       );
     }
     const { where, create: createData } = spec;
-    const childScope = createQueryScope(
-      this.engine.adapter,
-      relationInfo.targetModel
-    );
+    const childScope = createQueryScope(this.engine, relationRef.targetModel);
     const before = this.buildBeforeTarget(
       childScope,
       createData,
       createRacePin(childScope, where)
     );
-    const childName = getStepModelName(relationInfo.targetModel, relationName);
+    const childName = getStepModelName(relationRef.targetModel, relationName);
     const probeId = input.scope.allocate(`${childName}.find`);
     const guardId = input.scope.allocate(`${childName}.guard.exists`);
     const pkSelect = Object.fromEntries(
@@ -4125,7 +4100,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     );
     return {
       kind: "connectOrCreate",
-      relationInfo,
+      relationRef,
       probeId,
       guardId,
       lookup: {
@@ -4196,7 +4171,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     relation: ParentHeldRelation,
     before: BeforeTarget
   ): Extract<FinalRootAssignment, { kind: "foreignKey" }> {
-    const { relationInfo } = relation;
+    const { relationRef } = relation;
     const fkAssign: Record<string, unknown> = {};
     const members: ForeignKeyMember[] = [];
     for (const { foreignField, referencedField } of relation.membership
@@ -4207,7 +4182,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       // the referenced column this edge needs" two owners over one predicate.
       const source = before.subtree.requireRootReferenced(
         referencedField,
-        relationInfo.name
+        relationRef.name
       );
       members.push({ foreignField, referencedField, writeSource: source });
       fkAssign[foreignField] = referenceSql(
@@ -4217,7 +4192,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
         foreignKeyWriteValue(
           { foreignField, referencedField, writeSource: source },
           undefined,
-          relationInfo.name,
+          relationRef.name,
           "update"
         )
       );
@@ -4250,9 +4225,9 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     relation: ParentHeldRelation,
     where: Record<string, unknown>
   ): FinalRootAssignment {
-    const { relationInfo } = relation;
+    const { relationRef } = relation;
     const recordScope = {
-      ...createQueryScope(this.engine.adapter, this.model),
+      ...createQueryScope(this.engine, this.model),
       mutationTable: getTableName(this.model),
     };
     const fkAssign: Record<string, unknown> = {};
@@ -4270,7 +4245,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
               kind: "lookup",
               statement: buildConnectSubqueryForField(
                 recordScope,
-                relationInfo,
+                relationRef,
                 where,
                 referenced
               ),
@@ -4281,7 +4256,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
         this.engine,
         this.model,
         fkField,
-        foreignKeyWriteValue(member, undefined, relationInfo.name, "connect")
+        foreignKeyWriteValue(member, undefined, relationRef.name, "connect")
       );
     }
     return { kind: "foreignKey", data: fkAssign, members };
@@ -4301,7 +4276,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
    */
   private assertLookupKeyPresent(
     rows: readonly unknown[],
-    relationInfo: RelationInfo,
+    relationRef: RelationRef,
     referencedFields: readonly string[],
     where: Record<string, unknown>
   ): void {
@@ -4311,8 +4286,8 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       if (Object.hasOwn(where, referenced)) continue;
       if (found[referenced] === null || found[referenced] === undefined) {
         throw new NestedWriteError(
-          lookupKeyIsNull(relationInfo.name, referenced),
-          relationInfo.name
+          lookupKeyIsNull(relationRef.name, referenced),
+          relationRef.name
         );
       }
     }
@@ -4395,8 +4370,8 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
           const found = Array.isArray(rows) && isRecord(rows[0]);
           if (!found) {
             throw new NestedWriteError(
-              relationTargetNotFound(target.edge.relationInfo, "update"),
-              target.edge.relationInfo.name
+              relationTargetNotFound(target.edge.ref, "update"),
+              target.edge.ref.name
             );
           }
           if (this.mode === "batch") {
@@ -4432,8 +4407,8 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
                   }
                 ),
                 nestedWriteFailure(
-                  relationTargetNotFound(target.edge.relationInfo, "update"),
-                  target.edge.relationInfo.name,
+                  relationTargetNotFound(target.edge.ref, "update"),
+                  target.edge.ref.name,
                   false
                 )
               )
@@ -4450,14 +4425,18 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
           );
           assignments.push({
             kind: "polymorphic",
-            storage: { kind: "empty", storage: target.edge.storage },
+            storage: {
+              kind: "empty",
+              carrier: target.edge.carrier.slot,
+              storage: target.edge.carrier.edge.storage,
+            },
           });
           writes.push({
             id: target.deleteWriteId,
             kind: "write",
             statement: buildDeleteMany(target.childScope, {
               where: {
-                [target.edge.referencedField]: { equals: identity },
+                [target.edge.member.referencedField]: { equals: identity },
               },
             }),
             outputs: {},
@@ -4507,7 +4486,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
                     ),
                     nestedWriteFailure(
                       nestedReplacement("upsert"),
-                      target.edge.relationInfo.name,
+                      target.edge.ref.name,
                       false
                     )
                   )
@@ -4553,13 +4532,13 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
 
   private readPolymorphicCurrentTarget(
     locatedRow: Readonly<Record<string, unknown>>,
-    edge: ResolvedPolymorphicEdge
+    edge: SelectedVariantRow
   ):
     | { readonly kind: "empty" }
     | { readonly kind: "same"; readonly identity: unknown }
     | { readonly kind: "different"; readonly identity: unknown } {
-    const storedType = locatedRow[edge.storage.typeColumn.name];
-    const identity = locatedRow[edge.storage.idColumn.name];
+    const storedType = locatedRow[edge.carrier.edge.storage.typeColumn.name];
+    const identity = locatedRow[edge.carrier.edge.storage.idColumn.name];
     if (storedType === null && identity === null) return { kind: "empty" };
     if (
       typeof storedType !== "string" ||
@@ -4567,32 +4546,32 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       identity === undefined
     ) {
       throw new QueryEngineError(
-        `Polymorphic relation '${edge.relationInfo.name}' contains malformed storage.`
+        `Polymorphic relation '${edge.ref.name}' contains malformed storage.`
       );
     }
-    const knownType = [...edge.storage.members.values()].some(
-      (member) => member.storedType === storedType
+    const knownType = edge.carrier.edge.members.some(
+      (member) => member.entry.storedValue === storedType
     );
     if (!knownType) {
       throw new QueryEngineError(
-        `Polymorphic relation '${edge.relationInfo.name}' contains unknown discriminator '${storedType}'.`
+        `Polymorphic relation '${edge.ref.name}' contains unknown discriminator '${storedType}'.`
       );
     }
-    return storedType === edge.storedType
+    return storedType === edge.member.entry.storedValue
       ? { kind: "same", identity }
       : { kind: "different", identity };
   }
 
   private assertPolymorphicCurrentTarget(
     locatedRow: Readonly<Record<string, unknown>>,
-    edge: ResolvedPolymorphicEdge,
+    edge: SelectedVariantRow,
     operation: "update" | "delete"
   ): unknown {
     const current = this.readPolymorphicCurrentTarget(locatedRow, edge);
     if (current.kind !== "same") {
       throw new NestedWriteError(
-        relationTargetNotFound(edge.relationInfo, operation),
-        edge.relationInfo.name
+        relationTargetNotFound(edge.ref, operation),
+        edge.ref.name
       );
     }
     return current.identity;
@@ -4605,8 +4584,8 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     beforeRootWrites: OperationStep[],
     assignments: FinalRootAssignment[]
   ): void {
-    const { relationInfo, lookup } = target;
-    const relationName = relationInfo.name;
+    const { relationRef, lookup } = target;
+    const relationName = relationRef.name;
     const rows = known[planningKey(target.probeId, "rows")];
     // Zero rows is the ARM DECISION here, not an error: the probe's empty read is
     // exactly what makes this a create.
@@ -4615,7 +4594,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       if (lookup.kind === "referencedKey") {
         this.assertLookupKeyPresent(
           rows,
-          relationInfo,
+          relationRef,
           lookup.relation.membership.referencedFields,
           lookup.where
         );
@@ -4624,14 +4603,14 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
         this.selectedForeignKeyAssignment(
           target.foundAssignment,
           rows,
-          relationInfo.name
+          relationRef.name
         )
       );
       if (this.mode === "batch") {
         guards.push(
           presenceGuard(
             target.guardId,
-            this.parentHeldLookupGuard(lookup, relationInfo, rows),
+            this.parentHeldLookupGuard(lookup, relationRef, rows),
             nestedWriteFailure(
               // V1's found-arm captured guard: the planning-seen target vanished
               // before the batch — a replacement race, not a plain not-found
@@ -4667,22 +4646,19 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
    */
   private parentHeldLookupGuard(
     lookup: ParentHeldLookup,
-    relationInfo: RelationInfo,
+    relationRef: RelationRef,
     rows: readonly unknown[]
   ): Sql {
     if (lookup.kind === "referencedKey") {
       if (!lookup.capturedFields?.length) return lookup.guardProbe;
-      const childScope = createQueryScope(
-        this.engine.adapter,
-        relationInfo.targetModel
-      );
+      const childScope = createQueryScope(this.engine, relationRef.targetModel);
       return buildFind(
         childScope,
         {
           where: capturedSelectorWhere(
             childScope,
             lookup.where,
-            this.capturedFields(rows, lookup.capturedFields, relationInfo.name)
+            this.capturedFields(rows, lookup.capturedFields, relationRef.name)
           ),
           select: Object.fromEntries(
             lookup.capturedFields.map((field) => [field, true])
@@ -4691,10 +4667,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
         { limit: 1 }
       );
     }
-    const childScope = createQueryScope(
-      this.engine.adapter,
-      relationInfo.targetModel
-    );
+    const childScope = createQueryScope(this.engine, relationRef.targetModel);
     return buildFind(
       childScope,
       {
@@ -4702,7 +4675,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
           childScope,
           rows,
           lookup.guardField,
-          relationInfo.name,
+          relationRef.name,
           lookup.where
         ),
         select: { [lookup.guardField]: true },
@@ -4722,12 +4695,12 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     demands: FinalRootAssignment[],
     transitionWriteIds: string[]
   ): void {
-    const { relationInfo } = target.relation;
-    const relationName = relationInfo.name;
+    const { relationRef } = target.relation;
+    const relationName = relationRef.name;
     const captured = this.parentHeldCapturedRow(
       known,
       target.probeId,
-      relationInfo,
+      relationRef,
       "update"
     );
     if (this.mode === "batch") {
@@ -4747,7 +4720,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
             target.filter
           ),
           nestedWriteFailure(
-            relationTargetNotFound(relationInfo, "update"),
+            relationTargetNotFound(relationRef, "update"),
             relationName,
             false
           )
@@ -4781,24 +4754,24 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     locatedRow: Record<string, unknown>,
     writes: OperationStep[]
   ): void {
-    const relationName = target.relation.relationInfo.name;
+    const relationName = target.relation.relationRef.name;
     if (target.nullWriteId !== undefined) {
       writes.push({
         id: target.nullWriteId,
         kind: "write",
-        statement: buildUpdate(
-          createQueryScope(this.engine.adapter, this.model),
-          {
-            where: this.parentPrimaryKeyWhere(locatedRow),
-            data: Object.fromEntries(
-              target.relation.membership.foreignFields.map((field) => [
-                field,
-                { set: null },
-              ])
-            ),
-            select: this.pkSelect(),
-          }
-        ),
+        statement: buildUpdate(createQueryScope(this.engine, this.model), {
+          where: this.parentPrimaryKeyWhere(locatedRow),
+          // The clearable subset only: a parent-held delete empties the slot
+          // by nulling the members that CAN be null, and a mixed compound key
+          // retains its required context members (§8.4, §11.4.9).
+          data: Object.fromEntries(
+            clearableForeignKeyFields(target.relation).map((field) => [
+              field,
+              { set: null },
+            ])
+          ),
+          select: this.pkSelect(),
+        }),
         outputs: {},
       });
     }
@@ -4832,8 +4805,8 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     demands: FinalRootAssignment[],
     transitionWriteIds: string[]
   ): void {
-    const { relationInfo } = target.relation;
-    const relationName = relationInfo.name;
+    const { relationRef } = target.relation;
+    const relationName = relationRef.name;
     const rows = known[planningKey(target.probeId, "rows")];
     if (!Array.isArray(rows)) {
       throw new NestedWriteError(
@@ -4857,14 +4830,11 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
         writes.push({
           id: target.parentSetId,
           kind: "write",
-          statement: buildUpdate(
-            createQueryScope(this.engine.adapter, this.model),
-            {
-              where: this.parentPrimaryKeyWhere(locatedRow),
-              data: missingAssignment.data,
-              select: this.pkSelect(),
-            }
-          ),
+          statement: buildUpdate(createQueryScope(this.engine, this.model), {
+            where: this.parentPrimaryKeyWhere(locatedRow),
+            data: missingAssignment.data,
+            select: this.pkSelect(),
+          }),
           outputs: {},
         });
       }
@@ -4875,7 +4845,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     const captured = this.parentHeldCapturedRow(
       known,
       target.probeId,
-      relationInfo,
+      relationRef,
       "update"
     );
     if (this.mode === "batch") {
@@ -4959,7 +4929,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
         : captured[referencedField];
       if (value === null || value === undefined || isSql(value)) {
         FinalAssignmentLedger.refuse(
-          `query-engine-v2 update cannot publish one exact final value for foreign key '${foreignField}' through relation '${relation.relationInfo.name}'.`
+          `query-engine-v2 update cannot publish one exact final value for foreign key '${foreignField}' through relation '${relation.relationRef.name}'.`
         );
       }
       const writeSource: FinalReferenceSource = isOperationValueReference(value)
@@ -5048,27 +5018,27 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
   private parentHeldCapturedRow(
     known: Readonly<Record<string, unknown>>,
     probeId: string,
-    relationInfo: RelationInfo,
+    relationRef: RelationRef,
     op: "update"
   ): Record<string, unknown> {
     const rows = known[planningKey(probeId, "rows")];
     if (!Array.isArray(rows)) {
       throw new NestedWriteError(
-        `query-engine-v2 update probe for relation '${relationInfo.name}' did not expose rows.`,
-        relationInfo.name
+        `query-engine-v2 update probe for relation '${relationRef.name}' did not expose rows.`,
+        relationRef.name
       );
     }
     if (rows.length === 0) {
       throw new NestedWriteError(
-        relationTargetNotFound(relationInfo, op),
-        relationInfo.name
+        relationTargetNotFound(relationRef, op),
+        relationRef.name
       );
     }
     const first = rows[0];
     if (!(first && typeof first === "object")) {
       throw new NestedWriteError(
-        `query-engine-v2 update probe for relation '${relationInfo.name}' captured no row shape.`,
-        relationInfo.name
+        `query-engine-v2 update probe for relation '${relationRef.name}' captured no row shape.`,
+        relationRef.name
       );
     }
     return first as Record<string, unknown>;
@@ -5080,27 +5050,32 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     entry: Extract<RelationMutationEntry, { kind: "connect" | "disconnect" }>
   ): ToOneLink {
     const scope = input.scope;
-    const { relationInfo } = relation;
+    const { relationRef } = relation;
     const { foreignFields, referencedFields } = relation.membership;
-    const relationName = relationInfo.name;
+    const relationName = relationRef.name;
     if (entry.kind === "disconnect") {
-      // V1-verbatim rejection when a required FK cannot be nulled.
-      assertRelationCanDisconnect(relation);
+      // ONLY the clearable members (§8.4, §11.4.9). A mixed compound key keeps
+      // its required members — they are the CONTEXT the membership lives in, not
+      // part of what "disconnected" means — and the schema published this verb
+      // from that same subset being non-empty.
+      const cleared = new Set(clearableForeignKeyFields(relation));
       return {
-        relationInfo,
+        relationRef,
         referencedFields,
         assignment: {
           kind: "foreignKey",
           data: Object.fromEntries(
-            foreignFields.map((field) => [field, { set: null }])
+            foreignFields
+              .filter((field) => cleared.has(field))
+              .map((field) => [field, { set: null }])
           ),
-          members: relation.membership.members.map(
-            ({ foreignField, referencedField }) => ({
+          members: relation.membership.members
+            .filter(({ foreignField }) => cleared.has(foreignField))
+            .map(({ foreignField, referencedField }) => ({
               foreignField,
               referencedField,
               writeSource: { kind: "literal", value: null },
-            })
-          ),
+            })),
         },
       };
     }
@@ -5108,11 +5083,8 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     // A directly-referenced unique folds its literal; a non-referenced one folds the
     // lookup subquery ({@link RecordUpdateCompilerState.toOneFkAssign}, E1 U1).
     const assignment = this.toOneFkAssign(relation, connect);
-    const childScope = createQueryScope(
-      this.engine.adapter,
-      relationInfo.targetModel
-    );
-    const childName = getStepModelName(relationInfo.targetModel, relationName);
+    const childScope = createQueryScope(this.engine, relationRef.targetModel);
+    const childName = getStepModelName(relationRef.targetModel, relationName);
     const probeId = scope.allocate(`${childName}.find`);
     const guardId = scope.allocate(`${childName}.guard.exists`);
     const probe: ReadStep = {
@@ -5135,7 +5107,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       )
       .map(({ referencedField }) => referencedField);
     return {
-      relationInfo,
+      relationRef,
       referencedFields,
       assignment,
       connect: {
@@ -5153,32 +5125,29 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     known: Readonly<Record<string, unknown>>
   ): OperationStep[] {
     if (!link.connect) return [];
-    const { relationInfo } = link;
-    const relationName = relationInfo.name;
+    const { relationRef } = link;
+    const relationName = relationRef.name;
     const rows = known[planningKey(link.connect.probeId, "rows")];
     // Zero rows is the arm's own not-found premise, unchanged by the lookup fold:
     // the probe reads the target by the SAME `where` the fold resolves through, so
     // "no such target" is answered here, before anything is written.
     if (!Array.isArray(rows) || rows.length === 0) {
       throw new NestedWriteError(
-        relationTargetNotFound(relationInfo, "connect"),
+        relationTargetNotFound(relationRef, "connect"),
         relationName
       );
     }
     this.assertLookupKeyPresent(
       rows,
-      link.relationInfo,
+      link.relationRef,
       link.referencedFields,
       link.connect.where
     );
     if (this.mode === "transaction") return [];
-    const guardScope = createQueryScope(
-      this.engine.adapter,
-      relationInfo.targetModel
-    );
+    const guardScope = createQueryScope(this.engine, relationRef.targetModel);
     const capturedSharedFields = link.connect.capturedSharedFields ?? [];
     const capturedShared = capturedSharedFields.length
-      ? this.capturedFields(rows, capturedSharedFields, relationInfo.name)
+      ? this.capturedFields(rows, capturedSharedFields, relationRef.name)
       : undefined;
     const guardStatement = capturedShared
       ? buildFind(
@@ -5204,7 +5173,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
                 guardScope,
                 rows,
                 link.connect.capturedGuardField,
-                relationInfo.name,
+                relationRef.name,
                 link.connect.where
               ),
               select: { [link.connect.capturedGuardField]: true },
@@ -5219,7 +5188,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
         link.connect.guardId,
         guardStatement,
         nestedWriteFailure(
-          relationTargetNotFound(relationInfo, "connect"),
+          relationTargetNotFound(relationRef, "connect"),
           relationName,
           false
         )
@@ -5246,7 +5215,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     return this.selectedForeignKeyAssignment(
       assignment,
       Array.isArray(rows) ? rows : [],
-      link.relationInfo.name
+      link.relationRef.name
     );
   }
 
@@ -5373,7 +5342,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     finalData: Record<string, unknown>,
     polymorphicStorage: readonly PolymorphicStorageValue<unknown>[] = []
   ): WriteStep {
-    const parent = createQueryScope(this.engine.adapter, this.model);
+    const parent = createQueryScope(this.engine, this.model);
     const txMode = this.mode === "transaction";
     const parentName = getStepModelName(this.model, "parent");
     // The exact-affected postcondition is a returning-driver check only. On a
@@ -5454,8 +5423,8 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
  * key that is also that foreign key. `update` writes no parent column, but its target
  * compiler can rewrite the referenced value and the database cascade then moves this
  * record's key. `delete` is absent because it supplies no final key. A
- * `delete` alone NULLs the column, which a row-key member refuses at
- * {@link assertRelationCanDisconnect} before this question arises; a `delete` beside a
+ * `delete` alone NULLs the clearable members, which the operation schema never
+ * publishes for a membership that cannot be cleared; a `delete` beside a
  * supplier does not write the column at all, because that UPDATE is elided and the
  * supplier — a fold kind, counted here — owns the slot's final value. `upsert` has the
  * same selected-final-value requirement as `update` on its found arm and a supplier on
@@ -5510,7 +5479,7 @@ function resolveRelationTransitionMembers(
     // reorder, and {@link RecordUpdateCompilerState.updatedPrimaryKeyWhere}).
     if (parsed.kind !== "ordinary") continue;
     const program = parsed.program;
-    const relation = bindRelation(targetScope, program.relationInfo);
+    const relation = bindRelation(targetScope, program.relationRef);
     if (relation.position !== "parentHeld") continue;
     if (
       !relation.membership.foreignFields.some((foreignField) =>

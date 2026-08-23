@@ -363,13 +363,14 @@ const CollisionTarget = s.model({
   is: s.string(),
   isNot: s.string(),
   label: s.string(),
+  holders: s.toMany(() => CollisionHolder),
 });
 
 const CollisionHolder = s.model({
   id: s.string().id(),
   targetId: s.string(),
   target: s
-    .manyToOne(() => CollisionTarget)
+    .toOne(() => CollisionTarget)
     .fields("targetId")
     .references("id"),
 });

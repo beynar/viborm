@@ -267,7 +267,7 @@ const nonPkSupplierSchema = (() => {
     .model({
       id: s.string().id(),
       code: s.string().unique(),
-      badge: s.oneToOne(() => badge).optional(),
+      badge: s.toOne(() => badge),
     })
     .map("e7np_stations");
   const badge = s
@@ -276,11 +276,10 @@ const nonPkSupplierSchema = (() => {
       tag: s.string(),
       stationCode: s.string().nullable().unique(),
       station: s
-        .oneToOne(() => station)
+        .toOne(() => station)
         .fields("stationCode")
         .references("code")
-        .onUpdate("cascade")
-        .optional(),
+        .onUpdate("cascade"),
     })
     .map("e7np_badges");
   return { badge, station };

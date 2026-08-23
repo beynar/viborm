@@ -29,27 +29,27 @@ const schema = (() => {
   const workspace = s
     .model({
       id: s.int().id(),
-      projects: s.manyToMany(() => project),
+      projects: s.toMany(() => project),
     })
     .map("njt_workspaces");
   const project = s
     .model({
       id: s.int().id(),
-      workspaces: s.manyToMany(() => workspace),
-      tags: s.manyToMany(() => tag),
+      workspaces: s.toMany(() => workspace),
+      tags: s.toMany(() => tag),
       // Self-referential m2m with explicit A/B columns: junction "njt_related"
       // (fromId, toId). A/B orientation at depth is the correctness question.
       related: s
-        .manyToMany(() => project)
-        .A("fromId")
-        .B("toId"),
-      relatedBy: s.manyToMany(() => project),
+        .toMany(() => project)
+        .source("fromId")
+        .target("toId"),
+      relatedBy: s.toMany(() => project),
     })
     .map("njt_projects");
   const tag = s
     .model({
       id: s.int().id(),
-      projects: s.manyToMany(() => project),
+      projects: s.toMany(() => project),
     })
     .map("njt_tags");
   return { workspace, project, tag };

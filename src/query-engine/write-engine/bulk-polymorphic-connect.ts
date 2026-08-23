@@ -14,9 +14,9 @@ import {
   type TargetConstraint,
 } from "../TargetConstraint";
 import {
-  isPolymorphicToOneRelationInfo,
+  isVariantRowCarrier,
   type QueryScope,
-  type ResolvedPolymorphicEdge,
+  type SelectedVariantRow,
 } from "../types";
 import { nestedWriteFailure, presenceGuard } from "./fragment-builders";
 import { relationTargetNotFound } from "./messages";
@@ -27,7 +27,7 @@ import { capturedSelectorWhere, getStepModelName, isRecord } from "./shared";
 
 interface BulkTarget {
   readonly rowIndex: number;
-  readonly edge: ResolvedPolymorphicEdge;
+  readonly edge: SelectedVariantRow;
   readonly where: Record<string, unknown>;
   readonly constraint: TargetConstraint;
   readonly constraintKey: string | undefined;
@@ -57,7 +57,18 @@ export function prepareBulkPolymorphicConnects(
   scope: StepScope,
   txMode: boolean
 ): PreparedBulkPolymorphicConnects {
-  const polymorphicNames = [...parent.polymorphicRelations.keys()];
+  // ROW-CARRIER keys only: a collection key has no grouped bulk route (its
+  // membership rows cannot exist before the owner row does), and routing sends
+  // any payload naming one to the record series before this point.
+  const polymorphicNames: string[] = [];
+  for (const [field, resolved] of parent.relations.get(parent.model) ?? []) {
+    if (
+      resolved.member === undefined &&
+      resolved.edge.kind === "variantRowCarrier"
+    ) {
+      polymorphicNames.push(field);
+    }
+  }
   if (polymorphicNames.length === 0) {
     return emptyBulkPolymorphicConnects(rows);
   }
@@ -90,32 +101,28 @@ export function prepareBulkPolymorphicConnects(
       // reach `buildBulkPolymorphicConnects` without passing routing, and a
       // narrowing that only holds "when the caller came the usual way" is not a
       // narrowing.
-      if (!isPolymorphicToOneRelationInfo(relation)) {
+      if (!isVariantRowCarrier(relation)) {
         throw new QueryEngineError(
-          `createMany polymorphic relation '${relation.name}' is a collection; its membership lives in per-variant member junction tables and cannot be written from a bulk row.`
+          `createMany polymorphic relation '${relation.slot.field}' is a collection; its membership lives in per-variant member junction tables and cannot be written from a bulk row.`
         );
       }
-      const intent = resolvePolymorphicMutationIntent(
-        parent,
-        relation,
-        payload
-      );
+      const intent = resolvePolymorphicMutationIntent(relation, payload);
       if (!(intent.kind === "targeted" && intent.operation === "connect")) {
         throw new QueryEngineError(
-          `createMany polymorphic relation '${relation.name}' requires connect.`
+          `createMany polymorphic relation '${relation.slot.field}' requires connect.`
         );
       }
       if (!isRecord(intent.payload)) {
         throw new QueryEngineError(
-          `createMany polymorphic relation '${relation.name}' produced an invalid selector.`
+          `createMany polymorphic relation '${relation.slot.field}' produced an invalid selector.`
         );
       }
       const targetName = getStepModelName(
-        intent.edge.targetModel,
-        relation.name
+        intent.edge.member.targetModel,
+        relation.slot.field
       );
       const constraint = normalizeWhereUniqueTargetConstraint(
-        intent.edge.targetModel,
+        intent.edge.member.targetModel,
         intent.payload
       );
       const target: BulkTarget = {
@@ -126,7 +133,7 @@ export function prepareBulkPolymorphicConnects(
         constraintKey: exactTargetConstraintKey(constraint),
         guardId: scope.allocate(`${targetName}.guard.exists`),
       };
-      const key = `${relation.name}\u0000${intent.edge.publicType}`;
+      const key = `${relation.slot.field}\u0000${intent.edge.member.variant}`;
       const group = groupedTargets.get(key);
       if (group) group.push(target);
       else groupedTargets.set(key, [target]);
@@ -139,16 +146,16 @@ export function prepareBulkPolymorphicConnects(
 
   const probes: BulkProbe[] = [...groupedTargets.values()].map((targets) => {
     const edge = targets[0]!.edge;
-    const childScope = createQueryScope(engine.adapter, edge.targetModel);
+    const childScope = createQueryScope(engine, edge.member.targetModel);
     const fields = [
       ...new Set([
-        edge.referencedField,
+        edge.member.referencedField,
         ...targets.flatMap((target) => [...target.constraint.fields.keys()]),
       ]),
     ];
     const uniqueTargets = uniqueBulkTargets(targets);
     const id = scope.allocate(
-      `${getStepModelName(edge.targetModel, edge.relationInfo.name)}.find`
+      `${getStepModelName(edge.member.targetModel, edge.ref.name)}.find`
     );
     return {
       targets,
@@ -197,21 +204,22 @@ export function prepareBulkPolymorphicConnects(
           const found = findBulkTarget(rows, target, rowIndexes);
           if (!found) {
             throw new NestedWriteError(
-              relationTargetNotFound(target.edge.relationInfo, "connect"),
-              target.edge.relationInfo.name
+              relationTargetNotFound(target.edge.ref, "connect"),
+              target.edge.ref.name
             );
           }
           storageByRow[target.rowIndex]!.push({
             kind: "linked",
-            storage: target.edge.storage,
-            storedType: target.edge.storedType,
-            referencedField: target.edge.referencedField,
-            id: found[target.edge.referencedField],
+            carrier: target.edge.carrier.slot,
+            storage: target.edge.carrier.edge.storage,
+            storedType: target.edge.member.entry.storedValue,
+            referencedField: target.edge.member.referencedField,
+            id: found[target.edge.member.referencedField],
           });
           if (!txMode) {
             const guardScope = createQueryScope(
-              engine.adapter,
-              target.edge.targetModel
+              engine,
+              target.edge.member.targetModel
             );
             guards.push(
               presenceGuard(
@@ -220,16 +228,16 @@ export function prepareBulkPolymorphicConnects(
                   guardScope,
                   {
                     where: capturedSelectorWhere(guardScope, target.where, {
-                      [target.edge.referencedField]:
-                        found[target.edge.referencedField],
+                      [target.edge.member.referencedField]:
+                        found[target.edge.member.referencedField],
                     }),
-                    select: { [target.edge.referencedField]: true },
+                    select: { [target.edge.member.referencedField]: true },
                   },
                   { limit: 1 }
                 ),
                 nestedWriteFailure(
-                  relationTargetNotFound(target.edge.relationInfo, "connect"),
-                  target.edge.relationInfo.name,
+                  relationTargetNotFound(target.edge.ref, "connect"),
+                  target.edge.ref.name,
                   false
                 )
               )
@@ -292,7 +300,7 @@ function findBulkTarget(
       for (const row of rows) {
         if (!isRecord(row)) continue;
         const key = exactTargetConstraintKey(
-          normalizeTargetConstraint(target.edge.targetModel, fields, row)
+          normalizeTargetConstraint(target.edge.member.targetModel, fields, row)
         );
         if (key) built.set(key, row);
       }
@@ -306,7 +314,7 @@ function findBulkTarget(
       isRecord(row) &&
       classifyTargetConstraintOverlap(
         target.constraint,
-        normalizeTargetConstraint(target.edge.targetModel, fields, row)
+        normalizeTargetConstraint(target.edge.member.targetModel, fields, row)
       ) === "equal"
   );
 }

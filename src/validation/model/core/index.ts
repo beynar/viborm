@@ -65,6 +65,7 @@ export {
 // =============================================================================
 
 import type { AnyModel } from "@schema/model";
+import type { ResolvedSlot } from "@schema/validation/relation-resolution";
 import { lazyRecord } from "../../lazy";
 import {
   getOmitSchema,
@@ -171,7 +172,8 @@ export type CoreSchemas<M extends AnyModel, F extends ScalarSchemas<M>> = {
 
 export const getCoreSchemas = <M extends AnyModel, F extends ScalarSchemas<M>>(
   model: M,
-  fieldSchemas: F
+  fieldSchemas: F,
+  slots: ReadonlyMap<string, ResolvedSlot>
 ): CoreSchemas<M, F> => {
   // Each core schema is built on first access and memoized. Consumers only ever
   // read individual keys (e.g. `core.where`, `core.whereUnique`), so a query
@@ -183,7 +185,7 @@ export const getCoreSchemas = <M extends AnyModel, F extends ScalarSchemas<M>>(
     compoundIdFilter: () => getCompoundIdFilter(model),
     compoundConstraintFilter: () => getCompoundConstraintFilter(model),
     scalarCreate: () => getScalarCreate(model, fieldSchemas),
-    bulkCreate: () => getBulkCreate(model, fieldSchemas),
+    bulkCreate: () => getBulkCreate(model, fieldSchemas, slots),
     relationCreate: () => getRelationCreate<M, F>(fieldSchemas),
     scalarUpdate: () => getScalarUpdate<M, F>(fieldSchemas),
     relationUpdate: () => getRelationUpdate<M, F>(fieldSchemas),
@@ -191,7 +193,7 @@ export const getCoreSchemas = <M extends AnyModel, F extends ScalarSchemas<M>>(
     whereUnique: () => getWhereUniqueSchema(model, fieldSchemas),
     whereUniqueExtended: () =>
       getWhereUniqueExtendedSchema(model, fieldSchemas),
-    create: () => getCreateSchema(model, fieldSchemas),
+    create: () => getCreateSchema(model, fieldSchemas, slots),
     update: () => getUpdateSchema<M, F>(fieldSchemas),
     select: () => getSelectSchema(model, fieldSchemas),
     omit: () => getOmitSchema(model),

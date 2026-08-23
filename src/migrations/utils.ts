@@ -231,7 +231,7 @@ export function sortOperations(operations: DiffOperation[]): DiffOperation[] {
  * referenced table exists.
  *
  * This is the DDL-ordering fix for `push()` / generated migrations: a schema
- * that declares a child model (holding a `manyToOne` FK) *before* its parent
+ * that declares a child model (the endpoint holding the FK) *before* its parent
  * would otherwise emit `ALTER TABLE child ADD ... FOREIGN KEY REFERENCES parent`
  * (Postgres) or an inline FK (MySQL) immediately after `CREATE TABLE child`,
  * before `CREATE TABLE parent` runs — Postgres `42P01`, MySQL analogous — and

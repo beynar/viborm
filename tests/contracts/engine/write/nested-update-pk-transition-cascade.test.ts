@@ -81,17 +81,18 @@ const cascadeSchema = (() => {
       parentId: s.int().nullable(),
       // Child-held self FK, referential action UNSET → NO ACTION on update.
       parent: s
-        .manyToOne(() => node)
+        .toOne(() => node)
         .fields("parentId")
         .references("id")
-        .optional(),
-      children: s.oneToMany(() => node),
+        .name("tree"),
+      children: s.toMany(() => node).name("tree"),
       // Self-m2m: the implicit junction FKs are ON UPDATE CASCADE by default.
       links: s
-        .manyToMany(() => node)
-        .A("sourceId")
-        .B("targetId"),
-      linkedBy: s.manyToMany(() => node),
+        .toMany(() => node)
+        .name("link")
+        .source("sourceId")
+        .target("targetId"),
+      linkedBy: s.toMany(() => node).name("link"),
     })
     .map("pk_transition_cascade_nodes");
   return { node };
@@ -166,227 +167,83 @@ function freshClient(substrate: "tx" | "batch"): {
 
 describe("nested update PK-transition cascade boundary (finding #1)", () => {
   for (const substrate of ["tx", "batch"] as const) {
-    test(
-      `child-held deeper edge under a PK transition adopts onto the new key (${substrate})`,
-      { timeout: 30_000 },
-      async () => {
-        const { client } = freshClient(substrate);
-        await push(client as any, { force: true });
-        await seed(client);
+    test(`child-held deeper edge under a PK transition adopts onto the new key (${substrate})`, {
+      timeout: 30_000,
+    }, async () => {
+      const { client } = freshClient(substrate);
+      await push(client as any, { force: true });
+      await seed(client);
 
-        // No child carries the target's key 1, so the occupied guard passes and the
-        // deeper connect is written against 7 — the key the self-UPDATE just wrote.
-        await (client as any).node.update(op(CHILD_HELD_EDGE));
-        expect((await snapshot(client)).parents).toEqual([
-          [3, 10],
-          [4, 20],
-          [5, 7],
-          [7, 10],
-          [10, null],
-          [20, null],
-        ]);
-        await client.$disconnect();
-      }
-    );
+      // No child carries the target's key 1, so the occupied guard passes and the
+      // deeper connect is written against 7 — the key the self-UPDATE just wrote.
+      await (client as any).node.update(op(CHILD_HELD_EDGE));
+      expect((await snapshot(client)).parents).toEqual([
+        [3, 10],
+        [4, 20],
+        [5, 7],
+        [7, 10],
+        [10, null],
+        [20, null],
+      ]);
+      await client.$disconnect();
+    });
 
-    test(
-      `an OCCUPIED old slot rejects the depth transition with nothing written (${substrate})`,
-      { timeout: 30_000 },
-      async () => {
-        const { client } = freshClient(substrate);
-        await push(client as any, { force: true });
-        await seed(client);
-        // Give the transition target a child of its own: the NO-ACTION referential
-        // action would strand it, so the depth occupied guard rejects — V1's verbatim
-        // wording, the same the root emits, before any write.
-        await (client as any).node.create({
-          data: { id: 6, label: "occupant", parentId: 1 },
-        });
+    test(`an OCCUPIED old slot rejects the depth transition with nothing written (${substrate})`, {
+      timeout: 30_000,
+    }, async () => {
+      const { client } = freshClient(substrate);
+      await push(client as any, { force: true });
+      await seed(client);
+      // Give the transition target a child of its own: the NO-ACTION referential
+      // action would strand it, so the depth occupied guard rejects — V1's verbatim
+      // wording, the same the root emits, before any write.
+      await (client as any).node.create({
+        data: { id: 6, label: "occupant", parentId: 1 },
+      });
 
-        await expect(
-          (client as any).node.update(op(CHILD_HELD_EDGE))
-        ).rejects.toThrow(OCCUPIED_AT_DEPTH);
-        expect((await snapshot(client)).parents).toEqual([
-          [1, 10],
-          [3, 10],
-          [4, 20],
-          [5, null],
-          [6, 1],
-          [10, null],
-          [20, null],
-        ]);
-        await client.$disconnect();
-      }
-    );
+      await expect(
+        (client as any).node.update(op(CHILD_HELD_EDGE))
+      ).rejects.toThrow(OCCUPIED_AT_DEPTH);
+      expect((await snapshot(client)).parents).toEqual([
+        [1, 10],
+        [3, 10],
+        [4, 20],
+        [5, null],
+        [6, 1],
+        [10, null],
+        [20, null],
+      ]);
+      await client.$disconnect();
+    });
 
     for (const [name, operand] of [
       ["same-value set", { set: 1 }],
       ["increment zero", { increment: 0 }],
     ] as const) {
-      test(
-        `a ${name} on the primary key moves no slot, so an occupant is fine (${substrate})`,
-        { timeout: 30_000 },
-        async () => {
-          const { client } = freshClient(substrate);
-          await push(client as any, { force: true });
-          await seed(client);
-          // The SAME occupant as the arm above — the difference is only the operand.
-          await (client as any).node.create({
-            data: { id: 6, label: "occupant", parentId: 1 },
-          });
-
-          // The ROOT accepts exactly this rule ("allows same-value set on an occupied
-          // setNull relation" / "allows increment zero …" in
-          // `tests/query-engine/relation-key-update-legality.test.ts`): the SET writes
-          // the key's CURRENT value, so nothing is vacated and no child is stranded.
-          // Depth must answer the same, or the occupied guard's own message — which
-          // says a transition is happening — is false on its face.
-          await (client as any).node.update({
-            where: { id: 10 },
-            data: {
-              children: {
-                update: {
-                  where: { id: 1 },
-                  data: { id: operand, ...CHILD_HELD_EDGE },
-                },
-              },
-            },
-          });
-          expect((await snapshot(client)).parents).toEqual([
-            [1, 10],
-            [3, 10],
-            [4, 20],
-            // The deeper connect landed on the key the target still carries …
-            [5, 1],
-            // … and the occupant was neither rejected nor nulled.
-            [6, 1],
-            [10, null],
-            [20, null],
-          ]);
-          await client.$disconnect();
-        }
-      );
-    }
-
-    test(
-      `both edge kinds at once now run under ONE ordering (${substrate})`,
-      { timeout: 30_000 },
-      async () => {
+      test(`a ${name} on the primary key moves no slot, so an occupant is fine (${substrate})`, {
+        timeout: 30_000,
+      }, async () => {
         const { client } = freshClient(substrate);
         await push(client as any, { force: true });
         await seed(client);
-        // **RETARGETED BY E2-U3 (authorized test change).** This arm asserted the
-        // refusal, on the reasoning that "neither ordering serves both edges": the
-        // junction reads MEMBERSHIP at planning, before the self-UPDATE exists, while
-        // the child-held edge must be written after it. Both halves of that reading are
-        // still true — what was false is that one ordering must supply one value. The
-        // junction now READS on the where-pinned pre-transition key and WRITES on the
-        // post-transition one (`RelationJunctionConfig.membershipReadSource`, the split
-        // N5-U1 already made for `set`), so the post-transition ordering serves both
-        // edges at once. Same payload, and this arm asserts the state it produces.
-        await (client as any).node.update(
-          op({ ...CHILD_HELD_EDGE, ...M2M_EDGE })
-        );
-        const state = await snapshot(client);
-        // The child-held edge landed on the key the self-UPDATE wrote …
-        expect(state.parents).toEqual([
-          [3, 10],
-          [4, 20],
-          [5, 7],
-          [7, 10],
-          [10, null],
-          [20, null],
-        ]);
-        // … and so did the join row: a write against the vacated 1 has no row to
-        // reference (the falsification raises a ForeignKeyError there).
-        expect(state.links).toContainEqual([7, [5]]);
-        await client.$disconnect();
-      }
-    );
-
-    test(
-      `self-m2m deeper edge under a PK transition executes natively (${substrate})`,
-      { timeout: 30_000 },
-      async () => {
-        const { client } = freshClient(substrate);
-        await push(client as any, { force: true });
-        await seed(client);
-        await (client as any).node.update(op(M2M_EDGE));
-        const state = await snapshot(client);
-        // The junction FK cascades: the link written against source 1 follows the PK to 7.
-        expect(state.parents).toEqual([
-          [3, 10],
-          [4, 20],
-          [5, null],
-          [7, 10],
-          [10, null],
-          [20, null],
-        ]);
-        expect(state.links).toContainEqual([7, [5]]);
-        await client.$disconnect();
-      }
-    );
-
-    test(
-      `D2 LIFT: a non-PK locator plus a PK transition now executes (${substrate})`,
-      { timeout: 30_000 },
-      async () => {
-        const { client } = freshClient(substrate);
-        await push(client as any, { force: true });
-        await seed(client);
-
-        // RETARGETED BY PACKAGE D2. This was "the merge's one refusal": N4-U1's
-        // provenance (locate by `label`, Ref the probe) and N5-U1b's ordering (bind the
-        // deeper edge to the POST-transition key) were said to be unserviceable
-        // together, because "the probe already ran, so the value it publishes is the key
-        // 7 replaces". Both halves were true and the conclusion was not: the probe
-        // publishing the PRE-transition key is exactly what a post-transition derivation
-        // needs, once the derivation is allowed to run at COMPILE instead of at
-        // construction. D2's `postTransitionReference` is that, so the payload compiles
-        // and lands the identical state the PK-locator arm above produces.
-        await (client as any).node.update({
-          where: { id: 10 },
-          data: {
-            children: {
-              update: {
-                where: { label: "target" },
-                data: { id: 7, ...CHILD_HELD_EDGE },
-              },
-            },
-          },
+        // The SAME occupant as the arm above — the difference is only the operand.
+        await (client as any).node.create({
+          data: { id: 6, label: "occupant", parentId: 1 },
         });
-        expect((await snapshot(client)).parents).toEqual([
-          [3, 10],
-          [4, 20],
-          // The deeper connect took the POST-transition key …
-          [5, 7],
-          // … which the self-UPDATE wrote, and the second root's subtree is untouched.
-          [7, 10],
-          [10, null],
-          [20, null],
-        ]);
-        await client.$disconnect();
-      }
-    );
 
-    test(
-      `the same non-PK locator with no PK transition executes (${substrate})`,
-      { timeout: 30_000 },
-      async () => {
-        const { client } = freshClient(substrate);
-        await push(client as any, { force: true });
-        await seed(client);
-
-        // Drop the `id` from the SET and the intersection dissolves: N4-U1's planned
-        // source is the whole answer, and node 5's FK lands on 1 — the key of THE ROW
-        // THE PROBE LOCKED, not a value re-derived from the `where`.
+        // The ROOT accepts exactly this rule ("allows same-value set on an occupied
+        // setNull relation" / "allows increment zero …" in
+        // `tests/query-engine/relation-key-update-legality.test.ts`): the SET writes
+        // the key's CURRENT value, so nothing is vacated and no child is stranded.
+        // Depth must answer the same, or the occupied guard's own message — which
+        // says a transition is happening — is false on its face.
         await (client as any).node.update({
           where: { id: 10 },
           data: {
             children: {
               update: {
-                where: { label: "target" },
-                data: { label: "renamed", ...CHILD_HELD_EDGE },
+                where: { id: 1 },
+                data: { id: operand, ...CHILD_HELD_EDGE },
               },
             },
           },
@@ -395,12 +252,142 @@ describe("nested update PK-transition cascade boundary (finding #1)", () => {
           [1, 10],
           [3, 10],
           [4, 20],
+          // The deeper connect landed on the key the target still carries …
           [5, 1],
+          // … and the occupant was neither rejected nor nulled.
+          [6, 1],
           [10, null],
           [20, null],
         ]);
         await client.$disconnect();
-      }
-    );
+      });
+    }
+
+    test(`both edge kinds at once now run under ONE ordering (${substrate})`, {
+      timeout: 30_000,
+    }, async () => {
+      const { client } = freshClient(substrate);
+      await push(client as any, { force: true });
+      await seed(client);
+      // **RETARGETED BY E2-U3 (authorized test change).** This arm asserted the
+      // refusal, on the reasoning that "neither ordering serves both edges": the
+      // junction reads MEMBERSHIP at planning, before the self-UPDATE exists, while
+      // the child-held edge must be written after it. Both halves of that reading are
+      // still true — what was false is that one ordering must supply one value. The
+      // junction now READS on the where-pinned pre-transition key and WRITES on the
+      // post-transition one (`RelationJunctionConfig.membershipReadSource`, the split
+      // N5-U1 already made for `set`), so the post-transition ordering serves both
+      // edges at once. Same payload, and this arm asserts the state it produces.
+      await (client as any).node.update(
+        op({ ...CHILD_HELD_EDGE, ...M2M_EDGE })
+      );
+      const state = await snapshot(client);
+      // The child-held edge landed on the key the self-UPDATE wrote …
+      expect(state.parents).toEqual([
+        [3, 10],
+        [4, 20],
+        [5, 7],
+        [7, 10],
+        [10, null],
+        [20, null],
+      ]);
+      // … and so did the join row: a write against the vacated 1 has no row to
+      // reference (the falsification raises a ForeignKeyError there).
+      expect(state.links).toContainEqual([7, [5]]);
+      await client.$disconnect();
+    });
+
+    test(`self-m2m deeper edge under a PK transition executes natively (${substrate})`, {
+      timeout: 30_000,
+    }, async () => {
+      const { client } = freshClient(substrate);
+      await push(client as any, { force: true });
+      await seed(client);
+      await (client as any).node.update(op(M2M_EDGE));
+      const state = await snapshot(client);
+      // The junction FK cascades: the link written against source 1 follows the PK to 7.
+      expect(state.parents).toEqual([
+        [3, 10],
+        [4, 20],
+        [5, null],
+        [7, 10],
+        [10, null],
+        [20, null],
+      ]);
+      expect(state.links).toContainEqual([7, [5]]);
+      await client.$disconnect();
+    });
+
+    test(`D2 LIFT: a non-PK locator plus a PK transition now executes (${substrate})`, {
+      timeout: 30_000,
+    }, async () => {
+      const { client } = freshClient(substrate);
+      await push(client as any, { force: true });
+      await seed(client);
+
+      // RETARGETED BY PACKAGE D2. This was "the merge's one refusal": N4-U1's
+      // provenance (locate by `label`, Ref the probe) and N5-U1b's ordering (bind the
+      // deeper edge to the POST-transition key) were said to be unserviceable
+      // together, because "the probe already ran, so the value it publishes is the key
+      // 7 replaces". Both halves were true and the conclusion was not: the probe
+      // publishing the PRE-transition key is exactly what a post-transition derivation
+      // needs, once the derivation is allowed to run at COMPILE instead of at
+      // construction. D2's `postTransitionReference` is that, so the payload compiles
+      // and lands the identical state the PK-locator arm above produces.
+      await (client as any).node.update({
+        where: { id: 10 },
+        data: {
+          children: {
+            update: {
+              where: { label: "target" },
+              data: { id: 7, ...CHILD_HELD_EDGE },
+            },
+          },
+        },
+      });
+      expect((await snapshot(client)).parents).toEqual([
+        [3, 10],
+        [4, 20],
+        // The deeper connect took the POST-transition key …
+        [5, 7],
+        // … which the self-UPDATE wrote, and the second root's subtree is untouched.
+        [7, 10],
+        [10, null],
+        [20, null],
+      ]);
+      await client.$disconnect();
+    });
+
+    test(`the same non-PK locator with no PK transition executes (${substrate})`, {
+      timeout: 30_000,
+    }, async () => {
+      const { client } = freshClient(substrate);
+      await push(client as any, { force: true });
+      await seed(client);
+
+      // Drop the `id` from the SET and the intersection dissolves: N4-U1's planned
+      // source is the whole answer, and node 5's FK lands on 1 — the key of THE ROW
+      // THE PROBE LOCKED, not a value re-derived from the `where`.
+      await (client as any).node.update({
+        where: { id: 10 },
+        data: {
+          children: {
+            update: {
+              where: { label: "target" },
+              data: { label: "renamed", ...CHILD_HELD_EDGE },
+            },
+          },
+        },
+      });
+      expect((await snapshot(client)).parents).toEqual([
+        [1, 10],
+        [3, 10],
+        [4, 20],
+        [5, 1],
+        [10, null],
+        [20, null],
+      ]);
+      await client.$disconnect();
+    });
   }
 });

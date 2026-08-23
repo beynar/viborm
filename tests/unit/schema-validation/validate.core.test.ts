@@ -7,7 +7,6 @@
  * recursed into themselves), so nothing here was ever exercised before.
  */
 
-import { describe, expect, it } from "vitest";
 import { s } from "@src/schema";
 import { isValidSchemaIdentifier } from "@src/schema/identifier";
 import { validateSchema, validateSchemaOrThrow } from "@src/schema/validation";
@@ -15,6 +14,7 @@ import {
   clientUserPostSchema,
   sqlGenerationUserPostSchema,
 } from "@tests/fixtures/user-post-schema";
+import { describe, expect, it } from "vitest";
 
 function codes(result: { errors: { code: string }[] }): string[] {
   return result.errors.map((e) => e.code);
@@ -71,13 +71,13 @@ function getIdentifierContracts() {
       createSchema: (identifier: string) => {
         const relationParent = s.model({
           id: s.string().id(),
-          [identifier]: s.oneToMany(() => relationChild),
+          [identifier]: s.toMany(() => relationChild),
         });
         const relationChild = s.model({
           id: s.string().id(),
           parentId: s.string(),
           parent: s
-            .manyToOne(() => relationParent)
+            .toOne(() => relationParent)
             .fields("parentId")
             .references("id"),
         });
@@ -126,86 +126,39 @@ describe("self-referential relations", () => {
       id: s.string().id(),
       parentId: s.string().nullable(),
       parent: s
-        .manyToOne(() => category)
+        .toOne(() => category)
         .fields("parentId")
-        .references("id")
-        .optional(),
-      children: s.oneToMany(() => category),
+        .references("id"),
+      children: s.toMany(() => category),
     });
     const result = validateSchema({ category });
     expect(result.errors).toEqual([]);
     expect(warningCodes(result)).not.toContain("R007");
   });
-
-  it("uses the general inverse rule when a self-relation is missing its inverse", () => {
-    const node = s.model({
-      id: s.string().id(),
-      parentId: s.string().nullable(),
-      parent: s
-        .manyToOne(() => node)
-        .fields("parentId")
-        .references("id")
-        .optional(),
-    });
-    const result = validateSchema({ node });
-    expect(codes(result)).toContain("R004");
-  });
-
-  it("accepts the mirrored A/B pattern on self-referential M2M (JT004 regression)", () => {
-    const user = s.model({
-      id: s.string().id(),
-      following: s
-        .manyToMany(() => user)
-        .through("follows")
-        .A("followerId")
-        .B("followingId"),
-      followers: s
-        .manyToMany(() => user)
-        .through("follows")
-        .A("followingId")
-        .B("followerId"),
-    });
-    const result = validateSchema({ user });
-    // The inverse side necessarily has A > B alphabetically; the old JT004
-    // heuristic spuriously flagged it
-    expect(codes(result)).toEqual([]);
-    expect(warningCodes(result)).not.toContain("JT004");
-  });
-
-  it("errors JT004 on self-referential M2M without explicit A/B", () => {
-    const user = s.model({
-      id: s.string().id(),
-      following: s.manyToMany(() => user).through("follows"),
-      followers: s.manyToMany(() => user).through("follows"),
-    });
-    const result = validateSchema({ user });
-    // Both junction columns would generate as 'userId'
-    expect(codes(result)).toContain("JT004");
-  });
 });
 
 // =============================================================================
-// DUAL RELATIONS BETWEEN THE SAME MODELS
+// MULTIPLE RELATIONS BETWEEN THE SAME MODELS
 // =============================================================================
 
 describe("multiple relations between the same models", () => {
   it("accepts two relationships disambiguated with .name()", () => {
     const user = s.model({
       id: s.string().id(),
-      authored: s.oneToMany(() => post).name("author"),
-      edited: s.oneToMany(() => post).name("editor"),
+      authored: s.toMany(() => post).name("author"),
+      edited: s.toMany(() => post).name("editor"),
     });
     const post = s.model({
       id: s.string().id(),
       authorId: s.string(),
       editorId: s.string(),
       author: s
-        .manyToOne(() => user)
+        .toOne(() => user)
         .fields("authorId")
         .references("id")
         .name("author"),
       editor: s
-        .manyToOne(() => user)
+        .toOne(() => user)
         .fields("editorId")
         .references("id")
         .name("editor"),
@@ -214,33 +167,10 @@ describe("multiple relations between the same models", () => {
     expect(result.errors).toEqual([]);
     expect(warningCodes(result)).not.toContain("R007");
   });
-
-  it("warns R007 when two unnamed relations target the same model", () => {
-    const user = s.model({
-      id: s.string().id(),
-      authored: s.oneToMany(() => post),
-      edited: s.oneToMany(() => post),
-    });
-    const post = s.model({
-      id: s.string().id(),
-      authorId: s.string(),
-      editorId: s.string(),
-      author: s
-        .manyToOne(() => user)
-        .fields("authorId")
-        .references("id"),
-      editor: s
-        .manyToOne(() => user)
-        .fields("editorId")
-        .references("id"),
-    });
-    const result = validateSchema({ user, post });
-    expect(warningCodes(result)).toContain("R007");
-  });
 });
 
 // =============================================================================
-// RELATION RULES (R001-R006)
+// RELATION RULES
 // =============================================================================
 
 describe("relation rules", () => {
@@ -250,53 +180,33 @@ describe("relation rules", () => {
       id: s.string().id(),
       authorId: s.string(),
       author: s
-        .manyToOne(() => user)
+        .toOne(() => user)
         .fields("authorId")
         .references("id"),
     });
     const result = validateSchema({ post }); // user not registered
     expect(codes(result)).toContain("R006");
   });
-
-  it("errors R003/R004 when the inverse relation is missing", () => {
-    const user = s.model({
-      id: s.string().id(),
-      posts: s.oneToMany(() => post),
-    });
-    const post = s.model({ id: s.string().id() }); // no manyToOne back
-    const result = validateSchema({ user, post });
-    expect(codes(result)).toContain("R003");
-  });
-
-  it("errors R005 when M2M has no inverse M2M", () => {
-    const post = s.model({
-      id: s.string().id(),
-      tags: s.manyToMany(() => tag),
-    });
-    const tag = s.model({ id: s.string().id() });
-    const result = validateSchema({ post, tag });
-    expect(codes(result)).toContain("R005");
-  });
 });
 
 // =============================================================================
-// JUNCTION TABLE RULES (JT001-JT005)
+// JUNCTION TABLE RULES
 // =============================================================================
 
 describe("junction table rules", () => {
   it("errors JT001 when a junction table is shared by more than one relationship", () => {
     const post = s.model({
       id: s.string().id(),
-      tags: s.manyToMany(() => tag).through("shared"),
-      users: s.manyToMany(() => user).through("shared"),
+      tags: s.toMany(() => tag).through("shared"),
+      users: s.toMany(() => user).through("shared"),
     });
     const tag = s.model({
       id: s.string().id(),
-      posts: s.manyToMany(() => post).through("shared"),
+      posts: s.toMany(() => post),
     });
     const user = s.model({
       id: s.string().id(),
-      posts: s.manyToMany(() => post).through("shared"),
+      posts: s.toMany(() => post),
     });
     const result = validateSchema({ post, tag, user });
     expect(codes(result)).toContain("JT001");
@@ -304,95 +214,38 @@ describe("junction table rules", () => {
     expect(codes(result).filter((c) => c === "JT001")).toHaveLength(1);
   });
 
-  it("errors JT002 on invalid junction column identifiers", () => {
-    const post = s.model({
-      id: s.string().id(),
-      tags: s
-        .manyToMany(() => tag)
-        .A("bad name")
-        .B("tagId"),
-    });
-    const tag = s.model({
-      id: s.string().id(),
-      posts: s
-        .manyToMany(() => post)
-        .A("tagId")
-        .B("bad name"),
-    });
-    const result = validateSchema({ post, tag });
-    expect(codes(result)).toContain("JT002");
-  });
-
   it("errors JT003 when A and B are the same column", () => {
     const post = s.model({
       id: s.string().id(),
       tags: s
-        .manyToMany(() => tag)
-        .A("same")
-        .B("same"),
+        .toMany(() => tag)
+        .source("same")
+        .target("same"),
     });
     const tag = s.model({
       id: s.string().id(),
-      posts: s.manyToMany(() => post),
+      posts: s.toMany(() => post),
     });
     const result = validateSchema({ post, tag });
     expect(codes(result)).toContain("JT003");
   });
-
-  it("errors JT004 when the two sides of a junction disagree on columns", () => {
-    const post = s.model({
-      id: s.string().id(),
-      tags: s
-        .manyToMany(() => tag)
-        .A("post_id")
-        .B("tag_id"),
-    });
-    const tag = s.model({
-      id: s.string().id(),
-      posts: s
-        .manyToMany(() => post)
-        .A("tagId")
-        .B("postId"),
-    });
-    const result = validateSchema({ post, tag });
-    expect(codes(result)).toContain("JT004");
-  });
-
-  it("accepts mirrored A/B on a normal M2M pair", () => {
-    const post = s.model({
-      id: s.string().id(),
-      tags: s
-        .manyToMany(() => tag)
-        .A("post_fk")
-        .B("tag_fk"),
-    });
-    const tag = s.model({
-      id: s.string().id(),
-      posts: s
-        .manyToMany(() => post)
-        .A("tag_fk")
-        .B("post_fk"),
-    });
-    const result = validateSchema({ post, tag });
-    expect(result.errors).toEqual([]);
-  });
 });
 
 // =============================================================================
-// FOREIGN KEY RULES (FK001-FK008)
+// FOREIGN KEY RULES
 // =============================================================================
 
 describe("foreign key rules", () => {
   it("errors FK003 on FK/reference type mismatch", () => {
     const user = s.model({
       id: s.string().id(),
-      posts: s.oneToMany(() => post),
+      posts: s.toMany(() => post),
     });
     const post = s.model({
       id: s.string().id(),
       authorId: s.int(), // user.id is string
       author: s
-        .manyToOne(() => user)
+        .toOne(() => user)
         .fields("authorId")
         .references("id"),
     });
@@ -400,64 +253,35 @@ describe("foreign key rules", () => {
     expect(codes(result)).toContain("FK003");
   });
 
-  it("warns FK004 when manyToOne has no .fields()", () => {
-    const user = s.model({
-      id: s.string().id(),
-      posts: s.oneToMany(() => post),
-    });
-    const post = s.model({
-      id: s.string().id(),
-      author: s.manyToOne(() => user),
-    });
-    const result = validateSchema({ user, post });
-    expect(warningCodes(result)).toContain("FK004");
-  });
-
-  it("warns FK005 when the referenced field is not unique", () => {
+  it("errors FK005 when the referenced field is not unique", () => {
     const user = s.model({
       id: s.string().id(),
       email: s.string(), // not unique
-      posts: s.oneToMany(() => post),
+      posts: s.toMany(() => post),
     });
     const post = s.model({
       id: s.string().id(),
       authorEmail: s.string(),
       author: s
-        .manyToOne(() => user)
+        .toOne(() => user)
         .fields("authorEmail")
         .references("email"),
     });
     const result = validateSchema({ user, post });
-    expect(warningCodes(result)).toContain("FK005");
-  });
-
-  it("errors FK008 when an owning 1:1 FK is not unique", () => {
-    const user = s.model({
-      id: s.string().id(),
-      profile: s.oneToOne(() => profile).optional(),
-    });
-    const profile = s.model({
-      id: s.string().id(),
-      userId: s.string(), // not unique -> two profiles can share a user
-      user: s
-        .oneToOne(() => user)
-        .fields("userId")
-        .references("id"),
-    });
-    const result = validateSchema({ user, profile });
-    expect(codes(result)).toContain("FK008");
+    expect(codes(result)).toContain("FK005");
+    expect(warningCodes(result)).not.toContain("FK005");
   });
 
   it("accepts an owning 1:1 FK marked .unique()", () => {
     const user = s.model({
       id: s.string().id(),
-      profile: s.oneToOne(() => profile).optional(),
+      profile: s.toOne(() => profile),
     });
     const profile = s.model({
       id: s.string().id(),
       userId: s.string().unique(),
       user: s
-        .oneToOne(() => user)
+        .toOne(() => user)
         .fields("userId")
         .references("id"),
     });
@@ -470,7 +294,7 @@ describe("foreign key rules", () => {
     const user = s.model({
       id: s.string().id(),
       orgId: s.string(),
-      profile: s.oneToOne(() => profile).optional(),
+      profile: s.toOne(() => profile),
     });
     const profile = s
       .model({
@@ -478,7 +302,7 @@ describe("foreign key rules", () => {
         userId: s.string(),
         userOrgId: s.string(),
         user: s
-          .oneToOne(() => user)
+          .toOne(() => user)
           .fields("userId", "userOrgId")
           .references("id", "orgId"),
       })
@@ -490,14 +314,14 @@ describe("foreign key rules", () => {
   it("accepts an owning 1:1 FK covered by a unique index", () => {
     const user = s.model({
       id: s.string().id(),
-      profile: s.oneToOne(() => profile).optional(),
+      profile: s.toOne(() => profile),
     });
     const profile = s
       .model({
         id: s.string().id(),
         userId: s.string(),
         user: s
-          .oneToOne(() => user)
+          .toOne(() => user)
           .fields("userId")
           .references("id"),
       })
@@ -515,13 +339,13 @@ describe("referential action rules", () => {
   it("warns RA003 on cascade delete for a required relation", () => {
     const user = s.model({
       id: s.string().id(),
-      posts: s.oneToMany(() => post),
+      posts: s.toMany(() => post),
     });
     const post = s.model({
       id: s.string().id(),
       authorId: s.string(),
       author: s
-        .manyToOne(() => user)
+        .toOne(() => user)
         .fields("authorId")
         .references("id")
         .onDelete("cascade"),
@@ -533,13 +357,13 @@ describe("referential action rules", () => {
   it("errors RA004 when SET NULL targets a non-nullable FK", () => {
     const user = s.model({
       id: s.string().id(),
-      posts: s.oneToMany(() => post),
+      posts: s.toMany(() => post),
     });
     const post = s.model({
       id: s.string().id(),
       authorId: s.string(), // not nullable
       author: s
-        .manyToOne(() => user)
+        .toOne(() => user)
         .fields("authorId")
         .references("id")
         .onDelete("setNull"),
@@ -649,13 +473,13 @@ describe("model and field rules", () => {
   ])("errors F001 when a relation uses private carrier name %j", (name) => {
     const parent = s.model({
       id: s.string().id(),
-      [name]: s.oneToMany(() => child),
+      [name]: s.toMany(() => child),
     });
     const child = s.model({
       id: s.string().id(),
       parentId: s.string(),
       parent: s
-        .manyToOne(() => parent)
+        .toOne(() => parent)
         .fields("parentId")
         .references("id"),
     });
@@ -703,50 +527,31 @@ describe("model and field rules", () => {
       id: s.string().id(),
       bId: s.string(),
       b: s
-        .manyToOne(() => b)
+        .toOne(() => b)
+        .name("AtoB")
         .fields("bId")
         .references("id"),
-      // inverse for R004
-      backrefs: s.oneToMany(() => b),
+      backrefs: s.toMany(() => b).name("BtoA"),
     });
     const b = s.model({
       id: s.string().id(),
       aId: s.string(),
       a: s
-        .manyToOne(() => a)
+        .toOne(() => a)
+        .name("BtoA")
         .fields("aId")
         .references("id"),
-      backrefs: s.oneToMany(() => a),
+      backrefs: s.toMany(() => a).name("AtoB"),
     });
     const result = validateSchema({ a, b });
     expect(codes(result)).toContain("CM002");
     // Schema-level rule must report the cycle once
     expect(codes(result).filter((c) => c === "CM002")).toHaveLength(1);
   });
-
-  it("warns CM003 when a 1:1 has FKs on both sides", () => {
-    const user = s.model({
-      id: s.string().id(),
-      profileId: s.string().unique(),
-      profile: s
-        .oneToOne(() => profile)
-        .fields("profileId")
-        .references("id"),
-    });
-    const profile = s.model({
-      id: s.string().id(),
-      userId: s.string().unique(),
-      user: s
-        .oneToOne(() => user)
-        .fields("userId")
-        .references("id"),
-    });
-    expect(warningCodes(validateSchema({ user, profile }))).toContain("CM003");
-  });
 });
 
 // =============================================================================
-// COMPOUND CONSTRAINT ACCUMULATION (Model.unique()/.id())
+// COMPOUND CONSTRAINT ACCUMULATION
 // =============================================================================
 
 describe("compound constraint accumulation", () => {

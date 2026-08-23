@@ -1,4 +1,5 @@
 import type { AnyModel } from "@schema/model";
+import type { ResolvedSlot } from "@schema/validation/relation-resolution";
 import type { GetRelationsSchemas } from "@validation/relations";
 import type { GetPolymorphicRelationsSchemas } from "@validation/relations/polymorphic";
 import type { GetScalarsSchemas } from "@validation/scalars";
@@ -60,9 +61,10 @@ export const getModelSchemas = <
   F extends ScalarSchemas<M> = ScalarSchemas<M>,
 >(
   model: M,
-  schemas: F
+  schemas: F,
+  slots: ReadonlyMap<string, ResolvedSlot>
 ): ModelSchemas<M, F> => {
-  const core = getCoreSchemas(model, schemas);
+  const core = getCoreSchemas(model, schemas, slots);
   const args = getArgsSchemas(model, schemas, core);
   return {
     core,

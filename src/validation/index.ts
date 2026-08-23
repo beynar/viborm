@@ -10,7 +10,7 @@
 //
 // =============================================================================
 
-export { createSchemaRegistry, SchemaRegistry } from "./builder";
+export { createSchemaRegistry } from "./builder";
 export type { inferred as inferredType } from "./inferred";
 // Branded type symbol
 export { inferred } from "./inferred";

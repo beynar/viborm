@@ -64,7 +64,7 @@ const pinSchema = (() => {
   const parent = s
     .model({
       id: s.string().id(),
-      children: s.oneToMany(() => child),
+      children: s.toMany(() => child),
     })
     .map("e62_pin_parents");
   const child = s
@@ -74,7 +74,7 @@ const pinSchema = (() => {
       label: s.string(),
       parentId: s.string(),
       parent: s
-        .manyToOne(() => parent)
+        .toOne(() => parent)
         .fields("parentId")
         .references("id"),
     })
@@ -90,7 +90,7 @@ const transformedSchema = (() => {
     .model({
       id: s.string().id(),
       code: s.string().schema(transformed).unique(),
-      notes: s.oneToMany(() => note),
+      notes: s.toMany(() => note),
     })
     .map("e62_transformed_owners");
   const note = s
@@ -98,7 +98,7 @@ const transformedSchema = (() => {
       id: s.string().id(),
       ownerId: s.string(),
       owner: s
-        .manyToOne(() => owner)
+        .toOne(() => owner)
         .fields("ownerId")
         .references("id"),
     })

@@ -13,7 +13,7 @@ import {
 const user = s.model({
   id: s.string().id(),
   name: s.string(),
-  posts: s.oneToMany(() => post),
+  posts: s.toMany(() => post),
 });
 
 const post = s
@@ -23,7 +23,7 @@ const post = s
     published: s.boolean().default(false),
     authorId: s.string(),
     author: s
-      .manyToOne(() => user)
+      .toOne(() => user)
       .fields("authorId")
       .references("id"),
   })

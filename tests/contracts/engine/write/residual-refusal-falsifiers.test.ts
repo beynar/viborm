@@ -41,8 +41,8 @@ const pluralPublicationSchema = (() => {
       b: s.int().increment(),
       serial: s.int().unique().increment(),
       label: s.string().unique(),
-      children: s.oneToMany(() => child),
-      serialChildren: s.oneToMany(() => serialChild),
+      children: s.toMany(() => child),
+      serialChildren: s.toMany(() => serialChild),
     })
     .id(["a", "b"])
     .map("residual_plural_twins");
@@ -52,7 +52,7 @@ const pluralPublicationSchema = (() => {
       twinA: s.int(),
       twinB: s.int(),
       twin: s
-        .manyToOne(() => twin)
+        .toOne(() => twin)
         .fields("twinA", "twinB")
         .references("a", "b"),
     })
@@ -62,7 +62,7 @@ const pluralPublicationSchema = (() => {
       id: s.string().id(),
       twinSerial: s.int(),
       twin: s
-        .manyToOne(() => twin)
+        .toOne(() => twin)
         .fields("twinSerial")
         .references("serial"),
     })
@@ -74,7 +74,7 @@ const pluralPublicationSchema = (() => {
       tenant: s.string().map("tenant_key"),
       slug: s.string().map("slug_key"),
       label: s.string(),
-      children: s.oneToMany(() => compoundChild),
+      children: s.toMany(() => compoundChild),
     })
     .id(["a", "b"])
     .unique(["tenant", "slug"], { name: "tenantSlug" })
@@ -85,7 +85,7 @@ const pluralPublicationSchema = (() => {
       twinA: s.int(),
       twinB: s.int(),
       twin: s
-        .manyToOne(() => compoundTwin)
+        .toOne(() => compoundTwin)
         .fields("twinA", "twinB")
         .references("a", "b"),
     })
@@ -126,7 +126,9 @@ const selectedNullSchema = (() => {
       id: s.string().id(),
       email: s.string().unique(),
       code: s.string().nullable().unique(),
-      profiles: s.oneToMany(() => profile),
+      // A to-ONE: `profile.accountCode` is that row's primary key, so the stored
+      // reference is unique and a remote collection would contradict it (FK009).
+      profile: s.toOne(() => profile),
     })
     .map("residual_null_accounts");
   const profile = s
@@ -134,7 +136,7 @@ const selectedNullSchema = (() => {
       accountCode: s.string().id(),
       label: s.string(),
       account: s
-        .manyToOne(() => account)
+        .toOne(() => account)
         .fields("accountCode")
         .references("code"),
     })

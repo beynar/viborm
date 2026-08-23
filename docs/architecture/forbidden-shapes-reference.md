@@ -1,5 +1,15 @@
 # The Forbidden Shapes — a reference with examples
 
+> **Superseded relation spellings.** This document is a historical record. Its
+> relation declarations use the retired six-factory API, and its diagnostics and
+> internal type names may name owners that no longer exist. The shipped language
+> is two factories, `s.toOne` and `s.toMany`, whose argument states the target
+> domain; pairing, foreign-key ownership, uniqueness, junction topology and slot
+> emptiness are all derived by one schema-wide resolver. See
+> [`./global-relation-cardinality-plan.md`](./global-relation-cardinality-plan.md) for the unified language and
+> the deliberate verdict changes it made. The measured history below is
+> deliberately not rewritten into a new-API history.
+
 **Date:** 2026-08-05
 **Re-anchored:** 2026-08-11 (Package N3) — COMPLETE, every section, against the tree at the Package N commit. The three partial re-anchors this file used to record (Packages F, E, and K's one-line fix) are folded in and their deferral notes deleted, because there is nothing left for them to defer.
 **Re-anchored again:** 2026-08-11 (the **Package O gate**), against the tree after "refactor: give query engine guards one owner". Package O compressed the census from 21 write-engine sites to 15 and this file went on stating 21/24/26 and "12 distinct invariants" in the present tense — the exact failure its own anchoring convention exists to prevent, one package later. What changed here: §12's site tables gained a HEAD column and RETIRED markers, the distinct-invariant section was corrected (row 4 is two invariants, so the base was 13 and not 12), the §O4 verdict paragraph now records that the architecture review WAS conducted and approved all 19 survivors, and every coordinate pointing into a file Package O touched was re-resolved. **The shapes themselves did not change: not one refusal was lifted, added or narrowed by Package O.** Its subject was ownership, not capability.

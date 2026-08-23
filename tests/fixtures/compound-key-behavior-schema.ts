@@ -6,7 +6,7 @@ export const compoundKeyBehaviorSchema = (() => {
       tenantId: s.string(),
       id: s.string(),
       name: s.string(),
-      posts: s.oneToMany(() => post),
+      posts: s.toMany(() => post),
     })
     .id(["tenantId", "id"])
     .map("compound_authors");
@@ -18,10 +18,9 @@ export const compoundKeyBehaviorSchema = (() => {
       tenantId: s.string().nullable(),
       authorId: s.string().nullable(),
       author: s
-        .manyToOne(() => author)
+        .toOne(() => author)
         .fields("tenantId", "authorId")
-        .references("tenantId", "id")
-        .optional(),
+        .references("tenantId", "id"),
     })
     .map("compound_posts");
 
@@ -30,7 +29,7 @@ export const compoundKeyBehaviorSchema = (() => {
       id: s.string().id(),
       provider: s.string(),
       providerId: s.string(),
-      memberships: s.oneToMany(() => membership),
+      memberships: s.toMany(() => membership),
     })
     .unique(["provider", "providerId"])
     .map("compound_accounts");
@@ -46,10 +45,9 @@ export const compoundKeyBehaviorSchema = (() => {
       accProvider: s.string().nullable(),
       accProviderId: s.string().nullable(),
       account: s
-        .manyToOne(() => account)
+        .toOne(() => account)
         .fields("accProvider", "accProviderId")
-        .references("provider", "providerId")
-        .optional(),
+        .references("provider", "providerId"),
     })
     .map("compound_memberships");
 

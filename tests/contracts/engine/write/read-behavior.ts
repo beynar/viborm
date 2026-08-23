@@ -22,7 +22,7 @@ export const readSchema = (() => {
       name: s.string().nullable(),
       email: s.string(),
       age: s.int().nullable(),
-      posts: s.oneToMany(() => post),
+      posts: s.toMany(() => post),
     })
     .map("read_v2_users");
 
@@ -35,7 +35,7 @@ export const readSchema = (() => {
       views: s.int().default(0),
       authorId: s.string(),
       author: s
-        .manyToOne(() => user)
+        .toOne(() => user)
         .fields("authorId")
         .references("id"),
     })

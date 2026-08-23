@@ -1,12 +1,5 @@
 import type { AnyModel } from "@schema/model";
-import type {
-  AnyPolymorphicRelation,
-  PolymorphicRelationState,
-  PolymorphicToManyRelation,
-  PolymorphicToManyState,
-  PolymorphicToOneRelation,
-  PolymorphicToOneState,
-} from "@schema/relation";
+import type { AnyRelation, VariantRelationState } from "@schema/relation";
 import { withOmitProjection } from "@validation/model/args/omit";
 import { rejectSelectInclude } from "@validation/model/args/select-include-exclusivity";
 import { projectableScalarNames } from "@validation/model/core/projection";
@@ -91,42 +84,32 @@ export type PolymorphicIncludeSchema<Getters> =
   PolymorphicSelectSchema<Getters>;
 
 export function polymorphicSelectFactory<
-  State extends PolymorphicRelationState,
+  State extends VariantRelationState,
   Getters extends PolymorphicTargetSchemaGetters<State>,
 >(
-  relation:
-    | PolymorphicToOneRelation<State & PolymorphicToOneState>
-    | PolymorphicToManyRelation<State & PolymorphicToManyState>,
+  relation: { readonly "~": { readonly state: State } } & AnyRelation,
   targetSchemas: ExactPolymorphicTargetSchemaGetters<State, Getters>
 ): PolymorphicSelectSchema<Getters>;
 export function polymorphicSelectFactory(
-  relation: AnyPolymorphicRelation,
-  targetSchemas: PolymorphicTargetSchemaGetters<PolymorphicRelationState>
+  relation: AnyRelation,
+  targetSchemas: PolymorphicTargetSchemaGetters<VariantRelationState>
 ): PolymorphicSelectSchema<
-  PolymorphicTargetSchemaGetters<PolymorphicRelationState>
+  PolymorphicTargetSchemaGetters<VariantRelationState>
 >;
 export function polymorphicSelectFactory(
-  relation: AnyPolymorphicRelation,
-  targetSchemas: PolymorphicTargetSchemaGetters<PolymorphicRelationState>
+  relation: AnyRelation,
+  targetSchemas: PolymorphicTargetSchemaGetters<VariantRelationState>
 ): PolymorphicSelectSchema<
-  PolymorphicTargetSchemaGetters<PolymorphicRelationState>
+  PolymorphicTargetSchemaGetters<VariantRelationState>
 > {
-  const state = relation["~"].state;
+  const state = relation["~"].state as VariantRelationState;
   const schemaGetters = targetSchemas;
-  const targetModels = new Map<
-    string,
-    Parameters<typeof withOmitProjection>[1]
-  >();
-  for (const { publicType, targetModel } of relation["~"].targetEntries()) {
-    targetModels.set(
-      publicType,
-      targetModel as Parameters<typeof withOmitProjection>[1]
-    );
-  }
   const entries: Record<string, () => ReturnType<typeof v.union>> = {};
   for (const publicType of polymorphicPublicTypes(state)) {
     const schemas = schemaGetters[publicType]!;
-    const target = targetModels.get(publicType)!;
+    // `settleTarget` is the one sanctioned getter invocation, settled once per
+    // declaration and shared by every schema graph that reuses this terminal.
+    const target = relation["~"].settleTarget(publicType) as AnyModel;
     entries[publicType] = () =>
       v.union([
         v.literal(true),
@@ -158,7 +141,7 @@ export function polymorphicSelectFactory(
       ]);
   }
   return v.union([v.boolean(), v.object(entries)]) as PolymorphicSelectSchema<
-    PolymorphicTargetSchemaGetters<PolymorphicRelationState>
+    PolymorphicTargetSchemaGetters<VariantRelationState>
   >;
 }
 
@@ -368,40 +351,31 @@ export const rejectVariantsOutsideOnly = <
 };
 
 export function polymorphicCollectionSelectFactory<
-  State extends PolymorphicRelationState,
+  State extends VariantRelationState,
   Getters extends PolymorphicTargetSchemaGetters<State>,
 >(
-  relation: PolymorphicToManyRelation<State & PolymorphicToManyState>,
+  relation: { readonly "~": { readonly state: State } } & AnyRelation,
   targetSchemas: ExactPolymorphicTargetSchemaGetters<State, Getters>
 ): PolymorphicCollectionSelectSchema<Getters>;
 export function polymorphicCollectionSelectFactory(
-  relation: AnyPolymorphicRelation,
-  targetSchemas: PolymorphicTargetSchemaGetters<PolymorphicRelationState>
+  relation: AnyRelation,
+  targetSchemas: PolymorphicTargetSchemaGetters<VariantRelationState>
 ): PolymorphicCollectionSelectSchema<
-  PolymorphicTargetSchemaGetters<PolymorphicRelationState>
+  PolymorphicTargetSchemaGetters<VariantRelationState>
 >;
 export function polymorphicCollectionSelectFactory(
-  relation: AnyPolymorphicRelation,
-  targetSchemas: PolymorphicTargetSchemaGetters<PolymorphicRelationState>
+  relation: AnyRelation,
+  targetSchemas: PolymorphicTargetSchemaGetters<VariantRelationState>
 ): PolymorphicCollectionSelectSchema<
-  PolymorphicTargetSchemaGetters<PolymorphicRelationState>
+  PolymorphicTargetSchemaGetters<VariantRelationState>
 > {
-  const state = relation["~"].state;
+  const state = relation["~"].state as VariantRelationState;
   const publicTypes = polymorphicPublicTypes(state);
-  const targetModels = new Map<string, AnyModel>();
-  for (const { publicType, targetModel } of relation["~"].targetEntries()) {
-    // `targetModel` is declared `unknown` on purpose — the entry is a HOSTILE
-    // boundary until the polymorphic definition gate has run. Schema
-    // construction happens after that gate (it is what materializes the member
-    // topology this factory's arms read), so re-checking here would be a second
-    // guard over an invariant that already has an owner.
-    targetModels.set(publicType, targetModel as AnyModel);
-  }
 
   const armEntries: Record<string, () => VibSchema<unknown, unknown>> = {};
   for (const publicType of publicTypes) {
     const schemas = targetSchemas[publicType]!;
-    const target = targetModels.get(publicType)!;
+    const target = relation["~"].settleTarget(publicType) as AnyModel;
     armEntries[publicType] = () =>
       v.union([
         // A bare `true` desugars to the SAME shape a spelled-out arm parses to,
@@ -426,7 +400,7 @@ export function polymorphicCollectionSelectFactory(
   );
 
   return v.union([v.boolean(), envelope]) as PolymorphicCollectionSelectSchema<
-    PolymorphicTargetSchemaGetters<PolymorphicRelationState>
+    PolymorphicTargetSchemaGetters<VariantRelationState>
   >;
 }
 

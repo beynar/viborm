@@ -17,7 +17,13 @@ type ManyToManyClientConfig = VibORMConfig & {
 
 type ManyToManyClient = VibORMClient<ManyToManyClientConfig>;
 
-const NAME_DISAMBIGUATION = /\.name\(\)/;
+/**
+ * §9.4: two unnamed pairs between one pair of models are refused by the
+ * relation gate (R009) before any DDL, not by a junction-name collision during
+ * push. The repair it prescribes is unchanged — one distinct `.name(...)` on
+ * both endpoints of each intended pair.
+ */
+const NAME_DISAMBIGUATION = /competing inverse candidates/;
 
 export interface ManyToManyBehaviorOptions {
   driverName: string;
@@ -546,36 +552,31 @@ export function runManyToManyBehavior({
       expect(b1?.starredBy ?? []).toEqual([]);
     });
 
-    test("unnamed duplicate pairs are rejected at push", async () => {
+    test("unnamed duplicate pairs are rejected before any DDL", () => {
       const dupSchema = (() => {
         const gamma = s
           .model({
             id: s.string().id(),
-            x: s.manyToMany(() => delta),
-            y: s.manyToMany(() => delta),
+            x: s.toMany(() => delta),
+            y: s.toMany(() => delta),
           })
           .map("m2m_gammas");
         const delta = s
           .model({
             id: s.string().id(),
-            xBy: s.manyToMany(() => gamma),
-            yBy: s.manyToMany(() => gamma),
+            xBy: s.toMany(() => gamma),
+            yBy: s.toMany(() => gamma),
           })
           .map("m2m_deltas");
         return { gamma, delta };
       })();
 
-      const dupClient = createClient({
-        schema: dupSchema,
-        driver: createDriver(),
-      });
-      try {
-        await expect(push(dupClient, { force: true })).rejects.toThrow(
-          NAME_DISAMBIGUATION
-        );
-      } finally {
-        await dupClient.$disconnect();
-      }
+      // The refusal lands at construction, so there is no client to disconnect
+      // and nothing that could reach the database with two junctions competing
+      // for one derived table name.
+      expect(() =>
+        createClient({ schema: dupSchema, driver: createDriver() })
+      ).toThrow(NAME_DISAMBIGUATION);
     });
 
     test("self-referential many-to-many round trip", async () => {

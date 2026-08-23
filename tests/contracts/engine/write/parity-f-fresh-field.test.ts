@@ -118,21 +118,21 @@ const freshFieldSchema = (() => {
       name: s.string(),
       /** A NON-primary-key unique a child edge can reference — the D4 shape. */
       tag: s.string().unique().nullable(),
-      spans: s.oneToMany(() => span),
+      spans: s.toMany(() => span),
       /** A SECOND consumer of the same produced identity — the double-registration probe. */
-      clips: s.oneToMany(() => clip),
-      marks: s.oneToMany(() => mark),
-      badge: s.oneToOne(() => badge).optional(),
+      clips: s.toMany(() => clip),
+      marks: s.toMany(() => mark).name("marks"),
+      badge: s.toOne(() => badge),
       /** The junction consumer of a produced identity (Package A's unpinned hole). */
-      wires: s.manyToMany(() => wire),
+      wires: s.toMany(() => wire),
     })
     .map("parity_f_hubs");
   const wire = s
     .model({
       id: s.int().id().increment(),
       label: s.string().unique(),
-      hubs: s.manyToMany(() => hub),
-      pins: s.oneToMany(() => pin),
+      hubs: s.toMany(() => hub),
+      pins: s.toMany(() => pin),
     })
     .map("parity_f_wires");
   /** A grandchild, so the junction arm is a delegated SUBTREE and not a folded leaf. */
@@ -141,7 +141,7 @@ const freshFieldSchema = (() => {
       id: s.string().id(),
       wireId: s.int(),
       wire: s
-        .manyToOne(() => wire)
+        .toOne(() => wire)
         .fields("wireId")
         .references("id"),
     })
@@ -151,10 +151,9 @@ const freshFieldSchema = (() => {
       id: s.string().id(),
       hubId: s.int().nullable(),
       hub: s
-        .manyToOne(() => hub)
+        .toOne(() => hub)
         .fields("hubId")
-        .references("id")
-        .optional(),
+        .references("id"),
     })
     .map("parity_f_spans");
   const clip = s
@@ -162,10 +161,9 @@ const freshFieldSchema = (() => {
       id: s.string().id(),
       hubId: s.int().nullable(),
       hub: s
-        .manyToOne(() => hub)
+        .toOne(() => hub)
         .fields("hubId")
-        .references("id")
-        .optional(),
+        .references("id"),
     })
     .map("parity_f_clips");
   const mark = s
@@ -173,10 +171,9 @@ const freshFieldSchema = (() => {
       id: s.string().id(),
       hubTag: s.string().nullable(),
       hub: s
-        .manyToOne(() => hub)
+        .toOne(() => hub)
         .fields("hubTag")
         .references("tag")
-        .optional()
         .name("marks"),
     })
     .map("parity_f_marks");
@@ -186,7 +183,7 @@ const freshFieldSchema = (() => {
       hubId: s.int().id(),
       note: s.string(),
       hub: s
-        .oneToOne(() => hub)
+        .toOne(() => hub)
         .fields("hubId")
         .references("id"),
     })
@@ -195,7 +192,7 @@ const freshFieldSchema = (() => {
     .model({
       id: s.string().id(),
       slotKey: s.string().unique().nullable(),
-      boxes: s.oneToMany(() => box),
+      boxes: s.toMany(() => box),
     })
     .map("parity_f_crates");
   const box = s
@@ -203,10 +200,9 @@ const freshFieldSchema = (() => {
       id: s.string().id(),
       crateKey: s.string().nullable(),
       crate: s
-        .manyToOne(() => crate)
+        .toOne(() => crate)
         .fields("crateKey")
-        .references("slotKey")
-        .optional(),
+        .references("slotKey"),
     })
     .map("parity_f_boxes");
   return { hub, span, clip, mark, badge, crate, box, wire, pin };

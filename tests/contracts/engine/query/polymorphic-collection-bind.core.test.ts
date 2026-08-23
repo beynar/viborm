@@ -3,61 +3,23 @@ import {
   bindRelation,
   classifyRelation,
 } from "@query-engine/builders/relation-data-builder";
-import { createQueryScope, getRelationInfo } from "@query-engine/context";
+import { lookupRelation } from "@query-engine/context";
 import { s } from "@schema";
-import { hydrateSchemaNames } from "@schema/hydration";
 import { validateSchema } from "@schema/validation";
+import { prepareSchema, scopeFor } from "@tests/fixtures/query-scope";
 import { describe, expect, test } from "vitest";
 
-/**
- * B2's engine containment narrow (`relation-data-builder.ts`,
- * `bindResolvedPolymorphicInverse`): a resolved polymorphic binding whose
- * stored descriptor is the `kind: "toMany"` arm is refused exactly like
- * missing storage — the member-table view binds only in Package C.
- *
- * Reached WITHOUT a client, because the schema below is R003-invalid by design:
- * its `oneToMany` back-reference is a row-held shape, which no longer binds a
- * collection group, and no ordinary inverse carries the edge. So this drives a
- * directly-built scope over a `validateSchema`'d schema — validation is still
- * what MATERIALIZES the stored collection descriptor the narrow must refuse.
+/*
+ * DELETED with its subject (Package E, §8.3). This file opened with a pin on
+ * the engine's own containment narrow — "a resolved inverse binding whose
+ * stored descriptor is the collection arm is refused like missing storage" —
+ * which existed only while the binder discovered inverses for itself and could
+ * land on a descriptor it had no view for. The gate now decides the shape: a
+ * bound inverse of a collection carrier IS a member-junction slot, and
+ * `classifyRelation` binds the member-table view for it. The schema that pin
+ * used is the same two-C shape the block below binds both ways, so nothing is
+ * left uncovered.
  */
-describe("collection descriptor at the engine bind boundary", () => {
-  test("a resolved binding onto toMany storage is refused as unbound", () => {
-    const owner = s.model({
-      id: s.string().id(),
-      items: s.polymorphicToMany(
-        { catalog: () => catalog },
-        { values: { catalog: "bind.catalog.v1" } }
-      ),
-    });
-    const catalog = s.model({
-      id: s.string().id(),
-      owners: s.oneToMany(() => owner),
-    });
-    const schema = { owner, catalog };
-    hydrateSchemaNames(schema);
-    // R003 is the schema's own verdict since B3's retained-shape tightening:
-    // `owners` is a row-held `oneToMany`, which binds only toOne groups now, so
-    // it has no inverse of any kind. That is a fact about the SCHEMA, not about
-    // this narrow — the bind below still reaches the collection descriptor,
-    // because `bindRowHeldRelation` asks the RAW `resolveInverseRelation`
-    // (untightened by design) rather than the compatible-binding projection.
-    // The call is kept because it MATERIALIZES the descriptor the narrow refuses.
-    expect(validateSchema(schema).errors.map((entry) => entry.code)).toEqual([
-      "R003",
-    ]);
-    expect(owner["~"].getPolymorphicStorage("items")?.kind).toBe("toMany");
-
-    const scope = createQueryScope(new PostgresAdapter(), catalog);
-    const relationInfo = getRelationInfo(scope, "owners");
-    expect(relationInfo).toBeDefined();
-    if (!relationInfo) return;
-
-    expect(() => bindRelation(scope, relationInfo)).toThrowError(
-      "Polymorphic inverse 'owners' has no resolved storage binding."
-    );
-  });
-});
 
 /**
  * The two inverse shapes of a VALID collection schema — the §2.2 topology cells
@@ -79,21 +41,21 @@ describe("collection inverses at the engine bind boundary", () => {
   function buildCollectionSchema() {
     const article = s.model({
       id: s.string().id(),
-      gallery: s.manyToOne(() => owner).optional(),
+      gallery: s.toOne(() => owner),
     });
     const photo = s.model({
       id: s.string().id(),
-      galleries: s.manyToMany(() => owner),
+      galleries: s.toMany(() => owner),
     });
     const owner = s.model({
       id: s.string().id(),
-      items: s.polymorphicToMany(
+      items: s.toMany(
         { article: () => article, photo: () => photo },
         { values: { article: "cell.article.v1", photo: "cell.photo.v1" } }
       ),
     });
     const schema = { article, photo, owner };
-    hydrateSchemaNames(schema);
+    prepareSchema(schema);
     return { ...schema, errors: validateSchema(schema).errors };
   }
 
@@ -108,15 +70,15 @@ describe("collection inverses at the engine bind boundary", () => {
 
   test("a bound manyToMany binds the PLURAL member-table view", () => {
     const { photo, owner } = buildCollectionSchema();
-    const scope = createQueryScope(new PostgresAdapter(), photo);
-    const relationInfo = getRelationInfo(scope, "galleries");
-    expect(relationInfo).toBeDefined();
-    if (!relationInfo) return;
+    const scope = scopeFor(new PostgresAdapter(), photo);
+    const relationRef = lookupRelation(scope, "galleries");
+    expect(relationRef).toBeDefined();
+    if (!relationRef) return;
 
     // CLASSIFICATION itself stays refusal-free — that is the documented
     // contract of `ClassifiedRelation`, and callers classify before they know
     // whether they will bind.
-    const classified = classifyRelation(scope, relationInfo);
+    const classified = classifyRelation(scope, relationRef);
     expect(classified.kind).toBe("junction");
     if (classified.kind !== "junction") return;
 
@@ -142,19 +104,19 @@ describe("collection inverses at the engine bind boundary", () => {
 
   test("a bound fields-less manyToOne binds the SINGULAR member-table view", () => {
     const { article, owner } = buildCollectionSchema();
-    const scope = createQueryScope(new PostgresAdapter(), article);
-    const relationInfo = getRelationInfo(scope, "gallery");
-    expect(relationInfo).toBeDefined();
-    if (!relationInfo) return;
+    const scope = scopeFor(new PostgresAdapter(), article);
+    const relationRef = lookupRelation(scope, "gallery");
+    expect(relationRef).toBeDefined();
+    if (!relationRef) return;
 
     // B3 sent this shape through `bindRowHeldRelation`, where the ORDINARY-ONLY
     // resolution answered `missing` and produced the generic FK message. C
     // intercepts it at the classify seam instead: its membership lives in the
     // member junction, so it is a JUNCTION however its declared `type` reads.
-    const classified = classifyRelation(scope, relationInfo);
+    const classified = classifyRelation(scope, relationRef);
     expect(classified.kind).toBe("junction");
 
-    const bound = bindRelation(scope, relationInfo);
+    const bound = bindRelation(scope, relationRef);
     expect(bound.position).toBe("junction");
     if (bound.position !== "junction") return;
     expect(bound.membership.table).toBe("owner_items_article");

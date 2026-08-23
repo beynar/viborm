@@ -4,6 +4,10 @@ description: Define many-to-one relationships connecting multiple records to a s
 icon: arrow-left-to-line
 ---
 
+A many-to-one relationship is what an **`s.toOne` slot paired with an `s.toMany`
+slot** spells, read from the singular side. The same pair read from the
+collection side is [one-to-many](/docs/schema/relations/one-to-many).
+
 ## Basic Example
 
 ```ts
@@ -13,7 +17,7 @@ const post = s.model({
   id: s.string().id().ulid(),
   title: s.string(),
   authorId: s.string(),  // FK field
-  author: s.manyToOne(() => user)
+  author: s.toOne(() => user)
     .fields("authorId")
     .references("id"),
 });
@@ -21,7 +25,7 @@ const post = s.model({
 const user = s.model({
   id: s.string().id().ulid(),
   email: s.string().unique(),
-  posts: s.oneToMany(() => post),  // Inverse side
+  posts: s.toMany(() => post),  // Inverse side
 });
 ```
 
@@ -31,41 +35,36 @@ const user = s.model({
 |--------|-------|
 | Returns | Single object or null |
 | FK location | On this model |
-| Can be null | Yes, with `.optional()` |
+| Can be null | When a foreign-key field is `.nullable()` |
 | Required by default | Yes |
 
 ## Configuration
 
-The normal many-to-one form owns the FK, so `.fields()` and `.references()` are
-required. See the [relation method reference](/docs/schema/relations) and
-[referential actions](/docs/schema/relations#referential-actions):
+The singular side of this pair owns the foreign key, so `.fields()` and
+`.references()` are required here. See the [relation method
+reference](/docs/schema/relations) and [referential
+actions](/docs/schema/relations#referential-actions):
 
 ```ts
-s.manyToOne(() => user)
+s.toOne(() => user)
+  .name("writer")       // Pairing label, matched exactly on both endpoints
   .fields("authorId")   // FK field(s) on this model - required
   .references("id")     // Referenced field(s) on the target - required
-  .optional()           // Relation can be null
   .onDelete("cascade")  // Referential action on delete
   .onUpdate("cascade")  // Referential action on update
-  .name("writer")       // Custom relation name
 ```
 
 Composite foreign keys pass multiple fields:
 
 ```ts
-s.manyToOne(() => organization)
+s.toOne(() => organization)
   .fields("orgId", "teamId")
   .references("id", "teamId")
 ```
 
-:::warning
-VibORM currently retains a compatibility spelling in which `manyToOne` omits
-`.fields()` and resolves storage from an inverse edge. The query engine binds
-that shape as child-held singular, and schema validation reports `FK004` as a
-warning. It is not the normal many-to-one model and should not be used in new
-schemas. Use a fields-bearing `manyToOne` for this relation, or an optional
-fields-less `oneToOne` when the inverse slot is genuinely singular.
-:::
+The collection side needs no configuration — but it must exist. A `toOne` whose
+target model declares nothing back is refused with `R002`, and an edge whose
+endpoints both decline `.fields(...)` is refused with `FK004`.
 
 ## The foreign-key index
 
@@ -83,7 +82,7 @@ const post = s.model({
   title: s.string(),
   createdAt: s.dateTime().now(),
   authorId: s.string(),
-  author: s.manyToOne(() => user).fields("authorId").references("id"),
+  author: s.toOne(() => user).fields("authorId").references("id"),
 }).index(["authorId", "createdAt"]);
 ```
 
@@ -96,14 +95,17 @@ One index does not count: a **partial** index (`.index([...], { where })`) holds
 only the rows its predicate keeps, so it cannot serve the rows the predicate
 excludes. The automatic foreign-key index is still added alongside it.
 
-**When using `.optional()`, the FK field itself must also be `.nullable()`:**
+## Optionality
+
+There is no `.optional()`. **The foreign-key scalar is the optionality**: mark it
+`.nullable()` and the relation becomes empty-able, offers `disconnect`, and
+accepts `setNull` actions.
 
 ```ts
 authorId: s.string().nullable(),
-author: s.manyToOne(() => user)
+author: s.toOne(() => user)
   .fields("authorId")
   .references("id")
-  .optional()
 ```
 
 ## Complete Example
@@ -115,19 +117,18 @@ const post = s.model({
   content: s.string(),
   published: s.boolean().default(false),
 
-  // Required author
+  // Required author - the FK scalar is required
   authorId: s.string(),
-  author: s.manyToOne(() => user)
+  author: s.toOne(() => user)
     .fields("authorId")
     .references("id")
     .onDelete("cascade"),
 
-  // Optional category
+  // Optional category - the FK scalar is nullable
   categoryId: s.string().nullable(),
-  category: s.manyToOne(() => category)
+  category: s.toOne(() => category)
     .fields("categoryId")
     .references("id")
-    .optional()
     .onDelete("setNull"),
 });
 ```
@@ -157,7 +158,8 @@ See [To-One Relation Filters](/docs/client/filtering/relations-to-one) for filte
 
 ## Self-Referential
 
-The parent/child pattern — an entity pointing at another row of the same model — is a many-to-one relation with a one-to-many inverse:
+The parent/child pattern — an entity pointing at another row of the same model —
+is a singular slot paired with a collection slot on the same model:
 
 ```ts
 // Employees and their manager
@@ -165,11 +167,10 @@ const employee = s.model({
   id: s.string().id().ulid(),
   name: s.string(),
   managerId: s.string().nullable(),
-  manager: s.manyToOne(() => employee)
+  manager: s.toOne(() => employee)
     .fields("managerId")
-    .references("id")
-    .optional(),
-  reports: s.oneToMany(() => employee),
+    .references("id"),
+  reports: s.toMany(() => employee),
 });
 
 // Threaded comments
@@ -177,10 +178,13 @@ const comment = s.model({
   id: s.string().id().ulid(),
   content: s.string(),
   parentId: s.string().nullable(),
-  parent: s.manyToOne(() => comment)
+  parent: s.toOne(() => comment)
     .fields("parentId")
-    .references("id")
-    .optional(),
-  replies: s.oneToMany(() => comment),
+    .references("id"),
+  replies: s.toMany(() => comment),
 });
 ```
+
+Both halves must be declared: a self relation with no partner slot is refused.
+When a model carries **two** self relationships, give each pair a matching
+`.name()` so the endpoints know which one they belong to.

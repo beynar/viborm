@@ -30,18 +30,17 @@ const lattice = (() => {
       id: s.string().id(),
       name: s.string(),
       /** Child-held: the badge row carries the foreign key. */
-      badge: s.oneToOne(() => badge).optional(),
+      badge: s.toOne(() => badge),
       deskId: s.string().nullable(),
       /** Parent-held: this row carries the foreign key. */
       desk: s
-        .manyToOne(() => desk)
+        .toOne(() => desk)
         .fields("deskId")
-        .references("id")
-        .optional(),
+        .references("id"),
       /** Parent-held and REQUIRED: no vacate key exists on this surface at all. */
       zoneId: s.string(),
       zone: s
-        .manyToOne(() => zone)
+        .toOne(() => zone)
         .fields("zoneId")
         .references("id"),
     })
@@ -52,24 +51,23 @@ const lattice = (() => {
       tag: s.string(),
       ownerId: s.string().unique().nullable(),
       owner: s
-        .oneToOne(() => owner)
+        .toOne(() => owner)
         .fields("ownerId")
-        .references("id")
-        .optional(),
+        .references("id"),
     })
     .map("h_lattice_badges");
   const desk = s
     .model({
       id: s.string().id(),
       label: s.string(),
-      owners: s.oneToMany(() => owner),
+      owners: s.toMany(() => owner),
     })
     .map("h_lattice_desks");
   const zone = s
     .model({
       id: s.string().id(),
       code: s.string(),
-      owners: s.oneToMany(() => owner),
+      owners: s.toMany(() => owner),
     })
     .map("h_lattice_zones");
   return { badge, desk, owner, zone };

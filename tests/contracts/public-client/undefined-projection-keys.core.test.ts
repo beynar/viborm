@@ -34,7 +34,7 @@ const post = s
     id: s.string().id(),
     title: s.string(),
     views: s.int(),
-    tags: s.oneToMany(() => tag),
+    tags: s.toMany(() => tag),
   })
   .map("undefined_projection_posts");
 
@@ -44,7 +44,7 @@ const tag = s
     name: s.string(),
     postId: s.string(),
     post: s
-      .manyToOne(() => post)
+      .toOne(() => post)
       .fields("postId")
       .references("id"),
   })

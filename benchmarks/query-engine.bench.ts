@@ -18,7 +18,7 @@ const Author = s.model({
   id: s.string().id(),
   name: s.string(),
   email: s.string().unique(),
-  posts: s.oneToMany(() => Post),
+  posts: s.toMany(() => Post),
 });
 
 const Post = s
@@ -29,10 +29,10 @@ const Post = s
     published: s.boolean().default(false),
     authorId: s.string(),
     author: s
-      .manyToOne(() => Author)
+      .toOne(() => Author)
       .fields("authorId")
       .references("id"),
-    tags: s.manyToMany(() => Tag),
+    tags: s.toMany(() => Tag),
   })
   .map("posts");
 
@@ -40,7 +40,7 @@ const Tag = s
   .model({
     id: s.string().id(),
     name: s.string().unique(),
-    posts: s.manyToMany(() => Post),
+    posts: s.toMany(() => Post),
   })
   .map("tags");
 

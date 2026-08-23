@@ -6,14 +6,15 @@ import { createClient } from "@client/client";
 import { Driver } from "@drivers";
 import { QueryEngineError, ValidationError } from "@errors";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
-import { parseResult, ResultParser } from "@query-engine/result/ResultParser";
+import { parseResult } from "@query-engine/result/ResultParser";
 import {
   EMPTY_ROW_RESULT_KEY,
   getAggregateResultKey,
   RELATION_COUNTS_RESULT_KEY,
   VECTOR_DISTANCE_RESULT_KEY,
 } from "@query-engine/result-aliases";
-import { hydrateSchemaNames, type Model, s } from "@schema";
+import { type Model, s } from "@schema";
+import { parserFor, prepareSchema } from "@tests/fixtures/query-scope";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
 
@@ -69,8 +70,8 @@ const models = (() => {
     id: s.string().id(),
     secret: s.string(),
     _count_children: s.string(),
-    children: s.oneToMany(() => child),
-    [LONG_RELATION_NAME]: s.oneToMany(() => longChild),
+    children: s.toMany(() => child),
+    [LONG_RELATION_NAME]: s.toMany(() => longChild),
   });
 
   const child = s.model({
@@ -78,7 +79,7 @@ const models = (() => {
     parentId: s.string(),
     secret: s.string(),
     parent: s
-      .manyToOne(() => parent)
+      .toOne(() => parent)
       .fields("parentId")
       .references("id"),
   });
@@ -101,7 +102,7 @@ const models = (() => {
     id: s.string().id(),
     parentId: s.string(),
     parent: s
-      .manyToOne(() => parent)
+      .toOne(() => parent)
       .fields("parentId")
       .references("id"),
   });
@@ -109,7 +110,7 @@ const models = (() => {
   const emptyParent = s
     .model({
       id: s.string().id(),
-      children: s.oneToMany(() => emptyChild),
+      children: s.toMany(() => emptyChild),
     })
     .omit({ id: true });
 
@@ -118,7 +119,7 @@ const models = (() => {
       id: s.string().id(),
       parentId: s.string(),
       parent: s
-        .manyToOne(() => emptyParent)
+        .toOne(() => emptyParent)
         .fields("parentId")
         .references("id"),
     })
@@ -148,7 +149,7 @@ const models = (() => {
   };
 })();
 
-hydrateSchemaNames(models);
+prepareSchema(models);
 const schemaRegistry = createSchemaRegistry(models);
 const registry = createModelRegistry(models, schemaRegistry);
 
@@ -520,13 +521,13 @@ describe("request-aware result shapes", () => {
   test("rejects private carrier names during client hydration", () => {
     const invalidParent = s.model({
       id: s.string().id(),
-      [VECTOR_DISTANCE_RESULT_KEY]: s.oneToMany(() => invalidChild),
+      [VECTOR_DISTANCE_RESULT_KEY]: s.toMany(() => invalidChild),
     });
     const invalidChild = s.model({
       id: s.string().id(),
       parentId: s.string(),
       parent: s
-        .manyToOne(() => invalidParent)
+        .toOne(() => invalidParent)
         .fields("parentId")
         .references("id"),
     });
@@ -552,13 +553,13 @@ describe("request-aware result shapes", () => {
     const tooLongRelationName = `r${"x".repeat(63)}`;
     const longParent = s.model({
       id: s.string().id(),
-      [tooLongRelationName]: s.oneToMany(() => longChild),
+      [tooLongRelationName]: s.toMany(() => longChild),
     });
     const longChild = s.model({
       id: s.string().id(),
       parentId: s.string(),
       parent: s
-        .manyToOne(() => longParent)
+        .toOne(() => longParent)
         .fields("parentId")
         .references("id"),
     });
@@ -607,13 +608,13 @@ describe("request-aware result shapes", () => {
 
     const invalidParent = s.model({
       id: s.string().id(),
-      [identifier]: s.oneToMany(() => invalidChild),
+      [identifier]: s.toMany(() => invalidChild),
     });
     const invalidChild = s.model({
       id: s.string().id(),
       parentId: s.string(),
       parent: s
-        .manyToOne(() => invalidParent)
+        .toOne(() => invalidParent)
         .fields("parentId")
         .references("id"),
     });
@@ -693,7 +694,7 @@ describe("request-aware result shapes", () => {
   });
 
   test("carries and strips all-omitted held records", () => {
-    const context = new ResultParser(new PostgresAdapter(), models.emptyParent);
+    const context = parserFor(new PostgresAdapter(), models.emptyParent);
     const heldRecord = { [EMPTY_ROW_RESULT_KEY]: 1 };
 
     expect(heldRecord).toEqual({ [EMPTY_ROW_RESULT_KEY]: 1 });

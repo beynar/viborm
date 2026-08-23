@@ -21,7 +21,7 @@ type Expect<Value extends true> = Value;
 const post = s.model({ id: s.string().id(), title: s.string() });
 const video = s.model({ id: s.string().id(), duration: s.int() });
 const relation = s
-  .polymorphicToOne(
+  .toOne(
     { post: () => post, video: () => video },
     { values: { post: "post.v1", video: "video.v1" } }
   )
@@ -67,7 +67,7 @@ const createSchema = polymorphicCreateFactory(relation["~"].state, getters);
 const updateSchema = polymorphicUpdateFactory(relation["~"].state, getters);
 const filterSchema = polymorphicFilterFactory(relation["~"].state, getters);
 const requiredFilterSchema = polymorphicFilterFactory(
-  s.polymorphicToOne({ post: () => post, video: () => video })["~"].state,
+  s.toOne({ post: () => post, video: () => video })["~"].state,
   getters
 );
 
@@ -112,41 +112,41 @@ const _mixedPresenceFilter: FilterInput = mixedPresenceFilter;
 const auditLog = s.model({ id: s.string().id() });
 const folder = s.model({
   id: s.string().id(),
-  entries: s.oneToMany(() => folderEntry).name("folderEntry"),
+  entries: s.toMany(() => folderEntry).name("folderEntry"),
 });
 const folderEntry = s.model({
   id: s.string().id(),
   folder: s
-    .polymorphicToOne(
+    .toOne(
       { folder: () => folder },
       { values: { folder: "folder.entry.v1" } }
     )
     .name("folderEntry"),
-  audit: s.polymorphicToOne(
+  audit: s.toOne(
     { auditLog: () => auditLog },
     { values: { auditLog: "audit.log.v1" } }
   ),
 });
 const article = s.model({
   id: s.string().id(),
-  comments: s.oneToMany(() => remark).name("commentable"),
+  comments: s.toMany(() => remark).name("commentable"),
 });
 const remark = s.model({
   id: s.string().id(),
   body: s.string(),
   commentable: s
-    .polymorphicToOne({ article: () => article })
+    .toOne({ article: () => article })
     .name("commentable"),
 });
 const optionalArticle = s.model({
   id: s.string().id(),
-  comments: s.oneToMany(() => optionalRemark).name("optionalCommentable"),
+  comments: s.toMany(() => optionalRemark).name("optionalCommentable"),
 });
 const optionalRemark = s.model({
   id: s.string().id(),
   body: s.string(),
   commentable: s
-    .polymorphicToOne({ article: () => optionalArticle })
+    .toOne({ article: () => optionalArticle })
     .name("optionalCommentable")
     .optional(),
 });
@@ -559,28 +559,27 @@ const typoProbes = () => {
 
 const ordinaryRequiredParent = s.model({
   id: s.string().id(),
-  child: s.oneToOne(() => ordinaryRequiredChild).optional(),
+  child: s.toOne(() => ordinaryRequiredChild),
 });
 const ordinaryRequiredChild = s.model({
   id: s.string().id(),
   parentId: s.string().unique(),
   parent: s
-    .oneToOne(() => ordinaryRequiredParent)
+    .toOne(() => ordinaryRequiredParent)
     .fields("parentId")
     .references("id"),
 });
 const ordinaryOptionalParent = s.model({
   id: s.string().id(),
-  child: s.oneToOne(() => ordinaryOptionalChild).optional(),
+  child: s.toOne(() => ordinaryOptionalChild),
 });
 const ordinaryOptionalChild = s.model({
   id: s.string().id(),
   parentId: s.string().nullable().unique(),
   parent: s
-    .oneToOne(() => ordinaryOptionalParent)
+    .toOne(() => ordinaryOptionalParent)
     .fields("parentId")
-    .references("id")
-    .optional(),
+    .references("id"),
 });
 const ordinaryInverseClient = createClient({
   schema: {
@@ -594,30 +593,29 @@ const ordinaryInverseClient = createClient({
 
 const ordinaryRequiredManyParent = s.model({
   id: s.string().id(),
-  children: s.oneToMany(() => ordinaryRequiredManyChild),
+  children: s.toMany(() => ordinaryRequiredManyChild),
 });
 const ordinaryRequiredManyChild = s.model({
   id: s.string().id(),
   label: s.string(),
   parentId: s.string(),
   parent: s
-    .manyToOne(() => ordinaryRequiredManyParent)
+    .toOne(() => ordinaryRequiredManyParent)
     .fields("parentId")
     .references("id"),
 });
 const ordinaryOptionalManyParent = s.model({
   id: s.string().id(),
-  children: s.oneToMany(() => ordinaryOptionalManyChild),
+  children: s.toMany(() => ordinaryOptionalManyChild),
 });
 const ordinaryOptionalManyChild = s.model({
   id: s.string().id(),
   label: s.string(),
   parentId: s.string().nullable(),
   parent: s
-    .manyToOne(() => ordinaryOptionalManyParent)
+    .toOne(() => ordinaryOptionalManyParent)
     .fields("parentId")
-    .references("id")
-    .optional(),
+    .references("id"),
 });
 const ordinaryManyClient = createClient({
   schema: {
@@ -726,22 +724,20 @@ const ordinaryToManyCapabilitySurface = () => {
 const featuredPost = s.model({
   id: s.string().id(),
   featuredComment: s
-    .oneToOne(() => featuredComment)
-    .name("featuredCommentable")
-    .optional(),
+    .toOne(() => featuredComment)
+    .name("featuredCommentable"),
 });
 const featuredVideo = s.model({
   id: s.string().id(),
   featuredComment: s
-    .oneToOne(() => featuredComment)
-    .name("featuredCommentable")
-    .optional(),
+    .toOne(() => featuredComment)
+    .name("featuredCommentable"),
 });
 const featuredComment = s.model({
   id: s.string().id(),
   body: s.string(),
   commentable: s
-    .polymorphicToOne({ post: () => featuredPost, video: () => featuredVideo })
+    .toOne({ post: () => featuredPost, video: () => featuredVideo })
     .name("featuredCommentable")
     .optional(),
 });
@@ -823,22 +819,20 @@ const singularInverseSurface = () => {
 const requiredMembershipPost = s.model({
   id: s.string().id(),
   featuredComment: s
-    .oneToOne(() => requiredMembershipComment)
-    .name("requiredMembership")
-    .optional(),
+    .toOne(() => requiredMembershipComment)
+    .name("requiredMembership"),
 });
 const requiredMembershipVideo = s.model({
   id: s.string().id(),
   featuredComment: s
-    .oneToOne(() => requiredMembershipComment)
-    .name("requiredMembership")
-    .optional(),
+    .toOne(() => requiredMembershipComment)
+    .name("requiredMembership"),
 });
 const requiredMembershipComment = s.model({
   id: s.string().id(),
   body: s.string(),
   commentable: s
-    .polymorphicToOne({
+    .toOne({
       post: () => requiredMembershipPost,
       video: () => requiredMembershipVideo,
     })
@@ -1070,15 +1064,15 @@ const polymorphicInverseNonFreshRefusal = () =>
 // polymorphic one (the child holds a direct relation key) side by side.
 const dualParent = s.model({
   id: s.string().id(),
-  ordinaryChildren: s.oneToMany(() => dualOrdinaryChild),
-  taggedChildren: s.oneToMany(() => dualTaggedChild).name("dualTagged"),
+  ordinaryChildren: s.toMany(() => dualOrdinaryChild),
+  taggedChildren: s.toMany(() => dualTaggedChild).name("dualTagged"),
 });
 const dualOrdinaryChild = s.model({
   id: s.string().id(),
   label: s.string(),
   parentId: s.string(),
   parent: s
-    .manyToOne(() => dualParent)
+    .toOne(() => dualParent)
     .fields("parentId")
     .references("id"),
 });
@@ -1086,7 +1080,7 @@ const dualTaggedChild = s.model({
   id: s.string().id(),
   label: s.string(),
   owner: s
-    .polymorphicToOne(
+    .toOne(
       { parent: () => dualParent },
       { values: { parent: "dual.parent.v1" } }
     )
@@ -1162,7 +1156,7 @@ const collectionWriteSurface = () => {
   const clip = s.model({ id: s.string().id(), seconds: s.int() });
   const board = s.model({
     id: s.string().id(),
-    items: s.polymorphicToMany(
+    items: s.toMany(
       { post: () => post, clip: () => clip },
       { values: { post: "t.post.v1", clip: "t.clip.v1" } }
     ),
@@ -1204,7 +1198,7 @@ const collectionWriteRefusals = () => {
   const clip = s.model({ id: s.string().id(), seconds: s.int() });
   const board = s.model({
     id: s.string().id(),
-    items: s.polymorphicToMany(
+    items: s.toMany(
       { post: () => post, clip: () => clip },
       { values: { post: "r.post.v1", clip: "r.clip.v1" } }
     ),
@@ -1282,18 +1276,18 @@ const inverseCollectionWriteFamilies = () => {
   const shelf = s.model({
     id: s.string().id(),
     label: s.string(),
-    items: s.polymorphicToMany(
+    items: s.toMany(
       { book: () => book, clip: () => clip },
       { values: { book: "i.book.v1", clip: "i.clip.v1" } }
     ),
   });
   const book = s.model({
     id: s.string().id(),
-    shelf: s.manyToOne(() => shelf).optional(),
+    shelf: s.toOne(() => shelf),
   });
   const clip = s.model({
     id: s.string().id(),
-    shelves: s.manyToMany(() => shelf),
+    shelves: s.toMany(() => shelf),
   });
 
   const _singularInverseCreate = {

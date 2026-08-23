@@ -41,7 +41,7 @@ const collectionWriteSchema = (() => {
       isbn: s.string(),
       title: s.string(),
       // SINGULAR inverse — at most one shelf holds a given book.
-      shelf: s.manyToOne(() => shelf).optional(),
+      shelf: s.toOne(() => shelf),
     })
     .id(["region", "isbn"])
     .map("cwb_books");
@@ -51,7 +51,7 @@ const collectionWriteSchema = (() => {
       id: s.int().id().increment(),
       label: s.string(),
       // PLURAL inverse — an ordinary membership.
-      shelves: s.manyToMany(() => shelf),
+      shelves: s.toMany(() => shelf),
     })
     .map("cwb_clips");
 
@@ -65,7 +65,7 @@ const collectionWriteSchema = (() => {
       code: s.string(),
       label: s.string(),
       items: s
-        .polymorphicToMany(
+        .toMany(
           { book: () => book, clip: () => clip, note: () => note },
           {
             values: {

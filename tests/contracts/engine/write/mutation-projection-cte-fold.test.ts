@@ -45,14 +45,13 @@ const account = s
     id: s.int().id(),
     email: s.string().unique(),
     label: s.string(),
-    notes: s.oneToMany(() => note),
+    notes: s.toMany(() => note),
     managerId: s.int().nullable(),
     manager: s
-      .manyToOne(() => account)
+      .toOne(() => account)
       .fields("managerId")
-      .references("id")
-      .optional(),
-    reports: s.oneToMany(() => account),
+      .references("id"),
+    reports: s.toMany(() => account),
   })
   .map("p81_accounts");
 
@@ -62,7 +61,7 @@ const note = s
     body: s.string(),
     accountId: s.int(),
     account: s
-      .manyToOne(() => account)
+      .toOne(() => account)
       .fields("accountId")
       .references("id")
       .onUpdate("cascade"),
@@ -79,14 +78,14 @@ const tag = s
     id: s.int().id(),
     name: s.string(),
     color: s.string(),
-    palettes: s.manyToMany(() => palette),
+    palettes: s.toMany(() => palette),
   })
   .map("p81_tags");
 const palette = s
   .model({
     id: s.int().id(),
     title: s.string(),
-    tags: s.manyToMany(() => tag),
+    tags: s.toMany(() => tag),
   })
   .map("p81_palettes");
 const soloSchema = { tag, palette };
@@ -101,7 +100,7 @@ const seq = s
   .model({
     id: s.int().id().increment(),
     label: s.string(),
-    kids: s.oneToMany(() => kid),
+    kids: s.toMany(() => kid),
   })
   .map("p82_seq");
 const kid = s
@@ -110,7 +109,7 @@ const kid = s
     body: s.string(),
     seqId: s.int(),
     parent: s
-      .manyToOne(() => seq)
+      .toOne(() => seq)
       .fields("seqId")
       .references("id"),
   })
@@ -125,7 +124,7 @@ const crate = s
   .model({
     id: s.int().id(),
     label: s.string(),
-    items: s.oneToMany(() => item),
+    items: s.toMany(() => item),
   })
   .map("p82_crate");
 const item = s
@@ -134,7 +133,7 @@ const item = s
     body: s.string(),
     crateId: s.int(),
     holder: s
-      .manyToOne(() => crate)
+      .toOne(() => crate)
       .fields("crateId")
       .references("id"),
   })
@@ -152,7 +151,7 @@ const host = s
     id: s.int().id(),
     code: s.string(),
     label: s.string(),
-    pets: s.oneToMany(() => pet),
+    pets: s.toMany(() => pet),
   })
   .map("p81_hosts")
   .index(["code"], { unique: true })
@@ -166,7 +165,7 @@ const pet = s
     name: s.string(),
     hostCode: s.string(),
     host: s
-      .manyToOne(() => host)
+      .toOne(() => host)
       .fields("hostCode")
       .references("code")
       .onUpdate("cascade"),

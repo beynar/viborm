@@ -607,7 +607,6 @@ export class SQLiteAdapter implements DatabaseAdapter {
 
     parseRelation: (
       _value: unknown,
-      _type: import("../../adapter-result-parser").RelationResultKind,
       next: (value?: unknown) => unknown
     ): unknown => next(),
 

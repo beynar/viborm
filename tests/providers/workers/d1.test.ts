@@ -28,14 +28,14 @@ const progressiveAuthor = s
   .model({
     id: s.string().id(),
     name: s.string().unique(),
-    posts: s.oneToMany(() => progressivePost),
+    posts: s.toMany(() => progressivePost),
   })
   .map("viborm_d1_progressive_authors");
 const progressiveCategory = s
   .model({
     id: s.string().id(),
     name: s.string().unique(),
-    posts: s.oneToMany(() => progressivePost),
+    posts: s.toMany(() => progressivePost),
   })
   .map("viborm_d1_progressive_categories");
 const progressivePost = s
@@ -44,15 +44,14 @@ const progressivePost = s
     title: s.string(),
     authorId: s.string(),
     author: s
-      .manyToOne(() => progressiveAuthor)
+      .toOne(() => progressiveAuthor)
       .fields("authorId")
       .references("id"),
     categoryId: s.string().nullable(),
     category: s
-      .manyToOne(() => progressiveCategory)
+      .toOne(() => progressiveCategory)
       .fields("categoryId")
-      .references("id")
-      .optional(),
+      .references("id"),
   })
   .map("viborm_d1_progressive_posts");
 const progressiveSchema = {
@@ -64,14 +63,14 @@ const generatedAuthor = s
   .model({
     id: s.int().id().increment(),
     name: s.string().unique(),
-    posts: s.oneToMany(() => generatedPost),
+    posts: s.toMany(() => generatedPost),
   })
   .map("viborm_d1_generated_authors");
 const generatedCategory = s
   .model({
     id: s.string().id(),
     name: s.string().unique(),
-    posts: s.oneToMany(() => generatedPost),
+    posts: s.toMany(() => generatedPost),
   })
   .map("viborm_d1_generated_categories");
 const generatedPost = s
@@ -80,15 +79,14 @@ const generatedPost = s
     title: s.string(),
     authorId: s.int(),
     author: s
-      .manyToOne(() => generatedAuthor)
+      .toOne(() => generatedAuthor)
       .fields("authorId")
       .references("id"),
     categoryId: s.string().nullable(),
     category: s
-      .manyToOne(() => generatedCategory)
+      .toOne(() => generatedCategory)
       .fields("categoryId")
-      .references("id")
-      .optional(),
+      .references("id"),
   })
   .map("viborm_d1_generated_posts");
 const generatedProgressiveSchema = {

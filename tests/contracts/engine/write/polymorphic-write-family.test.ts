@@ -24,9 +24,9 @@ const polymorphicWriteSchema = (() => {
     .model({
       id: s.int().id().increment(),
       name: s.string(),
-      entries: s.oneToMany(() => comment).name("boardEntry"),
-      featuredEntries: s.oneToMany(() => featuredComment).name("featuredBoard"),
-      posts: s.oneToMany(() => post).name("boardPost"),
+      entries: s.toMany(() => comment).name("boardEntry"),
+      featuredEntries: s.toMany(() => featuredComment).name("featuredBoard"),
+      posts: s.toMany(() => post).name("boardPost"),
     })
     .map("poly_write_boards");
 
@@ -37,17 +37,15 @@ const polymorphicWriteSchema = (() => {
       title: s.string(),
       boardId: s.int().nullable(),
       board: s
-        .manyToOne(() => board)
+        .toOne(() => board)
         .fields("boardId")
         .references("id")
-        .optional()
         .name("boardPost"),
-      comments: s.oneToMany(() => comment).name("commentable"),
+      comments: s.toMany(() => comment).name("commentable"),
       featuredComment: s
-        .oneToOne(() => featuredComment)
-        .name("featuredCommentable")
-        .optional(),
-      requiredComments: s.oneToMany(() => requiredComment).name("subject"),
+        .toOne(() => featuredComment)
+        .name("featuredCommentable"),
+      requiredComments: s.toMany(() => requiredComment).name("subject"),
     })
     .unique(["slug", "title"])
     .map("poly_write_posts");
@@ -58,9 +56,8 @@ const polymorphicWriteSchema = (() => {
       slug: s.string().unique(),
       title: s.string(),
       featuredComment: s
-        .oneToOne(() => featuredComment)
-        .name("featuredCommentable")
-        .optional(),
+        .toOne(() => featuredComment)
+        .name("featuredCommentable"),
     })
     .map("poly_write_videos");
 
@@ -71,13 +68,12 @@ const polymorphicWriteSchema = (() => {
       body: s.string(),
       boardId: s.int().nullable(),
       board: s
-        .manyToOne(() => board)
+        .toOne(() => board)
         .fields("boardId")
         .references("id")
-        .optional()
         .name("boardEntry"),
       commentable: s
-        .polymorphicToOne(
+        .toOne(
           { post: () => post, video: () => video },
           {
             values: {
@@ -95,15 +91,19 @@ const polymorphicWriteSchema = (() => {
     .model({
       id: s.int().id().increment(),
       body: s.string(),
-      subject: s.polymorphicToOne(
-        { post: () => post, video: () => video },
-        {
-          values: {
-            post: "required.post.v1",
-            video: "required.video.v1",
-          },
-        }
-      ),
+      // `.name("subject")` echoes `post.requiredComments`: a carrier and its bound
+      // inverse pair on the EXACT matching label, and a one-sided name is R010.
+      subject: s
+        .toOne(
+          { post: () => post, video: () => video },
+          {
+            values: {
+              post: "required.post.v1",
+              video: "required.video.v1",
+            },
+          }
+        )
+        .name("subject"),
     })
     .map("poly_write_required_comments");
 
@@ -114,13 +114,12 @@ const polymorphicWriteSchema = (() => {
       body: s.string(),
       boardId: s.int().nullable(),
       board: s
-        .manyToOne(() => board)
+        .toOne(() => board)
         .fields("boardId")
         .references("id")
-        .name("featuredBoard")
-        .optional(),
+        .name("featuredBoard"),
       commentable: s
-        .polymorphicToOne(
+        .toOne(
           { post: () => post, video: () => video },
           {
             values: {
@@ -138,12 +137,9 @@ const polymorphicWriteSchema = (() => {
     .model({
       id: s.int().id(),
       label: s.string(),
-      children: s.oneToMany(() => node).name("tree"),
+      children: s.toMany(() => node).name("tree"),
       parent: s
-        .polymorphicToOne(
-          { node: () => node },
-          { values: { node: "tree.node.v1" } }
-        )
+        .toOne({ node: () => node }, { values: { node: "tree.node.v1" } })
         .name("tree")
         .optional(),
     })

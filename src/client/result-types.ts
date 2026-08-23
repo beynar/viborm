@@ -7,12 +7,14 @@
 
 import type { Model, ModelState } from "@schema/model";
 import type { ModelShape } from "@schema/model/helper";
+import type { AnyRelation } from "@schema/relation";
 import type {
-  AnyPolymorphicRelation,
-  AnyRelation,
-  PolymorphicCardinalityOf,
-  PolymorphicRelationState,
-} from "@schema/relation";
+  Cardinality,
+  SlotMayBeEmpty,
+  TargetGetter,
+  TargetKind,
+  VariantEntries,
+} from "@schema/relation/static-membership";
 import type { Scalar, ScalarState } from "@schema/scalars";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { Prettify } from "@validation";
@@ -64,8 +66,9 @@ type ExtractScalarState<F> = F extends { "~": { state: infer S } }
  * For json/enum scalars with custom schemas, infer from the schema.
  * For datetime fields, always return Date (regardless of validation schema output).
  *
- * Note: Enum types return `string` when accessed through relations due to type widening.
- * See BUG_REPORT_RELATION_TYPES.md Bug 1 for details.
+ * The enum arm reads the scalar's own `base` schema, so an enum's literal union
+ * survives a relation read exactly as it does a direct one: this helper is
+ * reached through the same `InferScalarOutput` on both paths.
  */
 type GetScalarResultType<F extends Scalar> =
   ExtractScalarState<F> extends infer S
@@ -149,15 +152,16 @@ export type CountResultType<Args> = Args extends { select: infer S }
  * The non-recursive part of a model that result inference can compare safely.
  *
  * Full `Model` equality walks relation getters and collapses mutually-recursive
- * model consts. These three key sets identify the usual case without touching
- * any scalar implementation, external schema, or relation target.
+ * model consts. These two key sets identify the usual case without touching any
+ * scalar implementation, external schema, or relation target. There are two,
+ * not three, because a model now holds ONE relation map across both target
+ * domains (§5.2).
  */
 export type ModelResultSurface<M extends Model<any>> =
   M extends Model<infer S>
     ? readonly [
         Extract<keyof S["scalars"], string>,
         Extract<keyof S["relations"], string>,
-        Extract<keyof S["polymorphicRelations"], string>,
       ]
     : never;
 
@@ -169,26 +173,22 @@ type SameKeySet<Left, Right> = [Exclude<Left, Right>] extends [never]
 
 type IsUsableModelResultSurface<Surface> = [Surface] extends [never]
   ? false
-  : Surface extends readonly [infer Scalars, infer Relations, infer Polymorphic]
+  : Surface extends readonly [infer Scalars, infer Relations]
     ? string extends Scalars
       ? false
       : string extends Relations
         ? false
-        : string extends Polymorphic
-          ? false
-          : true
+        : true
     : false;
 
-/** Exact equality for the three shallow key sets above. */
+/** Exact equality for the two shallow key sets above. */
 export type SameModelResultSurface<Left, Right> =
   IsUsableModelResultSurface<Left> extends true
     ? IsUsableModelResultSurface<Right> extends true
-      ? Left extends readonly [infer LS, infer LR, infer LP]
-        ? Right extends readonly [infer RS, infer RR, infer RP]
+      ? Left extends readonly [infer LS, infer LR]
+        ? Right extends readonly [infer RS, infer RR]
           ? SameKeySet<LS, RS> extends true
-            ? SameKeySet<LR, RR> extends true
-              ? SameKeySet<LP, RP>
-              : false
+            ? SameKeySet<LR, RR>
             : false
           : false
         : false
@@ -288,7 +288,7 @@ type ResolveClientOmit<
 
 /** Get the target model itself without resolving its recursive state. */
 type GetTargetModel<R extends AnyRelation> =
-  R["~"]["state"]["getter"] extends () => infer Target
+  TargetGetter<R> extends () => infer Target
     ? Target extends Model<any>
       ? Target
       : never
@@ -297,7 +297,7 @@ type GetTargetModel<R extends AnyRelation> =
 /**
  * Get the target model's state from a relation
  */
-export type GetTargetModelState<R extends AnyRelation> =
+type GetTargetModelState<R extends AnyRelation> =
   GetTargetModel<R> extends infer T
     ? T extends Model<infer S>
       ? S extends ModelState
@@ -441,30 +441,36 @@ type NodeOnly<Projection> = NodeKey<Projection, "only">;
 type NodeVariants<Projection> = NodeKey<Projection, "variants">;
 
 /**
- * Get relation type (oneToMany, manyToMany, oneToOne, manyToOne)
+ * The model that OWNS one asking slot, reconstructed from the state result
+ * inference already carries.
+ *
+ * `Model<State>` is the identity `s.model(...)` returns for that exact state,
+ * which is what the static membership projection compares getters against. It
+ * is not a second model concept: it is the same type, spelled from the half of
+ * it these mapped types thread.
  */
-export type GetRelationType<R extends AnyRelation> = R["~"]["state"]["type"];
+type SourceModelOf<S extends ModelState> = Model<S>;
 
-/**
- * Check if a relation is optional
- */
-export type GetRelationOptional<R extends AnyRelation> =
-  R["~"]["state"]["optional"];
+/** Does this relation name variants rather than one model? */
+type IsVariantTarget<R extends AnyRelation> =
+  TargetKind<R> extends "variants" ? true : false;
 
 /** The configured target model at one public discriminator. */
 type GetPolymorphicTarget<
-  R extends AnyPolymorphicRelation,
+  R extends AnyRelation,
   PublicType extends PropertyKey,
-> = PublicType extends keyof R["~"]["state"]["targets"]
-  ? R["~"]["state"]["targets"][PublicType] extends () => infer Target
-    ? Target extends Model<any>
-      ? Target
+> = PublicType extends keyof VariantEntries<R>
+  ? VariantEntries<R>[PublicType] extends { readonly getter: infer Getter }
+    ? Getter extends () => infer Target
+      ? Target extends Model<any>
+        ? Target
+        : never
       : never
     : never
   : never;
 
-type PolymorphicPublicTypes<R extends AnyPolymorphicRelation> = Extract<
-  keyof R["~"]["state"]["targets"],
+type PolymorphicPublicTypes<R extends AnyRelation> = Extract<
+  keyof VariantEntries<R>,
   string
 >;
 
@@ -478,27 +484,41 @@ type PolymorphicPublicTypes<R extends AnyPolymorphicRelation> = Extract<
  * - To-one relations return single objects (nullable if optional)
  */
 /**
- * The relation's cardinality wrapper, applied to an already-built element type:
- * to-many is an array, an optional to-one is nullable, a required to-one is the
- * bare object. Factored out so the omit-aware node inference below wraps the
- * SAME way the three original helpers do.
+ * The relation's cardinality wrapper, applied to an already-built element type
+ * (plan §8.1's `RelationResult`): a to-many slot is an array, and a singular
+ * slot is nullable unless the static membership projection PROVES it cannot be
+ * empty. `SlotMayBeEmpty` answering a widened `boolean` therefore reads as
+ * nullable, which is the safe direction — the promise "this is always present"
+ * is the one that breaks callers.
+ *
+ * The asking key travels with the relation. Dropping it would let a self
+ * relation select its own declaration as its inverse (§8.1 step 2).
  */
-type WrapRelation<R extends AnyRelation, T> = [GetRelationType<R>] extends [
-  "oneToMany" | "manyToMany",
-]
+type WrapRelation<
+  S extends ModelState,
+  K,
+  R extends AnyRelation,
+  T,
+> = Cardinality<R> extends "many"
   ? T[]
-  : [GetRelationOptional<R>] extends [true]
-    ? T | null
-    : T;
+  : SlotMayBeEmpty<SourceModelOf<S>, K, R> extends false
+    ? T
+    : T | null;
 
-type WrapRelationNode<R extends AnyRelation, T> = [T] extends [never]
+type WrapRelationNode<S extends ModelState, K, R extends AnyRelation, T> = [
+  T,
+] extends [never]
   ? never
-  : WrapRelation<R, T>;
+  : WrapRelation<S, K, R, T>;
 
 export type InferRelationResult<
+  S extends ModelState,
+  K,
   R extends AnyRelation,
   ClientDefaults = never,
 > = WrapRelation<
+  S,
+  K,
   R,
   ApplyOmit<
     InferModelOutput<GetTargetModelState<R>>,
@@ -540,7 +560,7 @@ type InferPolymorphicTargetVariant<
  * that discriminator; it keeps the target model's default scalar output.
  */
 type InferPolymorphicVariant<
-  R extends AnyPolymorphicRelation,
+  R extends AnyRelation,
   PublicType extends PolymorphicPublicTypes<R>,
   Override,
   ClientDefaults,
@@ -578,7 +598,7 @@ type PolymorphicArmAt<Variants, PublicType extends PropertyKey> =
  * targets; omitted targets remain in the union with their default projection.
  */
 type PolymorphicVariants<
-  R extends AnyPolymorphicRelation,
+  R extends AnyRelation,
   Projection = undefined,
   ClientDefaults = never,
 > = {
@@ -610,9 +630,9 @@ type PolymorphicVariants<
  *  - anything else (a `string[]` built at runtime, an unresolvable generic)
  *    narrows nothing, which is the honest answer.
  */
-type AllowedPublicTypes<R extends AnyPolymorphicRelation, Only> = [
-  Only,
-] extends [undefined]
+type AllowedPublicTypes<R extends AnyRelation, Only> = [Only] extends [
+  undefined,
+]
   ? PolymorphicPublicTypes<R>
   : undefined extends Only
     ? PolymorphicPublicTypes<R>
@@ -627,7 +647,7 @@ type AllowedPublicTypes<R extends AnyPolymorphicRelation, Only> = [
  * `only` or `variants` keep working.
  */
 type PolymorphicCollectionVariants<
-  R extends AnyPolymorphicRelation,
+  R extends AnyRelation,
   Projection,
   ClientDefaults,
 > = {
@@ -643,11 +663,13 @@ type PolymorphicCollectionVariants<
 }[AllowedPublicTypes<R, NodeOnly<Projection>>];
 
 /**
- * CARDINALITY FIRST, through the type twin of `polymorphicCardinality` — never
- * by testing `state.cardinality` inline, so one rule governs both levels.
+ * CARDINALITY FIRST, through the same reader both target domains use — never by
+ * testing `state.cardinality` inline, so one rule governs both levels.
  *
- * A collection is NEVER `| null`: an empty collection is `[]`, and `optional`
+ * A collection is NEVER `| null`: an empty collection is `[]`, and `.optional()`
  * is unspellable on a collection state precisely so emptiness has one reading.
+ * The singular arm asks the SAME `SlotMayBeEmpty` an ordinary slot asks; for a
+ * variant target that projection is exactly the declared `.optional()` (§8.1).
  *
  * The array wrapper is applied UNCONDITIONALLY, outside `WrapRelationNode`'s
  * never-collapse. `only: []` legitimately produces a `never` element union, and
@@ -655,16 +677,16 @@ type PolymorphicCollectionVariants<
  * as returning nothing at all; `readonly never[]` is the shape that matches.
  */
 export type InferPolymorphicResult<
-  R extends AnyPolymorphicRelation,
+  S extends ModelState,
+  K,
+  R extends AnyRelation,
   Projection = undefined,
   ClientDefaults = never,
-> = PolymorphicCardinalityOf<
-  Extract<R["~"]["state"], PolymorphicRelationState>
-> extends "many"
+> = Cardinality<R> extends "many"
   ? readonly PolymorphicCollectionVariants<R, Projection, ClientDefaults>[]
-  : R["~"]["state"]["optional"] extends true
-    ? PolymorphicVariants<R, Projection, ClientDefaults> | null
-    : PolymorphicVariants<R, Projection, ClientDefaults>;
+  : SlotMayBeEmpty<SourceModelOf<S>, K, R> extends false
+    ? PolymorphicVariants<R, Projection, ClientDefaults>
+    : PolymorphicVariants<R, Projection, ClientDefaults> | null;
 
 // =============================================================================
 // SELECT/INCLUDE RESULT INFERENCE
@@ -763,13 +785,21 @@ export type InferSelectResult<
 > = Prettify<
   ApplyOmit<
     InferSelectedFields<S, Selection, ClientDefaults> &
-      InferSelectedPolymorphicFields<S, Selection, ClientDefaults> &
       InferRelationCountSelection<S, Selection>,
     Omission
   > &
     InferVectorDistanceSelection<S, Selection, Omission>
 >;
 
+/**
+ * ONE mapped type over the model's shape, dispatching per member on TARGET KIND.
+ *
+ * There is no second polymorphic pass any more: both target domains live in the
+ * one relation map (§5.2), and what still differs is only the ELEMENT shape a
+ * variant slot produces — a discriminated `{ type, data }` union reached through
+ * its own projection envelope. Splitting the map again here would put the same
+ * key through two mapped types and let their guards drift apart.
+ */
 type InferSelectedFields<S extends ModelState, Selection, ClientDefaults> = {
   [K in keyof Selection & keyof S["shape"] as S["shape"][K] extends Scalar
     ? Selection[K] extends true
@@ -782,42 +812,28 @@ type InferSelectedFields<S extends ModelState, Selection, ClientDefaults> = {
       : never]: S["shape"][K] extends Scalar
     ? InferScalarOutput<S["shape"][K]>
     : S["shape"][K] extends AnyRelation
-      ? Selection[K] extends true
-        ? InferRelationResult<S["shape"][K], ClientDefaults>
-        : Selection[K] extends object
-          ? InferRelationNodeResult<S["shape"][K], Selection[K], ClientDefaults>
-          : never
+      ? InferSelectedRelation<S, K, S["shape"][K], Selection[K], ClientDefaults>
       : never;
 };
 
-type InferSelectedPolymorphicFields<
+/** One selected relation member, per target kind then per projection value. */
+type InferSelectedRelation<
   S extends ModelState,
-  Selection,
+  K,
+  R extends AnyRelation,
+  Projection,
   ClientDefaults,
-> = string extends keyof S["polymorphicRelations"]
-  ? unknown
-  : keyof S["polymorphicRelations"] extends never
-    ? unknown
-    : {
-        [K in keyof Selection &
-          keyof S["polymorphicRelations"] as Selection[K] extends true | object
-          ? K
-          : never]: S["polymorphicRelations"][K] extends AnyPolymorphicRelation
-          ? Selection[K] extends true
-            ? InferPolymorphicResult<
-                S["polymorphicRelations"][K],
-                undefined,
-                ClientDefaults
-              >
-            : Selection[K] extends object
-              ? InferPolymorphicResult<
-                  S["polymorphicRelations"][K],
-                  Selection[K],
-                  ClientDefaults
-                >
-              : never
-          : never;
-      };
+> = IsVariantTarget<R> extends true
+  ? Projection extends true
+    ? InferPolymorphicResult<S, K, R, undefined, ClientDefaults>
+    : Projection extends object
+      ? InferPolymorphicResult<S, K, R, Projection, ClientDefaults>
+      : never
+  : Projection extends true
+    ? InferRelationResult<S, K, R, ClientDefaults>
+    : Projection extends object
+      ? InferRelationNodeResult<S, K, R, Projection, ClientDefaults>
+      : never;
 
 type VectorScalarFieldKeys<S extends ModelState> = {
   [K in keyof S["shape"]]: S["shape"][K] extends Scalar
@@ -863,45 +879,34 @@ type InferVectorDistanceSelection<
 /**
  * To-many (list) relation keys — the exact set Prisma's `_count: true`
  * shorthand expands to (`<Model>CountOutputType` holds only list relations).
+ *
+ * ONE rule for both target domains: a variant collection is a list relation by
+ * every reading that matters here — it holds many rows and it has a count.
  */
 type ToManyRelationKeys<S extends ModelState> = {
   [K in keyof S["relations"]]: S["relations"][K] extends AnyRelation
-    ? [GetRelationType<S["relations"][K]>] extends ["oneToMany" | "manyToMany"]
+    ? Cardinality<S["relations"][K]> extends "many"
       ? K
       : never
     : never;
 }[keyof S["relations"]];
 
 /**
- * The polymorphic keys that HAVE a count: the collections.
+ * The relation keys the EXPLICIT `_count: { select: … }` form may name.
  *
- * A polymorphic to-one slot is excluded for exactly the reason an ordinary
- * `manyToOne` is, and its `countFilter` family is a named refusal — so naming
- * it under `_count.select` does not compile and does not parse.
- *
- * Both early exits are load-bearing and mirror `InferSelectedPolymorphicFields`:
- * an index-signature `polymorphicRelations` states no key, and an empty one has
- * no key to state. Mapping either would put `string` in a result key position.
+ * A deliberate superset of Prisma's, minus one cell: a variant SINGULAR slot's
+ * `countFilter` family is a named refusal, so naming it must not compile either.
+ * An ordinary singular relation stays nameable, as it is today.
  */
-type PolymorphicCollectionKeys<S extends ModelState> =
-  string extends keyof S["polymorphicRelations"]
-    ? never
-    : keyof S["polymorphicRelations"] extends never
-      ? never
-      : {
-          [K in keyof S["polymorphicRelations"]]: S["polymorphicRelations"][K] extends AnyPolymorphicRelation
-            ? [
-                PolymorphicCardinalityOf<
-                  Extract<
-                    S["polymorphicRelations"][K]["~"]["state"],
-                    PolymorphicRelationState
-                  >
-                >,
-              ] extends ["many"]
-              ? K
-              : never
-            : never;
-        }[keyof S["polymorphicRelations"]];
+type CountableRelationKeys<S extends ModelState> = {
+  [K in keyof S["relations"]]: S["relations"][K] extends AnyRelation
+    ? IsVariantTarget<S["relations"][K]> extends true
+      ? Cardinality<S["relations"][K]> extends "many"
+        ? K
+        : never
+      : K
+    : never;
+}[keyof S["relations"]];
 
 type InferRelationCountSelection<
   S extends ModelState,
@@ -910,18 +915,13 @@ type InferRelationCountSelection<
   ? {
       _count: {
         [K in keyof CountSelection &
-          (
-            | keyof S["relations"]
-            | PolymorphicCollectionKeys<S>
-          ) as CountSelection[K] extends true | object ? K : never]: number;
+          CountableRelationKeys<S> as CountSelection[K] extends true | object
+          ? K
+          : never]: number;
       };
     }
   : Selection extends { _count: true }
-    ? {
-        _count: {
-          [K in ToManyRelationKeys<S> | PolymorphicCollectionKeys<S>]: number;
-        };
-      }
+    ? { _count: { [K in ToManyRelationKeys<S>]: number } }
     : Record<never, never>;
 
 /**
@@ -938,63 +938,15 @@ export type InferIncludeResult<
       | object
       ? K
       : never]: S["relations"][K] extends AnyRelation
-      ? Include[K] extends true
-        ? InferRelationResult<S["relations"][K], ClientDefaults>
-        : Include[K] extends object
-          ? InferRelationNodeResult<
-              S["relations"][K],
-              Include[K],
-              ClientDefaults
-            >
-          : never
+      ? InferSelectedRelation<
+          S,
+          K,
+          S["relations"][K],
+          Include[K],
+          ClientDefaults
+        >
       : never;
-  } & InferIncludedPolymorphicFields<S, Include, ClientDefaults> &
-    InferRelationCountSelection<S, Include>
->;
-
-type InferIncludedPolymorphicFields<
-  S extends ModelState,
-  Include,
-  ClientDefaults,
-> = string extends keyof S["polymorphicRelations"]
-  ? unknown
-  : keyof S["polymorphicRelations"] extends never
-    ? unknown
-    : {
-        [K in keyof Include &
-          keyof S["polymorphicRelations"] as Include[K] extends true | object
-          ? K
-          : never]: S["polymorphicRelations"][K] extends AnyPolymorphicRelation
-          ? Include[K] extends true
-            ? InferPolymorphicResult<
-                S["polymorphicRelations"][K],
-                undefined,
-                ClientDefaults
-              >
-            : Include[K] extends object
-              ? InferPolymorphicResult<
-                  S["polymorphicRelations"][K],
-                  Include[K],
-                  ClientDefaults
-                >
-              : never
-          : never;
-      };
-
-/**
- * Nested select result for a relation
- */
-export type InferNestedSelectResult<R extends AnyRelation, NS> = WrapRelation<
-  R,
-  InferSelectResult<GetTargetModelState<R>, NS>
->;
-
-/**
- * Nested include result for a relation
- */
-export type InferNestedIncludeResult<R extends AnyRelation, NI> = WrapRelation<
-  R,
-  InferIncludeResult<GetTargetModelState<R>, NI>
+  } & InferRelationCountSelection<S, Include>
 >;
 
 /**
@@ -1005,10 +957,14 @@ export type InferNestedIncludeResult<R extends AnyRelation, NI> = WrapRelation<
  * Pagination-only nodes fall through to the full relation payload.
  */
 type InferRelationNodeResult<
+  S extends ModelState,
+  K,
   R extends AnyRelation,
   Node,
   ClientDefaults = never,
 > = WrapRelationNode<
+  S,
+  K,
   R,
   InferSelectInclude<
     GetTargetModelState<R>,

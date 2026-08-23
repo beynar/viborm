@@ -6,7 +6,7 @@ const vectorOrderModels = (() => {
   const collection = s.model({
     id: s.string().id(),
     centroid: s.vector().dimension(3),
-    docs: s.oneToMany(() => doc),
+    docs: s.toMany(() => doc),
   });
 
   const doc = s.model({
@@ -14,7 +14,7 @@ const vectorOrderModels = (() => {
     title: s.string(),
     collectionId: s.string(),
     collection: s
-      .manyToOne(() => collection)
+      .toOne(() => collection)
       .fields("collectionId")
       .references("id"),
     embedding: s.vector().dimension(3),

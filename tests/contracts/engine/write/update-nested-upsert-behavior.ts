@@ -24,7 +24,7 @@ export const updateSliceSchema = (() => {
       id: s.int().id().increment(),
       email: s.string().unique(),
       count: s.int(),
-      posts: s.oneToMany(() => post),
+      posts: s.toMany(() => post),
     })
     .map("update_slice_users");
   const post = s
@@ -34,10 +34,9 @@ export const updateSliceSchema = (() => {
       slug: s.string().unique(),
       userId: s.int().nullable(),
       author: s
-        .manyToOne(() => user)
+        .toOne(() => user)
         .fields("userId")
-        .references("id")
-        .optional(),
+        .references("id"),
     })
     .map("update_slice_posts");
   return { user, post };

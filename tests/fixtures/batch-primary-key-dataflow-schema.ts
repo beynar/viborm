@@ -5,7 +5,7 @@ export const batchPrimaryKeyDataflowSchema = (() => {
     .model({
       id: s.int().id().increment(),
       label: s.string(),
-      holders: s.oneToMany(() => generatedUser),
+      holders: s.toMany(() => generatedUser),
     })
     .map("batch_pk_featured_children");
 
@@ -15,12 +15,11 @@ export const batchPrimaryKeyDataflowSchema = (() => {
       name: s.string(),
       featuredChildId: s.int().nullable(),
       featuredChild: s
-        .manyToOne(() => featuredChild)
+        .toOne(() => featuredChild)
         .fields("featuredChildId")
-        .references("id")
-        .optional(),
-      posts: s.oneToMany(() => generatedPost),
-      notes: s.oneToMany(() => generatedNote),
+        .references("id"),
+      posts: s.toMany(() => generatedPost),
+      notes: s.toMany(() => generatedNote),
     })
     .map("batch_pk_generated_users");
 
@@ -31,11 +30,10 @@ export const batchPrimaryKeyDataflowSchema = (() => {
       slug: s.string().unique(),
       userId: s.int().nullable(),
       author: s
-        .manyToOne(() => generatedUser)
+        .toOne(() => generatedUser)
         .fields("userId")
-        .references("id")
-        .optional(),
-      comments: s.oneToMany(() => generatedComment),
+        .references("id"),
+      comments: s.toMany(() => generatedComment),
     })
     .map("batch_pk_generated_posts");
 
@@ -45,10 +43,9 @@ export const batchPrimaryKeyDataflowSchema = (() => {
       body: s.string(),
       userId: s.int().nullable(),
       author: s
-        .manyToOne(() => generatedUser)
+        .toOne(() => generatedUser)
         .fields("userId")
-        .references("id")
-        .optional(),
+        .references("id"),
     })
     .map("batch_pk_generated_notes");
 
@@ -58,10 +55,9 @@ export const batchPrimaryKeyDataflowSchema = (() => {
       body: s.string(),
       postId: s.int().nullable(),
       post: s
-        .manyToOne(() => generatedPost)
+        .toOne(() => generatedPost)
         .fields("postId")
-        .references("id")
-        .optional(),
+        .references("id"),
     })
     .map("batch_pk_generated_comments");
 
@@ -69,7 +65,7 @@ export const batchPrimaryKeyDataflowSchema = (() => {
     .model({
       id: s.int().id(),
       name: s.string(),
-      posts: s.oneToMany(() => mutablePost),
+      posts: s.toMany(() => mutablePost),
     })
     .map("batch_pk_mutable_users");
 
@@ -79,7 +75,7 @@ export const batchPrimaryKeyDataflowSchema = (() => {
       title: s.string(),
       userId: s.int(),
       author: s
-        .manyToOne(() => mutableUser)
+        .toOne(() => mutableUser)
         .fields("userId")
         .references("id"),
     })

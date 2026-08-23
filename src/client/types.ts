@@ -10,9 +10,10 @@ import type { PendingOperation } from "@query-engine/pending-operation";
 import type { Model, ModelState } from "@schema/model";
 import type { ModelShape } from "@schema/model/helper";
 import type {
-  PolymorphicCardinalityOf,
-  PolymorphicRelationState,
-} from "@schema/relation";
+  Cardinality,
+  TargetKind,
+  VariantEntries,
+} from "@schema/relation/static-membership";
 import type { Prettify } from "@validation";
 import type { ModelCoreInput, ModelOperationInput } from "@validation/model";
 import type { CacheDriver } from "../cache/driver";
@@ -291,14 +292,15 @@ type ModelsWithResultSurface<
 type HasUniqueResultSurface<
   C extends VibORMConfig,
   K extends keyof C["schema"],
-> = SameModelResultSurface<
-  ModelResultSurface<C["schema"][K]>,
-  ModelResultSurface<C["schema"][K]>
-> extends true
-  ? [Exclude<ModelsWithResultSurface<C, K>, K>] extends [never]
-    ? true
-    : false
-  : false;
+> =
+  SameModelResultSurface<
+    ModelResultSurface<C["schema"][K]>,
+    ModelResultSurface<C["schema"][K]>
+  > extends true
+    ? [Exclude<ModelsWithResultSurface<C, K>, K>] extends [never]
+      ? true
+      : false
+    : false;
 
 type ClientRelationOmitEntries<C extends VibORMConfig> = {
   [K in ConfiguredOmitModelKeys<C>]: ClientResultOmitEntry<
@@ -347,18 +349,9 @@ type OperationResultWithClientDefaults<
   Merged = DefaultOperationResultArgs,
   ResultArgs = ResolvedOperationResultArgs<Args, Merged>,
   UnselectedOmit = ResolvedOperationResultOmit<Args, DefaultOmit, Merged>,
-> = M extends Model<infer S>
-  ? O extends "findFirst" | "findUnique"
-    ? Prettify<
-        InferSelectInclude<
-          S,
-          ResultArgs,
-          NodeSelect<ResultArgs>,
-          UnselectedOmit,
-          ClientDefaults
-        >
-      > | null
-    : O extends "findFirstOrThrow" | "findUniqueOrThrow"
+> =
+  M extends Model<infer S>
+    ? O extends "findFirst" | "findUnique"
       ? Prettify<
           InferSelectInclude<
             S,
@@ -367,8 +360,8 @@ type OperationResultWithClientDefaults<
             UnselectedOmit,
             ClientDefaults
           >
-        >
-      : O extends "findMany"
+        > | null
+      : O extends "findFirstOrThrow" | "findUniqueOrThrow"
         ? Prettify<
             InferSelectInclude<
               S,
@@ -377,8 +370,8 @@ type OperationResultWithClientDefaults<
               UnselectedOmit,
               ClientDefaults
             >
-          >[]
-        : O extends "create" | "update" | "delete" | "upsert"
+          >
+        : O extends "findMany"
           ? Prettify<
               InferSelectInclude<
                 S,
@@ -387,19 +380,29 @@ type OperationResultWithClientDefaults<
                 UnselectedOmit,
                 ClientDefaults
               >
-            >
-          : O extends "createMany" | "updateMany" | "deleteMany"
-            ? BulkWriteResult<S, Args, DefaultOmit>
-            : O extends "count"
-              ? CountResultType<Args>
-              : O extends "exist"
-                ? boolean
-                : O extends "aggregate"
-                  ? AggregateResultType<ExtractFields<M>, Args>
-                  : O extends "groupBy"
-                    ? GroupByResultType<ExtractFields<M>, Args>[]
-                    : never
-  : never;
+            >[]
+          : O extends "create" | "update" | "delete" | "upsert"
+            ? Prettify<
+                InferSelectInclude<
+                  S,
+                  ResultArgs,
+                  NodeSelect<ResultArgs>,
+                  UnselectedOmit,
+                  ClientDefaults
+                >
+              >
+            : O extends "createMany" | "updateMany" | "deleteMany"
+              ? BulkWriteResult<S, Args, DefaultOmit>
+              : O extends "count"
+                ? CountResultType<Args>
+                : O extends "exist"
+                  ? boolean
+                  : O extends "aggregate"
+                    ? AggregateResultType<ExtractFields<M>, Args>
+                    : O extends "groupBy"
+                      ? GroupByResultType<ExtractFields<M>, Args>[]
+                      : never
+    : never;
 
 /**
  * Public operation result helper. Its fifth generic remains the historical
@@ -601,17 +604,23 @@ type ValueAt<Container, Key extends PropertyKey> = Container extends unknown
     : never
   : never;
 
-type PolymorphicVariantKeys<Relation> = Relation extends {
-  readonly "~": {
-    readonly state: { readonly targets: infer Targets };
-  };
-}
-  ? keyof Targets
-  : never;
+type PolymorphicVariantKeys<Relation> = keyof VariantEntries<Relation>;
+
+/**
+ * The VARIANT-target keys of the one relation map — the only members whose
+ * projection is a discriminator map or a collection envelope rather than an
+ * ordinary relation node. Reading target kind here is what replaces the second
+ * model-level map the guard used to be handed.
+ */
+type VariantRelationKeys<Relations> = {
+  [Key in keyof Relations]: TargetKind<Relations[Key]> extends "variants"
+    ? Key
+    : never;
+}[keyof Relations];
 
 type UsedPolymorphicFields<Clause, Relations> = Extract<
   SpelledClauseKeys<NonNullable<Clause>>,
-  keyof Relations
+  VariantRelationKeys<Relations>
 >;
 
 type PolymorphicVariantMapGuard<Projection, Relation> = Record<
@@ -643,16 +652,11 @@ type PolymorphicCollectionEnvelopeGuard<Projection> = Record<
   never
 >;
 
-/** ONE dispatch on cardinality, through the shared type twin. */
-type PolymorphicProjectionNodeGuard<Projection, Relation> = Relation extends {
-  readonly "~": {
-    readonly state: infer State extends PolymorphicRelationState;
-  };
-}
-  ? PolymorphicCardinalityOf<State> extends "many"
+/** ONE dispatch on cardinality, through the shared reader. */
+type PolymorphicProjectionNodeGuard<Projection, Relation> =
+  Cardinality<Relation> extends "many"
     ? PolymorphicCollectionEnvelopeGuard<Projection>
-    : PolymorphicVariantMapGuard<Projection, Relation>
-  : unknown;
+    : PolymorphicVariantMapGuard<Projection, Relation>;
 
 type PolymorphicClauseGuard<Clause, Relations> = [
   UsedPolymorphicFields<Clause, Relations>,
@@ -679,18 +683,19 @@ type DirectPolymorphicProjectionGuard<
   Arg,
   M extends Model<any>,
   Clause extends "select" | "include",
-> = M extends Model<infer State>
-  ? string extends keyof State["polymorphicRelations"]
-    ? unknown
-    : Clause extends keyof Arg
-      ? {
-          [Key in Clause]?: PolymorphicClauseGuard<
-            Arg[Key],
-            State["polymorphicRelations"]
-          >;
-        }
-      : unknown
-  : unknown;
+> =
+  M extends Model<infer State>
+    ? string extends keyof State["relations"]
+      ? unknown
+      : Clause extends keyof Arg
+        ? {
+            [Key in Clause]?: PolymorphicClauseGuard<
+              Arg[Key],
+              State["relations"]
+            >;
+          }
+        : unknown
+    : unknown;
 
 type NoExtraOperationKeys<Arg, Payload, M extends Model<any>> = Arg &
   Record<Exclude<keyof Arg, keyof Payload>, never> &

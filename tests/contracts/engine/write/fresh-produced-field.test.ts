@@ -59,7 +59,7 @@ const singleSequenceSchema = (() => {
   const owner = s
     .model({
       id: s.int().id().increment(),
-      children: s.oneToMany(() => child),
+      children: s.toMany(() => child),
     })
     .map("pkgb_single_owners");
   const child = s
@@ -67,7 +67,7 @@ const singleSequenceSchema = (() => {
       id: s.string().id(),
       ownerId: s.int(),
       owner: s
-        .manyToOne(() => owner)
+        .toOne(() => owner)
         .fields("ownerId")
         .references("id"),
     })

@@ -180,7 +180,7 @@ The canonical payload representation is:
 
 ```ts
 interface RelationMutationProgram {
-  readonly relationInfo: RelationInfo;
+  readonly relationRef: RelationRef;
   readonly entries: readonly RelationMutationEntry[];
 }
 ```
@@ -228,12 +228,12 @@ type ParsedRelationMutation =
       readonly kind: "polymorphicTarget";
       readonly name: string;
       readonly program: RelationMutationProgram;
-      readonly edge: ResolvedPolymorphicEdge;
+      readonly edge: SelectedVariantRow;
     }
   | {
       readonly kind: "polymorphicDisconnect";
       readonly name: string;
-      readonly storage: PolymorphicStorage;
+      readonly carrier: VariantRowCarrierSlot;
     };
 
 interface ParsedRecordPrograms {
@@ -299,7 +299,7 @@ child-held storages admit either arity. A junction is to-many for every ordinary
 pair, but the axis is not collapsed to it — a polymorphic collection member whose
 inverse is singular binds as a junction with `cardinality: "one"`, physically
 backed by that member table's UNIQUE over the complete target side, and
-`bindPolymorphicMemberJunction` is its only producer.
+`bindMemberJunction` is its only producer.
 
 ONE dispatcher per position, not one per position × membership. A child-held
 entry is compiled once for both storages, with the parent's read source, its
@@ -313,20 +313,27 @@ stays inside an arm is only a
 difference that is real — a fresh child's foreign-key provenance, a guard that
 must be rebuilt from a captured row, a discriminator premise on the located row.
 
-Classification is ordered:
+Classification reads the resolved edge, and its arms are exclusive because one
+resolved slot carries exactly one edge:
 
-1. `manyToMany` is `junction`;
-2. a relation whose current model holds the FK is `parentHeld`, cardinality
-   `one`;
-3. a resolved polymorphic inverse is `childHeld` with polymorphic membership,
-   cardinality `one` for a fields-less `oneToOne`, otherwise `many`;
-4. the remaining child-held relation carries foreign-key membership, cardinality
-   `one` for a to-one relation, otherwise `many`.
+1. a junction edge is `junction`;
+2. a slot holding a member of a variant-junction carrier is `junction` too, in
+   the orientation the asking slot implies, with cardinality from that member;
+3. a row-held edge whose current model holds the stored reference is
+   `parentHeld`, cardinality `one`;
+4. a row-held edge the OTHER model holds is `childHeld` — polymorphic membership
+   for a variant carrier's inverse, foreign-key membership otherwise — with
+   cardinality from the asking slot.
 
-A fields-less `manyToOne` is therefore child-held to-one from the current
-source position.
+The derived OwnWrite vocabulary follows that same storage word:
+`RelationMembershipScope.kind` and `MembershipReadOrientation` both use
+`junction`. “Many-to-many” remains a mathematical description of a paired
+topology, never a runtime relation-state discriminant.
 
-A bound relation carries the source model and its `relationInfo`; its membership
+A non-owning `s.toOne` is therefore child-held to-one from the current source
+position.
+
+A bound relation carries the source model and its `relationRef`; its membership
 carries the physical storage and the two models it spans. A foreign-key membership
 carries:
 

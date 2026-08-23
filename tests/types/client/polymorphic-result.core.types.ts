@@ -18,6 +18,10 @@ type IsAny<Value> = 0 extends 1 & Value ? true : false;
 const author = s.model({
   id: s.string().id(),
   name: s.string(),
+  // The inverse is not decoration: without it the pairing is unproven and the
+  // OWNER's own slot infers nullable, because an unproven graph never claims
+  // non-nullability (§8.1 step 7).
+  posts: s.toMany(() => post),
 });
 
 const post = s.model({
@@ -26,7 +30,7 @@ const post = s.model({
   secret: s.string(),
   authorId: s.string(),
   author: s
-    .manyToOne(() => author)
+    .toOne(() => author)
     .fields("authorId")
     .references("id"),
 });
@@ -37,7 +41,7 @@ const video = s.model({
   token: s.string(),
 });
 
-const subject = s.polymorphicToOne(
+const subject = s.toOne(
   { post: () => post, video: () => video },
   { values: { post: "content.post.v1", video: "content.video.v1" } }
 );
@@ -51,7 +55,7 @@ const comment = s.model({
 const optionalComment = s.model({
   id: s.string().id(),
   subject: s
-    .polymorphicToOne(
+    .toOne(
       { post: () => post, video: () => video },
       { values: { post: "optional.post.v1", video: "optional.video.v1" } }
     )
@@ -63,8 +67,8 @@ const client = createClient({
   driver: new PGliteDriver(),
 });
 
-type _commentPolymorphicKeyIsConcrete = Expect<
-  Equal<keyof (typeof comment)["~"]["state"]["polymorphicRelations"], "subject">
+type _commentRelationKeyIsConcrete = Expect<
+  Equal<keyof (typeof comment)["~"]["state"]["relations"], "subject">
 >;
 
 const _publicPolymorphicCalls = () => {
@@ -238,23 +242,17 @@ type _configuredNodesReuseOrdinaryProjectionInference = Expect<
 
 const featuredPost = s.model({
   id: s.string().id(),
-  featuredComment: s
-    .oneToOne(() => featuredComment)
-    .name("featuredCommentable")
-    .optional(),
+  featuredComment: s.toOne(() => featuredComment).name("featuredCommentable"),
 });
 const featuredVideo = s.model({
   id: s.string().id(),
-  featuredComment: s
-    .oneToOne(() => featuredComment)
-    .name("featuredCommentable")
-    .optional(),
+  featuredComment: s.toOne(() => featuredComment).name("featuredCommentable"),
 });
 const featuredComment = s.model({
   id: s.string().id(),
   body: s.string(),
   commentable: s
-    .polymorphicToOne({ post: () => featuredPost, video: () => featuredVideo })
+    .toOne({ post: () => featuredPost, video: () => featuredVideo })
     .name("featuredCommentable")
     .optional(),
 });
@@ -331,7 +329,7 @@ type _nestedClientOmitNarrowsEveryTarget = Expect<
 
 const treeNode = s.model({
   id: s.string().id(),
-  parent: s.polymorphicToOne(
+  parent: s.toOne(
     { node: () => treeNode },
     { values: { node: "tree.node.v1" } }
   ),
@@ -353,17 +351,14 @@ type _selfRecursivePublicResult = Expect<
 
 const leftNode = s.model({
   id: s.string().id(),
-  right: s.polymorphicToOne(
+  right: s.toOne(
     { right: () => rightNode },
     { values: { right: "pair.right.v1" } }
   ),
 });
 const rightNode = s.model({
   id: s.string().id(),
-  left: s.polymorphicToOne(
-    { left: () => leftNode },
-    { values: { left: "pair.left.v1" } }
-  ),
+  left: s.toOne({ left: () => leftNode }, { values: { left: "pair.left.v1" } }),
 });
 const recursiveDriverClient = createPGliteClient({
   schema: { leftNode, rightNode },
@@ -416,7 +411,7 @@ const attachment = s.model({
 const clip = s.model({ id: s.string().id(), seconds: s.int() });
 const gallery = s.model({
   id: s.string().id(),
-  attachments: s.polymorphicToMany(
+  attachments: s.toMany(
     { attachment: () => attachment, clip: () => clip },
     { values: { attachment: "gal.attachment.v1", clip: "gal.clip.v1" } }
   ),
@@ -582,7 +577,7 @@ const onlyTarget = s.model({ id: s.string().id() });
 const variantsTarget = s.model({ id: s.string().id(), label: s.string() });
 const hostileGallery = s.model({
   id: s.string().id(),
-  items: s.polymorphicToMany(
+  items: s.toMany(
     { only: () => onlyTarget, variants: () => variantsTarget },
     { values: { only: "hos.only.v1", variants: "hos.variants.v1" } }
   ),
@@ -615,7 +610,7 @@ type _hostileVariantNamesResolve = Expect<
 
 const branch = s.model({
   id: s.string().id(),
-  children: s.polymorphicToMany(
+  children: s.toMany(
     { branch: () => branch },
     { values: { branch: "rec.b.v1" } }
   ),

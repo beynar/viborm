@@ -86,7 +86,7 @@ const chainSchema = (() => {
     .model({
       id: s.string().id(),
       name: s.string(),
-      teams: s.oneToMany(() => team),
+      teams: s.toMany(() => team),
     })
     .map("x1c_org");
   const team = s
@@ -95,18 +95,17 @@ const chainSchema = (() => {
       name: s.string(),
       orgId: s.string().nullable(),
       org: s
-        .manyToOne(() => org)
+        .toOne(() => org)
         .fields("orgId")
-        .references("id")
-        .optional(),
-      members: s.oneToMany(() => member),
+        .references("id"),
+      members: s.toMany(() => member),
     })
     .map("x1c_team");
   const badge = s
     .model({
       id: s.int().id().increment(),
       code: s.string(),
-      members: s.oneToMany(() => member),
+      members: s.toMany(() => member),
     })
     .map("x1c_badge");
   const member = s
@@ -115,16 +114,14 @@ const chainSchema = (() => {
       name: s.string(),
       teamId: s.string().nullable(),
       team: s
-        .manyToOne(() => team)
+        .toOne(() => team)
         .fields("teamId")
-        .references("id")
-        .optional(),
+        .references("id"),
       badgeId: s.int().nullable(),
       badge: s
-        .manyToOne(() => badge)
+        .toOne(() => badge)
         .fields("badgeId")
-        .references("id")
-        .optional(),
+        .references("id"),
     })
     .map("x1c_member");
   return { org, team, badge, member };
@@ -297,7 +294,7 @@ describe("X1c — parent-held to-one under a located update target at level 3 (g
 // ---------------------------------------------------------------------------
 const d4Tree = (() => {
   const company = s
-    .model({ id: s.int().id(), name: s.string(), orgs: s.oneToMany(() => org) })
+    .model({ id: s.int().id(), name: s.string(), orgs: s.toMany(() => org) })
     .map("x1c_d4_company");
   const org = s
     .model({
@@ -306,11 +303,10 @@ const d4Tree = (() => {
       code: s.string().unique(),
       companyId: s.int().nullable(),
       company: s
-        .manyToOne(() => company)
+        .toOne(() => company)
         .fields("companyId")
-        .references("id")
-        .optional(),
-      members: s.oneToMany(() => member),
+        .references("id"),
+      members: s.toMany(() => member),
     })
     .map("x1c_d4_org");
   const member = s
@@ -319,10 +315,9 @@ const d4Tree = (() => {
       label: s.string(),
       orgCode: s.string().nullable(),
       org: s
-        .manyToOne(() => org)
+        .toOne(() => org)
         .fields("orgCode")
-        .references("code")
-        .optional(),
+        .references("code"),
     })
     .map("x1c_d4_member");
   return { company, org, member };
@@ -434,7 +429,7 @@ const deepSchema = (() => {
     .model({
       id: s.string().id(),
       name: s.string(),
-      teams: s.oneToMany(() => team),
+      teams: s.toMany(() => team),
     })
     .map("x1c_dp_org");
   const team = s
@@ -443,11 +438,10 @@ const deepSchema = (() => {
       name: s.string(),
       orgId: s.string().nullable(),
       org: s
-        .manyToOne(() => org)
+        .toOne(() => org)
         .fields("orgId")
-        .references("id")
-        .optional(),
-      members: s.oneToMany(() => member),
+        .references("id"),
+      members: s.toMany(() => member),
     })
     .map("x1c_dp_team");
   const member = s
@@ -456,11 +450,10 @@ const deepSchema = (() => {
       name: s.string(),
       teamId: s.string().nullable(),
       team: s
-        .manyToOne(() => team)
+        .toOne(() => team)
         .fields("teamId")
-        .references("id")
-        .optional(),
-      tasks: s.oneToMany(() => task),
+        .references("id"),
+      tasks: s.toMany(() => task),
     })
     .map("x1c_dp_member");
   const task = s
@@ -469,11 +462,10 @@ const deepSchema = (() => {
       name: s.string(),
       memberId: s.string().nullable(),
       member: s
-        .manyToOne(() => member)
+        .toOne(() => member)
         .fields("memberId")
-        .references("id")
-        .optional(),
-      notes: s.oneToMany(() => note),
+        .references("id"),
+      notes: s.toMany(() => note),
     })
     .map("x1c_dp_task");
   const note = s
@@ -482,18 +474,17 @@ const deepSchema = (() => {
       name: s.string(),
       taskId: s.string().nullable(),
       task: s
-        .manyToOne(() => task)
+        .toOne(() => task)
         .fields("taskId")
-        .references("id")
-        .optional(),
-      tags: s.oneToMany(() => tag),
+        .references("id"),
+      tags: s.toMany(() => tag),
     })
     .map("x1c_dp_note");
   const badge = s
     .model({
       id: s.int().id().increment(),
       code: s.string(),
-      tags: s.oneToMany(() => tag),
+      tags: s.toMany(() => tag),
     })
     .map("x1c_dp_badge");
   const tag = s
@@ -502,16 +493,14 @@ const deepSchema = (() => {
       name: s.string(),
       noteId: s.string().nullable(),
       note: s
-        .manyToOne(() => note)
+        .toOne(() => note)
         .fields("noteId")
-        .references("id")
-        .optional(),
+        .references("id"),
       badgeId: s.int().nullable(),
       badge: s
-        .manyToOne(() => badge)
+        .toOne(() => badge)
         .fields("badgeId")
-        .references("id")
-        .optional(),
+        .references("id"),
     })
     .map("x1c_dp_tag");
   return { org, team, member, task, note, badge, tag };

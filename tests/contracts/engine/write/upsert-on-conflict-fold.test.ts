@@ -51,7 +51,7 @@ const account = s
     handle: s.string().unique(),
     label: s.string(),
     score: s.int(),
-    notes: s.oneToMany(() => note),
+    notes: s.toMany(() => note),
   })
   .map("p71_accounts");
 
@@ -61,10 +61,9 @@ const note = s
     body: s.string(),
     accountId: s.int().nullable(),
     account: s
-      .manyToOne(() => account)
+      .toOne(() => account)
       .fields("accountId")
-      .references("id")
-      .optional(),
+      .references("id"),
   })
   .map("p71_notes");
 

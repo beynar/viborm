@@ -4,6 +4,10 @@ description: Define one-to-many relationships connecting a single record to mult
 icon: arrow-right-from-line
 ---
 
+A one-to-many relationship is what an **`s.toMany` slot paired with an `s.toOne`
+slot** spells, read from the collection side. The same pair read from the
+singular side is [many-to-one](/docs/schema/relations/many-to-one).
+
 ## Basic Example
 
 ```ts
@@ -13,15 +17,15 @@ import { s } from "viborm";
 const user = s.model({
   id: s.string().id().ulid(),
   email: s.string().unique(),
-  posts: s.oneToMany(() => post),  // Array of posts
+  posts: s.toMany(() => post),  // Array of posts
 });
 
-// Each post belongs to one user (many-to-one side)
+// Each post belongs to one user (the singular side owns the FK)
 const post = s.model({
   id: s.string().id().ulid(),
   title: s.string(),
   authorId: s.string(),
-  author: s.manyToOne(() => user)
+  author: s.toOne(() => user)
     .fields("authorId")
     .references("id"),
 });
@@ -34,21 +38,30 @@ const post = s.model({
 | Returns | Array (`Post[]`) |
 | FK location | On the "many" side |
 | Can be empty | Yes (empty array) |
-| Optional modifier | No (arrays are never null) |
+| Optional modifier | None exists — arrays are never null |
 
 ## No FK on This Side
 
-The distinctive rule of one-to-many: this side does NOT own a foreign key, so it needs almost no configuration. All FK setup lives on the [many-to-one](/docs/schema/relations/many-to-one) side:
+This side does NOT own a foreign key, so it needs no configuration. All FK setup
+lives on the [many-to-one](/docs/schema/relations/many-to-one) side:
 
 ```ts
 // ✅ Correct - no FK configuration needed
-posts: s.oneToMany(() => post)
+posts: s.toMany(() => post)
 
-// ❌ Wrong - oneToMany doesn't have fields/references
-posts: s.oneToMany(() => post).fields("???")
+// ❌ Does not compile - a collection slot has no fields/references
+posts: s.toMany(() => post).fields("???")
 ```
 
-The only available method is `.name(relationName)` for a custom relation name — see the [relation method reference](/docs/schema/relations).
+A collection slot paired with a singular one exposes `.name()`. (The junction
+methods — `.through()`, `.source()`, `.target()`, `.onDelete()`, `.onUpdate()` —
+belong to a `toMany` whose partner is also a `toMany`; see
+[many-to-many](/docs/schema/relations/many-to-many).) See the [relation method
+reference](/docs/schema/relations).
+
+The singular partner is not optional scaffolding: a `toMany` whose target model
+declares nothing back is refused with `R002`, and if neither endpoint completes
+`.fields(...).references(...)` the edge is refused with `FK004`.
 
 ## Querying One-to-Many
 
@@ -84,14 +97,14 @@ See [To-Many Relation Filters](/docs/client/filtering/relations-to-many) for `so
 const category = s.model({
   id: s.string().id().ulid(),
   name: s.string().unique(),
-  posts: s.oneToMany(() => post),
+  posts: s.toMany(() => post),
 });
 
 const post = s.model({
   id: s.string().id().ulid(),
   title: s.string(),
   categoryId: s.string(),
-  category: s.manyToOne(() => category)
+  category: s.toOne(() => category)
     .fields("categoryId")
     .references("id"),
 });

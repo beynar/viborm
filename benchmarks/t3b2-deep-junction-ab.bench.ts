@@ -17,17 +17,17 @@ import { bench, describe } from "vitest";
 
 const schema = (() => {
   const workspace = s
-    .model({ id: s.int().id(), projects: s.manyToMany(() => project) })
+    .model({ id: s.int().id(), projects: s.toMany(() => project) })
     .map("t3b2_workspaces");
   const project = s
     .model({
       id: s.int().id(),
-      workspaces: s.manyToMany(() => workspace),
-      tags: s.manyToMany(() => tag),
+      workspaces: s.toMany(() => workspace),
+      tags: s.toMany(() => tag),
     })
     .map("t3b2_projects");
   const tag = s
-    .model({ id: s.int().id(), projects: s.manyToMany(() => project) })
+    .model({ id: s.int().id(), projects: s.toMany(() => project) })
     .map("t3b2_tags");
   return { workspace, project, tag };
 })();

@@ -20,7 +20,7 @@ import {
 const user = s.model({
   id: s.string().id(),
   name: s.string(),
-  posts: s.oneToMany(() => post),
+  posts: s.toMany(() => post),
 });
 
 const post = s
@@ -28,12 +28,11 @@ const post = s
     id: s.string().id(),
     title: s.string(),
     userId: s.string().nullable(),
-    comments: s.oneToMany(() => comment),
+    comments: s.toMany(() => comment),
     author: s
-      .manyToOne(() => user)
+      .toOne(() => user)
       .fields("userId")
-      .references("id")
-      .optional(),
+      .references("id"),
   })
   .map("nested_mutation_posts");
 
@@ -43,7 +42,7 @@ const comment = s
     body: s.string(),
     postId: s.string(),
     post: s
-      .manyToOne(() => post)
+      .toOne(() => post)
       .fields("postId")
       .references("id"),
   })
@@ -53,7 +52,7 @@ const requiredUser = s
   .model({
     id: s.string().id(),
     name: s.string(),
-    posts: s.oneToMany(() => requiredPost),
+    posts: s.toMany(() => requiredPost),
   })
   .map("nested_required_users");
 
@@ -63,7 +62,7 @@ const requiredPost = s
     title: s.string(),
     userId: s.string(),
     author: s
-      .manyToOne(() => requiredUser)
+      .toOne(() => requiredUser)
       .fields("userId")
       .references("id"),
   })

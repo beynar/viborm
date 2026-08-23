@@ -136,7 +136,7 @@ s.model({ id: s.string().id(), secret: s.string() }).omit({ scret: true });
 //                                                          ^^^^^
 // Type 'true' is not assignable to type 'never' — 'scret' is not a scalar
 
-s.model({ id: s.string().id(), posts: s.oneToMany(() => post) })
+s.model({ id: s.string().id(), posts: s.toMany(() => post) })
   .omit({ posts: true });
 // a relation is not a projectable scalar
 

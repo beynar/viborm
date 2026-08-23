@@ -16,7 +16,7 @@ import {
   isSchemaHydrated,
 } from "@src/schema/hydration";
 import { model } from "@src/schema/model";
-import { oneToMany } from "@src/schema/relation";
+import { toMany } from "@src/schema/relation";
 import { enumScalar, string } from "@src/schema/scalars";
 
 describe("Shared Scalar Across Models", () => {
@@ -124,7 +124,7 @@ describe("Shared Scalar Across Models", () => {
 describe("Schema hydration metadata", () => {
   test("reports hydration state and exposes resolved model and field names", () => {
     const child = model({ id: string().id() });
-    const children = oneToMany(() => child);
+    const children = toMany(() => child);
     const parent = model({
       id: string().id().map("parent_id"),
       children,
@@ -141,7 +141,15 @@ describe("Schema hydration metadata", () => {
     expect(isSchemaHydrated({ parent, child })).toBe(true);
     expect(getModelSqlName(parent)).toBe("parents");
     expect(getFieldSqlName(parent, "id")).toBe("parent_id");
-    expect(children["~"].state).toMatchObject({ source: parent });
+    // The relation's name lands in the MODEL's registry. Hydration writes no
+    // source model onto the relation itself: one relation object may be reused
+    // under more than one model (`.extends()`), so a source binding on it would
+    // be a second, mutable answer to a question the schema already owns.
+    expect(parent["~"].getRelationName("children")).toEqual({
+      ts: "children",
+      sql: "children",
+    });
+    expect(children["~"].state).not.toHaveProperty("source");
   });
 
   test("reports an invalid model key without inventing a model location", () => {
@@ -176,7 +184,7 @@ describe("Schema hydration metadata", () => {
 describe("coverage low value", () => {
   test("forwards the unused relation SQL-name helper to the model registry", () => {
     const child = model({ id: string().id() });
-    const parent = model({ children: oneToMany(() => child) });
+    const parent = model({ children: toMany(() => child) });
     hydrateSchemaNames({ parent, child });
 
     expect(getRelationSqlName(parent, "children")).toBe("children");

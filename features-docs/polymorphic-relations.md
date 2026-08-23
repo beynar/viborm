@@ -1,15 +1,16 @@
 # Polymorphic Relations in VibORM
 
-> **Revision 10 — 2026-08-19**
+> **Revision 11 — 2026-08-22**
 >
-> This document describes the current implementation. Both cardinalities are
-> shipped: `s.polymorphicToOne` (row-held) and `s.polymorphicToMany`
-> (junction-held), each with direct and inverse read and write surfaces. A
-> polymorphic inverse is a first-class `BoundRelation` in either shape — the
-> row-held inverses (`oneToMany`, fields-less `oneToOne`) use the same relation
-> Parts and record compilers as their ordinary child-held counterparts, and the
-> collection inverses (`manyToMany`, fields-less `manyToOne`) use the ordinary
-> junction owners in reverse orientation.
+> This document describes the current implementation. There is no polymorphic
+> factory: a variant target domain is what the ordinary `s.toOne` / `s.toMany`
+> factories build when their argument is a MAP of named variants instead of one
+> getter. Both cardinalities are shipped — a variant `s.toOne` is row-held and a
+> variant `s.toMany` is junction-held — each with direct and inverse read and
+> write surfaces. A variant inverse is a first-class `BoundRelation` in either
+> shape: the row-held inverses use the same relation Parts and record compilers
+> as their ordinary child-held counterparts, and the collection inverses use the
+> ordinary junction owners in reverse orientation.
 >
 > **Implementation contracts:**
 > [`polymorphic-relations-implementation-plan.md`](./polymorphic-relations-implementation-plan.md)
@@ -27,10 +28,10 @@ Polymorphism here is a property of the TARGETS, never of the arity. How many
 memberships a slot holds is a second, orthogonal choice, made by which factory
 declares it — and it decides where the membership lives:
 
-| Factory | Slot | Membership storage |
+| Declaration | Slot | Membership storage |
 |---|---|---|
-| `s.polymorphicToOne` | at most one membership | private `(type, identity)` pair on the owner row |
-| `s.polymorphicToMany` | a collection, variants freely mixed | one fixed-target member junction per variant |
+| `s.toOne(map, options?)` | at most one membership | private `(type, identity)` pair on the owner row |
+| `s.toMany(map, options?)` | a collection, variants freely mixed | one fixed-target member junction per variant |
 
 Sections 2–16 describe the row-held shape; §17 describes the collection.
 
@@ -46,20 +47,19 @@ The pair is one physical membership. Neither value is meaningful alone.
 
 The query engine represents the feature with six distinct facts:
 
-1. `PolymorphicToOneRelation` / `PolymorphicToManyRelation` are the public
-   multi-target schema relations, built by `s.polymorphicToOne` /
-   `s.polymorphicToMany`.
-2. `PolymorphicStorage` is the validated storage descriptor, a `kind`-tagged
-   union: `kind: "toOne"` owns the private `(type, identity)` columns, and
-   `kind: "toMany"` owns one `PolymorphicJunctionMember` per variant, each
-   carrying a complete `ResolvedJunctionTopology` and its own
-   `inverseCardinality`.
-3. `ResolvedPolymorphicMutation` describes a direct payload that selected one
-   target, or an optional direct disconnect.
-4. `ResolvedPolymorphicEdge` is the concrete direct target selected for one
+1. `VariantToOneRelation` / `VariantToManyRelation` are the public terminals a
+   variant target domain reaches, through `s.toOne` / `s.toMany`.
+2. The resolved carrier edge is the validated storage descriptor, a `kind`-tagged
+   arm of `ResolvedRelationEdge`: `variantRowCarrier` owns the private
+   `(type, identity)` columns, and `variantJunctionCarrier` owns one resolved
+   member per variant, each carrying a complete `ResolvedJunctionTopology` and
+   its own `inverseCardinality`.
+3. A parsed `polymorphicTarget` / `polymorphicDisconnect` arm describes a direct
+   payload that selected one target, or an optional direct disconnect.
+4. `SelectedVariantRow` is the concrete direct target selected for one
    compilation.
-5. `PolymorphicChildHeldToOne | PolymorphicChildHeldToMany` is the bound
-   topology of an inverse relation whose child owns the private pair.
+5. `PolymorphicChildHeldRelation` is the bound topology of an inverse relation
+   whose child owns the private pair.
 6. `JunctionBoundRelation` with `membership.polymorphicMember` is the bound
    topology of a member junction, in either orientation and either arity —
    direct collection leaf, plural inverse view, or singular inverse slot.
@@ -77,7 +77,7 @@ const comment = s.model({
   id: s.string().id().ulid(),
   body: s.string(),
   commentable: s
-    .polymorphicToOne({
+    .toOne({
       post: () => post,
       video: () => video,
     })
@@ -85,18 +85,18 @@ const comment = s.model({
 });
 ```
 
-There are two factories and the one you call IS the cardinality. Both take a
-MAP of named targets; a single target model is an ordinary relation, so a bare
-`() => model` is refused at compile time with an error naming `s.oneToOne`,
-`s.manyToOne`, `s.oneToMany` and `s.manyToMany`.
+The factory you call IS the cardinality; the map argument is what makes the
+target domain variant. A map needs literal keys and at least one entry — an empty
+map, a string index signature, and a value that is neither a map nor a getter are
+each refused at the type level and again at construction.
 
-Both are implemented end to end. `s.polymorphicToOne` stores its membership as a
-private `(type, id)` pair on the owner row. `s.polymorphicToMany` stores each
-variant's memberships in one member junction table (default name
+Both cardinalities are implemented end to end. A variant `s.toOne` stores its
+membership as a private `(type, id)` pair on the owner row. A variant `s.toMany`
+stores each variant's memberships in one member junction table (default name
 `<owner_table>_<relation>_<variant>`, composite primary key over both sides,
 reverse index, cascading foreign keys on both sides, and a unique target side for
-any variant whose inverse is a fields-less optional `manyToOne`), and builds all
-six operation-schema families over it: filter, select/include, create, update,
+any variant whose inverse is a singular slot), and builds all six
+operation-schema families over it: filter, select/include, create, update,
 orderBy and count. §17 below covers the collection surface.
 
 The target-map key is the public discriminator used by query inputs and result
@@ -107,7 +107,7 @@ The second argument is optional. When omitted, each stored discriminator is its
 public key:
 
 ```ts
-s.polymorphicToOne({ post: () => post, video: () => video });
+s.toOne({ post: () => post, video: () => video });
 // stored values: "post" and "video"
 ```
 
@@ -115,7 +115,7 @@ An explicit complete map is useful when storage values must survive public API
 renames:
 
 ```ts
-s.polymorphicToOne(
+s.toOne(
   { post: () => post, video: () => video },
   {
     values: {
@@ -129,33 +129,33 @@ s.polymorphicToOne(
 When `values` is present, it must contain every target key and no extra key.
 Partial override plus implicit fallback is deliberately not supported.
 
-An optional direct relation uses the normal immutable modifier, which only an
-`s.polymorphicToOne` carrier offers:
+An optional direct relation uses the normal immutable modifier, which only a
+row-held variant carrier offers — it IS the nullability of the private pair, and
+no other relation shape has one:
 
 ```ts
 commentable: s
-  .polymorphicToOne({ post: () => post, video: () => video })
+  .toOne({ post: () => post, video: () => video })
   .name("commentableTarget")
   .optional()
 ```
 
 ### 2.2 Inverse relation
 
-There are four admitted inverse shapes, and each binds ONLY the group family
-that owns its membership storage. The two ROW-HELD shapes below (`oneToMany`,
-fields-less `oneToOne`) bind a `toOne` group, because the membership they read is
-the owner's private pair; the two junction-shaped ones (fields-less `manyToOne`,
-`manyToMany`) bind a `toMany` group, because the membership they read lives in a
-member junction (§17.2). A row-held shape over a `toMany` group is `R003`-invalid
-unless a real ordinary inverse carries the edge.
+An inverse is an ordinary declaration — the same two factories, one model target,
+and NO `.fields(...)`, because the carrier already stores the membership. Which
+storage it reads follows from the carrier it pairs with: a slot bound to a
+row-held carrier reads the owner's private pair, and a slot bound to a
+junction-held carrier reads that variant's member junction (§17.2). Cardinality
+is the inverse slot's own: a collection is plural, a singular slot is singular.
 
-The row-held inverse is declared as an ordinary `oneToMany` relation when a
-target owns several children:
+The row-held inverse is declared as an ordinary `s.toMany` when a target owns
+several children:
 
 ```ts
 const post = s.model({
   id: s.string().id().ulid(),
-  comments: s.oneToMany(() => comment).name("commentableTarget"),
+  comments: s.toMany(() => comment).name("commentableTarget"),
 });
 ```
 
@@ -168,41 +168,41 @@ member of the selected polymorphic relation. Two public discriminator keys may
 target the same model for direct-only use, but that shape cannot provide an
 unambiguous inverse.
 
-A fields-less `oneToOne` declares a singular inverse:
+A storage-less `s.toOne` declares a singular inverse:
 
 ```ts
 const post = s.model({
   id: s.string().id().ulid(),
   featuredComment: s
-    .oneToOne(() => comment)
-    .name("commentableTarget")
-    .optional(),
+    .toOne(() => comment)
+    .name("commentableTarget"),
 });
 ```
 
-Because this side stores no membership columns, it is always zero-or-one and
-must call `.optional()`. Client construction reports `R008` otherwise. This is
-slot cardinality, not permission to clear required child storage.
+Because this side stores no membership columns, it is DERIVED zero-or-one — there
+is nothing to declare and nothing that can disagree. That is slot cardinality,
+not permission to clear required child storage.
 
 Inverse cardinality belongs to the complete private storage pair. All declared
-inverses must agree; mixed `oneToOne` and `oneToMany` declarations fail schema
-validation. Missing inverses for some variants are allowed, but the resolved
-cardinality still applies to those discriminators. A fields-bearing `oneToOne`
-remains an ordinary FK relation.
+inverses must agree; mixing singular and plural inverses over one carrier fails
+schema validation with `P012`, because one composite index serves the whole
+carrier. Missing inverses for some variants are allowed, but the resolved
+cardinality still applies to those discriminators. A `toOne` that DOES declare
+`.fields(...)` is an ordinary FK relation.
 
 ### 2.3 Model-field taxonomy
 
-Polymorphic relations are a third model-field category. They are not ordinary
-relations with a disguised getter:
+A model field is a scalar or a relation. There is no third category:
 
 ```ts
-type AnyModelField = Scalar | AnyRelation | AnyPolymorphicRelation;
+type AnyModelField = Scalar | AnyRelation;
 ```
 
-They stay outside `AnyRelation` and ordinary `RelationType` because those types
-promise exactly one target model and one ordinary FK topology. Public select,
-filter, mutation, and result builders compose the ordinary and polymorphic maps
-only at boundaries that support both.
+A variant target is one arm of the ONE relation-state union, and a model stores
+ONE canonical relation map. What separates a variant slot from a model-target one
+is its `target.kind`, read where a consumer actually needs the distinction —
+select, filter, mutation and result builders each split on the target domain at
+the one point their own shape depends on it, and nowhere else.
 
 ## 3. Public reads
 
@@ -236,9 +236,9 @@ await orm.comment.findMany({
 The object configures each variant's projection; it does not filter variants.
 An omitted configured variant uses its normal default scalar projection.
 
-Inverse include, relation filters, and relation count follow the declared
-ordinary `oneToOne` or `oneToMany` cardinality, except that their membership
-predicate also fixes the stored discriminator.
+Inverse include, relation filters, and relation count follow the inverse slot's
+own declared cardinality, except that their membership predicate also fixes the
+stored discriminator.
 
 ### 3.3 Direct filters
 
@@ -272,12 +272,11 @@ VibORM does not provide an untyped search across every target schema.
 
 ## 4. Direct writes
 
-A row-held direct relation stores one membership on its owner. With an inverse
-`oneToMany`, it is the polymorphic equivalent of an ordinary parent-held
-`manyToOne`: many owners may select the same target, while each owner stores at
-most one `(type, identity)` pair. With an inverse `oneToOne`, the direct API is
-unchanged but the composite pair is unique, so at most one owner may select an
-exact target.
+A row-held direct relation stores one membership on its owner. With a plural
+inverse, it is the variant equivalent of an ordinary parent-held singular slot:
+many owners may select the same target, while each owner stores at most one
+`(type, identity)` pair. With a singular inverse, the direct API is unchanged but
+the composite pair is unique, so at most one owner may select an exact target.
 
 ### Create
 
@@ -334,8 +333,7 @@ binds the requested target. The direct edge is to-one, so collection-style
 
 ## 5. Inverse write surface
 
-An inverse `oneToMany` relation now has the safe ordinary child-held mutation
-family.
+A plural inverse now has the safe ordinary child-held mutation family.
 
 ### 5.1 Create-family payload
 
@@ -372,8 +370,8 @@ edge, so a child cannot specify the same membership twice.
 
 ### 5.3 Operation semantics
 
-The inverse semantics match ordinary child-held `oneToMany` relations, with one
-extra discriminator condition:
+The inverse semantics match an ordinary child-held collection, with one extra
+discriminator condition:
 
 - `create` creates a child and writes both private columns atomically.
 - `createMany` applies one shared `(type, identity)` assignment to every scalar
@@ -426,7 +424,7 @@ inserted after the target-resolution reads.
 
 ### 5.5 Singular inverse surface
 
-An inverse `oneToOne` returns one target or `null`. Its create payload supports
+A singular inverse returns one target or `null`. Its create payload supports
 `create`, `connect`, and `connectOrCreate`. Its update payload additionally
 supports correlated `update` and `upsert`. `delete` is always available because
 the inverse slot is optional; `disconnect` requires optional direct storage so
@@ -445,7 +443,7 @@ The inverse relation is bound once at the first topology decision:
 interface BoundPolymorphicChildHeldRelation extends BoundForeignKeyRelation {
   readonly foreignFields: readonly [string];
   readonly referencedFields: readonly [string];
-  readonly storage: PolymorphicStorage;
+  readonly storage: ResolvedVariantRowStorage;
   readonly storedType: string;
 }
 
@@ -632,19 +630,16 @@ empty objects.
 
 Definition validation owns:
 
-- non-owning one-to-one optionality (`R008`);
 - non-empty target maps;
 - exact and unique stored values;
 - lazy target resolution;
 - compatible single-column target identities on a `toOne` group, and complete
   owner/target row keys on a `toMany` group (`P018`, `P009` — no
   portable-representation check applies to a collection);
-- carrier cardinality (`P013` ejects a forged cardinality-less carrier);
-- inverse ambiguity, per-member inverse conflicts (`P015`), the half-pair a
-  member view would leave behind (`P020`), and singular-inverse optionality
-  (`P021`);
-- private-column and index naming/collisions, `.through()` map exactness
-  (`P017`), and member-junction physical names (`P019`);
+- inverse ambiguity (`R009`), an unanswered name claim (`R010`), and mixed
+  inverse cardinalities over one carrier (`P012`);
+- private-column and index naming/collisions, and member-junction physical
+  names (`P019`);
 - portable discriminator length and characters.
 
 A `toOne` migration snapshot stores the public discriminator, stable stored
@@ -678,13 +673,13 @@ In particular:
 ## 14. Implemented inverse operation surface
 
 The first implementation exposed inverse nested `create` only. That boundary
-is gone. A bound inverse `oneToMany` now uses the ordinary child-held relation
+is gone. A bound plural inverse now uses the ordinary child-held relation
 owners for create, grouped createMany, adoption, targeted and bulk updates and
 deletes, connectOrCreate, and upsert. Optional storage also supports disconnect
 and set. Every one of these paths treats `(type, identity)` as one exact
 membership.
 
-A bound inverse `oneToOne` uses the same exact membership owner and the ordinary
+A bound singular inverse uses the same exact membership owner and the ordinary
 child-held-to-one relation Parts. Its relation-wide unique index supplies the
 occupied-slot guarantee without adding an execution branch or database round
 trip.
@@ -715,9 +710,9 @@ modeling.
 | Fact | Owner |
 |---|---|
 | Public targets and stored discriminator values | `src/schema/relation/polymorphic.ts` |
-| Private `(type, identity)` storage | `PolymorphicStorage` |
-| Direct payload-selected target | `ResolvedPolymorphicMutation` / `ResolvedPolymorphicEdge` |
-| Inverse fixed topology | `PolymorphicChildHeldToOne` / `PolymorphicChildHeldToMany` in `relation-data-builder.ts` |
+| Private `(type, identity)` storage | the `variantRowCarrier` edge in `schema/validation/relation-resolution.ts` |
+| Direct payload-selected target | the parsed `polymorphicTarget` arm / `SelectedVariantRow` |
+| Inverse fixed topology | `PolymorphicChildHeldRelation` in `relation-data-builder.ts` |
 | Exact membership scope | `RelationMembership.ts` |
 | Exact SQL membership predicate | `builders/correlation-utils.ts` |
 | User mutation meaning | `RelationMutationProgram` |
@@ -737,16 +732,15 @@ modeling.
 
 ## 17. Polymorphic collections
 
-A `s.polymorphicToMany` slot holds several memberships that may mix variants. The
+A variant `s.toMany` slot holds several memberships that may mix variants. The
 design rule for the whole feature is that it adds **coordination**, never a
 second junction DML owner, never a new relation-kind cross-product, and never a
 polymorphic scheduler.
 
 ### 17.1 Storage
 
-One fixed-target junction per variant, resolved at definition validation by
-`resolvePolymorphicMemberNames` / `resolvePolymorphicMemberJunctionTopology` and
-stored as a `kind: "toMany"` descriptor. Each member table carries a composite
+One fixed-target junction per variant, resolved once by the schema-wide topology
+owner and stored on the `variantJunctionCarrier` edge. Each member table carries a composite
 primary key over both complete sides, one index over the second side, two
 cascading foreign keys, and — for a variant whose inverse is singular — a
 `UNIQUE` over the complete TARGET side.
@@ -756,20 +750,22 @@ real foreign keys, which is what makes the database rather than the ORM the
 enforcer of membership here.
 
 `.through()` is an exact map keyed by public variant, `{ table, source, target }`
-per entry, exact at the type level and mirrored at runtime by `P017`.
+per entry, exact at the type level and again at construction — an extra key, a
+missing variant, or an extra entry key is refused at the call that wrote it.
 
 ### 17.2 Inverse cardinality is per member
 
-Unlike a to-one group's relation-wide `inverseCardinality`, each collection
-member carries its own: `"one"` for a bound fields-less `manyToOne`, `"many"` for
-a bound `manyToMany`, `"many"` when unbound. A member bound by more than one
-inverse relation is `P015`. An ordinary `manyToMany` pair partner on the target
-would serialize half a pair and is `P020`.
+Unlike a row-held carrier's relation-wide inverse cardinality, each collection
+member carries its own: `"one"` for a bound singular slot, `"many"` for a bound
+collection, `"many"` when unbound. Two slots on one target claiming the same
+variant are ambiguous (`R009`). The half-pair a member view could otherwise leave
+behind is unconstructible rather than refused: one resolved slot carries exactly
+one edge, so a slot bound to a carrier member is not also an ordinary junction
+endpoint.
 
-`P021` requires `.optional()` on a singular inverse. Its removal verbs hang on
-`slotMayBeEmpty` alone, and create-time requiredness does not cover a fields-less
-inverse, so without the rule the declaration silently degrades to a slot that can
-be filled and never emptied.
+A singular inverse needs no extra declaration to be emptiable. Its membership is
+one member-junction row and deleting that row clears it, so `disconnect` is
+unconditional — there is no shape here that can be filled and never emptied.
 
 ### 17.3 Public surface
 

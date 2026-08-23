@@ -65,14 +65,14 @@ const author = s.model({
   id: s.string().id(),
   email: s.string(),
   passwordHash: s.string(),
-  books: s.oneToMany(() => book).name("writer"),
-  tags: s.manyToMany(() => tag),
+  books: s.toMany(() => book).name("writer"),
+  tags: s.toMany(() => tag),
 });
 
 const tag = s.model({
   id: s.string().id(),
   label: s.string(),
-  authors: s.manyToMany(() => author),
+  authors: s.toMany(() => author),
 });
 
 const book = s.model({
@@ -81,7 +81,7 @@ const book = s.model({
   pages: s.int(),
   authorId: s.string(),
   writer: s
-    .manyToOne(() => author)
+    .toOne(() => author)
     .fields("authorId")
     .references("id")
     .name("writer"),
@@ -293,10 +293,10 @@ describe("names viborm itself creates take any string", () => {
       .model({
         id: s.string().id(),
         tags: s
-          .manyToMany(() => tag)
+          .toMany(() => tag)
           .through("t_a_g")
-          .A("aId")
-          .B("bId"),
+          .source("aId")
+          .target("bId"),
       })
       .map("any_table_name_at_all");
 
@@ -305,7 +305,7 @@ describe("names viborm itself creates take any string", () => {
   const _relationPairName = () =>
     s.model({
       id: s.string().id(),
-      books: s.oneToMany(() => book).name("wrtier"),
+      books: s.toMany(() => book).name("wrtier"),
     });
 
   test("the three probes above compile, which is the pin", () => {
@@ -355,7 +355,7 @@ describe("relation FK spellings are runtime-checked, not type-checked", () => {
       authorId: s.string(),
       // "authorIdd" is a typo the TYPE cannot catch — FK001 catches it.
       writer: s
-        .manyToOne(() => author)
+        .toOne(() => author)
         .fields("authorIdd")
         .references("id"),
     });
@@ -365,7 +365,7 @@ describe("relation FK spellings are runtime-checked, not type-checked", () => {
       authorId: s.string(),
       // "idd" is a typo the TYPE cannot catch — FK002 catches it.
       writer: s
-        .manyToOne(() => author)
+        .toOne(() => author)
         .fields("authorId")
         .references("idd"),
     });
@@ -374,7 +374,7 @@ describe("relation FK spellings are runtime-checked, not type-checked", () => {
     s.model({
       authorId: s.string(),
       writer: s
-        .manyToOne(() => author)
+        .toOne(() => author)
         .fields("authorId")
         .references("id")
         // @ts-expect-error - "cascde" is not a referential action
@@ -385,7 +385,7 @@ describe("relation FK spellings are runtime-checked, not type-checked", () => {
     s.model({
       id: s.string().id(),
       // @ts-expect-error - "cascde" is not a referential action
-      tags: s.manyToMany(() => tag).onDelete("cascde"),
+      tags: s.toMany(() => tag).onDelete("cascde"),
     });
 
   test("the two FK probes are the pinned negative, the actions are positive", () => {
@@ -1539,11 +1539,11 @@ const note = s.model({ id: s.string().id(), body: s.string() });
 const image = s.model({ id: s.string().id(), url: s.string() });
 const board = s.model({
   id: s.string().id(),
-  pinned: s.polymorphicToOne(
+  pinned: s.toOne(
     { note: () => note, image: () => image },
     { values: { note: "gate.note.v1", image: "gate.image.v1" } }
   ),
-  items: s.polymorphicToMany(
+  items: s.toMany(
     { note: () => note, image: () => image },
     { values: { note: "gate.items.note.v1", image: "gate.items.image.v1" } }
   ),

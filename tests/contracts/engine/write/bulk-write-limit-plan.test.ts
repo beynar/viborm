@@ -177,7 +177,7 @@ describe("the per-dialect spelling of a nonzero limit", () => {
 
   test("an internal predicate is scoped to the capped PK subquery", () => {
     const queryEngine = engine("PGlite");
-    const ctx = createQueryScope(queryEngine.adapter, schema.gadget);
+    const ctx = createQueryScope(queryEngine, schema.gadget);
     const tableName = "limit_plan_gadgets";
     const predicate = ctx.adapter.operators.eq(
       ctx.adapter.identifiers.column(tableName, "code"),

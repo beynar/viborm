@@ -7,14 +7,13 @@
 import { type Sql, sql } from "@sql";
 import {
   getColumnName,
-  getPolymorphicRelationInfo,
-  getRelationInfo,
-  isPolymorphicRelation,
-  isRelation,
   isScalarField,
+  isVariantRelation,
+  lookupRelation,
+  variantCarrier,
 } from "../context";
 import {
-  isPolymorphicToOneRelationInfo,
+  isVariantRowCarrier,
   QueryEngineError,
   type QueryScope,
 } from "../types";
@@ -63,20 +62,17 @@ function buildOrderByInternal(
       }
 
       if (!isScalarField(ctx.model, field)) {
-        if (isRelation(ctx.model, field)) {
+        const relationRef = lookupRelation(ctx, field);
+        if (relationRef) {
           if (!allowRelationOrder) {
             throw new QueryEngineError(
               `Relation orderBy '${field}' is not supported in this context.`
             );
           }
-          const relationInfo = getRelationInfo(ctx, field);
-          if (!relationInfo) {
-            throw new QueryEngineError(`Unknown orderBy field '${field}'.`);
-          }
           orders.push(
             ...buildRelationOrders(
               ctx,
-              relationInfo,
+              relationRef,
               value,
               alias,
               relationAliases
@@ -84,17 +80,17 @@ function buildOrderByInternal(
           );
           continue;
         }
-        if (isPolymorphicRelation(ctx.model, field)) {
+        if (isVariantRelation(ctx, field)) {
           if (!allowRelationOrder) {
             throw new QueryEngineError(
               `Relation orderBy '${field}' is not supported in this context.`
             );
           }
-          const polymorphic = getPolymorphicRelationInfo(ctx, field);
+          const polymorphic = variantCarrier(ctx, field);
           // A row-held polymorphic slot adds NO root ordering (plan §7.4), so it
           // stays the unknown key it has always been; only a collection's
           // `_count` reaches the order surface.
-          if (!polymorphic || isPolymorphicToOneRelationInfo(polymorphic)) {
+          if (!polymorphic || isVariantRowCarrier(polymorphic)) {
             throw new QueryEngineError(`Unknown orderBy field '${field}'.`);
           }
           orders.push(

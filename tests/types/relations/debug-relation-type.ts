@@ -7,17 +7,20 @@ const SimpleModel = s.model({
 });
 
 // Test 1: Direct factory - no chaining
-const direct1 = s.oneToOne(() => SimpleModel);
+const direct1 = s.toOne(() => SimpleModel);
 
 // Test 2: With fields config
-const direct2 = s.oneToOne(() => SimpleModel).fields("test");
+const direct2 = s
+  .toOne(() => SimpleModel)
+  .fields("test")
+  .references("id");
 
 // Test 3: Optional relation (new chainable API)
-const optionalRel = s.oneToOne(() => SimpleModel).optional();
+const optionalRel = s.toOne(() => SimpleModel);
 
 // Test 4: Full config chain (new chainable API)
 const fullConfigRel = s
-  .manyToOne(() => SimpleModel)
+  .toOne(() => SimpleModel)
   .fields("authorId")
   .references("id")
   .onDelete("cascade");

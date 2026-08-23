@@ -37,7 +37,7 @@ const account = s
     id: s.int().id(),
     email: s.string().unique(),
     label: s.string(),
-    notes: s.oneToMany(() => note),
+    notes: s.toMany(() => note),
   })
   .map("p3_fold_accounts");
 const note = s
@@ -46,7 +46,7 @@ const note = s
     body: s.string(),
     accountId: s.int(),
     account: s
-      .manyToOne(() => account)
+      .toOne(() => account)
       .fields("accountId")
       .references("id")
       .onDelete("cascade"),

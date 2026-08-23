@@ -54,7 +54,7 @@ const user = s
     name: s.string().nullable(),
     email: s.string(),
     age: s.int().nullable(),
-    posts: s.oneToMany(() => post),
+    posts: s.toMany(() => post),
   })
   .map("users");
 const post = s
@@ -66,7 +66,7 @@ const post = s
     views: s.int().default(0),
     authorId: s.string(),
     author: s
-      .manyToOne(() => user)
+      .toOne(() => user)
       .fields("authorId")
       .references("id"),
   })

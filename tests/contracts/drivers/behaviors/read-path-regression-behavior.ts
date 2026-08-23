@@ -1,4 +1,3 @@
-import { defineContract } from "@tests/contracts/contract";
 import {
   createClient,
   type VibORMClient,
@@ -8,9 +7,16 @@ import type { AnyDriver } from "@drivers";
 import { push } from "@migrations";
 import { s } from "@schema";
 import { sql } from "@sql";
+import { defineContract } from "@tests/contracts/contract";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
-const AMBIGUOUS_RELATION_PATTERN = /Ambiguous relation .*\.name\(\)/s;
+/**
+ * §9.4 moved this verdict EARLIER. An unnamed slot facing two competing
+ * partners used to be a READ-time refusal — the engine reached the include and
+ * could not choose a foreign key. The relation gate owns it now (R009), so the
+ * schema never produces a client that could mis-read in the first place.
+ */
+const AMBIGUOUS_RELATION_PATTERN = /competing inverse candidates/;
 const EMPTY_SELECT_PATTERN = /at least one truthy value/i;
 
 // =============================================================================
@@ -22,8 +28,8 @@ const user = s
   .model({
     id: s.string().id(),
     name: s.string(),
-    authored: s.oneToMany(() => post).name("author"),
-    edited: s.oneToMany(() => post).name("editor"),
+    authored: s.toMany(() => post).name("author"),
+    edited: s.toMany(() => post).name("editor"),
   })
   .map("read_path_users");
 
@@ -35,16 +41,14 @@ const post = s
     authorId: s.string().nullable(),
     editorId: s.string().nullable().map("editor_fk"),
     author: s
-      .manyToOne(() => user)
+      .toOne(() => user)
       .fields("authorId")
       .references("id")
-      .optional()
       .name("author"),
     editor: s
-      .manyToOne(() => user)
+      .toOne(() => user)
       .fields("editorId")
       .references("id")
-      .optional()
       .name("editor"),
   })
   .map("read_path_posts");
@@ -64,7 +68,7 @@ type NamedClient = VibORMClient<NamedClientConfig>;
 const ambiguousUser = s
   .model({
     id: s.string().id(),
-    posts: s.oneToMany(() => ambiguousPost),
+    posts: s.toMany(() => ambiguousPost),
   })
   .map("read_path_amb_users");
 
@@ -74,24 +78,17 @@ const ambiguousPost = s
     authorId: s.string(),
     editorId: s.string().nullable(),
     author: s
-      .manyToOne(() => ambiguousUser)
+      .toOne(() => ambiguousUser)
       .fields("authorId")
       .references("id"),
     editor: s
-      .manyToOne(() => ambiguousUser)
+      .toOne(() => ambiguousUser)
       .fields("editorId")
-      .references("id")
-      .optional(),
+      .references("id"),
   })
   .map("read_path_amb_posts");
 
 const ambiguousSchema = { user: ambiguousUser, post: ambiguousPost };
-
-type AmbiguousClientConfig = VibORMConfig & {
-  schema: typeof ambiguousSchema;
-  driver: AnyDriver;
-};
-type AmbiguousClient = VibORMClient<AmbiguousClientConfig>;
 
 // =============================================================================
 // Schema 3: many-to-many where both models have mapped PK columns
@@ -102,10 +99,10 @@ const taggedPost = s
     id: s.string().id().map("post_pk"),
     title: s.string(),
     tags: s
-      .manyToMany(() => tag)
+      .toMany(() => tag)
       .through("read_path_post_tags")
-      .A("postId")
-      .B("tagId"),
+      .source("postId")
+      .target("tagId"),
   })
   .map("read_path_mm_posts");
 
@@ -113,11 +110,10 @@ const tag = s
   .model({
     id: s.string().id().map("tag_pk"),
     name: s.string(),
-    posts: s
-      .manyToMany(() => taggedPost)
-      .through("read_path_post_tags")
-      .A("tagId")
-      .B("postId"),
+    // §6.6/D2: ONE endpoint owns every junction override and the other reads
+    // the mirrored view, so restating the same three names here is a second
+    // owner (R011) rather than an agreement.
+    posts: s.toMany(() => taggedPost),
   })
   .map("read_path_mm_tags");
 
@@ -136,7 +132,7 @@ type ManyToManyClient = VibORMClient<ManyToManyClientConfig>;
 const emptyProjectionParent = s
   .model({
     id: s.string().id(),
-    children: s.oneToMany(() => emptyProjectionChild),
+    children: s.toMany(() => emptyProjectionChild),
   })
   .omit({ id: true })
   .map("read_path_empty_parents");
@@ -146,7 +142,7 @@ const emptyProjectionChild = s
     id: s.string().id(),
     parentId: s.string(),
     parent: s
-      .manyToOne(() => emptyProjectionParent)
+      .toOne(() => emptyProjectionParent)
       .fields("parentId")
       .references("id"),
   })
@@ -397,25 +393,13 @@ export function runReadPathRegressionBehavior({
     });
 
     describe("ambiguous unnamed inverse relations", () => {
-      let client: AmbiguousClient;
-
-      beforeEach(async () => {
-        client = createClient({
-          schema: ambiguousSchema,
-          driver: createDriver(),
-        });
-        await push(client, { force: true });
-        await client.user.create({ data: { id: "u1" } });
-      });
-
-      afterEach(async () => {
-        await client.$disconnect();
-      });
-
-      test("include throws a descriptive error instead of picking the first FK", async () => {
-        await expect(
-          client.user.findMany({ include: { posts: true } })
-        ).rejects.toThrow(AMBIGUOUS_RELATION_PATTERN);
+      test("refuses the schema outright instead of picking the first FK", () => {
+        // No push, no client: the refusal lands before anything effect-capable
+        // exists, and it NAMES both competitors rather than reporting one
+        // unreadable include.
+        expect(() =>
+          createClient({ schema: ambiguousSchema, driver: createDriver() })
+        ).toThrow(AMBIGUOUS_RELATION_PATTERN);
       });
     });
 

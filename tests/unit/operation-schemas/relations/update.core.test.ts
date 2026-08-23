@@ -16,6 +16,7 @@
 
 import { s } from "@schema";
 import {
+  childHeldToOneSchemas,
   optionalManyToOneSchemas,
   optionalOneToOneSchemas,
   requiredManyToOneSchemas,
@@ -55,25 +56,32 @@ test("a to-one create accepts at most one operation while its update composes a 
     }).issues?.[0]?.message
   ).toBe("Unsupported to-one operation combination: create, connect");
 
-  // LATTICE CHANGE (Package H): supply-then-modify. `Post.author` spells no
-  // `.fields()`, so the update surface treats it as CHILD-HELD, the direction that
-  // composes every supplier with a modify.
+  // LATTICE CHANGE (Package H): supply-then-modify. `User.profile` stores no
+  // foreign key of its own — `Profile` does — so the update surface treats it as
+  // CHILD-HELD, the direction that composes every supplier with a modify.
   expect(
-    parse(requiredManyToOneSchemas.update, {
-      connect: { id: "author-1" },
-      update: { name: "Changed" },
+    parse(childHeldToOneSchemas.update, {
+      connect: { id: "profile-1" },
+      update: { bio: "Changed" },
     }).issues
   ).toBeUndefined();
   expect(
-    parse(requiredManyToOneSchemas.update, {
-      create: { id: "author-2", name: "Second", email: "second@example.com" },
-      update: { name: "Changed" },
+    parse(childHeldToOneSchemas.update, {
+      create: { id: "profile-2", bio: "Second" },
+      update: { bio: "Changed" },
     }).issues
   ).toBeUndefined();
 
   // The PARENT-HELD direction (`Profile.user` names `.fields("userId")`) composes only
   // `connect` with a modify: `create` and `connectOrCreate` beside an `update` would
-  // modify a row the record's own root statement is still producing.
+  // modify a row the record's own root statement is still producing. `Post.author`
+  // is the same direction now that it completes its own foreign key.
+  expect(
+    parse(requiredManyToOneSchemas.update, {
+      create: { id: "author-2", name: "Second", email: "second@example.com" },
+      update: { name: "Changed" },
+    }).issues?.[0]?.message
+  ).toBe("Unsupported to-one operation combination: create, update");
   expect(
     parse(optionalOneToOneSchemas.update, {
       connect: { id: "user-1" },
@@ -89,8 +97,19 @@ test("a to-one create accepts at most one operation while its update composes a 
 });
 
 test("to-one updates refuse an ambiguous data-field spelling", () => {
-  const target = s.model({ id: s.string().id(), data: s.json() });
-  const source = s.model({ target: s.oneToOne(() => target).optional() });
+  const target = s.model({
+    id: s.string().id(),
+    data: s.json(),
+    sources: s.toMany(() => source),
+  });
+  const source = s.model({
+    id: s.string().id(),
+    targetId: s.string(),
+    target: s
+      .toOne(() => target)
+      .fields("targetId")
+      .references("id"),
+  });
   const schema = createSchemaRegistry({ source, target }).proxy.source.relations
     .target.update;
 
@@ -103,28 +122,27 @@ test("to-one updates refuse an ambiguous data-field spelling", () => {
 test("inverse to-one delete follows slot absence while disconnect follows FK nullability", () => {
   const requiredParent = s.model({
     id: s.string().id(),
-    child: s.oneToOne(() => requiredChild).optional(),
+    child: s.toOne(() => requiredChild),
   });
   const requiredChild = s.model({
     id: s.string().id(),
     parentId: s.string().unique(),
     parent: s
-      .oneToOne(() => requiredParent)
+      .toOne(() => requiredParent)
       .fields("parentId")
       .references("id"),
   });
   const optionalParent = s.model({
     id: s.string().id(),
-    child: s.oneToOne(() => optionalChild).optional(),
+    child: s.toOne(() => optionalChild),
   });
   const optionalChild = s.model({
     id: s.string().id(),
     parentId: s.string().nullable().unique(),
     parent: s
-      .oneToOne(() => optionalParent)
+      .toOne(() => optionalParent)
       .fields("parentId")
-      .references("id")
-      .optional(),
+      .references("id"),
   });
   const registry = createSchemaRegistry({
     requiredParent,
@@ -205,28 +223,27 @@ test("inverse to-one delete follows slot absence while disconnect follows FK nul
 test("to-many disconnect follows membership clearability while set stays available", () => {
   const requiredParent = s.model({
     id: s.string().id(),
-    children: s.oneToMany(() => requiredChild),
+    children: s.toMany(() => requiredChild),
   });
   const requiredChild = s.model({
     id: s.string().id(),
     parentId: s.string(),
     parent: s
-      .manyToOne(() => requiredParent)
+      .toOne(() => requiredParent)
       .fields("parentId")
       .references("id"),
   });
   const optionalParent = s.model({
     id: s.string().id(),
-    children: s.oneToMany(() => optionalChild),
+    children: s.toMany(() => optionalChild),
   });
   const optionalChild = s.model({
     id: s.string().id(),
     parentId: s.string().nullable(),
     parent: s
-      .manyToOne(() => optionalParent)
+      .toOne(() => optionalParent)
       .fields("parentId")
-      .references("id")
-      .optional(),
+      .references("id"),
   });
   const registry = createSchemaRegistry({
     requiredParent,
@@ -241,9 +258,7 @@ test("to-many disconnect follows membership clearability while set stays availab
   type RequiredInput = InferInput<typeof requiredMembership>;
   type OptionalInput = InferInput<typeof optionalMembership>;
 
-  expectTypeOf<
-    "disconnect" extends keyof RequiredInput ? true : false
-  >().toEqualTypeOf<false>();
+  expectTypeOf<RequiredInput["disconnect"]>().toEqualTypeOf<undefined>();
   expectTypeOf<
     "set" extends keyof RequiredInput ? true : false
   >().toEqualTypeOf<true>();
@@ -678,10 +693,8 @@ describe("ToMany Update - Required (Author.posts)", () => {
   type UpdateInput = InferInput<typeof schema>;
 
   describe("type", () => {
-    test("type: omits disconnect but retains set for required membership", () => {
-      expectTypeOf<
-        "disconnect" extends keyof UpdateInput ? true : false
-      >().toEqualTypeOf<false>();
+    test("type: makes disconnect uninhabitable but retains set for required membership", () => {
+      expectTypeOf<UpdateInput["disconnect"]>().toEqualTypeOf<undefined>();
       expectTypeOf<
         "set" extends keyof UpdateInput ? true : false
       >().toEqualTypeOf<true>();
@@ -693,7 +706,6 @@ describe("ToMany Update - Required (Author.posts)", () => {
           id: string;
           title: string;
           content: string;
-          authorId: string;
         };
       }>().toMatchTypeOf<UpdateInput>();
       expectTypeOf<{
@@ -701,7 +713,6 @@ describe("ToMany Update - Required (Author.posts)", () => {
           id: string;
           title: string;
           content: string;
-          authorId: string;
         }>;
       }>().toMatchTypeOf<UpdateInput>();
     });
@@ -719,7 +730,6 @@ describe("ToMany Update - Required (Author.posts)", () => {
             id: string;
             title: string;
             content: string;
-            authorId: string;
           }>;
           skipDuplicates?: boolean;
         };
@@ -736,7 +746,6 @@ describe("ToMany Update - Required (Author.posts)", () => {
             id: string;
             title: string;
             content: string;
-            authorId: string;
           }>;
         };
       }>().toMatchTypeOf<UpdateInput>();
@@ -755,7 +764,6 @@ describe("ToMany Update - Required (Author.posts)", () => {
             id: string;
             title: string;
             content: string;
-            authorId: string;
           };
         };
       }>().not.toMatchTypeOf<UpdateInput>();
@@ -766,7 +774,6 @@ describe("ToMany Update - Required (Author.posts)", () => {
             id: string;
             title: string;
             content: string;
-            authorId: string;
           };
         };
       }>().toMatchTypeOf<UpdateInput>();
@@ -782,7 +789,6 @@ describe("ToMany Update - Required (Author.posts)", () => {
             id: string;
             title: string;
             content: string;
-            authorId: string;
           };
         }>;
       }>().not.toMatchTypeOf<UpdateInput>();
@@ -812,7 +818,6 @@ describe("ToMany Update - Required (Author.posts)", () => {
             id: string;
             title: string;
             content: string;
-            authorId: string;
           };
           update: { title?: string };
         };
@@ -833,7 +838,6 @@ describe("ToMany Update - Required (Author.posts)", () => {
             id: string;
             title: string;
             content: string;
-            authorId: string;
           };
         };
       }>().not.toMatchTypeOf<UpdateInput>();
@@ -847,7 +851,6 @@ describe("ToMany Update - Required (Author.posts)", () => {
           id: "post-1",
           title: "Hello",
           content: "World",
-          authorId: "a1",
         },
       };
       const result = parse(schema, input);
@@ -862,8 +865,8 @@ describe("ToMany Update - Required (Author.posts)", () => {
     test("runtime: accepts array create", () => {
       const input = {
         create: [
-          { id: "post-1", title: "P1", content: "C1", authorId: "a1" },
-          { id: "post-2", title: "P2", content: "C2", authorId: "a1" },
+          { id: "post-1", title: "P1", content: "C1" },
+          { id: "post-2", title: "P2", content: "C2" },
         ],
       };
       const result = parse(schema, input);
@@ -879,8 +882,8 @@ describe("ToMany Update - Required (Author.posts)", () => {
       const input = {
         createMany: {
           data: [
-            { id: "post-1", title: "P1", content: "C1", authorId: "a1" },
-            { id: "post-2", title: "P2", content: "C2", authorId: "a1" },
+            { id: "post-1", title: "P1", content: "C1" },
+            { id: "post-2", title: "P2", content: "C2" },
           ],
           skipDuplicates: true,
         },
@@ -911,7 +914,6 @@ describe("ToMany Update - Required (Author.posts)", () => {
             id: "post-1",
             title: "Hello",
             content: "World",
-            authorId: "a1",
           },
         },
       });
@@ -928,7 +930,6 @@ describe("ToMany Update - Required (Author.posts)", () => {
             id: "post-1",
             title: "Hello",
             content: "World",
-            authorId: "a1",
           },
         },
       ],
@@ -948,7 +949,6 @@ describe("ToMany Update - Required (Author.posts)", () => {
             id: "post-1",
             title: "Hello",
             content: "World",
-            authorId: "a1",
           },
         },
       ],
@@ -961,7 +961,6 @@ describe("ToMany Update - Required (Author.posts)", () => {
               id: "post-valid",
               title: "Valid",
               content: "World",
-              authorId: "a1",
             },
           },
           invalidItem,
@@ -1097,7 +1096,6 @@ describe("ToMany Update - Required (Author.posts)", () => {
             id: "post-1",
             title: "Created",
             content: "C",
-            authorId: "a1",
           },
           update: { title: "Updated" },
         },
@@ -1127,7 +1125,6 @@ describe("ToMany Update - Required (Author.posts)", () => {
               id: "post-1",
               title: "Created",
               content: "C",
-              authorId: "a1",
             },
             update: { title: "Updated" },
           },
@@ -1140,7 +1137,7 @@ describe("ToMany Update - Required (Author.posts)", () => {
 
     test("runtime: accepts combined operations", () => {
       const input = {
-        create: { id: "new-post", title: "New", content: "C", authorId: "a1" },
+        create: { id: "new-post", title: "New", content: "C" },
         connect: { id: "existing-post" },
         set: { id: "retained-post" },
         delete: { id: "deleted-post" },
@@ -1165,7 +1162,7 @@ describe("ToMany Update - Required (Author.posts)", () => {
   describe("output normalization", () => {
     test("output: normalizes single create to array", () => {
       const result = parse(schema, {
-        create: { id: "post-1", title: "T", content: "C", authorId: "a1" },
+        create: { id: "post-1", title: "T", content: "C" },
       });
       expect(result.issues).toBeUndefined();
       if (!result.issues) {
@@ -1243,54 +1240,53 @@ describe("N1 the omitted-FK owner applied to nested update data", () => {
       id: s.string().id(),
       label: s.string(),
       // CHILD-HELD: `item.ownerId` is this relation's own foreign key.
-      items: s.oneToMany(() => item),
+      items: s.toMany(() => item),
       // JUNCTION: a third table holds membership, so `tag.featuredOwnerId` — which
-      // belongs to a DIFFERENT relation — is not this one's to omit.
-      tags: s.manyToMany(() => tag),
+      // belongs to a DIFFERENT relation — is not this one's to omit. Both edges
+      // reach the same pair of models, so each names itself (§6.2).
+      tags: s.toMany(() => tag).name("OwnerTags"),
+      featuredTags: s.toMany(() => tag).name("FeaturedTag"),
       // CHILD-HELD TO-ONE (inverse): `profile.ownerId` is this relation's own key,
       // and it reaches the to-one `update` and `upsert` arms rather than the to-many
       // ones.
-      profile: s.oneToOne(() => profile).optional(),
+      profile: s.toOne(() => profile),
     });
     const profile = s.model({
       id: s.string().id(),
       bio: s.string(),
       ownerId: s.string().unique().nullable(),
       owner: s
-        .oneToOne(() => owner)
+        .toOne(() => owner)
         .fields("ownerId")
-        .references("id")
-        .optional(),
+        .references("id"),
     });
     const item = s.model({
       id: s.string().id(),
       title: s.string(),
       ownerId: s.string().nullable(),
       owner: s
-        .manyToOne(() => owner)
+        .toOne(() => owner)
         .fields("ownerId")
-        .references("id")
-        .optional(),
+        .references("id"),
       // PARENT-HELD, self-referential: `parentId` sits on the row spelling the
       // payload, never on the target, so a nested `parent: { update }` may name it.
       parentId: s.string().nullable(),
       parent: s
-        .manyToOne(() => item)
+        .toOne(() => item)
         .fields("parentId")
-        .references("id")
-        .optional(),
-      children: s.oneToMany(() => item),
+        .references("id"),
+      children: s.toMany(() => item),
     });
     const tag = s.model({
       id: s.string().id(),
       name: s.string(),
       featuredOwnerId: s.string().nullable(),
       featuredOwner: s
-        .manyToOne(() => owner)
+        .toOne(() => owner)
         .fields("featuredOwnerId")
         .references("id")
-        .optional(),
-      owners: s.manyToMany(() => owner),
+        .name("FeaturedTag"),
+      owners: s.toMany(() => owner).name("OwnerTags"),
     });
     return { owner, item, tag, profile };
   })();

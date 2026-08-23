@@ -1,10 +1,10 @@
 import type { AnyModel } from "@schema/model";
 import {
-  type AnyPolymorphicRelation,
-  type PolymorphicCardinalityOf,
-  type PolymorphicRelationState,
-  polymorphicCardinality,
+  type AnyRelation,
+  isVariantRelationState,
+  type VariantRelationState,
 } from "@schema/relation";
+import type { VariantEntries } from "@schema/relation/static-membership";
 import { lazyRecord } from "@validation/lazy";
 import type { ModelSchemas } from "@validation/model";
 import type { VibSchema } from "@validation/types";
@@ -117,18 +117,20 @@ import {
 } from "./update";
 
 type TargetModel<
-  State extends PolymorphicRelationState,
-  PublicType extends keyof State["targets"],
-> = State["targets"][PublicType] extends () => infer Target
+  State extends VariantRelationState,
+  PublicType extends keyof VariantEntries<State>,
+> = VariantEntries<State>[PublicType] extends {
+  readonly getter: () => infer Target;
+}
   ? Target extends AnyModel
     ? Target
     : never
   : never;
 
 export type RegisteredPolymorphicTargetSchemas<
-  State extends PolymorphicRelationState,
+  State extends VariantRelationState,
 > = {
-  readonly [PublicType in keyof State["targets"]]: () => ModelSchemas<
+  readonly [PublicType in keyof VariantEntries<State>]: () => ModelSchemas<
     TargetModel<State, PublicType>
   >;
 };
@@ -138,7 +140,7 @@ type RefusedFamily = VibSchema<never, never>;
 
 /** The eight families a polymorphic TO-ONE slot offers. */
 export interface PolymorphicToOneRelationSchemas<
-  State extends PolymorphicRelationState,
+  State extends VariantRelationState,
   Getters extends PolymorphicTargetSchemaGetters<State>,
 > {
   readonly filter: PolymorphicFilterSchema<State, Getters>;
@@ -153,7 +155,7 @@ export interface PolymorphicToOneRelationSchemas<
 
 /** The eight families a polymorphic COLLECTION offers. */
 export interface PolymorphicCollectionRelationSchemas<
-  State extends PolymorphicRelationState,
+  State extends VariantRelationState,
   Getters extends PolymorphicTargetSchemaGetters<State>,
 > {
   readonly filter: PolymorphicCollectionFilterSchema<Getters>;
@@ -165,7 +167,7 @@ export interface PolymorphicCollectionRelationSchemas<
    *
    * A collection row is relation-BEARING (plan §9.6): `routing.ts`'s
    * `relationBearingRow` now answers true for a polymorphic collection key
-   * through `isPolymorphicCollectionRelation`, so the whole call routes to the
+   * through `isVariantCollectionRelation`, so the whole call routes to the
    * relation-bearing record series and the member junction inserts follow the
    * owner root. The direct polymorphic TO-ONE row keeps its narrower
    * connect-only union and its grouped INSERT.
@@ -179,20 +181,30 @@ export interface PolymorphicCollectionRelationSchemas<
 }
 
 /**
- * ONE dispatch, both levels. The runtime reads
- * {@link polymorphicCardinality}; the type reads its twin
- * {@link PolymorphicCardinalityOf}. Neither tests `state.cardinality` inline.
+ * ONE dispatch, both levels: the declaration states its own slot cardinality
+ * and both halves read that one fact.
  */
 export type PolymorphicRelationSchemas<
-  State extends PolymorphicRelationState,
+  State extends VariantRelationState,
   Getters extends PolymorphicTargetSchemaGetters<State>,
-> = PolymorphicCardinalityOf<State> extends "many"
+> = State["cardinality"] extends "many"
   ? PolymorphicCollectionRelationSchemas<State, Getters>
   : PolymorphicToOneRelationSchemas<State, Getters>;
 
+/**
+ * The variant-target half of one model's ONE relation map.
+ *
+ * The map holds both target domains (§5.2); this projection is the TARGET-KIND
+ * step of the operation-schema dispatch (§8.2), and it is where a variant
+ * slot's eight-family bundle parts company with a model slot's seven. Selecting
+ * the keys is not a second topology view: `target.kind` is a declared fact, and
+ * the two bundles genuinely differ in which families they own.
+ */
 export type GetPolymorphicRelationsSchemas<Source extends AnyModel> = {
-  readonly [RelationKey in keyof Source["~"]["state"]["polymorphicRelations"]]: Source["~"]["state"]["polymorphicRelations"][RelationKey]["~"]["state"] extends infer State extends
-    PolymorphicRelationState
+  readonly [RelationKey in VariantRelationKeys<
+    Source["~"]["state"]["relations"]
+  >]: Source["~"]["state"]["relations"][RelationKey]["~"]["state"] extends infer State extends
+    VariantRelationState
     ? PolymorphicRelationSchemas<
         State,
         RegisteredPolymorphicTargetSchemas<State>
@@ -200,13 +212,30 @@ export type GetPolymorphicRelationsSchemas<Source extends AnyModel> = {
     : never;
 };
 
-function getTargetSchemas<State extends PolymorphicRelationState>(
-  relation: AnyPolymorphicRelation,
+/** The keys of a relation map whose target domain is a variant map. */
+export type VariantRelationKeys<Relations> = {
+  [Key in keyof Relations]: Relations[Key] extends {
+    readonly "~": {
+      readonly state: { readonly target: { readonly kind: "variants" } };
+    };
+  }
+    ? Key
+    : never;
+}[keyof Relations];
+
+function getTargetSchemas<State extends VariantRelationState>(
+  relation: AnyRelation,
+  state: VariantRelationState,
   resolve: (model: AnyModel) => ModelSchemas<AnyModel>
 ): RegisteredPolymorphicTargetSchemas<State> {
   const getters: Record<string, () => ModelSchemas<AnyModel>> = {};
-  for (const entry of relation["~"].targetEntries()) {
-    getters[entry.publicType] = () => resolve(entry.targetModel as AnyModel);
+  for (const publicType of Object.keys(state.target.entries)) {
+    // `settleTarget` is the ONE sanctioned getter invocation: it settles each
+    // target once per declaration and hands every consumer — this schema
+    // registry, another schema graph reusing the same terminal — the same
+    // return or the same normalized Error.
+    getters[publicType] = () =>
+      resolve(relation["~"].settleTarget(publicType) as AnyModel);
   }
   return getters as unknown as RegisteredPolymorphicTargetSchemas<State>;
 }
@@ -233,7 +262,7 @@ function getTargetSchemas<State extends PolymorphicRelationState>(
  *
  *   PACKAGE E LANDS THE ROOT-`createMany` ROW. The bulk row now mounts the SAME
  *   `create` family, because `routing.ts`'s `relationBearingRow` answers true for
- *   a collection key (through `isPolymorphicCollectionRelation`) and sends the
+ *   a collection key (through `isVariantCollectionRelation`) and sends the
  *   whole call to the relation-bearing record series, where the member junction
  *   inserts follow the owner root. The silent-drop hazard the old refusal closed
  *   is now closed by the ROUTE; `bulk-polymorphic-connect.ts`'s narrowing throw
@@ -255,9 +284,9 @@ function getTargetSchemas<State extends PolymorphicRelationState>(
  * reachable only through a directly-built scope. Nothing downstream re-checks
  * cardinality on this axis.
  *
- * The TYPE half dispatches on the same fact through `PolymorphicCardinalityOf`,
- * so the B3 type-advertises / runtime-refuses skew is closed: both halves now
- * say collection reads AND collection writes work.
+ * The TYPE half dispatches on the same declared slot cardinality, so the
+ * type-advertises / runtime-refuses skew is closed: both halves say collection
+ * reads AND collection writes work.
  */
 
 export function getPolymorphicRelationsSchemas<Source extends AnyModel>(
@@ -265,14 +294,14 @@ export function getPolymorphicRelationsSchemas<Source extends AnyModel>(
   resolve: (model: AnyModel) => ModelSchemas<AnyModel>
 ): GetPolymorphicRelationsSchemas<Source> {
   const builders: Record<string, () => unknown> = {};
-  for (const relationKey of Object.keys(
-    source["~"].state.polymorphicRelations
-  )) {
-    const relation = source["~"].state.polymorphicRelations[relationKey]!;
+  const relations: Record<string, AnyRelation> = source["~"].state.relations;
+  for (const relationKey of Object.keys(relations)) {
+    const relation = relations[relationKey]!;
+    const state = relation["~"].state;
+    if (!isVariantRelationState(state)) continue;
     builders[relationKey] = () => {
-      const state = relation["~"].state;
-      const targets = getTargetSchemas<typeof state>(relation, resolve);
-      if (polymorphicCardinality(state) === "many") {
+      const targets = getTargetSchemas<typeof state>(relation, state, resolve);
+      if (state.cardinality === "many") {
         return lazyRecord({
           filter: () => polymorphicCollectionFilterFactory(state, targets),
           create: () => polymorphicCollectionCreateFactory(state, targets),

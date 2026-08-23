@@ -55,11 +55,10 @@ const genTree = (() => {
       name: s.string(),
       parentId: s.int().nullable(),
       parent: s
-        .manyToOne(() => node)
+        .toOne(() => node)
         .fields("parentId")
-        .references("id")
-        .optional(),
-      children: s.oneToMany(() => node),
+        .references("id"),
+      children: s.toMany(() => node),
     })
     .map("x1b_gen_node");
   return { node };
@@ -139,14 +138,14 @@ const blogSchema = (() => {
     .model({
       id: s.string().id(),
       title: s.string(),
-      posts: s.oneToMany(() => post),
+      posts: s.toMany(() => post),
     })
     .map("x1b_blogs");
   const author = s
     .model({
       id: s.int().id().increment(),
       name: s.string(),
-      posts: s.oneToMany(() => post),
+      posts: s.toMany(() => post),
     })
     .map("x1b_authors");
   const post = s
@@ -155,16 +154,14 @@ const blogSchema = (() => {
       title: s.string(),
       blogId: s.string().nullable(),
       blog: s
-        .manyToOne(() => blog)
+        .toOne(() => blog)
         .fields("blogId")
-        .references("id")
-        .optional(),
+        .references("id"),
       authorId: s.int().nullable(),
       author: s
-        .manyToOne(() => author)
+        .toOne(() => author)
         .fields("authorId")
-        .references("id")
-        .optional(),
+        .references("id"),
     })
     .map("x1b_posts");
   return { blog, author, post };

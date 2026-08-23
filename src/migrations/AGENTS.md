@@ -290,8 +290,8 @@ index from its validated storage descriptor:
 ```
 
 Required relations make both columns non-null; optional relations make both
-nullable. The composite index is non-unique for an inverse `oneToMany` and
-unique for an inverse `oneToOne`.
+nullable. The composite index is non-unique for a plural inverse (`s.toMany`)
+and unique for a singular one (`s.toOne`).
 
 A collection polymorphic field instead serializes ONE MEMBER JUNCTION TABLE PER
 VARIANT, emitted by `serializeMemberJunction` from the same
@@ -304,8 +304,9 @@ member's `inverseCardinality` is `"one"` — a `UNIQUE` over the complete TARGET
 side. The unique side is the target group itself, never the reverse index
 flipped and never a primary-key prefix, because when the target sorts
 canonical-first neither of those makes the target columns unique. Referential
-actions on a member junction are fixed, so `resolveJunctionPairActions` is never
-called on that path and no synthetic `manyToMany` state exists anywhere.
+actions on a member junction are fixed, so member junctions never consult the
+ordinary pair's actions and no synthetic ordinary relation state exists
+anywhere.
 
 Changing inverse cardinality is therefore an ordinary structural diff — an index
 or unique-constraint flip on a to-one slot, an added or dropped unique
@@ -313,10 +314,11 @@ constraint on the one affected member table for a collection. Existing duplicate
 rows make the restricting direction fail
 transactionally at the database; VibORM does not synthesize deduplication DML.
 The private columns never enter public scalar state, and no cross-target FK or
-CHECK constraint is emitted for row-held storage. A polymorphic-bound
-`manyToMany` is a member VIEW and is excluded from the serializer's ordinary
-junction walk; the half-pair such a view could otherwise leave behind is refused
-at definition validation as `P020`.
+CHECK constraint is emitted for row-held storage. A variant-bound plural inverse
+is a member VIEW and is excluded from the serializer's ordinary junction walk;
+the half-pair such a view could otherwise leave behind is now unconstructible
+rather than refused, because one resolved slot carries exactly one edge — a slot
+bound to a carrier member is not also an ordinary junction endpoint.
 
 `generate/polymorphic-history.ts` is the SOLE comparator after accepted
 structural renames, and classification is total. A public rename with stable
@@ -385,6 +387,13 @@ junction columns paired with the endpoint row-key fields. The serializer uses
 those groups unchanged for columns, the combined junction primary key, the
 reverse-side index, and both foreign keys. Never project a compound side to its
 first member or rederive positional names in migration code.
+
+The serializer consumes those resolved physical names unchanged. Ordinary
+defaults use schema object keys, not JavaScript variable names or mapped table
+names; a complete `.through().source().target()` declaration pins the table and
+both tokens. Variant-member defaults use the mapped owner table as the table
+prefix and the owner schema key as the owner token; an exact `.through(...)`
+entry pins `table`, `source`, and `target`.
 
 ---
 

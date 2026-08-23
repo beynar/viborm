@@ -577,14 +577,15 @@ describe("write boundary many-to-many dual-run oracle (Direct vs Observed)", () 
 });
 
 // ---------------------------------------------------------------------------
-// Self-referential M2M direction. `user.follows` is `.A("followerId")
-// .B("followedId")`, so its junction table is `user_user(followerId,
-// followedId)` and A/B orientation is the whole correctness question: a
-// connect must write (follower=parent, followed=target), not the reverse. The
-// dual-run oracle proves the observable follows/followedBy membership; the raw
-// junction-row inspection proves the underlying A/B column orientation Observed's
-// reuse of Direct's junction sides produces (the era's `getManyToManyJoinInfo`,
-// since Phase 3 the bound junction membership).
+// Self-referential M2M direction. `user.follows` carries the whole junction
+// configuration — source `followerId`, target `followedId` — so its table is
+// `user_user(followerId, followedId)` and source/target orientation is
+// the whole correctness question: a connect must write (follower=parent,
+// followed=target), not the reverse. `user.followedBy` declares nothing and
+// reads the mirrored view. The dual-run oracle proves the observable
+// follows/followedBy membership; the raw junction-row inspection proves the
+// underlying column orientation Observed's reuse of Direct's junction sides
+// produces (since Phase 3, the bound junction membership).
 // ---------------------------------------------------------------------------
 
 const selfRefSeed = async (client: ReturnType<typeof makeClient>) => {

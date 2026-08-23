@@ -19,7 +19,7 @@ import {
   assertRelationKeyUpdatesAreCompilable,
   assertSingleTargetMembershipMoveAppliesToRecords,
 } from "../relation-key-legality";
-import type { QueryScope, RelationInfo } from "../types";
+import type { QueryScope, RelationRef } from "../types";
 import {
   exactlyOneRow,
   nestedWriteFailure,
@@ -110,7 +110,7 @@ export interface NestedSelectedRecordSeriesInput {
   /** Model whose public relation schema admitted this nested payload. */
   readonly sourceScope: QueryScope;
   readonly targetScope: QueryScope;
-  readonly relationInfo: RelationInfo;
+  readonly relationRef: RelationRef;
   readonly member: NestedSelectedMember;
   readonly capture: ReadStep;
   readonly recordCompilers: RecordCompilerSeam;
@@ -150,7 +150,7 @@ export class NestedSelectedRecordSeries implements RecordSeriesOperation {
             kind: "replayPerRecord",
             source: requireReplaySource(
               input.member.data,
-              input.relationInfo.name
+              input.relationRef.name
             ),
           }
         : input.member;
@@ -194,13 +194,13 @@ export class NestedSelectedRecordSeries implements RecordSeriesOperation {
     const value = captured[`${this.input.capture.id}.rows`];
     if (!Array.isArray(value)) {
       throw new QueryEngineError(
-        `query-engine-v2 nested selected series for relation '${this.input.relationInfo.name}' did not expose its captured target rows.`
+        `query-engine-v2 nested selected series for relation '${this.input.relationRef.name}' did not expose its captured target rows.`
       );
     }
     const rows = value.map((row) => {
       if (!isRecord(row)) {
         throw new QueryEngineError(
-          `query-engine-v2 nested selected series for relation '${this.input.relationInfo.name}' captured an invalid target row.`
+          `query-engine-v2 nested selected series for relation '${this.input.relationRef.name}' captured an invalid target row.`
         );
       }
       return row;
@@ -259,11 +259,11 @@ export class NestedSelectedRecordSeries implements RecordSeriesOperation {
     const scope = new StepScope();
     const childName = getStepModelName(
       this.input.targetScope.model,
-      this.input.relationInfo.name
+      this.input.relationRef.name
     );
     const failure = nestedWriteFailure(
-      relationTargetNotFound(this.input.relationInfo, "update"),
-      this.input.relationInfo.name,
+      relationTargetNotFound(this.input.relationRef, "update"),
+      this.input.relationRef.name,
       false
     );
     const compiler = this.input.recordCompilers.updateSelected({
@@ -274,7 +274,7 @@ export class NestedSelectedRecordSeries implements RecordSeriesOperation {
       relations: parsed.relations,
       targetRead: { label: `${childName}.find` },
       rootWrite: { label: `${childName}.update` },
-      relationName: this.input.relationInfo.name,
+      relationName: this.input.relationRef.name,
       rootWriteFailure: failure,
       pinnedTarget: capturedTargetValues(
         this.input.targetScope.model,
@@ -292,7 +292,7 @@ export class NestedSelectedRecordSeries implements RecordSeriesOperation {
 
   /** Re-enter the same projected nested-update schema that accepted the source. */
   private replayData(source: Record<string, unknown>): ParsedRecordPrograms {
-    const relationName = this.input.relationInfo.name;
+    const relationName = this.input.relationRef.name;
     const relationSchemas = this.input.engine.schemaRegistry.getModelSchemas(
       this.input.sourceScope.model
     ).relations[relationName];
@@ -309,7 +309,7 @@ export class NestedSelectedRecordSeries implements RecordSeriesOperation {
       `data.${relationName}`
     );
     const program = buildRelationMutationProgram(
-      this.input.relationInfo,
+      this.input.relationRef,
       parsedPayload,
       sourcePayload
     );
@@ -393,7 +393,7 @@ export class NestedSelectedRecordSeries implements RecordSeriesOperation {
     const rows = known[planningKey(compiler.targetReadId, "rows")];
     if (!(Array.isArray(rows) && isRecord(rows[0]))) {
       throw new QueryEngineError(
-        `query-engine-v2 nested selected series for relation '${this.input.relationInfo.name}' cannot re-pin an uncaptured target row.`
+        `query-engine-v2 nested selected series for relation '${this.input.relationRef.name}' cannot re-pin an uncaptured target row.`
       );
     }
     const captured = rows[0];

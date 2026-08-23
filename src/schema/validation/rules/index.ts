@@ -1,19 +1,14 @@
-// Validation Rules Index
+// Advisory validation rules.
+//
+// Structural relation topology is not here: the mandatory gate
+// (`../relation-resolution`) owns it and runs at every effect-capable boundary,
+// including the ones that skip this list.
 
-export * from "./fk";
 export * from "./model";
-export * from "./polymorphic";
 export * from "./relation";
 
 import type { ValidationRule } from "../types";
-import { fkRules } from "./fk";
 import { modelRules } from "./model";
-import { polymorphicRules } from "./polymorphic";
 import { relationRules } from "./relation";
 
-export const allRules: ValidationRule[] = [
-  ...modelRules,
-  ...relationRules,
-  ...polymorphicRules,
-  ...fkRules,
-];
+export const allRules: ValidationRule[] = [...modelRules, ...relationRules];

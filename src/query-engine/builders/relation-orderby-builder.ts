@@ -9,15 +9,14 @@ import { isRecord } from "@validation/value-guards";
 import {
   createChildScope,
   getColumnName,
-  getRelationInfo,
-  isRelation,
   isScalarField,
+  lookupRelation,
 } from "../context";
 import {
-  type PolymorphicToManyRelationInfo,
   QueryEngineError,
   type QueryScope,
-  type RelationInfo,
+  type RelationRef,
+  type VariantJunctionCarrierSlot,
 } from "../types";
 import { assertExactDecimalOperation } from "./decimal-portability";
 import {
@@ -47,35 +46,35 @@ const MAX_RELATION_ORDER_DEPTH = 8;
 
 export function buildRelationOrders(
   ctx: QueryScope,
-  relationInfo: RelationInfo,
+  relationRef: RelationRef,
   value: unknown,
   parentAlias: string,
   relationAliases: Map<string, RelationOrderAlias>
 ): Sql[] {
   if (!isRecord(value)) {
     throw new QueryEngineError(
-      `Relation orderBy '${relationInfo.name}' must be an object.`
+      `Relation orderBy '${relationRef.name}' must be an object.`
     );
   }
 
-  if (relationInfo.cardinality === "one") {
+  if (relationRef.cardinality === "one") {
     return buildToOneRelationOrders(
       ctx,
-      relationInfo,
+      relationRef,
       value,
       parentAlias,
       relationAliases,
-      relationInfo.name,
+      relationRef.name,
       1
     );
   }
 
-  return buildToManyRelationOrders(ctx, relationInfo, value, parentAlias);
+  return buildToManyRelationOrders(ctx, relationRef, value, parentAlias);
 }
 
 function buildToOneRelationOrders(
   ctx: QueryScope,
-  relationInfo: RelationInfo,
+  relationRef: RelationRef,
   orderBy: Record<string, unknown>,
   parentAlias: string,
   relationAliases: Map<string, RelationOrderAlias>,
@@ -91,14 +90,14 @@ function buildToOneRelationOrders(
   const orders: Sql[] = [];
   const relatedAlias = getRelationOrderAlias(
     ctx,
-    relationInfo,
+    relationRef,
     parentAlias,
     relationAliases,
     relationPath
   ).alias;
   const targetCtx = createChildScope(
     ctx,
-    relationInfo.targetModel,
+    relationRef.targetModel,
     relatedAlias
   );
 
@@ -109,15 +108,9 @@ function buildToOneRelationOrders(
 
     const fieldPath = `${relationPath}.${field}`;
 
-    if (isRelation(relationInfo.targetModel, field)) {
-      const nestedRelationInfo = getRelationInfo(targetCtx, field);
-      if (!nestedRelationInfo) {
-        throw new QueryEngineError(
-          `Unknown relation orderBy field '${fieldPath}'.`
-        );
-      }
-
-      if (nestedRelationInfo.cardinality === "many") {
+    const nestedRelationRef = lookupRelation(targetCtx, field);
+    if (nestedRelationRef) {
+      if (nestedRelationRef.cardinality === "many") {
         throw new QueryEngineError(
           `Relation orderBy '${fieldPath}' cannot order through a to-many relation; use '_count'.`
         );
@@ -132,7 +125,7 @@ function buildToOneRelationOrders(
       orders.push(
         ...buildToOneRelationOrders(
           targetCtx,
-          nestedRelationInfo,
+          nestedRelationRef,
           value,
           relatedAlias,
           relationAliases,
@@ -143,7 +136,7 @@ function buildToOneRelationOrders(
       continue;
     }
 
-    if (!isScalarField(relationInfo.targetModel, field)) {
+    if (!isScalarField(relationRef.targetModel, field)) {
       throw new QueryEngineError(
         `Unknown relation orderBy field '${fieldPath}'.`
       );
@@ -154,9 +147,9 @@ function buildToOneRelationOrders(
     // wrongly as a local one.
     assertExactDecimalOperation(targetCtx, field, "orderBy", fieldPath);
 
-    const columnName = getColumnName(relationInfo.targetModel, field);
+    const columnName = getColumnName(relationRef.targetModel, field);
     const column = ctx.adapter.identifiers.column(relatedAlias, columnName);
-    const scalar = relationInfo.targetModel["~"].state.scalars[field];
+    const scalar = relationRef.targetModel["~"].state.scalars[field];
     orders.push(
       buildSingleOrder(ctx, column, value, {
         name: fieldPath,
@@ -176,7 +169,7 @@ function buildToOneRelationOrders(
 
 function getRelationOrderAlias(
   ctx: QueryScope,
-  relationInfo: RelationInfo,
+  relationRef: RelationRef,
   parentAlias: string,
   relationAliases: Map<string, RelationOrderAlias>,
   relationPath: string
@@ -196,7 +189,7 @@ function getRelationOrderAlias(
   // never possible — its FROM is a comma pair, so `LEFT JOIN (a, b) ON (…)` is
   // not a statement — which is why a singular polymorphic inverse reaching here
   // needs the traversal's own answer rather than this builder's.
-  const traversal = buildRelationTraversal(ctx, relationInfo, parentAlias);
+  const traversal = buildRelationTraversal(ctx, relationRef, parentAlias);
   const entry = {
     alias: traversal.targetAlias,
     join: sql.join(traversal.joins(), " "),
@@ -207,7 +200,7 @@ function getRelationOrderAlias(
 
 function buildToManyRelationOrders(
   ctx: QueryScope,
-  relationInfo: RelationInfo,
+  relationRef: RelationRef,
   orderBy: Record<string, unknown>,
   parentAlias: string
 ): Sql[] {
@@ -217,14 +210,14 @@ function buildToManyRelationOrders(
 
   if (definedEntries.length === 0) {
     throw new QueryEngineError(
-      `Relation orderBy '${relationInfo.name}' requires _count.`
+      `Relation orderBy '${relationRef.name}' requires _count.`
     );
   }
 
   for (const [field] of definedEntries) {
     if (field !== "_count") {
       throw new QueryEngineError(
-        `Relation orderBy '${relationInfo.name}.${field}' is not supported. Use '${relationInfo.name}._count' instead.`
+        `Relation orderBy '${relationRef.name}.${field}' is not supported. Use '${relationRef.name}._count' instead.`
       );
     }
   }
@@ -232,11 +225,11 @@ function buildToManyRelationOrders(
   const countOrder = orderBy._count;
   if (countOrder !== "asc" && countOrder !== "desc") {
     throw new QueryEngineError(
-      `Relation orderBy '${relationInfo.name}._count' must be 'asc' or 'desc'.`
+      `Relation orderBy '${relationRef.name}._count' must be 'asc' or 'desc'.`
     );
   }
 
-  const countSql = buildRelationCount(ctx, relationInfo, true, parentAlias);
+  const countSql = buildRelationCount(ctx, relationRef, true, parentAlias);
   return [buildSingleOrder(ctx, countSql, countOrder)];
 }
 
@@ -249,13 +242,13 @@ function buildToManyRelationOrders(
  */
 export function buildPolymorphicRelationOrders(
   ctx: QueryScope,
-  relation: PolymorphicToManyRelationInfo,
+  relation: VariantJunctionCarrierSlot,
   value: unknown,
   parentAlias: string
 ): Sql[] {
   if (!isRecord(value)) {
     throw new QueryEngineError(
-      `Relation orderBy '${relation.name}' must be an object.`
+      `Relation orderBy '${relation.slot.field}' must be an object.`
     );
   }
   const definedEntries = Object.entries(value).filter(
@@ -263,20 +256,20 @@ export function buildPolymorphicRelationOrders(
   );
   if (definedEntries.length === 0) {
     throw new QueryEngineError(
-      `Relation orderBy '${relation.name}' requires _count.`
+      `Relation orderBy '${relation.slot.field}' requires _count.`
     );
   }
   for (const [field] of definedEntries) {
     if (field !== "_count") {
       throw new QueryEngineError(
-        `Relation orderBy '${relation.name}.${field}' is not supported. Use '${relation.name}._count' instead.`
+        `Relation orderBy '${relation.slot.field}.${field}' is not supported. Use '${relation.slot.field}._count' instead.`
       );
     }
   }
   const countOrder = value._count;
   if (countOrder !== "asc" && countOrder !== "desc") {
     throw new QueryEngineError(
-      `Relation orderBy '${relation.name}._count' must be 'asc' or 'desc'.`
+      `Relation orderBy '${relation.slot.field}._count' must be 'asc' or 'desc'.`
     );
   }
   return [

@@ -1,6 +1,8 @@
 import type { AnyDriver } from "@drivers";
 import type { InstrumentationContext } from "@instrumentation";
 import type { Model } from "@schema/model";
+import type { ResolvedRelationIndex } from "@schema/validation/relation-resolution";
+import { resolveSchemaOrThrow } from "@schema/validation/validator";
 import type { Sql } from "@sql";
 import type { SchemaRegistryLookup } from "@validation";
 import { normalizedBindParameterLimit } from "./bind-budget";
@@ -59,6 +61,14 @@ export class QueryEngine {
 
   get adapter() {
     return this.driver.adapter;
+  }
+
+  /**
+   * The one resolved topology index this client was composed over, exposed so a
+   * scope opened from the engine shares it BY IDENTITY (§11.4.10).
+   */
+  get relations(): ResolvedRelationIndex {
+    return this.registry.relations;
   }
 
   /**
@@ -140,10 +150,16 @@ export class QueryEngine {
 /**
  * Create a simple in-memory model registry.
  * Note: Assumes schema is already hydrated via hydrateSchemaNames().
+ *
+ * The DEFAULT `relations` is the standalone-composition case: a registry built
+ * on its own resolves once for its own lifecycle (§11.4.10). A CLIENT passes its
+ * gate's index positionally instead, so registry, omit rewriting and every query
+ * scope share one object by identity.
  */
 export function createModelRegistry(
   models: Record<string, Model<any>>,
-  schemaRegistry: SchemaRegistryLookup
+  schemaRegistry: SchemaRegistryLookup,
+  relations: ResolvedRelationIndex = resolveSchemaOrThrow(models)
 ): ModelRegistry {
   const byName = new Map<string, Model<any>>();
   const byTableName = new Map<string, Model<any>>();
@@ -162,5 +178,6 @@ export function createModelRegistry(
       return byTableName.get(tableName);
     },
     schemas: schemaRegistry,
+    relations,
   };
 }

@@ -49,7 +49,7 @@ export const extendedWhereUniqueSchema = (() => {
       email: s.string().unique(),
       status: s.string(),
       score: s.int(),
-      logins: s.oneToMany(() => login),
+      logins: s.toMany(() => login),
     })
     .map("ext_wu_accounts");
   const login = s
@@ -58,10 +58,9 @@ export const extendedWhereUniqueSchema = (() => {
       label: s.string(),
       accountId: s.int().nullable(),
       account: s
-        .manyToOne(() => account)
+        .toOne(() => account)
         .fields("accountId")
-        .references("id")
-        .optional(),
+        .references("id"),
     })
     .map("ext_wu_logins");
   // Same shape as `account` but with a DB-GENERATED primary key: the create data
@@ -100,11 +99,10 @@ export const extendedWhereUniqueSchema = (() => {
       label: s.string(),
       parentId: s.int().nullable(),
       parent: s
-        .manyToOne(() => node)
+        .toOne(() => node)
         .fields("parentId")
-        .references("id")
-        .optional(),
-      children: s.oneToMany(() => node),
+        .references("id"),
+      children: s.toMany(() => node),
     })
     .map("ext_wu_nodes");
   return { account, login, node, note, ticket };

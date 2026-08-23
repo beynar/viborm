@@ -1,6 +1,10 @@
 // Relation Filter Schemas
 
+import type { AnyModel } from "@schema/model";
+import { slotMayBeEmpty } from "@schema/relation/clearability";
+import type { SlotMayBeEmpty } from "@schema/relation/static-membership";
 import type { RelationState } from "@schema/relation/types";
+import type { ResolvedSlot } from "@schema/validation/relation-resolution";
 import { createSchema, fail, ok, validateSchema } from "../primitives/helpers";
 import { type V, v } from "../primitives/v";
 import type { VibSchema } from "../types";
@@ -41,14 +45,26 @@ const nullToIsNull: NullToIsNull = createSchema("object", () =>
   ok({ is: null })
 );
 
-type ToOneFilterObjectSchema<S extends RelationState> = V.Object<{
+/**
+ * May this slot be empty? The DERIVED answer, not a declared flag: `is: null`
+ * exists exactly where the membership can be absent, which for a stored
+ * reference is its own nullable tuple and for every non-owner is always.
+ */
+type MayBeEmpty<Source extends AnyModel, Key, S extends RelationState> =
+  SlotMayBeEmpty<Source, Key, S> extends false ? false : true;
+
+type ToOneFilterObjectSchema<
+  Source extends AnyModel,
+  Key,
+  S extends RelationState,
+> = V.Object<{
   is: () => V.MaybeNullable<
     GetTargetSchemas<S>["core"]["where"],
-    S["optional"] extends true ? true : false
+    MayBeEmpty<Source, Key, S>
   >;
   isNot: () => V.MaybeNullable<
     GetTargetSchemas<S>["core"]["where"],
-    S["optional"] extends true ? true : false
+    MayBeEmpty<Source, Key, S>
   >;
 }>;
 
@@ -61,22 +77,33 @@ type TargetWhereSchema<S extends RelationState> =
  * two spellings stay mutually exclusive at the type level exactly as the key
  * rule makes them at runtime.
  */
-type ToOneShorthandFilterSchema<S extends RelationState> = V.Transform<
+type ToOneShorthandFilterSchema<
+  Source extends AnyModel,
+  Key,
+  S extends RelationState,
+> = V.Transform<
   V.Input<TargetWhereSchema<S>> & { is?: never; isNot?: never },
-  V.Output<ToOneFilterObjectSchema<S>>
+  V.Output<ToOneFilterObjectSchema<Source, Key, S>>
 > & { wrapped: TargetWhereSchema<S> };
 
-export type ToOneFilterSchema<S extends RelationState> =
-  S["optional"] extends true
+export type ToOneFilterSchema<
+  Source extends AnyModel,
+  Key,
+  S extends RelationState,
+> =
+  MayBeEmpty<Source, Key, S> extends true
     ? V.Union<
         readonly [
           NullToIsNull,
-          ToOneFilterObjectSchema<S>,
-          ToOneShorthandFilterSchema<S>,
+          ToOneFilterObjectSchema<Source, Key, S>,
+          ToOneShorthandFilterSchema<Source, Key, S>,
         ]
       >
     : V.Union<
-        readonly [ToOneFilterObjectSchema<S>, ToOneShorthandFilterSchema<S>]
+        readonly [
+          ToOneFilterObjectSchema<Source, Key, S>,
+          ToOneShorthandFilterSchema<Source, Key, S>,
+        ]
       >;
 
 /** The keys that spell the explicit `{ is, isNot }` filter. */
@@ -92,23 +119,25 @@ const isExplicitToOneFilter = (value: object): boolean => {
 };
 
 export const toOneFilterFactory = <
+  Source extends AnyModel,
+  Key,
   S extends RelationState,
   T extends SchemaGetter<S>,
 >(
-  state: S,
+  resolved: ResolvedSlot,
   targetSchemas: T
-): ToOneFilterSchema<S> => {
-  const isOptional = state.optional === true;
+): ToOneFilterSchema<Source, Key, S> => {
+  const isOptional = slotMayBeEmpty(resolved);
   const filterObject = v.object({
     is: () =>
       v.maybeNullable(
         targetSchemas().core.where,
-        state.optional as S["optional"] extends true ? true : false
+        isOptional as MayBeEmpty<Source, Key, S>
       ),
     isNot: () =>
       v.maybeNullable(
         targetSchemas().core.where,
-        state.optional as S["optional"] extends true ? true : false
+        isOptional as MayBeEmpty<Source, Key, S>
       ),
   });
 
@@ -119,7 +148,7 @@ export const toOneFilterFactory = <
   // collision rule above); the runtime value is exactly this transform.
   const shorthand = v.lazy(() =>
     v.coerce(targetSchemas().core.where, (where) => ({ is: where }))
-  ) as unknown as ToOneShorthandFilterSchema<S>;
+  ) as unknown as ToOneShorthandFilterSchema<Source, Key, S>;
 
   const members: readonly VibSchema<unknown, unknown>[] = isOptional
     ? [nullToIsNull, filterObject, shorthand]
@@ -143,7 +172,7 @@ export const toOneFilterFactory = <
   });
   (schema as { options?: unknown }).options = members;
 
-  return schema as unknown as ToOneFilterSchema<S>;
+  return schema as unknown as ToOneFilterSchema<Source, Key, S>;
 };
 
 /**

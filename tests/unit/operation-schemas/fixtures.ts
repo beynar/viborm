@@ -145,15 +145,23 @@ export type CompoundUniqueState = (typeof compoundUniqueModel)["~"]["state"];
 export const authorModel = s.model({
   id: s.string().id(),
   name: s.string(),
-  posts: s.oneToMany(() => postModel),
+  posts: s.toMany(() => postModel),
 });
 
 export const postModel = s.model({
   id: s.string().id(),
   title: s.string(),
   published: s.boolean().default(false),
+  // NON-nullable, and that is the whole story of `post.author` now: the old
+  // declaration spelled `.optional()` beside this non-nullable column and the
+  // two disagreed. Emptiness follows the stored tuple, so the edge is REQUIRED
+  // — `is: null` is refused on the filter and `disconnect` is absent from both
+  // ends (§9.1 conversion review, §9.4).
   authorId: s.string(),
-  author: s.manyToOne(() => authorModel).optional(),
+  author: s
+    .toOne(() => authorModel)
+    .fields("authorId")
+    .references("id"),
 });
 
 const schemaRegistry = createSchemaRegistry({

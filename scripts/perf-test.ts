@@ -49,7 +49,7 @@ async function main() {
       published: s.boolean().default(false),
       authorId: s.string(),
       author: s
-        .manyToOne(() => user)
+        .toOne(() => user)
         .fields("authorId")
         .references("id"),
     })

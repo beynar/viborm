@@ -4,22 +4,16 @@
 import type { ObjectSchema, VibSchema } from "@validation";
 import v from "@validation/primitives/v";
 import type { AnyRelation } from "../relation";
-import type {
-  AnyPolymorphicRelation,
-  PolymorphicStorage,
-} from "../relation/polymorphic";
 import type { Scalar } from "../scalars/base";
 import type { HydratedSchemaNames, SchemaNames } from "../scalars/common";
 import {
   extractRelationMap,
-  extractPolymorphicRelationMap,
   extractScalarMap,
   extractUniqueScalarMap,
   getNameFromKeys,
   type ModelShape,
   type NameFromKeys,
   type RelationMap,
-  type PolymorphicRelationMap,
   type ScalarMap,
   type StringKeyOf,
   type UniqueScalarMap,
@@ -42,8 +36,8 @@ export interface ModelState {
   indexes: IndexDefinition[];
   omit: Record<string, true> | undefined;
   scalars: Record<string, Scalar>;
+  /** ONE canonical relation map, holding both target domains in shape order. */
   relations: Record<string, AnyRelation>;
-  polymorphicRelations: Record<string, AnyPolymorphicRelation>;
   uniques: Record<string, Scalar>;
 }
 
@@ -57,7 +51,6 @@ export interface ModelInternal<T extends ModelState> {
   nameRegistry: {
     fields: Map<string, SchemaNames>;
     relations: Map<string, SchemaNames>;
-    polymorphicRelations: Map<string, SchemaNames>;
   };
   getFieldName: (key: string) => HydratedSchemaNames;
   getRelationName: (key: string) => HydratedSchemaNames;
@@ -69,13 +62,6 @@ export interface ModelInternal<T extends ModelState> {
   relationNames: string[];
   /** Cached relation Set for O(1) lookup (computed once on first access) */
   relationSet: Set<string>;
-  /** Cached polymorphic relation names without widening ordinary relation state. */
-  polymorphicRelationNames: string[];
-  polymorphicRelationSet: Set<string>;
-  getPolymorphicRelationName: (key: string) => HydratedSchemaNames;
-  polymorphicStorage: ReadonlyMap<string, PolymorphicStorage>;
-  getPolymorphicStorage: (key: string) => PolymorphicStorage | undefined;
-  setPolymorphicStorage: (key: string, storage: PolymorphicStorage) => void;
 }
 
 /**
@@ -114,6 +100,11 @@ export interface IndexDefinition<
 > {
   fields: Keys;
   options: O;
+}
+
+/** A partial index cannot constrain rows excluded by its predicate. */
+export function isTotalIndex(options: Pick<IndexOptions, "where">): boolean {
+  return !options.where;
 }
 
 export type UpdateIndexDefinition<
@@ -225,10 +216,8 @@ type MergeCompound<Existing, Added> = Added &
 export interface NameRegistry {
   /** Scalar names: key -> {ts, sql} */
   fields: Map<string, SchemaNames>;
-  /** Relation names: key -> {ts, sql} */
+  /** Relation names: key -> {ts, sql} — one lane for both target domains */
   relations: Map<string, SchemaNames>;
-  /** Polymorphic relation names remain separate from ordinary relation state. */
-  polymorphicRelations: Map<string, SchemaNames>;
 }
 
 export class Model<State extends ModelState> {
@@ -238,7 +227,6 @@ export class Model<State extends ModelState> {
   private _nameRegistry: NameRegistry = {
     fields: new Map(),
     relations: new Map(),
-    polymorphicRelations: new Map(),
   };
   private readonly state: State;
 
@@ -247,9 +235,6 @@ export class Model<State extends ModelState> {
   private _scalarFieldSet: Set<string> | undefined;
   private _relationNames: string[] | undefined;
   private _relationSet: Set<string> | undefined;
-  private _polymorphicRelationNames: string[] | undefined;
-  private _polymorphicRelationSet: Set<string> | undefined;
-  private readonly _polymorphicStorage = new Map<string, PolymorphicStorage>();
   private _internal: ModelInternal<State> | undefined;
 
   constructor(state: State) {
@@ -407,7 +392,6 @@ export class Model<State extends ModelState> {
       shape: newShape,
       scalars: extractScalarMap(newShape),
       relations: extractRelationMap(newShape),
-      polymorphicRelations: extractPolymorphicRelationMap(newShape),
       uniques: extractUniqueScalarMap(newShape),
     }) as unknown as Model<
       UpdateState<
@@ -416,9 +400,6 @@ export class Model<State extends ModelState> {
           shape: State["shape"] & ETShape;
           scalars: ScalarMap<State["shape"] & ETShape>;
           relations: RelationMap<State["shape"] & ETShape>;
-          polymorphicRelations: PolymorphicRelationMap<
-            State["shape"] & ETShape
-          >;
           uniques: UniqueScalarMap<State["shape"] & ETShape>;
         }
       >
@@ -463,24 +444,6 @@ export class Model<State extends ModelState> {
         }
         throw new Error(`Relation "${key}" not found in nameRegistry`);
       },
-      getPolymorphicRelationName: (key: string): HydratedSchemaNames => {
-        const registered = model._nameRegistry.polymorphicRelations.get(key);
-        if (registered) return registered as HydratedSchemaNames;
-        throw new Error(
-          `Polymorphic relation "${key}" not found in nameRegistry`
-        );
-      },
-      get polymorphicStorage(): ReadonlyMap<string, PolymorphicStorage> {
-        return model._polymorphicStorage;
-      },
-      getPolymorphicStorage: (key: string): PolymorphicStorage | undefined =>
-        model._polymorphicStorage.get(key),
-      setPolymorphicStorage: (
-        key: string,
-        storage: PolymorphicStorage
-      ): void => {
-        model._polymorphicStorage.set(key, storage);
-      },
       /** Cached scalar field names (computed once on first access) */
       get scalarFieldNames(): string[] {
         return (model._scalarFieldNames ??= Object.keys(model.state.scalars));
@@ -497,16 +460,6 @@ export class Model<State extends ModelState> {
       get relationSet(): Set<string> {
         return (model._relationSet ??= new Set(this.relationNames));
       },
-      get polymorphicRelationNames(): string[] {
-        return (model._polymorphicRelationNames ??= Object.keys(
-          model.state.polymorphicRelations
-        ));
-      },
-      get polymorphicRelationSet(): Set<string> {
-        return (model._polymorphicRelationSet ??= new Set(
-          this.polymorphicRelationNames
-        ));
-      },
     };
     return this._internal;
   }
@@ -521,7 +474,6 @@ export const model = <TShape extends ModelShape>(
       shape: TShape;
       scalars: ScalarMap<TShape>;
       relations: RelationMap<TShape>;
-      polymorphicRelations: PolymorphicRelationMap<TShape>;
       uniques: UniqueScalarMap<TShape>;
       omit: undefined;
     }
@@ -536,7 +488,6 @@ export const model = <TShape extends ModelShape>(
     shape,
     scalars: extractScalarMap(shape),
     relations: extractRelationMap(shape),
-    polymorphicRelations: extractPolymorphicRelationMap(shape),
     uniques: extractUniqueScalarMap(shape),
   });
 

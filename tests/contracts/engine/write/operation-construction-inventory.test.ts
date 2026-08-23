@@ -1221,64 +1221,64 @@ describe("write engine route inventory (P6 accounting)", () => {
       [
         13,
         "query-engine/write-engine/RelationUpsertPart.ts",
-        1121,
-        1117,
+        1105,
+        1101,
         "refuseIncomingParentMutation",
       ],
       [
         15,
         "query-engine/write-engine/CreateOperation.ts",
-        3547,
-        3539,
+        3544,
+        3536,
         "requireRecordReferenced",
       ],
       [
         19,
         "query-engine/write-engine/CreateOperation.ts",
-        3651,
-        3633,
+        3648,
+        3630,
         "producedReference",
       ],
       [
         20,
         "query-engine/write-engine/CreateOperation.ts",
-        4022,
-        4011,
+        4019,
+        4008,
         "assertSelectedSharedPkValue",
       ],
       [
         33,
         "query-engine/write-engine/PolymorphicCollectionPart.ts",
-        216,
-        209,
+        242,
+        224,
         "assertClearIsIndivisible",
       ],
       [
         27,
         "query-engine/write-engine/OperationExecutor.ts",
-        1920,
-        1915,
+        1922,
+        1917,
         "executionRefusal",
       ],
       [
         28,
         "query-engine/write-engine/OperationExecutor.ts",
-        2397,
-        2387,
+        2253,
+        2243,
         "assertIndivisibleGeneratedOutput",
       ],
       [
         32,
-        "query-engine/write-engine/OperationExecutor.ts",
-        2415,
-        2402,
+        "query-engine/write-engine/generated-output-boundary.ts",
+        176,
+        163,
         "crossedReferenceContinuationGuards",
       ],
       [
         22,
         "query-engine/relation-key-legality.ts",
-        116,
-        108,
+        148,
+        135,
         "assertSingleTargetMembershipMoveAppliesToRecords",
       ],
       [
@@ -1838,5 +1838,12 @@ describe("write engine full client operation surface (P6 precondition)", () => {
  * the four positions were not deleted for having "no live route", they were deleted
  * because the parse now omits the owned FK on EVERY schema, and each position's payload
  * was re-measured through the public client and re-pinned at the boundary that answers it
- * (`nested-update-owned-fk.test.ts`, both degenerate schemas kept as the falsifiers).
+ * (`nested-update-owned-fk.test.ts`).
+ *
+ * THE HISTORY ABOVE NAMES TWO THINGS THAT NO LONGER EXIST. `src/schema/relation/inverse.ts`
+ * is gone: the schema-wide relation resolver owns pairing, and there is no per-relation
+ * scan left to align. So is the zero-argument `.fields()` shape and the engine sentence it
+ * used to raise — `.fields(...)` requires a non-empty tuple and refuses an empty one at
+ * construction, so the degenerate schemas the last paragraph points at are unconstructible
+ * and their file carries the ledger note instead.
  */

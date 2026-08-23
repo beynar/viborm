@@ -29,7 +29,7 @@ const Author = s.model({
   id: s.string().id(),
   name: s.string(),
   email: s.string().unique(),
-  posts: s.oneToMany(() => Post),
+  posts: s.toMany(() => Post),
 });
 
 const Post = s
@@ -39,7 +39,7 @@ const Post = s
     content: s.string().nullable(),
     authorId: s.string(),
     author: s
-      .manyToOne(() => Author)
+      .toOne(() => Author)
       .fields("authorId")
       .references("id"),
   })

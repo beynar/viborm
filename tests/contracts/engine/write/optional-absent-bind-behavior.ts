@@ -42,7 +42,7 @@ export const optionalAbsentBindSchema = (() => {
       id: s.int().id(),
       email: s.string().unique(),
       label: s.string(),
-      notes: s.oneToMany(() => note),
+      notes: s.toMany(() => note),
     })
     .map("m5_absent_accounts");
   const note = s
@@ -51,10 +51,9 @@ export const optionalAbsentBindSchema = (() => {
       body: s.string(),
       accountId: s.int().nullable(),
       account: s
-        .manyToOne(() => account)
+        .toOne(() => account)
         .fields("accountId")
-        .references("id")
-        .optional(),
+        .references("id"),
     })
     .map("m5_absent_notes");
   return { account, note };

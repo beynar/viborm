@@ -1,28 +1,29 @@
-import type {
-  PolymorphicStorageColumn,
-  PolymorphicToOneStorage,
-} from "@schema/relation";
+import type { PolymorphicStorageColumn, RelationSlot } from "@schema/relation";
+import type { ResolvedVariantRowStorage } from "@schema/validation/relation-resolution";
 import { isRecord } from "@validation/value-guards";
 import type {
-  PolymorphicToOneRelationInfo,
   QueryScope,
-  ResolvedPolymorphicEdge,
+  SelectedVariantRow,
+  VariantRowCarrierSlot,
 } from "../types";
 import { QueryEngineError } from "../types";
-import { resolvePolymorphicEdge } from "./polymorphic-relation";
+import { selectVariantRow } from "./polymorphic-relation";
 
 /** One atomic private `(type, id)` assignment. A one-column state is unspellable. */
 export type PolymorphicStorageValue<Id> =
   | {
       readonly kind: "linked";
-      readonly storage: PolymorphicToOneStorage;
+      /** The carrier slot these private columns belong to. */
+      readonly carrier: RelationSlot;
+      readonly storage: ResolvedVariantRowStorage;
       readonly storedType: string;
       readonly referencedField: string;
       readonly id: Id;
     }
   | {
       readonly kind: "empty";
-      readonly storage: PolymorphicToOneStorage;
+      readonly carrier: RelationSlot;
+      readonly storage: ResolvedVariantRowStorage;
     };
 
 export interface PolymorphicStorageMemberValue<Id> {
@@ -38,16 +39,18 @@ export function polymorphicStorageMembers<Id>(
   scope: QueryScope,
   values: readonly PolymorphicStorageValue<Id>[]
 ): PolymorphicStorageMemberValue<Id>[] {
+  // MODEL DECLARATION ORDER, read from the one index: the private column pairs
+  // of a row are written in the order their carriers were declared, which is the
+  // order the resolved slot map preserves.
   const order = new Map(
-    scope.model["~"].polymorphicRelationNames.map((name, index) => [
-      name,
-      index,
-    ])
+    [...(scope.relations.get(scope.model)?.keys() ?? [])].map(
+      (name, index) => [name, index] as const
+    )
   );
   const sorted = [...values].sort(
     (left, right) =>
-      (order.get(left.storage.relationName) ?? Number.MAX_SAFE_INTEGER) -
-      (order.get(right.storage.relationName) ?? Number.MAX_SAFE_INTEGER)
+      (order.get(left.carrier.field) ?? Number.MAX_SAFE_INTEGER) -
+      (order.get(right.carrier.field) ?? Number.MAX_SAFE_INTEGER)
   );
   const members: PolymorphicStorageMemberValue<Id>[] = [];
   for (const value of sorted) {
@@ -77,7 +80,7 @@ export function polymorphicStorageMembers<Id>(
 type ResolvedPolymorphicMutationIntent =
   | {
       readonly kind: "targeted";
-      readonly edge: ResolvedPolymorphicEdge;
+      readonly edge: SelectedVariantRow;
       readonly operation:
         | "connect"
         | "create"
@@ -89,7 +92,7 @@ type ResolvedPolymorphicMutationIntent =
     }
   | {
       readonly kind: "disconnect";
-      readonly storage: PolymorphicToOneStorage;
+      readonly carrier: VariantRowCarrierSlot;
     };
 
 /**
@@ -98,17 +101,16 @@ type ResolvedPolymorphicMutationIntent =
  * translates the envelope into the existing concrete-relation program vocabulary.
  */
 export function resolvePolymorphicMutationIntent(
-  scope: QueryScope,
-  relation: PolymorphicToOneRelationInfo,
+  relation: VariantRowCarrierSlot,
   parsedPayload: unknown
 ): ResolvedPolymorphicMutationIntent {
   if (!isRecord(parsedPayload)) {
     throw new QueryEngineError(
-      `Polymorphic relation '${relation.name}' produced an invalid mutation payload.`
+      `Polymorphic relation '${relation.slot.field}' produced an invalid mutation payload.`
     );
   }
   if (parsedPayload.disconnect === true) {
-    return { kind: "disconnect", storage: relation.storage };
+    return { kind: "disconnect", carrier: relation };
   }
   const operation = (
     [
@@ -122,13 +124,13 @@ export function resolvePolymorphicMutationIntent(
   ).find((kind) => Object.hasOwn(parsedPayload, kind));
   if (!operation) {
     throw new QueryEngineError(
-      `Polymorphic relation '${relation.name}' produced an invalid mutation payload.`
+      `Polymorphic relation '${relation.slot.field}' produced an invalid mutation payload.`
     );
   }
   const envelope = parsedPayload[operation];
   if (!(isRecord(envelope) && typeof envelope.type === "string")) {
     throw new QueryEngineError(
-      `Polymorphic relation '${relation.name}' produced an invalid ${operation} mutation.`
+      `Polymorphic relation '${relation.slot.field}' produced an invalid ${operation} mutation.`
     );
   }
   let payload: unknown;
@@ -161,12 +163,12 @@ export function resolvePolymorphicMutationIntent(
   }
   if (operation !== "delete" && !isRecord(payload)) {
     throw new QueryEngineError(
-      `Polymorphic relation '${relation.name}' produced an invalid ${operation} target.`
+      `Polymorphic relation '${relation.slot.field}' produced an invalid ${operation} target.`
     );
   }
   return {
     kind: "targeted",
-    edge: resolvePolymorphicEdge(scope, relation, envelope.type),
+    edge: selectVariantRow(relation, envelope.type),
     operation,
     payload,
   };

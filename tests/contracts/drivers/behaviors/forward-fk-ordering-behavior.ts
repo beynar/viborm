@@ -33,7 +33,7 @@ const fwdPost = s
     authorId: s.string(),
     // References `fwdUser`, which is declared AFTER this model.
     author: s
-      .manyToOne(() => fwdUser)
+      .toOne(() => fwdUser)
       .fields("authorId")
       .references("id"),
   })
@@ -43,7 +43,7 @@ const fwdUser = s
   .model({
     id: s.string().id(),
     name: s.string(),
-    posts: s.oneToMany(() => fwdPost),
+    posts: s.toMany(() => fwdPost),
   })
   .map("fwd_fk_users");
 
@@ -55,7 +55,7 @@ const chainA = s
     id: s.string().id(),
     bId: s.string(),
     b: s
-      .manyToOne(() => chainB)
+      .toOne(() => chainB)
       .fields("bId")
       .references("id"),
   })
@@ -65,9 +65,9 @@ const chainB = s
   .model({
     id: s.string().id(),
     cId: s.string(),
-    as: s.oneToMany(() => chainA),
+    as: s.toMany(() => chainA),
     c: s
-      .manyToOne(() => chainC)
+      .toOne(() => chainC)
       .fields("cId")
       .references("id"),
   })
@@ -76,7 +76,7 @@ const chainB = s
 const chainC = s
   .model({
     id: s.string().id(),
-    bs: s.oneToMany(() => chainB),
+    bs: s.toMany(() => chainB),
   })
   .map("fwd_fk_chain_c");
 
@@ -89,11 +89,10 @@ const treeNode = s
     label: s.string(),
     parentId: s.string().nullable(),
     parent: s
-      .manyToOne(() => treeNode)
+      .toOne(() => treeNode)
       .fields("parentId")
-      .references("id")
-      .optional(),
-    children: s.oneToMany(() => treeNode),
+      .references("id"),
+    children: s.toMany(() => treeNode),
   })
   .map("fwd_fk_tree_nodes");
 

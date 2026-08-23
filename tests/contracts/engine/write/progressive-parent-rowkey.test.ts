@@ -71,7 +71,7 @@ const rowKeySchema = (() => {
       // what makes the membership source a construction literal with no row-key member.
       code: s.string().unique(),
       label: s.string(),
-      spokes: s.oneToMany(() => spoke),
+      spokes: s.toMany(() => spoke),
     })
     .map("h1_hubs");
 
@@ -81,12 +81,11 @@ const rowKeySchema = (() => {
       label: s.string(),
       hubCode: s.string().nullable(),
       hub: s
-        .manyToOne(() => hub)
+        .toOne(() => hub)
         .fields("hubCode")
         .references("code")
-        .onUpdate("cascade")
-        .optional(),
-      notes: s.oneToMany(() => note),
+        .onUpdate("cascade"),
+      notes: s.toMany(() => note),
     })
     .map("h1_spokes");
 
@@ -96,10 +95,9 @@ const rowKeySchema = (() => {
       text: s.string(),
       spokeId: s.string().nullable(),
       spoke: s
-        .manyToOne(() => spoke)
+        .toOne(() => spoke)
         .fields("spokeId")
-        .references("id")
-        .optional(),
+        .references("id"),
     })
     .map("h1_notes");
 
@@ -486,8 +484,8 @@ const junctionRowKeySchema = (() => {
       id: s.string().id(),
       code: s.string().unique(),
       label: s.string(),
-      spokes: s.oneToMany(() => spoke),
-      stamps: s.manyToMany(() => stamp),
+      spokes: s.toMany(() => spoke),
+      stamps: s.toMany(() => stamp),
     })
     .map("h1j_hubs");
 
@@ -497,11 +495,10 @@ const junctionRowKeySchema = (() => {
       label: s.string(),
       hubCode: s.string().nullable(),
       hub: s
-        .manyToOne(() => hub)
+        .toOne(() => hub)
         .fields("hubCode")
-        .references("code")
-        .optional(),
-      notes: s.oneToMany(() => note),
+        .references("code"),
+      notes: s.toMany(() => note),
     })
     .map("h1j_spokes");
 
@@ -511,10 +508,9 @@ const junctionRowKeySchema = (() => {
       text: s.string(),
       spokeId: s.string().nullable(),
       spoke: s
-        .manyToOne(() => spoke)
+        .toOne(() => spoke)
         .fields("spokeId")
-        .references("id")
-        .optional(),
+        .references("id"),
     })
     .map("h1j_notes");
 
@@ -522,8 +518,8 @@ const junctionRowKeySchema = (() => {
     .model({
       id: s.string().id(),
       name: s.string().unique(),
-      hubs: s.manyToMany(() => hub),
-      marks: s.oneToMany(() => mark),
+      hubs: s.toMany(() => hub),
+      marks: s.toMany(() => mark),
     })
     .map("h1j_stamps");
 
@@ -533,10 +529,9 @@ const junctionRowKeySchema = (() => {
       text: s.string(),
       stampId: s.string().nullable(),
       stamp: s
-        .manyToOne(() => stamp)
+        .toOne(() => stamp)
         .fields("stampId")
-        .references("id")
-        .optional(),
+        .references("id"),
     })
     .map("h1j_marks");
 

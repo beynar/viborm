@@ -11,6 +11,14 @@ export interface SchemaValidationIssue {
   model?: string;
   field?: string;
   relation?: string;
+  /**
+   * The competing slot paths an ambiguity chose between, as `model.field`
+   * strings. Present only when the issue is about which candidate applies;
+   * absent is not an empty list, it is "candidacy is not what went wrong".
+   */
+  candidates?: readonly string[];
+  /** One repair that does not imply a topology the schema does not have. */
+  repair?: string;
 }
 
 export interface ValidationResult {

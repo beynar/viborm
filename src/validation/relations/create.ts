@@ -1,10 +1,8 @@
 // Relation Create Schemas
 
 import type { AnyModel } from "@schema/model";
-import type {
-  GetInverseRelationMap,
-  RelationState,
-} from "@schema/relation/types";
+import type { RelationState } from "@schema/relation/types";
+import type { ResolvedSlot } from "@schema/validation/relation-resolution";
 import { type V, v } from "../primitives/v";
 import type { GetTargetSchemas, SchemaGetter } from "./helpers";
 import {
@@ -21,105 +19,23 @@ import {
 // CREATE SCHEMA TYPES (exported for consumer use)
 // =============================================================================
 
-/**
- * The keys of a target schema the ENCLOSING relation owns: the inverse relation's
- * foreign-key fields, narrowed to the keys that schema actually has.
- *
- * This module owns the omitted-FK lineage for BOTH nested contexts. `core.create` and
- * `core.update` carry the same relation-owned columns, and a nested payload may not name
- * them in either one, for one reason: the enclosing step DERIVES that column from the
- * record it acted on, so a spelled value is a second provenance for it. The polymorphic
- * edge states the same rule over its relation key, and both readings are SELECTED by
- * one owner ({@link file://./nested-data-projection.ts}) — this alias is that owner's
- * ordinary arm, not a second answer.
- */
-type OmittedInverseFkKeys<
-  S extends RelationState,
-  Source extends AnyModel,
-  Entries,
-> = Extract<GetInverseRelationMap<S, Source>, readonly (keyof Entries)[]>;
-
-export type CreateWithOmittedFk<
-  S extends RelationState,
-  Source extends AnyModel,
-> = V.Omit<
-  GetTargetSchemas<S>["core"]["create"],
-  OmittedInverseFkKeys<
-    S,
-    Source,
-    GetTargetSchemas<S>["core"]["create"]["entries"]
-  >
->;
-
-/**
- * Does the TARGET row hold this relation's foreign key? Only then is a spelled column a
- * SECOND provenance for the value the enclosing step's fold derives.
- *
- * `getInverseRelationMap` answers two different questions under one name: for a to-one
- * with `.fields()` it returns THIS side's own fields, and for every other shape it scans
- * the TARGET for a to-one back-reference. Only the second answer names a column on the
- * row a nested payload writes.
- *
- * MEASURED, and deliberately NOT changed here: `CreateWithOmittedFk` applies the map
- * without this narrowing, so a nested CREATE over-omits in two shapes the engine has no
- * fold for — a `manyToMany` arm (the junction holds membership; the scan finds an
- * unrelated to-one back-reference, e.g. `post.tags.create` cannot spell `featuredPostId`)
- * and a SELF-REFERENTIAL parent-held to-one (`node.parent.create` cannot spell its own
- * `parentId`). Both refuse at HEAD, predate this package, and widening them is a
- * capability lift with its own measurement — recorded for the guard-ownership ledger,
- * not folded into N1, which may only make the parse agree with the engine.
- *
- * The runtime twin is the projection owner's module-private
- * `targetHoldsInverseFk` ({@link file://./nested-data-projection.ts}).
- */
-type TargetHoldsInverseFk<S extends RelationState> =
-  S["type"] extends "manyToMany"
-    ? false
-    : S extends { fields: readonly [string, ...string[]] }
-      ? false
-      : true;
-
-/**
- * The UPDATE-side application of the owner above (Package N1). Nested update data —
- * the to-one `update` and `upsert` arms, the to-many `update`, `updateMany` and `upsert`
- * arms — is built from this, so the relation-owned foreign key is not a key the caller
- * can spell there, exactly as it has never been spellable in a nested create.
- *
- * NOT applied to the to-many `upsert` arm of a CREATE context
- * ({@link ToManyCreateSchema}): the engine ABSORBS an agreeing spelling there
- * (`RelationUpsertPart.withoutAgreeingOwnedFk`), which is a capability, and only
- * a create root whose own key is spelled has a value to agree with.
- */
-export type UpdateWithOmittedFk<
-  S extends RelationState,
-  Source extends AnyModel,
-> =
-  TargetHoldsInverseFk<S> extends true
-    ? V.Omit<
-        GetTargetSchemas<S>["core"]["update"],
-        OmittedInverseFkKeys<
-          S,
-          Source,
-          GetTargetSchemas<S>["core"]["update"]["entries"]
-        >
-      >
-    : GetTargetSchemas<S>["core"]["update"];
-
 type AvailableNestedCreateManySchema<
-  S extends RelationState,
   Source extends AnyModel,
+  Key,
+  S extends RelationState,
 > = V.Object<
   {
-    data: () => V.Array<ProjectedNestedCreate<S, Source>>;
+    data: () => V.Array<ProjectedNestedCreate<Source, Key, S>>;
     skipDuplicates: V.Boolean<{ optional: true }>;
   },
   { atLeast: ["data"] }
 >;
 
 export type NestedCreateManySchema<
-  S extends RelationState,
   Source extends AnyModel,
-> = AvailableNestedCreateManySchema<S, Source>;
+  Key,
+  S extends RelationState,
+> = AvailableNestedCreateManySchema<Source, Key, S>;
 
 // =============================================================================
 // CREATE FACTORY IMPLEMENTATIONS
@@ -128,33 +44,41 @@ export type NestedCreateManySchema<
 /**
  * To-one create: { create?, connect?, connectOrCreate? }
  */
-type ToOneCreateEntries<S extends RelationState, Source extends AnyModel> = {
-  create: () => ProjectedNestedCreate<S, Source>;
+type ToOneCreateEntries<
+  Source extends AnyModel,
+  Key,
+  S extends RelationState,
+> = {
+  create: () => ProjectedNestedCreate<Source, Key, S>;
   connect: () => GetTargetSchemas<S>["core"]["whereUnique"];
   connectOrCreate: V.Object<
     {
       where: () => GetTargetSchemas<S>["core"]["whereUnique"];
-      create: () => ProjectedNestedCreate<S, Source>;
+      create: () => ProjectedNestedCreate<Source, Key, S>;
     },
     { partial: false }
   >;
 };
 
 export type ToOneCreateSchema<
-  S extends RelationState,
   Source extends AnyModel,
-> = ToOneMutationSchema<ToOneCreateEntries<S, Source>, { optional: true }>;
+  Key,
+  S extends RelationState,
+> = ToOneMutationSchema<ToOneCreateEntries<Source, Key, S>, { optional: true }>;
 
 export const toOneCreateFactory = <
-  S extends RelationState,
   Source extends AnyModel,
+  Key,
+  S extends RelationState,
   T extends SchemaGetter<S>,
 >(
-  state: S,
-  source: Source,
+  resolved: ResolvedSlot,
   targetSchemas: T
-): ToOneCreateSchema<S, Source> => {
-  const projection = nestedRelationDataProjection(state, source, targetSchemas);
+): ToOneCreateSchema<Source, Key, S> => {
+  const projection = nestedRelationDataProjection<S, T>(
+    resolved,
+    targetSchemas
+  );
   const getCreateSchema = projection.getCreateSchema;
 
   return toOneMutationSchema(
@@ -170,7 +94,7 @@ export const toOneCreateFactory = <
       ),
     },
     { optional: true }
-  ) as unknown as ToOneCreateSchema<S, Source>;
+  ) as unknown as ToOneCreateSchema<Source, Key, S>;
 };
 
 /**
@@ -184,18 +108,19 @@ export const toOneCreateFactory = <
  */
 
 export type ToManyCreateSchema<
-  S extends RelationState,
   Source extends AnyModel,
+  Key,
+  S extends RelationState,
 > = V.Object<
   {
-    create: () => V.SingleOrArray<ProjectedNestedCreate<S, Source>>;
-    createMany: NestedCreateManySchema<S, Source>;
+    create: () => V.SingleOrArray<ProjectedNestedCreate<Source, Key, S>>;
+    createMany: NestedCreateManySchema<Source, Key, S>;
     connect: () => V.SingleOrArray<GetTargetSchemas<S>["core"]["whereUnique"]>;
     connectOrCreate: () => V.SingleOrArray<
       V.Object<
         {
           where: () => GetTargetSchemas<S>["core"]["whereUnique"];
-          create: () => ProjectedNestedCreate<S, Source>;
+          create: () => ProjectedNestedCreate<Source, Key, S>;
         },
         { partial: false }
       >
@@ -214,8 +139,8 @@ export type ToManyCreateSchema<
       V.Object<
         {
           where: () => GetTargetSchemas<S>["core"]["whereUnique"];
-          create: () => ProjectedNestedCreate<S, Source>;
-          update: () => ProjectedCreateUpsertUpdate<S, Source>;
+          create: () => ProjectedNestedCreate<Source, Key, S>;
+          update: () => ProjectedCreateUpsertUpdate<Source, Key, S>;
         },
         { partial: false }
       >
@@ -225,15 +150,18 @@ export type ToManyCreateSchema<
 >;
 
 export const toManyCreateFactory = <
-  S extends RelationState,
   Source extends AnyModel,
+  Key,
+  S extends RelationState,
   T extends SchemaGetter<S>,
 >(
-  state: S,
-  source: Source,
+  resolved: ResolvedSlot,
   targetSchemas: T
-): ToManyCreateSchema<S, Source> => {
-  const projection = nestedRelationDataProjection(state, source, targetSchemas);
+): ToManyCreateSchema<Source, Key, S> => {
+  const projection = nestedRelationDataProjection<S, T>(
+    resolved,
+    targetSchemas
+  );
   const getCreateSchema = projection.getCreateSchema;
 
   const createManySchema = v.object(
@@ -277,5 +205,5 @@ export const toManyCreateFactory = <
         ),
     },
     { optional: true }
-  ) as unknown as ToManyCreateSchema<S, Source>;
+  ) as unknown as ToManyCreateSchema<Source, Key, S>;
 };

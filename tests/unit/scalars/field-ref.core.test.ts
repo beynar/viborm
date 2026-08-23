@@ -14,7 +14,7 @@ const post = s.model({
   likes: s.int(),
   tags: s.string().array(),
   author: s
-    .manyToOne(() => target)
+    .toOne(() => target)
     .fields("id")
     .references("id"),
 });

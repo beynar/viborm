@@ -631,8 +631,8 @@ function buildToOneUpdateFootprint(
   updateData: Readonly<Record<string, unknown>>,
   rootScalarData: Readonly<Record<string, unknown>> | undefined
 ): ToOneUpdateFootprint {
-  const { relationInfo } = relation;
-  const target = relationInfo.targetModel;
+  const { relationRef } = relation;
+  const target = relationRef.targetModel;
   const scalarData = getScalarData(target, updateData);
   const changedFields = new Set(Object.keys(scalarData));
   const readConstraint =
@@ -661,7 +661,7 @@ function buildToOneUpdateFootprint(
   );
   if (
     relation.sourceModel === target &&
-    relation.relationInfo.targetModel === target
+    relation.relationRef.targetModel === target
   ) {
     for (const field of [
       ...relation.membership.foreignFields,

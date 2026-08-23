@@ -23,7 +23,7 @@ const measurement = s
   .model({
     id: s.string().id(),
     views: s.bigInt(),
-    readings: s.oneToMany(() => reading),
+    readings: s.toMany(() => reading),
   })
   .map("bun_sqlite_runtime_measurements");
 
@@ -33,7 +33,7 @@ const reading = s
     measurementId: s.string(),
     count: s.bigInt(),
     measurement: s
-      .manyToOne(() => measurement)
+      .toOne(() => measurement)
       .fields("measurementId")
       .references("id"),
   })

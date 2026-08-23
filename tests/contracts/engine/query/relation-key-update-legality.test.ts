@@ -58,7 +58,7 @@ const author = s
   .model({
     id: s.int().id(),
     name: s.string(),
-    posts: s.oneToMany(() => post),
+    posts: s.toMany(() => post),
   })
   .map("relation_key_authors");
 
@@ -69,10 +69,9 @@ const post = s
     score: s.int(),
     authorId: s.int().nullable(),
     author: s
-      .manyToOne(() => author)
+      .toOne(() => author)
       .fields("authorId")
       .references("id")
-      .optional()
       .onUpdate("cascade"),
   })
   .map("relation_key_posts");
@@ -81,7 +80,7 @@ const organization = s
   .model({
     id: s.int().id(),
     code: s.int().unique(),
-    members: s.oneToMany(() => member),
+    members: s.toMany(() => member),
   })
   .map("relation_key_organizations");
 
@@ -91,10 +90,9 @@ const member = s
     name: s.string(),
     organizationCode: s.int().nullable(),
     organization: s
-      .manyToOne(() => organization)
+      .toOne(() => organization)
       .fields("organizationCode")
       .references("code")
-      .optional()
       .onUpdate("cascade"),
   })
   .map("relation_key_members");
@@ -108,7 +106,7 @@ const registry = s
   .model({
     id: s.int().id(),
     tag: s.int().unique(),
-    entries: s.oneToMany(() => entry),
+    entries: s.toMany(() => entry),
   })
   .map("relation_key_registries");
 
@@ -118,10 +116,9 @@ const entry = s
     name: s.string(),
     registryTag: s.int().nullable(),
     registry: s
-      .manyToOne(() => registry)
+      .toOne(() => registry)
       .fields("registryTag")
-      .references("tag")
-      .optional(),
+      .references("tag"),
   })
   .map("relation_key_entries");
 
@@ -129,7 +126,7 @@ const setNullParent = s
   .model({
     id: s.int().id(),
     name: s.string(),
-    child: s.oneToOne(() => setNullChild).optional(),
+    child: s.toOne(() => setNullChild),
   })
   .map("relation_key_set_null_parents");
 
@@ -139,10 +136,9 @@ const setNullChild = s
     label: s.string(),
     parentId: s.int().unique().nullable(),
     parent: s
-      .oneToOne(() => setNullParent)
+      .toOne(() => setNullParent)
       .fields("parentId")
       .references("id")
-      .optional()
       .onUpdate("setNull"),
   })
   .map("relation_key_set_null_children");
@@ -153,7 +149,7 @@ const setNullList = s
   .model({
     id: s.int().id(),
     name: s.string(),
-    items: s.oneToMany(() => setNullItem),
+    items: s.toMany(() => setNullItem),
   })
   .map("relation_key_set_null_lists");
 
@@ -163,10 +159,9 @@ const setNullItem = s
     label: s.string(),
     listId: s.int().nullable(),
     list: s
-      .manyToOne(() => setNullList)
+      .toOne(() => setNullList)
       .fields("listId")
       .references("id")
-      .optional()
       .onUpdate("setNull"),
   })
   .map("relation_key_set_null_items");
@@ -175,7 +170,7 @@ const restrictParent = s
   .model({
     id: s.int().id(),
     name: s.string(),
-    child: s.oneToOne(() => restrictChild).optional(),
+    child: s.toOne(() => restrictChild),
   })
   .map("relation_key_restrict_parents");
 
@@ -185,10 +180,9 @@ const restrictChild = s
     label: s.string(),
     parentId: s.int().unique().nullable(),
     parent: s
-      .oneToOne(() => restrictParent)
+      .toOne(() => restrictParent)
       .fields("parentId")
       .references("id")
-      .optional()
       .onUpdate("restrict"),
   })
   .map("relation_key_restrict_children");
@@ -197,7 +191,7 @@ const cascadeParent = s
   .model({
     id: s.int().id(),
     name: s.string(),
-    child: s.oneToOne(() => cascadeChild).optional(),
+    child: s.toOne(() => cascadeChild),
   })
   .map("relation_key_cascade_parents");
 
@@ -207,10 +201,9 @@ const cascadeChild = s
     label: s.string(),
     parentId: s.int().unique().nullable(),
     parent: s
-      .oneToOne(() => cascadeParent)
+      .toOne(() => cascadeParent)
       .fields("parentId")
       .references("id")
-      .optional()
       .onUpdate("cascade"),
   })
   .map("relation_key_cascade_children");
@@ -219,7 +212,7 @@ const sharedAccount = s
   .model({
     id: s.int().id(),
     name: s.string(),
-    profile: s.oneToOne(() => sharedProfile).optional(),
+    profile: s.toOne(() => sharedProfile),
   })
   .map("relation_key_shared_accounts");
 
@@ -228,7 +221,7 @@ const sharedProfile = s
     id: s.int().id(),
     label: s.string(),
     account: s
-      .oneToOne(() => sharedAccount)
+      .toOne(() => sharedAccount)
       .fields("id")
       .references("id")
       .onUpdate("cascade"),

@@ -108,39 +108,29 @@ known before topology may be resolved (a read traversal placing its aliases, a
 junction statement refusing a non-junction relation); bind when the bound value
 itself is needed. There is no second entry point per arm.
 
-ONE STORED TOPOLOGY, SEVERAL DERIVED VIEWS. The classification answers three
-orthogonal axes over a single stored membership; nothing downstream stores a
+ONE RESOLVED EDGE, SEVERAL DERIVED VIEWS. Classification DISCOVERS NOTHING. It
+reads the `ResolvedSlot` L5 published — which endpoint owns the stored reference,
+which pairs live in a junction, which member of a carrier a bound inverse views —
+and answers three orthogonal axes over that one edge. Nothing downstream stores a
 second copy of any of them, and every question about an edge is asked of the axis
 that owns it:
 
-0. a pre-bound collection member carrier is REFUSED here rather than
-   re-resolved — it is bound once at parse time, owner-oriented, and
-   re-resolving it would silently answer with the variant orientation or fall to
-   the ordinary `manyToMany` arm and compile against a table that does not exist;
-1. resolved inverse of a JUNCTION-HELD polymorphic group → position `junction`,
-   junction membership with `polymorphicMember`, in reverse orientation.
-   Answered BEFORE either ordinary arm and for both asking shapes at once,
-   because a relation bound to a toMany group has its membership in that group's
-   member junction whatever its declared `type` says. Cardinality comes from that
-   member's own `inverseCardinality`: `many` for a bound `manyToMany` (an
-   ordinary to-many view) and `one` for a bound fields-less `manyToOne` —
-   `bindPolymorphicMemberJunction` is the sole producer of a singular junction,
-   backed by that member table's UNIQUE over the complete target side;
-2. many-to-many → position `junction` (cardinality `many`, junction membership);
-3. current model holds FK → position `parentHeld` (cardinality `one`,
-   foreign-key membership);
-4. resolved inverse of a ROW-HELD polymorphic group → position `childHeld`,
-   polymorphic membership, cardinality from the public relation;
-5. remaining ordinary child-held edge → position `childHeld`, foreign-key
-   membership, cardinality from the public relation.
+1. `edge.kind === "junction"` → position `junction` (cardinality `many`, junction
+   membership);
+2. a slot holding a MEMBER of a variant-junction carrier → position `junction`,
+   junction membership carrying that member, oriented by whether the asking slot
+   IS the carrier (`owner`) or its bound inverse (`variant`). Cardinality comes
+   from that member's own `inverseCardinality`: `many` for a plural inverse and
+   `one` for a singular one, backed by that member table's UNIQUE over the
+   complete target side — the sole producer of a singular junction;
+3. everything else is ROW-HELD, and the edge says which row holds it:
+   `edge.owner` for a foreign key and `edge.carrier` for a variant row. The
+   current model holding it → `parentHeld` (cardinality `one`); the other model
+   holding it → `childHeld` with cardinality from the asking slot.
 
-Step 1's placement is load-bearing in both directions: without it a bound
-`manyToMany` would fall to the ordinary-junction arm and compile against a pair
-table the serializer correctly never emits, and a bound fields-less `manyToOne`
-would fall through the row-held path to `resolveOrdinaryInverse` and answer with
-the generic "Cannot determine FK fields". The resolution is a cheap non-throwing
-schema-state read, so classification itself stays refusal-free apart from the
-carrier guard.
+The arms are exclusive because a resolved slot carries exactly ONE edge: there
+is no ladder, no fallback, and no order-dependent placement to get wrong.
+Classification is a read of already-decided facts, so it is refusal-free.
 
 The bound value contains the relation declaration, the source model, and the
 membership: its holder and referenced models, ordered foreign and referenced
@@ -152,11 +142,14 @@ value does not contain scopes, aliases, identity values, reference sources,
 transition state, junction metadata, SQL, or execution policy.
 
 Bind at the first topology decision. Early binding can change which schema or
-arm-specific failure surfaces first. The FIELD pairing is therefore lazy and
-memoized (like the junction sides): it owns the mismatched-foreign-key-metadata
-refusal, which must stay behind the relation-key legality boundary. Attaching
-VALUE sources to those members, source resolution, and membership lowering stay in
-`write-engine/relation-membership.ts` after existing legality checks.
+arm-specific failure surfaces first. The FIELD pairing is not derived here at
+all: `ResolvedStoredReference.members` arrives already paired from the topology
+owner, and the two flat lists are projections of it — which is why the old
+mismatched-foreign-key-metadata refusal is gone rather than merely unreached
+(an unequal `.fields()`/`.references()` pair is refused at construction).
+Attaching VALUE sources to those members, source resolution, and membership
+lowering stay in `write-engine/relation-membership.ts` after existing legality
+checks.
 
 ## Physical read traversal
 
@@ -240,8 +233,8 @@ result boundary decodes exactly one relation value per relation column. It reads
 already deduped and canonicalized at the parse boundary, so no builder re-derives
 it.
 
-An inverse polymorphic `oneToMany` or fields-less `oneToOne` is still an
-ordinary public relation, but its membership predicate is two-part: private id
+A row-held variant carrier's inverse — plural `s.toMany` or singular `s.toOne` —
+is still an ordinary public relation, but its membership predicate is two-part: private id
 correlation followed by exact stored-discriminator equality.
 `correlation-utils.ts` owns this conjunction. Ordinary relation builders own
 the cardinality-specific include, filter, count, ordering, and null behavior.

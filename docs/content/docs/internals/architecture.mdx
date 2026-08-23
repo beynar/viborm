@@ -74,10 +74,11 @@ Relations use thunks `() => Model` to break circular dependencies:
 
 ```typescript
 const user = s.model({
-  posts: s.oneToMany(() => post),  // Thunk defers evaluation
+  posts: s.toMany(() => post),  // Thunk defers evaluation
 });
 const post = s.model({
-  author: s.manyToOne(() => user),
+  authorId: s.string(),
+  author: s.toOne(() => user).fields("authorId").references("id"),
 });
 ```
 

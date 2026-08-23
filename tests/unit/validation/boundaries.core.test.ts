@@ -203,4 +203,16 @@ describe("SchemaRegistry", () => {
       { message: "Async schemas are not supported", path: "data.name" },
     ]);
   });
+
+  test("ignores a hostile second argument and resolves the public schema", () => {
+    const missing = s.model({ id: s.string().id() });
+    const owner = s.model({
+      id: s.string().id(),
+      missing: s.toOne(() => missing),
+    });
+
+    expect(() =>
+      Reflect.apply(createSchemaRegistry, undefined, [{ owner }, new Map()])
+    ).toThrow("[R006]");
+  });
 });

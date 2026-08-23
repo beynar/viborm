@@ -6,10 +6,10 @@ import {
   POLYMORPHIC_RESULT_STATE_KEY,
   POLYMORPHIC_RESULT_STATE_LINKED,
 } from "../result-aliases";
-import type { PolymorphicToOneRelationInfo, QueryScope } from "../types";
+import type { QueryScope, VariantRowCarrierSlot } from "../types";
 import type { BuildNestedSelection } from "./include-builder";
 import { assembleInnerQuery } from "./include-query";
-import { resolvePolymorphicEdge } from "./polymorphic-relation";
+import { selectVariantRow } from "./polymorphic-relation";
 
 export type BuildPolymorphicNestedWhere = (
   scope: QueryScope,
@@ -20,18 +20,18 @@ export type BuildPolymorphicNestedWhere = (
 export function buildPolymorphicRead(
   buildNestedSelection: BuildNestedSelection,
   scope: QueryScope,
-  relation: PolymorphicToOneRelationInfo,
+  relation: VariantRowCarrierSlot,
   projection: unknown,
   parentAlias: string
 ): Sql {
   const { adapter } = scope;
   const typeColumn = adapter.identifiers.column(
     parentAlias,
-    relation.storage.typeColumn.name
+    relation.edge.storage.typeColumn.name
   );
   const idColumn = adapter.identifiers.column(
     parentAlias,
-    relation.storage.idColumn.name
+    relation.edge.storage.idColumn.name
   );
   const bothNull = adapter.operators.and(
     adapter.operators.isNull(typeColumn),
@@ -43,10 +43,15 @@ export function buildPolymorphicRead(
   const textLiteral = (value: string) =>
     adapter.expressions.cast(adapter.literals.value(value), "text");
 
-  for (const publicType of relation.storage.members.keys()) {
-    const edge = resolvePolymorphicEdge(scope, relation, publicType);
+  for (const member of relation.edge.members) {
+    const publicType = member.variant;
+    const edge = selectVariantRow(relation, publicType);
     const targetAlias = scope.nextAlias();
-    const targetScope = createChildScope(scope, edge.targetModel, targetAlias);
+    const targetScope = createChildScope(
+      scope,
+      edge.member.targetModel,
+      targetAlias
+    );
     const targetProjection = projectionFor(projection, publicType);
     const targetJson = buildNestedSelection(
       targetScope,
@@ -55,12 +60,12 @@ export function buildPolymorphicRead(
     ).sql;
     const targetColumn = adapter.identifiers.column(
       targetAlias,
-      getColumnName(edge.targetModel, edge.referencedField)
+      getColumnName(edge.member.targetModel, edge.member.referencedField)
     );
     const targetQuery = assembleInnerQuery(adapter, {
       selectExpr: targetJson,
       from: adapter.identifiers.table(
-        getTableName(edge.targetModel),
+        getTableName(edge.member.targetModel),
         targetAlias
       ),
       where: adapter.operators.eq(targetColumn, idColumn),
@@ -78,7 +83,7 @@ export function buildPolymorphicRead(
       when: adapter.operators.and(
         adapter.operators.exactTextEq(
           typeColumn,
-          adapter.literals.value(edge.storedType)
+          adapter.literals.value(edge.member.entry.storedValue)
         ),
         adapter.operators.isNotNull(idColumn)
       ),
@@ -101,18 +106,18 @@ export function buildPolymorphicRead(
 export function buildPolymorphicFilterSql(
   buildNestedWhere: BuildPolymorphicNestedWhere,
   scope: QueryScope,
-  relation: PolymorphicToOneRelationInfo,
+  relation: VariantRowCarrierSlot,
   filter: unknown,
   parentAlias: string
 ): Sql {
   const { adapter } = scope;
   const typeColumn = adapter.identifiers.column(
     parentAlias,
-    relation.storage.typeColumn.name
+    relation.edge.storage.typeColumn.name
   );
   const idColumn = adapter.identifiers.column(
     parentAlias,
-    relation.storage.idColumn.name
+    relation.edge.storage.idColumn.name
   );
   const record = filter as Record<string, unknown>;
   if (record.is === null) {
@@ -128,10 +133,10 @@ export function buildPolymorphicFilterSql(
     );
   }
   const publicType = String(record.type);
-  const edge = resolvePolymorphicEdge(scope, relation, publicType);
+  const edge = selectVariantRow(relation, publicType);
   const discriminator = adapter.operators.exactTextEq(
     typeColumn,
-    adapter.literals.value(edge.storedType)
+    adapter.literals.value(edge.member.entry.storedValue)
   );
   const nested = isRecord(record.is)
     ? record.is
@@ -141,10 +146,14 @@ export function buildPolymorphicFilterSql(
   if (!nested) return discriminator;
 
   const targetAlias = scope.nextAlias();
-  const targetScope = createChildScope(scope, edge.targetModel, targetAlias);
+  const targetScope = createChildScope(
+    scope,
+    edge.member.targetModel,
+    targetAlias
+  );
   const targetColumn = adapter.identifiers.column(
     targetAlias,
-    getColumnName(edge.targetModel, edge.referencedField)
+    getColumnName(edge.member.targetModel, edge.member.referencedField)
   );
   const correlation = adapter.operators.eq(targetColumn, idColumn);
   const nestedWhere = buildNestedWhere(targetScope, nested);
@@ -152,7 +161,10 @@ export function buildPolymorphicFilterSql(
     ? adapter.operators.and(correlation, nestedWhere)
     : correlation;
   const existsQuery = adapter.subqueries.existsCheck(
-    adapter.identifiers.table(getTableName(edge.targetModel), targetAlias),
+    adapter.identifiers.table(
+      getTableName(edge.member.targetModel),
+      targetAlias
+    ),
     predicate
   );
   const targetPredicate = Object.hasOwn(record, "is")

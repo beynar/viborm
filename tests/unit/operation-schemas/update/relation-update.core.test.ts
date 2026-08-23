@@ -119,7 +119,7 @@ describe("Relation Update - Author Model Runtime (oneToMany)", () => {
   test("runtime: accepts create nested write", () => {
     const result = parse(schema, {
       posts: {
-        create: { id: "post-1", title: "Hello", authorId: "author-1" },
+        create: { id: "post-1", title: "Hello" },
       },
     });
     expect(result.issues).toBeUndefined();
@@ -130,8 +130,8 @@ describe("Relation Update - Author Model Runtime (oneToMany)", () => {
       posts: {
         createMany: {
           data: [
-            { id: "post-1", title: "Hello", authorId: "author-1" },
-            { id: "post-2", title: "World", authorId: "author-1" },
+            { id: "post-1", title: "Hello" },
+            { id: "post-2", title: "World" },
           ],
         },
       },
@@ -206,7 +206,7 @@ describe("Relation Update - Author Model Runtime (oneToMany)", () => {
       posts: {
         upsert: {
           where: { id: "post-1" },
-          create: { id: "post-1", title: "Created", authorId: "author-1" },
+          create: { id: "post-1", title: "Created" },
           update: { title: "Updated" },
         },
       },
@@ -239,12 +239,15 @@ describe("Relation Update - Author Model Runtime (oneToMany)", () => {
         },
       },
     ],
-  ] as const)("runtime: rejects malformed planned to-many %s", (_, envelope) => {
-    const result = parse(schema, {
-      posts: envelope,
-    });
-    expect(result.issues).toBeDefined();
-  });
+  ] as const)(
+    "runtime: rejects malformed planned to-many %s",
+    (_, envelope) => {
+      const result = parse(schema, {
+        posts: envelope,
+      });
+      expect(result.issues).toBeDefined();
+    }
+  );
 
   test("runtime: accepts set to replace all", () => {
     const result = parse(schema, {
@@ -290,13 +293,15 @@ describe("Relation Update - Post Model Runtime (manyToOne)", () => {
     expect(result.issues).toBeDefined();
   });
 
-  test("runtime: accepts disconnect for optional relation", () => {
+  // RE-PINNED (§9.4): `post.authorId` is not nullable, so this membership
+  // cannot be cleared while both rows survive and `disconnect` is absent.
+  test("runtime: rejects disconnect on a required membership", () => {
     const result = parse(schema, {
       author: {
         disconnect: true,
       },
     });
-    expect(result.issues).toBeUndefined();
+    expect(result.issues).toBeDefined();
   });
 
   test("runtime: accepts planned to-one update", () => {
@@ -320,17 +325,17 @@ describe("Relation Update - Post Model Runtime (manyToOne)", () => {
     expect(result.issues).toBeUndefined();
   });
 
-  test.each([
-    "updateMany",
-    "deleteMany",
-  ] as const)("runtime: rejects to-many-only '%s' on to-one", (operation) => {
-    const result = parse(schema, {
-      author: {
-        [operation]: {},
-      },
-    });
-    expect(result.issues?.[0]?.message).toBe(`Unknown key: ${operation}`);
-  });
+  test.each(["updateMany", "deleteMany"] as const)(
+    "runtime: rejects to-many-only '%s' on to-one",
+    (operation) => {
+      const result = parse(schema, {
+        author: {
+          [operation]: {},
+        },
+      });
+      expect(result.issues?.[0]?.message).toBe(`Unknown key: ${operation}`);
+    }
+  );
 
   test("runtime: accepts create nested write", () => {
     const result = parse(schema, {

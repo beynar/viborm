@@ -1,10 +1,10 @@
-import { describe, expect, test } from "vitest";
 import { buildRelationMutationProgram } from "@src/query-engine/builders/relation-mutation-parser";
-import type { RelationInfo } from "@src/query-engine/types";
+import type { RelationRef } from "@src/query-engine/types";
 import {
   linearizationSchema,
   runOwnWriteLinearizationBehavior,
 } from "@tests/contracts/engine/write/own-write-linearization-behavior";
+import { describe, expect, test } from "vitest";
 
 describe("N6-U3 — own-write linearization (PGlite)", () => {
   runOwnWriteLinearizationBehavior({
@@ -19,7 +19,7 @@ describe("N6-U3 — own-write linearization (PGlite)", () => {
 
 describe("N6-U3 — one order, one derivation (ATOM §4.1)", () => {
   test("the mutation program carries the documented execution order", () => {
-    const relationInfo = {
+    const relationRef = {
       name: "notes",
       targetModel: linearizationSchema.note,
       cardinality: "many",
@@ -27,8 +27,8 @@ describe("N6-U3 — one order, one derivation (ATOM §4.1)", () => {
     };
     const program = buildRelationMutationProgram(
       // The program reads relation METADATA only, so a structural stand-in is enough
-      // here; building a real `RelationInfo` would add nothing this test asserts.
-      relationInfo as unknown as RelationInfo,
+      // here; building a real `RelationRef` would add nothing this test asserts.
+      relationRef as unknown as RelationRef,
       {
         disconnect: [{ id: 1 }],
         delete: [{ id: 2 }],

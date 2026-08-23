@@ -148,31 +148,32 @@ interface ScalarState<
 
 ```mermaid
 flowchart TB
-    subgraph "Relation Types"
-        O2O["oneToOne"]
-        O2M["oneToMany"]
-        M2O["manyToOne"]
-        M2M["manyToMany"]
+    subgraph "Declared"
+        T1["s.toOne(...)"]
+        TM["s.toMany(...)"]
     end
-    
-    subgraph "Config"
-        RC["RelationConfig"]
-        RC --> |contains| RT["relationType"]
-        RC --> |contains| JT["junctionTable?"]
-        RC --> |contains| CO["cascadeOptions?"]
+
+    subgraph "Derived by the resolver"
+        PAIR["paired endpoints"]
+        OWN["foreign-key owner"]
+        UNI["remote uniqueness"]
+        STO["row FK or junction"]
+        EMP["may the slot be empty"]
     end
-    
-    O2O --> RC
-    O2M --> RC
-    M2O --> RC
-    M2M --> RC
+
+    T1 --> PAIR
+    TM --> PAIR
+    PAIR --> OWN
+    PAIR --> UNI
+    PAIR --> STO
+    OWN --> EMP
 ```
 
 ```typescript
 const user = s.model({
   id: s.string().id().uuid(),
-  posts: s.oneToMany(() => post),
-  profile: s.oneToOne(() => profile)
+  posts: s.toMany(() => post),
+  profile: s.toOne(() => profile)
     .fields("profileId")
     .references("id"),
   profileId: s.string().nullable(),
@@ -181,13 +182,13 @@ const user = s.model({
 const post = s.model({
   id: s.string().id().uuid(),
   authorId: s.string(),
-  author: s.manyToOne(() => user)
+  author: s.toOne(() => user)
     .fields("authorId")
     .references("id"),
-  tags: s.manyToMany(() => tag)
+  tags: s.toMany(() => tag)
     .through("post_tags")
-    .A("postId")
-    .B("tagId"),
+    .source("postId")
+    .target("tagId"),
 });
 ```
 
@@ -249,24 +250,20 @@ s.vector(dimensions?)
 .autoIncrement()     // Number/BigInt IDs
 .now() / .updatedAt() // DateTime
 
-// Relations
-s.oneToOne(() => Model)
-  .fields("foreignKeyField")
-  .references("targetField")
-  .optional()
-  .onDelete("cascade")
-
-s.oneToMany(() => Model)
-  .name("customName")
-
-s.manyToOne(() => Model)
+// Relations — the FK-owning half of any singular slot
+s.toOne(() => Model)
   .fields("foreignKeyField")
   .references("targetField")
   .onDelete("cascade")
 
-s.manyToMany(() => Model)
+// A non-owning slot of either cardinality needs no configuration
+s.toOne(() => Model).name("customName")
+s.toMany(() => Model).name("customName")
+
+// A junction, configured on ONE of the two collection endpoints
+s.toMany(() => Model)
   .through("junction_table")
-  .A("sourceFkField")
-  .B("targetFkField")
+  .source("sourceFkField")
+  .target("targetFkField")
   .onDelete("cascade")
 ```

@@ -73,10 +73,10 @@ export const producedFieldSchema = (() => {
       serial: s.int().unique().increment(),
       /** The KEEP row: omitted nullable unique — an explicit `null`, naming no row. */
       slot: s.string().unique().nullable(),
-      crates: s.oneToMany(() => crate),
-      bins: s.oneToMany(() => bin),
-      latches: s.oneToMany(() => latch),
-      seal: s.oneToOne(() => seal).optional(),
+      crates: s.toMany(() => crate),
+      bins: s.toMany(() => bin).name("bins"),
+      latches: s.toMany(() => latch).name("latches"),
+      seal: s.toOne(() => seal),
     })
     .map("pkgf_depots");
 
@@ -86,10 +86,9 @@ export const producedFieldSchema = (() => {
       id: s.string().id(),
       depotSlot: s.string().nullable(),
       depot: s
-        .manyToOne(() => depot)
+        .toOne(() => depot)
         .fields("depotSlot")
         .references("slot")
-        .optional()
         .name("latches"),
     })
     .map("pkgf_latches");
@@ -99,10 +98,9 @@ export const producedFieldSchema = (() => {
       id: s.string().id(),
       depotSerial: s.int().nullable(),
       depot: s
-        .manyToOne(() => depot)
+        .toOne(() => depot)
         .fields("depotSerial")
-        .references("serial")
-        .optional(),
+        .references("serial"),
     })
     .map("pkgf_crates");
 
@@ -112,10 +110,9 @@ export const producedFieldSchema = (() => {
       id: s.string().id(),
       depotSerial: s.int().nullable(),
       depot: s
-        .manyToOne(() => depot)
+        .toOne(() => depot)
         .fields("depotSerial")
         .references("serial")
-        .optional()
         .name("bins"),
     })
     .map("pkgf_bins");
@@ -126,7 +123,7 @@ export const producedFieldSchema = (() => {
       depotSerial: s.int().id(),
       note: s.string(),
       depot: s
-        .oneToOne(() => depot)
+        .toOne(() => depot)
         .fields("depotSerial")
         .references("serial"),
     })
@@ -149,8 +146,8 @@ export const twoSequenceSchema = (() => {
     .model({
       id: s.int().id().increment(),
       code: s.bigInt().unique().increment(),
-      spans: s.oneToMany(() => span),
-      marks: s.oneToMany(() => mark),
+      spans: s.toMany(() => span),
+      marks: s.toMany(() => mark).name("marks"),
     })
     .map("pkgf_hubs");
 
@@ -159,10 +156,9 @@ export const twoSequenceSchema = (() => {
       id: s.string().id(),
       hubId: s.int().nullable(),
       hub: s
-        .manyToOne(() => hub)
+        .toOne(() => hub)
         .fields("hubId")
-        .references("id")
-        .optional(),
+        .references("id"),
     })
     .map("pkgf_spans");
 
@@ -171,10 +167,9 @@ export const twoSequenceSchema = (() => {
       id: s.string().id(),
       hubCode: s.bigInt().nullable(),
       hub: s
-        .manyToOne(() => hub)
+        .toOne(() => hub)
         .fields("hubCode")
         .references("code")
-        .optional()
         .name("marks"),
     })
     .map("pkgf_marks");
@@ -190,8 +185,8 @@ export const twoSequenceSchema = (() => {
     .model({
       key: s.int().id().increment(),
       id: s.int().unique().increment(),
-      byKey: s.oneToMany(() => tab),
-      byId: s.oneToMany(() => cog),
+      byKey: s.toMany(() => tab).name("byKey"),
+      byId: s.toMany(() => cog).name("byId"),
     })
     .map("pkgf_knobs");
 
@@ -200,10 +195,9 @@ export const twoSequenceSchema = (() => {
       id: s.string().id(),
       knobKey: s.int().nullable(),
       knob: s
-        .manyToOne(() => knob)
+        .toOne(() => knob)
         .fields("knobKey")
         .references("key")
-        .optional()
         .name("byKey"),
     })
     .map("pkgf_tabs");
@@ -213,10 +207,9 @@ export const twoSequenceSchema = (() => {
       id: s.string().id(),
       knobId: s.int().nullable(),
       knob: s
-        .manyToOne(() => knob)
+        .toOne(() => knob)
         .fields("knobId")
         .references("id")
-        .optional()
         .name("byId"),
     })
     .map("pkgf_cogs");

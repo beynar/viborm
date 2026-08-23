@@ -22,11 +22,10 @@ const tree = (() => {
       name: s.string(),
       parentId: s.string().nullable(),
       parent: s
-        .manyToOne(() => node)
+        .toOne(() => node)
         .fields("parentId")
-        .references("id")
-        .optional(),
-      children: s.oneToMany(() => node),
+        .references("id"),
+      children: s.toMany(() => node),
     })
     .map("x1ds_node");
   return { node };

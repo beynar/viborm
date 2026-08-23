@@ -6,22 +6,22 @@
  */
 
 import { s } from "@schema";
+import {
+  authorSchemas,
+  postSchemas,
+  simpleSchemas,
+} from "@tests/unit/operation-schemas/fixtures";
 import { createSchemaRegistry, type InferInput, parse } from "@validation";
 import {
   getNestedScalarCreateWithOmittedRequiredKeys,
   type NestedScalarCreateWithOmittedRequiredKeys,
 } from "@validation/model/core";
 import { describe, expect, expectTypeOf, test } from "vitest";
-import {
-  authorSchemas,
-  postSchemas,
-  simpleSchemas,
-} from "@tests/unit/operation-schemas/fixtures";
 
 const phase7Author = s.model({
   id: s.string().id(),
   name: s.string(),
-  posts: s.oneToMany(() => phase7Post),
+  posts: s.toMany(() => phase7Post),
 });
 
 const phase7Post = s.model({
@@ -29,7 +29,7 @@ const phase7Post = s.model({
   title: s.string(),
   authorId: s.string(),
   author: s
-    .manyToOne(() => phase7Author)
+    .toOne(() => phase7Author)
     .fields("authorId")
     .references("id"),
 });
@@ -42,7 +42,7 @@ const phase7Schemas = createSchemaRegistry({
 const inverseOneToOneUser = s.model({
   id: s.string().id(),
   name: s.string(),
-  profile: s.oneToOne(() => inverseOneToOneProfile).optional(),
+  profile: s.toOne(() => inverseOneToOneProfile),
 });
 
 const inverseOneToOneProfile = s.model({
@@ -50,10 +50,9 @@ const inverseOneToOneProfile = s.model({
   bio: s.string().nullable(),
   userId: s.string().unique().nullable(),
   user: s
-    .oneToOne(() => inverseOneToOneUser)
+    .toOne(() => inverseOneToOneUser)
     .fields("userId")
-    .references("id")
-    .optional(),
+    .references("id"),
 });
 
 const inverseOneToOneSchemas = createSchemaRegistry({
@@ -64,13 +63,13 @@ const inverseOneToOneSchemas = createSchemaRegistry({
 const relationScopedAuthor = s.model({
   id: s.string().id(),
   name: s.string(),
-  posts: s.oneToMany(() => relationScopedPost).name("author"),
+  posts: s.toMany(() => relationScopedPost).name("author"),
 });
 
 const relationScopedCategory = s.model({
   id: s.string().id(),
   name: s.string(),
-  posts: s.oneToMany(() => relationScopedPost).name("category"),
+  posts: s.toMany(() => relationScopedPost).name("category"),
 });
 
 const relationScopedPost = s.model({
@@ -79,12 +78,12 @@ const relationScopedPost = s.model({
   authorId: s.string(),
   categoryId: s.string(),
   author: s
-    .manyToOne(() => relationScopedAuthor)
+    .toOne(() => relationScopedAuthor)
     .fields("authorId")
     .references("id")
     .name("author"),
   category: s
-    .manyToOne(() => relationScopedCategory)
+    .toOne(() => relationScopedCategory)
     .fields("categoryId")
     .references("id")
     .name("category"),
@@ -96,12 +95,14 @@ const relationScopedSchemas = createSchemaRegistry({
   post: relationScopedPost,
 }).proxy;
 
-const compositeAuthor = s.model({
-  id: s.string(),
-  orgId: s.string(),
-  name: s.string(),
-  posts: s.oneToMany(() => compositePost),
-});
+const compositeAuthor = s
+  .model({
+    id: s.string(),
+    orgId: s.string(),
+    name: s.string(),
+    posts: s.toMany(() => compositePost),
+  })
+  .id(["id", "orgId"]);
 
 const compositePost = s.model({
   id: s.string().id(),
@@ -109,7 +110,7 @@ const compositePost = s.model({
   authorId: s.string(),
   authorOrgId: s.string(),
   author: s
-    .manyToOne(() => compositeAuthor)
+    .toOne(() => compositeAuthor)
     .fields("authorId", "authorOrgId")
     .references("id", "orgId"),
 });
@@ -119,15 +120,42 @@ const compositeSchemas = createSchemaRegistry({
   post: compositePost,
 }).proxy;
 
-const multiFkAuthor = s.model({
-  id: s.string(),
-  orgId: s.string(),
-  name: s.string(),
+const optionalCompositeParent = s
+  .model({
+    id: s.string(),
+    tenantId: s.string(),
+    child: s.toOne(() => optionalCompositeChild),
+  })
+  .id(["tenantId", "id"]);
+
+const optionalCompositeChild = s.model({
+  id: s.string().id(),
+  tenantId: s.string(),
+  parentId: s.string().nullable(),
+  parent: s
+    .toOne(() => optionalCompositeParent)
+    .fields("tenantId", "parentId")
+    .references("tenantId", "id"),
 });
+
+const optionalCompositeSchemas = createSchemaRegistry({
+  parent: optionalCompositeParent,
+  child: optionalCompositeChild,
+}).proxy;
+
+const multiFkAuthor = s
+  .model({
+    id: s.string(),
+    orgId: s.string(),
+    name: s.string(),
+    posts: s.toMany(() => multiFkPost),
+  })
+  .id(["id", "orgId"]);
 
 const multiFkCategory = s.model({
   id: s.string().id(),
   name: s.string(),
+  posts: s.toMany(() => multiFkPost),
 });
 
 const multiFkPost = s.model({
@@ -137,11 +165,11 @@ const multiFkPost = s.model({
   authorOrgId: s.string(),
   categoryId: s.string(),
   author: s
-    .manyToOne(() => multiFkAuthor)
+    .toOne(() => multiFkAuthor)
     .fields("authorId", "authorOrgId")
     .references("id", "orgId"),
   category: s
-    .manyToOne(() => multiFkCategory)
+    .toOne(() => multiFkCategory)
     .fields("categoryId")
     .references("id"),
 });
@@ -208,7 +236,7 @@ describe("Relation Create - Types (Author Model)", () => {
   });
 
   test("type: all relations are optional", () => {
-    expectTypeOf<{}>().toMatchTypeOf<Input>();
+    expectTypeOf<Record<PropertyKey, never>>().toMatchTypeOf<Input>();
   });
 
   test("type: nested create can omit parent-derived inverse FK", () => {
@@ -251,7 +279,7 @@ describe("Relation Create - Types (Author Model)", () => {
         id: string;
         name: string;
         posts: {
-          createMany: {};
+          createMany: Record<PropertyKey, never>;
         };
       };
     }>().not.toMatchTypeOf<Phase7CreateArgsInput>();
@@ -470,7 +498,7 @@ describe("Relation Create - Author Model Runtime (oneToMany)", () => {
   test("runtime: accepts create nested write", () => {
     const result = parse(schema, {
       posts: {
-        create: { id: "post-1", title: "Hello", authorId: "author-1" },
+        create: { id: "post-1", title: "Hello" },
       },
     });
     expect(result.issues).toBeUndefined();
@@ -499,8 +527,8 @@ describe("Relation Create - Author Model Runtime (oneToMany)", () => {
       posts: {
         createMany: {
           data: [
-            { id: "post-1", title: "Hello", authorId: "author-1" },
-            { id: "post-2", title: "World", authorId: "author-1" },
+            { id: "post-1", title: "Hello" },
+            { id: "post-2", title: "World" },
           ],
         },
       },
@@ -750,6 +778,19 @@ describe("Relation Create - Composite FK Direct Create Runtime", () => {
     });
 
     expect(result.issues).toBeUndefined();
+  });
+});
+
+describe("Relation Create - Optional Composite FK Direct Create Runtime", () => {
+  const schema = optionalCompositeSchemas.child.args.create;
+
+  test("runtime: requires only non-produced members of an empty compound slot", () => {
+    expect(
+      parse(schema, {
+        data: { id: "child-1", tenantId: "tenant-1" },
+      }).issues
+    ).toBeUndefined();
+    expect(parse(schema, { data: { id: "child-1" } }).issues).toBeDefined();
   });
 });
 

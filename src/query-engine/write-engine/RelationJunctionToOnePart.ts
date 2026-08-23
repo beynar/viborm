@@ -19,7 +19,7 @@ import { buildDelete, buildFind, buildFindUnique } from "../operations";
 import { assertPortablePrimaryKeyUpdateInput } from "../operations/mutation-identity";
 import type { QueryEngine } from "../query-engine";
 import { assertRelationKeyUpdatesAreCompilable } from "../relation-key-legality";
-import type { QueryScope } from "../types";
+import { isVariantJunctionInverse, type QueryScope } from "../types";
 import type { FreshRecordPart } from "./CreateOperation";
 import { createRacePin } from "./create-race-pin";
 import {
@@ -73,7 +73,7 @@ import {
  * THE SINGULAR COLLECTION INVERSE (plan §9.4) — a THIN DISPATCHER and ORIENTATION
  * ADAPTER over the bound member-table topology and `JunctionStatements`.
  *
- * A `manyToOne` bound to a collection group whose member declares
+ * An `s.toOne` bound to a collection carrier whose member declares
  * `inverseCardinality: "one"` holds AT MOST ONE membership, physically backed by
  * the member table's UNIQUE over the complete VARIANT side. Read from the variant,
  * the slot behaves like an ordinary child-held to-one — which is why the ordinary
@@ -233,20 +233,20 @@ export class RelationJunctionToOnePart implements Part {
       context.txMode
     );
     this.ownerScope = createQueryScope(
-      context.engine.adapter,
-      context.relation.relationInfo.targetModel
+      context.engine,
+      context.relation.relationRef.targetModel
     );
     this.ownerProjection = buildTargetProjection(this.ownerScope.model);
     this.childName = getStepModelName(
       this.ownerScope.model,
-      context.relation.relationInfo.name
+      context.relation.relationRef.name
     );
     this.plan = plan;
     this.transfer = this.allocateTransfer(scope);
   }
 
   private get relationName(): string {
-    return this.context.relation.relationInfo.name;
+    return this.context.relation.relationRef.name;
   }
 
   /**
@@ -369,7 +369,7 @@ export class RelationJunctionToOnePart implements Part {
             this.capturedSelectorRead(plan.slot.where, owner),
             nestedWriteFailure(
               relationTargetNotFound(
-                this.context.relation.relationInfo,
+                this.context.relation.relationRef,
                 "connect"
               ),
               this.relationName,
@@ -430,7 +430,7 @@ export class RelationJunctionToOnePart implements Part {
     const owner = this.connectedOwner(plan.slot, known);
     if (!owner) {
       throw new NestedWriteError(
-        relationTargetNotFound(this.context.relation.relationInfo, "update"),
+        relationTargetNotFound(this.context.relation.relationRef, "update"),
         this.relationName
       );
     }
@@ -444,7 +444,7 @@ export class RelationJunctionToOnePart implements Part {
               this.capturedSelectorRead(plan.supplied, owner),
               nestedWriteFailure(
                 relationTargetNotFound(
-                  this.context.relation.relationInfo,
+                  this.context.relation.relationRef,
                   "update"
                 ),
                 this.relationName,
@@ -505,7 +505,7 @@ export class RelationJunctionToOnePart implements Part {
         engine: this.context.engine,
         sourceScope: this.context.parentScope,
         targetScope: this.ownerScope,
-        relationInfo: this.context.relation.relationInfo,
+        relationRef: this.context.relation.relationRef,
         member: { kind: "parsedOnce", programs: plan.programs },
         capture,
         recordCompilers: this.context.recordCompilers,
@@ -670,7 +670,7 @@ export class RelationJunctionToOnePart implements Part {
         ),
       },
       failure: nestedWriteFailure(
-        relationTargetNotFound(this.context.relation.relationInfo, operation),
+        relationTargetNotFound(this.context.relation.relationRef, operation),
         this.relationName,
         false
       ),
@@ -712,7 +712,7 @@ export class RelationJunctionToOnePart implements Part {
     const owner = this.probedOwner(slot, known);
     if (owner) return owner;
     throw new NestedWriteError(
-      relationTargetNotFound(this.context.relation.relationInfo, operation),
+      relationTargetNotFound(this.context.relation.relationRef, operation),
       this.relationName
     );
   }
@@ -852,21 +852,18 @@ export function isSingularCollectionInverse(
 }
 
 export function buildJunctionToOneParts(input: JunctionToOneInput): Part[] {
-  const relationName = input.relation.relationInfo.name;
-  const ownerScope = createQueryScope(
-    input.engine.adapter,
-    input.relation.relationInfo.targetModel
-  );
-  const ownerJunction = bindOwnerOrientedCollectionMember(
-    ownerScope,
-    input.parentScope.model,
-    input.relation.relationInfo
-  );
-  if (!ownerJunction) {
+  const relationName = input.relation.relationRef.name;
+  const inverse = input.relation.relationRef.resolved;
+  if (!isVariantJunctionInverse(inverse)) {
     throw new QueryEngineError(
-      `query-engine-v2 internal: singular collection inverse '${relationName}' could not resolve its owner-oriented member binding.`
+      `query-engine-v2 internal: singular collection inverse '${relationName}' is not a bound member of a collection carrier.`
     );
   }
+  const ownerScope = createQueryScope(
+    input.engine,
+    input.relation.relationRef.targetModel
+  );
+  const ownerJunction = bindOwnerOrientedCollectionMember(ownerScope, inverse);
   // THE ORDER CLAIM, consumed and never re-derived: `RELATION_MUTATION_KEYS`
   // lists `update` third and `connect` ninth, so the PARSED order lowers modify
   // before supply — the exact inversion `parity-h-to-one-lattice` falsified for
@@ -914,7 +911,7 @@ function buildEntryPart(
   continuation: ToOneContinuation | undefined
 ): Part {
   const { scope } = input;
-  const relationName = context.relation.relationInfo.name;
+  const relationName = context.relation.relationRef.name;
   const childName = getStepModelName(ownerScope.model, relationName);
   const projection = buildTargetProjection(ownerScope.model);
   const rowKeySelect = targetProjectionRowKeySelect(projection);

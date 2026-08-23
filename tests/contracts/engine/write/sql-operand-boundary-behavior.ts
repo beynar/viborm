@@ -66,8 +66,8 @@ export const sqlOperandWallSchema = (() => {
       id: s.string().id(),
       token: s.string().nullable().unique(),
       seq: s.int().unique(),
-      tags: s.oneToMany(() => tag),
-      slots: s.oneToMany(() => slot),
+      tags: s.toMany(() => tag),
+      slots: s.toMany(() => slot),
     })
     .map("e66_counters");
 
@@ -77,10 +77,9 @@ export const sqlOperandWallSchema = (() => {
       id: s.string().id(),
       counterToken: s.string().nullable(),
       counter: s
-        .manyToOne(() => counter)
+        .toOne(() => counter)
         .fields("counterToken")
-        .references("token")
-        .optional(),
+        .references("token"),
     })
     .map("e66_tags");
 
@@ -90,10 +89,9 @@ export const sqlOperandWallSchema = (() => {
       id: s.string().id(),
       counterSeq: s.int().nullable(),
       counter: s
-        .manyToOne(() => counter)
+        .toOne(() => counter)
         .fields("counterSeq")
-        .references("seq")
-        .optional(),
+        .references("seq"),
     })
     .map("e66_slots");
 

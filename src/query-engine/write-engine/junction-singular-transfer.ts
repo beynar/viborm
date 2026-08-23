@@ -126,7 +126,7 @@ export function transferSingularJunctionMembership(
       `query-engine-v2 internal: the singular junction transfer was asked for plural member table '${input.junction.membership.table}'.`
     );
   }
-  const relationName = input.junction.relationInfo.name;
+  const relationName = input.junction.relationRef.name;
   const capture = buildCapture(input);
   const deleteId = input.scope.allocate(`${input.stepPrefix}.vacate`);
   const slotGuardId = input.scope.allocate(`${input.stepPrefix}.guard.slot`);

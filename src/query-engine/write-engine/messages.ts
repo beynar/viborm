@@ -10,7 +10,7 @@
 // executor, and holds no dialect knowledge. It is imported by the concrete
 // operations and their Parts.
 
-import type { RelationInfo } from "../types";
+import type { RelationRef } from "../types";
 
 // ---------------------------------------------------------------------------
 // Shared shapes — V1-verbatim. Sourced from V1's own message builder.
@@ -24,7 +24,7 @@ import type { RelationInfo } from "../types";
  * ones (connect/set) — exactly as V1 computes it.
  */
 export function relationTargetNotFound(
-  relation: RelationInfo,
+  relation: RelationRef,
   operation: "connect" | "delete" | "disconnect" | "set" | "update"
 ): string {
   const parentSuffix =

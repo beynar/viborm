@@ -6,7 +6,7 @@ export const clientUserPostSchema = (() => {
     name: s.string(),
     email: s.string().unique(),
     age: s.int().nullable(),
-    posts: s.oneToMany(() => post),
+    posts: s.toMany(() => post),
   });
 
   const post = s
@@ -18,7 +18,7 @@ export const clientUserPostSchema = (() => {
       views: s.int().default(0),
       authorId: s.string(),
       author: s
-        .manyToOne(() => user)
+        .toOne(() => user)
         .fields("authorId")
         .references("id"),
     })
@@ -34,7 +34,7 @@ export const sqliteUserPostSchema = (() => {
       name: s.string().nullable(),
       email: s.string(),
       age: s.int().nullable(),
-      posts: s.oneToMany(() => post),
+      posts: s.toMany(() => post),
     })
     .map("users");
 
@@ -47,7 +47,7 @@ export const sqliteUserPostSchema = (() => {
       views: s.int().default(0),
       authorId: s.string(),
       author: s
-        .manyToOne(() => user)
+        .toOne(() => user)
         .fields("authorId")
         .references("id"),
     })
@@ -63,7 +63,7 @@ export const windowUserPostSchema = (() => {
       name: s.string().nullable(),
       email: s.string(),
       age: s.int().nullable(),
-      posts: s.oneToMany(() => post),
+      posts: s.toMany(() => post),
     })
     .map("window_users");
 
@@ -76,7 +76,7 @@ export const windowUserPostSchema = (() => {
       views: s.int().default(0),
       authorId: s.string(),
       author: s
-        .manyToOne(() => user)
+        .toOne(() => user)
         .fields("authorId")
         .references("id"),
     })
@@ -92,7 +92,7 @@ export const sqlGenerationUserPostSchema = (() => {
     email: s.string().unique(),
     age: s.int().nullable(),
     metadata: s.json().nullable(),
-    posts: s.oneToMany(() => Post),
+    posts: s.toMany(() => Post),
   });
 
   const Post = s
@@ -104,12 +104,11 @@ export const sqlGenerationUserPostSchema = (() => {
       views: s.int().default(0),
       authorId: s.string(),
       author: s
-        .manyToOne(() => Author)
+        .toOne(() => Author)
         .fields("authorId")
-        .references("id")
-        .optional(),
-      comments: s.oneToMany(() => Comment),
-      tags: s.manyToMany(() => Tag),
+        .references("id"),
+      comments: s.toMany(() => Comment),
+      tags: s.toMany(() => Tag),
     })
     .map("posts");
 
@@ -119,7 +118,7 @@ export const sqlGenerationUserPostSchema = (() => {
       text: s.string(),
       postId: s.string(),
       post: s
-        .manyToOne(() => Post)
+        .toOne(() => Post)
         .fields("postId")
         .references("id"),
     })
@@ -129,7 +128,7 @@ export const sqlGenerationUserPostSchema = (() => {
     .model({
       id: s.string().id(),
       name: s.string().unique(),
-      posts: s.manyToMany(() => Post),
+      posts: s.toMany(() => Post),
     })
     .map("tags");
 

@@ -54,7 +54,7 @@ function toOneSchema() {
   const content = s.model({
     id: s.string().id(),
     subject: s
-      .polymorphicToOne({ post: () => post }, { values: { post: STORED_POST } })
+      .toOne({ post: () => post }, { values: { post: STORED_POST } })
       .optional(),
   });
   return { post, content };
@@ -65,7 +65,7 @@ function toManySchema() {
   const post = s.model({ id: s.string().id(), body: s.string() });
   const content = s.model({
     id: s.string().id(),
-    subject: s.polymorphicToMany(
+    subject: s.toMany(
       { post: () => post },
       { values: { post: STORED_POST } }
     ),

@@ -41,9 +41,9 @@ const MEMBERSHIP_ROWS = /may hold membership rows/;
 const OWNER_ROWS_REMOVAL = /was removed while owner rows/;
 const POST_TO_ARTICLE_RETARGET = /changed its target from "post" to "article"/;
 const TO_ONE_BECOMES_TO_MANY =
-  /changed cardinality from s\.polymorphicToOne\(\) to s\.polymorphicToMany\(\)/;
+  /changed cardinality from s\.toOne\(\.\.\.\) to s\.toMany\(\.\.\.\)/;
 const TO_MANY_BECOMES_TO_ONE =
-  /changed cardinality from s\.polymorphicToMany\(\) to s\.polymorphicToOne\(\)/;
+  /changed cardinality from s\.toMany\(\.\.\.\) to s\.toOne\(\.\.\.\)/;
 const UNRECOGNIZED_RENAME = /without a recognized rename/;
 const POST_MEMBER_REMOVED = /"content\.subject\.post" was removed/;
 const JUNCTION_TABLE_MISSING =
@@ -492,7 +492,7 @@ describe("polymorphic member-junction rename pairing", () => {
         const post = s.model({ id: s.string().id() });
         const owner = s.model({
           id: s.string().id(),
-          items: s.polymorphicToMany(
+          items: s.toMany(
             { post: () => post },
             { values: { post: "items.member.v1" } }
           ),
@@ -505,7 +505,7 @@ describe("polymorphic member-junction rename pairing", () => {
         const post = s.model({ id: s.string().id() });
         const owner = s.model({
           id: s.string().id(),
-          items: s.polymorphicToMany(
+          items: s.toMany(
             { story: () => post },
             { values: { story: "items.member.v1" } }
           ),
@@ -545,7 +545,7 @@ describe("polymorphic member-junction rename pairing", () => {
         const owner = s.model({
           id: s.string().id(),
           items: s
-            .polymorphicToMany(
+            .toMany(
               { post: () => post },
               { values: { post: "items.member.v1" } }
             )
@@ -566,7 +566,7 @@ describe("polymorphic member-junction rename pairing", () => {
         const owner = s.model({
           id: s.string().id(),
           items: s
-            .polymorphicToMany(
+            .toMany(
               { story: () => post },
               { values: { story: "items.member.v1" } }
             )
@@ -603,7 +603,7 @@ describe("polymorphic member-junction rename pairing", () => {
         const post = s.model({ id: s.string().id() });
         const owner = s.model({
           id: s.string().id(),
-          items: s.polymorphicToMany({ post: () => post }),
+          items: s.toMany({ post: () => post }),
         });
         return { post, owner };
       })()
@@ -613,7 +613,7 @@ describe("polymorphic member-junction rename pairing", () => {
         const post = s.model({ id: s.string().id() });
         const owner = s.model({
           id: s.string().id(),
-          items: s.polymorphicToMany({ story: () => post }),
+          items: s.toMany({ story: () => post }),
         });
         return { post, owner };
       })()
@@ -639,7 +639,7 @@ describe("polymorphic member-junction rename pairing", () => {
         const post = s.model({ id: s.string().id() });
         const owner = s.model({
           id: s.string().id(),
-          items: s.polymorphicToMany(
+          items: s.toMany(
             { post: () => post },
             { values: { post: "items.member.v1" } }
           ),
@@ -654,11 +654,11 @@ describe("polymorphic member-junction rename pairing", () => {
       (() => {
         const post = s.model({
           id: s.string().id(),
-          itemsOwner: s.manyToOne(() => owner).optional(),
+          itemsOwner: s.toOne(() => owner),
         });
         const owner = s.model({
           id: s.string().id(),
-          items: s.polymorphicToMany(
+          items: s.toMany(
             { story: () => post },
             { values: { story: "items.member.v1" } }
           ),
@@ -828,7 +828,7 @@ function metadataOnlyFixture(): {
   const content = s.model({
     id: s.string().id(),
     subject: s
-      .polymorphicToOne(
+      .toOne(
         { post: () => post, video: () => video },
         {
           values: {

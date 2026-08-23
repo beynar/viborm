@@ -829,7 +829,7 @@ const sharedKeySchema = (() => {
     .model({
       id: s.int().id(),
       name: s.string().unique(),
-      items: s.oneToMany(() => item),
+      items: s.toMany(() => item),
     })
     .map("jordinal_owners");
 
@@ -838,7 +838,7 @@ const sharedKeySchema = (() => {
       ownerId: s.int(),
       slug: s.string(),
       owner: s
-        .manyToOne(() => owner)
+        .toOne(() => owner)
         .fields("ownerId")
         .references("id"),
     })

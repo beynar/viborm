@@ -1,11 +1,12 @@
 import type { AnyDriver } from "../../drivers/driver";
 import { MigrationError, VibORMErrorCode } from "../../errors";
 import type { AnyModel } from "../../schema/model";
+import type { ResolvedRelationIndex } from "../../schema/validation/relation-resolution";
 import { diff, type IndexPredicateCanonicalizer } from "../differ";
 import type { MigrationDriver } from "../drivers";
 import { getMigrationDriver } from "../drivers";
 import { alwaysAddDropResolver, resolveAmbiguousChanges } from "../resolver";
-import { serializeModels } from "../serializer";
+import { serializeResolvedModels } from "../serializer";
 import type { MigrationStorageDriver } from "../storage/driver";
 import {
   type AmbiguousChange,
@@ -171,9 +172,14 @@ function buildIndexPredicateCanonicalizer(
 export async function planPush(
   client: MigrationClient,
   migrationDriver: MigrationDriver,
-  options: PushOptions
+  options: PushOptions,
+  relations: ResolvedRelationIndex
 ): Promise<PushPlan> {
-  const desired = serializeModels(client.$schema, { migrationDriver });
+  const desired = serializeResolvedModels(
+    client.$schema,
+    migrationDriver,
+    relations
+  );
   // Live introspection sees the private columns and index, but a text
   // discriminator cannot reveal historical public/stored member mappings.
   // Push therefore compares structure only. Stored-value history is owned by

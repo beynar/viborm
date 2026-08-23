@@ -27,7 +27,7 @@ import { buildWhereUnique } from "./where-unique-builder";
  *
  * Takes the MEMBERSHIP rather than the bound relation: the two complete ordered
  * references are the whole input, and a direct polymorphic collection arm has a
- * membership without a `RelationInfo` to wrap it in.
+ * membership without a `RelationRef` to wrap it in.
  *
  * @returns correlationCondition: jt.sourceId = parent.id
  * @returns joinCondition: target.id = jt.targetId

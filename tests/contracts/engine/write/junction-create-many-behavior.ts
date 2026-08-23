@@ -72,7 +72,7 @@ export const junctionCreateManySchema = (() => {
       // parent id comes from the located row, not from the `where`).
       slug: s.string().unique(),
       title: s.string(),
-      tags: s.manyToMany(() => tag),
+      tags: s.toMany(() => tag),
     })
     .map("n3_posts");
   const tag = s
@@ -80,8 +80,8 @@ export const junctionCreateManySchema = (() => {
       id: s.string().id(),
       name: s.string().unique(),
       color: s.string(),
-      posts: s.manyToMany(() => post),
-      notes: s.oneToMany(() => tagNote),
+      posts: s.toMany(() => post),
+      notes: s.toMany(() => tagNote),
     })
     .map("n3_tags");
   const tagNote = s
@@ -90,7 +90,7 @@ export const junctionCreateManySchema = (() => {
       body: s.string(),
       tagId: s.string(),
       tag: s
-        .manyToOne(() => tag)
+        .toOne(() => tag)
         .fields("tagId")
         .references("id"),
     })
@@ -101,7 +101,7 @@ export const junctionCreateManySchema = (() => {
     .model({
       id: s.int().id().increment(),
       title: s.string(),
-      labels: s.manyToMany(() => label),
+      labels: s.toMany(() => label),
     })
     .map("n3_articles");
   const label = s
@@ -109,21 +109,21 @@ export const junctionCreateManySchema = (() => {
       id: s.int().id().increment(),
       slug: s.string().unique(),
       note: s.string(),
-      articles: s.manyToMany(() => article),
+      articles: s.toMany(() => article),
     })
     .map("n3_labels");
   // A generated key and NO other unique: the shape with no compile-time identity at all.
   const board = s
     .model({
       id: s.string().id(),
-      marks: s.manyToMany(() => mark),
+      marks: s.toMany(() => mark),
     })
     .map("n3_boards");
   const mark = s
     .model({
       id: s.int().id().increment(),
       text: s.string(),
-      boards: s.manyToMany(() => board),
+      boards: s.toMany(() => board),
     })
     .map("n3_marks");
   // EXPLICIT INTEGER keys on both sides — N7-U-C. The own-write preflight decides a
@@ -134,7 +134,7 @@ export const junctionCreateManySchema = (() => {
   const sheet = s
     .model({
       id: s.int().id(),
-      cells: s.manyToMany(() => cell),
+      cells: s.toMany(() => cell),
     })
     .map("n3_sheets");
   const cell = s
@@ -142,7 +142,7 @@ export const junctionCreateManySchema = (() => {
       id: s.int().id(),
       code: s.int().unique(),
       text: s.string(),
-      sheets: s.manyToMany(() => sheet),
+      sheets: s.toMany(() => sheet),
     })
     .map("n3_cells");
   return { post, tag, tagNote, article, label, board, mark, sheet, cell };

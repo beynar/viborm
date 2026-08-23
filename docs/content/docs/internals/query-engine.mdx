@@ -310,18 +310,17 @@ native atomic batch.
 
 ## Polymorphic relation path
 
-There are two storage shapes and the declaring factory picks one:
-`s.polymorphicToOne` is row-held and `s.polymorphicToMany` is junction-held.
+A variant target domain has two storage shapes and the declaring factory picks
+one: a variant `s.toOne` is row-held and a variant `s.toMany` is junction-held.
 Everything up to the [collection path](#polymorphic-collection-path) describes
 the row-held one.
 
-A polymorphic field declared with `s.polymorphicToOne` defines a direct
-multi-target to-one relation with an exact lazy getter map and a separate stable
-stored-value map:
+A field declared with a variant `s.toOne` defines a direct multi-target to-one
+relation with an exact lazy getter map and a separate stable stored-value map:
 
 ```typescript
 subject: s
-  .polymorphicToOne(
+  .toOne(
     {
       post: () => post,
       video: () => video,
@@ -348,8 +347,8 @@ The direct and inverse paths are deliberately different:
 | Path | Read meaning | Write meaning |
 | --- | --- | --- |
 | direct field | One correlated CASE statement, one exact discriminator arm per configured target | `CreateOperation` owns fresh-owner connect/create/connectOrCreate; `RecordUpdateCompiler` owns those operations plus selected-owner update/upsert and optional disconnect/delete |
-| inverse `oneToMany` | Ordinary include/filter/count plus `child.id = parent.pk AND child.type = fixed discriminator` | Ordinary child-held relation Parts own the full safe to-many mutation family; record compilers own fresh and selected child records |
-| inverse `oneToOne` | Ordinary singular include/filter plus the same exact type-and-identity membership | Ordinary child-held-to-one Parts own selection and membership; record compilers own fresh and selected child records |
+| plural inverse (`s.toMany`) | Ordinary include/filter/count plus `child.id = parent.pk AND child.type = fixed discriminator` | Ordinary child-held relation Parts own the full safe to-many mutation family; record compilers own fresh and selected child records |
+| singular inverse (`s.toOne`) | Ordinary singular include/filter plus the same exact type-and-identity membership | Ordinary child-held-to-one Parts own selection and membership; record compilers own fresh and selected child records |
 
 Direct include/select supports target-specific nested projections. A configured
 variant omitted from the projection object still uses that target's default
@@ -382,11 +381,11 @@ discriminators and half-null storage are malformed provider results.
 Direct owner creation exposes connect, create, and connect-or-create. A selected
 owner also exposes update and upsert, plus disconnect and delete when the direct
 membership is optional. A row-held edge stores one membership, so collection set
-does not apply to it. A bound inverse `oneToMany` exposes
+does not apply to it. A bound plural inverse exposes
 create/createMany/connect/connectOrCreate/upsert on create, the ordinary
 targeted and bulk update/delete family on update. Disconnect requires clearable
 membership. Set is available for both storage modes; required membership uses a
-materialized departing-member guard. A bound inverse `oneToOne` always has an
+materialized departing-member guard. A bound singular inverse always has an
 optional public slot: delete may empty it, while disconnect additionally
 requires clearable child storage. Exact membership always includes both the
 fixed discriminator and parent identity. Root createMany accepts a row-held
@@ -397,7 +396,7 @@ round trip beyond the ordinary child-held analogue.
 
 ## Polymorphic collection path
 
-A field declared with `s.polymorphicToMany` stores each variant's memberships in
+A field declared with a variant `s.toMany` stores each variant's memberships in
 its own fixed-target member junction, so the engine's junction owners serve it
 whole. The design rule is that the collection adds **coordination**, never a
 second junction DML owner and never a polymorphic scheduler.
@@ -444,11 +443,11 @@ and the refill must commit together, the one shape that a batch could legally
 split between them — no transaction, `clearsAll`, and an owner row key arriving
 as a produced output reference — is refused at construction, before any effect.
 
-**Inverse writes.** Both arities are ordinary. A polymorphic-bound `manyToMany`
+**Inverse writes.** Both arities are ordinary. A variant-bound plural inverse
 is a fixed-variant junction view: the binder supplies the same
 `ResolvedJunctionTopology` in reverse orientation, and `RelationJunctionPart` /
 `JunctionStatements` — written against `membership.source` / `membership.target`
-— serve every verb unchanged. A polymorphic-bound fields-less `manyToOne` is the
+— serve every verb unchanged. A variant-bound singular inverse is the
 singular slot, and `write-engine/RelationJunctionToOnePart.ts` is a thin
 dispatcher and orientation adapter over it, owning three things: the
 `(vacate, supplier, modify)` order consumed from `classifyToOneComposition`; the

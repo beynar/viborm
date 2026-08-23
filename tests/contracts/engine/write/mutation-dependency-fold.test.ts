@@ -9,7 +9,6 @@ import { hydrateSchemaNames, s } from "@schema";
 import type { Model } from "@schema/model";
 import { sql } from "@sql";
 import { postgresAdapter } from "@src/adapters/databases/postgres/postgres-adapter";
-import { createQueryScope } from "@src/query-engine/context/query-scope";
 import { compileMutationDependencyFold } from "@src/query-engine/operations/mutation-projection-fold";
 import {
   ref,
@@ -18,6 +17,7 @@ import {
 import { expectIndivisibleGeneratedOutputRefusal } from "@tests/contracts/engine/write/generated-identity-batch-refusal";
 import { batchIsAtomicUnit } from "@tests/fixtures/atomic-unit-batch";
 import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
+import { prepareSchema, scopeFor } from "@tests/fixtures/query-scope";
 import type Database from "better-sqlite3";
 import { describe, expect, test } from "vitest";
 
@@ -65,9 +65,9 @@ const depSchema = (() => {
     .model({
       id: s.int().id().increment(),
       name: s.string(),
-      spans: s.oneToMany(() => span),
-      tags: s.manyToMany(() => tag),
-      cells: s.oneToMany(() => cell),
+      spans: s.toMany(() => span),
+      tags: s.toMany(() => tag),
+      cells: s.toMany(() => cell),
     })
     .map("pm_hubs");
   const span = s
@@ -76,16 +76,15 @@ const depSchema = (() => {
       body: s.string(),
       hubId: s.int().nullable(),
       hub: s
-        .manyToOne(() => hub)
+        .toOne(() => hub)
         .fields("hubId")
-        .references("id")
-        .optional(),
+        .references("id"),
     })
     .map("pm_spans");
   const tag = s
     .model({
       id: s.string().id(),
-      hubs: s.manyToMany(() => hub),
+      hubs: s.toMany(() => hub),
     })
     .map("pm_tags");
   /** A SECOND database-assigned key, for the ordering conjunct's own decline. */
@@ -94,10 +93,9 @@ const depSchema = (() => {
       id: s.int().id().increment(),
       hubId: s.int().nullable(),
       hub: s
-        .manyToOne(() => hub)
+        .toOne(() => hub)
         .fields("hubId")
-        .references("id")
-        .optional(),
+        .references("id"),
     })
     .map("pm_cells");
   /**
@@ -115,7 +113,7 @@ const depSchema = (() => {
     .model({
       id: s.string().id().map("crate_pk"),
       name: s.string(),
-      pallets: s.oneToMany(() => pallet),
+      pallets: s.toMany(() => pallet),
     })
     .map("pm_crates");
   const pallet = s
@@ -123,11 +121,10 @@ const depSchema = (() => {
       id: s.int().id().increment().map("pallet_pk"),
       crateId: s.string().nullable(),
       crate: s
-        .manyToOne(() => crate)
+        .toOne(() => crate)
         .fields("crateId")
-        .references("id")
-        .optional(),
-      labels: s.oneToMany(() => label),
+        .references("id"),
+      labels: s.toMany(() => label),
     })
     .map("pm_pallets");
   const label = s
@@ -135,10 +132,9 @@ const depSchema = (() => {
       id: s.string().id(),
       palletId: s.int().nullable(),
       pallet: s
-        .manyToOne(() => pallet)
+        .toOne(() => pallet)
         .fields("palletId")
-        .references("id")
-        .optional(),
+        .references("id"),
     })
     .map("pm_labels");
   /**
@@ -160,7 +156,7 @@ const depSchema = (() => {
     .model({
       id: s.int().id().increment(),
       name: s.string(),
-      slots: s.oneToMany(() => slot),
+      slots: s.toMany(() => slot),
     })
     .map("pm_vaults")
     .omit({ id: true });
@@ -169,10 +165,9 @@ const depSchema = (() => {
       id: s.string().id(),
       vaultId: s.int().nullable(),
       vault: s
-        .manyToOne(() => vault)
+        .toOne(() => vault)
         .fields("vaultId")
-        .references("id")
-        .optional(),
+        .references("id"),
     })
     .map("pm_slots");
   const node = s
@@ -181,11 +176,10 @@ const depSchema = (() => {
       label: s.string(),
       parentId: s.string().nullable(),
       parent: s
-        .manyToOne(() => node)
+        .toOne(() => node)
         .fields("parentId")
-        .references("id")
-        .optional(),
-      children: s.oneToMany(() => node),
+        .references("id"),
+      children: s.toMany(() => node),
     })
     .map("pm_nodes");
   const raceEntry = s
@@ -1108,10 +1102,10 @@ describe("M2 — compileMutationDependencyFold spells what it can and refuses th
       .map("pm_lids");
     return { box, lid };
   })();
-  hydrateSchemaNames(namedSchema);
+  prepareSchema(namedSchema);
 
-  const scopeFor = (adapter: typeof postgresAdapter) =>
-    createQueryScope(adapter, namedSchema.box as Model<any>);
+  const boxScope = (adapter: typeof postgresAdapter) =>
+    scopeFor(adapter, namedSchema.box as Model<any>);
 
   const rootArm = (): WriteStep => ({
     id: "box.create",
@@ -1141,7 +1135,7 @@ describe("M2 — compileMutationDependencyFold spells what it can and refuses th
       statement: sql`INSERT INTO "pm_tabs" ("lidId") VALUES (${ref("lid.create", "id")})`,
       outputs: {},
     };
-    const arms = compileMutationDependencyFold(scopeFor(postgresAdapter), [
+    const arms = compileMutationDependencyFold(boxScope(postgresAdapter), [
       rootArm(),
       childArm(),
       grandchild,
@@ -1164,7 +1158,7 @@ describe("M2 — compileMutationDependencyFold spells what it can and refuses th
       statement: sql`INSERT INTO "pm_lids" ("boxId") VALUES (${7})`,
       outputs: {},
     };
-    const arms = compileMutationDependencyFold(scopeFor(postgresAdapter), [
+    const arms = compileMutationDependencyFold(boxScope(postgresAdapter), [
       rootArm(),
       plain,
     ]);
@@ -1182,7 +1176,7 @@ describe("M2 — compileMutationDependencyFold spells what it can and refuses th
   test("a FORWARD reference refuses: PostgreSQL has no such relation yet", () => {
     // The child is declared FIRST, so its producer is a later arm.
     expect(
-      compileMutationDependencyFold(scopeFor(postgresAdapter), [
+      compileMutationDependencyFold(boxScope(postgresAdapter), [
         childArm(),
         rootArm(),
       ])
@@ -1191,7 +1185,7 @@ describe("M2 — compileMutationDependencyFold spells what it can and refuses th
 
   test("a SELF reference refuses on the same rule", () => {
     expect(
-      compileMutationDependencyFold(scopeFor(postgresAdapter), [
+      compileMutationDependencyFold(boxScope(postgresAdapter), [
         rootArm(),
         childArm("lid.create", "id"),
       ])
@@ -1200,7 +1194,7 @@ describe("M2 — compileMutationDependencyFold spells what it can and refuses th
 
   test("a producer outside the fold refuses", () => {
     expect(
-      compileMutationDependencyFold(scopeFor(postgresAdapter), [
+      compileMutationDependencyFold(boxScope(postgresAdapter), [
         rootArm(),
         childArm("somewhere.else"),
       ])
@@ -1209,7 +1203,7 @@ describe("M2 — compileMutationDependencyFold spells what it can and refuses th
 
   test("an output the producer does not declare refuses", () => {
     expect(
-      compileMutationDependencyFold(scopeFor(postgresAdapter), [
+      compileMutationDependencyFold(boxScope(postgresAdapter), [
         rootArm(),
         childArm("box.create", "tag"),
       ])
@@ -1222,7 +1216,7 @@ describe("M2 — compileMutationDependencyFold spells what it can and refuses th
       outputs: { id: { kind: "insertId" } },
     };
     expect(
-      compileMutationDependencyFold(scopeFor(postgresAdapter), [
+      compileMutationDependencyFold(boxScope(postgresAdapter), [
         insertIdRoot,
         childArm(),
       ])
@@ -1235,7 +1229,7 @@ describe("M2 — compileMutationDependencyFold spells what it can and refuses th
       outputs: { id: { kind: "firstRowField", field: "id", optional: true } },
     };
     expect(
-      compileMutationDependencyFold(scopeFor(postgresAdapter), [
+      compileMutationDependencyFold(boxScope(postgresAdapter), [
         optionalRoot,
         childArm(),
       ])
@@ -1253,7 +1247,7 @@ describe("M2 — compileMutationDependencyFold spells what it can and refuses th
       outputs: {},
     };
     expect(
-      compileMutationDependencyFold(scopeFor(postgresAdapter), [
+      compileMutationDependencyFold(boxScope(postgresAdapter), [
         rootArm(),
         group,
         childArm("lid.createMany", "id", "tab.create"),

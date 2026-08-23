@@ -18,7 +18,7 @@ const video = s.model({
 });
 const requiredOwner = s.model({
   id: s.string().id(),
-  subject: s.polymorphicToOne(
+  subject: s.toOne(
     { post: () => post, video: () => video },
     { values: { post: "content.post.v1", video: "content.video.v1" } }
   ),
@@ -26,7 +26,7 @@ const requiredOwner = s.model({
 const optionalOwner = s.model({
   id: s.string().id(),
   subject: s
-    .polymorphicToOne(
+    .toOne(
       { post: () => post, video: () => video },
       { values: { post: "content.post.v1", video: "content.video.v1" } }
     )
@@ -34,13 +34,13 @@ const optionalOwner = s.model({
 });
 const article = s.model({
   id: s.string().id(),
-  comments: s.oneToMany(() => remark).name("commentable"),
+  comments: s.toMany(() => remark).name("commentable"),
 });
 const remark = s.model({
   id: s.string().id(),
   body: s.string(),
   commentable: s
-    .polymorphicToOne(
+    .toOne(
       { article: () => article },
       { values: { article: "content.article.v1" } }
     )
@@ -48,13 +48,13 @@ const remark = s.model({
 });
 const optionalArticle = s.model({
   id: s.string().id(),
-  comments: s.oneToMany(() => optionalRemark).name("optionalCommentable"),
+  comments: s.toMany(() => optionalRemark).name("optionalCommentable"),
 });
 const optionalRemark = s.model({
   id: s.string().id(),
   body: s.string(),
   commentable: s
-    .polymorphicToOne(
+    .toOne(
       { article: () => optionalArticle },
       { values: { article: "content.optional-article.v1" } }
     )
@@ -66,40 +66,31 @@ const auditLog = s.model({
 });
 const folder = s.model({
   id: s.string().id(),
-  entries: s.oneToMany(() => folderEntry).name("folderEntry"),
+  entries: s.toMany(() => folderEntry).name("folderEntry"),
 });
 const folderEntry = s.model({
   id: s.string().id(),
   folder: s
-    .polymorphicToOne(
-      { folder: () => folder },
-      { values: { folder: "folder.entry.v1" } }
-    )
+    .toOne({ folder: () => folder }, { values: { folder: "folder.entry.v1" } })
     .name("folderEntry"),
-  audit: s.polymorphicToOne(
+  audit: s.toOne(
     { auditLog: () => auditLog },
     { values: { auditLog: "audit.log.v1" } }
   ),
 });
 const featuredPost = s.model({
   id: s.string().id(),
-  featuredComment: s
-    .oneToOne(() => featuredComment)
-    .name("featuredCommentable")
-    .optional(),
+  featuredComment: s.toOne(() => featuredComment).name("featuredCommentable"),
 });
 const featuredVideo = s.model({
   id: s.string().id(),
-  featuredComment: s
-    .oneToOne(() => featuredComment)
-    .name("featuredCommentable")
-    .optional(),
+  featuredComment: s.toOne(() => featuredComment).name("featuredCommentable"),
 });
 const featuredComment = s.model({
   id: s.string().id(),
   body: s.string(),
   commentable: s
-    .polymorphicToOne({
+    .toOne({
       post: () => featuredPost,
       video: () => featuredVideo,
     })
@@ -109,22 +100,20 @@ const featuredComment = s.model({
 const requiredFeaturedPost = s.model({
   id: s.string().id(),
   featuredComment: s
-    .oneToOne(() => requiredFeaturedComment)
-    .name("requiredFeaturedCommentable")
-    .optional(),
+    .toOne(() => requiredFeaturedComment)
+    .name("requiredFeaturedCommentable"),
 });
 const requiredFeaturedVideo = s.model({
   id: s.string().id(),
   featuredComment: s
-    .oneToOne(() => requiredFeaturedComment)
-    .name("requiredFeaturedCommentable")
-    .optional(),
+    .toOne(() => requiredFeaturedComment)
+    .name("requiredFeaturedCommentable"),
 });
 const requiredFeaturedComment = s.model({
   id: s.string().id(),
   body: s.string(),
   commentable: s
-    .polymorphicToOne({
+    .toOne({
       post: () => requiredFeaturedPost,
       video: () => requiredFeaturedVideo,
     })
@@ -154,10 +143,8 @@ const targetSchemas = {
   post: () => registry.proxy.post,
   video: () => registry.proxy.video,
 };
-const requiredState =
-  requiredOwner["~"].state.polymorphicRelations.subject["~"].state;
-const optionalState =
-  optionalOwner["~"].state.polymorphicRelations.subject["~"].state;
+const requiredState = requiredOwner["~"].state.relations.subject["~"].state;
+const optionalState = optionalOwner["~"].state.relations.subject["~"].state;
 
 const createInputSchema = polymorphicCreateFactory(
   requiredState,
@@ -580,33 +567,40 @@ describe("polymorphic operation schema factories", () => {
     ).toBe(false);
   });
 
-  test("inverse topology stays lazy until create validation", () => {
+  test("a target getter is settled ONCE, by the definition gate, and never again", () => {
     let targetResolutions = 0;
     const lazyParent = s.model({
       id: s.string().id(),
-      entries: s.oneToMany(() => {
+      entries: s.toMany(() => {
         targetResolutions += 1;
         return lazyEntry;
       }),
     });
     const lazyEntry = s.model({
       id: s.string().id(),
-      owner: s.polymorphicToOne(
+      owner: s.toOne(
         { parent: () => lazyParent },
         { values: { parent: "lazy.parent.v1" } }
       ),
     });
+    // RE-PINNED. Registry construction is a definition boundary now (§7.3): it
+    // resolves the schema once, and resolving settles every target getter
+    // through the terminal's once-cell. So the count is 1 HERE, and the pin
+    // that matters is that nothing afterwards can move it — not building the
+    // create schema, not validating through it. Reading the raw getter again
+    // anywhere downstream turns this red.
     const lazyRegistry = createSchemaRegistry({ lazyParent, lazyEntry });
+    expect(targetResolutions).toBe(1);
 
     const createSchema = lazyRegistry.proxy.lazyParent.core.create;
-    expect(targetResolutions).toBe(0);
+    expect(targetResolutions).toBe(1);
     expect(
       accepts(createSchema, {
         id: "parent-1",
         entries: { create: { id: "entry-1" } },
       })
     ).toBe(true);
-    expect(targetResolutions).toBeGreaterThan(0);
+    expect(targetResolutions).toBe(1);
   });
 
   test("create correlates each discriminator with its selector or data", () => {
@@ -727,7 +721,7 @@ describe("polymorphic operation schema factories", () => {
 
   test("select/include accepts strict per-target projection overrides", () => {
     const schema = polymorphicIncludeFactory(
-      requiredOwner["~"].state.polymorphicRelations.subject,
+      requiredOwner["~"].state.relations.subject,
       targetSchemas
     );
 
@@ -881,14 +875,17 @@ describe("direct polymorphic payloads carry exactly one intent", () => {
 
 describe("coverage low value", () => {
   test("keeps an empty polymorphic projection empty", () => {
-    const emptyTarget = s.model({});
+    // Every scalar hidden by model-level `.omit()`, which is now the only way a
+    // relation target can have nothing to project: a variant member needs one
+    // scalar primary key to address its row by.
+    const emptyTarget = s.model({ id: s.string().id() }).omit({ id: true });
     const emptyOwner = s.model({
       id: s.string().id(),
-      subject: s.polymorphicToOne({ empty: () => emptyTarget }),
+      subject: s.toOne({ empty: () => emptyTarget }),
     });
     const emptyRegistry = createSchemaRegistry({ emptyTarget, emptyOwner });
     const schema = polymorphicIncludeFactory(
-      emptyOwner["~"].state.polymorphicRelations.subject,
+      emptyOwner["~"].state.relations.subject,
       { empty: () => emptyRegistry.proxy.emptyTarget }
     );
 
@@ -901,11 +898,11 @@ describe("coverage low value", () => {
   test("constructs the ordinary many-to-many fallback schema", () => {
     const article = s.model({
       id: s.string().id(),
-      labels: s.manyToMany(() => label),
+      labels: s.toMany(() => label),
     });
     const label = s.model({
       id: s.string().id(),
-      articles: s.manyToMany(() => article),
+      articles: s.toMany(() => article),
     });
     const ordinaryRegistry = createSchemaRegistry({ article, label });
 

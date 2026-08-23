@@ -4,15 +4,15 @@ import {
   buildRelationMutationProgram,
   partitionModelData,
 } from "@query-engine/builders/relation-mutation-parser";
-import { createQueryScope, getRelationInfo } from "@query-engine/context";
-import { hydrateSchemaNames, s } from "@schema";
-import { validateSchemaOrThrow } from "@schema/validation";
+import { lookupRelation } from "@query-engine/context";
+import { s } from "@schema";
+import { prepareSchema, scopeFor } from "@tests/fixtures/query-scope";
 import { describe, expect, test } from "vitest";
 
 const user = s.model({
   id: s.int().id(),
   name: s.string(),
-  posts: s.oneToMany(() => post),
+  posts: s.toMany(() => post),
 });
 
 const post = s.model({
@@ -20,45 +20,42 @@ const post = s.model({
   title: s.string(),
   authorId: s.int().nullable(),
   author: s
-    .manyToOne(() => user)
+    .toOne(() => user)
     .fields("authorId")
-    .references("id")
-    .optional(),
+    .references("id"),
 });
 
 const adapter = new PostgresAdapter();
+
+prepareSchema({ user, post });
 
 const polymorphicSchema = (() => {
   const article = s.model({ id: s.int().id(), title: s.string() });
   const video = s.model({ id: s.int().id(), title: s.string() });
   const reaction = s.model({
     id: s.int().id(),
-    subject: s
-      .polymorphicToOne({ article: () => article, video: () => video })
-      .optional(),
+    subject: s.toOne({ article: () => article, video: () => video }).optional(),
   });
   return { article, video, reaction };
 })();
 
-hydrateSchemaNames(polymorphicSchema);
-validateSchemaOrThrow(polymorphicSchema);
+prepareSchema(polymorphicSchema);
 
 const collectionSchema = (() => {
   const post = s.model({ id: s.int().id(), title: s.string() });
   const video = s.model({ id: s.int().id(), title: s.string() });
   const board = s.model({
     id: s.int().id(),
-    items: s.polymorphicToMany({ post: () => post, video: () => video }),
+    items: s.toMany({ post: () => post, video: () => video }),
   });
   return { post, video, board };
 })();
 
-hydrateSchemaNames(collectionSchema);
-validateSchemaOrThrow(collectionSchema);
+prepareSchema(collectionSchema);
 
 /** The one collection arm of a parsed board payload. */
 function collectionArm(payload: Record<string, unknown>, source?: unknown) {
-  const ctx = createQueryScope(adapter, collectionSchema.board);
+  const ctx = scopeFor(adapter, collectionSchema.board);
   const parsed = buildParsedRelationPrograms(
     ctx,
     { items: payload },
@@ -75,17 +72,14 @@ function requireRelationInfo(
   model: typeof user | typeof post,
   relationName: string
 ) {
-  const relationInfo = getRelationInfo(
-    createQueryScope(adapter, model),
-    relationName
-  );
-  if (!relationInfo) throw new Error(`Expected relation '${relationName}'`);
-  return relationInfo;
+  const relationRef = lookupRelation(scopeFor(adapter, model), relationName);
+  if (!relationRef) throw new Error(`Expected relation '${relationName}'`);
+  return relationRef;
 }
 
 describe("relation mutation program", () => {
   test("uses fixed kind order while preserving arrays and duplicate entries", () => {
-    const relationInfo = requireRelationInfo(user, "posts");
+    const relationRef = requireRelationInfo(user, "posts");
     const firstCreate = { id: 1, title: "first" };
     const secondCreate = { id: 2, title: "second" };
     const duplicate = { where: { id: 3 }, create: { id: 3, title: "first" } };
@@ -94,7 +88,7 @@ describe("relation mutation program", () => {
       create: { id: 3, title: "second" },
     };
 
-    const program = buildRelationMutationProgram(relationInfo, {
+    const program = buildRelationMutationProgram(relationRef, {
       createMany: {
         data: [firstCreate, secondCreate],
         skipDuplicates: true,
@@ -170,9 +164,9 @@ describe("relation mutation program", () => {
   });
 
   test("drops false to-one no-op arms and keeps the canonical update filter", () => {
-    const relationInfo = requireRelationInfo(post, "author");
+    const relationRef = requireRelationInfo(post, "author");
     const transformedData = { name: { set: "Ada" } };
-    const program = buildRelationMutationProgram(relationInfo, {
+    const program = buildRelationMutationProgram(relationRef, {
       disconnect: false,
       delete: false,
       update: {
@@ -218,10 +212,10 @@ describe("relation mutation program", () => {
   });
 
   test("normalizes to-many update and upsert targets without changing data", () => {
-    const relationInfo = requireRelationInfo(user, "posts");
+    const relationRef = requireRelationInfo(user, "posts");
     const updateData = { title: { set: "updated" } };
     const upsertUpdate = { title: { set: "existing" } };
-    const program = buildRelationMutationProgram(relationInfo, {
+    const program = buildRelationMutationProgram(relationRef, {
       update: { where: { id: 1 }, data: updateData },
       upsert: {
         where: { id: 2 },
@@ -257,7 +251,7 @@ describe("relation mutation program", () => {
   });
 
   test("partitions relation payloads without interpreting mutation kinds", () => {
-    const ctx = createQueryScope(adapter, user);
+    const ctx = scopeFor(adapter, user);
     const unknownPayload = { futureMutation: { id: 1 } };
     const partitioned = partitionModelData(ctx, {
       id: 1,
@@ -270,12 +264,12 @@ describe("relation mutation program", () => {
     const posts = partitioned.relationPayloads.posts;
     if (!posts) throw new Error("Expected posts relation payload");
     expect(() =>
-      buildRelationMutationProgram(posts.relationInfo, posts.payload)
+      buildRelationMutationProgram(posts.relationRef, posts.payload)
     ).toThrow("Unsupported nested write operation on relation 'posts'");
   });
 
   test("builds programs for an already parsed model data tree", () => {
-    const ctx = createQueryScope(adapter, user);
+    const ctx = scopeFor(adapter, user);
     const transformedData = { title: { set: "parsed" } };
     const parsed = buildParsedRelationPrograms(ctx, {
       id: 1,
@@ -306,7 +300,7 @@ describe("relation mutation program", () => {
   });
 
   test("keeps each record arm beside its exact source record", () => {
-    const relationInfo = requireRelationInfo(user, "posts");
+    const relationRef = requireRelationInfo(user, "posts");
     const sourceCreate = { id: 1, title: "source create" };
     const sourceCreateMany = { id: 2, title: "source createMany" };
     const sourceConnectOrCreate = { id: 3, title: "source adopt" };
@@ -315,7 +309,7 @@ describe("relation mutation program", () => {
     const sourceUpsertCreate = { id: 4, title: "source upsert create" };
     const sourceUpsertUpdate = { title: "source upsert update" };
     const program = buildRelationMutationProgram(
-      relationInfo,
+      relationRef,
       {
         create: { id: 1, title: "parsed create" },
         createMany: { data: [{ id: 2, title: "parsed createMany" }] },
@@ -378,16 +372,16 @@ describe("relation mutation program", () => {
   });
 
   test("projects bare and wrapped to-one update sources from the canonical form", () => {
-    const relationInfo = requireRelationInfo(post, "author");
+    const relationRef = requireRelationInfo(post, "author");
     const bareSource = { name: "bare source" };
     const wrappedSource = { name: "wrapped source" };
     const bare = buildRelationMutationProgram(
-      relationInfo,
+      relationRef,
       { update: { data: { name: { set: "parsed bare" } } } },
       { update: bareSource }
     );
     const wrapped = buildRelationMutationProgram(
-      relationInfo,
+      relationRef,
       {
         update: {
           where: { name: { contains: "A" } },
@@ -477,16 +471,22 @@ describe("relation mutation program", () => {
     expect(second?.path).toBe("items.connect[1..1]");
     // The arm's `name` is the PAYLOAD KEY while each entry's program carries the
     // VARIANT-QUALIFIED carrier name — the one place the union's
-    // `name === program.relationInfo.name` invariant does not hold.
-    expect(first?.program.relationInfo.name).toBe("items.post");
-    expect(second?.program.relationInfo.name).toBe("items.video");
+    // `name === program.relationRef.name` invariant does not hold.
+    expect(first?.program.relationRef.name).toBe("items.post");
+    expect(second?.program.relationRef.name).toBe("items.video");
     // OWNER-oriented: the junction's SOURCE side is the board, not the variant.
     expect(first?.junction.membership.source.model).toBe(
       collectionSchema.board
     );
     expect(first?.junction.membership.target.model).toBe(collectionSchema.post);
-    // And the binding is refused a second resolution by its own brand.
-    expect(first?.junction.relationInfo.polymorphicMemberCarrier).toBe(true);
+    // The reference is the CARRIER's own resolved slot narrowed to this member
+    // (D9): there is no synthetic relation to brand, and re-classifying it
+    // reaches the same member junction rather than a pair table nothing emits.
+    expect(first?.junction.relationRef.resolved.slot.source).toBe(
+      collectionSchema.board
+    );
+    expect(first?.junction.relationRef.resolved.slot.field).toBe("items");
+    expect(first?.junction.relationRef.resolved.member?.variant).toBe("post");
   });
 
   test("`set: []` records the clear even though it produces no entries", () => {
@@ -511,7 +511,7 @@ describe("relation mutation program", () => {
   });
 
   test("keeps direct polymorphic record provenance through concrete-edge lowering", () => {
-    const ctx = createQueryScope(adapter, polymorphicSchema.reaction);
+    const ctx = scopeFor(adapter, polymorphicSchema.reaction);
     const sourceCreate = { id: 9, title: "source" };
     const parsed = buildParsedRelationPrograms(
       ctx,

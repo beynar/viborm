@@ -17,7 +17,7 @@ import { NestedWriteError } from "./types";
 
 export type DependencyOperation = RelationMutationEntry["kind"];
 export type TargetWriteDimension = "targetExistence" | "targetPredicate";
-export type MembershipReadOrientation = "direct" | "inverse" | "manyToMany";
+export type MembershipReadOrientation = "direct" | "inverse" | "junction";
 export type MembershipVisibility = "physical" | "inverseTarget";
 export type MembershipPropagation = "node" | "operation";
 
@@ -42,7 +42,7 @@ export function getRelationMembershipEndpoints(
   targetConstraint: TargetConstraint
 ): MembershipEndpoints {
   const currentIsFirst =
-    scope.kind === "manyToMany"
+    scope.kind === "junction"
       ? scope.sourceIsFirst
       : relation.position === "parentHeld";
   return currentIsFirst
@@ -272,7 +272,7 @@ export class OwnWriteLedger {
 export function getMembershipReadOrientation(
   relation: BoundRelation
 ): MembershipReadOrientation {
-  if (relation.position === "junction") return "manyToMany";
+  if (relation.position === "junction") return "junction";
   return relation.position === "parentHeld" ? "direct" : "inverse";
 }
 

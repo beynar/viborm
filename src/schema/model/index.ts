@@ -15,6 +15,12 @@ export type {
   UniqueScalarKeys,
   UniqueScalarMap,
 } from "./helper";
+export {
+  findAddressableKey,
+  getModelKeyCatalog,
+  type ModelKeyCatalog,
+  type OrderedModelKey,
+} from "./keys";
 export type {
   IndexDefinition,
   IndexOptions,
@@ -27,13 +33,8 @@ export {
   type AnyModel,
   getColumnName,
   getTableName,
+  isTotalIndex,
   Model,
   model,
   type NameRegistry,
 } from "./model";
-export {
-  findAddressableKey,
-  getModelKeyCatalog,
-  type ModelKeyCatalog,
-  type OrderedModelKey,
-} from "./keys";

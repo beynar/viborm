@@ -1,4 +1,4 @@
-import { NestedWriteError } from "@errors";
+import { NestedWriteError, ValidationError } from "@errors";
 import { hydrateSchemaNames, s } from "@schema";
 import { describe, expect, test } from "vitest";
 
@@ -28,8 +28,8 @@ export const sharedPkUpdateRootSchema = (() => {
       id: s.string().id(),
       email: s.string().unique(),
       name: s.string(),
-      card: s.oneToOne(() => card).optional(),
-      stub: s.oneToOne(() => stub).optional(),
+      card: s.toOne(() => card),
+      stub: s.toOne(() => stub),
     })
     .map("e1u_accounts");
   /** The shared primary key: `accountId` is this row's identity AND its foreign key. */
@@ -38,12 +38,12 @@ export const sharedPkUpdateRootSchema = (() => {
       accountId: s.string().id(),
       label: s.string(),
       account: s
-        .oneToOne(() => account)
+        .toOne(() => account)
         .fields("accountId")
         .references("id")
         .onUpdate("cascade"),
-      notes: s.oneToMany(() => note),
-      chits: s.oneToMany(() => chit),
+      notes: s.toMany(() => note),
+      chits: s.toMany(() => chit),
     })
     .map("e1u_cards");
   /** A CHILD-HELD edge on the shared key: what the fold's transition has to reach. */
@@ -53,7 +53,7 @@ export const sharedPkUpdateRootSchema = (() => {
       cardId: s.string(),
       body: s.string(),
       card: s
-        .manyToOne(() => card)
+        .toOne(() => card)
         .fields("cardId")
         .references("accountId"),
     })
@@ -65,7 +65,7 @@ export const sharedPkUpdateRootSchema = (() => {
       cardId: s.string(),
       body: s.string(),
       card: s
-        .manyToOne(() => card)
+        .toOne(() => card)
         .fields("cardId")
         .references("accountId")
         .onUpdate("cascade"),
@@ -77,17 +77,16 @@ export const sharedPkUpdateRootSchema = (() => {
       accountId: s.string().id(),
       memo: s.string(),
       account: s
-        .oneToOne(() => account)
+        .toOne(() => account)
         .fields("accountId")
-        .references("id")
-        .optional(),
+        .references("id"),
     })
     .map("e1u_stubs");
   const desk = s
     .model({
       id: s.int().id().increment(),
       title: s.string(),
-      ticket: s.oneToOne(() => ticket).optional(),
+      ticket: s.toOne(() => ticket),
     })
     .map("e1u_desks");
   /** A shared key whose final value the TARGET's own INSERT produces (Package F). */
@@ -96,7 +95,7 @@ export const sharedPkUpdateRootSchema = (() => {
       deskId: s.int().id(),
       memo: s.string(),
       desk: s
-        .oneToOne(() => desk)
+        .toOne(() => desk)
         .fields("deskId")
         .references("id"),
     })
@@ -106,7 +105,7 @@ export const sharedPkUpdateRootSchema = (() => {
       region: s.string(),
       code: s.string(),
       email: s.string().unique(),
-      card: s.oneToOne(() => compoundCard).optional(),
+      card: s.toOne(() => compoundCard),
     })
     .id(["region", "code"])
     .map("e1u_compound_accounts");
@@ -116,7 +115,7 @@ export const sharedPkUpdateRootSchema = (() => {
       accountCode: s.string(),
       label: s.string(),
       account: s
-        .oneToOne(() => compoundAccount)
+        .toOne(() => compoundAccount)
         .fields("regionId", "accountCode")
         .references("region", "code"),
     })
@@ -126,7 +125,10 @@ export const sharedPkUpdateRootSchema = (() => {
     .model({
       id: s.string().id(),
       email: s.string().unique(),
-      accounts: s.oneToMany(() => providerAccount).name("provider"),
+      // A to-ONE: `providerAccount.providerId` is unique, and a unique foreign key
+      // contradicting a remote collection is FK009. The badge edge below references
+      // that same unique, so the uniqueness is the fact that must stay.
+      account: s.toOne(() => providerAccount).name("provider"),
     })
     .map("e1u_providers");
   const providerAccount = s
@@ -134,14 +136,11 @@ export const sharedPkUpdateRootSchema = (() => {
       id: s.string().id(),
       providerId: s.string().unique(),
       provider: s
-        .manyToOne(() => provider)
+        .toOne(() => provider)
         .fields("providerId")
         .references("id")
         .name("provider"),
-      badge: s
-        .oneToOne(() => providerBadge)
-        .optional()
-        .name("badge"),
+      badge: s.toOne(() => providerBadge).name("badge"),
     })
     .map("e1u_provider_accounts");
   const providerBadge = s
@@ -149,7 +148,7 @@ export const sharedPkUpdateRootSchema = (() => {
       accountProviderId: s.string().id(),
       label: s.string(),
       account: s
-        .oneToOne(() => providerAccount)
+        .toOne(() => providerAccount)
         .fields("accountProviderId")
         .references("providerId")
         .name("badge")
@@ -160,7 +159,7 @@ export const sharedPkUpdateRootSchema = (() => {
     .model({
       id: s.string().id(),
       code: s.string(),
-      card: s.oneToOne(() => partialCard).optional(),
+      card: s.toOne(() => partialCard),
     })
     .unique(["id", "code"])
     .map("e1u_partial_accounts");
@@ -169,11 +168,11 @@ export const sharedPkUpdateRootSchema = (() => {
       accountId: s.string().id(),
       accountCode: s.string().unique(),
       account: s
-        .oneToOne(() => partialAccount)
+        .toOne(() => partialAccount)
         .fields("accountId", "accountCode")
         .references("id", "code")
         .onUpdate("cascade"),
-      tokens: s.oneToMany(() => partialToken),
+      tokens: s.toMany(() => partialToken),
     })
     .unique(["accountId", "accountCode"])
     .map("e1u_partial_cards");
@@ -182,7 +181,7 @@ export const sharedPkUpdateRootSchema = (() => {
       id: s.string().id(),
       cardCode: s.string(),
       card: s
-        .manyToOne(() => partialCard)
+        .toOne(() => partialCard)
         .fields("cardCode")
         .references("accountCode"),
     })
@@ -749,23 +748,26 @@ export function registerSharedPkUpdateRootBehavior(
         },
         "a1",
       ],
-    ])("a %s contributes only the taken arm's exact key", async (_label, payload, expectedKey) => {
-      const client = await connect();
-      await seed(client);
+    ])(
+      "a %s contributes only the taken arm's exact key",
+      async (_label, payload, expectedKey) => {
+        const client = await connect();
+        await seed(client);
 
-      expect(
-        await client.card.update({
-          where: { accountId: "a1" },
-          data: { account: payload },
-          select: { accountId: true },
-        })
-      ).toEqual({ accountId: expectedKey });
-      expect(await cards(client)).toContainEqual({
-        accountId: expectedKey,
-        label: "under test",
-      });
-      expect(await client.account.count()).toBe(4);
-    });
+        expect(
+          await client.card.update({
+            where: { accountId: "a1" },
+            data: { account: payload },
+            select: { accountId: true },
+          })
+        ).toEqual({ accountId: expectedKey });
+        expect(await cards(client)).toContainEqual({
+          accountId: expectedKey,
+          label: "under test",
+        });
+        expect(await client.account.count()).toBe(4);
+      }
+    );
 
     test("a selected fold that keeps the key suppresses the occupied transition guard", async () => {
       const client = await connect();
@@ -908,28 +910,31 @@ export function registerSharedPkUpdateRootBehavior(
         { accountId: "a2" },
         "a2",
       ],
-    ])("an upsert whose update arm moves the row key returns the post-move key: %s", async (_label, update, expected) => {
-      const client = await connect();
-      await seed(client);
+    ])(
+      "an upsert whose update arm moves the row key returns the post-move key: %s",
+      async (_label, update, expected) => {
+        const client = await connect();
+        await seed(client);
 
-      expect(
-        await client.card.upsert({
-          where: { accountId: "a1" },
-          update,
-          create: { accountId: "a3", label: "unused" },
-          select: { accountId: true, label: true },
-        })
-      ).toEqual({ accountId: expected, label: "under test" });
+        expect(
+          await client.card.upsert({
+            where: { accountId: "a1" },
+            update,
+            create: { accountId: "a3", label: "unused" },
+            select: { accountId: true, label: true },
+          })
+        ).toEqual({ accountId: expected, label: "under test" });
 
-      expect(await cards(client)).toEqual(
-        [
-          { accountId: expected, label: "under test" },
-          { accountId: "decoy", label: "decoy" },
-        ].sort((left, right) => left.accountId.localeCompare(right.accountId))
-      );
-    });
+        expect(await cards(client)).toEqual(
+          [
+            { accountId: expected, label: "under test" },
+            { accountId: "decoy", label: "decoy" },
+          ].sort((left, right) => left.accountId.localeCompare(right.accountId))
+        );
+      }
+    );
 
-    test("an OPTIONAL shared edge still cannot be disconnected: a row key is never nullable", async () => {
+    test("a shared edge still cannot be disconnected: a row key is never nullable", async () => {
       const client = await connect();
       await seed(client);
       await client.stub.create({ data: { accountId: "a1", memo: "held" } });
@@ -944,9 +949,12 @@ export function registerSharedPkUpdateRootBehavior(
           (error: unknown) => error
         );
 
-      expect(rejection).toBeInstanceOf(NestedWriteError);
+      // Same verdict, one owner earlier: the removal verb is not PUBLISHED on an
+      // edge whose stored tuple cannot be emptied, so the parse answers instead of
+      // the engine's deleted `assertRelationCanDisconnect`.
+      expect(rejection).toBeInstanceOf(ValidationError);
       expect((rejection as Error).message).toBe(
-        "Cannot disconnect relation 'account' because foreign key field(s) accountId are required."
+        "Validation failed for update: Unknown key: disconnect"
       );
       expect(
         await client.stub.findMany({ select: { accountId: true } })

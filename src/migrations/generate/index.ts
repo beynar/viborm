@@ -5,11 +5,13 @@
  * Similar to `drizzle-kit generate` or `prisma migrate dev`.
  */
 
+import { hydrateSchemaNames } from "../../schema/hydration";
+import { resolveSchemaOrThrow } from "../../schema/validation";
 import { diff } from "../differ";
 import { getMigrationDriver } from "../drivers";
 import type { MigrationClient } from "../push";
 import { resolveAmbiguousChanges, strictResolver } from "../resolver";
-import { serializeModels } from "../serializer";
+import { serializeResolvedModels } from "../serializer";
 import {
   addJournalEntry,
   createMigrationEntry,
@@ -23,7 +25,6 @@ import type {
   MigrationRollback,
 } from "../types";
 import {
-  DEFAULT_MIGRATIONS_DIR,
   extractForwardReferenceForeignKeys,
   generateMigrationName,
   normalizeDialect,
@@ -54,7 +55,6 @@ export async function generate(
 ): Promise<GenerateResult> {
   const {
     name,
-    dir = DEFAULT_MIGRATIONS_DIR,
     storageDriver,
     resolver = strictResolver,
     enumValueResolver,
@@ -64,6 +64,15 @@ export async function generate(
 
   const driver = client.$driver;
   const models = client.$schema;
+  // Plan §7.3: migration generation is an effect-capable boundary, so both
+  // phases of the definition pipeline run here too — the identity preflight
+  // (idempotent for an already-bound key) and then the structural gate. A
+  // migration file is a durable artifact: writing one from an unproven topology
+  // is the one failure mode a later validation pass cannot undo.
+  hydrateSchemaNames(models);
+  // ONE resolution for this composition root, handed to the serializer by
+  // identity — the gate's index IS the serializer's topology input (§10E.6).
+  const relations = resolveSchemaOrThrow(models);
   const dialect = normalizeDialect(driver.dialect);
 
   // Storage driver is required (client.ts validates this)
@@ -90,7 +99,11 @@ export async function generate(
   const previousSnapshot = await storage.getSnapshotOrEmpty();
 
   // 2. Serialize current models to SchemaSnapshot
-  const currentSnapshot = serializeModels(models, { migrationDriver });
+  const currentSnapshot = serializeResolvedModels(
+    models,
+    migrationDriver,
+    relations
+  );
 
   // 3. Calculate diff between snapshots
   // No canonicalization hook: `generate` compares two stored snapshots, both

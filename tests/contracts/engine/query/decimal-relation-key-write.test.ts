@@ -56,9 +56,9 @@ import { createQueryScope } from "@query-engine/context";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames, s } from "@schema";
 import { sql } from "@sql";
+import { referenceSql } from "@src/query-engine/write-engine/fragment-builders";
 import { createSchemaRegistry } from "@validation";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
-import { referenceSql } from "@src/query-engine/write-engine/fragment-builders";
 
 /**
  * A decimal PRIMARY KEY with children holding a decimal FK to it. The FK is the
@@ -69,7 +69,7 @@ const vault = s
   .model({
     key: s.decimal().id(),
     label: s.string(),
-    slips: s.oneToMany(() => slip),
+    slips: s.toMany(() => slip),
   })
   .map("decimal_relkey_vaults");
 
@@ -79,7 +79,7 @@ const slip = s
     note: s.string(),
     vaultKey: s.decimal(),
     vault: s
-      .manyToOne(() => vault)
+      .toOne(() => vault)
       .fields("vaultKey")
       .references("key"),
   })
@@ -350,7 +350,7 @@ describe.each(sqlDialects)("$name decimal FK lowering", (dialectCase) => {
     engine: QueryEngine,
     value: unknown
   ): { statement: string; values: unknown[] } => {
-    const scope = createQueryScope(engine.adapter, vault);
+    const scope = createQueryScope(engine, vault);
     return rendered(buildScalarSqlValue(scope, vault, "key", value));
   };
 

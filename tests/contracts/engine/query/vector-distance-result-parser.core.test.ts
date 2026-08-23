@@ -1,8 +1,9 @@
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { QueryEngineError } from "@errors";
-import { parseResult, ResultParser } from "@query-engine/result/ResultParser";
+import { parseResult } from "@query-engine/result/ResultParser";
 import { VECTOR_DISTANCE_RESULT_KEY } from "@query-engine/result-aliases";
 import { s } from "@schema";
+import { parserFor, prepareSchema } from "@tests/fixtures/query-scope";
 import { describe, expect, test } from "vitest";
 
 const vectorParserModels = {
@@ -12,6 +13,8 @@ const vectorParserModels = {
   }),
 };
 
+prepareSchema(vectorParserModels);
+
 const VECTOR_SELECT_ARGS = {
   select: {
     embedding: { _distance: { to: [1, 0, 0], metric: "l2" } },
@@ -20,7 +23,7 @@ const VECTOR_SELECT_ARGS = {
 
 describe("Vector distance result parsing", () => {
   test("parses selected distance numeric strings as numbers", () => {
-    const ctx = new ResultParser(new PostgresAdapter(), vectorParserModels.doc);
+    const ctx = parserFor(new PostgresAdapter(), vectorParserModels.doc);
 
     const rows = parseResult<Array<{ _distance: number }>>(
       ctx,
@@ -34,7 +37,7 @@ describe("Vector distance result parsing", () => {
   });
 
   test("throws when selected distance is not numeric", () => {
-    const ctx = new ResultParser(new PostgresAdapter(), vectorParserModels.doc);
+    const ctx = parserFor(new PostgresAdapter(), vectorParserModels.doc);
 
     expect(() =>
       parseResult(
@@ -47,7 +50,7 @@ describe("Vector distance result parsing", () => {
   });
 
   test("parses safe bigint distances without losing identity", () => {
-    const ctx = new ResultParser(new PostgresAdapter(), vectorParserModels.doc);
+    const ctx = parserFor(new PostgresAdapter(), vectorParserModels.doc);
 
     const rows = parseResult<Array<{ _distance: number }>>(
       ctx,
@@ -60,7 +63,7 @@ describe("Vector distance result parsing", () => {
   });
 
   test("rejects bigint distances that cannot be represented exactly", () => {
-    const ctx = new ResultParser(new PostgresAdapter(), vectorParserModels.doc);
+    const ctx = parserFor(new PostgresAdapter(), vectorParserModels.doc);
 
     let caught: unknown;
     try {

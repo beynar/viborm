@@ -227,7 +227,7 @@ First, create types that represent the structure of your schema internally:
 ```ts
 // Schema scalar types
 type ScalarType = "string" | "number" | "boolean" | "date";
-type RelationType = "one" | "many";
+type RelationCardinality = "one" | "many";
 
 // Scalar definition structure
 interface ScalarDefinition {
@@ -239,7 +239,7 @@ interface ScalarDefinition {
 }
 
 interface RelationDefinition {
-  type: RelationType;
+  cardinality: RelationCardinality;
   target: () => ModelDefinition;
   required?: boolean;
 }

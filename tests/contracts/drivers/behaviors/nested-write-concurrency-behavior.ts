@@ -307,7 +307,7 @@ const singularSlotSchema = (() => {
       title: s.string(),
       // SINGULAR, fields-less, optional inverse. This — and only this — is what
       // makes the member table's TARGET side unique.
-      shelf: s.manyToOne(() => shelf).optional(),
+      shelf: s.toOne(() => shelf),
     })
     .map("nwc_slot_books");
 
@@ -316,7 +316,7 @@ const singularSlotSchema = (() => {
       id: s.string().id(),
       label: s.string(),
       items: s
-        .polymorphicToMany(
+        .toMany(
           { book: () => book },
           { values: { book: "nwc.book.v1" } }
         )

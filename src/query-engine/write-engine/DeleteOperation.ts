@@ -99,7 +99,7 @@ export class DeleteOperation {
     // whereUnique-validated by it). `select` is optional (default the scalar
     // projection, exactly as V1's no-select delete returns the whole row) and
     // `include` rides alongside it — the same result-shaping surface `create` owns.
-    const parent = createQueryScope(engine.adapter, model);
+    const parent = createQueryScope(engine, model);
 
     const parentPrimaryKeys = getPrimaryKeyFields(model);
     if (parentPrimaryKeys.length === 0) {
@@ -275,7 +275,7 @@ export class DeleteOperation {
       throw new NotFoundError(getStepModelName(this.model, "record"), "delete");
     }
     const locatedRow = rows[0] as Record<string, unknown>;
-    const parent = createQueryScope(this.engine.adapter, this.model);
+    const parent = createQueryScope(this.engine, this.model);
     const txMode = this.mode === "transaction";
     // Address the row by the PK captured at the (FOR UPDATE) locate rather than
     // the original `where`: locating by an alternate unique then mutating by the
@@ -359,7 +359,7 @@ export class DeleteOperation {
       );
     }
     return new ResultParser(
-      this.engine.adapter,
+      this.engine,
       this.model,
       this.engine.driver,
       this.engine.decimalDecode
@@ -371,7 +371,7 @@ export class DeleteOperation {
   }
 
   private buildRootPresenceGuard(): OperationStep {
-    const parent = createQueryScope(this.engine.adapter, this.model);
+    const parent = createQueryScope(this.engine, this.model);
     return presenceGuard(
       this.rootGuardId,
       buildFindUnique(parent, {

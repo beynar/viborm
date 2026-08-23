@@ -1,4 +1,4 @@
-import type { PolymorphicRelationState } from "@schema/relation";
+import type { VariantRelationState } from "@schema/relation";
 import v from "@validation/primitives/v";
 import type {
   CoreInputAt,
@@ -33,7 +33,7 @@ export type PolymorphicCreateManySchema<Getters> = PolymorphicSchema<
 >;
 
 export function polymorphicCreateManyFactory<
-  State extends PolymorphicRelationState,
+  State extends VariantRelationState,
   Getters extends PolymorphicTargetSchemaGetters<State>,
 >(
   state: State,

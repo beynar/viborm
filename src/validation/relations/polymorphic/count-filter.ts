@@ -1,4 +1,4 @@
-import type { PolymorphicRelationState } from "@schema/relation";
+import type { VariantRelationState } from "@schema/relation";
 import v from "@validation/primitives/v";
 import type { VibSchema } from "@validation/types";
 import type {
@@ -31,7 +31,7 @@ export type PolymorphicCollectionCountFilterSchema<Getters> = PolymorphicSchema<
 >;
 
 export function polymorphicCollectionCountFilterFactory<
-  State extends PolymorphicRelationState,
+  State extends VariantRelationState,
   Getters extends PolymorphicTargetSchemaGetters<State>,
 >(
   state: State,

@@ -21,7 +21,7 @@ const schema = (() => {
       tenantId: s.string(),
       slot: s.string(),
       label: s.string(),
-      notes: s.oneToMany(() => note),
+      notes: s.toMany(() => note),
     })
     .id(["tenantId", "slot"])
     .map("series_result_entries");
@@ -31,7 +31,7 @@ const schema = (() => {
       tenantId: s.string(),
       slot: s.string(),
       entry: s
-        .manyToOne(() => entry)
+        .toOne(() => entry)
         .fields("tenantId", "slot")
         .references("tenantId", "slot"),
     })
@@ -81,9 +81,11 @@ class MiddlewareCountingDriver extends CapacityDriver {
         counts.adapterFields += 1;
         return adapterResult.parseField(value, scalarType, next);
       },
-      parseRelation: (value, relationType, next) => {
+      // TWO parameters since D: the declared relation-type argument is gone
+      // from both hooks, and from the driver callback below.
+      parseRelation: (value, next) => {
         counts.adapterRelations += 1;
-        return adapterResult.parseRelation(value, relationType, next);
+        return adapterResult.parseRelation(value, next);
       },
     };
     this.result = {
@@ -95,9 +97,9 @@ class MiddlewareCountingDriver extends CapacityDriver {
         counts.driverFields += 1;
         return next(value, scalarType);
       },
-      parseRelation: (value, relationType, next) => {
+      parseRelation: (value, next) => {
         counts.driverRelations += 1;
-        return next(value, relationType);
+        return next(value);
       },
     };
   }

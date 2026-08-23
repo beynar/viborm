@@ -1,4 +1,3 @@
-import { UnsupportedOperationError } from "@errors";
 import { s } from "@schema";
 import {
   type PGliteSchemaFamily,
@@ -46,7 +45,7 @@ const collectionWriteSchema = (() => {
       title: s.string().unique(),
       // SINGULAR inverse: at most one shelf may hold a given book, which is the
       // target-side UNIQUE the transfer arbitrates on.
-      shelf: s.manyToOne(() => shelf).optional(),
+      shelf: s.toOne(() => shelf),
     })
     .id(["region", "isbn"])
     .map("pcw_books");
@@ -56,7 +55,7 @@ const collectionWriteSchema = (() => {
       id: s.int().id().increment(),
       title: s.string(),
       // PLURAL inverse: an ordinary membership, many shelves per video.
-      shelves: s.manyToMany(() => shelf),
+      shelves: s.toMany(() => shelf),
     })
     .map("pcw_videos");
 
@@ -67,13 +66,26 @@ const collectionWriteSchema = (() => {
     })
     .map("pcw_notes");
 
+  const warehouse = s
+    .model({
+      id: s.string().id(),
+      label: s.string(),
+      shelves: s.toMany(() => shelf),
+    })
+    .map("pcw_warehouses");
+
   const shelf = s
     .model({
       tenantId: s.string(),
       code: s.string(),
       label: s.string(),
+      warehouseId: s.string().nullable(),
+      warehouse: s
+        .toOne(() => warehouse)
+        .fields("warehouseId")
+        .references("id"),
       items: s
-        .polymorphicToMany(
+        .toMany(
           { book: () => book, video: () => video, note: () => note },
           {
             values: {
@@ -99,7 +111,7 @@ const collectionWriteSchema = (() => {
     .id(["tenantId", "code"])
     .map("pcw_shelves");
 
-  return { book, video, note, shelf };
+  return { book, video, note, warehouse, shelf };
 })();
 
 type Family = PGliteSchemaFamily<typeof collectionWriteSchema>;
@@ -162,11 +174,24 @@ async function noteIds(family: Family): Promise<string[]> {
 
 /** The two shelves and the three targets every scenario starts from. */
 async function seed(family: Family): Promise<void> {
-  await family.client.shelf.create({
-    data: { tenantId: "t1", code: "left", label: "Left" },
+  await family.client.warehouse.create({
+    data: { id: "w1", label: "Warehouse" },
   });
   await family.client.shelf.create({
-    data: { tenantId: "t1", code: "right", label: "Right" },
+    data: {
+      tenantId: "t1",
+      code: "left",
+      label: "Left",
+      warehouseId: "w1",
+    },
+  });
+  await family.client.shelf.create({
+    data: {
+      tenantId: "t1",
+      code: "right",
+      label: "Right",
+      warehouseId: "w1",
+    },
   });
   await family.client.book.create({
     data: { region: "eu", isbn: "111", title: "Book one" },
@@ -174,7 +199,7 @@ async function seed(family: Family): Promise<void> {
   await family.client.book.create({
     data: { region: "eu", isbn: "222", title: "Book two" },
   });
-  await family.client.video.create({ data: { id: 1, title: "Video one" } });
+  await family.client.video.create({ data: { title: "Video one" } });
   await family.client.note.create({ data: { id: "n1", body: "Note one" } });
 }
 
@@ -1300,6 +1325,165 @@ for (const mode of ["transaction", "atomicBatch"] as const) {
       return rows.map((row) => `${row.code}:${row.label}`);
     };
 
+    const singularUpdateManyMessage = (verb: string) =>
+      `updateMany matched 2 rows, so it cannot apply '${verb}' to relation 'items': that target's member-junction slot can belong to only one of them — the last row updated would take it from the others. Narrow the filter (or add 'limit: 1') so exactly one row matches, or write this relation in a separate call.`;
+
+    test("root updateMany refuses one singular member across two owners before writing", async () => {
+      const family = getFamily();
+      await family.reset();
+      await seed(family);
+
+      await expect(
+        family.client.shelf.updateMany({
+          where: { tenantId: "t1" },
+          data: {
+            label: "must not write",
+            items: {
+              connect: [
+                {
+                  type: "book",
+                  where: { region_isbn: { region: "eu", isbn: "111" } },
+                },
+              ],
+            },
+          },
+        })
+      ).rejects.toThrow(singularUpdateManyMessage("connect"));
+
+      expect(await shelfLabels(family)).toEqual(["left:Left", "right:Right"]);
+      expect(await bookMembers(family)).toEqual([]);
+    });
+
+    test("nested updateMany refuses one singular member across two owners before writing", async () => {
+      const family = getFamily();
+      await family.reset();
+      await seed(family);
+
+      await expect(
+        family.client.warehouse.update({
+          where: { id: "w1" },
+          data: {
+            shelves: {
+              updateMany: [
+                {
+                  where: {},
+                  data: {
+                    label: "must not write",
+                    items: {
+                      connect: [
+                        {
+                          type: "book",
+                          where: {
+                            region_isbn: { region: "eu", isbn: "111" },
+                          },
+                        },
+                      ],
+                    },
+                  },
+                },
+              ],
+            },
+          },
+        })
+      ).rejects.toThrow(singularUpdateManyMessage("connect"));
+
+      expect(await shelfLabels(family)).toEqual(["left:Left", "right:Right"]);
+      expect(await bookMembers(family)).toEqual([]);
+    });
+
+    test("one owner succeeds while plural and empty targets remain valid at N > 1", async () => {
+      const family = getFamily();
+      await family.reset();
+      await seed(family);
+
+      await expect(
+        family.client.shelf.updateMany({
+          where: { code: "left" },
+          data: {
+            items: {
+              connect: [
+                {
+                  type: "book",
+                  where: { region_isbn: { region: "eu", isbn: "111" } },
+                },
+              ],
+            },
+          },
+        })
+      ).resolves.toEqual({ count: 1 });
+      expect(await bookMembers(family)).toEqual(["t1/left/eu/111"]);
+
+      await expect(
+        family.client.shelf.updateMany({
+          where: { tenantId: "t1" },
+          data: {
+            items: {
+              connect: [{ type: "video", where: { id: 1 } }],
+            },
+          },
+        })
+      ).resolves.toEqual({ count: 2 });
+      expect(await videoMembers(family)).toEqual(["t1/left/1", "t1/right/1"]);
+
+      await expect(
+        family.client.shelf.updateMany({
+          where: { tenantId: "t1" },
+          data: {
+            items: { connect: [], connectOrCreate: [], set: [] },
+          },
+        })
+      ).resolves.toEqual({ count: 2 });
+    });
+
+    test("non-empty set and connectOrCreate reach the same root membership guard", async () => {
+      const family = getFamily();
+      await family.reset();
+      await seed(family);
+
+      await expect(
+        family.client.shelf.updateMany({
+          where: { tenantId: "t1" },
+          data: {
+            label: "must not write",
+            items: {
+              set: [
+                {
+                  type: "book",
+                  where: { region_isbn: { region: "eu", isbn: "111" } },
+                },
+              ],
+            },
+          },
+        })
+      ).rejects.toThrow(singularUpdateManyMessage("set"));
+
+      await expect(
+        family.client.shelf.updateMany({
+          where: { tenantId: "t1" },
+          data: {
+            label: "must not write",
+            items: {
+              connectOrCreate: [
+                {
+                  type: "book",
+                  where: { region_isbn: { region: "eu", isbn: "111" } },
+                  create: {
+                    region: "eu",
+                    isbn: "111",
+                    title: "must not create",
+                  },
+                },
+              ],
+            },
+          },
+        })
+      ).rejects.toThrow(singularUpdateManyMessage("connectOrCreate"));
+
+      expect(await shelfLabels(family)).toEqual(["left:Left", "right:Right"]);
+      expect(await bookMembers(family)).toEqual([]);
+      expect(await bookTitles(family)).toEqual(["Book one", "Book two"]);
+    });
+
     test("connect supplies the owner, and a second connect TRANSFERS the slot", async () => {
       const family = getFamily();
       await family.reset();
@@ -1752,8 +1936,8 @@ const nestedCollectionSchema = (() => {
     .model({
       id: s.string().id(),
       label: s.string(),
-      tags: s.manyToMany(() => tag),
-      items: s.polymorphicToMany(
+      tags: s.toMany(() => tag),
+      items: s.toMany(
         { note: () => note, memo: () => memo },
         { values: { note: "ncw.note.v1", memo: "ncw.memo.v1" } }
       ),
@@ -1765,7 +1949,7 @@ const nestedCollectionSchema = (() => {
       // An ORDINARY junction whose target owns a collection — the only route to
       // the depth seam, and it needs a single-column target key so the fold
       // takes its inline path rather than delegating the whole record.
-      crates: s.manyToMany(() => crate),
+      crates: s.toMany(() => crate),
     })
     .map("ncw_tags");
   return { note, memo, crate, tag };
@@ -1839,7 +2023,7 @@ const scalarInverseSchema = (() => {
       id: s.int().id(),
       note: s.string(),
       // SINGULAR inverse, single-column on BOTH sides.
-      crate: s.manyToOne(() => crate).optional(),
+      crate: s.toOne(() => crate),
     })
     .map("siw_slips");
   const crate = s
@@ -1847,10 +2031,7 @@ const scalarInverseSchema = (() => {
       id: s.int().id(),
       label: s.string(),
       items: s
-        .polymorphicToMany(
-          { slip: () => slip },
-          { values: { slip: "siw.slip.v1" } }
-        )
+        .toMany({ slip: () => slip }, { values: { slip: "siw.slip.v1" } })
         .through({
           slip: { table: "siw_crate_slips", source: "holder", target: "entry" },
         }),
@@ -1926,8 +2107,88 @@ describe("a singular inverse whose two sides are the same shape", () => {
   });
 });
 
+const producedOwnerClearSchema = (() => {
+  const station = s
+    .model({
+      id: s.string().id(),
+      label: s.string(),
+      badge: s.toOne(() => badge),
+    })
+    .map("poc_stations");
+  const note = s
+    .model({ id: s.string().id(), body: s.string() })
+    .map("poc_notes");
+  const badge = s
+    .model({
+      id: s.int().id().increment(),
+      label: s.string(),
+      stationId: s.string().nullable().unique(),
+      station: s
+        .toOne(() => station)
+        .fields("stationId")
+        .references("id"),
+      items: s.toMany(
+        { note: () => note },
+        { values: { note: "poc.note.v1" } }
+      ),
+    })
+    .map("poc_badges");
+  return { station, note, badge };
+})();
+
+describe("a produced collection owner whose split precedes its clear", () => {
+  const getFamily = usePGliteSchemaFamily(
+    producedOwnerClearSchema,
+    "atomicBatch"
+  );
+
+  test("a produced owner split entirely before its clear succeeds in batch", async () => {
+    const family = getFamily();
+    await family.reset();
+    await family.client.station.create({
+      data: { id: "s1", label: "Station" },
+    });
+    await family.client.note.create({
+      data: { id: "n1", body: "Note" },
+    });
+
+    // `create` publishes the badge's database-assigned id. Its composed `update`
+    // is a post-supply continuation, so the executor commits the supplier before
+    // compiling the collection clear. The only split is therefore BEFORE the
+    // first clear; refusing this shape would restore the old produced-owner proxy.
+    await family.client.station.update({
+      where: { id: "s1" },
+      data: {
+        badge: {
+          create: { label: "Generated" },
+          update: {
+            items: { set: [{ type: "note", where: { id: "n1" } }] },
+          },
+        },
+      },
+    });
+
+    await expect(
+      family.client.badge.findUnique({
+        where: { id: 1 },
+        include: { items: true, station: true },
+      })
+    ).resolves.toMatchObject({
+      id: 1,
+      label: "Generated",
+      stationId: "s1",
+      station: { id: "s1" },
+      items: [{ type: "note", data: { id: "n1", body: "Note" } }],
+    });
+  });
+});
+
 describe("polymorphic collection `set` refuses before the clear on a splittable batch", () => {
   const getFamily = usePGliteSchemaFamily(collectionWriteSchema, "atomicBatch");
+  const getTransactionFamily = usePGliteSchemaFamily(
+    collectionWriteSchema,
+    "transaction"
+  );
 
   // PLURAL INVERSE, on the batch substrate (plan §9.5). The `@ts-expect-error`
   // that used to sit on `shelves` died with the grammar flip — an unused
@@ -1974,13 +2235,82 @@ describe("polymorphic collection `set` refuses before the clear on a splittable 
     );
   });
 
-  test("the construction refusal names the relation and the reason", () => {
-    // The sentence itself, pinned where a reader looking for it will find it.
-    // `assertClearIsIndivisible` is the only owner, and its predicate is the
-    // three facts that make the split reachable: a `set` verb, a native atomic
-    // batch, and an owner row key that is a produced output reference.
-    const message =
-      "Polymorphic collection 'items' set requires one atomic unit; this driver would commit the clear separately from the refill.";
-    expect(new UnsupportedOperationError(message).message).toBe(message);
+  test("a generated target after the clear refuses with prior state intact", async () => {
+    const family = getFamily();
+    await family.reset();
+    await seed(family);
+    await family.client.shelf.update({
+      where: { tenantId_code: { tenantId: "t1", code: "left" } },
+      data: { items: { connect: [{ type: "video", where: { id: 1 } }] } },
+    });
+
+    await expect(
+      family.client.shelf.update({
+        where: { tenantId_code: { tenantId: "t1", code: "left" } },
+        data: {
+          items: {
+            set: [],
+            create: [{ type: "video", data: { title: "must not survive" } }],
+          },
+        },
+      })
+    ).rejects.toThrow(
+      "Polymorphic collection 'items' set requires one atomic unit; this driver would commit the clear separately from the refill."
+    );
+    expect(await videoMembers(family)).toEqual(["t1/left/1"]);
+    expect(await family.client.video.findMany({})).toHaveLength(1);
+  });
+
+  test("the same generated target set succeeds in one transaction", async () => {
+    const family = getTransactionFamily();
+    await family.reset();
+    await seed(family);
+    await family.client.shelf.update({
+      where: { tenantId_code: { tenantId: "t1", code: "left" } },
+      data: {
+        items: {
+          set: [],
+          create: [{ type: "video", data: { title: "transaction child" } }],
+        },
+      },
+    });
+
+    expect(await videoMembers(family)).toHaveLength(1);
+    expect(await family.client.video.findMany({})).toHaveLength(2);
+  });
+
+  test("explicit target identity keeps the batch indivisible", async () => {
+    const family = getFamily();
+    await family.reset();
+    await seed(family);
+
+    await family.client.shelf.update({
+      where: { tenantId_code: { tenantId: "t1", code: "left" } },
+      data: {
+        items: {
+          set: [],
+          create: [{ type: "note", data: { id: "n2", body: "explicit" } }],
+        },
+      },
+    });
+
+    expect(await noteMembers(family)).toEqual(["t1/left/n2"]);
+  });
+
+  test("a generated nested target without a clear remains a batch control", async () => {
+    const family = getFamily();
+    await family.reset();
+    await seed(family);
+
+    await family.client.shelf.update({
+      where: { tenantId_code: { tenantId: "t1", code: "left" } },
+      data: {
+        items: {
+          create: [{ type: "video", data: { title: "no clear" } }],
+        },
+      },
+    });
+
+    expect(await videoMembers(family)).toHaveLength(1);
   });
 });

@@ -65,7 +65,7 @@ function buildSchema(
     a: s.string(),
     b: s.string(),
     width: opts.widen ? s.int() : s.string(),
-    kids: s.oneToMany(() => kid),
+    kids: s.toMany(() => kid),
   };
 
   const parentBase = s.model(parentFields);
@@ -78,7 +78,7 @@ function buildSchema(
       id: s.string().id(),
       parentId: action === "setNull" ? s.string().nullable() : s.string(),
       parent: s
-        .manyToOne(() => parent)
+        .toOne(() => parent)
         .fields("parentId")
         .references("id")
         .onDelete(action),

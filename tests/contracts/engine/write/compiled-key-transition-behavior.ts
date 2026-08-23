@@ -31,7 +31,7 @@ export const compileTransitionSchema = (() => {
     .model({
       id: s.string().id(),
       slug: s.string().unique(),
-      seats: s.oneToMany(() => seat),
+      seats: s.toMany(() => seat),
     })
     .map("e67_orgs");
   const seat = s
@@ -40,10 +40,9 @@ export const compileTransitionSchema = (() => {
       name: s.string(),
       orgId: s.string().nullable(),
       org: s
-        .manyToOne(() => org)
+        .toOne(() => org)
         .fields("orgId")
         .references("id")
-        .optional()
         .onUpdate("setNull"),
     })
     .map("e67_seats");
@@ -54,7 +53,7 @@ export const compileTransitionSchema = (() => {
       region: s.string(),
       code: s.string(),
       label: s.string(),
-      spots: s.oneToMany(() => spot),
+      spots: s.toMany(() => spot),
     })
     .id(["region", "code"])
     .map("e67_zones");
@@ -65,10 +64,9 @@ export const compileTransitionSchema = (() => {
       zoneRegion: s.string().nullable(),
       zoneCode: s.string().nullable(),
       zone: s
-        .manyToOne(() => zone)
+        .toOne(() => zone)
         .fields("zoneRegion", "zoneCode")
         .references("region", "code")
-        .optional()
         .onUpdate("setNull"),
     })
     .map("e67_spots");
@@ -78,7 +76,7 @@ export const compileTransitionSchema = (() => {
     .model({
       id: s.int().id(),
       tag: s.string().unique(),
-      ticks: s.oneToMany(() => tick),
+      ticks: s.toMany(() => tick),
     })
     .map("e67_counters");
   const tick = s
@@ -86,10 +84,9 @@ export const compileTransitionSchema = (() => {
       id: s.string().id(),
       counterId: s.int().nullable(),
       counter: s
-        .manyToOne(() => counter)
+        .toOne(() => counter)
         .fields("counterId")
         .references("id")
-        .optional()
         .onUpdate("setNull"),
     })
     .map("e67_ticks");
@@ -101,7 +98,7 @@ export const compileTransitionSchema = (() => {
       id: s.string().id(),
       area: s.string(),
       slot: s.string().nullable(),
-      pads: s.oneToMany(() => pad),
+      pads: s.toMany(() => pad),
     })
     .unique(["area", "slot"])
     .map("e67_bays");
@@ -111,10 +108,9 @@ export const compileTransitionSchema = (() => {
       bayArea: s.string().nullable(),
       baySlot: s.string().nullable(),
       bay: s
-        .manyToOne(() => bay)
+        .toOne(() => bay)
         .fields("bayArea", "baySlot")
         .references("area", "slot")
-        .optional()
         .onUpdate("setNull"),
     })
     .map("e67_pads");

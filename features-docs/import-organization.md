@@ -333,7 +333,7 @@ export { PG, MYSQL, SQLITE, type NativeType } from "./scalars/native-types";
 // Model and scalar types for advanced usage
 export type { Model, ModelState, AnyModel } from "./model";
 export type { Scalar, NumberScalar } from "./scalars";
-export type { AnyRelation, Getter, ReferentialAction, RelationType } from "./relation";
+export type { AnyRelation, Getter, ReferentialAction, RelationCardinality } from "./relation";
 
 // Hydration utilities (for library authors)
 export {

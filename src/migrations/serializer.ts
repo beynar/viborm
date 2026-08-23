@@ -10,23 +10,25 @@
  * - Enum handling (capabilities.supportsNativeEnums, getEnumColumnType)
  */
 
+import { hydrateSchemaNames } from "../schema/hydration";
 import {
   type AnyModel,
   getModelKeyCatalog,
   getTableName as getModelTableName,
+  isTotalIndex,
   type ModelState,
 } from "../schema/model";
-import {
-  type AnyRelation,
-  getCompatiblePolymorphicInverseBinding,
-  type PolymorphicJunctionMember,
-} from "../schema/relation";
-import { getJunctionTableName } from "../schema/relation/helpers";
-import {
-  resolveJunctionPairActions,
-  resolveOrdinaryJunctionTopology,
-} from "../schema/relation/junction-topology";
+import type { RelationSlot } from "../schema/relation";
 import type { Scalar } from "../schema/scalars/base";
+import {
+  type ResolvedRelationEdge,
+  type ResolvedRelationIndex,
+  type ResolvedVariantJunctionEdge,
+  type ResolvedVariantJunctionMember,
+  type ResolvedVariantRowEdge,
+  resolvedEdges,
+} from "../schema/validation/relation-resolution";
+import { resolveSchemaOrThrow } from "../schema/validation/validator";
 import type { MigrationDriver } from "./drivers";
 import type {
   ColumnDef,
@@ -47,17 +49,6 @@ import type {
 // =============================================================================
 // REFERENTIAL ACTION MAPPING
 // =============================================================================
-
-/**
- * A partial index holds only the rows its predicate keeps. It cannot answer a
- * lookup for an excluded row, and its UNIQUE cannot constrain one — so it is
- * neither coverage for the foreign-key index nor uniqueness for a 1:1 relation.
- * Truthiness, because that is what the emitters use to decide whether to write
- * the WHERE at all (`postgres/index.ts`, `sqlite/index.ts`).
- */
-function isTotalIndex(index: { where?: string | undefined }): boolean {
-  return !index.where;
-}
 
 function mapReferentialAction(
   action: "cascade" | "setNull" | "restrict" | "noAction" | undefined,
@@ -85,6 +76,71 @@ export interface SerializeOptions {
   migrationDriver: MigrationDriver;
 }
 
+/** One model's edges, bucketed at their anchors in declaration order. */
+interface ModelEdges {
+  readonly variants: ResolvedVariantEdgeRef[];
+  readonly foreignKeys: ResolvedForeignKeyEdge[];
+}
+
+type ResolvedVariantEdgeRef =
+  | ResolvedVariantRowEdge
+  | ResolvedVariantJunctionEdge;
+type ResolvedForeignKeyEdge = Extract<
+  ResolvedRelationEdge,
+  { kind: "foreignKey" }
+>;
+type ResolvedJunctionEdge = Extract<ResolvedRelationEdge, { kind: "junction" }>;
+
+/**
+ * Stage the ONE derived edge iterator into the two emission buckets the
+ * serializer already had (D4): per-model variant storage and foreign keys for
+ * the model phase, and ordinary junctions for the phase that follows it.
+ *
+ * `resolvedEdges` yields each edge exactly once, at its canonical anchor, in
+ * schema/model/field order — which is the order both phases already walked. No
+ * topology is stored here and none is re-expanded (§11.5.9).
+ */
+function stageEdges(index: ResolvedRelationIndex): {
+  readonly byModel: ReadonlyMap<AnyModel, ModelEdges>;
+  readonly junctions: readonly ResolvedJunctionEdge[];
+} {
+  const byModel = new Map<AnyModel, ModelEdges>();
+  const junctions: ResolvedJunctionEdge[] = [];
+  const bucket = (model: AnyModel): ModelEdges => {
+    const held = byModel.get(model);
+    if (held) return held;
+    const created: ModelEdges = { variants: [], foreignKeys: [] };
+    byModel.set(model, created);
+    return created;
+  };
+  for (const edge of resolvedEdges(index)) {
+    if (edge.kind === "junction") {
+      junctions.push(edge);
+      continue;
+    }
+    if (edge.kind === "foreignKey") {
+      bucket(edge.owner.source).foreignKeys.push(edge);
+      continue;
+    }
+    bucket(edge.carrier.source).variants.push(edge);
+  }
+  return { byModel, junctions };
+}
+
+/** `(model, field)` is the whole contextual identity of a slot. */
+function isSlot(one: RelationSlot, other: RelationSlot): boolean {
+  return one.source === other.source && one.field === other.field;
+}
+
+/** The endpoint an ordinary edge reaches FROM the given one. */
+function partnerOf(
+  edge: ResolvedForeignKeyEdge | ResolvedJunctionEdge,
+  from: RelationSlot
+): RelationSlot {
+  const [first, second] = edge.endpoints;
+  return isSlot(first, from) ? second : first;
+}
+
 /**
  * Serializes a collection of VibORM models into a SchemaSnapshot
  */
@@ -92,7 +148,21 @@ export function serializeModels(
   models: Record<string, AnyModel>,
   options: SerializeOptions
 ): SchemaSnapshot {
-  const { migrationDriver } = options;
+  hydrateSchemaNames(models);
+  return serializeResolvedModels(
+    models,
+    options.migrationDriver,
+    resolveSchemaOrThrow(models)
+  );
+}
+
+/** Internal composition seam for a boundary that already owns resolution. */
+export function serializeResolvedModels(
+  models: Record<string, AnyModel>,
+  migrationDriver: MigrationDriver,
+  index: ResolvedRelationIndex
+): SchemaSnapshot {
+  const { byModel, junctions } = stageEdges(index);
   const tables: TableDef[] = [];
   const enums: EnumDef[] = [];
   const enumsSet = new Set<string>();
@@ -255,25 +325,26 @@ export function serializeModels(
       }
     }
 
-    // Polymorphic storage is relation-owned, so it never appears in the public
-    // scalar map. Its cached descriptor is the single source for the toOne
-    // private columns and index, the toMany member junction tables, and
-    // generated-file member history.
-    for (const storage of model["~"].polymorphicStorage.values()) {
-      if (storage.kind === "toMany") {
+    // Variant storage is relation-owned, so it never appears in the public
+    // scalar map. The RESOLVED CARRIER EDGE is the single source for the
+    // row-held private columns and index, the collection member junction
+    // tables, and generated-file member history.
+    const modelEdges = byModel.get(model) ?? { variants: [], foreignKeys: [] };
+    for (const edge of modelEdges.variants) {
+      if (edge.kind === "variantJunctionCarrier") {
         const members: PolymorphicToManySnapshotMember[] = [];
-        for (const member of storage.members.values()) {
+        for (const member of edge.members) {
           const memberDef = serializeMemberJunction(
             model,
             tableName,
             member,
             migrationDriver
           );
-          // pairName is always set for a member junction: the stored topology
-          // is built exclusively by definition validation, which passes
+          // pairName is always set for a member junction: the resolved topology
+          // is built exclusively by the gate, which passes
           // `${model}.${relation}.${publicType}` — already distinct from every
           // ordinary pairKey spelling.
-          const pairKey = member.junction.pairName!;
+          const pairKey = member.topology.pairName!;
           const existing = junctionTables.get(memberDef.name);
           if (
             existing &&
@@ -289,26 +360,28 @@ export function serializeModels(
             junctionTables.set(memberDef.name, { def: memberDef, pairKey });
           }
 
-          const targetModelName = member.targetModel["~"].names.ts;
+          const memberTarget = member.topology.target.model;
+          const targetModelName = memberTarget["~"].names.ts;
           members.push({
-            publicType: member.publicType,
-            storedType: member.storedType,
+            publicType: member.variant,
+            storedType: member.entry.storedValue,
             targetTable: getModelTableName(
-              member.targetModel,
+              memberTarget,
               targetModelName?.toLowerCase() ?? "unknown"
             ),
-            memberJunctionTable: member.junction.table,
-            inverseCardinality: member.inverseCardinality,
+            memberJunctionTable: member.topology.table,
+            inverseCardinality: member.uniqueTarget ? "one" : "many",
           });
         }
         polymorphicStorage.push({
           ownerTable: tableName,
-          relation: storage.relationName,
+          relation: edge.carrier.field,
           kind: "toMany",
           members,
         });
         continue;
       }
+      const storage = edge.storage;
       const typeScalarState = storage.typeColumn.scalar["~"].state;
       const idScalarState = storage.idColumn.scalar["~"].state;
       columns.push(
@@ -332,7 +405,7 @@ export function serializeModels(
       indexes.push({
         name: storage.indexName,
         columns: [storage.typeColumn.name, storage.idColumn.name],
-        unique: storage.inverseCardinality === "one",
+        unique: edge.uniqueTarget,
       });
       // The physical facts stay in the TableDef above where the structural
       // differ owns them; the registry annotates which of those parts are
@@ -345,11 +418,11 @@ export function serializeModels(
       };
 
       const members: PolymorphicToOneSnapshotMember[] = [];
-      for (const [publicType, member] of storage.members) {
+      for (const member of edge.members) {
         const targetModelName = member.targetModel["~"].names.ts;
         members.push({
-          publicType,
-          storedType: member.storedType,
+          publicType: member.variant,
+          storedType: member.entry.storedValue,
           targetTable: getModelTableName(
             member.targetModel,
             targetModelName?.toLowerCase() ?? "unknown"
@@ -358,169 +431,150 @@ export function serializeModels(
       }
       polymorphicStorage.push({
         ownerTable: tableName,
-        relation: storage.relationName,
+        relation: edge.carrier.field,
         kind: "toOne",
         storageRef: storage.typeColumn.name,
         members,
       });
     }
 
-    // A `oneToOne` foreign key gets a unique constraint at the bottom of the
+    // A UNIQUE foreign key gets a unique constraint at the bottom of the
     // relation loop, and that constraint is an index — so it covers the
     // foreign-key index exactly as a declared unique does. It is collected HERE,
     // before the loop, because `uniqueConstraints` grows INSIDE it: one model may
-    // name the same columns from a `manyToOne` and from a `oneToOne` (legal, and
+    // name the same columns from a plural and from a singular edge (legal, and
     // measured through `serializeModels`), and reading the half-built list made
     // the answer depend on which relation the schema happened to spell first —
     // `many` before `one` emitted the redundant index, `one` before `many` did
-    // not. The condition mirrors the branch that pushes the constraint, target
-    // model included, so this claims coverage only where the constraint follows.
+    // not. The condition mirrors the branch that pushes the constraint, so this
+    // claims coverage only where the constraint follows.
     const oneToOneFkColumns: string[][] = [];
-    for (const relation of Object.values(modelState.relations)) {
-      const oneToOneState = (relation as AnyRelation)["~"].state;
-      if (
-        oneToOneState.type === "oneToOne" &&
-        oneToOneState.fields &&
-        oneToOneState.references &&
-        oneToOneState.getter()?.["~"]
-      ) {
-        oneToOneFkColumns.push(
-          oneToOneState.fields.map(
-            (field: string) => model["~"].getFieldName(field).sql
-          )
-        );
-      }
+    for (const edge of modelEdges.foreignKeys) {
+      if (!edge.unique) continue;
+      oneToOneFkColumns.push(
+        edge.reference.members.map(
+          (member) => model["~"].getFieldName(member.foreignField).sql
+        )
+      );
     }
 
-    // Process relations to generate foreign keys
-    for (const [relationName, relation] of Object.entries(
-      modelState.relations
-    )) {
-      const relationState = (relation as AnyRelation)["~"].state;
+    // Process foreign keys. ONE edge per stored reference, at its OWNER, in the
+    // owner's declaration order — the gate decided which endpoint stores the
+    // reference, so there is no family label to test and no inverse to discover.
+    for (const edge of modelEdges.foreignKeys) {
+      const targetSlot = partnerOf(edge, edge.owner);
+      const targetModel = targetSlot.source;
+      const targetModelState = targetModel["~"].state;
+      const targetTableName =
+        targetModel["~"].names.sql ||
+        targetModelState.tableName ||
+        edge.owner.field.toLowerCase();
 
-      // Only process manyToOne and oneToOne relations that define foreign keys
-      if (
-        (relationState.type === "manyToOne" ||
-          relationState.type === "oneToOne") &&
-        relationState.fields &&
-        relationState.references
-      ) {
-        // Get the target model
-        const targetModel = relationState.getter();
-        if (targetModel?.["~"]) {
-          const targetModelState = targetModel["~"].state;
-          const targetTableName =
-            targetModel["~"].names.sql ||
-            targetModelState.tableName ||
-            relationName.toLowerCase();
+      // Resolve TS field names to actual column names (.map() support)
+      const fkFields = edge.reference.members.map(
+        (member) => member.foreignField
+      );
+      const fkColumns = fkFields.map(
+        (field) => model["~"].getFieldName(field).sql
+      );
+      const referencedColumns = edge.reference.members.map(
+        (member) => targetModel["~"].getFieldName(member.referencedField).sql
+      );
 
-          // Resolve TS field names to actual column names (.map() support)
-          const fkColumns = relationState.fields.map(
-            (field: string) => model["~"].getFieldName(field).sql
+      // Prisma parity: without an explicit .onDelete(), a stored reference whose
+      // every local member is nullable defaults to SET NULL and a required one to
+      // RESTRICT, so deletes behave identically across databases (MySQL checks
+      // self-referencing FKs row-by-row where PG/SQLite validate at statement
+      // end). TOTAL nullability, not the nullable SUBSET the write side clears:
+      // one referential action governs the whole constraint.
+      const fkNullable = fkFields.every((field) => {
+        const fkScalar = modelState.scalars[field] as Scalar | undefined;
+        return fkScalar?.["~"].state.nullable === true;
+      });
+      const defaultOnDelete: ReferentialAction = fkNullable
+        ? "setNull"
+        : "restrict";
+
+      foreignKeys.push({
+        name: `${tableName}_${fkColumns.join("_")}_fkey`,
+        columns: fkColumns,
+        referencedTable: targetTableName,
+        referencedColumns,
+        onDelete: mapReferentialAction(
+          edge.reference.onDelete,
+          defaultOnDelete
+        ),
+        onUpdate: mapReferentialAction(edge.reference.onUpdate, "noAction"),
+      });
+
+      // The inverse of a plural stored reference is to-many: every include,
+      // relation filter and nested-write locate reads this table through the FK
+      // columns. MySQL/InnoDB indexes an FK constraint by itself;
+      // PostgreSQL and SQLite do not, so serialize the index on every
+      // dialect — one snapshot shape for the differ, and on MySQL the
+      // explicit index takes the place of the implicit one. A UNIQUE FK
+      // needs nothing here: the unique constraint below is its index.
+      if (edge.unique) {
+        // 1:1 FK must be unique at the DB level, or it degrades to N:1
+        const fkKey = [...fkColumns].sort().join(",");
+        const alreadyUnique =
+          [...pkColumns].sort().join(",") === fkKey ||
+          uniqueConstraints.some(
+            (u) => [...u.columns].sort().join(",") === fkKey
+          ) ||
+          indexes.some(
+            (i) =>
+              i.unique &&
+              isTotalIndex(i) &&
+              [...i.columns].sort().join(",") === fkKey
           );
-          const referencedColumns = relationState.references.map(
-            (field: string) => targetModel["~"].getFieldName(field).sql
-          );
-
-          // Prisma parity: without an explicit .onDelete(), optional to-one
-          // relations (all FK scalars nullable) default to SET NULL and
-          // required ones to RESTRICT, so deletes behave identically across
-          // databases (MySQL checks self-referencing FKs row-by-row where
-          // PG/SQLite validate at statement end).
-          const fkNullable = relationState.fields.every((field: string) => {
-            const fkScalar = modelState.scalars[field] as Scalar | undefined;
-            return fkScalar?.["~"].state.nullable === true;
-          });
-          const defaultOnDelete: ReferentialAction = fkNullable
-            ? "setNull"
-            : "restrict";
-
-          foreignKeys.push({
-            name: `${tableName}_${fkColumns.join("_")}_fkey`,
+        if (!alreadyUnique) {
+          uniqueConstraints.push({
+            name: `${tableName}_${fkColumns.join("_")}_key`,
             columns: fkColumns,
-            referencedTable: targetTableName,
-            referencedColumns,
-            onDelete: mapReferentialAction(
-              relationState.onDelete,
-              defaultOnDelete
-            ),
-            onUpdate: mapReferentialAction(relationState.onUpdate, "noAction"),
           });
-
-          // The inverse of a manyToOne is to-many: every include, relation
-          // filter and nested-write locate reads this table through the FK
-          // columns. MySQL/InnoDB indexes an FK constraint by itself;
-          // PostgreSQL and SQLite do not, so serialize the index on every
-          // dialect — one snapshot shape for the differ, and on MySQL the
-          // explicit index takes the place of the implicit one. A oneToOne FK
-          // needs nothing here: the unique constraint below is its index.
-          if (relationState.type === "manyToOne") {
-            // The primary key, every unique constraint and every declared index
-            // is backed by an index on all three dialects, and an index serves
-            // any prefix of its columns — so a FK index over such a prefix
-            // would only duplicate one the database already has.
-            const coveringColumns = [
-              pkColumns,
-              ...uniqueConstraints.map((unique) => unique.columns),
-              ...oneToOneFkColumns,
-              ...declaredIndexColumns,
-            ];
-            const alreadyIndexed = coveringColumns.some((columns) =>
-              fkColumns.every(
-                (column, position) => columns[position] === column
-              )
-            );
-            if (!alreadyIndexed) {
-              // An index the schema declares over exactly these columns but
-              // does not cover them — a partial index — auto-names itself the
-              // way this one does, and a database keeps one index per name. So
-              // the automatic index falls back on the name of the constraint it
-              // serves. Only a schema that has no foreign-key index today can
-              // take the fallback, so no database that already holds the index
-              // is renamed into a drop and a create.
-              //
-              // A schema may of course have spent BOTH names on indexes of its
-              // own — `.index([...], { name: "<table>_<cols>_fkey_idx" })` is
-              // legal. Then this index has no name left to take, and pushing it
-              // anyway put two entries under one name into the snapshot: the
-              // differ emitted two `CREATE INDEX` and the second failed the
-              // whole push (measured on better-sqlite3: `index
-              // zz_fb_kid_ownerId_fkey_idx already exists`). The index is a read
-              // optimization, not a correctness requirement, so it yields to the
-              // names the schema declared.
-              const declaredNames = new Set(indexes.map((index) => index.name));
-              const preferredName = `${tableName}_${fkColumns.join("_")}_idx`;
-              const name = declaredNames.has(preferredName)
-                ? `${tableName}_${fkColumns.join("_")}_fkey_idx`
-                : preferredName;
-              if (!declaredNames.has(name)) {
-                indexes.push({ name, columns: fkColumns, unique: false });
-              }
-            }
-          }
-
-          // 1:1 FK must be unique at the DB level, or it degrades to N:1
-          if (relationState.type === "oneToOne") {
-            const fkKey = [...fkColumns].sort().join(",");
-            const alreadyUnique =
-              [...pkColumns].sort().join(",") === fkKey ||
-              uniqueConstraints.some(
-                (u) => [...u.columns].sort().join(",") === fkKey
-              ) ||
-              indexes.some(
-                (i) =>
-                  i.unique &&
-                  isTotalIndex(i) &&
-                  [...i.columns].sort().join(",") === fkKey
-              );
-            if (!alreadyUnique) {
-              uniqueConstraints.push({
-                name: `${tableName}_${fkColumns.join("_")}_key`,
-                columns: fkColumns,
-              });
-            }
-          }
         }
+        continue;
+      }
+
+      // The primary key, every unique constraint and every declared index
+      // is backed by an index on all three dialects, and an index serves
+      // any prefix of its columns — so a FK index over such a prefix
+      // would only duplicate one the database already has.
+      const coveringColumns = [
+        pkColumns,
+        ...uniqueConstraints.map((unique) => unique.columns),
+        ...oneToOneFkColumns,
+        ...declaredIndexColumns,
+      ];
+      const alreadyIndexed = coveringColumns.some((columns) =>
+        fkColumns.every((column, position) => columns[position] === column)
+      );
+      if (alreadyIndexed) continue;
+      // An index the schema declares over exactly these columns but
+      // does not cover them — a partial index — auto-names itself the
+      // way this one does, and a database keeps one index per name. So
+      // the automatic index falls back on the name of the constraint it
+      // serves. Only a schema that has no foreign-key index today can
+      // take the fallback, so no database that already holds the index
+      // is renamed into a drop and a create.
+      //
+      // A schema may of course have spent BOTH names on indexes of its
+      // own — `.index([...], { name: "<table>_<cols>_fkey_idx" })` is
+      // legal. Then this index has no name left to take, and pushing it
+      // anyway put two entries under one name into the snapshot: the
+      // differ emitted two `CREATE INDEX` and the second failed the
+      // whole push (measured on better-sqlite3: `index
+      // zz_fb_kid_ownerId_fkey_idx already exists`). The index is a read
+      // optimization, not a correctness requirement, so it yields to the
+      // names the schema declared.
+      const declaredNames = new Set(indexes.map((index) => index.name));
+      const preferredName = `${tableName}_${fkColumns.join("_")}_idx`;
+      const name = declaredNames.has(preferredName)
+        ? `${tableName}_${fkColumns.join("_")}_fkey_idx`
+        : preferredName;
+      if (!declaredNames.has(name)) {
+        indexes.push({ name, columns: fkColumns, unique: false });
       }
     }
 
@@ -537,185 +591,150 @@ export function serializeModels(
   }
 
   // ==========================================================================
-  // JUNCTION TABLES FOR MANY-TO-MANY RELATIONS
+  // ORDINARY JUNCTION TABLES
+  //
+  // One edge per resolved pair, at `endpoints[0]` — the canonically first
+  // endpoint, which is the very endpoint the old two-model walk registered from.
+  // A member VIEW of a variant carrier never appears here: the gate resolved
+  // that slot onto its carrier's edge, so the skip that used to rescan for a
+  // compatible binding is now structural.
   // ==========================================================================
-  for (const [modelName, model] of Object.entries(models)) {
-    const modelState = model["~"].state;
+  for (const edge of junctions) {
+    const sourceSlot = edge.endpoints[0];
+    const model = sourceSlot.source;
+    const modelName = model["~"].names.ts;
     const sourceTableName =
-      model["~"].names.sql || modelState.tableName || modelName.toLowerCase();
-
-    for (const [relationName, relation] of Object.entries(
-      modelState.relations
-    )) {
-      const relState = (relation as AnyRelation)["~"].state;
-      if (relState.type !== "manyToMany") continue;
-
-      const targetModel = relState.getter();
-      if (!targetModel?.["~"]) continue;
-
-      // A fields-less manyToMany whose compatible polymorphic binding
-      // resolves is a polymorphic member VIEW: its storage is the member
-      // junction tables serialized above, so it owns no ordinary junction —
-      // byte-parallel to the validator's reservation skip
-      // (`rules/polymorphic.ts` junctionPhysicalNames).
-      if (getCompatiblePolymorphicInverseBinding(relState, model)) continue;
-
-      // Target model must have hydrated names
-      const targetModelName = targetModel["~"].names.ts;
-      if (!targetModelName) {
-        throw new Error(
-          `Target model for relation "${relationName}" has no name. ` +
-            "Schema may not be hydrated. Call hydrateSchemaNames() first."
-        );
-      }
-
-      const targetTableName = targetModel["~"].names.sql;
-      if (!targetTableName) {
-        throw new Error(
-          `Target model "${targetModelName}" has no SQL table name. ` +
-            "Schema may not be hydrated. Call hydrateSchemaNames() first."
-        );
-      }
-
-      // Get junction table name (from .through() on either side, or generated)
-      const junctionTableName = getJunctionTableName(
-        relation as AnyRelation,
-        modelName,
-        targetModelName
+      model["~"].names.sql ||
+      model["~"].state.tableName ||
+      (modelName ?? "").toLowerCase();
+    const targetSlot = partnerOf(edge, sourceSlot);
+    const targetModel = targetSlot.source;
+    const targetModelName = targetModel["~"].names.ts;
+    if (!(modelName && targetModelName)) {
+      throw new Error(
+        `Target model for relation "${sourceSlot.field}" has no name. ` +
+          "Schema may not be hydrated. Call hydrateSchemaNames() first."
       );
-
-      // Referential actions may be configured on either side of the pair.
-      // Prisma parity: implicit junction FKs default to CASCADE so deleting
-      // an endpoint row removes its associations.
-      const pairActions = resolveJunctionPairActions(
-        relation as AnyRelation,
-        junctionTableName
-      );
-      const onDelete = mapReferentialAction(pairActions.onDelete, "cascade");
-      const onUpdate = mapReferentialAction(pairActions.onUpdate, "cascade");
-
-      const sourcePkFields = getPrimaryKeyFieldDefs(model, migrationDriver);
-      const targetPkFields = getPrimaryKeyFieldDefs(
-        targetModel,
-        migrationDriver
-      );
-      const topology = resolveOrdinaryJunctionTopology({
-        relation: relation as AnyRelation,
-        table: junctionTableName,
-        source: {
-          model,
-          modelName,
-          rowKey: sourcePkFields.map((field) => field.field),
-        },
-        target: {
-          model: targetModel,
-          modelName: targetModelName,
-          rowKey: targetPkFields.map((field) => field.field),
-        },
-      });
-      // Decorate the owner's members with the driver-typed key defs by index:
-      // the members were zipped from these same row-key lists, so both sides
-      // carry exactly one member per key def and the lookup cannot miss.
-      const sourceMembers = topology.source.members.map((member, index) => ({
-        column: member.junctionField,
-        pk: sourcePkFields[index]!,
-      }));
-      const targetMembers = topology.target.members.map((member, index) => ({
-        column: member.junctionField,
-        pk: targetPkFields[index]!,
-      }));
-
-      // Canonical column order: sorted model names decide (as the generated
-      // table name does), so both sides serialize the identical table.
-      const sourceSide = {
-        members: sourceMembers,
-        table: sourceTableName,
-        sortKey: modelName.toLowerCase(),
-      };
-      const targetSide = {
-        members: targetMembers,
-        table: targetTableName,
-        sortKey: targetModelName.toLowerCase(),
-      };
-      let [first, second] = [sourceSide, targetSide];
-      if (!topology.sourceIsFirst) {
-        [first, second] = [second, first];
-      }
-
-      const firstColumns = first.members.map((member) => member.column);
-      const secondColumns = second.members.map((member) => member.column);
-
-      const junctionDef: TableDef = {
-        name: junctionTableName,
-        columns: [
-          ...first.members.map((member) => ({
-            name: member.column,
-            type: member.pk.type,
-            nullable: false,
-          })),
-          ...second.members.map((member) => ({
-            name: member.column,
-            type: member.pk.type,
-            nullable: false,
-          })),
-        ],
-        primaryKey: { columns: [...firstColumns, ...secondColumns] },
-        // The PK covers first-side lookups; reverse traversal needs one
-        // index over the complete second-side stored reference.
-        indexes: [
-          {
-            name: topology.reverseIndexName(),
-            columns: secondColumns,
-            unique: false,
-          },
-        ],
-        foreignKeys: [
-          {
-            name: topology.foreignKeyName(
-              topology.sourceIsFirst ? "source" : "target"
-            ),
-            columns: firstColumns,
-            referencedTable: first.table,
-            referencedColumns: first.members.map((member) => member.pk.column),
-            onDelete,
-            onUpdate,
-          },
-          {
-            name: topology.foreignKeyName(
-              topology.sourceIsFirst ? "target" : "source"
-            ),
-            columns: secondColumns,
-            referencedTable: second.table,
-            referencedColumns: second.members.map((member) => member.pk.column),
-            onDelete,
-            onUpdate,
-          },
-        ],
-        uniqueConstraints: [],
-      };
-
-      // Both sides of a pair serialize identically after canonicalization, so
-      // a mismatch means two different relation pairs collide on one table.
-      // Pair identity (models + relation name) catches collisions even when
-      // the column defs happen to be byte-identical.
-      const pairKey = `${[first.sortKey, second.sortKey].join("::")}::${
-        topology.pairName ?? ""
-      }`;
-      const existing = junctionTables.get(junctionTableName);
-      if (existing) {
-        if (
-          existing.pairKey !== pairKey ||
-          JSON.stringify(existing.def) !== JSON.stringify(junctionDef)
-        ) {
-          throw new Error(
-            `Junction table "${junctionTableName}" is shared by multiple distinct many-to-many relation pairs. ` +
-              "Give each pair a distinct .name() or its own .through() table name."
-          );
-        }
-        continue;
-      }
-      junctionTables.set(junctionTableName, { def: junctionDef, pairKey });
     }
+    const targetTableName = targetModel["~"].names.sql;
+    if (!targetTableName) {
+      throw new Error(
+        `Target model "${targetModelName}" has no SQL table name. ` +
+          "Schema may not be hydrated. Call hydrateSchemaNames() first."
+      );
+    }
+
+    // Referential actions are configured on the one endpoint that owns every
+    // override. Prisma parity: implicit junction FKs default to CASCADE so
+    // deleting an endpoint row removes its associations.
+    const onDelete = mapReferentialAction(edge.onDelete, "cascade");
+    const onUpdate = mapReferentialAction(edge.onUpdate, "cascade");
+
+    const sourcePkFields = getPrimaryKeyFieldDefs(model, migrationDriver);
+    const targetPkFields = getPrimaryKeyFieldDefs(targetModel, migrationDriver);
+    const topology = edge.topology;
+    // Decorate the owner's members with the driver-typed key defs by index:
+    // the members were zipped from these same row-key lists, so both sides
+    // carry exactly one member per key def and the lookup cannot miss.
+    const sourceMembers = topology.source.members.map((member, index) => ({
+      column: member.junctionField,
+      pk: sourcePkFields[index]!,
+    }));
+    const targetMembers = topology.target.members.map((member, index) => ({
+      column: member.junctionField,
+      pk: targetPkFields[index]!,
+    }));
+
+    // Canonical column order: sorted model names decide (as the generated
+    // table name does), so both sides serialize the identical table.
+    const sourceSide = {
+      members: sourceMembers,
+      table: sourceTableName,
+      sortKey: modelName.toLowerCase(),
+    };
+    const targetSide = {
+      members: targetMembers,
+      table: targetTableName,
+      sortKey: targetModelName.toLowerCase(),
+    };
+    let [first, second] = [sourceSide, targetSide];
+    if (!topology.sourceIsFirst) {
+      [first, second] = [second, first];
+    }
+
+    const firstColumns = first.members.map((member) => member.column);
+    const secondColumns = second.members.map((member) => member.column);
+
+    const junctionDef: TableDef = {
+      name: topology.table,
+      columns: [
+        ...first.members.map((member) => ({
+          name: member.column,
+          type: member.pk.type,
+          nullable: false,
+        })),
+        ...second.members.map((member) => ({
+          name: member.column,
+          type: member.pk.type,
+          nullable: false,
+        })),
+      ],
+      primaryKey: { columns: [...firstColumns, ...secondColumns] },
+      // The PK covers first-side lookups; reverse traversal needs one
+      // index over the complete second-side stored reference.
+      indexes: [
+        {
+          name: topology.reverseIndexName(),
+          columns: secondColumns,
+          unique: false,
+        },
+      ],
+      foreignKeys: [
+        {
+          name: topology.foreignKeyName(
+            topology.sourceIsFirst ? "source" : "target"
+          ),
+          columns: firstColumns,
+          referencedTable: first.table,
+          referencedColumns: first.members.map((member) => member.pk.column),
+          onDelete,
+          onUpdate,
+        },
+        {
+          name: topology.foreignKeyName(
+            topology.sourceIsFirst ? "target" : "source"
+          ),
+          columns: secondColumns,
+          referencedTable: second.table,
+          referencedColumns: second.members.map((member) => member.pk.column),
+          onDelete,
+          onUpdate,
+        },
+      ],
+      uniqueConstraints: [],
+    };
+
+    // Both sides of a pair serialize identically after canonicalization, so
+    // a mismatch means two different relation pairs collide on one table.
+    // Pair identity (models + relation name) catches collisions even when
+    // the column defs happen to be byte-identical.
+    const pairKey = `${[first.sortKey, second.sortKey].join("::")}::${
+      topology.pairName ?? ""
+    }`;
+    const existing = junctionTables.get(topology.table);
+    if (existing) {
+      if (
+        existing.pairKey !== pairKey ||
+        JSON.stringify(existing.def) !== JSON.stringify(junctionDef)
+      ) {
+        throw new Error(
+          `Junction table "${topology.table}" is shared by multiple distinct many-to-many relation pairs. ` +
+            "Give each pair a distinct .name() or its own .through() table name."
+        );
+      }
+      continue;
+    }
+    junctionTables.set(topology.table, { def: junctionDef, pairKey });
   }
 
   // Append junction tables to the tables array
@@ -748,20 +767,18 @@ export function serializeModels(
 function serializeMemberJunction(
   ownerModel: AnyModel,
   ownerTableName: string,
-  member: PolymorphicJunctionMember,
+  member: ResolvedVariantJunctionMember,
   migrationDriver: MigrationDriver
 ): TableDef {
-  const junction = member.junction;
-  const targetModelName = member.targetModel["~"].names.ts;
+  const junction = member.topology;
+  const targetModel = junction.target.model;
+  const targetModelName = targetModel["~"].names.ts;
   const targetTableName = getModelTableName(
-    member.targetModel,
+    targetModel,
     targetModelName?.toLowerCase() ?? "unknown"
   );
   const sourcePkFields = getPrimaryKeyFieldDefs(ownerModel, migrationDriver);
-  const targetPkFields = getPrimaryKeyFieldDefs(
-    member.targetModel,
-    migrationDriver
-  );
+  const targetPkFields = getPrimaryKeyFieldDefs(targetModel, migrationDriver);
   // Decorate the sides with the driver-typed key defs by index: the stored
   // topology zipped its members from the same model-key-catalog row keys these
   // defs come from, so both lists carry exactly one entry per key def.
@@ -851,17 +868,16 @@ function serializeMemberJunction(
     // covers the OWNER side, and the PK prefix does not make target columns
     // unique. The name is asked LAST (idx → first fkey → second fkey → key)
     // so the other three refusal positions stay where they are.
-    uniqueConstraints:
-      member.inverseCardinality === "one"
-        ? [
-            {
-              name: junction.uniqueTargetName(),
-              columns: targetMembers.map(
-                (junctionMember) => junctionMember.column
-              ),
-            },
-          ]
-        : [],
+    uniqueConstraints: member.uniqueTarget
+      ? [
+          {
+            name: junction.uniqueTargetName(),
+            columns: targetMembers.map(
+              (junctionMember) => junctionMember.column
+            ),
+          },
+        ]
+      : [],
   };
 }
 

@@ -9,9 +9,12 @@
  * - OrderBy schemas
  */
 
-import { type InferInput, parse } from "@validation";
-import { describe, expect, expectTypeOf, test } from "vitest";
+import { s } from "@schema";
+import { hydrateSchemaNames } from "@schema/hydration";
 import { postSchemas } from "@tests/unit/operation-schemas/fixtures";
+import { type InferInput, parse } from "@validation";
+import { getRelationsSchemas } from "@validation/relations";
+import { describe, expect, expectTypeOf, test } from "vitest";
 
 // Test-only view over generated relation output unions.
 // Runtime assertions below still verify concrete transformed shapes.
@@ -46,26 +49,27 @@ describe("ToOne Filter - Post.author (manyToOne)", () => {
     expect(result.issues).toBeUndefined();
   });
 
-  test("accepts 'is' with null (relation is required)", () => {
-    // Post.author is a required relation, null filtering not supported
-
+  // RE-PINNED (§9.4): `post.authorId` is not nullable, so the membership can
+  // never be absent and `is: null` names a row that cannot exist. HEAD accepted
+  // it because the declaration carried a `.optional()` flag that disagreed with
+  // its own column; there is no second optionality fact to disagree with now.
+  test("rejects 'is' with null (relation is required)", () => {
     const result = parse(schema, {
       author: {
         is: null,
       },
     });
 
-    expect(result.issues).toBeUndefined();
+    expect(result.issues).toBeDefined();
   });
 
-  test("accepts 'isNot' with null (relation is required)", () => {
-    // Post.author is a required relation, null filtering not supported
+  test("rejects 'isNot' with null (relation is required)", () => {
     const result = parse(schema, {
       author: {
         isNot: null,
       },
     });
-    expect(result.issues).toBeUndefined();
+    expect(result.issues).toBeDefined();
   });
 
   test("accepts nested filter operators", () => {
@@ -464,5 +468,30 @@ describe("ToOne OrderBy - Post.author (manyToOne)", () => {
     });
 
     expect(result.issues).toBeDefined();
+  });
+});
+
+describe("coverage low value", () => {
+  test("names missing trusted slots for hydrated and anonymous models", () => {
+    const target = s.model({ id: s.string().id() });
+    const anonymous = s.model({
+      id: s.string().id(),
+      parent: s.toOne(() => target),
+    });
+    const named = s.model({
+      id: s.string().id(),
+      parent: s.toOne(() => target),
+    });
+    hydrateSchemaNames({ named, target });
+    const unreachableSchemas = () => () => {
+      throw new Error("A missing slot must refuse before schema construction");
+    };
+
+    expect(() =>
+      getRelationsSchemas(anonymous, unreachableSchemas, new Map())
+    ).toThrow("does not describe 'model.parent'");
+    expect(() =>
+      getRelationsSchemas(named, unreachableSchemas, new Map())
+    ).toThrow("does not describe 'named.parent'");
   });
 });

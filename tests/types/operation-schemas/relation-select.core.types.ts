@@ -8,7 +8,7 @@ const _post = s.model({
   id: s.string().id(),
   authorId: s.string(),
   author: s
-    .manyToOne(() => user)
+    .toOne(() => user)
     .fields("authorId")
     .references("id"),
 });

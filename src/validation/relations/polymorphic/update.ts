@@ -1,4 +1,4 @@
-import type { PolymorphicRelationState } from "@schema/relation";
+import type { VariantRelationState } from "@schema/relation";
 import v, { type V } from "@validation/primitives/v";
 import type { VibSchema } from "@validation/types";
 import {
@@ -118,7 +118,7 @@ type PolymorphicRemovalEntries<Getters> = {
 };
 
 export type PolymorphicUpdateEntries<
-  State extends PolymorphicRelationState,
+  State extends VariantRelationState,
   Getters,
 > = PolymorphicTargetedEntries<Getters> &
   (State["optional"] extends true
@@ -126,7 +126,7 @@ export type PolymorphicUpdateEntries<
     : Record<never, never>);
 
 export type PolymorphicUpdateSchema<
-  State extends PolymorphicRelationState,
+  State extends VariantRelationState,
   Getters,
 > = ToOneMutationSchema<
   PolymorphicUpdateEntries<State, Getters>,
@@ -136,7 +136,7 @@ export type PolymorphicUpdateSchema<
 >;
 
 export function polymorphicUpdateFactory<
-  State extends PolymorphicRelationState,
+  State extends VariantRelationState,
   Getters extends PolymorphicTargetSchemaGetters<State>,
 >(
   state: State,

@@ -24,7 +24,7 @@ import {
 const user = s.model({
   id: s.string().id(),
   name: s.string(),
-  posts: s.oneToMany(() => post),
+  posts: s.toMany(() => post),
 });
 
 const post = s
@@ -33,10 +33,10 @@ const post = s
     title: s.string(),
     userId: s.string(),
     author: s
-      .manyToOne(() => user)
+      .toOne(() => user)
       .fields("userId")
       .references("id"),
-    comments: s.oneToMany(() => comment),
+    comments: s.toMany(() => comment),
   })
   .map("posts");
 
@@ -46,7 +46,7 @@ const comment = s
     body: s.string(),
     postId: s.string(),
     post: s
-      .manyToOne(() => post)
+      .toOne(() => post)
       .fields("postId")
       .references("id"),
   })
@@ -56,7 +56,7 @@ const incrementParent = s
   .model({
     id: s.int().id().increment(),
     name: s.string(),
-    children: s.oneToMany(() => incrementChild),
+    children: s.toMany(() => incrementChild),
   })
   .map("nested_increment_parents");
 
@@ -66,10 +66,10 @@ const incrementChild = s
     label: s.string().nullable(),
     parentId: s.int(),
     parent: s
-      .manyToOne(() => incrementParent)
+      .toOne(() => incrementParent)
       .fields("parentId")
       .references("id"),
-    grandchildren: s.oneToMany(() => incrementGrandchild),
+    grandchildren: s.toMany(() => incrementGrandchild),
   })
   .map("nested_increment_children");
 
@@ -79,7 +79,7 @@ const incrementGrandchild = s
     marker: s.string(),
     childId: s.int(),
     child: s
-      .manyToOne(() => incrementChild)
+      .toOne(() => incrementChild)
       .fields("childId")
       .references("id"),
   })

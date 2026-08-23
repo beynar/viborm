@@ -20,11 +20,12 @@ ORM models reference each other. User has Posts, Post has Author (a User). This 
 
 ```typescript
 const user = s.model({
-  posts: s.oneToMany(() => post),  // User → Post
+  posts: s.toMany(() => post),  // User → Post
 });
 
 const post = s.model({
-  author: s.manyToOne(() => user),  // Post → User (circular!)
+  authorId: s.string(),
+  author: s.toOne(() => user).fields("authorId").references("id"),  // Post → User (circular!)
 });
 ```
 

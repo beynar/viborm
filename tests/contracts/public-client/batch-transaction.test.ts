@@ -40,7 +40,7 @@ const user = s.model({
   id: s.string().id(),
   name: s.string(),
   email: s.string().unique(),
-  posts: s.oneToMany(() => post),
+  posts: s.toMany(() => post),
 });
 
 const post = s.model({
@@ -48,7 +48,7 @@ const post = s.model({
   title: s.string(),
   authorId: s.string(),
   author: s
-    .manyToOne(() => user)
+    .toOne(() => user)
     .fields("authorId")
     .references("id"),
 });

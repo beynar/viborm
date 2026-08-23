@@ -1,6 +1,6 @@
 import { type Sql, sql } from "@sql";
 import { createChildScope } from "../context";
-import type { QueryScope, RelationInfo } from "../types";
+import type { QueryScope, RelationRef } from "../types";
 import type { BuildNestedSelection, IncludeResult } from "./include-builder";
 import { assembleInnerQuery, type IncludeOptions } from "./include-query";
 import { buildNestedReadWindow } from "./nested-read-window";
@@ -12,7 +12,7 @@ import type { JunctionRelationTraversal } from "./relation-traversal";
 import { buildWhere } from "./where-builder";
 
 /**
- * Build include for manyToMany relation using LATERAL join.
+ * Build include for a junction relation using LATERAL join.
  *
  * Strategy:
  * LEFT JOIN LATERAL (
@@ -28,7 +28,7 @@ import { buildWhere } from "./where-builder";
 export function buildManyToManyLateralInclude(
   buildNestedSelection: BuildNestedSelection,
   ctx: QueryScope,
-  relationInfo: RelationInfo,
+  relationRef: RelationRef,
   includeValue: Record<string, unknown>,
   traversal: JunctionRelationTraversal
 ): IncludeResult {
@@ -45,7 +45,7 @@ export function buildManyToManyLateralInclude(
   const fromClause = traversal.from();
 
   // Create child context for target
-  const childCtx = createChildScope(ctx, relationInfo.targetModel, targetAlias);
+  const childCtx = createChildScope(ctx, relationRef.targetModel, targetAlias);
 
   // Build JSON expression and collect nested lateral joins
   const selectResult = buildNestedSelection(childCtx, select, include);
@@ -100,7 +100,7 @@ export function buildManyToManyLateralInclude(
 }
 
 /**
- * Build include for manyToMany relation using junction table.
+ * Build include for a junction relation using the junction table.
  *
  * SQL pattern:
  * SELECT COALESCE(json_agg(t0), '[]') FROM (
@@ -115,7 +115,7 @@ export function buildManyToManyLateralInclude(
 export function buildManyToManyInclude(
   buildNestedSelection: BuildNestedSelection,
   ctx: QueryScope,
-  relationInfo: RelationInfo,
+  relationRef: RelationRef,
   includeValue: Record<string, unknown>,
   traversal: JunctionRelationTraversal
 ): Sql {
@@ -128,7 +128,7 @@ export function buildManyToManyInclude(
   const fromClause = traversal.from();
 
   // Create child context for target
-  const childCtx = createChildScope(ctx, relationInfo.targetModel, targetAlias);
+  const childCtx = createChildScope(ctx, relationRef.targetModel, targetAlias);
 
   // Build the JSON object for selected fields
   const jsonExpr = buildNestedSelection(childCtx, select, include).sql;
@@ -262,8 +262,8 @@ function guardJunctionIntegrity(
 }
 
 /**
- * Build the include leaf of a SINGULAR junction traversal — a fields-less
- * `manyToOne` bound to a collection member whose inverse is singular.
+ * Build the include leaf of a SINGULAR junction traversal — a non-owning
+ * `s.toOne` bound to a collection member whose inverse is singular.
  *
  * Ordinary relation schemas, ordinary to-one result: the zero/one projected row,
  * `LIMIT 1`, `null` when absent. The only addition is the integrity guard, and
@@ -272,7 +272,7 @@ function guardJunctionIntegrity(
 export function buildSingularJunctionInclude(
   buildNestedSelection: BuildNestedSelection,
   ctx: QueryScope,
-  relationInfo: RelationInfo,
+  relationRef: RelationRef,
   includeValue: Record<string, unknown>,
   traversal: JunctionRelationTraversal
 ): Sql {
@@ -280,7 +280,7 @@ export function buildSingularJunctionInclude(
   const options = includeValue as IncludeOptions;
   const { select, include, where } = options;
   const { targetAlias } = traversal;
-  const childCtx = createChildScope(ctx, relationInfo.targetModel, targetAlias);
+  const childCtx = createChildScope(ctx, relationRef.targetModel, targetAlias);
 
   const jsonExpr = buildNestedSelection(childCtx, select, include).sql;
   const conditions: Sql[] = [...traversal.conditions()];

@@ -1,4 +1,4 @@
-# Schema Relations - Relationship Definitions
+# Schema Relations — the two factories and their declaration state
 
 **Location:** `src/schema/relation/`  
 **Parent:** Schema Layer (see [../AGENTS.md](../AGENTS.md))  
@@ -6,32 +6,41 @@
 
 ## Purpose
 
-Defines ordinary single-target relations and polymorphic multi-target carriers
-with immutable chainable APIs and lazy target getters. A carrier declares its
-own cardinality by the factory it is spelled with — `s.polymorphicToOne` or
-`s.polymorphicToMany`. BOTH ARE FULLY IMPLEMENTED, and neither is the special
-case: a to-one slot builds a row-held `(type, id)` storage descriptor, a
-collection slot builds a complete member-junction descriptor (one fixed-target
-junction per variant), and `getPolymorphicRelationsSchemas` builds all six
-operation-schema families over either one. Cardinality is a property of the
-SLOT; polymorphism is a property of the TARGETS. Nothing in this layer treats
-to-one as the default reading.
+This layer owns **declaration** and nothing else. There are exactly two
+factories, `s.toOne` and `s.toMany`. The factory you call states the **slot
+cardinality**; its argument states the **target domain** — one model, or a map of
+named variants.
+
+That is the whole declaration. Who an edge's partner is, which endpoint owns the
+foreign key, whether the pair is one-to-one or many-to-one, whether storage is a
+row reference or a junction, whether that storage is unique, and whether a
+model-target singular slot may be empty are **derived once per schema** by the
+topology owner in
+[`../validation/relation-resolution.ts`](../validation/relation-resolution.ts).
+Nothing in this directory pairs slots, scans for an inverse, or asks whether a
+target is registered.
+
+Cardinality is a property of the SLOT; polymorphism is a property of the TARGETS.
+The two are independent axes and always were — which is why there is no
+polymorphic factory family, only a second shape of argument.
 
 In schema taxonomy, relations are one concrete kind of model field. The other
 concrete kind is scalar. Keep `field` wording when referring to model keys,
 foreign-key fields, junction fields, or the public `.fields()` relation API;
-use `relation` when referring to relation classes, relation state, or relation
+use `relation` when referring to relation terminals, relation state, or relation
 operation schemas.
 
 ## Why This Layer Exists
 
 Relations have two challenges:
 
-1. **Circular references**: User has Posts, Post has Author (User). JavaScript can't reference variables before declaration.
+1. **Circular references**: User has Posts, Post has Author (User). JavaScript
+   can't reference variables before declaration.
+2. **TypeScript inference**: We need the target model's type, but can't access
+   it until configuration is complete.
 
-2. **TypeScript inference**: We need the target model's type, but can't access it until configuration is complete.
-
-The solution: **thunks** `() => Model` defer model resolution, and **chainable methods** build configuration immutably.
+The solution: **thunks** `() => Model` defer model resolution, and **chainable
+methods** build configuration immutably.
 
 ---
 
@@ -39,83 +48,94 @@ The solution: **thunks** `() => Model` defer model resolution, and **chainable m
 
 | File | Purpose |
 |------|---------|
-| `types.ts` | Shared types: `RelationState`, `ReferentialAction`, `Getter` |
-| `cardinality.ts` | The one declared-slot cardinality reading: `relationCardinality`, `polymorphicCardinality` + type twin `PolymorphicCardinalityOf` |
-| `to-one.ts` | `ToOneRelation` class + `oneToOne`, `manyToOne` factories |
-| `to-many.ts` | `ToManyRelation` class + `oneToMany` factory |
-| `many-to-many.ts` | `ManyToManyRelation` class + `manyToMany` factory |
-| `polymorphic.ts` | The `polymorphicToOne` / `polymorphicToMany` factories + the `PolymorphicToOneRelation` / `PolymorphicToManyRelation` terminals, private-storage metadata, and inverse binding |
-| `inverse.ts` | The one candidate discovery/resolution owner, and which shapes may bind a polymorphic inverse |
-| `clearability.ts` | The two emptying facts: `slotMayBeEmpty`, `membershipCanBeCleared` |
-| `helpers.ts` | Junction table utilities for many-to-many |
-| `junction-topology.ts` | The one owner of resolved junction physical facts — table, both complete ordered sides, canonical order, pair identity, derived constraint names — for ordinary `manyToMany` pairs (`resolveOrdinaryJunctionTopology`) and for polymorphic collection members (`resolvePolymorphicMemberNames`, `resolvePolymorphicMemberJunctionTopology`). Deliberately NOT re-exported from `index.ts`; consumers deep-import it |
-| `index.ts` | Re-exports everything |
+| `types.ts` | The closed declaration-state union: `RelationState`, `RelationSlot`, `RelationInternal`, `VariantEntry`, `ReferentialAction`, `Getter` |
+| `to-one.ts` | `s.toOne` — the singular factory, its model-target terminal, and the transient `ReferencesStage` |
+| `to-many.ts` | `s.toMany` — the collection factory and its model-target terminal |
+| `polymorphic.ts` | Variant normalization (`normalizeVariantEntries`) plus the two variant terminals |
+| `terminal.ts` | Shared immutable-terminal machinery: the construction-time refusal (`refuseRelationInput`), plain-record reads, the source-independent target once-cell |
+| `clearability.ts` | The two emptying facts: `slotMayBeEmpty`, `clearableMembership` (+ its boolean projection `membershipCanBeCleared`) |
+| `static-membership.ts` | The ONE compile-time projection of the relation graph — nullability, nested omission, clearability — and nothing else |
+| `helpers.ts` | Junction physical naming: table, side tokens, expanded columns, constraint names |
+| `junction-topology.ts` | The one owner of resolved junction physical facts — table, both complete ordered sides, canonical order, pair identity, derived constraint names — for ordinary pairs and for variant members alike. Deliberately NOT re-exported from `index.ts`; consumers deep-import it |
+| `index.ts` | The barrel. The four terminal implementations are deliberately absent |
 
 ---
 
-## Relation Types
+## The Declaration Surface
 
-| Type | FK Location | Use Case | Filter Operators | Chainable Methods |
-|------|-------------|----------|------------------|-------------------|
-| `oneToOne` | Either side | user ↔ profile | `is`, `isNot` | `.fields()`, `.references()`, `.optional()`, `.onDelete()`, `.onUpdate()` |
-| `manyToOne` | This model | post → author | `is`, `isNot` | `.fields()`, `.references()`, `.optional()`, `.onDelete()`, `.onUpdate()` |
-| `oneToMany` | Other model | author → posts | `some`, `every`, `none` | `.name()` only (FK is on other side) |
-| `manyToMany` | Join table | posts ↔ tags | `some`, `every`, `none` | `.through()`, `.A()`, `.B()`, `.onDelete()`, `.onUpdate()` |
-| `polymorphicToOne` | Private `(type, id)` pair on this model | comment → post or video | correlated `type` + `is`/`isNot`; optional fields also accept null-presence forms | `.name()`, `.optional()` |
-| `polymorphicToMany` | One fixed-target member junction per variant | shelf → books and videos | `some`/`every`/`none`, each over a correlated `type` + `is`/`isNot` | `.name()`, `.through()` |
+| Declaration | Slot cardinality | Target domain | Storage the resolver derives |
+|-------------|------------------|---------------|------------------------------|
+| `s.toOne(() => model)` | one | one model | a foreign key, on whichever endpoint declared `.fields(...)` |
+| `s.toMany(() => model)` | many | one model | a foreign key on the singular partner, or a junction when the partner is also a collection |
+| `s.toOne(map, options?)` | one | named variants | a private `(type, id)` pair on this row |
+| `s.toMany(map, options?)` | many | named variants | one fixed-target member junction per variant |
 
-`manyToOne` normally owns the FK. The retained fields-less compatibility form
-can resolve storage from an inverse edge and binds as child-held singular; full
-schema validation warns with `FK004`. Do not use that spelling for new schemas.
-
----
-
-## Chainable API
-
-### ToOne Relations (oneToOne, manyToOne)
+### Model-target singular — `s.toOne(() => model)`
 
 ```typescript
-s.manyToOne(() => user)
+s.toOne(() => user)
+  .name("author")               // Pairing label; matched EXACTLY on both endpoints
   .fields("authorId")           // FK scalar field-key(s) on this model
   .references("id")             // Referenced scalar field-key(s) on target
-  .optional()                   // FK can be null
   .onDelete("cascade")          // Referential action on delete
   .onUpdate("cascade")          // Referential action on update
-  .name("author")               // Custom relation name
 ```
 
-### ToMany Relations (oneToMany)
+`.fields(...)` returns a **`ReferencesStage`**, not a relation. It carries no
+relation brand, exposes only `.references(...)` and `.name(...)`, and `s.model()`
+refuses it outright — so a half-written foreign key can never become schema
+state. `.references(...)` is arity-locked to the field tuple at the type level.
+The referential actions appear only on the completed value, because there is no
+foreign key to act on before it.
+
+There is **no `.optional()`**. Owner emptiness follows from the foreign-key
+scalars under the any-nullable-member rule; non-owner emptiness is derived from
+non-ownership. There is **no `.unique()`** anywhere: the paired slot cardinality
+is the one statement of remote uniqueness.
+
+### Model-target collection — `s.toMany(() => model)`
 
 ```typescript
-s.oneToMany(() => post)         // Minimal config - FK is on the "many" side
-  .name("posts")                // Custom relation name (optional)
-```
-
-**Note:** `oneToMany` doesn't have `.fields()`, `.references()`, or referential actions because the FK lives on the other model (the `manyToOne` side).
-
-### ManyToMany Relations
-
-```typescript
-s.manyToMany(() => tag)
+s.toMany(() => tag)
+  .name("tags")                 // Pairing label; matched EXACTLY on both endpoints
   .through("post_tags")         // Junction table name
-  .A("postId")                  // Source column or compound-side prefix
-  .B("tagId")                   // Target column or compound-side prefix
-  .onDelete("cascade")          // Referential action
+  .source("postId")             // THIS endpoint's token
+  .target("tagId")              // The other endpoint's token
+  .onDelete("cascade")          // Junction referential action
   .onUpdate("cascade")
-  .name("tags")
 ```
 
-`.A()` and `.B()` always take one string token. For a scalar endpoint row key,
-the token is the exact junction column name. For a compound row key, it is a
-prefix expanded positionally as `<prefix>_1`, `<prefix>_2`, and so on in the
-model row-key order. Do not expose an array API or derive suffixes from mapped
-SQL column names: the ordered bound `JunctionSide` owns the complete physical
+The junction overrides are independent, meaningful facts rather than stages of
+one all-or-nothing value, so any subset may override its canonical default and
+trusted state stores `junction` only when one was declared (never `{}`).
+
+**One physical junction, one configuration owner.** Exactly one endpoint carries
+every override; the resolver mirrors it for the other (`mirrorOverrides` swaps
+source and target). Two configuring endpoints is `R011`. `.source()` is always
+oriented from the endpoint that spells it, which is why moving a configuration
+across the pair swaps the two tokens and leaves the table unchanged.
+
+`.source()` and `.target()` always take one string token. For a scalar endpoint
+row key the token is the exact junction column name. For a compound row key it is
+a prefix expanded positionally as `<prefix>_1`, `<prefix>_2`, … in the model
+row-key order. Do not expose an array API or derive suffixes from mapped SQL
+column names: the ordered `ResolvedJunctionSide` owns the complete
 column-to-referenced-field correspondence.
 
-### Polymorphic Relations
+Generated ordinary junction names use the registered SCHEMA KEYS for the table
+and non-self side tokens. They do not use JavaScript variable names or mapped
+model table names, so a schema-key rename changes generated junction storage.
+The complete `.through().source().target()` configuration pins those three
+physical names.
+
+`JunctionReferentialAction` excludes `setNull` at the TYPE level: every junction
+side is a non-null membership-key member, so the action would null the column
+that carries the membership itself.
+
+### Variant targets — a map instead of a getter
 
 ```typescript
-s.polymorphicToOne({
+s.toOne({
   post: () => post,
   video: () => video,
 })
@@ -123,93 +143,177 @@ s.polymorphicToOne({
   .optional()
 ```
 
-TWO FACTORIES, and the one you call IS the cardinality — there is no
-cardinality-less carrier on the public surface any more. Both take a MAP of
-named targets: a bare `() => model` is refused at the TYPE level by
-`TargetMapOnly`, whose message names `s.oneToOne` / `s.manyToOne` /
-`s.oneToMany` / `s.manyToMany`, because a single-getter carrier would silently
-build a private `(type, id)` pair where the caller expected a foreign key. A
-carrier that carries NO cardinality is only reachable by forging a state past a
-terminal's constructor, and definition validation ejects it as P013.
-`s.polymorphicToMany` declares a collection slot whose storage is ONE
-FIXED-TARGET MEMBER JUNCTION PER VARIANT: definition validation resolves each member's names and complete
-topology (`resolvePolymorphicMemberNames` /
-`resolvePolymorphicMemberJunctionTopology` in `junction-topology.ts`) into a
-`kind: "toMany"` storage descriptor, and `.through()` — an EXACT map keyed by
-public variant, `{ table, source, target }` per entry, exact at both levels and
-P017 at runtime — overrides a member's names. ONE descriptor, three readers: the
-serializer emits it as DDL, the engine binder projects each member into a
-`JunctionBoundRelation` (direct leaf, plural inverse view, or singular inverse
-slot), and `getPolymorphicRelationsSchemas` builds the collection's six
-operation-schema families over it. Only a to-one carrier carries `.optional()` —
-an empty collection is already the empty case, and a collection state cannot
-carry `optional` at all.
+The same two factories carry variant targets; only the argument changes. A
+variant map needs literal keys and at least one entry — `VariantMapGuard` refuses
+a string index signature or an empty map at the TYPE level, `GetterOnly` refuses
+"not a map and not a getter", and `normalizeVariantEntries` refuses the runtime
+equivalents at construction with a `ValidationError` whose source is
+`schema-builder`.
 
-The target-map key is the public query/result discriminator and, by default,
-the stored discriminator. Pass the optional exact `{ values }` argument when
-storage needs stable namespaced or versioned values. There is no partial
-fallback when that argument is present. Each target has its own getter so
-recursive declarations stay lazy without widening the outer key map.
+A **variant `s.toOne`** is the one relation shape that keeps `.optional()`,
+because that flag IS the nullability of its two private `(type, id)` columns —
+there are no foreign-key scalars to read it from. A **variant `s.toMany`** has no
+`.optional()` (an empty collection is already the empty case) and instead names
+its member junctions through an exact `.through(...)` map keyed by public
+variant, `{ table, source, target }` per entry, exact at both levels.
 
-An inverse is one of the four FIELDS-LESS shapes, admitted through the one
-compatible-binding projection (`getCompatiblePolymorphicInverseBinding` in
-`inverse.ts`): each asking shape binds ONLY the group family that owns its
-membership storage. The row-held shapes (`oneToMany`, fields-less `oneToOne`)
-bind a toOne group, because their membership is the owner's private `(type,
-id)` pair; the junction-shaped ones (fields-less `manyToOne`, `manyToMany`)
-bind a toMany group, because their membership lives in a member junction.
-Incompatible means `undefined`, which is the fallback to the ordinary meaning
-(R004/R005 and the junction rules fire exactly as before) — and a row-held shape
-over a toMany group is R003-invalid unless a real ordinary inverse carries the
-edge. A polymorphic-bound `manyToMany` is a member VIEW: it owns no ordinary
-junction (the serializer skips it), so an ordinary `manyToMany` pair partner on
-the target would serialize half a pair and is refused as P020. On a toOne group all
-inverses share one private `(type, id)` pair and must use the same cardinality:
-the validated `PolymorphicToOneStorage.inverseCardinality` is relation-wide and
-mixed cardinalities are rejected as P012. On a toMany group each MEMBER keeps
-its own `inverseCardinality` ("one" for a bound `manyToOne`, "many" for a bound
-`manyToMany`, "many" when unbound), and a member bound by more than one inverse
-relation is rejected as P015. A SINGULAR collection inverse must call
-`.optional()` or it is rejected as P021: its `disconnect` / `delete` hang on
-`slotMayBeEmpty` alone (the clearability owner's `manyToMany` arm is never
-consulted for that shape) and `getFkRequirementKeySets` gives a fields-less
-inverse no create obligation either, so without the rule the declaration
-silently degrades to a slot that can be filled and never emptied. Refusing at
-definition validation is what keeps `slotMayBeEmpty` a pure one-owner state read
-instead of putting a junction-aware override inside `clearability.ts`. The
-inverse cardinality is a separate fact from
-the declared slot cardinality: the factory describes the owner's
-own slot, while `inverseCardinality` describes the slot on the target side.
-A fields-less `oneToOne` is non-owning and must call `.optional()` because no
-local FK can require a related row to exist. This slot optionality is distinct
-from membership clearability: inverse delete removes the child, while inverse
-disconnect preserves it and therefore requires nullable child-side storage.
+Generated member-junction tables start with the owner's mapped SQL table, while
+their owner-side token comes from the owner SCHEMA KEY; the target token comes
+from the public variant. One exact `.through(...)` entry pins all three.
 
-`cardinality.ts` owns the declared slot cardinality for both kinds of relation:
-`relationCardinality(state)` for an ordinary edge, and
-`polymorphicCardinality(state)` plus its type twin `PolymorphicCardinalityOf<S>`
-for a carrier. Consumers must branch through those readers rather than testing
-`state.cardinality` inline. The one exception is
-`schema/validation/rules/polymorphic.ts`, whose input is an untrusted carrier
-that may not carry a cardinality at all (a forged one) — that site reads raw to
-raise P013.
+The target-map key is the public query/result discriminator; `storedValue` is
+the string written to storage, defaulting to the key. They are two facts, so a
+renamed public key with a preserved stored value is metadata-only. Pass the exact
+`{ values }` options bag when storage needs namespaced or versioned values —
+the whole bag is exact, not just `values`, so a sibling key is refused
+structurally rather than sailing through excess-property checking.
 
-`clearability.ts` owns both readings, runtime and type together:
-`slotMayBeEmpty(state)` is the declaration's own optionality, and
-`membershipCanBeCleared(state, source)` is the storage question — every inverse
-foreign-key scalar nullable on an ordinary edge, the target relation optional on
-a polymorphic one, which is the same statement about its private `(type, id)`
-pair. They are TWO facts and must stay two: an optional slot whose child-side
-foreign key cannot be nulled is a legal schema whose operation surface offers
-`delete` without `disconnect`. A rule forcing the two to agree would be
-source-breaking and is a separate product decision (compression plan §8.2), so
-no consumer may derive one from the other.
+Each variant has its own getter, so recursive declarations stay lazy without
+widening the outer key map. Reading a property's value never invokes a target
+thunk.
 
-The write engine does not read this module. It answers the physical question
-from BOUND membership (`query-engine/write-engine/relation-nullability.ts`),
-which is the only reading available on a trusted internal program that never
-passed the public schema — see the guard-ownership ledger for the coverage that
-keeps that guard alive.
+---
+
+## The Canonical State
+
+`RelationState` is a closed four-arm union in `types.ts`:
+
+```typescript
+type RelationState =
+  | ModelToOneState      // cardinality "one",  target { kind: "model" }
+  | ModelToManyState     // cardinality "many", target { kind: "model" }
+  | VariantToOneState    // cardinality "one",  target { kind: "variants" }
+  | VariantToManyState;  // cardinality "many", target { kind: "variants" }
+```
+
+Rules the union enforces, not by etiquette but structurally:
+
+- **One canonical representation per optional property.** The property is absent,
+  or it holds the one normalized value. Trusted state never stores explicit
+  `undefined`, `false`, an empty override object, or a partial foreign key.
+- **`?: never` exclusions** make illegal cross-arm configuration fail under
+  structural assignment too — a `ModelToOneState` cannot carry `junction`, a
+  collection cannot carry `optional`.
+- **No source model.** `.extends()` may reuse one terminal under more than one
+  model or key, so `(model, field)` — `RelationSlot` — is the whole contextual
+  identity, and the declaration is read from that model's canonical relation map
+  rather than copied into the identity. Nothing binds a source into the state,
+  before or after construction.
+- **No topology.** No partner, no ownership flag, no `unique`, no derived
+  optionality, no four-way family discriminant.
+- **`Replace<State, Patch>` is last-call-wins.** Every modifier REPLACES its own
+  fact rather than intersecting with the prior one, so repeating `.name(...)`
+  keeps the last literal instead of collapsing to `never`.
+- **The broad state arms use `any` for the getter, deliberately.** Constraining a
+  function-typed member forces TypeScript to resolve recursive getter returns;
+  that resolution is circular in mutually recursive schemas and silently
+  collapses both model consts to `any`. Concrete factory states retain the exact
+  getter or getter-map generic.
+
+Every terminal exposes one internal accessor under `"~"`: `RelationInternal`
+with the frozen `state` and `settleTarget`, a source-independent lazy once-cell.
+The first caller settles a target's raw getter return OR one normalized `Error`,
+and every later consumer — in this schema graph or another one reusing the same
+immutable terminal — observes that same outcome. It is derived cache state, not a
+declaration fact: the resolver decides whether a settled return is a registered
+model and owns the contextual diagnostic, so nothing model-specific is cached
+here. `AnyRelation` is matched by that brand, and trusted relation state
+originates only in these two factories.
+
+---
+
+## Where the Facts Are Decided
+
+Every structurally knowable fact is judged **at the call the author wrote** —
+`refuseRelationInput` throws a `ValidationError` with
+`source.kind === "schema-builder"` and the builder label `s.toOne` / `s.toMany` /
+`s.model`. Facts that need the schema graph belong to the resolver and surface as
+`SchemaValidationIssue`s. Nothing in between.
+
+| Fact | Owner | Failure |
+|------|-------|---------|
+| target is a getter or a legal variant map | the factory | construction-time refusal (`V4002`) |
+| variant keys are identifiers; `values` is exact | `normalizeVariantEntries` | construction-time refusal |
+| `.fields(...)` is non-empty and reaches `.references(...)` of equal arity | the terminal + the type | construction-time refusal / compile error |
+| an incomplete stage is not a relation | `s.model()` | member classification refusal |
+| target model is registered | resolver | `R006` (variant: `P001`) |
+| this slot has a partner | resolver | `R002` |
+| exactly one partner | resolver | `R009` |
+| the claimed name is answered | resolver | `R010` |
+| exactly one foreign-key owner | resolver | `CM003` / `FK004` |
+| unique storage agrees with the paired cardinality | resolver | `FK009` |
+| exactly one junction configuration owner | resolver | `R011` |
+| a modifier sits on a slot that may carry it | resolver | `R012` |
+| one junction table per pair | resolver | `JT001` |
+| a carrier's inverses agree on cardinality | resolver | `P012` |
+
+**Pairing is a graph, not a ladder.** Candidates are collected structurally, then
+partitioned by the exact relation-name claim, then counted. No candidate wins by
+being ordinary, variant, first, or sole. Unnamed pairs with unnamed; a name pairs
+only with the same exact name. A variant member whose post-partition candidate
+set is empty is a valid **direct-only** member — the differently-named ordinary
+slot that could have been its partner reports its own failure at its own owner.
+
+---
+
+## The Two Emptying Facts
+
+`clearability.ts` owns both, and they are deliberately TWO. Both read the
+RESOLVED edge; neither rescans the graph and neither reads a declared
+`.optional()` flag on a model-target relation, because that flag no longer
+exists.
+
+- **`slotMayBeEmpty(resolved)`** — the PUBLIC shape: may this relation hold
+  nothing? It is what makes `delete` spellable. A collection always; a foreign-key
+  owner when any local member accepts NULL, because one absent member makes the
+  whole membership absent; a non-owner always, because the membership lives on
+  the other row and may simply be missing; a row-held variant carrier exactly
+  when its private type column is nullable.
+- **`clearableMembership(resolved)`** — PHYSICAL storage: HOW is the membership
+  cleared while both records survive? That is what makes `disconnect` spellable,
+  and it is not a boolean. A junction clears by deleting its membership row
+  (`kind: "junctionRow"`); a row reference clears by nulling an exact ordered
+  subset of its columns (`kind: "columns"`), so a mixed compound foreign key
+  nulls its nullable members and keeps its required context ones; otherwise
+  `kind: "none"`.
+
+An optional slot whose child-side foreign key cannot be nulled is a legal schema
+whose operation surface offers `delete` without `disconnect`. No consumer may
+derive one fact from the other.
+
+The write engine does not read this module. It answers the physical question from
+BOUND membership (`query-engine/write-engine/relation-nullability.ts`), which is
+the only reading available on a trusted internal program that never passed the
+public schema — see the guard-ownership ledger for the coverage that keeps that
+guard alive.
+
+---
+
+## The Compile-Time Projection
+
+`static-membership.ts` is the ONE type-level mirror of the graph, and it mirrors
+only the predicate it can PROVE, in seven steps: keep the asking identity; read
+the target model's one relation map and exclude the asking slot; collect ordinary
+slots and variant members targeting the source model; keep candidates whose
+literal `.name(...)` claim exactly matches; require exactly one candidate AND
+prove that candidate's own candidate set is exactly the asking slot (the mutual
+degree-one rule); derive owner identity, the ordered foreign-key tuple and its
+nullable subset, and clearability only after that proof; otherwise answer
+`unknown`.
+
+`unknown` means **fail closed**: omit nothing, expose no disconnect form, infer
+nullable wherever requiredness is unproven. A widened or dynamic declaration is
+conservatively sound rather than guessed — it may retain a foreign-key input the
+runtime can derive, or admit a `null` the runtime rules out, but it never omits a
+possibly required field, claims non-nullability without proof, or exposes an
+unsafe mutation verb. A model reached through `.extends()` is one such case: its
+relations' getters name the BASE model, so nothing pairs with the derived model
+and every slot answers `unknown`.
+
+The mutual proof addresses its candidate by **key**, never by value: on a self
+junction the two halves are type-identical, so a value-keyed exclusion answers
+both keys, excludes both, and silently collapses a provable junction to
+`unknown`.
 
 ---
 
@@ -220,174 +324,105 @@ Always use `() => Model` thunks to defer evaluation:
 
 ```typescript
 // ✅ Thunk defers evaluation until needed
-s.oneToMany(() => post)
+s.toMany(() => post)
 
 // ❌ Direct reference fails (post not yet defined)
-s.oneToMany(post)  // ReferenceError!
+s.toMany(post)  // ReferenceError!
 ```
 
-**Why:** JavaScript hoisting doesn't help with `const`. The thunk is called later when both models exist.
+**Why:** JavaScript hoisting doesn't help with `const`. The thunk is called later
+when both models exist — and only ever once, through `settleTarget`.
 
 ### Rule 2: Immutable Chainable Methods
-Every method returns a NEW instance with updated state:
+Every method returns a NEW frozen value with updated state:
 
 ```typescript
-s.manyToOne(() => user)         // ToOneRelation<{type: "manyToOne", getter: ...}>
-  .fields("authorId")           // ToOneRelation<{..., fields: string[]}>
-  .references("id")             // ToOneRelation<{..., references: string[]}>
+s.toOne(() => user)             // ModelToOneRelation<{ cardinality: "one", … }>
+  .fields("authorId")           // ReferencesStage — NOT a relation
+  .references("id")             // ModelToOneRelation<{ …, foreignKey: { … } }>
 ```
 
-**Why:** TypeScript tracks state changes through the generic parameter. Mutation would desync types from runtime.
+**Why:** TypeScript tracks state changes through the generic parameter. Mutation
+would desync types from runtime.
 
-### Rule 3: FK Ownership
-The side WITH the foreign key uses `manyToOne` (or `oneToOne`). The other side uses `oneToMany`:
+### Rule 3: Both Endpoints, One Owner
+Every ordinary relation is a PAIR. Declare both slots; give exactly one of them
+the foreign key (or the junction configuration):
 
 ```typescript
-// Post HAS the FK (authorId), so it uses manyToOne
+// Post HAS the FK (authorId), so it completes .fields().references()
 const post = s.model({
   authorId: s.string(),
-  author: s.manyToOne(() => user).fields("authorId").references("id"),
+  author: s.toOne(() => user).fields("authorId").references("id"),
 });
 
-// User does NOT have the FK, so it uses oneToMany (no fields/references needed)
+// User does NOT have the FK — but it must still declare its side
 const user = s.model({
-  posts: s.oneToMany(() => post),
+  posts: s.toMany(() => post),
 });
 ```
 
 ### Rule 4: Foreign Key Field Must Exist
-The FK scalar field-key passed to `.fields()` must be an actual scalar field in the model:
+The FK scalar field-key passed to `.fields()` must be an actual scalar field in
+the model. The resolver's `FK001`/`FK002`/`FK003` own that check, against the
+hydrated schema.
 
-```typescript
-const post = s.model({
-  authorId: s.string(),  // ← FK scalar field must exist
-  author: s.manyToOne(() => user).fields("authorId").references("id"),
-});
-```
-
-### Rule 5: Polymorphic Relations Are a Third Field Category
-
-A configured polymorphic carrier is not an `AnyRelation` and `"polymorphic"` is
-not an ordinary `RelationType`. A model stores polymorphic fields separately in
-`ModelState.polymorphicRelations`; private storage never enters
-`ModelState.scalars` or the public field surface.
-
-A model field must be a CONFIGURED carrier — `PolymorphicToOneRelation` or
-`PolymorphicToManyRelation`. Both public factories return one, so there is no
-unconfigured shape for `s.model()` to refuse any more; the cardinality-less
-carrier that P013 ejects can only be forged past a terminal's constructor.
-
-A shared base class does not conflate the two terminals with each other: they
-are held apart by `State["cardinality"]`, and `"one"` is not assignable to
-`"many"` whatever the private fields do. The measured reason to keep them
-separate is the one recorded further down this file — inheritance was tried and
-caused inference problems — not a type hole. Do not invent a stronger reason
-than the probe supports.
-
-Client construction hydrates field names and always enforces the non-owning
-one-to-one optionality rule. When any polymorphic field exists, it additionally
-runs the complete schema definition gate. That gate validates lazy targets,
-exact discriminator maps, portable single-column primary keys, generated-name
-collisions, inverse pairing, and private storage. Downstream query and migration
-code trusts the resulting cached `PolymorphicStorage`.
+### Rule 5: Names Are Claims, Matched Exactly
+`.name()` is a pairing label, not a column. Two endpoints of one relationship
+must claim the same exact name; a name no candidate answers is `R010`, and
+several unnamed candidates between the same two models are `R009`. On an FK edge
+the name stays pairing-only and never alters columns or constraints; on a
+junction it suffixes the generated table name so several relationships between
+the same models never collide.
 
 ---
 
 ## Anti-Patterns
 
 ### Direct Model Reference
-Passing `post` instead of `() => post`. JavaScript can't reference variables before declaration.
+Passing `post` instead of `() => post`. JavaScript can't reference variables
+before declaration.
 
-### Using Old Options API
-```typescript
-// ❌ OLD - options object no longer supported
-s.manyToOne(() => user, { fields: ["authorId"], references: ["id"] })
+### A Lone Slot
+Declaring one side and expecting the other to be inferred. Every ordinary
+relation needs a complete inverse — including a self relation, whose two slots
+live on the same model.
 
-// ✅ NEW - chainable API
-s.manyToOne(() => user).fields("authorId").references("id")
-```
+### Configuring Both Endpoints
+Repeating `.through()` / `.source()` / `.target()` on both collection slots, or
+completing `.fields(...).references(...)` on both singular slots. One physical
+fact has one owner.
 
-### Adding fields/references to oneToMany
-```typescript
-// ❌ WRONG - oneToMany doesn't own the FK
-s.oneToMany(() => post).fields("id").references("authorId")
-
-// ✅ RIGHT - no FK config needed (it's on the post side)
-s.oneToMany(() => post)
-```
-
-### Wrong Relation Type
-Using `oneToMany` when `manyToOne` is correct. The side WITH the FK uses `manyToOne`.
+### Restating a Derived Fact
+Reaching for an optionality flag, a uniqueness modifier, or a second name
+registry. If a fact can be derived from the pair, it is — and the derivation has
+exactly one owner.
 
 ---
 
-## Class Structure
+## Referential Actions
 
-Each relation type is a standalone class (no inheritance):
+| Action | Behavior | Where |
+|--------|----------|-------|
+| `cascade` | Delete/update child records when parent is deleted/updated | FK + junction |
+| `setNull` | Set FK to NULL when parent is deleted/updated | FK only, and only when every member is nullable |
+| `restrict` | Prevent delete/update if child records exist | FK + junction |
+| `noAction` | Database default (usually same as restrict) | FK + junction |
 
 ```typescript
-// ToOneRelation - for oneToOne and manyToOne
-class ToOneRelation<State extends ToOneRelationState> {
-  fields(...fields: string[]): ToOneRelation<State & { fields: string[] }>
-  references(...refs: string[]): ToOneRelation<State & { references: string[] }>
-  optional(): ToOneRelation<State & { optional: true }>
-  onDelete(action: ReferentialAction): ToOneRelation<State & { onDelete: ReferentialAction }>
-  onUpdate(action: ReferentialAction): ToOneRelation<State & { onUpdate: ReferentialAction }>
-  name(name: string): ToOneRelation<State & { name: string }>
-  get "~"(): { state: State; setSource(source: AnyModel): void }
-}
-
-// ToManyRelation - for oneToMany
-class ToManyRelation<State extends ToManyRelationState> {
-  name(name: string): ToManyRelation<State & { name: string }>
-  get "~"(): { state: State; setSource(source: AnyModel): void }
-}
-
-// ManyToManyRelation - for manyToMany
-class ManyToManyRelation<State extends ManyToManyRelationState> {
-  through(tableName: string): ManyToManyRelation<State & { through: string }>
-  A(columnName: string): ManyToManyRelation<State & { A: string }>
-  B(columnName: string): ManyToManyRelation<State & { B: string }>
-  onDelete(action: ReferentialAction): ManyToManyRelation<State & { onDelete: ReferentialAction }>
-  onUpdate(action: ReferentialAction): ManyToManyRelation<State & { onUpdate: ReferentialAction }>
-  name(name: string): ManyToManyRelation<State & { name: string }>
-  get "~"(): { state: State; setSource(source: AnyModel): void }
-}
-
-// The two factories - MAP ONLY, and each stamps its own cardinality.
-// `Targets` also admits a bare `Getter` so `TargetMapOnly` can refuse it with a
-// message naming the four ordinary factories; the conditional return strips it.
-function polymorphicToOne<const Targets, const Values>(targets, options?): PolymorphicToOneRelation<{ cardinality: "one"; targets: Targets; values: Values }>
-function polymorphicToMany<const Targets, const Values>(targets, options?): PolymorphicToManyRelation<{ cardinality: "many"; targets: Targets; values: Values }>
-
-// PolymorphicToOneRelation - the slot holds at most one membership
-class PolymorphicToOneRelation<State extends PolymorphicToOneState> {
-  name(name: string): PolymorphicToOneRelation<State & { name: string }>
-  optional(): PolymorphicToOneRelation<State & { optional: true }>
-  get "~"(): { state: State; targetEntries(): readonly ResolvedPolymorphicTargetEntry[] }
-}
-
-// PolymorphicToManyRelation - the slot holds a collection; no optional()
-class PolymorphicToManyRelation<State extends PolymorphicToManyState> {
-  name(name: string): PolymorphicToManyRelation<State & { name: string }>
-  // EXACT map keyed by public variant, both directions, fresh and non-fresh.
-  through<const Map extends Record<PublicType, PolymorphicThroughEntry>>(map: Map): PolymorphicToManyRelation<State & { through: Map }>
-  get "~"(): { state: State; targetEntries(): readonly ResolvedPolymorphicTargetEntry[] }
-}
+s.toOne(() => user)
+  .fields("authorId")
+  .references("id")
+  .onDelete("cascade")   // Delete posts when user is deleted
+  .onUpdate("cascade")   // Update FK when user.id changes
 ```
-
-`PolymorphicStateOf<Relation>` is the ONE place both terminal classes are named
-together. Every type that needs a carrier's state goes through it; matching the
-classes ad hoc, or widening the match structurally, collapses
-`GetPolymorphicInverseBinding` to `never` with no compile error anywhere.
-
-**Why standalone classes?** Inheritance caused TypeScript inference issues. Each class defines its own methods for cleaner types.
 
 ---
 
 ## Relation Operation Schemas
 
-Relation operation schemas are built by `SchemaRegistry` in `src/validation/relations/` from relation state and full model graph context.
+Relation operation schemas are built by `SchemaRegistry` in
+`src/validation/relations/` from the RESOLVED slot and full model graph context.
 
 To-one mutation compatibility belongs to L3 validation. Create payloads and
 parent-held updates have at most one active verb. Child-held updates also admit
@@ -398,47 +433,40 @@ remain keyed bags because combining operation kinds is part of their contract.
 ### Filter (WHERE)
 
 ```typescript
-// To-One: is, isNot
+// Singular: is, isNot
 where: { author: { is: { name: "Alice" } } }
 
-// To-Many: some, every, none
+// Collection: some, every, none
 where: { posts: { some: { published: true } } }
 where: { posts: { every: { authorId: "123" } } }
 where: { posts: { none: { deleted: true } } }
 ```
 
-### Create (Nested)
+### Create / Update (Nested)
 
 ```typescript
 create: {
   posts: {
     create: [{ title: "New Post" }],
     connect: [{ id: "existing-id" }],
-    connectOrCreate: { where: { id: "..." }, create: { ... } }
+    connectOrCreate: { where: { id: "..." }, create: { /* … */ } }
   }
 }
-```
 
-### Update (Nested)
-
-```typescript
 update: {
   posts: {
     create: [{ title: "New" }],
     update: [{ where: { id: "1" }, data: { title: "Updated" } }],
     delete: [{ id: "2" }],
-    // Available only when the child-held membership can be cleared.
+    // Available only when the membership can be cleared.
     disconnect: [{ id: "3" }],
   }
 }
 ```
 
-### Polymorphic Inputs
+### Variant inputs — row-held (`s.toOne(map)`)
 
-#### Row-held (`s.polymorphicToOne`)
-
-Direct create accepts exactly one of `connect`, `create`, or
-`connectOrCreate`:
+Direct create accepts exactly one of `connect`, `create`, or `connectOrCreate`:
 
 ```typescript
 { connect: { type: "post", where: { id: "post_1" } } }
@@ -446,30 +474,32 @@ Direct create accepts exactly one of `connect`, `create`, or
 { connectOrCreate: { type: "post", where: { id: "post_1" }, create: { id: "post_1", title: "New" } } }
 ```
 
-Direct selected update accepts `connect`, `create`, `connectOrCreate`,
-correlated `update`, and `upsert`. Optional storage also accepts `disconnect`
-and typed target `delete`. A bound inverse `oneToMany` keeps its ordinary read,
-filter, count, order, and pagination surface and exposes the safe child-held
-write family: create/createMany/connect/connectOrCreate/upsert on create, plus
-targeted update with full child update data, updateMany with full
-relation-bearing child update data (the owning direct polymorphic key omitted),
-and delete/deleteMany on update. Clearable child storage
-also exposes disconnect.
-To-many set is present for optional and required storage; required storage
-rejects departing members. A bound inverse `oneToOne` returns one record or `null` and
-uses the ordinary singular surface: create/connect/connectOrCreate on create;
-create/connect/connectOrCreate/update/upsert on update. Its public slot is
-always optional, so delete is available; disconnect is available only when the
-child's direct polymorphic storage is optional and can be cleared.
+Direct selected update accepts `connect`, `create`, `connectOrCreate`, correlated
+`update`, and `upsert`. Optional storage also accepts `disconnect` and typed
+target `delete`.
+
+A bound plural inverse keeps its ordinary read, filter, count, order and
+pagination surface and exposes the safe child-held write family:
+create/createMany/connect/connectOrCreate/upsert on create, plus targeted update
+with full child update data, updateMany with full relation-bearing child update
+data (the owning direct variant key omitted), and delete/deleteMany on update.
+Clearable child storage also exposes disconnect. To-many `set` is present for
+optional and required storage; required storage rejects departing members.
+
+A bound singular inverse returns one record or `null` and uses the ordinary
+singular surface: create/connect/connectOrCreate on create;
+create/connect/connectOrCreate/update/upsert on update. Its public slot is always
+optional, so delete is available; disconnect is available only when the child's
+direct variant storage is optional and can be cleared.
 
 A row-held edge stores one membership, so collection `set` does not apply to it.
 Root `createMany` rows accept the ordinary create data shape; the row-held
-polymorphic membership itself stays connect-only. Target probes are grouped by relation and discriminator before the
-existing grouped INSERT plan. Inverse nested createMany may satisfy its one
-owning required polymorphic relation, but remains unavailable when another
-required polymorphic relation would be unsatisfied.
+membership itself stays connect-only. Target probes are grouped by relation and
+discriminator before the existing grouped INSERT plan. Inverse nested createMany
+may satisfy its one owning required variant relation, but remains unavailable
+when another required variant relation would be unsatisfied.
 
-#### Junction-held (`s.polymorphicToMany`)
+### Variant inputs — junction-held (`s.toMany(map)`)
 
 A collection's input is a keyed BAG, not a one-intent union: several verbs may
 appear together and an empty bag is inert. Every verb takes one tagged item or an
@@ -478,10 +508,10 @@ correlates the `type` literal with that variant's own `where` / `data` schemas.
 
 A fresh owner names four supply verbs — `create`, `createMany`, `connect`,
 `connectOrCreate`. A located owner names all ELEVEN: those four plus `set`,
-`disconnect`, `delete`, `deleteMany`, `update`, `updateMany`, `upsert`.
-`upsert` is deliberately absent from the create bag: its found arm is scoped to
-THIS owner's membership and a fresh owner has none, so the only alternatives
-would be a silent global adopt or a grammar the engine must refuse.
+`disconnect`, `delete`, `deleteMany`, `update`, `updateMany`, `upsert`. `upsert`
+is deliberately absent from the create bag: its found arm is scoped to THIS
+owner's membership and a fresh owner has none, so the only alternatives would be
+a silent global adopt or a grammar the engine must refuse.
 
 `disconnect` is UNCONDITIONAL — a member junction row always clears, because the
 row goes and no column is nulled — and there is no `disconnect: true` spelling;
@@ -492,89 +522,79 @@ Root `createMany` is NOT restricted here. A row naming a collection is
 relation-bearing, so the whole call routes to the ordered record series and the
 row mounts the same four supply verbs any other create context does.
 
-Both inverse arities are ORDINARY. A polymorphic-bound `manyToMany` is a
-fixed-variant junction view and takes the ordinary to-many families whole. A
-polymorphic-bound fields-less `manyToOne` is a to-one SLOT — one member-junction
-row under a UNIQUE over the complete target side — and takes the ordinary to-one
-create and update families verbatim, with `disconnect: true` deleting the
-junction row and `delete: true` deleting the connected owner row.
-`GetRelationSchemas` dispatches on cardinality alone; there is no polymorphic
-inverse family.
-
----
-
-## Referential Actions
-
-Available for `ToOne` and `ManyToMany` relations:
-
-| Action | Behavior |
-|--------|----------|
-| `cascade` | Delete/update child records when parent is deleted/updated |
-| `setNull` | Set FK to NULL when parent is deleted/updated |
-| `restrict` | Prevent delete/update if child records exist |
-| `noAction` | Database default (usually same as restrict) |
-
-```typescript
-s.manyToOne(() => user)
-  .fields("authorId")
-  .references("id")
-  .onDelete("cascade")   // Delete posts when user is deleted
-  .onUpdate("cascade")   // Update FK when user.id changes
-```
+Both inverse arities are ORDINARY. A plural inverse is a fixed-variant junction
+view and takes the ordinary to-many families whole. A singular inverse is a to-one
+SLOT — one member-junction row under a UNIQUE over the complete target side — and
+takes the ordinary to-one create and update families verbatim, with
+`disconnect: true` deleting the junction row and `delete: true` deleting the
+connected owner row. `GetRelationSchemas` dispatches on cardinality alone; there
+is no variant inverse family.
 
 ---
 
 ## Invisible Knowledge
 
-### Public and Stored Discriminators Are Different
+### Public and stored discriminators are different
 
 Renaming a public target-map key is metadata-only when its stable stored value
 and physical target remain unchanged. Changing or removing a stored value, or
 retargeting it, requires explicit migration-history acknowledgement after the
 caller performs the needed DML.
 
-### Polymorphic Storage Has No Database Foreign Key
+### Variant storage has no database foreign key
 
 The owner table gets private `<relation>_type` and `<relation>_id` columns plus a
-composite `(type, id)` index. The index is unique when inverse cardinality is
-`one`; this prevents two owner rows from selecting the same exact target across
-all discriminators. No portable foreign key can point to several tables.
+composite `(type, id)` index. The index is unique when the carrier's inverses are
+singular; this prevents two owner rows from selecting the same exact target
+across all discriminators. No portable foreign key can point to several tables.
 Empty optional storage parses as `null`. A non-empty known membership whose
-target is missing raises `QueryEngineError` regardless of optionality; unknown
-or half-null storage is malformed provider data.
+target is missing raises `QueryEngineError` regardless of optionality; unknown or
+half-null storage is malformed provider data.
 
-### Why standalone classes instead of inheritance
-Early versions used a `Relation` base class, but TypeScript struggled with method return types. Standalone classes with explicit method signatures provide cleaner type inference.
+### Why the terminals are separate values, not one class
 
-### Why oneToMany has minimal API
-The FK lives on the "many" side (e.g., `post.authorId`). The `oneToMany` side (`user.posts`) is just the inverse - it doesn't own the FK, so no configuration is needed.
+Each capability surface is exactly the set of methods its arm may legally carry,
+so an illegal modifier is a compile error rather than a runtime refusal. The
+concrete implementations stay private: callers see only what `toOne` and `toMany`
+return. An earlier shared base class caused TypeScript inference problems; the
+measured reason is that, not a type hole.
 
-### Why manyToMany needs junction table config
-Many-to-many requires a join table. `.through("postTags")` names this table. VibORM creates it automatically in migrations with `.A()` and `.B()` FK column names.
+### Why junction constraint names stay lazy
+
+`ResolvedJunctionTopology` exposes constraint names as memoized METHODS. The gate
+asks all four during resolution, so a published edge carries them settled;
+laziness is what keeps the equal-token refusal attached to the first ask rather
+than to construction.
 
 ---
 
 ## Junction Ownership and Coverage
 
-Junction identity is resolved symmetrically. Configuration may live on either
-side of a paired many-to-many relation; the paired side's `.A()` and `.B()` are
-read in reverse order. Multiple pairs between the same models use `.name()` as
-their identity. A paired self-relation must provide both junction columns
-explicitly because no stable default can decide its direction.
+Junction identity is resolved by the topology owner, which hands
+`junction-topology.ts` an already-paired, already-oriented junction. Nothing in
+`helpers.ts` or `junction-topology.ts` reads a relation object or a second
+endpoint's declaration. Ordinary pairs and variant member junctions differ only
+in where their tokens come from, so they share one derivation and one refusal set
+(`expandJunctionFieldGroups` owns row-key emptiness, token validity, expanded
+field validity, and the cross-side collision).
 
-Relation instances and hydrated model state are trusted. Junction helpers do
-not revalidate required getters or the model's relation map. They still fail
-loudly when two public relation declarations disagree on a table or column.
+The canonical physical side order is `junctionSourceSideIsFirst`: lowercased
+model names, and for a self junction the joined field lists as the tiebreak.
+
+Two paired self collection slots may use the field-derived default side tokens
+(`<field>Id` for a scalar row key, `<field>` as a compound prefix) instead of
+being forced to configure them explicitly.
 
 Use `pnpm test:coverage:relations` for the one-worker, memory-capped L4 report.
 It gates `src/schema/relation/**/*.ts` at 100% statements, branches, functions,
 and lines and writes `coverage/relations/index.html`. The suite is pure and must
 not boot a database or require a provider.
 
-L4 tests only relation definitions, immutable builder state, source binding,
-inverse metadata, and junction resolution. Relation create, update, filter,
-ordering, and projection schemas are L3 operation schemas and live under
-`tests/unit/operation-schemas/relations`.
+L4 tests only declarations, immutable terminal state, construction-time refusals,
+clearability, the static projection, and junction physical naming. Pairing,
+ownership and diagnostics are L5 (`tests/schema-validation/`). Relation create,
+update, filter, ordering, and projection schemas are L3 operation schemas and
+live under `tests/unit/operation-schemas/relations`.
 
 ---
 
@@ -582,7 +602,8 @@ ordering, and projection schemas are L3 operation schemas and live under
 
 | Layer | Relationship |
 |-------|--------------|
-| **Scalars** ([scalars/AGENTS.md](../scalars/AGENTS.md)) | FK scalar fields stored alongside relation fields |
-| **Model** (`../model/`) | Composes relation fields into models |
-| **Migrations** ([migrations/AGENTS.md](../../migrations/AGENTS.md)) | Creates FK constraints and join tables |
+| **Scalars** ([scalars/AGENTS.md](../scalars/AGENTS.md)) | FK scalar fields stored alongside relation fields; their nullability IS relation optionality |
+| **Model** (`../model/`) | Composes relation fields into models; refuses a transient references stage |
+| **Schema Validation** (`../validation/`) | `relation-resolution.ts` — the ONE topology owner; publishes the `ResolvedRelationIndex` every consumer threads |
+| **Migrations** ([migrations/AGENTS.md](../../migrations/AGENTS.md)) | Creates FK constraints, junction tables, and variant storage from resolved edges |
 | **Validation** ([validation/AGENTS.md](../../validation/AGENTS.md)) | Builds relation filter/create/update schemas through `SchemaRegistry` |

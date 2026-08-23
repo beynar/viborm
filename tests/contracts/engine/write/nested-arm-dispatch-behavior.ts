@@ -26,8 +26,8 @@ export const armDispatchSchema = (() => {
       id: s.string().id(),
       code: s.string().unique(),
       name: s.string(),
-      teams: s.oneToMany(() => team),
-      codeNotes: s.oneToMany(() => note).name("orgCodeNotes"),
+      teams: s.toMany(() => team),
+      codeNotes: s.toMany(() => note).name("orgCodeNotes"),
     })
     .map("e3_orgs");
   const team = s
@@ -37,19 +37,17 @@ export const armDispatchSchema = (() => {
       slug: s.string().unique(),
       orgId: s.string().nullable(),
       org: s
-        .manyToOne(() => org)
+        .toOne(() => org)
         .fields("orgId")
         .references("id")
-        .onUpdate("cascade")
-        .optional(),
+        .onUpdate("cascade"),
       ownerId: s.string().nullable(),
       owner: s
-        .manyToOne(() => owner)
+        .toOne(() => owner)
         .fields("ownerId")
-        .references("id")
-        .optional(),
-      notes: s.oneToMany(() => note),
-      tags: s.manyToMany(() => tag),
+        .references("id"),
+      notes: s.toMany(() => note),
+      tags: s.toMany(() => tag),
     })
     .map("e3_teams");
   const note = s
@@ -59,17 +57,15 @@ export const armDispatchSchema = (() => {
       tagName: s.string().unique(),
       teamId: s.string().nullable(),
       team: s
-        .manyToOne(() => team)
+        .toOne(() => team)
         .fields("teamId")
-        .references("id")
-        .optional(),
+        .references("id"),
       orgCode: s.string().nullable(),
       codeOrg: s
-        .manyToOne(() => org)
+        .toOne(() => org)
         .fields("orgCode")
         .references("code")
         .onUpdate("restrict")
-        .optional()
         .name("orgCodeNotes"),
     })
     .map("e3_notes");
@@ -77,14 +73,14 @@ export const armDispatchSchema = (() => {
     .model({
       id: s.string().id(),
       name: s.string(),
-      teams: s.oneToMany(() => team),
+      teams: s.toMany(() => team),
     })
     .map("e3_owners");
   const tag = s
     .model({
       id: s.string().id(),
       name: s.string(),
-      teams: s.manyToMany(() => team),
+      teams: s.toMany(() => team),
     })
     .map("e3_tags");
   const node = s
@@ -93,12 +89,11 @@ export const armDispatchSchema = (() => {
       label: s.string(),
       parentId: s.string().nullable(),
       parent: s
-        .manyToOne(() => node)
+        .toOne(() => node)
         .fields("parentId")
         .references("id")
-        .optional()
         .name("tree"),
-      children: s.oneToMany(() => node).name("tree"),
+      children: s.toMany(() => node).name("tree"),
     })
     .map("e3_nodes");
   return { org, team, note, owner, tag, node };

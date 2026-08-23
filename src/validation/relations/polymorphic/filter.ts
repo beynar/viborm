@@ -1,4 +1,4 @@
-import type { PolymorphicRelationState } from "@schema/relation";
+import type { VariantRelationState } from "@schema/relation";
 import v from "@validation/primitives/v";
 import { createSchema, fail, validateSchema } from "../../primitives/helpers";
 import type { VibSchema } from "../../types";
@@ -23,7 +23,7 @@ type PresenceFilter =
   | { readonly is?: never; readonly isNot: null };
 
 export type PolymorphicFilterSchema<
-  State extends PolymorphicRelationState,
+  State extends VariantRelationState,
   Getters,
 > = PolymorphicSchema<
   | FilterInput<Getters>
@@ -33,7 +33,7 @@ export type PolymorphicFilterSchema<
 >;
 
 export function polymorphicFilterFactory<
-  State extends PolymorphicRelationState,
+  State extends VariantRelationState,
   Getters extends PolymorphicTargetSchemaGetters<State>,
 >(
   state: State,
@@ -112,7 +112,7 @@ export type PolymorphicCollectionFilterSchema<Getters> = PolymorphicSchema<
 >;
 
 export function polymorphicCollectionFilterFactory<
-  State extends PolymorphicRelationState,
+  State extends VariantRelationState,
   Getters extends PolymorphicTargetSchemaGetters<State>,
 >(
   state: State,

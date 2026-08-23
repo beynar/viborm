@@ -49,16 +49,16 @@ export function relationWriteKeys(
 
 /**
  * The first membership move in one record `data` that CANNOT be applied to more
- * than one source row: a CHILD-HELD edge whose entry NAMES at least one existing
- * target (plan §5.2). Returns `undefined` when the data carries none.
+ * than one source row: an exclusive target-row or singular member-junction slot
+ * whose entry NAMES at least one existing target. Returns `undefined` when the
+ * data carries none.
  *
  * TWO CONDITIONS, and both are load-bearing.
  *
  * CHILD-HELD, because the target row stores the membership and can store exactly
- * one. A parent-held edge — including a direct polymorphic one, whose `(type, id)`
- * pair is a column of the SOURCE — gives every source row its own copy, and a
- * junction stores memberships in a third table that admits many parents. Both are
- * meaningful for any number of source rows.
+ * one. A SINGULAR JUNCTION has the same exclusivity in its target-side member
+ * slot. A parent-held edge gives every source row its own copy, and a plural
+ * junction admits many parents; both are meaningful for any number of rows.
  *
  * NAMES A TARGET, because the contention is over a NAMED row. `connect`,
  * `connectOrCreate` and `set` are the three verbs that move an EXISTING target's
@@ -77,23 +77,50 @@ export function relationWriteKeys(
  * subject of it. `create` is deliberately outside: a fresh target per source row is
  * N targets, each owned by its own row.
  */
-export function findSingleTargetMembershipMove(
+type SingleTargetMembershipTopology = "targetRow" | "singularJunction";
+
+function findSingleTargetMembershipMove(
   source: QueryScope,
   relations: readonly ParsedRelationMutation[]
-): { readonly relationName: string; readonly kind: string } | undefined {
-  // A polymorphic COLLECTION arm is SKIPPED, and the skip is the decision (plan
-  // §1.2): the contention this looks for is a CHILD-HELD membership that only one
-  // source row can store. A member junction stores memberships in a third table
-  // that admits many parents, so `connect`/`set` on a collection is meaningful for
-  // any number of source rows — exactly like the ordinary junctions the
-  // `childHeld` test below already excludes.
-  for (const program of relationMutationPrograms(relations)) {
-    if (bindRelation(source, program.relationInfo).position !== "childHeld") {
+):
+  | {
+      readonly relationName: string;
+      readonly kind: string;
+      readonly topology: SingleTargetMembershipTopology;
+    }
+  | undefined {
+  for (const arm of relations) {
+    if (arm.kind === "polymorphicDisconnect") continue;
+    if (arm.kind === "polymorphicCollection") {
+      for (const entry of arm.entries) {
+        if (entry.junction.cardinality !== "one") continue;
+        for (const mutation of entry.program.entries) {
+          if (namedTargetCount(mutation) === 0) continue;
+          return {
+            relationName: arm.name,
+            kind: mutation.kind,
+            topology: "singularJunction",
+          };
+        }
+      }
       continue;
     }
-    for (const entry of program.entries) {
+
+    const relation = bindRelation(source, arm.program.relationRef);
+    const topology: SingleTargetMembershipTopology | undefined =
+      relation.position === "childHeld"
+        ? "targetRow"
+        : relation.position === "junction" && relation.cardinality === "one"
+          ? "singularJunction"
+          : undefined;
+    if (!topology) continue;
+    for (const entry of arm.program.entries) {
       if (namedTargetCount(entry) > 0) {
-        return { relationName: program.relationInfo.name, kind: entry.kind };
+        return {
+          relationName: arm.name,
+          kind: entry.kind,
+          topology,
+        };
       }
     }
   }
@@ -101,9 +128,9 @@ export function findSingleTargetMembershipMove(
 }
 
 /**
- * Refuse one named child-held target membership applied to several selected
- * source records. The parsed shape owner identifies the move; this boundary owns
- * the observed record count and the one public explanation of why it is ambiguous.
+ * Refuse one named exclusive target membership applied to several selected source
+ * records. The parsed shape owner identifies the move; this boundary owns the
+ * observed record count and the public explanation of why it is ambiguous.
  */
 export function assertSingleTargetMembershipMoveAppliesToRecords(
   source: QueryScope,
@@ -113,6 +140,11 @@ export function assertSingleTargetMembershipMoveAppliesToRecords(
   if (recordCount < 2) return;
   const move = findSingleTargetMembershipMove(source, relations);
   if (!move) return;
+  if (move.topology === "singularJunction") {
+    throw new UnsupportedOperationError(
+      `updateMany matched ${recordCount} rows, so it cannot apply '${move.kind}' to relation '${move.relationName}': that target's member-junction slot can belong to only one of them — the last row updated would take it from the others. Narrow the filter (or add 'limit: 1') so exactly one row matches, or write this relation in a separate call.`
+    );
+  }
   throw new UnsupportedOperationError(
     `updateMany matched ${recordCount} rows, so it cannot apply '${move.kind}' to relation '${move.relationName}': that membership is stored on the target row, which can belong to only one of them — the last row updated would take it from the others. Narrow the filter (or add 'limit: 1') so exactly one row matches, or write this relation in a separate call.`
   );
@@ -154,7 +186,7 @@ export function assertRelationKeyUpdatesAreCompilable(
   // arm to arrive at that same `continue` would be a loop whose unique coverage
   // cannot be named, so the decision is recorded here instead of enacted.
   for (const mutation of relationMutationPrograms(relations)) {
-    const relation = bindRelation(ctx, mutation.relationInfo);
+    const relation = bindRelation(ctx, mutation.relationRef);
     if (relation.position === "junction") continue;
     // POSITION, not holder identity — a self-relation holds both ends. This must
     // also stay OFF `membership.members`: pairing refuses mismatched arity, and
@@ -171,13 +203,13 @@ export function assertRelationKeyUpdatesAreCompilable(
       if (classifyRelationKeyScalarUpdate(scalarData[field]).resolved) continue;
 
       throw new NestedWriteError(
-        `Cannot update relation key field '${field}' with a non-literal operation while mutating relation '${mutation.relationInfo.name}'. Use a literal value or '{ set: ... }'.`,
-        mutation.relationInfo.name,
+        `Cannot update relation key field '${field}' with a non-literal operation while mutating relation '${mutation.relationRef.name}'. Use a literal value or '{ set: ... }'.`,
+        mutation.relationRef.name,
         {
           meta: {
             operation: "update",
             field,
-            relation: mutation.relationInfo.name,
+            relation: mutation.relationRef.name,
           },
         }
       );

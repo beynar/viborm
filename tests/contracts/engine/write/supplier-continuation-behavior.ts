@@ -27,7 +27,7 @@ export const supplierContinuationSchema = (() => {
     .model({
       id: s.string().id(),
       label: s.string(),
-      badge: s.oneToOne(() => badge).optional(),
+      badge: s.toOne(() => badge),
     })
     .map("e7_stations");
 
@@ -38,12 +38,11 @@ export const supplierContinuationSchema = (() => {
       rank: s.int().default(0),
       stationId: s.string().nullable().unique(),
       station: s
-        .oneToOne(() => station)
+        .toOne(() => station)
         .fields("stationId")
-        .references("id")
-        .optional(),
-      notes: s.oneToMany(() => note),
-      seal: s.oneToOne(() => seal).optional(),
+        .references("id"),
+      notes: s.toMany(() => note),
+      seal: s.toOne(() => seal),
     })
     .map("e7_badges");
 
@@ -53,10 +52,9 @@ export const supplierContinuationSchema = (() => {
       body: s.string(),
       badgeId: s.string().nullable(),
       badge: s
-        .manyToOne(() => badge)
+        .toOne(() => badge)
         .fields("badgeId")
-        .references("id")
-        .optional(),
+        .references("id"),
     })
     .map("e7_notes");
 
@@ -68,10 +66,9 @@ export const supplierContinuationSchema = (() => {
       wax: s.string(),
       badgeId: s.string().nullable().unique(),
       badge: s
-        .oneToOne(() => badge)
+        .toOne(() => badge)
         .fields("badgeId")
-        .references("id")
-        .optional(),
+        .references("id"),
     })
     .map("e7_seals");
 

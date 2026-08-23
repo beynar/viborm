@@ -179,7 +179,7 @@ const seriesSchema = (() => {
     .model({
       id: s.string().id(),
       name: s.string(),
-      posts: s.oneToMany(() => post),
+      posts: s.toMany(() => post),
     })
     .map("h2_authors");
 
@@ -189,10 +189,9 @@ const seriesSchema = (() => {
       title: s.string(),
       authorId: s.string().nullable(),
       author: s
-        .manyToOne(() => author)
+        .toOne(() => author)
         .fields("authorId")
-        .references("id")
-        .optional(),
+        .references("id"),
     })
     .map("h2_posts");
 

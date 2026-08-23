@@ -9,10 +9,14 @@ foreign keys, invalid referential actions, and database-specific constraints —
 before anything touches the database. The complete rule set runs automatically
 on `viborm push` and `viborm migrate`.
 
-Client construction always enforces `R008`, the rule that a non-owning
-fields-less `oneToOne` must be optional. When the schema contains a polymorphic
-field, client construction runs the complete rule set because it must validate
-and materialize the full target/inverse graph and private storage contract.
+Client construction always runs the **structural gate** — the schema-wide
+relation resolver that pairs every slot, decides foreign-key ownership,
+uniqueness and junction topology, and materializes private variant storage —
+plus the model-identity checks a client needs to address a model at all
+(duplicate model name, duplicate table). Advice about how a schema is *spelled*
+— a missing ID field, a reserved model name, an index shape — belongs to the
+boundary that writes DDL, so it runs on `push` and `migrate` rather than at
+client construction.
 Manual validation remains useful when you want all errors surfaced explicitly
 at application startup.
 
@@ -45,5 +49,5 @@ for (const warning of result.warnings) {
 [M001] 'user' must have an ID field (or use .id() for compound key)
 [F006] ID 'id' in 'user' cannot be nullable
 [F004] Default value for 'age' in 'user' doesn't match type
-[R008] Non-owning one-to-one 'profile' in 'user' must call .optional() because this model stores no foreign key fields.
+[R002] 'user.profile' has no inverse relation in 'profile'
 ```

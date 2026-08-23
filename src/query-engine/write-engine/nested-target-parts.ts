@@ -10,9 +10,9 @@ import {
 } from "../builders/relation-data-builder";
 import {
   type ParsedRelationMutation,
+  polymorphicCollectionArms,
   type RelationMutationEntry,
   type RelationMutationProgram,
-  polymorphicCollectionArms,
   relationMutationPrograms,
 } from "../builders/relation-mutation-parser";
 import { buildValueGroups } from "../builders/values-builder";
@@ -28,8 +28,8 @@ import {
 import { referenceScalarSql, referenceSql } from "./fragment-builders";
 import type { OperationStep, StatementStep } from "./OperationFragment";
 import type { Part, PlanningKnown } from "./Part";
-import type { RecordCompilerSeam } from "./RecordUpdateCompiler";
 import { buildPolymorphicCollectionPart } from "./PolymorphicCollectionPart";
+import type { RecordCompilerSeam } from "./RecordUpdateCompiler";
 import { buildJunctionParts } from "./RelationJunctionPart";
 import { buildToManyLinkParts } from "./RelationLinkPart";
 import {
@@ -197,9 +197,9 @@ function foldJunctionTargetRelation(input: {
   parts: Part[];
 }): void {
   const { scope, engine, targetScope, program, parentId, txMode } = input;
-  const relationInfo = program.relationInfo;
-  const relationName = relationInfo.name;
-  const relation = bindRelation(targetScope, relationInfo);
+  const relationRef = program.relationRef;
+  const relationName = relationRef.name;
+  const relation = bindRelation(targetScope, relationRef);
 
   // The recursion seam threaded to every kind that may carry its own relations one
   // level deeper (the m2m junction here; the child-held write/link/adopt families
@@ -278,8 +278,8 @@ function foldJunctionTargetRelation(input: {
     );
   }
 
-  const childScope = createQueryScope(engine.adapter, relationInfo.targetModel);
-  const childName = getStepModelName(relationInfo.targetModel, relationName);
+  const childScope = createQueryScope(engine, relationRef.targetModel);
+  const childName = getStepModelName(relationRef.targetModel, relationName);
   const writeBase = {
     scope,
     engine,
@@ -340,7 +340,7 @@ function foldJunctionChildHeldEntry(args: {
     parts,
   } = args;
   const isInverseToOne = relation.cardinality === "one";
-  const relationName = relation.relationInfo.name;
+  const relationName = relation.relationRef.name;
   const push = (built: readonly Part[]) => parts.push(...built);
 
   switch (entry.kind) {
@@ -740,7 +740,7 @@ export function buildPolymorphicParentCreateManyPart(input: {
   const { userRows, skipDuplicates, recoverUnique } = planNestedCreateMany({
     engine,
     childScope,
-    relationName: relation.relationInfo.name,
+    relationName: relation.relationRef.name,
     createManyEntry: input.createManyEntry,
   });
   if (userRows.length === 0) return new LiteralParentWriteParts([]);
@@ -776,7 +776,7 @@ export function buildPolymorphicParentCreateManyPart(input: {
     );
     if (plan.statements.length !== stepIds.length) {
       throw new QueryEngineError(
-        `query-engine-v2 polymorphic createMany on relation '${relation.relationInfo.name}' compiled ${plan.statements.length} statements for ${stepIds.length} allocated step ids.`
+        `query-engine-v2 polymorphic createMany on relation '${relation.relationRef.name}' compiled ${plan.statements.length} statements for ${stepIds.length} allocated step ids.`
       );
     }
     return plan.statements.map((statement, index) => ({

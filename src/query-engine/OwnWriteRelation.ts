@@ -87,8 +87,8 @@ export class OwnWriteRelation {
     this.ledger = ledger;
     this.membershipLedger = membershipLedger;
     this.boundRelation = boundRelation;
-    this.relationName = boundRelation.relationInfo.name;
-    this.target = boundRelation.relationInfo.targetModel;
+    this.relationName = boundRelation.relationRef.name;
+    this.target = boundRelation.relationRef.targetModel;
     this.membershipScope = membershipScope;
     this.membershipOrientation = getMembershipReadOrientation(boundRelation);
     this.checkpoint = ledger.checkpoint();
@@ -114,7 +114,7 @@ export class OwnWriteRelation {
   ): OwnWriteRelation {
     const ledger = node.ledger.fork();
     for (const footprint of rootMembershipFootprints) {
-      if (footprint.relation.relationInfo !== program.relationInfo) continue;
+      if (footprint.relation.relationRef !== program.relationRef) continue;
       ledger.appendMembership(
         node.rootOperation,
         getRelationMembershipEndpoints(
@@ -359,7 +359,7 @@ function resolveComposedContinuation(
 ): ToOneContinuation | undefined {
   if (boundRelation.cardinality !== "one") return undefined;
   return classifyToOneComposition(
-    boundRelation.relationInfo.name,
+    boundRelation.relationRef.name,
     program.entries
   )?.continuation;
 }

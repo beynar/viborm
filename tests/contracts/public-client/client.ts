@@ -23,8 +23,8 @@ const user = s.model({
       })
     )
   ),
-  posts: s.oneToMany(() => post),
-  friends: s.manyToMany(() => user),
+  posts: s.toMany(() => post),
+  friends: s.toMany(() => user),
 });
 
 const post = s.model({
@@ -32,12 +32,12 @@ const post = s.model({
   title: s.string(),
   content: s.string(),
   authorId: s.string(),
-  media: s.polymorphicToOne({
+  media: s.toOne({
     image: () => image,
     video: () => video,
   }),
   author: s
-    .manyToOne(() => user)
+    .toOne(() => user)
     .fields("authorId")
     .references("id"),
 });

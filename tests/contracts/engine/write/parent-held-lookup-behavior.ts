@@ -37,8 +37,8 @@ export const parentHeldLookupSchema = (() => {
       id: s.int().id(),
       email: s.string().unique(),
       name: s.string(),
-      books: s.oneToMany(() => book),
-      awards: s.oneToMany(() => award),
+      books: s.toMany(() => book),
+      awards: s.toMany(() => award),
     })
     .map("e1_authors");
   const award = s
@@ -47,7 +47,7 @@ export const parentHeldLookupSchema = (() => {
       title: s.string(),
       authorId: s.int(),
       author: s
-        .manyToOne(() => author)
+        .toOne(() => author)
         .fields("authorId")
         .references("id"),
     })
@@ -58,10 +58,9 @@ export const parentHeldLookupSchema = (() => {
       title: s.string(),
       authorId: s.int().nullable(),
       author: s
-        .manyToOne(() => author)
+        .toOne(() => author)
         .fields("authorId")
-        .references("id")
-        .optional(),
+        .references("id"),
     })
     .map("e1_books");
   const badge = s
@@ -70,7 +69,7 @@ export const parentHeldLookupSchema = (() => {
       slug: s.string().unique(),
       code: s.string().nullable().unique(),
       tier: s.string(),
-      holders: s.oneToMany(() => holder),
+      holders: s.toMany(() => holder),
     })
     .map("e1_badges");
   const holder = s
@@ -79,10 +78,9 @@ export const parentHeldLookupSchema = (() => {
       name: s.string(),
       badgeCode: s.string().nullable(),
       badge: s
-        .manyToOne(() => badge)
+        .toOne(() => badge)
         .fields("badgeCode")
-        .references("code")
-        .optional(),
+        .references("code"),
     })
     .map("e1_holders");
   const node = s
@@ -91,11 +89,10 @@ export const parentHeldLookupSchema = (() => {
       label: s.string().unique(),
       parentId: s.int().nullable(),
       parent: s
-        .manyToOne(() => node)
+        .toOne(() => node)
         .fields("parentId")
-        .references("id")
-        .optional(),
-      children: s.oneToMany(() => node),
+        .references("id"),
+      children: s.toMany(() => node),
     })
     .map("e1_nodes");
   // The SHARED-primary-key edge: the profile's own primary key IS the foreign key
@@ -105,7 +102,7 @@ export const parentHeldLookupSchema = (() => {
     .model({
       id: s.int().id(),
       email: s.string().unique(),
-      profile: s.oneToOne(() => profile).optional(),
+      profile: s.toOne(() => profile),
     })
     .map("e1_owners");
   const profile = s
@@ -113,7 +110,7 @@ export const parentHeldLookupSchema = (() => {
       ownerId: s.int().id(),
       bio: s.string(),
       owner: s
-        .oneToOne(() => owner)
+        .toOne(() => owner)
         .fields("ownerId")
         .references("id"),
     })
@@ -126,7 +123,7 @@ export const parentHeldLookupSchema = (() => {
     .model({
       id: s.int().id().increment(),
       title: s.string(),
-      issues: s.oneToMany(() => issue),
+      issues: s.toMany(() => issue),
     })
     .map("e1_magazines");
   const issue = s
@@ -135,10 +132,9 @@ export const parentHeldLookupSchema = (() => {
       name: s.string(),
       magazineId: s.int().nullable(),
       magazine: s
-        .manyToOne(() => magazine)
+        .toOne(() => magazine)
         .fields("magazineId")
-        .references("id")
-        .optional(),
+        .references("id"),
     })
     .map("e1_issues");
   return {

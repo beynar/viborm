@@ -51,7 +51,7 @@ export function buildSeriesResultReads(
   input: SeriesResultReadInput
 ): readonly ExecutableOperation[] {
   if (input.expectedRowKeys.length === 0) return [];
-  const ctx = createQueryScope(input.engine.adapter, input.model);
+  const ctx = createQueryScope(input.engine, input.model);
   const internalSelect = seriesResultSelect(input.model, input.select);
   const chunks = resultReadChunks(
     ctx,
@@ -133,12 +133,9 @@ function parseExactSeriesRows(
   rawRows: readonly unknown[],
   select: Readonly<Record<string, unknown>>
 ): readonly Readonly<Record<string, unknown>>[] {
-  const values = new ResultParser(
-    engine.adapter,
-    model,
-    engine.driver,
-    "string"
-  ).parse<unknown[]>(operation, [...rawRows], { select });
+  const values = new ResultParser(engine, model, engine.driver, "string").parse<
+    unknown[]
+  >(operation, [...rawRows], { select });
   return values.map((value) => {
     if (isRecord(value)) return value;
     throw new QueryEngineError(
@@ -160,7 +157,7 @@ function parseResultReadChunk(
   }
   const identityFields = buildTargetProjection(input.model).identityFields;
   const [publicRows, exactRows] = new ResultParser(
-    input.engine.adapter,
+    input.engine,
     input.model,
     input.engine.driver,
     input.engine.decimalDecode

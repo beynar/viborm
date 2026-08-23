@@ -46,6 +46,10 @@ export default defineWorkspace([
       include: [
         "tests/unit/scalars/field-ref.core.test.ts",
         "tests/unit/scalars/shared-scalar.core.test.ts",
+        // `hydration.ts` is inside this gate's 100% glob, and the write-once
+        // schema key it refuses is that file's own invariant — its witnesses
+        // live in the schema-validation layer, so the gate must read them here.
+        "tests/unit/schema-validation/model-registration-identity.core.test.ts",
       ],
     },
   },

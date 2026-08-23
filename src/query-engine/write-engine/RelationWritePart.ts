@@ -61,7 +61,10 @@ import {
   type RelationMembershipBinding,
   resolveCorrelatedMembershipProgressivePremise,
 } from "./relation-membership";
-import { requiredForeignKeyFields } from "./relation-nullability";
+import {
+  clearableForeignKeyFields,
+  requiredForeignKeyFields,
+} from "./relation-nullability";
 import type { StepScope } from "./StepScope";
 import {
   isRecord,
@@ -199,7 +202,7 @@ export class RelationWritePart implements Part {
   private readonly isNoOpUpdate: boolean = false;
 
   private get relationName(): string {
-    return this.config.membership.relation.relationInfo.name;
+    return this.config.membership.relation.relationRef.name;
   }
 
   private get operationKind() {
@@ -539,11 +542,11 @@ export class RelationWritePart implements Part {
       series: new NestedSelectedRecordSeries({
         engine: this.config.engine,
         sourceScope: createQueryScope(
-          this.config.engine.adapter,
+          this.config.engine,
           this.config.membership.relation.sourceModel
         ),
         targetScope: this.config.childScope,
-        relationInfo: this.config.membership.relation.relationInfo,
+        relationRef: this.config.membership.relation.relationRef,
         member: { kind: "replayPerRecord", data },
         capture,
         recordCompilers: this.config.recordCompilers,
@@ -610,11 +613,11 @@ export class RelationWritePart implements Part {
       series: new NestedSelectedRecordSeries({
         engine: this.config.engine,
         sourceScope: createQueryScope(
-          this.config.engine.adapter,
+          this.config.engine,
           this.config.membership.relation.sourceModel
         ),
         targetScope: this.config.childScope,
-        relationInfo: this.config.membership.relation.relationInfo,
+        relationRef: this.config.membership.relation.relationRef,
         member: { kind: "parsedOnce", programs: parsed },
         capture,
         recordCompilers: this.config.recordCompilers,
@@ -657,7 +660,7 @@ export class RelationWritePart implements Part {
     return {
       kind: "guarded",
       guard: completeTargetPresenceGuard(
-        createQueryScope(this.config.engine.adapter, parent),
+        createQueryScope(this.config.engine, parent),
         `${this.writeId}.parent`,
         premise.identity,
         nestedWriteFailure(
@@ -904,7 +907,7 @@ export class RelationWritePart implements Part {
     if (rows.length === 0) {
       throw new NestedWriteError(
         relationTargetNotFound(
-          this.config.membership.relation.relationInfo,
+          this.config.membership.relation.relationRef,
           this.targetedOp()
         ),
         this.relationName
@@ -932,7 +935,7 @@ export class RelationWritePart implements Part {
   private targetFailure() {
     return nestedWriteFailure(
       relationTargetNotFound(
-        this.config.membership.relation.relationInfo,
+        this.config.membership.relation.relationRef,
         this.targetedOp()
       ),
       this.relationName,
@@ -1043,7 +1046,7 @@ export class RelationSetPart implements Part {
   private readonly departingRead?: ReadStep;
 
   private get relationName(): string {
-    return this.config.membership.relation.relationInfo.name;
+    return this.config.membership.relation.relationRef.name;
   }
 
   constructor(scope: StepScope, config: RelationSetConfig) {
@@ -1141,7 +1144,7 @@ export class RelationSetPart implements Part {
             ),
             nestedWriteFailure(
               relationTargetNotFound(
-                this.config.membership.relation.relationInfo,
+                this.config.membership.relation.relationRef,
                 "set"
               ),
               this.relationName,
@@ -1318,7 +1321,7 @@ export class RelationSetPart implements Part {
     if (rows.length === 0) {
       throw new NestedWriteError(
         relationTargetNotFound(
-          this.config.membership.relation.relationInfo,
+          this.config.membership.relation.relationRef,
           "set"
         ),
         this.relationName
@@ -1388,7 +1391,7 @@ export function buildToManyUpdateParts(
   base: WritePartBase,
   entry: Extract<RelationMutationEntry, { kind: "update" }>
 ): Part[] {
-  const relationName = base.relation.relationInfo.name;
+  const relationName = base.relation.relationRef.name;
   return entry.items.map((item) => {
     if (item.target.kind !== "unique") {
       throw new QueryEngineError(
@@ -1441,7 +1444,7 @@ export function buildToOneUpdatePart(
    */
   suppliedWhere?: Record<string, unknown>
 ): Part {
-  const relationName = base.relation.relationInfo.name;
+  const relationName = base.relation.relationRef.name;
   const target = requireCorrelatedToOneTarget(entry, relationName);
   // The relation owns this FK, so it is never update data — whether the locator is the
   // FK correlation (a lone modify) or `suppliedWhere` (one composed with a supplier,
@@ -1468,7 +1471,7 @@ export function buildToOneContinuationPart(
   base: WritePartBase,
   entry: Extract<RelationMutationEntry, { kind: "update" }>
 ): Part {
-  const relationName = base.relation.relationInfo.name;
+  const relationName = base.relation.relationRef.name;
   const target = requireCorrelatedToOneTarget(entry, relationName);
   return new RelationWritePart(base.scope, {
     ...partConfig(base, "update"),
@@ -1490,7 +1493,7 @@ export function buildInverseToOneUpsertPart(
   base: WritePartBase,
   input: NormalizedRelationUpsert
 ): RelationWritePart {
-  const relationName = base.relation.relationInfo.name;
+  const relationName = base.relation.relationRef.name;
   if (input.target.kind !== "correlated") {
     throw new QueryEngineError(
       `query-engine-v2 internal: to-one upsert for relation '${relationName}' requires a correlated target.`
@@ -1536,7 +1539,7 @@ export function buildToManyDeleteParts(
   base: WritePartBase,
   entry: Extract<RelationMutationEntry, { kind: "delete" }>
 ): RelationWritePart[] {
-  const relationName = base.relation.relationInfo.name;
+  const relationName = base.relation.relationRef.name;
   if (entry.target.kind !== "selectors") {
     throw new QueryEngineError(
       `query-engine-v2 internal: to-many delete for relation '${relationName}' requires selector targets.`
@@ -1572,6 +1575,12 @@ export function buildToManySetPart(
   entry: Extract<RelationMutationEntry, { kind: "set" }>
 ): RelationSetPart {
   const requiredFields = requiredForeignKeyFields(base.relation);
+  // A departing row is REFUSED only when nothing about its membership can be
+  // nulled. A mixed compound key IS clearable — set departure nulls its nullable
+  // members and keeps the required ones as context (§8.4, §11.4.9) — so the
+  // refusal (and, on the native-batch route, its `notExists` guard) narrows to
+  // the memberships `clearability.ts` calls unclearable.
+  const clearableFields = clearableForeignKeyFields(base.relation);
   const readSource = base.membershipReadSource;
   return new RelationSetPart(base.scope, {
     engine: base.engine,
@@ -1582,13 +1591,13 @@ export function buildToManySetPart(
       base.relation,
       planningSourceFromFinal(
         readSource,
-        base.relation.relationInfo.name,
+        base.relation.relationRef.name,
         "set"
       ),
       readSource
     ),
     targetProjection: base.targetProjection,
-    requiredFk: requiredFields.length > 0,
+    requiredFk: clearableFields.length === 0,
     requiredFields,
     targets: entry.targets,
     txMode: base.txMode,
@@ -1607,7 +1616,7 @@ function partConfig(
       base.relation,
       planningSourceFromFinal(
         base.membershipReadSource,
-        base.relation.relationInfo.name,
+        base.relation.relationRef.name,
         kind
       ),
       base.parentId

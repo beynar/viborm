@@ -52,8 +52,8 @@ One deliberate divergence, and it covers only the LINK selectors:
 
 | Relation | Filters | Notes |
 |----------|---------|-------|
-| Ordinary to-one (`oneToOne`, `manyToOne`) | `is`, `isNot` | Filters against the related model's `where`. Optional relations also accept bare `null` and null inside `is`/`isNot`. |
-| Ordinary to-many (`oneToMany`, `manyToMany`) | `some`, `every`, `none` | `every` also matches records with no related rows; combine with `some: {}` when you need at least one. |
+| Ordinary to-one (`s.toOne` over one model) | `is`, `isNot` | Filters against the related model's `where`. Optional relations also accept bare `null` and null inside `is`/`isNot`. |
+| Ordinary to-many (`s.toMany` over one model) | `some`, `every`, `none` | `every` also matches records with no related rows; combine with `some: {}` when you need at least one. |
 | Direct polymorphic to-one | `type` with `is` or `isNot`; optional storage also accepts `null`, `{ is: null }`, and `{ isNot: null }` | The discriminator selects the target model before its filter is parsed. |
 | Polymorphic inverse | Ordinary to-one or to-many operators | The declared inverse cardinality owns the public filter shape; every predicate still matches both stored type and identity. |
 
@@ -106,13 +106,15 @@ This matrix also applies to the update branch of a top-level `upsert`.
 | `deleteMany` | — | — | ✅ | ✅ |
 
 An empty slot and a clearable membership are different facts. For an owning
-to-one they normally coincide. For a non-owning one-to-one, `R008` requires the
-public slot to be optional, so deleting its child is valid; disconnecting must
-preserve that child and therefore still requires nullable child-side storage.
+to-one they normally coincide. A non-owning singular slot is derived nullable —
+the membership lives on the other row and may simply be missing — so deleting its
+child is valid; disconnecting must preserve that child and therefore still
+requires nullable child-side storage.
 
 Direct polymorphic fields follow the parent-held to-one availability above,
-with a required `type` in target-specific payloads. Polymorphic inverse
-`oneToOne` and `oneToMany` fields follow the corresponding child-held column.
+with a required `type` in target-specific payloads. Polymorphic inverse slots —
+singular `s.toOne` and plural `s.toMany` — follow the corresponding child-held
+column.
 Their membership is the exact stored `(type, identity)` pair. See the
 [polymorphic relation reference](/docs/schema/relations/polymorphic) for their
 payload shapes.
@@ -221,7 +223,7 @@ The matrices show operation support. These restrictions are independent:
   `connectOrCreate.where`) require unique discriminators; they do not accept the
   extra filters allowed by nested update and upsert targets.
 - Many-to-many relations support scalar and compound primary keys on either
-  side. `.A("owner")` and `.B("target")` remain scalar tokens: for a compound
+  side. `.source("owner")` and `.target("target")` remain scalar tokens: for a compound
   side they expand to `owner_1`, `owner_2`, … and `target_1`, `target_2`, … in
   declared primary-key order. Reads, writes, cascades, and generated key
   publication consume the complete tuple.

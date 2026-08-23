@@ -66,7 +66,7 @@ const parityArmSchema = (() => {
     .model({
       id: s.string().id(),
       name: s.string(),
-      teams: s.oneToMany(() => team),
+      teams: s.toMany(() => team),
     })
     .map("parity_b_orgs");
   const team = s
@@ -78,26 +78,29 @@ const parityArmSchema = (() => {
       slug: s.string().unique(),
       orgId: s.string().nullable(),
       org: s
-        .manyToOne(() => org)
+        .toOne(() => org)
         .fields("orgId")
-        .references("id")
-        .optional(),
+        .references("id"),
       ownerId: s.string().nullable(),
       // The PARENT-HELD to-one one level deeper on the arm — `assertArmEdgeIsChildHeld`.
       owner: s
-        .manyToOne(() => worker)
+        .toOne(() => worker)
         .fields("ownerId")
-        .references("id")
-        .optional(),
+        .references("id"),
       // The accepted edge: note.teamId -> team.id, the arm row's own primary key.
-      notes: s.oneToMany(() => note),
+      notes: s.toMany(() => note),
       // The COMPOUND referenced edge — `assertArmEdgeReferencesLocatedPk`.
-      members: s.oneToMany(() => member),
+      members: s.toMany(() => member),
     })
     .unique(["region", "code"])
     .map("parity_b_teams");
   const worker = s
-    .model({ id: s.string().id(), name: s.string() })
+    .model({
+      id: s.string().id(),
+      name: s.string(),
+      // The inverse of `team.owner`: an ordinary slot without one is R002.
+      teams: s.toMany(() => team),
+    })
     .map("parity_b_workers");
   const note = s
     .model({
@@ -105,10 +108,9 @@ const parityArmSchema = (() => {
       body: s.string(),
       teamId: s.string().nullable(),
       team: s
-        .manyToOne(() => team)
+        .toOne(() => team)
         .fields("teamId")
-        .references("id")
-        .optional(),
+        .references("id"),
     })
     .map("parity_b_notes");
   const member = s
@@ -118,10 +120,9 @@ const parityArmSchema = (() => {
       mRegion: s.string().nullable(),
       mCode: s.string().nullable(),
       team: s
-        .manyToOne(() => team)
+        .toOne(() => team)
         .fields("mRegion", "mCode")
-        .references("region", "code")
-        .optional(),
+        .references("region", "code"),
     })
     .map("parity_b_members");
   return { org, team, worker, note, member };

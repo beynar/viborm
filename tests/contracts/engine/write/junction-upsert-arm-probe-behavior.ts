@@ -56,7 +56,7 @@ export const junctionUpsertArmSchema = (() => {
     .model({
       id: s.string().id(),
       name: s.string(),
-      tags: s.manyToMany(() => tag),
+      tags: s.toMany(() => tag),
     })
     .map("e61_users");
 
@@ -69,14 +69,13 @@ export const junctionUpsertArmSchema = (() => {
       // A PARENT-HELD to-one on the target: `targetNeedsFullUpdate`, so an update arm
       // carrying it delegates the WHOLE target write to `UpdateOperation`.
       owner: s
-        .manyToOne(() => owner)
+        .toOne(() => owner)
         .fields("ownerId")
-        .references("id")
-        .optional(),
+        .references("id"),
       // A CHILD-HELD to-many: the deeper edge folds IN PLACE against the target's own
       // primary key, which is the `planned` source the arm's probe now supplies.
-      notes: s.oneToMany(() => note),
-      users: s.manyToMany(() => user),
+      notes: s.toMany(() => note),
+      users: s.toMany(() => user),
     })
     .map("e61_tags");
 
@@ -84,7 +83,7 @@ export const junctionUpsertArmSchema = (() => {
     .model({
       id: s.string().id(),
       label: s.string(),
-      tags: s.oneToMany(() => tag),
+      tags: s.toMany(() => tag),
     })
     .map("e61_owners");
 
@@ -94,7 +93,7 @@ export const junctionUpsertArmSchema = (() => {
       body: s.string(),
       tagId: s.int(),
       tag: s
-        .manyToOne(() => tag)
+        .toOne(() => tag)
         .fields("tagId")
         .references("id"),
     })

@@ -59,7 +59,7 @@ const User = s
     alternate: s.string().unique(),
     id: s.string().id(),
     age: s.int().nullable(),
-    posts: s.oneToMany(() => Post),
+    posts: s.toMany(() => Post),
   })
   .map("cursor_sql_users");
 
@@ -68,7 +68,7 @@ const Post = s
     id: s.string().id(),
     userId: s.string(),
     user: s
-      .manyToOne(() => User)
+      .toOne(() => User)
       .fields("userId")
       .references("id"),
   })

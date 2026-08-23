@@ -47,11 +47,13 @@ const user = s.model({
   id: s.string().id().ulid(),
   name: s.string(),
   email: s.string(),
-  // Self-referential many-to-many
-  friends: s.manyToMany(() => user)
+  // Self-referential many-to-many: two paired collection slots,
+  // with every junction override on one of them
+  friends: s.toMany(() => user)
     .through("user_friends")
-    .A("userId")
-    .B("friendId"),
+    .source("userId")
+    .target("friendId"),
+  friendOf: s.toMany(() => user),
 });
 
 // Query API Usage

@@ -85,8 +85,11 @@ A JUNCTION-HELD group's edges bind as `position: "junction"` with
 `membership.polymorphicMember` — direct collection leaf, plural inverse view, or
 singular inverse slot, all over the same `ResolvedJunctionTopology` in one
 orientation or the other. `cardinality: "one"` on a junction is reachable only
-there, for a fields-less `manyToOne` bound to a member whose target side carries
+there, for a non-owning `s.toOne` bound to a member whose target side carries
 a UNIQUE; ordinary junction binding still writes `"many"` unconditionally.
+The OwnWrite reader keeps the same vocabulary:
+`RelationMembershipScope.kind` and `MembershipReadOrientation` use `"junction"`.
+“Many-to-many” is a topology description, not a runtime state arm.
 
 ### Record mutation
 
@@ -152,7 +155,7 @@ genuine unique conflict and is not treated as a retryable missing-target race.
 
 ### Polymorphic collections
 
-A direct `s.polymorphicToMany` key compiles through `PolymorphicCollectionPart`,
+A direct variant `s.toMany` key compiles through `PolymorphicCollectionPart`,
 which returns exactly ONE `Part` rather than one per variant. The reason is
 placement: sibling Parts' statements are concatenated in list order, so N
 independent variant Parts could not express a clear-once barrier and `set`'s
@@ -171,10 +174,11 @@ entries, the coordinator rewrites each into a connect-shaped insert run and owns
 the clear half itself, so `RelationJunctionPart.compileSet` and ordinary junction
 `set` stay byte-identical. Membership adds lowered from `set` use
 `reinsertAfterOwnerClear`, because the barrier has already removed this owner's
-rows and "it is already there" is false by then. The one shape a batch could
-legally split between clear and refill — no transaction, `clearsAll`, and an
-owner row key arriving as a produced output reference — is refused at
-construction, before the clear.
+rows and "it is already there" is false by then. After the final guard/clear/write
+order is compiled, the coordinator reuses the executor's exact generated-output
+boundary analysis. A non-transactional `clearsAll` refuses before effects only
+when a real split falls after the first clear; a split before the barrier and an
+insert-id dependency backed by real batch scratch remain one safe meaning.
 
 `RelationJunctionToOnePart` lowers the SINGULAR collection inverse: it consumes
 the `(vacate, supplier, modify)` order from `classifyToOneComposition` rather

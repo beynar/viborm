@@ -11,56 +11,13 @@ function warnings(result: ReturnType<typeof validateSchema>): string[] {
 }
 
 describe("relation definition rules", () => {
-  it("rejects a required non-owning one-to-one with R008", () => {
-    const user = s.model({
-      id: s.string().id(),
-      profile: s.oneToOne(() => profile),
-    });
-    const profile = s.model({
-      id: s.string().id(),
-      userId: s.string().unique(),
-      user: s
-        .oneToOne(() => user)
-        .fields("userId")
-        .references("id"),
-    });
-
-    expect(validateSchema({ user, profile }).errors).toContainEqual({
-      code: "R008",
-      message:
-        "Non-owning one-to-one 'profile' in 'user' must call .optional() because this model stores no foreign key fields.",
-      severity: "error",
-      model: "user",
-      relation: "profile",
-    });
-  });
-
-  it("treats empty fields as non-owning and keeps fields-bearing owners required", () => {
-    const target = s.model({ id: s.string().id() });
-    const invalid = s.model({
-      id: s.string().id(),
-      target: s.oneToOne(() => target).fields(),
-    });
-    const valid = s.model({
-      id: s.string().id(),
-      targetId: s.string().unique(),
-      target: s
-        .oneToOne(() => target)
-        .fields("targetId")
-        .references("id"),
-    });
-
-    expect(codes(validateSchema({ invalid, target }))).toContain("R008");
-    expect(codes(validateSchema({ valid, target }))).not.toContain("R008");
-  });
-
   it("reports the one-to-one inverse code", () => {
     const user = s.model({ id: s.string().id() });
     const profile = s.model({
       id: s.string().id(),
       userId: s.string().unique(),
       user: s
-        .oneToOne(() => user)
+        .toOne(() => user)
         .fields("userId")
         .references("id"),
     });
@@ -68,40 +25,11 @@ describe("relation definition rules", () => {
     expect(codes(validateSchema({ user, profile }))).toContain("R002");
   });
 
-  it("warns when a self-relation has more than its forward/inverse pair", () => {
-    const node = s.model({
-      id: s.string().id(),
-      parentId: s.string().nullable(),
-      parent: s
-        .manyToOne(() => node)
-        .fields("parentId")
-        .references("id")
-        .optional(),
-      children: s.oneToMany(() => node),
-      otherChildren: s.oneToMany(() => node),
-    });
-
-    expect(warnings(validateSchema({ node }))).toContain("R007");
-  });
-
-  it("rejects a junction table disagreement before client hydration", () => {
-    const post = s.model({
-      id: s.string().id(),
-      tags: s.manyToMany(() => tag).through("post_tags"),
-    });
-    const tag = s.model({
-      id: s.string().id(),
-      posts: s.manyToMany(() => post).through("tag_posts"),
-    });
-
-    expect(codes(validateSchema({ post, tag }))).toContain("JT004");
-  });
-
   it("skips junction pairing when an M:N target is not registered", () => {
     const tag = s.model({ id: s.string().id() });
     const post = s.model({
       id: s.string().id(),
-      tags: s.manyToMany(() => tag),
+      tags: s.toMany(() => tag),
     });
 
     const result = validateSchema({ post });
@@ -114,61 +42,59 @@ describe("relation definition rules", () => {
     const post = s.model({
       id: s.string().id(),
       tags: s
-        .manyToMany(() => tag)
+        .toMany(() => tag)
         .through("post_tags")
-        .A("post_fk")
-        .B("tag_fk"),
+        .source("post_fk")
+        .target("tag_fk"),
     });
     const tag = s.model({
       id: s.string().id(),
-      posts: s.manyToMany(() => post),
+      posts: s.toMany(() => post),
     });
 
     expect(codes(validateSchema({ post, tag }))).not.toContain("JT004");
   });
 
   it("rejects implicit junction columns that collapse to one SQL name", () => {
+    // `Post` and `post` generate the same default side token, so the two sides
+    // would derive the same `${table}_${token}_fkey` constraint name.
     const upper = s.model({
       id: s.string().id(),
-      peers: s.manyToMany(() => lower),
+      peers: s.toMany(() => lower),
     });
     const lower = s.model({
       id: s.string().id(),
-      peers: s.manyToMany(() => upper),
+      peers: s.toMany(() => upper),
     });
 
     expect(codes(validateSchema({ Post: upper, post: lower }))).toContain(
-      "JT004"
+      "JT003"
     );
   });
 
-  it("rejects a self-junction with only its first column configured", () => {
+  it("fills in the other side of a partly configured self junction", () => {
+    // HEAD refused this with JT004 because a self junction had to spell BOTH
+    // side tokens explicitly. The default side token is now the endpoint FIELD
+    // key (§6.4), which separates the two sides on its own, so configuring one
+    // side is enough.
     const node = s.model({
       id: s.string().id(),
-      parents: s.manyToMany(() => node).A("parent_id"),
-      children: s.manyToMany(() => node),
+      parents: s.toMany(() => node).source("parent_id"),
+      children: s.toMany(() => node),
     });
 
-    expect(codes(validateSchema({ node }))).toContain("JT004");
+    expect(validateSchema({ node }).valid).toBe(true);
   });
 
   it("uses the shared identifier contract for junction columns", () => {
-    const post = s.model({
-      id: s.string().id(),
-      tags: s
-        .manyToMany(() => tag)
-        .A("constructor")
-        .B("tagId"),
-    });
-    const tag = s.model({
-      id: s.string().id(),
-      posts: s
-        .manyToMany(() => post)
-        .A("tagId")
-        .B("constructor"),
-    });
+    // Two guards, one contract, split by WHO wrote the name. A DECLARED token
+    // is judged by the modifier that owns it; a GENERATED one is judged where
+    // it is expanded, which is the JT002 case beside this one.
+    const tag = s.model({ id: s.string().id() });
 
-    expect(codes(validateSchema({ post, tag }))).toContain("JT002");
+    expect(() => s.toMany(() => tag).source("constructor")).toThrow(
+      "valid schema identifier"
+    );
   });
 
   it("validates expanded compound fields", () => {
@@ -178,44 +104,23 @@ describe("relation definition rules", () => {
         tenant: s.string(),
         slug: s.string(),
         tags: s
-          .manyToMany(() => tag)
+          .toMany(() => tag)
           .through("post_tag")
-          .A(longPrefix)
-          .B("tag"),
+          .source(longPrefix)
+          .target("tag"),
       })
       .id(["tenant", "slug"]);
-    const tag = s.model({
-      id: s.string().id(),
-      posts: s
-        .manyToMany(() => post)
-        .through("post_tag")
-        .A("tag")
-        .B(longPrefix),
-    });
+    const tag = s.model({ id: s.string().id(), posts: s.toMany(() => post) });
 
     expect(codes(validateSchema({ post, tag }))).toContain("JT002");
   });
 
-  it("rejects an empty compound-side prefix", () => {
-    const post = s
-      .model({
-        tenant: s.string(),
-        slug: s.string(),
-        tags: s
-          .manyToMany(() => tag)
-          .A("")
-          .B("tag"),
-      })
-      .id(["tenant", "slug"]);
-    const tag = s.model({
-      id: s.string().id(),
-      posts: s
-        .manyToMany(() => post)
-        .A("tag")
-        .B(""),
-    });
-
-    expect(codes(validateSchema({ post, tag }))).toContain("JT002");
+  it("refuses an empty compound-side prefix where it is written", () => {
+    // The token is judged by the modifier that owns it, not by the gate: an
+    // empty string is not a schema identifier and never becomes state.
+    expect(() =>
+      s.toMany(() => s.model({ id: s.string().id() })).source("")
+    ).toThrow("valid schema identifier");
   });
 
   it("validates generated compound-side constraint names", () => {
@@ -225,20 +130,13 @@ describe("relation definition rules", () => {
         tenant: s.string(),
         slug: s.string(),
         tags: s
-          .manyToMany(() => tag)
+          .toMany(() => tag)
           .through(table)
-          .A("post")
-          .B("tag"),
+          .source("post")
+          .target("tag"),
       })
       .id(["tenant", "slug"]);
-    const tag = s.model({
-      id: s.string().id(),
-      posts: s
-        .manyToMany(() => post)
-        .through(table)
-        .A("tag")
-        .B("post"),
-    });
+    const tag = s.model({ id: s.string().id(), posts: s.toMany(() => post) });
 
     expect(codes(validateSchema({ post, tag }))).toContain("JT002");
   });
@@ -247,18 +145,15 @@ describe("relation definition rules", () => {
     const post = s.model({
       id: s.string().id(),
       tags: s
-        .manyToMany(() => tag)
-        .A("post_1")
-        .B("Post"),
+        .toMany(() => tag)
+        .source("post_1")
+        .target("Post"),
     });
     const tag = s
       .model({
         tenant: s.string(),
         code: s.string(),
-        posts: s
-          .manyToMany(() => post)
-          .A("Post")
-          .B("post_1"),
+        posts: s.toMany(() => post),
       })
       .id(["tenant", "code"]);
 
@@ -290,14 +185,14 @@ describe("relation definition rules", () => {
   it("does not warn when the matching ID belongs to a real relation", () => {
     const post = s.model({
       id: s.string().id(),
-      comments: s.oneToMany(() => comment),
+      comments: s.toMany(() => comment),
     });
     const comment = s.model({
       id: s.string().id(),
       commentableType: s.string(),
       commentableId: s.string(),
       post: s
-        .manyToOne(() => post)
+        .toOne(() => post)
         .fields("commentableId")
         .references("id"),
     });
@@ -311,7 +206,7 @@ describe("relation definition rules", () => {
       id: s.string().id(),
       userId: s.string().unique(),
       user: s
-        .oneToOne(() => user)
+        .toOne(() => user)
         .fields("userId")
         .references("id"),
     });
@@ -325,14 +220,14 @@ describe("relation definition rules", () => {
   it("ignores unrelated target relations while checking one-to-one ownership", () => {
     const user = s.model({
       id: s.string().id(),
-      unrelated: s.oneToMany(() => profile),
-      profile: s.oneToOne(() => profile).optional(),
+      unrelated: s.toMany(() => profile),
+      profile: s.toOne(() => profile),
     });
     const profile = s.model({
       id: s.string().id(),
       userId: s.string().unique(),
       user: s
-        .oneToOne(() => user)
+        .toOne(() => user)
         .fields("userId")
         .references("id"),
     });
@@ -346,38 +241,44 @@ describe("relation definition rules", () => {
       b1Id: s.string(),
       b2Id: s.string(),
       b1: s
-        .manyToOne(() => b)
+        .toOne(() => b)
         .fields("b1Id")
         .references("id")
         .name("first"),
       b2: s
-        .manyToOne(() => b)
+        .toOne(() => b)
         .fields("b2Id")
         .references("id")
         .name("second"),
-      fromB: s.oneToMany(() => b).name("back"),
+      fromB: s.toMany(() => b).name("back"),
+      // The SECOND back edge. Both directions must carry two required keys, or
+      // the walk reaches the cycle once and the deduplication never runs: the
+      // second arrival at a node already on the stack is what this pins.
+      alsoFromB: s.toMany(() => b).name("other"),
     });
     const b = s.model({
       id: s.string().id(),
       a1Id: s.string(),
       a2Id: s.string(),
       a1: s
-        .manyToOne(() => a)
+        .toOne(() => a)
         .fields("a1Id")
         .references("id")
         .name("back"),
       a2: s
-        .manyToOne(() => a)
+        .toOne(() => a)
         .fields("a2Id")
         .references("id")
         .name("other"),
-      first: s.oneToMany(() => a).name("first"),
-      second: s.oneToMany(() => a).name("second"),
+      first: s.toMany(() => a).name("first"),
+      second: s.toMany(() => a).name("second"),
     });
-    const cycleCodes = codes(validateSchema({ a, b })).filter(
-      (code) => code === "CM002"
-    );
+    const result = validateSchema({ a, b });
+    const cycleCodes = codes(result).filter((code) => code === "CM002");
 
+    // Every slot pairs, so the only refusal is the cycle itself — reported ONCE
+    // even though four required edges close it.
+    expect(codes(result)).toEqual(["CM002"]);
     expect(cycleCodes).toEqual(["CM002"]);
   });
 });

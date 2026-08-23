@@ -1,4 +1,4 @@
-import type { PolymorphicRelationState } from "@schema/relation";
+import type { VariantRelationState } from "@schema/relation";
 import v from "@validation/primitives/v";
 import type { InferInput, InferOutput, VibSchema } from "@validation/types";
 import {
@@ -89,7 +89,7 @@ export type PolymorphicCreateOutput<Getters> = InferOutput<
 >;
 
 export function polymorphicCreateFactory<
-  State extends PolymorphicRelationState,
+  State extends VariantRelationState,
   Getters extends PolymorphicTargetSchemaGetters<State>,
 >(
   state: State,

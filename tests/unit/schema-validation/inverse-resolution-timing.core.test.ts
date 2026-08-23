@@ -1,215 +1,165 @@
+import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
-import { QueryEngineError } from "@errors";
-import { bindRelation } from "@query-engine/builders/relation-data-builder";
-import { createQueryScope, getRelationInfo } from "@query-engine/context";
+import { createClient } from "@client/client";
+import { Driver } from "@drivers";
+import { generate } from "@src/migrations/generate";
+import { push } from "@src/migrations/push";
 import { s } from "@src/schema";
-import { hydrateSchemaNames } from "@src/schema/hydration";
-import { validateSchema, validateSchemaOrThrow } from "@src/schema/validation";
-import { validateClientSchemaOrThrow } from "@src/schema/validation/validator";
+import { getSchemas } from "@src/schema/schemas";
+import { validateSchema } from "@src/schema/validation";
 import { describe, expect, it } from "vitest";
 
 /**
- * **Unit 2.1 — the TIMING half of the inverse-resolution pin.**
+ * **The definition gate has ONE timing.**
  *
- * A schema whose inverse cannot be resolved fails in three different places, at three
- * different times, with three different classes of diagnostic. Phase 2 gives inverse
- * resolution one owner whose `missing` and `ambiguous` arms throw nothing, and every
- * caller keeps translating them by its own policy — so the three timings below are what
- * "unchanged definition failures" means in the keep gate. They are pinned before the
- * resolver exists, as the pre-change truth Phase 2's later behaviour commit is measured
- * against.
+ * This suite used to pin a CLIFF. The same missing inverse failed in three
+ * different places at three different times: never at client construction for an
+ * ordinary schema, at `push`/CLI through the full rule set, and — for the very
+ * same models plus one unrelated polymorphic model — back at client construction
+ * again, because `hasPolymorphicRelations` decided how much of the rule set ran.
+ * Ambiguity was not a definition failure at all; it surfaced as a
+ * `QueryEngineError` when a query happened to bind the relation.
  *
- *  1. **Missing inverse** (R002/R003/R004/R005, severity `error`). NOT run at client
- *     construction for an ordinary schema: `validateClientSchemaOrThrow`
- *     (`src/schema/validation/validator.ts:155-164`, called by `createClient` at
- *     `src/client/client.ts:632-633`) runs ONLY `inverseOneToOneMustBeOptional` there.
- *     The missing-inverse rules run at `push` (`src/migrations/push/index.ts:59`) and in
- *     the CLI (`src/cli/utils.ts:191`), through the full rule set.
- *  2. **Ambiguous inverse** (R007) is a `warning`, and `validateOrThrow` throws only for
- *     errors — so ambiguity is never a definition failure at all. It becomes a
- *     `QueryEngineError` at QUERY time, in the engine's own scanner.
- *  3. A schema that declares ANY polymorphic relation runs the complete rule set at
- *     client construction, so the very same missing inverse throws there.
- *
- * The resolution answers themselves (which back-reference each scanner picks, and where
- * the two disagree) are pinned in
- * `tests/unit/relations/inverse-resolution-parity.core.test.ts`.
+ * Plan §7.3 deletes all of that: structural resolution runs at EVERY boundary
+ * that can produce effects, and `skipValidation` may drop advice but never the
+ * gate. So what this file pins now is the absence of the cliff — one schema, one
+ * verdict, at every door — which is falsifier §11.2.7 and §11.3.10.
  */
 
-// =============================================================================
-// FIXTURES — one missing inverse, reused so the timings differ by nothing else
-// =============================================================================
+class DefinitionDriver extends Driver<null, null> {
+  readonly adapter: DatabaseAdapter = new PostgresAdapter();
 
-const note = s.model({
-  id: s.string().id(),
-  body: s.string(),
-});
+  constructor() {
+    super("postgresql", "definition-timing");
+  }
 
-/** R003: a one-to-many whose target declares no many-to-one back at it. */
-const folder = s.model({
-  id: s.string().id(),
-  notes: s.oneToMany(() => note),
-});
+  protected async initClient() {
+    return null;
+  }
 
-/** R004: a many-to-one whose target declares no one-to-many back at it. */
-const mention = s.model({
-  id: s.string().id(),
-  noteId: s.string(),
-  target: s
-    .manyToOne(() => note)
-    .fields("noteId")
-    .references("id"),
-});
+  protected async closeClient() {
+    // The definition driver owns no provider resource.
+  }
 
-/**
- * A well-formed polymorphic trio. Its only job is to flip `hasPolymorphicRelations`,
- * which is what decides how much of the rule set client construction runs.
- */
-const clip = s.model({ id: s.string().id() });
-const reel = s.model({ id: s.string().id() });
-const bookmark = s.model({
-  id: s.string().id(),
-  subject: s.polymorphicToOne({ clip: () => clip, reel: () => reel }),
-});
+  protected async execute<T>(): Promise<{ rows: T[]; rowCount: number }> {
+    return { rows: [], rowCount: 0 };
+  }
 
-const errorCodes = (result: ReturnType<typeof validateSchema>): string[] =>
-  result.errors.map((issue) => issue.code);
+  protected async executeRaw<T>(): Promise<{ rows: T[]; rowCount: number }> {
+    return { rows: [], rowCount: 0 };
+  }
 
-describe("inverse resolution failure timing", () => {
-  describe("a missing inverse on an ordinary schema", () => {
-    it("is not raised at client construction", () => {
-      // `createClient` hydrates and then calls this. For a schema with no polymorphic
-      // relation it runs one rule, and that rule has nothing to say about a missing
-      // one-to-many/many-to-one pairing.
-      expect(() =>
-        validateClientSchemaOrThrow({ folder, note, mention })
-      ).not.toThrow();
-    });
+  protected async transaction<T>(
+    _client: null,
+    fn: (transaction: null) => Promise<T>
+  ): Promise<T> {
+    return fn(null);
+  }
+}
 
-    it("is an error of the full rule set, which push and the CLI run", () => {
-      const result = validateSchema({ folder, note, mention });
+/** One lone ordinary slot: `folder.notes` has no inverse on `note` (§11.2.7). */
+const loneOrdinarySlot = () => {
+  const note = s.model({ id: s.string().id(), body: s.string() });
+  const folder = s.model({
+    id: s.string().id(),
+    notes: s.toMany(() => note),
+  });
+  return { folder, note };
+};
 
-      expect(result.valid).toBe(false);
-      expect(result.errors).toContainEqual({
-        code: "R003",
-        message:
-          "'notes' (oneToMany) in 'folder' missing inverse manyToOne in 'note'",
-        severity: "error",
-        model: "folder",
-        relation: "notes",
-      });
-      expect(result.errors).toContainEqual({
-        code: "R004",
-        message:
-          "'target' (manyToOne) in 'mention' missing inverse oneToMany in 'note'",
-        severity: "error",
-        model: "mention",
-        relation: "target",
-      });
+/** A variant carrier whose row identities cannot share one id column (§11.3.10). */
+const malformedVariantIdentity = () => {
+  const post = s.model({ id: s.string().id() });
+  const clip = s.model({ id: s.int().id() });
+  const comment = s.model({
+    id: s.string().id(),
+    subject: s.toOne({ post: () => post, clip: () => clip }),
+  });
+  return { post, clip, comment };
+};
 
-      expect(() =>
-        validateSchemaOrThrow({ folder, note, mention })
-      ).toThrowError(
-        expect.objectContaining({
-          issues: expect.arrayContaining([
-            expect.objectContaining({ code: "R003", model: "folder" }),
-            expect.objectContaining({ code: "R004", model: "mention" }),
-          ]),
-        })
-      );
-    });
+/** Two unnamed back-references: ambiguity, which used to be a query-time surprise. */
+const ambiguousCandidates = () => {
+  const user = s.model({ id: s.string().id(), posts: s.toMany(() => post) });
+  const post = s.model({
+    id: s.string().id(),
+    authorId: s.string(),
+    editorId: s.string(),
+    author: s
+      .toOne(() => user)
+      .fields("authorId")
+      .references("id"),
+    editor: s
+      .toOne(() => user)
+      .fields("editorId")
+      .references("id"),
+  });
+  return { user, post };
+};
+
+const migrationClient = (
+  schema: Record<string, ReturnType<typeof s.model>>
+) => {
+  const driver = new DefinitionDriver();
+  return { $driver: driver, $schema: schema };
+};
+
+describe.each([
+  ["a lone ordinary slot", loneOrdinarySlot, "R002"],
+  ["a malformed variant identity", malformedVariantIdentity, "P002"],
+  ["an ambiguous inverse", ambiguousCandidates, "R009"],
+])("%s is refused at every effect-capable boundary", (_title, build, code) => {
+  it("fails definition validation with that one code", () => {
+    const result = validateSchema(build());
+
+    expect(result.valid).toBe(false);
+    expect(result.errors.map((issue) => issue.code)).toContain(code);
   });
 
-  describe("an ambiguous inverse on an ordinary schema", () => {
-    // Two fields-bearing back-references, neither named: the case where the two runtime
-    // scanners disagree (see the parity file). Definition validation has an opinion about
-    // it — and that opinion is a WARNING.
-    const user = s.model({
-      id: s.string().id(),
-      posts: s.oneToMany(() => post),
-    });
-    const post = s.model({
-      id: s.string().id(),
-      authorId: s.string(),
-      editorId: s.string(),
-      author: s
-        .manyToOne(() => user)
-        .fields("authorId")
-        .references("id"),
-      editor: s
-        .manyToOne(() => user)
-        .fields("editorId")
-        .references("id"),
-    });
-    hydrateSchemaNames({ post, user });
-
-    it("is a warning that no definition gate throws for", () => {
-      const result = validateSchema({ user, post });
-
-      expect(result.warnings).toContainEqual({
-        code: "R007",
-        message:
-          "Multiple relations author, editor from 'post' to 'user' - disambiguate with .name()",
-        severity: "warning",
-        model: "post",
-      });
-      expect(errorCodes(result)).not.toContain("R007");
-
-      // Warnings never throw, so neither definition boundary refuses this schema.
-      expect(result.valid).toBe(true);
-      expect(result.errors).toEqual([]);
-      expect(() => validateSchemaOrThrow({ user, post })).not.toThrow();
-      expect(() => validateClientSchemaOrThrow({ user, post })).not.toThrow();
-    });
-
-    it("becomes an error only when a query binds the relation", () => {
-      const scope = createQueryScope(new PostgresAdapter(), user);
-      const relationInfo = getRelationInfo(scope, "posts");
-      if (!relationInfo) {
-        throw new Error("Expected relation 'posts' on the fixture model.");
-      }
-
-      expect(() => bindRelation(scope, relationInfo)).toThrow(QueryEngineError);
-      expect(() => bindRelation(scope, relationInfo)).toThrow(
-        "Ambiguous relation 'posts' on model 'user': multiple relations on 'post' point back to it. Add .name() to both sides of each relation to disambiguate."
-      );
-    });
+  it("fails client construction", () => {
+    expect(() =>
+      createClient({ schema: build(), driver: new DefinitionDriver() })
+    ).toThrow("Schema validation failed");
   });
 
-  describe("a schema that declares a polymorphic relation", () => {
-    it("adds no definition error of its own", () => {
-      // The control for the contrast below: the trio is clean, so the throw it causes is
-      // the ORDINARY missing inverse being reported earlier, not a polymorphic complaint.
-      expect(validateSchema({ clip, reel, bookmark }).errors).toEqual([]);
-    });
+  it("fails registry-only construction, with no client anywhere", () => {
+    expect(() => getSchemas(build())).toThrow("Schema validation failed");
+  });
 
-    it("runs the complete rule set at client construction", () => {
-      // Same models, same missing inverse, one extra polymorphic-owning model — and the
-      // failure moves from push time to client construction.
-      expect(() =>
-        validateClientSchemaOrThrow({ folder, note, mention })
-      ).not.toThrow();
+  it("fails migration generate before a snapshot is read", async () => {
+    await expect(generate(migrationClient(build()))).rejects.toThrow(
+      "Schema validation failed"
+    );
+  });
 
-      expect(() =>
-        validateClientSchemaOrThrow({
-          folder,
-          note,
-          mention,
-          clip,
-          reel,
-          bookmark,
-        })
-      ).toThrowError(
-        expect.objectContaining({
-          issues: expect.arrayContaining([
-            expect.objectContaining({
-              code: "R003",
-              model: "folder",
-              relation: "notes",
-            }),
-          ]),
-        })
-      );
-    });
+  it("fails push", async () => {
+    await expect(push(migrationClient(build()))).rejects.toThrow(
+      "Schema validation failed"
+    );
+  });
+
+  it("fails push({ skipValidation: true }) — advice is skippable, the gate is not", async () => {
+    await expect(
+      push(migrationClient(build()), { skipValidation: true })
+    ).rejects.toThrow("Schema validation failed");
+  });
+});
+
+describe("the polymorphic cliff", () => {
+  it("no longer decides how much of the gate an ordinary schema gets", () => {
+    // Same lone slot, once alone and once beside a well-formed variant carrier
+    // that has nothing to do with it. HEAD ran one rule in the first case and
+    // the complete rule set in the second; both now get the same gate.
+    const ordinary = loneOrdinarySlot();
+    const withVariant = {
+      ...loneOrdinarySlot(),
+      ...malformedVariantIdentity(),
+    };
+
+    for (const schema of [ordinary, withVariant]) {
+      expect(
+        validateSchema(schema).errors.map((issue) => issue.code)
+      ).toContain("R002");
+    }
   });
 });

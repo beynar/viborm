@@ -178,18 +178,17 @@ const membershipSchema = (() => {
       label: s.string(),
       parentId: s.int().nullable(),
       parent: s
-        .manyToOne(() => node)
+        .toOne(() => node)
         .fields("parentId")
         .references("id")
-        .name("bParent")
-        .optional(),
-      children: s.oneToMany(() => node).name("bParent"),
+        .name("bParent"),
+      children: s.toMany(() => node).name("bParent"),
       friends: s
-        .manyToMany(() => node)
+        .toMany(() => node)
         .name("bFriends")
-        .A("bSourceId")
-        .B("bTargetId"),
-      friendedBy: s.manyToMany(() => node).name("bFriends"),
+        .source("bSourceId")
+        .target("bTargetId"),
+      friendedBy: s.toMany(() => node).name("bFriends"),
     })
     .map("bench_membership_nodes");
   return { node };

@@ -26,7 +26,7 @@ export const updateFamilySchema = (() => {
       id: s.int().id().increment(),
       email: s.string().unique(),
       count: s.int(),
-      posts: s.oneToMany(() => post),
+      posts: s.toMany(() => post),
     })
     .map("update_family_users");
   const post = s
@@ -36,10 +36,9 @@ export const updateFamilySchema = (() => {
       slug: s.string().unique(),
       userId: s.int().nullable(),
       author: s
-        .manyToOne(() => user)
+        .toOne(() => user)
         .fields("userId")
-        .references("id")
-        .optional(),
+        .references("id"),
     })
     .map("update_family_posts");
   return { user, post };

@@ -26,14 +26,13 @@ const hub = s.model({
   id: s.string().id(),
   label: s.string(),
   /** Child-held: `badge.hubId` carries the foreign key. */
-  badge: s.oneToOne(() => badge).optional(),
+  badge: s.toOne(() => badge),
   ownerId: s.string().nullable(),
   /** Parent-held: this row carries the foreign key. */
   owner: s
-    .manyToOne(() => owner)
+    .toOne(() => owner)
     .fields("ownerId")
-    .references("id")
-    .optional(),
+    .references("id"),
 });
 
 const badge = s.model({
@@ -41,16 +40,15 @@ const badge = s.model({
   tag: s.string(),
   hubId: s.string().unique().nullable(),
   hub: s
-    .oneToOne(() => hub)
+    .toOne(() => hub)
     .fields("hubId")
-    .references("id")
-    .optional(),
+    .references("id"),
 });
 
 const owner = s.model({
   id: s.string().id(),
   name: s.string(),
-  hubs: s.oneToMany(() => hub),
+  hubs: s.toMany(() => hub),
 });
 
 const client = createClient({

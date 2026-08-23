@@ -78,7 +78,7 @@ dialect supports — they never quietly build a different index:
 MySQL — which has no partial index at all — refuses the declaration by name
 rather than indexing the rows your schema excluded.
 
-The foreign-key fields of a `manyToOne` relation are indexed for you: `push`
+The foreign-key fields of a relation are indexed for you: `push`
 and `migrate` add an index over them on every database. Declare your own index
 over the same fields — first in the list, so the index still serves them — when
 you want more columns in it; the automatic index is then not added.
@@ -108,7 +108,7 @@ const post = s.model({
   title: s.string(),
   createdAt: s.dateTime().now(),
   authorId: s.string(),
-  author: s.manyToOne(() => user).fields("authorId").references("id"),
+  author: s.toOne(() => user).fields("authorId").references("id"),
 }).index(["authorId", "createdAt"]);
 ```
 
@@ -199,8 +199,8 @@ const user = s
     updatedAt: s.dateTime().updatedAt(),
 
     // Relations
-    posts: s.oneToMany(() => post),
-    profile: s.oneToOne(() => profile).optional(),
+    posts: s.toMany(() => post),
+    profile: s.toOne(() => profile),
   })
   .index(["email"])
   .index(["role", "active"])

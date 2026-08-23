@@ -4,9 +4,10 @@ import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { tryParseJsonString } from "@adapters/shared/result-parsing";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import { QueryEngineError } from "@errors";
-import { parseResult, ResultParser } from "@query-engine/result/ResultParser";
-import { hydrateSchemaNames, s } from "@schema";
+import { parseResult } from "@query-engine/result/ResultParser";
+import { s } from "@schema";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
+import { parserFor, prepareSchema } from "@tests/fixtures/query-scope";
 import { type JsonValue, v } from "@validation";
 import { describe, expect, test } from "vitest";
 
@@ -110,7 +111,7 @@ const scalarModel = s.model({
 
 const parent = s.model({
   id: s.string().id(),
-  children: s.oneToMany(() => child),
+  children: s.toMany(() => child),
 });
 
 const child = s.model({
@@ -118,15 +119,15 @@ const child = s.model({
   parentId: s.string(),
   score: s.int(),
   parent: s
-    .manyToOne(() => parent)
+    .toOne(() => parent)
     .fields("parentId")
     .references("id"),
 });
 
 const schema = { scalarModel, parent, child };
-hydrateSchemaNames(schema);
+prepareSchema(schema);
 function createScalarContext(adapter: DatabaseAdapter = new PostgresAdapter()) {
-  return new ResultParser(adapter, scalarModel);
+  return parserFor(adapter, scalarModel);
 }
 
 function parseField(
@@ -270,7 +271,7 @@ describe("strict scalar result contracts", () => {
   });
 
   test("rejects malformed scalar values inside nested relation rows", () => {
-    const parentContext = new ResultParser(new PostgresAdapter(), parent);
+    const parentContext = parserFor(new PostgresAdapter(), parent);
 
     expect(() =>
       parseResult(
@@ -429,7 +430,7 @@ describe("strict scalar result contracts", () => {
       return parsed === undefined ? next() : next(parsed);
     };
     const [row] = parseResult<Record<string, unknown>[]>(
-      new ResultParser(adapter, scalarModel),
+      parserFor(adapter, scalarModel),
       "findMany",
       [{ countingJson: '{"value":"raw"}' }],
       { select: { countingJson: true } }
@@ -443,7 +444,7 @@ describe("strict scalar result contracts", () => {
     countingJsonValidationCalls = 0;
     const driver = new SQLite3Driver();
     const [row] = parseResult<Record<string, unknown>[]>(
-      new ResultParser(driver.adapter, scalarModel, driver),
+      parserFor(driver.adapter, scalarModel, driver),
       "findMany",
       [{ countingJson: '{"value":"raw"}' }],
       { select: { countingJson: true } }

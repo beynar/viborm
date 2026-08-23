@@ -7,6 +7,7 @@ import type {
 } from "../builders/relation-mutation-parser";
 import type { QueryEngine } from "../query-engine";
 import type { QueryScope } from "../types";
+import { generatedOutputSegments } from "./generated-output-boundary";
 import type { JunctionTargetRelationsBuilder } from "./nested-target-parts";
 import {
   bucketOperationSteps,
@@ -71,7 +72,6 @@ export interface PolymorphicCollectionPartInput {
 export function buildPolymorphicCollectionPart(
   input: PolymorphicCollectionPartInput
 ): Part {
-  assertClearIsIndivisible(input);
   const leaves = input.arm.entries.flatMap((entry) =>
     buildJunctionParts({
       scope: input.scope,
@@ -125,7 +125,9 @@ export function buildPolymorphicCollectionPart(
       }
       const clears: OperationStep[] = [];
       for (const clear of barrier) clears.push(...clear.compile(scope, known));
-      return [...guards, ...clears, ...writes];
+      const steps = [...guards, ...clears, ...writes];
+      assertClearIsIndivisible(input, steps, clears[0]);
+      return steps;
     },
   };
 }
@@ -152,7 +154,7 @@ function loweredProgram(
 ): RelationMutationProgram {
   if (!spellsSet(program)) return program;
   return {
-    relationInfo: program.relationInfo,
+    relationRef: program.relationRef,
     entries: program.entries.map((entry) =>
       entry.kind === "set" ? { kind: "connect", targets: entry.targets } : entry
     ),
@@ -176,7 +178,7 @@ function loweredProgram(
  */
 function buildClearAllBarrier(input: PolymorphicCollectionPartInput): Part[] {
   const parts: Part[] = [];
-  for (const member of input.arm.relation.storage.members.values()) {
+  for (const member of input.arm.relation.edge.members) {
     const junction = bindPolymorphicCollectionMember(
       input.parentScope,
       input.arm.relation,
@@ -189,7 +191,7 @@ function buildClearAllBarrier(input: PolymorphicCollectionPartInput): Part[] {
         parentScope: input.parentScope,
         relation: junction,
         program: {
-          relationInfo: junction.relationInfo,
+          relationRef: junction.relationRef,
           entries: [{ kind: "set", targets: [] }],
         },
         parentId: input.parentId,
@@ -205,29 +207,40 @@ function buildClearAllBarrier(input: PolymorphicCollectionPartInput): Part[] {
 }
 
 /**
- * REFUSE AT CONSTRUCTION, before any effect (§9.2's "refuses before clearing",
- * §10.2's "construction refuses before effects").
+ * Refuse while the final fragment is constructed, before any effect.
  *
  * `set` is one indivisible unit: the clear and the refill must commit together or
  * not at all. On a native atomic batch they normally do — `generatedOutputSegments`
  * is the only splitter of a non-series atomic batch, and bind-budget chunking
  * stays inside one batch. But nothing in the executor marks a GROUP of steps
- * indivisible, so when the owner's own row key arrives as a produced output
- * reference the batch may legally be segmented BETWEEN the clear and the refill,
- * committing an emptied collection.
+ * indivisible. The executor's exact split analysis is reused after guards,
+ * clears, and writes have their final order, so a boundary before the clear is
+ * harmless and a real insert-id scratch capability keeps one atomic batch.
  *
  * The predicate is therefore the three facts that make that reachable, and no
  * executor-side indivisible-group marker is added: one guard per invariant, and
  * §13.4 explicitly admits "refuses before the clear" as a satisfying answer.
  */
-function assertClearIsIndivisible(input: PolymorphicCollectionPartInput): void {
+function assertClearIsIndivisible(
+  input: PolymorphicCollectionPartInput,
+  steps: readonly OperationStep[],
+  firstClear: OperationStep | undefined
+): void {
   if (!input.arm.clearsAll) return;
   if (input.txMode) return;
-  const produced = Object.values(input.parentId).some(
-    (source) => source?.kind === "finalRef"
+  if (!firstClear) return;
+  const segments = generatedOutputSegments(
+    { steps, outputs: {} },
+    input.engine.adapter.batchRefs.storeLastInsertId !== undefined
   );
-  if (!produced) return;
-  throw new UnsupportedOperationError(
-    `Polymorphic collection '${input.arm.name}' set requires one atomic unit; this driver would commit the clear separately from the refill.`
-  );
+  if (!segments) return;
+  const firstClearIndex = steps.indexOf(firstClear);
+  let boundary = 0;
+  for (const segment of segments.slice(0, -1)) {
+    boundary += segment.steps.length;
+    if (boundary <= firstClearIndex) continue;
+    throw new UnsupportedOperationError(
+      `Polymorphic collection '${input.arm.name}' set requires one atomic unit; this driver would commit the clear separately from the refill.`
+    );
+  }
 }

@@ -1,15 +1,16 @@
-import {
-  type AnyPolymorphicRelation,
-  type AnyRelation,
-  isPolymorphicRelation,
-} from "@schema/relation";
+import type { AnyRelation } from "@schema/relation";
+import { refuseRelationInput } from "@schema/relation/terminal";
+// Deep import: the references-stage predicate is the `s.model(...)` boundary's
+// own instrument and is deliberately not part of the relation package surface.
+import { isReferencesStage } from "@schema/relation/to-one";
 import type { Scalar } from "@schema/scalars/base";
 
 /**
  * Record of model fields - the canonical type for scalar and relation definitions.
- * Supports both Scalar instances and relation instances.
+ * A model field is either a scalar or a relation; ONE relation map holds both
+ * target domains.
  */
-export type AnyModelField = Scalar | AnyRelation | AnyPolymorphicRelation;
+export type AnyModelField = Scalar | AnyRelation;
 export type ModelShape = Record<string, AnyModelField>;
 
 export type NameFromKeys<
@@ -58,10 +59,6 @@ export type RelationKeys<T extends ModelShape> = {
   [K in keyof T]: T[K] extends AnyRelation ? ToString<K> : never;
 }[keyof T];
 
-export type PolymorphicRelationKeys<T extends ModelShape> = {
-  [K in keyof T]: T[K] extends AnyPolymorphicRelation ? ToString<K> : never;
-}[keyof T];
-
 export type RequiredScalarKeys<T extends ModelShape> = {
   [K in keyof T]: T[K] extends Scalar
     ? T[K]["~"]["state"]["optional"] extends true
@@ -100,27 +97,32 @@ export type RelationMap<T extends ModelShape> = {
   [K in RelationKeys<T>]: T[K] extends AnyRelation ? T[K] : never;
 };
 
-export type PolymorphicRelationMap<T extends ModelShape> = {
-  [K in PolymorphicRelationKeys<T>]: T[K] extends AnyPolymorphicRelation
-    ? T[K]
-    : never;
-};
-
 export type UniqueScalarMap<T extends ModelShape> = {
   [K in UniqueScalarKeys<T>]: T[K] extends Scalar ? T[K] : never;
 };
 
-/** Check if a value is a relation (has ["~"].state.type matching relation types) */
+/**
+ * ONE relation boundary, keyed on the internal brand.
+ *
+ * Trusted relation state originates only in `s.toOne` / `s.toMany`, and both
+ * target domains carry `kind: "relation"` — so a model has one relation map and
+ * no consumer has to ask which family a member belongs to. Scalars keep
+ * `state.type`, so the two brands cannot collide.
+ */
 function isRelation(value: unknown): value is AnyRelation {
-  if (!value || typeof value !== "object") return false;
-  const v = value as any;
-  if (!v["~"]?.state?.type) return false;
-  const type = v["~"].state.type;
+  if (
+    (typeof value !== "object" || value === null) &&
+    typeof value !== "function"
+  ) {
+    return false;
+  }
+  const internal = Reflect.get(value, "~");
+  if (typeof internal !== "object" || internal === null) return false;
+  const state = Reflect.get(internal, "state");
   return (
-    type === "oneToOne" ||
-    type === "oneToMany" ||
-    type === "manyToOne" ||
-    type === "manyToMany"
+    typeof state === "object" &&
+    state !== null &&
+    Reflect.get(state, "kind") === "relation"
   );
 }
 
@@ -142,7 +144,10 @@ const SCALAR_TYPES = new Set<string>([
 ]);
 
 function isScalar(value: unknown): value is Scalar {
-  if ((typeof value !== "object" || value === null) && typeof value !== "function") {
+  if (
+    (typeof value !== "object" || value === null) &&
+    typeof value !== "function"
+  ) {
     return false;
   }
   const internal = Reflect.get(value, "~");
@@ -165,21 +170,28 @@ export const extractScalarMap = <T extends ModelShape>(fields: T) => {
   );
 };
 
-export const extractPolymorphicRelationMap = <T extends ModelShape>(fields: T) => {
-  return Object.entries(fields).reduce(
-    (acc, [key, value]) => {
-      if (isPolymorphicRelation(value)) acc[key] = value;
-      return acc;
-    },
-    {} as PolymorphicRelationMap<T>
-  );
-};
-
+/**
+ * The `s.model(...)` member-classification boundary for relations.
+ *
+ * It gains exactly ONE refusal: a transient references stage — a chain that
+ * started `.fields(...)` and never received `.references(...)` — is rejected
+ * loudly rather than silently dropped, because that member declares a foreign
+ * key the schema would then never have. Every other unrecognized member keeps
+ * its existing silent-drop behavior; widening that is a separate decision.
+ */
 export const extractRelationMap = <T extends ModelShape>(fields: T) => {
   return Object.entries(fields).reduce(
     (acc, [key, value]) => {
       if (isRelation(value)) {
         acc[key] = value;
+        return acc;
+      }
+      if (isReferencesStage(value)) {
+        refuseRelationInput(
+          "s.model",
+          key,
+          `Relation '${key}' started \`.fields(...)\` without \`.references(...)\`; complete the foreign key before using it as a model field`
+        );
       }
       return acc;
     },

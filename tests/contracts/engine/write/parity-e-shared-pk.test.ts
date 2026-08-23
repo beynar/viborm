@@ -61,9 +61,10 @@ import { describe, expect, test } from "vitest";
  *     the arm spells or the `Ref` the target's INSERT publishes;
  *   · `upsert` — LIFTED arm-locally: the found target publishes its post-update key and
  *     the missing target publishes the exact key its INSERT consumes;
- *   · `disconnect` / `delete` — NOT lifted, and not E's to lift: a row-key member is never
- *     nullable, so `assertRelationCanDisconnect` refuses on an OPTIONAL shared edge and the
- *     parse boundary refuses first on a required one. Both pinned;
+ *   · `disconnect` / `delete` — NOT lifted, and not E's to lift: a row-key member is
+ *     never nullable, so neither verb is published at all and the PARSE answers both.
+ *     `assertRelationCanDisconnect` is deleted with its last route — it read a
+ *     declared `.optional()` flag against a non-nullable column, and the flag is gone;
  *   · a target `update` — its post-update referenced key is published after the selected
  *     target write; a database cascade owns the physical parent-key transition.
  *
@@ -105,9 +106,9 @@ const parityShared = (() => {
       id: s.string().id(),
       email: s.string().unique(),
       name: s.string(),
-      card: s.oneToOne(() => card).optional(),
-      stub: s.oneToOne(() => stub).optional(),
-      widgets: s.oneToMany(() => widget),
+      card: s.toOne(() => card),
+      stub: s.toOne(() => stub),
+      widgets: s.toMany(() => widget),
     })
     .map("parity_e_accounts");
   /** The shared-primary-key record: `accountId` is its identity AND its foreign key. */
@@ -116,11 +117,11 @@ const parityShared = (() => {
       accountId: s.string().id(),
       label: s.string(),
       account: s
-        .oneToOne(() => account)
+        .toOne(() => account)
         .fields("accountId")
         .references("id"),
       /** A CHILD-HELD sibling on the shared key: what the fold's transition must reach. */
-      notes: s.oneToMany(() => note),
+      notes: s.toMany(() => note),
     })
     .map("parity_e_cards");
   const note = s
@@ -129,28 +130,32 @@ const parityShared = (() => {
       cardId: s.string(),
       body: s.string(),
       card: s
-        .manyToOne(() => card)
+        .toOne(() => card)
         .fields("cardId")
         .references("accountId"),
     })
     .map("parity_e_notes");
-  /** The same shared key on an OPTIONAL edge — the only spelling `disconnect` reaches. */
+  /**
+   * The same shared key, declared without the old `.optional()` flag. That flag is
+   * what used to publish a removal verb beside a NON-NULLABLE column, sending the
+   * payload to `assertRelationCanDisconnect`; emptiness follows the stored tuple
+   * now, so this edge publishes neither `disconnect` nor `delete`.
+   */
   const stub = s
     .model({
       accountId: s.string().id(),
       memo: s.string(),
       account: s
-        .oneToOne(() => account)
+        .toOne(() => account)
         .fields("accountId")
-        .references("id")
-        .optional(),
+        .references("id"),
     })
     .map("parity_e_stubs");
   const desk = s
     .model({
       id: s.int().id().increment(),
       title: s.string(),
-      ticket: s.oneToOne(() => ticket).optional(),
+      ticket: s.toOne(() => ticket),
     })
     .map("parity_e_desks");
   /** A shared key whose final value the TARGET's own INSERT produces (Package F). */
@@ -159,7 +164,7 @@ const parityShared = (() => {
       deskId: s.int().id(),
       note: s.string(),
       desk: s
-        .oneToOne(() => desk)
+        .toOne(() => desk)
         .fields("deskId")
         .references("id"),
     })
@@ -172,7 +177,7 @@ const parityShared = (() => {
     .model({
       id: s.string().id(),
       handle: s.string().unique().nullable(),
-      badge: s.oneToOne(() => badge).optional(),
+      badge: s.toOne(() => badge),
     })
     .map("parity_e_holders");
   const badge = s
@@ -180,7 +185,7 @@ const parityShared = (() => {
       handle: s.string().id(),
       caption: s.string(),
       holder: s
-        .oneToOne(() => holder)
+        .toOne(() => holder)
         .fields("handle")
         .references("handle"),
     })
@@ -192,10 +197,9 @@ const parityShared = (() => {
       name: s.string(),
       ownerId: s.string().nullable(),
       owner: s
-        .manyToOne(() => account)
+        .toOne(() => account)
         .fields("ownerId")
-        .references("id")
-        .optional(),
+        .references("id"),
     })
     .map("parity_e_widgets");
   return { account, badge, card, holder, note, stub, desk, ticket, widget };
@@ -640,30 +644,34 @@ describe("parity E — the two refusal surfaces, verbatim", () => {
   test.each([
     ["disconnect", { disconnect: true }],
     ["delete", { delete: true }],
-  ])("UPDATE root — an OPTIONAL shared-primary-key edge answers '%s' at the nullability owner", async (_kind, payload) => {
-    const { client, driver } = clientOn();
-    const thrown = await client.stub
-      .update({
-        where: { accountId: "a1" },
-        data: { account: payload },
-        select: { accountId: true },
-      })
-      .then(
-        () => undefined,
-        (error: unknown) => error as Error
-      );
-    // `assertRelationCanDisconnect` (relation-nullability.ts), not E1's guard: the
-    // question it answers is about the COLUMN, and a row-key member is never nullable.
-    expect({
-      name: thrown?.constructor.name,
-      message: thrown?.message,
-    }).toEqual({
-      name: "NestedWriteError",
-      message:
-        "Cannot disconnect relation 'account' because foreign key field(s) accountId are required.",
-    });
-    expect(driver.statements).toEqual([]);
-  });
+  ])(
+    "UPDATE root — a shared-primary-key edge publishes no '%s' verb at all",
+    async (kind, payload) => {
+      const { client, driver } = clientOn();
+      const thrown = await client.stub
+        .update({
+          where: { accountId: "a1" },
+          data: { account: payload },
+          select: { accountId: true },
+        })
+        .then(
+          () => undefined,
+          (error: unknown) => error as Error
+        );
+      // The COLUMN answers, one boundary earlier than it used to: `slotMayBeEmpty`
+      // reads the stored tuple, a row-key member is never nullable, and
+      // `ToOneUpdateSchema` publishes neither removal verb — so the key is unknown
+      // rather than refused. Same verdict, one owner instead of two.
+      expect({
+        name: thrown?.constructor.name,
+        message: thrown?.message,
+      }).toEqual({
+        name: "ValidationError",
+        message: `Validation failed for update: Unknown key: ${kind}`,
+      });
+      expect(driver.statements).toEqual([]);
+    }
+  );
 });
 
 // ---------------------------------------------------------------------------

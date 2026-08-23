@@ -580,10 +580,10 @@ function resolveStorageHistory(
   refuseDataBearing(
     policy,
     // The storage KINDS stay `toOne`/`toMany` — that is the snapshot format's
-    // own discriminator and it must not move. The MESSAGE names the factory the
-    // schema author writes instead, because the builder's cardinality terminals
-    // it used to name were retired with the builder.
-    `Polymorphic relation "${desired.ownerTable}.${desired.relation}" changed cardinality from s.${previous.kind === "toOne" ? "polymorphicToOne" : "polymorphicToMany"}() to s.${desired.kind === "toOne" ? "polymorphicToOne" : "polymorphicToMany"}(); membership moves between owner-row columns and member junction tables`
+    // own discriminator and it must not move. The MESSAGE names the call the
+    // schema author writes: one of the two relation factories over a variant
+    // map, whose cardinality is the factory itself.
+    `Polymorphic relation "${desired.ownerTable}.${desired.relation}" changed cardinality from s.${previous.kind}(...) to s.${desired.kind}(...); membership moves between owner-row columns and member junction tables`
   );
 }
 

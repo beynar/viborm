@@ -56,11 +56,10 @@ const tree = (() => {
       name: s.string(),
       parentId: s.string().nullable(),
       parent: s
-        .manyToOne(() => node)
+        .toOne(() => node)
         .fields("parentId")
-        .references("id")
-        .optional(),
-      children: s.oneToMany(() => node),
+        .references("id"),
+      children: s.toMany(() => node),
     })
     .map("x1b_adopt_node");
   return { node };
@@ -139,7 +138,7 @@ const m2mSchema = (() => {
     .model({
       id: s.string().id(),
       title: s.string(),
-      posts: s.oneToMany(() => post),
+      posts: s.toMany(() => post),
     })
     .map("x1b_m2m_blogs");
   const post = s
@@ -148,18 +147,17 @@ const m2mSchema = (() => {
       title: s.string(),
       blogId: s.string().nullable(),
       blog: s
-        .manyToOne(() => blog)
+        .toOne(() => blog)
         .fields("blogId")
-        .references("id")
-        .optional(),
-      tags: s.manyToMany(() => tag),
+        .references("id"),
+      tags: s.toMany(() => tag),
     })
     .map("x1b_m2m_posts");
   const tag = s
     .model({
       id: s.string().id(),
       name: s.string(),
-      posts: s.manyToMany(() => post),
+      posts: s.toMany(() => post),
     })
     .map("x1b_m2m_tags");
   return { blog, post, tag };

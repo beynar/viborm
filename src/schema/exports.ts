@@ -20,7 +20,9 @@ export type {
   AnyRelation,
   Getter,
   ReferentialAction,
-  RelationType,
+  RelationCardinality,
+  RelationSlot,
+  RelationState,
 } from "./relation";
 export type { NumberScalar, Scalar } from "./scalars";
 // Native database types (PG, MYSQL, SQLITE)

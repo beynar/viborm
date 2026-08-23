@@ -163,10 +163,14 @@ describe("Package H — shared-primary-key supplier + modify", () => {
     await db.$disconnect();
   }, 60_000);
 
-  test("disconnect + connect on the shared key EXECUTES: the optional fold moves the key", async () => {
-    // The optional spelling of the same fold. `stub` carries the optional shared key,
-    // so this is the one payload where a vacate can legally precede the supplier — and
-    // the members map has to count the supplier's fold through the pair.
+  test("disconnect + connect on the shared key is not a spellable pair", async () => {
+    // The "optional" spelling of the same fold, RE-FOUNDED. It used to reach the
+    // engine because `stub.account` carried an `.optional()` flag beside a
+    // NON-NULLABLE row-key column, so the schema published a vacate the column
+    // could never accept. Emptiness follows the stored tuple now (§9.4), the verb
+    // is not published at all, and the pair the fold had to arbitrate cannot be
+    // written. R2's per-column precedence keeps its witness on the payload that IS
+    // spellable — `connect` beside `update`, above.
     const db = await seeded();
     await db.stub.create({ data: { accountId: "a1", memo: "m" } });
 
@@ -187,12 +191,9 @@ describe("Package H — shared-primary-key supplier + modify", () => {
         select: { accountId: true, memo: true },
       }),
     }).toEqual({
-      message: "EXECUTED",
-      // R2's per-column precedence: the supplier owns the final assignment, so the
-      // vacate contributes no `NULL` and the stub's own row key follows the fold. Before
-      // H the outcome of this pair depended on which assignment `Object.assign` applied
-      // last on the root SET.
-      stubs: [{ accountId: "a2", memo: "m" }],
+      message: "Validation failed for update: Unknown key: disconnect",
+      // A refusal that fires after a write is not a refusal: the row never moved.
+      stubs: [{ accountId: "a1", memo: "m" }],
     });
     await db.$disconnect();
   }, 60_000);

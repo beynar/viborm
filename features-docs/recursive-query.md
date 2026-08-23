@@ -45,15 +45,13 @@ const user = await orm.user.findUnique({
 const user = s.model({
   id: s.string().id().ulid(),
   name: s.string(),
-  managerId: s.string().optional(),
-  
-  // Self-referencing relations
-  manager: s.oneToOne(() => user, {
-    fields: ["managerId"],
-    references: ["id"],
-    optional: true,
-  }),
-  subordinates: s.oneToMany(() => user),
+  managerId: s.string().nullable(),
+
+  // Self-referencing relations: one paired singular/collection pair
+  manager: s.toOne(() => user)
+    .fields("managerId")
+    .references("id"),
+  subordinates: s.toMany(() => user),
 });
 ```
 
@@ -220,7 +218,7 @@ export const toManyIncludeFactory = <S extends RelationState>(
 
 ```typescript
 import type { Sql } from "@sql";
-import type { QueryContext, RelationInfo } from "../types";
+import type { QueryContext, RelationRef } from "../types";
 
 /**
  * Recurse options parsed from user input
@@ -258,7 +256,7 @@ export function parseRecurseOption(
  */
 export function buildRecursiveInclude(
   ctx: QueryContext,
-  relationInfo: RelationInfo,
+  relationRef: RelationRef,
   includeValue: {
     recurse: true | { depth: number };
     where?: Record<string, unknown>;
@@ -272,18 +270,21 @@ export function buildRecursiveInclude(
   const recurseOpts = parseRecurseOption(recurse);
   
   const cteName = ctx.nextAlias() + "_tree";
-  const targetTable = relationInfo.targetModel["~"].state.tableName;
-  const fkField = relationInfo.fields?.[0];  // e.g., "managerId"
-  const pkField = relationInfo.references?.[0];  // e.g., "id"
-  
-  if (!fkField || !pkField) {
-    throw new Error("Self-referencing relation must have fields and references");
+  const targetTable = relationRef.targetModel["~"].state.tableName;
+  const edge = relationRef.resolved.edge;
+  // A self-referencing recursion walks a row-held foreign key; the resolved
+  // edge already names its owner and its paired members.
+  if (edge.kind !== "foreignKey") {
+    throw new Error("Recursive include requires a foreign-key edge");
   }
+  const [member] = edge.reference.members;
+  const fkField = member.foreignField;      // e.g., "managerId"
+  const pkField = member.referencedField;   // e.g., "id"
   
   // Build column list from select or all scalars
   const columns = select 
     ? Object.keys(select)
-    : Object.keys(relationInfo.targetModel["~"].state.scalars);
+    : Object.keys(relationRef.targetModel["~"].state.scalars);
   
   const columnsSql = columns.map(c => adapter.identifiers.escape(c));
   const columnsWithMeta = [
@@ -354,7 +355,7 @@ import { buildRecursiveInclude, parseRecurseOption } from "./recurse-builder";
 // In the include building logic, detect recurse option and delegate
 function buildRelationInclude(
   ctx: QueryContext,
-  relationInfo: RelationInfo,
+  relationRef: RelationRef,
   includeValue: Record<string, unknown>,
   parentAlias: string
 ): Sql {
@@ -362,7 +363,7 @@ function buildRelationInclude(
   if ("recurse" in includeValue && includeValue.recurse) {
     return buildRecursiveInclude(
       ctx,
-      relationInfo,
+      relationRef,
       includeValue as any,
       parentAlias
     );
@@ -754,15 +755,17 @@ The `isSelfReferencing()` helper compares model identity, not names:
 ```typescript
 // This works because both reference the same model object
 const user = s.model({
-  subordinates: s.oneToMany(() => user),  // Same model reference
+  managerId: s.string().nullable(),
+  manager: s.toOne(() => user).fields("managerId").references("id"),
+  subordinates: s.toMany(() => user),  // Same model reference
 });
 ```
 
 ### 11.2 Recursive Relation Goes Both Directions
 
 A self-referencing model typically has two relations:
-- **Down the tree:** `subordinates` (oneToMany)
-- **Up the tree:** `manager` (oneToOne/manyToOne)
+- **Down the tree:** `subordinates` (the collection slot)
+- **Up the tree:** `manager` (the singular slot, which owns the FK)
 
 Both can use `recurse`:
 ```typescript

@@ -84,42 +84,44 @@ export const model = s.model({
   enumScalarWithDefault,
   enumScalarWithValidation,
   nullableEnumScalar,
-  oneToOne: s.oneToOne(() => oneToOne).optional(),
-  oneToMany: s.oneToMany(() => oneToMany),
-  manyToMany: s.manyToMany(() => manyToMany),
-  manyToOne: s.manyToOne(() => manyToOne),
+  // One field per pair shape, named for the PAIR: this slot's cardinality and
+  // the partner slot's. Each target model carries the mirror slot.
+  singularToSingular: s.toOne(() => singularToSingular),
+  singularToPlural: s.toMany(() => singularToPlural),
+  pluralToPlural: s.toMany(() => pluralToPlural),
+  pluralToSingular: s.toOne(() => pluralToSingular),
 });
 
-export const oneToOne = s.model({
+export const singularToSingular = s.model({
   id: s.string().id().ulid(),
-  test: s.oneToOne(() => oneToOne).optional(),
+  test: s.toOne(() => singularToSingular),
 });
 
-export const oneToMany = s.model({
+export const singularToPlural = s.model({
   id: s.string().id().ulid(),
-  test: s.manyToOne(() => oneToOne),
+  test: s.toOne(() => singularToSingular),
 });
 
-export const manyToMany = s.model({
+export const pluralToPlural = s.model({
   id: s.string().id().ulid(),
-  test: s.manyToMany(() => oneToOne),
+  test: s.toMany(() => singularToSingular),
 });
 
-export const manyToOne = s.model({
+export const pluralToSingular = s.model({
   id: s.string().id().ulid(),
-  test: s.oneToMany(() => oneToOne),
+  test: s.toMany(() => singularToSingular),
 });
 
 // ===== TEST MODELS FOR CLIENT TESTS =====
 
 const example = s.model({
   id: s.string().id().ulid(),
-  relation: s.oneToMany(() => relation),
+  relation: s.toMany(() => relation),
 });
 
 const relation = s.model({
   id: s.string().id().ulid(),
-  example: s.oneToOne(() => example).optional(),
+  example: s.toOne(() => example),
 });
 /**
  * Test user model for client type tests
@@ -133,8 +135,8 @@ export const testUser = s.model({
   tags: s.string().array(),
   createdAt: s.dateTime().now(),
   updatedAt: s.dateTime().now(),
-  posts: s.oneToMany(() => testPost),
-  profile: s.oneToOne(() => testProfile).optional(),
+  posts: s.toMany(() => testPost),
+  profile: s.toOne(() => testProfile),
 });
 
 /**
@@ -150,9 +152,8 @@ export const testPost = s
     updatedAt: s.dateTime().now(),
     authorId: s.string(),
     author: s
-      .oneToOne(() => testUser)
-      .name("author")
-      .optional(),
+      .toOne(() => testUser)
+      .name("author"),
     // metadata: s
     //   .json(
     //     z.object({
@@ -175,9 +176,8 @@ export const testProfile = s
     avatar: s.string().nullable(),
     userId: s.string().unique(),
     user: s
-      .oneToOne(() => testUser)
-      .name("user")
-      .optional(),
+      .toOne(() => testUser)
+      .name("user"),
   })
   .map("Profile")
   .index(["avatar", "bio"], { name: "idx_profile_eaeaz", type: "gin" })

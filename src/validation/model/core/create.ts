@@ -1,11 +1,13 @@
 import type { AnyModel, ModelState } from "@schema/model";
 import type { RequiredScalarKeys as ModelRequiredScalarKeys } from "@schema/model/helper";
-import {
-  type PolymorphicCardinalityOf,
-  polymorphicCardinality,
-} from "@schema/relation/cardinality";
+import { slotMayBeEmpty } from "@schema/relation/clearability";
+import type {
+  Cardinality,
+  SlotMayBeEmpty,
+} from "@schema/relation/static-membership";
 import type { RelationState } from "@schema/relation/types";
 import type { Scalar } from "@schema/scalars";
+import type { ResolvedSlot } from "@schema/validation/relation-resolution";
 import type { ObjectSchema } from "../../primitives/object";
 import v, { type V } from "../../primitives/v";
 import type { ScalarSchemas } from "../index";
@@ -19,38 +21,52 @@ import type { ScalarSchemas } from "../index";
  */
 
 type ModelStateOf<M extends AnyModel> = M["~"]["state"];
+type ModelRelations<M extends AnyModel> = ModelStateOf<M>["relations"];
+
+/** The local half of every foreign key this model's own relations store. */
 type ForeignKeyScalarKeys<M extends AnyModel> = {
-  [K in keyof ModelStateOf<M>["relations"]]: ModelStateOf<M>["relations"][K]["~"]["state"] extends {
-    type: "manyToOne" | "oneToOne";
-    fields: readonly (infer ScalarKey extends string)[];
+  [K in keyof ModelRelations<M>]: ModelRelations<M>[K]["~"]["state"] extends {
+    readonly foreignKey: {
+      readonly fields: readonly (infer ScalarKey extends string)[];
+    };
   }
     ? ScalarKey
     : never;
-}[keyof ModelStateOf<M>["relations"]];
-type CreateRequirementKeySetGroup<M extends AnyModel> = {
-  [K in keyof ModelStateOf<M>["relations"]]: ModelStateOf<M>["relations"][K]["~"]["state"] extends {
-    type: "manyToOne" | "oneToOne";
-    fields: readonly (infer ScalarKey extends string)[];
-  }
-    ? ModelStateOf<M>["relations"][K]["~"]["state"] extends { optional: true }
-      ? never
-      : readonly [readonly ScalarKey[], readonly [Extract<K, string>]]
-    : never;
-}[keyof ModelStateOf<M>["relations"]];
-type PolymorphicCreateRequirementKeySetGroup<M extends AnyModel> = {
-  [K in keyof ModelStateOf<M>["polymorphicRelations"]]: PolymorphicCardinalityOf<
-    ModelStateOf<M>["polymorphicRelations"][K]["~"]["state"]
+}[keyof ModelRelations<M>];
+
+type RequiredForeignKeyMembers<
+  M extends AnyModel,
+  Members extends string,
+> = Extract<Members, RequiredModelScalarKeys<M>>;
+
+/**
+ * One singular stored reference, as the key sets a create payload may satisfy
+ * its non-produced columns with. An empty slot still needs every non-null member;
+ * a nonempty slot needs the whole tuple. A column-producing relation input is the
+ * other alternative in both cases.
+ */
+type CreateRequirementGroup<M extends AnyModel> = {
+  [K in keyof ModelRelations<M>]: Cardinality<
+    ModelRelations<M>[K]
   > extends "one"
-    ? ModelStateOf<M>["polymorphicRelations"][K]["~"]["state"] extends {
-        optional: true;
+    ? ModelRelations<M>[K]["~"]["state"] extends {
+        readonly foreignKey: {
+          readonly fields: readonly (infer ScalarKey extends string)[];
+        };
       }
-      ? never
-      : readonly [readonly [Extract<K, string>]]
+      ? [RequiredForeignKeyMembers<M, ScalarKey>] extends [never]
+        ? never
+        : readonly [
+            readonly (SlotMayBeEmpty<M, K, ModelRelations<M>[K]> extends false
+              ? ScalarKey
+              : RequiredForeignKeyMembers<M, ScalarKey>)[],
+            readonly [Extract<K, string>],
+          ]
+      : SlotMayBeEmpty<M, K, ModelRelations<M>[K]> extends false
+        ? readonly [readonly [Extract<K, string>]]
+        : never
     : never;
-}[keyof ModelStateOf<M>["polymorphicRelations"]];
-type CreateRequirementGroup<M extends AnyModel> =
-  | CreateRequirementKeySetGroup<M>
-  | PolymorphicCreateRequirementKeySetGroup<M>;
+}[keyof ModelRelations<M>];
 type OmittedRequiredKeyUnion<TKeys extends readonly string[] | undefined> =
   TKeys extends readonly (infer Key extends string)[] ? Key : never;
 type ScalarCreateEntries<F extends { scalars: Record<string, unknown> }> =
@@ -174,11 +190,12 @@ export type BulkCreateSchema<
 
 export function getBulkCreate<M extends AnyModel, F extends ScalarSchemas<M>>(
   model: M,
-  fieldSchemas: F
+  fieldSchemas: F,
+  slots: ReadonlyMap<string, ResolvedSlot>
 ): BulkCreateSchema<M, F> {
   const state = model["~"].state;
   const fkFields = getFkFields(state);
-  const fkRequirementKeySets = getFkRequirementKeySets(state);
+  const fkRequirementKeySets = getFkRequirementKeySets(state, slots);
   const requiredScalars = getRequiredCreateScalars(state, fkFields);
   const scalarCreate = v.fromObject<F["scalars"], "create">(
     fieldSchemas.scalars,
@@ -225,21 +242,17 @@ export const getRelationCreate = <
 };
 
 /**
- * Identify FK fields from relations.
- * FK fields are scalar fields that are referenced by manyToOne or oneToOne relations.
+ * The scalar keys this model's own relations store: the local half of every
+ * foreign key it owns. A create payload may spell them directly or supply the
+ * relation instead, which is what {@link getFkRequirementKeySets} arbitrates.
  */
 function getFkFields(state: ModelState): Set<string> {
   const fkFields = new Set<string>();
   for (const relation of Object.values(state.relations)) {
-    const relState = relation["~"].state as RelationState;
-    // manyToOne and oneToOne relations have 'fields' pointing to FK columns
-    if (
-      (relState.type === "manyToOne" || relState.type === "oneToOne") &&
-      relState.fields
-    ) {
-      for (const fk of relState.fields) {
-        fkFields.add(fk);
-      }
+    const foreignKey = relation["~"].state.foreignKey;
+    if (!foreignKey) continue;
+    for (const fk of foreignKey.fields) {
+      fkFields.add(fk);
     }
   }
   return fkFields;
@@ -259,36 +272,68 @@ function getRequiredCreateScalars(
   state: ModelState,
   fkFields: Set<string>
 ): string[] {
-  return Object.keys(state.scalars).filter((key) => {
-    if (fkFields.has(key)) return false;
-    const scalarState = state.scalars[key]!["~"].state;
-    return !(scalarState.hasDefault || scalarState.optional);
-  });
+  return Object.keys(state.scalars).filter(
+    (key) => !fkFields.has(key) && mustBeSuppliedOnCreate(state, key)
+  );
 }
 
-function getFkRequirementKeySets(state: ModelState): string[][][] {
-  const groups: string[][][] = [];
+/**
+ * Must a create payload CARRY this scalar? Only when the row cannot produce it:
+ * a default (and `.nullable()` installs one) means the statement supplies it.
+ *
+ * ONE predicate with two readers — the required-scalar list above and the
+ * foreign-key requirement groups below. Both name a declared scalar of this
+ * model: the first iterates `state.scalars` itself, and FK001 refuses a schema
+ * whose `.fields(...)` names anything that is not one, so the lookup cannot
+ * miss. Re-checking it here would make this a second owner of that invariant.
+ */
+function mustBeSuppliedOnCreate(state: ModelState, key: string): boolean {
+  const scalarState = state.scalars[key]!["~"].state;
+  return !(scalarState.hasDefault || scalarState.optional);
+}
+
+/**
+ * "An edge required on create must arrive one way or the other."
+ *
+ * A stored reference contributes a group whenever at least one of its columns
+ * must be supplied: an empty relation slot does not make a non-null compound
+ * member optional. The payload may still supply that member through the relation
+ * key, so the group keeps both alternatives. A carrier without columns contributes
+ * a group only when the resolved slot may not be empty.
+ *
+ * A stored reference whose every local member is defaulted contributes NO
+ * group: the statement produces the columns by itself, so there is nothing the
+ * payload has to arrive with, and re-adding a requirement the FK exclusion
+ * above only removed for convenience would refuse a legal row. A variant
+ * singular slot has no spellable columns at all, so its own relation key is
+ * the only way it can arrive.
+ */
+function getFkRequirementKeySets(
+  state: ModelState,
+  slots: ReadonlyMap<string, ResolvedSlot>
+): readonly (readonly (readonly string[])[])[] {
+  const groups: (readonly (readonly string[])[])[] = [];
 
   for (const [relationName, relation] of Object.entries(state.relations)) {
-    const relState = relation["~"].state as RelationState;
-
-    // Prisma parity: optional relations require nothing on create
-    if (
-      (relState.type === "manyToOne" || relState.type === "oneToOne") &&
-      relState.fields &&
-      !relState.optional
-    ) {
-      groups.push([relState.fields, [relationName]]);
+    const relState: RelationState = relation["~"].state;
+    if (relState.cardinality !== "one") continue;
+    const foreignKey = relState.foreignKey;
+    if (foreignKey) {
+      const requiredMembers = foreignKey.fields.filter((key) =>
+        mustBeSuppliedOnCreate(state, key)
+      );
+      if (requiredMembers.length > 0) {
+        const resolved = slots.get(relationName);
+        const requiredKeySet =
+          resolved && !slotMayBeEmpty(resolved)
+            ? foreignKey.fields
+            : requiredMembers;
+        groups.push([requiredKeySet, [relationName]]);
+      }
+      continue;
     }
-  }
-
-  for (const [relationName, relation] of Object.entries(
-    state.polymorphicRelations
-  )) {
-    if (
-      polymorphicCardinality(relation["~"].state) === "one" &&
-      !relation["~"].state.optional
-    ) {
+    const resolved = slots.get(relationName);
+    if (resolved && !slotMayBeEmpty(resolved)) {
       groups.push([[relationName]]);
     }
   }
@@ -375,12 +420,13 @@ export type CreateSchema<
 >;
 export const getCreateSchema = <M extends AnyModel, F extends ScalarSchemas<M>>(
   model: M,
-  fieldSchemas: F
+  fieldSchemas: F,
+  slots: ReadonlyMap<string, ResolvedSlot>
 ): CreateSchema<M, F> => {
   const state = model["~"].state;
   // Identify FK fields - these should be optional when using connect/create
   const fkFields = getFkFields(state);
-  const fkRequirementKeySets = getFkRequirementKeySets(state);
+  const fkRequirementKeySets = getFkRequirementKeySets(state, slots);
 
   // Get required scalar field names (non-FK fields without defaults or optional)
   const requiredScalars = getRequiredCreateScalars(

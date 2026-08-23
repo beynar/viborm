@@ -14,7 +14,7 @@ const user = s
   .model({
     id: s.string().id(),
     name: s.string(),
-    posts: s.oneToMany(() => post),
+    posts: s.toMany(() => post),
   })
   .map("relation_filter_mutation_users");
 
@@ -25,7 +25,7 @@ const post = s
     published: s.boolean().default(false),
     authorId: s.string(),
     author: s
-      .manyToOne(() => user)
+      .toOne(() => user)
       .fields("authorId")
       .references("id")
       .onDelete("cascade"),
@@ -41,11 +41,10 @@ const employee = s
     name: s.string(),
     managerId: s.string().nullable(),
     manager: s
-      .manyToOne(() => employee)
+      .toOne(() => employee)
       .fields("managerId")
-      .references("id")
-      .optional(),
-    reports: s.oneToMany(() => employee),
+      .references("id"),
+    reports: s.toMany(() => employee),
   })
   .map("relation_filter_mutation_employees");
 

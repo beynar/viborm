@@ -3,7 +3,6 @@ import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { type Dialect, Driver } from "@drivers";
 import { FeatureNotSupportedError } from "@errors";
-import { createQueryScope } from "@query-engine/context";
 import { buildMutationProjectionFold } from "@query-engine/operations/mutation-projection-fold";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import {
@@ -14,10 +13,11 @@ import {
   projectionReadsMutatedModel,
   selectProjectsRelation,
 } from "@query-engine/write-engine/shared";
-import { hydrateSchemaNames, s } from "@schema";
+import { s } from "@schema";
 import { type Sql, sql } from "@sql";
 import type { OperationStep } from "@src/query-engine/write-engine/OperationFragment";
 import { constructRoutedOperation } from "@src/query-engine/write-engine/routing";
+import { prepareSchema, scopeFor } from "@tests/fixtures/query-scope";
 import { fragmentAtom } from "@tests/fixtures/routed-fragment-atom";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
@@ -72,7 +72,7 @@ const vectorOrderModels = (() => {
       id: s.string().id(),
       name: s.string(),
       centroid: s.vector().dimension(3),
-      docs: s.oneToMany(() => doc),
+      docs: s.toMany(() => doc),
     })
     .map("vector_order_collections");
 
@@ -82,7 +82,7 @@ const vectorOrderModels = (() => {
       title: s.string(),
       collectionId: s.string(),
       collection: s
-        .manyToOne(() => collection)
+        .toOne(() => collection)
         .fields("collectionId")
         .references("id"),
       embedding: s.vector().dimension(3),
@@ -95,7 +95,7 @@ const vectorOrderModels = (() => {
 
 const vectorOrderSchema = vectorOrderModels;
 
-hydrateSchemaNames(vectorOrderSchema);
+prepareSchema(vectorOrderSchema);
 
 function createEngine(
   adapter: DatabaseAdapter,
@@ -646,7 +646,7 @@ describe("computed projections across the selection owners", () => {
    */
   test("the CTE lists columns while the outer projection carries both carriers", () => {
     const adapter = vectorAdapter();
-    const scope = createQueryScope(adapter, vectorOrderSchema.collection);
+    const scope = scopeFor(adapter, vectorOrderSchema.collection);
 
     const folded = buildMutationProjectionFold(scope, {
       mutation: sql`UPDATE "vector_order_collections" SET "name" = ${"changed"}`,
@@ -683,7 +683,7 @@ describe("computed projections across the selection owners", () => {
   test("a `_distance` select is scalar-only to both fold gates, and the fold happens", () => {
     const adapter = vectorAdapter();
     const { doc } = vectorOrderSchema;
-    const scope = createQueryScope(adapter, doc);
+    const scope = scopeFor(adapter, doc);
     const distanceSelect = {
       id: true,
       embedding: { _distance: { to: [1, 2, 3], metric: "l2" } },

@@ -14,10 +14,10 @@ const node = s.model({
   alternateId: s.int().unique(),
   title: s.string(),
   peers: s
-    .manyToMany(() => node)
-    .A("sourceId")
-    .B("targetId"),
-  peeredBy: s.manyToMany(() => node),
+    .toMany(() => node)
+    .source("sourceId")
+    .target("targetId"),
+  peeredBy: s.toMany(() => node),
 });
 
 hydrateSchemaNames({ node });

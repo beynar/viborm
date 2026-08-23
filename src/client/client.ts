@@ -44,8 +44,9 @@ import {
 } from "@query-engine/transaction-operation";
 import type { PreparedBatchGuard } from "@query-engine/types";
 import { hydrateSchemaNames } from "@schema/hydration";
+import type { ResolvedRelationIndex } from "@schema/validation/relation-resolution";
 import { validateClientSchemaOrThrow } from "@schema/validation/validator";
-import { createSchemaRegistry } from "@validation";
+import { createResolvedSchemaRegistry } from "@validation/builder";
 import {
   applyClientOmit,
   type ClientModelOmit,
@@ -439,7 +440,13 @@ export class VibORM<C extends VibORMConfig> {
     });
   }
 
-  constructor(config: C) {
+  /**
+   * @param relations - the ONE resolved topology index the static factory's
+   *   gate produced, passed in by identity. The registry, the client-level omit
+   *   rewriting and every query scope share this exact object; nothing here
+   *   resolves a second time and nothing copies it (§10E.10, §11.4.10).
+   */
+  constructor(config: C, relations: ResolvedRelationIndex) {
     this.schema = config.schema as C["schema"];
     this.cache = config.cache as C["cache"];
     const instrumentation = config.instrumentation
@@ -447,11 +454,19 @@ export class VibORM<C extends VibORMConfig> {
       : undefined;
     this.waitUntil = config.waitUntil;
     this.cacheVersion = config.cacheVersion;
-    this.clientOmit = createClientOmitResolver(this.schema, config.omit);
+    this.clientOmit = createClientOmitResolver(
+      this.schema,
+      config.omit,
+      relations
+    );
 
     // Create registry and engine once, reuse for all operations
-    const schemaRegistry = createSchemaRegistry(this.schema);
-    const registry = createModelRegistry(this.schema, schemaRegistry);
+    const schemaRegistry = createResolvedSchemaRegistry(this.schema, relations);
+    const registry = createModelRegistry(
+      this.schema,
+      schemaRegistry,
+      relations
+    );
     this.engine = new QueryEngine(
       config.driver,
       registry,
@@ -628,8 +643,10 @@ export class VibORM<C extends VibORMConfig> {
     // unchanged so their own code survives.
     const orm = assertConstructed(() => {
       hydrateSchemaNames(config.schema);
-      validateClientSchemaOrThrow(config.schema);
-      return new VibORM<C>(config);
+      // ONE resolution for the whole client lifecycle: the gate's index goes
+      // straight into the constructor, so registry, omit rewriting and query
+      // scopes are composed over the same object (§11.4.10).
+      return new VibORM<C>(config, validateClientSchemaOrThrow(config.schema));
     });
 
     // Set cache version on driver

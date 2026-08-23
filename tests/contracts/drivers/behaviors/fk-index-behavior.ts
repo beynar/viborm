@@ -41,7 +41,7 @@ const fkIdxUser = s
   .model({
     id: s.string().id(),
     name: s.string(),
-    posts: s.oneToMany(() => fkIdxPost),
+    posts: s.toMany(() => fkIdxPost),
   })
   .map("fk_idx_users");
 
@@ -51,7 +51,7 @@ const fkIdxPost = s
     title: s.string(),
     authorId: s.string().map("author_id"),
     author: s
-      .manyToOne(() => fkIdxUser)
+      .toOne(() => fkIdxUser)
       .fields("authorId")
       .references("id"),
   })
@@ -63,7 +63,7 @@ const fkIndexSchema = { fkIdxUser, fkIdxPost };
 const declaredUser = s
   .model({
     id: s.string().id(),
-    posts: s.oneToMany(() => declaredPost),
+    posts: s.toMany(() => declaredPost),
   })
   .map("fk_idx_decl_users");
 
@@ -72,7 +72,7 @@ const declaredPost = s
     id: s.string().id(),
     authorId: s.string(),
     author: s
-      .manyToOne(() => declaredUser)
+      .toOne(() => declaredUser)
       .fields("authorId")
       .references("id"),
   })
@@ -89,7 +89,7 @@ const declaredIndexSchema = { declaredUser, declaredPost };
 const wideUser = s
   .model({
     id: s.string().id(),
-    posts: s.oneToMany(() => widePost),
+    posts: s.toMany(() => widePost),
   })
   .map("fk_idx_wide_users");
 
@@ -99,7 +99,7 @@ const widePost = s
     slug: s.string(),
     authorId: s.string(),
     author: s
-      .manyToOne(() => wideUser)
+      .toOne(() => wideUser)
       .fields("authorId")
       .references("id"),
   })
@@ -110,7 +110,7 @@ const wideStage1Schema = { wideUser, widePost };
 const widerUser = s
   .model({
     id: s.string().id(),
-    posts: s.oneToMany(() => widerPost),
+    posts: s.toMany(() => widerPost),
   })
   .map("fk_idx_wide_users");
 
@@ -120,7 +120,7 @@ const widerPost = s
     slug: s.string(),
     authorId: s.string(),
     author: s
-      .manyToOne(() => widerUser)
+      .toOne(() => widerUser)
       .fields("authorId")
       .references("id"),
   })
@@ -134,7 +134,7 @@ const wideStage2Schema = { widerUser, widerPost };
 const uniqueUser = s
   .model({
     id: s.string().id(),
-    posts: s.oneToMany(() => uniquePost),
+    posts: s.toMany(() => uniquePost),
   })
   .map("fk_idx_wide_users");
 
@@ -144,7 +144,7 @@ const uniquePost = s
     slug: s.string(),
     authorId: s.string(),
     author: s
-      .manyToOne(() => uniqueUser)
+      .toOne(() => uniqueUser)
       .fields("authorId")
       .references("id"),
   })
@@ -158,7 +158,7 @@ const planUser = s
   .model({
     id: s.string().id(),
     name: s.string(),
-    posts: s.oneToMany(() => planPost),
+    posts: s.toMany(() => planPost),
   })
   .map("fk_plan_users");
 
@@ -168,7 +168,7 @@ const planPost = s
     title: s.string(),
     authorId: s.string().map("author_id"),
     author: s
-      .manyToOne(() => planUser)
+      .toOne(() => planUser)
       .fields("authorId")
       .references("id"),
   })

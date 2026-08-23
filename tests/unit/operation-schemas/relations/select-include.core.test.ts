@@ -47,11 +47,28 @@ type RelationOutput = {
 
 const output = (value: unknown): RelationOutput => value as RelationOutput;
 
-test("relations to a scalar-empty model do not invent a selection", () => {
-  const empty = s.model({});
-  const holder = s.model({ empty: s.oneToOne(() => empty).optional() });
+test("relations to a PROJECTION-empty model do not invent a selection", () => {
+  // The target's every scalar is hidden by model-level `.omit()`, which is the
+  // only way a model can have nothing to project and still be a relation
+  // endpoint: a stored reference needs a referenced column and a junction side
+  // needs a complete row key, so a model with NO scalars at all can no longer
+  // take part in any edge.
+  const empty = s
+    .model({
+      id: s.string().id(),
+      holderId: s.string(),
+      holder: s
+        .toOne(() => holder)
+        .fields("holderId")
+        .references("id"),
+    })
+    .omit({ id: true, holderId: true });
+  const holder = s.model({
+    id: s.string().id(),
+    empties: s.toMany(() => empty),
+  });
   const schemas = createSchemaRegistry({ empty, holder }).proxy.holder.relations
-    .empty;
+    .empties;
 
   expect(parse(schemas.select, true)).toEqual({ value: {} });
   expect(parse(schemas.include, {})).toEqual({ value: {} });

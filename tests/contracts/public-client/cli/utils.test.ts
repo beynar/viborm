@@ -125,17 +125,21 @@ describe("loadConfig", () => {
   });
 
   it("preserves an import-time polymorphic schema validation error", async () => {
+    // A variant target the schema does not register: a GRAPH fact, so it is the
+    // resolver's `SchemaValidationError` rather than a construction refusal.
+    // (A malformed `values` map is structurally knowable and now fails at the
+    // factory as V4002 — a different class, pinned with the factory.)
     writeConfigFixture(project, {
       schemaBody: `
         const target = s.model({ id: s.string().id() });
         const owner = s.model({
           id: s.string().id(),
-          target: s.polymorphicToOne(
+          target: s.toOne(
             { target: () => target },
-            { values: {} }
+            { values: { target: "owner.target.v1" } }
           ),
         });
-        const schema = { target, owner };
+        const schema = { owner };
       `,
     });
 
@@ -149,27 +153,27 @@ describe("loadConfig", () => {
       throw new Error("expected the original SchemaValidationError");
     }
     expect(thrown.issues).toEqual(
-      expect.arrayContaining([expect.objectContaining({ code: "P003" })])
+      expect.arrayContaining([expect.objectContaining({ code: "P001" })])
     );
     expect(thrown.message).not.toContain(
       "Make sure you're running with a TypeScript loader"
     );
   });
 
-  it("surfaces R008 for a required non-owning one-to-one", async () => {
+  it("surfaces R002, with its model and relation, for a slot with no inverse", async () => {
+    // R008 ("a required non-owning one-to-one must call .optional()") died with
+    // no successor: non-owner nullability is derived, so the invariant itself is
+    // gone. What this test pins is unchanged — the CLI hands back the resolver's
+    // own issue objects, context fields and all — re-founded on the diagnostic
+    // that survives at the same boundary.
     writeConfigFixture(project, {
       schemaBody: `
         const user = s.model({
           id: s.string().id(),
-          profile: s.oneToOne(() => profile),
+          profile: s.toOne(() => profile),
         });
         const profile = s.model({
           id: s.string().id(),
-          userId: s.string().unique(),
-          user: s
-            .oneToOne(() => user)
-            .fields("userId")
-            .references("id"),
         });
         const schema = { user, profile };
       `,
@@ -186,11 +190,10 @@ describe("loadConfig", () => {
     }
     expect(thrown.issues).toContainEqual(
       expect.objectContaining({
-        code: "R008",
+        code: "R002",
         model: "user",
         relation: "profile",
-        message:
-          "Non-owning one-to-one 'profile' in 'user' must call .optional() because this model stores no foreign key fields.",
+        message: "'user.profile' has no inverse relation in 'profile'",
       })
     );
   });
@@ -264,13 +267,13 @@ describe("loadConfig", () => {
         const author = s.model({
           id: s.string().id(),
           name: s.string(),
-          posts: s.oneToMany(() => post),
+          posts: s.toMany(() => post),
         });
         const post = s.model({
           id: s.string().id(),
           title: s.string(),
           authorId: s.string(),
-          author: s.manyToOne(() => author).fields("authorId").references("id"),
+          author: s.toOne(() => author).fields("authorId").references("id"),
         });
         const schema = { author, post };
       `,
@@ -357,13 +360,13 @@ describe("validateSchemaOrThrow", () => {
   });
 
   it("rejects a bad relation config (relation with no matching inverse)", () => {
-    // manyToOne on `post` with no oneToMany inverse on `user` -> R004.
+    // `post.author` with no inverse slot on `user` -> R002.
     const post: any = s.model({
       id: s.string().id(),
       title: s.string(),
       authorId: s.string(),
       author: s
-        .manyToOne(() => user)
+        .toOne(() => user)
         .fields("authorId")
         .references("id"),
     });
@@ -373,7 +376,7 @@ describe("validateSchemaOrThrow", () => {
       /Schema validation failed/
     );
     expect(() => validateSchemaOrThrow({ user, post })).toThrow(
-      /missing inverse/
+      /has no inverse relation/
     );
   });
 
@@ -384,11 +387,10 @@ describe("validateSchemaOrThrow", () => {
       id: s.string().id(),
       managerId: s.string().nullable(),
       manager: s
-        .manyToOne(() => employee)
+        .toOne(() => employee)
         .fields("managerId")
-        .references("id")
-        .optional(),
-      reports: s.oneToMany(() => employee),
+        .references("id"),
+      reports: s.toMany(() => employee),
     });
 
     expect(() => validateSchemaOrThrow({ employee })).not.toThrow();

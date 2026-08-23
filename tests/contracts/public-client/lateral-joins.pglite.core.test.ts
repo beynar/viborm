@@ -28,7 +28,7 @@ const Author = s
   .model({
     id: s.string().id(),
     name: s.string(),
-    posts: s.oneToMany(() => Post),
+    posts: s.toMany(() => Post),
   })
   .map("lj_authors");
 
@@ -38,15 +38,15 @@ const Post = s
     title: s.string(),
     authorId: s.string(),
     author: s
-      .manyToOne(() => Author)
+      .toOne(() => Author)
       .fields("authorId")
       .references("id"),
-    comments: s.oneToMany(() => Comment),
+    comments: s.toMany(() => Comment),
     tags: s
-      .manyToMany(() => Tag)
+      .toMany(() => Tag)
       .through("lj_post_tag")
-      .A("postId")
-      .B("tagId"),
+      .source("postId")
+      .target("tagId"),
   })
   .map("lj_posts");
 
@@ -56,7 +56,7 @@ const Comment = s
     text: s.string(),
     postId: s.string(),
     post: s
-      .manyToOne(() => Post)
+      .toOne(() => Post)
       .fields("postId")
       .references("id"),
   })
@@ -66,11 +66,9 @@ const Tag = s
   .model({
     id: s.string().id(),
     name: s.string().unique(),
-    posts: s
-      .manyToMany(() => Post)
-      .through("lj_post_tag")
-      .A("tagId")
-      .B("postId"),
+    // ONE endpoint owns every junction override (§4.4, R011); `Post.tags` is
+    // the canonically first endpoint and holds them.
+    posts: s.toMany(() => Post),
   })
   .map("lj_tags");
 

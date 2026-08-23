@@ -60,9 +60,9 @@ export const linearizationSchema = (() => {
       email: s.string().unique(),
       name: s.string(),
       // child-held to-many: the FK lives on `note`
-      notes: s.oneToMany(() => note),
+      notes: s.toMany(() => note),
       // many-to-many: membership lives in the junction
-      posts: s.manyToMany(() => post),
+      posts: s.toMany(() => post),
     })
     .map("n6u3_authors");
   const note = s
@@ -71,7 +71,7 @@ export const linearizationSchema = (() => {
       body: s.string(),
       authorId: s.int().nullable(),
       author: s
-        .manyToOne(() => author)
+        .toOne(() => author)
         .fields("authorId")
         .references("id"),
     })
@@ -81,7 +81,7 @@ export const linearizationSchema = (() => {
       id: s.int().id(),
       slug: s.string().unique(),
       title: s.string(),
-      authors: s.manyToMany(() => author),
+      authors: s.toMany(() => author),
     })
     .map("n6u3_posts");
   return { author, note, post };

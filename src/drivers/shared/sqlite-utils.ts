@@ -53,10 +53,9 @@ export const sqliteResultParser: DriverResultParser = {
     }
     return next(raw, operation);
   },
-  parseRelation: (value, type, next) => {
+  parseRelation: (value, next) => {
     const parsed = tryParseJsonString(value);
-    if (parsed !== undefined) return next(parsed, type);
-    return next(value, type);
+    return next(parsed === undefined ? value : parsed);
   },
   parseField: (value, scalarType, next) => {
     if (scalarType === "boolean") {

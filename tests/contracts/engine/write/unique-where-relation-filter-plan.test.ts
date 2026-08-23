@@ -1,12 +1,12 @@
 import { MySQL2Driver } from "@drivers/mysql2";
 import { PGliteDriver } from "@drivers/pglite";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { createQueryScope } from "@query-engine/context";
 import { buildDelete, buildUpdate } from "@query-engine/operations";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
-import { hydrateSchemaNames, s } from "@schema";
+import { s } from "@schema";
 import type { WriteStep } from "@src/query-engine/write-engine/OperationFragment";
 import { constructRoutedOperation } from "@src/query-engine/write-engine/routing";
+import { prepareSchema, scopeFor } from "@tests/fixtures/query-scope";
 import { fragmentAtom } from "@tests/fixtures/routed-fragment-atom";
 import { createSchemaRegistry } from "@validation";
 import { beforeAll, describe, expect, test } from "vitest";
@@ -44,7 +44,7 @@ const account = s
     id: s.int().id(),
     email: s.string().unique(),
     status: s.string(),
-    logins: s.oneToMany(() => login),
+    logins: s.toMany(() => login),
   })
   .map("uwrf_accounts");
 
@@ -56,10 +56,9 @@ const login = s
     label: s.string(),
     accountId: s.int().nullable(),
     account: s
-      .manyToOne(() => account)
+      .toOne(() => account)
       .fields("accountId")
-      .references("id")
-      .optional(),
+      .references("id"),
   })
   .map("uwrf_logins");
 
@@ -70,18 +69,17 @@ const node = s
     label: s.string(),
     parentId: s.int().nullable(),
     parent: s
-      .manyToOne(() => node)
+      .toOne(() => node)
       .fields("parentId")
-      .references("id")
-      .optional(),
-    children: s.oneToMany(() => node),
+      .references("id"),
+    children: s.toMany(() => node),
   })
   .map("uwrf_nodes");
 
 const schema = { account, login, node };
 
 beforeAll(() => {
-  hydrateSchemaNames(schema);
+  prepareSchema(schema);
 });
 
 type DriverName = "MySQL2" | "PGlite" | "SQLite3";
@@ -119,7 +117,7 @@ function updateText(
   model: (typeof schema)[keyof typeof schema],
   where: Record<string, unknown>
 ): string {
-  const scope = createQueryScope(makeDriver(name).adapter, model);
+  const scope = scopeFor(makeDriver(name).adapter, model);
   return buildUpdate(scope, {
     where,
     data: { [model === account ? "status" : "label"]: { set: "x" } },
@@ -131,7 +129,7 @@ function deleteText(
   model: (typeof schema)[keyof typeof schema],
   where: Record<string, unknown>
 ): string {
-  const scope = createQueryScope(makeDriver(name).adapter, model);
+  const scope = scopeFor(makeDriver(name).adapter, model);
   return buildDelete(scope, { where }).toStatement("$n");
 }
 

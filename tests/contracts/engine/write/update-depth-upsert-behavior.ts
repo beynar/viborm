@@ -21,7 +21,7 @@ export const depthSliceSchema = (() => {
       id: s.int().id().increment(),
       email: s.string().unique(),
       count: s.int(),
-      posts: s.oneToMany(() => post),
+      posts: s.toMany(() => post),
     })
     .map("depth_slice_users");
   const post = s
@@ -31,11 +31,10 @@ export const depthSliceSchema = (() => {
       slug: s.string().unique(),
       userId: s.int().nullable(),
       author: s
-        .manyToOne(() => user)
+        .toOne(() => user)
         .fields("userId")
-        .references("id")
-        .optional(),
-      comments: s.oneToMany(() => comment),
+        .references("id"),
+      comments: s.toMany(() => comment),
     })
     .map("depth_slice_posts");
   const comment = s
@@ -45,10 +44,9 @@ export const depthSliceSchema = (() => {
       tag: s.string().unique(),
       postId: s.int().nullable(),
       post: s
-        .manyToOne(() => post)
+        .toOne(() => post)
         .fields("postId")
-        .references("id")
-        .optional(),
+        .references("id"),
     })
     .map("depth_slice_comments");
   return { user, post, comment };

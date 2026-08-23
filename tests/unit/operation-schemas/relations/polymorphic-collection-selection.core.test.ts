@@ -29,7 +29,7 @@ const video = s.model({ id: s.string().id(), duration: s.int() });
 const gallery = s.model({
   id: s.string().id(),
   // Declaration order is post, then video — the one ordering truth.
-  items: s.polymorphicToMany(
+  items: s.toMany(
     { post: () => post, video: () => video },
     { values: { post: "sel.post.v1", video: "sel.video.v1" } }
   ),
@@ -207,7 +207,7 @@ const onlyTarget = s.model({ id: s.string().id() });
 const variantsTarget = s.model({ id: s.string().id() });
 const hostileOwner = s.model({
   id: s.string().id(),
-  items: s.polymorphicToMany(
+  items: s.toMany(
     { only: () => onlyTarget, variants: () => variantsTarget },
     { values: { only: "hostile.only.v1", variants: "hostile.variants.v1" } }
   ),
@@ -258,24 +258,32 @@ describe("public variants named 'only' and 'variants'", () => {
  * The plural arm is what stops that from being vacuous: a to-many inverse DOES
  * carry `where`, so the two cardinalities are measured apart.
  */
-const author = s.model({ id: s.string().id(), name: s.string() });
+const author = s.model({
+  id: s.string().id(),
+  name: s.string(),
+  books: s.toMany(() => book),
+});
 const book = s.model({
   id: s.string().id(),
   title: s.string(),
+  authorId: s.string(),
   // SINGULAR inverse — bound to the `book` member of `shelf.contents`.
-  shelf: s.manyToOne(() => shelf).optional(),
+  shelf: s.toOne(() => shelf),
   // The control: an ORDINARY to-one edge, nothing polymorphic about it.
-  author: s.manyToOne(() => author).optional(),
+  author: s
+    .toOne(() => author)
+    .fields("authorId")
+    .references("id"),
 });
 const reel = s.model({
   id: s.string().id(),
   // PLURAL inverse — bound to the `reel` member of `shelf.contents`.
-  shelves: s.manyToMany(() => shelf),
+  shelves: s.toMany(() => shelf),
 });
 const shelf = s.model({
   id: s.string().id(),
   label: s.string(),
-  contents: s.polymorphicToMany(
+  contents: s.toMany(
     { book: () => book, reel: () => reel },
     { values: { book: "inv.book.v1", reel: "inv.reel.v1" } }
   ),

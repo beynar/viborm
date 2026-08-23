@@ -38,7 +38,7 @@ We tried to reproduce Prisma's schema DDL in pure TypeScript - not like Drizzle 
 // What we wanted - relations declared within the model
 const user = s.model({
   id: s.string().id(),
-  posts: s.oneToMany(() => post),  // Relation here, not in a separate file
+  posts: s.toMany(() => post),  // Relation here, not in a separate file
 });
 ```
 

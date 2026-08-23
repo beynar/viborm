@@ -22,11 +22,12 @@ export const Author = s.model({
   id: s.string().id(),
   name: s.string(),
   email: s.string(),
-  posts: s.oneToMany(() => Post),
+  posts: s.toMany(() => Post),
 });
 
 /**
- * Post model with manyToOne relation to Author (required)
+ * Post model with a REQUIRED stored reference to Author: the local tuple is
+ * non-nullable, so the slot may not be empty.
  */
 export const Post = s.model({
   id: s.string().id(),
@@ -34,7 +35,10 @@ export const Post = s.model({
   content: s.string(),
   published: s.boolean().default(false),
   authorId: s.string(),
-  author: s.manyToOne(() => Author),
+  author: s
+    .toOne(() => Author)
+    .fields("authorId")
+    .references("id"),
 });
 
 /**
@@ -45,10 +49,9 @@ export const Profile = s.model({
   bio: s.string().nullable(),
   userId: s.string().nullable().unique(),
   user: s
-    .oneToOne(() => User)
+    .toOne(() => User)
     .fields("userId")
-    .references("id")
-    .optional(),
+    .references("id"),
 });
 
 /**
@@ -57,10 +60,13 @@ export const Profile = s.model({
 export const User = s.model({
   id: s.string().id(),
   username: s.string(),
-  profile: s.oneToOne(() => Profile).optional(),
+  profile: s.toOne(() => Profile),
   managerId: s.string().nullable(),
-  manager: s.manyToOne(() => User).optional(),
-  subordinates: s.oneToMany(() => User),
+  manager: s
+    .toOne(() => User)
+    .fields("managerId")
+    .references("id"),
+  subordinates: s.toMany(() => User),
 });
 
 // =============================================================================
@@ -133,6 +139,14 @@ export const optionalManyToOneSchemas =
  */
 export const selfRefOneToManySchemas =
   schemaRegistry.proxy.User.relations.subordinates;
+
+/**
+ * Schemas for the CHILD-HELD singular slot (User.profile): `Profile` stores the
+ * reference, so the composition lattice that only a child-held direction admits
+ * is measurable through this one.
+ */
+export const childHeldToOneSchemas =
+  schemaRegistry.proxy.User.relations.profile;
 
 // =============================================================================
 // TYPE EXPORTS

@@ -14,8 +14,8 @@ const person = s
   .model({
     id: s.string().id(),
     name: s.string(),
-    authoredArticles: s.oneToMany(() => article).name("author"),
-    coAuthoredArticles: s.oneToMany(() => article).name("coAuthor"),
+    authoredArticles: s.toMany(() => article).name("author"),
+    coAuthoredArticles: s.toMany(() => article).name("coAuthor"),
   })
   .map("named_inverse_people");
 
@@ -26,16 +26,14 @@ const article = s
     authorId: s.string().nullable(),
     coAuthorId: s.string().nullable(),
     author: s
-      .manyToOne(() => person)
+      .toOne(() => person)
       .fields("authorId")
       .references("id")
-      .optional()
       .name("author"),
     coAuthor: s
-      .manyToOne(() => person)
+      .toOne(() => person)
       .fields("coAuthorId")
       .references("id")
-      .optional()
       .name("coAuthor"),
   })
   .map("named_inverse_articles");

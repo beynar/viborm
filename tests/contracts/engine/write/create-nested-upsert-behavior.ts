@@ -18,7 +18,7 @@ export const operationFragmentSchema = (() => {
     .model({
       id: s.int().id().increment(),
       name: s.string(),
-      posts: s.oneToMany(() => post),
+      posts: s.toMany(() => post),
     })
     .map("operation_fragment_users");
   const post = s
@@ -28,10 +28,9 @@ export const operationFragmentSchema = (() => {
       slug: s.string().unique(),
       userId: s.int().nullable(),
       author: s
-        .manyToOne(() => user)
+        .toOne(() => user)
         .fields("userId")
-        .references("id")
-        .optional(),
+        .references("id"),
     })
     .map("operation_fragment_posts");
   return { user, post };

@@ -13,10 +13,11 @@
 
 import { isValidSchemaIdentifier } from "./identifier";
 import type { Model, NameRegistry } from "./model";
+import { preflightModelRegistrationIdentity } from "./registration-preflight";
 import type { AnyRelation } from "./relation";
-import type { AnyPolymorphicRelation } from "./relation/polymorphic";
 import type { Scalar } from "./scalars/base";
 import type { SchemaNames } from "./scalars/common";
+import { SchemaValidationError } from "./validation/error";
 
 /**
  * Schema type - record of model names to Model instances
@@ -38,18 +39,33 @@ export type Schema = Record<string, Model<any>>;
  * @param schema - The schema object mapping model names to Model instances
  */
 export function hydrateSchemaNames(schema: Schema): void {
-  for (const [modelKey, model] of Object.entries(schema)) {
-    hydrateModel(modelKey, model);
+  const registrations = Object.entries(schema);
+  // TWO ordered phases. The preflight proves every model's identity and name
+  // stability BEFORE a single registry write, so a schema that fails validation
+  // never leaves models 0..N-1 bound while model N is refused.
+  const identityIssue = preflightModelRegistrationIdentity(registrations);
+  if (identityIssue) throw new SchemaValidationError([identityIssue]);
+  for (const [modelKey, model] of registrations) {
+    preflightModelIdentifiers(modelKey, model);
+  }
+  for (const [modelKey, model] of registrations) {
+    bindModelNames(modelKey, model);
   }
 }
 
 /**
- * Hydrate a single model and its scalars/relations
+ * Prove one model's identity: its identifiers are legal, and its schema key is
+ * the one this model object is already bound to.
+ *
+ * A model object binds ONE schema key for its lifetime. Re-registering the same
+ * object under the same key is idempotent — the same schema composed twice, or
+ * a second client over the same models, is a normal thing to do — while a second
+ * key is refused, because every derived name, junction table, index and
+ * constraint in the estate is generated from the schema key and two keys would
+ * make one model object mean two different tables.
  */
-function hydrateModel(modelKey: string, model: Model<any>): void {
-  const names = model["~"].names as SchemaNames;
+function preflightModelIdentifiers(modelKey: string, model: Model<any>): void {
   const state = model["~"].state;
-  const registry = model["~"].nameRegistry as NameRegistry;
 
   assertValidIdentifier("Model", modelKey);
   if (state.tableName !== undefined) {
@@ -58,15 +74,7 @@ function hydrateModel(modelKey: string, model: Model<any>): void {
   for (const fieldKey of Object.keys(state.shape)) {
     assertValidIdentifier("Field", fieldKey, modelKey);
   }
-
-  // Set model names
-  names.ts = modelKey;
-  names.sql = state.tableName ?? modelKey;
-
-  // Hydrate scalars into model's nameRegistry
-  for (const [fieldKey, scalar] of Object.entries(
-    state.scalars as Record<string, Scalar>
-  )) {
+  for (const scalar of Object.values(state.scalars as Record<string, Scalar>)) {
     if (scalar["~"].state.columnName !== undefined) {
       assertValidIdentifier(
         "Mapped column",
@@ -74,6 +82,27 @@ function hydrateModel(modelKey: string, model: Model<any>): void {
         modelKey
       );
     }
+  }
+}
+
+/**
+ * Bind one model's names and its scalar/relation name registries.
+ *
+ * ONE relation lane covers both target domains, and no relation is given a
+ * source model: `.extends()` may reuse one relation object under more than one
+ * model or key, so a contextual operation carries its own slot identity instead.
+ */
+function bindModelNames(modelKey: string, model: Model<any>): void {
+  const names = model["~"].names as SchemaNames;
+  const state = model["~"].state;
+  const registry = model["~"].nameRegistry as NameRegistry;
+
+  names.ts = modelKey;
+  names.sql = state.tableName ?? modelKey;
+
+  for (const [fieldKey, scalar] of Object.entries(
+    state.scalars as Record<string, Scalar>
+  )) {
     const fieldNames: SchemaNames = {
       ts: fieldKey,
       sql: scalar["~"].state.columnName ?? fieldKey,
@@ -81,26 +110,12 @@ function hydrateModel(modelKey: string, model: Model<any>): void {
     registry.fields.set(fieldKey, fieldNames);
   }
 
-  // Hydrate relations into model's nameRegistry
-  for (const [relationKey, relation] of Object.entries(
+  for (const relationKey of Object.keys(
     state.relations as Record<string, AnyRelation>
   )) {
-    const relationNames: SchemaNames = {
+    registry.relations.set(relationKey, {
       ts: relationKey,
       // Relations don't have column mapping - sql name equals ts name
-      sql: relationKey,
-    };
-    registry.relations.set(relationKey, relationNames);
-
-    // Set the source model on the relation
-    relation["~"].setSource(model);
-  }
-
-  for (const relationKey of Object.keys(
-    state.polymorphicRelations as Record<string, AnyPolymorphicRelation>
-  )) {
-    registry.polymorphicRelations.set(relationKey, {
-      ts: relationKey,
       sql: relationKey,
     });
   }

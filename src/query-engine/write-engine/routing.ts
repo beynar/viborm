@@ -2,11 +2,13 @@ import type { AnyDriver, QueryExecutionContext } from "@drivers";
 import { hasCommittedRecordSeriesProgress, TransactionError } from "@errors";
 import type { Model } from "@schema/model";
 import {
-  isPolymorphicCollectionRelation,
-  isPolymorphicRelation,
+  createQueryScope,
   isRelation,
+  isVariantCollectionRelation,
+  lookupRelation,
 } from "../context/query-scope";
 import type { QueryEngine } from "../query-engine";
+import type { QueryScope } from "../types";
 import { BulkCountOperation } from "./BulkCountOperation";
 import { CreateManyOperation } from "./CreateManyOperation";
 import { CreateManyRecordSeries } from "./CreateManyRecordSeries";
@@ -234,7 +236,7 @@ function constructOperation(
       //     empty arm already opens one, because its plan is not a single statement.
       // (3) Otherwise the two existing owners, constructed unchanged.
       if (
-        relationBearingRow(model, args.data) &&
+        relationBearingRow(createQueryScope(engine, model), args.data) &&
         !refusesReturningHere(engine, args, "createManyAndReturn")
       ) {
         return new CreateManyRecordSeries(engine, model, args);
@@ -266,7 +268,7 @@ function constructOperation(
       //     `TransactionError` for a call that does nothing.
       // (3) Otherwise the two existing owners, constructed unchanged.
       if (
-        relationBearingData(model, args.data) &&
+        relationBearingData(createQueryScope(engine, model), args.data) &&
         !capsAtZeroRows(args) &&
         !refusesReturningHere(engine, args, "updateManyAndReturn")
       ) {
@@ -328,7 +330,7 @@ function returnsRows(args: Record<string, unknown>): boolean {
  * junction rows that cannot exist before the owner row does, so the grouped INSERT
  * cannot express it and the whole call belongs to the record series. Both halves
  * are read through one predicate pair — `isRelation` for the ordinary set,
- * `isPolymorphicCollectionRelation` for the collection half — and the collection
+ * `isVariantCollectionRelation` for the collection half — and the collection
  * half branches through `polymorphicCardinality`, not an inline cardinality test.
  *
  * Total and non-throwing by construction. Anything it cannot see with certainty — a
@@ -349,14 +351,21 @@ function returnsRows(args: Record<string, unknown>): boolean {
  * error text). The same property, one key set wider, holds for
  * {@link relationBearingData}.
  */
-function relationBearingRow(model: Model<any>, data: unknown): boolean {
+function relationBearingRow(scope: QueryScope, data: unknown): boolean {
   if (!Array.isArray(data)) return false;
   for (const row of data) {
     if (!isRecord(row)) continue;
     for (const key of Object.keys(row)) {
       if (row[key] === undefined) continue;
-      if (isRelation(model, key) || isPolymorphicCollectionRelation(model, key))
+      // ORDINARY relations and variant COLLECTIONS only: a row carrier's private
+      // pair has a grouped bulk route of its own, so naming one does not make the
+      // row relation-bearing.
+      if (
+        lookupRelation(scope, key) !== undefined ||
+        isVariantCollectionRelation(scope, key)
+      ) {
         return true;
+      }
     }
   }
   return false;
@@ -384,12 +393,14 @@ function relationBearingRow(model: Model<any>, data: unknown): boolean {
  * Total and non-throwing by construction: a `data` that is not a record falls back to
  * the existing owner, so every malformed payload keeps its current error verbatim.
  */
-function relationBearingData(model: Model<any>, data: unknown): boolean {
+function relationBearingData(scope: QueryScope, data: unknown): boolean {
   if (!isRecord(data)) return false;
   for (const key of Object.keys(data)) {
     if (data[key] === undefined) continue;
-    if (isRelation(model, key) || isPolymorphicRelation(model, key))
+    // EVERY relation key, both target domains — one map, one test.
+    if (isRelation(scope.model, key)) {
       return true;
+    }
   }
   return false;
 }

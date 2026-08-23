@@ -103,17 +103,16 @@ const parityJSchema = (() => {
       label: s.string(),
       binId: s.int().nullable(),
       bin: s
-        .manyToOne(() => bin)
+        .toOne(() => bin)
         .fields("binId")
-        .references("id")
-        .optional(),
+        .references("id"),
     })
     .map("pj_parcels");
   const bin = s
     .model({
       id: s.int().id(),
       name: s.string(),
-      parcels: s.oneToMany(() => parcel),
+      parcels: s.toMany(() => parcel),
     })
     .map("pj_bins");
   // PACKAGE J closes the hole this file's header declared: `parityJSchema` had no
@@ -132,7 +131,7 @@ const parityJSchema = (() => {
     .model({
       id: s.int().id(),
       note: s.string(),
-      subject: s.polymorphicToOne(
+      subject: s.toOne(
         { label: () => label, sticker: () => sticker },
         { values: { label: "pj.label.v1", sticker: "pj.sticker.v1" } }
       ),
@@ -148,7 +147,7 @@ const parityJSchema = (() => {
     .model({
       id: s.int().id(),
       note: s.string(),
-      subjects: s.polymorphicToMany(
+      subjects: s.toMany(
         { label: () => label, sticker: () => sticker },
         { values: { label: "pj.blabel.v1", sticker: "pj.bsticker.v1" } }
       ),

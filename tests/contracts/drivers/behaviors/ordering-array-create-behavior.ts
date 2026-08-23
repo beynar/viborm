@@ -16,7 +16,7 @@ const author = s
     rank: s.int().nullable(),
     tags: s.string().array().nullable(),
     scores: s.int().array().nullable(),
-    books: s.oneToMany(() => book),
+    books: s.toMany(() => book),
   })
   .map("ordering_array_authors");
 
@@ -27,7 +27,7 @@ const book = s
     pages: s.int(),
     authorId: s.string(),
     author: s
-      .manyToOne(() => author)
+      .toOne(() => author)
       .fields("authorId")
       .references("id"),
   })

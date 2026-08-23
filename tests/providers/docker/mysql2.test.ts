@@ -166,11 +166,10 @@ describeIf("MySQL2 Driver", () => {
         name: s.string(),
         parentId: s.string().nullable(),
         parent: s
-          .manyToOne(() => category)
+          .toOne(() => category)
           .fields("parentId")
-          .references("id")
-          .optional(),
-        children: s.oneToMany(() => category),
+          .references("id"),
+        children: s.toMany(() => category),
       })
       .map("self_tree_categories");
 

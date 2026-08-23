@@ -11,9 +11,9 @@ import type { Sql } from "@sql";
 import { isRecord } from "@validation/value-guards";
 import { createChildScope } from "../context";
 import {
-  type PolymorphicToManyRelationInfo,
   QueryEngineError,
   type QueryScope,
+  type VariantJunctionCarrierSlot,
 } from "../types";
 import {
   hideMutationTarget,
@@ -42,16 +42,17 @@ interface MemberArm {
 
 function buildMemberArms(
   ctx: QueryScope,
-  relation: PolymorphicToManyRelationInfo,
+  relation: VariantJunctionCarrierSlot,
   parentAlias: string
 ): MemberArm[] {
   const arms: MemberArm[] = [];
-  for (const [publicType, member] of relation.storage.members) {
-    const membership = polymorphicMemberMembership(member, "owner");
+  for (const member of relation.edge.members) {
+    const publicType = member.variant;
+    const membership = polymorphicMemberMembership(member.topology, "owner");
     arms.push({
       publicType,
       membership,
-      targetModel: member.targetModel,
+      targetModel: member.topology.target.model,
       traversal: buildMembershipJunctionTraversal(
         ctx,
         () => membership,
@@ -73,13 +74,13 @@ function buildMemberArms(
 export function buildPolymorphicCollectionFilterSql(
   buildNestedWhere: BuildNestedWhere,
   ctx: QueryScope,
-  relation: PolymorphicToManyRelationInfo,
+  relation: VariantJunctionCarrierSlot,
   filter: unknown,
   parentAlias: string
 ): Sql {
   if (!isRecord(filter)) {
     throw new QueryEngineError(
-      `Polymorphic collection filter '${relation.name}' must be an object.`
+      `Polymorphic collection filter '${relation.slot.field}' must be an object.`
     );
   }
   const conditions: Sql[] = [];
@@ -88,7 +89,7 @@ export function buildPolymorphicCollectionFilterSql(
     if (tagged === undefined) continue;
     if (!isRecord(tagged)) {
       throw new QueryEngineError(
-        `Polymorphic collection filter '${relation.name}.${quantifier}' requires an object.`
+        `Polymorphic collection filter '${relation.slot.field}.${quantifier}' requires an object.`
       );
     }
     const arms = buildMemberArms(ctx, relation, parentAlias);
@@ -96,7 +97,7 @@ export function buildPolymorphicCollectionFilterSql(
     const selected = arms.find((arm) => arm.publicType === publicType);
     if (!selected) {
       throw new QueryEngineError(
-        `Unknown polymorphic target '${publicType}' for relation '${relation.name}'.`
+        `Unknown polymorphic target '${publicType}' for relation '${relation.slot.field}'.`
       );
     }
     conditions.push(
@@ -114,7 +115,7 @@ export function buildPolymorphicCollectionFilterSql(
 
   if (conditions.length === 0) {
     throw new QueryEngineError(
-      `Polymorphic collection filter '${relation.name}' requires one of: some, every, none.`
+      `Polymorphic collection filter '${relation.slot.field}' requires one of: some, every, none.`
     );
   }
   return ctx.adapter.operators.and(...conditions);
@@ -299,7 +300,7 @@ function wrapMutationTarget(
 export function buildPolymorphicCollectionCount(
   buildNestedWhere: BuildNestedWhere,
   ctx: QueryScope,
-  relation: PolymorphicToManyRelationInfo,
+  relation: VariantJunctionCarrierSlot,
   config: unknown,
   parentAlias: string
 ): Sql {
@@ -313,7 +314,7 @@ export function buildPolymorphicCollectionCount(
     const selected = arms.find((arm) => arm.publicType === publicType);
     if (!selected) {
       throw new QueryEngineError(
-        `Unknown polymorphic target '${publicType}' for relation '${relation.name}'.`
+        `Unknown polymorphic target '${publicType}' for relation '${relation.slot.field}'.`
       );
     }
     const conditions: Sql[] = [...selected.traversal.conditions()];
@@ -348,7 +349,7 @@ export function buildPolymorphicCollectionCount(
   const [first, ...rest] = counts;
   if (!first) {
     throw new QueryEngineError(
-      `Polymorphic collection '${relation.name}' has no configured variants to count.`
+      `Polymorphic collection '${relation.slot.field}' has no configured variants to count.`
     );
   }
   return rest.reduce(

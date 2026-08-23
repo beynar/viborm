@@ -1,5 +1,15 @@
 # General Polymorphic Relations Plan
 
+> **Superseded relation spellings.** This document is a historical record. Its
+> relation declarations use the retired six-factory API, and its diagnostics and
+> internal type names may name owners that no longer exist. The shipped language
+> is two factories, `s.toOne` and `s.toMany`, whose argument states the target
+> domain; pairing, foreign-key ownership, uniqueness, junction topology and slot
+> emptiness are all derived by one schema-wide resolver. See
+> [`./global-relation-cardinality-plan.md`](./global-relation-cardinality-plan.md) for the unified language and
+> the deliberate verdict changes it made. The measured history below is
+> deliberately not rewritten into a new-API history.
+
 **Date:** 2026-08-18
 
 **Status:** Decision-complete implementation plan; not implemented

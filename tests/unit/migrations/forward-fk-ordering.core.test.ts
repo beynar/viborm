@@ -289,14 +289,14 @@ describe("generate() migration file — forward-ref ordering", () => {
       title: s.string(),
       authorId: s.string(),
       author: s
-        .manyToOne(() => user)
+        .toOne(() => user)
         .fields("authorId")
         .references("id"),
     });
     const user = s.model({
       id: s.string().id(),
       name: s.string(),
-      posts: s.oneToMany(() => post),
+      posts: s.toMany(() => post),
     });
     return { post, user };
   })();

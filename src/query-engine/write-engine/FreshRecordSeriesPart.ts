@@ -164,7 +164,7 @@ function progressiveParentGuard(
   return {
     kind: "guarded",
     guard: completeTargetPresenceGuard(
-      createQueryScope(input.engine.adapter, parent),
+      createQueryScope(input.engine, parent),
       `${stepId}.parent`,
       identity,
       nestedWriteFailure(

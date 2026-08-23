@@ -21,7 +21,7 @@ const schema = (() => {
     .model({
       id: s.int().id(),
       name: s.string(),
-      posts: s.oneToMany(() => post),
+      posts: s.toMany(() => post),
     })
     .map("t3c_users");
   const post = s
@@ -30,10 +30,9 @@ const schema = (() => {
       title: s.string(),
       userId: s.int().nullable(),
       author: s
-        .manyToOne(() => user)
+        .toOne(() => user)
         .fields("userId")
-        .references("id")
-        .optional(),
+        .references("id"),
     })
     .map("t3c_posts");
   return { user, post };

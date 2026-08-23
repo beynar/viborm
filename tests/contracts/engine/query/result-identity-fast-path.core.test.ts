@@ -1,6 +1,7 @@
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
-import { ResultParser } from "@query-engine/result/ResultParser";
+import type { ResultParser } from "@query-engine/result/ResultParser";
 import { s } from "@schema";
+import { parserFor, prepareSchema } from "@tests/fixtures/query-scope";
 import { describe, expect, test } from "vitest";
 
 const ENUM_ERROR = /enum/i;
@@ -48,11 +49,13 @@ const pureScalarModel = s.model({
   active: s.boolean(),
 });
 
+prepareSchema({ mixed: mixedModel, pureScalar: pureScalarModel });
+
 /** Fast path ON: Postgres declares native passthrough and there is no driver. */
 function fastPathParser(
   model: ConstructorParameters<typeof ResultParser>[1]
 ): ResultParser {
-  return new ResultParser(new PostgresAdapter(), model);
+  return parserFor(new PostgresAdapter(), model);
 }
 
 /**
@@ -68,7 +71,7 @@ function fullPathParser(
   (
     adapter.result as { nativeScalarPassthrough?: boolean }
   ).nativeScalarPassthrough = false;
-  return new ResultParser(adapter, model);
+  return parserFor(adapter, model);
 }
 
 // Fresh row objects per call so each parser gets independent inputs (the

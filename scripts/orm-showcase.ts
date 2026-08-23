@@ -21,7 +21,7 @@ const user = s
     id: s.string().id(),
     name: s.string(),
     email: s.string().unique(),
-    posts: s.oneToMany(() => post),
+    posts: s.toMany(() => post),
   })
   .map("showcase_users");
 
@@ -33,10 +33,10 @@ const post = s
     views: s.int().default(0),
     authorId: s.string(),
     author: s
-      .manyToOne(() => user)
+      .toOne(() => user)
       .fields("authorId")
       .references("id"),
-    comments: s.oneToMany(() => comment),
+    comments: s.toMany(() => comment),
   })
   .map("showcase_posts");
 
@@ -46,7 +46,7 @@ const comment = s
     body: s.string(),
     postId: s.string(),
     post: s
-      .manyToOne(() => post)
+      .toOne(() => post)
       .fields("postId")
       .references("id"),
   })

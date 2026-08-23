@@ -57,8 +57,8 @@ export const depthSeamSchema = (() => {
     .model({
       id: s.int().id(),
       slug: s.string().unique(),
-      projects: s.oneToMany(() => project),
-      slots: s.oneToMany(() => slot).name("slots"),
+      projects: s.toMany(() => project),
+      slots: s.toMany(() => slot).name("slots"),
     })
     .map("n4_seam_workspaces");
   const project = s
@@ -70,10 +70,10 @@ export const depthSeamSchema = (() => {
       title: s.string(),
       workspaceId: s.int(),
       workspace: s
-        .manyToOne(() => workspace)
+        .toOne(() => workspace)
         .fields("workspaceId")
         .references("id"),
-      tasks: s.oneToMany(() => task),
+      tasks: s.toMany(() => task),
     })
     .map("n4_seam_projects");
   const task = s
@@ -82,7 +82,7 @@ export const depthSeamSchema = (() => {
       label: s.string(),
       projectId: s.int(),
       project: s
-        .manyToOne(() => project)
+        .toOne(() => project)
         .fields("projectId")
         .references("id"),
     })
@@ -101,11 +101,11 @@ export const depthSeamSchema = (() => {
       title: s.string(),
       workspaceId: s.int(),
       workspace: s
-        .manyToOne(() => workspace)
+        .toOne(() => workspace)
         .fields("workspaceId")
         .references("id")
         .name("slots"),
-      entries: s.oneToMany(() => entry),
+      entries: s.toMany(() => entry),
     })
     .map("n4_seam_slots");
   const entry = s
@@ -114,7 +114,7 @@ export const depthSeamSchema = (() => {
       text: s.string(),
       slotId: s.int(),
       slot: s
-        .manyToOne(() => slot)
+        .toOne(() => slot)
         .fields("slotId")
         .references("id"),
     })
@@ -125,8 +125,8 @@ export const depthSeamSchema = (() => {
     .model({
       id: s.int().id(),
       name: s.string(),
-      notes: s.oneToMany(() => note),
-      tickets: s.oneToMany(() => ticket),
+      notes: s.toMany(() => note),
+      tickets: s.toMany(() => ticket),
     })
     .map("n4_seam_owners");
   const note = s
@@ -135,7 +135,7 @@ export const depthSeamSchema = (() => {
       body: s.string(),
       ownerId: s.int(),
       owner: s
-        .manyToOne(() => owner)
+        .toOne(() => owner)
         .fields("ownerId")
         .references("id"),
     })
@@ -148,7 +148,7 @@ export const depthSeamSchema = (() => {
       // The ROOT holds this foreign key, so `ticket.update({ data: { owner: { update } } })`
       // is the parent-held to-one whose target is located by a PLANNED probe.
       owner: s
-        .manyToOne(() => owner)
+        .toOne(() => owner)
         .fields("ownerId")
         .references("id"),
     })
@@ -159,7 +159,7 @@ export const depthSeamSchema = (() => {
     .model({
       id: s.int().id(),
       title: s.string(),
-      photos: s.manyToMany(() => photo),
+      photos: s.toMany(() => photo),
     })
     .map("n4_seam_albums");
   const photo = s
@@ -167,8 +167,8 @@ export const depthSeamSchema = (() => {
       id: s.int().id(),
       slug: s.string().unique(),
       caption: s.string(),
-      albums: s.manyToMany(() => album),
-      marks: s.oneToMany(() => mark),
+      albums: s.toMany(() => album),
+      marks: s.toMany(() => mark),
     })
     .map("n4_seam_photos");
   const mark = s
@@ -177,7 +177,7 @@ export const depthSeamSchema = (() => {
       text: s.string(),
       photoId: s.int(),
       photo: s
-        .manyToOne(() => photo)
+        .toOne(() => photo)
         .fields("photoId")
         .references("id"),
     })

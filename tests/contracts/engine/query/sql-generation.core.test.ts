@@ -14,9 +14,9 @@ import { ValidationError } from "@errors";
 import { buildOrderByParts } from "@query-engine/builders/orderby-builder";
 import { buildWhere } from "@query-engine/builders/where-builder";
 import { buildWhereUnique } from "@query-engine/builders/where-unique-builder";
-import { createQueryScope, getTableName } from "@query-engine/context";
+import { getTableName } from "@query-engine/context";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
-import { hydrateSchemaNames, s } from "@schema";
+import { s } from "@schema";
 import { sqlGenerationUserPostSchema } from "@tests/fixtures/user-post-schema";
 import { createSchemaRegistry } from "@validation";
 import { beforeAll, describe, expect, test } from "vitest";
@@ -91,6 +91,7 @@ const nestedRelationOrderBySchema = (() => {
     .model({
       id: s.string().id(),
       name: s.string(),
+      publishers: s.toMany(() => Publisher),
     })
     .map("nested_order_countries");
 
@@ -101,9 +102,10 @@ const nestedRelationOrderBySchema = (() => {
       rank: s.int(),
       countryId: s.string(),
       country: s
-        .manyToOne(() => Country)
+        .toOne(() => Country)
         .fields("countryId")
         .references("id"),
+      authors: s.toMany(() => Author),
     })
     .map("nested_order_publishers");
 
@@ -113,10 +115,10 @@ const nestedRelationOrderBySchema = (() => {
       name: s.string(),
       publisherId: s.string(),
       publisher: s
-        .manyToOne(() => Publisher)
+        .toOne(() => Publisher)
         .fields("publisherId")
         .references("id"),
-      posts: s.oneToMany(() => NestedPost),
+      posts: s.toMany(() => NestedPost),
     })
     .map("nested_order_authors");
 
@@ -126,9 +128,10 @@ const nestedRelationOrderBySchema = (() => {
       title: s.string(),
       authorId: s.string(),
       author: s
-        .manyToOne(() => Author)
+        .toOne(() => Author)
         .fields("authorId")
         .references("id"),
+      comments: s.toMany(() => Comment),
     })
     .map("nested_order_posts");
 
@@ -138,7 +141,7 @@ const nestedRelationOrderBySchema = (() => {
       text: s.string(),
       postId: s.string(),
       post: s
-        .manyToOne(() => NestedPost)
+        .toOne(() => NestedPost)
         .fields("postId")
         .references("id"),
     })
@@ -152,10 +155,10 @@ const nestedRelationOrderBySchema = (() => {
       label: s.string(),
       nextId: s.string().nullable(),
       next: s
-        .manyToOne(() => Link)
+        .toOne(() => Link)
         .fields("nextId")
-        .references("id")
-        .optional(),
+        .references("id"),
+      previous: s.toMany(() => Link),
     })
     .map("nested_order_links");
 
@@ -178,7 +181,7 @@ function linkChainOrderBy(hops: number): Record<string, unknown> {
 const schema = sqlGenerationUserPostSchema;
 
 // Hydrate schema names before tests
-hydrateSchemaNames(schema);
+prepareSchema(schema);
 
 const adapter = new PostgresAdapter();
 const mockDriver = new MockDriver(adapter);
@@ -209,11 +212,20 @@ const dialectCases: DialectCase[] = [
 
 let registry: ReturnType<typeof createModelRegistry>;
 let engine: QueryEngine;
+/** An engine over the schema that holds the file's one OPTIONAL to-one slot. */
+let optionalEngine: QueryEngine;
 
 beforeAll(() => {
   registry = createModelRegistry(schema, createSchemaRegistry(schema));
   engine = new QueryEngine(mockDriver, registry);
-  hydrateSchemaNames(nestedRelationOrderBySchema);
+  prepareSchema(nestedRelationOrderBySchema);
+  optionalEngine = new QueryEngine(
+    mockDriver,
+    createModelRegistry(
+      nestedRelationOrderBySchema,
+      createSchemaRegistry(nestedRelationOrderBySchema)
+    )
+  );
 });
 
 // Helper to get SQL string and values
@@ -227,7 +239,7 @@ function getSql(model: any, operation: any, args: any) {
 }
 
 function getWhiteBoxOrderByParts(model: any, orderBy: Record<string, unknown>) {
-  const ctx = createQueryScope(adapter, model);
+  const ctx = scopeFor(adapter, model);
   return buildOrderByParts(ctx, orderBy, ctx.rootAlias);
 }
 
@@ -592,7 +604,7 @@ describe("Basic CRUD Operations", () => {
     });
 
     test("unknown builder filter operation fails closed", () => {
-      const ctx = createQueryScope(adapter, Author);
+      const ctx = scopeFor(adapter, Author);
 
       expect(() =>
         buildWhere(ctx, { age: { unsupported: 1 } }, ctx.rootAlias)
@@ -602,7 +614,7 @@ describe("Basic CRUD Operations", () => {
     });
 
     test("unknown builder where field fails closed", () => {
-      const ctx = createQueryScope(adapter, Author);
+      const ctx = scopeFor(adapter, Author);
 
       expect(() =>
         buildWhere(ctx, { unknownField: { equals: "value" } }, ctx.rootAlias)
@@ -610,7 +622,7 @@ describe("Basic CRUD Operations", () => {
     });
 
     test("empty unique builder fails closed", () => {
-      const ctx = createQueryScope(adapter, Author);
+      const ctx = scopeFor(adapter, Author);
 
       expect(() => buildWhereUnique(ctx, {}, ctx.rootAlias)).toThrow(
         "whereUnique requires at least one unique discriminator"
@@ -623,7 +635,7 @@ describe("Basic CRUD Operations", () => {
     // makes the selector a selector: without a discriminator there is nothing to
     // narrow, and the builder still refuses to emit a filter-only "unique" read.
     test("a filter-only unique builder input fails closed", () => {
-      const ctx = createQueryScope(adapter, Author);
+      const ctx = scopeFor(adapter, Author);
 
       expect(() =>
         buildWhereUnique(ctx, { name: { equals: "Alice" } }, ctx.rootAlias)
@@ -631,7 +643,7 @@ describe("Basic CRUD Operations", () => {
     });
 
     test("an unknown field in the filter half still fails closed", () => {
-      const ctx = createQueryScope(adapter, Author);
+      const ctx = scopeFor(adapter, Author);
 
       expect(() =>
         buildWhereUnique(
@@ -1118,57 +1130,52 @@ describe("Relation Filters in WHERE", () => {
       expect(ordered.statement).toContain(" AND ");
       expect(ordered.values).toEqual(["Alice", "Admin"]);
     });
-
-    test("combines null and object forms", () => {
-      const isNull = getSql(Post, "findMany", {
-        where: {
-          author: {
-            is: null,
-            isNot: { name: "Alice" },
-          },
-        },
-      });
-      const isNotNull = getSql(Post, "findMany", {
-        where: {
-          author: {
-            is: { name: "Alice" },
-            isNot: null,
-          },
-        },
-      });
-
-      expect(isNull.statement).toMatch(IS_NULL_REGEX);
-      expect(isNull.statement).toContain("NOT EXISTS");
-      expect(isNull.statement).toContain(" AND ");
-      expect(isNotNull.statement).toContain("EXISTS");
-      expect(isNotNull.statement).toMatch(IS_NOT_NULL_REGEX);
-      expect(isNotNull.statement).toContain(" AND ");
-    });
   });
 
-  describe("null checks on optional to-one", () => {
-    test("is null", () => {
-      const { statement } = getSql(Post, "findMany", {
-        where: {
-          author: {
-            is: null,
-          },
-        },
-      });
+  /**
+   * §9.4 — the null form of a to-one filter exists exactly where the SLOT MAY BE
+   * EMPTY, which is a fact of the stored tuple. `Post.author`'s foreign key is
+   * non-nullable, so there is no second optionality flag left to disagree with
+   * the column and the null form is refused; `Link.next`'s is nullable, so it
+   * keeps the `IS NULL` lowering.
+   */
+  describe("null checks on a to-one", () => {
+    const linkSql = (where: Record<string, unknown>) =>
+      optionalEngine
+        .build(nestedRelationOrderBySchema.Link, "findMany", { where })
+        .toStatement("$n");
 
-      expect(statement).toMatch(IS_NULL_REGEX);
+    test("a required slot refuses the null form", () => {
+      expect(() =>
+        getSql(Post, "findMany", { where: { author: { is: null } } })
+      ).toThrow(ValidationError);
+      expect(() =>
+        getSql(Post, "findMany", { where: { author: { isNot: null } } })
+      ).toThrow(ValidationError);
+    });
+
+    test("is null", () => {
+      expect(linkSql({ next: { is: null } })).toMatch(IS_NULL_REGEX);
     });
 
     test("isNot null", () => {
-      const { statement } = getSql(Post, "findMany", {
-        where: {
-          author: {
-            isNot: null,
-          },
-        },
+      expect(linkSql({ next: { isNot: null } })).toMatch(IS_NOT_NULL_REGEX);
+    });
+
+    test("combines null and object forms", () => {
+      const isNull = linkSql({
+        next: { is: null, isNot: { label: "a" } },
+      });
+      const isNotNull = linkSql({
+        next: { is: { label: "a" }, isNot: null },
       });
 
-      expect(statement).toMatch(IS_NOT_NULL_REGEX);
+      expect(isNull).toMatch(IS_NULL_REGEX);
+      expect(isNull).toContain("NOT EXISTS");
+      expect(isNull).toContain(" AND ");
+      expect(isNotNull).toContain("EXISTS");
+      expect(isNotNull).toMatch(IS_NOT_NULL_REGEX);
+      expect(isNotNull).toContain(" AND ");
     });
   });
 });
@@ -1447,7 +1454,12 @@ describe("Multi-step writes", () => {
       );
     });
 
-    test("required relation disconnect fails before SQL generation", () => {
+    // §8.4 / D27 — the refusal MOVED. HEAD published `disconnect` from a
+    // declared `.optional()` and let an engine guard close a non-nullable
+    // column; the verb is now published from `membershipCanBeCleared`, the same
+    // owner the engine clears from, so a required slot never spells it and the
+    // operation schema is where the refusal lands.
+    test("a required relation publishes no disconnect at all", () => {
       expect(() =>
         getSql(Post, "update", {
           where: { id: "post-1" },
@@ -1457,9 +1469,7 @@ describe("Multi-step writes", () => {
             },
           },
         })
-      ).toThrow(
-        "Cannot disconnect relation 'author' because foreign key field(s) authorId are required."
-      );
+      ).toThrow(ValidationError);
     });
 
     test("update with nested update rejects the single-statement build API", () => {
@@ -1818,6 +1828,7 @@ describe("Aggregates", () => {
 
 import { assembleInnerQuery } from "@src/query-engine/builders/include-query";
 import { sql } from "@src/sql/sql";
+import { prepareSchema, scopeFor } from "@tests/fixtures/query-scope";
 
 describe("assembleInnerQuery helper", () => {
   const adapter = new PostgresAdapter();

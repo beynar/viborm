@@ -5,9 +5,13 @@
  * create schemas.
  */
 
+import {
+  authorSchemas,
+  postSchemas,
+  simpleSchemas,
+} from "@tests/unit/operation-schemas/fixtures";
 import { type InferInput, parse } from "@validation";
 import { describe, expect, expectTypeOf, test } from "vitest";
-import { authorSchemas, postSchemas, simpleSchemas } from "@tests/unit/operation-schemas/fixtures";
 
 // =============================================================================
 // TYPE TESTS - Simple Model
@@ -93,7 +97,7 @@ describe("Create Schema - Author Model Runtime (with relations)", () => {
       id: "author-1",
       name: "Alice",
       posts: {
-        create: { id: "post-1", title: "Hello", authorId: "author-1" },
+        create: { id: "post-1", title: "Hello" },
       },
     });
     expect(result.issues).toBeUndefined();

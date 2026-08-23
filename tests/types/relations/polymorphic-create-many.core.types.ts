@@ -9,25 +9,25 @@ const video = s.model({ id: s.string().id() });
 
 const parent = s.model({
   id: s.string().id(),
-  requiredChildren: s.oneToMany(() => requiredChild).name("requiredChildren"),
-  optionalChildren: s.oneToMany(() => optionalChild).name("optionalChildren"),
+  requiredChildren: s.toMany(() => requiredChild).name("requiredChildren"),
+  optionalChildren: s.toMany(() => optionalChild).name("optionalChildren"),
 });
 
 const requiredChild = s.model({
   id: s.string().id(),
   parentId: s.string(),
   parent: s
-    .manyToOne(() => parent)
+    .toOne(() => parent)
     .fields("parentId")
     .references("id")
     .name("requiredChildren"),
   preview: s
-    .polymorphicToOne(
+    .toOne(
       { post: () => post, video: () => video },
       { values: { post: "preview.post.v1", video: "preview.video.v1" } }
     )
     .optional(),
-  subject: s.polymorphicToOne(
+  subject: s.toOne(
     { post: () => post, video: () => video },
     { values: { post: "post.v1", video: "video.v1" } }
   ),
@@ -37,13 +37,12 @@ const optionalChild = s.model({
   id: s.string().id(),
   parentId: s.string().default("unbound"),
   parent: s
-    .manyToOne(() => parent)
+    .toOne(() => parent)
     .fields("parentId")
     .references("id")
-    .name("optionalChildren")
-    .optional(),
+    .name("optionalChildren"),
   subject: s
-    .polymorphicToOne(
+    .toOne(
       { post: () => post, video: () => video },
       { values: { post: "post.v1", video: "video.v1" } }
     )
@@ -189,7 +188,7 @@ const optionalNestedUpdate = () =>
  */
 const collectionOwner = s.model({
   id: s.string().id(),
-  attachments: s.polymorphicToMany(
+  attachments: s.toMany(
     { post: () => post, video: () => video },
     { values: { post: "attachment.post.v1", video: "attachment.video.v1" } }
   ),

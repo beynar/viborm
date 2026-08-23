@@ -46,7 +46,7 @@ const schema = (() => {
     .model({
       id: s.string().id(),
       label: s.string(),
-      memberships: s.oneToMany(() => membership),
+      memberships: s.toMany(() => membership),
     })
     .map("e64p_accounts");
 
@@ -57,10 +57,9 @@ const schema = (() => {
       role: s.string(),
       accountId: s.string().nullable(),
       account: s
-        .manyToOne(() => account)
+        .toOne(() => account)
         .fields("accountId")
-        .references("id")
-        .optional(),
+        .references("id"),
     })
     .id(["tenantId", "slot"])
     .map("e64p_memberships");

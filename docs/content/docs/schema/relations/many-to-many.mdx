@@ -4,6 +4,10 @@ description: Define many-to-many relationships connecting multiple records on bo
 icon: git-merge
 ---
 
+A many-to-many relationship is what **two `s.toMany` slots** spell. Neither
+factory name says "many-to-many": the pair does, and the junction table follows
+from it.
+
 ## Basic Example
 
 ```ts
@@ -12,17 +16,19 @@ import { s } from "viborm";
 const post = s.model({
   id: s.string().id().ulid(),
   title: s.string(),
-  tags: s.manyToMany(() => tag),
+  tags: s.toMany(() => tag),
 });
 
 const tag = s.model({
   id: s.string().id().ulid(),
   name: s.string().unique(),
-  posts: s.manyToMany(() => post),
+  posts: s.toMany(() => post),
 });
 ```
 
-VibORM automatically creates a junction table `post_tag` with `postId` and `tagId` columns.
+When these models are registered under the schema keys `post` and `tag`, VibORM
+automatically creates a junction table `post_tag` with `postId` and `tagId`
+columns.
 
 ## Characteristics
 
@@ -35,31 +41,45 @@ VibORM automatically creates a junction table `post_tag` with `postId` and `tagI
 
 ## Configuration
 
-The distinctive rule of many-to-many: the FKs live in a junction table, configured with `.through()`, `.A()`, and `.B()`. See the [relation method reference](/docs/schema/relations) and [referential actions](/docs/schema/relations#referential-actions):
+The foreign keys live in a junction table, configured with `.through()`,
+`.source()` and `.target()`. Supplying all three pins the ordinary junction's
+table and both side tokens independently of generated names. See the [relation method
+reference](/docs/schema/relations) and [referential
+actions](/docs/schema/relations#referential-actions):
 
 ```ts
-s.manyToMany(() => tag)
+s.toMany(() => tag)
+  .name("labels")           // Pairing label, matched exactly on both endpoints
   .through("post_tags")     // Junction table name
-  .A("post_id")             // Source column, or compound-key prefix
-  .B("tag_id")              // Target column, or compound-key prefix
+  .source("post_id")        // THIS endpoint's column, or compound-key prefix
+  .target("tag_id")         // The other endpoint's column, or compound-key prefix
   .onDelete("cascade")      // Referential action (applies to both FKs)
   .onUpdate("cascade")      // Referential action (applies to both FKs)
-  .name("labels")           // Custom relation name
 ```
 
-`.A()` and `.B()` remain scalar configuration methods even when an endpoint
-uses a compound primary key. A one-field key uses the supplied string as its
-exact junction column. A compound key expands it as a positional prefix in the
-primary key's declared field order:
+**One junction, one owner.** These five methods describe one physical table, so
+exactly one endpoint declares them; the other endpoint declares none and reads
+the mirrored view. Configuring both sides is refused with `R011`. `.source()`
+always means *the side that spells it*, so moving the configuration to the other
+endpoint swaps `.source()` and `.target()` and leaves the table unchanged.
+
+Junction actions accept `cascade`, `restrict` and `noAction` — but not
+`setNull`: every junction column carries the membership itself, so nulling one
+would erase the row's meaning rather than clear a reference.
+
+`.source()` and `.target()` remain scalar configuration methods even when an
+endpoint uses a compound primary key. A one-field key uses the supplied string as
+its exact junction column. A compound key expands it as a positional prefix in
+the primary key's declared field order:
 
 ```ts
 const post = s.model({
   tenantId: s.string(),
   localId: s.string(),
-  tags: s.manyToMany(() => tag)
+  tags: s.toMany(() => tag)
     .through("post_tags")
-    .A("post")
-    .B("tagId"),
+    .source("post")
+    .target("tagId"),
 }).id(["tenantId", "localId"]);
 
 // Junction columns: post_1, post_2, tagId
@@ -75,36 +95,44 @@ order remains the source of truth.
 Without explicit configuration, VibORM generates:
 
 ```ts
-// For: post.tags = s.manyToMany(() => tag)
+// For: post.tags = s.toMany(() => tag) paired with tag.posts = s.toMany(() => post)
 // Junction table: post_tag
 // Columns: postId, tagId
 ```
 
-Table name is derived from model names in alphabetical order: `post` + `tag` → `post_tag`.
+The generated table and non-self side tokens are derived from the models'
+**schema object keys**, lowercased, with the table keys sorted alphabetically:
+`post` + `tag` → `post_tag`. JavaScript variable names and `.map()` table names
+do not participate. Renaming a schema key therefore renames generated junction
+storage; use the complete `.through().source().target()` configuration when the
+physical names must stay fixed.
+
+When the pair carries a `.name()`, the generated table name gains it as a
+suffix, so several relationships between the same two models never collide.
 
 ## Explicit Junction Table
 
-For full control, note the `A`/`B` columns swap on the inverse side:
+Put every override on one endpoint. The other side is left bare:
 
 ```ts
 const post = s.model({
   id: s.string().id().ulid(),
   title: s.string(),
-  tags: s.manyToMany(() => tag)
+  tags: s.toMany(() => tag)
     .through("post_tags")
-    .A("post_id")
-    .B("tag_id"),
+    .source("post_id")
+    .target("tag_id"),
 });
 
 const tag = s.model({
   id: s.string().id().ulid(),
   name: s.string().unique(),
-  posts: s.manyToMany(() => post)
-    .through("post_tags")
-    .A("tag_id")
-    .B("post_id"),
+  posts: s.toMany(() => post),   // mirrors the configuration above
 });
 ```
+
+`tag.posts` reads the same table with the sides swapped — `tag_id` is its source
+and `post_id` its target — without repeating a single fact.
 
 ## Querying Many-to-Many
 
@@ -134,7 +162,8 @@ See [To-Many Relation Filters](/docs/client/filtering/relations-to-many) for `so
 
 ### Explicit Junction Model
 
-When you need additional data on the relation, model the junction table yourself with two [many-to-one](/docs/schema/relations/many-to-one) relations:
+When you need additional data on the relation, model the junction table yourself
+with two singular relations:
 
 ```ts
 // Junction model with extra fields
@@ -144,10 +173,10 @@ const enrollment = s.model({
   courseId: s.string(),
   enrolledAt: s.dateTime().now(),
   grade: s.string().nullable(),
-  student: s.manyToOne(() => student)
+  student: s.toOne(() => student)
     .fields("studentId")
     .references("id"),
-  course: s.manyToOne(() => course)
+  course: s.toOne(() => course)
     .fields("courseId")
     .references("id"),
 })
@@ -157,29 +186,40 @@ const enrollment = s.model({
 const student = s.model({
   id: s.string().id().ulid(),
   name: s.string(),
-  enrollments: s.oneToMany(() => enrollment),
+  enrollments: s.toMany(() => enrollment),
 });
 
 const course = s.model({
   id: s.string().id().ulid(),
   title: s.string(),
-  enrollments: s.oneToMany(() => enrollment),
+  enrollments: s.toMany(() => enrollment),
 });
 ```
 
 ### Self-Referential Many-to-Many
 
+Two collection slots on the same model pair with each other, and their side
+tokens default to the field names — no configuration required:
+
 ```ts
 const user = s.model({
   id: s.string().id().ulid(),
   name: s.string(),
-  following: s.manyToMany(() => user)
+  following: s.toMany(() => user),   // junction column: followingId
+  followers: s.toMany(() => user),   // junction column: followersId
+});
+```
+
+Name the columns yourself by putting every override on one of the two slots:
+
+```ts
+const user = s.model({
+  id: s.string().id().ulid(),
+  name: s.string(),
+  following: s.toMany(() => user)
     .through("user_follows")
-    .A("follower_id")
-    .B("following_id"),
-  followers: s.manyToMany(() => user)
-    .through("user_follows")
-    .A("following_id")
-    .B("follower_id"),
+    .source("follower_id")
+    .target("following_id"),
+  followers: s.toMany(() => user),
 });
 ```

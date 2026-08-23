@@ -1,5 +1,11 @@
 import { COUNT_RESULT_KEY } from "@adapters/shared/result-parsing";
 import type { Model } from "@schema/model";
+import {
+  type AnyRelation,
+  isVariantRelationState,
+  slotMayBeEmpty,
+} from "@schema/relation";
+import type { ResolvedRelationIndex } from "@schema/validation/relation-resolution";
 import { isRecord } from "@validation/value-guards";
 import { getDefaultScalarFieldNames } from "../context";
 import { getGroupByFields } from "../operations/groupby-fields";
@@ -88,7 +94,8 @@ function getNestedSelection(value: unknown): Record<string, unknown> {
 
 function buildModelShape(
   model: Model<any>,
-  args: Record<string, unknown>
+  args: Record<string, unknown>,
+  index: ResolvedRelationIndex
 ): ExpectedResultShape {
   const rawKeys: string[] = [];
   const relations = new Map<string, ExpectedResultShape>();
@@ -133,14 +140,16 @@ function buildModelShape(
     select,
     rawKeys,
     relations,
-    selectedOutputKeys
+    selectedOutputKeys,
+    index
   );
   addSelectedPolymorphicRelations(
     model,
     select,
     rawKeys,
     polymorphic,
-    selectedOutputKeys
+    selectedOutputKeys,
+    index
   );
 
   if (hasVectorDistance && selectedOutputKeys.has("_distance")) {
@@ -153,14 +162,16 @@ function buildModelShape(
     include,
     rawKeys,
     relations,
-    selectedOutputKeys
+    selectedOutputKeys,
+    index
   );
   addSelectedPolymorphicRelations(
     model,
     include,
     rawKeys,
     polymorphic,
-    selectedOutputKeys
+    selectedOutputKeys,
+    index
   );
 
   const relationCountSelections = [
@@ -168,21 +179,21 @@ function buildModelShape(
     getOwnValue(include, "_count"),
   ];
   const relationCounts = new Set<string>();
-  const modelPolymorphicRelations = model["~"].state.polymorphicRelations;
   for (const countSelection of relationCountSelections) {
     if (!isRecord(countSelection)) continue;
     const countSelect = getOwnValue(countSelection, "select");
     if (!isRecord(countSelect)) continue;
     for (const [relationName] of selectedEntries(countSelect)) {
-      // The two namespaces are separate records and stay separate: a polymorphic
-      // COLLECTION joins the count surface (plan §7.4), a row-held polymorphic
-      // slot has no collection to count.
-      if (Object.hasOwn(modelRelations, relationName)) {
-        relationCounts.add(relationName);
-        continue;
-      }
-      if (!Object.hasOwn(modelPolymorphicRelations, relationName)) continue;
-      if (model["~"].getPolymorphicStorage(relationName)?.kind !== "toMany") {
+      const relation: AnyRelation | undefined = getOwnValue(
+        modelRelations,
+        relationName
+      );
+      if (!relation) continue;
+      // ONE map, one rule: a variant COLLECTION joins the count surface
+      // (plan §7.4); a variant SINGULAR slot has no collection to count, and
+      // its `countFilter` family is a named refusal for the same reason.
+      const state = relation["~"].state;
+      if (isVariantRelationState(state) && state.cardinality !== "many") {
         continue;
       }
       relationCounts.add(relationName);
@@ -230,15 +241,25 @@ function addSelectedRelations(
   selection: Record<string, unknown> | undefined,
   rawKeys: string[],
   relations: Map<string, ExpectedResultShape>,
-  selectedOutputKeys: Set<string>
+  selectedOutputKeys: Set<string>,
+  index: ResolvedRelationIndex
 ): void {
   for (const [relationName, value] of selectedEntries(selection)) {
-    const relation = getOwnValue(modelRelations, relationName);
-    if (!relation) continue;
-    const targetModel = relation["~"].state.getter();
+    const relation: AnyRelation | undefined = getOwnValue(
+      modelRelations,
+      relationName
+    );
+    // ONE relation map, split here by TARGET KIND: a variant slot produces a
+    // tagged carrier, which the polymorphic pass below shapes instead.
+    if (!relation || isVariantRelationState(relation["~"].state)) continue;
+    const targetModel = relation["~"].settleTarget() as Model<any>;
     rawKeys.push(relationName);
     selectedOutputKeys.add(relationName);
-    const shape = buildModelShape(targetModel, getNestedSelection(value));
+    const shape = buildModelShape(
+      targetModel,
+      getNestedSelection(value),
+      index
+    );
     relations.set(
       relationName,
       pagesBackward(value) ? { ...shape, reversed: true } : shape
@@ -259,32 +280,37 @@ function addSelectedPolymorphicRelations(
   selection: Record<string, unknown> | undefined,
   rawKeys: string[],
   polymorphic: Map<string, ExpectedPolymorphicResultShape>,
-  selectedOutputKeys: Set<string>
+  selectedOutputKeys: Set<string>,
+  index: ResolvedRelationIndex
 ): void {
-  const modelRelations = model["~"].state.polymorphicRelations;
+  const modelRelations = model["~"].state.relations;
   for (const [relationName, value] of selectedEntries(selection)) {
-    const relation = getOwnValue(modelRelations, relationName);
+    const relation: AnyRelation | undefined = getOwnValue(
+      modelRelations,
+      relationName
+    );
     if (!relation) continue;
-    const storage = model["~"].getPolymorphicStorage(relationName);
-    if (!storage) {
-      throw new QueryEngineError(
-        `Polymorphic relation '${relationName}' has no validated storage metadata.`
-      );
-    }
+    const state = relation["~"].state;
+    if (!isVariantRelationState(state)) continue;
 
     const projection = isRecord(value) ? value : undefined;
     const variants = new Map<string, ExpectedPolymorphicVariantShape>();
+    const publicTypes = Object.keys(state.target.entries);
 
-    if (storage.kind === "toOne") {
-      for (const [publicType, member] of storage.members) {
+    if (state.cardinality === "one") {
+      for (const publicType of publicTypes) {
         const override = getOwnValue(projection, publicType);
+        const targetModel = relation["~"].settleTarget(
+          publicType
+        ) as Model<any>;
         variants.set(publicType, {
-          model: member.targetModel,
+          model: targetModel,
           shape: buildModelShape(
-            member.targetModel,
+            targetModel,
             override === undefined || override === true
               ? {}
-              : getNestedSelection(override)
+              : getNestedSelection(override),
+            index
           ),
         });
       }
@@ -293,19 +319,23 @@ function addSelectedPolymorphicRelations(
       const allowList = Array.isArray(only) ? new Set(only) : undefined;
       const armNodes = getOwnValue(projection, "variants");
       const armProjection = isRecord(armNodes) ? armNodes : undefined;
-      for (const [publicType, member] of storage.members) {
+      for (const publicType of publicTypes) {
         const override = getOwnValue(armProjection, publicType);
+        const targetModel = relation["~"].settleTarget(
+          publicType
+        ) as Model<any>;
         // EVERY configured arm is recorded, INCLUDING one excluded by `only`:
         // the read still computes its integrity facts, and the parser still
         // refuses a non-zero orphan count there. Visibility only decides
         // whether the arm carries rows and whether they reach the result.
         variants.set(publicType, {
-          model: member.targetModel,
+          model: targetModel,
           shape: buildModelShape(
-            member.targetModel,
+            targetModel,
             override === undefined || override === true
               ? {}
-              : getNestedSelection(override)
+              : getNestedSelection(override),
+            index
           ),
           visible: allowList ? allowList.has(publicType) : true,
           // ARM-LOCAL, unlike the ordinary relation flag: one arm may page
@@ -317,9 +347,14 @@ function addSelectedPolymorphicRelations(
 
     rawKeys.push(relationName);
     selectedOutputKeys.add(relationName);
+    const resolved = index.get(model)?.get(relationName);
     polymorphic.set(relationName, {
-      cardinality: storage.kind === "toOne" ? "one" : "many",
-      optional: relation["~"].state.optional === true,
+      // CARDINALITY is the declaration's own fact — the slot the factory was
+      // spelled with. EMPTINESS is not: it is the resolved edge's answer, which
+      // for a row carrier IS the nullability of its private `(type, id)` pair
+      // (§8.4).
+      cardinality: state.cardinality,
+      optional: resolved !== undefined && slotMayBeEmpty(resolved),
       variants,
     });
   }
@@ -374,12 +409,8 @@ function buildCountShape(args: Record<string, unknown>): ExpectedResultShape {
 export function buildExpectedResultShape(
   model: Model<any>,
   operation: Operation,
-  args: Record<string, unknown>
-): ExpectedResultShape | undefined;
-export function buildExpectedResultShape(
-  model: Model<any>,
-  operation: Operation,
-  args: Record<string, unknown>
+  args: Record<string, unknown>,
+  relations: ResolvedRelationIndex
 ): ExpectedResultShape | undefined {
   if (operation === "count") return buildCountShape(args);
   if (operation === "exist") {
@@ -394,7 +425,7 @@ export function buildExpectedResultShape(
     return buildAggregateShape(args, groupedFields);
   }
   if (MODEL_ROW_OPERATIONS.has(operation)) {
-    return buildModelShape(model, args);
+    return buildModelShape(model, args, relations);
   }
   return undefined;
 }

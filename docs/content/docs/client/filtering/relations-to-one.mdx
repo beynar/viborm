@@ -1,6 +1,6 @@
 ---
 title: To-One Relation Filters
-description: Filter by oneToOne and manyToOne relations using is and isNot
+description: Filter by singular relation slots using is and isNot
 icon: link
 ---
 
@@ -77,7 +77,7 @@ invalid data and relation projection fails rather than returning `null`.
 
 Direct polymorphic relations are variant-aware: target filters include a
 `type`, while optional-presence checks accept bare `null`, `{ is: null }`, and
-`{ isNot: null }`. Polymorphic inverse `oneToOne` fields use the ordinary forms
+`{ isNot: null }`. Singular polymorphic inverse slots use the ordinary forms
 shown above. See [Polymorphic Relations](/docs/schema/relations/polymorphic#filter-by-variant-and-target-fields).
 
 ## Nested Conditions

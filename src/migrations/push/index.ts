@@ -8,7 +8,11 @@
  * 4. Execute DDL statements
  */
 
-import { validateSchemaOrThrow } from "../../schema/validation";
+import { hydrateSchemaNames } from "../../schema/hydration";
+import {
+  resolveSchemaOrThrow,
+  validateSchemaOrThrow,
+} from "../../schema/validation";
 import type { DiffOperation, PushResult, ResolveCallback } from "../types";
 import { executeDDLStatements, generateDDLStatements } from "./executor";
 import { formatOperation, formatOperations } from "./format";
@@ -53,11 +57,21 @@ export async function push<O extends PushOptions = PushOptions>(
   options: ExactPushOptions<O> = {} as ExactPushOptions<O>
 ): Promise<PushResult> {
   const dryRun = options.dryRun ?? false;
-  // The CLI validates before push; programmatic callers must not skip it —
-  // invalid schemas (e.g. colliding junction tables) corrupt data silently.
-  if (!options.skipValidation) {
-    validateSchemaOrThrow(client.$schema);
-  }
+  // The two ordered phases of the definition pipeline (§6.1), at this boundary
+  // as at every other. Hydration is idempotent for an already-bound key, and it
+  // is where model-object identity is proved — before an index, a diff or a
+  // DDL statement exists.
+  hydrateSchemaNames(client.$schema);
+  // `skipValidation` drops the ADVICE — the spelling rules a caller may
+  // legitimately disagree with. It cannot drop the structural
+  // relation-definition gate (plan §7.3): no DDL may be generated from a
+  // topology nothing proved, so an unresolvable schema fails here whichever
+  // option was passed.
+  // ONE resolution for this push, handed on by identity: the planner's
+  // serializer reads this exact index rather than resolving again (§10E.6).
+  const relations = options.skipValidation
+    ? resolveSchemaOrThrow(client.$schema)
+    : validateSchemaOrThrow(client.$schema);
   const migrationDriver = getPushMigrationDriver(client);
 
   if (options.forceReset && !dryRun) {
@@ -68,7 +82,7 @@ export async function push<O extends PushOptions = PushOptions>(
     );
   }
 
-  const plan = await planPush(client, migrationDriver, options);
+  const plan = await planPush(client, migrationDriver, options, relations);
   const sql = generateDDLStatements(
     plan.operations,
     migrationDriver,

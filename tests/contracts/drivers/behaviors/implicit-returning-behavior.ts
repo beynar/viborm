@@ -58,7 +58,7 @@ const orderedConflict = s
 const warehouse = s
   .model({
     id: s.string().id(),
-    inventory: s.oneToMany(() => inventory),
+    inventory: s.toMany(() => inventory),
   })
   .map("many_return_warehouses");
 
@@ -67,7 +67,7 @@ const inventory = s
     id: s.string().id(),
     warehouseId: s.string(),
     warehouse: s
-      .manyToOne(() => warehouse)
+      .toOne(() => warehouse)
       .fields("warehouseId")
       .references("id"),
   })

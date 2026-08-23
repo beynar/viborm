@@ -137,7 +137,7 @@ export class ReadOperation {
       );
     }
     const parsed = new ResultParser(
-      this.engine.adapter,
+      this.engine,
       this.model,
       this.engine.driver,
       this.engine.decimalDecode
@@ -163,7 +163,7 @@ export class ReadOperation {
   }
 
   private buildReadSql(): Sql {
-    const ctx = createQueryScope(this.engine.adapter, this.model);
+    const ctx = createQueryScope(this.engine, this.model);
     const args = this.validatedArgs;
     switch (this.base) {
       case "findUnique":

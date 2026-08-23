@@ -1,16 +1,23 @@
-import {
-  type GetInverseRelationMap,
-  getInverseRelationMap,
-} from "@schema/relation/types";
-import { s } from "../src/schema";
+/**
+ * Which foreign key does an inverse `toMany` slot read?
+ *
+ * There is no per-relation inverse scan to ask any more: the schema-wide
+ * resolver pairs both `.name(...)`d edges once, and the answer is the resolved
+ * edge's own stored reference. Two same-target pairs are separated by their
+ * exact matching names, never by declaration precedence.
+ *
+ * Run from the repository root:
+ *   bun run scripts/relation-state.ts
+ */
 
-const postsOneToManyOne = s.oneToMany(() => post).name("one");
-const postsOneToManyTwo = s.oneToMany(() => post).name("two");
+import { hydrateSchemaNames } from "@schema/hydration";
+import { resolveSchemaOrThrow } from "@schema/validation/validator";
+import { s } from "../src/schema";
 
 const user = s.model({
   id: s.string().id(),
-  posts: postsOneToManyOne,
-  authored: postsOneToManyTwo,
+  posts: s.toMany(() => post).name("one"),
+  authored: s.toMany(() => post).name("two"),
 });
 
 const post = s.model({
@@ -18,31 +25,33 @@ const post = s.model({
   authorId: s.string(),
   co_authorId: s.string(),
   author: s
-    .manyToOne(() => user)
+    .toOne(() => user)
     .fields("authorId")
     .references("id")
     .name("one"),
   co_author: s
-    .manyToOne(() => user)
+    .toOne(() => user)
     .fields("co_authorId")
     .references("id")
     .name("two"),
 });
 
-const inverseOne = getInverseRelationMap(postsOneToManyOne["~"]["state"], user);
-type InverseOne = GetInverseRelationMap<
-  (typeof postsOneToManyOne)["~"]["state"],
-  typeof user
->;
+const schema = { user, post };
+hydrateSchemaNames(schema);
+const relations = resolveSchemaOrThrow(schema);
 
-console.log("Found inverse relation:", inverseOne);
+function foreignFieldsOf(field: string): readonly string[] {
+  const resolved = relations.get(user)?.get(field);
+  if (!resolved) throw new Error(`user.${field} resolved to no slot`);
+  const { edge } = resolved;
+  if (edge.kind !== "foreignKey") {
+    throw new Error(`user.${field} resolved to a ${edge.kind} edge`);
+  }
+  return edge.reference.members.map((member) => member.foreignField);
+}
+
+console.log("user.posts reads:", foreignFieldsOf("posts"));
 console.log('Expected: ["authorId"]');
 
-const inverseTwo = getInverseRelationMap(postsOneToManyTwo["~"]["state"], user);
-type InverseTwo = GetInverseRelationMap<
-  (typeof postsOneToManyTwo)["~"]["state"],
-  typeof user
->;
-
-console.log("Found inverse relation:", inverseTwo);
+console.log("user.authored reads:", foreignFieldsOf("authored"));
 console.log('Expected: ["co_authorId"]');

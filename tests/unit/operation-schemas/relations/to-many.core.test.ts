@@ -120,7 +120,6 @@ describe("ToMany Create - Author.posts (oneToMany)", () => {
         create: {
           id: "post-1",
           title: "Hello",
-          authorId: "author-1",
         },
       },
     });
@@ -131,8 +130,8 @@ describe("ToMany Create - Author.posts (oneToMany)", () => {
     const result = parse(schema, {
       posts: {
         create: [
-          { id: "post-1", title: "First", authorId: "author-1" },
-          { id: "post-2", title: "Second", authorId: "author-1" },
+          { id: "post-1", title: "First" },
+          { id: "post-2", title: "Second" },
         ],
       },
     });
@@ -162,7 +161,7 @@ describe("ToMany Create - Author.posts (oneToMany)", () => {
       posts: {
         connectOrCreate: {
           where: { id: "post-1" },
-          create: { id: "post-1", title: "New", authorId: "author-1" },
+          create: { id: "post-1", title: "New" },
         },
       },
     });
@@ -193,11 +192,11 @@ describe("ToMany Create - Author.posts (oneToMany)", () => {
         connectOrCreate: [
           {
             where: { id: "post-1" },
-            create: { id: "post-1", title: "First", authorId: "author-1" },
+            create: { id: "post-1", title: "First" },
           },
           {
             where: { id: "post-2" },
-            create: { id: "post-2", title: "Second", authorId: "author-1" },
+            create: { id: "post-2", title: "Second" },
           },
         ],
       },
@@ -208,7 +207,7 @@ describe("ToMany Create - Author.posts (oneToMany)", () => {
   test("accepts combined create and connect", () => {
     const result = parse(schema, {
       posts: {
-        create: { id: "new-post", title: "New", authorId: "author-1" },
+        create: { id: "new-post", title: "New" },
         connect: { id: "existing-post" },
       },
     });
@@ -218,7 +217,7 @@ describe("ToMany Create - Author.posts (oneToMany)", () => {
   test("output: normalizes single create to array", () => {
     const result = parse(schema, {
       posts: {
-        create: { id: "post-1", title: "Hello", authorId: "author-1" },
+        create: { id: "post-1", title: "Hello" },
       },
     });
     expect(result.issues).toBeUndefined();
@@ -265,7 +264,7 @@ describe("ToMany Update - Author.posts (oneToMany)", () => {
   test("accepts single 'create'", () => {
     const result = parse(schema, {
       posts: {
-        create: { id: "post-1", title: "New", authorId: "author-1" },
+        create: { id: "post-1", title: "New" },
       },
     });
     expect(result.issues).toBeUndefined();
@@ -275,8 +274,8 @@ describe("ToMany Update - Author.posts (oneToMany)", () => {
     const result = parse(schema, {
       posts: {
         create: [
-          { id: "post-1", title: "First", authorId: "author-1" },
-          { id: "post-2", title: "Second", authorId: "author-1" },
+          { id: "post-1", title: "First" },
+          { id: "post-2", title: "Second" },
         ],
       },
     });
@@ -288,8 +287,8 @@ describe("ToMany Update - Author.posts (oneToMany)", () => {
       posts: {
         createMany: {
           data: [
-            { id: "post-1", title: "First", authorId: "author-1" },
-            { id: "post-2", title: "Second", authorId: "author-1" },
+            { id: "post-1", title: "First" },
+            { id: "post-2", title: "Second" },
           ],
           skipDuplicates: true,
         },
@@ -440,7 +439,7 @@ describe("ToMany Update - Author.posts (oneToMany)", () => {
       posts: {
         upsert: {
           where: { id: "post-1" },
-          create: { id: "post-1", title: "Created", authorId: "author-1" },
+          create: { id: "post-1", title: "Created" },
           update: { title: "Updated" },
         },
       },
@@ -465,7 +464,7 @@ describe("ToMany Update - Author.posts (oneToMany)", () => {
   test("accepts combined operations in single update", () => {
     const result = parse(schema, {
       posts: {
-        create: { id: "new-post", title: "New", authorId: "author-1" },
+        create: { id: "new-post", title: "New" },
         connect: { id: "existing-post" },
         set: { id: "retained-post" },
         delete: { id: "old-post" },

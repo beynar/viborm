@@ -1,6 +1,5 @@
 /** Driver instrumentation, diagnostics, and provider result middleware. */
 
-import type { RelationResultKind } from "@adapters/adapter-result-parser";
 import type { DatabaseAdapter } from "@adapters/database-adapter";
 import {
   ConnectionError,
@@ -70,8 +69,7 @@ export interface DriverResultParser {
 
   parseRelation?: (
     value: unknown,
-    type: RelationResultKind,
-    next: (value: unknown, type: RelationResultKind) => unknown
+    next: (value: unknown) => unknown
   ) => unknown;
 
   parseField?: (

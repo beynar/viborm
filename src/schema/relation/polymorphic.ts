@@ -1,709 +1,502 @@
-import type { AnyModel } from "@schema/model";
+// Variant target domains: the normalization owner and the two variant terminals.
+//
+// "Polymorphic" is not a relation family. It is the derived observation that a
+// declaration's TARGET DOMAIN holds named variants instead of one model, which
+// is why the two variant terminals are reached through the same `s.toOne` /
+// `s.toMany` factories as the model-target ones. What is irreducibly different
+// is the legal local configuration: a row-held variant to-one may be
+// `.optional()` and owns no public foreign key, and a member-junction variant
+// to-many names one junction per variant through an exact `.through(...)` map.
+
 import type { Scalar } from "@schema/scalars/base";
-// Type-only by necessity: `junction-topology` imports this module's
-// `PolymorphicThroughEntry` type, and the ONE runtime call site pairing the two
-// modules lives in `@schema/validation/rules/polymorphic` — keeping both edges
-// type-only is what keeps the pair cycle-free.
-import type { ResolvedJunctionTopology } from "./junction-topology";
-import type { Getter } from "./types";
-
-export type PolymorphicTargetGetters = Readonly<Record<string, Getter>>;
+import { isValidSchemaIdentifier } from "../identifier";
+import {
+  createTargetSettlement,
+  declaredKeys,
+  hasExactKeys,
+  isPlainRecord,
+  normalizeRelationName,
+  type RelationBuilder,
+  readCallerProperty,
+  refuseRelationInput,
+} from "./terminal";
+import type {
+  AnyRelation,
+  Getter,
+  RelationInternal,
+  Replace,
+  VariantEntry,
+  VariantJunctionOverride,
+  VariantManyEntry,
+  VariantToManyState,
+  VariantToOneState,
+} from "./types";
 
 /**
- * How many rows one polymorphic slot addresses.
+ * The stored-discriminator grammar. A stored value is written to a physical
+ * column and read back by migrations and predicates, so it admits namespaced
+ * and versioned spellings the public variant key does not.
+ */
+const STORED_VALUE = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,190}$/;
+
+const THROUGH_ENTRY_KEYS = ["table", "source", "target"] as const;
+
+// =============================================================================
+// FACTORY-LEVEL TYPES
+// =============================================================================
+
+export type VariantGetterMap = Readonly<Record<string, Getter>>;
+
+/**
+ * The map overload's phantom refusal.
  *
- * Declared by the factory the carrier is spelled with — `s.polymorphicToOne`
- * or `s.polymorphicToMany` — and read back through `polymorphicCardinality` in
- * `./cardinality`. Distinct from `PolymorphicInverseCardinality` below, which
- * describes the *inverse* slot on the target side, not the declared slot.
+ * It is NOT redundant with {@link GetterOnly}. With the map overload first and
+ * an unconstrained getter overload second, a structurally-map argument that
+ * fails this guard would otherwise fall through to the getter overload, whose
+ * conditional return answers `never` — and `never` is assignable to a model
+ * shape, so the refusal would disappear entirely. This guard uniquely owns
+ * "structurally a map, but not a legal variant map"; `GetterOnly` uniquely owns
+ * "not a map at all and not a getter".
  */
-export type PolymorphicCardinality = "one" | "many";
+export type VariantMapGuard<Entries> = string extends keyof Entries
+  ? {
+      readonly "a variant map needs literal keys, not a string index signature": never;
+    }
+  : [keyof Entries] extends [never]
+    ? { readonly "a variant map needs at least one variant": never }
+    : unknown;
+
+export type VariantOptions<Entries> = {
+  readonly values: { readonly [Key in keyof Entries]: string };
+};
 
 /**
- * A CONFIGURED carrier's state. `cardinality` is required — that is the gate.
- *
- * There is no cardinality-less state interface any more: the two factories are
- * the only public constructors and each stamps its own `cardinality`, so the
- * unconfigured shape is not spellable through the public surface. Hostile
- * JavaScript can still forge one past the terminal's constructor, which is what
- * P013 exists to eject (see `isPolymorphicRelation` below).
- *
- * `optional` stays declared here rather than only on the to-one arm so that the
- * `State["optional"]` indexings in the validation layer keep resolving —
- * `filter.ts:58`, `filter.ts:60`, `update.ts:124` in
- * `src/validation/relations/polymorphic/` and the requiredness test in
- * `src/validation/model/core/create.ts`. The to-many arm narrows it to `never`
- * (below). On the concrete states the chain produces (which never declare
- * `optional`), the indexing evaluates to `unknown`; on the bare
- * `PolymorphicToManyState` interface it evaluates to `undefined`. Neither
- * extends `true`, which is the only question those gates ask — so they answer
- * exactly as they do for a non-optional relation.
+ * The whole options bag is exact, not only `values`: a NON-FRESH bag with a
+ * sibling key beside `values` sails through excess-property checking, so the
+ * unknown keys are refused structurally.
  */
-export interface PolymorphicRelationState<
-  Targets extends PolymorphicTargetGetters = PolymorphicTargetGetters,
-  Values extends Readonly<Record<string, string>> = Readonly<
-    Record<string, string>
-  >,
-> {
-  readonly type: "polymorphic";
-  readonly targets: Targets;
-  readonly values: Values;
-  readonly cardinality: PolymorphicCardinality;
-  readonly name?: string;
-  readonly optional?: true;
-}
-
-export interface PolymorphicToOneState<
-  Targets extends PolymorphicTargetGetters = PolymorphicTargetGetters,
-  Values extends Readonly<Record<string, string>> = Readonly<
-    Record<string, string>
-  >,
-> extends PolymorphicRelationState<Targets, Values> {
-  readonly cardinality: "one";
-}
-
-/**
- * `optional` is declared `never` rather than dropped: dropping it would leave the
- * inherited `optional?: true` spellable on a collection state, and a carrier
- * forced into a collection state could then carry a second reading of emptiness the
- * empty collection already gives. Declaring it keeps `State["optional"]` legal
- * for the shared indexings and makes `optional: true` unassignable.
- */
-export interface PolymorphicToManyState<
-  Targets extends PolymorphicTargetGetters = PolymorphicTargetGetters,
-  Values extends Readonly<Record<string, string>> = Readonly<
-    Record<string, string>
-  >,
-> extends PolymorphicRelationState<Targets, Values> {
-  readonly cardinality: "many";
-  readonly optional?: never;
-  /** Explicit member-junction names, keyed by public variant — `.through()`. */
-  readonly through?: Readonly<Record<string, PolymorphicThroughEntry>>;
-}
-
-export interface PolymorphicStorageMember {
-  readonly storedType: string;
-  readonly targetModel: AnyModel;
-  readonly referencedField: string;
-}
-
-/**
- * One explicit `.through()` override for a collection member's junction names:
- * the member table and the two DIRECTED side naming tokens (the `.A()`/`.B()`
- * concept, but owner-side and variant-side rather than alphabetical).
- */
-export interface PolymorphicThroughEntry {
-  readonly table: string;
-  readonly source: string;
-  readonly target: string;
-}
-
-export interface PolymorphicStorageColumn {
-  readonly name: string;
-  readonly scalar: Scalar;
-  readonly nullable: boolean;
-}
-
-export type PolymorphicInverseCardinality = "one" | "many";
-
-/** The row-held `(type, id)` descriptor a validated to-one declaration builds. */
-export interface PolymorphicToOneStorage {
-  readonly kind: "toOne";
-  readonly relationName: string;
-  readonly ownerModel: AnyModel;
-  readonly indexName: string;
-  readonly typeColumn: PolymorphicStorageColumn;
-  readonly idColumn: PolymorphicStorageColumn;
-  /** Relation-wide BY DESIGN (plan §2.3): a to-one slot's inverses share one storage shape. */
-  readonly inverseCardinality: PolymorphicInverseCardinality;
-  readonly members: ReadonlyMap<string, PolymorphicStorageMember>;
-}
-
-/**
- * One collection member's complete junction facts: everything Package C's
- * engine bind needs, resolved ONCE at definition validation — C never reaches
- * back into a live relation and never repeats `resolvePolymorphicEdge`'s
- * synthetic-relation trick.
- */
-export interface PolymorphicJunctionMember {
-  readonly publicType: string;
-  /**
-   * Plan §5.1 spells this `storageValue`; the entire estate
-   * (`PolymorphicStorageMember`, the snapshot member shapes,
-   * `RuntimePolymorphicInverseCandidate`) spells the same fact `storedType`.
-   * Kept as `storedType` — one fact, one name; the divergence from the plan's
-   * spelling is deliberate and recorded here.
-   */
-  readonly storedType: string;
-  readonly targetModel: AnyModel;
-  /** MEMBER-local (plan §2.3): each variant's inverse chooses "one" or "many" independently; "many" is the shareable default (§2.4). */
-  readonly inverseCardinality: "one" | "many";
-  readonly junction: ResolvedJunctionTopology;
-}
-
-/** The member-junction descriptor a validated collection declaration builds. */
-export interface PolymorphicToManyStorage {
-  readonly kind: "toMany";
-  readonly relationName: string;
-  readonly ownerModel: AnyModel;
-  /** Keyed by publicType, declaration order. */
-  readonly members: ReadonlyMap<string, PolymorphicJunctionMember>;
-}
-
-export type PolymorphicStorage =
-  | PolymorphicToOneStorage
-  | PolymorphicToManyStorage;
-
-export interface PolymorphicInverseBinding<
-  RelationKey extends string = string,
-  PublicType extends string = string,
-  StoredType extends string = string,
-> {
-  readonly relationKey: RelationKey;
-  readonly publicType: PublicType;
-  readonly storedType: StoredType;
-}
-
-interface ModelWithPolymorphicRelations {
-  readonly "~": {
-    readonly state: {
-      readonly polymorphicRelations: Readonly<
-        Record<string, AnyPolymorphicRelation>
+export type ExactVariantOptions<Options, Entries> = Options extends undefined
+  ? unknown
+  : Record<Exclude<keyof Options, "values">, never> & {
+      readonly values: Record<
+        Exclude<
+          keyof (Options extends { readonly values: infer Values }
+            ? Values
+            : never),
+          keyof Entries
+        >,
+        never
       >;
     };
+
+/**
+ * Normalized entries carry the getter's exact type and a plain `string` stored
+ * value: the stored discriminator is runtime storage, never a public result
+ * discriminator, so carrying its literal would be a public type parameter no
+ * consumer reads.
+ */
+export type NormalizedOneEntries<Entries> = {
+  readonly [Key in keyof Entries]: {
+    readonly getter: Entries[Key];
+    readonly storedValue: string;
   };
+};
+
+export type NormalizedManyEntries<Entries> = {
+  readonly [Key in keyof Entries]: {
+    readonly getter: Entries[Key];
+    readonly storedValue: string;
+    readonly junction?: VariantJunctionOverride;
+  };
+};
+
+type VariantEntriesOfState<State> = State extends {
+  readonly target: { readonly entries: infer Entries };
 }
-
-type StateContainsSource<
-  State extends PolymorphicRelationState,
-  SourceModel,
-> = {
-  [PublicType in keyof State["targets"]]: State["targets"][PublicType] extends () => SourceModel
-    ? PublicType
-    : never;
-}[keyof State["targets"]] extends never
-  ? false
-  : true;
-
-type RelationContainsSource<Relation, SourceModel> =
-  PolymorphicStateOf<Relation> extends infer State extends
-    PolymorphicRelationState
-    ? [State] extends [never]
-      ? false
-      : StateContainsSource<State, SourceModel>
-    : false;
-
-type PolymorphicRelationKeys<TargetModel> =
-  TargetModel extends ModelWithPolymorphicRelations
-    ? Extract<keyof TargetModel["~"]["state"]["polymorphicRelations"], string>
-    : never;
-
-type RelationCarriesName<Relation, Name> =
-  PolymorphicStateOf<Relation> extends infer State extends
-    PolymorphicRelationState
-    ? [State] extends [never]
-      ? false
-      : State["name"] extends Name
-        ? true
-        : false
-    : false;
-
-type NamedPolymorphicRelationKeys<TargetModel, Name> =
-  TargetModel extends ModelWithPolymorphicRelations
-    ? {
-        [RelationKey in keyof TargetModel["~"]["state"]["polymorphicRelations"]]: RelationCarriesName<
-          TargetModel["~"]["state"]["polymorphicRelations"][RelationKey],
-          Name
-        > extends true
-          ? Extract<RelationKey, string>
-          : never;
-      }[keyof TargetModel["~"]["state"]["polymorphicRelations"]]
-    : never;
-
-type UnionToIntersection<Union> = (
-  Union extends unknown
-    ? (value: Union) => void
-    : never
-) extends (value: infer Intersection) => void
-  ? Intersection
+  ? Entries
   : never;
 
-type IsSingleMember<Union> = [Union] extends [never]
-  ? false
-  : [Union] extends [UnionToIntersection<Union>]
-    ? true
-    : false;
-
-type SelectedRelationKey<TargetModel, Name> =
-  IsSingleMember<PolymorphicRelationKeys<TargetModel>> extends true
-    ? PolymorphicRelationKeys<TargetModel>
-    : Name extends string
-      ? IsSingleMember<
-          NamedPolymorphicRelationKeys<TargetModel, Name>
-        > extends true
-        ? NamedPolymorphicRelationKeys<TargetModel, Name>
-        : never
-      : never;
-
-type RelationKeyBinding<TargetModel, SourceModel, RelationKey> =
-  TargetModel extends ModelWithPolymorphicRelations
-    ? RelationKey extends keyof TargetModel["~"]["state"]["polymorphicRelations"]
-      ? RelationContainsSource<
-          TargetModel["~"]["state"]["polymorphicRelations"][RelationKey],
-          SourceModel
-        > extends true
-        ? { readonly relationKey: Extract<RelationKey, string> }
-        : never
-      : never
-    : never;
-
-export type GetPolymorphicInverseBinding<TargetModel, SourceModel, Name> =
-  RelationKeyBinding<
-    TargetModel,
-    SourceModel,
-    SelectedRelationKey<TargetModel, Name>
-  >;
-
-export interface RuntimePolymorphicInverseCandidate
-  extends PolymorphicInverseBinding {
-  readonly pairingName: string | undefined;
-}
-
-export interface ResolvedPolymorphicTargetEntry {
-  readonly publicType: string;
-  readonly targetGetter: unknown;
-  readonly targetModel: unknown;
-  readonly storedType: unknown;
-}
-
-export function getPolymorphicInverseCandidates(
-  targetModel: AnyModel,
-  sourceModel: AnyModel
-): RuntimePolymorphicInverseCandidate[] {
-  const candidates: RuntimePolymorphicInverseCandidate[] = [];
-  const relations: Readonly<Record<string, AnyPolymorphicRelation>> =
-    targetModel["~"].state.polymorphicRelations;
-  for (const [relationKey, relation] of Object.entries(relations)) {
-    for (const {
-      publicType,
-      targetGetter,
-      targetModel,
-      storedType,
-    } of relation["~"].targetEntries()) {
-      if (typeof targetGetter !== "function") continue;
-      if (targetModel !== sourceModel) continue;
-      if (typeof storedType !== "string") continue;
-      candidates.push({
-        relationKey,
-        publicType,
-        storedType,
-        pairingName: relation["~"].state.name,
-      });
-    }
-  }
-  return candidates;
-}
-
-// Both are deliberately UNCONSTRAINED. The factories' `Targets` also admits a
-// bare `Getter` so that `TargetMapOnly` can refuse it with a useful message
-// (below), and a `Targets extends PolymorphicTargetGetters` constraint here
-// would force the call sites to spell `Targets & PolymorphicTargetGetters` —
-// whose `keyof` is `string`, which silently drops the exact key set these two
-// exist to carry.
-type ValuesFor<Targets> = {
-  readonly [Key in Extract<keyof Targets, string>]: string;
+type VariantThroughMap<Entries> = {
+  readonly [Key in keyof Entries]: VariantJunctionOverride;
 };
 
-type DefaultValuesFor<Targets> = {
-  readonly [Key in Extract<keyof Targets, string>]: Key;
-};
-
-type NoExtraKeys<Given, Allowed> = Record<
-  Exclude<keyof Given, keyof Allowed>,
+type ExactVariantThroughMap<Given, Entries> = Record<
+  Exclude<keyof Given, keyof Entries>,
   never
->;
+> & {
+  readonly [Key in keyof Given]: Record<
+    Exclude<keyof Given[Key], keyof VariantJunctionOverride>,
+    never
+  >;
+};
+
+// =============================================================================
+// TERMINAL CAPABILITY SURFACES
+// =============================================================================
+
+/** A slot that holds at most one membership across its variants. */
+export type VariantToOneRelation<State> = {
+  readonly "~": RelationInternal<State>;
+  name<const Name extends string>(
+    name: Name
+  ): VariantToOneRelation<Replace<State, { readonly name: Name }>>;
+  optional(): VariantToOneRelation<Replace<State, { readonly optional: true }>>;
+};
 
 /**
- * The MAP-ONLY refusal, and the only thing that refuses a bare target thunk.
- *
- * Both factories widen their `Targets` constraint to admit a `Getter` on
- * purpose: a candidate refused by the constraint is silently replaced with the
- * constraint itself, and the diagnostic then names `Record<string, Getter>`
- * instead of what the caller should have written. Admitting the thunk into
- * inference and refusing it HERE is what puts the four ordinary factories in
- * the error text. The conditional return type strips the same case, so the
- * carrier a valid map produces is unchanged.
- *
- * Why refuse it at all: `s.polymorphicToOne(() => user)` reads like an ordinary
- * edge and would silently build a private `(type, id)` pair where the caller
- * expected a foreign key.
+ * A slot that holds a collection across its variants. No `.optional()`: an
+ * empty collection is already the empty case.
  */
-type TargetMapOnly<Targets> = Targets extends (...args: never) => unknown
-  ? {
-      readonly "a polymorphic relation takes a MAP of named targets; for a single target model use s.oneToOne, s.manyToOne, s.oneToMany or s.manyToMany": never;
-    }
-  : unknown;
-
-/** A carrier that addresses at most one row across its targets. */
-export class PolymorphicToOneRelation<State extends PolymorphicToOneState> {
-  private readonly state: State;
-  private resolvedTargetEntries:
-    | readonly ResolvedPolymorphicTargetEntry[]
-    | undefined;
-
-  constructor(state: State) {
-    this.state = Object.freeze({
-      ...state,
-      targets: snapshotRecord(state.targets),
-      values: snapshotRecord(state.values),
-    });
-  }
-
-  name<const Name extends string>(name: Name) {
-    return new PolymorphicToOneRelation<State & { readonly name: Name }>({
-      ...this.state,
-      name,
-    });
-  }
-
-  optional() {
-    return new PolymorphicToOneRelation<State & { readonly optional: true }>({
-      ...this.state,
-      optional: true,
-    });
-  }
-
-  private internal:
-    | {
-        readonly state: State;
-        readonly targetEntries: () => readonly ResolvedPolymorphicTargetEntry[];
-      }
-    | undefined;
-
-  get "~"() {
-    return (this.internal ??= {
-      state: this.state,
-      targetEntries: () =>
-        (this.resolvedTargetEntries ??= resolveTargetEntries(this.state)),
-    });
-  }
-}
-
-/**
- * A carrier that addresses a collection across its targets.
- *
- * No `.optional()`: an empty collection is the empty case, so there is no
- * second reading of emptiness to declare.
- */
-export class PolymorphicToManyRelation<State extends PolymorphicToManyState> {
-  private readonly state: State;
-  private resolvedTargetEntries:
-    | readonly ResolvedPolymorphicTargetEntry[]
-    | undefined;
-
-  constructor(state: State) {
-    this.state = Object.freeze({
-      ...state,
-      targets: snapshotRecord(state.targets),
-      values: snapshotRecord(state.values),
-      through: snapshotThroughMap(state.through),
-    });
-  }
-
-  name<const Name extends string>(name: Name) {
-    return new PolymorphicToManyRelation<State & { readonly name: Name }>({
-      ...this.state,
-      name,
-    });
-  }
-
-  /**
-   * Name every member junction explicitly. The map is EXACT in both directions
-   * at the type level — every public variant must appear, no extra variant key
-   * and no extra entry key is admitted, fresh or held in a variable (the same
-   * structural instrument as the factories' options bag) — and P017 is the
-   * runtime mirror of the same contract.
-   */
+export type VariantToManyRelation<State> = {
+  readonly "~": RelationInternal<State>;
+  name<const Name extends string>(
+    name: Name
+  ): VariantToManyRelation<Replace<State, { readonly name: Name }>>;
   through<
-    const Map extends {
-      readonly [Key in Extract<
-        keyof State["targets"],
-        string
-      >]: PolymorphicThroughEntry;
-    },
+    const ThroughMap extends VariantThroughMap<VariantEntriesOfState<State>>,
   >(
-    map: Map &
-      NoExtraKeys<Map, State["targets"]> & {
-        readonly [Key in keyof Map]: NoExtraKeys<
-          Map[Key],
-          PolymorphicThroughEntry
-        >;
-      }
-  ) {
-    return new PolymorphicToManyRelation<State & { readonly through: Map }>({
-      ...this.state,
-      through: map,
-    });
-  }
+    map: ThroughMap &
+      ExactVariantThroughMap<ThroughMap, VariantEntriesOfState<State>>
+  ): VariantToManyRelation<State>;
+};
 
-  private internal:
-    | {
-        readonly state: State;
-        readonly targetEntries: () => readonly ResolvedPolymorphicTargetEntry[];
-      }
-    | undefined;
-
-  get "~"() {
-    return (this.internal ??= {
-      state: this.state,
-      targetEntries: () =>
-        (this.resolvedTargetEntries ??= resolveTargetEntries(this.state)),
-    });
-  }
-}
-
-export type AnyPolymorphicRelation =
-  | PolymorphicToOneRelation<PolymorphicToOneState>
-  | PolymorphicToManyRelation<PolymorphicToManyState>;
+// =============================================================================
+// NORMALIZATION
+// =============================================================================
 
 /**
- * The ONE place both terminal classes are named together.
+ * Read the target map and its options ONCE, judge every structurally knowable
+ * fact, and build the single normalized entry map. There is no separately
+ * stored `targets`, `values` or `through` map to keep in sync.
  *
- * Every type that used to match the single `PolymorphicRelation<infer State>`
- * class goes through here. A value that is not a configured carrier — an
- * ordinary relation, a scalar, or a forged carrier of some other shape —
- * resolves to `never`, which each caller must refuse explicitly: silently
- * widening the match collapses `GetPolymorphicInverseBinding` to `never`
- * everywhere with no compile error.
+ * Every own property at both map levels is read exactly once here and pinned as
+ * a plain value: a live accessor could otherwise answer validation with one
+ * value and the storage builder with another. Reading a property's value does
+ * not invoke a target thunk; getters are stored as functions and stay lazy.
  */
-export type PolymorphicStateOf<Relation> =
-  Relation extends PolymorphicToOneRelation<infer OneState>
-    ? OneState
-    : Relation extends PolymorphicToManyRelation<infer ManyState>
-      ? ManyState
-      : never;
-
-/**
- * Declare a carrier that addresses AT MOST ONE row across its targets.
- *
- * The target map's key is the public query/result discriminator and, by
- * default, the stored discriminator; pass the exact `{ values }` bag when
- * storage needs stable namespaced or versioned values. A single target model is
- * an ordinary relation — use `s.oneToOne`, `s.manyToOne`, `s.oneToMany` or
- * `s.manyToMany` — and a bare thunk here is refused by `TargetMapOnly`.
- */
-export function polymorphicToOne<
-  const Targets extends PolymorphicTargetGetters | Getter,
->(
-  targets: Targets & TargetMapOnly<Targets>,
-  options?: undefined
-): Targets extends PolymorphicTargetGetters
-  ? PolymorphicToOneRelation<{
-      readonly type: "polymorphic";
-      readonly cardinality: "one";
-      readonly targets: Targets;
-      readonly values: DefaultValuesFor<Targets>;
-    }>
-  : never;
-
-export function polymorphicToOne<
-  const Targets extends PolymorphicTargetGetters | Getter,
-  const Values extends ValuesFor<Targets>,
-  const Options extends { readonly values: Values },
->(
-  targets: Targets & TargetMapOnly<Targets>,
-  // The whole options bag is exact, not only `values`: a NON-FRESH bag with a
-  // sibling key beside `values` sails through excess-property checking, so the
-  // unknown keys are refused structurally — the same instrument as
-  // `ExactOptions` in `@schema/model` (AGENTS.md, "Refuse structurally").
-  options: Options & {
-    readonly values: Values & NoExtraKeys<Values, ValuesFor<Targets>>;
-  } & NoExtraKeys<Options, { values: unknown }>
-): Targets extends PolymorphicTargetGetters
-  ? PolymorphicToOneRelation<{
-      readonly type: "polymorphic";
-      readonly cardinality: "one";
-      readonly targets: Targets;
-      readonly values: Values;
-    }>
-  : never;
-
-export function polymorphicToOne(
-  targets: PolymorphicTargetGetters,
-  options?: {
-    readonly values: Readonly<Record<string, string>>;
+export function normalizeVariantEntries(
+  builder: RelationBuilder,
+  variants: unknown,
+  options: unknown
+): Readonly<Record<string, VariantEntry>> {
+  if (!isPlainRecord(variants)) {
+    refuseRelationInput(
+      builder,
+      "target",
+      "A relation target is either `() => model` or a plain map of named `() => model` getters"
+    );
   }
-): PolymorphicToOneRelation<PolymorphicToOneState> {
-  const state: PolymorphicToOneState = {
-    type: "polymorphic",
-    cardinality: "one",
-    targets,
-    values: options?.values ?? defaultStoredValues(targets),
-  };
-  return new PolymorphicToOneRelation(state);
-}
-
-/**
- * Declare a carrier that addresses a COLLECTION across its targets.
- *
- * Same target map and same exact `{ values }` bag as `polymorphicToOne`; the
- * membership lives in one fixed-target member junction per variant, which
- * `.through()` can name explicitly. No `.optional()`: an empty collection is
- * already the empty case.
- */
-export function polymorphicToMany<
-  const Targets extends PolymorphicTargetGetters | Getter,
->(
-  targets: Targets & TargetMapOnly<Targets>,
-  options?: undefined
-): Targets extends PolymorphicTargetGetters
-  ? PolymorphicToManyRelation<{
-      readonly type: "polymorphic";
-      readonly cardinality: "many";
-      readonly targets: Targets;
-      readonly values: DefaultValuesFor<Targets>;
-    }>
-  : never;
-
-export function polymorphicToMany<
-  const Targets extends PolymorphicTargetGetters | Getter,
-  const Values extends ValuesFor<Targets>,
-  const Options extends { readonly values: Values },
->(
-  targets: Targets & TargetMapOnly<Targets>,
-  options: Options & {
-    readonly values: Values & NoExtraKeys<Values, ValuesFor<Targets>>;
-  } & NoExtraKeys<Options, { values: unknown }>
-): Targets extends PolymorphicTargetGetters
-  ? PolymorphicToManyRelation<{
-      readonly type: "polymorphic";
-      readonly cardinality: "many";
-      readonly targets: Targets;
-      readonly values: Values;
-    }>
-  : never;
-
-export function polymorphicToMany(
-  targets: PolymorphicTargetGetters,
-  options?: {
-    readonly values: Readonly<Record<string, string>>;
+  const variantKeys = declaredKeys(variants);
+  if (variantKeys.length === 0) {
+    refuseRelationInput(
+      builder,
+      "target",
+      "A variant map needs at least one variant"
+    );
   }
-): PolymorphicToManyRelation<PolymorphicToManyState> {
-  const state: PolymorphicToManyState = {
-    type: "polymorphic",
-    cardinality: "many",
-    targets,
-    values: options?.values ?? defaultStoredValues(targets),
-  };
-  return new PolymorphicToManyRelation(state);
-}
-
-function defaultStoredValues(
-  targets: PolymorphicTargetGetters
-): Readonly<Record<string, string>> {
-  return Object.fromEntries(
-    Reflect.ownKeys(targets)
-      .filter((key): key is string => typeof key === "string")
-      .map((key) => [key, key])
-  );
-}
-
-/**
- * A DATA snapshot, not a descriptor copy: every own property is read exactly
- * once here and pinned as a plain value. A live accessor in a caller-supplied
- * `targets` or `values` map could otherwise answer definition validation with
- * one value and the storage builder with another — the measured dodge was a
- * getter returning a valid stored type on its second read only, giving zero
- * issues and a malformed stored discriminator. Reading the accessor's VALUE
- * does not invoke target thunks; they are stored as functions and stay lazy.
- */
-function snapshotRecord<Value>(value: Value): Value {
-  if (typeof value !== "object" || value === null) return value;
-  const descriptors = Object.getOwnPropertyDescriptors(value);
-  const copy = Object.create(Object.getPrototypeOf(value));
-  for (const key of Reflect.ownKeys(descriptors)) {
-    const descriptor: PropertyDescriptor = Reflect.get(descriptors, key);
-    Object.defineProperty(copy, key, {
-      value: Reflect.get(value, key),
-      enumerable: descriptor.enumerable === true,
-    });
-  }
-  return Object.freeze(copy);
-}
-
-/**
- * The `.through()` map's snapshot is ONE LEVEL DEEPER than `snapshotRecord`:
- * the map's own properties are entry OBJECTS, and a live accessor on an entry
- * (`table` answering validation with one name and a later reader with another)
- * is the same dodge the data snapshot exists to close. The outer call pins the
- * entry references once; the inner call then pins each entry's own properties
- * once — every own property on both levels is read exactly once, at
- * construction.
- */
-function snapshotThroughMap<Value>(value: Value): Value {
-  if (typeof value !== "object" || value === null) return value;
-  const pinnedEntries = snapshotRecord(value);
-  const copy = Object.create(Object.getPrototypeOf(pinnedEntries));
-  for (const key of Reflect.ownKeys(pinnedEntries)) {
-    const descriptor = Object.getOwnPropertyDescriptor(pinnedEntries, key);
-    Object.defineProperty(copy, key, {
-      value: snapshotRecord(Reflect.get(pinnedEntries, key)),
-      enumerable: descriptor?.enumerable === true,
-    });
-  }
-  return Object.freeze(copy);
-}
-
-function resolveTargetEntries(
-  state: PolymorphicRelationState
-): readonly ResolvedPolymorphicTargetEntry[] {
-  if (typeof state.targets !== "object" || state.targets === null) return [];
-  const values =
-    typeof state.values === "object" && state.values !== null
-      ? state.values
-      : undefined;
-  const entries: ResolvedPolymorphicTargetEntry[] = [];
-  for (const publicType of Reflect.ownKeys(state.targets)) {
-    if (typeof publicType !== "string") continue;
-    const targetGetter = Reflect.get(state.targets, publicType);
-    entries.push({
-      publicType,
-      targetGetter,
-      targetModel:
-        typeof targetGetter === "function" ? targetGetter() : undefined,
-      storedType: values ? Reflect.get(values, publicType) : undefined,
+  const storedValues = readStoredValues(builder, variantKeys, options);
+  const entries: Record<string, VariantEntry> = {};
+  for (const variantKey of variantKeys) {
+    if (!isValidSchemaIdentifier(variantKey)) {
+      refuseRelationInput(
+        builder,
+        `target.${variantKey}`,
+        `Variant key '${variantKey}' is not a valid schema identifier`
+      );
+    }
+    const getter = readCallerProperty(
+      builder,
+      variants,
+      variantKey,
+      `target.${variantKey}`
+    );
+    if (typeof getter !== "function") {
+      refuseRelationInput(
+        builder,
+        `target.${variantKey}`,
+        `Variant '${variantKey}' must be a lazy getter; write \`() => model\` rather than the model itself`
+      );
+    }
+    entries[variantKey] = Object.freeze({
+      getter,
+      storedValue: storedValues[variantKey] ?? variantKey,
     });
   }
   return Object.freeze(entries);
 }
 
 /**
- * Keyed on `state.type` alone, BY DESIGN — no `cardinality` test here.
- *
- * The public surface can no longer produce a cardinality-less carrier: each
- * factory stamps its own. Hostile JavaScript still can — a forged state handed
- * to a terminal's constructor — and such a carrier must still be extracted into
- * `ModelState.polymorphicRelations` so that `validatePolymorphicRelations` can
- * attribute P013 to it. Adding a cardinality test would make it disappear from
- * model extraction instead, which is silence, not refusal. The declared
- * predicate is therefore deliberately optimistic for hostile carriers, exactly
- * as it already is for malformed target maps.
+ * The stored discriminator per variant: each public key by default, or the
+ * exact `values` bag when one is supplied. An explicit `undefined` is
+ * equivalent to omission; `{}` is not, because it declares an options bag
+ * without the one option it may carry.
  */
-export function isPolymorphicRelation(
-  value: unknown
-): value is AnyPolymorphicRelation {
-  if (
-    (typeof value !== "object" || value === null) &&
-    typeof value !== "function"
-  ) {
-    return false;
+function readStoredValues(
+  builder: RelationBuilder,
+  variantKeys: readonly string[],
+  options: unknown
+): Record<string, string> {
+  if (options === undefined) return {};
+  if (!isPlainRecord(options)) {
+    refuseRelationInput(
+      builder,
+      "options",
+      "Relation options must be a plain `{ values }` record; omit the argument to use each variant key as its stored value"
+    );
   }
-  const internal = Reflect.get(value, "~");
-  if (typeof internal !== "object" || internal === null) return false;
-  const state = Reflect.get(internal, "state");
-  return (
-    typeof state === "object" &&
-    state !== null &&
-    Reflect.get(state, "type") === "polymorphic"
+  if (!hasExactKeys(declaredKeys(options), ["values"])) {
+    refuseRelationInput(
+      builder,
+      "options",
+      "Relation options carry exactly one key, `values`; omit the argument to use each variant key as its stored value"
+    );
+  }
+  const values = readCallerProperty(
+    builder,
+    options,
+    "values",
+    "options.values"
   );
+  if (!isPlainRecord(values)) {
+    refuseRelationInput(
+      builder,
+      "options.values",
+      "`values` must be a plain record keyed by every variant"
+    );
+  }
+  const valueKeys = declaredKeys(values);
+  if (!hasExactKeys(valueKeys, variantKeys)) {
+    refuseRelationInput(
+      builder,
+      "options.values",
+      `\`values\` must be exact over the variant keys ${renderKeys(variantKeys)}; it declares ${renderKeys(valueKeys)}`
+    );
+  }
+  const storedValues: Record<string, string> = {};
+  const claimed = new Set<string>();
+  for (const variantKey of variantKeys) {
+    const storedValue = readCallerProperty(
+      builder,
+      values,
+      variantKey,
+      `options.values.${variantKey}`
+    );
+    if (typeof storedValue !== "string" || !STORED_VALUE.test(storedValue)) {
+      refuseRelationInput(
+        builder,
+        `options.values.${variantKey}`,
+        `Stored value for variant '${variantKey}' must match the stored-discriminator grammar`
+      );
+    }
+    if (claimed.has(storedValue)) {
+      refuseRelationInput(
+        builder,
+        `options.values.${variantKey}`,
+        `Stored value '${storedValue}' is declared for more than one variant`
+      );
+    }
+    claimed.add(storedValue);
+    storedValues[variantKey] = storedValue;
+  }
+  return storedValues;
+}
+
+function renderKeys(keys: readonly string[]): string {
+  return `[${keys.map((key) => `'${key}'`).join(", ")}]`;
+}
+
+/**
+ * Fold one member-junction override into each normalized entry. The outer map
+ * is exact over the variants and every inner value is exact — the runtime
+ * mirror of the `.through()` type contract, and the reason there is no second
+ * `through` map to keep in sync with the entries.
+ */
+function foldMemberJunctions(
+  entries: Readonly<Record<string, VariantEntry>>,
+  through: unknown
+): Readonly<Record<string, VariantManyEntry>> {
+  const variantKeys = Object.keys(entries);
+  if (!isPlainRecord(through)) {
+    refuseRelationInput(
+      "s.toMany",
+      "through",
+      "`.through()` takes a plain map keyed by every variant"
+    );
+  }
+  if (!hasExactKeys(declaredKeys(through), variantKeys)) {
+    refuseRelationInput(
+      "s.toMany",
+      "through",
+      `\`.through()\` must be exact over the variant keys ${renderKeys(variantKeys)}`
+    );
+  }
+  const folded: Record<string, VariantManyEntry> = {};
+  for (const [variantKey, entry] of Object.entries(entries)) {
+    const override = readCallerProperty(
+      "s.toMany",
+      through,
+      variantKey,
+      `through.${variantKey}`
+    );
+    folded[variantKey] = Object.freeze({
+      ...entry,
+      junction: readJunctionOverride(variantKey, override),
+    });
+  }
+  return Object.freeze(folded);
+}
+
+function readJunctionOverride(
+  variantKey: string,
+  override: unknown
+): VariantJunctionOverride {
+  const path = `through.${variantKey}`;
+  if (!isPlainRecord(override)) {
+    refuseRelationInput(
+      "s.toMany",
+      path,
+      `Member junction '${variantKey}' must be a plain \`{ table, source, target }\` record`
+    );
+  }
+  const table = readCallerProperty(
+    "s.toMany",
+    override,
+    "table",
+    `${path}.table`
+  );
+  const source = readCallerProperty(
+    "s.toMany",
+    override,
+    "source",
+    `${path}.source`
+  );
+  const target = readCallerProperty(
+    "s.toMany",
+    override,
+    "target",
+    `${path}.target`
+  );
+  if (
+    !hasExactKeys(declaredKeys(override), THROUGH_ENTRY_KEYS) ||
+    typeof table !== "string" ||
+    typeof source !== "string" ||
+    typeof target !== "string"
+  ) {
+    refuseRelationInput(
+      "s.toMany",
+      path,
+      `Member junction '${variantKey}' declares exactly \`table\`, \`source\` and \`target\`, all strings`
+    );
+  }
+  return Object.freeze({ table, source, target });
+}
+
+// =============================================================================
+// TERMINALS
+// =============================================================================
+
+/**
+ * Private terminal machinery. None of the four terminal classes is exported
+ * from its module, let alone from the package: callers see only the
+ * capabilities the two factories return. The two constructor helpers below are
+ * the whole cross-module surface.
+ */
+class VariantToOne {
+  private readonly state: VariantToOneState;
+  private readonly internal: RelationInternal<VariantToOneState>;
+
+  constructor(state: VariantToOneState) {
+    this.state = Object.freeze(state);
+    this.internal = Object.freeze({
+      state: this.state,
+      settleTarget: createTargetSettlement((variantKey) =>
+        readVariantGetter(this.state, variantKey)
+      ),
+    });
+  }
+
+  name(name: string): VariantToOne {
+    return new VariantToOne({
+      ...this.state,
+      name: normalizeRelationName("s.toOne", name),
+    });
+  }
+
+  optional(): VariantToOne {
+    return new VariantToOne({ ...this.state, optional: true });
+  }
+
+  get "~"(): RelationInternal<VariantToOneState> {
+    return this.internal;
+  }
+}
+
+class VariantToMany {
+  private readonly state: VariantToManyState;
+  private readonly internal: RelationInternal<VariantToManyState>;
+
+  constructor(state: VariantToManyState) {
+    this.state = Object.freeze(state);
+    this.internal = Object.freeze({
+      state: this.state,
+      settleTarget: createTargetSettlement((variantKey) =>
+        readVariantGetter(this.state, variantKey)
+      ),
+    });
+  }
+
+  name(name: string): VariantToMany {
+    return new VariantToMany({
+      ...this.state,
+      name: normalizeRelationName("s.toMany", name),
+    });
+  }
+
+  through(map: unknown): VariantToMany {
+    return new VariantToMany({
+      ...this.state,
+      target: {
+        kind: "variants",
+        entries: foldMemberJunctions(this.state.target.entries, map),
+      },
+    });
+  }
+
+  get "~"(): RelationInternal<VariantToManyState> {
+    return this.internal;
+  }
+}
+
+/** Construct the row-held variant terminal for `s.toOne`. */
+export function variantToOneTerminal(state: VariantToOneState): AnyRelation {
+  return new VariantToOne(state);
+}
+
+/** Construct the member-junction variant terminal for `s.toMany`. */
+export function variantToManyTerminal(state: VariantToManyState): AnyRelation {
+  return new VariantToMany(state);
+}
+
+function readVariantGetter(
+  state: VariantToOneState | VariantToManyState,
+  variantKey: string | undefined
+): unknown {
+  if (variantKey === undefined) return undefined;
+  const entry = state.target.entries[variantKey];
+  return entry === undefined ? undefined : entry.getter;
+}
+
+// =============================================================================
+// RESOLVED VARIANT STORAGE COLUMN
+// =============================================================================
+// Resolution OUTPUT, not declaration state: one private column the variant
+// row-storage owner derives, carried on the resolved edge and read by the
+// serializer and the engine. The descriptors that used to sit beside it are
+// gone — the resolved edge IS the topology, and a second copy of it on the
+// model was a second answer to every question the edge already answers.
+
+export interface PolymorphicStorageColumn {
+  readonly name: string;
+  readonly scalar: Scalar;
+  readonly nullable: boolean;
 }

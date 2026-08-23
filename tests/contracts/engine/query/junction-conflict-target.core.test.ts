@@ -42,11 +42,11 @@ import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { bindRelation } from "@query-engine/builders/relation-data-builder";
-import { createQueryScope, getRelationInfo } from "@query-engine/context";
+import { lookupRelation } from "@query-engine/context";
 import { JunctionStatements } from "@query-engine/JunctionStatements";
 import { s } from "@schema";
-import { hydrateSchemaNames } from "@schema/hydration";
 import type { Model } from "@schema/model";
+import { prepareSchema, scopeFor } from "@tests/fixtures/query-scope";
 import { describe, expect, test } from "vitest";
 
 /** Scalar row keys on both sides, with explicit junction column tokens. */
@@ -55,25 +55,22 @@ const scalarPair = (() => {
     .model({
       id: s.string().id(),
       books: s
-        .manyToMany(() => book)
+        .toMany(() => book)
         .through("jct_shelf_book")
-        .A("shelf")
-        .B("book"),
+        .source("shelf")
+        .target("book"),
     })
     .map("jct_shelves");
+  // ONE endpoint owns every junction override (§4.4, R011).
   const book = s
     .model({
       id: s.string().id(),
-      shelves: s
-        .manyToMany(() => shelf)
-        .through("jct_shelf_book")
-        .A("book")
-        .B("shelf"),
+      shelves: s.toMany(() => shelf),
     })
     .map("jct_books");
   return { shelf, book };
 })();
-hydrateSchemaNames(scalarPair);
+prepareSchema(scalarPair);
 
 /** Compound row keys on BOTH sides — four junction columns, one membership key. */
 const compoundPair = (() => {
@@ -82,10 +79,10 @@ const compoundPair = (() => {
       tenantId: s.string(),
       code: s.string(),
       items: s
-        .manyToMany(() => item)
+        .toMany(() => item)
         .through("jct_owner_item")
-        .A("owner")
-        .B("item"),
+        .source("owner")
+        .target("item"),
     })
     .id(["tenantId", "code"])
     .map("jct_owners");
@@ -93,17 +90,13 @@ const compoundPair = (() => {
     .model({
       region: s.string(),
       isbn: s.string(),
-      owners: s
-        .manyToMany(() => owner)
-        .through("jct_owner_item")
-        .A("item")
-        .B("owner"),
+      owners: s.toMany(() => owner),
     })
     .id(["region", "isbn"])
     .map("jct_items");
   return { owner, item };
 })();
-hydrateSchemaNames(compoundPair);
+prepareSchema(compoundPair);
 
 const postgres = new PostgresAdapter();
 const sqlite = new SQLiteAdapter();
@@ -119,12 +112,12 @@ function junctionInsert(
   args: Record<string, unknown>,
   placeholder: "$n" | "?"
 ): string {
-  const scope = createQueryScope(adapter, source);
-  const relationInfo = getRelationInfo(scope, relationName);
-  if (!relationInfo) {
+  const scope = scopeFor(adapter, source);
+  const relationRef = lookupRelation(scope, relationName);
+  if (!relationRef) {
     throw new Error(`Expected relation '${relationName}' on the test model.`);
   }
-  const relation = bindRelation(scope, relationInfo);
+  const relation = bindRelation(scope, relationRef);
   if (relation.position !== "junction") {
     throw new Error(`Expected relation '${relationName}' to bind a junction.`);
   }

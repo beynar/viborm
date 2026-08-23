@@ -2,12 +2,18 @@
 
 import type { AnyModel } from "@schema/model";
 import {
-  type MembershipCanBeCleared,
   membershipCanBeCleared,
-  type SlotMayBeEmpty,
   slotMayBeEmpty,
 } from "@schema/relation/clearability";
-import type { RelationState } from "@schema/relation/types";
+import type {
+  MembershipCanBeCleared,
+  SlotMayBeEmpty,
+} from "@schema/relation/static-membership";
+import type {
+  ForeignKeyDeclaration,
+  RelationState,
+} from "@schema/relation/types";
+import type { ResolvedSlot } from "@schema/validation/relation-resolution";
 import { createSchema, fail, ok, validateSchema } from "../primitives/helpers";
 import v, { type V } from "../primitives/v";
 import type { VibSchema } from "../types";
@@ -70,9 +76,10 @@ export type ToOneUpdateTargetWithDataSchema<
 > = V.Union<readonly [ToOneUpdateWrapperSchema<S, UpdateSchema>, UpdateSchema]>;
 
 export type ToOneUpdateTargetSchema<
-  S extends RelationState,
   Source extends AnyModel,
-> = ToOneUpdateTargetWithDataSchema<S, ProjectedNestedUpdate<S, Source>>;
+  Key,
+  S extends RelationState,
+> = ToOneUpdateTargetWithDataSchema<S, ProjectedNestedUpdate<Source, Key, S>>;
 
 /**
  * `getUpdateSchema` is REQUIRED — nested update data is always built from the
@@ -148,23 +155,24 @@ export function toOneUpdateTargetFactory<
  */
 
 type ToOneUpdateEntriesBase<
-  S extends RelationState,
   Source extends AnyModel,
+  Key,
+  S extends RelationState,
 > = {
-  create: () => ProjectedNestedCreate<S, Source>;
+  create: () => ProjectedNestedCreate<Source, Key, S>;
   connect: () => GetTargetSchemas<S>["core"]["whereUnique"];
   connectOrCreate: V.Object<
     {
       where: () => GetTargetSchemas<S>["core"]["whereUnique"];
-      create: () => ProjectedNestedCreate<S, Source>;
+      create: () => ProjectedNestedCreate<Source, Key, S>;
     },
     { partial: false }
   >;
-  update: () => ToOneUpdateTargetSchema<S, Source>;
+  update: () => ToOneUpdateTargetSchema<Source, Key, S>;
   upsert: V.Object<
     {
-      create: () => ProjectedNestedCreate<S, Source>;
-      update: () => ProjectedNestedUpdate<S, Source>;
+      create: () => ProjectedNestedCreate<Source, Key, S>;
+      update: () => ProjectedNestedUpdate<Source, Key, S>;
     },
     { partial: false }
   >;
@@ -178,15 +186,19 @@ type ToOneUpdateSchemaDelete = V.Object<{
   delete: V.Boolean;
 }>;
 
-type IsFieldsLessInverseOneToOne<S extends RelationState> =
-  S["type"] extends "oneToOne"
-    ? S extends { fields: readonly [string, ...string[]] }
-      ? false
-      : true
-    : false;
+/** A structural prohibition that survives generic public operation arguments. */
+type ToOneUpdateSchemaNoDisconnect = {
+  disconnect: never;
+};
 
+/**
+ * Does the OTHER row hold this membership? A slot that completed
+ * `.fields(...).references(...)` stores it itself; everything else — an
+ * inverse, a junction side, a variant inverse — reads it from elsewhere, which
+ * is what the to-one mutation envelope needs to know about its own row.
+ */
 type IsChildHeldToOne<S extends RelationState> = S extends {
-  fields: readonly [string, ...string[]];
+  readonly foreignKey: ForeignKeyDeclaration;
 }
   ? false
   : true;
@@ -194,44 +206,50 @@ type IsChildHeldToOne<S extends RelationState> = S extends {
 /**
  * The two facts, read as the two availability rules they are: `delete` follows the
  * SLOT (this branch is only reached when it may be empty), `disconnect` follows the
- * MEMBERSHIP. They coincide on every shape except the one this conditional exists
- * for — a fields-less inverse whose child-side foreign key cannot be nulled.
+ * MEMBERSHIP. They coincide on every shape except one — a slot whose membership
+ * lives on storage that cannot be emptied, where the record can still be deleted
+ * but the connection cannot be cut.
  */
 type OptionalToOneUpdateEntries<
-  S extends RelationState,
   Source extends AnyModel,
-> = IsFieldsLessInverseOneToOne<S> extends true
-  ? ToOneUpdateSchemaDelete["entries"] &
-      (MembershipCanBeCleared<S, Source> extends true
-        ? ToOneUpdateSchemaDisconnect["entries"]
-        : Record<never, never>)
-  : ToOneUpdateSchemaDisconnect["entries"] & ToOneUpdateSchemaDelete["entries"];
+  Key,
+  S extends RelationState,
+> = ToOneUpdateSchemaDelete["entries"] &
+  (MembershipCanBeCleared<Source, Key, S> extends true
+    ? ToOneUpdateSchemaDisconnect["entries"]
+    : ToOneUpdateSchemaNoDisconnect);
 
 export type ToOneUpdateSchema<
-  S extends RelationState,
   Source extends AnyModel,
-> = SlotMayBeEmpty<S> extends true
+  Key,
+  S extends RelationState,
+> = SlotMayBeEmpty<Source, Key, S> extends false
   ? ToOneMutationSchema<
-      OptionalToOneUpdateEntries<S, Source> & ToOneUpdateEntriesBase<S, Source>,
+      ToOneUpdateEntriesBase<Source, Key, S>,
       undefined,
       IsChildHeldToOne<S>
     >
   : ToOneMutationSchema<
-      ToOneUpdateEntriesBase<S, Source>,
+      OptionalToOneUpdateEntries<Source, Key, S> &
+        ToOneUpdateEntriesBase<Source, Key, S>,
       undefined,
       IsChildHeldToOne<S>
     >;
 
 export const toOneUpdateFactory = <
-  S extends RelationState,
   Source extends AnyModel,
+  Key,
+  S extends RelationState,
   T extends SchemaGetter<S>,
 >(
   state: S,
-  source: Source,
+  resolved: ResolvedSlot,
   targetSchemas: T
-): ToOneUpdateSchema<S, Source> => {
-  const projection = nestedRelationDataProjection(state, source, targetSchemas);
+): ToOneUpdateSchema<Source, Key, S> => {
+  const projection = nestedRelationDataProjection<S, T>(
+    resolved,
+    targetSchemas
+  );
   const getCreateSchema = projection.getCreateSchema;
   // The same owner, applied to nested UPDATE data. See
   // {@link ProjectedNestedUpdate} for why the two contexts share one rule.
@@ -239,10 +257,10 @@ export const toOneUpdateFactory = <
   // This omission is the SINGLE owner of the spelled-owned-FK refusal on every
   // schema. The engine guard that once backed it up
   // (`assertOwnedFkAbsentFromUpdateData`, guard-ledger site 11) is deleted: its
-  // only route was a zero-argument `.fields()` this scanner read as truthy while
-  // the engine read length, and both readings now come from one resolver
-  // (`@schema/relation/inverse`), so the divergent payload refuses
-  // here, as `Unknown key`, like every other schema's.
+  // only route was a zero-argument `.fields()` one scanner read as truthy while
+  // the engine read length, and both readings now come from the ONE resolved
+  // edge, so the divergent payload refuses here, as `Unknown key`, like every
+  // other schema's.
   const getUpdateSchema = projection.getUpdateSchema;
 
   const connectOrCreateSchema = v.object(
@@ -274,41 +292,24 @@ export const toOneUpdateFactory = <
       ),
     upsert: upsertSchema,
   };
-  const isChildHeld = state.fields === undefined || state.fields.length === 0;
+  // The DIRECTION, read from the declaration: a slot that completed
+  // `.fields(...).references(...)` carries the membership on its own row.
+  const isChildHeld = state.foreignKey === undefined;
 
   // The SLOT fact: a relation that must hold a record owns neither removal verb.
-  if (!slotMayBeEmpty(state)) {
+  if (!slotMayBeEmpty(resolved)) {
     return toOneMutationSchema(
       baseEntries,
       undefined,
       isChildHeld
-    ) as unknown as ToOneUpdateSchema<S, Source>;
+    ) as unknown as ToOneUpdateSchema<Source, Key, S>;
   }
 
-  const isFieldsLessInverse =
-    state.type === "oneToOne" &&
-    (state.fields === undefined || state.fields.length === 0);
-  // A PARENT-HELD optional to-one grants `disconnect` from the slot fact alone: the
-  // column that records this membership is on THIS row, which is not what
-  // `membershipCanBeCleared` reads. When that column is not nullable (a shared
-  // primary key is the standing example) the payload is spellable and the engine's
-  // `assertRelationCanDisconnect` is what refuses it — the guard's one public route,
-  // named in the guard-ownership ledger.
-  if (!isFieldsLessInverse) {
-    return toOneMutationSchema(
-      {
-        ...baseEntries,
-        disconnect: v.boolean(),
-        delete: v.boolean(),
-      },
-      undefined,
-      isChildHeld
-    ) as unknown as ToOneUpdateSchema<S, Source>;
-  }
-
-  // The MEMBERSHIP fact, asked ONLY here: this is the one branch where an empty slot
-  // does not imply a clearable membership.
-  return (membershipCanBeCleared(state, source)
+  // The MEMBERSHIP fact, asked from the same resolved edge: an empty slot does not
+  // imply a clearable membership. An inverse whose stored reference has no nullable
+  // member can lose its record but cannot cut the connection, so it publishes
+  // `delete` without `disconnect`.
+  return (membershipCanBeCleared(resolved)
     ? toOneMutationSchema(
         {
           ...baseEntries,
@@ -316,16 +317,13 @@ export const toOneUpdateFactory = <
           delete: v.boolean(),
         },
         undefined,
-        true
+        isChildHeld
       )
     : toOneMutationSchema(
-        {
-          ...baseEntries,
-          delete: v.boolean(),
-        },
+        { ...baseEntries, delete: v.boolean() },
         undefined,
-        true
-      )) as unknown as ToOneUpdateSchema<S, Source>;
+        isChildHeld
+      )) as unknown as ToOneUpdateSchema<Source, Key, S>;
 };
 
 /**
@@ -336,9 +334,13 @@ export const toOneUpdateFactory = <
  * Most operations accept single or array.
  */
 
-type ToManyUpdateEntries<S extends RelationState, Source extends AnyModel> = {
-  create: () => V.SingleOrArray<ProjectedNestedCreate<S, Source>>;
-  createMany: NestedCreateManySchema<S, Source>;
+type ToManyUpdateEntries<
+  Source extends AnyModel,
+  Key,
+  S extends RelationState,
+> = {
+  create: () => V.SingleOrArray<ProjectedNestedCreate<Source, Key, S>>;
+  createMany: NestedCreateManySchema<Source, Key, S>;
   connect: () => V.SingleOrArray<GetTargetSchemas<S>["core"]["whereUnique"]>;
   delete: () => V.SingleOrArray<
     GetTargetSchemas<S>["core"]["whereUniqueExtended"]
@@ -347,7 +349,7 @@ type ToManyUpdateEntries<S extends RelationState, Source extends AnyModel> = {
     V.Object<
       {
         where: () => GetTargetSchemas<S>["core"]["whereUnique"];
-        create: () => ProjectedNestedCreate<S, Source>;
+        create: () => ProjectedNestedCreate<Source, Key, S>;
       },
       { partial: false }
     >
@@ -357,7 +359,7 @@ type ToManyUpdateEntries<S extends RelationState, Source extends AnyModel> = {
     V.Object<
       {
         where: () => GetTargetSchemas<S>["core"]["whereUniqueExtended"];
-        data: () => ProjectedNestedUpdate<S, Source>;
+        data: () => ProjectedNestedUpdate<Source, Key, S>;
       },
       { atLeast: ["where", "data"] }
     >
@@ -366,7 +368,7 @@ type ToManyUpdateEntries<S extends RelationState, Source extends AnyModel> = {
     V.Object<
       {
         where: () => GetTargetSchemas<S>["core"]["where"];
-        data: () => ProjectedNestedUpdate<S, Source>;
+        data: () => ProjectedNestedUpdate<Source, Key, S>;
       },
       { atLeast: ["data"] }
     >
@@ -375,8 +377,8 @@ type ToManyUpdateEntries<S extends RelationState, Source extends AnyModel> = {
     V.Object<
       {
         where: () => GetTargetSchemas<S>["core"]["whereUniqueExtended"];
-        create: () => ProjectedNestedCreate<S, Source>;
-        update: () => ProjectedSelectedUpsertUpdate<S, Source>;
+        create: () => ProjectedNestedCreate<Source, Key, S>;
+        update: () => ProjectedSelectedUpsertUpdate<Source, Key, S>;
       },
       { partial: false }
     >
@@ -388,28 +390,34 @@ type ToManyDisconnectEntry<S extends RelationState> = {
   disconnect: () => V.SingleOrArray<GetTargetSchemas<S>["core"]["whereUnique"]>;
 };
 
+type ToManyNoDisconnectEntry = {
+  disconnect: never;
+};
+
 export type ToManyUpdateSchema<
-  S extends RelationState,
   Source extends AnyModel,
+  Key,
+  S extends RelationState,
 > = V.Object<
-  ToManyUpdateEntries<S, Source> &
-    (S["type"] extends "manyToMany"
+  ToManyUpdateEntries<Source, Key, S> &
+    (MembershipCanBeCleared<Source, Key, S> extends true
       ? ToManyDisconnectEntry<S>
-      : MembershipCanBeCleared<S, Source> extends true
-        ? ToManyDisconnectEntry<S>
-        : Record<never, never>)
+      : ToManyNoDisconnectEntry)
 >;
 
 export const toManyUpdateFactory = <
-  S extends RelationState,
   Source extends AnyModel,
+  Key,
+  S extends RelationState,
   T extends SchemaGetter<S>,
 >(
-  state: S,
-  source: Source,
+  resolved: ResolvedSlot,
   targetSchemas: T
-): ToManyUpdateSchema<S, Source> => {
-  const projection = nestedRelationDataProjection(state, source, targetSchemas);
+): ToManyUpdateSchema<Source, Key, S> => {
+  const projection = nestedRelationDataProjection<S, T>(
+    resolved,
+    targetSchemas
+  );
   const getCreateSchema = projection.getCreateSchema;
   // N1 — see the to-one factory above and {@link ProjectedNestedUpdate}.
   const getUpdateSchema = projection.getUpdateSchema;
@@ -457,18 +465,13 @@ export const toManyUpdateFactory = <
     { partial: false }
   );
 
-  // A `manyToMany` membership always clears (the junction row goes, no column is
-  // nulled), and every other edge asks the clearability owner — one expression.
-  //
-  // The `manyToMany` arm now covers a real polymorphic shape rather than only
-  // ordinary pairs: a PLURAL collection inverse (plan §9.5) IS a polymorphic-bound
-  // `manyToMany`, and it clears for exactly the stated reason — its membership is a
-  // member-junction row that goes away, and no column on either row is nulled. The
-  // sentence that used to stand here ("a polymorphic inverse is never `manyToMany`")
-  // was true only while the collection grammar was closed.
-  const canDisconnect =
-    state.type === "manyToMany" || membershipCanBeCleared(state, source);
-  const disconnectEntry = canDisconnect
+  // ONE expression, one owner. A junction membership always clears — the junction
+  // row goes and no column on either row is nulled — and that is the answer the
+  // clearability owner gives for an ordinary junction, for a member junction, and
+  // for a PLURAL variant collection inverse alike (§9.5). A to-many slot whose
+  // partner holds a stored reference clears exactly when that reference has a
+  // nullable member. There is no second cardinality test here any more.
+  const disconnectEntry = membershipCanBeCleared(resolved)
     ? {
         disconnect: () => v.singleOrArray(targetSchemas().core.whereUnique),
       }
@@ -486,5 +489,5 @@ export const toManyUpdateFactory = <
     updateMany: v.singleOrArray(updateManySchema),
     upsert: v.singleOrArray(upsertSchema),
     deleteMany: () => v.singleOrArray(targetSchemas().core.where),
-  }) as unknown as ToManyUpdateSchema<S, Source>;
+  }) as unknown as ToManyUpdateSchema<Source, Key, S>;
 };

@@ -13,12 +13,15 @@ import { describe, expect, test } from "vitest";
 const user = s.model({
   id: s.string().id(),
   name: s.string(),
-  posts: s.oneToMany(() => post),
+  posts: s.toMany(() => post),
 });
 const post = s.model({
   id: s.string().id(),
   authorId: s.string(),
-  author: s.manyToOne(() => user),
+  author: s
+    .toOne(() => user)
+    .fields("authorId")
+    .references("id"),
 });
 
 const projectionSchema = () =>
@@ -36,7 +39,7 @@ const projectionSchema = () =>
 
 describe("operation-schema wrapper delegation", () => {
   test("builds and validates lazy upsert and scalar-only projections", () => {
-    const core = createSchemaRegistry({ user }).proxy.user.core;
+    const core = createSchemaRegistry({ user, post }).proxy.user.core;
 
     const upsertProjection = parse(core.upsertProjection, {
       select: { id: true, name: true },
@@ -169,5 +172,19 @@ describe("operation-schema wrapper delegation", () => {
       message: "Variant 'post' is not in 'only'",
       path: ["variants", "post"],
     });
+  });
+});
+
+describe("coverage low value", () => {
+  test("labels unhydrated omit failures from mapped and anonymous models", () => {
+    const mapped = s.model({ id: s.string().id() }).map("mapped_account");
+    const anonymous = s.model({ id: s.string().id() });
+
+    expect(emptyOmitProjectionMessage(mapped, "findMany")).toContain(
+      "mapped_account"
+    );
+    expect(emptySelectedOmitProjectionMessage(anonymous, "findMany")).toContain(
+      "model"
+    );
   });
 });

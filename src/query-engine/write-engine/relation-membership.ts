@@ -21,6 +21,7 @@ import type { OperationValueReference } from "./OperationFragment";
 import { ref } from "./OperationFragment";
 import type { PlanningKnown } from "./Part";
 import { planningKey } from "./Part";
+import { clearableForeignKeyFields } from "./relation-nullability";
 
 export type PlanningReferenceSource =
   | { readonly kind: "literal"; readonly value: unknown }
@@ -178,7 +179,7 @@ export function resolveMembershipReferencedPremise(
     return foreignKeyWriteValue(
       member,
       known,
-      binding.relation.relationInfo.name,
+      binding.relation.relationRef.name,
       operation
     );
   });
@@ -234,7 +235,7 @@ export function resolveCorrelatedMembershipProgressivePremise(
             correlated.readSource,
             member.referencedField,
             known,
-            binding.relation.relationInfo.name,
+            binding.relation.relationRef.name,
             operation
           );
         });
@@ -247,7 +248,7 @@ export function resolveMembershipWriteParentRowKey(
   known: PlanningKnown,
   operation: string
 ): Record<string, unknown> | undefined {
-  const relationName = binding.relation.relationInfo.name;
+  const relationName = binding.relation.relationRef.name;
   const sources: FinalReferenceFieldSource[] =
     binding.kind === "foreignKey"
       ? binding.members.map((member) => ({
@@ -275,7 +276,7 @@ export function resolveMembershipReadParentRowKey(
   known: PlanningKnown,
   operation: string
 ): Record<string, unknown> | undefined {
-  const relationName = binding.relation.relationInfo.name;
+  const relationName = binding.relation.relationRef.name;
   const sources: PlanningReferenceFieldSource[] =
     binding.kind === "foreignKey"
       ? binding.members.map((member) => ({
@@ -513,6 +514,7 @@ export function lowerMembershipWrite(
           engine,
           {
             kind: "linked",
+            carrier: binding.relation.membership.carrier,
             storage: binding.relation.membership.storage,
             storedType: binding.relation.membership.storedType,
             referencedField: binding.relation.membership.referencedField,
@@ -533,7 +535,7 @@ export function lowerMembershipWrite(
       foreignKeyWriteValue(
         member,
         known,
-        binding.relation.relationInfo.name,
+        binding.relation.relationRef.name,
         operation
       )
     );
@@ -548,13 +550,24 @@ export function lowerEmptyMembership(
     return {
       data: {},
       polymorphicStorage: [
-        { kind: "empty", storage: binding.relation.membership.storage },
+        {
+          kind: "empty",
+          carrier: binding.relation.membership.carrier,
+          storage: binding.relation.membership.storage,
+        },
       ],
     };
   }
+  // ONLY the clearable members (§8.4, §11.4.9): a mixed compound key nulls its
+  // nullable members and retains the required context ones. `clearability.ts`
+  // owns which those are, so the columns emptied here are the same columns the
+  // operation schema published an emptying verb from.
+  const cleared = new Set(clearableForeignKeyFields(binding.relation));
   return {
     data: Object.fromEntries(
-      binding.members.map((member) => [member.foreignField, { set: null }])
+      binding.members
+        .filter((member) => cleared.has(member.foreignField))
+        .map((member) => [member.foreignField, { set: null }])
     ),
     polymorphicStorage: [],
   };
@@ -612,7 +625,7 @@ export function finalMembershipCondition(
   known: PlanningKnown,
   operation: string
 ): RelationMembershipCondition {
-  const relationName = binding.relation.relationInfo.name;
+  const relationName = binding.relation.relationRef.name;
   if (binding.kind === "foreignKey") {
     return {
       filters: binding.members.map((member) => ({
@@ -701,7 +714,7 @@ export function finalMembershipWriteCondition(
   known: PlanningKnown,
   operation: string
 ): RelationMembershipCondition {
-  const relationName = binding.relation.relationInfo.name;
+  const relationName = binding.relation.relationRef.name;
   if (binding.kind === "foreignKey") {
     return {
       filters: binding.members.map((member) => ({
@@ -758,7 +771,7 @@ export function recordHasMembership(
   known: PlanningKnown,
   operation: string
 ): boolean {
-  const relationName = binding.relation.relationInfo.name;
+  const relationName = binding.relation.relationRef.name;
   if (binding.kind === "foreignKey") {
     return binding.members.every((member) =>
       fkEquals(
@@ -936,7 +949,7 @@ export function resolvePolymorphicStorageValue(
   kind: string
 ): PolymorphicStorageValue<unknown> {
   if (value.kind === "empty") return value;
-  const { storage, referencedField } = value;
+  const { carrier, storage, referencedField } = value;
   const resolved = foreignKeyWriteValue(
     {
       foreignField: storage.idColumn.name,
@@ -944,7 +957,7 @@ export function resolvePolymorphicStorageValue(
       writeSource: value.id,
     },
     known,
-    storage.relationName,
+    carrier.field,
     kind
   );
   return {
@@ -965,6 +978,7 @@ export function linkedPolymorphicStorage(
 ): Extract<PolymorphicStorageValue<FinalReferenceSource>, { kind: "linked" }> {
   return {
     kind: "linked",
+    carrier: membership.carrier,
     storage: membership.storage,
     storedType: membership.storedType,
     referencedField: membership.referencedField,

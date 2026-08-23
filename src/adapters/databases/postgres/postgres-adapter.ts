@@ -519,7 +519,6 @@ export class PostgresAdapter implements DatabaseAdapter {
 
     parseRelation: (
       _value: unknown,
-      _type: import("../../adapter-result-parser").RelationResultKind,
       next: (value?: unknown) => unknown
     ): unknown => {
       // PostgreSQL returns native JSON objects - passthrough

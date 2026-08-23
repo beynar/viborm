@@ -22,7 +22,7 @@ const photo = s.model({ id: s.string().id(), caption: s.string() });
 const owner = s.model({
   id: s.string().id(),
   title: s.string(),
-  items: s.polymorphicToMany(
+  items: s.toMany(
     { article: () => article, photo: () => photo },
     { values: { article: "cm.article.v1", photo: "cm.photo.v1" } }
   ),
@@ -295,17 +295,17 @@ const inverseSchema = (() => {
     id: s.string().id(),
     title: s.string(),
     // SINGULAR inverse of a collection group.
-    shelf: s.manyToOne(() => shelf).optional(),
+    shelf: s.toOne(() => shelf),
   });
   const clip = s.model({
     id: s.string().id(),
     // PLURAL inverse of the same group.
-    shelves: s.manyToMany(() => shelf),
+    shelves: s.toMany(() => shelf),
   });
   const shelf = s.model({
     id: s.string().id(),
     label: s.string(),
-    items: s.polymorphicToMany(
+    items: s.toMany(
       { book: () => book, clip: () => clip },
       { values: { book: "inv.book.v1", clip: "inv.clip.v1" } }
     ),

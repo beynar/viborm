@@ -11,7 +11,7 @@
 
 import { type Sql, sql } from "@sql";
 import { createChildScope } from "../context";
-import type { QueryScope, RelationInfo } from "../types";
+import type { QueryScope, RelationRef } from "../types";
 import {
   buildManyToManyInclude,
   buildManyToManyLateralInclude,
@@ -80,12 +80,12 @@ export interface BuildIncludeOptions {
 export function buildSubqueryInclude(
   buildNestedSelection: BuildNestedSelection,
   ctx: QueryScope,
-  relationInfo: RelationInfo,
+  relationRef: RelationRef,
   includeValue: Record<string, unknown>
 ): IncludeResult {
   // The one classification, which also spends this include's target (and, for a
   // junction, junction) alias — the dedicated junction builder takes it from here.
-  const traversal = buildRelationTraversal(ctx, relationInfo, ctx.rootAlias);
+  const traversal = buildRelationTraversal(ctx, relationRef, ctx.rootAlias);
   if (traversal.kind === "junction") {
     // CARDINALITY BEFORE ROUTE. Every junction traversal used to go straight to
     // the to-many aggregation; a singular inverse over a collection member walks
@@ -97,7 +97,7 @@ export function buildSubqueryInclude(
         column: buildSingularJunctionInclude(
           buildNestedSelection,
           ctx,
-          relationInfo,
+          relationRef,
           includeValue,
           traversal
         ),
@@ -107,7 +107,7 @@ export function buildSubqueryInclude(
       column: buildManyToManyInclude(
         buildNestedSelection,
         ctx,
-        relationInfo,
+        relationRef,
         includeValue,
         traversal
       ),
@@ -119,11 +119,7 @@ export function buildSubqueryInclude(
   const { select, include, where } = options;
 
   const relatedAlias = traversal.targetAlias;
-  const childCtx = createChildScope(
-    ctx,
-    relationInfo.targetModel,
-    relatedAlias
-  );
+  const childCtx = createChildScope(ctx, relationRef.targetModel, relatedAlias);
 
   // Build the JSON object for selected fields (using asJson: true)
   const jsonExpr = buildNestedSelection(childCtx, select, include).sql;
@@ -165,19 +161,19 @@ export function buildSubqueryInclude(
 export function buildLateralInclude(
   buildNestedSelection: BuildNestedSelection,
   ctx: QueryScope,
-  relationInfo: RelationInfo,
+  relationRef: RelationRef,
   includeValue: Record<string, unknown>
 ): IncludeResult {
   // The one classification, ahead of the lateral alias: the traversal's aliases
   // come first, exactly as the junction builder's prologue allocated them.
-  const traversal = buildRelationTraversal(ctx, relationInfo, ctx.rootAlias);
+  const traversal = buildRelationTraversal(ctx, relationRef, ctx.rootAlias);
   if (traversal.kind === "junction") {
     if (traversal.cardinality() === "one") {
       return {
         column: buildSingularJunctionInclude(
           buildNestedSelection,
           ctx,
-          relationInfo,
+          relationRef,
           includeValue,
           traversal
         ),
@@ -194,7 +190,7 @@ export function buildLateralInclude(
         column: buildManyToManyInclude(
           buildNestedSelection,
           ctx,
-          relationInfo,
+          relationRef,
           includeValue,
           traversal
         ),
@@ -203,7 +199,7 @@ export function buildLateralInclude(
     return buildManyToManyLateralInclude(
       buildNestedSelection,
       ctx,
-      relationInfo,
+      relationRef,
       includeValue,
       traversal
     );
@@ -215,11 +211,7 @@ export function buildLateralInclude(
 
   const relatedAlias = traversal.targetAlias;
   const lateralAlias = ctx.nextAlias();
-  const childCtx = createChildScope(
-    ctx,
-    relationInfo.targetModel,
-    relatedAlias
-  );
+  const childCtx = createChildScope(ctx, relationRef.targetModel, relatedAlias);
 
   // Build the JSON object for selected fields AND collect nested lateral joins
   const selectResult = buildNestedSelection(childCtx, select, include);

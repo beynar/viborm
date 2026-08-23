@@ -67,7 +67,7 @@ const armEdgeSchema = (() => {
     .model({
       id: s.string().id(),
       name: s.string(),
-      teams: s.oneToMany(() => team),
+      teams: s.toMany(() => team),
     })
     .map("arm_edge_orgs");
   const team = s
@@ -79,16 +79,15 @@ const armEdgeSchema = (() => {
       label: s.string(),
       orgId: s.string().nullable(),
       org: s
-        .manyToOne(() => org)
+        .toOne(() => org)
         .fields("orgId")
-        .references("id")
-        .optional(),
+        .references("id"),
       // The COMPOUND referenced edge: member.(mRegion, mCode) -> team.(region, code).
-      members: s.oneToMany(() => member),
+      members: s.toMany(() => member),
       // The arity-1 NON-primary-key referenced edge: badge.bSlug -> team.slug.
-      badges: s.oneToMany(() => badge),
+      badges: s.toMany(() => badge),
       // The control edge: note.teamId -> team.id, the located child's own primary key.
-      notes: s.oneToMany(() => note),
+      notes: s.toMany(() => note),
     })
     .unique(["region", "code"])
     .map("arm_edge_teams");
@@ -99,10 +98,9 @@ const armEdgeSchema = (() => {
       mRegion: s.string().nullable(),
       mCode: s.string().nullable(),
       team: s
-        .manyToOne(() => team)
+        .toOne(() => team)
         .fields("mRegion", "mCode")
-        .references("region", "code")
-        .optional(),
+        .references("region", "code"),
     })
     .map("arm_edge_members");
   const badge = s
@@ -111,10 +109,9 @@ const armEdgeSchema = (() => {
       tag: s.string(),
       bSlug: s.string().nullable(),
       team: s
-        .manyToOne(() => team)
+        .toOne(() => team)
         .fields("bSlug")
-        .references("slug")
-        .optional(),
+        .references("slug"),
     })
     .map("arm_edge_badges");
   const note = s
@@ -123,10 +120,9 @@ const armEdgeSchema = (() => {
       body: s.string(),
       teamId: s.string().nullable(),
       team: s
-        .manyToOne(() => team)
+        .toOne(() => team)
         .fields("teamId")
-        .references("id")
-        .optional(),
+        .references("id"),
     })
     .map("arm_edge_notes");
   return { org, team, member, badge, note };

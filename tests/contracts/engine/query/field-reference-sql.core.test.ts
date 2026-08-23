@@ -59,7 +59,7 @@ const User = s
   .model({
     id: s.string().id(),
     name: s.string(),
-    posts: s.oneToMany(() => Post),
+    posts: s.toMany(() => Post),
   })
   .map("fieldref_sql_users");
 
@@ -85,7 +85,7 @@ const Post = s
     meta2: s.json().nullable(),
     authorId: s.string(),
     author: s
-      .manyToOne(() => User)
+      .toOne(() => User)
       .fields("authorId")
       .references("id"),
   })

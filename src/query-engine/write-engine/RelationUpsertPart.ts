@@ -2,10 +2,7 @@
 import { NestedWriteError, QueryEngineError } from "@errors";
 import type { Sql } from "@sql";
 import { directPolymorphicMembership } from "../builders/polymorphic-relation";
-import {
-  bindRelation,
-  membershipReferencedFields,
-} from "../builders/relation-data-builder";
+import { bindRelation } from "../builders/relation-data-builder";
 import {
   buildParsedRelationPrograms,
   type ConnectOrCreateInput,
@@ -240,7 +237,7 @@ export class RelationUpsertPart implements Part {
   private readonly duplicateOfEarlier: boolean;
 
   private get relationName(): string {
-    return this.config.membership.relation.relationInfo.name;
+    return this.config.membership.relation.relationRef.name;
   }
 
   constructor(scope: StepScope, config: RelationUpsertConfig) {
@@ -250,7 +247,7 @@ export class RelationUpsertPart implements Part {
     this.createSubtree = config.createSubtree;
     this.duplicateOfEarlier = config.duplicateOfEarlier ?? false;
     const { childScope, childName, where, txMode } = config;
-    const relationName = config.membership.relation.relationInfo.name;
+    const relationName = config.membership.relation.relationRef.name;
     this.probeId = config.probeId;
     this.updateId =
       this.updateCompiler?.writeId ?? scope.allocate(`${childName}.update`);
@@ -761,13 +758,13 @@ function buildUpsertParts(
   family: UpsertFamily
 ): RelationUpsertPart[] {
   const relation = parent.membership.relation;
-  const { relationInfo } = relation;
-  const relationName = relationInfo.name;
+  const { relationRef } = relation;
+  const relationName = relationRef.name;
   if (relation.cardinality === "one" && family !== "connectOrCreate") {
     // Callers bind and dispatch topology before this builder. Only a child-held to-many,
     // or the child-held to-one `connectOrCreate` case, can reach this point.
     throw new QueryEngineError(
-      `query-engine-v2 internal: relation '${relationName}' reached the child-held adopt builder as '${relationInfo.type}' for a nested ${family}; every caller dispatches the relation direction before this builder.`
+      `query-engine-v2 internal: relation '${relationName}' reached the child-held adopt builder as a ${relation.position} '${relation.cardinality}' relation for a nested ${family}; every caller dispatches the relation direction before this builder.`
     );
   }
   // First-create-wins is a connectOrCreate-only ledger of selectors that an
@@ -775,7 +772,7 @@ function buildUpsertParts(
   // array semantics differ; V1 merges each input's write before the next).
   const child =
     family === "connectOrCreate"
-      ? createQueryScope(engine.adapter, relationInfo.targetModel)
+      ? createQueryScope(engine, relationRef.targetModel)
       : undefined;
   const createdSelectors: TargetConstraint[] | undefined = child
     ? []
@@ -867,8 +864,8 @@ function buildAdoptParts(
   seam: RecordCompilerSeam
 ): RelationUpsertPart[] {
   const relation = membership.relation;
-  const { relationInfo } = relation;
-  const child = createQueryScope(engine.adapter, relationInfo.targetModel);
+  const { relationRef } = relation;
+  const child = createQueryScope(engine, relationRef.targetModel);
   const createdSelectors: TargetConstraint[] = [];
   return items.map((item) => {
     const duplicateOfEarlier = isSameOperationConnectOrCreateDuplicate(
@@ -914,27 +911,14 @@ function buildOneUpsertPart(
   family: UpsertFamily,
   duplicateOfEarlier = false
 ): RelationUpsertPart {
-  const relation = parent.membership.relation;
-  const { relationInfo } = relation;
-  const relationName = relationInfo.name;
-  const { foreignFields } = relation.membership;
-  if (
-    foreignFields.length !==
-    membershipReferencedFields(relation.membership).length
-  ) {
-    // The child must hold the foreign key referencing the parent (one column, or an
-    // index-aligned compound key — ATOM “Field-bound foreign-key provenance”).
-    //
-    // Unreachable by construction. A
-    // `.fields("a","b").references("c")` edge is rejected UPSTREAM by the
-    // relation-mutation legality walk
-    // (`NestedWriteError: Relation '<name>' has mismatched foreign-key metadata.`), which
-    // runs before any Part is built — so no payload arrives with a mismatched arity here.
-    throw new QueryEngineError(
-      `query-engine-v2 internal: relation '${relationName}' reached the upsert part without an index-aligned child-held foreign key referencing the parent.`
-    );
-  }
-  const child = createQueryScope(engine.adapter, relationInfo.targetModel);
+  const { relationRef } = parent.membership.relation;
+  const relationName = relationRef.name;
+  // The child holds an index-aligned foreign key referencing the parent (ATOM
+  // “Field-bound foreign-key provenance”). This used to be re-asserted here by
+  // comparing the membership's two field lists; both are projected from ONE
+  // resolved pair list now, and `.references(...)` refuses an unequal pair at
+  // construction (V4002), so the comparison had no reachable input.
+  const child = createQueryScope(engine, relationRef.targetModel);
   const where = requireRecord(item.where, `${relationName}.${family}.where`);
   const rawCreate = requireRecord(
     item.create.parsed,
@@ -965,7 +949,7 @@ function buildOneUpsertPart(
   // The probe publishes the child's complete row key and every found-arm write
   // addresses all of it, so an adopt target keys on however many members it has.
   const targetProjection = buildTargetProjection(child.model);
-  const childName = getStepModelName(relationInfo.targetModel, relationName);
+  const childName = getStepModelName(relationRef.targetModel, relationName);
   for (const parsed of childUpdate.relations) {
     assertNoIncomingTargetMutationOverlap(
       child,
@@ -1081,7 +1065,7 @@ function assertNoIncomingTargetMutationOverlap(
   // anyway — so this is the same verdict, reached one step earlier because the
   // arm has no single `program` to bind.
   if (parsed.kind === "polymorphicCollection") return;
-  const relation = bindRelation(child, parsed.program.relationInfo);
+  const relation = bindRelation(child, parsed.program.relationRef);
   if (relation.position !== "parentHeld") return;
   const mutationScope =
     parsed.kind === "polymorphicTarget"
@@ -1108,7 +1092,7 @@ function assertNoIncomingTargetMutationOverlap(
     return entry.kind === "upsert" || (entry.kind === "update" && !hasSupplier);
   });
   if (!overlaps) return;
-  refuseIncomingParentMutation(parsed.program.relationInfo.name);
+  refuseIncomingParentMutation(parsed.program.relationRef.name);
 }
 
 /** One typed owner for the retained incoming-parent boundary. The general arm is

@@ -1,9 +1,20 @@
 // Schema Validator
+//
+// TWO layers, one boundary. The mandatory relation-definition gate
+// (`./relation-resolution`) decides every structural topology fact and runs at
+// every effect-capable boundary; the rule list beside it carries advice about
+// how a schema is spelled. `skipValidation` may drop the advice. It cannot drop
+// the gate: no query or migration is allowed to guess an edge.
 
 import type { Model } from "../model";
+import { preflightModelRegistrationIdentity } from "../registration-preflight";
 import { SchemaValidationError } from "./error";
+import {
+  type RelationResolution,
+  type ResolvedRelationIndex,
+  resolveSchemaRelations,
+} from "./relation-resolution";
 import { allRules } from "./rules";
-import { inverseOneToOneMustBeOptional } from "./rules/relation";
 import type {
   Schema,
   SchemaValidationIssue,
@@ -31,11 +42,18 @@ function buildContext(schema: Schema): ValidationContext {
 
 export class SchemaValidator {
   private readonly schema: Schema = new Map();
+  /** One resolution per validator lifecycle: the gate runs once per schema. */
+  private resolution: RelationResolution | undefined;
 
   /** Register a model with a name */
   register(name: string, model: Model<any>): this {
-    if (this.schema.has(name)) {
-      throw new SchemaValidationError([
+    const registered = this.schema.get(name);
+    if (registered) {
+      if (registered === model) {
+        this.resolution = undefined;
+        return this;
+      }
+      throw validationError([
         {
           code: "M003",
           message: `Model name '${name}' is duplicated`,
@@ -45,6 +63,7 @@ export class SchemaValidator {
       ]);
     }
     this.schema.set(name, model);
+    this.resolution = undefined;
     return this;
   }
 
@@ -54,6 +73,20 @@ export class SchemaValidator {
       this.register(name, model);
     }
     return this;
+  }
+
+  /**
+   * Resolve the relation graph. The successful arm is the one trusted topology
+   * view; the failure arm carries the issues and, for a thrown lazy getter, the
+   * terminal's own settled `Error`.
+   */
+  resolve(): RelationResolution {
+    if (this.resolution) return this.resolution;
+    const identityIssue = preflightModelRegistrationIdentity(this.schema);
+    this.resolution = identityIssue
+      ? { ok: false, issues: [identityIssue] }
+      : resolveSchemaRelations(this.schema, buildContext(this.schema));
+    return this.resolution;
   }
 
   /** Validate all registered models */
@@ -73,6 +106,13 @@ export class SchemaValidator {
           severity: "error",
         });
       }
+    }
+
+    // The gate reports on every schema, valid or not: a successful resolution
+    // still carries the advisories its subowners produced.
+    const resolution = this.resolve();
+    for (const issue of resolution.issues) {
+      (issue.severity === "error" ? errors : warnings).push(issue);
     }
 
     // Run all rules on each model
@@ -117,7 +157,11 @@ export class SchemaValidator {
   validateOrThrow(rules?: ValidationRule[]): void {
     const result = this.validate(rules);
     if (!result.valid) {
-      throw new SchemaValidationError(result.errors);
+      const resolution = this.resolve();
+      throw validationError(
+        result.errors,
+        resolution.ok ? undefined : resolution.cause
+      );
     }
   }
 }
@@ -130,41 +174,67 @@ export function validateSchema(
   return new SchemaValidator().registerAll(models).validate(rules);
 }
 
-/** Validate or throw */
+/**
+ * Validate or throw — the structural gate plus the advisory rules, resolved
+ * exactly once, returning the one trusted index for this caller's lifecycle.
+ */
 export function validateSchemaOrThrow(
   models: Record<string, Model<any>>,
   rules?: ValidationRule[]
-): void {
-  new SchemaValidator().registerAll(models).validateOrThrow(rules);
+): ResolvedRelationIndex {
+  const validator = new SchemaValidator().registerAll(models);
+  validator.validateOrThrow(rules);
+  return publish(validator);
 }
 
-/** Mandatory definition gate for the feature-owned private storage contract.
- * Ordinary schemas keep their current client-construction behavior. */
-export function validatePolymorphicSchemaOrThrow(
+/**
+ * The mandatory structural gate, for every boundary that can produce effects:
+ * client construction, standalone registry construction, and migration
+ * serialization/generation/push — including `push({ skipValidation: true })`,
+ * which may skip advice but never this.
+ *
+ * Returns the one trusted index. The caller owns it for its own lifecycle and
+ * passes it on by identity rather than copying it.
+ */
+export function resolveSchemaOrThrow(
   models: Record<string, Model<any>>
-): void {
-  if (!hasPolymorphicRelations(models)) return;
-  new SchemaValidator().registerAll(models).validateOrThrow();
+): ResolvedRelationIndex {
+  return publish(new SchemaValidator().registerAll(models));
 }
 
-/** Validate the definition contracts that every query client relies on.
- * Polymorphic schemas need the complete graph validation that materializes
- * their private storage. Ordinary schemas need only the non-owning one-to-one
- * rule here; their remaining definition rules keep their existing explicit
- * validation boundary. */
+/**
+ * Validate the definition contracts every query client relies on: the mandatory
+ * structural gate plus the schema-wide model-identity checks a client needs to
+ * address a model at all (duplicate model name, duplicate table), resolved
+ * exactly once.
+ *
+ * The EMPTY rule list is the whole difference between this boundary and
+ * `validateSchemaOrThrow`, and it is deliberate. §7.3 requires structural
+ * resolution here and says advisory rules "may remain optional"; advice about
+ * how a schema is SPELLED — a missing id, a reserved model name, an index
+ * shape — belongs to the boundary that writes DDL. Running it here would refuse
+ * schemas a client has always built, which is a verdict change §9.4 does not
+ * enumerate.
+ */
 export function validateClientSchemaOrThrow(
   models: Record<string, Model<any>>
-): void {
-  const validator = new SchemaValidator().registerAll(models);
-  validator.validateOrThrow(
-    hasPolymorphicRelations(models)
-      ? undefined
-      : [inverseOneToOneMustBeOptional]
+): ResolvedRelationIndex {
+  return validateSchemaOrThrow(models, []);
+}
+
+function publish(validator: SchemaValidator): ResolvedRelationIndex {
+  const resolution = validator.resolve();
+  if (resolution.ok) return resolution.index;
+  throw validationError(
+    resolution.issues.filter((issue) => issue.severity === "error"),
+    resolution.cause
   );
 }
 
-function hasPolymorphicRelations(models: Record<string, Model<any>>): boolean {
-  return Object.values(models).some(
-    (model) => Object.keys(model["~"].state.polymorphicRelations).length > 0
-  );
+/** One construction path for every thrown schema-validation result. */
+function validationError(
+  issues: readonly SchemaValidationIssue[],
+  cause?: Error
+): SchemaValidationError {
+  return new SchemaValidationError(issues, cause ? { cause } : undefined);
 }

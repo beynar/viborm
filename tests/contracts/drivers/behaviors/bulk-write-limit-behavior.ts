@@ -17,10 +17,9 @@ const crate = s
     qty: s.int().default(0),
     depotId: s.string().nullable(),
     depot: s
-      .manyToOne(() => depot)
+      .toOne(() => depot)
       .fields("depotId")
-      .references("id")
-      .optional(),
+      .references("id"),
   })
   .map("limit_crates");
 
@@ -28,7 +27,7 @@ const depot = s
   .model({
     id: s.string().id(),
     region: s.string(),
-    crates: s.oneToMany(() => crate),
+    crates: s.toMany(() => crate),
   })
   .map("limit_depots");
 

@@ -13,7 +13,7 @@ const user = s.model({
   id: s.string().id().ulid(),
   email: s.string().unique(),
   name: s.string().nullable(),
-  posts: s.oneToMany(() => post),
+  posts: s.toMany(() => post),
 });
 ```
 
@@ -29,8 +29,8 @@ import { s } from "viborm";
 s.model({ ... })              // Create a model
 s.string()                    // String scalar
 s.int()                       // Integer scalar
-s.oneToMany(() => post)       // One-to-many relation
-s.manyToOne(() => user)       // Many-to-one relation
+s.toMany(() => post)          // A collection slot
+s.toOne(() => user)           // A singular slot
 // ... and more
 ```
 

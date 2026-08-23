@@ -14,7 +14,7 @@ export const vacateThenSupplySchema = (() => {
     .model({
       id: s.string().id(),
       label: s.string(),
-      badge: s.oneToOne(() => badge).optional(),
+      badge: s.toOne(() => badge),
     })
     .map("e65_stations");
 
@@ -24,10 +24,9 @@ export const vacateThenSupplySchema = (() => {
       tag: s.string(),
       stationId: s.string().nullable().unique(),
       station: s
-        .oneToOne(() => station)
+        .toOne(() => station)
         .fields("stationId")
-        .references("id")
-        .optional(),
+        .references("id"),
     })
     .map("e65_badges");
 

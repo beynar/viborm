@@ -205,7 +205,7 @@ const parentHeldSchema = (() => {
     .model({
       id: s.string().id(),
       note: s.string(),
-      stations: s.oneToMany(() => station),
+      stations: s.toMany(() => station),
     })
     .map("e65p_depots");
 
@@ -215,10 +215,9 @@ const parentHeldSchema = (() => {
       label: s.string(),
       depotId: s.string().nullable(),
       depot: s
-        .manyToOne(() => depot)
+        .toOne(() => depot)
         .fields("depotId")
-        .references("id")
-        .optional(),
+        .references("id"),
     })
     .map("e65p_stations");
 

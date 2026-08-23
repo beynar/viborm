@@ -21,12 +21,13 @@ import { beforeAll, expect, test } from "vitest";
  * Four legs on one parent pin the boundary and its neighboring contracts:
  *
  *   · `hub.card`   — child-held to-one, the child's FK unique (a real 1:1);
- *   · `hub.ticket` — child-held to-one spelled with the MANY-side helper and no
- *     `.fields()`: bound topology resolves the edge from `ticket.hub`'s
- *     back-reference, while `ticket.hubId` carries no unique. This is the leg
- *     where an unchecked multi-operation payload could write two rows.
- *     `hub.tickets` / `ticket.hubs` satisfy inverse-pairing rules for that
- *     spelling;
+ *   · `hub.ticket` — child-held to-one with no `.fields()`: the edge resolves
+ *     from `ticket.hub`'s back-reference. This is the leg where an unchecked
+ *     multi-operation payload could write two rows, and the payload is still
+ *     refused at the parse — before any statement. The `hub.tickets` /
+ *     `ticket.hubs` pair beside it is GONE: it existed only to satisfy the old
+ *     inverse-pairing ladder, and a second unnamed pair between the same two
+ *     models is ambiguous now (R009);
  *   · `hub.owner`  — parent-held to-one control;
  *   · `hub.notes`  — to-many, the control that must keep composing several kinds.
  */
@@ -34,16 +35,14 @@ const hub = s
   .model({
     id: s.int().id(),
     label: s.string(),
-    card: s.oneToOne(() => card).optional(),
-    ticket: s.manyToOne(() => ticket).optional(),
-    tickets: s.oneToMany(() => ticket),
+    card: s.toOne(() => card),
+    ticket: s.toOne(() => ticket),
     ownerId: s.int().nullable(),
     owner: s
-      .manyToOne(() => owner)
+      .toOne(() => owner)
       .fields("ownerId")
-      .references("id")
-      .optional(),
-    notes: s.oneToMany(() => note),
+      .references("id"),
+    notes: s.toMany(() => note),
   })
   .map("m8_hubs");
 
@@ -51,14 +50,14 @@ const card = s
   .model({
     id: s.int().id(),
     name: s.string(),
-    // `.unique()` is the 1:1 occupied-slot guard (`FK008` refuses to define a 1:1
-    // without it) — the reason this leg failed loudly while `ticket` failed silently.
+    // The declared 1:1 unique. §9.4 deletes the rule that DEMANDED it — two paired
+    // to-one slots derive the constraint — but declaring it keeps `hubId` a
+    // `whereUnique` selector, which the tests below address the card by.
     hubId: s.int().unique().nullable(),
     hub: s
-      .oneToOne(() => hub)
+      .toOne(() => hub)
       .fields("hubId")
-      .references("id")
-      .optional(),
+      .references("id"),
   })
   .map("m8_cards");
 
@@ -66,15 +65,13 @@ const ticket = s
   .model({
     id: s.int().id(),
     code: s.string(),
-    // NOT unique: many tickets may reference one hub. `hub.ticket` nonetheless presents
-    // the edge as to-one.
+    // Undeclared: the paired to-one slots derive this edge's uniqueness (§9.4), so
+    // the column carries no separate `.unique()` and is not a `whereUnique` key.
     hubId: s.int().nullable(),
     hub: s
-      .manyToOne(() => hub)
+      .toOne(() => hub)
       .fields("hubId")
-      .references("id")
-      .optional(),
-    hubs: s.oneToMany(() => hub),
+      .references("id"),
   })
   .map("m8_tickets");
 
@@ -82,7 +79,7 @@ const owner = s
   .model({
     id: s.int().id(),
     name: s.string(),
-    hubs: s.oneToMany(() => hub),
+    hubs: s.toMany(() => hub),
   })
   .map("m8_owners");
 
@@ -92,10 +89,9 @@ const note = s
     body: s.string(),
     hubId: s.int().nullable(),
     hub: s
-      .manyToOne(() => hub)
+      .toOne(() => hub)
       .fields("hubId")
-      .references("id")
-      .optional(),
+      .references("id"),
   })
   .map("m8_notes");
 

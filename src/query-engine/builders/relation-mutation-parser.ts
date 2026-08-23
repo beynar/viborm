@@ -1,7 +1,4 @@
-import type {
-  PolymorphicJunctionMember,
-  PolymorphicToOneStorage,
-} from "@schema/relation";
+import type { ResolvedVariantJunctionMember } from "@schema/validation/relation-resolution";
 import {
   splitToOneUpdateTarget,
   type ToOneUpdateEnvelope,
@@ -9,19 +6,20 @@ import {
 } from "@validation/relations/to-one-update-form";
 import { isRecord } from "@validation/value-guards";
 import {
-  getPolymorphicRelationInfo,
-  getRelationInfo,
-  isPolymorphicRelation,
   isRelation,
+  isVariantRelation,
+  lookupRelation,
+  variantCarrier,
 } from "../context";
 import {
-  isPolymorphicToOneRelationInfo,
+  isVariantRowCarrier,
   NestedWriteError,
-  type PolymorphicRelationInfo,
-  type PolymorphicToManyRelationInfo,
   type QueryScope,
-  type RelationInfo,
-  type ResolvedPolymorphicEdge,
+  type RelationRef,
+  type SelectedVariantRow,
+  type VariantCarrierSlot,
+  type VariantJunctionCarrierSlot,
+  type VariantRowCarrierSlot,
 } from "../types";
 import { bindPolymorphicCollectionMember } from "./polymorphic-collection-mutation";
 import { resolvePolymorphicMutationIntent } from "./polymorphic-mutation";
@@ -90,7 +88,7 @@ export interface PartitionedModelData {
     Record<
       string,
       {
-        readonly relationInfo: RelationInfo;
+        readonly relationRef: RelationRef;
         readonly payload: unknown;
       }
     >
@@ -101,13 +99,13 @@ export interface PartitionedModelData {
    * dispatches on `storage.kind` at the point where the two storages stop
    * meaning the same thing, and the ONE consumer that cannot — the bulk
    * `createMany` shortcut, which stores private owner columns — narrows with
-   * `isPolymorphicToOneRelationInfo` before it reads.
+   * `isVariantRowCarrier` before it reads.
    */
   readonly polymorphicPayloads: Readonly<
     Record<
       string,
       {
-        readonly relation: PolymorphicRelationInfo;
+        readonly relation: VariantCarrierSlot;
         readonly payload: unknown;
       }
     >
@@ -194,7 +192,7 @@ export type RelationMutationEntry =
     };
 
 export interface RelationMutationProgram {
-  readonly relationInfo: RelationInfo;
+  readonly relationRef: RelationRef;
   readonly entries: readonly RelationMutationEntry[];
 }
 
@@ -205,20 +203,20 @@ export function partitionModelData(
   const scalarData: Record<string, unknown> = {};
   const relationPayloads: Record<
     string,
-    { readonly relationInfo: RelationInfo; readonly payload: unknown }
+    { readonly relationRef: RelationRef; readonly payload: unknown }
   > = {};
   const polymorphicPayloads: Record<
     string,
     {
-      readonly relation: PolymorphicRelationInfo;
+      readonly relation: VariantCarrierSlot;
       readonly payload: unknown;
     }
   > = {};
 
   for (const [key, value] of Object.entries(data)) {
     if (value === undefined) continue;
-    if (isPolymorphicRelation(ctx.model, key)) {
-      const relation = getPolymorphicRelationInfo(ctx, key);
+    if (isVariantRelation(ctx, key)) {
+      const relation = variantCarrier(ctx, key);
       // BOTH ARMS, since Package D. Package C widened the scope to carry
       // collection storage for READS only, and a collection key partitioned into
       // nothing because its write family was refused by name. D makes that family
@@ -234,8 +232,8 @@ export function partitionModelData(
       continue;
     }
 
-    const relationInfo = getRelationInfo(ctx, key);
-    if (relationInfo) relationPayloads[key] = { relationInfo, payload: value };
+    const relationRef = lookupRelation(ctx, key);
+    if (relationRef) relationPayloads[key] = { relationRef, payload: value };
   }
 
   return { scalarData, relationPayloads, polymorphicPayloads };
@@ -248,15 +246,15 @@ export function partitionModelData(
  * record-bearing entry then states `source: undefined` and is not replayable.
  */
 export function buildRelationMutationProgram(
-  relationInfo: RelationInfo,
+  relationRef: RelationRef,
   parsedPayload: unknown,
   sourcePayload?: unknown
 ): RelationMutationProgram | undefined {
   if (!hasRelationMutationInput(parsedPayload)) {
     if (isRecord(parsedPayload) && Object.keys(parsedPayload).length > 0) {
       throw new NestedWriteError(
-        `Unsupported nested write operation on relation '${relationInfo.name}': ${Object.keys(parsedPayload).join(", ")}`,
-        relationInfo.name
+        `Unsupported nested write operation on relation '${relationRef.name}': ${Object.keys(parsedPayload).join(", ")}`,
+        relationRef.name
       );
     }
     return undefined;
@@ -274,25 +272,25 @@ export function buildRelationMutationProgram(
           items: parseRecordMutationItems(
             value,
             sourceMutationValue(sourcePayload, kind),
-            relationInfo,
+            relationRef,
             kind
           ),
         });
         break;
       case "createMany": {
-        const envelope = requireRecordEnvelope(relationInfo, kind, value);
+        const envelope = requireRecordEnvelope(relationRef, kind, value);
         const sourceEnvelope = sourceMutationEnvelope(
-          relationInfo,
+          relationRef,
           kind,
           sourcePayload
         );
         entries.push({
           kind,
           rows: pairRecordMutationItems(
-            requireRecordArrayField(relationInfo, kind, envelope, "data"),
+            requireRecordArrayField(relationRef, kind, envelope, "data"),
             sourceEnvelope
               ? requireRecordArrayField(
-                  relationInfo,
+                  relationRef,
                   kind,
                   sourceEnvelope,
                   "data"
@@ -308,14 +306,14 @@ export function buildRelationMutationProgram(
       case "connect":
         entries.push({
           kind,
-          targets: parseSingleOrArrayRecord(value, relationInfo, kind),
+          targets: parseSingleOrArrayRecord(value, relationRef, kind),
         });
         break;
       case "connectOrCreate":
         entries.push({
           kind,
           items: parseConnectOrCreateItems(
-            relationInfo,
+            relationRef,
             value,
             sourceMutationValue(sourcePayload, kind)
           ),
@@ -330,21 +328,21 @@ export function buildRelationMutationProgram(
               ? { kind: "current" }
               : {
                   kind: "selectors",
-                  targets: parseSingleOrArrayRecord(value, relationInfo, kind),
+                  targets: parseSingleOrArrayRecord(value, relationRef, kind),
                 },
         });
         break;
       case "set":
         entries.push({
           kind,
-          targets: parseSingleOrArrayRecord(value, relationInfo, kind),
+          targets: parseSingleOrArrayRecord(value, relationRef, kind),
         });
         break;
       case "update":
         entries.push({
           kind,
           items: parseNormalizedUpdates(
-            relationInfo,
+            relationRef,
             value,
             sourceMutationValue(sourcePayload, kind)
           ),
@@ -354,7 +352,7 @@ export function buildRelationMutationProgram(
         entries.push({
           kind,
           items: parseNormalizedUpdateMany(
-            relationInfo,
+            relationRef,
             value,
             sourceMutationValue(sourcePayload, kind)
           ),
@@ -363,14 +361,14 @@ export function buildRelationMutationProgram(
       case "deleteMany":
         entries.push({
           kind,
-          filters: parseNormalizedDeleteMany(relationInfo, value),
+          filters: parseNormalizedDeleteMany(relationRef, value),
         });
         break;
       case "upsert":
         entries.push({
           kind,
           items: parseNormalizedUpserts(
-            relationInfo,
+            relationRef,
             value,
             sourceMutationValue(sourcePayload, kind)
           ),
@@ -383,7 +381,7 @@ export function buildRelationMutationProgram(
     }
   }
 
-  return entries.length > 0 ? { relationInfo, entries } : undefined;
+  return entries.length > 0 ? { relationRef, entries } : undefined;
 }
 
 /**
@@ -402,9 +400,9 @@ export function buildRelationMutationProgram(
  * it — but only by naming it, because the compiler makes the arm visible.
  *
  * `name` is the key the payload spelled. For both program-carrying arms it equals
- * `program.relationInfo.name`: a resolved edge keeps the polymorphic relation's own
- * name (`resolvePolymorphicEdge`), so the concrete manyToOne it synthesizes is not a
- * second name.
+ * `program.relationRef.name`: a payload-selected variant keeps the carrier slot's
+ * own name, because the selection narrows an existing slot rather than minting a
+ * second one.
  */
 export type ParsedRelationMutation =
   | {
@@ -416,12 +414,12 @@ export type ParsedRelationMutation =
       readonly kind: "polymorphicTarget";
       readonly name: string;
       readonly program: RelationMutationProgram;
-      readonly edge: ResolvedPolymorphicEdge;
+      readonly edge: SelectedVariantRow;
     }
   | {
       readonly kind: "polymorphicDisconnect";
       readonly name: string;
-      readonly storage: PolymorphicToOneStorage;
+      readonly carrier: VariantRowCarrierSlot;
     }
   | PolymorphicCollectionArm;
 
@@ -431,7 +429,7 @@ export type ParsedRelationMutation =
  *
  * `name` is the PAYLOAD KEY ("items"). This is the ONE place the invariant in
  * the union's doc above does not hold: for the two program-carrying arms
- * `name === program.relationInfo.name`, while here each entry's program carries
+ * `name === program.relationRef.name`, while here each entry's program carries
  * its own VARIANT-QUALIFIED carrier name ("items.post"), because one payload key
  * writes several member tables and their step ids must not collide.
  *
@@ -447,7 +445,7 @@ export type ParsedRelationMutation =
 export interface PolymorphicCollectionArm {
   readonly kind: "polymorphicCollection";
   readonly name: string;
-  readonly relation: PolymorphicToManyRelationInfo;
+  readonly relation: VariantJunctionCarrierSlot;
   readonly entries: readonly PolymorphicCollectionEntry[];
   /** `set` was spelled — `set: []` included, which clears and adds nothing. */
   readonly clearsAll: boolean;
@@ -527,7 +525,7 @@ export function polymorphicCollectionArms(
 
 export function buildPolymorphicMutationProgram(
   ctx: QueryScope,
-  relation: PolymorphicRelationInfo,
+  relation: VariantCarrierSlot,
   parsedPayload: unknown,
   sourcePayload?: unknown
 ): Extract<
@@ -542,7 +540,7 @@ export function buildPolymorphicMutationProgram(
   // THE ONE STORAGE DISPATCH on the write path, so the three record producers
   // (`buildParsedRelationPrograms`, `UpdateOperation`, `UpsertOperation`) stay
   // byte-identical to each other and none of them learns which arm it holds.
-  if (!isPolymorphicToOneRelationInfo(relation)) {
+  if (!isVariantRowCarrier(relation)) {
     const { entries, clearsAll } = resolvePolymorphicCollectionEntries(
       ctx,
       relation,
@@ -551,34 +549,34 @@ export function buildPolymorphicMutationProgram(
     );
     return {
       kind: "polymorphicCollection",
-      name: relation.name,
+      name: relation.slot.field,
       relation,
       entries,
       clearsAll,
     };
   }
-  const intent = resolvePolymorphicMutationIntent(ctx, relation, parsedPayload);
+  const intent = resolvePolymorphicMutationIntent(relation, parsedPayload);
   if (intent.kind === "disconnect") {
     return {
       kind: "polymorphicDisconnect",
-      name: relation.name,
-      storage: intent.storage,
+      name: relation.slot.field,
+      carrier: intent.carrier,
     };
   }
   const program = buildRelationMutationProgram(
-    intent.edge.relationInfo,
+    intent.edge.ref,
     { [intent.operation]: intent.payload },
     polymorphicSourceProgram(intent.operation, sourcePayload)
   );
   if (!program) {
     throw new NestedWriteError(
-      `Polymorphic relation '${relation.name}' produced no target mutation.`,
-      relation.name
+      `Polymorphic relation '${relation.slot.field}' produced no target mutation.`,
+      relation.slot.field
     );
   }
   return {
     kind: "polymorphicTarget",
-    name: relation.name,
+    name: relation.slot.field,
     program,
     edge: intent.edge,
   };
@@ -590,8 +588,8 @@ export function buildPolymorphicMutationProgram(
  */
 export interface PolymorphicCollectionEntry {
   readonly publicType: string;
-  readonly member: PolymorphicJunctionMember;
-  /** OWNER-oriented, pre-bound. `cardinality === member.inverseCardinality`. */
+  readonly member: ResolvedVariantJunctionMember;
+  /** OWNER-oriented and pre-bound; member uniqueness decides one versus many. */
   readonly junction: JunctionBoundRelation;
   /** Exactly ONE {@link RelationMutationEntry}, built by the ordinary builder. */
   readonly program: RelationMutationProgram;
@@ -650,7 +648,7 @@ function untagCollectionItem(
 
 /** Every tagged item of one verb, as a list, whatever arity the caller spelled. */
 function collectionVerbItems(
-  relation: PolymorphicToManyRelationInfo,
+  relation: VariantJunctionCarrierSlot,
   kind: string,
   value: unknown
 ): Record<string, unknown>[] {
@@ -658,8 +656,8 @@ function collectionVerbItems(
   return items.map((item) => {
     if (isRecord(item) && typeof item.type === "string") return item;
     throw new NestedWriteError(
-      `Malformed nested '${kind}' operation on polymorphic collection '${relation.name}': every item must carry its 'type' discriminator.`,
-      relation.name,
+      `Malformed nested '${kind}' operation on polymorphic collection '${relation.slot.field}': every item must carry its 'type' discriminator.`,
+      relation.slot.field,
       { meta: { operation: kind } }
     );
   });
@@ -690,7 +688,7 @@ function collectionVerbItems(
  */
 function resolvePolymorphicCollectionEntries(
   ctx: QueryScope,
-  relation: PolymorphicToManyRelationInfo,
+  relation: VariantJunctionCarrierSlot,
   parsedPayload: unknown,
   sourcePayload: unknown
 ): {
@@ -699,8 +697,8 @@ function resolvePolymorphicCollectionEntries(
 } {
   if (!isRecord(parsedPayload)) {
     throw new NestedWriteError(
-      `Polymorphic collection '${relation.name}' produced an invalid mutation payload.`,
-      relation.name
+      `Polymorphic collection '${relation.slot.field}' produced an invalid mutation payload.`,
+      relation.slot.field
     );
   }
   const entries: PolymorphicCollectionEntry[] = [];
@@ -745,7 +743,7 @@ function resolvePolymorphicCollectionEntries(
 
 /** The caller's own record for one verb, aligned index for index with the parse. */
 function collectionVerbSources(
-  relation: PolymorphicToManyRelationInfo,
+  relation: VariantJunctionCarrierSlot,
   kind: string,
   sourcePayload: unknown,
   parsedCount: number
@@ -755,7 +753,7 @@ function collectionVerbSources(
   const sources = collectionVerbItems(relation, kind, value);
   if (sources.length !== parsedCount) {
     throw new TypeError(
-      `Polymorphic collection '${relation.name}' mutation source has ${sources.length} '${kind}' item(s) for ${parsedCount} parsed item(s).`
+      `Polymorphic collection '${relation.slot.field}' mutation source has ${sources.length} '${kind}' item(s) for ${parsedCount} parsed item(s).`
     );
   }
   return sources;
@@ -763,7 +761,7 @@ function collectionVerbSources(
 
 function buildCollectionEntry(input: {
   ctx: QueryScope;
-  relation: PolymorphicToManyRelationInfo;
+  relation: VariantJunctionCarrierSlot;
   kind: (typeof RELATION_MUTATION_KEYS)[number];
   publicType: string;
   items: readonly Record<string, unknown>[];
@@ -772,11 +770,13 @@ function buildCollectionEntry(input: {
   end: number;
 }): PolymorphicCollectionEntry {
   const { ctx, relation, kind, publicType } = input;
-  const member = relation.storage.members.get(publicType);
+  const member = relation.edge.members.find(
+    (candidate) => candidate.variant === publicType
+  );
   if (!member) {
     throw new NestedWriteError(
-      `Unknown polymorphic target '${publicType}' for collection '${relation.name}'.`,
-      relation.name,
+      `Unknown polymorphic target '${publicType}' for collection '${relation.slot.field}'.`,
+      relation.slot.field,
       { meta: { operation: kind } }
     );
   }
@@ -791,14 +791,14 @@ function buildCollectionEntry(input: {
       : input.sources.map((item) => untagCollectionItem(kind, item))
     : undefined;
   const program = buildRelationMutationProgram(
-    junction.relationInfo,
+    junction.relationRef,
     { [kind]: parsedVerb },
     sourceVerb === undefined ? undefined : { [kind]: sourceVerb }
   );
   if (!program) {
     throw new NestedWriteError(
-      `Polymorphic collection '${relation.name}' produced no '${kind}' mutation for variant '${publicType}'.`,
-      relation.name,
+      `Polymorphic collection '${relation.slot.field}' produced no '${kind}' mutation for variant '${publicType}'.`,
+      relation.slot.field,
       { meta: { operation: kind } }
     );
   }
@@ -807,7 +807,7 @@ function buildCollectionEntry(input: {
     member,
     junction,
     program,
-    path: `${relation.name}.${kind}[${input.start}..${input.end - 1}]`,
+    path: `${relation.slot.field}.${kind}[${input.start}..${input.end - 1}]`,
   };
 }
 
@@ -829,11 +829,11 @@ export function buildParsedRelationPrograms(
   // constructors spell the same two passes because their per-relation transforms
   // must keep that validation order (ATOM §19).
   const relations: ParsedRelationMutation[] = [];
-  for (const [relationName, { relationInfo, payload }] of Object.entries(
+  for (const [relationName, { relationRef, payload }] of Object.entries(
     relationPayloads
   )) {
     const program = buildRelationMutationProgram(
-      relationInfo,
+      relationRef,
       payload,
       sourceData?.[relationName]
     );
@@ -847,7 +847,7 @@ export function buildParsedRelationPrograms(
         ctx,
         relation,
         payload,
-        sourceData?.[relation.name]
+        sourceData?.[relation.slot.field]
       )
     );
   }
@@ -865,26 +865,26 @@ function hasRelationMutationInput(
 }
 
 function parseConnectOrCreateItems(
-  relationInfo: RelationInfo,
+  relationRef: RelationRef,
   value: unknown,
   sourceValue: unknown
 ): ConnectOrCreateInput[] {
   const inputs = parseSingleOrArrayRecord(
     value,
-    relationInfo,
+    relationRef,
     "connectOrCreate"
   );
   const sources = parseSourceRecords(
     sourceValue,
-    relationInfo,
+    relationRef,
     "connectOrCreate"
   );
   return inputs.map((input, index) => ({
-    where: requireRecordField(relationInfo, "connectOrCreate", input, "where"),
+    where: requireRecordField(relationRef, "connectOrCreate", input, "where"),
     create: recordMutationData(
-      requireRecordField(relationInfo, "connectOrCreate", input, "create"),
+      requireRecordField(relationRef, "connectOrCreate", input, "create"),
       sourceRecordField(
-        relationInfo,
+        relationRef,
         "connectOrCreate",
         sources,
         index,
@@ -895,11 +895,11 @@ function parseConnectOrCreateItems(
 }
 
 function parseNormalizedUpdates(
-  relationInfo: RelationInfo,
+  relationRef: RelationRef,
   value: unknown,
   sourceValue: unknown
 ): NormalizedRelationUpdate[] {
-  if (relationInfo.cardinality === "one") {
+  if (relationRef.cardinality === "one") {
     // `parsedPayload` is deliberately an unknown carrier, but the to-one update
     // schema has already normalized this branch to its canonical envelope.
     const target = splitToOneUpdateTarget(value as ToOneUpdateEnvelope);
@@ -917,39 +917,39 @@ function parseNormalizedUpdates(
     ];
   }
 
-  const inputs = parseSingleOrArrayRecord(value, relationInfo, "update");
-  const sources = parseSourceRecords(sourceValue, relationInfo, "update");
+  const inputs = parseSingleOrArrayRecord(value, relationRef, "update");
+  const sources = parseSourceRecords(sourceValue, relationRef, "update");
   return inputs.map((input, index) => ({
     target: {
       kind: "unique",
-      where: requireRecordField(relationInfo, "update", input, "where"),
+      where: requireRecordField(relationRef, "update", input, "where"),
     },
     data: recordMutationData(
-      requireRecordField(relationInfo, "update", input, "data"),
-      sourceRecordField(relationInfo, "update", sources, index, "data")
+      requireRecordField(relationRef, "update", input, "data"),
+      sourceRecordField(relationRef, "update", sources, index, "data")
     ),
   }));
 }
 
 function parseNormalizedUpdateMany(
-  relationInfo: RelationInfo,
+  relationRef: RelationRef,
   value: unknown,
   sourceValue: unknown
 ): NestedUpdateManyInput[] {
-  rejectToOneOperation(relationInfo, "updateMany");
-  const inputs = parseSingleOrArrayRecord(value, relationInfo, "updateMany");
-  const sources = parseSourceRecords(sourceValue, relationInfo, "updateMany");
+  rejectToOneOperation(relationRef, "updateMany");
+  const inputs = parseSingleOrArrayRecord(value, relationRef, "updateMany");
+  const sources = parseSourceRecords(sourceValue, relationRef, "updateMany");
   return inputs.map(
     (input, index): NestedUpdateManyInput => ({
       data: recordMutationData(
-        requireRecordField(relationInfo, "updateMany", input, "data"),
-        sourceRecordField(relationInfo, "updateMany", sources, index, "data")
+        requireRecordField(relationRef, "updateMany", input, "data"),
+        sourceRecordField(relationRef, "updateMany", sources, index, "data")
       ),
       ...(input.where === undefined
         ? {}
         : {
             where: requireRecordField(
-              relationInfo,
+              relationRef,
               "updateMany",
               input,
               "where"
@@ -960,43 +960,43 @@ function parseNormalizedUpdateMany(
 }
 
 function parseNormalizedDeleteMany(
-  relationInfo: RelationInfo,
+  relationRef: RelationRef,
   value: unknown
 ): Record<string, unknown>[] {
-  rejectToOneOperation(relationInfo, "deleteMany");
-  return parseSingleOrArrayRecord(value, relationInfo, "deleteMany");
+  rejectToOneOperation(relationRef, "deleteMany");
+  return parseSingleOrArrayRecord(value, relationRef, "deleteMany");
 }
 
 function parseNormalizedUpserts(
-  relationInfo: RelationInfo,
+  relationRef: RelationRef,
   value: unknown,
   sourceValue: unknown
 ): NormalizedRelationUpsert[] {
-  if (relationInfo.cardinality === "one" && Array.isArray(value)) {
+  if (relationRef.cardinality === "one" && Array.isArray(value)) {
     throw new NestedWriteError(
-      `Malformed nested 'upsert' operation on relation '${relationInfo.name}': expected a single object envelope for to-one relations.`,
-      relationInfo.name,
+      `Malformed nested 'upsert' operation on relation '${relationRef.name}': expected a single object envelope for to-one relations.`,
+      relationRef.name,
       { meta: { operation: "upsert" } }
     );
   }
 
-  const inputs = parseSingleOrArrayRecord(value, relationInfo, "upsert");
-  const sources = parseSourceRecords(sourceValue, relationInfo, "upsert");
+  const inputs = parseSingleOrArrayRecord(value, relationRef, "upsert");
+  const sources = parseSourceRecords(sourceValue, relationRef, "upsert");
   return inputs.map((input, index) => ({
     target:
-      relationInfo.cardinality === "one"
+      relationRef.cardinality === "one"
         ? { kind: "correlated" }
         : {
             kind: "unique",
-            where: requireRecordField(relationInfo, "upsert", input, "where"),
+            where: requireRecordField(relationRef, "upsert", input, "where"),
           },
     create: recordMutationData(
-      requireRecordField(relationInfo, "upsert", input, "create"),
-      sourceRecordField(relationInfo, "upsert", sources, index, "create")
+      requireRecordField(relationRef, "upsert", input, "create"),
+      sourceRecordField(relationRef, "upsert", sources, index, "create")
     ),
     update: recordMutationData(
-      requireRecordField(relationInfo, "upsert", input, "update"),
-      sourceRecordField(relationInfo, "upsert", sources, index, "update")
+      requireRecordField(relationRef, "upsert", input, "update"),
+      sourceRecordField(relationRef, "upsert", sources, index, "update")
     ),
   }));
 }
@@ -1004,12 +1004,12 @@ function parseNormalizedUpserts(
 function parseRecordMutationItems(
   parsedValue: unknown,
   sourceValue: unknown,
-  relationInfo: RelationInfo,
+  relationRef: RelationRef,
   operation: string
 ): RecordMutationData[] {
   return pairRecordMutationItems(
-    parseSingleOrArrayRecord(parsedValue, relationInfo, operation),
-    parseSourceRecords(sourceValue, relationInfo, operation)
+    parseSingleOrArrayRecord(parsedValue, relationRef, operation),
+    parseSourceRecords(sourceValue, relationRef, operation)
   );
 }
 
@@ -1036,16 +1036,16 @@ function recordMutationData(
 
 function parseSourceRecords(
   value: unknown,
-  relationInfo: RelationInfo,
+  relationRef: RelationRef,
   operation: string
 ): Record<string, unknown>[] | undefined {
   return value === undefined
     ? undefined
-    : parseSingleOrArrayRecord(value, relationInfo, operation);
+    : parseSingleOrArrayRecord(value, relationRef, operation);
 }
 
 function sourceRecordField(
-  relationInfo: RelationInfo,
+  relationRef: RelationRef,
   operation: string,
   sources: readonly Record<string, unknown>[] | undefined,
   index: number,
@@ -1055,10 +1055,10 @@ function sourceRecordField(
   const source = sources[index];
   if (!source) {
     throw new TypeError(
-      `Relation mutation '${operation}' on '${relationInfo.name}' lost source item ${index}.`
+      `Relation mutation '${operation}' on '${relationRef.name}' lost source item ${index}.`
     );
   }
-  return requireRecordField(relationInfo, operation, source, field);
+  return requireRecordField(relationRef, operation, source, field);
 }
 
 function sourceMutationValue(
@@ -1069,14 +1069,14 @@ function sourceMutationValue(
 }
 
 function sourceMutationEnvelope(
-  relationInfo: RelationInfo,
+  relationRef: RelationRef,
   operation: string,
   sourcePayload: unknown
 ): Record<string, unknown> | undefined {
   const value = sourceMutationValue(sourcePayload, operation);
   return value === undefined
     ? undefined
-    : requireRecordEnvelope(relationInfo, operation, value);
+    : requireRecordEnvelope(relationRef, operation, value);
 }
 
 function polymorphicSourceProgram(
@@ -1126,29 +1126,29 @@ function polymorphicSourceProgram(
 
 function parseSingleOrArrayRecord(
   value: unknown,
-  relationInfo: RelationInfo,
+  relationRef: RelationRef,
   operation: string
 ): Record<string, unknown>[] {
   return (Array.isArray(value) ? value : [value]).map((entry) =>
-    requireRecordEnvelope(relationInfo, operation, entry)
+    requireRecordEnvelope(relationRef, operation, entry)
   );
 }
 
 function requireRecordEnvelope(
-  relationInfo: RelationInfo,
+  relationRef: RelationRef,
   operation: string,
   value: unknown
 ): Record<string, unknown> {
   if (isRecord(value)) return value;
   throw new NestedWriteError(
-    `Malformed nested '${operation}' operation on relation '${relationInfo.name}': expected an object envelope.`,
-    relationInfo.name,
+    `Malformed nested '${operation}' operation on relation '${relationRef.name}': expected an object envelope.`,
+    relationRef.name,
     { meta: { operation } }
   );
 }
 
 function requireRecordField(
-  relationInfo: RelationInfo,
+  relationRef: RelationRef,
   operation: string,
   input: Record<string, unknown>,
   field: string
@@ -1156,14 +1156,14 @@ function requireRecordField(
   const value = input[field];
   if (isRecord(value)) return value;
   throw new NestedWriteError(
-    `Malformed nested '${operation}' operation on relation '${relationInfo.name}': expected '${field}' to be an object.`,
-    relationInfo.name,
+    `Malformed nested '${operation}' operation on relation '${relationRef.name}': expected '${field}' to be an object.`,
+    relationRef.name,
     { meta: { operation, field } }
   );
 }
 
 function requireRecordArrayField(
-  relationInfo: RelationInfo,
+  relationRef: RelationRef,
   operation: string,
   input: Record<string, unknown>,
   field: string
@@ -1171,20 +1171,20 @@ function requireRecordArrayField(
   const value = input[field];
   if (Array.isArray(value) && value.every(isRecord)) return value;
   throw new NestedWriteError(
-    `Malformed nested '${operation}' operation on relation '${relationInfo.name}': expected '${field}' to be an array of objects.`,
-    relationInfo.name,
+    `Malformed nested '${operation}' operation on relation '${relationRef.name}': expected '${field}' to be an array of objects.`,
+    relationRef.name,
     { meta: { operation, field } }
   );
 }
 
 function rejectToOneOperation(
-  relationInfo: RelationInfo,
+  relationRef: RelationRef,
   operation: string
 ): void {
-  if (relationInfo.cardinality !== "one") return;
+  if (relationRef.cardinality !== "one") return;
   throw new NestedWriteError(
-    `Nested operation '${operation}' is not supported for to-one relation '${relationInfo.name}'.`,
-    relationInfo.name,
+    `Nested operation '${operation}' is not supported for to-one relation '${relationRef.name}'.`,
+    relationRef.name,
     { meta: { operation } }
   );
 }

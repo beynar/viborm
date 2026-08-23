@@ -1,6 +1,7 @@
 // biome-ignore-all lint/style/useFilenamingConvention: UpsertOperation is the architecture name.
 import { QueryEngineError } from "@errors";
 import type { Model } from "@schema/model";
+import { slotMayBeEmpty } from "@schema/relation";
 import {
   buildPrimaryKeyWhereUnique,
   getPrimaryKeyFields,
@@ -229,7 +230,7 @@ export class UpsertOperation {
     const where = envelopeRecord(args.where, "where");
     const create = envelopeRecord(args.create, "create");
     const update = envelopeRecord(args.update, "update");
-    const parent = createQueryScope(engine.adapter, model);
+    const parent = createQueryScope(engine, model);
 
     const parentPrimaryKeys = getPrimaryKeyFields(model);
     if (parentPrimaryKeys.length === 0) {
@@ -249,9 +250,20 @@ export class UpsertOperation {
     // owner and transform each relation payload once.
     const createPartition = partitionModelData(parent, create);
     const updatePartition = partitionModelData(parent, update);
+    // A carrier whose slot CANNOT be empty must be given a target by the create
+    // arm, so that arm is relation-bearing whatever `create` spelled. Read off
+    // the resolved edge: a row carrier answers with its private pair's
+    // nullability, and a COLLECTION carrier answers "may be empty" always —
+    // membership lives in member tables that need no row at insert time.
     const createRequiresPolymorphicRelation = [
-      ...parent.polymorphicRelations.values(),
-    ].some(({ relation }) => relation["~"].state.optional !== true);
+      ...(parent.relations.get(parent.model)?.values() ?? []),
+    ].some(
+      (resolved) =>
+        resolved.member === undefined &&
+        (resolved.edge.kind === "variantRowCarrier" ||
+          resolved.edge.kind === "variantJunctionCarrier") &&
+        !slotMayBeEmpty(resolved)
+    );
     const createHasRelations =
       Object.keys(createPartition.relationPayloads).length > 0 ||
       Object.keys(createPartition.polymorphicPayloads).length > 0 ||
@@ -404,7 +416,7 @@ export class UpsertOperation {
           `data.${relationName}`
         );
         const program = buildRelationMutationProgram(
-          relationPayload.relationInfo,
+          relationPayload.relationRef,
           parsedRelation,
           relationPayload.payload
         );
@@ -584,7 +596,7 @@ export class UpsertOperation {
       );
     }
     return new ResultParser(
-      this.engine.adapter,
+      this.engine,
       this.model,
       this.engine.driver,
       this.engine.decimalDecode
@@ -689,7 +701,7 @@ export class UpsertOperation {
         resultId: resultStepId(fragment, "upsert create arm"),
       };
     }
-    const parent = createQueryScope(this.engine.adapter, this.model);
+    const parent = createQueryScope(this.engine, this.model);
     const returned = this.compileBatchReturningCreateArm(parent);
     if (returned) return returned;
     // How this INSERT's row will be addressed afterwards — decided BEFORE the
@@ -837,7 +849,7 @@ export class UpsertOperation {
         resultId: this.terminalId,
       };
     }
-    const parent = createQueryScope(this.engine.adapter, this.model);
+    const parent = createQueryScope(this.engine, this.model);
     return {
       steps: [
         presenceGuard(
@@ -862,7 +874,7 @@ export class UpsertOperation {
     locatedRow: Record<string, unknown>
   ): ArmResult {
     if (Object.keys(this.locate.outputs).length > 1) {
-      const parent = createQueryScope(this.engine.adapter, this.model);
+      const parent = createQueryScope(this.engine, this.model);
       const guards = this.conditionalMatchGuards(locatedRow);
       if (this.mode === "batch" && this.conditionals.length === 0) {
         guards.push(
@@ -882,7 +894,7 @@ export class UpsertOperation {
         resultId: this.terminalId,
       };
     }
-    const parent = createQueryScope(this.engine.adapter, this.model);
+    const parent = createQueryScope(this.engine, this.model);
     const txMode = this.mode === "transaction";
     const guards: OperationStep[] = [];
     if (!txMode) {
@@ -962,7 +974,7 @@ export class UpsertOperation {
     locatedRow: Record<string, unknown>
   ): OperationStep[] {
     if (this.mode === "transaction") return [];
-    const parent = createQueryScope(this.engine.adapter, this.model);
+    const parent = createQueryScope(this.engine, this.model);
     return this.conditionals.map((conditional) =>
       presenceGuard(
         conditional.guardId,
@@ -1053,7 +1065,7 @@ export class UpsertOperation {
   }
 
   private buildTerminal(where: Record<string, unknown>): ReadStep {
-    const parent = createQueryScope(this.engine.adapter, this.model);
+    const parent = createQueryScope(this.engine, this.model);
     const txMode = this.mode === "transaction";
     return {
       id: this.terminalId,
@@ -1112,7 +1124,7 @@ export class UpsertOperation {
     if (this.updateCompiler) {
       return this.updateCompiler.updatedPrimaryKeyWhere(locatedRow);
     }
-    const parent = createQueryScope(this.engine.adapter, this.model);
+    const parent = createQueryScope(this.engine, this.model);
     return getUpdatedPrimaryKeyWhere(
       parent,
       locatedRow,

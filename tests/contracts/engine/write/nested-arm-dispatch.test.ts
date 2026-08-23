@@ -429,12 +429,15 @@ function runSuite(
         },
         "w9",
       ],
-    ])("parent-held %s folds into the selected arm root", async (_label, payload, ownerId) => {
-      await run({ owner: payload });
-      expect(
-        (await client.team.findUnique({ where: { id: "t1" } })).ownerId
-      ).toBe(ownerId);
-    });
+    ])(
+      "parent-held %s folds into the selected arm root",
+      async (_label, payload, ownerId) => {
+        await run({ owner: payload });
+        expect(
+          (await client.team.findUnique({ where: { id: "t1" } })).ownerId
+        ).toBe(ownerId);
+      }
+    );
 
     test("parent-held update and upsert target the selected arm's relation", async () => {
       await client.team.update({
@@ -1033,7 +1036,7 @@ const junctionResidueSchema = (() => {
     .model({
       id: s.string().id(),
       name: s.string(),
-      teams: s.oneToMany(() => team),
+      teams: s.toMany(() => team),
     })
     .map("b1_res_orgs");
   const team = s
@@ -1043,20 +1046,20 @@ const junctionResidueSchema = (() => {
       slug: s.string().unique(),
       orgId: s.string().nullable(),
       org: s
-        .manyToOne(() => org)
+        .toOne(() => org)
         .fields("orgId")
-        .references("id")
-        .optional(),
+        .references("id"),
       // The opt-OUT: both sides must agree, and the pair is serialized with
       // `ON UPDATE RESTRICT` instead of the implicit cascade.
-      tags: s.manyToMany(() => tag).onUpdate("restrict"),
+      tags: s.toMany(() => tag).onUpdate("restrict"),
     })
     .map("b1_res_teams");
   const tag = s
     .model({
       id: s.string().id(),
       name: s.string(),
-      teams: s.manyToMany(() => team).onUpdate("restrict"),
+      // One endpoint owns every junction override (R011).
+      teams: s.toMany(() => team),
     })
     .map("b1_res_tags");
   return { org, team, tag };

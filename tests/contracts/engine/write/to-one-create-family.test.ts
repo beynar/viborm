@@ -34,8 +34,8 @@ const crossSchema = (() => {
     .model({
       id: s.int().id(),
       label: s.string(),
-      primaryRecords: s.oneToMany(() => record).name("primary"),
-      secondaryRecords: s.oneToMany(() => record).name("secondary"),
+      primaryRecords: s.toMany(() => record).name("primary"),
+      secondaryRecords: s.toMany(() => record).name("secondary"),
     })
     .map("t1_cross_accounts");
   const record = s
@@ -44,17 +44,15 @@ const crossSchema = (() => {
       primaryId: s.int().nullable(),
       secondaryId: s.int().nullable(),
       primary: s
-        .manyToOne(() => account)
+        .toOne(() => account)
         .fields("primaryId")
         .references("id")
-        .name("primary")
-        .optional(),
+        .name("primary"),
       secondary: s
-        .manyToOne(() => account)
+        .toOne(() => account)
         .fields("secondaryId")
         .references("id")
-        .name("secondary")
-        .optional(),
+        .name("secondary"),
     })
     .map("t1_cross_records");
   return { account, record };
@@ -69,11 +67,10 @@ const selfRefSchema = (() => {
       name: s.string(),
       parentId: s.string().nullable(),
       parent: s
-        .manyToOne(() => category)
+        .toOne(() => category)
         .fields("parentId")
-        .references("id")
-        .optional(),
-      children: s.oneToMany(() => category),
+        .references("id"),
+      children: s.toMany(() => category),
     })
     .map("t1_selfref_categories");
   return { category };

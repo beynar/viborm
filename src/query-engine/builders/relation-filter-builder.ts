@@ -12,7 +12,7 @@
 import type { Sql } from "@sql";
 import { isRecord } from "@validation/value-guards";
 import { createChildScope, getColumnName } from "../context";
-import { QueryEngineError, type QueryScope, type RelationInfo } from "../types";
+import { QueryEngineError, type QueryScope, type RelationRef } from "../types";
 import {
   hideMutationTarget,
   readsMutationTarget,
@@ -29,14 +29,14 @@ export type BuildNestedWhere = (
  * Build a relation filter (some, every, none, is, isNot)
  *
  * @param ctx - Query context
- * @param relationInfo - Relation metadata
+ * @param relationRef - Relation metadata
  * @param filter - Filter object (may contain some/every/none or direct filter)
  * @returns SQL condition or undefined
  */
 export function buildRelationFilterSql(
   buildNestedWhere: BuildNestedWhere,
   ctx: QueryScope,
-  relationInfo: RelationInfo,
+  relationRef: RelationRef,
   filter: Record<string, unknown>
 ): Sql | undefined {
   const subqueries = new RelationFilterSubqueries(buildNestedWhere);
@@ -47,7 +47,7 @@ export function buildRelationFilterSql(
   // We must check for !== undefined, not just "key in filter".
 
   // To-many relations use some/every/none (normalized by schema validation)
-  if (relationInfo.cardinality === "many") {
+  if (relationRef.cardinality === "many") {
     const conditions: Sql[] = [];
     let hasOperator = false;
 
@@ -57,8 +57,8 @@ export function buildRelationFilterSql(
         buildSomeFilter(
           subqueries,
           ctx,
-          relationInfo,
-          requireFilterObject(relationInfo, "some", filter.some)
+          relationRef,
+          requireFilterObject(relationRef, "some", filter.some)
         )
       );
     }
@@ -67,8 +67,8 @@ export function buildRelationFilterSql(
       const condition = buildEveryFilter(
         subqueries,
         ctx,
-        relationInfo,
-        requireFilterObject(relationInfo, "every", filter.every)
+        relationRef,
+        requireFilterObject(relationRef, "every", filter.every)
       );
       if (condition) {
         conditions.push(condition);
@@ -80,15 +80,15 @@ export function buildRelationFilterSql(
         buildNoneFilter(
           subqueries,
           ctx,
-          relationInfo,
-          requireFilterObject(relationInfo, "none", filter.none)
+          relationRef,
+          requireFilterObject(relationRef, "none", filter.none)
         )
       );
     }
 
     if (!hasOperator) {
       throw new QueryEngineError(
-        `Relation filter '${relationInfo.name}' requires one of: some, every, none.`
+        `Relation filter '${relationRef.name}' requires one of: some, every, none.`
       );
     }
 
@@ -103,14 +103,14 @@ export function buildRelationFilterSql(
     hasOperator = true;
     const isValue = filter.is;
     if (isValue === null) {
-      conditions.push(buildIsNullFilter(subqueries, ctx, relationInfo));
+      conditions.push(buildIsNullFilter(subqueries, ctx, relationRef));
     } else {
       conditions.push(
         buildIsFilter(
           subqueries,
           ctx,
-          relationInfo,
-          requireFilterObject(relationInfo, "is", isValue)
+          relationRef,
+          requireFilterObject(relationRef, "is", isValue)
         )
       );
     }
@@ -119,14 +119,14 @@ export function buildRelationFilterSql(
     hasOperator = true;
     const isNotValue = filter.isNot;
     if (isNotValue === null) {
-      conditions.push(buildIsNotNullFilter(subqueries, ctx, relationInfo));
+      conditions.push(buildIsNotNullFilter(subqueries, ctx, relationRef));
     } else {
       conditions.push(
         buildIsNotFilter(
           subqueries,
           ctx,
-          relationInfo,
-          requireFilterObject(relationInfo, "isNot", isNotValue)
+          relationRef,
+          requireFilterObject(relationRef, "isNot", isNotValue)
         )
       );
     }
@@ -134,7 +134,7 @@ export function buildRelationFilterSql(
 
   if (!hasOperator) {
     throw new QueryEngineError(
-      `Relation filter '${relationInfo.name}' requires one of: is, isNot.`
+      `Relation filter '${relationRef.name}' requires one of: is, isNot.`
     );
   }
 
@@ -142,13 +142,13 @@ export function buildRelationFilterSql(
 }
 
 function requireFilterObject(
-  relationInfo: RelationInfo,
+  relationRef: RelationRef,
   operator: string,
   value: unknown
 ): Record<string, unknown> {
   if (!isRecord(value)) {
     throw new QueryEngineError(
-      `Relation filter '${relationInfo.name}.${operator}' requires an object.`
+      `Relation filter '${relationRef.name}.${operator}' requires an object.`
     );
   }
   return value;
@@ -160,10 +160,10 @@ function requireFilterObject(
 function buildSomeFilter(
   subqueries: RelationFilterSubqueries,
   ctx: QueryScope,
-  relationInfo: RelationInfo,
+  relationRef: RelationRef,
   innerWhere: Record<string, unknown> | undefined
 ): Sql {
-  const subquery = subqueries.build(ctx, relationInfo, innerWhere, false);
+  const subquery = subqueries.build(ctx, relationRef, innerWhere, false);
   return ctx.adapter.filters.some(subquery);
 }
 
@@ -174,10 +174,10 @@ function buildSomeFilter(
 function buildEveryFilter(
   subqueries: RelationFilterSubqueries,
   ctx: QueryScope,
-  relationInfo: RelationInfo,
+  relationRef: RelationRef,
   innerWhere: Record<string, unknown> | undefined
 ): Sql | undefined {
-  const subquery = subqueries.build(ctx, relationInfo, innerWhere, true);
+  const subquery = subqueries.build(ctx, relationRef, innerWhere, true);
   if (!subquery) {
     return undefined;
   }
@@ -190,10 +190,10 @@ function buildEveryFilter(
 function buildNoneFilter(
   subqueries: RelationFilterSubqueries,
   ctx: QueryScope,
-  relationInfo: RelationInfo,
+  relationRef: RelationRef,
   innerWhere: Record<string, unknown> | undefined
 ): Sql {
-  const subquery = subqueries.build(ctx, relationInfo, innerWhere, false);
+  const subquery = subqueries.build(ctx, relationRef, innerWhere, false);
   return ctx.adapter.filters.none(subquery);
 }
 
@@ -203,10 +203,10 @@ function buildNoneFilter(
 function buildIsFilter(
   subqueries: RelationFilterSubqueries,
   ctx: QueryScope,
-  relationInfo: RelationInfo,
+  relationRef: RelationRef,
   innerWhere: Record<string, unknown>
 ): Sql {
-  const subquery = subqueries.build(ctx, relationInfo, innerWhere, false);
+  const subquery = subqueries.build(ctx, relationRef, innerWhere, false);
   return ctx.adapter.filters.is(subquery);
 }
 
@@ -216,10 +216,10 @@ function buildIsFilter(
 function buildIsNotFilter(
   subqueries: RelationFilterSubqueries,
   ctx: QueryScope,
-  relationInfo: RelationInfo,
+  relationRef: RelationRef,
   innerWhere: Record<string, unknown>
 ): Sql {
-  const subquery = subqueries.build(ctx, relationInfo, innerWhere, false);
+  const subquery = subqueries.build(ctx, relationRef, innerWhere, false);
   return ctx.adapter.filters.isNot(subquery);
 }
 
@@ -228,15 +228,15 @@ function buildIsNotFilter(
  * Returns undefined when the relation does not hold the FK.
  *
  * "Does the parent row hold the membership" is the bound value's `position`, not a
- * fourth reading of `relationInfo.fields`: the binder classifies parent-held on
+ * fourth reading of `relationRef.fields`: the binder classifies parent-held on
  * that very list, and the membership's `foreignFields` IS that list. This asks for
  * columns rather than a traversal, so it spends no alias.
  */
 function buildFkColumns(
   ctx: QueryScope,
-  relationInfo: RelationInfo
+  relationRef: RelationRef
 ): Sql[] | undefined {
-  const relation = bindRelation(ctx, relationInfo);
+  const relation = bindRelation(ctx, relationRef);
   if (relation.position !== "parentHeld") {
     return undefined;
   }
@@ -258,9 +258,9 @@ function buildFkColumns(
 function buildIsNullFilter(
   subqueries: RelationFilterSubqueries,
   ctx: QueryScope,
-  relationInfo: RelationInfo
+  relationRef: RelationRef
 ): Sql {
-  const fkColumns = buildFkColumns(ctx, relationInfo);
+  const fkColumns = buildFkColumns(ctx, relationRef);
   if (fkColumns) {
     const conditions = fkColumns.map((column) =>
       ctx.adapter.operators.isNull(column)
@@ -271,7 +271,7 @@ function buildIsNullFilter(
   }
 
   // Fallback: NOT EXISTS subquery
-  const subquery = subqueries.build(ctx, relationInfo, undefined, false);
+  const subquery = subqueries.build(ctx, relationRef, undefined, false);
   return ctx.adapter.operators.notExists(subquery);
 }
 
@@ -281,9 +281,9 @@ function buildIsNullFilter(
 function buildIsNotNullFilter(
   subqueries: RelationFilterSubqueries,
   ctx: QueryScope,
-  relationInfo: RelationInfo
+  relationRef: RelationRef
 ): Sql {
-  const fkColumns = buildFkColumns(ctx, relationInfo);
+  const fkColumns = buildFkColumns(ctx, relationRef);
   if (fkColumns) {
     const conditions = fkColumns.map((column) =>
       ctx.adapter.operators.isNotNull(column)
@@ -294,7 +294,7 @@ function buildIsNotNullFilter(
   }
 
   // Fallback: EXISTS subquery
-  const subquery = subqueries.build(ctx, relationInfo, undefined, false);
+  const subquery = subqueries.build(ctx, relationRef, undefined, false);
   return ctx.adapter.operators.exists(subquery);
 }
 
@@ -302,7 +302,7 @@ function buildIsNotNullFilter(
  * Build a correlated subquery for relation filters
  *
  * @param ctx - Query context
- * @param relationInfo - Relation metadata
+ * @param relationRef - Relation metadata
  * @param innerWhere - Inner where conditions (optional)
  * @param negateInner - Whether to negate the inner where (for "every")
  */
@@ -315,19 +315,19 @@ class RelationFilterSubqueries {
 
   build(
     ctx: QueryScope,
-    relationInfo: RelationInfo,
+    relationRef: RelationRef,
     innerWhere: Record<string, unknown> | undefined,
     negateInner: false
   ): Sql;
   build(
     ctx: QueryScope,
-    relationInfo: RelationInfo,
+    relationRef: RelationRef,
     innerWhere: Record<string, unknown> | undefined,
     negateInner: true
   ): Sql | undefined;
   build(
     ctx: QueryScope,
-    relationInfo: RelationInfo,
+    relationRef: RelationRef,
     innerWhere: Record<string, unknown> | undefined,
     negateInner: boolean
   ): Sql | undefined {
@@ -336,12 +336,12 @@ class RelationFilterSubqueries {
     // One traversal, junction or not: it spends this subquery's aliases here, and
     // resolves no topology until the conditions below are asked for. An `every`
     // with no inner condition therefore still leaves silently, without binding.
-    const traversal = buildRelationTraversal(ctx, relationInfo, ctx.rootAlias);
+    const traversal = buildRelationTraversal(ctx, relationRef, ctx.rootAlias);
 
     // Build inner where condition
     const childCtx = createChildScope(
       ctx,
-      relationInfo.targetModel,
+      relationRef.targetModel,
       traversal.targetAlias
     );
     let innerCondition = this.buildNestedWhere(childCtx, innerWhere);

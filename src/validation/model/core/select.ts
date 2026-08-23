@@ -2,11 +2,7 @@
 
 import type { AnyModel } from "@schema/model";
 import type { StringKeyOf } from "@schema/model/helper";
-import {
-  type AnyPolymorphicRelation,
-  type AnyRelation,
-  polymorphicCardinality,
-} from "@schema/relation";
+import type { AnyRelation } from "@schema/relation";
 import type { ScalarState } from "@schema/scalars";
 import v, { type V } from "../../primitives/v";
 import type { ScalarSchemas } from "../index";
@@ -103,8 +99,8 @@ export type CountSchema<F extends RelationSchemaBundle> = V.Union<
 
 /**
  * Prisma's `_count: true` means "count every LIST relation of this model": the
- * generated `<Model>CountOutputType` contains only to-many (`oneToMany` /
- * `manyToMany`) fields — a to-one relation never appears there. viborm's
+ * generated `<Model>CountOutputType` contains only to-many (collection) fields
+ * — a to-one relation never appears there. viborm's
  * explicit object form is a deliberate superset (name a to-one relation and it
  * will be counted), but the shorthand mirrors Prisma's rule exactly.
  *
@@ -116,21 +112,13 @@ export type CountSchema<F extends RelationSchemaBundle> = V.Union<
 const toManyRelationNames = (model: AnyModel): string[] => {
   const relations: Record<string, AnyRelation> = model["~"].state.relations;
   const names: string[] = [];
+  // ONE cardinality read across both target domains. A variant COLLECTION is a
+  // list relation by every reading that matters here — it holds many rows and
+  // it has a count — and a singular slot of either domain is excluded for the
+  // same reason: Prisma's rule is about lists, not about how the far side is
+  // addressed.
   for (const name of Object.keys(relations)) {
-    const type = relations[name]!["~"].state.type;
-    if (type === "oneToMany" || type === "manyToMany") {
-      names.push(name);
-    }
-  }
-  // A polymorphic COLLECTION is a list relation by every reading that matters
-  // here — it holds many rows, it has a count, and Prisma's rule is about
-  // lists, not about how the far side is addressed. A polymorphic to-one slot
-  // is excluded for the same reason an ordinary `manyToOne` is, and its
-  // `countFilter` family is a named refusal rather than a missing key.
-  const polymorphic: Record<string, AnyPolymorphicRelation> =
-    model["~"].state.polymorphicRelations;
-  for (const name of Object.keys(polymorphic)) {
-    if (polymorphicCardinality(polymorphic[name]!["~"].state) === "many") {
+    if (relations[name]!["~"].state.cardinality === "many") {
       names.push(name);
     }
   }

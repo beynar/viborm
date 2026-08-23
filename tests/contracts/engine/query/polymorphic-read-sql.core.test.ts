@@ -4,15 +4,14 @@ import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { buildOrderByParts } from "@query-engine/builders/orderby-builder";
 import { buildSelectWithAliases } from "@query-engine/builders/select-builder";
 import { buildWhere } from "@query-engine/builders/where-builder";
-import { createQueryScope } from "@query-engine/context";
 import { buildMutationProjectionFold } from "@query-engine/operations/mutation-projection-fold";
 import {
   projectionReadsMutatedModel,
   selectProjectsRelation,
 } from "@query-engine/write-engine/shared";
-import { hydrateSchemaNames, s } from "@schema";
-import { validateSchemaOrThrow } from "@schema/validation";
+import { s } from "@schema";
 import { sql } from "@sql";
+import { prepareSchema, scopeFor } from "@tests/fixtures/query-scope";
 import { beforeAll, describe, expect, test } from "vitest";
 
 const post = s.model({
@@ -28,7 +27,7 @@ const video = s.model({
 const comment = s.model({
   id: s.string().id(),
   body: s.string(),
-  subject: s.polymorphicToOne(
+  subject: s.toOne(
     { post: () => post, video: () => video },
     {
       values: {
@@ -52,7 +51,7 @@ const scaleTarget8 = s.model({ id: s.string().id() });
 
 const threeVariantOwner = s.model({
   id: s.string().id(),
-  subject: s.polymorphicToOne(
+  subject: s.toOne(
     {
       first: () => scaleTarget1,
       second: () => scaleTarget2,
@@ -70,7 +69,7 @@ const threeVariantOwner = s.model({
 
 const eightVariantOwner = s.model({
   id: s.string().id(),
-  subject: s.polymorphicToOne(
+  subject: s.toOne(
     {
       first: () => scaleTarget1,
       second: () => scaleTarget2,
@@ -130,7 +129,7 @@ const clip = s.model({
 
 const gallery = s.model({
   id: s.string().id(),
-  items: s.polymorphicToMany(
+  items: s.toMany(
     { article: () => article, clip: () => clip },
     { values: { article: "coll.article.v1", clip: "coll.clip.v1" } }
   ),
@@ -149,7 +148,7 @@ const region = s
 
 const compoundOwner = s.model({
   id: s.string().id(),
-  places: s.polymorphicToMany(
+  places: s.toMany(
     { region: () => region },
     { values: { region: "cmp.region.v1" } }
   ),
@@ -168,7 +167,7 @@ const fan4 = s.model({ id: s.string().id(), ...fanTarget });
 const fan5 = s.model({ id: s.string().id(), ...fanTarget });
 const fanOwner = s.model({
   id: s.string().id(),
-  items: s.polymorphicToMany(
+  items: s.toMany(
     {
       one: () => fan1,
       two: () => fan2,
@@ -190,34 +189,23 @@ const fanOwner = s.model({
 const fanSchema = { fan1, fan2, fan3, fan4, fan5, fanOwner };
 
 beforeAll(() => {
-  hydrateSchemaNames(schema);
-  validateSchemaOrThrow(schema);
-  hydrateSchemaNames(scaleSchema);
-  validateSchemaOrThrow(scaleSchema);
-  hydrateSchemaNames(collectionSchema);
-  validateSchemaOrThrow(collectionSchema);
-  hydrateSchemaNames(compoundSchema);
-  validateSchemaOrThrow(compoundSchema);
-  hydrateSchemaNames(fanSchema);
-  validateSchemaOrThrow(fanSchema);
+  prepareSchema(schema);
+  prepareSchema(scaleSchema);
+  prepareSchema(collectionSchema);
+  prepareSchema(compoundSchema);
+  prepareSchema(fanSchema);
 });
 
 describe("direct polymorphic read SQL", () => {
   test("grows one CASE arm per configured variant", () => {
-    const threeScope = createQueryScope(
-      new PostgresAdapter(),
-      threeVariantOwner
-    );
+    const threeScope = scopeFor(new PostgresAdapter(), threeVariantOwner);
     const three = buildSelectWithAliases(
       threeScope,
       { subject: true },
       undefined,
       threeScope.rootAlias
     ).sql;
-    const eightScope = createQueryScope(
-      new PostgresAdapter(),
-      eightVariantOwner
-    );
+    const eightScope = scopeFor(new PostgresAdapter(), eightVariantOwner);
     const eight = buildSelectWithAliases(
       eightScope,
       { subject: true },
@@ -235,7 +223,7 @@ describe("direct polymorphic read SQL", () => {
   });
 
   test("emits one CASE arm per variant and defaults omitted target projections", () => {
-    const scope = createQueryScope(new PostgresAdapter(), comment);
+    const scope = scopeFor(new PostgresAdapter(), comment);
     const projection = buildSelectWithAliases(
       scope,
       {
@@ -280,7 +268,7 @@ describe("direct polymorphic read SQL", () => {
   });
 
   test("uses exact discriminator equality on MySQL", () => {
-    const scope = createQueryScope(new MySQLAdapter(), comment);
+    const scope = scopeFor(new MySQLAdapter(), comment);
     const where = buildWhere(
       scope,
       {
@@ -306,7 +294,7 @@ describe("direct polymorphic read SQL", () => {
   });
 
   test("restores SQLite JSON document identity across the target subquery", () => {
-    const scope = createQueryScope(new SQLiteAdapter(), comment);
+    const scope = scopeFor(new SQLiteAdapter(), comment);
     const projection = buildSelectWithAliases(
       scope,
       {
@@ -324,7 +312,7 @@ describe("direct polymorphic read SQL", () => {
 
   test("compiles presence and negative target filters from exact storage", () => {
     const adapter = new SQLiteAdapter();
-    const nullScope = createQueryScope(adapter, comment);
+    const nullScope = scopeFor(adapter, comment);
     const empty = buildWhere(
       nullScope,
       { subject: { is: null } },
@@ -335,7 +323,7 @@ describe("direct polymorphic read SQL", () => {
     );
     expect(empty?.values).toEqual([]);
 
-    const presentScope = createQueryScope(adapter, comment);
+    const presentScope = scopeFor(adapter, comment);
     const present = buildWhere(
       presentScope,
       { subject: { isNot: null } },
@@ -346,7 +334,7 @@ describe("direct polymorphic read SQL", () => {
     );
     expect(present?.values).toEqual([]);
 
-    const negativeScope = createQueryScope(adapter, comment);
+    const negativeScope = scopeFor(adapter, comment);
     const negative = buildWhere(
       negativeScope,
       {
@@ -395,7 +383,7 @@ describe("direct polymorphic read SQL", () => {
   });
 
   test("carries selected private columns through the mutation CTE only", () => {
-    const scope = createQueryScope(new PostgresAdapter(), comment);
+    const scope = scopeFor(new PostgresAdapter(), comment);
     const folded = buildMutationProjectionFold(scope, {
       mutation: sql`UPDATE "comment" SET "body" = ${"changed"}`,
       select: { id: true, subject: true },
@@ -407,7 +395,7 @@ describe("direct polymorphic read SQL", () => {
     );
     expect(statement).not.toContain('AS "subject_type"');
 
-    const scalarScope = createQueryScope(new PostgresAdapter(), comment);
+    const scalarScope = scopeFor(new PostgresAdapter(), comment);
     const scalarFold = buildMutationProjectionFold(scalarScope, {
       mutation: sql`UPDATE "comment" SET "body" = ${"changed"}`,
       select: { id: true },
@@ -418,7 +406,7 @@ describe("direct polymorphic read SQL", () => {
 
   test("classifies polymorphic projections and self-target fold hazards", () => {
     expect(selectProjectsRelation(comment, { subject: true })).toBe(true);
-    const commentScope = createQueryScope(new PostgresAdapter(), comment);
+    const commentScope = scopeFor(new PostgresAdapter(), comment);
     expect(
       projectionReadsMutatedModel(commentScope, { subject: true }, undefined)
     ).toBe(false);
@@ -426,16 +414,12 @@ describe("direct polymorphic read SQL", () => {
     const node = s.model({
       id: s.string().id(),
       subject: s
-        .polymorphicToOne(
-          { node: () => node },
-          { values: { node: "tree.node.v1" } }
-        )
+        .toOne({ node: () => node }, { values: { node: "tree.node.v1" } })
         .optional(),
     });
     const selfSchema = { node };
-    hydrateSchemaNames(selfSchema);
-    validateSchemaOrThrow(selfSchema);
-    const nodeScope = createQueryScope(new PostgresAdapter(), node);
+    prepareSchema(selfSchema);
+    const nodeScope = scopeFor(new PostgresAdapter(), node);
     expect(
       projectionReadsMutatedModel(nodeScope, { subject: true }, undefined)
     ).toBe(true);
@@ -463,8 +447,7 @@ describe("direct polymorphic read SQL", () => {
  * already deduplicated into declaration order.
  */
 describe("direct polymorphic collection read SQL", () => {
-  const collectionScope = () =>
-    createQueryScope(new PostgresAdapter(), gallery);
+  const collectionScope = () => scopeFor(new PostgresAdapter(), gallery);
 
   test("emits one branch per variant, in declaration order, in one statement", () => {
     const scope = collectionScope();
@@ -499,7 +482,7 @@ describe("direct polymorphic collection read SQL", () => {
       undefined,
       twoScope.rootAlias
     ).sql.toStatement("$n");
-    const fanScope = createQueryScope(new PostgresAdapter(), fanOwner);
+    const fanScope = scopeFor(new PostgresAdapter(), fanOwner);
     const five = buildSelectWithAliases(
       fanScope,
       { items: true },
@@ -650,7 +633,7 @@ describe("direct polymorphic collection read SQL", () => {
   });
 
   test("joins every member on every column of a compound, mapped target key", () => {
-    const scope = createQueryScope(new PostgresAdapter(), compoundOwner);
+    const scope = scopeFor(new PostgresAdapter(), compoundOwner);
     const statement = buildSelectWithAliases(
       scope,
       { places: true },
@@ -673,7 +656,7 @@ describe("direct polymorphic collection read SQL", () => {
   });
 
   test("SQLite restores JSON document identity across every arm", () => {
-    const scope = createQueryScope(new SQLiteAdapter(), gallery);
+    const scope = scopeFor(new SQLiteAdapter(), gallery);
     const statement = buildSelectWithAliases(
       scope,
       { items: true },
@@ -686,7 +669,7 @@ describe("direct polymorphic collection read SQL", () => {
   });
 
   test("MySQL emits the collection carrier with no lateral branch", () => {
-    const scope = createQueryScope(new MySQLAdapter(), gallery);
+    const scope = scopeFor(new MySQLAdapter(), gallery);
     const statement = buildSelectWithAliases(
       scope,
       { items: true },
@@ -702,7 +685,7 @@ describe("direct polymorphic collection read SQL", () => {
   });
 
   test("binds a measured number of parameters for a five-variant read", () => {
-    const scope = createQueryScope(new PostgresAdapter(), fanOwner);
+    const scope = scopeFor(new PostgresAdapter(), fanOwner);
     const projection = buildSelectWithAliases(
       scope,
       { items: true },
@@ -725,7 +708,7 @@ describe("direct polymorphic collection read SQL", () => {
 
 describe("direct polymorphic collection filter and count SQL", () => {
   const whereSql = (filter: Record<string, unknown>) => {
-    const scope = createQueryScope(new PostgresAdapter(), gallery);
+    const scope = scopeFor(new PostgresAdapter(), gallery);
     return buildWhere(scope, filter, scope.rootAlias)?.toStatement("$n") ?? "";
   };
 
@@ -791,7 +774,7 @@ describe("direct polymorphic collection filter and count SQL", () => {
   });
 
   test("an unfiltered count sums membership counts in declaration order", () => {
-    const scope = createQueryScope(new PostgresAdapter(), gallery);
+    const scope = scopeFor(new PostgresAdapter(), gallery);
     const statement = buildSelectWithAliases(
       scope,
       { id: true, _count: { select: { items: true } } },
@@ -807,7 +790,7 @@ describe("direct polymorphic collection filter and count SQL", () => {
   });
 
   test("a filtered count compiles exactly one arm", () => {
-    const scope = createQueryScope(new PostgresAdapter(), gallery);
+    const scope = scopeFor(new PostgresAdapter(), gallery);
     const statement = buildSelectWithAliases(
       scope,
       {
@@ -831,13 +814,13 @@ describe("direct polymorphic collection filter and count SQL", () => {
   });
 
   test("count ordering reuses the SAME summed expression and parameter order", () => {
-    const orderScope = createQueryScope(new PostgresAdapter(), gallery);
+    const orderScope = scopeFor(new PostgresAdapter(), gallery);
     const order = buildOrderByParts(
       orderScope,
       { items: { _count: "desc" } },
       orderScope.rootAlias
     );
-    const selectScope = createQueryScope(new PostgresAdapter(), gallery);
+    const selectScope = scopeFor(new PostgresAdapter(), gallery);
     const projected = buildSelectWithAliases(
       selectScope,
       { id: true, _count: { select: { items: true } } },
@@ -857,7 +840,7 @@ describe("direct polymorphic collection filter and count SQL", () => {
   test("a row-held polymorphic slot stays off the count and order surfaces", () => {
     // Plan §7.4: `_count: true` includes toMany polymorphic fields but not
     // toOne ones, and no target-scalar root ordering is added for toOne.
-    const countScope = createQueryScope(new PostgresAdapter(), comment);
+    const countScope = scopeFor(new PostgresAdapter(), comment);
     expect(
       buildSelectWithAliases(
         countScope,
@@ -867,7 +850,7 @@ describe("direct polymorphic collection filter and count SQL", () => {
       ).sql.toStatement("$n")
     ).not.toContain("COUNT(*)");
 
-    const orderScope = createQueryScope(new PostgresAdapter(), comment);
+    const orderScope = scopeFor(new PostgresAdapter(), comment);
     expect(() =>
       buildOrderByParts(
         orderScope,
@@ -880,7 +863,7 @@ describe("direct polymorphic collection filter and count SQL", () => {
 
 describe("polymorphic collection projections at the mutation-fold boundary", () => {
   test("a collection key contributes NO private columns to the CTE RETURNING", () => {
-    const scope = createQueryScope(new PostgresAdapter(), gallery);
+    const scope = scopeFor(new PostgresAdapter(), gallery);
     const statement = buildMutationProjectionFold(scope, {
       mutation: sql`UPDATE "gallery" SET "id" = ${"changed"}`,
       select: { id: true, items: true },
@@ -907,10 +890,7 @@ describe("polymorphic collection projections at the mutation-fold boundary", () 
       const node = s.model({
         id: s.string().id(),
         children: s
-          .polymorphicToMany(
-            { node: () => node },
-            { values: { node: "tree.node.v1" } }
-          )
+          .toMany({ node: () => node }, { values: { node: "tree.node.v1" } })
           // A SELF target whose variant spells the owner's own name collides on
           // the generated side tokens; `.through()` is the documented escape.
           .through({
@@ -922,11 +902,10 @@ describe("polymorphic collection projections at the mutation-fold boundary", () 
           }),
       });
       const built = { node };
-      hydrateSchemaNames(built);
-      validateSchemaOrThrow(built);
+      prepareSchema(built);
       return built;
     })();
-    const scope = createQueryScope(new PostgresAdapter(), selfSchema.node);
+    const scope = scopeFor(new PostgresAdapter(), selfSchema.node);
 
     expect(selectProjectsRelation(selfSchema.node, { children: true })).toBe(
       true

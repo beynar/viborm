@@ -20,8 +20,8 @@ const user = s
   .model({
     id: s.string().id(),
     name: s.string(),
-    posts: s.oneToMany(() => post),
-    [LONG_RELATION_NAME]: s.oneToMany(() => archive),
+    posts: s.toMany(() => post),
+    [LONG_RELATION_NAME]: s.toMany(() => archive),
   })
   .map("rel_agg_users");
 
@@ -32,10 +32,9 @@ const post = s
     published: s.boolean().default(false),
     authorId: s.string().nullable(),
     author: s
-      .manyToOne(() => user)
+      .toOne(() => user)
       .fields("authorId")
-      .references("id")
-      .optional(),
+      .references("id"),
   })
   .map("rel_agg_posts");
 
@@ -44,7 +43,7 @@ const archive = s
     id: s.string().id(),
     userId: s.string(),
     user: s
-      .manyToOne(() => user)
+      .toOne(() => user)
       .fields("userId")
       .references("id"),
   })

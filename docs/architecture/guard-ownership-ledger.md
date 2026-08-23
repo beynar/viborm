@@ -16,6 +16,24 @@ disagreements at the end.
 The gate (unit O4) then re-measured the lane rather than accepting it, ran the
 architecture review §O4 requires above the band, and recorded both here.
 
+> **Relation spellings before 2026-08-22.** This ledger is LIVE and is appended
+> to, but the Package O analysis and the dated update notes below were measured
+> against the retired six-factory relation API. Read their declarations as the
+> history they are: the shipped language is two factories, `s.toOne` and
+> `s.toMany`, and every cardinality, ownership and junction fact is derived by
+> one schema-wide resolver
+> ([`global-relation-cardinality-plan.md`](./global-relation-cardinality-plan.md)).
+> The appendix and addendum at the end of this file record which guards that
+> language deleted, and why.
+
+> **CURRENT RELATION-STATE VOCABULARY (2026-08-22).** The bound membership is the
+> physical owner. Its OwnWrite projections spell junction storage as
+> `RelationMembershipScope.kind: "junction"` and
+> `MembershipReadOrientation: "junction"`. The separate retired-discriminant
+> AST census in `tests/fixtures/relation-language-census.ts` proves executable
+> `"manyToMany"` state arms remain absent without banning many-to-many topology
+> prose, fixture names, behavior names, or contract IDs.
+
 > **PACKAGE D UPDATE (2026-08-13).** Selected shared-primary-key create,
 > connect, connectOrCreate, update, and upsert now publish one exact arm-local
 > value. The former `CreateOperation.assertSharedPkResolved` and
@@ -211,7 +229,7 @@ remaining continuation-premise boundary.
 | 27 | `write-engine/OperationExecutor.ts:1920` / `:1915` | `executionRefusal` | The active driver cannot execute one compiled unit exactly. Live reasons include an indivisible statement above its verified bind limit and progressive placement that would strand an effect before a skipped root. Splittable create-many and junction inserts are chunked before this boundary, and an enclosing key transition is no longer itself a refusal. | The executor is the first boundary with the active driver, final compiled bind count, and progressive placement/segment facts. | `create-many-bind-budget.core.test.ts` · `junction-progressive-preflight.test.ts` · `progressive-parent-rowkey.test.ts` · `record-series-contract.test.ts`. | PSI |
 | 28 | `write-engine/OperationExecutor.ts:2397` / `:2387` | `assertIndivisibleGeneratedOutput` | An indivisible shared batch still needs provider-generated output across internal statements after the compiler tried its exact scalar and mutation-DAG folds. | The executor, before `_executeBatch`; default operations have already taken an exact fold or segmented route, and array operations cannot segment. | `mutation-dependency-fold.test.ts` pins accepted scalar/CTE folds and the retained relation projection over a sibling-mutated table; `extended-where-unique.test.ts` and `produced-compound-identity.test.ts` pin accepted explicit-array scalar outputs. | PSI |
 | 32 | `write-engine/OperationExecutor.ts:2415` / `:2402` | `crossedReferenceContinuationGuards` | SQL crosses a provider-produced value into a later segment, but its publisher supplies no exact row premise to prevent wrong-owner reuse between segments. | Whole-fragment generated-output preflight, where the dependency edge and publisher batch facts meet. | `operation-construction-inventory.test.ts` pins the owner coordinate; continuation shape and identity are falsified in `fragment-validator.core.test.ts`, and live exact-membership races are pinned in `generated-output-continuation-race.test.ts`. | PSI |
-| 22 | `query-engine/relation-key-legality.ts:110` / `:102` | `assertSingleTargetMembershipMoveAppliesToRecords` | A membership stored on ONE target row is applied to N > 1 roots: the last root would take the child from the rest. | Only after capture — no schema can express an N-dependent rule. | `parity-k-update-many.test.ts` (29) · `update-many-relation-series.test.ts` (57). GREEN. | SC |
+| 22 | `query-engine/relation-key-legality.ts` | `assertSingleTargetMembershipMoveAppliesToRecords` | One named target-row membership or singular member-junction slot is applied to N > 1 roots: the last root would take it from the rest. | Only after capture — no schema can express an N-dependent rule. | `parity-k-update-many.test.ts` · `update-many-relation-series.test.ts` · `polymorphic-collection-write-family.test.ts`. | SC |
 | 24 | `query-engine/builders/decimal-portability.ts:56` / `:48` | `assertExactDecimalOperation` | Ordering, aggregating, or arithmetic over a `decimal` on a dialect with no exact decimal type. | When the adapter is known. | `decimal-refusal-surface.test.ts` (extended-local project). | PSI |
 | 25 | `drivers/shared/transaction-options.ts:144` / `:139` | `refuseTransactionOption` | The driver does not implement the requested transaction option. | The driver capability boundary. | `transaction-options-behavior.core.test.ts` (layer-drivers). | PSI |
 
@@ -433,7 +451,7 @@ cluster 6 gains one.
 
 | # | Site | Invariant | First knowable boundary | Unique reachable failure | Falsifier | Bucket | Disposition |
 |---|---|---|---|---|---|---|---|
-| 22 | `relation-key-legality.ts:110` · `assertSingleTargetMembershipMoveAppliesToRecords` · `client.M.updateMany({ where: <matches ≥2 rows>, data: { <childHeld rel>: { connect \| connectOrCreate \| set: <naming ≥1 existing target> } } })` | A membership stored on the target row cannot be applied to more than one source row: the last root updated would take the child from the others. | **Nothing earlier can know it** — the count is only known after capture. No schema can own an N-dependent rule. The relation-legality owner now serves root and nested record series; their shells provide only the captured count and parsed programs. | The same payload at N = 1 builds its member and runs; at N = 2 it refuses before member zero writes. Empty spellings (`set: []`, `connect: []`) are deliberately NOT refused. | `parity-k-update-many.test.ts`; `update-many-relation-series.test.ts`. | SC | **keep** — one owner for the root and nested forms. |
+| 22 | `relation-key-legality.ts` · `assertSingleTargetMembershipMoveAppliesToRecords` · `client.M.updateMany({ where: <matches ≥2 rows>, data: { <exclusive relation>: { connect \| connectOrCreate \| set: <naming ≥1 existing target> } } })` | A membership stored on one target row or in one singular member-junction slot cannot be applied to more than one source row: the last root updated would take it from the others. | **Nothing earlier can know it** — the count is only known after capture. No schema can own an N-dependent rule. The relation-legality owner serves root and nested record series; their shells provide only the captured count and parsed programs. | The same payload at N = 1 builds its member and runs; at N = 2 it refuses before member zero writes. Plural junctions and empty spellings (`set: []`, `connect: []`, `connectOrCreate: []`) are deliberately NOT refused. | `parity-k-update-many.test.ts`; `update-many-relation-series.test.ts`; `polymorphic-collection-write-family.test.ts`. | SC | **keep** — one owner for target-row and singular-junction forms. |
 
 ---
 
@@ -1442,9 +1460,11 @@ site 33.** A collection `set` is one indivisible unit: clear every configured
 member table, then refill. `generatedOutputSegments` is the only splitter of a
 non-series atomic batch, and the eligibility checks around it gate PER-STEP
 `expects` and `onUniqueConflict` — nothing marks a GROUP of steps indivisible. So
-on a native batch whose owner row key arrives as a produced output reference the
-batch may legally be split between the two halves and commit an emptied
-collection. Unique coverage, nameable: *the clear committed without its refill*.
+after the final guard/clear/write order exists, the coordinator shares the
+executor's exact boundary analysis and refuses only when a non-transactional
+batch would really split after the first clear. A boundary before the clear or
+an insert-id dependency served by batch scratch is accepted. Unique coverage,
+nameable: *the clear committed without its refill*.
 The alternative — an executor-side indivisible-group marker — was declined: it
 would be a second mechanism for a property §13.4 explicitly admits "refuses
 before the clear" as satisfying.
@@ -1685,41 +1705,112 @@ interchangeable, so the answer is the only thing left to separate them.
 
 ---
 
-## Appendix — the polymorphic API respell (2026-08-19), and what it did to P013
+## Appendix — the two carrier guards, and why both are gone (2026-08-22)
 
-The entry points `s.polymorphic(...).toOne()` / `.toMany()` were replaced by two
-direct factories, `s.polymorphicToOne` / `s.polymorphicToMany`;
-`PolymorphicRelationBuilder` and `PolymorphicBuilderState` were deleted. The
-full argument is the ratified-deviation appendix in
-`docs/architecture/polymorphic-cardinality-plan.md` §16. Two entries belong in
-THIS ledger, because both are about which guard owns what.
+This appendix used to record two guards minted by the 2026-08-19 polymorphic API
+respell. The unified relation language deleted the concepts each of them
+guarded, so both entries close here rather than in the addendum below.
 
-**P013 was kept, not deleted, and its unique coverage did not change.** The
-public path can no longer produce a cardinality-less carrier — each factory
-stamps its own — so it is tempting to read P013 as dead. It is not.
-`isPolymorphicRelation` (`src/schema/relation/polymorphic.ts`) is deliberately
-keyed on `state.type` ALONE, so a carrier forged past a terminal's constructor
-by hostile JavaScript is still extracted into `ModelState.polymorphicRelations`
-and still reaches `validatePolymorphicRelations`, which reads the raw
-`cardinality` and ejects it. P013's coverage, stated as one sentence: **a forged
-carrier gets one owned issue instead of a `TypeError` or silence.** Both halves
-are falsified in `tests/unit/schema-validation/polymorphic-rules.core.test.ts` —
-"ejects a forged carrier before its content is diagnosed" (exactly `["P013"]`,
-no content code appended) and "attributes P013 to a forged carrier reached
-through an ordinary inverse" (`["R003", "P013"]`, the carrier's `targetEntries`
-closure reached by two independent readers before the ejecting loop). Removing
-the `continue` reddens the first; removing the whole gate reddens both.
-Its message now names the two factories.
+**The forged-carrier ejection — DELETED, unconstructible.** Its unique coverage
+was "a carrier reaching validation with no cardinality at all gets one owned
+issue instead of a `TypeError` or silence". That shape needed a separate
+polymorphic field category extracted by a `state.type` predicate: a value forged
+past a terminal's constructor could enter the model's polymorphic map and reach a
+rule that read its raw cardinality. There is no separate category any more. A
+variant target is one arm of the ONE relation-state union, every arm carries a
+literal `cardinality`, the model boundary recognizes a relation only by the
+internal brand, and the two factories are the only producers of that brand. The
+guarded input cannot be built rather than merely being unreached.
 
-**`TargetMapOnly` is a new type-level refusal with nameable unique coverage, not
-a second guard.** Both factories widen their `Targets` constraint to admit a
-bare `Getter`, precisely so the thunk survives inference and is refused by
-`TargetMapOnly` with a message naming `s.oneToOne` / `s.manyToOne` /
-`s.oneToMany` / `s.manyToMany`. Under the narrow constraint the thunk was
-refused by the CONSTRAINT and the diagnostic named `Record<string, Getter>`.
-So `TargetMapOnly` is the only thing refusing a single-getter carrier — deleting
-it makes `s.polymorphicToOne(() => model)` COMPILE, which is what its
-`@ts-expect-error` pins in `tests/types/relations/polymorphic-carrier.core.types.ts`
-measure (they go TS2578-unused). Why it is refused at all: a single-getter
-carrier reads like an ordinary edge and would silently build private
-`(type, id)` storage where the caller expected a foreign key.
+**The single-getter carrier refusal — DELETED, the shape it refused is now
+legal.** Its unique coverage was "a bare `() => model` handed to a polymorphic
+factory would silently build private `(type, id)` storage where the caller
+expected a foreign key". That risk existed only while polymorphic factories were
+separate: a getter passed to one of them had no other meaning. Under two
+factories, `s.toOne(() => model)` IS the ordinary declaration — the same call the
+refusal used to redirect callers toward — so the refusal has no shape left to
+refuse. What survives in its place is not a guard but the map overload's own
+constraint pair: `VariantMapGuard` owns "structurally a map, but not a legal
+variant map" and `GetterOnly` owns "not a map at all and not a getter". Each has
+its own nameable coverage; neither restates the other, because the map overload
+is tried first and a `never` answer would otherwise be assignable to a model
+shape and make the refusal vanish.
+
+## Addendum — unified relation language, Package E (§8.4, ruling D27)
+
+**`assertRelationCanDisconnect` — DELETED, unreachable.** Its unique coverage was
+"the operation schema published a `disconnect` the storage cannot clear", and
+every route that could reach it is closed:
+
+1. **The shared-primary-key parent-held to-one** (ledger item 1 above) reached it
+   because the schema exposed `disconnect` from a DECLARED `.optional()` while
+   the foreign-key column — the row's own identity — was not nullable. A model
+   target declares no `.optional()` any more: `slotMayBeEmpty` reads the stored
+   tuple, `accountId` is non-nullable, and `ToOneUpdateSchema` publishes neither
+   removal verb. The two facts cannot disagree because there is one fact.
+2. **`set` dropping members on a non-clearable membership** (item 2) never
+   reached this guard: it is `RelationSetPart`'s own refusal, and it SURVIVES —
+   `requiredForeignKeyFields` is retained as the complement of the clearable
+   subset, so `setRequiredOrphan` keeps naming exactly the members that block a
+   departure. What narrowed is WHEN it fires: a mixed compound key is clearable
+   now, so the refusal is reserved for a membership with no nullable member at
+   all (§11.4.9).
+3. **Trusted internal programs** (item 3) go through the same operation schema —
+   `engine.build(model, "update", …)` parses before it compiles — so a
+   `disconnect` on a required relation is refused there, by name, before any
+   bind exists. Re-pinned at `sql-generation.core.test.ts` ("a required relation
+   publishes no disconnect at all").
+
+Keeping it would also have been WRONG, not merely redundant: §9.4 makes a mixed
+compound foreign key disconnectable by clearing its nullable members, and this
+guard refused exactly that shape.
+
+**`relation-nullability.ts` inverts its former doctrine, deliberately.** Its
+header used to state that the ENGINE does not read `clearability.ts` and answers
+the same physical question from bound membership. It reads it now, and that is
+the point of §8.4: the columns a disconnect clears and the columns the operation
+schema published `disconnect` from must be ONE list, or a mixed tuple gets a verb
+whose write nulls a required column. `clearableMembership(resolved)` is that one
+owner; `requiredForeignKeyFields` is its complement, computed from it rather than
+scanned again.
+
+**`classifyRelation`'s carrier-brand refusal — DELETED with the brand (D9).** It
+existed because a synthetic member carrier could be handed back to a resolver
+that would bind the wrong orientation or a pair table nothing emits. There is no
+synthetic relation: a member view IS the carrier's resolved slot narrowed to one
+member, and re-classifying it reaches that member's own junction. The failure
+mode it guarded is now unconstructible rather than refused.
+
+## Addendum — unified relation language, Package F (ruling D27)
+
+Two more guards lost their last reachable input at the estate gate, both to the
+same construction-time refusal.
+
+**`pairMembers`' mismatched-foreign-key-metadata refusal
+(`query-engine/builders/relation-data-builder.ts`) — DELETED.** Its unique
+coverage was "the engine holds a foreign-field list longer than its
+referenced-field list", and the only schema that produced one was an unequal
+chain — `.fields("a","b").references("id")`. `.references(...)` pairs
+positionally and refuses that chain at CONSTRUCTION now (V4002,
+`'references' declares 1 field(s) against 2 local field(s)`, witnessed at
+`tests/unit/schema-validation/foreign-key-rules.core.test.ts`), so no such
+declaration reaches a model, let alone a bind. The two flat lists are also gone
+as INPUTS: `buildForeignKeyMembership` takes the resolver's own
+`ResolvedStoredReference.members` pair list and projects `foreignFields` /
+`referencedFields` from it, so the shape the guard tested for is
+unconstructible rather than merely unreached. The lazy/memoised `members` getter
+went with it — it existed to defer this refusal past the relation-key legality
+error, and there is no refusal left to order.
+
+**`buildOneUpsertPart`'s child-held-FK length re-assertion
+(`query-engine/write-engine/RelationUpsertPart.ts`) — DELETED.** It compared
+`membership.foreignFields.length` with `membershipReferencedFields(membership).length`
+on a membership whose two lists are now projected from ONE pair list (foreign
+key) or from one column and one referenced field (polymorphic). Both are equal
+by construction, which is the third statement of the same invariant the factory
+already owns.
+
+The witness that used to order these two — `operation-construction-witnesses.test.ts`,
+"RelationUpsertPart :814 — a mismatched-arity child FK is refused UPSTREAM" —
+is deleted with its schema, and the file carries a ledger comment naming the
+construction refusal that replaced it.

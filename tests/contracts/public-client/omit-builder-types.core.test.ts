@@ -52,7 +52,7 @@ const vault = s
     id: s.string().id(),
     label: s.string(),
     secret: s.string(),
-    entries: s.oneToMany(() => entry).name("vault"),
+    entries: s.toMany(() => entry).name("vault"),
   })
   .omit({ secret: true })
   .map("omit_builder_vaults");
@@ -63,7 +63,7 @@ const entry = s
     body: s.string(),
     vaultId: s.string(),
     vault: s
-      .manyToOne(() => vault)
+      .toOne(() => vault)
       .fields("vaultId")
       .references("id")
       .name("vault"),
@@ -97,7 +97,7 @@ describe("model-level .omit() is keyed to the model's scalars", () => {
   test("a relation name is a compile error", () => {
     s.model({
       id: s.string().id(),
-      entries: s.oneToMany(() => entry).name("vault"),
+      entries: s.toMany(() => entry).name("vault"),
       // @ts-expect-error a relation is not a projectable scalar
     }).omit({ entries: true });
   });
@@ -130,7 +130,7 @@ describe("model-level .omit() is keyed to the model's scalars", () => {
     s.model({
       id: s.string().id(),
       secret: s.string(),
-      entries: s.oneToMany(() => entry).name("vault"),
+      entries: s.toMany(() => entry).name("vault"),
     }).omit({
       secret: true,
       // @ts-expect-error a relation is not a projectable scalar
@@ -302,7 +302,7 @@ const user = s
     id: s.string().id(),
     email: s.string(),
     passwordHash: s.string(),
-    posts: s.oneToMany(() => post).name("author"),
+    posts: s.toMany(() => post).name("author"),
   })
   .map("omit_builder_users");
 
@@ -312,7 +312,7 @@ const post = s
     title: s.string(),
     authorId: s.string(),
     author: s
-      .manyToOne(() => user)
+      .toOne(() => user)
       .fields("authorId")
       .references("id")
       .name("author"),
@@ -716,23 +716,23 @@ describe("structurally ambiguous nested client defaults stay sound", () => {
   const left = s.model({
     id: s.string().id(),
     secret: s.string(),
-    roots: s.oneToMany(() => root),
+    roots: s.toMany(() => root),
   });
   const right = s.model({
     id: s.string().id(),
     secret: s.string(),
-    roots: s.oneToMany(() => root),
+    roots: s.toMany(() => root),
   });
   const root = s.model({
     id: s.string().id(),
     leftId: s.string(),
     rightId: s.string(),
     left: s
-      .manyToOne(() => left)
+      .toOne(() => left)
       .fields("leftId")
       .references("id"),
     right: s
-      .manyToOne(() => right)
+      .toOne(() => right)
       .fields("rightId")
       .references("id"),
   });
@@ -746,16 +746,26 @@ describe("structurally ambiguous nested client defaults stay sound", () => {
   const rows = () =>
     ambiguous().root.findMany({ include: { left: true, right: true } });
 
+  /**
+   * `left` and `right` are the SAME type to TypeScript, so `root.right` looks
+   * like a candidate partner for `left.roots` and vice versa: the mutual
+   * degree-one proof sees two candidates and answers `unknown` (§8.1 step 7).
+   * That withdraws the requiredness claim — the slot infers NULLABLE — and it is
+   * the sound direction: the runtime resolver pairs both edges by model IDENTITY
+   * and returns a row. A type may admit a `null` the runtime rules out; it may
+   * never promise a non-null the graph does not prove. The OMISSION half, which
+   * is what this describe exists for, survives the ambiguity intact.
+   */
   test("a shared shallow surface makes a possibly omitted field optional", () => {
     type Row = Awaited<ReturnType<typeof rows>>[number];
     expectTypeOf<Row["left"]>().toEqualTypeOf<{
       id: string;
       secret?: string;
-    }>();
+    } | null>();
     expectTypeOf<Row["right"]>().toEqualTypeOf<{
       id: string;
       secret?: string;
-    }>();
+    } | null>();
   });
 });
 
@@ -765,12 +775,11 @@ describe("recursive models keep precise nested client defaults", () => {
     label: s.string(),
     parentId: s.string().nullable(),
     parent: s
-      .manyToOne(() => node)
+      .toOne(() => node)
       .fields("parentId")
       .references("id")
-      .name("parent")
-      .optional(),
-    children: s.oneToMany(() => node).name("parent"),
+      .name("parent"),
+    children: s.toMany(() => node).name("parent"),
   });
   const recursive = () =>
     createClient({
@@ -921,21 +930,26 @@ describe("a config the type cannot pin down degrades to optional", () => {
     >();
   });
 
+  // Each user declares the inverse its root's foreign key needs: an ordinary
+  // slot without a complete inverse is an error now, and the pairing is what
+  // makes the nested result non-nullable rather than fail-closed.
   const userA = s.model({
     id: s.string().id(),
     secret: s.string(),
     alpha: s.string(),
+    roots: s.toMany(() => rootA),
   });
   const userB = s.model({
     id: s.string().id(),
     secret: s.string(),
     beta: s.string(),
+    roots: s.toMany(() => rootB),
   });
   const rootA = s.model({
     id: s.string().id(),
     userId: s.string(),
     user: s
-      .manyToOne(() => userA)
+      .toOne(() => userA)
       .fields("userId")
       .references("id"),
   });
@@ -943,7 +957,7 @@ describe("a config the type cannot pin down degrades to optional", () => {
     id: s.string().id(),
     userId: s.string(),
     user: s
-      .manyToOne(() => userB)
+      .toOne(() => userB)
       .fields("userId")
       .references("id"),
   });

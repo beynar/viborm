@@ -23,12 +23,12 @@ export const manyToManySchema = (() => {
       id: s.string().id(),
       title: s.string(),
       tags: s
-        .manyToMany(() => tag)
+        .toMany(() => tag)
         .through("m2m_post_tags")
-        .A("post_ref")
-        .B("tag_ref"),
-      categories: s.manyToMany(() => category),
-      featuredTags: s.oneToMany(() => tag).name("featured"),
+        .source("post_ref")
+        .target("tag_ref"),
+      categories: s.toMany(() => category),
+      featuredTags: s.toMany(() => tag).name("featured"),
     })
     .map("m2m_posts");
 
@@ -37,13 +37,12 @@ export const manyToManySchema = (() => {
       id: s.string().id(),
       name: s.string().unique(),
       featuredPostId: s.string().nullable(),
-      posts: s.manyToMany(() => post),
+      posts: s.toMany(() => post),
       featuredIn: s
-        .manyToOne(() => post)
+        .toOne(() => post)
         .fields("featuredPostId")
         .references("id")
-        .name("featured")
-        .optional(),
+        .name("featured"),
     })
     .map("m2m_tags");
 
@@ -51,7 +50,7 @@ export const manyToManySchema = (() => {
     .model({
       id: s.string().id(),
       name: s.string().unique(),
-      posts: s.manyToMany(() => post),
+      posts: s.toMany(() => post),
     })
     .map("m2m_categories");
 
@@ -60,26 +59,26 @@ export const manyToManySchema = (() => {
       id: s.string().id(),
       name: s.string(),
       follows: s
-        .manyToMany(() => user)
-        .A("followerId")
-        .B("followedId"),
-      followedBy: s.manyToMany(() => user),
+        .toMany(() => user)
+        .source("followerId")
+        .target("followedId"),
+      followedBy: s.toMany(() => user),
     })
     .map("m2m_users");
 
   const alpha = s
     .model({
       id: s.string().id(),
-      likes: s.manyToMany(() => beta).name("likes"),
-      stars: s.manyToMany(() => beta).name("stars"),
+      likes: s.toMany(() => beta).name("likes"),
+      stars: s.toMany(() => beta).name("stars"),
     })
     .map("m2m_alphas");
 
   const beta = s
     .model({
       id: s.string().id(),
-      likedBy: s.manyToMany(() => alpha).name("likes"),
-      starredBy: s.manyToMany(() => alpha).name("stars"),
+      likedBy: s.toMany(() => alpha).name("likes"),
+      starredBy: s.toMany(() => alpha).name("stars"),
     })
     .map("m2m_betas");
 
@@ -87,7 +86,7 @@ export const manyToManySchema = (() => {
     .model({
       id: s.int().id().increment(),
       title: s.string(),
-      labels: s.manyToMany(() => label),
+      labels: s.toMany(() => label),
     })
     .map("m2m_articles");
 
@@ -95,7 +94,7 @@ export const manyToManySchema = (() => {
     .model({
       id: s.int().id().increment(),
       name: s.string().unique(),
-      articles: s.manyToMany(() => article),
+      articles: s.toMany(() => article),
     })
     .map("m2m_labels");
 

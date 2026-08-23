@@ -11,11 +11,11 @@ import {
   createChildScope,
   getColumnName,
   getDefaultScalarFieldNames,
-  getPolymorphicRelationInfo,
-  getRelationInfo,
   getScalarFieldNames,
-  isPolymorphicRelation,
   isRelation,
+  isVariantRelation,
+  lookupRelation,
+  variantCarrier,
 } from "../context";
 import {
   EMPTY_ROW_RESULT_KEY,
@@ -23,10 +23,10 @@ import {
   VECTOR_DISTANCE_RESULT_KEY,
 } from "../result-aliases";
 import {
-  isPolymorphicToOneRelationInfo,
+  isVariantRowCarrier,
   QueryEngineError,
   type QueryScope,
-  type RelationInfo,
+  type RelationRef,
 } from "../types";
 import {
   type BuildIncludeOptions,
@@ -160,7 +160,7 @@ function buildSelectionSql(
 /** Build a relation projection while preserving the public advanced API. */
 export function buildInclude(
   ctx: QueryScope,
-  relationInfo: RelationInfo,
+  relationRef: RelationRef,
   includeValue: Record<string, unknown>,
   parentAlias: string,
   options: BuildIncludeOptions = {}
@@ -173,7 +173,7 @@ export function buildInclude(
     return buildSubqueryInclude(
       buildSubquerySelection,
       parentScope,
-      relationInfo,
+      relationRef,
       includeValue
     );
   }
@@ -181,14 +181,14 @@ export function buildInclude(
     return buildLateralInclude(
       buildLateralSelection,
       parentScope,
-      relationInfo,
+      relationRef,
       includeValue
     );
   }
   return buildSubqueryInclude(
     buildSubquerySelection,
     parentScope,
-    relationInfo,
+    relationRef,
     includeValue
   );
 }
@@ -280,12 +280,12 @@ function buildSelectPairs(
         continue;
       }
 
-      if (isRelation(ctx.model, key)) {
-        const relationInfo = getRelationInfo(ctx, key);
-        if (relationInfo && typeof value === "object" && value !== null) {
+      const relationRef = lookupRelation(ctx, key);
+      if (isRelation(ctx.model, key) && !isVariantRelation(ctx, key)) {
+        if (relationRef && typeof value === "object" && value !== null) {
           const includeResult = buildInclude(
             ctx,
-            relationInfo,
+            relationRef,
             value as Record<string, unknown>,
             alias,
             { strategy: includeStrategy }
@@ -299,7 +299,7 @@ function buildSelectPairs(
         continue;
       }
 
-      if (isPolymorphicRelation(ctx.model, key)) {
+      if (isVariantRelation(ctx, key)) {
         pairs.push([key, buildPolymorphicProjection(ctx, key, value, alias)]);
       }
     }
@@ -370,14 +370,14 @@ function buildSelectPairs(
         continue;
       }
 
-      if (isRelation(ctx.model, key)) {
-        const relationInfo = getRelationInfo(ctx, key);
-        if (relationInfo) {
+      const relationRef = lookupRelation(ctx, key);
+      if (isRelation(ctx.model, key) && !isVariantRelation(ctx, key)) {
+        if (relationRef) {
           const includeValue =
             value === true ? {} : (value as Record<string, unknown>);
           const includeResult = buildInclude(
             ctx,
-            relationInfo,
+            relationRef,
             includeValue,
             alias,
             { strategy: includeStrategy }
@@ -390,7 +390,7 @@ function buildSelectPairs(
         continue;
       }
 
-      if (isPolymorphicRelation(ctx.model, key)) {
+      if (isVariantRelation(ctx, key)) {
         pairs.push([key, buildPolymorphicProjection(ctx, key, value, alias)]);
       }
     }
@@ -434,13 +434,13 @@ function buildPolymorphicProjection(
   value: unknown,
   alias: string
 ): Sql {
-  const relation = getPolymorphicRelationInfo(ctx, key);
+  const relation = variantCarrier(ctx, key);
   if (!relation) {
     throw new QueryEngineError(
       `Polymorphic relation '${key}' has no validated storage metadata.`
     );
   }
-  return isPolymorphicToOneRelationInfo(relation)
+  return isVariantRowCarrier(relation)
     ? buildPolymorphicRead(buildSubquerySelection, ctx, relation, value, alias)
     : buildPolymorphicCollectionRead(
         buildSubquerySelection,
@@ -509,11 +509,11 @@ function buildCountPairs(
       continue;
     }
 
-    const relationInfo = getRelationInfo(ctx, relationName);
-    if (relationInfo) {
+    const relationRef = lookupRelation(ctx, relationName);
+    if (relationRef) {
       pairs.push([
         relationName,
-        buildRelationCount(ctx, relationInfo, config, parentAlias),
+        buildRelationCount(ctx, relationRef, config, parentAlias),
       ]);
       continue;
     }
@@ -521,8 +521,8 @@ function buildCountPairs(
     // A polymorphic COLLECTION joins the ordinary count surface (plan §7.4).
     // A row-held polymorphic slot does not — it has no collection to count —
     // and still leaves silently, exactly as an unknown name always has.
-    const polymorphic = getPolymorphicRelationInfo(ctx, relationName);
-    if (!polymorphic || isPolymorphicToOneRelationInfo(polymorphic)) {
+    const polymorphic = variantCarrier(ctx, relationName);
+    if (!polymorphic || isVariantRowCarrier(polymorphic)) {
       continue;
     }
     pairs.push([

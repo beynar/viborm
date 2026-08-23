@@ -38,7 +38,7 @@ const blogSchema = (() => {
     .model({
       id: s.string().id(),
       name: s.string(),
-      posts: s.oneToMany(() => post),
+      posts: s.toMany(() => post),
     })
     .map("ccg_users");
   const post = s
@@ -47,10 +47,10 @@ const blogSchema = (() => {
       title: s.string(),
       userId: s.string().nullable(),
       author: s
-        .manyToOne(() => user)
+        .toOne(() => user)
         .fields("userId")
         .references("id"),
-      comments: s.oneToMany(() => comment),
+      comments: s.toMany(() => comment),
     })
     .map("ccg_posts");
   const comment = s
@@ -59,7 +59,7 @@ const blogSchema = (() => {
       body: s.string(),
       postId: s.string().nullable(),
       post: s
-        .manyToOne(() => post)
+        .toOne(() => post)
         .fields("postId")
         .references("id"),
     })
@@ -72,7 +72,7 @@ const bulkSchema = (() => {
     .model({
       id: s.int().id().increment(),
       name: s.string(),
-      children: s.oneToMany(() => child),
+      children: s.toMany(() => child),
     })
     .map("ccg_parents");
   const child = s
@@ -82,7 +82,7 @@ const bulkSchema = (() => {
       label: s.string(),
       parentId: s.int().nullable(),
       parent: s
-        .manyToOne(() => parent)
+        .toOne(() => parent)
         .fields("parentId")
         .references("id"),
     })

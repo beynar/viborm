@@ -1,4 +1,5 @@
-import { type AnyRelation, relationCardinality } from "@schema/relation";
+import type { Model } from "@schema/model";
+import type { AnyRelation } from "@schema/relation";
 import type { ExpectedResultShape, Operation } from "../types";
 import type { ResultParser } from "./ResultParser";
 import {
@@ -14,13 +15,14 @@ import {
 export function parseRelationValueDefault(
   ctx: ResultParser,
   relation: AnyRelation,
+  mayBeEmpty: boolean,
   value: unknown,
   operation: Operation,
   shape: ExpectedResultShape | undefined,
   parsers: RowValueParsers
 ): unknown {
   const relationState = relation["~"].state;
-  const isToMany = relationCardinality(relationState) === "many";
+  const isToMany = relationState.cardinality === "many";
 
   if (value === undefined) {
     return malformedResult(
@@ -31,7 +33,10 @@ export function parseRelationValueDefault(
   }
 
   if (value === null) {
-    if (isToMany || relationState.optional !== true) {
+    // Emptiness is a fact of the RESOLVED EDGE (`slotMayBeEmpty`, §8.4), settled
+    // once per contextual slot by the caller: a model-target relation carries no
+    // declared `optional`, and a to-many slot answers with an array or nothing.
+    if (isToMany || !mayBeEmpty) {
       return malformedResult(
         ctx,
         operation,
@@ -41,8 +46,9 @@ export function parseRelationValueDefault(
     return null;
   }
 
-  // Get target model from relation thunk
-  const targetModel = relationState.getter();
+  // `settleTarget` is the one sanctioned getter invocation: settled once per
+  // declaration, shared by every schema graph that reuses this terminal.
+  const targetModel = relation["~"].settleTarget() as Model<any>;
   if (isToMany) {
     if (!Array.isArray(value)) {
       return malformedResult(

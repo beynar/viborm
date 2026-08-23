@@ -50,7 +50,7 @@ When a record is deleted, related records are handled based on `onDelete`:
 const post = s.model({
   authorId: s.string(),
   author: s
-    .manyToOne(() => user)
+    .toOne(() => user)
     .fields("authorId")
     .references("id")
     .onDelete("cascade"), // Delete posts when user is deleted

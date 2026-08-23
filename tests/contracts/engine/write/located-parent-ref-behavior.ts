@@ -46,8 +46,8 @@ export const locatedParentRefSchema = (() => {
       // that no `where: { email }` and no primary key carries.
       code: s.string().unique(),
       label: s.string(),
-      notes: s.oneToMany(() => note),
-      tickets: s.oneToMany(() => ticket),
+      notes: s.toMany(() => note),
+      tickets: s.toMany(() => ticket),
     })
     .map("n1_ref_accounts");
   const note = s
@@ -56,10 +56,10 @@ export const locatedParentRefSchema = (() => {
       body: s.string(),
       accountId: s.int(),
       account: s
-        .manyToOne(() => account)
+        .toOne(() => account)
         .fields("accountId")
         .references("id"),
-      attachments: s.oneToMany(() => attachment),
+      attachments: s.toMany(() => attachment),
     })
     .map("n1_ref_notes");
   const attachment = s
@@ -68,7 +68,7 @@ export const locatedParentRefSchema = (() => {
       name: s.string(),
       noteId: s.int(),
       note: s
-        .manyToOne(() => note)
+        .toOne(() => note)
         .fields("noteId")
         .references("id"),
     })
@@ -79,7 +79,7 @@ export const locatedParentRefSchema = (() => {
       subject: s.string(),
       accountCode: s.string(),
       account: s
-        .manyToOne(() => account)
+        .toOne(() => account)
         .fields("accountCode")
         .references("code"),
     })
@@ -92,7 +92,7 @@ export const locatedParentRefSchema = (() => {
       tenantId: s.string(),
       slot: s.string(),
       handle: s.string().unique(),
-      memos: s.oneToMany(() => memo),
+      memos: s.toMany(() => memo),
     })
     .id(["tenantId", "slot"])
     .map("n1_ref_owners");
@@ -103,7 +103,7 @@ export const locatedParentRefSchema = (() => {
       ownerTenant: s.string(),
       ownerSlot: s.string(),
       owner: s
-        .manyToOne(() => owner)
+        .toOne(() => owner)
         .fields("ownerTenant", "ownerSlot")
         .references("tenantId", "slot"),
     })
@@ -117,7 +117,7 @@ export const locatedParentRefSchema = (() => {
       region: s.string(),
       code: s.string(),
       name: s.string(),
-      contracts: s.oneToMany(() => contract),
+      contracts: s.toMany(() => contract),
     })
     .unique(["region", "code"])
     .map("n1_ref_vendors");
@@ -128,7 +128,7 @@ export const locatedParentRefSchema = (() => {
       vendorRegion: s.string(),
       vendorCode: s.string(),
       vendor: s
-        .manyToOne(() => vendor)
+        .toOne(() => vendor)
         .fields("vendorRegion", "vendorCode")
         .references("region", "code"),
     })

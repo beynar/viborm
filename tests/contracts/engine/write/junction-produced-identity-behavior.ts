@@ -41,7 +41,7 @@ export const producedIdentitySchema = (() => {
     .model({
       id: s.string().id(),
       title: s.string(),
-      stamps: s.manyToMany(() => stamp),
+      stamps: s.toMany(() => stamp),
     })
     .map("e4u3_posts");
 
@@ -49,8 +49,8 @@ export const producedIdentitySchema = (() => {
     .model({
       id: s.int().id().increment(),
       name: s.string().unique(),
-      posts: s.manyToMany(() => post),
-      notes: s.oneToMany(() => note),
+      posts: s.toMany(() => post),
+      notes: s.toMany(() => note),
     })
     .map("e4u3_stamps");
 
@@ -60,7 +60,7 @@ export const producedIdentitySchema = (() => {
       body: s.string(),
       stampId: s.int(),
       stamp: s
-        .manyToOne(() => stamp)
+        .toOne(() => stamp)
         .fields("stampId")
         .references("id"),
     })

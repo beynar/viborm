@@ -71,7 +71,7 @@ export const destinationCastSchema = (() => {
     .model({
       at: s.dateTime().id(),
       label: s.string(),
-      entries: s.oneToMany(() => entry),
+      entries: s.toMany(() => entry),
     })
     .map("e60_slots");
 
@@ -81,7 +81,7 @@ export const destinationCastSchema = (() => {
       body: s.string(),
       atRef: s.dateTime(),
       slot: s
-        .manyToOne(() => slot)
+        .toOne(() => slot)
         .fields("atRef")
         .references("at"),
     })
@@ -92,7 +92,7 @@ export const destinationCastSchema = (() => {
     .model({
       seq: s.int().id(),
       label: s.string(),
-      ticks: s.oneToMany(() => tick),
+      ticks: s.toMany(() => tick),
     })
     .map("e60_counters");
 
@@ -102,7 +102,7 @@ export const destinationCastSchema = (() => {
       body: s.string(),
       seqRef: s.int(),
       counter: s
-        .manyToOne(() => counter)
+        .toOne(() => counter)
         .fields("seqRef")
         .references("seq"),
     })
@@ -113,7 +113,7 @@ export const destinationCastSchema = (() => {
     .model({
       name: s.string().id(),
       label: s.string(),
-      files: s.oneToMany(() => file),
+      files: s.toMany(() => file),
     })
     .map("e60_folders");
 
@@ -123,7 +123,7 @@ export const destinationCastSchema = (() => {
       body: s.string(),
       nameRef: s.string(),
       folder: s
-        .manyToOne(() => folder)
+        .toOne(() => folder)
         .fields("nameRef")
         .references("name"),
     })

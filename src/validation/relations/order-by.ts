@@ -1,6 +1,10 @@
 import type { AnyModel } from "@schema/model";
 import type { StringKeyOf } from "@schema/model/helper";
-import { relationCardinality } from "@schema/relation/cardinality";
+import { type AnyRelation, isVariantRelationState } from "@schema/relation";
+import type {
+  Cardinality,
+  TargetKind,
+} from "@schema/relation/static-membership";
 import type { RelationState } from "@schema/relation/types";
 import type { ScalarState } from "@schema/scalars";
 import {
@@ -45,7 +49,7 @@ type ModelScalarOrderByEntries<M extends AnyModel> = V.FromKeys<
 >["entries"] &
   V.FromKeys<VectorScalarKey<M>[], VectorSortOrderSchema>["entries"];
 
-type RuntimeRelationMap = Record<string, { "~": { state: RelationState } }>;
+type RuntimeRelationMap = Record<string, AnyRelation>;
 
 /**
  * Maximum number of to-one relation hops an `orderBy` chain may cross, e.g.
@@ -86,11 +90,13 @@ type ConsumeRelationHop<Depth extends readonly unknown[]> =
     : [];
 
 type ToOneRelationKeys<M extends AnyModel> = {
-  [K in keyof ModelStateOf<M>["relations"]]: RelationStateOf<
+  [K in keyof ModelStateOf<M>["relations"]]: Cardinality<
     ModelStateOf<M>["relations"][K]
-  >["type"] extends "oneToOne" | "manyToOne"
-    ? K extends string
-      ? K
+  > extends "one"
+    ? TargetKind<ModelStateOf<M>["relations"][K]> extends "model"
+      ? K extends string
+        ? K
+        : never
       : never
     : never;
 }[keyof ModelStateOf<M>["relations"]];
@@ -124,8 +130,14 @@ type ToOneModelOrderBySchema<
 
 type ToOneOrderByRemainingDepth = ConsumeRelationHop<RelationOrderDepth>;
 
-const isToOneRelation = (state: RelationState): boolean =>
-  relationCardinality(state) === "one";
+/**
+ * Which nested relations a to-one `orderBy` may descend into: MODEL-target
+ * singular slots only. A variant slot has several targets and no single column
+ * family to order by, which is why its own `orderBy` family is a named refusal;
+ * reaching it from here would reopen that refusal one level down.
+ */
+const isOrderableToOneRelation = (state: RelationState): boolean =>
+  state.cardinality === "one" && !isVariantRelationState(state);
 
 type ToManyRelationOrderByFailureSchema = VibSchema<never, never>;
 type RuntimeToOneRelationOrderByEntry =
@@ -190,9 +202,12 @@ const getToOneRelationOrderByEntries = <
   const relations = target["~"].state.relations as RuntimeRelationMap;
   for (const [relationName, relation] of Object.entries(relations)) {
     const relationState = relation["~"].state;
-    if (isToOneRelation(relationState)) {
+    if (isOrderableToOneRelation(relationState)) {
       relationEntries[relationName] = () =>
-        buildToOneOrderBySchema(relationState.getter() as AnyModel, depth - 1);
+        buildToOneOrderBySchema(
+          relation["~"].settleTarget() as AnyModel,
+          depth - 1
+        );
       continue;
     }
 
@@ -233,12 +248,12 @@ export const toOneOrderByFactory = <
   S extends RelationState,
   T extends SchemaGetter<S>,
 >(
-  state: S,
+  relation: AnyRelation,
   _targetSchemas: T
 ): ToOneOrderBySchema<S> => {
   return () =>
     buildToOneOrderBySchema(
-      state.getter() as TargetModel<S>,
+      relation["~"].settleTarget() as TargetModel<S>,
       MAX_RELATION_ORDER_DEPTH - 1
     );
 };

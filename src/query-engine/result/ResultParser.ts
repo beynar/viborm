@@ -1,16 +1,17 @@
 // biome-ignore-all lint/style/useFilenamingConvention: File matches its primary class export.
 import type { DatabaseAdapter } from "@adapters";
-import type { RelationResultKind } from "@adapters/adapter-result-parser";
 import type { AnyDriver } from "@drivers";
 import { isVibORMError } from "@errors";
 import type { Model } from "@schema/model";
-import type { AnyPolymorphicRelation, AnyRelation } from "@schema/relation";
+import { type AnyRelation, slotMayBeEmpty } from "@schema/relation";
 import type { Scalar } from "@schema/scalars";
+import type { ResolvedRelationIndex } from "@schema/validation/relation-resolution";
 import {
   type ExpectedPolymorphicResultShape,
   type ExpectedResultShape,
   isBatchOperation,
   type Operation,
+  type ScopeSource,
 } from "../types";
 import { parsePolymorphicValueDefault } from "./polymorphic-result-parser";
 import { parseRelationValueDefault } from "./relation-result-parser";
@@ -59,17 +60,61 @@ interface CachedRowParser {
   readonly parse: RowParser;
 }
 
+/**
+ * Look one contextual slot up in a per-source-model chain cache, creating the
+ * model's own slot map on first use. Shared by both chain caches so the two
+ * cannot key themselves differently.
+ */
+function cachedSlotChain<Chain>(
+  cache: WeakMap<Model<any>, Map<string, Chain>>,
+  source: Model<any>,
+  field: string
+): {
+  readonly slots: Map<string, Chain>;
+  readonly existing: Chain | undefined;
+} {
+  let slots = cache.get(source);
+  if (!slots) {
+    slots = new Map<string, Chain>();
+    cache.set(source, slots);
+  }
+  return { slots, existing: slots.get(field) };
+}
+
 /** Owns provider middleware and identity caches for one result boundary. */
 export class ResultParser {
   readonly adapter: DatabaseAdapter;
   readonly model: Model<any>;
   readonly driver: AnyDriver | undefined;
   private readonly fieldChains = new WeakMap<Scalar, FieldParser>();
-  private readonly relationChains = new WeakMap<AnyRelation, RelationParser>();
-  private readonly polymorphicChains = new WeakMap<
-    AnyPolymorphicRelation,
-    PolymorphicParser
+  /**
+   * Keyed by the CONTEXTUAL SLOT, `(source model, field)` — never by the
+   * relation object alone.
+   *
+   * `.extends()` reuses one immutable terminal under more than one model, and a
+   * parser chain depends on facts of the EDGE (which end stores the membership,
+   * whether the slot may be empty, which member a variant carrier selected) —
+   * not on the declaration. Keying by the shared instance would hand the second
+   * source model the first one's parser.
+   */
+  private readonly relationChains = new WeakMap<
+    Model<any>,
+    Map<string, RelationParser>
   >();
+  private readonly polymorphicChains = new WeakMap<
+    Model<any>,
+    Map<string, PolymorphicParser>
+  >();
+  /**
+   * Keyed by the requested SHAPE, then narrowed by `(model, operation)` in the
+   * small array below.
+   *
+   * This one is sound as it stands and is deliberately left alone: a shape
+   * describes the exact columns ONE compiled read asked for, so it is already a
+   * contextual identity, and the linear scan disambiguates the two facts a
+   * shape does not carry. The list stays short because shapes are built per
+   * compiled operation rather than memoized per model.
+   */
   private readonly nestedRowParsers = new WeakMap<
     ExpectedResultShape,
     CachedRowParser[]
@@ -82,13 +127,17 @@ export class ResultParser {
    */
   readonly decimalDecode: "string" | "number";
 
+  /** The one resolved topology index this parse boundary reads emptiness from. */
+  readonly relations: ResolvedRelationIndex;
+
   constructor(
-    adapter: DatabaseAdapter,
+    source: ScopeSource,
     model: Model<any>,
     driver?: AnyDriver,
     decimalDecode: "string" | "number" = "string"
   ) {
-    this.adapter = adapter;
+    this.adapter = source.adapter;
+    this.relations = source.relations;
     this.model = model;
     this.driver = driver;
     this.decimalDecode = decimalDecode;
@@ -179,7 +228,8 @@ export class ResultParser {
     }
 
     const shape =
-      expectedShape ?? buildExpectedResultShape(this.model, operation, args);
+      expectedShape ??
+      buildExpectedResultShape(this.model, operation, args, this.relations);
     return chain(raw, operation, shape) as T;
   }
 
@@ -197,25 +247,37 @@ export class ResultParser {
   }
 
   private getRelationChain(
+    source: Model<any>,
+    field: string,
     relation: AnyRelation,
     parsers: RowValueParsers
   ): RelationParser {
-    const existing = this.relationChains.get(relation);
-    if (existing) return existing;
-    const chain = this.createRelationChain(relation, parsers);
-    this.relationChains.set(relation, chain);
-    return chain;
+    const chain = cachedSlotChain(this.relationChains, source, field);
+    if (chain.existing) return chain.existing;
+    // Emptiness is a fact of the RESOLVED EDGE (§8.4), asked once per contextual
+    // slot and baked into this slot's chain — the same identity the chain is
+    // keyed by, so `.extends()` cannot share one answer across two source models.
+    const resolved = this.relations.get(source)?.get(field);
+    const created = this.createRelationChain(
+      relation,
+      resolved !== undefined && slotMayBeEmpty(resolved),
+      parsers
+    );
+    chain.slots.set(field, created);
+    return created;
   }
 
   private getPolymorphicChain(
-    relation: AnyPolymorphicRelation,
+    source: Model<any>,
+    field: string,
+    relation: AnyRelation,
     parsers: RowValueParsers
   ): PolymorphicParser {
-    const existing = this.polymorphicChains.get(relation);
-    if (existing) return existing;
-    const chain = this.createPolymorphicChain(relation, parsers);
-    this.polymorphicChains.set(relation, chain);
-    return chain;
+    const chain = cachedSlotChain(this.polymorphicChains, source, field);
+    if (chain.existing) return chain.existing;
+    const created = this.createPolymorphicChain(relation, parsers);
+    chain.slots.set(field, created);
+    return created;
   }
 
   private getNestedRowParser(
@@ -254,19 +316,17 @@ export class ResultParser {
         this.getNestedRowParser(model, row, operation, shape, parsers, keys),
       parseField: (scalar, value, operation, captureExact) =>
         this.getFieldChain(scalar)(value, operation, captureExact),
-      parseRelation: (relation, value, operation, shape) =>
-        this.getRelationChain(relation, parsers)(value, operation, shape),
-      parsePolymorphic: (
-        model,
-        relationName,
-        relation,
-        value,
-        operation,
-        shape
-      ) =>
-        this.getPolymorphicChain(relation, parsers)(
-          model,
-          relationName,
+      parseRelation: (source, field, relation, value, operation, shape) =>
+        this.getRelationChain(
+          source,
+          field,
+          relation,
+          parsers
+        )(value, operation, shape),
+      parsePolymorphic: (source, field, relation, value, operation, shape) =>
+        this.getPolymorphicChain(source, field, relation, parsers)(
+          source,
+          field,
           value,
           operation,
           shape
@@ -314,19 +374,19 @@ export class ResultParser {
 
   private createRelationChain(
     relation: AnyRelation,
+    mayBeEmpty: boolean,
     parsers: RowValueParsers
   ): RelationParser {
-    const relationType = relation["~"].state.type;
     const adapterParse = (
       value: unknown,
-      type: RelationResultKind,
       operation: Operation,
       shape?: ExpectedResultShape
     ) =>
-      this.adapter.result.parseRelation(value, type, (transformed) =>
+      this.adapter.result.parseRelation(value, (transformed) =>
         parseRelationValueDefault(
           this,
           relation,
+          mayBeEmpty,
           transformed ?? value,
           operation,
           shape,
@@ -347,19 +407,19 @@ export class ResultParser {
     if (!driverParseRelation) {
       return (value, operation, shape) => {
         requireValue(value, operation);
-        return adapterParse(value, relationType, operation, shape);
+        return adapterParse(value, operation, shape);
       };
     }
     return (value, operation, shape) => {
       requireValue(value, operation);
-      return driverParseRelation(value, relationType, (transformed) =>
-        adapterParse(transformed ?? value, relationType, operation, shape)
+      return driverParseRelation(value, (transformed) =>
+        adapterParse(transformed ?? value, operation, shape)
       );
     };
   }
 
   private createPolymorphicChain(
-    relation: AnyPolymorphicRelation,
+    relation: AnyRelation,
     parsers: RowValueParsers
   ): PolymorphicParser {
     const adapterParse = (
@@ -369,7 +429,7 @@ export class ResultParser {
       operation: Operation,
       shape?: ExpectedPolymorphicResultShape
     ) =>
-      this.adapter.result.parseRelation(value, "polymorphic", (transformed) =>
+      this.adapter.result.parseRelation(value, (transformed) =>
         parsePolymorphicValueDefault(
           this,
           ownerModel,
@@ -384,7 +444,7 @@ export class ResultParser {
     const driverParseRelation = this.driver?.result?.parseRelation;
     if (!driverParseRelation) return adapterParse;
     return (ownerModel, relationName, value, operation, shape) =>
-      driverParseRelation(value, "polymorphic", (transformed) =>
+      driverParseRelation(value, (transformed) =>
         adapterParse(
           ownerModel,
           relationName,

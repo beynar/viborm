@@ -30,8 +30,9 @@ non-unique precondition that row must satisfy.
 :::
 
 Direct polymorphic relations use the same operation meanings but add a target
-`type` and accept exactly one intent per payload. Their inverse `oneToOne` and
-`oneToMany` fields use the ordinary singular and collection shapes. See the
+`type` and accept exactly one intent per payload. Their inverse slots — singular
+`s.toOne` and plural `s.toMany` — use the ordinary singular and collection
+shapes. See the
 [polymorphic write matrices](/docs/schema/relations/polymorphic#write-the-direct-relation)
 for the exact payloads and optionality rules.
 

@@ -41,7 +41,7 @@ export const createJunctionUpsertSchema = (() => {
     .model({
       id: s.int().id().increment(),
       title: s.string(),
-      topics: s.manyToMany(() => topic),
+      topics: s.toMany(() => topic),
     })
     .map("e5u1_articles");
 
@@ -51,7 +51,7 @@ export const createJunctionUpsertSchema = (() => {
     .model({
       id: s.string().id(),
       title: s.string(),
-      topics: s.manyToMany(() => topic),
+      topics: s.toMany(() => topic),
     })
     .map("e5u1_pages");
 
@@ -62,13 +62,12 @@ export const createJunctionUpsertSchema = (() => {
       weight: s.int().default(0),
       authorId: s.string().nullable(),
       author: s
-        .manyToOne(() => author)
+        .toOne(() => author)
         .fields("authorId")
-        .references("id")
-        .optional(),
-      articles: s.manyToMany(() => article),
-      pages: s.manyToMany(() => page),
-      notes: s.oneToMany(() => note),
+        .references("id"),
+      articles: s.toMany(() => article),
+      pages: s.toMany(() => page),
+      notes: s.toMany(() => note),
     })
     .map("e5u1_topics");
 
@@ -76,7 +75,7 @@ export const createJunctionUpsertSchema = (() => {
     .model({
       id: s.string().id(),
       name: s.string(),
-      topics: s.oneToMany(() => topic),
+      topics: s.toMany(() => topic),
     })
     .map("e5u1_authors");
 
@@ -86,7 +85,7 @@ export const createJunctionUpsertSchema = (() => {
       body: s.string(),
       topicId: s.int(),
       topic: s
-        .manyToOne(() => topic)
+        .toOne(() => topic)
         .fields("topicId")
         .references("id"),
     })

@@ -55,14 +55,13 @@ export const booleanNoOpSchema = (() => {
       // PARENT-held to-one: the holder row carries the FK.
       cardId: s.int().nullable().unique(),
       card: s
-        .oneToOne(() => card)
+        .toOne(() => card)
         .fields("cardId")
-        .references("id")
-        .optional(),
+        .references("id"),
       // INVERSE-side to-one: the target carries the FK.
-      tag: s.oneToOne(() => tag).optional(),
+      tag: s.toOne(() => tag),
       // Depth: a to-many whose target carries its own inverse-side to-one.
-      items: s.oneToMany(() => item),
+      items: s.toMany(() => item),
     })
     .map("ubn_holders");
 
@@ -70,7 +69,7 @@ export const booleanNoOpSchema = (() => {
     .model({
       id: s.int().id(),
       face: s.string(),
-      holder: s.oneToOne(() => holder).optional(),
+      holder: s.toOne(() => holder),
     })
     .map("ubn_cards");
 
@@ -80,10 +79,9 @@ export const booleanNoOpSchema = (() => {
       label: s.string(),
       holderId: s.int().nullable().unique(),
       holder: s
-        .oneToOne(() => holder)
+        .toOne(() => holder)
         .fields("holderId")
-        .references("id")
-        .optional(),
+        .references("id"),
     })
     .map("ubn_tags");
 
@@ -93,11 +91,10 @@ export const booleanNoOpSchema = (() => {
       title: s.string(),
       holderId: s.int().nullable(),
       holder: s
-        .manyToOne(() => holder)
+        .toOne(() => holder)
         .fields("holderId")
-        .references("id")
-        .optional(),
-      label: s.oneToOne(() => label).optional(),
+        .references("id"),
+      label: s.toOne(() => label),
     })
     .map("ubn_items");
 
@@ -107,10 +104,9 @@ export const booleanNoOpSchema = (() => {
       text: s.string(),
       itemId: s.int().nullable().unique(),
       item: s
-        .oneToOne(() => item)
+        .toOne(() => item)
         .fields("itemId")
-        .references("id")
-        .optional(),
+        .references("id"),
     })
     .map("ubn_labels");
 

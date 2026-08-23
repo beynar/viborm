@@ -101,7 +101,7 @@ describe("Update Schema - Author Model Runtime (with relations)", () => {
   test("runtime: accepts relation update with create", () => {
     const result = parse(schema, {
       posts: {
-        create: { id: "post-1", title: "New Post", authorId: "author-1" },
+        create: { id: "post-1", title: "New Post" },
       },
     });
     expect(result.issues).toBeUndefined();
@@ -130,7 +130,7 @@ describe("Update Schema - Author Model Runtime (with relations)", () => {
     const result = parse(schema, {
       name: "Updated Name",
       posts: {
-        create: { id: "post-1", title: "New Post", authorId: "author-1" },
+        create: { id: "post-1", title: "New Post" },
       },
     });
     expect(result.issues).toBeUndefined();
@@ -158,13 +158,15 @@ describe("Update Schema - Post Model Runtime (manyToOne)", () => {
     });
   });
 
-  test("runtime: accepts relation disconnect", () => {
+  // RE-PINNED (§9.4): `post.authorId` is not nullable, so this membership
+  // cannot be cleared while both rows survive and `disconnect` is absent.
+  test("runtime: rejects relation disconnect on a required membership", () => {
     const result = parse(schema, {
       author: {
         disconnect: true,
       },
     });
-    expect(result.issues).toBeUndefined();
+    expect(result.issues).toBeDefined();
   });
 
   test("runtime: accepts relation update", () => {

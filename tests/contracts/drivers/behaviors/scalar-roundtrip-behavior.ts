@@ -16,7 +16,7 @@ const measurement = s
     takenAt: s.dateTime(),
     amount: s.decimal(),
     views: s.bigInt(),
-    readings: s.oneToMany(() => reading),
+    readings: s.toMany(() => reading),
   })
   .map("scalar_roundtrip_measurements");
 
@@ -28,7 +28,7 @@ const reading = s
     price: s.decimal(),
     count: s.bigInt(),
     measurement: s
-      .manyToOne(() => measurement)
+      .toOne(() => measurement)
       .fields("measurementId")
       .references("id"),
   })
@@ -223,7 +223,7 @@ const fullRecord = s
     meta: s.json(),
     payload: s.blob(),
     kind: s.enum(["alpha", "beta"]),
-    items: s.oneToMany(() => fullItem),
+    items: s.toMany(() => fullItem),
   })
   .map("scalar_roundtrip_full");
 
@@ -245,7 +245,7 @@ const fullItem = s
     payload: s.blob(),
     kind: s.enum(["alpha", "beta"]),
     record: s
-      .manyToOne(() => fullRecord)
+      .toOne(() => fullRecord)
       .fields("recordId")
       .references("id"),
   })

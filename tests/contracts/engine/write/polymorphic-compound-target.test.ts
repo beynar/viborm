@@ -39,7 +39,7 @@ const polymorphicCompoundSchema = (() => {
     .model({
       id: s.string().id(),
       name: s.string(),
-      slots: s.oneToMany(() => slot).name("holder"),
+      slots: s.toMany(() => slot).name("holder"),
     })
     .map("polyc_hubs");
 
@@ -57,7 +57,7 @@ const polymorphicCompoundSchema = (() => {
       code: s.string(),
       note: s.string(),
       holder: s
-        .polymorphicToOne(
+        .toOne(
           { hub: () => hub, vault: () => vault },
           {
             values: { hub: "polyc.hub.v1", vault: "polyc.vault.v1" },

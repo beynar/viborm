@@ -21,7 +21,7 @@ export const fieldRefSchema = (() => {
       id: s.string().id(),
       name: s.string(),
       nickname: s.string(),
-      posts: s.oneToMany(() => post),
+      posts: s.toMany(() => post),
     })
     .map("fieldref_users");
 
@@ -43,7 +43,7 @@ export const fieldRefSchema = (() => {
       payload: s.json().nullable(),
       authorId: s.string(),
       author: s
-        .manyToOne(() => user)
+        .toOne(() => user)
         .fields("authorId")
         .references("id"),
     })

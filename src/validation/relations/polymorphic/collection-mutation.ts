@@ -1,4 +1,5 @@
-import type { PolymorphicRelationState } from "@schema/relation";
+import type { VariantRelationState } from "@schema/relation";
+import type { VariantEntries } from "@schema/relation/static-membership";
 import v from "@validation/primitives/v";
 import type { VibSchema } from "@validation/types";
 import type {
@@ -219,10 +220,10 @@ export type PolymorphicCollectionUpdateSchema<Getters> = VibSchema<
  */
 type TaggedVerbOptions = { partial: false } | { atLeast: string[] };
 
-function taggedVerb<State extends PolymorphicRelationState>(
-  publicTypes: readonly Extract<keyof State["targets"], string>[],
+function taggedVerb<State extends VariantRelationState>(
+  publicTypes: readonly Extract<keyof VariantEntries<State>, string>[],
   fields: (
-    publicType: Extract<keyof State["targets"], string>
+    publicType: Extract<keyof VariantEntries<State>, string>
   ) => Record<string, unknown>,
   options: TaggedVerbOptions
 ): VibSchema {
@@ -257,7 +258,7 @@ interface CollectionVerbs {
 
 /** THE ELEVEN VERB BUILDERS — one owner, read by both context bags. */
 function collectionVerbs<
-  State extends PolymorphicRelationState,
+  State extends VariantRelationState,
   Getters extends PolymorphicTargetSchemaGetters<State>,
 >(
   state: State,
@@ -267,7 +268,7 @@ function collectionVerbs<
   const publicTypes = polymorphicPublicTypes(state);
   const tagged = (
     fields: (
-      publicType: Extract<keyof State["targets"], string>
+      publicType: Extract<keyof VariantEntries<State>, string>
     ) => Record<string, unknown>,
     options: TaggedVerbOptions = { partial: false }
   ) => taggedVerb<State>(publicTypes, fields, options);
@@ -343,7 +344,7 @@ function collectionVerbs<
  * Omitting the key says the same thing once, at the boundary.
  */
 export function polymorphicCollectionCreateFactory<
-  State extends PolymorphicRelationState,
+  State extends VariantRelationState,
   Getters extends PolymorphicTargetSchemaGetters<State>,
 >(
   state: State,
@@ -363,7 +364,7 @@ export function polymorphicCollectionCreateFactory<
 
 /** The UPDATE-context bag: all eleven §9.1 verbs, every one of them optional. */
 export function polymorphicCollectionUpdateFactory<
-  State extends PolymorphicRelationState,
+  State extends VariantRelationState,
   Getters extends PolymorphicTargetSchemaGetters<State>,
 >(
   state: State,

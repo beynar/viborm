@@ -13,7 +13,7 @@ const company = s
   .model({
     id: s.string().id(),
     name: s.string(),
-    teams: s.oneToMany(() => team),
+    teams: s.toMany(() => team),
   })
   .map("nested_order_companies");
 
@@ -23,11 +23,10 @@ const team = s
     name: s.string(),
     companyId: s.string().nullable(),
     company: s
-      .manyToOne(() => company)
+      .toOne(() => company)
       .fields("companyId")
-      .references("id")
-      .optional(),
-    members: s.oneToMany(() => user),
+      .references("id"),
+    members: s.toMany(() => user),
   })
   .map("nested_order_teams");
 
@@ -37,12 +36,11 @@ const user = s
     name: s.string(),
     teamId: s.string().nullable(),
     team: s
-      .manyToOne(() => team)
+      .toOne(() => team)
       .fields("teamId")
-      .references("id")
-      .optional(),
-    posts: s.oneToMany(() => post).name("author"),
-    reviewedPosts: s.oneToMany(() => post).name("reviewer"),
+      .references("id"),
+    posts: s.toMany(() => post).name("author"),
+    reviewedPosts: s.toMany(() => post).name("reviewer"),
   })
   .map("nested_order_users");
 
@@ -53,16 +51,14 @@ const post = s
     authorId: s.string().nullable(),
     reviewerId: s.string().nullable(),
     author: s
-      .manyToOne(() => user)
+      .toOne(() => user)
       .fields("authorId")
       .references("id")
-      .optional()
       .name("author"),
     reviewer: s
-      .manyToOne(() => user)
+      .toOne(() => user)
       .fields("reviewerId")
       .references("id")
-      .optional()
       .name("reviewer"),
   })
   .map("nested_order_posts");
@@ -73,11 +69,10 @@ const category = s
     name: s.string(),
     parentId: s.string().nullable(),
     parent: s
-      .manyToOne(() => category)
+      .toOne(() => category)
       .fields("parentId")
-      .references("id")
-      .optional(),
-    children: s.oneToMany(() => category),
+      .references("id"),
+    children: s.toMany(() => category),
   })
   .map("nested_order_categories");
 

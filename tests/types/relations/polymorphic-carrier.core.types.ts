@@ -1,6 +1,36 @@
-import type { AnyModel, GetPolymorphicInverseBinding } from "@src/schema";
+/**
+ * THE STATIC INVERSE PROJECTION, over VARIANT carriers.
+ *
+ * `src/schema/relation/static-membership.ts` is the one compile-time view of
+ * the relation graph (plan §8.1). It mirrors only the predicate it can PROVE —
+ * asking-slot exclusion, the exact literal-name partition, and the mutual
+ * degree-one reverse proof — and answers `unknown` for everything else. Every
+ * pin below is written through `s.model` / `s.toOne` / `s.toMany` exactly as a
+ * caller spells them; the projection is the subject, never the input.
+ *
+ * The ordinary half of the same projection lives in
+ * `static-membership.core.types.ts`. This file owns the variant carrier cells:
+ * §11.3.13 (which key a nested payload may not spell) and §11.3.14 (which
+ * carrier exposes a disconnect).
+ *
+ * FAIL-CLOSED IS THE POINT. Where a pin says `unknown`, the runtime resolver
+ * either refuses the schema outright or resolves an edge the type view cannot
+ * see; both are safe, because `unknown` grants no omission and no verb.
+ */
+
+import type { AnyModel } from "@src/schema";
 import { s } from "@src/schema";
-import { PolymorphicToManyRelation } from "@src/schema/relation";
+import type {
+  DerivedNestedKeys,
+  MembershipCanBeCleared,
+  ModelRelationMemberships,
+  SlotMayBeEmpty,
+  StaticResolvedMembership,
+  StaticUnknownMembership,
+  StaticVariantInverseMembership,
+  TargetKind,
+  VariantEntries,
+} from "@src/schema/relation/static-membership";
 
 type IsAny<Value> = 0 extends 1 & Value ? true : false;
 type Expect<Value extends true> = Value;
@@ -11,645 +41,361 @@ type Equal<Left, Right> =
     ? true
     : false;
 
-const target = s.model({ id: s.string().id() });
-const secondTarget = s.model({ id: s.string().id() });
-const targets = Object.freeze({
-  target: () => target,
-  second: () => secondTarget,
-});
-const values = Object.freeze({
-  target: "content.target.v1",
-  second: "content.second.v1",
-});
-const relation = s.polymorphicToOne(targets, { values });
-const defaultedRelation = s.polymorphicToOne(targets);
-const explicitlyDefaultedRelation = s.polymorphicToOne(targets, undefined);
+/** The membership of one contextual slot, spelled the way a consumer asks. */
+type RelationAt<
+  Source extends AnyModel,
+  Field extends keyof Source["~"]["state"]["relations"],
+> = Source["~"]["state"]["relations"][Field];
 
-type _targetKeysRemainExact = Expect<
-  Equal<keyof (typeof relation)["~"]["state"]["targets"], "target" | "second">
->;
-type _storedValueRemainsLiteral = Expect<
-  Equal<
-    (typeof relation)["~"]["state"]["values"]["target"],
-    "content.target.v1"
-  >
->;
-type _defaultedStoredValuesUseLiteralPublicKeys = Expect<
-  Equal<
-    (typeof defaultedRelation)["~"]["state"]["values"],
-    { readonly target: "target"; readonly second: "second" }
-  >
->;
-type _explicitUndefinedUsesTheSameDefaults = Expect<
-  Equal<
-    (typeof explicitlyDefaultedRelation)["~"]["state"]["values"],
-    (typeof defaultedRelation)["~"]["state"]["values"]
-  >
->;
+type MembershipAt<
+  Source extends AnyModel,
+  Field extends keyof Source["~"]["state"]["relations"],
+> = StaticResolvedMembership<Source, Field, RelationAt<Source, Field>>;
 
-// @ts-expect-error - non-fresh values still require every target key
-s.polymorphicToOne(targets, {
-  values: { target: "content.target.v1" },
-});
-const extraValues = Object.freeze({
-  ...values,
-  other: "content.other.v1",
-});
-// @ts-expect-error - non-fresh values refuse extra keys structurally
-s.polymorphicToOne(targets, {
-  values: extraValues,
-});
-// @ts-expect-error - fresh values refuse an unknown target key
-s.polymorphicToOne(targets, {
-  values: { ...values, other: "content.other.v1" },
-});
-// The OPTIONS BAG is exact too, both freshness modes — a non-fresh bag with a
-// sibling key beside `values` is the case excess-property checking cannot see.
-// @ts-expect-error - fresh options bag refuses unknown sibling keys
-s.polymorphicToOne(targets, { values, junk: true });
-const nonFreshBag = { values, junk: true } as const;
-// @ts-expect-error - non-fresh options bag refuses unknown sibling keys
-s.polymorphicToOne(targets, nonFreshBag);
+// ---------------------------------------------------------------------------
+// 1. A MEMBER-JUNCTION CARRIER — both inverse cardinalities bind
+// ---------------------------------------------------------------------------
 
-// The SECOND factory carries its own copy of both instruments, so it needs its
-// own evidence: dropping `NoExtraKeys` from either signature must redden here
-// and not be covered by the to-one block above.
-const collectionRelation = s.polymorphicToMany(targets, { values });
-type _collectionStoredValueRemainsLiteral = Expect<
-  Equal<
-    (typeof collectionRelation)["~"]["state"]["values"]["target"],
-    "content.target.v1"
-  >
->;
-// @ts-expect-error - non-fresh values still require every target key
-s.polymorphicToMany(targets, {
-  values: { target: "content.target.v1" },
-});
-// @ts-expect-error - non-fresh values refuse extra keys structurally
-s.polymorphicToMany(targets, { values: extraValues });
-// @ts-expect-error - non-fresh options bag refuses unknown sibling keys
-s.polymorphicToMany(targets, nonFreshBag);
-
-const self = s.model({
+const article = s.model({
   id: s.string().id(),
-  parent: s.polymorphicToOne(
-    { self: () => self },
-    { values: { self: "tree.self.v1" } }
+  gallery: s.toOne(() => owner),
+});
+const photo = s.model({
+  id: s.string().id(),
+  galleries: s.toMany(() => owner),
+});
+const owner = s.model({
+  id: s.string().id(),
+  items: s.toMany(
+    { article: () => article, photo: () => photo },
+    { values: { article: "carrier.article.v1", photo: "carrier.photo.v1" } }
   ),
 });
-type _selfDoesNotCollapse = Expect<
-  IsAny<typeof self> extends false ? true : false
+
+type _singularInverseOfAMemberJunction = Expect<
+  Equal<
+    MembershipAt<typeof article, "gallery">,
+    StaticVariantInverseMembership<"items", true>
+  >
+>;
+type _pluralInverseOfAMemberJunction = Expect<
+  Equal<
+    MembershipAt<typeof photo, "galleries">,
+    StaticVariantInverseMembership<"items", true>
+  >
 >;
 
-const left = s.model({
+/** The carrier holds its OWN membership, so it derives nothing to hide. */
+type _theCarrierItselfIsNotAMembership = Expect<
+  Equal<MembershipAt<typeof owner, "items">, StaticUnknownMembership>
+>;
+
+/** §11.3.13: the EXACT carrier relation key, and nothing else. */
+type _nestedPayloadMayNotSpellTheCarrierKey = Expect<
+  Equal<
+    DerivedNestedKeys<
+      typeof article,
+      "gallery",
+      RelationAt<typeof article, "gallery">
+    >,
+    "items"
+  >
+>;
+
+/** §11.3.14: a member junction clears by deleting its membership row. */
+type _memberJunctionMembershipClears = Expect<
+  Equal<
+    MembershipCanBeCleared<
+      typeof article,
+      "gallery",
+      RelationAt<typeof article, "gallery">
+    >,
+    true
+  >
+>;
+
+// ---------------------------------------------------------------------------
+// 2. A ROW-HELD CARRIER — clearability follows the carrier's own `.optional()`
+// ---------------------------------------------------------------------------
+
+const badge = s.model({
   id: s.string().id(),
-  right: s.polymorphicToOne(
-    { right: () => right },
-    { values: { right: "pair.right.v1" } }
+  holder: s.toOne(() => requiredHolder),
+});
+const requiredHolder = s.model({
+  id: s.string().id(),
+  mark: s.toOne(
+    { badge: () => badge },
+    { values: { badge: "carrier.badge.v1" } }
   ),
 });
-const right = s.model({
+
+const optionalBadge = s.model({
   id: s.string().id(),
-  left: s.polymorphicToOne(
-    { left: () => left },
-    { values: { left: "pair.left.v1" } }
+  holder: s.toOne(() => optionalHolder),
+});
+const optionalHolder = s.model({
+  id: s.string().id(),
+  mark: s
+    .toOne(
+      { badge: () => optionalBadge },
+      { values: { badge: "carrier.optional-badge.v1" } }
+    )
+    .optional(),
+});
+
+type _requiredRowCarrierExposesNoDisconnect = Expect<
+  Equal<
+    MembershipAt<typeof badge, "holder">,
+    StaticVariantInverseMembership<"mark", false>
+  >
+>;
+type _optionalRowCarrierClears = Expect<
+  Equal<
+    MembershipAt<typeof optionalBadge, "holder">,
+    StaticVariantInverseMembership<"mark", true>
+  >
+>;
+
+/** The carrier's own slot: empty exactly when it is `.optional()` (§8.4). */
+type _requiredCarrierSlotIsNotEmpty = Expect<
+  Equal<
+    SlotMayBeEmpty<
+      typeof requiredHolder,
+      "mark",
+      RelationAt<typeof requiredHolder, "mark">
+    >,
+    false
+  >
+>;
+type _optionalCarrierSlotMayBeEmpty = Expect<
+  Equal<
+    SlotMayBeEmpty<
+      typeof optionalHolder,
+      "mark",
+      RelationAt<typeof optionalHolder, "mark">
+    >,
+    true
+  >
+>;
+
+/** A COLLECTION carrier has no `.optional()` to read and holds many rows. */
+type _collectionCarrierSlotMayBeEmpty = Expect<
+  Equal<
+    SlotMayBeEmpty<typeof owner, "items", RelationAt<typeof owner, "items">>,
+    true
+  >
+>;
+
+// ---------------------------------------------------------------------------
+// 3. THE EXACT LITERAL-NAME PARTITION (§8.1 step 4)
+// ---------------------------------------------------------------------------
+
+const twoCarrierSource = s.model({
+  id: s.string().id(),
+  slot: s.toOne(() => twoCarrierHost),
+});
+const twoCarrierHost = s.model({
+  id: s.string().id(),
+  primary: s.toOne(
+    { source: () => twoCarrierSource },
+    { values: { source: "two.primary.v1" } }
+  ),
+  secondary: s.toOne(
+    { source: () => twoCarrierSource },
+    { values: { source: "two.secondary.v1" } }
   ),
 });
-type _leftDoesNotCollapse = Expect<
-  IsAny<typeof left> extends false ? true : false
->;
-type _rightDoesNotCollapse = Expect<
-  IsAny<typeof right> extends false ? true : false
+
+/** Two candidates, no name to choose between them: nothing is proven. */
+type _competingCarriersFailClosed = Expect<
+  Equal<MembershipAt<typeof twoCarrierSource, "slot">, StaticUnknownMembership>
 >;
 
-// WHERE THE CONSUMER COVERAGE FOR THIS TYPE ALSO LIVES.
-//
-// Every `GetPolymorphicInverseBinding` assertion below names the type alias
-// rather than a call a user writes. Measured against the hazard
-// `PolymorphicStateOf`'s own docblock names: collapsing the alias to `never`
-// reddens SEVEN of the assertions below (all TS2344, the ones pinning a concrete
-// `{ readonly relationKey: … }`), while the six that assert `never` stay green
-// by construction. So this block does catch the collapse — through the alias.
-//
-// `tests/types/relations/polymorphic-operation-schemas.core.types.ts` catches
-// the same collapse a different way, at 19 sites, 11 of them spelled as a user
-// spells them: `inverseClient.<model>.<op>({ ... })`. Per AGENTS.md only that
-// second form is evidence about what the EDITOR does. The two blocks are not
-// duplication and neither may be deleted as such.
-const inverseSource = s.model({ id: s.string().id() });
-const soleInverseTarget = s.model({
+const namedSource = s.model({
   id: s.string().id(),
-  subject: s
-    .polymorphicToOne(
-      { source: () => inverseSource },
-      { values: { source: "source.sole.v1" } }
-    )
-    .name("declared"),
+  slot: s.toOne(() => namedHost).name("Primary"),
 });
-type _soleInverseIgnoresDecorativeMismatch = Expect<
-  Equal<
-    GetPolymorphicInverseBinding<
-      typeof soleInverseTarget,
-      typeof inverseSource,
-      "mismatch"
-    >,
-    { readonly relationKey: "subject" }
-  >
->;
-
-const multipleInverseTarget = s.model({
+const namedHost = s.model({
   id: s.string().id(),
-  first: s
-    .polymorphicToOne(
-      { source: () => inverseSource },
-      { values: { source: "source.first.v1" } }
+  primary: s
+    .toOne(
+      { source: () => namedSource },
+      { values: { source: "named.primary.v1" } }
     )
-    .name("shared"),
-  second: s
-    .polymorphicToOne(
-      { source: () => inverseSource },
-      { values: { source: "source.second.v1" } }
+    .name("Primary"),
+  secondary: s
+    .toOne(
+      { source: () => namedSource },
+      { values: { source: "named.secondary.v1" } }
     )
-    .name("shared"),
+    .name("Secondary"),
 });
-type _multipleInverseNeedsName = Expect<
+
+/** The same two candidates, partitioned by an exact matching label. */
+type _matchingNamesSelectOneCarrier = Expect<
   Equal<
-    GetPolymorphicInverseBinding<
-      typeof multipleInverseTarget,
-      typeof inverseSource,
-      undefined
-    >,
-    never
-  >
->;
-type _missingInverseNameSelectsNothing = Expect<
-  Equal<
-    GetPolymorphicInverseBinding<
-      typeof multipleInverseTarget,
-      typeof inverseSource,
-      "missing"
-    >,
-    never
-  >
->;
-type _ambiguousInverseNameSelectsNothing = Expect<
-  Equal<
-    GetPolymorphicInverseBinding<
-      typeof multipleInverseTarget,
-      typeof inverseSource,
-      "shared"
-    >,
-    never
+    MembershipAt<typeof namedSource, "slot">,
+    StaticVariantInverseMembership<"primary", false>
   >
 >;
 
-const duplicateSelectedTarget = s.model({
+const mismatchedSource = s.model({
   id: s.string().id(),
-  duplicate: s.polymorphicToOne(
-    { first: () => inverseSource, second: () => inverseSource },
-    {
-      values: {
-        first: "source.duplicate-first.v1",
-        second: "source.duplicate-second.v1",
-      },
-    }
+  slot: s.toOne(() => mismatchedHost).name("NoSuchPair"),
+});
+const mismatchedHost = s.model({
+  id: s.string().id(),
+  primary: s
+    .toOne(
+      { source: () => mismatchedSource },
+      { values: { source: "mismatch.primary.v1" } }
+    )
+    .name("Primary"),
+});
+
+/** A one-sided label is a MISMATCH, never permission to fall back (§6.2). */
+type _aMismatchedLabelSelectsNothing = Expect<
+  Equal<MembershipAt<typeof mismatchedSource, "slot">, StaticUnknownMembership>
+>;
+
+// ---------------------------------------------------------------------------
+// 4. ONE TARGET UNDER TWO MEMBERS OF THE SAME CARRIER
+// ---------------------------------------------------------------------------
+
+const repeatedSource = s.model({
+  id: s.string().id(),
+  slot: s.toOne(() => repeatedHost),
+});
+const repeatedHost = s.model({
+  id: s.string().id(),
+  items: s.toMany(
+    { first: () => repeatedSource, second: () => repeatedSource },
+    { values: { first: "repeat.first.v1", second: "repeat.second.v1" } }
   ),
 });
-type _typeBindingCarriesOnlyTheSelectedRelationGroup = Expect<
+
+/**
+ * RECORDED, not asserted as correct: the projection counts candidate relation
+ * KEYS, so it sees ONE candidate here and binds — while the resolver counts
+ * MEMBERS and refuses the schema outright (R009: a carrier-wide label cannot
+ * choose one member of that same carrier).
+ *
+ * The over-promise is UNREACHABLE, because the schema cannot reach a client.
+ * Counting members here instead would be strictly worse: TypeScript cannot tell
+ * two DISTINCT targets with identical shapes apart, so the count would read
+ * "two" for a perfectly legal carrier and silently withdraw its inverse's
+ * omission and disconnect verb. The repair for a real repeated target is
+ * separate carrier fields with matching `.name(...)` pairs — there is no member
+ * selector.
+ */
+type _repeatedTargetUnderOneCarrierBindsWhereTheGateRefuses = Expect<
   Equal<
-    GetPolymorphicInverseBinding<
-      typeof duplicateSelectedTarget,
-      typeof inverseSource,
-      undefined
-    >,
-    { readonly relationKey: "duplicate" }
+    MembershipAt<typeof repeatedSource, "slot">,
+    StaticVariantInverseMembership<"items", true>
   >
 >;
 
-const duplicateUnselectedTarget = s.model({
+// ---------------------------------------------------------------------------
+// 5. WHAT THE PROJECTION CANNOT SEE
+// ---------------------------------------------------------------------------
+
+const extendedSource = s.model({
   id: s.string().id(),
-  selected: s
-    .polymorphicToOne(
-      { source: () => inverseSource },
-      { values: { source: "source.selected.v1" } }
-    )
-    .name("selected"),
-  duplicate: s
-    .polymorphicToOne(
-      { first: () => inverseSource, second: () => inverseSource },
-      {
-        values: {
-          first: "source.duplicate-first.v1",
-          second: "source.duplicate-second.v1",
-        },
-      }
-    )
-    .name("other"),
+  slot: s.toOne(() => extendedHost),
 });
-type _unselectedDuplicateDoesNotPoisonSelectedInverse = Expect<
-  Equal<
-    GetPolymorphicInverseBinding<
-      typeof duplicateUnselectedTarget,
-      typeof inverseSource,
-      "selected"
-    >,
-    { readonly relationKey: "selected" }
-  >
->;
-
-const identicalPost = s.model({ id: s.string().id() });
-const identicalVideo = s.model({ id: s.string().id() });
-const identicalTarget = s.model({
+const extendedHost = s.model({
   id: s.string().id(),
-  subject: s.polymorphicToOne(
-    { post: () => identicalPost, video: () => identicalVideo },
-    { values: { post: "post.v1", video: "video.v1" } }
+  items: s.toMany(
+    { source: () => extendedSource },
+    { values: { source: "extend.source.v1" } }
   ),
 });
-type _identicalTargetShapesStillSelectTheRelationGroup = Expect<
-  Equal<
-    GetPolymorphicInverseBinding<
-      typeof identicalTarget,
-      typeof identicalPost,
-      undefined
-    >,
-    { readonly relationKey: "subject" }
-  >
+const derivedSource = extendedSource.extends({ extra: s.string() });
+
+/**
+ * `.extends()` produces a NEW model whose relations still name the BASE, so
+ * nothing on the host points at the derived model and the projection proves
+ * nothing. This is a FAIL-CLOSED answer, not an omission the runtime shares:
+ * the resolver sees the derived model's contextual slots and pairs them.
+ */
+type _anExtendedSourceFailsClosed = Expect<
+  Equal<MembershipAt<typeof derivedSource, "slot">, StaticUnknownMembership>
 >;
 
-const unnamedAndNamedTarget = s.model({
+const looseSource = s.model({
   id: s.string().id(),
-  unnamed: s.polymorphicToOne(
-    { source: () => inverseSource },
-    { values: { source: "source.unnamed.v1" } }
+  slot: s.toOne(() => looseHost),
+});
+const looseHost = s.model({
+  id: s.string().id(),
+  items: s.toMany(
+    { anything: () => looseSource as AnyModel },
+    { values: { anything: "loose.any.v1" } }
   ),
-  named: s
-    .polymorphicToOne(
-      { source: () => inverseSource },
-      { values: { source: "source.named.v1" } }
-    )
-    .name("named"),
 });
-type _undefinedNeverSelectsAnUnnamedGroupAmongSeveral = Expect<
-  Equal<
-    GetPolymorphicInverseBinding<
-      typeof unnamedAndNamedTarget,
-      typeof inverseSource,
-      undefined
-    >,
-    never
-  >
+
+/** A widened target names no model, so it identifies no candidate. */
+type _aWidenedTargetProvesNothing = Expect<
+  Equal<MembershipAt<typeof looseSource, "slot">, StaticUnknownMembership>
 >;
 
-const compatiblePost = s.model({
-  id: s.string().id(),
-  postOnly: s.string(),
-});
-const compatibleVideo = s.model({
-  id: s.string().id(),
-  videoOnly: s.string(),
-});
-const unrelatedImage = s.model({
-  id: s.string().id(),
-  imageOnly: s.string(),
-});
-const unrelatedPdf = s.model({
-  id: s.string().id(),
-  pdfOnly: s.string(),
-});
-const independentlyGroupedTarget = s.model({
-  id: s.string().id(),
-  subject: s
-    .polymorphicToOne(
-      { post: () => compatiblePost, video: () => compatibleVideo },
-      { values: { post: "post.v1", video: "video.v1" } }
-    )
-    .name("subject"),
-  attachment: s
-    .polymorphicToOne(
-      { image: () => unrelatedImage, pdf: () => unrelatedPdf },
-      { values: { image: "image.v1", pdf: "pdf.v1" } }
-    )
-    .name("attachment"),
-});
-type _multipleGroupsRequireANameEvenWhenTheirShapesDiffer = Expect<
-  Equal<
-    GetPolymorphicInverseBinding<
-      typeof independentlyGroupedTarget,
-      typeof compatiblePost,
-      undefined
-    >,
-    never
-  >
->;
-type _nameSelectsOneStructurallyCompatibleGroup = Expect<
-  Equal<
-    GetPolymorphicInverseBinding<
-      typeof independentlyGroupedTarget,
-      typeof compatiblePost,
-      "subject"
-    >,
-    { readonly relationKey: "subject" }
-  >
->;
-
-const separateIdenticalPost = s.model({ id: s.string().id() });
-const separateIdenticalVideo = s.model({ id: s.string().id() });
-const separatelyGroupedIdenticalTargets = s.model({
-  id: s.string().id(),
-  subject: s
-    .polymorphicToOne(
-      { post: () => separateIdenticalPost },
-      { values: { post: "post.v1" } }
-    )
-    .name("subject"),
-  attachment: s
-    .polymorphicToOne(
-      { video: () => separateIdenticalVideo },
-      { values: { video: "video.v1" } }
-    )
-    .name("attachment"),
-});
-type _identicalShapesInSeparateGroupsCannotGuessByIdentity = Expect<
-  Equal<
-    GetPolymorphicInverseBinding<
-      typeof separatelyGroupedIdenticalTargets,
-      typeof separateIdenticalPost,
-      undefined
-    >,
-    never
-  >
->;
-type _aNameDisambiguatesSeparateIdenticalShapeGroups = Expect<
-  Equal<
-    GetPolymorphicInverseBinding<
-      typeof separatelyGroupedIdenticalTargets,
-      typeof separateIdenticalPost,
-      "subject"
-    >,
-    { readonly relationKey: "subject" }
-  >
->;
-
-// Package A's rewrite moved this answer, and nothing consumes the difference.
-// At base 39a0f12e the deleted `Relation extends PolymorphicRelation<infer
-// State>` distributed over `any` and produced `never`; `PolymorphicStateOf<any>`
-// does not distribute, so an `AnyModel` target now resolves a binding whose
-// `relationKey` is the unnarrowed `string`. No user-visible difference was
-// demonstrated either way — this records the current answer so that a future
-// move of it is a decision rather than a surprise.
-type _anyTargetResolvesAnUnnarrowedRelationKey = Expect<
-  Equal<
-    GetPolymorphicInverseBinding<AnyModel, typeof inverseSource, undefined>,
-    { readonly relationKey: string }
-  >
->;
-
-// Second recorded divergence, same family: an `any`-typed `.name()` argument.
-// Base spelled the name test `State["name"] extends Name ? Key : never`, so an
-// any-named relation matched EVERY queried name and forced ambiguity — the
-// binding was `never` beside a real-named sibling. The rewritten
-// `RelationCarriesName` gates on `extends true`; `any` splits to `boolean`,
-// fails the gate, and the any-named sibling is EXCLUDED — so the literal-named
-// sibling now binds where base refused. Runtime candidate collection still
-// surfaces both relations, so the optimistic type stays runtime-guarded.
-const anyName = JSON.parse('"loose"') as ReturnType<JSON["parse"]>;
-const anyNamedSibling = s.model({
-  id: s.string().id(),
-  loose: s
-    .polymorphicToOne(
-      { source: () => inverseSource },
-      { values: { source: "source.loose.v1" } }
-    )
-    .name(anyName),
-  strict: s
-    .polymorphicToOne(
-      { source: () => inverseSource },
-      { values: { source: "source.strict.v1" } }
-    )
-    .name("real"),
-});
-type _anyNamedSiblingIsExcludedRatherThanAmbiguous = Expect<
-  Equal<
-    GetPolymorphicInverseBinding<
-      typeof anyNamedSibling,
-      typeof inverseSource,
-      "real"
-    >,
-    { readonly relationKey: "strict" }
-  >
->;
-
-// Third recorded divergence: a UNION of carriers at one relation key (only
-// reachable from declare-level or generic user code — no `s.*` chain builds
-// one). Base distributed the source-containment test per union member; the
-// rewrite merges the states first, so target keys shared by NO member vanish
-// and the binding conservatively resolves `never`. Refusal, not unsoundness.
+/**
+ * A UNION of carriers at one relation key — only reachable from declare-level
+ * or generic code, since no `s.*` chain builds one. It is still a VARIANT
+ * target, but the two members share no public key, so the projection can name
+ * no member and nothing downstream can be proven through it.
+ *
+ * The two instantiation expressions below are hand-converted (ruling D22): the
+ * codemod rewrites CALLS, and a type-argument-only instantiation is not one.
+ */
 declare const unionCarrier:
-  | ReturnType<
-      typeof s.polymorphicToOne<{ readonly a: () => typeof inverseSource }>
-    >
-  | ReturnType<
-      typeof s.polymorphicToOne<{ readonly b: () => typeof inverseSource }>
-    >;
-declare const unionModelState: {
-  readonly "~": {
-    readonly state: {
-      readonly polymorphicRelations: {
-        readonly subject: typeof unionCarrier;
-      };
-    };
-  };
-};
-type _unionCarrierResolvesConservativeNever = Expect<
-  Equal<
-    GetPolymorphicInverseBinding<
-      typeof unionModelState,
-      typeof inverseSource,
-      undefined
-    >,
-    never
-  >
+  | ReturnType<typeof s.toOne<{ readonly a: () => typeof looseSource }>>
+  | ReturnType<typeof s.toOne<{ readonly b: () => typeof looseSource }>>;
+
+type _aUnionOfCarriersResolvesNoTargetKind = Expect<
+  Equal<TargetKind<typeof unionCarrier>, unknown>
+>;
+type _aUnionOfCarriersSharesNoPublicKey = Expect<
+  Equal<keyof VariantEntries<typeof unionCarrier>, never>
 >;
 
-// --- PACKAGE A: the factory IS the cardinality, and the argument is MAP ONLY ---
+// ---------------------------------------------------------------------------
+// 6. RECURSION DOES NOT COLLAPSE (§11.1.14)
+// ---------------------------------------------------------------------------
 
-const carrierTarget = s.model({ id: s.string().id() });
-
-// A bare thunk reads like an ordinary edge and would silently build a private
-// `(type, id)` pair where the caller expected a foreign key, so both factories
-// refuse it — `TargetMapOnly` in `src/schema/relation/polymorphic.ts` is what
-// does the refusing, and the four ordinary factories are named in the message.
-// Each refusal is paired with the map spelling that must keep compiling, so a
-// green pin cannot mean "this surface refuses everything".
-// @ts-expect-error - a single target getter is an ordinary relation, not a carrier
-s.polymorphicToOne(() => carrierTarget);
-s.polymorphicToOne({ carrierTarget: () => carrierTarget });
-// @ts-expect-error - a single target getter is an ordinary relation, not a carrier
-s.polymorphicToMany(() => carrierTarget);
-s.polymorphicToMany({ carrierTarget: () => carrierTarget });
-
-s.polymorphicToMany({ carrierTarget: () => carrierTarget })
-  // @ts-expect-error - a collection has no second reading of emptiness
-  .optional();
-
-// The FORCED half of the same rule. The chain above cannot REACH `.optional()`;
-// this pins that a collection STATE cannot CARRY one, so a caller who bypasses
-// the factory and constructs the terminal directly is refused here rather than
-// reaching definition validation.
-new PolymorphicToManyRelation({
-  type: "polymorphic",
-  cardinality: "many",
-  targets: { carrierTarget: () => carrierTarget },
-  values: { carrierTarget: "carrierTarget" },
-  // @ts-expect-error - a collection state has no `optional` to carry
-  optional: true,
-});
-
-const collectionSelf = s.model({
+const selfCarrier = s.model({
   id: s.string().id(),
-  children: s.polymorphicToMany(
-    { collectionSelf: () => collectionSelf },
-    { values: { collectionSelf: "tree.collectionSelf.v1" } }
+  parent: s.toOne(
+    { self: () => selfCarrier },
+    { values: { self: "carrier.self.v1" } }
   ),
+  children: s.toMany(() => selfCarrier),
 });
-type _collectionSelfDoesNotCollapse = Expect<
-  IsAny<typeof collectionSelf> extends false ? true : false
+
+type _selfCarrierIsNotAny = Expect<
+  IsAny<typeof selfCarrier> extends false ? true : false
+>;
+type _ownerIsNotAny = Expect<IsAny<typeof owner> extends false ? true : false>;
+type _articleIsNotAny = Expect<
+  IsAny<typeof article> extends false ? true : false
+>;
+type _theWholeMembershipViewIsNotAny = Expect<
+  IsAny<ModelRelationMemberships<typeof owner>> extends false ? true : false
+>;
+type _theSelfMembershipViewIsNotAny = Expect<
+  IsAny<ModelRelationMemberships<typeof selfCarrier>> extends false
+    ? true
+    : false
 >;
 
-const collectionLeft = s.model({
-  id: s.string().id(),
-  rights: s.polymorphicToMany(
-    { collectionRight: () => collectionRight },
-    { values: { collectionRight: "pair.collectionRight.v1" } }
-  ),
-});
-const collectionRight = s.model({
-  id: s.string().id(),
-  lefts: s.polymorphicToMany(
-    { collectionLeft: () => collectionLeft },
-    { values: { collectionLeft: "pair.collectionLeft.v1" } }
-  ),
-});
-type _collectionLeftDoesNotCollapse = Expect<
-  IsAny<typeof collectionLeft> extends false ? true : false
->;
-type _collectionRightDoesNotCollapse = Expect<
-  IsAny<typeof collectionRight> extends false ? true : false
->;
-
-// --- PACKAGE B2: `.through()` is exact in both directions ---
-//
-// Every public variant must appear, no extra variant key and no extra entry key
-// is admitted — fresh or held in a variable (`NoExtraKeys`, the structural
-// instrument, not excess-property checking). P017 is the runtime mirror.
-
-const throughLeft = s.model({ id: s.string().id() });
-const throughRight = s.model({ id: s.string().id() });
-const throughTargets = Object.freeze({
-  left: () => throughLeft,
-  right: () => throughRight,
-});
-
-const throughComplete = s.polymorphicToMany(throughTargets).through({
-  left: { table: "o_items_left", source: "oId", target: "leftId" },
-  right: { table: "o_items_right", source: "oId", target: "rightId" },
-});
-type _throughKeysRemainExact = Expect<
+/**
+ * A SELF carrier: the asking slot is excluded from its own candidate set
+ * (§8.1 step 2), so `children` pairs with `parent` rather than with itself.
+ */
+type _selfInverseSelectsTheCarrierNotItself = Expect<
   Equal<
-    keyof NonNullable<(typeof throughComplete)["~"]["state"]["through"]>,
-    "left" | "right"
+    MembershipAt<typeof selfCarrier, "children">,
+    StaticVariantInverseMembership<"parent", false>
   >
->;
-type _throughTableRemainsLiteral = Expect<
-  Equal<
-    NonNullable<
-      (typeof throughComplete)["~"]["state"]["through"]
-    >["left"]["table"],
-    "o_items_left"
-  >
->;
-
-s.polymorphicToMany(throughTargets)
-  // @ts-expect-error - every public variant must appear in .through()
-  .through({
-    left: { table: "o_items_left", source: "oId", target: "leftId" },
-  });
-
-s.polymorphicToMany(throughTargets).through({
-  left: { table: "o_items_left", source: "oId", target: "leftId" },
-  right: { table: "o_items_right", source: "oId", target: "rightId" },
-  // @ts-expect-error - an unknown variant key is refused beside the real ones
-  extra: { table: "o_items_extra", source: "oId", target: "extraId" },
-});
-
-s.polymorphicToMany(throughTargets).through({
-  left: {
-    table: "o_items_left",
-    source: "oId",
-    target: "leftId",
-    // @ts-expect-error - an unknown entry key is refused beside the real ones
-    onDelete: "cascade",
-  },
-  right: { table: "o_items_right", source: "oId", target: "rightId" },
-});
-
-s.polymorphicToMany(throughTargets).through({
-  // @ts-expect-error - entry values are the three junction names, all strings
-  left: { table: 42, source: "oId", target: "leftId" },
-  right: { table: "o_items_right", source: "oId", target: "rightId" },
-});
-
-const heldExtraVariantThrough = Object.freeze({
-  left: { table: "o_items_left", source: "oId", target: "leftId" },
-  right: { table: "o_items_right", source: "oId", target: "rightId" },
-  extra: { table: "o_items_extra", source: "oId", target: "extraId" },
-});
-s.polymorphicToMany(throughTargets)
-  // @ts-expect-error - non-fresh maps refuse extra variant keys structurally
-  .through(heldExtraVariantThrough);
-
-const heldExtraEntryKey = Object.freeze({
-  left: {
-    table: "o_items_left",
-    source: "oId",
-    target: "leftId",
-    onDelete: "cascade",
-  },
-  right: { table: "o_items_right", source: "oId", target: "rightId" },
-});
-s.polymorphicToMany(throughTargets)
-  // @ts-expect-error - non-fresh entries refuse extra entry keys structurally
-  .through(heldExtraEntryKey);
-
-const heldCompleteThrough = Object.freeze({
-  left: { table: "o_items_left", source: "oId", target: "leftId" },
-  right: { table: "o_items_right", source: "oId", target: "rightId" },
-});
-s.polymorphicToMany(throughTargets).through(heldCompleteThrough);
-
-s.polymorphicToOne(throughTargets)
-  // @ts-expect-error - a to-one carrier has no `.through()`
-  .through({
-    left: { table: "o_items_left", source: "oId", target: "leftId" },
-    right: { table: "o_items_right", source: "oId", target: "rightId" },
-  });
-
-const collectionThroughSelf = s.model({
-  id: s.string().id(),
-  children: s
-    .polymorphicToMany(
-      { self: () => collectionThroughSelf },
-      { values: { self: "tree.self.v1" } }
-    )
-    .through({
-      self: {
-        table: "node_children_self",
-        source: "parentRef",
-        target: "childRef",
-      },
-    }),
-});
-type _collectionThroughSelfDoesNotCollapse = Expect<
-  IsAny<typeof collectionThroughSelf> extends false ? true : false
 >;

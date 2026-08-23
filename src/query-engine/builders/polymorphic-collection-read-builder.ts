@@ -41,7 +41,7 @@ import {
   POLYMORPHIC_RESULT_STATE_KEY,
   POLYMORPHIC_RESULT_STATE_LINKED,
 } from "../result-aliases";
-import type { PolymorphicToManyRelationInfo, QueryScope } from "../types";
+import type { QueryScope, VariantJunctionCarrierSlot } from "../types";
 import type { BuildNestedSelection } from "./include-builder";
 import { assembleInnerQuery, type IncludeOptions } from "./include-query";
 import { buildNestedReadWindow } from "./nested-read-window";
@@ -87,7 +87,7 @@ export function isArmVisible(
 export function buildPolymorphicCollectionRead(
   buildNestedSelection: BuildNestedSelection,
   scope: QueryScope,
-  relation: PolymorphicToManyRelationInfo,
+  relation: VariantJunctionCarrierSlot,
   projection: unknown,
   parentAlias: string
 ): Sql {
@@ -97,11 +97,12 @@ export function buildPolymorphicCollectionRead(
     adapter.expressions.cast(adapter.literals.value(value), "text");
 
   const arms: [string, Sql][] = [];
-  for (const [publicType, member] of relation.storage.members) {
+  for (const member of relation.edge.members) {
+    const publicType = member.variant;
     // Alias spend order is SQL bytes: the two junction aliases are taken here,
     // in the member loop, exactly as the row-held builder takes its target
     // alias — before any nested selection or nested where of this arm.
-    const membership = polymorphicMemberMembership(member, "owner");
+    const membership = polymorphicMemberMembership(member.topology, "owner");
     const traversal = buildMembershipJunctionTraversal(
       scope,
       () => membership,
@@ -127,7 +128,7 @@ export function buildPolymorphicCollectionRead(
       ? buildVisibleArmRows(
           buildNestedSelection,
           scope,
-          member.targetModel,
+          member.topology.target.model,
           selection.variants?.[publicType],
           publicType,
           traversal

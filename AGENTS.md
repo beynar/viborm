@@ -30,8 +30,8 @@ These constraints shaped every architectural decision. When you wonder "why is t
 | **L1: Validation** | `src/validation/` | v.* primitives, Standard Schema V1, `SchemaRegistry` operation schemas | Scalar logic, domain rules | [validation/AGENTS.md](src/validation/AGENTS.md) |
 | **L2: Scalars** | `src/schema/scalars/`, `src/schema/field-ref.ts`, `src/schema/hydration.ts` | Scalar classes, State generics, base scalar schemas, runtime schema metadata | Operation schemas | [schema/scalars/AGENTS.md](src/schema/scalars/AGENTS.md) |
 | **L3: Operation Schemas** | `src/validation/model/`, `src/validation/relations/` | where, create, update, args schemas | SQL generation | — |
-| **L4: Relations** | `src/schema/relation/` | Relation types, relation state, source binding | Query execution | [schema/relation/AGENTS.md](src/schema/relation/AGENTS.md) |
-| **L5: Schema Validation** | `src/schema/validation/` | Definition-time validation | Runtime validation | — |
+| **L4: Relations** | `src/schema/relation/` | The two factories, the declaration state, the terminal capability surfaces | Pairing, ownership, query execution | [schema/relation/AGENTS.md](src/schema/relation/AGENTS.md) |
+| **L5: Schema Validation** | `src/schema/validation/` | Definition-time validation; the ONE schema-wide relation topology owner (`relation-resolution.ts`) | Runtime validation | — |
 | **L6: Query Engine** | `src/query-engine/` | Query structure, logic | **Database SQL** | [query-engine/AGENTS.md](src/query-engine/AGENTS.md) |
 | **L7: Adapters** | `src/adapters/` | **Database-specific SQL** | Query logic | [adapters/AGENTS.md](src/adapters/AGENTS.md) |
 | **L8: Drivers** | `src/drivers/` | Connection, execution | Query building | — |
@@ -40,13 +40,33 @@ These constraints shaped every architectural decision. When you wonder "why is t
 | **L11: Instrumentation** | `src/instrumentation/` | Tracing, logging | Query logic | [instrumentation/AGENTS.md](src/instrumentation/AGENTS.md) |
 | **L12: Migrations** | `src/migrations/` | Schema sync, migration files, DDL | Schema definition | [migrations/AGENTS.md](src/migrations/AGENTS.md) |
 
-**One stored topology, several derived views.** A relation is DECLARED once, at
-L4, and every layer above reads a DERIVED view of that one declaration through
-the single owner of that view — cardinality
-(`@schema/relation/cardinality`), clearability (`@schema/relation/clearability`),
-and, inside L6, the bound membership `bindRelation` returns. No layer stores a
-second copy of a topology fact, and no consumer re-derives one inline. When a
-question about an edge has an answer, it has exactly one place that answers it.
+**Two declared facts, everything else derived.** A relation declaration states
+exactly two things at L4: the SLOT CARDINALITY its factory was spelled with
+(`s.toOne` / `s.toMany`) and the TARGET DOMAIN its argument names (one model, or
+a map of named variants). Who its partner is, which endpoint owns the foreign
+key, whether storage is a row reference or a junction, whether that storage is
+unique, and whether a singular slot may be empty are DERIVED once per schema by
+L5's `relation-resolution.ts`, which publishes a `ResolvedRelationIndex`: one
+contextual `ResolvedSlot` per (model, field). Every layer above threads that same
+index by identity and reads the view it needs — clearability
+(`@schema/relation/clearability`), and inside L6 the bound membership. No layer
+stores a second copy of a topology fact, no consumer rescans for an inverse, and
+no consumer invokes a raw target getter. When a question about an edge has an
+answer, it has exactly one place that answers it.
+
+**What that replaced.** These concepts are gone and must not come back under any
+spelling: six cardinality-named relation factories; a declared four-way relation
+type discriminant; a separate polymorphic relation field category with its own
+model map; standalone pairing-name registries and consumer-side inverse scans; a
+mutable relation source and `setSource()`; every inverse precedence ladder and
+first-candidate fallback; ownerless warning-only edges; relation `.unique()`;
+ordinary relation `.optional()`; partial foreign-key state admitted as a
+relation, including zero-argument `.fields()`; junction `.A()` / `.B()`; parallel
+variant target/value/through maps; the model-owned variant storage map and its
+accessors; the query-scope polymorphic caches and `RelationInfo` facades;
+synthetic carrier relations. There is no compatibility alias for any of them —
+[docs/architecture/global-relation-cardinality-plan.md](docs/architecture/global-relation-cardinality-plan.md)
+is the record of why.
 
 ---
 
@@ -58,7 +78,7 @@ Use these terms precisely:
 |------|---------|----------|
 | **Field** | Umbrella model member. A model field is either a scalar or a relation. | `ModelShape = Record<string, Scalar \| AnyRelation>` |
 | **Scalar** | Primitive/value field that maps to a column or column-like value. | `s.string()`, `s.int()`, `s.dateTime()`, `StringScalar` |
-| **Relation** | Association field between models. | `s.manyToOne(() => user)`, `s.oneToMany(() => post)` |
+| **Relation** | Association field between models. | `s.toOne(() => user)`, `s.toMany(() => post)` |
 
 `field` is correct when code or docs talk about model keys, selection fields,
 foreign-key fields, compound fields, or the public relation `.fields()` API.
@@ -113,10 +133,11 @@ Relations use thunks `() => Model` to break circular dependencies:
 ```typescript
 // User references Post, Post references User
 const user = s.model({
-  posts: s.oneToMany(() => post),  // Thunk defers evaluation
+  posts: s.toMany(() => post),  // Thunk defers evaluation
 });
 const post = s.model({
-  author: s.manyToOne(() => user),
+  authorId: s.string(),
+  author: s.toOne(() => user).fields("authorId").references("id"),
 });
 ```
 
@@ -413,13 +434,13 @@ import { s } from "viborm";
 const user = s.model({
   id: s.string().id().ulid(),
   email: s.string().unique(),
-  posts: s.oneToMany(() => post),
+  posts: s.toMany(() => post),
 });
 
 const post = s.model({
   id: s.string().id().ulid(),
   authorId: s.string(),
-  author: s.manyToOne(() => user).fields("authorId").references("id"),
+  author: s.toOne(() => user).fields("authorId").references("id"),
 });
 
 // 2. Query with full type safety (L9 → L6 → L7 → L8)

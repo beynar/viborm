@@ -12,10 +12,10 @@ const compoundJunctionProviderSchema = (() => {
       slug: s.string(),
       name: s.string(),
       books: s
-        .manyToMany(() => book)
+        .toMany(() => book)
         .through("provider_compound_author_book")
-        .A("author")
-        .B("book")
+        .source("author")
+        .target("book")
         .onDelete("cascade")
         .onUpdate("cascade"),
     })
@@ -27,13 +27,10 @@ const compoundJunctionProviderSchema = (() => {
       region: s.string(),
       code: s.string(),
       title: s.string(),
-      authors: s
-        .manyToMany(() => author)
-        .through("provider_compound_author_book")
-        .A("book")
-        .B("author")
-        .onDelete("cascade")
-        .onUpdate("cascade"),
+      // §6.6/D2: `author.books` above owns every override for this junction and
+      // this side reads the mirrored view — the same table, the same two
+      // tokens, the same actions. Restating them is a second owner (R011).
+      authors: s.toMany(() => author),
     })
     .id(["region", "code"])
     .map("provider_compound_books");

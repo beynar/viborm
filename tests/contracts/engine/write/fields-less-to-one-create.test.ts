@@ -8,7 +8,7 @@ import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { describe, expect, test } from "vitest";
 
 /**
- * A fields-less `manyToOne` is child-held topology: the target's physical
+ * A fields-less `toOne` is child-held topology: the target's physical
  * back-reference owns its membership. Fresh create supports the same single
  * operations as other child-held to-one relations. Validation owns operation
  * arity and omission of the engine-supplied FK. Compound referenced identities
@@ -20,11 +20,13 @@ import { describe, expect, test } from "vitest";
 // =============================================================================
 
 /**
- * `desk.tag` is the shape: `manyToOne` with no `.fields()`. `tag.desk` (the sole to-one
- * back-reference from `tag` to `desk`) carries the columns, so the resolved edge is
- * `tag.deskId → desk.id` — child-held, and NOT unique, which is why this leg is the one
- * where unchecked operation arity could write two rows. `desk.tags` / `tag.desks` satisfy
- * the inverse-pairing rules (R003/R004) for that spelling.
+ * `desk.tag` is the shape: a `toOne` with no `.fields()`. `tag.desk` — the paired
+ * to-one back-reference — carries the columns, so the resolved edge is
+ * `tag.deskId → desk.id`, child-held. The extra `desk.tags` / `tag.desks` pair is
+ * GONE: it existed only to satisfy the old inverse-pairing ladder for the
+ * `manyToOne` spelling, and two unnamed pairs between the same models are now
+ * ambiguous (R009). Two paired to-one slots derive the unique the edge implies
+ * (§9.4), which is why every desk below claims its own tag.
  *
  * `desk.pins` is the to-many control on the same parent: it must keep composing several
  * kinds.
@@ -33,9 +35,8 @@ const desk = s
   .model({
     id: s.int().id(),
     label: s.string(),
-    tag: s.manyToOne(() => tag).optional(),
-    tags: s.oneToMany(() => tag),
-    pins: s.oneToMany(() => pin),
+    tag: s.toOne(() => tag),
+    pins: s.toMany(() => pin),
   })
   .map("e4u1_desks");
 
@@ -45,11 +46,9 @@ const tag = s
     code: s.string(),
     deskId: s.int().nullable(),
     desk: s
-      .manyToOne(() => desk)
+      .toOne(() => desk)
       .fields("deskId")
-      .references("id")
-      .optional(),
-    desks: s.oneToMany(() => desk),
+      .references("id"),
   })
   .map("e4u1_tags");
 
@@ -59,15 +58,14 @@ const pin = s
     body: s.string(),
     deskId: s.int().nullable(),
     desk: s
-      .manyToOne(() => desk)
+      .toOne(() => desk)
       .fields("deskId")
-      .references("id")
-      .optional(),
+      .references("id"),
   })
   .map("e4u1_pins");
 
 /**
- * The COMPOUND twin of `desk.tag`: same fields-less `manyToOne` spelling, but the
+ * The COMPOUND twin of `desk.tag`: the same fields-less `toOne` spelling, but the
  * resolved edge references a two-column unique. `edgeParentId` (E4-U2's site) still
  * refuses the adopt kinds on it.
  */
@@ -76,8 +74,7 @@ const bay = s
     id: s.int().id(),
     region: s.string(),
     zone: s.string(),
-    slot: s.manyToOne(() => slot).optional(),
-    slots: s.oneToMany(() => slot),
+    slot: s.toOne(() => slot),
   })
   .map("e4u1_bays")
   .unique(["region", "zone"]);
@@ -89,24 +86,24 @@ const slot = s
     bayRegion: s.string().nullable(),
     bayZone: s.string().nullable(),
     bay: s
-      .manyToOne(() => bay)
+      .toOne(() => bay)
       .fields("bayRegion", "bayZone")
-      .references("region", "zone")
-      .optional(),
-    bays: s.oneToMany(() => bay),
+      .references("region", "zone"),
   })
   .map("e4u1_slots");
 
 /**
- * The no-inverse edge: `crate.holder` is a `manyToOne` with no `.fields()`, and `holder`
- * carries no physical back-reference to `crate`. Bound topology has nothing to
- * resolve and fails with the relation metadata error.
+ * The OWNERLESS edge, kept OUT of the client schema below: `crate.holder` and
+ * `holder.crates` pair, but neither completes `.fields(...).references(...)`, so
+ * no row stores the membership. The engine used to meet this at bind time; §9.4
+ * makes an ownerless ordinary relation a definition error, so it never reaches a
+ * client at all — which is what "what still refuses" asserts now.
  */
 const crate = s
   .model({
     id: s.int().id(),
     name: s.string(),
-    holder: s.manyToOne(() => holder).optional(),
+    holder: s.toOne(() => holder),
   })
   .map("e4u1_crates");
 
@@ -114,20 +111,20 @@ const holder = s
   .model({
     id: s.int().id(),
     name: s.string(),
-    crates: s.oneToMany(() => crate),
+    crates: s.toMany(() => crate),
   })
   .map("e4u1_holders");
 
 /**
- * The inverse-scanner alignment schema: `author.books` carries
- * `.name("writer")`, and `book.author` — the only relation on `book` pointing back at
- * `author` — carries no name. Both scanners now read a sole back-reference as THE edge.
+ * The named pair: `author.books` and `book.author` both claim `"writer"`. It was
+ * one-sided until the exact-label partition made a one-sided name a mismatch
+ * (R010); §9.1 copies the name to the resolved partner rather than dropping it.
  */
 const author = s
   .model({
     id: s.int().id(),
     name: s.string(),
-    books: s.oneToMany(() => book).name("writer"),
+    books: s.toMany(() => book).name("writer"),
   })
   .map("e4u1_authors");
 
@@ -137,14 +134,14 @@ const book = s
     title: s.string(),
     authorId: s.int().nullable(),
     author: s
-      .manyToOne(() => author)
+      .toOne(() => author)
       .fields("authorId")
       .references("id")
-      .optional(),
+      .name("writer"),
   })
   .map("e4u1_books");
 
-const schema = { desk, tag, pin, bay, slot, crate, holder, author, book };
+const schema = { desk, tag, pin, bay, slot, author, book };
 
 async function setup(driver: PGliteDriver) {
   const client = createClient({ schema, driver });
@@ -168,7 +165,7 @@ const substrates = [
 // =============================================================================
 
 for (const substrate of substrates) {
-  describe(`E4-U1 fields-less manyToOne under a create root (${substrate.name})`, () => {
+  describe(`E4-U1 fields-less toOne under a create root (${substrate.name})`, () => {
     test("create / connect / connectOrCreate each write exactly their own row", async () => {
       const client = await setup(substrate.make());
       try {
@@ -329,8 +326,8 @@ describe("fields-less to-one validation", () => {
         })
       ).rejects.toThrow(ValidationError);
 
-      // The name-mismatched sole back-reference resolves the same way on both scanners:
-      // `author.books` is named, `book.author` is not, and the edge still works.
+      // The same refusal on the NAMED pair: `author.books` and `book.author` both
+      // claim "writer", the edge works, and its owned key is still not spellable.
       await client.author.create({
         data: { id: 1, name: "w", books: { create: { id: 1, title: "t" } } },
       });
@@ -357,21 +354,14 @@ describe("fields-less to-one validation", () => {
 // =============================================================================
 
 describe("E4-U1 what still refuses", () => {
-  test("a no-inverse edge fails at bound topology resolution", async () => {
-    const client = await setup(new PGliteDriver({ client: new PGlite() }));
-    try {
-      await expect(
-        client.crate.create({
-          data: { id: 1, name: "c", holder: { create: { id: 1, name: "h" } } },
-        })
-      ).rejects.toThrow(
-        "Cannot determine FK fields for relation 'holder'. Define the inverse relation with .fields([...]) or use explicit FK fields."
-      );
-      await expect(client.holder.findMany()).resolves.toEqual([]);
-    } finally {
-      await client.$disconnect();
-    }
-  }, 30_000);
+  test("an ownerless edge never reaches a client", () => {
+    expect(() =>
+      createClient({
+        schema: { crate, holder },
+        driver: new PGliteDriver({ client: new PGlite() }),
+      })
+    ).toThrow("[FK004]");
+  });
 
   // DELIBERATE RETARGET (E4 merge): this test pinned "the compound fields-less edge
   // keeps E4-U2's arity refusal on the adopt kinds" — true at U1's commit, where it

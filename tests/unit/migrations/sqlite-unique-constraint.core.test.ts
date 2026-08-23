@@ -48,7 +48,7 @@ import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
 // --- schemas ---------------------------------------------------------------
 
 const plainUser = s
-  .model({ id: s.string().id(), posts: s.oneToMany(() => plainPost) })
+  .model({ id: s.string().id(), posts: s.toMany(() => plainPost) })
   .map("uq_users");
 
 const plainPost = s
@@ -58,14 +58,14 @@ const plainPost = s
     slug: s.string(),
     tenant: s.string(),
     author: s
-      .manyToOne(() => plainUser)
+      .toOne(() => plainUser)
       .fields("authorId")
       .references("id"),
   })
   .map("uq_posts");
 
 const uniqueUser = s
-  .model({ id: s.string().id(), posts: s.oneToMany(() => uniquePost) })
+  .model({ id: s.string().id(), posts: s.toMany(() => uniquePost) })
   .map("uq_users");
 
 const uniquePost = s
@@ -75,7 +75,7 @@ const uniquePost = s
     slug: s.string(),
     tenant: s.string(),
     author: s
-      .manyToOne(() => uniqueUser)
+      .toOne(() => uniqueUser)
       .fields("authorId")
       .references("id"),
   })

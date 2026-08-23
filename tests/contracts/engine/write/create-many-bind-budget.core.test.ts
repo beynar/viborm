@@ -28,15 +28,14 @@ const entry = s
 const collection = s
   .model({
     id: s.string().id(),
-    tags: s.manyToMany(() => tag).through("create_many_bind_collection_tags"),
+    tags: s.toMany(() => tag).through("create_many_bind_collection_tags"),
   })
   .map("create_many_bind_collections");
 const tag = s
   .model({
     id: s.string().id(),
-    collections: s
-      .manyToMany(() => collection)
-      .through("create_many_bind_collection_tags"),
+    // ONE endpoint owns every junction override (§4.4, R011).
+    collections: s.toMany(() => collection),
   })
   .map("create_many_bind_tags");
 const schema = { entry, collection, tag };
@@ -46,7 +45,7 @@ const compoundSchema = (() => {
     .model({
       region: s.string(),
       code: s.string(),
-      children: s.oneToMany(() => child),
+      children: s.toMany(() => child),
     })
     .id(["region", "code"])
     .map("create_many_bind_parents");
@@ -56,7 +55,7 @@ const compoundSchema = (() => {
       parentRegion: s.string(),
       parentCode: s.string(),
       parent: s
-        .manyToOne(() => parent)
+        .toOne(() => parent)
         .fields("parentRegion", "parentCode")
         .references("region", "code"),
     })
@@ -69,7 +68,7 @@ const scratchSchema = (() => {
     .model({
       id: s.int().id().increment(),
       label: s.string(),
-      children: s.oneToMany(() => child),
+      children: s.toMany(() => child),
     })
     .map("bind_scratch_parents");
   const child = s
@@ -77,7 +76,7 @@ const scratchSchema = (() => {
       id: s.int().id().increment(),
       parentId: s.int(),
       parent: s
-        .manyToOne(() => parent)
+        .toOne(() => parent)
         .fields("parentId")
         .references("id"),
     })
@@ -199,7 +198,7 @@ describe("createMany bind-budget chunking", () => {
 
   test("budgets the compiled SQL values and chooses the largest fitting prefix", () => {
     const queryEngine = engine(5);
-    const ctx = createQueryScope(queryEngine.adapter, entry);
+    const ctx = createQueryScope(queryEngine, entry);
     const plan = buildCreateManyPlan(
       ctx,
       {
@@ -259,7 +258,7 @@ describe("createMany bind-budget chunking", () => {
   test("compound tuples and input ordinals stay whole across a chunk boundary", () => {
     const queryEngine = engine(4);
     const plan = buildCreateManyPlan(
-      createQueryScope(queryEngine.adapter, entry),
+      createQueryScope(queryEngine, entry),
       {
         data: [
           { tenantId: "t1", slot: "s1" },
@@ -327,7 +326,7 @@ describe("createMany bind-budget chunking", () => {
   test("an indivisible over-budget row stays one statement for final enforcement", () => {
     const queryEngine = engine(2);
     const plan = buildCreateManyPlan(
-      createQueryScope(queryEngine.adapter, entry),
+      createQueryScope(queryEngine, entry),
       { data: [{ tenantId: "t1", slot: "s1", label: "one" }] },
       false,
       undefined,

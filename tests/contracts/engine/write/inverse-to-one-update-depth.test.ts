@@ -64,7 +64,7 @@ const inverseDepthSchema = (() => {
     .model({
       id: s.string().id(),
       name: s.string(),
-      profile: s.oneToOne(() => profile).optional(),
+      profile: s.toOne(() => profile),
     })
     .map("e2u1_users");
   const profile = s
@@ -74,12 +74,11 @@ const inverseDepthSchema = (() => {
       // `.unique()` is structural for a 1:1 (FK008 refuses to define one without it).
       userId: s.string().unique().nullable(),
       user: s
-        .oneToOne(() => user)
+        .toOne(() => user)
         .fields("userId")
-        .references("id")
-        .optional(),
-      notes: s.oneToMany(() => note),
-      labels: s.manyToMany(() => label),
+        .references("id"),
+      notes: s.toMany(() => note),
+      labels: s.toMany(() => label),
     })
     .map("e2u1_profiles");
   const note = s
@@ -88,10 +87,10 @@ const inverseDepthSchema = (() => {
       text: s.string(),
       profileId: s.string(),
       profile: s
-        .manyToOne(() => profile)
+        .toOne(() => profile)
         .fields("profileId")
         .references("id"),
-      attachments: s.oneToMany(() => attachment),
+      attachments: s.toMany(() => attachment),
     })
     .map("e2u1_notes");
   const attachment = s
@@ -100,7 +99,7 @@ const inverseDepthSchema = (() => {
       name: s.string(),
       noteId: s.string(),
       note: s
-        .manyToOne(() => note)
+        .toOne(() => note)
         .fields("noteId")
         .references("id"),
     })
@@ -109,7 +108,7 @@ const inverseDepthSchema = (() => {
     .model({
       id: s.string().id(),
       name: s.string(),
-      profiles: s.manyToMany(() => profile),
+      profiles: s.toMany(() => profile),
     })
     .map("e2u1_labels");
   return { user, profile, note, attachment, label };

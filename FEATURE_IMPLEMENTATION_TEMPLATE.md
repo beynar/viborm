@@ -624,13 +624,13 @@ The query engine must NEVER contain hardcoded SQL or database-specific syntax. A
 
 ```typescript
 // ❌ BAD: Hardcoded SQL in query-engine builder
-function buildIncludeSubquery(ctx: QueryContext, relation: RelationInfo): Sql {
+function buildIncludeSubquery(ctx: QueryContext, relation: ResolvedSlot): Sql {
   // PostgreSQL-specific syntax!
   return sql`COALESCE(json_agg(row_to_json(${alias}.*)), '[]')`;
 }
 
 // ❌ BAD: Conditional SQL based on dialect in query-engine
-function buildIncludeSubquery(ctx: QueryContext, relation: RelationInfo): Sql {
+function buildIncludeSubquery(ctx: QueryContext, relation: ResolvedSlot): Sql {
   if (ctx.adapter.dialect === "postgres") {
     return sql`json_agg(...)`;
   } else if (ctx.adapter.dialect === "mysql") {
@@ -639,7 +639,7 @@ function buildIncludeSubquery(ctx: QueryContext, relation: RelationInfo): Sql {
 }
 
 // ✅ GOOD: Delegate to adapter
-function buildIncludeSubquery(ctx: QueryContext, relation: RelationInfo): Sql {
+function buildIncludeSubquery(ctx: QueryContext, relation: ResolvedSlot): Sql {
   const subquery = buildRelationQuery(ctx, relation);
   return ctx.adapter.jsonAggregate(subquery, { coalesce: true });
 }

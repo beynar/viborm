@@ -33,8 +33,8 @@ import type { QueryParts } from "@adapters";
 import { getColumnName } from "@schema/model";
 import { Sql, sql } from "@sql";
 import { buildSelectWithAliases } from "../builders/select-builder";
-import { getPolymorphicRelationInfo, getScalarFieldNames } from "../context";
-import type { QueryScope } from "../types";
+import { getScalarFieldNames, variantCarrier } from "../context";
+import { isVariantRowCarrier, type QueryScope } from "../types";
 import {
   isOperationValueReference,
   statementHasReferences,
@@ -72,7 +72,7 @@ function returningEveryColumn(
   const columns = getScalarFieldNames(ctx.model).map((field) =>
     ctx.adapter.identifiers.escape(getColumnName(ctx.model, field))
   );
-  for (const relationName of ctx.model["~"].polymorphicRelationNames) {
+  for (const relationName of ctx.model["~"].relationNames) {
     const selected = select?.[relationName];
     const included = include?.[relationName];
     if (
@@ -81,13 +81,14 @@ function returningEveryColumn(
     ) {
       continue;
     }
-    const relation = getPolymorphicRelationInfo(ctx, relationName);
-    if (!relation) continue;
+    const relation = variantCarrier(ctx, relationName);
     // A COLLECTION key contributes no private columns: its membership lives in
     // member junction tables, not on the mutated row, so the CTE has nothing to
-    // carry for it and the outer projection reads the junctions directly.
-    const { storage } = relation;
-    if (storage.kind !== "toOne") continue;
+    // carry for it and the outer projection reads the junctions directly. An
+    // ordinary key contributes none either — its foreign key is already a
+    // declared scalar above.
+    if (!(relation && isVariantRowCarrier(relation))) continue;
+    const { storage } = relation.edge;
     columns.push(
       ctx.adapter.identifiers.escape(storage.typeColumn.name),
       ctx.adapter.identifiers.escape(storage.idColumn.name)

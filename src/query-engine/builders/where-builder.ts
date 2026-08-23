@@ -17,17 +17,16 @@ import { isSql, type Sql, sql } from "@sql";
 import {
   createChildScope,
   getColumnName,
-  getPolymorphicRelationInfo,
-  getRelationInfo,
-  isPolymorphicRelation,
-  isRelation,
   isScalarField,
+  isVariantRelation,
+  lookupRelation,
+  variantCarrier,
 } from "../context";
 import {
-  isPolymorphicToOneRelationInfo,
+  isVariantRowCarrier,
   QueryEngineError,
   type QueryScope,
-  type RelationInfo,
+  type RelationRef,
 } from "../types";
 import { assertExactDecimalOperation } from "./decimal-portability";
 import { buildJsonFilter } from "./json-filter-builder";
@@ -105,15 +104,16 @@ export function buildWhere(
       continue;
     }
 
-    // Handle relation filters
-    if (isRelation(ctx.model, key)) {
-      const relationInfo = getRelationInfo(ctx, key);
-      if (!relationInfo) {
-        throw new QueryEngineError(`Unknown relation '${key}'.`);
-      }
+    // Handle relation filters. ONE relation map, partitioned by what the key
+    // ADDRESSES: `lookupRelation` answers for every slot that reaches a single
+    // model — an ordinary pair, or a bound inverse view of one carrier member —
+    // and answers `undefined` for a direct carrier, which the variant arm below
+    // owns.
+    const relationRef = lookupRelation(ctx, key);
+    if (relationRef) {
       const relationCondition = buildRelationFilter(
         ctx,
-        relationInfo,
+        relationRef,
         value as Record<string, unknown>,
         alias
       );
@@ -123,8 +123,8 @@ export function buildWhere(
       continue;
     }
 
-    if (isPolymorphicRelation(ctx.model, key)) {
-      const relation = getPolymorphicRelationInfo(ctx, key);
+    if (isVariantRelation(ctx, key)) {
+      const relation = variantCarrier(ctx, key);
       if (!relation) {
         throw new QueryEngineError(
           `Polymorphic relation '${key}' has no validated storage metadata.`
@@ -135,7 +135,7 @@ export function buildWhere(
       // ordinary quantifiers over one tagged member predicate and has no null
       // state at all.
       conditions.push(
-        isPolymorphicToOneRelationInfo(relation)
+        isVariantRowCarrier(relation)
           ? buildPolymorphicFilterSql(
               buildNestedWhere,
               ctx,
@@ -170,7 +170,7 @@ const buildNestedWhere: BuildNestedWhere = (ctx, where) =>
 /** Build a relation predicate while preserving the public advanced API. */
 export function buildRelationFilter(
   ctx: QueryScope,
-  relationInfo: RelationInfo,
+  relationRef: RelationRef,
   filter: Record<string, unknown>,
   parentAlias: string
 ): Sql | undefined {
@@ -181,7 +181,7 @@ export function buildRelationFilter(
   return buildRelationFilterSql(
     buildNestedWhere,
     parentScope,
-    relationInfo,
+    relationRef,
     filter
   );
 }

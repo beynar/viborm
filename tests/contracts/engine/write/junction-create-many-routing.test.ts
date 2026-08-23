@@ -9,7 +9,7 @@ const rowLocalSkipSchema = (() => {
   const collection = s
     .model({
       id: s.string().id(),
-      entries: s.manyToMany(() => entry).through("f1_collection_entry"),
+      entries: s.toMany(() => entry).through("f1_collection_entry"),
     })
     .map("f1_collections");
   const entry = s
@@ -21,17 +21,15 @@ const rowLocalSkipSchema = (() => {
       label: s.string(),
       parentId: s.int().nullable(),
       parent: s
-        .manyToOne(() => entry)
+        .toOne(() => entry)
         .fields("parentId")
         .references("id")
-        .optional()
         .name("tree"),
-      children: s.oneToMany(() => entry).name("tree"),
-      collections: s
-        .manyToMany(() => collection)
-        .through("f1_collection_entry"),
-      details: s.oneToMany(() => detail),
-      tags: s.manyToMany(() => tag).through("f1_entry_tag"),
+      children: s.toMany(() => entry).name("tree"),
+      // One endpoint owns every junction override (R011).
+      collections: s.toMany(() => collection),
+      details: s.toMany(() => detail),
+      tags: s.toMany(() => tag).through("f1_entry_tag"),
     })
     .map("f1_entries");
   const detail = s
@@ -40,16 +38,16 @@ const rowLocalSkipSchema = (() => {
       body: s.string(),
       entryId: s.int().nullable(),
       entry: s
-        .manyToOne(() => entry)
+        .toOne(() => entry)
         .fields("entryId")
-        .references("id")
-        .optional(),
+        .references("id"),
     })
     .map("f1_details");
   const tag = s
     .model({
       id: s.string().id(),
-      entries: s.manyToMany(() => entry).through("f1_entry_tag"),
+      // One endpoint owns every junction override (R011).
+      entries: s.toMany(() => entry),
     })
     .map("f1_tags");
   return { collection, detail, entry, tag };
@@ -441,7 +439,7 @@ const mixedIndexSkipSchema = (() => {
   const collection = s
     .model({
       id: s.string().id(),
-      entries: s.manyToMany(() => entry).through("f1i_collection_entry"),
+      entries: s.toMany(() => entry).through("f1i_collection_entry"),
     })
     .map("f1i_collections");
   const entry = s
@@ -450,9 +448,8 @@ const mixedIndexSkipSchema = (() => {
       slug: s.string().unique(),
       token: s.string(),
       label: s.string(),
-      collections: s
-        .manyToMany(() => collection)
-        .through("f1i_collection_entry"),
+      // One endpoint owns every junction override (R011).
+      collections: s.toMany(() => collection),
     })
     .index(["token"], { unique: true, name: "f1i_entries_token_uq" })
     .map("f1i_entries");

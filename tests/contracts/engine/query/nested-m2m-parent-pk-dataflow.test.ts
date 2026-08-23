@@ -43,10 +43,10 @@ const owner = s
     id: s.int().id(),
     name: s.string(),
     tags: s
-      .manyToMany(() => tag)
+      .toMany(() => tag)
       .through("m2m_pk_owner_tags")
-      .A("owner_ref")
-      .B("tag_ref"),
+      .source("owner_ref")
+      .target("tag_ref"),
   })
   .map("m2m_pk_owners");
 
@@ -54,7 +54,7 @@ const tag = s
   .model({
     id: s.int().id(),
     code: s.string().unique(),
-    owners: s.manyToMany(() => owner),
+    owners: s.toMany(() => owner),
   })
   .map("m2m_pk_tags");
 

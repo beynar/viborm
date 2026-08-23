@@ -22,8 +22,8 @@ const author = s
   .model({
     id: s.string().id(),
     name: s.string(),
-    posts: s.oneToMany(() => post),
-    tags: s.manyToMany(() => tag),
+    posts: s.toMany(() => post),
+    tags: s.toMany(() => tag),
   })
   .map("nested_page_authors");
 
@@ -34,10 +34,9 @@ const post = s
     topic: s.string(),
     authorId: s.string().nullable(),
     author: s
-      .manyToOne(() => author)
+      .toOne(() => author)
       .fields("authorId")
-      .references("id")
-      .optional(),
+      .references("id"),
   })
   .map("nested_page_posts");
 
@@ -45,7 +44,7 @@ const tag = s
   .model({
     id: s.string().id(),
     label: s.string(),
-    authors: s.manyToMany(() => author),
+    authors: s.toMany(() => author),
   })
   .map("nested_page_tags");
 
@@ -53,7 +52,7 @@ const shelf = s
   .model({
     id: s.string().id(),
     name: s.string(),
-    chapters: s.oneToMany(() => chapter),
+    chapters: s.toMany(() => chapter),
   })
   .map("nested_page_shelves");
 
@@ -64,10 +63,9 @@ const chapter = s
     page: s.int(),
     shelfId: s.string().nullable(),
     shelf: s
-      .manyToOne(() => shelf)
+      .toOne(() => shelf)
       .fields("shelfId")
-      .references("id")
-      .optional(),
+      .references("id"),
   })
   .unique(["volume", "page"])
   .map("nested_page_chapters");

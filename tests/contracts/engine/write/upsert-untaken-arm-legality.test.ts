@@ -35,7 +35,7 @@ const untakenArmSchema = (() => {
       id: s.string().id(),
       email: s.string().unique(),
       label: s.string().default("x"),
-      books: s.oneToMany(() => book),
+      books: s.toMany(() => book),
     })
     .map("e5u4_writers");
   const book = s
@@ -44,10 +44,10 @@ const untakenArmSchema = (() => {
       title: s.string(),
       writerId: s.string(),
       writer: s
-        .manyToOne(() => writer)
+        .toOne(() => writer)
         .fields("writerId")
         .references("id"),
-      pages: s.oneToMany(() => page),
+      pages: s.toMany(() => page),
     })
     .map("e5u4_books");
   const page = s
@@ -55,12 +55,12 @@ const untakenArmSchema = (() => {
       id: s.string().id(),
       bookId: s.string(),
       book: s
-        .manyToOne(() => book)
+        .toOne(() => book)
         .fields("bookId")
         .references("id"),
       tagId: s.string(),
       tag: s
-        .manyToOne(() => tag)
+        .toOne(() => tag)
         .fields("tagId")
         .references("id"),
     })
@@ -68,7 +68,7 @@ const untakenArmSchema = (() => {
   const tag = s
     .model({
       id: s.string().id(),
-      pages: s.oneToMany(() => page),
+      pages: s.toMany(() => page),
     })
     .map("e5u4_tags");
   return { writer, book, page, tag };

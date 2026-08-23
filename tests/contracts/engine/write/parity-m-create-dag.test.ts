@@ -66,9 +66,9 @@ const paritySchema = (() => {
       name: s.string(),
       /** Shape A's consumer: an APPLICATION-supplied key, so this arm leaves the
        *  database nothing to assign and the ordering conjunct passes. */
-      spans: s.oneToMany(() => span),
+      spans: s.toMany(() => span),
       /** Shape B's middle link: a SECOND database-assigned key. */
-      cells: s.oneToMany(() => cell),
+      cells: s.toMany(() => cell),
     })
     .map("parity_m_hubs");
   const span = s
@@ -76,10 +76,9 @@ const paritySchema = (() => {
       id: s.string().id(),
       hubId: s.int().nullable(),
       hub: s
-        .manyToOne(() => hub)
+        .toOne(() => hub)
         .fields("hubId")
-        .references("id")
-        .optional(),
+        .references("id"),
     })
     .map("parity_m_spans");
   const cell = s
@@ -87,11 +86,10 @@ const paritySchema = (() => {
       id: s.int().id().increment(),
       hubId: s.int().nullable(),
       hub: s
-        .manyToOne(() => hub)
+        .toOne(() => hub)
         .fields("hubId")
-        .references("id")
-        .optional(),
-      leaves: s.oneToMany(() => leaf),
+        .references("id"),
+      leaves: s.toMany(() => leaf),
     })
     .map("parity_m_cells");
   const leaf = s
@@ -99,10 +97,9 @@ const paritySchema = (() => {
       id: s.string().id(),
       cellId: s.int().nullable(),
       cell: s
-        .manyToOne(() => cell)
+        .toOne(() => cell)
         .fields("cellId")
-        .references("id")
-        .optional(),
+        .references("id"),
     })
     .map("parity_m_leaves");
   /** Shape C: a COMPOUND identity whose members the caller spells. */
@@ -110,7 +107,7 @@ const paritySchema = (() => {
     .model({
       region: s.string(),
       code: s.string(),
-      crates: s.oneToMany(() => crate),
+      crates: s.toMany(() => crate),
     })
     .id(["region", "code"])
     .map("parity_m_depots");
@@ -120,10 +117,9 @@ const paritySchema = (() => {
       depotRegion: s.string().nullable(),
       depotCode: s.string().nullable(),
       depot: s
-        .manyToOne(() => depot)
+        .toOne(() => depot)
         .fields("depotRegion", "depotCode")
-        .references("region", "code")
-        .optional(),
+        .references("region", "code"),
     })
     .map("parity_m_crates");
   return { hub, span, cell, leaf, depot, crate };

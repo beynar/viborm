@@ -4,15 +4,16 @@ import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { buildOrderByParts } from "@query-engine/builders/orderby-builder";
 import { buildSelectWithAliases } from "@query-engine/builders/select-builder";
 import { buildWhere } from "@query-engine/builders/where-builder";
-import { createQueryScope } from "@query-engine/context";
-import { hydrateSchemaNames, s } from "@schema";
-import { validateSchemaOrThrow } from "@schema/validation";
+import { s } from "@schema";
+import { prepareSchema, scopeFor } from "@tests/fixtures/query-scope";
 import { beforeAll, describe, expect, test } from "vitest";
 
 const post = s.model({
   id: s.string().id().map("post_pk"),
-  comments: s.oneToMany(() => comment),
-  notes: s.oneToMany(() => note),
+  comments: s.toMany(() => comment),
+  // NAMED so the ordinary pair partitions away from the variant member that
+  // also points back here (§6.2 rule 3).
+  notes: s.toMany(() => note).name("notePost"),
 });
 
 const video = s.model({
@@ -22,7 +23,7 @@ const video = s.model({
 const comment = s.model({
   id: s.string().id(),
   body: s.string(),
-  subject: s.polymorphicToOne(
+  subject: s.toOne(
     { post: () => post, video: () => video },
     {
       values: {
@@ -37,12 +38,13 @@ const note = s.model({
   id: s.string().id(),
   postId: s.string().map("post_fk"),
   post: s
-    .manyToOne(() => post)
+    .toOne(() => post)
+    .name("notePost")
     .fields("postId")
     .references("id"),
   // Coexists with the ordinary post relation. The unnamed `post.notes` inverse
   // must keep using postId, not silently adopt these private columns.
-  subject: s.polymorphicToOne(
+  subject: s.toOne(
     { post: () => post, video: () => video },
     {
       values: {
@@ -55,17 +57,14 @@ const note = s.model({
 
 const singularPost = s.model({
   id: s.string().id().map("post_pk"),
-  featuredComment: s
-    .oneToOne(() => singularComment)
-    .name("featuredCommentable")
-    .optional(),
+  featuredComment: s.toOne(() => singularComment).name("featuredCommentable"),
 });
 const singularVideo = s.model({ id: s.string().id() });
 const singularComment = s.model({
   id: s.string().id(),
   body: s.string(),
   commentable: s
-    .polymorphicToOne({ post: () => singularPost, video: () => singularVideo })
+    .toOne({ post: () => singularPost, video: () => singularVideo })
     .name("featuredCommentable")
     .optional(),
 });
@@ -82,19 +81,19 @@ const singularComment = s.model({
 const article = s.model({
   id: s.string().id(),
   title: s.string(),
-  gallery: s.manyToOne(() => gallery).optional(),
+  gallery: s.toOne(() => gallery),
 });
 
 const clip = s.model({
   id: s.string().id(),
   seconds: s.int(),
-  galleries: s.manyToMany(() => gallery),
+  galleries: s.toMany(() => gallery),
 });
 
 const gallery = s.model({
   id: s.string().id(),
   name: s.string(),
-  items: s.polymorphicToMany(
+  items: s.toMany(
     { article: () => article, clip: () => clip },
     { values: { article: "inv.article.v1", clip: "inv.clip.v1" } }
   ),
@@ -112,10 +111,8 @@ beforeAll(() => {
     singularVideo,
     singularComment,
   };
-  hydrateSchemaNames(schema);
-  validateSchemaOrThrow(schema);
-  hydrateSchemaNames(collectionSchema);
-  validateSchemaOrThrow(collectionSchema);
+  prepareSchema(schema);
+  prepareSchema(collectionSchema);
 });
 
 const EXPECTED_INVERSE_CORRELATION =
@@ -128,7 +125,7 @@ const TO_MANY_FILTER_OPERATORS: readonly ("some" | "every" | "none")[] = [
 
 describe("polymorphic inverse read correlation", () => {
   test("keeps the PostgreSQL to-many include on the LATERAL path", () => {
-    const scope = createQueryScope(new PostgresAdapter(), post);
+    const scope = scopeFor(new PostgresAdapter(), post);
     const projection = buildSelectWithAliases(
       scope,
       undefined,
@@ -150,7 +147,7 @@ describe("polymorphic inverse read correlation", () => {
   });
 
   test("keeps the SQLite include on the correlated-subquery path", () => {
-    const scope = createQueryScope(new SQLiteAdapter(), post);
+    const scope = scopeFor(new SQLiteAdapter(), post);
     const projection = buildSelectWithAliases(
       scope,
       undefined,
@@ -170,7 +167,7 @@ describe("polymorphic inverse read correlation", () => {
   test.each(
     TO_MANY_FILTER_OPERATORS
   )("binds the %s filter to both private columns", (operator) => {
-    const scope = createQueryScope(new PostgresAdapter(), post);
+    const scope = scopeFor(new PostgresAdapter(), post);
     const condition = buildWhere(
       scope,
       {
@@ -190,7 +187,7 @@ describe("polymorphic inverse read correlation", () => {
   });
 
   test("binds relation count before its nested filter", () => {
-    const scope = createQueryScope(new PostgresAdapter(), post);
+    const scope = scopeFor(new PostgresAdapter(), post);
     const projection = buildSelectWithAliases(
       scope,
       {
@@ -216,7 +213,7 @@ describe("polymorphic inverse read correlation", () => {
   });
 
   test("uses exact discriminator equality on MySQL", () => {
-    const scope = createQueryScope(new MySQLAdapter(), post);
+    const scope = scopeFor(new MySQLAdapter(), post);
     const condition = buildWhere(
       scope,
       { comments: { some: { body: { equals: "matched" } } } },
@@ -236,7 +233,7 @@ describe("polymorphic inverse read correlation", () => {
   });
 
   test("leaves ordinary inverse correlation unchanged", () => {
-    const scope = createQueryScope(new PostgresAdapter(), post);
+    const scope = scopeFor(new PostgresAdapter(), post);
     const projection = buildSelectWithAliases(
       scope,
       undefined,
@@ -251,7 +248,7 @@ describe("polymorphic inverse read correlation", () => {
   });
 
   test("uses the same exact membership for a singular include and filter", () => {
-    const scope = createQueryScope(new PostgresAdapter(), singularPost);
+    const scope = scopeFor(new PostgresAdapter(), singularPost);
     const projection = buildSelectWithAliases(
       scope,
       undefined,
@@ -282,7 +279,7 @@ describe("polymorphic inverse read correlation", () => {
 
 describe("polymorphic collection inverse read SQL", () => {
   test("a singular inverse returns one row or null through the member junction", () => {
-    const scope = createQueryScope(new PostgresAdapter(), article);
+    const scope = scopeFor(new PostgresAdapter(), article);
     const statement = buildSelectWithAliases(
       scope,
       undefined,
@@ -301,7 +298,7 @@ describe("polymorphic collection inverse read SQL", () => {
   });
 
   test("a singular inverse refuses a duplicate membership BEFORE its LIMIT", () => {
-    const scope = createQueryScope(new PostgresAdapter(), article);
+    const scope = scopeFor(new PostgresAdapter(), article);
     const statement = buildSelectWithAliases(
       scope,
       undefined,
@@ -336,7 +333,7 @@ describe("polymorphic collection inverse read SQL", () => {
   });
 
   test("a plural inverse returns an ordinary array plus its orphan fact", () => {
-    const scope = createQueryScope(new PostgresAdapter(), clip);
+    const scope = scopeFor(new PostgresAdapter(), clip);
     const statement = buildSelectWithAliases(
       scope,
       undefined,
@@ -358,7 +355,7 @@ describe("polymorphic collection inverse read SQL", () => {
   });
 
   test("orders a parent through a singular inverse with TWO left joins", () => {
-    const scope = createQueryScope(new PostgresAdapter(), article);
+    const scope = scopeFor(new PostgresAdapter(), article);
     const parts = buildOrderByParts(
       scope,
       { gallery: { name: "asc" } },

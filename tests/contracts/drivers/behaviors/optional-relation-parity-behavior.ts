@@ -14,8 +14,8 @@ const MUTUALLY_EXCLUSIVE = /mutually exclusive/i;
 const user = s.model({
   id: s.string().id(),
   name: s.string(),
-  posts: s.oneToMany(() => post).name("author"),
-  editedPosts: s.oneToMany(() => post).name("editor"),
+  posts: s.toMany(() => post).name("author"),
+  editedPosts: s.toMany(() => post).name("editor"),
 });
 
 const post = s.model({
@@ -24,16 +24,14 @@ const post = s.model({
   authorId: s.string().nullable(),
   editorId: s.string().nullable(),
   author: s
-    .manyToOne(() => user)
+    .toOne(() => user)
     .fields("authorId")
     .references("id")
-    .optional()
     .name("author"),
   editor: s
-    .manyToOne(() => user)
+    .toOne(() => user)
     .fields("editorId")
     .references("id")
-    .optional()
     .name("editor"),
 });
 

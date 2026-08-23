@@ -19,7 +19,7 @@ const continuationRaceSchema = (() => {
     .model({
       id: s.string().id(),
       code: s.int().increment().unique(),
-      tokens: s.oneToMany(() => token),
+      tokens: s.toMany(() => token),
     })
     .map("generated_continuation_accounts");
   const token = s
@@ -27,7 +27,7 @@ const continuationRaceSchema = (() => {
       id: s.string().id(),
       accountCode: s.int(),
       account: s
-        .manyToOne(() => account)
+        .toOne(() => account)
         .fields("accountCode")
         .references("code"),
     })

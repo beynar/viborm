@@ -8,17 +8,13 @@ import {
 } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
 import { UniqueConstraintError } from "@errors";
-import {
-  createQueryScope,
-  getPolymorphicRelationInfo,
-} from "@query-engine/context";
+import { variantCarrier } from "@query-engine/context";
 import { JunctionStatements } from "@query-engine/JunctionStatements";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
-import { isPolymorphicToOneRelationInfo } from "@query-engine/types";
-import { hydrateSchemaNames, s } from "@schema";
-import { validateSchemaOrThrow } from "@schema/validation";
+import { isVariantRowCarrier } from "@query-engine/types";
+import { s } from "@schema";
 import { bindPolymorphicCollectionMember } from "@src/query-engine/builders/polymorphic-collection-mutation";
-import { resolvePolymorphicEdge } from "@src/query-engine/builders/polymorphic-relation";
+import { selectVariantRow } from "@src/query-engine/builders/polymorphic-relation";
 import { CreateOperation } from "@src/query-engine/write-engine/CreateOperation";
 import type {
   OperationFragment,
@@ -33,6 +29,7 @@ import {
 import { UpdateOperation } from "@src/query-engine/write-engine/UpdateOperation";
 import { UpsertOperation } from "@src/query-engine/write-engine/UpsertOperation";
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
+import { prepareSchema, scopeFor } from "@tests/fixtures/query-scope";
 import { createSchemaRegistry } from "@validation";
 import { expect, test } from "vitest";
 
@@ -46,12 +43,12 @@ const collectionPlanSchema = (() => {
     title: s.string(),
     // SINGULAR inverse: `clip` may hang on at most one board, which is the
     // shape the slot-replacement transfer exists for.
-    board: s.manyToOne(() => board).optional(),
+    board: s.toOne(() => board),
   });
   const board = s.model({
     id: s.int().id(),
     label: s.string(),
-    items: s.polymorphicToMany(
+    items: s.toMany(
       { post: () => post, clip: () => clip },
       { values: { post: "plan.post.v1", clip: "plan.clip.v1" } }
     ),
@@ -59,8 +56,7 @@ const collectionPlanSchema = (() => {
   return { post, clip, board };
 })();
 
-hydrateSchemaNames(collectionPlanSchema);
-validateSchemaOrThrow(collectionPlanSchema);
+prepareSchema(collectionPlanSchema);
 
 function collectionUpdate(
   driver: AnyDriver,
@@ -314,12 +310,14 @@ test("a MySQL singular member insert surfaces a different-owner collision", () =
 
 test("a MySQL exact-membership no-op checks only the membership key", () => {
   const adapter = new MySQLAdapter();
-  const scope = createQueryScope(adapter, collectionPlanSchema.board);
-  const relation = getPolymorphicRelationInfo(scope, "items");
-  if (!relation || isPolymorphicToOneRelationInfo(relation)) {
+  const scope = scopeFor(adapter, collectionPlanSchema.board);
+  const relation = variantCarrier(scope, "items");
+  if (!relation || isVariantRowCarrier(relation)) {
     throw new Error("expected the direct polymorphic collection");
   }
-  const member = relation.storage.members.get("clip");
+  const member = relation.edge.members.find(
+    (candidate) => candidate.variant === "clip"
+  );
   if (!member) throw new Error("expected the singular clip member");
   const junction = bindPolymorphicCollectionMember(scope, relation, member);
   const materialized = new JunctionStatements(
@@ -440,7 +438,7 @@ const polymorphicPlanSchema = (() => {
   const author = s.model({
     id: s.int().id(),
     name: s.string(),
-    comments: s.oneToMany(() => comment),
+    comments: s.toMany(() => comment),
   });
   const post = s.model({ id: s.int().id(), title: s.string() });
   const video = s.model({ id: s.int().id(), title: s.string() });
@@ -449,17 +447,17 @@ const polymorphicPlanSchema = (() => {
     body: s.string(),
     authorId: s.int(),
     author: s
-      .manyToOne(() => author)
+      .toOne(() => author)
       .fields("authorId")
       .references("id"),
     primary: s
-      .polymorphicToOne(
+      .toOne(
         { post: () => post, video: () => video },
         { values: { post: "primary.post.v1", video: "primary.video.v1" } }
       )
       .optional(),
     secondary: s
-      .polymorphicToOne(
+      .toOne(
         { post: () => post, video: () => video },
         {
           values: {
@@ -473,8 +471,7 @@ const polymorphicPlanSchema = (() => {
   return { author, post, video, comment };
 })();
 
-hydrateSchemaNames(polymorphicPlanSchema);
-validateSchemaOrThrow(polymorphicPlanSchema);
+prepareSchema(polymorphicPlanSchema);
 
 function ids(fragment: PlanningFragment | OperationFragment): string[] {
   return fragment.steps.map((step) => step.id);
@@ -585,19 +582,16 @@ test("the direct polymorphic target boundary refuses at construction, eagerly", 
   // §6.1.4's boundary: resolvePolymorphicEdge answers at program construction,
   // for every polymorphic payload — INCLUDING an upsert arm execution never
   // takes. Both pins here are timing pins: no execution, no driver round trip.
-  const scope = createQueryScope(
-    new PostgresAdapter(),
-    polymorphicPlanSchema.comment
-  );
-  const info = getPolymorphicRelationInfo(scope, "primary");
+  const scope = scopeFor(new PostgresAdapter(), polymorphicPlanSchema.comment);
+  const info = variantCarrier(scope, "primary");
   // Package C widened the scope to carry both stored descriptors; the row-held
   // edge resolver stays row-held-only, so the arm is named at the call.
-  if (!(info && isPolymorphicToOneRelationInfo(info))) {
+  if (!(info && isVariantRowCarrier(info))) {
     throw new Error("expected row-held polymorphic relation info for primary");
   }
   // The engine boundary owns this sentence; the validation layer refuses the
   // public spelling earlier, so this message is an internal contract.
-  expect(() => resolvePolymorphicEdge(scope, info, "bogus")).toThrow(
+  expect(() => selectVariantRow(info, "bogus")).toThrow(
     "Unknown polymorphic target 'bogus' for relation 'primary'."
   );
 

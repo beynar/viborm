@@ -2,14 +2,7 @@
 // Main API for defining models, scalars, and relations
 
 import { model } from "./model";
-import {
-  manyToMany,
-  manyToOne,
-  oneToMany,
-  oneToOne,
-  polymorphicToMany,
-  polymorphicToOne,
-} from "./relation";
+import { toMany, toOne } from "./relation";
 import {
   bigInt,
   blob,
@@ -35,10 +28,10 @@ import {
  * Main schema builder object
  * Use this to define models, scalars, and relations
  *
- * Relations use a chainable API:
- * - ToOne (oneToOne, manyToOne): .fields(), .references(), .optional(), .onDelete(), .onUpdate()
- * - ToMany (oneToMany): minimal config - just .name() if needed
- * - ManyToMany: .through(), .A(), .B(), .onDelete(), .onUpdate()
+ * A relation states two independent facts: `s.toOne` / `s.toMany` states the
+ * SLOT CARDINALITY, and the argument states the TARGET DOMAIN — one model
+ * (`() => model`) or named variants (`{ post: () => post, video: () => video }`).
+ * Everything else about an edge is derived from the full schema graph.
  *
  * @example
  * ```ts
@@ -48,14 +41,14 @@ import {
  *   id: s.string().id().ulid(),
  *   name: s.string(),
  *   email: s.string().unique(),
- *   posts: s.oneToMany(() => post),
- *   profile: s.oneToOne(() => profile).optional(),
+ *   posts: s.toMany(() => post),
+ *   profile: s.toOne(() => profile),
  * }).map("users");
  *
  * const post = s.model({
  *   id: s.string().id().ulid(),
  *   authorId: s.string(),
- *   author: s.manyToOne(() => user).fields("authorId").references("id"),
+ *   author: s.toOne(() => user).fields("authorId").references("id"),
  * }).map("posts");
  * ```
  */
@@ -66,6 +59,11 @@ export const s = {
   // Scalar factories
   string,
   boolean,
+  /**
+ * @description Creates a new int scalar.
+ * @param nativeType - The native type to use for the scalar.
+ * @returns A new int scalar.
+ */
   int,
   float,
   decimal,
@@ -79,13 +77,9 @@ export const s = {
   point,
   vector,
 
-  // Relation builder (config-first, getter-last pattern)
-  oneToOne,
-  manyToOne,
-  oneToMany,
-  manyToMany,
-  polymorphicToOne,
-  polymorphicToMany,
+  // Relation factories: slot cardinality here, target domain in the argument
+  toOne,
+  toMany,
 };
 
 // =============================================================================
@@ -111,17 +105,7 @@ export {
 } from "./json-null";
 export * from "./model";
 export { Model } from "./model";
-export type { Getter, ReferentialAction, RelationType } from "./relation";
 export * from "./relation";
-export {
-  type AnyPolymorphicRelation,
-  type AnyRelation,
-  ManyToManyRelation,
-  PolymorphicToManyRelation,
-  PolymorphicToOneRelation,
-  ToManyRelation,
-  ToOneRelation,
-} from "./relation";
 // Types
 export type { NumberScalar, Scalar } from "./scalars";
 // Export all from submodules
