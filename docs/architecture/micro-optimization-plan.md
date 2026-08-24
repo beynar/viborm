@@ -814,6 +814,42 @@ The query-engine layer includes the architecture contracts. There is no
 
 ## Phase 3 — Result construction and parsing
 
+### Cross-driver result-transport closure (SQLite3 and PGlite evidence)
+
+The implementation program used exact baseline
+`52eef9ebfc710407e1e5fe6042e2ed5a11adf19e` and narrowed performance evidence
+to SQLite3 and PGlite. The broader provider catalog remains useful for
+correctness and future fixtures, but it is not performance evidence for other
+drivers.
+
+| Unit | Disposition | Production outcome |
+|---|---|---|
+| Typed fallback batches | Kept for correctness | Typed model and safe `Sql` statements use typed execution; only marked verbatim raw statements use raw execution. Exact large SQLite integers survive fallback batches. |
+| Positional transport | Rejected | SQLite3 full allocation regressed 11.11% and CPU 2.17%; PGlite allocation regressed 1.33%. All positional production paths were removed. |
+| Provider-row ownership | Rejected | The final reduced prototype still regressed SQLite mixed-provider wall time 1.976% (+51.06 us), beyond 2xMAD. No provider-row claim remains. |
+| Relation JSON ownership | Kept | The carrier parser is the sole JSON decoder. Graphs it creates are fully prevalidated and decoded in place; borrowed provider graphs use the copy path. Exact SQLite fixed/variant controls showed about 17-27% allocation reductions. |
+| Diagnostic parameter demand | Kept pending final closure validation | Deep sanitization occurs once only when instrumentation or errors can disclose parameters; execution keeps its shallow parameter copy. |
+| Lazy correlation identity | Kept pending final closure validation | Correlation identity is created on first observation and is reused only through trusted equivalent context. |
+
+Intermediate reports are
+`/tmp/viborm-cross-provider.p4rgFL/reports/sqlite-pglite-owned-row-final.json`
+(SHA-256 `fb8cecf22dafbd1a70f25ab9627b6d8eae91b66185534a0427b8e21b59bb1a49`)
+and `sqlite-pglite-owned-row-trusted.json`
+(SHA-256 `7dc51ceb1ff188018b3c1a06eadfb8ef602cb693aeeb9a399f3feb88d3775d47`).
+They are rejection evidence. The relation-JSON percentages come from earlier
+exact controls, not a final cumulative keep report.
+
+Retained-heap deltas are signed diagnostics: a forced-GC sample can be
+negative. The keep gate uses total `peakRssBytes`. The final retained control
+passed at SQLite3 -2.19% and PGlite +0.96% (neutral), but memory acceptance does
+not rescue a CPU or wall-time failure.
+
+The D1 benchmark runner is unavailable. The PlanetScale fixture begins at a
+decoded SDK result and cannot prove wire transport or response-byte savings.
+No performance claim is made for either provider. A compiler-to-parser signal
+for operations that can benefit from ownership is deferred and is not proposed
+inside this program.
+
 ### Unit 3.0 — Landed ResultParser baseline — no implementation work
 
 The `4cf5c7fe` baseline already implements:

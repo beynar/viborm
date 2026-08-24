@@ -49,6 +49,10 @@ benchmark runner (tinybench: warmup, mean/p75/p99, relative comparison).
   target, alternates checkout order, separates allocation, aggregate CPU, and
   retained-heap modes, and reports median, MAD, min, max, bytes per operation,
   and bytes per returned row.
+- **`operation-pipeline-provider-fixtures.mjs`** — provider adapters for the
+  generated `provider-*` workload matrix. The provider catalog remains
+  exhaustive when a runtime or service leg cannot execute: unavailable legs
+  produce a report entry with `status: "skipped"` and an exact reason.
 
 The operation-pipeline catalog distinguishes row cardinality from construction
 width. `wide-scalar-select-{1,20,100}` selects that exact number of scalar
@@ -60,6 +64,48 @@ at each level of the named relation depth. A non-terminal object's nested
 relation key occupies one of those fields. Every width/depth workload records
 these dimensions in `witness.workloadShape`, beside its exact SQL and
 parameters, so a row-count workload cannot pose as a width proof.
+
+The cross-provider matrix generates identity-only and mixed-scalar reads at
+1/20/1,000/10,000 rows, a 100-column read, fixed and variant nested reads,
+aggregate, scalar-count, and relation-count reads, one returning write, and
+direct, prepared, callback-transaction, fallback-batch, and native-batch
+execution forms. Fixture capabilities are explicit: an unsupported form is a
+visible capability skip, never a substitute query.
+Every workload exposes `provider-execute` (the direct provider method),
+`driver-wrapper` (the normalized VibORM wrapper), `unowned-parse` against one
+immutable reusable fixture, `provider-parse`, and the complete public `full`
+operation. The unowned label is deliberate: repeated parsing of an immutable
+fixture measures the public borrowed-row contract. Provider-row ownership and
+positional transport were measured and rejected; production does not retain an
+owned-row fast path.
+
+The provider dimension catalogs `sqlite3`, `bun-sqlite`, `libsql`, `pglite`,
+`pg`, `postgres.js`, `bun-sql`, `mysql2`, `planetscale`, `neon-http`, and `d1`.
+SQLite3, local libSQL, and PGlite use fresh in-process databases. PlanetScale
+uses a deterministic decoded SDK-result fixture; that seam exposes no transport
+byte count, so none is invented. Neon uses a deterministic SDK fetch body and
+labels it `deterministic-fetch-body`. PostgreSQL and MySQL2 need
+`VIBORM_BENCH_PG_URL`,
+`VIBORM_BENCH_POSTGRES_JS_URL`, or `VIBORM_BENCH_MYSQL2_URL`, each pointing at a
+disposable benchmark database. Bun SQL additionally needs
+`VIBORM_BENCH_BUN_SQL_URL`. The coordinator selects Bun when it is installed;
+Bun allocation mode stays a visible skip because the V8 inspector sampler is
+not available there. The D1 Workers substrate remains a visible skip until its
+deterministic local binding runner exists. No Node substitute is reported as
+Bun or Workers evidence. Every catalog shape uses the same schema, seed, public
+operation, and raw-result builders across local, service, and deterministic
+HTTP fixtures.
+
+Current result-transport keep evidence covers SQLite3 and PGlite only. Other
+providers are correctness fixtures, capability skips, or deferred performance
+work. PlanetScale starts from a decoded SDK-result fixture, so it cannot prove
+wire transport, SDK decode allocation, or response-byte savings. D1 has no
+executable benchmark runner and must remain a visible skip.
+
+Retained mode reports signed retained and released heap deltas because a
+forced-GC delta can be negative. Negative values are diagnostic, not negative
+memory consumption. Regression gating uses total `peakRssBytes`, not only
+growth from one process-local starting point.
 
 Bundle footprint is tracked separately by `pnpm size` (size-limit).
 
@@ -84,9 +130,14 @@ First make a Phase-0-only commit containing the corrected harness. Prepare that
 commit and the candidate commit in two separate, clean worktrees with the same
 lockfile. The coordinator deletes ignored `dist` output, rebuilds each checkout
 sequentially, rechecks commit and clean state, then refuses differing protocol
-hashes, catalogs, or lockfiles. The running coordinator and both worktrees must
-share one Git common directory, so one repository-wide test lock covers them.
+hashes, catalogs, or lockfiles for the original catalog. The running coordinator
+and both worktrees must share one Git common directory, so one repository-wide
+test lock covers them.
 The commit-bound protocol identity includes that shared lock script itself.
+For generated `provider-*` workloads, the committed coordinator owns the protocol
+and dynamically loads each checkout's built package. This permits the fixed
+`52eef9ebfc710407e1e5fe6042e2ed5a11adf19e` runtime baseline to use the new
+measurement surface without rewriting that historical worktree.
 
 ```sh
 # Run the complete checked-in matrix. Both SHA arguments must contain all 40
@@ -110,6 +161,19 @@ pnpm bench:operation-pipeline \
   --target scalar-find-unique/prepare/cpu/cpuMicrosecondsPerOperation \
   --target fixed-singular-rowref-20/prepare/alloc/allocatedBytesPerOperation
 
+# Cross-provider surface. Its baseline is fixed to the exact Phase-0 commit.
+pnpm bench:operation-pipeline \
+  --baseline-dir /absolute/path/to/52eef9eb-baseline \
+  --baseline-commit 52eef9ebfc710407e1e5fe6042e2ed5a11adf19e \
+  --candidate-dir /absolute/path/to/candidate \
+  --candidate-commit <full-candidate-sha> \
+  --providers sqlite3,libsql,pglite,planetscale \
+  --workloads provider-identity-1,provider-mixed-scalar-20 \
+  --stages provider-execute,driver-wrapper,unowned-parse,provider-parse,full \
+  --modes alloc,cpu,retained \
+  --target sqlite3/provider-mixed-scalar-20/driver-wrapper/cpu/cpuMicrosecondsPerOperation \
+  --output /absolute/path/to/provider-report.json
+
 # Infrastructure check only. One short replicate; never valid as performance
 # evidence.
 pnpm bench:operation-pipeline --smoke \
@@ -128,7 +192,8 @@ SQL, parameters, and statement count when the preparation seam exposes them.
 The coordinator rejects semantic, SQL, protocol-field, lockfile, protocol, or
 runtime mismatches. Custom iteration or warmup counts remain useful diagnostics
 but invalidate keep evidence. A normal report without at least one repeatable
-`--target workload/stage/mode/metric` contract remains valid measurement, but
+`--target provider/workload/stage/mode/metric` contract remains valid
+measurement, but
 is not keep-eligible. Every declared target must improve by more than 2×MAD;
 non-target noise cannot grant eligibility. Each targeted workload must also
 include both its full/allocation and full/CPU evidence pairs. Any significant
@@ -137,6 +202,16 @@ gate.
 The allocation sampler uses 4,096 bytes. Mutation databases are new for every
 worker process, so baseline and candidate start every replicate from equal
 table and index state.
+
+Allocation mode reports sampled bytes per operation and returned row. CPU mode
+reports aggregate CPU and wall microseconds per operation. Retained mode takes
+its pre-run sample after two forced collections, records heap immediately after
+the timed loop, forces two more collections, then reports retained and released
+heap per operation and row. It also reports the fresh process's peak RSS and
+peak-RSS growth during the measured interval. Peak RSS is a process-lifetime
+high-water mark, not a heap-retention alias. Provider response bytes are present
+only when the fixture can count a real or explicitly labelled deterministic
+payload; unavailable transport byte counts are omitted rather than estimated.
 
 The coordinator does not create, clean, or install a worktree. Dependency
 installation remains an explicit setup step; package rebuilding is deliberately

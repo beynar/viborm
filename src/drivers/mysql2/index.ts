@@ -17,11 +17,7 @@ import {
 import type { Schema } from "@client/types";
 import { QueryError, TransactionError } from "@errors";
 import type { Pool, PoolConnection, PoolOptions } from "mysql2/promise";
-import {
-  Driver,
-  type DriverResultParser,
-  type QueryExecutionContext,
-} from "../driver";
+import { Driver, type QueryExecutionContext } from "../driver";
 import {
   isNormalizedResultRow,
   type NormalizedResultContext,
@@ -32,7 +28,6 @@ import {
   acquireWithMaxWait,
   type DriverTransactionOptions,
   isolationLevelStatement,
-  mysqlResultParser,
   nestedTransactionDispatchError,
   parseMySQLUrl,
   runTransactionLifecycle,
@@ -152,7 +147,6 @@ function toQueryResult<T>(
 export class MySQL2Driver extends Driver<Pool, PoolConnection> {
   readonly adapter: DatabaseAdapter = new MySQLAdapter();
   readonly maxBindParametersPerStatement: number | undefined = 65_535;
-  readonly result: DriverResultParser = mysqlResultParser;
 
   private readonly driverOptions: MySQL2DriverOptions;
 
@@ -164,8 +158,22 @@ export class MySQL2Driver extends Driver<Pool, PoolConnection> {
         { meta: { driver: "mysql2", operation: "configuration" } }
       );
     }
+    if (options.options?.rowsAsArray === true) {
+      throw new QueryError(
+        'Driver "mysql2" does not support options.rowsAsArray=true because VibORM requires row objects keyed by column name.',
+        { meta: { driver: "mysql2", operation: "configuration" } }
+      );
+    }
+    if (
+      options.options?.nestTables === true ||
+      typeof options.options?.nestTables === "string"
+    ) {
+      throw new QueryError(
+        'Driver "mysql2" does not support enabled options.nestTables because VibORM requires flat row objects keyed by result aliases.',
+        { meta: { driver: "mysql2", operation: "configuration" } }
+      );
+    }
     this.driverOptions = options;
-
     if (options.pool) {
       this.client = options.pool;
     }

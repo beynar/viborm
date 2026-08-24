@@ -1,18 +1,41 @@
 import type { InstrumentationContext } from "@instrumentation/context";
 import type { QueryExecutionContext } from "./types";
 
-const executionInstrumentation = new WeakMap<object, InstrumentationContext>();
+interface TrustedExecutionContext {
+  readonly correlationId?: string;
+  readonly correlationIdGetter?: () => string;
+  readonly instrumentation?: InstrumentationContext;
+  readonly model?: string;
+  readonly operation?: string;
+}
+
+const trustedExecutionContexts = new WeakMap<object, TrustedExecutionContext>();
 
 export function createExecutionContext(
   values: QueryExecutionContext,
-  instrumentation?: InstrumentationContext
+  instrumentation?: InstrumentationContext,
+  correlationIdFactory?: () => string
 ): QueryExecutionContext {
-  return snapshotExecutionContext(
-    values,
-    undefined,
-    undefined,
-    instrumentation
-  );
+  if (!correlationIdFactory) {
+    return snapshotExecutionContext(
+      values,
+      undefined,
+      undefined,
+      instrumentation
+    );
+  }
+
+  let correlationId: string | undefined;
+  const correlationIdGetter = () => {
+    correlationId ??= correlationIdFactory();
+    return correlationId;
+  };
+  return createTrustedExecutionContext({
+    correlationIdGetter,
+    instrumentation,
+    model: readString(values, "model"),
+    operation: readString(values, "operation"),
+  });
 }
 
 export function snapshotExecutionContext(
@@ -21,35 +44,124 @@ export function snapshotExecutionContext(
   fallbackOperation?: string,
   instrumentationOverride?: InstrumentationContext
 ): QueryExecutionContext {
-  const model =
-    readString(context, "model") ?? readString(boundContext, "model");
+  const trustedContext = context
+    ? trustedExecutionContexts.get(context)
+    : undefined;
+  const contextValues =
+    trustedContext ?? snapshotExternalExecutionContext(context);
+  const trustedBoundContext = boundContext
+    ? trustedExecutionContexts.get(boundContext)
+    : undefined;
+  const boundValues =
+    context === boundContext
+      ? contextValues
+      : (trustedBoundContext ?? snapshotExternalExecutionContext(boundContext));
+  const model = contextValues.model ?? boundValues.model;
   const operation =
-    readString(context, "operation") ??
-    readString(boundContext, "operation") ??
-    fallbackOperation;
-  const correlationId =
-    readString(context, "correlationId") ??
-    readString(boundContext, "correlationId");
-  const snapshot: QueryExecutionContext = {
-    ...(model ? { model } : {}),
-    operation,
-    ...(correlationId ? { correlationId } : {}),
-  };
+    contextValues.operation ?? boundValues.operation ?? fallbackOperation;
+  const correlationIdGetter =
+    contextValues.correlationIdGetter ??
+    (contextValues.correlationId === undefined
+      ? boundValues.correlationIdGetter
+      : undefined);
+  const correlationId = correlationIdGetter
+    ? undefined
+    : (contextValues.correlationId ?? boundValues.correlationId);
   const instrumentation =
-    getExecutionInstrumentation(context) ??
-    getExecutionInstrumentation(boundContext) ??
+    contextValues.instrumentation ??
+    boundValues.instrumentation ??
     instrumentationOverride;
-  if (instrumentation) {
-    executionInstrumentation.set(snapshot, instrumentation);
+
+  if (
+    context &&
+    trustedContext &&
+    representsExecutionContext(
+      trustedContext,
+      model,
+      operation,
+      correlationId,
+      correlationIdGetter,
+      instrumentation
+    )
+  ) {
+    return context;
   }
-  return Object.freeze(snapshot);
+  if (
+    boundContext &&
+    trustedBoundContext &&
+    representsExecutionContext(
+      trustedBoundContext,
+      model,
+      operation,
+      correlationId,
+      correlationIdGetter,
+      instrumentation
+    )
+  ) {
+    return boundContext;
+  }
+
+  return createTrustedExecutionContext({
+    correlationId,
+    correlationIdGetter,
+    instrumentation,
+    model,
+    operation,
+  });
 }
 
 export function getExecutionInstrumentation(
   context: QueryExecutionContext | undefined
 ): InstrumentationContext | undefined {
   if (!context) return undefined;
-  return executionInstrumentation.get(context);
+  return trustedExecutionContexts.get(context)?.instrumentation;
+}
+
+function createTrustedExecutionContext(
+  values: TrustedExecutionContext
+): QueryExecutionContext {
+  const snapshot: QueryExecutionContext = {
+    ...(values.model ? { model: values.model } : {}),
+    operation: values.operation,
+    ...(values.correlationId ? { correlationId: values.correlationId } : {}),
+  };
+  if (values.correlationIdGetter) {
+    Object.defineProperty(snapshot, "correlationId", {
+      configurable: false,
+      enumerable: true,
+      get: values.correlationIdGetter,
+    });
+  }
+  Object.freeze(snapshot);
+  trustedExecutionContexts.set(snapshot, values);
+  return snapshot;
+}
+
+function snapshotExternalExecutionContext(
+  value: QueryExecutionContext | undefined
+): TrustedExecutionContext {
+  return {
+    correlationId: readString(value, "correlationId"),
+    model: readString(value, "model"),
+    operation: readString(value, "operation"),
+  };
+}
+
+function representsExecutionContext(
+  values: TrustedExecutionContext,
+  model: string | undefined,
+  operation: string | undefined,
+  correlationId: string | undefined,
+  correlationIdGetter: (() => string) | undefined,
+  instrumentation: InstrumentationContext | undefined
+): boolean {
+  return (
+    values.model === model &&
+    values.operation === operation &&
+    values.correlationId === correlationId &&
+    values.correlationIdGetter === correlationIdGetter &&
+    values.instrumentation === instrumentation
+  );
 }
 
 function readString(

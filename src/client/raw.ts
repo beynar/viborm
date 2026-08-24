@@ -19,6 +19,7 @@
  */
 
 import type { AnyDriver, QueryExecutionContext, QueryResult } from "@drivers";
+import { markVerbatimBatchQuery } from "@drivers/driver-batch-query-kind";
 import { QueryError, VibORMErrorCode } from "@errors";
 import type { InstrumentationContext } from "@instrumentation";
 import {
@@ -300,11 +301,11 @@ class DeferredRawOperation<T>
   prepare(driver: AnyDriver = this.engine.driver): PreparedQuery {
     const query = this.resolve();
     if (query.kind === "verbatim") {
-      return {
+      return markVerbatimBatchQuery({
         sql: query.sql,
         params: [...query.params],
         context: this.context,
-      };
+      });
     }
     const prepared = driver._prepare(query.query);
     return {

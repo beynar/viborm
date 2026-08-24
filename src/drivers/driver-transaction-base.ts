@@ -5,10 +5,8 @@ import { SPAN_TRANSACTION } from "@instrumentation/spans";
 import type { Sql } from "@sql";
 import type { Driver } from "./driver";
 import { prepareAtomicBatch } from "./driver-batch-preparation";
-import {
-  findUniqueExecutionContextIndex,
-  snapshotDiagnosticParameters,
-} from "./driver-diagnostics";
+import { isVerbatimBatchQuery } from "./driver-batch-query-kind";
+import { findUniqueExecutionContextIndex } from "./driver-diagnostics";
 import { DriverInstrumentationBase } from "./driver-instrumentation";
 import { normalizeDriverError } from "./error-mapping";
 import {
@@ -162,7 +160,10 @@ export abstract class DriverTransactionBase<
     const executionContext = this.resolveExecutionContext(context, "execute");
     const sql = this.buildStatement(query);
     const executionParams = [...query.values];
-    const diagnosticParams = snapshotDiagnosticParameters(executionParams);
+    const diagnosticParams = this.getDiagnosticParameters(
+      executionParams,
+      executionContext
+    );
     const resultContext = {
       provider: this.driverName,
       operation: executionContext.operation ?? "execute",
@@ -216,7 +217,10 @@ export abstract class DriverTransactionBase<
       "executeRaw"
     );
     const executionParams = params ? [...params] : [];
-    const diagnosticParams = snapshotDiagnosticParameters(executionParams);
+    const diagnosticParams = this.getDiagnosticParameters(
+      executionParams,
+      executionContext
+    );
     const resultContext = {
       provider: this.driverName,
       operation: executionContext.operation ?? "executeRaw",
@@ -350,17 +354,16 @@ export abstract class DriverTransactionBase<
       }
     };
 
-    // Get tracer (always defined - either real or no-op)
-    const tracer = this.getTracer(executionContext);
-
     const execute = () =>
-      tracer.startActiveSpan(
-        {
-          name: SPAN_TRANSACTION,
-          attributes: this.getContextAttributes(executionContext),
-        },
-        runTransaction
-      );
+      this.isTracingEnabled(executionContext, SPAN_TRANSACTION)
+        ? this.getTracer(executionContext).startActiveSpan(
+            {
+              name: SPAN_TRANSACTION,
+              attributes: this.getContextAttributes(executionContext),
+            },
+            runTransaction
+          )
+        : runTransaction();
 
     // Queue top-level transactions on single-connection drivers so concurrent
     // callers serialize instead of colliding on the shared connection. Nested
@@ -501,18 +504,27 @@ export abstract class DriverTransactionBase<
         : batchContext;
       const diagnosticParams = this.getBatchDiagnosticParameters(query);
       try {
-        results.push(
-          await this.withInstrumentation(
-            query.sql,
-            diagnosticParams,
-            statementContext,
-            () =>
+        const executeStatement = isVerbatimBatchQuery(query)
+          ? () =>
               this.executeRaw<T>(
                 client,
                 query.sql,
                 query.params,
                 statementContext
               )
+          : () =>
+              this.execute<T>(
+                client,
+                query.sql,
+                query.params ?? [],
+                statementContext
+              );
+        results.push(
+          await this.withInstrumentation(
+            query.sql,
+            diagnosticParams,
+            statementContext,
+            executeStatement
           )
         );
       } catch (error) {
@@ -569,8 +581,12 @@ export abstract class DriverTransactionBase<
       queries: batchQueries,
       diagnosticParams,
       errorLogDetails,
-    } = prepareAtomicBatch(queries, executionContext, (query) =>
-      this.getBatchDiagnosticParameters(query)
+    } = prepareAtomicBatch(
+      queries,
+      executionContext,
+      (params, context) =>
+        this.getDiagnosticParameters(params, context, executionContext),
+      this.canDiscloseParameters(executionContext)
     );
     const resultContext = {
       provider: this.driverName,
@@ -623,7 +639,7 @@ export abstract class DriverTransactionBase<
                     operation: statementContext.operation,
                     correlationId: statementContext.correlationId,
                     query: statement.sql,
-                    params: diagnosticParams[statementIndex] ?? [],
+                    params: this.getBatchDiagnosticParameters(statement),
                     diagnostics: this.getErrorDisclosure(statementContext),
                     forceContext: true,
                   });

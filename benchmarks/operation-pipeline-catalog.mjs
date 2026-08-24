@@ -2,6 +2,74 @@
 
 export const ALLOCATION_SAMPLING_INTERVAL = 4096;
 export const ALL_MODES = Object.freeze(["alloc", "cpu", "retained"]);
+export const CROSS_PROVIDER_BASELINE_COMMIT =
+  "52eef9ebfc710407e1e5fe6042e2ed5a11adf19e";
+
+export const PROVIDERS = Object.freeze({
+  sqlite3: Object.freeze({
+    runtime: "node",
+    fixture: "local",
+    responseBytes: false,
+  }),
+  "bun-sqlite": Object.freeze({
+    runtime: "bun",
+    fixture: "local",
+    responseBytes: false,
+  }),
+  libsql: Object.freeze({
+    runtime: "node",
+    fixture: "local",
+    responseBytes: false,
+  }),
+  pglite: Object.freeze({
+    runtime: "node",
+    fixture: "local",
+    responseBytes: false,
+  }),
+  pg: Object.freeze({
+    runtime: "node",
+    fixture: "service",
+    responseBytes: false,
+    environment: "VIBORM_BENCH_PG_URL",
+  }),
+  "postgres.js": Object.freeze({
+    runtime: "node",
+    fixture: "service",
+    responseBytes: false,
+    environment: "VIBORM_BENCH_POSTGRES_JS_URL",
+  }),
+  "bun-sql": Object.freeze({
+    runtime: "bun",
+    fixture: "service",
+    responseBytes: false,
+    environment: "VIBORM_BENCH_BUN_SQL_URL",
+  }),
+  mysql2: Object.freeze({
+    runtime: "node",
+    fixture: "service",
+    responseBytes: false,
+    environment: "VIBORM_BENCH_MYSQL2_URL",
+  }),
+  planetscale: Object.freeze({
+    runtime: "node",
+    fixture: "deterministic-sdk",
+    responseBytes: false,
+  }),
+  "neon-http": Object.freeze({
+    runtime: "node",
+    fixture: "deterministic-fetch",
+    responseBytes: true,
+  }),
+  d1: Object.freeze({
+    runtime: "workerd",
+    fixture: "workers-d1",
+    responseBytes: true,
+    unavailableReason:
+      "The D1 leg requires a Workers runtime runner and a deterministic local D1 binding.",
+  }),
+});
+
+export const ALL_PROVIDERS = Object.freeze(Object.keys(PROVIDERS));
 
 const stages = Object.freeze({
   allRead: Object.freeze(["prepare", "execute", "parse", "raw-parse", "full"]),
@@ -12,14 +80,34 @@ const stages = Object.freeze({
   mutation: Object.freeze(["prepare", "execute", "raw-parse", "full"]),
   atomic: Object.freeze(["prepare", "execute", "full"]),
   fullOnly: Object.freeze(["full"]),
+  providerRead: Object.freeze([
+    "provider-execute",
+    "driver-wrapper",
+    "unowned-parse",
+    "provider-parse",
+    "full",
+  ]),
+  executionForms: Object.freeze([
+    "direct",
+    "prepared",
+    "transaction",
+    "fallback-batch",
+    "native-batch",
+  ]),
 });
 
 const ASYNC_STAGES = new Set([
   "provider-execute",
+  "provider-parse",
   "driver-wrapper",
   "execute",
   "raw-parse",
   "full",
+  "direct",
+  "prepared",
+  "transaction",
+  "fallback-batch",
+  "native-batch",
 ]);
 
 function workload(fixture, selectedStages, rowsPerOperation, options = {}) {
@@ -38,10 +126,69 @@ function workload(fixture, selectedStages, rowsPerOperation, options = {}) {
     ),
     rowsPerOperation,
     substrate: options.substrate ?? "transactional",
+    providers: options.providers ?? Object.freeze(["sqlite3"]),
+    ...(options.providerShape
+      ? { providerShape: Object.freeze(options.providerShape) }
+      : {}),
   });
 }
 
+const providerWorkloads = Object.fromEntries([
+  ...[1, 20, 1000, 10000].flatMap((rows) =>
+    ["identity", "mixed-scalar"].map((kind) => [
+      `provider-${kind}-${rows}`,
+      workload("provider-read", stages.providerRead, rows, {
+        providers: ALL_PROVIDERS,
+        providerShape: { kind, rows },
+      }),
+    ])
+  ),
+  [
+    "provider-wide-scalar-100",
+    workload("provider-read", stages.providerRead, 1, {
+      providers: ALL_PROVIDERS,
+      providerShape: { kind: "wide-scalar", rows: 1, fields: 100 },
+    }),
+  ],
+  ...["fixed-nested", "variant-nested"].map((kind) => [
+    `provider-${kind}-20`,
+    workload("provider-read", stages.providerRead, 20, {
+      providers: ALL_PROVIDERS,
+      providerShape: { kind, rows: 20 },
+    }),
+  ]),
+  ...["count", "aggregate"].map((kind) => [
+    `provider-${kind}-10000`,
+    workload("provider-read", stages.providerRead, 1, {
+      providers: ALL_PROVIDERS,
+      providerShape: { kind, sourceRows: 10000 },
+    }),
+  ]),
+  [
+    "provider-returning-one",
+    workload("provider-read", stages.providerRead, 1, {
+      providers: ALL_PROVIDERS,
+      providerShape: { kind: "returning", rows: 1 },
+    }),
+  ],
+  [
+    "provider-relation-count-20",
+    workload("provider-read", stages.providerRead, 20, {
+      providers: ALL_PROVIDERS,
+      providerShape: { kind: "relation-count", rows: 20 },
+    }),
+  ],
+  [
+    "provider-execution-forms",
+    workload("provider-read", stages.executionForms, 1, {
+      providers: ALL_PROVIDERS,
+      providerShape: { kind: "execution", rows: 1 },
+    }),
+  ],
+]);
+
 export const WORKLOADS = Object.freeze({
+  ...providerWorkloads,
   "driver-raw": workload(
     "core",
     Object.freeze(["provider-execute", "driver-wrapper"]),

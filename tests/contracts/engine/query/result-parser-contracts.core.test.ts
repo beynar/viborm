@@ -1,3 +1,4 @@
+import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { COUNT_RESULT_KEY } from "@adapters/shared/result-parsing";
@@ -10,7 +11,7 @@ import {
 } from "@query-engine/result-aliases";
 import { s } from "@schema";
 import { parserFor, prepareSchema } from "@tests/fixtures/query-scope";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 
 const MALFORMED_RESULT_PATTERN = /result|payload|rows/i;
 const RELATION_COUNT_PATTERN = /relation count/i;
@@ -166,6 +167,79 @@ describe("result parser contracts", () => {
       leafAmount: 9007199254740993n,
       leafBlob: [0, 128, 255],
     });
+  });
+
+  test("decodes a fixed relation JSON carrier without provider middleware", () => {
+    const carrier = [
+      {
+        id: "branch-1",
+        rootId: "root-1",
+        recordedAt: "2026-07-09 10:00:00.000",
+        payload: { source: "mysql-json" },
+      },
+    ];
+    const jsonParse = vi.spyOn(JSON, "parse").mockReturnValue(carrier);
+    const result = parseResult<Array<{ children: Array<{ id: string }> }>>(
+      parserFor(new MySQLAdapter(), recursiveRelationModels.root),
+      "findMany",
+      [
+        {
+          id: "root-1",
+          children: "[]",
+        },
+      ],
+      { include: { children: true } }
+    );
+
+    expect(result[0]?.children[0]?.id).toBe("branch-1");
+    expect(result[0]?.children[0]).toBe(carrier[0]);
+    expect(carrier[0]?.recordedAt).toEqual(
+      new Date("2026-07-09T10:00:00.000Z")
+    );
+    jsonParse.mockRestore();
+  });
+
+  test("copies a borrowed fixed relation carrier before scalar decoding", () => {
+    const child = {
+      id: "branch-1",
+      rootId: "root-1",
+      recordedAt: "2026-07-09T10:00:00.000Z",
+      payload: { source: "postgres-object" },
+    };
+    const result = parseResult<Array<{ children: Record<string, unknown>[] }>>(
+      createRecursiveRelationContext(),
+      "findMany",
+      [{ id: "root-1", children: [child] }],
+      { include: { children: true } }
+    );
+
+    expect(result[0]?.children[0]).not.toBe(child);
+    expect(result[0]?.children[0]?.recordedAt).toEqual(
+      new Date("2026-07-09T10:00:00.000Z")
+    );
+    expect(child.recordedAt).toBe("2026-07-09T10:00:00.000Z");
+  });
+
+  test("validates every fixed JSON row before decoding the first one", () => {
+    const first = {
+      id: "branch-1",
+      rootId: "root-1",
+      recordedAt: "2026-07-09 10:00:00.000",
+      payload: { source: "mysql-json" },
+    };
+    const carrier = [first, { id: "branch-2" }];
+    const jsonParse = vi.spyOn(JSON, "parse").mockReturnValue(carrier);
+
+    expect(() =>
+      parseResult(
+        parserFor(new MySQLAdapter(), recursiveRelationModels.root),
+        "findMany",
+        [{ id: "root-1", children: "[]" }],
+        { include: { children: true } }
+      )
+    ).toThrow(MALFORMED_RESULT_PATTERN);
+    expect(first.recordedAt).toBe("2026-07-09 10:00:00.000");
+    jsonParse.mockRestore();
   });
 
   test("keys a shared relation terminal by its contextual slot, not the declaration", () => {
@@ -463,41 +537,43 @@ describe("result parser contracts", () => {
     ).toThrow(RELATION_COUNT_PATTERN);
   });
 
-  test.each(["count", "exist"] as const)(
-    "rejects unknown %s result keys",
-    (operation) => {
-      expect(() =>
-        parseResult(
-          createRecursiveRelationContext(),
-          operation,
-          [{ unexpected: 1 }],
-          {}
-        )
-      ).toThrow(MALFORMED_RESULT_PATTERN);
-    }
-  );
+  test.each([
+    "count",
+    "exist",
+  ] as const)("rejects unknown %s result keys", (operation) => {
+    expect(() =>
+      parseResult(
+        createRecursiveRelationContext(),
+        operation,
+        [{ unexpected: 1 }],
+        {}
+      )
+    ).toThrow(MALFORMED_RESULT_PATTERN);
+  });
 
-  test.each(["01", "0x10", "1e2", " 1 "])(
-    "rejects non-canonical count value %s",
-    (count) => {
-      const ctx = createRecursiveRelationContext();
+  test.each([
+    "01",
+    "0x10",
+    "1e2",
+    " 1 ",
+  ])("rejects non-canonical count value %s", (count) => {
+    const ctx = createRecursiveRelationContext();
 
-      expect(() =>
-        parseResult(ctx, "count", [{ [COUNT_RESULT_KEY]: count }], {})
-      ).toThrow(MALFORMED_RESULT_PATTERN);
-      expect(() =>
-        parseResult(ctx, "exist", [{ [COUNT_RESULT_KEY]: count }], {})
-      ).toThrow(MALFORMED_RESULT_PATTERN);
-      expect(() =>
-        parseResult(
-          ctx,
-          "aggregate",
-          [{ [getAggregateResultKey("_count")]: count }],
-          { _count: true }
-        )
-      ).toThrow(MALFORMED_RESULT_PATTERN);
-    }
-  );
+    expect(() =>
+      parseResult(ctx, "count", [{ [COUNT_RESULT_KEY]: count }], {})
+    ).toThrow(MALFORMED_RESULT_PATTERN);
+    expect(() =>
+      parseResult(ctx, "exist", [{ [COUNT_RESULT_KEY]: count }], {})
+    ).toThrow(MALFORMED_RESULT_PATTERN);
+    expect(() =>
+      parseResult(
+        ctx,
+        "aggregate",
+        [{ [getAggregateResultKey("_count")]: count }],
+        { _count: true }
+      )
+    ).toThrow(MALFORMED_RESULT_PATTERN);
+  });
 
   test("SQLite count middleware does not collapse duplicate COUNT rows", () => {
     expect(() =>

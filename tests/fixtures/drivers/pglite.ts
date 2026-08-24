@@ -1,6 +1,7 @@
 import { createClient } from "@client/client";
 import type { Schema } from "@client/types";
 import type { AnyDriver, BatchQuery, QueryResult } from "@drivers";
+import { isVerbatimBatchQuery } from "@drivers/driver-batch-query-kind";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { push } from "@migrations";
@@ -24,9 +25,20 @@ export class BatchOnlyPGliteDriver extends PGliteDriver {
     return this.transaction(client, async (transaction) => {
       const results: QueryResult<T>[] = [];
       for (const query of queries) {
-        results.push(
-          await this.executeRaw<T>(transaction, query.sql, query.params)
-        );
+        const result = isVerbatimBatchQuery(query)
+          ? await this.executeRaw<T>(
+              transaction,
+              query.sql,
+              query.params,
+              query.context
+            )
+          : await this.execute<T>(
+              transaction,
+              query.sql,
+              query.params ?? [],
+              query.context
+            );
+        results.push(result);
       }
       return results;
     });

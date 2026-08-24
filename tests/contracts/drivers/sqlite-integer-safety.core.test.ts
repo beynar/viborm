@@ -20,9 +20,14 @@
  * runtime, by `bun-sqlite-runtime.test.ts`.
  */
 
+import { createClient } from "@client/client";
+import type { AnyDriver, BatchQuery } from "@drivers";
 import { BunSQLiteDriver } from "@drivers/bun-sqlite";
+import { LibSQLDriver } from "@drivers/libsql";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import { FeatureNotSupportedError } from "@errors";
+import { isTransactionOperation } from "@query-engine/transaction-operation";
+import { s } from "@schema";
 import { sql } from "@sql";
 import { describe, expect, test, vi } from "vitest";
 
@@ -35,6 +40,13 @@ type BunSQLiteClient = NonNullable<BunSQLiteOptions["client"]>;
 // suite pins — and what it becomes if it ever travels as a JS number.
 const EXACT = 9_007_199_254_740_993n;
 const ROUNDED = 9_007_199_254_740_992;
+
+const measurement = s
+  .model({
+    id: s.string().id(),
+    views: s.bigInt(),
+  })
+  .map("measurements");
 
 /**
  * A bun:sqlite stand-in that rounds exactly like the real one: INTEGER columns
@@ -63,7 +75,12 @@ function createBunIntegerFixture({
   };
   const database = {
     query: vi.fn(() => statement),
-    prepare: vi.fn(() => statement),
+    prepare: vi.fn(() => {
+      // Each real prepare creates a fresh statement whose integer mode starts
+      // in provider-native mode.
+      safe = false;
+      return statement;
+    }),
     run: vi.fn(),
     exec: vi.fn(),
     close: vi.fn(),
@@ -82,6 +99,17 @@ function createBunIntegerFixture({
     }),
     safeIntegers,
   };
+}
+
+function prepareOperation(operation: unknown, driver: AnyDriver): BatchQuery {
+  if (!isTransactionOperation(operation)) {
+    throw new Error("Expected a transaction operation");
+  }
+  const prepared = operation.prepare(driver);
+  if (!prepared) {
+    throw new Error("Expected one prepared statement");
+  }
+  return prepared;
 }
 
 /** A non-reader statement: no columns, so nothing is ever decoded. */
@@ -117,7 +145,7 @@ function createBunMutationFixture() {
 
 describe("Bun SQLite integer safety", () => {
   test("the typed execute path reads INTEGER columns exactly past 2^53", async () => {
-    const { driver, safeIntegers } = createBunIntegerFixture();
+    const { all, driver, safeIntegers } = createBunIntegerFixture();
 
     try {
       const result = await driver._execute<{ views: bigint }>(
@@ -126,6 +154,7 @@ describe("Bun SQLite integer safety", () => {
 
       expect(safeIntegers).toHaveBeenCalledWith(true);
       expect(result.rows[0]?.views).toBe(EXACT);
+      expect(all).toHaveBeenCalledOnce();
     } finally {
       await driver.disconnect();
     }
@@ -146,6 +175,55 @@ describe("Bun SQLite integer safety", () => {
       expect(result.rows[0]?.views).toBe(ROUNDED);
     } finally {
       await driver.disconnect();
+    }
+  });
+
+  test("tagged and verbatim raw keep their integer modes in a fallback batch", async () => {
+    const { driver } = createBunIntegerFixture();
+    const client = createClient({ schema: { measurement }, driver });
+
+    try {
+      const typedDirect = await client.measurement.findMany({
+        select: { views: true },
+      });
+      const taggedDirect = await client.$queryRaw<{
+        views: bigint;
+      }>`SELECT "views"`;
+      const unsafeDirect = await client.$queryRawUnsafe<{ views: number }>(
+        `SELECT "views"`
+      );
+
+      expect(typedDirect[0]?.views).toBe(EXACT);
+      expect(taggedDirect[0]?.views).toBe(EXACT);
+      expect(unsafeDirect[0]?.views).toBe(ROUNDED);
+
+      const batch = await driver._executeBatch<{ views: bigint | number }>([
+        prepareOperation(
+          client.measurement.findMany({ select: { views: true } }),
+          driver
+        ),
+        prepareOperation(
+          client.$queryRawUnsafe<{ views: number }>(`SELECT "views"`),
+          driver
+        ),
+        prepareOperation(
+          client.$queryRaw<{ views: number }>(`SELECT "views"`, []),
+          driver
+        ),
+        prepareOperation(
+          client.$queryRaw<{ views: bigint }>`SELECT "views"`,
+          driver
+        ),
+      ]);
+
+      expect(batch.map((result) => result.rows[0]?.views)).toEqual([
+        EXACT,
+        ROUNDED,
+        ROUNDED,
+        EXACT,
+      ]);
+    } finally {
+      await client.$disconnect();
     }
   });
 
@@ -204,6 +282,122 @@ describe("SQLite3 integer safety (the contract bun-sqlite matches)", () => {
       expect(raw.rows[0]?.views).toBe(ROUNDED);
     } finally {
       await driver.disconnect();
+    }
+  });
+
+  test("fallback batches preserve typed, unsafe, legacy, and typed ordering", async () => {
+    const driver = new SQLite3Driver({ dataDir: ":memory:" });
+    const client = createClient({ schema: { measurement }, driver });
+
+    try {
+      await driver._executeRaw(
+        `CREATE TABLE "measurements" ("id" TEXT PRIMARY KEY, "views" INTEGER NOT NULL)`
+      );
+      await driver._executeRaw(`INSERT INTO "measurements" VALUES (?, ?)`, [
+        "m-1",
+        EXACT,
+      ]);
+
+      const typedDirect = await client.measurement.findMany({
+        select: { views: true },
+      });
+      const taggedDirect = await client.$queryRaw<{
+        views: bigint;
+      }>`SELECT "views" FROM "measurements"`;
+      const unsafeDirect = await client.$queryRawUnsafe<{ views: number }>(
+        `SELECT "views" FROM "measurements"`
+      );
+
+      expect(typedDirect[0]?.views).toBe(EXACT);
+      expect(taggedDirect[0]?.views).toBe(EXACT);
+      expect(unsafeDirect[0]?.views).toBe(ROUNDED);
+
+      const batch = await driver._executeBatch<{ views: bigint | number }>([
+        prepareOperation(
+          client.measurement.findMany({ select: { views: true } }),
+          driver
+        ),
+        prepareOperation(
+          client.$queryRawUnsafe<{ views: number }>(
+            `SELECT "views" FROM "measurements"`
+          ),
+          driver
+        ),
+        prepareOperation(
+          client.$queryRaw<{ views: number }>(
+            `SELECT "views" FROM "measurements"`,
+            []
+          ),
+          driver
+        ),
+        prepareOperation(
+          client.$queryRaw<{
+            views: bigint;
+          }>`SELECT "views" FROM "measurements"`,
+          driver
+        ),
+      ]);
+
+      expect(batch.map((result) => result.rows[0]?.views)).toEqual([
+        EXACT,
+        ROUNDED,
+        ROUNDED,
+        EXACT,
+      ]);
+    } finally {
+      await client.$disconnect();
+    }
+  });
+});
+
+describe("LibSQL integer-mode control", () => {
+  test("its connection-wide bigint mode keeps every fallback batch arm exact", async () => {
+    const driver = new LibSQLDriver();
+    const client = createClient({ schema: { measurement }, driver });
+
+    try {
+      await driver._executeRaw(
+        `CREATE TABLE "measurements" ("id" TEXT PRIMARY KEY, "views" INTEGER NOT NULL)`
+      );
+      await driver._executeRaw(`INSERT INTO "measurements" VALUES (?, ?)`, [
+        "m-1",
+        EXACT,
+      ]);
+
+      const batch = await driver._executeBatch<{ views: bigint }>([
+        prepareOperation(
+          client.measurement.findMany({ select: { views: true } }),
+          driver
+        ),
+        prepareOperation(
+          client.$queryRawUnsafe<{ views: bigint }>(
+            `SELECT "views" FROM "measurements"`
+          ),
+          driver
+        ),
+        prepareOperation(
+          client.$queryRaw<{ views: bigint }>(
+            `SELECT "views" FROM "measurements"`,
+            []
+          ),
+          driver
+        ),
+        prepareOperation(
+          client.$queryRaw<{
+            views: bigint;
+          }>`SELECT "views" FROM "measurements"`,
+          driver
+        ),
+      ]);
+
+      expect(batch.map((result) => result.rows[0]?.views)).toEqual([
+        EXACT,
+        EXACT,
+        EXACT,
+        EXACT,
+      ]);
+    } finally {
+      await client.$disconnect();
     }
   });
 });

@@ -18,6 +18,16 @@ function summarize(values) {
   };
 }
 
+const RETAINED_LEVEL_FIELDS = new Set(["peakRssBytes"]);
+
+function relativePercent(baseline, absolute) {
+  return baseline > 0 ? (absolute / baseline) * 100 : null;
+}
+
+function hasMeaningfulTenPercentBaseline(comparison, metric) {
+  return comparison.mode !== "retained" || RETAINED_LEVEL_FIELDS.has(metric);
+}
+
 export function measuredFields(mode) {
   if (mode === "alloc") {
     return ["allocatedBytesPerOperation", "allocatedBytesPerRow"];
@@ -26,19 +36,67 @@ export function measuredFields(mode) {
     return ["cpuMicrosecondsPerOperation", "wallMicrosecondsPerOperation"];
   }
   if (mode === "retained") {
-    return ["retainedBytesPerOperation", "retainedBytesPerRow"];
+    return [
+      "retainedBytesPerOperation",
+      "retainedBytesPerRow",
+      "releasedBytesPerOperation",
+      "releasedBytesPerRow",
+      "peakRssBytes",
+      "peakRssGrowthBytes",
+    ];
   }
   throw new Error(`Unknown measurement mode: ${mode}`);
 }
 
+export function targetableFields(mode) {
+  return [
+    ...measuredFields(mode),
+    ...(mode === "cpu"
+      ? ["responseBytesPerOperation", "responseBytesPerRow"]
+      : []),
+  ];
+}
+
 export function aggregateTarget(target, samples) {
+  const responseAvailability = new Set(
+    samples.map(
+      (sample) =>
+        typeof sample.output.measurement.responseBytesPerOperation === "number"
+    )
+  );
+  if (responseAvailability.size !== 1) {
+    throw new Error(
+      `${target.provider ?? "sqlite3"}/${target.workload}/${target.stage}/${target.mode} changed response-byte availability across samples`
+    );
+  }
+  const responseSources = new Set(
+    samples.flatMap((sample) =>
+      sample.output.measurement.responseBytesSource === undefined
+        ? []
+        : [sample.output.measurement.responseBytesSource]
+    )
+  );
+  if (responseSources.size > 1) {
+    throw new Error(
+      `${target.provider ?? "sqlite3"}/${target.workload}/${target.stage}/${target.mode} changed response-byte source across samples`
+    );
+  }
+  const optionalFields = [
+    "responseBytesPerOperation",
+    "responseBytesPerRow",
+  ].filter((field) =>
+    samples.every(
+      (sample) => typeof sample.output.measurement[field] === "number"
+    )
+  );
+  const fields = [...measuredFields(target.mode), ...optionalFields];
   const byCheckout = Object.fromEntries(
     ["baseline", "candidate"].map((label) => {
       const checkoutSamples = samples.filter(
         (sample) => sample.checkout === label
       );
       const metrics = Object.fromEntries(
-        measuredFields(target.mode).map((field) => [
+        fields.map((field) => [
           field,
           summarize(
             checkoutSamples.map((sample) => sample.output.measurement[field])
@@ -52,7 +110,7 @@ export function aggregateTarget(target, samples) {
     })
   );
   const deltas = Object.fromEntries(
-    measuredFields(target.mode).map((field) => {
+    fields.map((field) => {
       const baseline = byCheckout.baseline.metrics[field].median;
       const candidate = byCheckout.candidate.metrics[field].median;
       const noiseThreshold =
@@ -66,8 +124,7 @@ export function aggregateTarget(target, samples) {
         field,
         {
           absolute,
-          percent:
-            baseline === 0 ? null : ((candidate - baseline) / baseline) * 100,
+          percent: relativePercent(baseline, absolute),
           twoMadThreshold: noiseThreshold,
           significantImprovement: -absolute > noiseThreshold,
           significantRegression: absolute > noiseThreshold,
@@ -80,35 +137,59 @@ export function aggregateTarget(target, samples) {
     semanticChecksum: samples[0].output.measurement.checksum,
     semanticDigest: samples[0].output.semanticDigest,
     witness: samples[0].output.witness,
+    responseBytes:
+      optionalFields.length === 0
+        ? { available: false }
+        : {
+            available: true,
+            source: samples[0].output.measurement.responseBytesSource,
+          },
     byCheckout,
     deltas,
   };
 }
 
 export function verifyCrossStageSemantics(samples) {
-  const workloads = new Set(samples.map((sample) => sample.workload));
-  for (const workload of workloads) {
+  const providerWorkloads = new Set(
+    samples.map((sample) =>
+      JSON.stringify([sample.provider ?? "sqlite3", sample.workload])
+    )
+  );
+  for (const serializedProviderWorkload of providerWorkloads) {
+    const [provider, workload] = JSON.parse(serializedProviderWorkload);
     const digests = new Set(
       samples
-        .filter((sample) => sample.workload === workload)
+        .filter(
+          (sample) =>
+            (sample.provider ?? "sqlite3") === provider &&
+            sample.workload === workload
+        )
         .map((sample) => sample.output.semanticDigest)
     );
     if (digests.size !== 1 || digests.has(undefined)) {
-      throw new Error(`${workload} changed semantic digest across stages`);
+      throw new Error(
+        `${provider}/${workload} changed semantic digest across stages`
+      );
     }
   }
   const targets = new Set(
     samples.map((sample) =>
-      JSON.stringify([sample.workload, sample.stage, sample.mode])
+      JSON.stringify([
+        sample.provider ?? "sqlite3",
+        sample.workload,
+        sample.stage,
+        sample.mode,
+      ])
     )
   );
   for (const serializedTarget of targets) {
-    const [workload, stage, mode] = JSON.parse(serializedTarget);
+    const [provider, workload, stage, mode] = JSON.parse(serializedTarget);
     const checksums = new Set(
       samples
         .filter(
           (sample) =>
             sample.workload === workload &&
+            (sample.provider ?? "sqlite3") === provider &&
             sample.stage === stage &&
             sample.mode === mode
         )
@@ -116,7 +197,7 @@ export function verifyCrossStageSemantics(samples) {
     );
     if (checksums.size !== 1 || checksums.has(undefined)) {
       throw new Error(
-        `${workload}/${stage}/${mode} changed semantic checksum across replicates`
+        `${provider}/${workload}/${stage}/${mode} changed semantic checksum across replicates`
       );
     }
   }
@@ -128,6 +209,7 @@ export function evaluateKeepGate({
   targets,
   declaredTargets,
   comparisons,
+  skippedComparisons = [],
 }) {
   const reasons = [];
   if (smoke) reasons.push("Smoke mode uses one replicate.");
@@ -136,12 +218,22 @@ export function evaluateKeepGate({
   if (declaredTargets.length === 0) {
     reasons.push("No target metric contract was declared.");
   }
+  for (const skipped of skippedComparisons) {
+    reasons.push(
+      `${skipped.provider}/${skipped.workload}/${skipped.stage}/${skipped.mode} was skipped: ${skipped.reason}`
+    );
+  }
   const targetedWorkloads = new Set(
-    declaredTargets.map((target) => target.workload)
+    declaredTargets.map((target) =>
+      JSON.stringify([target.provider ?? "sqlite3", target.workload])
+    )
   );
-  for (const workload of targetedWorkloads) {
+  for (const serializedProviderWorkload of targetedWorkloads) {
+    const [provider, workload] = JSON.parse(serializedProviderWorkload);
     const workloadTargets = targets.filter(
-      (target) => target.workload === workload
+      (target) =>
+        (target.provider ?? "sqlite3") === provider &&
+        target.workload === workload
     );
     for (const requiredMode of ["alloc", "cpu"]) {
       if (
@@ -150,7 +242,7 @@ export function evaluateKeepGate({
         )
       ) {
         reasons.push(
-          `${workload} is missing corresponding full/${requiredMode} evidence.`
+          `${provider}/${workload} is missing corresponding full/${requiredMode} evidence.`
         );
       }
     }
@@ -159,39 +251,48 @@ export function evaluateKeepGate({
     comparison.stage !== "full"
       ? []
       : Object.entries(comparison.deltas)
-          .filter(([, delta]) => delta.percent !== null && delta.percent > 10)
+          .filter(
+            ([metric, delta]) =>
+              hasMeaningfulTenPercentBaseline(comparison, metric) &&
+              delta.percent !== null &&
+              delta.percent > 10
+          )
           .map(
             ([metric, delta]) =>
-              `${comparison.workload}/${metric} regressed ${delta.percent.toFixed(2)}%.`
+              `${comparison.provider ?? "sqlite3"}/${comparison.workload}/${metric} regressed ${delta.percent.toFixed(2)}%.`
           )
   );
   for (const target of declaredTargets) {
     const comparison = comparisons.find(
       (entry) =>
         entry.workload === target.workload &&
+        (entry.provider ?? "sqlite3") ===
+          (target.provider ?? "sqlite3") &&
         entry.stage === target.stage &&
         entry.mode === target.mode
     );
     const delta = comparison?.deltas[target.metric];
     if (!delta?.significantImprovement) {
       reasons.push(
-        `${target.workload}/${target.stage}/${target.mode}/${target.metric} did not improve by more than 2×MAD.`
+        `${target.provider ?? "sqlite3"}/${target.workload}/${target.stage}/${target.mode}/${target.metric} did not improve by more than 2×MAD.`
       );
     }
   }
   const significantRegressions = comparisons.flatMap((comparison) =>
-    Object.entries(comparison.deltas)
-      .filter(([, delta]) => delta.significantRegression)
-      .map(
-        ([metric]) =>
-          `${comparison.workload}/${comparison.stage}/${comparison.mode}/${metric} regressed beyond 2×MAD.`
-      )
+    comparison.mode === "retained"
+      ? []
+      : Object.entries(comparison.deltas)
+          .filter(([, delta]) => delta.significantRegression)
+          .map(
+            ([metric]) =>
+              `${comparison.provider ?? "sqlite3"}/${comparison.workload}/${comparison.stage}/${comparison.mode}/${metric} regressed beyond 2×MAD.`
+          )
   );
   reasons.push(...significantRegressions);
   reasons.push(...fullRegressions);
   return {
     eligible: reasons.length === 0,
-    rule: "Every explicitly declared target metric must improve by more than 2×MAD; no measured metric may regress beyond 2×MAD; corresponding full stages must stay within the 10% ceiling.",
+    rule: "Every explicitly declared target metric must improve by more than 2×MAD; no non-retained metric may regress beyond 2×MAD; corresponding full stages and retained peak RSS must stay within the applicable 10% ceiling.",
     twoMadReportedPerMetric: true,
     tenPercentEndToEndCeilingPassed: fullRegressions.length === 0,
     reasons,

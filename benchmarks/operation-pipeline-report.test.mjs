@@ -1,19 +1,25 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { WORKLOADS } from "./operation-pipeline-catalog.mjs";
+import {
+  CROSS_PROVIDER_BASELINE_COMMIT,
+  PROVIDERS,
+  WORKLOADS,
+} from "./operation-pipeline-catalog.mjs";
 import {
   PROTOCOL_PATHS,
   protocolSha256,
 } from "./operation-pipeline-protocol.mjs";
 import {
+  aggregateTarget,
   evaluateKeepGate,
+  measuredFields,
   verifyCrossStageSemantics,
 } from "./operation-pipeline-report.mjs";
 
 const DID_NOT_IMPROVE_PATTERN = /did not improve by more than 2×MAD/;
 const NO_TARGET_PATTERN = /No target metric contract/;
 const REPLICATE_CHECKSUM_DRIFT_PATTERN =
-  /scalar-find-unique\/full\/cpu changed semantic checksum across replicates/;
+  /sqlite3\/scalar-find-unique\/full\/cpu changed semantic checksum across replicates/;
 
 const workload = "scalar-find-unique";
 const targets = [
@@ -114,8 +120,8 @@ test("prepare alloc/cpu plus full retained does not satisfy full evidence", () =
   assert.deepEqual(
     gate.reasons.filter((reason) => reason.includes("corresponding full/")),
     [
-      `${workload} is missing corresponding full/alloc evidence.`,
-      `${workload} is missing corresponding full/cpu evidence.`,
+      `sqlite3/${workload} is missing corresponding full/alloc evidence.`,
+      `sqlite3/${workload} is missing corresponding full/cpu evidence.`,
     ]
   );
 });
@@ -170,4 +176,246 @@ test("the width and relation-depth proof matrices are complete", () => {
       );
     }
   }
+});
+
+test("the cross-provider catalog pins every Unit 2 provider and stage", () => {
+  assert.equal(
+    CROSS_PROVIDER_BASELINE_COMMIT,
+    "52eef9ebfc710407e1e5fe6042e2ed5a11adf19e"
+  );
+  assert.deepEqual(Object.keys(PROVIDERS), [
+    "sqlite3",
+    "bun-sqlite",
+    "libsql",
+    "pglite",
+    "pg",
+    "postgres.js",
+    "bun-sql",
+    "mysql2",
+    "planetscale",
+    "neon-http",
+    "d1",
+  ]);
+  assert.deepEqual(WORKLOADS["provider-mixed-scalar-20"].stages, [
+    "provider-execute",
+    "driver-wrapper",
+    "unowned-parse",
+    "provider-parse",
+    "full",
+  ]);
+  assert.deepEqual(
+    WORKLOADS["provider-mixed-scalar-20"].providers,
+    Object.keys(PROVIDERS)
+  );
+  for (const rows of [1, 20, 1000, 10000]) {
+    assert.equal(WORKLOADS[`provider-identity-${rows}`].rowsPerOperation, rows);
+    assert.equal(
+      WORKLOADS[`provider-mixed-scalar-${rows}`].rowsPerOperation,
+      rows
+    );
+  }
+  for (const workloadName of [
+    "provider-wide-scalar-100",
+    "provider-fixed-nested-20",
+    "provider-variant-nested-20",
+    "provider-count-10000",
+    "provider-aggregate-10000",
+    "provider-returning-one",
+    "provider-relation-count-20",
+    "provider-execution-forms",
+  ]) {
+    assert.ok(WORKLOADS[workloadName]);
+  }
+  assert.deepEqual(WORKLOADS["provider-execution-forms"].stages, [
+    "direct",
+    "prepared",
+    "transaction",
+    "fallback-batch",
+    "native-batch",
+  ]);
+});
+
+test("retained mode reports retained, released, and peak process memory", () => {
+  assert.deepEqual(measuredFields("retained"), [
+    "retainedBytesPerOperation",
+    "retainedBytesPerRow",
+    "releasedBytesPerOperation",
+    "releasedBytesPerRow",
+    "peakRssBytes",
+    "peakRssGrowthBytes",
+  ]);
+});
+
+test("a signed retained-heap delta has no relative percentage at a non-positive baseline", () => {
+  const target = {
+    provider: "sqlite3",
+    workload,
+    stage: "full",
+    mode: "retained",
+  };
+  const retainedMeasurement = (retainedBytesPerOperation) => ({
+    checksum: 1,
+    retainedBytesPerOperation,
+    retainedBytesPerRow: retainedBytesPerOperation,
+    releasedBytesPerOperation: 100,
+    releasedBytesPerRow: 100,
+    peakRssBytes: 100_000,
+    peakRssGrowthBytes: 0,
+  });
+  const samples = [
+    ...Array.from({ length: 5 }, (_, replicate) => ({
+      ...target,
+      checkout: "baseline",
+      replicate,
+      output: {
+        semanticDigest: "same-result",
+        witness: {},
+        measurement: retainedMeasurement(-1_030),
+      },
+    })),
+    ...Array.from({ length: 5 }, (_, replicate) => ({
+      ...target,
+      checkout: "candidate",
+      replicate,
+      output: {
+        semanticDigest: "same-result",
+        witness: {},
+        measurement: retainedMeasurement(-2_949),
+      },
+    })),
+  ];
+
+  const comparison = aggregateTarget(target, samples);
+  assert.equal(
+    comparison.deltas.retainedBytesPerOperation.absolute,
+    -1_919
+  );
+  assert.equal(comparison.deltas.retainedBytesPerOperation.percent, null);
+  assert.equal(
+    comparison.deltas.retainedBytesPerOperation.significantImprovement,
+    true
+  );
+  assert.equal(
+    comparison.deltas.retainedBytesPerOperation.significantRegression,
+    false
+  );
+
+  const zeroBaselineComparison = aggregateTarget(
+    target,
+    samples.map((sample) => ({
+      ...sample,
+      output: {
+        ...sample.output,
+        measurement: retainedMeasurement(
+          sample.checkout === "baseline" ? 0 : 100
+        ),
+      },
+    }))
+  );
+  assert.equal(
+    zeroBaselineComparison.deltas.retainedBytesPerOperation.percent,
+    null
+  );
+});
+
+test("retained growth stays diagnostic while memory levels and ordinary metrics block", () => {
+  const retainedGate = evaluateKeepGate({
+    smoke: false,
+    hasOverrides: false,
+    targets: [],
+    declaredTargets: [],
+    comparisons: [
+      {
+        workload,
+        stage: "full",
+        mode: "retained",
+        deltas: {
+          retainedBytesPerOperation: {
+            percent: 100,
+            significantImprovement: false,
+            significantRegression: true,
+          },
+          peakRssBytes: {
+            percent: 11,
+            significantImprovement: false,
+            significantRegression: true,
+          },
+        },
+      },
+    ],
+  });
+  assert.equal(
+    retainedGate.reasons.some((reason) =>
+      reason.includes("retainedBytesPerOperation regressed 100.00%")
+    ),
+    false
+  );
+  assert.equal(
+    retainedGate.reasons.some((reason) =>
+      reason.includes("retainedBytesPerOperation regressed beyond 2×MAD")
+    ),
+    false
+  );
+  assert.equal(
+    retainedGate.reasons.some((reason) =>
+      reason.includes("peakRssBytes regressed beyond 2×MAD")
+    ),
+    false
+  );
+  assert.equal(
+    retainedGate.reasons.some((reason) =>
+      reason.includes("peakRssBytes regressed 11.00%")
+    ),
+    true
+  );
+
+  const cpuGate = evaluateKeepGate({
+    smoke: false,
+    hasOverrides: false,
+    targets: [],
+    declaredTargets: [],
+    comparisons: [
+      {
+        workload,
+        stage: "full",
+        mode: "cpu",
+        deltas: {
+          cpuMicrosecondsPerOperation: {
+            percent: 1,
+            significantImprovement: false,
+            significantRegression: true,
+          },
+        },
+      },
+    ],
+  });
+  assert.equal(
+    cpuGate.reasons.some((reason) =>
+      reason.includes(
+        "cpu/cpuMicrosecondsPerOperation regressed beyond 2×MAD"
+      )
+    ),
+    true
+  );
+});
+
+test("a skipped provider leg is visible and cannot pass the keep gate", () => {
+  const gate = evaluateKeepGate({
+    smoke: false,
+    hasOverrides: false,
+    targets: [],
+    declaredTargets: [],
+    comparisons: [],
+    skippedComparisons: [
+      {
+        provider: "d1",
+        workload: "provider-mixed-scalar-20",
+        stage: "full",
+        mode: "cpu",
+        reason: "Workers runtime unavailable",
+      },
+    ],
+  });
+  assert.equal(gate.eligible, false);
+  assert.match(gate.reasons.join("\n"), /d1\/provider-mixed-scalar-20/);
 });

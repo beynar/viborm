@@ -169,7 +169,6 @@ describe("read fast path — identity decoders + whole-row passthrough", () => {
     const parsed = fastPathParser(pureScalarModel).parse<
       Record<string, unknown>[]
     >("findMany", rows, {});
-    // The per-row allocation was skipped — the exact input object is returned.
     expect(parsed[0]).toBe(rows[0]);
     expect(parsed[1]).toBe(rows[1]);
   });

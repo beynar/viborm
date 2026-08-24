@@ -209,7 +209,10 @@ export function createRowParser(
   shape: ExpectedResultShape | undefined,
   parsers: RowValueParsers,
   exactFields?: ExactFieldCapture
-): (row: Record<string, unknown>) => Record<string, unknown> {
+): (
+  row: Record<string, unknown>,
+  reuseParserOwnedRow?: boolean
+) => Record<string, unknown> {
   const scalars: Record<string, Scalar> = model["~"].state.scalars;
   const relations: Record<string, AnyRelation> = model["~"].state.relations;
   const len = keys.length;
@@ -226,12 +229,14 @@ export function createRowParser(
   const identityEnabled = ctx.nativeScalarPassthrough;
   const identityGuards: IdentityGuard[] = new Array(len);
   let allIdentity = identityEnabled && len > 0;
+  let preservesKeys = true;
 
   for (let i = 0; i < len; i++) {
     const key = keys[i]!;
 
     if (key === EMPTY_ROW_RESULT_KEY) {
       allIdentity = false;
+      preservesKeys = false;
       steps[i] = (_result, value) => {
         if (parseSafeCountValue(value) !== 1) {
           malformedResult(
@@ -246,6 +251,7 @@ export function createRowParser(
 
     if (key === VECTOR_DISTANCE_RESULT_KEY) {
       allIdentity = false;
+      preservesKeys = false;
       steps[i] = (result, value) => {
         result._distance = parseVectorDistanceValue(ctx, operation, value);
       };
@@ -297,6 +303,7 @@ export function createRowParser(
 
     if (key === RELATION_COUNTS_RESULT_KEY) {
       allIdentity = false;
+      preservesKeys = false;
       const expectedRelations = shape?.relationCounts;
       if (!(expectedRelations && expectedRelations.size > 0)) {
         malformedResult(
@@ -353,6 +360,7 @@ export function createRowParser(
     const aggregateName = getAggregateResultName(key);
     if (aggregateName) {
       allIdentity = false;
+      preservesKeys = false;
       const aggregateShape = shape?.aggregates.get(key);
       steps[i] = (result, value) => {
         result[aggregateName] = parsers.parseAggregate(
@@ -373,8 +381,11 @@ export function createRowParser(
     );
   }
 
-  const buildRow = (row: Record<string, unknown>): Record<string, unknown> => {
-    const result: Record<string, unknown> = {};
+  const buildRow = (
+    row: Record<string, unknown>,
+    initialResult?: Record<string, unknown>
+  ): Record<string, unknown> => {
+    const result: Record<string, unknown> = initialResult ?? {};
     const exact: Record<string, unknown> | undefined = exactFields
       ? {}
       : undefined;
@@ -386,20 +397,21 @@ export function createRowParser(
   };
 
   if (!allIdentity) {
-    return buildRow;
+    return (row, reuseParserOwnedRow = false) =>
+      buildRow(row, reuseParserOwnedRow && preservesKeys ? row : undefined);
   }
 
-  // Whole-row passthrough: every column is an identity-eligible scalar. When
-  // ALL cells are already native, the built object is byte-identical to the
-  // input row — same keys, same insertion order (the driver already aliased
-  // columns to field names and the full path assigns them in `keys` order),
-  // same values — so the fresh per-row allocation is skipped and the driver's
-  // row is returned as-is. Its keys were asserted to match the requested shape
-  // upstream. A single non-native cell falls the row back to the full build.
-  return (row) => {
+  // Whole-row passthrough: every column is an identity-eligible scalar. This is
+  // the pre-existing Postgres-adapter fast path and applies equally to driver
+  // and manual parsing. A non-native cell uses the full parser; a row decoded
+  // from relation JSON may be updated in place on that fallback.
+  return (row, reuseParserOwnedRow = false) => {
     for (let i = 0; i < len; i++) {
       if (!identityGuards[i]!(row[keys[i]!])) {
-        return buildRow(row);
+        return buildRow(
+          row,
+          reuseParserOwnedRow && preservesKeys ? row : undefined
+        );
       }
     }
     if (exactFields) {

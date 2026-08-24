@@ -1,6 +1,7 @@
 import { createClient } from "@client/client";
 import { QueryEngineError, QueryError } from "@errors";
 import { s } from "@schema";
+import { sql } from "@sql";
 import type { QueryExecutionContext } from "@src/drivers/driver";
 import { NeonHTTPDriver } from "@src/drivers/neon-http";
 import type {
@@ -11,6 +12,7 @@ import type {
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
 interface FakeNeonState {
+  directOptions: unknown[];
   directResults: unknown[];
   events: string[];
   results: unknown;
@@ -18,6 +20,7 @@ interface FakeNeonState {
 }
 
 const fakeNeonState = vi.hoisted<FakeNeonState>(() => ({
+  directOptions: [],
   directResults: [],
   events: [],
   results: undefined,
@@ -26,7 +29,8 @@ const fakeNeonState = vi.hoisted<FakeNeonState>(() => ({
 
 vi.mock("@neondatabase/serverless", () => ({
   neon: () => {
-    const query = async (sql: string) => {
+    const query = async (sql: string, _params: unknown[], options: unknown) => {
+      fakeNeonState.directOptions.push(options);
       const directResult = fakeNeonState.directResults.shift();
       if (directResult !== undefined) {
         fakeNeonState.events.push(`direct:${sql}`);
@@ -231,10 +235,44 @@ const RELATION_BEARING_ROWS = [
 
 describe("H2 — Neon HTTP declares no ordered committed segments", () => {
   beforeEach(() => {
+    fakeNeonState.directOptions = [];
     fakeNeonState.directResults = [];
     fakeNeonState.events = [];
     fakeNeonState.results = [validNeonResult()];
     fakeNeonState.transactionError = undefined;
+  });
+
+  test("typed direct execution requests object-row full results", async () => {
+    fakeNeonState.directResults = [
+      neonResult([{ second: 2, first: 1 }], "SELECT"),
+    ];
+    const driver = new NeonHTTPDriver({ databaseUrl: "fake://neon" });
+
+    const result = await driver._execute<Record<string, unknown>>(
+      sql`SELECT 2 AS second, 1 AS first`
+    );
+
+    expect(result).toEqual({
+      rows: [{ second: 2, first: 1 }],
+      rowCount: 1,
+    });
+    expect(Object.keys(result.rows[0] ?? {})).toEqual(["second", "first"]);
+    expect(fakeNeonState.directOptions).toEqual([
+      { arrayMode: false, fullResults: true },
+    ]);
+  });
+
+  test("raw direct execution retains named provider rows", async () => {
+    const providerRow = { raw_value: 9 };
+    fakeNeonState.directResults = [neonResult([providerRow], "SELECT")];
+    const driver = new NeonHTTPDriver({ databaseUrl: "fake://neon" });
+
+    const result = await driver._executeRaw("SELECT 9 AS raw_value");
+
+    expect(result.rows[0]).toBe(providerRow);
+    expect(fakeNeonState.directOptions).toEqual([
+      { arrayMode: false, fullResults: true },
+    ]);
   });
 
   test("the capability is false, beside the two that are true", () => {

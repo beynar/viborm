@@ -4,7 +4,6 @@ import type { DatabaseAdapter } from "@adapters/database-adapter";
 import {
   ConnectionError,
   type DiagnosticDisclosure,
-  sanitizeDiagnosticParameters,
   sanitizeErrorForLogging,
   TransactionError,
   VibORMErrorCode,
@@ -18,12 +17,14 @@ import {
   ATTR_DB_SYSTEM,
   ATTR_VIBORM_CORRELATION_ID,
   SPAN_EXECUTE,
+  type VibORMSpanName,
 } from "@instrumentation/spans";
-import { getNoopTracer } from "@instrumentation/tracer";
+import { getNoopTracer, shouldTraceSpan } from "@instrumentation/tracer";
 import type { Operation } from "@query-engine/types";
 import type { Sql } from "@sql";
 import {
   BATCH_DIAGNOSTIC_PARAMS,
+  EMPTY_DIAGNOSTIC_PARAMS,
   findUniqueErrorLogDetails,
   getErrorExecutionContext,
   snapshotDiagnosticParameters,
@@ -300,7 +301,7 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
       operation: context.operation,
       correlationId: context.correlationId,
       query: sql,
-      params: snapshotDiagnosticParameters(params),
+      params,
       diagnostics: this.getErrorDisclosure(context),
       forceContext: true,
     });
@@ -311,10 +312,26 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
       const snapshot = Reflect.get(query, BATCH_DIAGNOSTIC_PARAMS);
       return Array.isArray(snapshot)
         ? snapshot
-        : snapshotDiagnosticParameters(query.params ?? []);
+        : this.getDiagnosticParameters(query.params ?? [], query.context);
     } catch {
-      return snapshotDiagnosticParameters(query.params ?? []);
+      return this.getDiagnosticParameters(query.params ?? [], query.context);
     }
+  }
+
+  protected getDiagnosticParameters(
+    params: readonly unknown[],
+    context?: QueryExecutionContext,
+    relatedContext?: QueryExecutionContext
+  ): unknown[] {
+    if (
+      this.canDiscloseParameters(context) ||
+      (relatedContext !== undefined &&
+        relatedContext !== context &&
+        this.canDiscloseParameters(relatedContext))
+    ) {
+      return snapshotDiagnosticParameters(params);
+    }
+    return EMPTY_DIAGNOSTIC_PARAMS;
   }
 
   /**
@@ -328,9 +345,9 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
     error?: unknown
   ): void {
     const logger = this.getLogger(context);
-    if (!logger) return;
-
     const isError = error instanceof Error;
+    const level = isError ? "error" : "query";
+    if (!logger?.isLevelEnabled(level)) return;
 
     // Tell the outer operation observer this failure is already reported. The
     // record lives outside the error (see markErrorLogged) so the caller's
@@ -338,17 +355,14 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
     if (isError) markErrorLogged(error);
 
     const disclosure = this.getLoggingDisclosure(context);
-    const sanitizedParams = disclosure.includeParams
-      ? sanitizeDiagnosticParameters(params, disclosure)
-      : undefined;
-    logger[error ? "error" : "query"]({
+    logger[level]({
       timestamp: new Date(),
       duration,
       model: context.model,
       operation: context.operation,
       correlationId: context.correlationId,
       sql: disclosure.includeSql ? sql : undefined,
-      params: sanitizedParams,
+      params: disclosure.includeParams ? params : undefined,
       error: isError ? sanitizeErrorForLogging(error, disclosure) : undefined,
     });
   }
@@ -425,9 +439,16 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
     forceErrorContext = true,
     errorLogDetails?: readonly ErrorLogDetails[]
   ): Promise<R> {
-    // Fast path: nothing configured — skip span, timing, and log plumbing.
+    const instrumentation = this.getInstrumentation(context);
+    const logger = instrumentation?.logger;
+    const hasLogging =
+      logger?.isLevelEnabled("query") === true ||
+      logger?.isLevelEnabled("error") === true;
+    const hasTracing = this.isTracingEnabled(context);
+
+    // Fast path: nothing observes execution — skip span, timing, and log plumbing.
     // Error normalization is behavior (typed driver errors), so it stays.
-    if (!this.getInstrumentation(context)) {
+    if (!(hasLogging || hasTracing)) {
       try {
         return await executor();
       } catch (error) {
@@ -480,17 +501,16 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
       }
     };
 
-    // Get tracer (always defined - either real or no-op)
-    const tracer = this.getTracer(context);
+    // Ignored and absent traces do not observe context or diagnostic values.
+    if (!hasTracing) return runAndLog();
+
+    const tracer = instrumentation?.tracer ?? getNoopTracer();
     const tracingDisclosure = this.getTracingDisclosure(context);
-    const sanitizedSpanParams = tracingDisclosure.includeParams
-      ? sanitizeDiagnosticParameters(params, tracingDisclosure)
-      : undefined;
     const spanSql =
       tracingDisclosure.includeSql || tracingDisclosure.includeParams
         ? {
             ...(tracingDisclosure.includeSql ? { query: sql } : {}),
-            ...(sanitizedSpanParams ? { params: sanitizedSpanParams } : {}),
+            ...(tracingDisclosure.includeParams ? { params } : {}),
           }
         : undefined;
 
@@ -520,6 +540,46 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
     context?: QueryExecutionContext
   ): InstrumentationContext | undefined {
     return getExecutionInstrumentation(context) ?? this.instrumentation;
+  }
+
+  protected canDiscloseParameters(context?: QueryExecutionContext): boolean {
+    const instrumentation = this.getInstrumentation(context);
+    if (!instrumentation) return false;
+    if (instrumentation.config.diagnostics.includeParams) return true;
+
+    const logging = instrumentation.config.logging;
+    if (
+      logging &&
+      logging !== true &&
+      logging.includeParams === true &&
+      (instrumentation.logger?.isLevelEnabled("query") === true ||
+        instrumentation.logger?.isLevelEnabled("error") === true)
+    ) {
+      return true;
+    }
+
+    const tracing = instrumentation.config.tracing;
+    return (
+      tracing !== undefined &&
+      tracing !== true &&
+      tracing.includeParams === true &&
+      shouldTraceSpan(instrumentation.tracer, SPAN_EXECUTE)
+    );
+  }
+
+  protected isTracingEnabled(
+    context?: QueryExecutionContext,
+    spanName: VibORMSpanName = SPAN_EXECUTE
+  ): boolean {
+    const instrumentation = this.getInstrumentation(context);
+    const isConfigured =
+      instrumentation?.config.tracing !== undefined ||
+      instrumentation?.tracer.isEnabled() === true;
+    return (
+      isConfigured &&
+      instrumentation !== undefined &&
+      shouldTraceSpan(instrumentation.tracer, spanName)
+    );
   }
 
   protected getErrorDisclosure(

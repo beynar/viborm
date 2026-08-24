@@ -16,9 +16,10 @@ import {
 import {
   aggregateTarget,
   evaluateKeepGate,
-  measuredFields,
+  targetableFields,
   verifyCrossStageSemantics,
 } from "./operation-pipeline-report.mjs";
+import { CROSS_PROVIDER_BASELINE_COMMIT } from "./operation-pipeline-catalog.mjs";
 
 const FULL_COMMIT_PATTERN = /^[0-9a-f]{40}$/;
 const VALUE_ARGUMENTS = new Set([
@@ -26,6 +27,7 @@ const VALUE_ARGUMENTS = new Set([
   "baseline-commit",
   "candidate-dir",
   "candidate-commit",
+  "providers",
   "workloads",
   "stages",
   "modes",
@@ -36,6 +38,10 @@ const VALUE_ARGUMENTS = new Set([
 const COORDINATOR_REPOSITORY = resolve(
   dirname(fileURLToPath(import.meta.url)),
   ".."
+);
+const COORDINATOR_WORKER = join(
+  COORDINATOR_REPOSITORY,
+  "benchmarks/operation-pipeline-worker.mjs"
 );
 process.chdir(COORDINATOR_REPOSITORY);
 const activeChildren = new Set();
@@ -63,9 +69,9 @@ function usage(message) {
     --baseline-commit <full-sha> \\
     --candidate-dir /absolute/clean/worktree \\
     --candidate-commit <full-sha> \\
-    [--workloads name,name] [--stages name,name] \\
+    [--providers name,name] [--workloads name,name] [--stages name,name] \\
     [--modes alloc,cpu,retained] [--output /absolute/report.json] \\
-    [--target workload/stage/mode/metric]...
+    [--target provider/workload/stage/mode/metric]...
 
 Normal comparisons always use five alternating replicates. Use --smoke only
 for a short infrastructure check; smoke output is explicitly invalid for a
@@ -188,9 +194,13 @@ function optionalPositiveInteger(name, value) {
 
 function parseDeclaredTargets(values, workloads) {
   const targets = values.map((value) => {
-    const [workload, stage, mode, metric, ...extra] = value.split("/");
+    const parts = value.split("/");
+    const [provider, workload, stage, mode, metric, ...extra] =
+      parts.length === 4 ? ["sqlite3", ...parts] : parts;
     if (!(workload && stage && mode && metric) || extra.length > 0) {
-      usage(`Invalid --target ${value}; expected workload/stage/mode/metric`);
+      usage(
+        `Invalid --target ${value}; expected provider/workload/stage/mode/metric`
+      );
     }
     const definition = workloads[workload];
     if (!definition) throw new Error(`Unknown target workload: ${workload}`);
@@ -200,13 +210,16 @@ function parseDeclaredTargets(values, workloads) {
     if (!definition.stageKinds[stage]) {
       throw new Error(`Target stage ${stage} has no execution kind`);
     }
-    const fields = measuredFields(mode);
+    if (!(definition.providers ?? ["sqlite3"]).includes(provider)) {
+      throw new Error(`${workload} is not defined for provider ${provider}`);
+    }
+    const fields = targetableFields(mode);
     if (!fields.includes(metric)) {
       throw new Error(
         `Target metric ${metric} is not measured in ${mode} mode`
       );
     }
-    return { workload, stage, mode, metric };
+    return { provider, workload, stage, mode, metric };
   });
   const keys = targets.map((target) => JSON.stringify(target));
   if (new Set(keys).size !== keys.length) {
@@ -215,9 +228,15 @@ function parseDeclaredTargets(values, workloads) {
   return targets;
 }
 
-function runChild(checkout, arguments_, environment, timeoutMilliseconds) {
+function runChild(
+  checkout,
+  arguments_,
+  environment,
+  timeoutMilliseconds,
+  executable = process.execPath
+) {
   return new Promise((resolvePromise, reject) => {
-    const child = spawn(process.execPath, arguments_, {
+    const child = spawn(executable, arguments_, {
       cwd: checkout.directory,
       detached: process.platform !== "win32",
       env: {
@@ -271,6 +290,15 @@ function runChild(checkout, arguments_, environment, timeoutMilliseconds) {
   });
 }
 
+function bunIsAvailable() {
+  try {
+    execFileSync("bun", ["--version"], { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function describeCheckout(checkout) {
   const output = await runChild(
     checkout,
@@ -306,6 +334,7 @@ function verifyTargetEvidence(
   );
   const expectedWitness = JSON.stringify(first.witness);
   const expectedProtocol = {
+    ...(first.provider === undefined ? {} : { provider: target.provider }),
     workload: target.workload,
     stage: target.stage,
     mode: target.mode,
@@ -370,6 +399,11 @@ function verifyTargetEvidence(
 }
 
 const arguments_ = parseArguments(process.argv.slice(2));
+const workloadFilter = splitFilter(arguments_.workloads);
+const providerFilter = splitFilter(arguments_.providers);
+const isCrossProviderRun =
+  workloadFilter !== undefined &&
+  [...workloadFilter].some((workload) => workload.startsWith("provider-"));
 const iterationOverride = optionalPositiveInteger(
   "iterations",
   arguments_.iterations
@@ -380,6 +414,11 @@ const baseline = validateCheckout(
   arguments_["baseline-dir"],
   arguments_["baseline-commit"]
 );
+if (isCrossProviderRun && baseline.commit !== CROSS_PROVIDER_BASELINE_COMMIT) {
+  throw new Error(
+    `The cross-provider suite requires baseline ${CROSS_PROVIDER_BASELINE_COMMIT}; received ${baseline.commit}`
+  );
+}
 const candidate = validateCheckout(
   "candidate",
   arguments_["candidate-dir"],
@@ -402,6 +441,15 @@ if (
     "Coordinator, baseline, and candidate must be linked worktrees of the same Git common directory"
   );
 }
+const coordinatorCommit = git(COORDINATOR_REPOSITORY, ["rev-parse", "HEAD"]);
+if (
+  isCrossProviderRun &&
+  git(COORDINATOR_REPOSITORY, ["status", "--porcelain"])
+) {
+  throw new Error(
+    "The cross-provider measurement protocol must run from a clean coordinator worktree"
+  );
+}
 
 const releaseLock = acquireTestRunLock(
   "operation-pipeline benchmark comparison"
@@ -411,8 +459,14 @@ try {
   buildCheckout(baseline);
   process.stderr.write("Building candidate checkout...\n");
   buildCheckout(candidate);
-  const baselineDescription = await describeCheckout(baseline);
-  const candidateDescription = await describeCheckout(candidate);
+  const baselineDescription = isCrossProviderRun
+    ? JSON.parse(
+        await runChild(baseline, [COORDINATOR_WORKER, "--describe"], {}, 30_000)
+      )
+    : await describeCheckout(baseline);
+  const candidateDescription = isCrossProviderRun
+    ? baselineDescription
+    : await describeCheckout(candidate);
   const coordinatorProtocol = protocolIdentity(COORDINATOR_REPOSITORY);
   if (
     baselineDescription.protocol.sha256 !==
@@ -436,7 +490,6 @@ try {
     throw new Error("Baseline and candidate pnpm lockfiles differ");
   }
 
-  const workloadFilter = splitFilter(arguments_.workloads);
   const stageFilter = splitFilter(arguments_.stages);
   const modeFilter = splitFilter(arguments_.modes);
   const modes = baselineDescription.modes.filter(
@@ -444,6 +497,17 @@ try {
   );
   if (modeFilter && modes.length !== modeFilter.size) {
     throw new Error("The mode filter contains an unknown mode");
+  }
+  if (providerFilter) {
+    const knownProviders = new Set(
+      Object.keys(baselineDescription.providers ?? { sqlite3: {} })
+    );
+    const unknownProviders = [...providerFilter].filter(
+      (provider) => !knownProviders.has(provider)
+    );
+    if (unknownProviders.length > 0) {
+      throw new Error(`Unknown providers: ${unknownProviders.join(", ")}`);
+    }
   }
   if (stageFilter) {
     const knownStages = new Set(
@@ -464,9 +528,14 @@ try {
     baselineDescription.workloads
   )) {
     if (workloadFilter && !workloadFilter.has(workload)) continue;
-    for (const stage of definition.stages) {
-      if (stageFilter && !stageFilter.has(stage)) continue;
-      for (const mode of modes) targets.push({ workload, stage, mode });
+    for (const provider of definition.providers ?? ["sqlite3"]) {
+      if (providerFilter && !providerFilter.has(provider)) continue;
+      for (const stage of definition.stages) {
+        if (stageFilter && !stageFilter.has(stage)) continue;
+        for (const mode of modes) {
+          targets.push({ provider, workload, stage, mode });
+        }
+      }
     }
   }
   if (workloadFilter) {
@@ -494,12 +563,13 @@ try {
       !targets.some(
         (target) =>
           target.workload === declared.workload &&
+          target.provider === declared.provider &&
           target.stage === declared.stage &&
           target.mode === declared.mode
       )
     ) {
       throw new Error(
-        `Declared target ${declared.workload}/${declared.stage}/${declared.mode}/${declared.metric} is excluded by the workload, stage, or mode filters`
+        `Declared target ${declared.provider}/${declared.workload}/${declared.stage}/${declared.mode}/${declared.metric} is excluded by the provider, workload, stage, or mode filters`
       );
     }
   }
@@ -513,18 +583,26 @@ try {
         replicate % 2 === 0 ? [baseline, candidate] : [candidate, baseline];
       for (const checkout of order) {
         process.stderr.write(
-          `${target.workload}/${target.stage}/${target.mode} replicate ${
+          `${target.provider}/${target.workload}/${target.stage}/${target.mode} replicate ${
             replicate + 1
           }/${replicates}: ${checkout.label}\n`
         );
+        const requiresBun =
+          baselineDescription.providers?.[target.provider]?.runtime === "bun";
+        const useBun = requiresBun && bunIsAvailable();
+        const worker = isCrossProviderRun
+          ? COORDINATOR_WORKER
+          : checkout.worker;
         const output = await runChild(
           checkout,
-          ["--expose-gc", checkout.worker],
+          useBun ? [worker] : ["--expose-gc", worker],
           {
+            VIBORM_BENCH_PROVIDER: target.provider,
             VIBORM_BENCH_WORKLOAD: target.workload,
             VIBORM_BENCH_STAGE: target.stage,
             VIBORM_BENCH_MODE: target.mode,
             VIBORM_BENCH_EXPECTED_COMMIT: checkout.commit,
+            VIBORM_BENCH_TARGET_DIRECTORY: checkout.directory,
             VIBORM_BENCH_SMOKE: smoke ? "1" : "0",
             ...(arguments_.iterations
               ? { VIBORM_BENCH_ITERATIONS: arguments_.iterations }
@@ -533,7 +611,8 @@ try {
               ? { VIBORM_BENCH_WARMUP_ITERATIONS: arguments_.warmup }
               : {}),
           },
-          smoke ? 120_000 : 600_000
+          smoke ? 120_000 : 600_000,
+          useBun ? "bun" : process.execPath
         );
         samples.push({
           ...target,
@@ -548,11 +627,36 @@ try {
   const comparisons = targets.map((target) => {
     const targetSamples = samples.filter(
       (sample) =>
+        sample.provider === target.provider &&
         sample.workload === target.workload &&
         sample.stage === target.stage &&
         sample.mode === target.mode
     );
     const definition = baselineDescription.workloads[target.workload];
+    const statuses = new Set(
+      targetSamples.map((sample) => sample.output.status ?? "measured")
+    );
+    if (statuses.has("skipped")) {
+      if (statuses.size !== 1) {
+        throw new Error(
+          `${target.provider}/${target.workload}/${target.stage}/${target.mode} mixed measured and skipped samples`
+        );
+      }
+      const reasons = new Set(
+        targetSamples.map((sample) => sample.output.reason)
+      );
+      if (reasons.size !== 1 || reasons.has(undefined)) {
+        throw new Error(
+          `${target.provider}/${target.workload}/${target.stage}/${target.mode} changed its skip reason across replicates`
+        );
+      }
+      return {
+        ...target,
+        status: "skipped",
+        reason: [...reasons][0],
+        workloadShape: definition.providerShape,
+      };
+    }
     const scaleDivisor = Math.max(1, definition.rowsPerOperation / 20);
     const defaultIterations = smoke
       ? 2
@@ -575,7 +679,16 @@ try {
     );
     return aggregateTarget(target, targetSamples);
   });
-  verifyCrossStageSemantics(samples);
+  const measuredComparisons = comparisons.filter(
+    (comparison) => comparison.status !== "skipped"
+  );
+  const skippedComparisons = comparisons.filter(
+    (comparison) => comparison.status === "skipped"
+  );
+  const measuredSamples = samples.filter(
+    (sample) => (sample.output.status ?? "measured") === "measured"
+  );
+  verifyCrossStageSemantics(measuredSamples);
   const baselineEnvironment = comparableEnvironment(
     samples.find((sample) => sample.checkout === "baseline").output.metadata
   );
@@ -594,11 +707,13 @@ try {
       iterationOverride !== undefined || warmupOverride !== undefined,
     targets,
     declaredTargets,
-    comparisons,
+    comparisons: measuredComparisons,
+    skippedComparisons,
     workloads: baselineDescription.workloads,
   });
   const report = {
     measurementProtocolValid: !smoke,
+    providerCoverageComplete: skippedComparisons.length === 0,
     keepGate,
     generatedAt: new Date().toISOString(),
     protocol: {
@@ -607,10 +722,16 @@ try {
       freshProcessPerMeasurement: true,
       sequential: true,
       allocationAndCpuSeparated: true,
+      retainedHeapInFreshProcess: true,
+      releasedHeapAfterForcedCollection: true,
+      peakRssIsProcessLifetimeHighWaterMark: true,
       allocationSamplingInterval:
         baselineDescription.allocationSamplingInterval,
       protocolIdentity: baselineDescription.protocol,
+      protocolOwnerCommit: coordinatorCommit,
       declaredTargets,
+      providers: baselineDescription.providers ?? { sqlite3: {} },
+      workloads: baselineDescription.workloads,
     },
     baseline: {
       directory: baseline.directory,

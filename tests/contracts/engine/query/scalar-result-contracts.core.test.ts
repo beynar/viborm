@@ -182,9 +182,9 @@ describe("strict scalar result contracts", () => {
     expect(parseField("large", "9007199254740993")).toBe(
       9_007_199_254_740_993n
     );
-    expect(parseField("happenedAt", "2026-07-10 12:30:45.123")).toEqual(
-      new Date("2026-07-10T12:30:45.123Z")
-    );
+    expect(
+      parseField("happenedAt", "2026-07-10 12:30:45.123", new MySQLAdapter())
+    ).toEqual(new Date("2026-07-10T12:30:45.123Z"));
     expect(parseField("bornOn", "2024-02-29")).toEqual(
       new Date("2024-02-29T00:00:00.000Z")
     );

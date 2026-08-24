@@ -14,12 +14,12 @@ import {
 import type { PendingOperation } from "@query-engine/pending-operation";
 import type { PreparedBatchOperation } from "@query-engine/types";
 import { s } from "@schema";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   captureLogs,
   type OtelRecorder,
   withOtelRecorder,
 } from "@tests/unit/instrumentation/_capture";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 class NativeAttributionDriver extends Driver<object, object> {
   readonly adapter: DatabaseAdapter = new SQLiteAdapter();
@@ -214,6 +214,59 @@ describe("native batch logical attribution", () => {
     expect(JSON.stringify(logs.events)).not.toContain("SELECT statement_a");
   });
 
+  it("sanitizes disclosed batch parameters once and skips undisclosed values", async () => {
+    let undisclosedReads = 0;
+    const undisclosed = Object.defineProperty({}, "secret", {
+      enumerable: true,
+      get() {
+        undisclosedReads += 1;
+        return "undisclosed";
+      },
+    });
+    const privateDriver = new NativeAttributionDriver();
+
+    await privateDriver._executeBatch([
+      { sql: "SELECT private", params: [undisclosed] },
+    ]);
+    expect(undisclosedReads).toBe(0);
+
+    let disclosedSnapshots = 0;
+    const disclosed = new Proxy(
+      { secret: "disclosed" },
+      {
+        ownKeys(target) {
+          disclosedSnapshots += 1;
+          return Reflect.ownKeys(target);
+        },
+      }
+    );
+    const logs = captureLogs();
+    const observedDriver = new NativeAttributionDriver();
+    observedDriver.failSql = "SELECT observed";
+    observedDriver.setInstrumentation(
+      createInstrumentationContext({
+        logging: { error: logs.callback, includeParams: true },
+      })
+    );
+
+    await observedDriver
+      ._executeBatch([
+        {
+          sql: "SELECT observed",
+          params: [disclosed],
+          context: {
+            model: "user",
+            operation: "findMany",
+            correlationId: "observed-correlation",
+          },
+        },
+      ])
+      .catch(() => undefined);
+
+    expect(disclosedSnapshots).toBe(1);
+    expect(logs.events[0]?.params).toEqual([{ secret: "disclosed" }]);
+  });
+
   it("attributes operation-two scalar parsing failures", async () => {
     const driver = new NativeAttributionDriver();
     const { client, logs } = createInstrumentedClient(driver);
@@ -241,14 +294,16 @@ describe("native batch logical attribution", () => {
       })
     );
     expect(
-      recorder.spans().some(
-        (span) =>
-          span.name === SPAN_OPERATION &&
-          span.attributes[ATTR_DB_COLLECTION] === "post" &&
-          span.attributes[ATTR_DB_OPERATION_NAME] === "findMany" &&
-          span.attributes[ATTR_VIBORM_CORRELATION_ID] ===
-            secondContext.correlationId
-      )
+      recorder
+        .spans()
+        .some(
+          (span) =>
+            span.name === SPAN_OPERATION &&
+            span.attributes[ATTR_DB_COLLECTION] === "post" &&
+            span.attributes[ATTR_DB_OPERATION_NAME] === "findMany" &&
+            span.attributes[ATTR_VIBORM_CORRELATION_ID] ===
+              secondContext.correlationId
+        )
     ).toBe(true);
   });
 

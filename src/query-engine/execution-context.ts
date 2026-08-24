@@ -33,8 +33,9 @@ export function createOperationExecutionContext(
   instrumentation?: InstrumentationContext
 ): QueryExecutionContext {
   return createExecutionContext(
-    { model, operation, correlationId: createCorrelationId() },
-    instrumentation
+    { model, operation },
+    instrumentation,
+    createCorrelationId
   );
 }
 

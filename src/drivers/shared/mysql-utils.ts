@@ -1,43 +1,8 @@
 /**
  * Shared MySQL Utilities
  *
- * Common result parser for MySQL-based drivers.
+ * Shared connection utilities for MySQL-based drivers.
  */
-
-import {
-  normalizeCountResult,
-  parseIntegerBoolean,
-  tryParseJsonString,
-} from "@adapters/shared/result-parsing";
-import type { DriverResultParser } from "../driver";
-
-/**
- * Shared result parser for MySQL drivers.
- * Handles:
- * - COUNT normalization (BigInt -> number)
- * - JSON string parsing for relations
- * - Boolean integer parsing (0/1 -> false/true)
- */
-export const mysqlResultParser: DriverResultParser = {
-  parseResult: (raw, operation, next) => {
-    if (operation === "count" || operation === "exist") {
-      const normalized = normalizeCountResult(raw);
-      if (normalized !== undefined) return next(normalized, operation);
-    }
-    return next(raw, operation);
-  },
-  parseRelation: (value, next) => {
-    const parsed = tryParseJsonString(value);
-    return next(parsed === undefined ? value : parsed);
-  },
-  parseField: (value, scalarType, next) => {
-    if (scalarType === "boolean") {
-      const parsed = parseIntegerBoolean(value);
-      if (parsed !== undefined) return next(parsed, scalarType);
-    }
-    return next(value, scalarType);
-  },
-};
 
 /**
  * Parse a MySQL database URL into connection options.

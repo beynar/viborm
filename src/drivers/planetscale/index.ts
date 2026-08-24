@@ -18,11 +18,7 @@ import {
 import type { Schema } from "@client/types";
 import type { Client, Config, Connection } from "@planetscale/database";
 import { isRecord } from "@validation/value-guards";
-import {
-  Driver,
-  type DriverResultParser,
-  type QueryExecutionContext,
-} from "../driver";
+import { Driver, type QueryExecutionContext } from "../driver";
 import {
   normalizeProviderInsertId,
   normalizeProviderRowCount,
@@ -30,7 +26,6 @@ import {
 import {
   type DriverTransactionOptions,
   isolationLevelStatement,
-  mysqlResultParser,
   nestedTransactionDispatchError,
   runTransactionLifecycle,
   type TransactionOptionSupport,
@@ -84,7 +79,6 @@ export class PlanetScaleDriver extends Driver<
 > {
   readonly adapter: DatabaseAdapter = new MySQLAdapter();
   readonly maxBindParametersPerStatement: number | undefined = 65_535;
-  readonly result: DriverResultParser = mysqlResultParser;
   readonly supportsTransactions = true;
 
   private readonly driverOptions: PlanetScaleDriverOptions;

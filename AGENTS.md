@@ -156,6 +156,19 @@ s.string()           // StringScalar<{type: "string"}>
 
 **Why this exists:** TypeScript tracks the State generic through each transformation. Mutation would break this - the type would show `nullable: true` but the runtime value wouldn't have it.
 
+### Rule 5: Typed Fallback Batches and Borrowed Results
+
+Sequential transaction fallback preserves statement semantics: model and safe
+`Sql` prepared statements use typed execution, while only internally marked
+verbatim raw statements use raw execution. Do not infer rawness from a public
+shape or add a public batch discriminant.
+
+Provider result rows and object-valued relation graphs are borrowed. Do not
+publish or consume a provider-row ownership claim. A relation graph is mutable
+only when the relation carrier parser created it with `JSON.parse`, fully
+validated the carrier before mutation, and decodes it through the existing
+nested parser. Borrowed provider graphs use the copy path.
+
 ---
 
 ## Type Flow (High-Level)

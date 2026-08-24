@@ -1,3 +1,4 @@
+import { tryParseJsonString } from "@adapters/shared/result-parsing";
 import { publicOperationName } from "@errors";
 import type { Model } from "@schema/model";
 import type { AnyRelation } from "@schema/relation";
@@ -18,7 +19,10 @@ export interface RowValueParsers {
     operation: Operation,
     shape?: ExpectedResultShape,
     keys?: readonly string[]
-  ): (row: Record<string, unknown>) => Record<string, unknown>;
+  ): (
+    row: Record<string, unknown>,
+    reuseParserOwnedRow?: boolean
+  ) => Record<string, unknown>;
   parseField(
     scalar: Scalar,
     value: unknown,
@@ -53,6 +57,12 @@ export interface RowValueParsers {
     scalars: Record<string, Scalar>,
     expected?: ExpectedAggregateResultShape
   ): unknown;
+}
+
+/** Decode only at a boundary that already knows the value is a JSON carrier. */
+export function decodeRelationCarrier(value: unknown): unknown {
+  if (typeof value !== "string") return value;
+  return tryParseJsonString(value) ?? value;
 }
 
 export type ParseScalarField = (

@@ -339,6 +339,44 @@ describe("D1 statement execution", () => {
       await driver.disconnect();
     }
   });
+
+  test("native batch keeps tagged, unsafe, and legacy raw result ordering", async () => {
+    const { batch, driver, preparedSql } = createD1BatchDriver([
+      { rows: [{ arm: "tagged" }], changes: 0 },
+      { rows: [{ arm: "unsafe" }], changes: 0 },
+      { rows: [{ arm: "legacy" }], changes: 0 },
+    ]);
+    const client = createClient({ schema: {}, driver });
+    const executeBatch = vi.spyOn(driver, "_executeBatch");
+
+    try {
+      const results = await client.$transaction([
+        client.$queryRaw<{ arm: string }>`SELECT ${"tagged"} AS arm`,
+        client.$queryRawUnsafe<{ arm: string }>("SELECT ? AS arm", "unsafe"),
+        client.$queryRaw<{ arm: string }>("SELECT ? AS arm", ["legacy"]),
+      ]);
+
+      expect(results).toEqual([
+        [{ arm: "tagged" }],
+        [{ arm: "unsafe" }],
+        [{ arm: "legacy" }],
+      ]);
+      expect(preparedSql).toEqual([
+        "SELECT ? AS arm",
+        "SELECT ? AS arm",
+        "SELECT ? AS arm",
+      ]);
+      expect(batch).toHaveBeenCalledOnce();
+      const submitted = executeBatch.mock.calls[0]?.[0] ?? [];
+      expect(submitted.map((query) => Object.keys(query))).toEqual([
+        ["sql", "params", "context"],
+        ["sql", "params", "context"],
+        ["sql", "params", "context"],
+      ]);
+    } finally {
+      await client.$disconnect();
+    }
+  });
 });
 
 describe("SQLite3 provider statement metadata", () => {

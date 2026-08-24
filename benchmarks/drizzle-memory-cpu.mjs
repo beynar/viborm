@@ -90,7 +90,7 @@ const dPosts = sqliteTable("posts", {
   id: text("id").primaryKey(),
   title: text("title").notNull(),
   content: text("content"),
-  published: integer("published").notNull(),
+  published: integer("published", { mode: "boolean" }).notNull(),
   views: integer("views").notNull(),
   authorId: text("authorId").notNull(),
 });
@@ -161,7 +161,15 @@ if (rawCreateIdIndex < 0) {
     "The prepared create statement did not expose its ID parameter"
   );
 }
-const rawCreateParams = [...createPrepared.params];
+// Prepared params are driver-level values; viborm's SQLite driver converts
+// booleans at execution time, so the raw better-sqlite3 arms convert here.
+const toSqliteParams = (params) =>
+  params.map((value) => (typeof value === "boolean" ? Number(value) : value));
+const findUniqueRawParams = toSqliteParams(findUniquePrepared.params);
+const findManyRawParams = toSqliteParams(findManyPrepared.params);
+const relationRawParams = toSqliteParams(relationPrepared.params);
+const findMany1000RawParams = toSqliteParams(findMany1000Prepared.params);
+const rawCreateParams = toSqliteParams(createPrepared.params);
 
 function checksumRawRelation(rows) {
   const first = rows[0];
@@ -184,7 +192,7 @@ const shapes = [
     raw: () => {
       sink += rawDb
         .prepare(findUniquePrepared.sql)
-        .get(...findUniquePrepared.params).age;
+        .get(...findUniqueRawParams).age;
     },
     drizzle: () => {
       sink += ddb
@@ -204,14 +212,14 @@ const shapes = [
     raw: () => {
       const rows = rawDb
         .prepare(findManyPrepared.sql)
-        .all(...findManyPrepared.params);
+        .all(...findManyRawParams);
       sink += rows.length + rows[0].views;
     },
     drizzle: () => {
       const rows = ddb
         .select({ id: dPosts.id, title: dPosts.title, views: dPosts.views })
         .from(dPosts)
-        .where(eq(dPosts.published, 1))
+        .where(eq(dPosts.published, true))
         .orderBy(desc(dPosts.views))
         .limit(20)
         .all();
@@ -233,7 +241,7 @@ const shapes = [
     raw: () => {
       const rows = rawDb
         .prepare(relationPrepared.sql)
-        .all(...relationPrepared.params);
+        .all(...relationRawParams);
       sink += rows.length + checksumRawRelation(rows);
     },
     drizzle: async () => {
@@ -277,16 +285,22 @@ const shapes = [
     raw: () => {
       const rows = rawDb
         .prepare(findMany1000Prepared.sql)
-        .all(...findMany1000Prepared.params);
+        .all(...findMany1000RawParams);
       sink += rows.length + rows[0].views;
     },
     drizzle: () => {
       const rows = ddb.select().from(dPosts).limit(1000).all();
-      sink += rows.length + rows[0].views;
+      if (typeof rows[0].published !== "boolean") {
+        throw new Error("Drizzle did not decode published as a boolean");
+      }
+      sink += rows.length + rows[0].views + Number(rows[0].published);
     },
     viborm: async () => {
       const rows = await viborm.post.findMany({ take: 1000 });
-      sink += rows.length + rows[0].views;
+      if (typeof rows[0].published !== "boolean") {
+        throw new Error("VibORM did not decode published as a boolean");
+      }
+      sink += rows.length + rows[0].views + Number(rows[0].published);
     },
   },
 ];

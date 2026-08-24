@@ -25,6 +25,13 @@ turn validation into a first-row-only check. Row normalization validates the
 provider array without copying or mutating it, and row mapping uses a pre-sized
 output array so transient allocation does not buy slower iteration.
 
+Provider rows and provider-supplied object relation graphs are borrowed and use
+the copy path. There is no provider-row ownership claim. The relation carrier
+parser is the single JSON decode owner: when it creates a graph with
+`JSON.parse`, it validates the complete fixed or variant carrier before any
+mutation, then may decode same-key nested rows in place through the existing
+nested row parser.
+
 ## Write architecture
 
 ```text

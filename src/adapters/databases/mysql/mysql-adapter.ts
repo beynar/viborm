@@ -5,7 +5,6 @@ import { createMySqlBatchRefs } from "../../shared/batch-refs";
 import {
   normalizeCountResult,
   parseIntegerBoolean,
-  tryParseJsonString,
 } from "../../shared/result-parsing";
 import {
   assembleDistinctOnEmulation,
@@ -602,7 +601,9 @@ export class MySQLAdapter implements DatabaseAdapter {
 
   // ============================================================
   // RESULT PARSING
-  // MySQL: Parse JSON strings, convert 0/1 to booleans
+  // MySQL: normalize counts, booleans, and naive UTC datetimes.
+  // Relation carriers decode at the query-engine boundary that knows their
+  // value is JSON, so the adapter never sniffs ordinary strings.
   // ============================================================
 
   result = {
@@ -622,16 +623,9 @@ export class MySQLAdapter implements DatabaseAdapter {
     },
 
     parseRelation: (
-      value: unknown,
+      _value: unknown,
       next: (value?: unknown) => unknown
-    ): unknown => {
-      // MySQL returns JSON as strings - parse before delegating
-      const parsed = tryParseJsonString(value);
-      if (parsed !== undefined) {
-        return next(parsed);
-      }
-      return next();
-    },
+    ): unknown => next(),
 
     parseField: (
       value: unknown,

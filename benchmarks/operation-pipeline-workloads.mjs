@@ -1,18 +1,40 @@
 /** Fixture selection and single composition owner for workload families. */
 
-import { buildBatchWorkload } from "./operation-pipeline-batch-workloads.mjs";
 import { WORKLOADS } from "./operation-pipeline-catalog.mjs";
-import { createBenchmarkFixture } from "./operation-pipeline-fixtures.mjs";
-import { buildMutationWorkload } from "./operation-pipeline-mutation-workloads.mjs";
-import { buildReadWorkload } from "./operation-pipeline-read-workloads.mjs";
+import { createProviderWorkloadHarness } from "./operation-pipeline-provider-workloads.mjs";
 
 export async function createWorkloadHarness(
   workloadName,
   stage,
-  operationCount
+  operationCount,
+  providerName = "sqlite3",
+  targetDirectory = process.cwd()
 ) {
   const workload = WORKLOADS[workloadName];
   if (!workload) throw new Error(`Unknown benchmark workload: ${workloadName}`);
+  if (!workload.providers.includes(providerName)) {
+    throw new Error(`${workloadName} is not defined for ${providerName}`);
+  }
+  if (workload.fixture === "provider-read") {
+    return createProviderWorkloadHarness(
+      workloadName,
+      providerName,
+      targetDirectory,
+      workload.providerShape,
+      stage
+    );
+  }
+  const [
+    { buildBatchWorkload },
+    { createBenchmarkFixture },
+    { buildMutationWorkload },
+    { buildReadWorkload },
+  ] = await Promise.all([
+    import("./operation-pipeline-batch-workloads.mjs"),
+    import("./operation-pipeline-fixtures.mjs"),
+    import("./operation-pipeline-mutation-workloads.mjs"),
+    import("./operation-pipeline-read-workloads.mjs"),
+  ]);
   const fixture = await createBenchmarkFixture(
     workload.fixture,
     workload.substrate
