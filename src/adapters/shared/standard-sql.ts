@@ -36,7 +36,7 @@ type NumericSetOperations = Pick<
 type MutationCommands = Pick<DatabaseAdapter["mutations"], "update" | "delete">;
 
 export const createRawSql = (): DatabaseAdapter["raw"] => {
-  return (sqlString: string): Sql => sql.raw`${sqlString}`;
+  return (sqlString: string): Sql => sql.raw(sqlString);
 };
 
 /**
@@ -197,24 +197,33 @@ export const createSetOperations = (): DatabaseAdapter["setOperations"] => ({
 /** Build an identifier quoter that doubles embedded quote characters to prevent SQL injection. */
 export const createIdentifierQuoter =
   (quoteChar: '"' | "`"): IdentifierQuoter =>
-  (name: string): string =>
-    quoteChar + name.replaceAll(quoteChar, quoteChar + quoteChar) + quoteChar;
+  (name: string): string => {
+    const escaped =
+      name.indexOf(quoteChar) === -1
+        ? name
+        : name.replaceAll(quoteChar, quoteChar + quoteChar);
+    return quoteChar + escaped + quoteChar;
+  };
 
 export const createIdentifiers = (
   quoteIdent: IdentifierQuoter
 ): DatabaseAdapter["identifiers"] => ({
-  escape: (name: string): Sql => sql.raw`${quoteIdent(name)}`,
+  escape: (name: string): Sql => sql.raw(quoteIdent(name)),
 
-  column: (alias: string, field: string): Sql =>
-    alias
-      ? sql.raw`${quoteIdent(alias)}.${quoteIdent(field)}`
-      : sql.raw`${quoteIdent(field)}`,
+  column: (alias: string, field: string): Sql => {
+    const identifier = alias
+      ? `${quoteIdent(alias)}.${quoteIdent(field)}`
+      : quoteIdent(field);
+    return sql.raw(identifier);
+  },
 
-  table: (tableName: string, alias: string): Sql =>
-    sql.raw`${quoteIdent(tableName)} AS ${quoteIdent(alias)}`,
+  table: (tableName: string, alias: string): Sql => {
+    const identifier = `${quoteIdent(tableName)} AS ${quoteIdent(alias)}`;
+    return sql.raw(identifier);
+  },
 
   aliased: (expression: Sql, alias: string): Sql =>
-    sql`${expression} AS ${sql.raw`${quoteIdent(alias)}`}`,
+    sql`${expression} AS ${sql.raw(quoteIdent(alias))}`,
 });
 
 export const createSubqueries = (
@@ -234,7 +243,7 @@ export const createCteBuilders = (
 ): DatabaseAdapter["cte"] => ({
   with: (definitions: { name: string; query: Sql }[]): Sql => {
     const defs = definitions.map(
-      ({ name, query }) => sql`${sql.raw`${quoteIdent(name)}`} AS (${query})`
+      ({ name, query }) => sql`${sql.raw(quoteIdent(name))} AS (${query})`
     );
     return sql`WITH ${sql.join(defs, ", ")}`;
   },
@@ -246,7 +255,7 @@ export const createCteBuilders = (
     union: "all" | "distinct" = "all"
   ): Sql => {
     const unionKeyword = union === "all" ? sql.raw`UNION ALL` : sql.raw`UNION`;
-    return sql`WITH RECURSIVE ${sql.raw`${quoteIdent(name)}`} AS (
+    return sql`WITH RECURSIVE ${sql.raw(quoteIdent(name))} AS (
         ${anchor}
         ${unionKeyword}
         ${recursive}

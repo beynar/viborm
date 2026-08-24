@@ -386,10 +386,21 @@ pnpm test:layer:query-engine
 pnpm test:layer:drivers
 pnpm test:layer:client
 
+# Operation-pipeline performance evidence
+pnpm bench:operation-pipeline
+pnpm bench:operation-pipeline:check
+pnpm bench:operation-pipeline:describe
+
 # Large selections must use the package scripts. Vitest runs one file at a time
 # with a 768 MB heap. Full tsc has a measured 4 GB cap. Launchers stop the whole
 # process group on timeout or interruption so workers cannot survive.
 ```
+
+Operation-pipeline comparisons use explicit clean worktrees at explicit
+commits. Declare the exact workload, stage, mode, and target metric before the
+run. Collect five alternating samples per side in fresh processes and accept a
+target only when its improvement exceeds 2×MAD. Run coordinators sequentially;
+do not overlap them with another benchmark, test, or TypeScript process.
 
 Ordinary PGlite contracts use one `usePGliteSchemaFamily` per compatible schema
 and substrate. The fixture pushes once, truncates tables between tests, and owns

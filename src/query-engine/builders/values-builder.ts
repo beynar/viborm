@@ -69,12 +69,15 @@ function lowerPolymorphicStorage(
   values: readonly PolymorphicStorageValue<unknown>[]
 ): { readonly columns: string[]; readonly values: Sql[] } {
   const members = polymorphicStorageMembers(ctx, values);
-  return {
-    columns: members.map(({ column }) => column.name),
-    values: members.map(({ column, value }) =>
+  const columns: string[] = [];
+  const sqlValues: Sql[] = [];
+  for (const { column, value } of members) {
+    columns.push(column.name);
+    sqlValues.push(
       buildScalarSqlValueForScalar(ctx, column.scalar, column.name, value)
-    ),
-  };
+    );
+  }
+  return { columns, values: sqlValues };
 }
 
 /** Build independently executable VALUES groups for heterogeneous rows. */
@@ -122,40 +125,47 @@ export function buildValueGroupsWithRowStorage(
   assertApplicationGeneratedValues(ctx, records);
   const fieldOrder = ctx.model["~"].scalarFieldNames;
   const groups: ValuesGroup[] = [];
+  let activeGroup: ValuesGroup | undefined;
   for (let index = 0; index < records.length; index += 1) {
     const record = records[index]!;
-    const fields = fieldOrder.filter(
-      (field) =>
-        !shouldOmitInsertValue(
+    const columns: string[] = [];
+    const values: Sql[] = [];
+    for (const field of fieldOrder) {
+      if (
+        shouldOmitInsertValue(
           ctx.model["~"].state.scalars[field],
           record[field]
         )
-    );
-    const privateValues = lowerPolymorphicStorage(
-      ctx,
-      storageByRow[index] ?? []
-    );
-    const columns = [
-      ...fields.map((field) => getColumnName(ctx.model, field)),
-      ...privateValues.columns,
-    ];
-    const values = [
-      ...fields.map((field) =>
-        buildScalarSqlValue(ctx, ctx.model, field, record[field])
-      ),
-      ...privateValues.values,
-    ];
-    const previous = groups.at(-1);
-    if (
-      previous &&
-      previous.columns.length === columns.length &&
-      previous.columns.every((column, offset) => column === columns[offset])
-    ) {
-      previous.values.push(values);
-      previous.inputIndexes.push(index);
-    } else {
-      groups.push({ columns, values: [values], inputIndexes: [index] });
+      ) {
+        continue;
+      }
+      columns.push(getColumnName(ctx.model, field));
+      values.push(buildScalarSqlValue(ctx, ctx.model, field, record[field]));
     }
+    const rowStorage = storageByRow[index];
+    if (rowStorage && rowStorage.length > 0) {
+      const privateValues = lowerPolymorphicStorage(ctx, rowStorage);
+      for (const column of privateValues.columns) columns.push(column);
+      for (const value of privateValues.values) values.push(value);
+    }
+    if (activeGroup) {
+      let hasSameColumns = activeGroup.columns.length === columns.length;
+      for (
+        let columnIndex = 0;
+        hasSameColumns && columnIndex < activeGroup.columns.length;
+        columnIndex += 1
+      ) {
+        hasSameColumns =
+          activeGroup.columns[columnIndex] === columns[columnIndex];
+      }
+      if (hasSameColumns) {
+        activeGroup.values.push(values);
+        activeGroup.inputIndexes.push(index);
+        continue;
+      }
+    }
+    activeGroup = { columns, values: [values], inputIndexes: [index] };
+    groups.push(activeGroup);
   }
   return groups;
 }

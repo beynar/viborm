@@ -61,8 +61,11 @@ export function normalizeCursorOrder(
     return undefined;
   }
 
-  const normalized = [...requested];
-  const orderedFields = new Set(normalized.map(({ field }) => field));
+  const normalized = requested;
+  const orderedFields = new Set<string>();
+  for (const { field } of normalized) {
+    orderedFields.add(field);
+  }
   const identityFields = getCursorIdentityFields(ctx);
   if (identityFields.length === 0) {
     throw new QueryEngineError(

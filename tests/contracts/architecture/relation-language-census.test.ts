@@ -1,3 +1,7 @@
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   collectRelationLanguageCensus,
   RETIRED_RELATION_SYMBOLS,
@@ -157,6 +161,43 @@ const BANNERED_PLAN_WITNESS = `# An old plan
 const post = s.model({ author: s.manyToOne(() => user) });
 \`\`\`
 `;
+
+describe("relation-language census: estate enumeration", () => {
+  it("includes existing tracked and untracked files but excludes tracked deletions", () => {
+    const repositoryRoot = mkdtempSync(join(tmpdir(), "viborm-census-"));
+    try {
+      execFileSync("git", ["init", "--quiet"], { cwd: repositoryRoot });
+      writeFileSync(
+        join(repositoryRoot, "tracked.ts"),
+        "const getRelationInfo = 1;\n"
+      );
+      writeFileSync(
+        join(repositoryRoot, "deleted.ts"),
+        "const oneToMany = 1;\n"
+      );
+      execFileSync("git", ["add", "tracked.ts", "deleted.ts"], {
+        cwd: repositoryRoot,
+      });
+      unlinkSync(join(repositoryRoot, "deleted.ts"));
+      writeFileSync(
+        join(repositoryRoot, "untracked.ts"),
+        "const setSource = 1;\n"
+      );
+
+      expect(collectRelationLanguageCensus(repositoryRoot)).toEqual({
+        identifiers: [
+          "tracked.ts getRelationInfo 1",
+          "untracked.ts setSource 1",
+        ],
+        chains: [],
+        retiredDiscriminants: [],
+        text: [],
+      });
+    } finally {
+      rmSync(repositoryRoot, { recursive: true, force: true });
+    }
+  });
+});
 
 describe("relation-language census: source AST gate", () => {
   it("spells no retired relation identifier anywhere in the estate", () => {

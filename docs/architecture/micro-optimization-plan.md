@@ -1,21 +1,26 @@
 # Operation-pipeline allocation and CPU optimization plan
 
-> **Superseded relation spellings.** This document is a historical record. Its
-> relation declarations use the retired six-factory API, and its diagnostics and
-> internal type names may name owners that no longer exist. The shipped language
-> is two factories, `s.toOne` and `s.toMany`, whose argument states the target
-> domain; pairing, foreign-key ownership, uniqueness, junction topology and slot
-> emptiness are all derived by one schema-wide resolver. See
-> [`./global-relation-cardinality-plan.md`](./global-relation-cardinality-plan.md) for the unified language and
-> the deliberate verdict changes it made. The measured history below is
-> deliberately not rewritten into a new-API history.
+> **Architecture baseline:** `4cf5c7fe` (`feat: unify relation cardinality`). The
+> public relation language is `s.toOne` / `s.toMany`; the argument names either
+> one fixed target or a map of variant targets. Slot cardinality is declared,
+> while pairing, foreign-key ownership, uniqueness, row-reference versus
+> junction storage, and slot emptiness are derived once by
+> `src/schema/validation/relation-resolution.ts`. Every operation consumer reads
+> the resulting `ResolvedRelationIndex`; no optimization in this plan may create
+> a second topology map, cache, inverse scan, or target-getter path. See
+> [`./global-relation-cardinality-plan.md`](./global-relation-cardinality-plan.md).
 
 ## Status
 
-This is the execution-ready revision of the earlier write-path micro-
+This is the active post-unification revision of the write-path micro-
 optimization plan. It incorporates a source audit of the live driver,
-instrumentation, query-construction, write-engine, executor, result-parser, and
-benchmark paths.
+instrumentation, query-construction, write-engine, executor, result-parser,
+relation-resolution, and benchmark paths at `4cf5c7fe`.
+
+Measured units below use the exact accepted baseline and candidate commits
+recorded in their `/tmp/viborm-unit-*.json` reports. `4cf5c7fe` is the topology
+and ownership baseline, not a claim that every later candidate was measured
+directly against that commit.
 
 The previous plan had the right instinct—remove work that does not contribute
 to the selected execution—but several units were either unprovable with the
@@ -45,7 +50,8 @@ Reduce per-operation allocations and CPU time on:
 - flat scalar reads;
 - flat scalar creates and updates;
 - nested writes;
-- relation and polymorphic-relation reads;
+- fixed-target and variant-target relation reads across singular/collection
+  cardinality and row-reference/junction storage;
 - transaction and native atomic-batch execution.
 
 Preserve:
@@ -82,9 +88,9 @@ The old evidence paragraph must not be used as a baseline:
 - The claimed `46.3 - 6.5` overhead is 39.8 KB, not approximately 36 KB.
 - The driver-only 6.5 KB figure came from a scratch profiler that is not
   reproducible from the checked-in benchmark.
-- The current `ResultParser`, driver wrappers, `Sql`, and benchmark files have
-  concurrent work in the worktree. Their post-change state must become the
-  baseline; do not optimize or compare against an obsolete pre-change copy.
+- The parser fast paths, distinct-truth closure, projection composition, and
+  unified relation resolver already present at `4cf5c7fe` are the baseline.
+  Do not compare candidates against a pre-closure or pre-unification copy.
 
 ## Fixed semantic contracts
 
@@ -129,6 +135,21 @@ The early return therefore belongs only in
 tree is constructed. It does not belong in nested `analyzeCreate()` or
 `analyzeUpdate()` methods.
 
+### Relation topology
+
+`ResolvedRelationIndex` is the one schema-wide topology fact. Query scopes,
+builders, mutation parsers, OwnWrite, result parsing, migrations, and client
+projection receive views of that same index. A hot-path optimization may reuse
+the index's map insertion order or a `ResolvedSlot`/resolved edge already in
+hand. It may not cache a parallel relation order, split fixed-target and
+variant-target declarations into companion collections, rescan raw getters for
+an inverse, or reconstruct ownership/cardinality/storage from declaration
+syntax.
+
+The word *polymorphic* remains valid only for the private variant-target
+envelope and `(type, id)` storage domains that still own behavior. It does not
+name a second model field category or topology owner.
+
 ### Semantic keys
 
 Do not replace a `JSON.stringify` key merely because stringification allocates.
@@ -147,8 +168,7 @@ semantic key. Other keys require a separate representation proof and profile.
 
 `Object.freeze(new Map())` and `Object.freeze(new Set())` do not make entries
 immutable. A shared empty collection is allowed only when it is module-private,
-typed read-only, never exposed to code that can mutate it, and not scheduled for
-deletion by the distinct-truth plan.
+typed read-only, and never exposed to code that can mutate it.
 
 ### Result aliasing
 
@@ -158,8 +178,8 @@ gain an alias to provider-owned transport storage.
 
 ### Spread syntax and copy ownership
 
-The live query-engine and driver tree contains 584 textual `...` occurrences,
-including 92 explicit array-literal copies of the form `[...value]`. This is a
+The live query-engine and driver tree contains 816 textual `...` occurrences,
+including 119 explicit array-literal copies of the form `[...value]`. This is a
 census, not an allocation count:
 
 - rest parameters and rest destructuring express an API shape;
@@ -197,26 +217,42 @@ one cumulative ownership-copy audit after the individually attributable edits.
 
 ## Candidate disposition
 
-| Candidate from the old plan | Decision | Correction |
+| Candidate | Decision | Evidence or correction |
 | --- | --- | --- |
-| Lazy diagnostic sanitization | Prototype | Make the pre-provider snapshot conditional on actual parameter-disclosure demand. Never sanitize after provider execution. |
+| Lazy diagnostic sanitization | Prototype only | Make the pre-provider snapshot conditional on actual parameter-disclosure demand. Never sanitize after provider execution. |
 | Lazy correlation ID | Prototype jointly | Combine with trusted context identity reuse; alone it is immediately forced. |
 | Context snapshot reuse | Prototype jointly | A bound context and fallback operation are always supplied today, so the old short-circuit condition was unreachable. |
-| Observer wrapper gate | Keep | Gate both operation observers on configured tracing/logging, not on the always-present no-op tracer. |
-| SQLite value conversion | Keep per driver | SQLite3/Bun/D1 may return the input when unchanged; libSQL must still validate/narrow into `InValue[]`. |
-| Single-row insert shape | Keep | Bypass grouping key construction and preserve contiguous grouping for multiple rows. |
-| Value-group push loops | Keep | Transfer ownership of fresh `inputIndexes`; do not copy it defensively again. |
-| TargetConstraint Set/spread cleanup | Reprofile | Root OwnWrite bypass may remove it from flat-create profiles. If retained, sort and compact one array in place. |
-| Create scalar copy | Keep | Reuse parsed scalar data when no field must be omitted and no shared-key merge is needed. |
-| OwnWrite early return | Keep at root only | Never skip nested analysis. |
-| Returning-clause scan | Keep | Scan SQL string segments directly; do not join and trim. |
-| Generic idiom sweep | Reject | Each occurrence needs its own hot-path evidence and semantic proof. |
-| Lazy ResultParser maps | Keep after current parser work | There are four maps, including `nestedRowParsers`. |
-| Field-chain specialization | Prototype | Preserve adapter/driver callback and error behavior; remove only wrappers proven absent. |
-| Shared result-shape empties | Defer | Compiled selection is intended to delete that result-shape owner. |
-| Memoized `defaultSelect` | Defer | Compiled selection should own projection meaning once. |
-| JSON projection copy-on-write | Keep | Return the original pairs until the first bigint/decimal/blob conversion. |
-| SQLite prepared-statement cache | Reject here | It changes handle lifetime, retained heap, `safeIntegers` behavior, schema invalidation, and connection ownership. |
+| Ordinary-operation observer gate | Rejected | `scalar-find-unique` full allocation improved by 1.20% but missed 2×MAD; the ordinary observer was restored exactly. |
+| Transaction-batch observer gate | Kept | The isolated `atomic-batch-100` full-allocation target improved by 4.72% beyond 2×MAD without a companion regression. |
+| SQLite-family value conversion | Deferred / unmeasured | SQLite3/Bun/D1 may return the input when unchanged; libSQL must still validate and narrow into `InValue[]`. No report authorizes the edit yet. |
+| Ordinary insert shape/value grouping | Rejected | The declared 100-row prepare-allocation target improved only 0.73%, inside 2×MAD; the ordinary prototype was removed. |
+| Variant row-storage value grouping | Kept, scaling corrected | The original one-carrier candidate improved full allocation by 6.37%. The corrected linear projection remeasured at 5.03% beyond 2×MAD, with no companion regression. |
+| `TargetConstraint` Set/spread cleanup | Rejected | Allocation improved, but the singular variant full-operation wall control regressed beyond 2×MAD. |
+| Create scalar copy | Rejected after split | The combined explicit/generated targets both stayed inside 2×MAD. The isolated generated-field copy then missed its CPU target and regressed full wall time beyond 2×MAD. |
+| OwnWrite early return | Kept at root only | Flat-update prepare allocation improved by 30.35% beyond 2×MAD. Nested analysis remains unchanged. |
+| Returning-clause scan | Rejected | The declared prepare-allocation target regressed by 0.64% beyond 2×MAD; the source was restored. |
+| Find join-array reuse | Rejected | Prepare allocation stayed inside noise and the full-operation wall control exceeded the 10% ceiling. |
+| Cursor-order array reuse | Kept | The declared cursor prepare-allocation target improved by 1.09% beyond 2×MAD. |
+| Indexed normalized-batch validation | Kept | `atomic-batch-100` execution allocation improved by 3.81% beyond 2×MAD. |
+| Downstream normalized-result rescans | Rejected after split | The combined client/executor target and the isolated executor target both stayed inside 2×MAD. The driver remains the generic provider-result boundary, but no consumer deletion was retained on performance grounds. |
+| Shared-batch result reshaping | Kept | Direct trusted-result consumption removed 23.0 KB per 100-member atomic batch (0.91%, beyond 2×MAD), scaled down at 10 and 1 member, and caused no companion regression. |
+| Aggregate ownership-copy audit | Complete; no direct production edit | The final retained cumulative tranche is `95e606da…` → `fc93a4a2…`. It excludes the rejected adapter JSON interleavers and includes the corrected linear variant grouping and sole full-batch result guard. Fresh profiles exposed two residual private copies; both isolated prototypes failed a control gate and were reverted. |
+| `selectedEntries` in-place compaction | Rejected | Flat-update full allocation improved by 380.68 B/op (0.763%, beyond 2×MAD), but the fixed-collection 20-row wall control regressed 1.167% beyond 2×MAD. |
+| Create demanded-set one-pass scan | Rejected | Fixed-row-reference create allocation improved by 954.80 B/op (0.573%, beyond 2×MAD), but the prescribed atomic-batch isolation regressed CPU by 25.174%, beyond 2×MAD and the 10% ceiling. |
+| Reference-free SQL materialization | Kept | The zero-reference full-allocation target improved by 1.41% beyond 2×MAD using the canonical reference predicate. |
+| Generic idiom sweep | Rejected | Each occurrence needs its own hot-path evidence and semantic proof. |
+| Lazy `ResultParser` maps | Rejected | Scalar parse allocation improved, but the variant-collection parse CPU and wall controls regressed beyond 2×MAD. All four maps remain eager. |
+| Field-chain specialization | Reprofile the residue | Driver-wrapper specialization and native scalar/whole-row identity guards have landed. Measure only the legacy-decimal wrapper and enum-membership residue. |
+| Shared result-shape empties | Reprofile only | Compiled selection was rejected at its gate; the retained result-shape owner may be optimized only with fresh evidence and module-private read-only ownership. |
+| Memoized `defaultSelect` | Reprofile only | Compiled selection was rejected. Any memo belongs to the retained projection owner and needs explicit immutable ownership. |
+| Trim-free JSON carrier scan | Rejected | The declared 1,000-row parse-allocation target stayed inside noise and a full-operation wall control regressed. |
+| JSON projection copy-on-write | Rejected | Its allocation target barely cleared 2×MAD, but prepare CPU and the 1,000-row full-allocation control regressed. |
+| Allocation-free variant-envelope key check | Rejected | Allocation improved materially, but parse CPU and wall time regressed beyond 2×MAD after refinement. |
+| Identifier construction | Kept | The corrected 100-column prepare-allocation target improved by 17.94% beyond 2×MAD without a companion regression. |
+| Adapter JSON argument interleaving | Rejected | The exact-width target improved, but the 2-field/depth-2 prepare-CPU companion regressed beyond 2×MAD. |
+| Shared INSERT pre-sizing | Rejected | The declared prepare-allocation target moved by only +0.24% inside noise; the longer candidate was removed. |
+| Canonical standalone optional result | Rejected | Allocation improved, but prepare CPU and full-operation wall time regressed beyond 2×MAD. Standalone nullable remains deferred. |
+| SQLite prepared-statement cache | Rejected here | It changes handle lifetime, retained heap, `safeIntegers` behavior, schema invalidation, and connection ownership. |
 
 ## Phase 0 — Repair and split the proof surface
 
@@ -224,11 +260,13 @@ No production optimization starts until this phase is complete.
 
 ### Unit 0.1 — Stabilize the baseline owner
 
-1. Record the starting commit, branch, runtime versions, CPU, and operating
-   system.
-2. Record dirty files. The current ResultParser, Sql, driver-wrapper, and
-   benchmark work must either land or be isolated before the baseline is
-   measured.
+1. Record the exact accepted baseline commit for each candidate, plus the
+   branch, runtime versions, CPU, and operating system. Use `4cf5c7fe` only
+   when it is the actual comparison baseline; it is not an implicit substitute
+   for later accepted tranches.
+2. Record dirty files and isolate them from measurement. Build the baseline and
+   every candidate in explicit clean worktrees; unrelated user-owned changes
+   are neither a baseline nor candidate input.
 3. Build the baseline and candidate from explicit commits or worktrees. Never
    compare two states that share uncommitted production changes.
 4. Run all benchmark processes sequentially. Repository tests and TypeScript
@@ -290,21 +328,35 @@ For each baseline/candidate pair:
 | scalar `findMany`, 20 rows | same |
 | scalar `findMany`, 1,000 rows | parse, raw+parse, full |
 | scalar order and cursor/take | prepare, full |
-| ordinary relation read, 20 and 1,000 rows | prepare, execute, parse, raw+parse, full |
-| polymorphic relation read, 20 and 1,000 rows | parse, full |
+| fixed-target singular row-reference read, 20 and 1,000 rows | prepare, execute, parse, raw+parse, full |
+| fixed-target collection read, 20 and 1,000 rows | prepare, execute, parse, raw+parse, full |
+| variant-target singular row-reference read, 20 and 1,000 rows | prepare, execute, parse, raw+parse, full |
+| variant-target collection junction read, 20 and 1,000 rows | prepare, execute, parse, raw+parse, full |
+| fixed-target junction read, singular and collection | prepare, parse, full |
 | enum-heavy read, 20 and 1,000 rows | parse, full |
 | flat create with explicit ID | prepare, execute, raw+parse, full |
 | flat create with database-generated ID | same |
 | flat scalar update | same |
-| relation-bearing create and update | prepare, full |
+| fixed-target relation-bearing create and update, row-reference and junction | full |
+| variant-target relation-bearing create and update, singular and collection | full |
 | atomic batch, 1/10/100 statements | prepare, execute, full |
-| nested transaction with zero vs one inter-step reference | prepare, full |
-| many-and-return, 100 rows | prepare, parse, full |
+| nested transaction with zero vs one inter-step reference | full |
+| bulk create/update with implicit returning, 100 rows | prepare, parse, full |
+| row-held variant-target `createMany`, 100 alternating targets | full |
+
+Composed relation writes and generated inter-step references expose no honest
+standalone plan through the built public lifecycle: `prepare()` declines them
+and `prepareBatch()` enforces postconditions that make it a different workload.
+Their evidence is therefore the complete operation only. A constant result,
+private partial-plan call, or hand-built SQL is not an acceptable substitute.
 
 ### Unit 0.5 — Performance keep gate
 
 A performance-specific implementation is retained only when:
 
+- the comparison declares every intended target as an exact
+  `workload/stage/mode/metric` contract before measurement; an undeclared or
+  non-target improvement cannot make a report keep-eligible;
 - its targeted median improves by more than twice the measured MAD;
 - no targeted workload regresses by more than twice MAD;
 - no corresponding full operation regresses materially;
@@ -316,30 +368,68 @@ A performance-specific implementation is retained only when:
 If a local rewrite is also plainly simpler and allocation-neutral, it may be
 kept as a simplification, but it must not be reported as a performance win.
 
-## Phase 1 — Universal low-risk fast paths
+The Phase 0 falsifier compares two different commit IDs with byte-identical
+source trees. Its report must remain valid measurement evidence but cannot be
+keep-eligible without a declared target. This prevents ordinary noise in an
+unrelated metric from silently becoming the reason to keep code.
 
-These units are independent. Implement and measure them one at a time.
+## Execution order after Phase 0
+
+Phase 0 remains the hard gate. The first local tranche has now been measured
+one independently reversible unit at a time.
+
+Retained production units are:
+
+1. Unit 1.1's transaction-batch subunit, Unit 1.4 edit 3, and Unit 1.5;
+2. Unit 2.2, Unit 2.4's variant row-storage subunit, and Unit 2.8;
+3. Unit 5.2;
+4. Unit 6.1.
+
+Measured and removed units are Unit 1.1's ordinary-operation subunit, Unit 1.3,
+Unit 1.4 edit 2, Unit 2.4's ordinary subunit, Unit 2.5,
+Unit 2.3, Unit 2.9's `resolveOutputList` subunit, Units 3.1 and 3.3–3.5,
+Unit 5.1, Units 5.4a–5.4b, Units 6.3–6.4, and Unit 6.6a's
+standalone-optional subunit. Their reports remain evidence; they are not
+authorization to retry the same implementation against a different metric.
+
+Unit 5.4 is complete as the cumulative ownership-copy proof. It required no
+direct production edit beyond the independently measured units it audited.
+
+Units 1.2, 1.4 edit 1, 2.1, 2.6–2.7, the unmeasured arms of Unit 2.9,
+Unit 3.2, every Phase 4 prototype, Units 5.3 and 5.5, Units 6.2, 6.5, the
+standalone-null arm of 6.6a, 6.6b, 6.7–6.8, and 6.9 remain deferred until an
+honest workload reaches them. Diagnostic/context ownership,
+queue timing, and public `PendingOperation` compatibility remain broad
+prototypes.
+
+## Phase 1 — Universal fast-path candidates
+
+These units are independent. The measured dispositions below are final for the
+tested implementations; Unit 1.2 remains deferred pending a reaching workload.
 
 ### Unit 1.1 — Gate operation observation before allocation
 
 Owner: `src/query-engine/execution-context.ts`.
 
-For `observeOperationExecution()`:
+**Measured disposition: split.** The ordinary-operation fast path reduced
+`scalar-find-unique` full allocation by 420 bytes per operation (1.20%) but did
+not clear 2×MAD, so that half was removed. The transaction-batch phase bypass
+was isolated and kept: `atomic-batch-100` full allocation fell by 125 KB per
+operation (4.72%, beyond 2×MAD), while CPU fell 4.94%; the one-operation
+scaling control improved in the same direction and no companion regressed.
 
-1. Read the effective instrumentation configuration.
-2. If neither tracing nor logging is configured, return `execute(undefined)`
-   before building attributes, reading the correlation ID, calling
-   `Date.now()`, or allocating the inner async closure.
-3. If logging exists without tracing, preserve error observation but do not
-   build span attributes or invoke the no-op tracer.
-4. Gate on configured tracing, not on tracer object truthiness. The
-   instrumentation context can contain a no-op tracer.
+`observeOperationExecution()` remains byte-for-byte at its baseline. Do not
+reapply the rejected ordinary-operation gate.
 
-Apply the analogous fast path to `observePendingBatchPhase()`:
+The retained `observeTransactionBatchPhase()` subunit:
 
 - success without instrumentation bypasses span/log plumbing;
 - failure must still pass through driver-error normalization even when no
-  instrumentation is configured.
+  instrumentation is configured;
+- logging-only execution keeps timing and error reporting without invoking the
+  no-op tracer;
+- configured tracing still invokes its tracer when provider state reports it
+  disabled. Configuration, not tracer truthiness, owns the gate.
 
 Proof:
 
@@ -347,7 +437,7 @@ Proof:
 - logging only;
 - tracing configured but disabled by provider state;
 - active tracing;
-- successful operation and thrown driver error;
+- successful batch phase and thrown driver error;
 - shared/native batch preparation and parsing.
 
 ### Unit 1.2 — Copy-on-write SQLite-family value conversion
@@ -378,9 +468,18 @@ Measure string/number-only parameters separately from each converted type.
 
 Owner: `src/query-engine/operations/create.ts::hasReturningClause`.
 
-Walk each `returning.strings` segment and each character until a non-whitespace
-character is found. Do not allocate the joined string or trimmed copy. The
-answer remains a property of the built SQL, not an inferred adapter capability.
+**Measured disposition: rejected.** The five-replicate
+`flat-create-explicit-id` comparison declared prepare-stage allocated bytes as
+its target. The candidate moved that target in the wrong direction by 0.64%
+and beyond 2×MAD. Prepare CPU improved by 2.90%, but changing the declared
+target after observing the report would be cherry-picking, and the longer
+rewrite was not an independent simplification. The source remains unchanged.
+
+The rejected implementation tested each `returning.strings` segment with one
+module-local non-whitespace regular expression until a match was found. It did
+not introduce a hand-maintained whitespace classifier. The answer remains a
+property of the built SQL, not an inferred adapter capability, but this
+particular scan must not be reapplied.
 
 ### Unit 1.4 — Remove small unconditional read-builder arrays
 
@@ -388,7 +487,9 @@ Implement as three separately measured edits:
 
 1. In `builders/orderby-builder.ts::buildOrderByInternal`, allocate relation
    alias state only when the first relation order is encountered. Scalar-only
-   order must allocate no relation map.
+   order must allocate no relation map. Defer this edit until the catalog owns
+   a scalar-order-without-window workload: the current cursor workload takes a
+   different normalization path and cannot prove this allocation.
 2. In `operations/find-common.ts::buildFind`, reuse the one non-empty joins
    array when either lateral joins or order joins is empty; concatenate only
    when both contain elements.
@@ -396,12 +497,28 @@ Implement as three separately measured edits:
    fresh array returned by `parseRequestedScalarOrder()` and populate the
    ordered-field set in one loop instead of copying then mapping.
 
+**Measured disposition for edit 2: rejected.** Its declared
+`scalar-find-unique` prepare-allocation target was unchanged within noise
+(+0.23%), while the full-operation wall median exceeded the 10% ceiling. The
+branching replacement was longer than the original spread, so it was removed.
+Edit 1 remains unimplemented for lack of a reaching workload.
+
+**Measured disposition for edit 3: kept.** Reusing the private parsed cursor
+order reduced the declared prepare allocation target by 511 bytes per operation
+(1.09%, beyond 2×MAD). Full-operation allocation and CPU also improved, with no
+measured regression.
+
 Preserve relation alias insertion order, cursor tie-breaker order, null-order
 semantics, and input immutability.
 
 ### Unit 1.5 — Indexed normalized-batch validation
 
 Owner: `src/drivers/normalized-result.ts::assertNormalizedBatchResults`.
+
+**Measured disposition: kept.** On `atomic-batch-100`, the declared execution
+allocation target fell by 9.6 KB per operation (3.81%, beyond 2×MAD).
+Full-operation allocation fell by 28.2 KB per operation; CPU remained within
+noise and no control regressed.
 
 Replace `for (const [index, result] of results.entries())` with an indexed loop.
 Array holes must still reach the single-result validator as `undefined` and
@@ -460,18 +577,37 @@ Proof:
 
 Owner: `src/query-engine/OwnWriteAnalyzer.ts`.
 
+**Measured disposition: kept.** The declared flat-update prepare-allocation
+target fell by 14.2 KB per operation (30.35%, beyond 2×MAD). The flat-create
+control fell by 4.8 KB (13.25%). Their complete-operation allocation fell by
+20.95% and 9.02% respectively, with no measured regression.
+
 At `assertCreateOwnWriteSafety()` and `assertUpdateOwnWriteSafety()`:
 
-1. Test that both the root ordinary-relation map and polymorphic-relation map
-   have zero own keys.
+1. Test that the root's one ordered `ParsedRelationMutation[]` is empty.
 2. Return before constructing the analysis tree.
 3. Leave `analyzeCreate()` and `analyzeUpdate()` unchanged for recursive calls.
+
+Do not recover this fact by reading model declarations or `ResolvedRelationIndex`:
+the mutation parser already published the exact ordered work list, and its
+length is the owner of whether this payload contains relation work.
 
 Add a falsifier showing that a nested relation-free insert/update still
 contributes the existing barrier/target/transition fact to an enclosing
 relation-bearing operation.
 
 ### Unit 2.3 — Avoid needless Create scalar copies
+
+**Measured disposition: rejected after split.** The combined prototype's
+explicit-ID prepare-allocation target improved by only 50 bytes per operation
+(0.17%, inside 2×MAD), while the generated-ID allocation target moved upward
+inside noise. A genuinely isolated generated-field prototype then restored
+ordinary and shared-key copying and changed only copy-then-delete into a
+copy-that-skips. Its declared prepare-CPU target moved 0.53% in the wrong
+direction inside noise, and its complete-operation wall time regressed 3.16%
+beyond 2×MAD. Both implementations and their implementation-only tests were
+removed. Evidence: `/tmp/viborm-unit-2-3.json` and
+`/tmp/viborm-unit-2-3-generated.json`.
 
 Owner: `CreateOperation` record construction.
 
@@ -491,36 +627,92 @@ ID benchmark cannot prove the generated-field branch.
 Owners:
 
 - `builders/insert-row-shapes.ts`;
-- `builders/values-builder.ts`.
+- `builders/values-builder.ts`;
+- `builders/polymorphic-mutation.ts::polymorphicStorageMembers()` for the
+  existing ordered projection from resolved slots into private row storage.
 
-For one row:
+**Measured disposition: split.** The ordinary `insert-row-shapes` /
+`buildValueGroups` prototype reduced the declared 100-row prepare-allocation
+target by only 0.73%, inside 2×MAD, so those source changes were removed. The
+variant row-storage half was then remeasured alone and kept: complete-operation
+allocation fell by 101 KB per 100-row operation (6.37%, beyond 2×MAD), with CPU
+inside noise and no regression. That workload assigned only one row-held carrier,
+so it did not prove how the retained declaration-order projection scaled with
+several assigned carriers on a wide model.
+
+A later scaling audit found that the first post-unification projection compared
+every assigned carrier with every resolved slot. The correction groups only the
+current call's assignments by `RelationSlot` identity, then walks the canonical
+resolved-slot map once. This is O(resolved slots + assigned values + emitted
+members), preserves declaration order, and creates no model-owned topology fact.
+The focused 64-slot / 12-assignment falsifier observes exactly 12 carrier reads;
+the removed nested scan performed 768. A separate scrambled four-carrier witness
+pins declaration order, atomic type-before-id order, linked values, and empty
+storage.
+
+The corrected implementation was then remeasured with the original Unit 2.4
+protocol against clean baseline
+`4b010ede2638dbae710eb4c555c192c8bb78d785`; the detached synthetic candidate
+was `f5212c54860147e1bf0bc2c4ee6e6fea86805895`. Across five alternating fresh
+processes per side, full allocation fell from 15,889.79808 to 15,090.3752 bytes
+per row: 799.42288 bytes, or 5.031%, against a 57.48704-byte 2×MAD threshold.
+Full CPU improved by 2.937% beyond 2×MAD; full wall time improved by 1.365%
+inside noise. The keep gate is eligible, with no regression and the 10% ceiling
+passed. Thus 6.37% remains the historical result for the removed nested-scan
+candidate; the corrected retained code rests on the fresh 5.03% result. Evidence:
+`/tmp/viborm-unit-2-4-linear.json`, SHA-256
+`cfd7336d511b6b9e614516d096a2696f066aed33204f9215bbd852dce3f09e1c`, protocol
+SHA-256 `7614adf062e8be1df9f5a0c6b678b028becddad82d7f1f3c95040ece09d679dd`.
+
+The rejected ordinary prototype attempted to:
 
 - compute active fields once;
 - return one group without a grouping key.
 
-For multiple rows:
+For multiple ordinary rows it attempted to:
 
 - preserve maximal contiguous runs;
 - compare the new field list elementwise with the active group’s field list;
 - never reorder rows or merge non-contiguous equal shapes.
 
-When lowering value groups:
+Those bullets remain unimplemented. The retained variant row-storage path:
 
 - build columns and row values with push loops;
-- append private polymorphic values only when present;
-- transfer the freshly created `inputIndexes` array rather than copying it;
-- express that ownership in the internal type without an assertion.
+- append private variant-target `(type, id)` storage values only when present;
+- lower each private member's column and SQL value in one traversal;
+- skip private lowering entirely for rows without private storage;
+- groups contiguous column shapes with an indexed comparison.
+
+`polymorphicStorageMembers()` may read declaration order only from the canonical
+resolved-slot map and storage columns only from `ResolvedVariantRowStorage`
+already carried by the value. It may not build or cache a model-owned storage
+map, a parallel relation-order map, or a second slot descriptor. A call-local
+map of assigned values by their existing carrier identity is permitted because
+it stores no topology and disappears after the projection.
 
 Pin heterogeneous rows, generated defaults, destination casts, polymorphic
 private storage, skip-duplicate grouping, and returned-input order.
+Use the full-only `variant-row-storage-create-many-100` workload to exercise
+the multi-row private-storage grouping path. Its public operation exposes no
+honest plan-only seam, so this is complete-operation evidence rather than a
+fabricated prepare proxy.
 
-### Unit 2.5 — Reprofile TargetConstraint after the root bypass
+### Unit 2.5 — `TargetConstraint` sort/compact prototype
 
-Do not change `TargetConstraint` before Unit 2.2 is measured. If it disappears
-from flat create/update profiles, restrict this unit to the nested-write
-workload that still names it.
+**Measured disposition: rejected.** In the five-replicate
+`variant-row-storage-create-many-100` full-operation comparison, sorting and
+compacting one copied field-name array reduced allocation by 53.7 KB per
+operation (3.74%, beyond 2×MAD). The same candidate regressed the singular
+variant control's full wall time by 2.77%, also beyond 2×MAD. Because one
+measured regression invalidates the candidate, the implementation and its
+implementation-only tests were removed. The evidence is retained in
+`/tmp/viborm-unit-2-5.json`.
 
-If retained:
+Unit 2.2 had already landed when this candidate was measured, so the report
+already describes the residual nested/variant cost after the root bypass. Do
+not reapply the same representation.
+
+The rejected implementation:
 
 1. Copy the candidate field names once.
 2. Sort the array in place.
@@ -565,15 +757,20 @@ do not generalize into a utility. Pin optional outputs, first-row fields, row
 lists, row counts, insert IDs, missing references, and heterogeneous list
 failure.
 
-### Unit 2.8 — Reference-free SQL materialization after distinct-truth Phase 9.5
+### Unit 2.8 — Reference-free SQL materialization from the canonical fact
 
-This unit depends on the canonical statement-reference extractor planned in
-`query-engine-distinct-truth-compression-plan.md`, Phase 9.5.
+**Measured disposition: kept.** The declared zero-reference full-operation
+allocation target fell by 2.2 KB per operation (1.41%, beyond 2×MAD). The
+one-reference control also allocated slightly less because its reference-free
+statements take the fast path; CPU remained within noise.
 
-Once that fact exists, make `materializeLinearSql()` and
+Distinct-truth Phase 9.5 has landed. `OperationFragment.ts` owns reference
+discovery through `statementReferences()` and the allocation-light predicate
+`statementHasReferences()`.
+
+Use that existing fact to make `materializeLinearSql()` and
 `materializeBatchSql()` return the original `Sql` when a statement contains no
-`OperationValueReference`. Do not add a second reference scanner for this
-optimization.
+`OperationValueReference`. Do not add a second reference scanner or cache.
 
 Whenever a reference exists, preserve:
 
@@ -584,12 +781,20 @@ Whenever a reference exists, preserve:
 
 ### Unit 2.9 — Measured nested-only local candidates
 
+**Measured disposition for `resolveOutputList`: rejected.** On the declared
+`bulk-create-returning-100` parse-allocation target, the one-pass classifier
+changed allocation by only +10 bytes per operation inside noise. The complete
+create path regressed CPU by 2.37% and wall time by 1.21%, both beyond 2×MAD.
+The candidate and its implementation-only tests were removed. Conditional-arm
+planning and `foldableShapeKey` remain deferred because the catalog does not
+exercise them at meaningful arity.
+
 Profile these separately after the preceding units:
 
 - direct loops in `conditionalArmPlanning` instead of
   `Object.fromEntries`/`Object.entries` churn;
-- one-pass classification in `resolveOutputList` for 100-row
-  many-and-return folds;
+- one-pass classification in `resolveOutputList` for 100-row implicit-returning
+  bulk folds (`createMany` / `updateMany` with `select`);
 - structural comparison for `foldableShapeKey` only if group-shape
   stringification remains visible.
 
@@ -609,24 +814,31 @@ The query-engine layer includes the architecture contracts. There is no
 
 ## Phase 3 — Result construction and parsing
 
-### Unit 3.0 — Adopt current ResultParser work as baseline
+### Unit 3.0 — Landed ResultParser baseline — no implementation work
 
-Concurrent work already implements:
+The `4cf5c7fe` baseline already implements:
 
 - nested row-parser reuse;
 - zero-copy row-array validation;
 - pre-sized parsed-row output;
 - allocation-free expected-key counting;
-- reuse of compiled nested parsers in ordinary and polymorphic relation reads.
+- reuse of compiled nested parsers in fixed-target and variant-target relation
+  reads.
 
-Do not reimplement these changes. Land or isolate them, run their contracts,
-and measure their post-change state before starting this phase.
+Do not reimplement these changes or compare against their pre-change state.
 
 ### Unit 3.1 — Lazily allocate all four ResultParser caches
 
 Owner: `result/ResultParser.ts`.
 
-Make these caches optional and initialize them in their owning getters:
+**Measured disposition: rejected.** The declared scalar-parse allocation
+target improved by 374 bytes per operation (3.90%, beyond 2×MAD), but
+`variant-collection-junction-20` parse CPU regressed 1.49% and wall time 0.89%,
+both beyond 2×MAD. Complete-operation controls stayed within noise, but the
+hot-stage regression blocks the keep gate. All four caches remain eager.
+
+The rejected prototype made these caches optional and initialized them in
+their owning getters:
 
 - `fieldChains`;
 - `relationChains`;
@@ -637,17 +849,23 @@ Expected allocation shape:
 
 - count-only result: none of the four;
 - scalar row: field cache only;
-- ordinary include: field, relation, and nested-row caches as demanded;
-- polymorphic include: polymorphic cache only when encountered.
+- fixed-target include: field, relation, and nested-row caches as demanded;
+- variant-target include: polymorphic cache only when its private envelope is
+  encountered.
+
+The relation caches remain contextual slot caches keyed by `(source model,
+field)` and read emptiness/storage from the supplied `ResolvedRelationIndex`.
+Never key them only by a reusable terminal relation object.
 
 ### Unit 3.2 — Specialize field chains and cache enum membership
 
-Build the smallest exact chain for each scalar:
+The baseline already omits the driver-field wrapper when
+`driver.result.parseField` is absent and already has provider-certified native
+scalar/whole-row identity guards. Reprofile only the remaining chain work:
 
-- no driver-field wrapper when `driver.result.parseField` is absent;
 - no legacy-decimal wrapper unless number compatibility is active;
-- adapter field parsing remains mandatory unless an explicit provider
-  capability proves identity;
+- keep adapter field parsing unless the existing explicit adapter-plus-driver
+  passthrough capability and per-value guard prove identity;
 - provider decoding errors retain the same typed error and operation metadata.
 
 Cache enum membership in a module-local `WeakMap<Scalar, ReadonlySet<string>>`.
@@ -660,9 +878,17 @@ parse workloads improve beyond noise.
 
 Owner: `src/adapters/shared/result-parsing.ts::tryParseJsonString`.
 
-Scan from both ends for JSON whitespace (`space`, tab, carriage return, line
-feed), inspect the first and last meaningful characters, and pass the original
-string to `JSON.parse`. Preserve current behavior for:
+**Measured disposition: rejected.** On the declared
+`fixed-singular-rowref-1000` parse-allocation target, the manual whitespace
+scan increased allocation by 2.3 KB per operation (0.24%) and remained inside
+noise. A 20-row full-operation control also showed a small significant wall
+regression. Because the replacement was materially longer without a proved
+gain, it was removed.
+
+The rejected prototype scanned from both ends for JSON whitespace (`space`,
+tab, carriage return, line feed), inspected the first and last meaningful
+characters, and passed the original string to `JSON.parse`. Any materially
+different future candidate must preserve current behavior for:
 
 - whitespace-only strings;
 - non-JSON strings;
@@ -675,39 +901,58 @@ Measure SQLite/MySQL relation carriers at 20 and 1,000 rows.
 
 Owner: `builders/select-builder.ts::castNumericPairsForJson`.
 
-Return the input pairs when no selected scalar is bigint, decimal, or blob. On
-the first affected field, allocate one output array, copy the prefix once, and
-append transformed or original pairs from that point.
+**Measured disposition: rejected.** The declared
+`fixed-singular-rowref-20` prepare-allocation target improved by 292 bytes per
+operation (1.11%, barely beyond 2×MAD), but prepare CPU regressed by 2.15%
+beyond 2×MAD and the 1,000-row full-operation allocation control regressed by
+8.4 KB per operation beyond 2×MAD. The candidate also needed a longer branchy
+loop, so it was removed.
+
+The rejected prototype returned the input pairs when no selected scalar was
+bigint, decimal, or blob. On the first affected field, it allocated one output
+array, copied the prefix once, and appended transformed or original pairs from
+that point.
 
 Prove callers treat the input pair array and tuples as immutable after the
 call.
 
-### Unit 3.5 — Reuse allocation-free polymorphic envelope key checks
+### Unit 3.5 — Allocation-free variant-envelope key checks
 
 `polymorphic-result-parser.ts::hasExactKeys` still builds `Object.keys()` per
-carrier. Reuse the exact-own-enumerable-string-key primitive introduced by the
-current result-parser work. Preserve treatment of inherited, symbol, and
-non-enumerable members.
+carrier. The rejected prototype moved an exact-own-enumerable-string-key
+predicate into `result-parser-contract.ts` and reused it here. That shared
+predicate was removed with the candidate; the current contract owner does not
+expose it. Preserve treatment of inherited, symbol, and non-enumerable members
+if a materially different future candidate revisits this boundary.
 
-### Deferred result-path work
+**Measured disposition: rejected after refinement.** The allocation-free
+predicate reduced the declared 1,000-row variant-collection parse allocation by
+734 KB per operation (28.33%) and full allocation by 737 KB (25.17%). Its
+manual key walk also regressed parse CPU by 2.81% and wall time by 3.00%, both
+beyond 2×MAD. Restoring the ordinary row guards removed an earlier control-path
+regression but not this carrier-path cost. The strict companion gate therefore
+removed the candidate; the native `Object.keys()` predicate remains.
 
-Do not implement these in the micro plan:
+### Retained result-path owners
 
-- shared empty result-shape maps/sets;
-- memoized `defaultSelect`;
-- manual optimization of `selectedEntries()`;
-- count-result transport rewrites;
-- provider-certified whole-row identity parsing.
+Distinct-truth Phase 10's compiled-selection prototype was measured and
+rejected; its conditional Phase 11 result-transport work did not run. Therefore
+the following owners are retained, not scheduled for deletion:
 
-Result-shape/default-selection traversal is owned by the distinct-truth
-compiled-selection phase. Count transport belongs to its result-contract
-phase. Cross-operation `ResultParser` caching is rejected below. Provider-
-certified per-scalar identity parsing is potentially large—for example, a
-SQLite text-only selection need not lose all passthrough because the same
-driver can decode booleans and JSON—but it belongs in the compiled-selection
-prototype, where one compiled field decoder can prove the complete adapter-
-plus-driver chain. A false identity declaration would bypass strict scalar
-validation, so it is not a local shortcut.
+- result-shape empty maps/sets;
+- `defaultSelect` construction;
+- `selectedEntries()` traversal;
+- operation-name result carriers.
+
+They are reprofile-only candidates after the first production tranche. A
+shared empty collection must be module-private and truly unexposed; a memoized
+selection must have an immutable owner and no second projection truth. Count
+transport remains outside this micro plan because it changes the result
+contract. The current `nativeScalarPassthrough` plus per-scalar guards already
+implements the proven identity subset; a broader callback bypass is unsafe
+without another explicit adapter-plus-driver capability proof.
+
+Cross-operation `ResultParser` caching remains rejected below.
 
 Validation for Phase 3:
 
@@ -837,6 +1082,18 @@ proved to own the invariant completely.
 
 ### Unit 5.1 — Prove one normalized-result trust boundary
 
+**Measured disposition: rejected after split.** The audit proved that concrete
+drivers and documented custom drivers enter through `_execute`, `_executeRaw`,
+or `_executeBatch`, which validate generic provider-result shape and total
+batch cardinality. Result-parser validation remains a separate semantic model
+boundary. Removing the downstream client and executor scans together improved
+the declared `atomic-batch-100` full CPU median by 1.73%, but not beyond 2×MAD.
+The isolated executor deletion then failed its declared
+`bulk-create-returning-100` full CPU target and changed no control beyond
+noise. The source and implementation-only tests were restored. Reports:
+`/tmp/viborm-unit-5-1.json` and
+`/tmp/viborm-unit-5-1-executor.json`.
+
 Current normalized rows are scanned at the driver boundary and again in parts
 of `OperationExecutor` and shared client batching. For 1,000/10,000-row reads,
 the repeated row-shape checks can cost more than several allocation tweaks
@@ -872,8 +1129,22 @@ Measure 1, 1,000, and 10,000 rows plus 1/10/100 batch results.
 
 ### Unit 5.2 — Remove shared-batch result reshaping after Unit 5.1
 
-The shared client batch currently slices each result window, validates it
-again, and maps every normalized result into a new `{ rows, rowCount }` object.
+**Measured disposition: kept.** On the declared `atomic-batch-100`
+full-allocation target, direct trusted-result consumption removed 23.0 KB per
+operation (0.91%, beyond 2×MAD), or 230 bytes per member. The same cost scaled
+to 2.7 KB for ten members and 326 bytes for one member, both beyond 2×MAD.
+Complete-operation CPU stayed inside noise, as did the zero-reference and
+one-reference nested-transaction controls. Single-statement members now read
+their exact indexed result. One full-batch guard owns result shape and total
+cardinality. Multi-statement members receive their trusted exact slice without
+revalidating slice cardinality and pass the original `QueryResult` objects,
+including an optional `insertId`, without wrapper records. Evidence:
+`/tmp/viborm-unit-5-2.json`.
+
+Before this unit, the shared client batch sliced each result window, validated
+it again, and mapped every normalized result into a new `{ rows, rowCount }`
+object. The retained full-batch guard now proves shape and total cardinality
+once before those trusted windows are assigned.
 
 After the trust boundary is established:
 
@@ -908,6 +1179,105 @@ concurrency/transaction contracts remain exact.
 
 Run this unit after every retained Phase 1-4 copy-related edit. It is a
 cumulative proof, not a mechanical rewrite.
+
+**Measured disposition: complete; no direct production edit.** The final
+cumulative comparison used synthetic base
+`95e606dadf02abd51570458c5989cabda22e3c0a` and retained candidate
+`fc93a4a269de2d0a2578a8778816d82cc917dd5a`. Both commits contain the same
+current protocol (`f9d49656ebfc6557aec91e939dd67ce3630ea9fe7e631f99080305cc095f795a`);
+the candidate adds exactly the nine retained production files to the
+protocol-only base. It therefore excludes Unit 6.3's rejected adapter JSON
+interleavers
+while including the corrected linear variant grouping and sole full-batch
+result guard. The machine-readable report is
+`/tmp/viborm-unit-5-4-final-cumulative.json` (SHA-256
+`5235a2447265511d2be938e4960ffdc9ea262518b67cdd6cbace3684dbb69b49`).
+Negative values below are improvements by the retained candidate over the base:
+
+| Representative public workload | Allocated bytes/op | CPU median | Wall median |
+| --- | ---: | ---: | ---: |
+| Scalar read | -3.17% | -1.12% | -4.81% |
+| Fixed-target read, 20 rows | -1.88% | -1.69% | -2.38% |
+| Fixed-target read, 1,000 rows | -0.06% | -1.30% | -1.49% |
+| Variant-target read, 20 rows | -2.88% | -2.71% | -2.84% |
+| Variant-target read, 1,000 rows | -0.10% | +0.05% | -0.08% |
+| Flat create | -11.07% | -8.30% | -6.47% |
+| Flat update | -24.47% | -12.29% | -12.31% |
+| Fixed-target nested write | -2.82% | -2.47% | -3.60% |
+| Row-held variant-target `createMany`, 100 rows | -8.11% | -4.12% | -3.13% |
+| Atomic batch, 100 statements | -8.29% | -10.85% | -10.48% |
+
+The fixed-target 1,000-row allocation and CPU movements and every variant-
+target 1,000-row movement stayed inside 2×MAD; the fixed-target wall movement
+was a significant improvement. No metric regressed beyond 2×MAD, and every
+full-operation pair passed the 10% regression ceiling. This cumulative audit
+declared no new target, so its report is deliberately not independently keep-
+eligible; the retained units remain authorized by their isolated target reports.
+The cumulative run is their final semantic and regression control, and no
+retained tranche control failed.
+
+Estimated short-lived allocation churn avoided by the retained candidate is:
+
+| Workload | At 1,000 ops/s | At 10,000 ops/s |
+| --- | ---: | ---: |
+| Scalar read | 1.14 MB/s | 11.45 MB/s |
+| Flat create | 6.23 MB/s | 62.33 MB/s |
+| Flat update | 16.32 MB/s | 163.24 MB/s |
+| Fixed-target nested write | 4.83 MB/s | 48.34 MB/s |
+| Row-held variant-target `createMany`, 100 rows | 128.94 MB/s | 1,289.44 MB/s |
+| Atomic batch, 100 statements | 226.55 MB/s | 2,265.46 MB/s |
+
+Fresh source profiles classified the remaining reached sites as follows:
+
+| Profile cluster | Ownership classification and decision |
+| --- | --- |
+| Scalar reads | `ResultParser` field/row parsing, SQL and identifier assembly, argument/rest expansion, and the driver-owned execution-parameter snapshot. The public row, statement, and defensive boundary are required; no residual private copy remained. |
+| Fixed-target reads | Provider row/JSON decoding plus fresh nested public row and collection results. Those are required assembly; the previously measured trim candidate remains rejected. |
+| Flat update | Validation, SQL/result-shape assembly, and one residual `selectedEntries` filter-result array. Unit 5.4a isolated that array and was rejected by its fixed-read wall control. |
+| Fixed-target create | Mutable final INSERT/effective-value assembly plus already-rejected Create scalar, ordinary row-shape, and `TargetConstraint` candidates. One demanded-set spread/filter residue was isolated as Unit 5.4b and rejected by its atomic-batch control. |
+| Variant reads: `parseCollectionValue` | Required value assembly: mandatory staging and a fresh public result. Retain. |
+| Variant writes: validation and `TargetConstraint` | Required validation/target assembly remains; the tested cleanup was rejected by its performance gate. Retain the existing owners. |
+| Atomic batch | Canonical model access, result shaping, and observation. Unit 5.2 already removed the supported redundant reshaping allocation; retain the residue. |
+| Flat create | `ResultParser`, SQL/result-shape assembly, and the Create scalar-copy candidate. The assembly is required and the scalar-copy edit was rejected by its split gate. Retain. |
+
+HeapProfiler allocation counts are heuristic source-attribution samples, not
+exact object counts. Every reached residual category-3 candidate was therefore
+isolated and measured before a decision; the before/after byte, CPU, and wall
+measurements own the performance conclusion.
+
+#### Unit 5.4a — Compact `selectedEntries` in place
+
+**Measured disposition: rejected and reverted.** Reusing the fresh
+`Object.entries` array removed 380.68 B per flat-update full operation (0.763%,
+beyond 2×MAD). The fixed-collection 20-row wall control regressed 1.167%
+beyond 2×MAD, so the candidate failed the companion gate. The report is
+`/tmp/viborm-unit-5-4a.json`.
+
+#### Unit 5.4b — Scan Create demanded fields once
+
+**Measured disposition: rejected and reverted.** The one-pass demanded-set
+scan removed 954.80 B per fixed-row-reference create full operation (0.573%,
+beyond 2×MAD), and its initial controls passed. The prescribed isolated
+`atomic-batch-100` comparison against the then-current experimental tree
+`150964d8…` then regressed
+CPU by 25.174%, beyond 2×MAD and the 10% end-to-end ceiling; wall moved
++5.743% inside noise. The decisive report is
+`/tmp/viborm-unit-5-4b-atomic-control.json`.
+
+The later aggregate red report that included the rejected candidate is a
+falsifier for Unit 5.4b, not accepted cumulative evidence. It does not replace
+or amend the final `95e606da…` → `fc93a4a2…` cumulative table above.
+
+**Stop decision.** The fresh profiles exposed two residual private copies, and
+both failed an isolated companion gate after clearing their allocation targets.
+Every other reached site is mandatory staging, a fresh public result, canonical
+model access, SQL/result assembly, validation ownership, or an already-rejected
+candidate. Another edit would repeat a failed candidate or add machinery
+without evidence. The audit therefore stops unless a new public workload and
+source profile establish a different residual category-3 copy above the
+continuation gate. Relation resolution remains registration-time work owned by
+the existing canonical resolved index; this audit adds no topology cache or
+second representation.
 
 #### Static census
 
@@ -946,9 +1316,15 @@ At minimum, audit these already named clusters:
 - find joins and cursor order;
 - TargetConstraint field collections;
 - conditional-arm planning and executor output records;
-- ResultParser JSON projection pairs;
+- ResultParser JSON projection pairs and contextual `(source, field)` slot
+  caches;
 - driver execution-parameter and diagnostic snapshots;
 - atomic-batch queries, diagnostics, SQL, and result windows.
+
+Relation resolution itself is registration-time work, not an operation-path
+candidate. A profile that reaches raw target getters, inverse discovery, or a
+new fixed/variant topology cache identifies an architectural regression to
+remove, not another cache to optimize.
 
 Keep these known ownership boundaries unless a stronger owner is proven:
 
@@ -960,8 +1336,9 @@ Keep these known ownership boundaries unless a stronger owner is proven:
 
 #### Aggregate report and continuation gate
 
-For flat read, flat create, flat update, one nested write, a 20-row relation
-read, a 1,000-row relation read, and a 100-statement batch, report:
+For flat read, flat create, flat update, one nested write, 20-row and 1,000-row
+fixed-target reads, matching variant-target reads, and a 100-statement batch,
+report:
 
 - total allocated bytes per operation before and after all copy-related units;
 - allocation per returned row where applicable;
@@ -981,7 +1358,8 @@ measurement floor. Do not chase a numerical spread-count target.
 After all retained phases, inspect fresh profiles before authorizing any of:
 
 - conditional empty-object spreads at named hot call sites;
-- cached immutable schema order for polymorphic storage members;
+- traversal of canonical resolved-slot order for variant-target storage
+  members, without caching a parallel ordinal or topology map;
 - one-pass reference-list aggregation;
 - pre-sized arrays where cardinality is already known;
 - result-context error metadata allocated only on malformed results.
@@ -1011,9 +1389,11 @@ operation removes about 10 MB/s of short-lived allocation pressure even when
 no single source line looks alarming.
 
 These units were discovered after Phases 1-5 were written. Their numbering does
-not require waiting for every trust-boundary prototype: after Phase 0 is green,
-the local KEEP units may run beside their owning construction, validation, or
-driver phase. Keep each unit independently attributable.
+not require waiting for every trust-boundary prototype, but the execution order
+above still governs. Unit 6.1 is retained. Units 6.3–6.4 and Unit 6.6a's
+standalone-optional subunit were measured and rejected. Units 6.2, 6.5, the
+remaining Unit 6.6 arms, Units 6.7–6.8, and Unit 6.9 remain deferred. Keep each
+unit independently attributable.
 
 ### Unit 6.1 — Remove identifier-construction protocol churn
 
@@ -1023,6 +1403,18 @@ Owners:
 - `src/adapters/shared/standard-sql.ts::createIdentifierQuoter`;
 - `src/adapters/shared/standard-sql.ts::createIdentifiers`;
 - the identifier uses in the shared CTE builders.
+
+**Measured disposition: kept.** The first comparison used a `-20` row-count
+workload and did not prove field width. The corrected matrix records the actual
+width in each SQL witness and measures 1/20/100 selected columns, ten
+predicates, both fixed collection include forms, and 1/20-field creates and
+updates. On the declared `wide-scalar-select-100` prepare-allocation target,
+direct construction removed 35.8 KB per operation (17.94%, beyond 2×MAD);
+prepare CPU fell 26.31%. Full allocation and CPU fell 8.97% and 8.16%. Every
+required companion was non-regressing. The protocol-valid five-replicate
+report is `/tmp/viborm-unit-6-1-width-matrix.json` (synthetic baseline
+`cefb3d3fa74863a4b5baff2e460bb7f4138023f0`, candidate
+`7b3d9cc140c54694ffc576b4d4bb549eb8ad0829`).
 
 Identifiers are built for nearly every selected, filtered, joined, ordered,
 inserted, and returned column. The current builders route already constructed
@@ -1049,7 +1441,7 @@ Proof workloads:
 
 - scalar select with 1, 20, and 100 columns;
 - 10 scalar predicates;
-- one-to-many and M2M includes;
+- fixed-target collection row-reference and junction includes;
 - insert/update with 1 and 20 columns;
 - ordinary, quoted, and quote-containing table/column/alias names on all
   dialects.
@@ -1132,43 +1524,67 @@ Owners:
 - MySQL `json.object` and `json.objectFromColumns`;
 - SQLite `json.object` and `json.objectFromColumns`.
 
-Each current `flatMap` allocates one tiny two-element array per projected field
-and then allocates the combined argument array. Replace it with one
-adapter-local interleaver that allocates `pairs.length * 2` slots and writes
+**Measured disposition: rejected and reverted.** The first comparison used a
+`-20` row-count workload and did not prove projection width or depth. The
+corrected 3×3 matrix records exactly 2/20/100 total fields per relation object
+at relation depths 1-3 in each SQL witness; a non-terminal nested relation key
+occupies one of those fields. On the declared `relation-projection-100-depth-3`
+prepare-allocation target, adapter-local interleavers removed 26.3 KB per
+operation (5.37%, beyond 2×MAD); prepare CPU fell 2.21%. Full allocation fell
+27.1 KB (2.58%, beyond 2×MAD), while full CPU stayed inside noise. However,
+`relation-projection-2-depth-2` prepare CPU regressed by 0.415 µs per operation
+(1.69%, beyond 2×MAD), so the companion-cell gate rejects the candidate. The
+protocol-valid five-replicate report is
+`/tmp/viborm-unit-6-3-depth-matrix-exact.json` (synthetic baseline
+`bf0e96af40bd92d0f60e39b9b74df013673b46b3`, candidate
+`e09f5c222d863f9bb1cd25ab521f906e12954624`).
+
+Each retained `flatMap` allocates one tiny two-element array per projected field
+and then allocates the combined argument array. The rejected candidate used one
+adapter-local interleaver that allocated `pairs.length * 2` slots and wrote
 key/value entries in order.
 
-Rules:
+The rejected candidate's semantic proof covered:
 
-- preserve PostgreSQL's `::text` key fragments;
-- preserve MySQL/SQLite key fragments;
-- preserve empty-object special forms;
-- preserve key/value and bound-parameter order exactly;
-- reuse the interleaver for both JSON-object methods in that adapter;
-- do not introduce a cross-dialect JSON strategy or generic allocation helper.
+- preserved PostgreSQL's `::text` key fragments;
+- preserved MySQL/SQLite key fragments;
+- preserved empty-object special forms;
+- preserved key/value and bound-parameter order exactly;
+- reused the interleaver for both JSON-object methods in that adapter;
+- introduced no cross-dialect JSON strategy or generic allocation helper.
 
-Measure relation projections with 2, 20, and 100 fields and nested depth 1-3.
-SQL and parameter snapshots across all adapters are the primary oracle.
+The comparison measured relation projections with 2, 20, and 100 fields and
+nested depth 1-3. SQL and parameter snapshots across all adapters were the
+primary oracle.
 
 ### Unit 6.4 — Tighten the shared INSERT assembler
 
 Owner: `src/adapters/shared/standard-sql.ts::createInsertStatement`.
 
-The shared assembler currently maps columns, maps rows through another SQL
-wrapper, and creates a fresh empty `Sql` when no prefix exists. This cost
-multiplies by inserted row width and createMany row count.
+**Measured disposition: rejected.** On the declared
+`bulk-create-returning-100` prepare-allocation target, pre-sized column and row
+arrays increased allocation by 716 bytes per operation (0.24%) inside noise.
+CPU and full-operation companions also remained within noise, while the
+straight-line replacement was longer. It was removed; the upstream create
+operation remains the only empty-input guard.
 
-Change:
+The shared assembler currently maps columns, maps rows through another SQL
+wrapper, and creates a fresh empty `Sql` when no prefix exists. The rejected
+candidate targeted that row-width and createMany multiplier.
+
+The rejected prototype attempted to:
 
 1. Pre-size and fill the quoted-column array with an indexed loop.
 2. Pre-size and fill the row-fragment array with an indexed loop.
 3. Reuse `sql.empty` for the absent-prefix case, or branch the template if that
    produces fewer objects without changing grammar.
 4. Keep column order, row order, placeholder order, prefix spacing, and the
-   current empty-input refusal behavior exact.
+   current grammar exact. Empty-input refusal is already owned by the public
+   create operation; do not add a duplicate adapter guard.
 
-Measure build-only create with 1 and 20 columns and createMany with 1, 20, and
-100 rows. This remains the shared INSERT owner; do not create a second fast
-insert builder.
+The comparison measured build-only create with 1 and 20 columns and createMany
+with 1, 20, and 100 rows. The shared assembler remains the INSERT owner; do not
+create a second fast insert builder.
 
 ### Unit 6.5 — Remove the public-dispatch envelope allocation
 
@@ -1208,24 +1624,46 @@ Owners:
 - `src/validation/primitives/json.ts::isJsonValue`;
 - `src/validation/primitives/operand.ts::findOpaqueOperand`.
 
-Implement two independent representation-preserving edits.
+Treat the two representation-preserving candidates independently. The optional
+arm is rejected; the other arms remain deferred as stated below.
 
 #### 6.6a — Canonical null and undefined success results
 
-Reuse the existing frozen `OK_NULL` and `OK_UNDEFINED` objects wherever the
-standalone optional/nullable wrappers return those exact values. Do not share a
-mutable or value-bearing success object for arbitrary strings, numbers, dates,
-or records.
+**Measured disposition for the optional wrapper: rejected.** The declared
+`scalar-find-many-20` prepare-allocation target improved by 193 bytes per
+operation (0.91%, just beyond 2×MAD), but prepare CPU regressed 2.49% and the
+full-operation wall median regressed 0.74%, both beyond 2×MAD. The candidate
+was removed. Nullable remains deferred for lack of a reaching workload.
 
-Measure empty/simple/nested `where` validation because missing logical wrappers
-can invoke several optional validators per query. Include direct nullable and
-optional primitive controls.
+The rejected optional prototype reused the existing frozen `OK_UNDEFINED`
+object for the standalone wrapper's exact success value. A future nullable
+candidate may test `OK_NULL` only with its own reaching workload. Neither arm
+may share a mutable or value-bearing success object for arbitrary strings,
+numbers, dates, or records.
+
+The operation catalog reached the standalone optional wrapper but not the
+standalone nullable wrapper: model-nullable scalars already use the landed
+canonical result in `buildValidator`. Do not reapply the rejected `optional.ts`
+change. Keep the nullable spelling deferred until a direct workload can prove
+it; similarity is not evidence.
+
+The rejected comparison measured empty/simple/nested `where` validation because
+missing logical wrappers can invoke several optional validators per query. A
+future nullable candidate requires a direct nullable primitive control rather
+than borrowing the optional workload.
 
 #### 6.6b — Lazy cycle-state allocation
 
 `isJsonValue` currently allocates a `WeakSet` before it knows whether the value
 is composite. `findOpaqueOperand` allocates a `WeakSet` and worklist even for a
 primitive root.
+
+Defer both edits in the current tranche. The catalog has neither a JSON-value
+nor an opaque-operand workload. In addition, the existing JSON validator
+rejects a repeated shared object as if it were a cycle, while this plan's
+intended contract says shared references are accepted. Resolve and pin that
+semantic question before calling any JSON traversal rewrite
+representation-preserving.
 
 - return immediately for primitive roots before creating traversal state;
 - create the `WeakSet` only after the first array/object is observed;
@@ -1246,6 +1684,10 @@ profile showing validation dominates the complete operation.
 ### Unit 6.7 — Allocate only top-level SQL tokens
 
 Owner: `src/drivers/shared/sql-statement-tokens.ts`.
+
+Deferred at this baseline: only D1 and PlanetScale consume this tokenizer, and
+the SQLite3 benchmark substrate does not reach it. Add a provider-backed
+workload before implementing it.
 
 The consumers classify top-level statement structure, but the tokenizer
 currently allocates tokens at every parenthesis depth and filters them into a
@@ -1269,6 +1711,11 @@ optimization, not a SQL parser rewrite.
 ### Unit 6.8 — Bypass dependency leveling for one planning read
 
 Owner: `OperationExecutor.executePlanningLevels()`.
+
+Deferred at this baseline: the batch catalog distinguishes produced-value
+references, not the controlled single planning-read path this unit changes.
+Add zero/one/four planning-read workloads and provider call-count evidence
+before implementing it.
 
 After the method has proved every planning step is a read, handle
 `reads.length === 1` directly through the existing `runLinearStep()` path. The
@@ -1318,8 +1765,9 @@ mutable empty bag.
 In `client/unique-where-guard.ts`, replace the `Object.keys(where).some(...)`
 key array and callback with an own-enumerable early-exit loop. Preserve
 synchronous error timing, Proxy enumeration behavior, and the exact five
-operation families. Before changing the operation-family Set, verify that the
-distinct-truth operation contract is not about to delete it.
+operation families. The distinct-truth result-contract phase did not run, so
+the Set is a retained owner; change it only if this unit's own profile reaches
+it.
 
 #### 6.9d — Demand-drive `PendingOperation.options`
 
@@ -1352,39 +1800,44 @@ across five alternating baseline/candidate processes and exceeds twice the
 aggregate MAD. Otherwise remove it rather than accumulating clever code whose
 benefit exists only in a microbenchmark.
 
-## Explicitly deferred to distinct-truth compression
+## Distinct-truth and relation-resolution closure at this baseline
 
-The following may improve speed, but optimizing their current implementation
-would preserve an owner scheduled for deletion:
+The previous deferral is closed. Classify its subjects explicitly rather than
+waiting on completed or rejected phases:
 
-- `PlanningFragment.outputs` and `planningOutputs()`;
-- independent result-shape/select/include traversal;
-- repeated default-selection construction;
-- operation-name result carrier sets;
-- parsed-record parallel relation collections;
-- repeated `getRelationInfo`, `getPrimaryKeyFields`, `bindRelation`, and inverse
-  topology reconstruction;
-- fragment-validation `StepRecord`, output-Set, and temporary reference-array
-  allocations before one statement-reference owner exists;
-- operation-family routing Sets and repeated operation normalization before the
-  result/operation contract owns those facts;
-- direct reference scanning in SQL materializers before Phase 9.5.
+### Landed — optimize only the surviving consumer
 
-Add performance acceptance to the owning phases of
-`query-engine-distinct-truth-compression-plan.md` instead:
+- `PlanningFragment.outputs` / `planningOutputs()` are deleted; planning
+  publication is derived.
+- Parsed-record parallel relation collections are deleted; one ordered
+  `ParsedRelationMutation[]` owns the payload's relation work.
+- Statement-reference discovery has one owner in `OperationFragment.ts`;
+  `statementHasReferences()` makes Unit 2.8 actionable now.
+- Repeated `getRelationInfo`, raw target resolution, consumer inverse scans, and
+  query-time topology reconstruction are replaced by the schema-wide
+  `ResolvedRelationIndex` and contextual `ResolvedSlot` views.
 
-- Phase 1: immutable model key catalog;
-- Phases 2/4/7: inverse and relation topology;
-- Phase 6: parsed mutation dispatch;
-- Phase 9.1: derived planning outputs;
-- Phase 9.5: one statement-reference fact;
-- Phase 10: compiled selection;
-- Phase 11: result transport contract.
+Do not optimize or recreate any deleted spelling. In particular, no model-owned
+variant storage map, relation-info facade, inverse cache, parallel fixed/variant
+collection, or per-operation topology scan may return under a performance
+name.
 
-Provider-certified per-scalar identity parsing should be investigated with the
-compiled-selection phase. It can be a large relation-read win, but only a
-compiled field decoder knows whether the complete adapter-plus-driver chain is
-identity for the selected scalar.
+### Retained after measured rejection
+
+- Independent result-shape/select/include traversal and repeated default
+  selection remain because compiled selection was rejected at its Phase 10
+  gate.
+- Operation-name result carriers, routing Sets, and repeated operation
+  normalization remain because conditional Phase 11 did not run.
+- Fragment-validation temporary collections may be reprofiled now that their
+  canonical reference owner exists, but no second reference representation may
+  be introduced.
+
+These are local reprofile-only candidates, not architectural debts scheduled
+for automatic deletion. Count-result transport remains outside this micro plan.
+Provider-certified scalar and whole-row identity parsing already exists for the
+proven native-passthrough subset; broader identity requires a complete
+adapter-plus-driver capability proof and is otherwise rejected.
 
 ## Rejected optimizations
 
@@ -1407,6 +1860,8 @@ Do not implement these as part of this plan:
   `{ value }` result objects;
 - a shared mutable empty args/options object;
 - a global identifier or SQL-fragment cache;
+- a model-owned relation order, variant-storage map, inverse cache, relation-info
+  facade, or any topology fact parallel to `ResolvedRelationIndex`;
 - a universal no-spread, no-map, or no-closure rewrite rule;
 - a generic allocation helper, pooling framework, object arena, or mutable
   scratch context.
@@ -1444,7 +1899,7 @@ pnpm test
 Run `pnpm test:all` only after focused and layer validation is green. Run
 provider contracts when services are available and report exact skips.
 
-Use the repository-pinned Ultracite version only on files owned by the current
+Use the repository-pinned Biome version only on files owned by the current
 unit. Do not run a global `fix` command in a dirty worktree. The old commands
 `pnpm test:gates` and `pnpm dlx ultracite ...` are not valid instructions for
 this repository state.
@@ -1486,17 +1941,17 @@ The ownership-copy audit reports the cumulative contribution across all six
 cost classes. It prevents individually small array/object copies from escaping
 attention merely because each one falls below the standalone noise floor.
 
-The largest likely gains are no longer presented as guaranteed numbers. They
-are the units with the broadest proven reach:
+The broadest-reach units are classified rather than forecast:
 
-- conditional pre-provider diagnostics;
-- trusted context reuse plus lazy correlation;
-- allocation-light identifier and scalar-filter construction;
-- preallocated JSON-object and INSERT assembly;
-- dormant CreateOperation state;
-- duplicate normalized-result validation, if the driver boundary proof holds;
-- shared-batch sidecar/result compression;
-- an uncontended serialized-driver queue path, if concurrency parity holds.
+- direct identifier construction in Unit 6.1 and shared-batch result reshaping
+  in Unit 5.2 are retained;
+- conditional pre-provider diagnostics, trusted context reuse plus lazy
+  correlation, and atomic-batch sidecars remain deferred Phase 4 prototypes;
+- dormant `CreateOperation` state in Unit 2.1, scalar-filter construction in
+  Unit 6.2, and the serialized-driver queue path in Unit 5.3 remain deferred;
+- duplicate normalized-result rescans in Unit 5.1, adapter JSON argument
+  interleaving in Unit 6.3, and shared INSERT pre-sizing in Unit 6.4 were
+  measured and rejected.
 
 The best outcome is not merely fewer allocated bytes. It is less work because
 the engine represents each necessary fact once, computes it only when a

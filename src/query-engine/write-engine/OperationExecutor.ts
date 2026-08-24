@@ -2410,6 +2410,8 @@ function failureError(failure: Failure, context: QueryExecutionContext): Error {
 }
 
 function materializeLinearSql(statement: Sql, values: RuntimeValues): Sql {
+  if (!statementHasReferences(statement)) return statement;
+
   return new Sql(
     statement.strings,
     statement.values.map((value) => {
@@ -2595,6 +2597,8 @@ function materializeExternalConsumedSource(
 }
 
 function materializeBatchSql(statement: Sql, values: RuntimeValues): Sql {
+  if (!statementHasReferences(statement)) return statement;
+
   return new Sql(
     statement.strings,
     statement.values.map((value) =>

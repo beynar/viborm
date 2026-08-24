@@ -143,6 +143,29 @@ describe.each(dialectCases)("$name cursor SQL", (dialectCase) => {
     expect(countTableReferences(query.statement, "cursor_sql_users")).toBe(2);
   });
 
+  test("preserves frozen multi-entry order while appending the identity", () => {
+    const orderBy = Object.freeze([
+      Object.freeze({
+        age: Object.freeze({ sort: "desc", nulls: "first" }),
+      }),
+      Object.freeze({ alternate: "asc" }),
+    ]);
+    const query = buildUserQuery(dialectCase, { orderBy, take: 2 });
+    const orderClause = getOrderClause(query.statement);
+    const ageIndex = orderClause.indexOf(quoted(dialectCase, "age"));
+    const alternateIndex = orderClause.indexOf(
+      quoted(dialectCase, "alternate")
+    );
+    const idIndex = orderClause.indexOf(quoted(dialectCase, "id"));
+
+    expect(orderClause).toContain(
+      expectedOrder(dialectCase, "age", "desc", "first")
+    );
+    expect(ageIndex).toBeGreaterThanOrEqual(0);
+    expect(alternateIndex).toBeGreaterThan(ageIndex);
+    expect(idIndex).toBeGreaterThan(alternateIndex);
+  });
+
   test("bare directions resolve portable null placement explicitly", () => {
     const ascending = buildUserQuery(dialectCase, {
       orderBy: { age: "asc" },

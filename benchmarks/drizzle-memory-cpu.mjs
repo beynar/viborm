@@ -6,6 +6,8 @@
  *
  * Per workload: allocated bytes/op (V8 HeapProfiler sampling), CPU µs/op
  * (process.cpuUsage), wall µs/op and ops/sec.
+ * This legacy same-process comparison is exploratory only. It is not valid
+ * evidence for a performance keep decision.
  *
  * Run:
  *   pnpm package:build
@@ -27,17 +29,15 @@ const DDL_USERS =
 const DDL_POSTS =
   'CREATE TABLE "posts" ("id" text primary key, "title" text not null, "content" text, "published" integer not null, "views" integer not null, "authorId" text not null)';
 
-const seed = (run) => {
+const seed = async (run) => {
   for (let i = 0; i < 100; i++) {
-    run('INSERT INTO "users" ("id","name","email","age") VALUES (?,?,?,?)', [
-      `u${i}`,
-      `User ${i}`,
-      `u${i}@x.com`,
-      20 + (i % 50),
-    ]);
+    await run(
+      'INSERT INTO "users" ("id","name","email","age") VALUES (?,?,?,?)',
+      [`u${i}`, `User ${i}`, `u${i}@x.com`, 20 + (i % 50)]
+    );
   }
   for (let i = 0; i < 1000; i++) {
-    run(
+    await run(
       'INSERT INTO "posts" ("id","title","content","published","views","authorId") VALUES (?,?,?,?,?,?)',
       [`p${i}`, `Post ${i}`, `content ${i}`, i % 2, i, `u${i % 100}`]
     );
@@ -48,7 +48,7 @@ const seed = (run) => {
 const rawDb = new Database(":memory:");
 rawDb.exec(DDL_USERS);
 rawDb.exec(DDL_POSTS);
-seed((sql, params) => rawDb.prepare(sql).run(...params));
+await seed((sql, params) => rawDb.prepare(sql).run(...params));
 
 // ---------- viborm ----------
 const user = s
@@ -77,7 +77,7 @@ const post = s
 const vibormDriver = new SQLite3Driver({ dataDir: ":memory:" });
 const viborm = createClient({ schema: { user, post }, driver: vibormDriver });
 await push(viborm, { force: true });
-seed((sql, params) => vibormDriver._executeRaw(sql, params));
+await seed((sql, params) => vibormDriver._executeRaw(sql, params));
 
 // ---------- drizzle ----------
 const dUsers = sqliteTable("users", {
@@ -101,7 +101,7 @@ const dPostsRel = relations(dPosts, ({ one }) => ({
 const drizzleSqlite = new Database(":memory:");
 drizzleSqlite.exec(DDL_USERS);
 drizzleSqlite.exec(DDL_POSTS);
-seed((sql, params) => drizzleSqlite.prepare(sql).run(...params));
+await seed((sql, params) => drizzleSqlite.prepare(sql).run(...params));
 const ddb = drizzle(drizzleSqlite, {
   schema: {
     users: dUsers,
@@ -117,18 +117,82 @@ let rawId = 0;
 let drizzleId = 0;
 let vibormId = 0;
 
+const findUniquePrepared = viborm.user
+  .findUnique({ where: { id: "u42" } })
+  .prepare();
+const findManyPrepared = viborm.post
+  .findMany({
+    where: { published: true },
+    select: { id: true, title: true, views: true },
+    orderBy: { views: "desc" },
+    take: 20,
+  })
+  .prepare();
+const relationArgs = {
+  select: {
+    id: true,
+    title: true,
+    author: { select: { id: true, name: true } },
+  },
+  take: 20,
+};
+const relationPrepared = viborm.post.findMany(relationArgs).prepare();
+const findMany1000Prepared = viborm.post.findMany({ take: 1000 }).prepare();
+const createOperation = viborm.user.create({
+  data: { id: "__raw_id__", name: "B", email: "b@x.com", age: 30 },
+});
+const createStatement = createOperation.buildStatement();
+const createPrepared =
+  createOperation.prepare() ??
+  (createStatement ? vibormDriver._prepare(createStatement) : undefined);
+for (const [name, prepared] of Object.entries({
+  findUniquePrepared,
+  findManyPrepared,
+  relationPrepared,
+  findMany1000Prepared,
+  createPrepared,
+})) {
+  if (!prepared)
+    throw new Error(`${name} did not produce a prepared statement`);
+}
+const rawCreateIdIndex = createPrepared.params.indexOf("__raw_id__");
+if (rawCreateIdIndex < 0) {
+  throw new Error(
+    "The prepared create statement did not expose its ID parameter"
+  );
+}
+const rawCreateParams = [...createPrepared.params];
+
+function checksumRawRelation(rows) {
+  const first = rows[0];
+  if (!first) return 0;
+  for (const value of Object.values(first)) {
+    if (typeof value === "string" && value.includes("User ")) {
+      const nestedScalarOffset = value.indexOf("User ");
+      return value.charCodeAt(nestedScalarOffset + 5);
+    }
+  }
+  throw new Error(
+    "The exact relation SQL did not return a nested scalar carrier"
+  );
+}
+
 const shapes = [
   {
     name: "findUnique by id",
     iters: 4000,
     raw: () => {
       sink += rawDb
-        .prepare('SELECT * FROM "users" WHERE "id" = ? LIMIT 1')
-        .get("u42").age;
+        .prepare(findUniquePrepared.sql)
+        .get(...findUniquePrepared.params).age;
     },
     drizzle: () => {
-      sink += ddb.select().from(dUsers).where(eq(dUsers.id, "u42")).limit(1).all()
-        .length;
+      sink += ddb
+        .select()
+        .from(dUsers)
+        .where(eq(dUsers.id, "u42"))
+        .limit(1)
+        .all().length;
     },
     viborm: async () => {
       sink += (await viborm.user.findUnique({ where: { id: "u42" } })).age;
@@ -138,73 +202,59 @@ const shapes = [
     name: "findMany 20, filter + order",
     iters: 2000,
     raw: () => {
-      sink += rawDb
-        .prepare(
-          'SELECT "id","title","views" FROM "posts" WHERE "published" = 1 ORDER BY "views" DESC LIMIT 20'
-        )
-        .all().length;
+      const rows = rawDb
+        .prepare(findManyPrepared.sql)
+        .all(...findManyPrepared.params);
+      sink += rows.length + rows[0].views;
     },
     drizzle: () => {
-      sink += ddb
+      const rows = ddb
         .select({ id: dPosts.id, title: dPosts.title, views: dPosts.views })
         .from(dPosts)
         .where(eq(dPosts.published, 1))
         .orderBy(desc(dPosts.views))
         .limit(20)
-        .all().length;
+        .all();
+      sink += rows.length + rows[0].views;
     },
     viborm: async () => {
-      sink += (
-        await viborm.post.findMany({
-          where: { published: true },
-          select: { id: true, title: true, views: true },
-          orderBy: { views: "desc" },
-          take: 20,
-        })
-      ).length;
+      const rows = await viborm.post.findMany({
+        where: { published: true },
+        select: { id: true, title: true, views: true },
+        orderBy: { views: "desc" },
+        take: 20,
+      });
+      sink += rows.length + rows[0].views;
     },
   },
   {
     name: "findMany 20 with nested relation",
     iters: 1000,
     raw: () => {
-      sink += rawDb
-        .prepare(
-          'SELECT p."id", p."title", u."id" as aid, u."name" as aname FROM "posts" p JOIN "users" u ON u."id" = p."authorId" LIMIT 20'
-        )
-        .all().length;
+      const rows = rawDb
+        .prepare(relationPrepared.sql)
+        .all(...relationPrepared.params);
+      sink += rows.length + checksumRawRelation(rows);
     },
     drizzle: async () => {
-      sink += (
-        await ddb.query.posts.findMany({
-          columns: { id: true, title: true },
-          with: { author: { columns: { id: true, name: true } } },
-          limit: 20,
-        })
-      ).length;
+      const rows = await ddb.query.posts.findMany({
+        columns: { id: true, title: true },
+        with: { author: { columns: { id: true, name: true } } },
+        limit: 20,
+      });
+      sink += rows.length + (rows[0].author?.name?.charCodeAt(5) ?? 0);
     },
     viborm: async () => {
-      sink += (
-        await viborm.post.findMany({
-          select: {
-            id: true,
-            title: true,
-            author: { select: { id: true, name: true } },
-          },
-          take: 20,
-        })
-      ).length;
+      const rows = await viborm.post.findMany(relationArgs);
+      sink += rows.length + (rows[0].author?.name?.charCodeAt(5) ?? 0);
     },
   },
   {
     name: "insert 1 row",
     iters: 2000,
     raw: () => {
-      sink += rawDb
-        .prepare(
-          'INSERT INTO "users" ("id","name","email","age") VALUES (?,?,?,?) RETURNING *'
-        )
-        .get(`r${rawId++}`, "B", "b@x.com", 30).age;
+      rawCreateParams[rawCreateIdIndex] = `r${rawId++}`;
+      sink += rawDb.prepare(createPrepared.sql).get(...rawCreateParams).age;
     },
     drizzle: () => {
       sink += ddb
@@ -225,13 +275,18 @@ const shapes = [
     name: "findMany 1000 rows",
     iters: 200,
     raw: () => {
-      sink += rawDb.prepare('SELECT * FROM "posts" LIMIT 1000').all().length;
+      const rows = rawDb
+        .prepare(findMany1000Prepared.sql)
+        .all(...findMany1000Prepared.params);
+      sink += rows.length + rows[0].views;
     },
     drizzle: () => {
-      sink += ddb.select().from(dPosts).limit(1000).all().length;
+      const rows = ddb.select().from(dPosts).limit(1000).all();
+      sink += rows.length + rows[0].views;
     },
     viborm: async () => {
-      sink += (await viborm.post.findMany({ take: 1000 })).length;
+      const rows = await viborm.post.findMany({ take: 1000 });
+      sink += rows.length + rows[0].views;
     },
   },
 ];
@@ -328,6 +383,18 @@ const ratioRows = shapes.map((shape) => {
 });
 console.table(ratioRows);
 
-console.log(JSON.stringify({ results, sink }, null, 2));
+console.log(
+  JSON.stringify(
+    {
+      measurementProtocolValid: false,
+      invalidReason:
+        "Libraries and modes share one process instead of fresh isolated workers.",
+      results,
+      sink,
+    },
+    null,
+    2
+  )
+);
 
 await vibormDriver.disconnect();

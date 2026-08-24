@@ -27,10 +27,10 @@ import ts from "typescript";
  *
  * Both enumerate the estate through `git ls-files` rather than a directory
  * walk, so no subtree can be forgotten. The enumeration deliberately adds
- * `--others --exclude-standard` to the tracked set: a file that is already in
- * the worktree but not yet in the index is part of the estate a commit is about
- * to publish, and including it keeps one manifest valid on both sides of that
- * commit.
+ * `--others --exclude-standard` to the tracked set and subtracts `--deleted`:
+ * a file that is already in the worktree but not yet in the index is part of
+ * the estate a commit is about to publish, while a tracked path deleted from
+ * the worktree is not available to inspect and is leaving that estate.
  *
  * Package A froze each original detector's exact baseline manifest. Package F
  * retired those manifests: every detector now carries its final zero assertion
@@ -208,9 +208,10 @@ function censusRegion(file: string): CensusRegion {
 }
 
 /**
- * Every file the estate is about to publish: tracked files plus worktree files
- * git does not ignore. `git ls-files` is the enumerator so no directory can be
- * missed and no gate has to keep its own directory list.
+ * Every existing file the estate is about to publish: tracked files plus
+ * worktree files git does not ignore, minus tracked working-tree deletions.
+ * `git ls-files` is the enumerator so no directory can be missed and no gate
+ * has to keep its own directory list.
  */
 function censusFiles(repositoryRoot: string): string[] {
   const listed = execFileSync(
@@ -218,8 +219,16 @@ function censusFiles(repositoryRoot: string): string[] {
     ["ls-files", "-z", "--cached", "--others", "--exclude-standard"],
     { cwd: repositoryRoot, encoding: "utf8", maxBuffer: 16 * 1024 * 1024 }
   );
+  const deleted = execFileSync("git", ["ls-files", "-z", "--deleted"], {
+    cwd: repositoryRoot,
+    encoding: "utf8",
+    maxBuffer: 16 * 1024 * 1024,
+  });
+  const deletedFiles = new Set(
+    deleted.split("\0").filter((file) => file.length > 0)
+  );
   const files = new Set(listed.split("\0").filter((file) => file.length > 0));
-  return [...files].sort();
+  return [...files].filter((file) => !deletedFiles.has(file)).sort();
 }
 
 function scriptKindOf(file: string): ts.ScriptKind {

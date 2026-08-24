@@ -1,0 +1,640 @@
+/**
+ * Compare one explicit clean baseline worktree with one explicit clean
+ * candidate worktree. Every measurement is a fresh child process and all
+ * children run sequentially under the repository test-run lock.
+ */
+import { execFileSync, spawn } from "node:child_process";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, isAbsolute, join, resolve } from "node:path";
+import process from "node:process";
+import { fileURLToPath } from "node:url";
+import { acquireTestRunLock } from "../scripts/test-run-lock.mjs";
+import {
+  gitCommonDirectory,
+  protocolIdentity,
+} from "./operation-pipeline-protocol.mjs";
+import {
+  aggregateTarget,
+  evaluateKeepGate,
+  measuredFields,
+  verifyCrossStageSemantics,
+} from "./operation-pipeline-report.mjs";
+
+const FULL_COMMIT_PATTERN = /^[0-9a-f]{40}$/;
+const VALUE_ARGUMENTS = new Set([
+  "baseline-dir",
+  "baseline-commit",
+  "candidate-dir",
+  "candidate-commit",
+  "workloads",
+  "stages",
+  "modes",
+  "output",
+  "iterations",
+  "warmup",
+]);
+const COORDINATOR_REPOSITORY = resolve(
+  dirname(fileURLToPath(import.meta.url)),
+  ".."
+);
+process.chdir(COORDINATOR_REPOSITORY);
+const activeChildren = new Set();
+
+function signalProcessGroup(child, signal) {
+  if (child.exitCode !== null || child.pid === undefined) return;
+  if (process.platform === "win32") child.kill(signal);
+  else process.kill(-child.pid, signal);
+}
+
+for (const signal of ["SIGINT", "SIGTERM"]) {
+  process.once(signal, () => {
+    for (const child of activeChildren) signalProcessGroup(child, "SIGTERM");
+    setTimeout(() => {
+      for (const child of activeChildren) signalProcessGroup(child, "SIGKILL");
+    }, 1000);
+  });
+}
+
+function usage(message) {
+  if (message) process.stderr.write(`${message}\n\n`);
+  process.stderr.write(`Usage:
+  node benchmarks/operation-pipeline-compare.mjs \\
+    --baseline-dir /absolute/clean/worktree \\
+    --baseline-commit <full-sha> \\
+    --candidate-dir /absolute/clean/worktree \\
+    --candidate-commit <full-sha> \\
+    [--workloads name,name] [--stages name,name] \\
+    [--modes alloc,cpu,retained] [--output /absolute/report.json] \\
+    [--target workload/stage/mode/metric]...
+
+Normal comparisons always use five alternating replicates. Use --smoke only
+for a short infrastructure check; smoke output is explicitly invalid for a
+performance keep decision.
+`);
+  process.exit(message ? 2 : 0);
+}
+
+function parseArguments(argv) {
+  const values = {};
+  let index = 0;
+  while (index < argv.length) {
+    const argument = argv[index];
+    if (argument === "--help") usage();
+    if (argument === "--smoke") {
+      values.smoke = true;
+      index += 1;
+      continue;
+    }
+    if (argument === "--target") {
+      const value = argv[++index];
+      if (!value || value.startsWith("--")) usage("--target needs a value");
+      values.targets ??= [];
+      values.targets.push(value);
+      index += 1;
+      continue;
+    }
+    if (!argument.startsWith("--")) usage(`Unexpected argument: ${argument}`);
+    const key = argument.slice(2);
+    if (!VALUE_ARGUMENTS.has(key)) usage(`Unknown argument: ${argument}`);
+    if (Object.hasOwn(values, key)) usage(`Duplicate argument: ${argument}`);
+    const value = argv[++index];
+    if (!value || value.startsWith("--")) usage(`${argument} needs a value`);
+    values[key] = value;
+    index += 1;
+  }
+  return values;
+}
+
+function git(directory, arguments_) {
+  return execFileSync("git", arguments_, {
+    cwd: directory,
+    encoding: "utf8",
+  }).trim();
+}
+
+function validateCheckout(label, directoryArgument, expectedCommit) {
+  if (!(directoryArgument && expectedCommit)) {
+    usage(`${label} requires both an explicit directory and full commit SHA`);
+  }
+  if (!isAbsolute(directoryArgument)) {
+    usage(`${label} directory must be absolute: ${directoryArgument}`);
+  }
+  const directory = resolve(directoryArgument);
+  const commit = git(directory, ["rev-parse", "HEAD"]);
+  if (!FULL_COMMIT_PATTERN.test(expectedCommit)) {
+    usage(`${label} commit must be a full 40-character SHA`);
+  }
+  if (commit !== expectedCommit) {
+    throw new Error(`${label} HEAD is ${commit}, expected ${expectedCommit}`);
+  }
+  const dirty = git(directory, ["status", "--porcelain"]);
+  if (dirty) throw new Error(`${label} worktree is dirty:\n${dirty}`);
+  const worker = join(directory, "benchmarks/operation-pipeline-worker.mjs");
+  if (!existsSync(worker))
+    throw new Error(`${label} has no Phase 0 benchmark worker`);
+  return { label, directory, commit, worker };
+}
+
+function buildCheckout(checkout) {
+  rmSync(join(checkout.directory, "dist"), { recursive: true, force: true });
+  try {
+    execFileSync("pnpm", ["package:build"], {
+      cwd: checkout.directory,
+      encoding: "utf8",
+      timeout: 300_000,
+      env: {
+        ...process.env,
+        NODE_OPTIONS: "--max-old-space-size=2048",
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+  } catch (error) {
+    const stderr =
+      error instanceof Error && "stderr" in error ? error.stderr : "";
+    throw new Error(`${checkout.label} package build failed:\n${stderr}`);
+  }
+  const commit = git(checkout.directory, ["rev-parse", "HEAD"]);
+  const dirty = git(checkout.directory, ["status", "--porcelain"]);
+  if (commit !== checkout.commit || dirty) {
+    throw new Error(
+      `${checkout.label} changed during package build${dirty ? `:\n${dirty}` : ""}`
+    );
+  }
+  if (!existsSync(join(checkout.directory, "dist/index.mjs"))) {
+    throw new Error(
+      `${checkout.label} package build produced no dist/index.mjs`
+    );
+  }
+}
+
+function splitFilter(value) {
+  if (!value) return undefined;
+  const selected = value
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  if (selected.length === 0) usage("A filter cannot be empty");
+  return new Set(selected);
+}
+
+function optionalPositiveInteger(name, value) {
+  if (value === undefined) return undefined;
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 1) {
+    usage(`--${name} must be a positive safe integer`);
+  }
+  return parsed;
+}
+
+function parseDeclaredTargets(values, workloads) {
+  const targets = values.map((value) => {
+    const [workload, stage, mode, metric, ...extra] = value.split("/");
+    if (!(workload && stage && mode && metric) || extra.length > 0) {
+      usage(`Invalid --target ${value}; expected workload/stage/mode/metric`);
+    }
+    const definition = workloads[workload];
+    if (!definition) throw new Error(`Unknown target workload: ${workload}`);
+    if (!definition.stages.includes(stage)) {
+      throw new Error(`Target stage ${stage} is not defined for ${workload}`);
+    }
+    if (!definition.stageKinds[stage]) {
+      throw new Error(`Target stage ${stage} has no execution kind`);
+    }
+    const fields = measuredFields(mode);
+    if (!fields.includes(metric)) {
+      throw new Error(
+        `Target metric ${metric} is not measured in ${mode} mode`
+      );
+    }
+    return { workload, stage, mode, metric };
+  });
+  const keys = targets.map((target) => JSON.stringify(target));
+  if (new Set(keys).size !== keys.length) {
+    throw new Error("Duplicate --target metric contract");
+  }
+  return targets;
+}
+
+function runChild(checkout, arguments_, environment, timeoutMilliseconds) {
+  return new Promise((resolvePromise, reject) => {
+    const child = spawn(process.execPath, arguments_, {
+      cwd: checkout.directory,
+      detached: process.platform !== "win32",
+      env: {
+        ...process.env,
+        ...environment,
+        NODE_OPTIONS: `${(process.env.NODE_OPTIONS ?? "")
+          .replace(/--max-old-space-size(?:=|\s+)\d+/g, "")
+          .trim()} --max-old-space-size=2048`.trim(),
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    activeChildren.add(child);
+    let stdout = "";
+    let stderr = "";
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
+    let forceKill;
+    const timeout = setTimeout(() => {
+      signalProcessGroup(child, "SIGTERM");
+      forceKill = setTimeout(() => signalProcessGroup(child, "SIGKILL"), 1000);
+      reject(
+        new Error(`${checkout.label} worker exceeded its safe time limit`)
+      );
+    }, timeoutMilliseconds);
+    child.once("error", (error) => {
+      clearTimeout(timeout);
+      clearTimeout(forceKill);
+      activeChildren.delete(child);
+      reject(error);
+    });
+    child.once("exit", (code, signal) => {
+      clearTimeout(timeout);
+      clearTimeout(forceKill);
+      activeChildren.delete(child);
+      if (code !== 0) {
+        reject(
+          new Error(
+            `${checkout.label} worker failed (${code ?? signal}):\n${stderr || stdout}`
+          )
+        );
+        return;
+      }
+      resolvePromise(stdout.trim());
+    });
+  });
+}
+
+async function describeCheckout(checkout) {
+  const output = await runChild(
+    checkout,
+    [checkout.worker, "--describe"],
+    {},
+    30_000
+  );
+  return JSON.parse(output);
+}
+
+function comparableEnvironment(metadata) {
+  return {
+    clean: metadata.clean,
+    lockSha256: metadata.lockSha256,
+    runtime: metadata.runtime,
+  };
+}
+
+function verifyTargetEvidence(
+  target,
+  targetSamples,
+  replicates,
+  definition,
+  samplingInterval,
+  expectedIterations,
+  expectedWarmup,
+  expectedProtocolHash
+) {
+  const first = targetSamples[0]?.output;
+  if (!first) throw new Error(`No evidence exists for ${target.workload}`);
+  const expectedEnvironment = JSON.stringify(
+    comparableEnvironment(first.metadata)
+  );
+  const expectedWitness = JSON.stringify(first.witness);
+  const expectedProtocol = {
+    workload: target.workload,
+    stage: target.stage,
+    mode: target.mode,
+    stageKind: definition.stageKinds[target.stage],
+    rowsPerOperation: definition.rowsPerOperation,
+    iterations: expectedIterations,
+    warmupIterations: expectedWarmup,
+    allocationSamplingInterval: samplingInterval,
+  };
+  for (let replicate = 0; replicate < replicates; replicate++) {
+    const pair = targetSamples.filter(
+      (sample) => sample.replicate === replicate
+    );
+    if (pair.length !== 2) {
+      throw new Error(
+        `${target.workload}/${target.stage}/${target.mode} replicate ${replicate + 1} is incomplete`
+      );
+    }
+  }
+  for (const sample of targetSamples) {
+    const expectedCheckout =
+      sample.checkout === "baseline" ? baseline : candidate;
+    if (
+      sample.output.metadata.commit !== expectedCheckout.commit ||
+      sample.output.metadata.clean !== true
+    ) {
+      throw new Error(
+        `${target.workload}/${target.stage}/${target.mode} reported the wrong commit or a dirty checkout`
+      );
+    }
+    if (typeof sample.output.semanticDigest !== "string") {
+      throw new Error(
+        `${target.workload}/${target.stage}/${target.mode} omitted its semantic digest`
+      );
+    }
+    if (sample.output.protocol?.sha256 !== expectedProtocolHash) {
+      throw new Error(
+        `${target.workload}/${target.stage}/${target.mode} ran with a different comparison protocol`
+      );
+    }
+    for (const [field, expected] of Object.entries(expectedProtocol)) {
+      if (sample.output[field] !== expected) {
+        throw new Error(
+          `${target.workload}/${target.stage}/${target.mode} changed protocol field ${field}`
+        );
+      }
+    }
+    if (JSON.stringify(sample.output.witness) !== expectedWitness) {
+      throw new Error(
+        `${target.workload}/${target.stage}/${target.mode} changed SQL, parameters, or statement count`
+      );
+    }
+    if (
+      JSON.stringify(comparableEnvironment(sample.output.metadata)) !==
+      expectedEnvironment
+    ) {
+      throw new Error(
+        `${target.workload}/${target.stage}/${target.mode} ran in mismatched environments`
+      );
+    }
+  }
+}
+
+const arguments_ = parseArguments(process.argv.slice(2));
+const iterationOverride = optionalPositiveInteger(
+  "iterations",
+  arguments_.iterations
+);
+const warmupOverride = optionalPositiveInteger("warmup", arguments_.warmup);
+const baseline = validateCheckout(
+  "baseline",
+  arguments_["baseline-dir"],
+  arguments_["baseline-commit"]
+);
+const candidate = validateCheckout(
+  "candidate",
+  arguments_["candidate-dir"],
+  arguments_["candidate-commit"]
+);
+if (baseline.directory === candidate.directory) {
+  throw new Error("Baseline and candidate must be separate clean worktrees");
+}
+if (baseline.commit === candidate.commit) {
+  throw new Error("Baseline and candidate commits must differ");
+}
+const coordinatorCommonDirectory = gitCommonDirectory(COORDINATOR_REPOSITORY);
+const baselineCommonDirectory = gitCommonDirectory(baseline.directory);
+const candidateCommonDirectory = gitCommonDirectory(candidate.directory);
+if (
+  coordinatorCommonDirectory !== baselineCommonDirectory ||
+  coordinatorCommonDirectory !== candidateCommonDirectory
+) {
+  throw new Error(
+    "Coordinator, baseline, and candidate must be linked worktrees of the same Git common directory"
+  );
+}
+
+const releaseLock = acquireTestRunLock(
+  "operation-pipeline benchmark comparison"
+);
+try {
+  process.stderr.write("Building baseline checkout...\n");
+  buildCheckout(baseline);
+  process.stderr.write("Building candidate checkout...\n");
+  buildCheckout(candidate);
+  const baselineDescription = await describeCheckout(baseline);
+  const candidateDescription = await describeCheckout(candidate);
+  const coordinatorProtocol = protocolIdentity(COORDINATOR_REPOSITORY);
+  if (
+    baselineDescription.protocol.sha256 !==
+      candidateDescription.protocol.sha256 ||
+    baselineDescription.protocol.sha256 !== coordinatorProtocol.sha256
+  ) {
+    throw new Error(
+      `Coordinator, baseline, and candidate protocol hashes differ (${coordinatorProtocol.sha256}, ${baselineDescription.protocol.sha256}, ${candidateDescription.protocol.sha256})`
+    );
+  }
+  if (
+    JSON.stringify(baselineDescription) !== JSON.stringify(candidateDescription)
+  ) {
+    throw new Error("Baseline and candidate benchmark catalogs differ");
+  }
+  const baselineLock = readFileSync(join(baseline.directory, "pnpm-lock.yaml"));
+  const candidateLock = readFileSync(
+    join(candidate.directory, "pnpm-lock.yaml")
+  );
+  if (!baselineLock.equals(candidateLock)) {
+    throw new Error("Baseline and candidate pnpm lockfiles differ");
+  }
+
+  const workloadFilter = splitFilter(arguments_.workloads);
+  const stageFilter = splitFilter(arguments_.stages);
+  const modeFilter = splitFilter(arguments_.modes);
+  const modes = baselineDescription.modes.filter(
+    (mode) => !modeFilter || modeFilter.has(mode)
+  );
+  if (modeFilter && modes.length !== modeFilter.size) {
+    throw new Error("The mode filter contains an unknown mode");
+  }
+  if (stageFilter) {
+    const knownStages = new Set(
+      Object.values(baselineDescription.workloads).flatMap(
+        (definition) => definition.stages
+      )
+    );
+    const unknownStages = [...stageFilter].filter(
+      (selectedStage) => !knownStages.has(selectedStage)
+    );
+    if (unknownStages.length > 0) {
+      throw new Error(`Unknown stages: ${unknownStages.join(", ")}`);
+    }
+  }
+
+  const targets = [];
+  for (const [workload, definition] of Object.entries(
+    baselineDescription.workloads
+  )) {
+    if (workloadFilter && !workloadFilter.has(workload)) continue;
+    for (const stage of definition.stages) {
+      if (stageFilter && !stageFilter.has(stage)) continue;
+      for (const mode of modes) targets.push({ workload, stage, mode });
+    }
+  }
+  if (workloadFilter) {
+    const known = new Set(Object.keys(baselineDescription.workloads));
+    const unknown = [...workloadFilter].filter((name) => !known.has(name));
+    if (unknown.length > 0)
+      throw new Error(`Unknown workloads: ${unknown.join(", ")}`);
+    const unmatched = [...workloadFilter].filter(
+      (name) => !targets.some((target) => target.workload === name)
+    );
+    if (unmatched.length > 0) {
+      throw new Error(
+        `Selected stages do not apply to workloads: ${unmatched.join(", ")}`
+      );
+    }
+  }
+  if (targets.length === 0)
+    throw new Error("No benchmark targets matched the filters");
+  const declaredTargets = parseDeclaredTargets(
+    arguments_.targets ?? [],
+    baselineDescription.workloads
+  );
+  for (const declared of declaredTargets) {
+    if (
+      !targets.some(
+        (target) =>
+          target.workload === declared.workload &&
+          target.stage === declared.stage &&
+          target.mode === declared.mode
+      )
+    ) {
+      throw new Error(
+        `Declared target ${declared.workload}/${declared.stage}/${declared.mode}/${declared.metric} is excluded by the workload, stage, or mode filters`
+      );
+    }
+  }
+
+  const smoke = arguments_.smoke === true;
+  const replicates = smoke ? 1 : 5;
+  const samples = [];
+  for (const target of targets) {
+    for (let replicate = 0; replicate < replicates; replicate++) {
+      const order =
+        replicate % 2 === 0 ? [baseline, candidate] : [candidate, baseline];
+      for (const checkout of order) {
+        process.stderr.write(
+          `${target.workload}/${target.stage}/${target.mode} replicate ${
+            replicate + 1
+          }/${replicates}: ${checkout.label}\n`
+        );
+        const output = await runChild(
+          checkout,
+          ["--expose-gc", checkout.worker],
+          {
+            VIBORM_BENCH_WORKLOAD: target.workload,
+            VIBORM_BENCH_STAGE: target.stage,
+            VIBORM_BENCH_MODE: target.mode,
+            VIBORM_BENCH_EXPECTED_COMMIT: checkout.commit,
+            VIBORM_BENCH_SMOKE: smoke ? "1" : "0",
+            ...(arguments_.iterations
+              ? { VIBORM_BENCH_ITERATIONS: arguments_.iterations }
+              : {}),
+            ...(arguments_.warmup
+              ? { VIBORM_BENCH_WARMUP_ITERATIONS: arguments_.warmup }
+              : {}),
+          },
+          smoke ? 120_000 : 600_000
+        );
+        samples.push({
+          ...target,
+          replicate,
+          checkout: checkout.label,
+          output: JSON.parse(output),
+        });
+      }
+    }
+  }
+
+  const comparisons = targets.map((target) => {
+    const targetSamples = samples.filter(
+      (sample) =>
+        sample.workload === target.workload &&
+        sample.stage === target.stage &&
+        sample.mode === target.mode
+    );
+    const definition = baselineDescription.workloads[target.workload];
+    const scaleDivisor = Math.max(1, definition.rowsPerOperation / 20);
+    const defaultIterations = smoke
+      ? 2
+      : target.mode === "retained"
+        ? Math.max(20, Math.floor(500 / scaleDivisor))
+        : Math.max(50, Math.floor(5000 / scaleDivisor));
+    const expectedIterations = iterationOverride ?? defaultIterations;
+    const expectedWarmup =
+      warmupOverride ??
+      (smoke ? 1 : Math.max(10, Math.ceil(expectedIterations / 5)));
+    verifyTargetEvidence(
+      target,
+      targetSamples,
+      replicates,
+      definition,
+      baselineDescription.allocationSamplingInterval,
+      expectedIterations,
+      expectedWarmup,
+      baselineDescription.protocol.sha256
+    );
+    return aggregateTarget(target, targetSamples);
+  });
+  verifyCrossStageSemantics(samples);
+  const baselineEnvironment = comparableEnvironment(
+    samples.find((sample) => sample.checkout === "baseline").output.metadata
+  );
+  const candidateEnvironment = comparableEnvironment(
+    samples.find((sample) => sample.checkout === "candidate").output.metadata
+  );
+  const baselineBranch = samples.find(
+    (sample) => sample.checkout === "baseline"
+  ).output.metadata.branch;
+  const candidateBranch = samples.find(
+    (sample) => sample.checkout === "candidate"
+  ).output.metadata.branch;
+  const keepGate = evaluateKeepGate({
+    smoke,
+    hasOverrides:
+      iterationOverride !== undefined || warmupOverride !== undefined,
+    targets,
+    declaredTargets,
+    comparisons,
+    workloads: baselineDescription.workloads,
+  });
+  const report = {
+    measurementProtocolValid: !smoke,
+    keepGate,
+    generatedAt: new Date().toISOString(),
+    protocol: {
+      replicates,
+      alternatingOrder: true,
+      freshProcessPerMeasurement: true,
+      sequential: true,
+      allocationAndCpuSeparated: true,
+      allocationSamplingInterval:
+        baselineDescription.allocationSamplingInterval,
+      protocolIdentity: baselineDescription.protocol,
+      declaredTargets,
+    },
+    baseline: {
+      directory: baseline.directory,
+      commit: baseline.commit,
+      branch: baselineBranch,
+      environment: baselineEnvironment,
+    },
+    candidate: {
+      directory: candidate.directory,
+      commit: candidate.commit,
+      branch: candidateBranch,
+      environment: candidateEnvironment,
+    },
+    comparisons,
+  };
+  const serialized = `${JSON.stringify(report, null, 2)}\n`;
+  if (arguments_.output) {
+    if (!isAbsolute(arguments_.output)) {
+      throw new Error("--output must be an absolute path");
+    }
+    writeFileSync(arguments_.output, serialized);
+  } else {
+    process.stdout.write(serialized);
+  }
+} finally {
+  releaseLock();
+}

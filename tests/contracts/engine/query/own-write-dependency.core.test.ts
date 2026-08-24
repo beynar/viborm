@@ -90,7 +90,7 @@ function selfRelationMutation(input: Record<string, unknown>) {
 
 function summarizeSelfChildrenStep(
   input: Record<string, unknown>,
-  kind: "connect" | "createMany"
+  kind: "connect" | "create" | "createMany" | "update"
 ) {
   const plan = selfRelationMutation({ children: input });
   const parsed = plan.relations.find((entry) => entry.name === "children");
@@ -306,6 +306,37 @@ describe("root membership overlay ordering", () => {
 });
 
 describe("operation-visible membership summaries", () => {
+  test("a nested scalar-only create still publishes its insert membership", () => {
+    const summary = summarizeSelfChildrenStep({ create: { id: 2 } }, "create");
+
+    expect(() =>
+      summary.ledger.assertMembershipRead(
+        "outer-children",
+        "upsert",
+        summary.endpoints,
+        summary.membershipScope,
+        summary.membershipOrientation
+      )
+    ).toThrow("depends on an earlier 'create' membership write");
+  });
+
+  test("a nested scalar-only update still publishes its key transition", () => {
+    const summary = summarizeSelfChildrenStep(
+      { update: { where: { id: 2 }, data: { parentId: 3 } } },
+      "update"
+    );
+
+    expect(() =>
+      summary.ledger.assertMembershipRead(
+        "outer-children",
+        "upsert",
+        summary.endpoints,
+        summary.membershipScope,
+        summary.membershipOrientation
+      )
+    ).toThrow("depends on an earlier 'update' membership write");
+  });
+
   test.each([
     {
       kind: "createMany" as const,

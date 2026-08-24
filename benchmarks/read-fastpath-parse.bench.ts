@@ -12,7 +12,7 @@ import { ResultParser } from "@query-engine/result/ResultParser";
 import { s } from "@schema";
 import { hydrateSchemaNames } from "@schema/hydration";
 import { resolveSchemaOrThrow } from "@schema/validation/validator";
-import { bench, describe } from "vitest";
+import { afterAll, bench, describe } from "vitest";
 
 const post = s.model({
   id: s.string().id(),
@@ -29,20 +29,22 @@ hydrateSchemaNames(schema);
 // declares no relation, so resolving it is one empty map.
 const relations = resolveSchemaOrThrow(schema);
 
-function makeRows(): Record<string, unknown>[] {
+function makeRows(): readonly Readonly<Record<string, unknown>>[] {
   const rows: Record<string, unknown>[] = new Array(1000);
   for (let i = 0; i < 1000; i++) {
-    rows[i] = {
+    rows[i] = Object.freeze({
       id: `p${i}`,
       title: `Post ${i}`,
       content: `content ${i}`,
       published: i % 2 === 1,
       views: i,
       authorId: `u${i % 100}`,
-    };
+    });
   }
-  return rows;
+  return Object.freeze(rows);
 }
+
+const immutableRows = makeRows();
 
 // Fast path ON: Postgres declares nativeScalarPassthrough, no driver middleware.
 const fastAdapter = new PostgresAdapter();
@@ -51,20 +53,35 @@ const fullAdapter = new PostgresAdapter();
 (
   fullAdapter.result as { nativeScalarPassthrough?: boolean }
 ).nativeScalarPassthrough = false;
+let sink = 0;
 
 describe("read result parser: findMany 1000 rows (parse only)", () => {
   bench("fast path ON (identity + whole-row passthrough)", () => {
-    new ResultParser({ adapter: fastAdapter, relations }, post).parse(
+    const fastParser = new ResultParser(
+      { adapter: fastAdapter, relations },
+      post
+    );
+    const rows = fastParser.parse<readonly Record<string, unknown>[]>(
       "findMany",
-      makeRows(),
+      immutableRows,
       {}
     );
+    sink += rows.length + String(rows[0]?.id).charCodeAt(1);
   });
   bench("fast path OFF (full typed parse)", () => {
-    new ResultParser({ adapter: fullAdapter, relations }, post).parse(
+    const fullParser = new ResultParser(
+      { adapter: fullAdapter, relations },
+      post
+    );
+    const rows = fullParser.parse<readonly Record<string, unknown>[]>(
       "findMany",
-      makeRows(),
+      immutableRows,
       {}
     );
+    sink += rows.length + String(rows[0]?.id).charCodeAt(1);
   });
+});
+
+afterAll(() => {
+  if (sink < 0) throw new Error("Unreachable benchmark sink");
 });

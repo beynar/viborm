@@ -289,6 +289,7 @@ export function assertCreateOwnWriteSafety(
   scalarData: Record<string, unknown>,
   relations: readonly ParsedRelationMutation[]
 ): void {
+  if (relations.length === 0) return;
   assertNoRelationsOwnWriteDependencies(ctx, relations, {
     kind: "create",
     scalarData,
@@ -301,6 +302,7 @@ export function assertUpdateOwnWriteSafety(
   relations: readonly ParsedRelationMutation[],
   selector: Record<string, unknown> | undefined
 ): void {
+  if (relations.length === 0) return;
   assertNoRelationsOwnWriteDependencies(ctx, relations, {
     kind: "update",
     scalarData,

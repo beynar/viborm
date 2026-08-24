@@ -74,21 +74,47 @@ if (!Array.isArray(largeExpected) || largeExpected.length !== 1000) {
 
 let sink = 0;
 
+function consumeRawRelation(raw: { rows: Record<string, unknown>[] }): number {
+  const first = raw.rows[0];
+  if (!first) return 0;
+  for (const value of Object.values(first)) {
+    if (typeof value === "string" && value.includes("User ")) {
+      const nestedScalarOffset = value.indexOf("User ");
+      return raw.rows.length + value.charCodeAt(nestedScalarOffset + 5);
+    }
+  }
+  throw new Error(
+    "The exact relation SQL did not return a nested scalar carrier"
+  );
+}
+
+function consumeParsedRelation(
+  rows: Array<{ id: string; author: { name: string | null } | null }>
+): number {
+  const first = rows[0];
+  if (!first?.author?.name) {
+    throw new Error(
+      "The parsed relation result did not contain an author name"
+    );
+  }
+  return rows.length + first.id.charCodeAt(0) + first.author.name.charCodeAt(5);
+}
+
 describe("relation read: exact prepared SQL", () => {
   bench("raw driver execution", async () => {
     const raw = await driver._executeRaw(prepared.sql, prepared.params);
-    sink += raw.rows.length;
+    sink += consumeRawRelation(raw);
   });
 
   bench("raw execution + prepared result parser", async () => {
     const raw = await driver._executeRaw(prepared.sql, prepared.params);
     const rows = preparedOperation.parseResult(raw);
-    sink += rows.length;
+    sink += consumeParsedRelation(rows);
   });
 
   bench("full VibORM operation", async () => {
     const rows = await client.post.findMany(args);
-    sink += rows.length;
+    sink += consumeParsedRelation(rows);
   });
 });
 
@@ -96,19 +122,19 @@ describe("relation read: CPU stages", () => {
   bench("dispatch + validate + build", () => {
     const operation = client.post.findMany(args);
     const query = operation.prepare();
-    sink += query?.params.length ?? 0;
+    sink += (query?.sql.length ?? 0) + (query?.params.length ?? 0);
   });
 
   bench("prepared result parser only", () => {
     const rows = preparedOperation.parseResult(rawFixture);
-    sink += rows.length;
+    sink += consumeParsedRelation(rows);
   });
 });
 
 describe("relation read: parser scaling", () => {
   bench("prepared result parser, 1,000 rows", () => {
     const rows = largePreparedOperation.parseResult(largeRawFixture);
-    sink += rows.length;
+    sink += consumeParsedRelation(rows);
   });
 });
 

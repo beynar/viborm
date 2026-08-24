@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   closeSync,
@@ -11,8 +12,24 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import process from "node:process";
 
+function workspaceIdentity() {
+  try {
+    return execFileSync(
+      "git",
+      ["rev-parse", "--path-format=absolute", "--git-common-dir"],
+      {
+        cwd: process.cwd(),
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      }
+    ).trim();
+  } catch {
+    return process.cwd();
+  }
+}
+
 const workspaceKey = createHash("sha256")
-  .update(process.cwd())
+  .update(workspaceIdentity())
   .digest("hex")
   .slice(0, 16);
 const lockPath = join(tmpdir(), `viborm-test-${workspaceKey}.lock`);

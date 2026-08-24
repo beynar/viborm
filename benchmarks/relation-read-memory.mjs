@@ -48,14 +48,12 @@ const driver = new SQLite3Driver({ dataDir: ":memory:" });
 const client = createClient({ schema, driver });
 await push(client, { force: true });
 
-const ROWS_PER_OPERATION = Number(
-  process.env.VIBORM_RELATION_ROWS ?? 20
-);
+const ROWS_PER_OPERATION = Number(process.env.VIBORM_RELATION_ROWS ?? 20);
 if (!Number.isSafeInteger(ROWS_PER_OPERATION) || ROWS_PER_OPERATION < 1) {
   throw new Error("VIBORM_RELATION_ROWS must be a positive safe integer");
 }
 const USERS = 100;
-const POSTS = Math.max(1_000, ROWS_PER_OPERATION);
+const POSTS = Math.max(1000, ROWS_PER_OPERATION);
 for (let i = 0; i < USERS; i++) {
   await driver._executeRaw(
     'INSERT INTO "users" ("id", "name", "email", "age") VALUES (?, ?, ?, ?)',
@@ -78,9 +76,35 @@ const args = {
   take: ROWS_PER_OPERATION,
 };
 
-if (process.env.VIBORM_COLD_RETAINED_ONLY === "1") {
+function consumeRawRelation(raw) {
+  const first = raw.rows[0];
+  if (!first) return 0;
+  for (const value of Object.values(first)) {
+    if (typeof value === "string" && value.includes("User ")) {
+      const nestedScalarOffset = value.indexOf("User ");
+      return raw.rows.length + value.charCodeAt(nestedScalarOffset + 5);
+    }
+  }
+  throw new Error(
+    "The exact relation SQL did not return a nested scalar carrier"
+  );
+}
+
+function consumeParsedRelation(rows) {
+  const first = rows[0];
+  if (!first?.author?.name) {
+    throw new Error(
+      "The parsed relation result did not contain an author name"
+    );
+  }
+  return rows.length + first.id.charCodeAt(0) + first.author.name.charCodeAt(5);
+}
+
+if (process.env.VIBORM_FIRST_OPERATION_RETAINED_ONLY === "1") {
   const workload =
-    process.env.VIBORM_COLD_RETAINED_WORKLOAD === "raw" ? "raw" : "full";
+    process.env.VIBORM_FIRST_OPERATION_RETAINED_WORKLOAD === "raw"
+      ? "raw"
+      : "full";
   globalThis.gc();
   globalThis.gc();
   const before = process.memoryUsage().heapUsed;
@@ -90,15 +114,19 @@ if (process.env.VIBORM_COLD_RETAINED_ONLY === "1") {
     let operation = client.post.findMany(args);
     let query = operation.prepare();
     if (!query) {
-      throw new Error("The cold raw read did not produce a prepared statement");
+      throw new Error(
+        "The first raw read after client initialization did not produce a prepared statement"
+      );
     }
     value = await driver._executeRaw(query.sql, query.params);
     rowCount = value.rows.length;
+    consumeRawRelation(value);
     operation = undefined;
     query = undefined;
   } else {
     value = await client.post.findMany(args);
     rowCount = value.length;
+    consumeParsedRelation(value);
   }
   value = undefined;
   globalThis.gc();
@@ -114,30 +142,36 @@ if (process.env.VIBORM_COLD_RETAINED_ONLY === "1") {
   process.exit(0);
 }
 
-const coldProfilerBaseline = await measureAllocatedBytes(
+const firstOperationProfilerBaseline = await measureAllocatedBytes(
   async () => undefined,
   1,
   128
 );
 globalThis.gc();
 globalThis.gc();
-const coldHeapBefore = process.memoryUsage().heapUsed;
-const coldFull = await measureAllocatedBytes(async () => {
-  const rows = await client.post.findMany(args);
-  if (rows.length !== ROWS_PER_OPERATION) {
-    throw new Error(
-      `The cold relation read did not return ${ROWS_PER_OPERATION} rows`
-    );
-  }
-}, 1, 128);
-coldFull.profilerBaselineBytes =
-  coldProfilerBaseline.allocatedBytesPerOperation;
-coldFull.netAllocatedBytesPerOperation =
-  coldFull.allocatedBytesPerOperation -
-  coldProfilerBaseline.allocatedBytesPerOperation;
+const firstOperationHeapBefore = process.memoryUsage().heapUsed;
+const firstOperationAfterInitializedClient = await measureAllocatedBytes(
+  async () => {
+    const rows = await client.post.findMany(args);
+    if (rows.length !== ROWS_PER_OPERATION) {
+      throw new Error(
+        `The first relation read after client initialization did not return ${ROWS_PER_OPERATION} rows`
+      );
+    }
+    consumeParsedRelation(rows);
+  },
+  1,
+  128
+);
+firstOperationAfterInitializedClient.profilerBaselineBytes =
+  firstOperationProfilerBaseline.allocatedBytesPerOperation;
+firstOperationAfterInitializedClient.netAllocatedBytesPerOperation =
+  firstOperationAfterInitializedClient.allocatedBytesPerOperation -
+  firstOperationProfilerBaseline.allocatedBytesPerOperation;
 globalThis.gc();
 globalThis.gc();
-coldFull.retainedBytes = process.memoryUsage().heapUsed - coldHeapBefore;
+firstOperationAfterInitializedClient.retainedBytes =
+  process.memoryUsage().heapUsed - firstOperationHeapBefore;
 
 const preparedOperation = client.post.findMany(args);
 const prepared = preparedOperation.prepare();
@@ -157,24 +191,24 @@ let sink = 0;
 const workloads = {
   raw: async () => {
     const raw = await driver._executeRaw(prepared.sql, prepared.params);
-    sink += raw.rows.length;
+    sink += consumeRawRelation(raw);
   },
   rawAndParse: async () => {
     const raw = await driver._executeRaw(prepared.sql, prepared.params);
     const rows = preparedOperation.parseResult(raw);
-    sink += rows.length;
+    sink += consumeParsedRelation(rows);
   },
   full: async () => {
     const rows = await client.post.findMany(args);
-    sink += rows.length;
+    sink += consumeParsedRelation(rows);
   },
   prepare: () => {
     const query = client.post.findMany(args).prepare();
-    sink += query?.params.length ?? 0;
+    sink += (query?.sql.length ?? 0) + (query?.params.length ?? 0);
   },
   parse: () => {
     const rows = preparedOperation.parseResult(rawFixture);
-    sink += rows.length;
+    sink += consumeParsedRelation(rows);
   },
 };
 
@@ -222,7 +256,7 @@ function topAllocationFrames(node) {
 async function measureAllocatedBytes(
   workload,
   iterations,
-  samplingInterval = 8_192
+  samplingInterval = 4096
 ) {
   const session = new inspector.Session();
   session.connect();
@@ -234,10 +268,7 @@ async function measureAllocatedBytes(
       includeObjectsCollectedByMinorGC: true,
     });
     for (let i = 0; i < iterations; i++) await workload();
-    const { profile } = await postSession(
-      session,
-      "HeapProfiler.stopSampling"
-    );
+    const { profile } = await postSession(session, "HeapProfiler.stopSampling");
     return {
       allocatedBytesPerOperation: sampledBytes(profile.head) / iterations,
       topFrames: topAllocationFrames(profile.head),
@@ -285,7 +316,9 @@ async function measureResultHeapStages() {
 const rowIterationDivisor = Math.max(1, ROWS_PER_OPERATION / 20);
 for (const [name, workload] of Object.entries(workloads)) {
   const iterations =
-    name === "prepare" ? 2_000 : Math.max(20, Math.floor(2_000 / rowIterationDivisor));
+    name === "prepare"
+      ? 2000
+      : Math.max(20, Math.floor(2000 / rowIterationDivisor));
   await warm(workload, iterations);
 }
 const heapStages = await measureResultHeapStages();
@@ -326,8 +359,8 @@ console.log(
   JSON.stringify(
     {
       rowsPerOperation: expected.length,
-      allocationSamplingInterval: 8_192,
-      coldFull,
+      allocationSamplingInterval: 4096,
+      firstOperationAfterInitializedClient,
       heapStages,
       measurements,
       sink,

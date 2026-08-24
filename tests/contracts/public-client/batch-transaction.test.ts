@@ -21,6 +21,7 @@ import {
   PendingOperation,
 } from "@query-engine/pending-operation";
 import { s } from "@schema";
+import { batchPrimaryKeyDataflowSchema } from "@tests/fixtures/batch-primary-key-dataflow-schema";
 import type Database from "better-sqlite3";
 import {
   afterAll,
@@ -29,8 +30,8 @@ import {
   describe,
   expect,
   test,
+  vi,
 } from "vitest";
-import { batchPrimaryKeyDataflowSchema } from "@tests/fixtures/batch-primary-key-dataflow-schema";
 
 // =============================================================================
 // TEST SCHEMA
@@ -104,6 +105,21 @@ class BatchOnlySQLite3Driver extends SQLite3Driver {
       }
       return results;
     });
+  }
+}
+
+class InsertIdBatchOnlyPGliteDriver extends BatchOnlyPGliteDriver {
+  private nextInsertId = 1;
+
+  protected override async executeBatch<T>(
+    client: PGlite | Transaction,
+    queries: BatchQuery[]
+  ): Promise<QueryResult<T>[]> {
+    const results = await super.executeBatch<T>(client, queries);
+    return results.map((result) => ({
+      ...result,
+      insertId: this.nextInsertId++,
+    }));
   }
 }
 
@@ -536,6 +552,82 @@ describe("$transaction with array (batch mode)", () => {
       const posts = await batchOnlyClient.post.findMany();
       expect(posts).toHaveLength(1);
       expect(posts[0]?.authorId).toBe("1");
+    } finally {
+      await batchOnlyClient.$disconnect();
+    }
+  });
+
+  test("batch-only shared parsing keeps exact partitions with insert ids", async () => {
+    const batchDb = new PGlite();
+    const setupClient = createClient({
+      schema,
+      driver: new PGliteDriver({ client: batchDb }),
+    });
+    const batchOnlyClient = createClient({
+      schema,
+      driver: new InsertIdBatchOnlyPGliteDriver({ client: batchDb }),
+    });
+
+    try {
+      await push(setupClient, { force: true });
+      await setupClient.user.create({
+        data: { id: "1", name: "Before", email: "partition@test.com" },
+      });
+
+      const beforeOperation = batchOnlyClient.user.findUnique({
+        where: { id: "1" },
+        select: { name: true },
+      });
+      const beforeParser = vi.spyOn(beforeOperation, "parseResult");
+      const updateOperation = batchOnlyClient.user.update({
+        where: { id: "1" },
+        data: {
+          name: "After",
+          posts: { create: { id: "p1", title: "Partitioned" } },
+        },
+        select: { name: true },
+      });
+      const originalPrepareBatch =
+        updateOperation.prepareBatch.bind(updateOperation);
+      let preparedQueryCount = 0;
+      let preparedInsertIds: Array<number | bigint | undefined> | undefined;
+      vi.spyOn(updateOperation, "prepareBatch").mockImplementation(
+        async (driver) => {
+          const prepared = await originalPrepareBatch(driver);
+          if (!prepared) return undefined;
+          preparedQueryCount = prepared.queries.length;
+          return {
+            ...prepared,
+            parseResult: (batchResults) => {
+              preparedInsertIds = batchResults.map((result) => result.insertId);
+              return prepared.parseResult(batchResults);
+            },
+          };
+        }
+      );
+
+      const batchResult = await withTransactions(batchOnlyClient).$transaction([
+        beforeOperation,
+        updateOperation,
+        batchOnlyClient.post.findMany({
+          orderBy: { id: "asc" },
+          select: { id: true, title: true },
+        }),
+      ]);
+
+      expect(batchResult).toEqual([
+        { name: "Before" },
+        { name: "After" },
+        [{ id: "p1", title: "Partitioned" }],
+      ]);
+      expect(beforeParser).toHaveBeenCalledWith(
+        expect.objectContaining({ insertId: expect.any(Number) })
+      );
+      expect(preparedQueryCount).toBeGreaterThan(1);
+      expect(preparedInsertIds).toHaveLength(preparedQueryCount);
+      expect(
+        preparedInsertIds?.every((insertId) => insertId !== undefined)
+      ).toBe(true);
     } finally {
       await batchOnlyClient.$disconnect();
     }

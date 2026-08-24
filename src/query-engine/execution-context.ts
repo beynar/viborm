@@ -14,7 +14,7 @@ import {
 } from "@instrumentation";
 import type { InstrumentationContext } from "@instrumentation/context";
 import { isErrorLogged } from "@instrumentation/logged-errors";
-import { getNoopTracer, type VibORMSpanOptions } from "@instrumentation/tracer";
+import type { VibORMSpanOptions } from "@instrumentation/tracer";
 import { isCacheManagedExecution } from "./cache-flow";
 import type { PendingOperation } from "./pending-operation";
 import type { TransactionOperation } from "./transaction-operation";
@@ -113,33 +113,49 @@ export async function observeTransactionBatchPhase<T, R>(
 ): Promise<R> {
   const executionContext = operation.getExecutionContext();
   const instrumentation = getExecutionInstrumentation(executionContext);
+  const hasTracing = instrumentation?.config.tracing !== undefined;
+  const hasLogging = instrumentation?.config.logging !== undefined;
+  if (!(hasTracing || hasLogging)) {
+    try {
+      return await execute();
+    } catch (error) {
+      throw normalizeTransactionBatchPhaseError(
+        error,
+        executionContext,
+        instrumentation,
+        driver
+      );
+    }
+  }
+
   const startedAt = Date.now();
   const run = async (): Promise<R> => {
     try {
       return await execute();
     } catch (error) {
-      const attributed = normalizeDriverError(error, {
-        driverName: driver.driverName,
-        model: executionContext.model,
-        operation: executionContext.operation,
-        correlationId: executionContext.correlationId,
-        diagnostics: instrumentation?.config.diagnostics,
-        forceContext: true,
-      });
-      instrumentation?.logger?.error(
-        createErrorLogEvent({
-          error: attributed,
-          model: executionContext.model,
-          operation: executionContext.operation,
-          correlationId: executionContext.correlationId,
-          duration: Date.now() - startedAt,
-        })
+      const attributed = normalizeTransactionBatchPhaseError(
+        error,
+        executionContext,
+        instrumentation,
+        driver
       );
+      if (hasLogging) {
+        instrumentation?.logger?.error(
+          createErrorLogEvent({
+            error: attributed,
+            model: executionContext.model,
+            operation: executionContext.operation,
+            correlationId: executionContext.correlationId,
+            duration: Date.now() - startedAt,
+          })
+        );
+      }
       throw attributed;
     }
   };
 
-  return (instrumentation?.tracer ?? getNoopTracer()).startActiveSpan(
+  if (instrumentation?.config.tracing === undefined) return run();
+  return instrumentation.tracer.startActiveSpan(
     {
       name: SPAN_OPERATION,
       attributes: {
@@ -151,6 +167,22 @@ export async function observeTransactionBatchPhase<T, R>(
     },
     run
   );
+}
+
+function normalizeTransactionBatchPhaseError(
+  error: unknown,
+  executionContext: QueryExecutionContext,
+  instrumentation: InstrumentationContext | undefined,
+  driver: AnyDriver
+) {
+  return normalizeDriverError(error, {
+    driverName: driver.driverName,
+    model: executionContext.model,
+    operation: executionContext.operation,
+    correlationId: executionContext.correlationId,
+    diagnostics: instrumentation?.config.diagnostics,
+    forceContext: true,
+  });
 }
 
 export function createCorrelationId(): string {

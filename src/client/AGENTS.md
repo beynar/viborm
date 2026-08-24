@@ -334,6 +334,14 @@ remain structurally compatible with `Promise<T>`, but ordinary promises are not
 transaction operations and remain invalid array members. Client and scope IDs
 are checked for both implementations before dispatch.
 
+### Shared batch result ownership
+
+Trust each driver-normalized `QueryResult`. A single-statement batch member
+consumes the exact result at its index. The shared batch validates normalization
+and cardinality once against its full query list; a multi-statement member then
+trusts and consumes its exact result slice. Pass every original `QueryResult`,
+including `insertId`, to its consumer; never rewrap it or strip its fields.
+
 ---
 
 ## Related Layers

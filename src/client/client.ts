@@ -736,10 +736,8 @@ export class VibORM<C extends VibORMConfig> {
                 const operationQueries: BatchQuery[] = [];
                 const batchGuards: PreparedBatchGuard[] = [];
                 const parsers: Array<{
-                  start: number;
-                  length: number;
                   parse: (
-                    raw: Array<{ rows: unknown[]; rowCount: number }>
+                    batchResults: QueryResult<unknown>[]
                   ) => Promise<unknown>;
                 }> = [];
 
@@ -761,15 +759,9 @@ export class VibORM<C extends VibORMConfig> {
                     const start = operationQueries.length;
                     operationQueries.push(preparation.prepared);
                     parsers.push({
-                      start,
-                      length: 1,
-                      parse: (raw) =>
+                      parse: (batchResults) =>
                         op.observeBatchPhase(driver, () => {
-                          assertNormalizedBatchResults(raw, 1, {
-                            provider: driver.driverName,
-                            operation: op.getOperation(),
-                          });
-                          const [result] = raw;
+                          const result = batchResults[start];
                           if (!result) {
                             throw new TransactionError(
                               `Driver "${driver.driverName}" omitted the result for operation "${op.getOperation()}".`,
@@ -793,6 +785,7 @@ export class VibORM<C extends VibORMConfig> {
                   }
 
                   const start = operationQueries.length;
+                  const length = preparedBatch.queries.length;
                   operationQueries.push(...preparedBatch.queries);
                   for (const guard of preparedBatch.guards ?? []) {
                     batchGuards.push({
@@ -801,12 +794,15 @@ export class VibORM<C extends VibORMConfig> {
                     });
                   }
                   parsers.push({
-                    start,
-                    length: preparedBatch.queries.length,
-                    parse: (raw) =>
-                      op.observeBatchPhase(driver, () =>
-                        preparedBatch.parseResult(raw)
-                      ),
+                    parse: (batchResults) => {
+                      const resultWindow = batchResults.slice(
+                        start,
+                        start + length
+                      );
+                      return op.observeBatchPhase(driver, () =>
+                        preparedBatch.parseResult(resultWindow)
+                      );
+                    },
                   });
                 }
 
@@ -859,20 +855,7 @@ export class VibORM<C extends VibORMConfig> {
 
                   const results: unknown[] = [];
                   for (const parser of parsers) {
-                    const resultWindow = batchResults.slice(
-                      parser.start,
-                      parser.start + parser.length
-                    );
-                    assertNormalizedBatchResults(
-                      resultWindow,
-                      parser.length,
-                      resultContext
-                    );
-                    const raw = resultWindow.map((result) => ({
-                      rows: result.rows,
-                      rowCount: result.rowCount,
-                    }));
-                    results.push(await parser.parse(raw));
+                    results.push(await parser.parse(batchResults));
                   }
 
                   return results;
