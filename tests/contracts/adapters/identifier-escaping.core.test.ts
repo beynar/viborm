@@ -3,12 +3,77 @@
  * break out of the quoted identifier (SQL injection).
  */
 
+import { sql } from "@sql";
 import { mysqlAdapter } from "@src/adapters/databases/mysql/mysql-adapter";
 import { postgresAdapter } from "@src/adapters/databases/postgres/postgres-adapter";
 import { sqliteAdapter } from "@src/adapters/databases/sqlite/sqlite-adapter";
 
 describe("identifier escaping", () => {
   const malicious = 'users"; DROP TABLE users; --';
+  const dialects = [
+    ["postgres", postgresAdapter, '"'],
+    ["mysql", mysqlAdapter, "`"],
+    ["sqlite", sqliteAdapter, '"'],
+  ] as const;
+
+  for (const [name, adapter, quote] of dialects) {
+    describe(`${name} shared identifier builders`, () => {
+      test("ordinary and reserved identifiers remain raw and parameter-free", () => {
+        const fragments = [
+          adapter.raw("SELECT trusted_sql"),
+          adapter.identifiers.escape("select"),
+          adapter.identifiers.column("users", "email"),
+          adapter.identifiers.table("users", "u"),
+        ];
+
+        expect(fragments.map((fragment) => fragment.toStatement())).toEqual([
+          "SELECT trusted_sql",
+          `${quote}select${quote}`,
+          `${quote}users${quote}.${quote}email${quote}`,
+          `${quote}users${quote} AS ${quote}u${quote}`,
+        ]);
+        expect(
+          fragments.every((fragment) => fragment.values.length === 0)
+        ).toBe(true);
+      });
+
+      test("quote-containing aliases preserve expression parameters", () => {
+        const alias = quote === "`" ? "a`lias" : 'a"lias';
+        const quotedAlias = quote === "`" ? "`a``lias`" : '"a""lias"';
+        const fragment = adapter.identifiers.aliased(
+          sql`COALESCE(${1}, ${2})`,
+          alias
+        );
+
+        expect(fragment.toStatement("$n")).toBe(
+          `COALESCE($1, $2) AS ${quotedAlias}`
+        );
+        expect(fragment.values).toEqual([1, 2]);
+      });
+
+      test("quote-containing CTE names preserve composition and parameters", () => {
+        const cteName = quote === "`" ? "c`te" : 'c"te';
+        const quotedName = quote === "`" ? "`c``te`" : '"c""te"';
+        const ordinary = adapter.cte.with([
+          { name: cteName, query: sql`SELECT ${1}` },
+        ]);
+        const recursive = adapter.cte.recursive(
+          cteName,
+          sql`SELECT ${1}`,
+          sql`SELECT ${2}`
+        );
+
+        expect(ordinary.toStatement("$n")).toBe(
+          `WITH ${quotedName} AS (SELECT $1)`
+        );
+        expect(ordinary.values).toEqual([1]);
+        expect(recursive.toStatement("$n")).toBe(
+          `WITH RECURSIVE ${quotedName} AS (\n        SELECT $1\n        UNION ALL\n        SELECT $2\n      )`
+        );
+        expect(recursive.values).toEqual([1, 2]);
+      });
+    });
+  }
 
   for (const [name, adapter] of [
     ["postgres", postgresAdapter],
@@ -25,8 +90,8 @@ describe("identifier escaping", () => {
         expect(adapter.identifiers.column('a"b', 'c"d').toStatement()).toBe(
           '"a""b"."c""d"'
         );
-        expect(adapter.identifiers.table('t"1', "alias").toStatement()).toBe(
-          '"t""1" AS "alias"'
+        expect(adapter.identifiers.table('t"1', 'a"lias').toStatement()).toBe(
+          '"t""1" AS "a""lias"'
         );
       });
     });
@@ -43,9 +108,9 @@ describe("identifier escaping", () => {
       expect(mysqlAdapter.identifiers.column("a`b", "c`d").toStatement()).toBe(
         "`a``b`.`c``d`"
       );
-      expect(mysqlAdapter.identifiers.table("t`1", "alias").toStatement()).toBe(
-        "`t``1` AS `alias`"
-      );
+      expect(
+        mysqlAdapter.identifiers.table("t`1", "a`lias").toStatement()
+      ).toBe("`t``1` AS `a``lias`");
     });
   });
 });

@@ -523,7 +523,7 @@ test("collection order is ordinary-then-polymorphic, NOT payload key order", () 
   ]);
 });
 
-test("two same-target polymorphic fields preserve ordered steps and root pairs", () => {
+test("reverse-spelled polymorphic fields keep declaration-ordered root pairs", () => {
   const driver = new BatchOnlyPGliteDriver();
   const registry = createSchemaRegistry(polymorphicPlanSchema);
   const args = {
@@ -531,8 +531,8 @@ test("two same-target polymorphic fields preserve ordered steps and root pairs",
       id: 1,
       body: "ordered",
       author: { connect: { id: 10 } },
-      primary: { connect: { type: "post", where: { id: 10 } } },
       secondary: { connect: { type: "post", where: { id: 11 } } },
+      primary: { connect: { type: "post", where: { id: 10 } } },
     },
     select: { id: true },
   };

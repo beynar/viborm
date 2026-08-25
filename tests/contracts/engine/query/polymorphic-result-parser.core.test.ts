@@ -10,7 +10,7 @@ import {
 } from "@query-engine/result-aliases";
 import { s } from "@schema";
 import { parserFor, prepareSchema } from "@tests/fixtures/query-scope";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 const models = (() => {
   const video = s.model({
@@ -166,6 +166,33 @@ describe("polymorphic result parsing", () => {
     ]);
   });
 
+  it("decodes a variant JSON target in the graph created by JSON.parse", () => {
+    const target = {
+      id: "post-1",
+      publishedAt: "2026-08-08T10:00:00.000Z",
+      attachment: null,
+    };
+    const carrier = linked("post", target);
+    const jsonParse = vi.spyOn(JSON, "parse").mockReturnValue(carrier);
+    const parsed = parseRequired("{}");
+
+    expect(parsed).toEqual([
+      {
+        id: "comment-1",
+        subject: {
+          type: "post",
+          data: {
+            id: "post-1",
+            publishedAt: new Date("2026-08-08T10:00:00.000Z"),
+            attachment: null,
+          },
+        },
+      },
+    ]);
+    expect(target.publishedAt).toEqual(new Date("2026-08-08T10:00:00.000Z"));
+    jsonParse.mockRestore();
+  });
+
   it("returns null only for empty optional storage", () => {
     const optionalParser = parserFor(
       new PostgresAdapter(),
@@ -294,11 +321,11 @@ function collection(arms: Record<string, unknown>): Record<string, unknown> {
  * Parse one owner row through the real shape builder — `projection` is the same
  * args object the read compiled from, so shape and carrier cannot drift.
  */
-function parseCollection(
+function parseCollection<T = unknown>(
   rawItems: unknown,
   projection: Record<string, unknown> = { select: { id: true, items: true } }
-): unknown {
-  return parseResult(
+): T {
+  return parseResult<T>(
     parserFor(new PostgresAdapter(), collectionModels.gallery),
     "findMany",
     [{ id: "gallery-1", items: rawItems }],
@@ -353,6 +380,30 @@ describe("polymorphic collection result parsing", () => {
     ) as { items: unknown }[];
     expect(rows[0]?.items).toEqual([]);
     expect(rows[0]?.items).not.toBeNull();
+  });
+
+  it("decodes a collection JSON carrier at the variant boundary", () => {
+    const target = { id: "a1", title: "first" };
+    const carrier = collection({
+      article: arm([linked("article", target)]),
+      clip: arm([]),
+    });
+    const jsonParse = vi.spyOn(JSON, "parse").mockReturnValue(carrier);
+    const parsed =
+      parseCollection<
+        {
+          items: { data: Record<string, unknown> }[];
+        }[]
+      >("{}");
+
+    expect(parsed).toEqual([
+      {
+        id: "gallery-1",
+        items: [{ type: "article", data: { id: "a1", title: "first" } }],
+      },
+    ]);
+    expect(parsed[0]?.items[0]?.data).toBe(target);
+    jsonParse.mockRestore();
   });
 
   it("restores an ARM-LOCAL reversed window without touching its sibling", () => {
@@ -548,6 +599,21 @@ describe("polymorphic collection result parsing", () => {
           }),
           clip: arm([]),
         })
+      )
+    ).toThrowError(
+      "Polymorphic relation 'items' references a missing 'article' record."
+    );
+  });
+
+  it("checks encoded carrier integrity before parsing visible rows", () => {
+    expect(() =>
+      parseCollection(
+        JSON.stringify(
+          collection({
+            article: arm(["malformed visible row"], { orphans: 1 }),
+            clip: arm([]),
+          })
+        )
       )
     ).toThrowError(
       "Polymorphic relation 'items' references a missing 'article' record."

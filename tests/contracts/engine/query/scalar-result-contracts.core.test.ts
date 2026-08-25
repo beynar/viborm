@@ -2,6 +2,7 @@ import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { tryParseJsonString } from "@adapters/shared/result-parsing";
+import type { DriverResultParser } from "@drivers/driver";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import { QueryEngineError } from "@errors";
 import { parseResult } from "@query-engine/result/ResultParser";
@@ -79,6 +80,35 @@ const countingJsonSchema: StandardSchemaV1<JsonValue, JsonValue> = {
     },
   },
 };
+
+class ContinuationIdentityDriver extends SQLite3Driver {
+  readonly adapterContinuations: ((value?: unknown) => unknown)[] = [];
+  readonly driverContinuations: ((
+    value: unknown,
+    scalarType: string
+  ) => unknown)[] = [];
+  onAdapterField: ((value: unknown) => void) | undefined;
+  override readonly result: DriverResultParser;
+
+  constructor() {
+    super();
+    const adapterResult = this.adapter.result;
+    this.adapter.result = {
+      ...adapterResult,
+      parseField: (value, _scalarType, next) => {
+        this.adapterContinuations.push(next);
+        this.onAdapterField?.(value);
+        return next();
+      },
+    };
+    this.result = {
+      parseField: (value, scalarType, next) => {
+        this.driverContinuations.push(next);
+        return next(`${String(value)}-driver`, scalarType);
+      },
+    };
+  }
+}
 
 const scalarModel = s.model({
   id: s.string().id(),
@@ -182,9 +212,9 @@ describe("strict scalar result contracts", () => {
     expect(parseField("large", "9007199254740993")).toBe(
       9_007_199_254_740_993n
     );
-    expect(parseField("happenedAt", "2026-07-10 12:30:45.123")).toEqual(
-      new Date("2026-07-10T12:30:45.123Z")
-    );
+    expect(
+      parseField("happenedAt", "2026-07-10 12:30:45.123", new MySQLAdapter())
+    ).toEqual(new Date("2026-07-10T12:30:45.123Z"));
     expect(parseField("bornOn", "2024-02-29")).toEqual(
       new Date("2024-02-29T00:00:00.000Z")
     );
@@ -452,6 +482,32 @@ describe("strict scalar result contracts", () => {
 
     expect(row?.countingJson).toBe(1);
     expect(countingJsonValidationCalls).toBe(1);
+  });
+
+  test("reuses field continuations without leaking reentrant input", () => {
+    const driver = new ContinuationIdentityDriver();
+    const parser = parserFor(driver.adapter, scalarModel, driver);
+    driver.onAdapterField = (value) => {
+      if (value !== "outer-driver") return;
+      const [nested] = parseResult<Record<string, unknown>[]>(
+        parser,
+        "findMany",
+        [{ text: "inner" }],
+        { select: { text: true } }
+      );
+      expect(nested).toEqual({ text: "inner-driver" });
+    };
+
+    const rows = parseResult<Record<string, unknown>[]>(
+      parser,
+      "findMany",
+      [{ text: "outer" }, { text: "second" }],
+      { select: { text: true } }
+    );
+
+    expect(rows).toEqual([{ text: "outer-driver" }, { text: "second-driver" }]);
+    expect(new Set(driver.driverContinuations)).toHaveLength(1);
+    expect(new Set(driver.adapterContinuations)).toHaveLength(1);
   });
 
   test("observes rejected async JSON schemas without leaking the rejection", async () => {

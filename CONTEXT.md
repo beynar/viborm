@@ -7,14 +7,27 @@ domain meaning across its schema, migration, and query boundaries.
 ## Relation language
 
 **Relation slot**:
-The public position whose cardinality determines whether having no member is a
-valid state.
-_Avoid_: Relation field when discussing absence semantics
+The public model position from which one association is read or mutated. It
+declares a slot cardinality and a target domain; slot emptiness is derived from
+its storage or, for variant to-one storage, its explicit optionality.
+_Avoid_: Relation edge when the local public position is meant
 
 **Slot cardinality**:
 Whether one relation slot holds at most one membership or a collection of
 memberships. It belongs to that slot, not to the relationship as a whole.
 _Avoid_: Relation kind, when only one endpoint's one/many choice is meant
+
+**Relation target domain**:
+The model domain one relation slot may address. A single-model domain contains
+one lazily resolved model; a variant domain contains one or more named target
+model alternatives. Target domain and slot cardinality are independent facts.
+_Avoid_: Relation family, polymorphic relation type
+
+**Relation name**:
+An optional pairing label on a relation slot. When a relationship has two
+public slots, both repeat the same label; matching names distinguish that pair
+from other relationships between the same models.
+_Avoid_: Inverse selector, inverse field, relation type
 
 **Relation topology**:
 The one-to-one, many-to-one, one-to-many, or many-to-many shape derived from
@@ -39,8 +52,9 @@ variant side rather than two reconciled peers
 
 **Member view**:
 An inverse relation slot whose membership is stored in a member junction it
-does not own — a fields-less `manyToOne` or `manyToMany` bound to a polymorphic
-collection. It declares no storage of its own and emits no junction table.
+does not own — a storage-less `toOne` or `toMany` bound to a polymorphic
+collection member. It declares no storage of its own and emits no junction
+table.
 _Avoid_: Inverse junction, because the view reads a table the collection owner
 declared rather than one reconciled between two peers
 
@@ -209,7 +223,7 @@ _Avoid_: Hits when pagination or projection has already narrowed the records
 
 ## Reading a relation
 
-One stored topology, several derived views. A relation is declared once; its
-cardinality, its clearability, and its physical membership are each DERIVED from
-that declaration by one named owner, never stored beside it and never
-re-derived at the point of use.
+One declaration, several derived views. A relation slot declares its cardinality
+and target domain once. The paired topology, clearability, and physical
+membership are each derived by one named owner, never stored beside their
+inputs and never re-derived at the point of use.

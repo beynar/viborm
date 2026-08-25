@@ -80,7 +80,7 @@ export class PendingOperation<T> implements TransactionOperation<T> {
   // The V2 operation for this payload, constructed once (lazily, before any I/O).
   private operationInstance: RoutedExecutableOperation | undefined;
   private operationResolved = false;
-  private executorInstance: OperationExecutor | undefined;
+  private readonly operationExecutor: OperationExecutor;
   // The single-statement plan, memoized: `null` uncomputed, `undefined` when the
   // operation is multi-statement (runs through the atomic-batch seam).
   private singlePlan: SingleStatementCandidate | undefined | null = null;
@@ -92,12 +92,14 @@ export class PendingOperation<T> implements TransactionOperation<T> {
     args: Record<string, unknown>,
     options?: PrepareOptions,
     context?: OperationExecutionContext,
-    deferredExecution?: DeferredExecution<T>
+    deferredExecution?: DeferredExecution<T>,
+    operationExecutor?: OperationExecutor
   ) {
     this.engine = engine;
     this.model = model;
     this.args = args;
     this.deferredExecution = deferredExecution;
+    this.operationExecutor = operationExecutor ?? new OperationExecutor(engine);
     const isOrThrow = requestedOperation.endsWith(OR_THROW_SUFFIX);
     this.operation = isOrThrow
       ? (requestedOperation.slice(0, -OR_THROW_SUFFIX.length) as Operation)
@@ -125,9 +127,19 @@ export class PendingOperation<T> implements TransactionOperation<T> {
     model: Model<any>,
     operation: Operation | `${Operation}OrThrow`,
     args: Record<string, unknown>,
-    options?: PrepareOptions
+    options?: PrepareOptions,
+    operationExecutor?: OperationExecutor
   ): PendingOperation<T> {
-    return new PendingOperation<T>(engine, model, operation, args, options);
+    return new PendingOperation<T>(
+      engine,
+      model,
+      operation,
+      args,
+      options,
+      undefined,
+      undefined,
+      operationExecutor
+    );
   }
 
   /**
@@ -177,10 +189,7 @@ export class PendingOperation<T> implements TransactionOperation<T> {
   }
 
   private executor(): OperationExecutor {
-    if (!this.executorInstance) {
-      this.executorInstance = new OperationExecutor(this.engine);
-    }
-    return this.executorInstance;
+    return this.operationExecutor;
   }
 
   /**
@@ -403,7 +412,8 @@ export class PendingOperation<T> implements TransactionOperation<T> {
       this.args,
       this.options,
       this.context,
-      deferredExecution
+      deferredExecution,
+      this.operationExecutor
     );
   }
 

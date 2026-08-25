@@ -156,6 +156,37 @@ s.string()           // StringScalar<{type: "string"}>
 
 **Why this exists:** TypeScript tracks the State generic through each transformation. Mutation would break this - the type would show `nullable: true` but the runtime value wouldn't have it.
 
+### Rule 5: Typed Fallback Batches and Proven Result Consumption
+
+Sequential transaction fallback preserves statement semantics: model and safe
+`Sql` prepared statements use typed execution, while only internally marked
+verbatim raw statements use raw execution. Do not infer rawness from a public
+shape or add a public batch discriminant.
+
+Provider transport is borrowed by default. Only the exact stock SQLite3 and
+PGlite drivers with their internally created active client and unchanged typed
+execution/parser surfaces can become a consumable-result candidate. A supplied
+client, subclass, execution override, parser middleware, cache-managed read,
+transaction, array batch, raw call, or manual parser entry stays borrowed.
+
+The executor keeps execute → proof → parse lexical: execute the exact typed
+entry, recheck the same active producer, then synchronously parse that exact
+result.
+Do not publish an ownership flag, marker, token, result property, or public API.
+The operation shell exposes only the internal result-preparation capability;
+the generic executor imports no concrete operation.
+
+The compiled row parser is the sole owner of `identity`, `reusable`, or `copy`.
+Every collection result gets a fresh public outer array. An identity row may
+pass through unchanged; a reusable row may be updated only under the executor's
+lexical proof; a copy-policy row always gets a fresh object. Shape-changing
+rows copy. Provider-supplied nested object graphs are never mutated; a native
+identity row may pass unchanged, but any row that needs decoding uses the copy
+path. A nested relation graph may be updated in place only when the relation
+carrier parser created it with `JSON.parse`, completed structural validation of
+the fixed or variant carrier and its full row set before mutation, and decodes
+it through the existing nested parser.
+
 ---
 
 ## Type Flow (High-Level)
@@ -386,10 +417,21 @@ pnpm test:layer:query-engine
 pnpm test:layer:drivers
 pnpm test:layer:client
 
+# Operation-pipeline performance evidence
+pnpm bench:operation-pipeline
+pnpm bench:operation-pipeline:check
+pnpm bench:operation-pipeline:describe
+
 # Large selections must use the package scripts. Vitest runs one file at a time
 # with a 768 MB heap. Full tsc has a measured 4 GB cap. Launchers stop the whole
 # process group on timeout or interruption so workers cannot survive.
 ```
+
+Operation-pipeline comparisons use explicit clean worktrees at explicit
+commits. Declare the exact workload, stage, mode, and target metric before the
+run. Collect five alternating samples per side in fresh processes and accept a
+target only when its improvement exceeds 2×MAD. Run coordinators sequentially;
+do not overlap them with another benchmark, test, or TypeScript process.
 
 Ordinary PGlite contracts use one `usePGliteSchemaFamily` per compatible schema
 and substrate. The fixture pushes once, truncates tables between tests, and owns

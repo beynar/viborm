@@ -42,28 +42,32 @@ export function polymorphicStorageMembers<Id>(
   // MODEL DECLARATION ORDER, read from the one index: the private column pairs
   // of a row are written in the order their carriers were declared, which is the
   // order the resolved slot map preserves.
-  const order = new Map(
-    [...(scope.relations.get(scope.model)?.keys() ?? [])].map(
-      (name, index) => [name, index] as const
-    )
-  );
-  const sorted = [...values].sort(
-    (left, right) =>
-      (order.get(left.carrier.field) ?? Number.MAX_SAFE_INTEGER) -
-      (order.get(right.carrier.field) ?? Number.MAX_SAFE_INTEGER)
-  );
+  const valuesByCarrier = new Map<
+    RelationSlot,
+    PolymorphicStorageValue<Id>[]
+  >();
+  for (const value of values) {
+    const carrier = value.carrier;
+    const carrierValues = valuesByCarrier.get(carrier);
+    if (carrierValues) carrierValues.push(value);
+    else valuesByCarrier.set(carrier, [value]);
+  }
   const members: PolymorphicStorageMemberValue<Id>[] = [];
-  for (const value of sorted) {
-    members.push(
-      {
-        column: value.storage.typeColumn,
-        value: value.kind === "linked" ? value.storedType : null,
-      },
-      {
-        column: value.storage.idColumn,
-        value: value.kind === "linked" ? value.id : null,
-      }
-    );
+  for (const resolved of scope.relations.get(scope.model)?.values() ?? []) {
+    const carrierValues = valuesByCarrier.get(resolved.slot);
+    if (!carrierValues) continue;
+    for (const value of carrierValues) {
+      members.push(
+        {
+          column: value.storage.typeColumn,
+          value: value.kind === "linked" ? value.storedType : null,
+        },
+        {
+          column: value.storage.idColumn,
+          value: value.kind === "linked" ? value.id : null,
+        }
+      );
+    }
   }
   return members;
 }

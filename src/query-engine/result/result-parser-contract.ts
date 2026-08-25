@@ -1,3 +1,4 @@
+import { tryParseJsonString } from "@adapters/shared/result-parsing";
 import { publicOperationName } from "@errors";
 import type { Model } from "@schema/model";
 import type { AnyRelation } from "@schema/relation";
@@ -10,6 +11,7 @@ import type {
 } from "../types";
 import { QueryEngineError } from "../types";
 import type { ResultParser } from "./ResultParser";
+import type { CompiledRowParser } from "./result-row-parser";
 
 export interface RowValueParsers {
   getRowParser(
@@ -18,7 +20,7 @@ export interface RowValueParsers {
     operation: Operation,
     shape?: ExpectedResultShape,
     keys?: readonly string[]
-  ): (row: Record<string, unknown>) => Record<string, unknown>;
+  ): CompiledRowParser;
   parseField(
     scalar: Scalar,
     value: unknown,
@@ -53,6 +55,12 @@ export interface RowValueParsers {
     scalars: Record<string, Scalar>,
     expected?: ExpectedAggregateResultShape
   ): unknown;
+}
+
+/** Decode only at a boundary that already knows the value is a JSON carrier. */
+export function decodeRelationCarrier(value: unknown): unknown {
+  if (typeof value !== "string") return value;
+  return tryParseJsonString(value) ?? value;
 }
 
 export type ParseScalarField = (
@@ -128,11 +136,19 @@ function assertResultRows(
   }
 }
 
-export function parseResultRows<T>(
+export function parseResultRows(
   rows: readonly Record<string, unknown>[],
-  parseRow: (row: Record<string, unknown>) => T
-): T[] {
-  const parsed: T[] = new Array(rows.length);
+  parseRow: CompiledRowParser,
+  useConsumable = false
+): Record<string, unknown>[] {
+  const parsed: Record<string, unknown>[] = new Array(rows.length);
+  if (useConsumable && parseRow.containerPolicy !== "copy") {
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i]!;
+      parsed[i] = parseRow(row, row);
+    }
+    return parsed;
+  }
   for (let i = 0; i < rows.length; i++) {
     parsed[i] = parseRow(rows[i]!);
   }

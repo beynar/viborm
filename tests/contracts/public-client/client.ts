@@ -1,5 +1,6 @@
 import { MemoryCache } from "@cache/drivers/memory";
 import { createClient } from "@drivers/pglite";
+import { push } from "@migrations";
 import { s } from "@schema";
 import type { Prettify } from "@validation/types";
 import z from "zod/v4";
@@ -25,7 +26,7 @@ const user = s.model({
   ),
   posts: s.toMany(() => post),
   friends: s.toMany(() => user),
-});
+})
 
 const post = s.model({
   id: s.string().id(),
@@ -33,14 +34,14 @@ const post = s.model({
   content: s.string(),
   authorId: s.string(),
   media: s.toOne({
-    image: () => image,
-    video: () => video,
+    image:()=>image,
+    video:()=>video,
   }),
   author: s
     .toOne(() => user)
     .fields("authorId")
     .references("id"),
-});
+})
 
 const media = s.model({
   id: s.string().id(),
@@ -55,7 +56,7 @@ const image = media.extends({
 const video = media.extends({
   width: s.int(),
   height: s.int(),
-  duration: s.int(),
+  duration: s.int(),   
 });
 
 const schema = { user, post };
@@ -65,34 +66,35 @@ type StataId = Prettify<(typeof id)["~"]["state"]["autoGenerate"]>;
 const client = createClient({
   schema,
   instrumentation: {
-    logging: true,
+    logging: true, 
   },
-  cache: new MemoryCache(),
+  cache: new MemoryCache(), 
 });
+
 
 const posts = await client.post.findMany({
   where: {
-    content: "eazeazlk",
+    content: "eazeazlk"
   },
-  include: {
-    media: true,
-  },
+  include:{
+    media:true
+  } 
 });
 
 const res2 = await client.user.create({
   data: {
     email: "eze@example.com",
-    friends: {
-      createMany: {
-        data: [
+    friends:{
+      createMany:{
+        data:[
           {
             email: "friend1@example.com",
             name: "friend1",
             status: "active",
-            pets: [],
+            pets:[]
           },
-        ],
-      },
+        ]
+      }
     },
     pets: [
       {
@@ -102,28 +104,31 @@ const res2 = await client.user.create({
       },
     ],
     status: "deleted",
-    name: "eza",
-    posts: {},
+    name:"eza", 
+    posts:{
+
+    }
   },
-  omit: {
-    status: true,
+  omit:{
+    status:true
   },
-  select: {
-    friends: true,
-    email: true,
-    pets: true,
-    posts: {
-      select: {
-        media: true,
-      },
-    },
-  },
+  select:{
+    friends:true,
+    email:true,
+    pets:true,
+    posts:{
+      select:{
+        media:true
+      }
+    }
+  }
 });
+
 
 // client.$transaction(async (tx) => {
 //   await tx.user.exist({
 //     where: {
-//       id: "2",
+//       id: "2",      
 //     },
 //   });
 // });

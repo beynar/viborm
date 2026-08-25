@@ -121,7 +121,7 @@ function hasNormalizedRows(value: unknown): value is Record<string, unknown>[] {
  * counts are not.
  */
 export function assertNormalizedQueryResult(
-  result: QueryResult<unknown>,
+  result: QueryResult<unknown> | undefined,
   context: NormalizedResultContext,
   resultIndex?: number
 ): void {
@@ -167,7 +167,7 @@ export function assertNormalizedBatchResults(
     );
   }
 
-  for (const [resultIndex, result] of results.entries()) {
-    assertNormalizedQueryResult(result, context, resultIndex);
+  for (let resultIndex = 0; resultIndex < results.length; resultIndex += 1) {
+    assertNormalizedQueryResult(results[resultIndex], context, resultIndex);
   }
 }

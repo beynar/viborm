@@ -20,10 +20,38 @@ query engine to infer a dialect semantic that the compiler already knows.
 `result/ResultParser.ts` owns middleware chains and compiled row parsers for one
 result boundary. Strict nested rows compile from the first validated provider
 row and reuse that parser only when expected shape, model, and operation match.
+Scalar field chains also compile their driver and adapter continuations once;
+the adapter's documented `next()` fallback saves and restores its active input
+so synchronous reentrant middleware cannot observe another parse's value.
 The strict shape guard still runs for every returned row; parser reuse must not
 turn validation into a first-row-only check. Row normalization validates the
 provider array without copying or mutating it, and row mapping uses a pre-sized
 output array so transient allocation does not buy slower iteration.
+
+`CompiledRowParser.containerPolicy` is the single decision owner. `identity`
+may return a natively valid row unchanged, `reusable` may write decoded values
+into the same-key row only with an execution-local consumability proof, and
+`copy` always builds a fresh row. Every collection result uses a fresh public
+outer array even when safe inner rows are reused.
+
+Provider transport is borrowed by default. The driver layer can nominate only
+an exact stock SQLite3 or PGlite driver backed by its internally created active
+client and unchanged typed execution/parser surfaces. `QueryEngine` resolves
+that candidate once. `OperationExecutor` then keeps execute → proof → parse
+on one lexical stack: it executes the exact typed entry, rechecks the same active
+producer, and synchronously parses the exact result. The proof is never stored
+on the result, rows, context, or operation. There is no marker, ownership token,
+or public API.
+
+Supplied clients, subclasses, execution overrides, custom middleware, cache-
+managed reads, transaction-bound engines, array batches, raw calls, and manual
+parser entry remain borrowed. Shape-changing rows and provider-supplied object
+relation graphs are never mutated; a native identity row may pass unchanged,
+but any borrowed nested row that needs decoding uses the copy path. The relation
+carrier parser is the single JSON decode owner: when it creates a graph with
+`JSON.parse`, it completes structural validation of the fixed or variant carrier
+and its full row set before any mutation, then may decode safe same-key nested
+rows in place through the existing nested row parser.
 
 ## Write architecture
 
@@ -630,7 +658,7 @@ the existing guard; it does not add a statement or round trip.
 
 | Owner | Responsibility |
 | --- | --- |
-| `query-engine.ts` | client-scoped driver, registry, and engine composition |
+| `query-engine.ts` | client-scoped driver, registry, engine composition, and one resolved consumable-result candidate with a candidate-free cache executor |
 | `pending-operation.ts` | lazy public model-operation routing entry |
 | `pending-execution.ts` | one-shot default/driver-bound execution lifecycle shared by model and raw operations |
 | `transaction-operation.ts` | the internal protocol consumed by `$transaction([...])` |
@@ -648,7 +676,7 @@ the existing guard; it does not add a statement or round trip.
 | `write-engine/series-result-read.ts` | bounded final set reads and source-order reconstruction |
 | `write-engine/target-projection.ts` | complete captured row keys and selected-target projections |
 | relation Parts | child-held/junction selection, membership, guards, pins, and edge effects |
-| `write-engine/OperationExecutor.ts` | generic fragment execution, including series execution and retry routing |
+| `write-engine/OperationExecutor.ts` | generic fragment execution, including series execution, retry routing, and the lexical execute/prove/parse seam; it depends only on the optional prepared-row capability, never a concrete operation |
 | `write-engine/OperationFragment.ts` | step and fragment vocabulary |
 | `builders/relation-mutation-parser.ts` | parsed mutation programs |
 | `builders/relation-data-builder.ts` | bound relation topology, and the classifier every entry point goes through |
@@ -665,7 +693,7 @@ the existing guard; it does not add a statement or round trip.
 | `write-engine/junction-singular-transfer.ts` | the singular member slot-replacement protocol, both substrates |
 | `write-engine/relation-membership.ts` | child-held membership and value provenance |
 | `JunctionStatements.ts` | junction SQL materialization — one owner, every orientation and arity |
-| `result/ResultParser.ts` | result-boundary middleware chains and nested row-parser reuse |
+| `result/ResultParser.ts` | result-boundary middleware chains, compiled row-container policy, and nested row-parser reuse |
 | `result/polymorphic-result-parser.ts` | strict discriminator dispatch and orphan semantics |
 
 Keep the type-only `QueryMetadata` compatibility export, adapter `batchRefs`,
@@ -698,6 +726,10 @@ lifecycle hook, or shared utility landfill.
     discriminator equality.
 12. Keep ordinary read and write fast paths unchanged when no polymorphic field
     is selected or mutated.
+13. Consumable rows require both an exact stock active producer and the compiled
+    parser's `reusable` policy. Keep the proof lexical, always return a fresh
+    public outer array, and leave custom/cache/transaction/batch/raw/manual
+    paths borrowed.
 
 ## Validation
 

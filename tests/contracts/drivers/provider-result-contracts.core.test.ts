@@ -510,6 +510,14 @@ describe("provider row-count normalization", () => {
   });
 
   test.each([
+    ["rowsAsArray", { rowsAsArray: true }],
+    ["nestTables", { nestTables: true }],
+    ["nestTables", { nestTables: "." }],
+  ] as const)("mysql2 rejects enabled %s", (optionName, options) => {
+    expect(() => new MySQL2Driver({ options })).toThrow(optionName);
+  });
+
+  test.each([
     [
       "all-mutation results",
       [

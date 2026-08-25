@@ -16,7 +16,12 @@ import {
 } from "@client/client";
 import type { Schema } from "@client/types";
 import Database from "better-sqlite3";
-import { Driver, type DriverResultParser } from "../driver";
+import {
+  activateConsumableResultProducer,
+  deactivateConsumableResultProducer,
+  registerConsumableResultCandidate,
+} from "../consumable-result-candidate";
+import { type AnyDriver, Driver, type DriverResultParser } from "../driver";
 import {
   convertValuesForSQLite,
   isSQLiteBinaryValue,
@@ -59,35 +64,64 @@ export type SQLite3ClientConfig<C extends DriverConfig> = SQLite3DriverOptions &
 // ============================================================
 
 export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
+  private static readonly canonicalExecuteEntry =
+    SQLite3Driver.prototype._execute;
+  private static readonly canonicalExecute = SQLite3Driver.prototype.execute;
+  private static readonly canonicalRunStatement =
+    SQLite3Driver.prototype.runStatement;
+  private static readonly canonicalDriverParseResult =
+    sqliteResultParser.parseResult;
+
   readonly adapter: DatabaseAdapter = new SQLiteAdapter();
   readonly maxBindParametersPerStatement: number | undefined = 999;
   readonly result: DriverResultParser = sqliteResultParser;
   protected override readonly serializeTransactions = true;
 
   private readonly driverOptions: SQLite3DriverOptions;
+  private readonly ownsClient: boolean;
+  private readonly canonicalAdapterParseResult =
+    this.adapter.result.parseResult;
 
   constructor(options: SQLite3DriverOptions = {}) {
     super("sqlite", "sqlite3");
     this.driverOptions = options;
+    this.ownsClient = options.client === undefined;
 
     if (options.client) {
       this.client = options.client;
     }
+    if (SQLite3Driver.isConsumableCandidate(this)) {
+      registerConsumableResultCandidate(
+        this,
+        SQLite3Driver.canonicalExecuteEntry,
+        SQLite3Driver.isConsumableCandidate,
+        SQLite3Driver.isConsumableProducer
+      );
+    }
   }
 
   protected async initClient(): Promise<SQLite3Database> {
+    deactivateConsumableResultProducer(this);
     const dataDir = this.driverOptions.dataDir ?? ":memory:";
     const options = this.driverOptions.options ?? {};
+    const isConsumableClient = SQLite3Driver.isConsumableCandidate(this);
 
     const db = new Database(dataDir, options);
     // better-sqlite3 happens to enable this already; stated explicitly so FK
     // enforcement is a viborm guarantee, not an inherited library default.
     db.pragma("foreign_keys = ON");
+    if (isConsumableClient && SQLite3Driver.isConsumableCandidate(this)) {
+      activateConsumableResultProducer(this, db);
+    }
     return db;
   }
 
   protected async closeClient(db: SQLite3Database): Promise<void> {
-    db.close();
+    try {
+      db.close();
+    } finally {
+      deactivateConsumableResultProducer(this, db);
+    }
   }
 
   protected async execute<T>(
@@ -132,6 +166,39 @@ export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
     return { rows: [] as T[], rowCount: result.changes };
   }
 
+  private static isConsumableProducer(
+    driver: AnyDriver,
+    client: object
+  ): boolean {
+    if (!(driver instanceof SQLite3Driver)) return false;
+    return (
+      SQLite3Driver.isConsumableCandidate(driver) &&
+      Object.getPrototypeOf(client) === Database.prototype &&
+      driver.client === client
+    );
+  }
+
+  private static isConsumableCandidate(driver: AnyDriver): boolean {
+    if (!(driver instanceof SQLite3Driver)) return false;
+    return (
+      driver.ownsClient &&
+      driver.driverOptions.client === undefined &&
+      driver.driverOptions.options?.nativeBinding === undefined &&
+      SQLite3Driver.hasCanonicalProducerSurface(driver)
+    );
+  }
+
+  private static hasCanonicalProducerSurface(driver: SQLite3Driver): boolean {
+    return (
+      Object.getPrototypeOf(driver) === SQLite3Driver.prototype &&
+      driver._execute === SQLite3Driver.canonicalExecuteEntry &&
+      driver.execute === SQLite3Driver.canonicalExecute &&
+      driver.runStatement === SQLite3Driver.canonicalRunStatement &&
+      driver.result.parseResult === SQLite3Driver.canonicalDriverParseResult &&
+      driver.adapter.result.parseResult === driver.canonicalAdapterParseResult
+    );
+  }
+
   /**
    * SQLite has no isolation-level statement: one writer at a time on one
    * connection makes every transaction serializable already. `Serializable` is
@@ -169,8 +236,12 @@ export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
       rollback: () => executeOrClose("ROLLBACK"),
       close: () => {
         if (shouldClose) {
-          client.close();
-          this.client = null;
+          try {
+            client.close();
+          } finally {
+            deactivateConsumableResultProducer(this, client);
+            this.client = null;
+          }
         }
       },
     });

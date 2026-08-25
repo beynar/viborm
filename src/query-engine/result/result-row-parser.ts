@@ -48,8 +48,10 @@ export function parseResultDefault(
   operation: Operation,
   raw: unknown,
   shape: ExpectedResultShape | undefined,
-  parsers: RowValueParsers,
-  exactFields?: ExactFieldCapture
+  parsers: RowValueParsers | undefined,
+  exactFields?: ExactFieldCapture,
+  consumableRows?: unknown[],
+  compiledRoot?: CompiledRowParser
 ): unknown {
   if (isBatchOperation(operation)) {
     return parseMutationCountFor(ctx, operation, raw);
@@ -77,7 +79,9 @@ export function parseResultDefault(
       raw,
       shape,
       parsers,
-      exactFields
+      exactFields,
+      compiledRoot,
+      raw === consumableRows
     );
   }
 
@@ -88,11 +92,22 @@ export function parseResultDefault(
       raw,
       shape,
       parsers,
-      exactFields
+      exactFields,
+      compiledRoot,
+      raw === consumableRows
     );
   }
 
-  return parseRowArray(ctx, operation, raw, shape, parsers, exactFields);
+  return parseRowArray(
+    ctx,
+    operation,
+    raw,
+    shape,
+    parsers,
+    exactFields,
+    compiledRoot,
+    raw === consumableRows
+  );
 }
 
 /**
@@ -110,8 +125,10 @@ function parseRequiredSingleRow(
   operation: Operation,
   raw: unknown[],
   shape: ExpectedResultShape | undefined,
-  parsers: RowValueParsers,
-  exactFields?: ExactFieldCapture
+  parsers: RowValueParsers | undefined,
+  exactFields?: ExactFieldCapture,
+  compiledRoot?: CompiledRowParser,
+  useConsumable = false
 ): Record<string, unknown> {
   if (raw.length !== 1) {
     return malformedResult(
@@ -133,7 +150,17 @@ function parseRequiredSingleRow(
   }
   if (shape) assertExpectedRowKeys(ctx, operation, row, shape);
   const keys = Object.keys(row);
-  return parseRow(ctx, operation, row, keys, shape, parsers, exactFields);
+  return parseRow(
+    ctx,
+    operation,
+    row,
+    keys,
+    shape,
+    parsers,
+    exactFields,
+    compiledRoot,
+    useConsumable
+  );
 }
 
 function parseRowArray(
@@ -141,8 +168,10 @@ function parseRowArray(
   operation: Operation,
   raw: unknown[],
   shape: ExpectedResultShape | undefined,
-  parsers: RowValueParsers,
-  exactFields?: ExactFieldCapture
+  parsers: RowValueParsers | undefined,
+  exactFields?: ExactFieldCapture,
+  compiledRoot?: CompiledRowParser,
+  useConsumable = false
 ): Record<string, unknown>[] {
   const rows = normalizeResultRows(ctx, operation, raw);
   const [first] = rows;
@@ -161,16 +190,18 @@ function parseRowArray(
     assertUniformRowKeys(ctx, operation, rows, keys);
   }
   const model = ctx.model;
-  const rowParser = createRowParser(
-    ctx,
-    operation,
-    keys,
-    model,
-    shape,
-    parsers,
-    exactFields
-  );
-  return parseResultRows(rows, rowParser);
+  const rowParser =
+    compiledRoot ??
+    createRowParser(
+      ctx,
+      operation,
+      keys,
+      model,
+      shape,
+      requireRowValueParsers(ctx, operation, parsers),
+      exactFields
+    );
+  return parseResultRows(rows, rowParser, useConsumable);
 }
 
 /**
@@ -182,19 +213,55 @@ function parseRow(
   row: Record<string, unknown>,
   keys: readonly string[],
   shape: ExpectedResultShape | undefined,
-  parsers: RowValueParsers,
-  exactFields?: ExactFieldCapture
+  parsers: RowValueParsers | undefined,
+  exactFields?: ExactFieldCapture,
+  compiledRoot?: CompiledRowParser,
+  useConsumable = false
 ): Record<string, unknown> {
   const model = ctx.model;
-  return createRowParser(
-    ctx,
-    operation,
-    keys,
-    model,
-    shape,
-    parsers,
-    exactFields
-  )(row);
+  const rowParser =
+    compiledRoot ??
+    createRowParser(
+      ctx,
+      operation,
+      keys,
+      model,
+      shape,
+      requireRowValueParsers(ctx, operation, parsers),
+      exactFields
+    );
+  return useConsumable && rowParser.containerPolicy !== "copy"
+    ? rowParser(row, row)
+    : rowParser(row);
+}
+
+export type RowContainerPolicy = "identity" | "reusable" | "copy";
+
+export interface CompiledRowParser {
+  (
+    row: Record<string, unknown>,
+    parserOwnedResult?: Record<string, unknown>
+  ): Record<string, unknown>;
+  readonly containerPolicy: RowContainerPolicy;
+}
+
+function requireRowValueParsers(
+  ctx: ResultParser,
+  operation: Operation,
+  parsers: RowValueParsers | undefined
+): RowValueParsers {
+  if (parsers) return parsers;
+  return malformedResult(ctx, operation, "the row parser is absent");
+}
+
+function compiledRowParser(
+  parse: (
+    row: Record<string, unknown>,
+    parserOwnedResult?: Record<string, unknown>
+  ) => Record<string, unknown>,
+  containerPolicy: RowContainerPolicy
+): CompiledRowParser {
+  return Object.assign(parse, { containerPolicy });
 }
 
 /**
@@ -209,7 +276,7 @@ export function createRowParser(
   shape: ExpectedResultShape | undefined,
   parsers: RowValueParsers,
   exactFields?: ExactFieldCapture
-): (row: Record<string, unknown>) => Record<string, unknown> {
+): CompiledRowParser {
   const scalars: Record<string, Scalar> = model["~"].state.scalars;
   const relations: Record<string, AnyRelation> = model["~"].state.relations;
   const len = keys.length;
@@ -226,12 +293,14 @@ export function createRowParser(
   const identityEnabled = ctx.nativeScalarPassthrough;
   const identityGuards: IdentityGuard[] = new Array(len);
   let allIdentity = identityEnabled && len > 0;
+  let preservesKeys = true;
 
   for (let i = 0; i < len; i++) {
     const key = keys[i]!;
 
     if (key === EMPTY_ROW_RESULT_KEY) {
       allIdentity = false;
+      preservesKeys = false;
       steps[i] = (_result, value) => {
         if (parseSafeCountValue(value) !== 1) {
           malformedResult(
@@ -246,6 +315,7 @@ export function createRowParser(
 
     if (key === VECTOR_DISTANCE_RESULT_KEY) {
       allIdentity = false;
+      preservesKeys = false;
       steps[i] = (result, value) => {
         result._distance = parseVectorDistanceValue(ctx, operation, value);
       };
@@ -297,6 +367,7 @@ export function createRowParser(
 
     if (key === RELATION_COUNTS_RESULT_KEY) {
       allIdentity = false;
+      preservesKeys = false;
       const expectedRelations = shape?.relationCounts;
       if (!(expectedRelations && expectedRelations.size > 0)) {
         malformedResult(
@@ -353,6 +424,7 @@ export function createRowParser(
     const aggregateName = getAggregateResultName(key);
     if (aggregateName) {
       allIdentity = false;
+      preservesKeys = false;
       const aggregateShape = shape?.aggregates.get(key);
       steps[i] = (result, value) => {
         result[aggregateName] = parsers.parseAggregate(
@@ -373,8 +445,11 @@ export function createRowParser(
     );
   }
 
-  const buildRow = (row: Record<string, unknown>): Record<string, unknown> => {
-    const result: Record<string, unknown> = {};
+  const buildRow = (
+    row: Record<string, unknown>,
+    initialResult?: Record<string, unknown>
+  ): Record<string, unknown> => {
+    const result: Record<string, unknown> = initialResult ?? {};
     const exact: Record<string, unknown> | undefined = exactFields
       ? {}
       : undefined;
@@ -386,20 +461,20 @@ export function createRowParser(
   };
 
   if (!allIdentity) {
-    return buildRow;
+    return compiledRowParser(
+      (row, parserOwnedResult) => buildRow(row, parserOwnedResult),
+      preservesKeys ? "reusable" : "copy"
+    );
   }
 
-  // Whole-row passthrough: every column is an identity-eligible scalar. When
-  // ALL cells are already native, the built object is byte-identical to the
-  // input row — same keys, same insertion order (the driver already aliased
-  // columns to field names and the full path assigns them in `keys` order),
-  // same values — so the fresh per-row allocation is skipped and the driver's
-  // row is returned as-is. Its keys were asserted to match the requested shape
-  // upstream. A single non-native cell falls the row back to the full build.
-  return (row) => {
+  // Whole-row passthrough: every column is an identity-eligible scalar. This is
+  // the pre-existing Postgres-adapter fast path and applies equally to driver
+  // and manual parsing. A non-native cell uses the full parser; JSON-owned rows
+  // keep their in-place fallback, while borrowed rows copy.
+  return compiledRowParser((row, parserOwnedResult) => {
     for (let i = 0; i < len; i++) {
       if (!identityGuards[i]!(row[keys[i]!])) {
-        return buildRow(row);
+        return buildRow(row, parserOwnedResult);
       }
     }
     if (exactFields) {
@@ -408,5 +483,5 @@ export function createRowParser(
       exactFields.rows.push(exact);
     }
     return row;
-  };
+  }, "identity");
 }

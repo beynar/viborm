@@ -31,6 +31,7 @@ type Attributes = import("@opentelemetry/api").Attributes;
 // Package version for tracer identification
 const TRACER_NAME = "viborm";
 const TRACER_VERSION = VIBORM_VERSION;
+const SHOULD_TRACE_SPAN = Symbol("viborm.shouldTraceSpan");
 
 /**
  * Extended span options with VibORM-specific attributes
@@ -98,7 +99,7 @@ export interface TracerWrapper {
  * No-op tracer that passes through callbacks without creating spans.
  * Used when OpenTelemetry is not available.
  */
-const noopTracer: TracerWrapper = Object.freeze({
+const noopTracer: TracerWrapper = {
   async startActiveSpan<T>(
     _options: VibORMSpanOptions,
     fn: (span?: Span) => T | Promise<T>
@@ -120,7 +121,11 @@ const noopTracer: TracerWrapper = Object.freeze({
   isEnabled(): boolean {
     return false;
   },
+};
+Object.defineProperty(noopTracer, SHOULD_TRACE_SPAN, {
+  value: () => false,
 });
+Object.freeze(noopTracer);
 
 /**
  * Create a tracer wrapper instance
@@ -357,7 +362,22 @@ export function createTracerWrapper(
       return otel !== null;
     },
   };
+  Object.defineProperty(wrapper, SHOULD_TRACE_SPAN, {
+    value: (name: VibORMSpanName) => !shouldIgnoreSpan(name),
+  });
   return Object.freeze(wrapper);
+}
+
+export function shouldTraceSpan(
+  tracer: TracerWrapper,
+  name: VibORMSpanName
+): boolean {
+  try {
+    const shouldTrace = Reflect.get(tracer, SHOULD_TRACE_SPAN);
+    return typeof shouldTrace !== "function" || shouldTrace(name) !== false;
+  } catch {
+    return true;
+  }
 }
 
 function safely(action: () => void): void {

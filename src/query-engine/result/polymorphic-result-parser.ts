@@ -20,6 +20,7 @@ import type { ResultParser } from "./ResultParser";
 import { parseSafeCountValue } from "./result-count-parser";
 import {
   assertExpectedRowKeys,
+  decodeRelationCarrier,
   isResultRow,
   malformedResult,
   normalizeResultRows,
@@ -67,10 +68,11 @@ export function parsePolymorphicValueDefault(
       ctx,
       ownerModel,
       relationName,
-      value,
+      decodeRelationCarrier(value),
       operation,
       shape,
-      parsers
+      parsers,
+      typeof value === "string"
     );
   }
   if (value === null) {
@@ -81,7 +83,9 @@ export function parsePolymorphicValueDefault(
       "a required polymorphic relation returned empty storage"
     );
   }
-  if (!isResultRow(value)) {
+  const carrier = decodeRelationCarrier(value);
+  const ownsCarrierRows = typeof value === "string";
+  if (!isResultRow(carrier)) {
     return malformedResult(
       ctx,
       operation,
@@ -89,11 +93,11 @@ export function parsePolymorphicValueDefault(
     );
   }
 
-  const state = value[POLYMORPHIC_RESULT_STATE_KEY];
+  const state = carrier[POLYMORPHIC_RESULT_STATE_KEY];
   if (state === POLYMORPHIC_RESULT_STATE_INVALID) {
     if (
-      !hasExactKeys(value, INVALID_KEYS) ||
-      typeof value.hasId !== "boolean"
+      !hasExactKeys(carrier, INVALID_KEYS) ||
+      typeof carrier.hasId !== "boolean"
     ) {
       return malformedResult(
         ctx,
@@ -109,7 +113,7 @@ export function parsePolymorphicValueDefault(
   }
   if (
     state !== POLYMORPHIC_RESULT_STATE_LINKED ||
-    !hasExactKeys(value, LINKED_KEYS)
+    !hasExactKeys(carrier, LINKED_KEYS)
   ) {
     return malformedResult(
       ctx,
@@ -118,7 +122,7 @@ export function parsePolymorphicValueDefault(
     );
   }
 
-  const publicType = value.type;
+  const publicType = carrier.type;
   if (typeof publicType !== "string") {
     return malformedResult(
       ctx,
@@ -135,10 +139,10 @@ export function parsePolymorphicValueDefault(
     );
   }
 
-  if (value.data === null) {
+  if (carrier.data === null) {
     throw missingTargetRecord(ownerModel, relationName, publicType);
   }
-  if (!isResultRow(value.data)) {
+  if (!isResultRow(carrier.data)) {
     return malformedResult(
       ctx,
       operation,
@@ -146,14 +150,20 @@ export function parsePolymorphicValueDefault(
     );
   }
 
-  assertExpectedRowKeys(ctx, operation, value.data, variant.shape);
-  const parseTarget = parsers.getRowParser(
+  assertExpectedRowKeys(ctx, operation, carrier.data, variant.shape);
+  const compiled = parsers.getRowParser(
     variant.model,
-    value.data,
+    carrier.data,
     operation,
     variant.shape
   );
-  return { type: publicType, data: parseTarget(value.data) };
+  return {
+    type: publicType,
+    data:
+      ownsCarrierRows && compiled.containerPolicy !== "copy"
+        ? compiled(carrier.data, carrier.data)
+        : compiled(carrier.data),
+  };
 }
 
 /**
@@ -177,7 +187,8 @@ function parseCollectionValue(
   value: unknown,
   operation: Operation,
   shape: ExpectedPolymorphicResultShape,
-  parsers: RowValueParsers
+  parsers: RowValueParsers,
+  ownsCarrierRows: boolean
 ): unknown {
   // A collection has no null state: emptiness is the empty array.
   if (value === null) {
@@ -226,8 +237,8 @@ function parseCollectionValue(
   }
 
   // PASS ONE — integrity only, every configured arm, no visible row parsed.
-  // `shape.variants` is built by walking the storage members, so this loop and
-  // the next both run in DECLARATION ORDER.
+  // `shape.variants` is built by walking the storage members, so every pass
+  // below runs in DECLARATION ORDER.
   const visibleArms: {
     readonly publicType: string;
     readonly variant: ExpectedPolymorphicVariantShape;
@@ -262,15 +273,46 @@ function parseCollectionValue(
     if (rows) visibleArms.push({ publicType, variant, rows });
   }
 
-  // PASS TWO — visible rows only, concatenated into one FRESH array.
-  const parsed: unknown[] = [];
-  for (const { publicType, variant, rows } of visibleArms) {
-    const armRows = parseArmRows(
+  if (!ownsCarrierRows) {
+    const parsed: unknown[] = [];
+    for (const { publicType, variant, rows } of visibleArms) {
+      const armRows = parseBorrowedArmRows(
+        ctx,
+        ownerModel,
+        relationName,
+        publicType,
+        rows,
+        operation,
+        variant,
+        parsers
+      );
+      parsed.push(...(variant.reversed ? armRows.reverse() : armRows));
+    }
+    return parsed;
+  }
+
+  // PASS TWO — validate every visible envelope and target shape before any
+  // parser-owned target row is changed in place.
+  const validatedArms = visibleArms.map(({ publicType, variant, rows }) => ({
+    publicType,
+    variant,
+    targets: validateArmRows(
       ctx,
       ownerModel,
       relationName,
       publicType,
       rows,
+      operation,
+      variant
+    ),
+  }));
+
+  // PASS THREE — visible rows only, concatenated into one FRESH array.
+  const parsed: unknown[] = [];
+  for (const { publicType, variant, targets } of validatedArms) {
+    const armRows = parseArmRows(
+      publicType,
+      targets,
       operation,
       variant,
       parsers
@@ -278,6 +320,60 @@ function parseCollectionValue(
     // A negative arm-local `take` ran as a reversed window; restore this arm's
     // logical order BEFORE it joins the flat array, never after.
     parsed.push(...(variant.reversed ? armRows.reverse() : armRows));
+  }
+  return parsed;
+}
+
+function parseBorrowedArmRows(
+  ctx: ResultParser,
+  ownerModel: Model<any>,
+  relationName: string,
+  publicType: string,
+  rows: unknown[],
+  operation: Operation,
+  variant: ExpectedPolymorphicVariantShape,
+  parsers: RowValueParsers
+): unknown[] {
+  const envelopes = normalizeResultRows(ctx, operation, rows);
+  const parsed: unknown[] = new Array(envelopes.length);
+  let parseTarget:
+    | ((row: Record<string, unknown>) => Record<string, unknown>)
+    | undefined;
+  for (let index = 0; index < envelopes.length; index++) {
+    const envelope = envelopes[index]!;
+    if (
+      envelope[POLYMORPHIC_RESULT_STATE_KEY] !==
+        POLYMORPHIC_RESULT_STATE_LINKED ||
+      !hasExactKeys(envelope, LINKED_KEYS) ||
+      envelope.type !== publicType
+    ) {
+      malformedResult(
+        ctx,
+        operation,
+        "a polymorphic collection element envelope is malformed or mistagged"
+      );
+    }
+    if (envelope.data === null) {
+      throw missingTargetRecord(ownerModel, relationName, publicType);
+    }
+    if (!isResultRow(envelope.data)) {
+      malformedResult(
+        ctx,
+        operation,
+        "a polymorphic collection element target is not a non-null object"
+      );
+    }
+    assertExpectedRowKeys(ctx, operation, envelope.data, variant.shape);
+    parseTarget ??= parsers.getRowParser(
+      variant.model,
+      envelope.data,
+      operation,
+      variant.shape
+    );
+    parsed[index] = {
+      type: publicType,
+      data: parseTarget(envelope.data),
+    };
   }
   return parsed;
 }
@@ -315,17 +411,52 @@ function readArmRows(
 }
 
 function parseArmRows(
+  publicType: string,
+  targets: readonly Record<string, unknown>[],
+  operation: Operation,
+  variant: ExpectedPolymorphicVariantShape,
+  parsers: RowValueParsers
+): unknown[] {
+  const parsed: unknown[] = new Array(targets.length);
+  const first = targets[0];
+  if (!first) return parsed;
+  const parseTarget = parsers.getRowParser(
+    variant.model,
+    first,
+    operation,
+    variant.shape
+  );
+  if (parseTarget.containerPolicy === "copy") {
+    for (let index = 0; index < targets.length; index++) {
+      const target = targets[index]!;
+      parsed[index] = {
+        type: publicType,
+        data: parseTarget(target),
+      };
+    }
+    return parsed;
+  }
+  for (let index = 0; index < targets.length; index++) {
+    const target = targets[index]!;
+    parsed[index] = {
+      type: publicType,
+      data: parseTarget(target, target),
+    };
+  }
+  return parsed;
+}
+
+function validateArmRows(
   ctx: ResultParser,
   ownerModel: Model<any>,
   relationName: string,
   publicType: string,
   rows: unknown[],
   operation: Operation,
-  variant: ExpectedPolymorphicVariantShape,
-  parsers: RowValueParsers
-): unknown[] {
+  variant: ExpectedPolymorphicVariantShape
+): Record<string, unknown>[] {
   const envelopes = normalizeResultRows(ctx, operation, rows);
-  const parsed: unknown[] = new Array(envelopes.length);
+  const targets: Record<string, unknown>[] = new Array(envelopes.length);
   for (let index = 0; index < envelopes.length; index++) {
     const envelope = envelopes[index]!;
     if (
@@ -334,7 +465,7 @@ function parseArmRows(
       !hasExactKeys(envelope, LINKED_KEYS) ||
       envelope.type !== publicType
     ) {
-      return malformedResult(
+      malformedResult(
         ctx,
         operation,
         "a polymorphic collection element envelope is malformed or mistagged"
@@ -344,25 +475,16 @@ function parseArmRows(
       throw missingTargetRecord(ownerModel, relationName, publicType);
     }
     if (!isResultRow(envelope.data)) {
-      return malformedResult(
+      malformedResult(
         ctx,
         operation,
         "a polymorphic collection element target is not a non-null object"
       );
     }
     assertExpectedRowKeys(ctx, operation, envelope.data, variant.shape);
-    const parseTarget = parsers.getRowParser(
-      variant.model,
-      envelope.data,
-      operation,
-      variant.shape
-    );
-    parsed[index] = {
-      type: publicType,
-      data: parseTarget(envelope.data),
-    };
+    targets[index] = envelope.data;
   }
-  return parsed;
+  return targets;
 }
 
 function missingTargetRecord(

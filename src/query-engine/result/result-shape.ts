@@ -173,7 +173,6 @@ function buildModelShape(
     selectedOutputKeys,
     index
   );
-
   const relationCountSelections = [
     getOwnValue(select, "_count"),
     getOwnValue(include, "_count"),
@@ -205,7 +204,9 @@ function buildModelShape(
       "Relation counts cannot be selected together with a model field named '_count'."
     );
   }
-  if (relationCounts.size > 0) rawKeys.push(RELATION_COUNTS_RESULT_KEY);
+  if (relationCounts.size > 0) {
+    rawKeys.push(RELATION_COUNTS_RESULT_KEY);
+  }
 
   if (rawKeys.length === 0) {
     if (select) {

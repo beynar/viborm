@@ -23,6 +23,7 @@ import {
   type RowValueParsers,
 } from "./result-parser-contract";
 import {
+  type CompiledRowParser,
   createRowParser,
   type ExactFieldCapture,
   parseResultDefault,
@@ -52,13 +53,30 @@ type ResultParserChain = (
   operation: Operation,
   shape?: ExpectedResultShape
 ) => unknown;
-type RowParser = ReturnType<typeof createRowParser>;
-
 interface CachedRowParser {
   readonly model: Model<any>;
   readonly operation: Operation;
-  readonly parse: RowParser;
+  readonly parser: CompiledRowParser;
 }
+
+type PrepareResultRowsFriend = (
+  parser: ResultParser,
+  operation: Operation,
+  shape: ExpectedResultShape
+) => CompiledRowParser | undefined;
+
+type ParsePreparedResultFriend = <T>(
+  parser: ResultParser,
+  operation: Operation,
+  raw: unknown,
+  args: Record<string, unknown>,
+  shape: ExpectedResultShape,
+  compiled: CompiledRowParser,
+  consumableRows?: unknown[]
+) => T;
+
+let prepareResultRowsFriend: PrepareResultRowsFriend;
+let parsePreparedResultFriend: ParsePreparedResultFriend;
 
 /**
  * Look one contextual slot up in a per-source-model chain cache, creating the
@@ -107,7 +125,8 @@ export class ResultParser {
   >();
   /**
    * Keyed by the requested SHAPE, then narrowed by `(model, operation)` in the
-   * small array below.
+   * small array below. One compiled callable lazily exposes the consumable
+   * invocation only when a parser-owned carrier asks for it.
    *
    * This one is sound as it stands and is deliberately left alone: a shape
    * describes the exact columns ONE compiled read asked for, so it is already a
@@ -141,6 +160,36 @@ export class ResultParser {
     this.model = model;
     this.driver = driver;
     this.decimalDecode = decimalDecode;
+  }
+
+  static {
+    prepareResultRowsFriend = (parser, operation, shape) =>
+      shape.carrier === "rows"
+        ? createRowParser(
+            parser,
+            operation,
+            shape.rawKeys,
+            parser.model,
+            shape,
+            parser.createRowValueParsers()
+          )
+        : undefined;
+    parsePreparedResultFriend = <T>(
+      parser: ResultParser,
+      operation: Operation,
+      raw: unknown,
+      args: Record<string, unknown>,
+      shape: ExpectedResultShape,
+      compiled: CompiledRowParser,
+      consumableRows?: unknown[]
+    ): T =>
+      parser.parseWithChain<T>(
+        operation,
+        raw,
+        args,
+        shape,
+        parser.createResultChain(undefined, consumableRows, compiled, operation)
+      );
   }
 
   get providerName(): string {
@@ -287,7 +336,7 @@ export class ResultParser {
     shape: ExpectedResultShape | undefined,
     parsers: RowValueParsers,
     knownKeys?: readonly string[]
-  ): RowParser {
+  ): CompiledRowParser {
     if (!shape) {
       const keys = knownKeys ?? Object.keys(row);
       return createRowParser(this, operation, keys, model, shape, parsers);
@@ -297,14 +346,14 @@ export class ResultParser {
     if (cached) {
       for (const rowParser of cached) {
         if (rowParser.model === model && rowParser.operation === operation) {
-          return rowParser.parse;
+          return rowParser.parser;
         }
       }
     }
 
     const keys = knownKeys ?? Object.keys(row);
     const parse = createRowParser(this, operation, keys, model, shape, parsers);
-    const rowParser: CachedRowParser = { model, operation, parse };
+    const rowParser: CachedRowParser = { model, operation, parser: parse };
     if (cached) cached.push(rowParser);
     else this.nestedRowParsers.set(shape, [rowParser]);
     return parse;
@@ -346,15 +395,39 @@ export class ResultParser {
   }
 
   private createResultChain(
-    exactFields?: ExactFieldCapture
+    exactFields?: ExactFieldCapture,
+    consumableRows?: unknown[],
+    compiledRoot?: CompiledRowParser,
+    compiledOperation?: Operation
   ): ResultParserChain {
-    const parsers = this.createRowValueParsers();
-    const defaultParse = (
-      value: unknown,
-      operation: Operation,
-      shape?: ExpectedResultShape
-    ) =>
-      parseResultDefault(this, operation, value, shape, parsers, exactFields);
+    let parsers = compiledRoot ? undefined : this.createRowValueParsers();
+    const defaultParse: ResultParserChain = compiledRoot
+      ? (value, operation, shape) => {
+          const activeCompiled =
+            operation === compiledOperation ? compiledRoot : undefined;
+          if (!activeCompiled) parsers ??= this.createRowValueParsers();
+          return parseResultDefault(
+            this,
+            operation,
+            value,
+            shape,
+            parsers,
+            exactFields,
+            activeCompiled && value === consumableRows
+              ? consumableRows
+              : undefined,
+            activeCompiled
+          );
+        }
+      : (value, operation, shape) =>
+          parseResultDefault(
+            this,
+            operation,
+            value,
+            shape,
+            parsers,
+            exactFields
+          );
     const adapterParse = (
       value: unknown,
       operation: Operation,
@@ -478,17 +551,21 @@ export class ResultParser {
         provider,
         operation
       );
-    const adapterDecode = (value: unknown, type: string) =>
-      this.adapter.result.parseField(value, type, (transformed) =>
-        transformed === undefined ? value : transformed
-      );
+    let adapterInput: unknown;
+    const continueAdapter = (transformed?: unknown) =>
+      transformed === undefined ? adapterInput : transformed;
+    const adapterDecode = (value: unknown, type: string) => {
+      const previousInput = adapterInput;
+      adapterInput = value;
+      try {
+        return this.adapter.result.parseField(value, type, continueAdapter);
+      } finally {
+        // One ResultParser can be entered recursively by synchronous custom
+        // middleware. Restore its outer `next()` fallback before returning.
+        adapterInput = previousInput;
+      }
+    };
     const driverParseField = this.driver?.result?.parseField;
-    const middlewareDecode = driverParseField
-      ? (value: unknown) =>
-          driverParseField(value, scalarType, (transformed, transformedType) =>
-            adapterDecode(transformed, transformedType)
-          )
-      : (value: unknown) => adapterDecode(value, scalarType);
 
     // TRANSITIONAL: the legacy `decimal: "number"` hatch. It runs AFTER
     // the exact parse, so the lossy step is one clearly-marked conversion at the
@@ -519,7 +596,9 @@ export class ResultParser {
       }
       let transformed: unknown;
       try {
-        transformed = middlewareDecode(value);
+        transformed = driverParseField
+          ? driverParseField(value, scalarType, adapterDecode)
+          : adapterDecode(value, scalarType);
       } catch (error) {
         if (isVibORMError(error)) throw error;
         return malformedScalarValue(
@@ -545,6 +624,36 @@ export function parseResult<T>(
   expectedShape?: ExpectedResultShape
 ): T {
   return parser.parse<T>(operation, raw, args, expectedShape);
+}
+
+/** Compile the root row program before an eligible direct read executes. */
+export function prepareResultRows(
+  parser: ResultParser,
+  operation: Operation,
+  shape: ExpectedResultShape
+): CompiledRowParser | undefined {
+  return prepareResultRowsFriend(parser, operation, shape);
+}
+
+/** Internal executor-only friend; deliberately absent from package exports. */
+export function parsePreparedResult<T>(
+  parser: ResultParser,
+  operation: Operation,
+  raw: unknown,
+  args: Record<string, unknown>,
+  shape: ExpectedResultShape,
+  compiled: CompiledRowParser,
+  consumableRows?: unknown[]
+): T {
+  return parsePreparedResultFriend<T>(
+    parser,
+    operation,
+    raw,
+    args,
+    shape,
+    compiled,
+    consumableRows
+  );
 }
 
 export { parseMutationCount } from "./result-count-parser";

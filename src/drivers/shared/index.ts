@@ -6,7 +6,6 @@
 
 export {
   type MySQLConnectionOptions,
-  mysqlResultParser,
   parseMySQLUrl,
 } from "./mysql-utils";
 export { normalizePostgresRowCount } from "./postgres-result";

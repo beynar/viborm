@@ -8,11 +8,13 @@
  * Uses the shared `_capture.ts` helpers — no bespoke capture code.
  */
 
+import { createExecutionContext } from "@drivers/execution-context";
 import { isVibORMError } from "@errors";
 import { createInstrumentationContext } from "@instrumentation/context";
 import {
   ATTR_DB_COLLECTION,
   ATTR_DB_OPERATION_NAME,
+  ATTR_DB_QUERY_PARAMETER_PREFIX,
   ATTR_DB_QUERY_TEXT,
   ATTR_DB_SYSTEM,
   SPAN_DISCONNECT,
@@ -123,6 +125,92 @@ describe("driver instrumentation wiring", () => {
     expect(capture.events[0]!.params).toBeUndefined();
   });
 
+  it("does not inspect nested diagnostics when no consumer can disclose params", async () => {
+    let diagnosticReads = 0;
+    const parameter = Object.defineProperty({}, "secret", {
+      enumerable: true,
+      get() {
+        diagnosticReads += 1;
+        return "private";
+      },
+    });
+    const driver = new FakeDriver();
+    let generatedCorrelations = 0;
+    const executionContext = createExecutionContext(
+      { model: "user", operation: "findMany" },
+      undefined,
+      () => {
+        generatedCorrelations += 1;
+        return "lazy-correlation";
+      }
+    );
+
+    await expect(
+      driver._executeRaw<Row>(QUERY, [parameter], executionContext)
+    ).resolves.toEqual({ rowCount: 1, rows: [{ id: 1 }] });
+    expect(diagnosticReads).toBe(0);
+    expect(generatedCorrelations).toBe(0);
+
+    driver.failWith = new Error("provider failure");
+    await expect(
+      driver._executeRaw(QUERY, [parameter], executionContext)
+    ).rejects.toBeInstanceOf(Error);
+    expect(diagnosticReads).toBe(0);
+    expect(generatedCorrelations).toBe(1);
+    expect(executionContext.correlationId).toBe("lazy-correlation");
+    expect(generatedCorrelations).toBe(1);
+
+    const cacheOnlyDriver = new FakeDriver();
+    cacheOnlyDriver.setInstrumentation(
+      createInstrumentationContext({
+        logging: { cache: true, includeParams: true },
+      })
+    );
+    await cacheOnlyDriver._executeRaw(QUERY, [parameter]);
+    expect(diagnosticReads).toBe(0);
+
+    const ignoredTraceDriver = new FakeDriver();
+    ignoredTraceDriver.setInstrumentation(
+      createInstrumentationContext({
+        tracing: { ignoreSpanTypes: [SPAN_EXECUTE], includeParams: true },
+      })
+    );
+    await ignoredTraceDriver._executeRaw(QUERY, [parameter]);
+    expect(diagnosticReads).toBe(0);
+  });
+
+  it("snapshots once for each effective parameter-disclosure channel", async () => {
+    const contexts = [
+      createInstrumentationContext({
+        diagnostics: { includeParams: true },
+      }),
+      createInstrumentationContext({
+        logging: { includeParams: true, query: () => undefined },
+      }),
+      createInstrumentationContext({
+        tracing: { includeParams: true },
+      }),
+    ];
+
+    for (const context of contexts) {
+      let diagnosticSnapshots = 0;
+      const parameter = new Proxy(
+        { secret: "private" },
+        {
+          ownKeys(target) {
+            diagnosticSnapshots += 1;
+            return Reflect.ownKeys(target);
+          },
+        }
+      );
+      const driver = new FakeDriver();
+      driver.setInstrumentation(context);
+
+      await driver._executeRaw(QUERY, [parameter]);
+      expect(diagnosticSnapshots).toBe(1);
+    }
+  });
+
   it("logs an error event (not query) on failure and propagates the thrown error", async () => {
     const capture = captureLogs();
     const ctx = createInstrumentationContext({
@@ -153,20 +241,33 @@ describe("driver instrumentation wiring", () => {
   });
 
   it("snapshots opted-in parameter diagnostics before caller and provider mutation", async () => {
+    recorder = withOtelRecorder();
     const capture = captureLogs();
     const driver = new FakeDriver();
     driver.setInstrumentation(
       createInstrumentationContext({
         diagnostics: { includeParams: true },
         logging: { error: capture.callback, includeParams: true },
+        tracing: { includeParams: true },
       })
     );
     driver.failWith = new Error("private provider failure");
+    const nestedParameter = { value: "nested-original" };
     driver.mutateParams = (params) => {
+      nestedParameter.value = "provider-mutated";
       params[0] = { value: "provider-mutated" };
     };
 
-    const parameter = { value: "original" };
+    let diagnosticSnapshots = 0;
+    const parameter = new Proxy(
+      { nestedParameter, value: "original" },
+      {
+        ownKeys(target) {
+          diagnosticSnapshots += 1;
+          return Reflect.ownKeys(target);
+        },
+      }
+    );
     const input: unknown[] = [parameter];
     const execution = driver
       ._executeRaw(QUERY, input, {
@@ -177,13 +278,28 @@ describe("driver instrumentation wiring", () => {
       .catch((error) => error);
 
     input[0] = { value: "caller-array-mutated" };
-    parameter.value = "caller-object-mutated";
+    nestedParameter.value = "caller-object-mutated";
     const error = await execution;
 
     if (!isVibORMError(error)) throw new Error("expected a VibORMError");
-    expect(error.meta.params).toEqual([{ value: "original" }]);
+    expect(diagnosticSnapshots).toBe(1);
+    expect(error.meta.params).toEqual([
+      { nestedParameter: { value: "nested-original" }, value: "original" },
+    ]);
     expect(capture.events).toHaveLength(1);
-    expect(capture.events[0]?.params).toEqual([{ value: "original" }]);
+    expect(capture.events[0]?.params).toEqual([
+      { nestedParameter: { value: "nested-original" }, value: "original" },
+    ]);
+    expect(
+      recorder.find(SPAN_EXECUTE)?.attributes[
+        `${ATTR_DB_QUERY_PARAMETER_PREFIX}.0`
+      ]
+    ).toBe(
+      JSON.stringify({
+        nestedParameter: { value: "nested-original" },
+        value: "original",
+      })
+    );
     expect(JSON.stringify({ error, events: capture.events })).not.toContain(
       "mutated"
     );

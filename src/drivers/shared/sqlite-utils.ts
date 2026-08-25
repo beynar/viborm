@@ -7,7 +7,6 @@
 import {
   normalizeCountResult,
   parseIntegerBoolean,
-  tryParseJsonString,
 } from "@adapters/shared/result-parsing";
 import type { DriverResultParser } from "../driver";
 
@@ -42,7 +41,6 @@ export function convertValuesForSQLite(values: unknown[]): unknown[] {
  * Shared result parser for SQLite drivers.
  * Handles:
  * - COUNT normalization (BigInt -> number)
- * - JSON string parsing for relations
  * - Boolean integer parsing (0/1 -> false/true)
  */
 export const sqliteResultParser: DriverResultParser = {
@@ -52,10 +50,6 @@ export const sqliteResultParser: DriverResultParser = {
       if (normalized !== undefined) return next(normalized, operation);
     }
     return next(raw, operation);
-  },
-  parseRelation: (value, next) => {
-    const parsed = tryParseJsonString(value);
-    return next(parsed === undefined ? value : parsed);
   },
   parseField: (value, scalarType, next) => {
     if (scalarType === "boolean") {

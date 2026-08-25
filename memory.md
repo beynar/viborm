@@ -65,6 +65,13 @@
   deriving capabilities: may the public slot be empty, can stored membership be
   cleared while both records survive, and is non-empty membership valid. Do not
   use one `optional` flag as a proxy for all three.
+- When compressing a public API, inventory the existing owner of every required
+  fact before proposing syntax. Do not add a selector, options object, or atomic
+  configuration as a second spelling for facts the current fluent API already
+  states; a new spelling earns its place only by representing independent truth.
+- When a definition pipeline mutates hydrated or cached names, place identity
+  preflight before the first mutation—not merely before the final index or I/O.
+  Pin that a refused rebind leaves earlier consumers' names and behavior intact.
 - For one dependency repair in a workspace with ranged versions, do not use a
   broad `pnpm update`: it refreshes unrelated lockfile resolutions.
   Change the one manifest entry, then run an offline lockfile-only install and
@@ -108,11 +115,26 @@
   construction throughput. Repeated `+=` can benchmark faster while retaining a
   large cons-string tree; use flat assembly when the cached representation must
   stay compact, and verify both first-use latency and post-GC retention.
+- Treat allocation-profile stack attribution as inclusive unless the report
+  explicitly names self size. Do not describe an inclusive frame as one direct
+  allocation or copy; isolate the mechanism with a controlled before/after
+  probe, then confirm its effect on the faithful complete workload.
+- Keep HeapProfiler sampling uncertainty separate from run-to-run MAD. Clearing
+  2×MAD does not make a delta trustworthy when it is smaller than the
+  independent A/B sampling standard error. Preserve that result as a diagnostic
+  and repeat it at an appropriate interval before using it as a keep decision.
 - When V8 allocation sampling includes collected objects across many hot-path
   iterations, use a coarse interval such as 8 KiB; a 128-byte interval can make
-  the inspector response exceed Node's maximum string size. Reserve the fine
-  interval for one cold operation, measure an empty-profile control, and check
+  the inspector response exceed Node's maximum string size. Reserve a fine
+  interval for a bounded operation, measure an empty-profile control, and check
   retained heap in a fresh process without the profiler.
+- When replacing per-call callbacks with stable callbacks, measure retained heap
+  before keeping the change. Reuse an existing persistent closure in more than
+  one continuation role when signatures permit; otherwise a large transient
+  allocation win can hide a per-parser retained-state regression.
+- Size CPU and wall-time runs so each measured interval is long enough to
+  dominate timer and process-start noise. More short samples do not repair a
+  noisy interval; increase useful work per sample before interpreting MAD.
 - When asked to add regression coverage, test the existing public contract. Do
   not turn a documented limitation into an API or architecture redesign unless
   the user explicitly asks to change that contract. If an exact assertion would
@@ -137,3 +159,8 @@
   `INSERT ... SELECT ... FROM target` from a forbidden same-table subquery.
   Verify the final SQL on a real server instead of inferring legality from a
   nearby subquery restriction.
+- After a production deployment, verify the exact user-facing HTTPS path from
+  a real browser before declaring success. An independent fetch proxy proves
+  the origin is reachable, but it can bypass the user's DNS, TLS, and network
+  policy boundary; when the two disagree, inspect the local denial response and
+  report that boundary explicitly.

@@ -11,7 +11,7 @@
 import { createClient } from "@client/client";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import { push } from "@migrations";
-import { bench, describe } from "vitest";
+import { afterAll, bench, describe } from "vitest";
 import { sqliteUserPostSchema } from "../tests/fixtures/user-post-schema";
 
 const driver = new SQLite3Driver({ dataDir: ":memory:" });
@@ -33,33 +33,72 @@ for (let i = 0; i < POSTS; i++) {
   );
 }
 
+let sink = 0;
+
+function preparedOrThrow<T>(prepared: T | undefined): T {
+  if (!prepared)
+    throw new Error("Benchmark operation did not prepare one statement");
+  return prepared;
+}
+
+function prepareMutationForRaw(
+  operation: ReturnType<typeof client.user.create>
+) {
+  const prepared = operation.prepare();
+  if (prepared) return prepared;
+  const statement = operation.buildStatement();
+  if (!statement)
+    throw new Error("Benchmark mutation did not build one statement");
+  return driver._prepare(statement);
+}
+
+function firstOrThrow<T>(rows: readonly T[], name: string): T {
+  const first = rows[0];
+  if (!first) throw new Error(`${name} returned no rows`);
+  return first;
+}
+
+const findUniquePrepared = preparedOrThrow(
+  client.user.findUnique({ where: { id: "user_42" } }).prepare()
+);
+const findManyArgs = {
+  where: { published: true },
+  select: { id: true, title: true, views: true },
+  orderBy: { views: "desc" },
+  take: 20,
+} satisfies Parameters<typeof client.post.findMany>[0];
+const findManyPrepared = preparedOrThrow(
+  client.post.findMany(findManyArgs).prepare()
+);
+
 describe("e2e: read one row by id", () => {
   bench("raw SQL string", async () => {
-    await driver._executeRaw('SELECT * FROM "users" WHERE "id" = ? LIMIT 1', [
-      "user_42",
-    ]);
+    const raw = await driver._executeRaw(
+      findUniquePrepared.sql,
+      findUniquePrepared.params
+    );
+    sink += Number(raw.rows[0]?.age ?? 0);
   });
 
   bench("viborm findUnique", async () => {
-    await client.user.findUnique({ where: { id: "user_42" } });
+    const row = await client.user.findUnique({ where: { id: "user_42" } });
+    if (!row) throw new Error("VibORM findUnique returned no row");
+    sink += row.age ?? 0;
   });
 });
 
 describe("e2e: read 20 rows with filter + order", () => {
   bench("raw SQL string", async () => {
-    await driver._executeRaw(
-      'SELECT "id", "title", "views" FROM "posts" WHERE "published" = ? ORDER BY "views" DESC LIMIT 20',
-      [1]
+    const raw = await driver._executeRaw(
+      findManyPrepared.sql,
+      findManyPrepared.params
     );
+    sink += raw.rows.length + Number(raw.rows[0]?.views ?? 0);
   });
 
   bench("viborm findMany", async () => {
-    await client.post.findMany({
-      where: { published: true },
-      select: { id: true, title: true, views: true },
-      orderBy: { views: "desc" },
-      take: 20,
-    });
+    const rows = await client.post.findMany(findManyArgs);
+    sink += rows.length + firstOrThrow(rows, "VibORM findMany").views;
   });
 });
 
@@ -78,27 +117,54 @@ describe("e2e: read 20 rows with relation", () => {
   }
 
   bench("raw exact prepared SQL", async () => {
-    await driver._executeRaw(prepared.sql, prepared.params);
+    const raw = await driver._executeRaw(prepared.sql, prepared.params);
+    const carrier = Object.values(raw.rows[0] ?? {}).find(
+      (value) => typeof value === "string" && value.includes("User ")
+    );
+    if (typeof carrier !== "string") {
+      throw new Error(
+        "The exact relation SQL did not return its nested carrier"
+      );
+    }
+    sink += raw.rows.length + carrier.charCodeAt(carrier.indexOf("User ") + 5);
   });
 
   bench("viborm findMany with include", async () => {
-    await client.post.findMany(args);
+    const rows = await client.post.findMany(args);
+    sink +=
+      rows.length +
+      (firstOrThrow(rows, "VibORM relation read").author?.name?.charCodeAt(5) ??
+        0);
   });
 });
 
 describe("e2e: insert one row", () => {
   let rawId = 0;
   let ormId = 0;
+  const rawTemplateId = "__raw_e2e_id__";
+  const rawOperation = client.user.create({
+    data: {
+      id: rawTemplateId,
+      name: "Bench",
+      email: "bench@example.com",
+      age: 30,
+    },
+  });
+  const rawPrepared = prepareMutationForRaw(rawOperation);
+  const rawPreparedParams = rawPrepared.params ?? [];
+  const rawIdIndex = rawPreparedParams.indexOf(rawTemplateId);
+  if (rawIdIndex < 0)
+    throw new Error("The raw create floor lost its ID parameter");
+  const rawParams = [...rawPreparedParams];
 
   bench("raw SQL string", async () => {
-    await driver._executeRaw(
-      'INSERT INTO "users" ("id", "name", "email", "age") VALUES (?, ?, ?, ?)',
-      [`raw_${rawId++}`, "Bench", "bench@example.com", 30]
-    );
+    rawParams[rawIdIndex] = `raw_${rawId++}`;
+    const raw = await driver._executeRaw(rawPrepared.sql, rawParams);
+    sink += Number(raw.rows[0]?.age ?? raw.rowCount);
   });
 
   bench("viborm create", async () => {
-    await client.user.create({
+    const row = await client.user.create({
       data: {
         id: `orm_${ormId++}`,
         name: "Bench",
@@ -106,5 +172,11 @@ describe("e2e: insert one row", () => {
         age: 30,
       },
     });
+    sink += row.age ?? 0;
   });
+});
+
+afterAll(async () => {
+  if (sink < 0) throw new Error("Unreachable benchmark sink");
+  await driver.disconnect();
 });

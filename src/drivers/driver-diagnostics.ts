@@ -9,14 +9,18 @@ import { snapshotExecutionContext } from "./execution-context";
 import type { QueryExecutionContext } from "./types";
 
 export const BATCH_DIAGNOSTIC_PARAMS = Symbol("viborm.batchDiagnosticParams");
+export const EMPTY_DIAGNOSTIC_PARAMS: unknown[] = [];
+Object.freeze(EMPTY_DIAGNOSTIC_PARAMS);
 
 export function snapshotDiagnosticParameters(
   params: readonly unknown[]
 ): unknown[] {
-  return sanitizeDiagnosticParameters([...params], {
+  const snapshot = sanitizeDiagnosticParameters(params, {
     includeParams: true,
     includeSql: true,
   });
+  Object.freeze(snapshot);
+  return snapshot;
 }
 
 export function findUniqueExecutionContextIndex(

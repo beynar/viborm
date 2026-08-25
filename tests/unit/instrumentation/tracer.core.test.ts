@@ -8,6 +8,7 @@ import {
 import {
   createTracerWrapper,
   getNoopTracer,
+  shouldTraceSpan,
 } from "@src/instrumentation/tracer";
 import {
   type OtelRecorder,
@@ -340,6 +341,8 @@ describe("createTracerWrapper (OTel present)", () => {
 
     expect(result).toBe("ran");
     expect(countOf(SPAN_VALIDATE)).toBe(before);
+    expect(shouldTraceSpan(tracer, SPAN_VALIDATE)).toBe(false);
+    expect(shouldTraceSpan(tracer, SPAN_EXECUTE)).toBe(true);
   });
 
   it("snapshots ignore patterns when the tracer is created", async () => {
@@ -468,6 +471,7 @@ describe("getNoopTracer", () => {
 
     expect(result).toBe("value");
     expect(tracer.isEnabled()).toBe(false);
+    expect(shouldTraceSpan(tracer, SPAN_OPERATION)).toBe(false);
   });
 
   it("startActiveSpanSync runs the callback and returns its value", () => {
@@ -491,5 +495,17 @@ describe("getNoopTracer", () => {
 
   it("returns the shared singleton instance across calls", () => {
     expect(getNoopTracer()).toBe(getNoopTracer());
+  });
+
+  it("treats unknown and hostile span decisions conservatively", () => {
+    const undecidedTracer = { ...getNoopTracer() };
+    const hostileTracer = new Proxy(getNoopTracer(), {
+      get() {
+        throw new Error("hostile tracer");
+      },
+    });
+
+    expect(shouldTraceSpan(undecidedTracer, SPAN_OPERATION)).toBe(true);
+    expect(shouldTraceSpan(hostileTracer, SPAN_OPERATION)).toBe(true);
   });
 });

@@ -117,3 +117,14 @@ describe.each(dialects)("$name count result carrier", (dialect) => {
     ).toThrow();
   });
 });
+
+test("MySQL adapter normalizes a provider count expression", () => {
+  expect(
+    parseResult(
+      parserFor(new MySQLAdapter(), schema.metric),
+      "count",
+      [{ "COUNT(*)": "3" }],
+      {}
+    )
+  ).toBe(3);
+});

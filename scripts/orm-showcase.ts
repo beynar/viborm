@@ -32,6 +32,10 @@ const post = s
     published: s.boolean().default(false),
     views: s.int().default(0),
     authorId: s.string(),
+    media: s.toMany({
+      video: () => video,
+      image: () => image,
+    }),
     author: s
       .toOne(() => user)
       .fields("authorId")
@@ -52,7 +56,26 @@ const comment = s
   })
   .map("showcase_comments");
 
-const schema = { user, post, comment };
+// The two members of `post.media`. Direct-only: a post reaches its media, and
+// neither medium declares an inverse back, so each member is one membership
+// table and nothing else.
+const video = s
+  .model({
+    id: s.string().id(),
+    url: s.string(),
+    seconds: s.int(),
+  })
+  .map("showcase_videos");
+
+const image = s
+  .model({
+    id: s.string().id(),
+    url: s.string(),
+    alt: s.string(),
+  })
+  .map("showcase_images");
+
+const schema = { user, post, comment, video, image };
 
 const spanExporter = new InMemorySpanExporter();
 const tracerProvider = new NodeTracerProvider({
