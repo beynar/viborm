@@ -76,16 +76,14 @@ export function parseRelationValueDefault(
       keys = Object.keys(first);
       assertUniformRowKeys(ctx, operation, rows, keys);
     }
-    const itemParser = parsers.getRowParser(
+    const compiled = parsers.getRowParser(
       targetModel,
       first,
       operation,
       shape,
       keys
     );
-    const parsed = ownsCarrierRows
-      ? parseResultRows(rows, (row) => itemParser(row, true))
-      : parseResultRows(rows, itemParser);
+    const parsed = parseResultRows(rows, compiled, ownsCarrierRows);
     // A negative nested `take` was executed as a reversed window — restore the
     // logical order here, exactly as the top level does for its own rows.
     return shape?.reversed ? parsed.reverse() : parsed;
@@ -99,11 +97,8 @@ export function parseRelationValueDefault(
     );
   }
   if (shape) assertExpectedRowKeys(ctx, operation, carrier, shape);
-  const parseTarget = parsers.getRowParser(
-    targetModel,
-    carrier,
-    operation,
-    shape
-  );
-  return ownsCarrierRows ? parseTarget(carrier, true) : parseTarget(carrier);
+  const compiled = parsers.getRowParser(targetModel, carrier, operation, shape);
+  return ownsCarrierRows && compiled.containerPolicy !== "copy"
+    ? compiled(carrier, carrier)
+    : compiled(carrier);
 }

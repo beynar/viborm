@@ -242,7 +242,8 @@ one cumulative ownership-copy audit after the individually attributable edits.
 | Reference-free SQL materialization | Kept | The zero-reference full-allocation target improved by 1.41% beyond 2×MAD using the canonical reference predicate. |
 | Generic idiom sweep | Rejected | Each occurrence needs its own hot-path evidence and semantic proof. |
 | Lazy `ResultParser` maps | Rejected | Scalar parse allocation improved, but the variant-collection parse CPU and wall controls regressed beyond 2×MAD. All four maps remain eager. |
-| Field-chain specialization | Reprofile the residue | Driver-wrapper specialization and native scalar/whole-row identity guards have landed. Measure only the legacy-decimal wrapper and enum-membership residue. |
+| Reused scalar middleware continuations | Kept | Stable per-scalar continuations remove per-cell driver/adapter callback allocation without changing the middleware contract. SQLite 1,000-row full allocation fell 22.63%; the PGlite control stayed inside noise. |
+| Executor-proven consumable result rows | Kept | Exact stock SQLite3 and PGlite reads may reuse same-key inner row objects only when the active producer survives an execute-time proof and the compiled parser says `reusable`. The public outer array stays fresh; every custom/cache/transaction/batch/raw/manual route remains borrowed. |
 | Shared result-shape empties | Reprofile only | Compiled selection was rejected at its gate; the retained result-shape owner may be optimized only with fresh evidence and module-private read-only ownership. |
 | Memoized `defaultSelect` | Reprofile only | Compiled selection was rejected. Any memo belongs to the retained projection owner and needs explicit immutable ownership. |
 | Trim-free JSON carrier scan | Rejected | The declared 1,000-row parse-allocation target stayed inside noise and a full-operation wall control regressed. |
@@ -397,10 +398,10 @@ direct production edit beyond the independently measured units it audited.
 
 Units 1.2, 1.4 edit 1, 2.1, 2.6–2.7, the unmeasured arms of Unit 2.9,
 Unit 3.2, every Phase 4 prototype, Units 5.3 and 5.5, Units 6.2, 6.5, the
-standalone-null arm of 6.6a, 6.6b, 6.7–6.8, and 6.9 remain deferred until an
-honest workload reaches them. Diagnostic/context ownership,
-queue timing, and public `PendingOperation` compatibility remain broad
-prototypes.
+standalone-null arm of 6.6a, 6.6b, 6.7–6.8, and 6.9b–6.9d remain deferred until
+an honest workload reaches them. Unit 6.9a landed as supporting ownership for
+the retained consumable-row unit. Diagnostic/context ownership, queue timing,
+and public `PendingOperation` compatibility remain broad prototypes.
 
 ## Phase 1 — Universal fast-path candidates
 
@@ -816,39 +817,113 @@ The query-engine layer includes the architecture contracts. There is no
 
 ### Cross-driver result-transport closure (SQLite3 and PGlite evidence)
 
-The implementation program used exact baseline
-`52eef9ebfc710407e1e5fe6042e2ed5a11adf19e` and narrowed performance evidence
-to SQLite3 and PGlite. The broader provider catalog remains useful for
-correctness and future fixtures, but it is not performance evidence for other
-drivers.
+The early program at `52eef9ebfc710407e1e5fe6042e2ed5a11adf19e`
+correctly rejected positional transport and a broad provider-row ownership
+claim. A later, narrower program retained executor-proven consumption without
+publishing ownership. Its exact baseline is
+`766e4e68d96a1ba8a50ce7072ba153a5a2f83b01`; the temporary measured candidate
+is `b8a46c3ec01c1511d9b5182dd4c9de621b14fd95`. The final active tree
+`0ce1997eaa5cd71f3ae6c521e513a5f67cc1f0a2` was confirmed as an exact match to
+that candidate. All final comparisons used five alternating fresh-process
+pairs on Node 24.19.
+
+| Final exact confirmation | Allocation bytes/op | Allocation | CPU | Wall |
+|---|---:|---:|---:|---:|
+| SQLite3 `scalar-find-many-1000/full` | 1,531,699.288 -> 1,436,882.040 | -94,817.248 (-6.1903%) | -1.8124% | -2.1588% |
+| PGlite `provider-mixed-scalar-1000/full` | 7,123,755.04 -> 6,876,296.48 | -247,458.56 (-3.4737%) | -1.1859%, inside noise | -1.2904%, inside noise |
+| PGlite `provider-identity-1000/full`, 128-byte diagnostic | 1,121,435.28 -> 1,121,100.56 | -334.72 (-0.02985%), neutral | not rerun | not rerun |
+
+The governing user-plan disposition is **KEEP**. Both declared allocation
+families improved beyond 2xMAD, CPU and wall time did not regress, identity and
+complete-operation controls stayed below the 10% ceiling, and semantic digests
+and SQL witnesses were exact. The authoritative reports are:
+
+- `/tmp/viborm-final-exact-sqlite-512.json`, SHA-256
+  `221d0c71f87beab981e147b4018a758e74b9df20d273dcf29cccff158405d9c2`;
+- `/tmp/viborm-final-exact-pglite-mixed-512.json`, SHA-256
+  `0a9e019b33af76942fcf5d2a0c3f1f04d0214d649fac17f5501e7a8122f36055`;
+- `/tmp/viborm-final-exact-pglite-identity-128.json`, SHA-256
+  `62752aeedd7d1e71beee08f7e513284b9ba7099a91b663adc07ce398389c218e`.
+
+Keep the extra-strict 512-byte PGlite identity result visible, but label it
+correctly. It reported +261 B/op (+0.186%) just beyond 2xMAD in the combined
+predecessor matrix, while the independent A/B HeapProfiler sampling standard
+error was about 3.39 KB. Two 128-byte diagnostics reversed its sign, and the
+exact-runtime final diagnostic above was neutral. This is a useful false-red
+diagnostic, not the governing plan target. Its retained artifacts are
+`/tmp/viborm-final2-all-baseline.ndjson` (SHA-256
+`379cd0b90146a0a72d542107b5e56afc8c700e24e6f656a520240aa0d41c722a`),
+`/tmp/viborm-final2-all-candidate.ndjson` (SHA-256
+`9c51b204963c20697cc4029a2bfbd69f7676c1a33c39724daec16d50dd237ca5`),
+and `/tmp/viborm-final2-all-order.tsv` (SHA-256
+`84f3fe1aea6e8f86aede7a30c9cdf3ef1614c868575e6cb427cb5cb9e1bd5f37`);
+that candidate was `3f2d3568...` under protocol `99ef6884...`.
+
+The earlier full matrix measured the exact predecessor tree and found SQLite
+identity -9.24%, SQLite mixed -6.03%, and PGlite mixed -3.47%, with every RSS
+movement below 1%. The only final runtime change was the allocation-free
+substitution of a concrete-operation check with the operation shell's cohesive
+prepared-row capability. The exact-final confirmation did not rerun RSS, so the
+predecessor RSS controls remain historical evidence and are not relabeled as
+exact-final measurements.
+
+The retained architecture has one proof and one policy owner:
+
+- SQLite3 and PGlite register a candidate only for their exact stock driver,
+  internally created active client, and unchanged typed execution and parser
+  surfaces. Supplied clients, subclasses, overrides, and middleware fail closed.
+- `QueryEngine` resolves that candidate once. `OperationExecutor` keeps the
+  exact execute → active-producer proof → synchronous parse sequence lexical;
+  no marker, token, result property, operation field, or public API carries it.
+- The operation shell exposes one optional prepared-row capability. Parser,
+  expected shape, and compiled program remain executor-local; the generic
+  executor imports no concrete operation and ordinary shells allocate nothing.
+- The compiled parser alone chooses `identity`, `reusable`, or `copy`. The
+  public outer array is always fresh. Only same-key inner rows under a valid
+  proof can be mutated and reused; shape-changing rows copy.
+- Custom or supplied drivers, middleware, cache, transaction, array-batch, raw,
+  and manual-parser paths remain borrowed. Borrowed native nested rows that need
+  decoding copy; a nested graph created by `JSON.parse` may reuse safe same-key
+  rows only after complete structural validation. Borrowed nested graphs are
+  never mutated.
+
+That last ordering is deliberate: fixed and variant carrier validation is
+complete before the first parser-owned nested row changes. The variant path
+validates every arm, orphan fact, envelope, discriminator, and target shape
+before parsing visible rows.
+
+The historical claim that a profile showed a direct approximately 666 KB
+`parseResultRows` "second copy" was false. That value was inclusive stack
+attribution, not the function's self allocation. `parseResultRows` directly
+allocates the fresh outer array; rebuilding rows separately allocates object
+shells and property storage while copying references to existing scalar values.
+It does not reproduce all provider allocation. The retained six-column in-place
+probe predicted about 73.9 KB/op, and the faithful final SQLite workload saved
+about 94.8 KB/op. Neither result supports a 50% allocation claim.
 
 | Unit | Disposition | Production outcome |
 |---|---|---|
 | Typed fallback batches | Kept for correctness | Typed model and safe `Sql` statements use typed execution; only marked verbatim raw statements use raw execution. Exact large SQLite integers survive fallback batches. |
 | Positional transport | Rejected | SQLite3 full allocation regressed 11.11% and CPU 2.17%; PGlite allocation regressed 1.33%. All positional production paths were removed. |
-| Provider-row ownership | Rejected | The final reduced prototype still regressed SQLite mixed-provider wall time 1.976% (+51.06 us), beyond 2xMAD. No provider-row claim remains. |
-| Relation JSON ownership | Kept | The carrier parser is the sole JSON decoder. Graphs it creates are fully prevalidated and decoded in place; borrowed provider graphs use the copy path. Exact SQLite fixed/variant controls showed about 17-27% allocation reductions. |
+| Broad provider-owned named-row mutation | Rejected | The reduced historical prototype still regressed SQLite mixed-provider wall time 1.976% (+51.06 us), beyond 2xMAD. No durable provider-row ownership claim remains. |
+| Executor-proven consumable rows | Kept | The proof is stock-producer-specific and lexical; the compiled parser decides whether inner rows are reusable, while the public outer array remains fresh. |
+| Reused scalar middleware continuations | Kept | `ResultParser` compiles one adapter continuation per scalar chain and passes the adapter decoder directly as the driver continuation. SQLite 1,000-row full allocation fell 22.63%, CPU 3.65%, and wall 2.92%; PGlite controls stayed inside noise. |
+| Relation JSON ownership | Kept | The carrier parser is the sole JSON decoder. Graphs it creates are fully prevalidated before safe same-key nested rows can be decoded in place; borrowed shape-changing provider graphs copy. |
 | Diagnostic parameter demand | Kept pending final closure validation | Deep sanitization occurs once only when instrumentation or errors can disclose parameters; execution keeps its shallow parameter copy. |
 | Lazy correlation identity | Kept pending final closure validation | Correlation identity is created on first observation and is reused only through trusted equivalent context. |
 
-Intermediate reports are
+Historical rejection reports remain at
 `/tmp/viborm-cross-provider.p4rgFL/reports/sqlite-pglite-owned-row-final.json`
 (SHA-256 `fb8cecf22dafbd1a70f25ab9627b6d8eae91b66185534a0427b8e21b59bb1a49`)
 and `sqlite-pglite-owned-row-trusted.json`
 (SHA-256 `7dc51ceb1ff188018b3c1a06eadfb8ef602cb693aeeb9a399f3feb88d3775d47`).
-They are rejection evidence. The relation-JSON percentages come from earlier
-exact controls, not a final cumulative keep report.
-
-Retained-heap deltas are signed diagnostics: a forced-GC sample can be
-negative. The keep gate uses total `peakRssBytes`. The final retained control
-passed at SQLite3 -2.19% and PGlite +0.96% (neutral), but memory acceptance does
-not rescue a CPU or wall-time failure.
+They establish rejection of the broader predecessor, not the retained lexical
+proof. The relation-JSON percentages come from earlier exact controls, not a
+final cumulative keep report.
 
 The D1 benchmark runner is unavailable. The PlanetScale fixture begins at a
 decoded SDK result and cannot prove wire transport or response-byte savings.
-No performance claim is made for either provider. A compiler-to-parser signal
-for operations that can benefit from ownership is deferred and is not proposed
-inside this program.
+No performance claim is made for either provider.
 
 ### Unit 3.0 — Landed ResultParser baseline — no implementation work
 
@@ -861,7 +936,10 @@ The `4cf5c7fe` baseline already implements:
 - reuse of compiled nested parsers in fixed-target and variant-target relation
   reads.
 
-Do not reimplement these changes or compare against their pre-change state.
+The retained consumable-row work extends that owner: every compiled row parser
+now publishes its one `identity` / `reusable` / `copy` policy, and no executor,
+driver, or relation parser independently reclassifies the row. Do not
+reimplement these changes or compare against their pre-change state.
 
 ### Unit 3.1 — Lazily allocate all four ResultParser caches
 
@@ -893,22 +971,30 @@ The relation caches remain contextual slot caches keyed by `(source model,
 field)` and read emptiness/storage from the supplied `ResolvedRelationIndex`.
 Never key them only by a reusable terminal relation object.
 
-### Unit 3.2 — Specialize field chains and cache enum membership
+### Unit 3.2 — Reuse compiled field continuations
 
-The baseline already omits the driver-field wrapper when
-`driver.result.parseField` is absent and already has provider-certified native
-scalar/whole-row identity guards. Reprofile only the remaining chain work:
+**Measured disposition: retained.** The existing `ResultParser` remains the one
+middleware-chain owner. It now creates the adapter `next()` continuation once
+per scalar chain and passes the adapter decoder itself as the driver's stable
+continuation. The active adapter input is saved and restored around each
+synchronous middleware call, preserving `next()` fallback semantics under
+reentrant custom middleware without allocating a stack or a callback per cell.
 
-- no legacy-decimal wrapper unless number compatibility is active;
-- keep adapter field parsing unless the existing explicit adapter-plus-driver
-  passthrough capability and per-value guard prove identity;
-- provider decoding errors retain the same typed error and operation metadata.
+The final five-pair alternating SQLite `scalar-find-many-1000/full` report:
 
-Cache enum membership in a module-local `WeakMap<Scalar, ReadonlySet<string>>`.
-Do not add a mutable cache to public scalar/model state.
+| Metric | Baseline | Candidate | Delta |
+|---|---:|---:|---:|
+| Allocation | 1,472,366.80 B/op | 1,139,139.84 B/op | -22.6321% |
+| Framework CPU | 901.23 us/op | 868.31 us/op | -3.6528% |
+| Wall time | 752.96 us/op | 731.01 us/op | -2.9162% |
+| Retained heap | 1,137.20 B/op | 1,159.20 B/op | +1.9346% |
+| Peak RSS | 95,502,336 B | 93,945,856 B | -1.6298% |
 
-This is a prototype, not a mechanical rewrite. Keep it only if scalar and enum
-parse workloads improve beyond noise.
+Allocation, CPU, and wall cleared 2xMAD; retained heap and peak RSS cleared the
+10% ceiling. A PGlite mixed-scalar 1,000-row control stayed within noise on all
+three timed metrics. The callback protocol, scalar semantics, error translation,
+and driver -> adapter -> strict-parser order did not change. The enum set remains
+owned by the already-cached scalar field chain; no second cache was added.
 
 ### Unit 3.3 — Avoid trimmed JSON relation copies
 
@@ -1267,7 +1353,7 @@ Fresh source profiles classified the remaining reached sites as follows:
 
 | Profile cluster | Ownership classification and decision |
 | --- | --- |
-| Scalar reads | `ResultParser` field/row parsing, SQL and identifier assembly, argument/rest expansion, and the driver-owned execution-parameter snapshot. The public row, statement, and defensive boundary are required; no residual private copy remained. |
+| Scalar reads | At the historical `95e606da...` -> `fc93a4a2...` audit, `ResultParser` field/row parsing, SQL and identifier assembly, argument/rest expansion, and the driver-owned execution-parameter snapshot remained. The later Phase 3 stock-producer proof supersedes only the conclusion about reusable same-key row shells; it leaves every other boundary intact. |
 | Fixed-target reads | Provider row/JSON decoding plus fresh nested public row and collection results. Those are required assembly; the previously measured trim candidate remains rejected. |
 | Flat update | Validation, SQL/result-shape assembly, and one residual `selectedEntries` filter-result array. Unit 5.4a isolated that array and was rejected by its fixed-read wall control. |
 | Fixed-target create | Mutable final INSERT/effective-value assembly plus already-rejected Create scalar, ordinary row-shape, and `TargetConstraint` candidates. One demanded-set spread/filter residue was isolated as Unit 5.4b and rejected by its atomic-batch control. |
@@ -1428,8 +1514,9 @@ These units were discovered after Phases 1-5 were written. Their numbering does
 not require waiting for every trust-boundary prototype, but the execution order
 above still governs. Unit 6.1 is retained. Units 6.3–6.4 and Unit 6.6a's
 standalone-optional subunit were measured and rejected. Units 6.2, 6.5, the
-remaining Unit 6.6 arms, Units 6.7–6.8, and Unit 6.9 remain deferred. Keep each
-unit independently attributable.
+remaining Unit 6.6 arms, Units 6.7–6.8, and Units 6.9b–6.9d remain deferred.
+Keep each unit independently attributable. Unit 6.9a later landed as supporting
+ownership for the retained consumable-row unit.
 
 ### Unit 6.1 — Remove identifier-construction protocol churn
 
@@ -1774,17 +1861,22 @@ batch-only driver and assert provider call counts alongside timing.
 These candidates are broad but individually tiny. Prototype them one at a
 time; do not keep them merely because the source looks cleaner.
 
-#### 6.9a — One stateless executor per engine
+#### 6.9a — One executor pair per engine
 
-`OperationExecutor` retains only its `QueryEngine`; execution state is local to
-each method call. Demand-drive one executor per `QueryEngine` and let
-`PendingOperation` use it instead of retaining an `executorInstance` and
-`executor()` cache per operation. A transaction-bound engine owns its own
-executor.
+**Measured disposition: retained as part of the consumable-row unit, not as an
+independent performance claim.** `QueryEngine` resolves the stock
+consumable-result candidate once and owns the ordinary executor. When that
+candidate exists it also owns one candidate-free executor for cache-managed
+reads; otherwise both paths share the ordinary executor. `PendingOperation`
+receives the selected executor instead of allocating or caching one per public
+operation. A transaction-bound engine owns its own candidate-free execution
+context because its driver is not the registered active producer.
 
-Verify concurrent operations do not share mutable execution state and that no
-runtime write-engine import cycle is introduced. Measure the first operation
-separately from sustained operations.
+`OperationExecutor` retains the engine and the optional immutable candidate;
+all per-execution parser, shape, compiled program, proof, result, and output
+state stays local to the method call. Concurrent operations therefore share no
+mutable execution state. Do not fold the two executors together with a per-call
+cache/provider branch.
 
 #### 6.9b — Avoid default empty option bags
 
@@ -1872,8 +1964,11 @@ name.
 These are local reprofile-only candidates, not architectural debts scheduled
 for automatic deletion. Count-result transport remains outside this micro plan.
 Provider-certified scalar and whole-row identity parsing already exists for the
-proven native-passthrough subset; broader identity requires a complete
-adapter-plus-driver capability proof and is otherwise rejected.
+proven native-passthrough subset. The retained consumable-row path does not
+broaden identity: it separately requires an exact stock active-producer proof
+and lets the same compiled parser decide whether a same-key row is `reusable`.
+Broader identity without its complete adapter-plus-driver proof remains
+rejected.
 
 ## Rejected optimizations
 
@@ -1889,6 +1984,7 @@ Do not implement these as part of this plan:
 - delimiter-based replacements for semantic JSON keys;
 - frozen shared Maps/Sets as an immutability claim;
 - raw provider outer-array return;
+- provider ownership markers, tokens, or public row modes;
 - skipping adapter/driver parser callbacks based on provider names or function
   shape;
 - transaction-option validation removal;
@@ -1961,7 +2057,9 @@ The plan now targets six distinct costs instead of treating every allocation
 as equivalent:
 
 1. **Public-dispatch cost:** proxy envelopes, operation options, routing, and
-   per-operation executor ownership.
+   executor ownership. Per-operation executors are gone; one engine-owned
+   ordinary executor and, only when needed, one candidate-free cache executor
+   serve the client.
 2. **Validation and predicate cost:** optional-result boxes, traversal state,
    filter tuple arrays, closures, and unused expression branches.
 3. **Per-field SQL construction cost:** identifiers, projection arguments, and

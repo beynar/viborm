@@ -21,7 +21,12 @@ import {
   type Transaction,
 } from "@electric-sql/pglite";
 import { unsupportedGeospatial, unsupportedVector } from "@errors";
-import { Driver, type QueryExecutionContext } from "../driver";
+import {
+  activateConsumableResultProducer,
+  deactivateConsumableResultProducer,
+  registerConsumableResultCandidate,
+} from "../consumable-result-candidate";
+import { type AnyDriver, Driver, type QueryExecutionContext } from "../driver";
 import { normalizeProviderRowCount } from "../normalized-result";
 import {
   nestedTransactionDispatchError,
@@ -51,15 +56,22 @@ export type PGliteConfig<C extends DriverConfig> = PGliteDriverOptions & C;
 // ============================================================
 
 export class PGliteDriver extends Driver<PGlite, Transaction> {
+  private static readonly canonicalExecuteEntry =
+    PGliteDriver.prototype._execute;
+  private static readonly canonicalExecute = PGliteDriver.prototype.execute;
+
   readonly adapter: DatabaseAdapter;
   readonly maxBindParametersPerStatement: number | undefined = 65_535;
   protected override readonly serializeTransactions = true;
 
   private readonly driverOptions: PGliteDriverOptions;
+  private readonly ownsClient: boolean;
+  private readonly canonicalAdapterParseResult: DatabaseAdapter["result"]["parseResult"];
 
   constructor(options: PGliteDriverOptions = {}) {
     super("postgresql", "pglite");
     this.driverOptions = options;
+    this.ownsClient = options.client === undefined;
 
     if (options.client) {
       this.client = options.client;
@@ -70,9 +82,19 @@ export class PGliteDriver extends Driver<PGlite, Transaction> {
     if (!options.pgvector) adapter.vector = unsupportedVector;
     if (!options.postgis) adapter.geospatial = unsupportedGeospatial;
     this.adapter = adapter;
+    this.canonicalAdapterParseResult = adapter.result.parseResult;
+    if (PGliteDriver.isConsumableCandidate(this)) {
+      registerConsumableResultCandidate(
+        this,
+        PGliteDriver.canonicalExecuteEntry,
+        PGliteDriver.isConsumableCandidate,
+        PGliteDriver.isConsumableProducer
+      );
+    }
   }
 
   protected async initClient(): Promise<PGlite> {
+    deactivateConsumableResultProducer(this);
     const dataDir = this.driverOptions.dataDir;
     const userOptions = this.driverOptions.options ?? {};
     const options: PGliteOptions = {
@@ -85,16 +107,24 @@ export class PGliteDriver extends Driver<PGlite, Transaction> {
         ...userOptions.parsers,
       },
     };
+    const isConsumableClient = PGliteDriver.isConsumableCandidate(this);
 
     // PGlite.create accepts dataDir as first argument or in options
-    if (dataDir) {
-      return PGlite.create(dataDir, options);
+    const client = dataDir
+      ? await PGlite.create(dataDir, options)
+      : await PGlite.create(options);
+    if (isConsumableClient && PGliteDriver.isConsumableCandidate(this)) {
+      activateConsumableResultProducer(this, client);
     }
-    return PGlite.create(options);
+    return client;
   }
 
   protected async closeClient(client: PGlite): Promise<void> {
-    await client.close();
+    try {
+      await client.close();
+    } finally {
+      deactivateConsumableResultProducer(this, client);
+    }
   }
 
   protected async execute<T>(
@@ -133,6 +163,38 @@ export class PGliteDriver extends Driver<PGlite, Transaction> {
     };
   }
 
+  private static isConsumableProducer(
+    driver: AnyDriver,
+    client: object
+  ): boolean {
+    if (!(driver instanceof PGliteDriver)) return false;
+    return (
+      PGliteDriver.isConsumableCandidate(driver) &&
+      Object.getPrototypeOf(client) === PGlite.prototype &&
+      driver.client === client
+    );
+  }
+
+  private static isConsumableCandidate(driver: AnyDriver): boolean {
+    if (!(driver instanceof PGliteDriver)) return false;
+    return (
+      driver.ownsClient &&
+      driver.driverOptions.client === undefined &&
+      hasStockPGliteSubstrate(driver.driverOptions.options ?? {}) &&
+      PGliteDriver.hasCanonicalProducerSurface(driver)
+    );
+  }
+
+  private static hasCanonicalProducerSurface(driver: PGliteDriver): boolean {
+    return (
+      Object.getPrototypeOf(driver) === PGliteDriver.prototype &&
+      driver._execute === PGliteDriver.canonicalExecuteEntry &&
+      driver.execute === PGliteDriver.canonicalExecute &&
+      driver.result?.parseResult === undefined &&
+      driver.adapter.result.parseResult === driver.canonicalAdapterParseResult
+    );
+  }
+
   /**
    * PGlite is a full PostgreSQL, so the isolation level is a real post-BEGIN
    * statement. It is also single-connection, so top-level transactions queue —
@@ -157,11 +219,34 @@ export class PGliteDriver extends Driver<PGlite, Transaction> {
       run: (callback) => client.transaction(callback),
       callback: fn,
       close: async () => {
-        await client.close();
-        this.client = null;
+        try {
+          await client.close();
+        } finally {
+          deactivateConsumableResultProducer(this, client);
+          this.client = null;
+        }
       },
     });
   }
+}
+
+function hasStockPGliteSubstrate(options: PGliteOptions): boolean {
+  for (const key of Object.keys(options)) {
+    switch (key) {
+      case "dataDir":
+      case "username":
+      case "database":
+      case "debug":
+      case "relaxedDurability":
+      case "initialMemory":
+      case "parsers":
+      case "serializers":
+        break;
+      default:
+        return false;
+    }
+  }
+  return true;
 }
 
 // ============================================================

@@ -151,7 +151,7 @@ export function parsePolymorphicValueDefault(
   }
 
   assertExpectedRowKeys(ctx, operation, carrier.data, variant.shape);
-  const parseTarget = parsers.getRowParser(
+  const compiled = parsers.getRowParser(
     variant.model,
     carrier.data,
     operation,
@@ -159,9 +159,10 @@ export function parsePolymorphicValueDefault(
   );
   return {
     type: publicType,
-    data: ownsCarrierRows
-      ? parseTarget(carrier.data, true)
-      : parseTarget(carrier.data),
+    data:
+      ownsCarrierRows && compiled.containerPolicy !== "copy"
+        ? compiled(carrier.data, carrier.data)
+        : compiled(carrier.data),
   };
 }
 
@@ -335,6 +336,9 @@ function parseBorrowedArmRows(
 ): unknown[] {
   const envelopes = normalizeResultRows(ctx, operation, rows);
   const parsed: unknown[] = new Array(envelopes.length);
+  let parseTarget:
+    | ((row: Record<string, unknown>) => Record<string, unknown>)
+    | undefined;
   for (let index = 0; index < envelopes.length; index++) {
     const envelope = envelopes[index]!;
     if (
@@ -360,7 +364,7 @@ function parseBorrowedArmRows(
       );
     }
     assertExpectedRowKeys(ctx, operation, envelope.data, variant.shape);
-    const parseTarget = parsers.getRowParser(
+    parseTarget ??= parsers.getRowParser(
       variant.model,
       envelope.data,
       operation,
@@ -414,17 +418,29 @@ function parseArmRows(
   parsers: RowValueParsers
 ): unknown[] {
   const parsed: unknown[] = new Array(targets.length);
+  const first = targets[0];
+  if (!first) return parsed;
+  const parseTarget = parsers.getRowParser(
+    variant.model,
+    first,
+    operation,
+    variant.shape
+  );
+  if (parseTarget.containerPolicy === "copy") {
+    for (let index = 0; index < targets.length; index++) {
+      const target = targets[index]!;
+      parsed[index] = {
+        type: publicType,
+        data: parseTarget(target),
+      };
+    }
+    return parsed;
+  }
   for (let index = 0; index < targets.length; index++) {
     const target = targets[index]!;
-    const parseTarget = parsers.getRowParser(
-      variant.model,
-      target,
-      operation,
-      variant.shape
-    );
     parsed[index] = {
       type: publicType,
-      data: parseTarget(target, true),
+      data: parseTarget(target, target),
     };
   }
   return parsed;

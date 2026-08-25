@@ -11,8 +11,14 @@ import {
   buildGroupBy,
 } from "../operations";
 import type { QueryEngine } from "../query-engine";
-import { ResultParser } from "../result/ResultParser";
-import type { Operation } from "../types";
+import {
+  parsePreparedResult,
+  prepareResultRows,
+  ResultParser,
+} from "../result/ResultParser";
+import type { CompiledRowParser } from "../result/result-row-parser";
+import { buildExpectedResultShape } from "../result/result-shape";
+import type { ExpectedResultShape, Operation } from "../types";
 import { validate } from "../validator";
 import {
   type OperationFragment,
@@ -54,6 +60,10 @@ const OR_THROW_SUFFIX = "OrThrow";
  */
 export class ReadOperation {
   readonly mode: ExecutionMode;
+
+  get preparedResultRows(): this {
+    return this;
+  }
 
   private readonly engine: QueryEngine;
   private readonly model: Model<any>;
@@ -130,18 +140,82 @@ export class ReadOperation {
   }
 
   parse<T>(outputs: Readonly<Record<string, unknown>>): T {
-    const rows = outputs.result;
-    if (!Array.isArray(rows)) {
-      throw new QueryEngineError(
-        "query-engine-v2 read did not expose its result rows."
-      );
-    }
+    const rows = this.resultRows(outputs);
     const parsed = new ResultParser(
       this.engine,
       this.model,
       this.engine.driver,
       this.engine.decimalDecode
     ).parse<T>(this.base as Operation, rows, this.validatedArgs);
+    return this.finishParsedResult(parsed);
+  }
+
+  createResultParser(): ResultParser {
+    return new ResultParser(
+      this.engine,
+      this.model,
+      this.engine.driver,
+      this.engine.decimalDecode
+    );
+  }
+
+  createExpectedResultShape(): ExpectedResultShape | undefined {
+    return buildExpectedResultShape(
+      this.model,
+      this.base as Operation,
+      this.validatedArgs,
+      this.engine.relations
+    );
+  }
+
+  compileResultRows(
+    parser: ResultParser,
+    shape: ExpectedResultShape | undefined
+  ): CompiledRowParser | undefined {
+    return shape
+      ? prepareResultRows(parser, this.base as Operation, shape)
+      : undefined;
+  }
+
+  parseResultWithProgram<T>(
+    outputs: Readonly<Record<string, unknown>>,
+    parser: ResultParser,
+    shape: ExpectedResultShape | undefined,
+    compiled: CompiledRowParser | undefined,
+    consumableRows?: unknown[]
+  ): T {
+    const rows = this.resultRows(outputs);
+    const parsed =
+      compiled && shape
+        ? parsePreparedResult<T>(
+            parser,
+            this.base as Operation,
+            rows,
+            this.validatedArgs,
+            shape,
+            compiled,
+            consumableRows
+          )
+        : parser.parse<T>(
+            this.base as Operation,
+            rows,
+            this.validatedArgs,
+            shape
+          );
+    return this.finishParsedResult(parsed);
+  }
+
+  private resultRows(outputs: Readonly<Record<string, unknown>>): unknown[] {
+    const rows = outputs.result;
+    if (!Array.isArray(rows)) {
+      throw new QueryEngineError(
+        "query-engine-v2 read did not expose its result rows."
+      );
+    }
+    return rows;
+  }
+
+  private finishParsedResult<T>(parsed: T): T {
     // A negative `take` on findMany selects from the end but is executed as a
     // reversed positive limit; the row order is restored here, exactly as V1.
     const ordered =

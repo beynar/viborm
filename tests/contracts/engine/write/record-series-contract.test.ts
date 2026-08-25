@@ -169,9 +169,6 @@ class TracingBatchOnlyPGliteDriver extends BatchOnlyPGliteDriver {
     queries: BatchQuery[]
   ): Promise<QueryResult<T>[]> {
     this.batchCalls += 1;
-    for (const query of queries) {
-      traceStatement(this.events, query.sql, query.params ?? []);
-    }
     return super.executeBatch<T>(client, queries);
   }
 }

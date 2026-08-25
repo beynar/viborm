@@ -1,5 +1,9 @@
 // biome-ignore-all lint/style/useFilenamingConvention: OperationExecutor is the architecture name.
 import type { AnyDriver, QueryExecutionContext, QueryResult } from "@drivers";
+import {
+  type ConsumableResultCandidate,
+  executeConsumableResultCandidate,
+} from "@drivers/consumable-result-candidate";
 import { getExecutionInstrumentation } from "@drivers/execution-context";
 import {
   assertNormalizedBatchResults,
@@ -33,8 +37,11 @@ import { isSql, Sql } from "@sql";
 import { normalizedBindParameterLimit } from "../bind-budget";
 import { createCorrelationId } from "../execution-context";
 import type { QueryEngine } from "../query-engine";
+import type { ResultParser } from "../result/ResultParser";
+import type { CompiledRowParser } from "../result/result-row-parser";
 import { executeSkippableWrite } from "../skippable-write";
 import type {
+  ExpectedResultShape,
   Operation,
   PreparedBatchGuard,
   PreparedBatchOperation,
@@ -83,6 +90,22 @@ export type CommittedWriteSegmentNotification = () => Promise<void>;
 /** Conservatively invalidate after dispatch when provider acknowledgement is ambiguous. */
 export type WriteMayBeVisibleNotification = () => Promise<void>;
 
+interface PreparedResultRowsCapability {
+  createResultParser(): ResultParser;
+  createExpectedResultShape(): ExpectedResultShape | undefined;
+  compileResultRows(
+    parser: ResultParser,
+    shape: ExpectedResultShape | undefined
+  ): CompiledRowParser | undefined;
+  parseResultWithProgram<T>(
+    outputs: Readonly<Record<string, unknown>>,
+    parser: ResultParser,
+    shape: ExpectedResultShape | undefined,
+    compiled: CompiledRowParser | undefined,
+    consumableRows?: unknown[]
+  ): T;
+}
+
 /** Internal savepoint control flow for a duplicate-skipped series member. */
 class SkippedRecordSeriesMember extends Error {}
 
@@ -94,6 +117,7 @@ class SkippedRecordSeriesMember extends Error {}
  */
 export interface ExecutableOperation {
   readonly mode: "transaction" | "batch";
+  readonly preparedResultRows?: PreparedResultRowsCapability;
   /** Exact private disposition for a root INSERT whose duplicate skips its member. */
   readonly seriesRootConflict?: SeriesRootConflictDisposition;
   /**
@@ -213,9 +237,25 @@ function canBuildStatement(candidate: SingleStatementCandidate): boolean {
 
 export class OperationExecutor {
   private readonly engine: QueryEngine;
+  private readonly consumableResultCandidate:
+    | ConsumableResultCandidate
+    | undefined;
+  private readonly runStatementAtomic: <T>(
+    plan: SingleStatementCandidate,
+    operation: ExecutableOperation,
+    driver: AnyDriver,
+    context: QueryExecutionContext
+  ) => Promise<T>;
 
-  constructor(engine: QueryEngine) {
+  constructor(
+    engine: QueryEngine,
+    consumableResultCandidate?: ConsumableResultCandidate
+  ) {
     this.engine = engine;
+    this.consumableResultCandidate = consumableResultCandidate;
+    this.runStatementAtomic = consumableResultCandidate
+      ? this.runCandidateStatementAtomic
+      : this.runBorrowedStatementAtomic;
   }
 
   execute<T>(
@@ -1342,7 +1382,7 @@ export class OperationExecutor {
    * statement carries no unresolved reference (checked in {@link
    * canExecuteDirectly}), so it runs as-is with no materialization pass.
    */
-  private async runStatementAtomic<T>(
+  private async runBorrowedStatementAtomic<T>(
     plan: SingleStatementCandidate,
     operation: ExecutableOperation,
     driver: AnyDriver,
@@ -1368,6 +1408,86 @@ export class OperationExecutor {
     const values: RuntimeValues = new Map();
     values.set(step.id, extractOutputs(step, result, values));
     return operation.parse<T>(resolveFragmentOutputs(plan.fragment, values));
+  }
+
+  private async runCandidateStatementAtomic<T>(
+    plan: SingleStatementCandidate,
+    operation: ExecutableOperation,
+    driver: AnyDriver,
+    context: QueryExecutionContext
+  ): Promise<T> {
+    const candidate = this.consumableResultCandidate;
+    const { step } = plan;
+    if (!candidate || candidate.driver !== driver || step.kind !== "read") {
+      return this.runBorrowedStatementAtomic<T>(
+        plan,
+        operation,
+        driver,
+        context
+      );
+    }
+    const preparedRead = operation.preparedResultRows;
+    if (!preparedRead) {
+      return this.runBorrowedStatementAtomic<T>(
+        plan,
+        operation,
+        driver,
+        context
+      );
+    }
+
+    assertOperationStatementCapacity(
+      step.statement,
+      driver,
+      normalizedBindParameterLimit(driver.maxBindParametersPerStatement)
+    );
+    const parser = preparedRead.createResultParser();
+    const shape = preparedRead.createExpectedResultShape();
+    const compiled = preparedRead.compileResultRows(parser, shape);
+    if (compiled?.containerPolicy !== "reusable") {
+      const result = await this.executeStatement(
+        step,
+        step.statement,
+        driver,
+        context
+      );
+      assertNormalizedQueryResult(result, {
+        provider: driver.driverName,
+        operation: step.id,
+      });
+      enforcePostcondition(step, result, context);
+      const values: RuntimeValues = new Map();
+      values.set(step.id, extractOutputs(step, result, values));
+      return preparedRead.parseResultWithProgram<T>(
+        resolveFragmentOutputs(plan.fragment, values),
+        parser,
+        shape,
+        compiled
+      );
+    }
+
+    return executeConsumableResultCandidate<T>(
+      candidate,
+      step.statement,
+      context,
+      (result, consumableRows) => {
+        assertNormalizedQueryResult(result, {
+          provider: driver.driverName,
+          operation: step.id,
+        });
+        enforcePostcondition(step, result, context);
+        const values: RuntimeValues = new Map();
+        values.set(step.id, extractOutputs(step, result, values));
+        const outputs = resolveFragmentOutputs(plan.fragment, values);
+        return preparedRead.parseResultWithProgram<T>(
+          outputs,
+          parser,
+          shape,
+          compiled,
+          consumableRows
+        );
+      }
+    );
   }
 
   /**

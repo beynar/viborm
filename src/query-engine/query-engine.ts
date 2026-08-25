@@ -1,4 +1,5 @@
 import type { AnyDriver } from "@drivers";
+import { resolveConsumableResultCandidate } from "@drivers/consumable-result-candidate";
 import type { InstrumentationContext } from "@instrumentation";
 import type { Model } from "@schema/model";
 import type { ResolvedRelationIndex } from "@schema/validation/relation-resolution";
@@ -13,6 +14,17 @@ import {
   type PrepareOptions,
   QueryEngineError,
 } from "./types";
+import { OperationExecutor } from "./write-engine/OperationExecutor";
+
+type PrepareCacheManagedFriend = <T>(
+  engine: QueryEngine,
+  model: Model<any>,
+  operation: Operation | `${Operation}OrThrow`,
+  args: Record<string, unknown>,
+  options: PrepareOptions
+) => PendingOperation<T>;
+
+let prepareCacheManagedFriend: PrepareCacheManagedFriend;
 
 /** Client-scoped owner of query infrastructure and operation creation. */
 export class QueryEngine {
@@ -27,6 +39,8 @@ export class QueryEngine {
   readonly clientId: symbol;
   /** Identity of the current root or transaction-bound execution scope. */
   readonly scopeId: symbol;
+  private readonly operationExecutor: OperationExecutor;
+  private readonly cacheOperationExecutor: OperationExecutor;
 
   /**
    * TRANSITIONAL (removed next release). `"number"` restores the old
@@ -57,6 +71,29 @@ export class QueryEngine {
     this.instrumentation = instrumentation;
     this.clientId = clientId;
     this.scopeId = scopeId;
+    const candidate = resolveConsumableResultCandidate(driver);
+    this.operationExecutor = new OperationExecutor(this, candidate);
+    this.cacheOperationExecutor = candidate
+      ? new OperationExecutor(this)
+      : this.operationExecutor;
+  }
+
+  static {
+    prepareCacheManagedFriend = <T>(
+      engine: QueryEngine,
+      model: Model<any>,
+      operation: Operation | `${Operation}OrThrow`,
+      args: Record<string, unknown>,
+      options: PrepareOptions
+    ) =>
+      PendingOperation.create<T>(
+        engine,
+        model,
+        operation,
+        args,
+        options,
+        engine.cacheOperationExecutor
+      );
   }
 
   get adapter() {
@@ -131,7 +168,14 @@ export class QueryEngine {
     args: Record<string, unknown>,
     options?: PrepareOptions
   ): PendingOperation<T> {
-    return PendingOperation.create<T>(this, model, operation, args, options);
+    return PendingOperation.create<T>(
+      this,
+      model,
+      operation,
+      args,
+      options,
+      this.operationExecutor
+    );
   }
 
   /**
@@ -145,6 +189,17 @@ export class QueryEngine {
   ): Promise<T> {
     return this.prepare<T>(model, operation, args).execute();
   }
+}
+
+/** Internal cache seam; absent from package exports and the QueryEngine API. */
+export function prepareCacheManagedOperation<T>(
+  engine: QueryEngine,
+  model: Model<any>,
+  operation: Operation | `${Operation}OrThrow`,
+  args: Record<string, unknown>,
+  options: PrepareOptions
+): PendingOperation<T> {
+  return prepareCacheManagedFriend(engine, model, operation, args, options);
 }
 
 /**

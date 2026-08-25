@@ -36,8 +36,12 @@ import {
   withMutationCacheInvalidation,
 } from "@query-engine/cache-flow";
 import { createOperationExecutionContext } from "@query-engine/execution-context";
-import { PendingOperation } from "@query-engine/pending-operation";
-import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
+import type { PendingOperation } from "@query-engine/pending-operation";
+import {
+  createModelRegistry,
+  prepareCacheManagedOperation,
+  QueryEngine,
+} from "@query-engine/query-engine";
 import {
   isTransactionOperation,
   type TransactionOperation,
@@ -517,12 +521,7 @@ export class VibORM<C extends VibORMConfig> {
 
       // Engine handles OrThrow suffix internally. Routing to the V2 operation is
       // decided lazily — before any I/O — for the whole payload.
-      const pendingOp = PendingOperation.create(
-        engine,
-        model,
-        operation,
-        omitArgs
-      );
+      const pendingOp = engine.prepare(model, operation, omitArgs);
 
       // Wrap with cache invalidation for mutations (client-level concern)
       if (this.cache) {
@@ -589,7 +588,7 @@ export class VibORM<C extends VibORMConfig> {
       const omitArgs = this.clientOmit
         ? applyClientOmit(model, operation, cacheableArgs, this.clientOmit)
         : cacheableArgs;
-      const pendingOperation = PendingOperation.create(
+      const pendingOperation = prepareCacheManagedOperation(
         this.engine,
         model,
         operation,
