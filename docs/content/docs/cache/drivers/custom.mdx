@@ -96,16 +96,15 @@ export class RedisCache extends CacheDriver {
 
 ```typescript
 import { createClient } from "viborm";
+import { cache } from "viborm/cache";
 import { Redis } from "ioredis";
 import { RedisCache } from "./redis-cache";
 
 const redis = new Redis(process.env.REDIS_URL);
 
-const client = createClient({
-  schema: { user, post },
-  driver,
-  cache: new RedisCache(redis),
-});
+const client = createClient({ schema: { user, post }, driver }).$extends(
+  cache({ driver: new RedisCache(redis) })
+);
 ```
 
 ## Upstash Redis Example
@@ -165,18 +164,16 @@ export class UpstashCache extends CacheDriver {
 
 ```typescript
 import { createClient } from "viborm";
+import { cache } from "viborm/cache";
 import { Redis } from "@upstash/redis";
 import { waitUntil } from "@vercel/functions";
 import { UpstashCache } from "./upstash-cache";
 
 const redis = Redis.fromEnv();
 
-const client = createClient({
-  schema: { user },
-  driver,
-  cache: new UpstashCache(redis),
-  waitUntil,
-});
+const client = createClient({ schema: { user }, driver }).$extends(
+  cache({ driver: new UpstashCache(redis), waitUntil })
+);
 ```
 
 ## Implementation Guidelines

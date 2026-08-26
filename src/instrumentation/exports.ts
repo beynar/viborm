@@ -5,6 +5,8 @@
  * Import from "viborm/instrumentation"
  */
 
+export { instrumentation } from "./extension";
+
 // Span names (for custom instrumentation)
 // Attribute names (for custom instrumentation)
 export {

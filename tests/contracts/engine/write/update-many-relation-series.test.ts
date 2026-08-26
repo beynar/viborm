@@ -35,6 +35,7 @@ import {
   BatchOnlyPGliteDriver,
   usePGliteSchemaFamily,
 } from "@tests/fixtures/drivers/pglite";
+import { readTestTransactionOperation } from "@tests/fixtures/transaction-operation";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
 
@@ -58,6 +59,12 @@ import { describe, expect, test } from "vitest";
  */
 
 hydrateSchemaNames(updateManySeriesSchema);
+
+function transactionOperation(operation: unknown) {
+  const capability = readTestTransactionOperation(operation);
+  if (!capability) throw new Error("expected a transaction operation");
+  return capability;
+}
 
 /** A SECOND schema, with a direct polymorphic edge, because the routing question K2
  *  answers differently from J2 is exactly about polymorphic keys. Compiler-only
@@ -563,24 +570,25 @@ describe("K4 — the N-dependent refusal runs before any member is built", () =>
     [planningKey(`${model}.updateManySeries.capture`, "rows")]: rows,
   });
 
-  test.each(["connect", "connectOrCreate", "set"])(
-    "child-held %s is refused at N = 2 and allowed at N = 1",
-    (kind) => {
-      const payload =
-        kind === "connectOrCreate"
-          ? { connectOrCreate: [{ where: { id: 1 }, create: { name: "x" } }] }
-          : { [kind]: [{ id: 1 }] };
-      const series = seriesFor({ data: { gadgets: payload } });
-      expect(() =>
-        series.compileMembers(capturedRows("bin", [{ id: 1 }, { id: 2 }]))
-      ).toThrow(`it cannot apply '${kind}' to relation 'gadgets'`);
-      expect(
-        seriesFor({ data: { gadgets: payload } }).compileMembers(
-          capturedRows("bin", [{ id: 1 }])
-        )
-      ).toHaveLength(1);
-    }
-  );
+  test.each([
+    "connect",
+    "connectOrCreate",
+    "set",
+  ])("child-held %s is refused at N = 2 and allowed at N = 1", (kind) => {
+    const payload =
+      kind === "connectOrCreate"
+        ? { connectOrCreate: [{ where: { id: 1 }, create: { name: "x" } }] }
+        : { [kind]: [{ id: 1 }] };
+    const series = seriesFor({ data: { gadgets: payload } });
+    expect(() =>
+      series.compileMembers(capturedRows("bin", [{ id: 1 }, { id: 2 }]))
+    ).toThrow(`it cannot apply '${kind}' to relation 'gadgets'`);
+    expect(
+      seriesFor({ data: { gadgets: payload } }).compileMembers(
+        capturedRows("bin", [{ id: 1 }])
+      )
+    ).toHaveLength(1);
+  });
 
   test("child-held create, update, delete and deleteMany are NOT refused", () => {
     for (const payload of [
@@ -884,12 +892,18 @@ describe("the series seams on PendingOperation answer for a SECOND operation nam
 
   test("parseResult refuses a series by name — and the scalar arm still answers", () => {
     expect(() =>
-      pendingFor(RELATION_DATA).parseResult({ rows: [], rowCount: 0 })
+      transactionOperation(pendingFor(RELATION_DATA)).parseResult({
+        rows: [],
+        rowCount: 0,
+      })
     ).toThrow(
       "Operation 'updateMany' on model 'bin' runs as a transactional record series and parses no single driver result."
     );
     expect(
-      pendingFor(SCALAR_DATA).parseResult({ rows: [], rowCount: 3 })
+      transactionOperation(pendingFor(SCALAR_DATA)).parseResult({
+        rows: [],
+        rowCount: 3,
+      })
     ).toEqual({
       count: 3,
     });
@@ -897,7 +911,7 @@ describe("the series seams on PendingOperation answer for a SECOND operation nam
 
   test("prepare() and buildStatement() decline a series without touching a phase", () => {
     const pending = pendingFor(RELATION_DATA);
-    expect(pending.prepare()).toBeUndefined();
+    expect(transactionOperation(pending).prepare()).toBeUndefined();
     expect(pending.buildStatement()).toBeUndefined();
     // …while the scalar arm is exactly the single statement it always was.
     expect(pendingFor(SCALAR_DATA).buildStatement()).toBeDefined();

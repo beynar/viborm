@@ -1,13 +1,21 @@
 import type { AnyDriver } from "@drivers";
+import { normalizedBindParameterLimit } from "@drivers/bind-parameter-capacity";
 import { resolveConsumableResultCandidate } from "@drivers/consumable-result-candidate";
+import type { ResolvedExtensionChain } from "@extensions/chain";
+import type { TransactionWriteOutcomes } from "@extensions/query";
 import type { InstrumentationContext } from "@instrumentation";
+import { getOfficialInstrumentationChainCapability } from "@instrumentation/extension";
 import type { Model } from "@schema/model";
 import type { ResolvedRelationIndex } from "@schema/validation/relation-resolution";
 import { resolveSchemaOrThrow } from "@schema/validation/validator";
 import type { Sql } from "@sql";
 import type { SchemaRegistryLookup } from "@validation";
-import { normalizedBindParameterLimit } from "./bind-budget";
-import { PendingOperation } from "./pending-operation";
+import {
+  createPendingOperation,
+  type PendingOperation,
+  type PrepareOperationInput,
+  type PrepareWriteOutcomeRegistration,
+} from "./pending-operation";
 import {
   type ModelRegistry,
   type Operation,
@@ -16,21 +24,13 @@ import {
 } from "./types";
 import { OperationExecutor } from "./write-engine/OperationExecutor";
 
-type PrepareCacheManagedFriend = <T>(
-  engine: QueryEngine,
-  model: Model<any>,
-  operation: Operation | `${Operation}OrThrow`,
-  args: Record<string, unknown>,
-  options: PrepareOptions
-) => PendingOperation<T>;
-
-let prepareCacheManagedFriend: PrepareCacheManagedFriend;
-
 /** Client-scoped owner of query infrastructure and operation creation. */
 export class QueryEngine {
   readonly driver: AnyDriver;
   readonly registry: ModelRegistry;
   readonly instrumentation: InstrumentationContext | undefined;
+  readonly extensionChain: ResolvedExtensionChain | undefined;
+  readonly transactionWriteOutcomes: TransactionWriteOutcomes | undefined;
 
   /**
    * Identity of the originating client lineage. Transaction-bound engines
@@ -55,10 +55,11 @@ export class QueryEngine {
   constructor(
     driver: AnyDriver,
     registry: ModelRegistry,
-    instrumentation?: InstrumentationContext,
     clientId = Symbol("viborm.client"),
     scopeId = Symbol("viborm.scope"),
-    decimalDecode: "string" | "number" = "string"
+    decimalDecode: "string" | "number" = "string",
+    extensionChain?: ResolvedExtensionChain,
+    transactionWriteOutcomes?: TransactionWriteOutcomes
   ) {
     this.decimalDecode = decimalDecode;
     this.driver = driver;
@@ -68,7 +69,10 @@ export class QueryEngine {
         "Schema registry is required for query engine"
       );
     }
-    this.instrumentation = instrumentation;
+    this.instrumentation =
+      getOfficialInstrumentationChainCapability(extensionChain)?.context;
+    this.extensionChain = extensionChain;
+    this.transactionWriteOutcomes = transactionWriteOutcomes;
     this.clientId = clientId;
     this.scopeId = scopeId;
     const candidate = resolveConsumableResultCandidate(driver);
@@ -76,24 +80,6 @@ export class QueryEngine {
     this.cacheOperationExecutor = candidate
       ? new OperationExecutor(this)
       : this.operationExecutor;
-  }
-
-  static {
-    prepareCacheManagedFriend = <T>(
-      engine: QueryEngine,
-      model: Model<any>,
-      operation: Operation | `${Operation}OrThrow`,
-      args: Record<string, unknown>,
-      options: PrepareOptions
-    ) =>
-      PendingOperation.create<T>(
-        engine,
-        model,
-        operation,
-        args,
-        options,
-        engine.cacheOperationExecutor
-      );
   }
 
   get adapter() {
@@ -124,16 +110,22 @@ export class QueryEngine {
     return this.registry.schemas;
   }
 
-  bind(driver: AnyDriver): QueryEngine {
+  bind(
+    driver: AnyDriver,
+    extensionChain: ResolvedExtensionChain | undefined = this.extensionChain,
+    transactionWriteOutcomes: TransactionWriteOutcomes | undefined = this
+      .transactionWriteOutcomes
+  ): QueryEngine {
     return new QueryEngine(
       driver,
       this.registry,
-      this.instrumentation,
       this.clientId,
       Symbol("viborm.scope"),
       // A transaction-bound engine keeps the client's decode setting; the hatch
       // is a property of the lineage, not of one scope.
-      this.decimalDecode
+      this.decimalDecode,
+      extensionChain,
+      transactionWriteOutcomes
     );
   }
 
@@ -166,15 +158,38 @@ export class QueryEngine {
     model: Model<any>,
     operation: Operation | `${Operation}OrThrow`,
     args: Record<string, unknown>,
-    options?: PrepareOptions
+    options?: PrepareOptions,
+    prepareInput?: PrepareOperationInput,
+    prepareWriteOutcomeRegistration?: PrepareWriteOutcomeRegistration
   ): PendingOperation<T> {
-    return PendingOperation.create<T>(
+    return createPendingOperation<T>(
       this,
       model,
       operation,
       args,
       options,
-      this.operationExecutor
+      this.operationExecutor,
+      prepareInput,
+      prepareWriteOutcomeRegistration
+    );
+  }
+
+  /** Prepare a cache-managed read without granting consumable provider rows. */
+  prepareCacheManaged<T>(
+    model: Model<any>,
+    operation: Operation | `${Operation}OrThrow`,
+    args: Record<string, unknown>,
+    options: PrepareOptions,
+    prepareInput?: PrepareOperationInput
+  ): PendingOperation<T> {
+    return createPendingOperation<T>(
+      this,
+      model,
+      operation,
+      args,
+      options,
+      this.cacheOperationExecutor,
+      prepareInput
     );
   }
 
@@ -187,19 +202,8 @@ export class QueryEngine {
     operation: Operation,
     args: Record<string, unknown>
   ): Promise<T> {
-    return this.prepare<T>(model, operation, args).execute();
+    return this.prepare<T>(model, operation, args);
   }
-}
-
-/** Internal cache seam; absent from package exports and the QueryEngine API. */
-export function prepareCacheManagedOperation<T>(
-  engine: QueryEngine,
-  model: Model<any>,
-  operation: Operation | `${Operation}OrThrow`,
-  args: Record<string, unknown>,
-  options: PrepareOptions
-): PendingOperation<T> {
-  return prepareCacheManagedFriend(engine, model, operation, args, options);
 }
 
 /**

@@ -4,21 +4,28 @@ import { createClient } from "@client/client";
 import { Driver } from "@drivers/driver";
 import type { BatchQuery, QueryResult } from "@drivers/types";
 import { isVibORMError, QueryError } from "@errors";
-import { createInstrumentationContext } from "@instrumentation/context";
 import {
   ATTR_DB_COLLECTION,
   ATTR_DB_OPERATION_NAME,
   ATTR_VIBORM_CORRELATION_ID,
   SPAN_OPERATION,
 } from "@instrumentation/spans";
+import { observeTransactionBatchPhase } from "@query-engine/execution-context";
 import type { PendingOperation } from "@query-engine/pending-operation";
 import type { PreparedBatchOperation } from "@query-engine/types";
 import { s } from "@schema";
+import { instrumentation } from "@src/instrumentation/exports";
+import {
+  overrideTransactionOperation,
+  readTestTransactionOperation,
+  type TestTransactionOperation,
+} from "@tests/fixtures/transaction-operation";
 import {
   captureLogs,
   type OtelRecorder,
   withOtelRecorder,
 } from "@tests/unit/instrumentation/_capture";
+import { createOfficialTestExecutionContext } from "@tests/unit/instrumentation/_official-context";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 class NativeAttributionDriver extends Driver<object, object> {
@@ -94,12 +101,30 @@ function createInstrumentedClient(driver: NativeAttributionDriver) {
   const client = createClient({
     schema: { user, post },
     driver,
-    instrumentation: {
+  }).$extends(
+    instrumentation({
       logging: { error: logs.callback },
       tracing: true,
-    },
-  });
+    })
+  );
   return { client, logs };
+}
+
+function transactionOperation(operation: unknown) {
+  const capability = readTestTransactionOperation(operation);
+  if (!capability) throw new Error("expected a transaction operation");
+  return capability;
+}
+
+function runUnsafeArrayTransaction(
+  client: object,
+  candidates: readonly unknown[]
+): Promise<unknown> {
+  const transaction = Reflect.get(client, "$transaction");
+  if (typeof transaction !== "function") {
+    throw new Error("Expected $transaction");
+  }
+  return Reflect.apply(transaction, client, [candidates]);
 }
 
 describe("native batch logical attribution", () => {
@@ -111,6 +136,47 @@ describe("native batch logical attribution", () => {
 
   afterAll(async () => {
     await recorder.dispose();
+  });
+
+  it("keeps the unobserved batch phase inert while normalizing failures", async () => {
+    const driver = new NativeAttributionDriver();
+    const operation = createClient({
+      schema: { user },
+      driver,
+    }).user.findMany();
+    const context = transactionOperation(operation).context;
+    const correlationId = context.correlationId;
+    const startedSpans = recorder.spans().length;
+    const clock = vi.spyOn(Date, "now");
+    const baseAttributes = vi.spyOn(driver, "getBaseAttributes");
+
+    try {
+      await expect(
+        observeTransactionBatchPhase(context, driver, () => "done")
+      ).resolves.toBe("done");
+
+      const failure = await observeTransactionBatchPhase(
+        context,
+        driver,
+        () => {
+          throw new Error("batch preparation failed");
+        }
+      ).catch((error) => error);
+
+      if (!isVibORMError(failure)) throw new Error("expected a VibORMError");
+      expect(failure.meta).toMatchObject({
+        driver: driver.driverName,
+        model: "user",
+        operation: "findMany",
+        correlationId,
+      });
+      expect(clock).not.toHaveBeenCalled();
+      expect(baseAttributes).not.toHaveBeenCalled();
+      expect(recorder.spans()).toHaveLength(startedSpans);
+    } finally {
+      clock.mockRestore();
+      baseAttributes.mockRestore();
+    }
   });
 
   it("rejects stale attribution from outside the current batch", async () => {
@@ -158,15 +224,17 @@ describe("native batch logical attribution", () => {
     const driver = new NativeAttributionDriver();
     const logs = captureLogs();
     driver.failSql = "SELECT statement_b";
-    driver.setInstrumentation(
-      createInstrumentationContext({
-        logging: {
-          error: logs.callback,
-          includeParams: true,
-          includeSql: true,
+    const officialContext = (values: BatchQuery["context"]) =>
+      createOfficialTestExecutionContext(
+        {
+          logging: {
+            error: logs.callback,
+            includeParams: true,
+            includeSql: true,
+          },
         },
-      })
-    );
+        values ?? {}
+      );
 
     const error = await driver
       ._executeBatch(
@@ -174,28 +242,28 @@ describe("native batch logical attribution", () => {
           {
             sql: "SELECT statement_a",
             params: [{ token: "statement-a-secret" }],
-            context: {
+            context: officialContext({
               model: "user",
               operation: "findMany",
               correlationId: "statement-a-correlation",
-            },
+            }),
           },
           {
             sql: "SELECT statement_b",
             params: [{ token: "statement-b-secret" }],
-            context: {
+            context: officialContext({
               model: "post",
               operation: "findMany",
               correlationId: "statement-b-correlation",
-            },
+            }),
           },
         ],
         undefined,
-        {
+        officialContext({
           model: "$transaction",
           operation: "$transaction([...])",
           correlationId: "statement-outer-correlation",
-        }
+        })
       )
       .catch((caught) => caught);
 
@@ -243,24 +311,27 @@ describe("native batch logical attribution", () => {
     const logs = captureLogs();
     const observedDriver = new NativeAttributionDriver();
     observedDriver.failSql = "SELECT observed";
-    observedDriver.setInstrumentation(
-      createInstrumentationContext({
-        logging: { error: logs.callback, includeParams: true },
-      })
+    const context = createOfficialTestExecutionContext(
+      { logging: { error: logs.callback, includeParams: true } },
+      {
+        model: "user",
+        operation: "findMany",
+        correlationId: "observed-correlation",
+      }
     );
 
     await observedDriver
-      ._executeBatch([
-        {
-          sql: "SELECT observed",
-          params: [disclosed],
-          context: {
-            model: "user",
-            operation: "findMany",
-            correlationId: "observed-correlation",
+      ._executeBatch(
+        [
+          {
+            sql: "SELECT observed",
+            params: [disclosed],
+            context,
           },
-        },
-      ])
+        ],
+        undefined,
+        context
+      )
       .catch(() => undefined);
 
     expect(disclosedSnapshots).toBe(1);
@@ -272,7 +343,7 @@ describe("native batch logical attribution", () => {
     const { client, logs } = createInstrumentedClient(driver);
     const first = client.user.findMany();
     const second = client.post.findMany();
-    const secondContext = second.getExecutionContext();
+    const secondContext = transactionOperation(second).context;
 
     const error = await client
       .$transaction([first, second])
@@ -312,16 +383,19 @@ describe("native batch logical attribution", () => {
     const { client, logs } = createInstrumentedClient(driver);
     const first = client.user.findMany();
     const failing = client.post.findMany();
-    const secondContext = failing.getExecutionContext();
-    vi.spyOn(failing, "prepare").mockImplementation(() => {
-      throw new QueryError("Preparation failed", {
-        meta: { operation: "build" },
-      });
+    const secondContext = transactionOperation(failing).context;
+    const failingOperation = overrideTransactionOperation(failing, {
+      prepare: () => {
+        throw new QueryError("Preparation failed", {
+          meta: { operation: "build" },
+        });
+      },
     });
 
-    const error = await client
-      .$transaction([first, failing])
-      .catch((caught) => caught);
+    const error = await runUnsafeArrayTransaction(client, [
+      first,
+      failingOperation,
+    ]).catch((caught) => caught);
 
     if (!isVibORMError(error)) throw new Error("expected a VibORMError");
     expect(error.meta).toMatchObject({
@@ -349,12 +423,13 @@ describe("native batch logical attribution", () => {
     const first = createPlannedOperation(firstSeed, "operation-one");
     const second = createPlannedOperation(secondSeed, "operation-two");
 
-    const error = await client
-      .$transaction([first, second])
-      .catch((caught) => caught);
+    const error = await runUnsafeArrayTransaction(client, [
+      first,
+      second,
+    ]).catch((caught) => caught);
     if (!isVibORMError(error)) throw new Error("expected a VibORMError");
 
-    const secondContext = second.getExecutionContext();
+    const secondContext = transactionOperation(second).context;
     expect(error.meta).toMatchObject({
       model: secondContext.model,
       operation: secondContext.operation,
@@ -373,13 +448,14 @@ describe("native batch logical attribution", () => {
 function createPlannedOperation(
   seed: PendingOperation<unknown>,
   sql: string
-): PendingOperation<unknown> {
-  const context = seed.getExecutionContext();
+): TestTransactionOperation<unknown> {
+  const context = transactionOperation(seed).context;
   const prepared: PreparedBatchOperation<unknown> = {
     queries: [{ sql, params: [], context }],
     parseResult: () => undefined,
   };
-  vi.spyOn(seed, "prepare").mockReturnValue(undefined);
-  vi.spyOn(seed, "prepareBatch").mockResolvedValue(prepared);
-  return seed;
+  return overrideTransactionOperation(seed, {
+    prepare: () => undefined,
+    prepareBatch: async () => prepared,
+  });
 }

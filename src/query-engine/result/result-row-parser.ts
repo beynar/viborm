@@ -1,12 +1,6 @@
 import type { Model } from "@schema/model";
-import { type AnyRelation, isVariantRelationState } from "@schema/relation";
+import type { AnyRelation } from "@schema/relation";
 import type { Scalar } from "@schema/scalars";
-import {
-  EMPTY_ROW_RESULT_KEY,
-  getAggregateResultName,
-  RELATION_COUNTS_RESULT_KEY,
-  VECTOR_DISTANCE_RESULT_KEY,
-} from "../result-aliases";
 import {
   type ExpectedResultShape,
   isBatchOperation,
@@ -14,6 +8,7 @@ import {
 } from "../types";
 import type { ResultParser } from "./ResultParser";
 import { assignRelationCounts } from "./relation-count-parser";
+import { classifyResultColumn } from "./result-column";
 import {
   isNullableSingleRecordOperation,
   isRequiredSingleRecordOperation,
@@ -24,7 +19,6 @@ import {
 import {
   assertExpectedRowKeys,
   assertUniformRowKeys,
-  getOwnValue,
   malformedResult,
   normalizeResultRows,
   parseResultRows,
@@ -297,8 +291,9 @@ export function createRowParser(
 
   for (let i = 0; i < len; i++) {
     const key = keys[i]!;
+    const column = classifyResultColumn(model, key, shape);
 
-    if (key === EMPTY_ROW_RESULT_KEY) {
+    if (column.kind === "empty") {
       allIdentity = false;
       preservesKeys = false;
       steps[i] = (_result, value) => {
@@ -313,7 +308,7 @@ export function createRowParser(
       continue;
     }
 
-    if (key === VECTOR_DISTANCE_RESULT_KEY) {
+    if (column.kind === "vectorDistance") {
       allIdentity = false;
       preservesKeys = false;
       steps[i] = (result, value) => {
@@ -322,8 +317,8 @@ export function createRowParser(
       continue;
     }
 
-    const scalar = getOwnValue(scalars, key);
-    if (scalar) {
+    if (column.kind === "scalar") {
+      const scalar = column.scalar;
       const captureExact = exactFields?.fields.has(key) === true;
       const guard = identityEnabled ? identityGuardFor(scalar) : undefined;
       if (guard) {
@@ -365,10 +360,10 @@ export function createRowParser(
       continue;
     }
 
-    if (key === RELATION_COUNTS_RESULT_KEY) {
+    if (column.kind === "relationCounts") {
       allIdentity = false;
       preservesKeys = false;
-      const expectedRelations = shape?.relationCounts;
+      const expectedRelations = column.relations;
       if (!(expectedRelations && expectedRelations.size > 0)) {
         malformedResult(
           ctx,
@@ -388,13 +383,12 @@ export function createRowParser(
       continue;
     }
 
-    const relation = getOwnValue(relations, key);
-    if (relation) {
+    if (column.kind === "relation" || column.kind === "polymorphic") {
+      const relation = column.relation;
       allIdentity = false;
       // ONE map, dispatched on TARGET KIND: a variant slot arrives as a tagged
       // carrier with per-arm sub-shapes, an ordinary one as a nested row set.
-      if (isVariantRelationState(relation["~"].state)) {
-        const polymorphicShape = shape?.polymorphic.get(key);
+      if (column.kind === "polymorphic") {
         steps[i] = (result, value) => {
           result[key] = parsers.parsePolymorphic(
             model,
@@ -402,12 +396,11 @@ export function createRowParser(
             relation,
             value,
             operation,
-            polymorphicShape
+            column.expected
           );
         };
         continue;
       }
-      const relationShape = shape?.relations.get(key);
       steps[i] = (result, value) => {
         result[key] = parsers.parseRelation(
           model,
@@ -415,24 +408,22 @@ export function createRowParser(
           relation,
           value,
           operation,
-          relationShape
+          column.expected?.shape
         );
       };
       continue;
     }
 
-    const aggregateName = getAggregateResultName(key);
-    if (aggregateName) {
+    if (column.kind === "aggregate") {
       allIdentity = false;
       preservesKeys = false;
-      const aggregateShape = shape?.aggregates.get(key);
       steps[i] = (result, value) => {
-        result[aggregateName] = parsers.parseAggregate(
+        result[column.name] = parsers.parseAggregate(
           operation,
-          aggregateName,
+          column.name,
           value,
           scalars,
-          aggregateShape
+          column.expected
         );
       };
       continue;

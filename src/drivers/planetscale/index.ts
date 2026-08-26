@@ -12,13 +12,13 @@ import {
   createClientFromDriverConfig,
   type DriverConfig,
   type NoExtraDriverConfigKeys,
-  type NoExtraNestedConfigKeys,
   type VibORMClient,
 } from "@client/client";
 import type { Schema } from "@client/types";
 import type { Client, Config, Connection } from "@planetscale/database";
 import { isRecord } from "@validation/value-guards";
 import { Driver, type QueryExecutionContext } from "../driver";
+import { getExecutionTransactionPhases } from "../execution-context";
 import {
   normalizeProviderInsertId,
   normalizeProviderRowCount,
@@ -154,7 +154,7 @@ export class PlanetScaleDriver extends Driver<
   protected async transaction<T>(
     client: PlanetScaleClient | PlanetScaleTransaction,
     fn: (tx: PlanetScaleTransaction) => Promise<T>,
-    _context?: QueryExecutionContext,
+    context?: QueryExecutionContext,
     options?: DriverTransactionOptions
   ): Promise<T> {
     if (!("transaction" in client)) {
@@ -180,6 +180,7 @@ export class PlanetScaleDriver extends Driver<
       callback: () => fn(connection),
       commit: () => connection.execute("COMMIT"),
       rollback: () => connection.execute("ROLLBACK"),
+      phases: getExecutionTransactionPhases(context),
     });
   }
 
@@ -199,10 +200,9 @@ export class PlanetScaleDriver extends Driver<
 export function createClient<S extends Schema, C extends DriverConfig<S>>(
   config: PlanetScaleClientConfig<C> &
     DriverConfig<S> &
-    NoExtraDriverConfigKeys<C, PlanetScaleDriverOptions, S> &
-    NoExtraNestedConfigKeys<C, S>
+    NoExtraDriverConfigKeys<C, PlanetScaleDriverOptions, S>
 ): VibORMClient<C & { driver: PlanetScaleDriver }> {
-  const { client, databaseUrl, options, ...restConfig } = config;
+  const { client, databaseUrl, options } = config;
 
   const driver = new PlanetScaleDriver({
     client,
@@ -210,8 +210,7 @@ export function createClient<S extends Schema, C extends DriverConfig<S>>(
     options,
   });
 
-  return createClientFromDriverConfig({
-    ...restConfig,
-    driver,
-  }) as VibORMClient<C & { driver: PlanetScaleDriver }>;
+  return createClientFromDriverConfig(config, driver) as VibORMClient<
+    C & { driver: PlanetScaleDriver }
+  >;
 }

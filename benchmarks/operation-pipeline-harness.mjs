@@ -1,9 +1,16 @@
 /** Shared stage mechanics and semantic consumers for workload families. */
 
+import { readBenchmarkOperation } from "../dist/internal/benchmark-operation.mjs";
 import {
   assertSemanticDigest,
   freezeRawResult,
 } from "./operation-pipeline-semantics.mjs";
+
+export function benchmarkOperation(operation) {
+  const capability = readBenchmarkOperation(operation);
+  if (!capability) throw new Error("Expected a VibORM benchmark operation");
+  return capability;
+}
 
 export function consumeScalarRows(rows, key) {
   const first = rows[0];
@@ -111,14 +118,15 @@ export function witnessChecksum(witness) {
 }
 
 export async function prepareOperationPlan(operation, driver) {
-  const single = operation.prepare();
+  const capability = benchmarkOperation(operation);
+  const single = capability.prepare();
   if (single) {
     return {
       queries: [single],
-      parseResult: (results) => operation.parseResult(results[0]),
+      parseResult: (results) => capability.parseResult(results[0]),
     };
   }
-  const batch = await operation.prepareBatch(driver);
+  const batch = await capability.prepareBatch(driver);
   if (batch) return batch;
   const statement = operation.buildStatement();
   if (!statement) {
@@ -127,7 +135,7 @@ export async function prepareOperationPlan(operation, driver) {
   const prepared = driver._prepare(statement);
   return {
     queries: [prepared],
-    parseResult: (results) => operation.parseResult(results[0]),
+    parseResult: (results) => capability.parseResult(results[0]),
   };
 }
 
@@ -140,12 +148,13 @@ export async function createReadHarness(
   workloadShape
 ) {
   const preparedOperation = makeOperation();
-  const prepared = preparedOperation.prepare();
+  const preparedCapability = benchmarkOperation(preparedOperation);
+  const prepared = preparedCapability.prepare();
   if (!prepared) throw new Error("Read workload did not prepare one statement");
   const rawFixture = freezeRawResult(
     await fixture.driver._executeRaw(prepared.sql, prepared.params)
   );
-  const parsedFixture = preparedOperation.parseResult(rawFixture);
+  const parsedFixture = preparedCapability.parseResult(rawFixture);
   parsedConsumer(parsedFixture);
   rawConsumer(rawFixture.rows);
   const fullSemantic = await makeOperation(semanticFixture.client);
@@ -159,7 +168,8 @@ export async function createReadHarness(
     witness: preparedWitness(prepared, workloadShape),
     semanticDigest: digest,
     prepare: () => {
-      const query = makeOperation().prepare();
+      const operation = makeOperation();
+      const query = benchmarkOperation(operation).prepare();
       if (!query)
         throw new Error("Read workload stopped preparing one statement");
       return query.sql.length + (query.params?.length ?? 0);
@@ -171,13 +181,13 @@ export async function createReadHarness(
       );
       return rawConsumer(raw.rows);
     },
-    parse: () => parsedConsumer(preparedOperation.parseResult(rawFixture)),
+    parse: () => parsedConsumer(preparedCapability.parseResult(rawFixture)),
     "raw-parse": async () => {
       const raw = await fixture.driver._executeRaw(
         prepared.sql,
         prepared.params
       );
-      return parsedConsumer(preparedOperation.parseResult(raw));
+      return parsedConsumer(preparedCapability.parseResult(raw));
     },
     full: async () => parsedConsumer(await makeOperation()),
   };

@@ -26,7 +26,7 @@ export interface CacheExecutionOptions {
   swr: number | false;
   /** Bypass cache reads and force a fresh fetch. */
   bypass: boolean;
-  /** Custom cache key override. */
+  /** Official cache extensions add this suffix to the canonical operation key. */
   key?: string;
   /** Scheduler for background work in serverless runtimes. */
   waitUntil?: WaitUntilFn;

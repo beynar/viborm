@@ -10,23 +10,33 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { acquireTestRunLock } from "../scripts/test-run-lock.mjs";
 import {
+  CROSS_PROVIDER_BASELINE_COMMIT,
+  EXTENSION_ARMS,
+} from "./operation-pipeline-catalog.mjs";
+import {
   gitCommonDirectory,
+  PROTOCOL_PATHS,
   protocolIdentity,
 } from "./operation-pipeline-protocol.mjs";
 import {
   aggregateTarget,
+  diagnosticMeasurementCounts,
   evaluateKeepGate,
+  isPerOperationMetric,
+  parseDeclaredBudgets,
   targetableFields,
   verifyCrossStageSemantics,
 } from "./operation-pipeline-report.mjs";
-import { CROSS_PROVIDER_BASELINE_COMMIT } from "./operation-pipeline-catalog.mjs";
 
 const FULL_COMMIT_PATTERN = /^[0-9a-f]{40}$/;
 const VALUE_ARGUMENTS = new Set([
   "baseline-dir",
   "baseline-commit",
+  "baseline-source-commit",
   "candidate-dir",
   "candidate-commit",
+  "baseline-arm",
+  "candidate-arm",
   "providers",
   "workloads",
   "stages",
@@ -66,16 +76,23 @@ function usage(message) {
   process.stderr.write(`Usage:
   node benchmarks/operation-pipeline-compare.mjs \\
     --baseline-dir /absolute/clean/worktree \\
-    --baseline-commit <full-sha> \\
-    --candidate-dir /absolute/clean/worktree \\
-    --candidate-commit <full-sha> \\
-    [--providers name,name] [--workloads name,name] [--stages name,name] \\
-    [--modes alloc,cpu,retained] [--output /absolute/report.json] \\
-    [--target provider/workload/stage/mode/metric]...
+	    --baseline-commit <full-sha> [--baseline-source-commit <full-sha>] \\
+	    --candidate-dir /absolute/clean/worktree \\
+	    --candidate-commit <full-sha> \\
+	    [--baseline-arm unextended] [--candidate-arm request] \\
+	    [--providers name,name] [--workloads name,name] [--stages name,name] \\
+	    [--modes alloc,cpu,retained] [--output /absolute/report.json] \\
+	    [--target provider/workload/stage/mode/metric]... \\
+	    [--ceiling provider/workload/stage/mode/metric/max-percent]... \\
+	    [--budget provider/workload/stage/mode/metric/absolute/max]... \\
+	    [--budget provider/workload/stage/mode/metric/percent/max]... \\
+	    [--row-scaling provider/one-row-workload/many-row-workload/stage/mode/metric]...
 
 Normal comparisons always use five alternating replicates. Use --smoke only
 for a short infrastructure check; smoke output is explicitly invalid for a
-performance keep decision.
+performance keep decision. Use --diagnostic with an explicit --workloads
+subset for two reduced-count alternating pairs; its output is also never
+keep-eligible.
 `);
   process.exit(message ? 2 : 0);
 }
@@ -91,11 +108,31 @@ function parseArguments(argv) {
       index += 1;
       continue;
     }
-    if (argument === "--target") {
+    if (argument === "--diagnostic") {
+      values.diagnostic = true;
+      index += 1;
+      continue;
+    }
+    if (
+      argument === "--target" ||
+      argument === "--ceiling" ||
+      argument === "--budget" ||
+      argument === "--row-scaling"
+    ) {
       const value = argv[++index];
-      if (!value || value.startsWith("--")) usage("--target needs a value");
-      values.targets ??= [];
-      values.targets.push(value);
+      if (!value || value.startsWith("--")) {
+        usage(`${argument} needs a value`);
+      }
+      const collection =
+        argument === "--target"
+          ? "targets"
+          : argument === "--ceiling"
+            ? "ceilings"
+            : argument === "--budget"
+              ? "budgets"
+              : "rowScalings";
+      values[collection] ??= [];
+      values[collection].push(value);
       index += 1;
       continue;
     }
@@ -118,7 +155,13 @@ function git(directory, arguments_) {
   }).trim();
 }
 
-function validateCheckout(label, directoryArgument, expectedCommit) {
+function validateCheckout(
+  label,
+  directoryArgument,
+  expectedCommit,
+  extensionArm,
+  sourceCommit = expectedCommit
+) {
   if (!(directoryArgument && expectedCommit)) {
     usage(`${label} requires both an explicit directory and full commit SHA`);
   }
@@ -133,12 +176,47 @@ function validateCheckout(label, directoryArgument, expectedCommit) {
   if (commit !== expectedCommit) {
     throw new Error(`${label} HEAD is ${commit}, expected ${expectedCommit}`);
   }
+  if (!FULL_COMMIT_PATTERN.test(sourceCommit)) {
+    usage(`${label} source commit must be a full 40-character SHA`);
+  }
+  if (sourceCommit !== commit) {
+    const parent = git(directory, ["rev-parse", `${commit}^`]);
+    if (parent !== sourceCommit) {
+      throw new Error(
+        `${label} protocol overlay must be one direct commit above source ${sourceCommit}`
+      );
+    }
+    const protocolPaths = new Set(PROTOCOL_PATHS);
+    const changedPaths = git(directory, [
+      "diff",
+      "--name-only",
+      sourceCommit,
+      commit,
+    ])
+      .split("\n")
+      .filter(Boolean);
+    const implementationChanges = changedPaths.filter(
+      (path) => !protocolPaths.has(path)
+    );
+    if (implementationChanges.length > 0) {
+      throw new Error(
+        `${label} protocol overlay changes implementation files:\n${implementationChanges.join("\n")}`
+      );
+    }
+  }
   const dirty = git(directory, ["status", "--porcelain"]);
   if (dirty) throw new Error(`${label} worktree is dirty:\n${dirty}`);
   const worker = join(directory, "benchmarks/operation-pipeline-worker.mjs");
   if (!existsSync(worker))
     throw new Error(`${label} has no Phase 0 benchmark worker`);
-  return { label, directory, commit, worker };
+  return {
+    label,
+    directory,
+    commit,
+    sourceCommit,
+    worker,
+    extensionArm,
+  };
 }
 
 function buildCheckout(checkout) {
@@ -226,6 +304,113 @@ function parseDeclaredTargets(values, workloads) {
     throw new Error("Duplicate --target metric contract");
   }
   return targets;
+}
+
+function parseDeclaredCeilings(values, workloads) {
+  const ceilings = values.map((value) => {
+    const parts = value.split("/");
+    const [provider, workload, stage, mode, metric, rawMaximum, ...extra] =
+      parts.length === 5 ? ["sqlite3", ...parts] : parts;
+    const maximumPercent = Number(rawMaximum);
+    if (
+      !(workload && stage && mode && metric) ||
+      extra.length > 0 ||
+      !Number.isFinite(maximumPercent) ||
+      maximumPercent < 0
+    ) {
+      usage(
+        `Invalid --ceiling ${value}; expected provider/workload/stage/mode/metric/non-negative-percent`
+      );
+    }
+    const definition = workloads[workload];
+    if (!definition) throw new Error(`Unknown ceiling workload: ${workload}`);
+    if (!definition.stages.includes(stage)) {
+      throw new Error(`Ceiling stage ${stage} is not defined for ${workload}`);
+    }
+    if (!(definition.providers ?? ["sqlite3"]).includes(provider)) {
+      throw new Error(`${workload} is not defined for provider ${provider}`);
+    }
+    if (!targetableFields(mode).includes(metric)) {
+      throw new Error(
+        `Ceiling metric ${metric} is not measured in ${mode} mode`
+      );
+    }
+    return { provider, workload, stage, mode, metric, maximumPercent };
+  });
+  const keys = ceilings.map(({ maximumPercent: _, ...ceiling }) =>
+    JSON.stringify(ceiling)
+  );
+  if (new Set(keys).size !== keys.length) {
+    throw new Error("Duplicate --ceiling metric contract");
+  }
+  return ceilings;
+}
+
+function parseRowScalings(values, workloads) {
+  const scalings = values.map((value) => {
+    const parts = value.split("/");
+    const [
+      provider,
+      oneRowWorkload,
+      manyRowWorkload,
+      stage,
+      mode,
+      metric,
+      ...extra
+    ] = parts.length === 5 ? ["sqlite3", ...parts] : parts;
+    if (
+      !(oneRowWorkload && manyRowWorkload && stage && mode && metric) ||
+      extra.length > 0
+    ) {
+      usage(
+        `Invalid --row-scaling ${value}; expected provider/one-row-workload/many-row-workload/stage/mode/metric`
+      );
+    }
+    const oneDefinition = workloads[oneRowWorkload];
+    const manyDefinition = workloads[manyRowWorkload];
+    if (!(oneDefinition && manyDefinition)) {
+      throw new Error(`Unknown row-scaling workload in ${value}`);
+    }
+    if (
+      oneDefinition.rowsPerOperation !== 1 ||
+      manyDefinition.rowsPerOperation <= 1
+    ) {
+      throw new Error(
+        `Row scaling requires one 1-row workload and one many-row workload: ${value}`
+      );
+    }
+    for (const [name, definition] of [
+      [oneRowWorkload, oneDefinition],
+      [manyRowWorkload, manyDefinition],
+    ]) {
+      if (!definition.stages.includes(stage)) {
+        throw new Error(
+          `Row-scaling stage ${stage} is not defined for ${name}`
+        );
+      }
+      if (!(definition.providers ?? ["sqlite3"]).includes(provider)) {
+        throw new Error(`${name} is not defined for provider ${provider}`);
+      }
+    }
+    if (!isPerOperationMetric(mode, metric)) {
+      throw new Error(
+        `Row-scaling metric ${metric} is not a per-operation metric measured in ${mode} mode`
+      );
+    }
+    return {
+      provider,
+      oneRowWorkload,
+      manyRowWorkload,
+      stage,
+      mode,
+      metric,
+    };
+  });
+  const keys = scalings.map((scaling) => JSON.stringify(scaling));
+  if (new Set(keys).size !== keys.length) {
+    throw new Error("Duplicate --row-scaling contract");
+  }
+  return scalings;
 }
 
 function runChild(
@@ -365,6 +550,11 @@ function verifyTargetEvidence(
         `${target.workload}/${target.stage}/${target.mode} reported the wrong commit or a dirty checkout`
       );
     }
+    if (sample.output.extensionArm !== expectedCheckout.extensionArm) {
+      throw new Error(
+        `${target.workload}/${target.stage}/${target.mode} reported the wrong extension arm`
+      );
+    }
     if (typeof sample.output.semanticDigest !== "string") {
       throw new Error(
         `${target.workload}/${target.stage}/${target.mode} omitted its semantic digest`
@@ -400,6 +590,13 @@ function verifyTargetEvidence(
 
 const arguments_ = parseArguments(process.argv.slice(2));
 const workloadFilter = splitFilter(arguments_.workloads);
+const diagnosticOnly = arguments_.diagnostic === true;
+if (diagnosticOnly && arguments_.smoke === true) {
+  usage("--diagnostic and --smoke cannot be combined");
+}
+if (diagnosticOnly && workloadFilter === undefined) {
+  usage("--diagnostic requires an explicit --workloads subset");
+}
 const providerFilter = splitFilter(arguments_.providers);
 const isCrossProviderRun =
   workloadFilter !== undefined &&
@@ -409,10 +606,19 @@ const iterationOverride = optionalPositiveInteger(
   arguments_.iterations
 );
 const warmupOverride = optionalPositiveInteger("warmup", arguments_.warmup);
+const baselineArm = arguments_["baseline-arm"] ?? "unextended";
+const candidateArm = arguments_["candidate-arm"] ?? "unextended";
+for (const arm of [baselineArm, candidateArm]) {
+  if (!EXTENSION_ARMS.includes(arm)) {
+    usage(`Unknown extension benchmark arm: ${arm}`);
+  }
+}
 const baseline = validateCheckout(
   "baseline",
   arguments_["baseline-dir"],
-  arguments_["baseline-commit"]
+  arguments_["baseline-commit"],
+  baselineArm,
+  arguments_["baseline-source-commit"]
 );
 if (isCrossProviderRun && baseline.commit !== CROSS_PROVIDER_BASELINE_COMMIT) {
   throw new Error(
@@ -422,13 +628,26 @@ if (isCrossProviderRun && baseline.commit !== CROSS_PROVIDER_BASELINE_COMMIT) {
 const candidate = validateCheckout(
   "candidate",
   arguments_["candidate-dir"],
-  arguments_["candidate-commit"]
+  arguments_["candidate-commit"],
+  candidateArm
 );
 if (baseline.directory === candidate.directory) {
   throw new Error("Baseline and candidate must be separate clean worktrees");
 }
-if (baseline.commit === candidate.commit) {
-  throw new Error("Baseline and candidate commits must differ");
+if (
+  baseline.commit === candidate.commit &&
+  baseline.extensionArm === candidate.extensionArm
+) {
+  throw new Error(
+    "Baseline and candidate must differ by commit, extension arm, or both"
+  );
+}
+if (
+  isCrossProviderRun &&
+  (baseline.extensionArm !== "unextended" ||
+    candidate.extensionArm !== "unextended")
+) {
+  throw new Error("Cross-provider workloads do not accept extension arms");
 }
 const coordinatorCommonDirectory = gitCommonDirectory(COORDINATOR_REPOSITORY);
 const baselineCommonDirectory = gitCommonDirectory(baseline.directory);
@@ -490,8 +709,12 @@ try {
     throw new Error("Baseline and candidate pnpm lockfiles differ");
   }
 
-  const stageFilter = splitFilter(arguments_.stages);
-  const modeFilter = splitFilter(arguments_.modes);
+  const stageFilter = splitFilter(
+    arguments_.stages ?? (diagnosticOnly ? "full" : undefined)
+  );
+  const modeFilter = splitFilter(
+    arguments_.modes ?? (diagnosticOnly ? "alloc,cpu" : undefined)
+  );
   const modes = baselineDescription.modes.filter(
     (mode) => !modeFilter || modeFilter.has(mode)
   );
@@ -558,7 +781,23 @@ try {
     arguments_.targets ?? [],
     baselineDescription.workloads
   );
-  for (const declared of declaredTargets) {
+  const declaredCeilings = parseDeclaredCeilings(
+    arguments_.ceilings ?? [],
+    baselineDescription.workloads
+  );
+  const declaredBudgets = parseDeclaredBudgets(
+    arguments_.budgets ?? [],
+    baselineDescription.workloads
+  );
+  const rowScalings = parseRowScalings(
+    arguments_.rowScalings ?? [],
+    baselineDescription.workloads
+  );
+  for (const declared of [
+    ...declaredTargets,
+    ...declaredCeilings,
+    ...declaredBudgets,
+  ]) {
     if (
       !targets.some(
         (target) =>
@@ -573,11 +812,34 @@ try {
       );
     }
   }
+  for (const scaling of rowScalings) {
+    for (const workload of [scaling.oneRowWorkload, scaling.manyRowWorkload]) {
+      if (
+        !targets.some(
+          (target) =>
+            target.provider === scaling.provider &&
+            target.workload === workload &&
+            target.stage === scaling.stage &&
+            target.mode === scaling.mode
+        )
+      ) {
+        throw new Error(
+          `Row-scaling evidence ${scaling.provider}/${workload}/${scaling.stage}/${scaling.mode}/${scaling.metric} is excluded by the filters`
+        );
+      }
+    }
+  }
 
   const smoke = arguments_.smoke === true;
-  const replicates = smoke ? 1 : 5;
+  const replicates = smoke ? 1 : diagnosticOnly ? 2 : 5;
   const samples = [];
   for (const target of targets) {
+    const diagnosticCounts = diagnosticOnly
+      ? diagnosticMeasurementCounts(
+          baselineDescription.workloads[target.workload].rowsPerOperation,
+          target.mode
+        )
+      : undefined;
     for (let replicate = 0; replicate < replicates; replicate++) {
       const order =
         replicate % 2 === 0 ? [baseline, candidate] : [candidate, baseline];
@@ -603,12 +865,21 @@ try {
             VIBORM_BENCH_MODE: target.mode,
             VIBORM_BENCH_EXPECTED_COMMIT: checkout.commit,
             VIBORM_BENCH_TARGET_DIRECTORY: checkout.directory,
+            VIBORM_BENCH_EXTENSION_ARM: checkout.extensionArm,
             VIBORM_BENCH_SMOKE: smoke ? "1" : "0",
-            ...(arguments_.iterations
-              ? { VIBORM_BENCH_ITERATIONS: arguments_.iterations }
+            ...(arguments_.iterations || diagnosticCounts
+              ? {
+                  VIBORM_BENCH_ITERATIONS:
+                    arguments_.iterations ??
+                    String(diagnosticCounts.iterations),
+                }
               : {}),
-            ...(arguments_.warmup
-              ? { VIBORM_BENCH_WARMUP_ITERATIONS: arguments_.warmup }
+            ...(arguments_.warmup || diagnosticCounts
+              ? {
+                  VIBORM_BENCH_WARMUP_ITERATIONS:
+                    arguments_.warmup ??
+                    String(diagnosticCounts.warmupIterations),
+                }
               : {}),
           },
           smoke ? 120_000 : 600_000,
@@ -663,9 +934,14 @@ try {
       : target.mode === "retained"
         ? Math.max(20, Math.floor(500 / scaleDivisor))
         : Math.max(50, Math.floor(5000 / scaleDivisor));
-    const expectedIterations = iterationOverride ?? defaultIterations;
+    const diagnosticCounts = diagnosticOnly
+      ? diagnosticMeasurementCounts(definition.rowsPerOperation, target.mode)
+      : undefined;
+    const expectedIterations =
+      iterationOverride ?? diagnosticCounts?.iterations ?? defaultIterations;
     const expectedWarmup =
       warmupOverride ??
+      diagnosticCounts?.warmupIterations ??
       (smoke ? 1 : Math.max(10, Math.ceil(expectedIterations / 5)));
     verifyTargetEvidence(
       target,
@@ -703,16 +979,21 @@ try {
   ).output.metadata.branch;
   const keepGate = evaluateKeepGate({
     smoke,
+    diagnosticOnly,
     hasOverrides:
       iterationOverride !== undefined || warmupOverride !== undefined,
     targets,
     declaredTargets,
+    declaredCeilings,
+    declaredBudgets,
+    rowScalings,
     comparisons: measuredComparisons,
     skippedComparisons,
     workloads: baselineDescription.workloads,
   });
   const report = {
-    measurementProtocolValid: !smoke,
+    measurementProtocolValid: !(smoke || diagnosticOnly),
+    diagnosticOnly,
     providerCoverageComplete: skippedComparisons.length === 0,
     keepGate,
     generatedAt: new Date().toISOString(),
@@ -730,18 +1011,25 @@ try {
       protocolIdentity: baselineDescription.protocol,
       protocolOwnerCommit: coordinatorCommit,
       declaredTargets,
+      declaredCeilings,
+      declaredBudgets,
+      rowScalings,
       providers: baselineDescription.providers ?? { sqlite3: {} },
       workloads: baselineDescription.workloads,
     },
     baseline: {
       directory: baseline.directory,
       commit: baseline.commit,
+      sourceCommit: baseline.sourceCommit,
+      extensionArm: baseline.extensionArm,
       branch: baselineBranch,
       environment: baselineEnvironment,
     },
     candidate: {
       directory: candidate.directory,
       commit: candidate.commit,
+      sourceCommit: candidate.sourceCommit,
+      extensionArm: candidate.extensionArm,
       branch: candidateBranch,
       environment: candidateEnvironment,
     },

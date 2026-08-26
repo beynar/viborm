@@ -25,6 +25,23 @@ const users = await orm.user.findMany({
 
 ## How It Works
 
+### Immutable extensions
+
+`$extends()` returns a new client view with one frozen ordered chain. Its six
+capabilities are request, query, statement, observe, client, and model. No
+extension code runs on a model-method property read. See
+[Client Extensions](/docs/client/extensions) for lifecycle and authority.
+
+The official `defaultOmit()`, `cache()`, and `instrumentation()` factories own
+their private capabilities. These are not `createClient()` configuration keys.
+
+The generic implementation has one home: `src/extensions/definition.ts` and
+`chain.ts` own definition and composition, `methods.ts` owns added methods,
+`request.ts`, `query.ts`, `statement.ts`, and `observation.ts` own their single
+runners, and `array-admission.ts` owns only extension admission. Client code
+keeps the model-operation trigger, transaction substrate, dispatch, result
+order, and commit facts; it does not keep a second handler representation.
+
 ### Recursive Proxy Pattern
 
 The client uses JavaScript `Proxy` to handle dynamic model access:

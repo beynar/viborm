@@ -1,23 +1,63 @@
+import { createOfficialCacheScope } from "@cache/driver";
 import { MemoryCache } from "@cache/drivers/memory";
+import { createOfficialCacheNamespace } from "@cache/key";
 import { PendingOperation as ClientPendingOperation } from "@client/exports";
 import { PgDriver } from "@drivers/pg";
 import {
   CacheConfigurationError,
+  InvalidTransactionInputError,
   PendingOperationError,
   ValidationError,
 } from "@errors";
-import { withMutationCacheInvalidation } from "@query-engine/cache-flow";
-import { PendingOperation } from "@query-engine/pending-operation";
+import { executePreparedQuery } from "@extensions/query";
+import { prepareMutationCacheWriteOutcome } from "@query-engine/cache-flow";
+import {
+  attachPendingCacheExecution,
+  PendingOperation,
+  type PrepareWriteOutcomeRegistration,
+} from "@query-engine/pending-operation";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import type { QueryMetadata } from "@query-engine/types";
 import { hydrateSchemaNames, s } from "@schema";
 import { PendingOperation as RootPendingOperation } from "@src/index";
+import {
+  readTestTransactionOperation,
+  type TestTransactionOperationView,
+} from "@tests/fixtures/transaction-operation";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
 
+const VALID_UPDATE_ARGS = {
+  where: { id: "user-1" },
+  data: { name: "Updated" },
+};
+
+const OFFICIAL_CACHE_NAMESPACE = createOfficialCacheNamespace(
+  "pending-operation-contract"
+);
+const OFFICIAL_CACHE_SCOPE = createOfficialCacheScope(OFFICIAL_CACHE_NAMESPACE);
+const USER_CACHE_PREFIX = `${OFFICIAL_CACHE_NAMESPACE}:user:`;
+
+class RecordingMemoryCache extends MemoryCache {
+  readonly clearedPrefixes: string[] = [];
+  private readonly clearFailure: Error | undefined;
+
+  constructor(clearFailure?: Error) {
+    super();
+    this.clearFailure = clearFailure;
+  }
+
+  protected override async clear(prefix: string): Promise<void> {
+    this.clearedPrefixes.push(prefix);
+    if (this.clearFailure) throw this.clearFailure;
+    return super.clear(prefix);
+  }
+}
+
 function createOperation<T>(
   operation: "findMany" | "update" = "findMany",
-  args: Record<string, unknown> = {}
+  args: Record<string, unknown> = {},
+  prepareWriteOutcome?: PrepareWriteOutcomeRegistration
 ): PendingOperation<T> {
   const user = s.model({ id: s.string().id(), name: s.string() });
   const schema = { user };
@@ -26,21 +66,109 @@ function createOperation<T>(
     new PgDriver(),
     createModelRegistry(schema, createSchemaRegistry(schema))
   );
-  return engine.prepare<T>(user, operation, args);
+  return engine.prepare<T>(
+    user,
+    operation,
+    args,
+    undefined,
+    undefined,
+    prepareWriteOutcome
+  );
 }
 
 function createControlledOperation<T>(
   value: T,
-  operation: "findMany" | "update" = "findMany"
+  operation: "findMany" | "update" = "findMany",
+  prepareWriteOutcome?: PrepareWriteOutcomeRegistration
 ): { operation: PendingOperation<T>; execute: ReturnType<typeof vi.fn> } {
   const execute = vi.fn(() => Promise.resolve(value));
   return {
-    operation: createOperation<T>(operation).wrapExecutor(execute),
+    operation: attachPendingCacheExecution(
+      createOperation<T>(
+        operation,
+        operation === "update" ? VALID_UPDATE_ARGS : {},
+        prepareWriteOutcome
+      ),
+      () => execute()
+    ),
     execute,
   };
 }
 
+function capability(operation: unknown): TestTransactionOperationView {
+  const value = readTestTransactionOperation(operation);
+  if (value === undefined) throw new Error("Expected pending operation");
+  return value;
+}
+
 describe("PendingOperation frozen public contract", () => {
+  it("keeps construction and authority state behind the module factory", () => {
+    const operation = createOperation<unknown>();
+    const operationCapability = capability(operation);
+
+    expect(Object.isFrozen(operation)).toBe(true);
+    const prototype = Reflect.getPrototypeOf(operation);
+    if (prototype === null) throw new Error("Expected operation prototype");
+    expect(Object.isFrozen(prototype)).toBe(true);
+    const originalThen = Reflect.get(prototype, "then");
+    expect(typeof originalThen).toBe("function");
+    expect(Reflect.defineProperty(prototype, "then", { value: vi.fn() })).toBe(
+      false
+    );
+    expect(Reflect.get(prototype, "then")).toBe(originalThen);
+    expect(Reflect.get(PendingOperation, "create")).toBeUndefined();
+    for (const name of [
+      "resolveArgs",
+      "resolveWriteOutcomeRegistration",
+      "resolveOperation",
+      "statementOperation",
+      "executor",
+      "resolveSinglePlan",
+      "getPromise",
+      "observeLogicalOperation",
+      "runExecution",
+      "observationNotification",
+      "runCoreExecution",
+      "run",
+      "wrapExecution",
+    ]) {
+      const helper = Reflect.get(operation, name);
+      expect(helper).toBeUndefined();
+      expect(() => {
+        if (typeof helper !== "function") {
+          throw new TypeError("Private helper is not callable");
+        }
+        Reflect.apply(helper, operation, []);
+      }).toThrow(TypeError);
+    }
+    for (const key of [
+      "engine",
+      "model",
+      "args",
+      "modelName",
+      "operation",
+      "options",
+      "execution",
+      "operationExecutor",
+      "context",
+    ]) {
+      expect(Reflect.set(operation, key, "forged")).toBe(false);
+      expect(Reflect.defineProperty(operation, key, { value: "forged" })).toBe(
+        false
+      );
+    }
+    expect(capability(operation).clientId).toBe(operationCapability.clientId);
+    expect(capability(operation).scopeId).toBe(operationCapability.scopeId);
+
+    const reflectedConstructor = Reflect.get(operation, "constructor");
+    if (typeof reflectedConstructor !== "function") {
+      throw new Error("Expected PendingOperation constructor");
+    }
+    expect(() => Reflect.construct(reflectedConstructor, [])).toThrow(
+      InvalidTransactionInputError
+    );
+  });
+
   it("preserves client identity and mints transaction scope identity", () => {
     const user = s.model({ id: s.string().id(), name: s.string() });
     const schema = { user };
@@ -72,8 +200,9 @@ describe("PendingOperation frozen public contract", () => {
       operation = engine.prepare(user, "create", { data: { id: 123 } });
     }).not.toThrow();
 
-    expect(() => operation?.prepare()).toThrow(ValidationError);
-    await expect(operation?.execute()).rejects.toBeInstanceOf(ValidationError);
+    if (operation === undefined) throw new Error("Expected pending operation");
+    expect(() => capability(operation).prepare()).toThrow(ValidationError);
+    await expect(operation).rejects.toBeInstanceOf(ValidationError);
   });
 
   it("memoizes one execution across then, catch, finally, and execute", async () => {
@@ -85,7 +214,7 @@ describe("PendingOperation frozen public contract", () => {
         operation.then((value) => value),
         operation.catch(() => -1),
         operation.finally(finalized),
-        operation.execute(),
+        Promise.resolve(operation),
       ])
     ).resolves.toEqual([42, 42, 42, 42]);
 
@@ -97,8 +226,8 @@ describe("PendingOperation frozen public contract", () => {
     const driver = new PgDriver();
     const { operation, execute } = createControlledOperation(42);
 
-    const first = operation.executeWith(driver);
-    const second = operation.executeWith(driver);
+    const first = capability(operation).executeWith(driver);
+    const second = capability(operation).executeWith(driver);
 
     expect(second).toBe(first);
     await expect(first).resolves.toBe(42);
@@ -107,22 +236,24 @@ describe("PendingOperation frozen public contract", () => {
 
   it("rejects default execution after driver-bound execution", () => {
     const { operation } = createControlledOperation(42);
-    operation.executeWith(new PgDriver());
-    expect(() => operation.execute()).toThrow(PendingOperationError);
+    capability(operation).executeWith(new PgDriver());
+    expect(() => operation.then((value) => value)).toThrow(
+      PendingOperationError
+    );
   });
 
   it("rejects driver-bound execution after default execution", () => {
     const { operation } = createControlledOperation(42);
-    operation.execute();
-    expect(() => operation.executeWith(new PgDriver())).toThrow(
+    operation.then((value) => value);
+    expect(() => capability(operation).executeWith(new PgDriver())).toThrow(
       PendingOperationError
     );
   });
 
   it("rejects a second, different driver", () => {
     const { operation } = createControlledOperation(42);
-    operation.executeWith(new PgDriver());
-    expect(() => operation.executeWith(new PgDriver())).toThrow(
+    capability(operation).executeWith(new PgDriver());
+    expect(() => capability(operation).executeWith(new PgDriver())).toThrow(
       PendingOperationError
     );
   });
@@ -141,12 +272,13 @@ describe("PendingOperation frozen public contract", () => {
       data: [{ id: "user-1", name: "Arnaud" }],
     });
 
-    expect(direct.prepare(driver)).toMatchObject({
+    const directCapability = capability(direct);
+    expect(directCapability.prepare(driver)).toMatchObject({
       sql: expect.any(String),
       params: expect.any(Array),
-      context: direct.getExecutionContext(),
+      context: directCapability.context,
     });
-    await expect(bulk.prepareBatch(driver)).resolves.toMatchObject({
+    await expect(capability(bulk).prepareBatch(driver)).resolves.toMatchObject({
       queries: expect.any(Array),
       parseResult: expect.any(Function),
     });
@@ -162,100 +294,156 @@ describe("PendingOperation frozen public contract", () => {
       rows: [{ id: "user-1", name: "Arnaud" }],
       rowCount: 1,
     };
+    const operationCapability = capability(operation);
 
     expect(operation.getArgs()).toBe(args);
-    expect(operation.getModel()).toBe("user");
-    expect(operation.getOperation()).toBe("findMany");
-    expect(typeof operation.getClientId()).toBe("symbol");
-    expect(typeof operation.getScopeId()).toBe("symbol");
-    expect(Object.isFrozen(operation.context)).toBe(true);
-    expect(operation.getExecutionContext()).toBe(operation.context.attribution);
-    expect(operation.parseResult(raw)).toEqual(raw.rows);
+    expect(operationCapability.model).toBe("user");
+    expect(operationCapability.operation).toBe("findMany");
+    expect(typeof operationCapability.clientId).toBe("symbol");
+    expect(typeof operationCapability.scopeId).toBe("symbol");
+    expect(Object.isFrozen(operationCapability.context)).toBe(true);
+    expect(operationCapability.context).toBe(capability(operation).context);
+    expect(operationCapability.parseResult(raw)).toEqual(raw.rows);
   });
 
-  it("wrapExecutor returns an immutable operation and composes wrappers", async () => {
+  it("the internal cache execution attachment is immutable and composes", async () => {
     const source = vi.fn(() => Promise.resolve(42));
-    const original = createOperation<number>().wrapExecutor(source);
+    const original = attachPendingCacheExecution(
+      createOperation<number>(),
+      () => source()
+    );
     const wrapper = vi.fn(async (execute: () => Promise<number>) => {
       const value = await execute();
       return value + 1;
     });
-    const wrapped = original.wrapExecutor(wrapper);
+    const wrapped = attachPendingCacheExecution(original, wrapper);
 
     expect(wrapped).not.toBe(original);
-    await expect(wrapped.executeWith(new PgDriver())).resolves.toBe(43);
+    await expect(capability(wrapped).executeWith(new PgDriver())).resolves.toBe(
+      43
+    );
     expect(wrapper).toHaveBeenCalledOnce();
     expect(source).toHaveBeenCalledOnce();
     expect(original.getArgs()).toBe(wrapped.getArgs());
-    expect(original.getExecutionContext()).toBe(wrapped.getExecutionContext());
-    expect(original.getClientId()).toBe(wrapped.getClientId());
-    expect(original.getScopeId()).toBe(wrapped.getScopeId());
+    expect(capability(original).context).toBe(capability(wrapped).context);
+    expect(capability(original).clientId).toBe(capability(wrapped).clientId);
+    expect(capability(original).scopeId).toBe(capability(wrapped).scopeId);
   });
 
-  it("decorates only mutations with cache invalidation after successful execution", async () => {
-    const cache = new MemoryCache();
-    const invalidate = vi.spyOn(cache, "_invalidate");
-    const mutation = createControlledOperation(42, "update").operation;
-    const decorated = withMutationCacheInvalidation(
-      mutation,
-      cache,
-      "user",
+  it("publishes mutation cache invalidation after successful execution", async () => {
+    const cache = new RecordingMemoryCache();
+    const prepareWriteOutcome: PrepareWriteOutcomeRegistration = (context) =>
+      prepareMutationCacheWriteOutcome(
+        cache,
+        "user",
+        "update",
+        () => ({ autoInvalidate: true }),
+        context,
+        OFFICIAL_CACHE_SCOPE
+      );
+    const mutation = createControlledOperation(
+      42,
       "update",
-      undefined
-    );
+      prepareWriteOutcome
+    ).operation;
 
-    expect(decorated).not.toBe(mutation);
-    await expect(decorated.execute()).resolves.toBe(42);
-    expect(invalidate).toHaveBeenCalledWith(
-      "user",
-      undefined,
-      mutation.getExecutionContext()
-    );
+    await expect(mutation).resolves.toBe(42);
+    expect(cache.clearedPrefixes).toEqual([USER_CACHE_PREFIX]);
 
-    const read = createControlledOperation(42).operation;
     expect(
-      withMutationCacheInvalidation(read, cache, "user", "findMany", undefined)
-    ).toBe(read);
+      prepareMutationCacheWriteOutcome(
+        cache,
+        "user",
+        "findMany",
+        () => ({ autoInvalidate: true }),
+        capability(mutation).context,
+        OFFICIAL_CACHE_SCOPE
+      )
+    ).toBeUndefined();
   });
 
   it("preserves mutation failures without invalidating cache", async () => {
     const failure = new Error("mutation failed");
-    const cache = new MemoryCache();
-    const invalidate = vi.spyOn(cache, "_invalidate");
-    const mutation = createOperation<number>("update").wrapExecutor(() =>
-      Promise.reject(failure)
+    const cache = new RecordingMemoryCache();
+    const mutation = attachPendingCacheExecution(
+      createOperation<number>("update", VALID_UPDATE_ARGS, (context) =>
+        prepareMutationCacheWriteOutcome(
+          cache,
+          "user",
+          "update",
+          () => ({ autoInvalidate: true }),
+          context,
+          OFFICIAL_CACHE_SCOPE
+        )
+      ),
+      () => Promise.reject(failure)
     );
-    const decorated = withMutationCacheInvalidation(
-      mutation,
+
+    const caught = await mutation.catch((error) => error);
+    expect(caught).toBe(failure);
+    expect(cache.clearedPrefixes).toEqual([]);
+  });
+
+  it("publishes package registrations for every direct committed segment", async () => {
+    const cache = new RecordingMemoryCache();
+    const context = capability(createOperation("update")).context;
+    const registration = prepareMutationCacheWriteOutcome(
       cache,
       "user",
       "update",
-      undefined
+      () => ({ autoInvalidate: true }),
+      context,
+      OFFICIAL_CACHE_SCOPE
     );
 
-    const caught = await decorated.execute().catch((error) => error);
-    expect(caught).toBe(failure);
-    expect(invalidate).not.toHaveBeenCalled();
+    await expect(
+      executePreparedQuery(
+        undefined,
+        undefined,
+        async (notifications) => {
+          await notifications?.committed();
+          await notifications?.committed();
+          return 42;
+        },
+        true,
+        undefined,
+        undefined,
+        registration
+      )
+    ).resolves.toBe(42);
+    expect(cache.clearedPrefixes).toEqual([
+      USER_CACHE_PREFIX,
+      USER_CACHE_PREFIX,
+    ]);
   });
 
   it("owns cache invalidation failures instead of leaking a raw error", async () => {
-    const cache = new MemoryCache();
     const failure = new Error("cache transport failed");
-    vi.spyOn(cache, "_invalidate").mockRejectedValue(failure);
-    const mutation = createControlledOperation(42, "update").operation;
-    const decorated = withMutationCacheInvalidation(
-      mutation,
-      cache,
-      "user",
-      "update",
-      undefined
-    );
+    const cache = new RecordingMemoryCache(failure);
+    const mutation = createControlledOperation(42, "update", (context) =>
+      prepareMutationCacheWriteOutcome(
+        cache,
+        "user",
+        "update",
+        () => ({ autoInvalidate: true }),
+        context,
+        OFFICIAL_CACHE_SCOPE
+      )
+    ).operation;
 
-    const caught = await decorated.execute().catch((error) => error);
+    const caught = await mutation.catch((error) => error);
     expect(caught).toBeInstanceOf(CacheConfigurationError);
+    if (!(caught instanceof CacheConfigurationError)) throw caught;
     expect(caught).toMatchObject({
-      meta: { method: "invalidate", model: "user", operation: "update" },
+      meta: {
+        method: "invalidate",
+        model: "user",
+        operation: "update",
+        commitCertainty: "committed",
+      },
     });
+    expect(caught.originalCause).toBeInstanceOf(Error);
+    expect(cache.clearedPrefixes).toEqual([USER_CACHE_PREFIX]);
   });
 
   it("keeps PendingOperation as the root and client runtime export", () => {

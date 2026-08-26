@@ -11,6 +11,7 @@
 import { createClient } from "@client/client";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import { push } from "@migrations";
+import { readTransactionOperation } from "@query-engine/transaction-operation";
 import { afterAll, bench, describe } from "vitest";
 import { sqliteUserPostSchema } from "../tests/fixtures/user-post-schema";
 
@@ -42,13 +43,23 @@ const args = {
   take: 20,
 } satisfies Parameters<typeof client.post.findMany>[0];
 
+function transactionOperation(operation: unknown) {
+  if (operation === null || typeof operation !== "object") {
+    throw new Error("Expected a VibORM benchmark operation");
+  }
+  const owner = readTransactionOperation(operation);
+  if (!owner) throw new Error("Expected a VibORM benchmark operation");
+  return owner;
+}
+
 const preparedOperation = client.post.findMany(args);
-const prepared = preparedOperation.prepare();
+const preparedOwner = transactionOperation(preparedOperation);
+const prepared = preparedOwner.prepare(preparedOperation);
 if (!prepared) {
   throw new Error("The relation read did not produce one prepared statement");
 }
 const rawFixture = await driver._executeRaw(prepared.sql, prepared.params);
-const expected = preparedOperation.parseResult(rawFixture);
+const expected = preparedOwner.parseResult(preparedOperation, rawFixture);
 if (!Array.isArray(expected) || expected.length !== 20) {
   throw new Error("The relation-read fixture did not return 20 parsed rows");
 }
@@ -57,7 +68,8 @@ const largeArgs = { ...args, take: 1000 } satisfies Parameters<
   typeof client.post.findMany
 >[0];
 const largePreparedOperation = client.post.findMany(largeArgs);
-const largePrepared = largePreparedOperation.prepare();
+const largePreparedOwner = transactionOperation(largePreparedOperation);
+const largePrepared = largePreparedOwner.prepare(largePreparedOperation);
 if (!largePrepared) {
   throw new Error(
     "The large relation read did not produce a prepared statement"
@@ -67,7 +79,10 @@ const largeRawFixture = await driver._executeRaw(
   largePrepared.sql,
   largePrepared.params
 );
-const largeExpected = largePreparedOperation.parseResult(largeRawFixture);
+const largeExpected = largePreparedOwner.parseResult(
+  largePreparedOperation,
+  largeRawFixture
+);
 if (!Array.isArray(largeExpected) || largeExpected.length !== 1000) {
   throw new Error("The large relation-read fixture did not return 1,000 rows");
 }
@@ -88,9 +103,10 @@ function consumeRawRelation(raw: { rows: Record<string, unknown>[] }): number {
   );
 }
 
-function consumeParsedRelation(
-  rows: Array<{ id: string; author: { name: string | null } | null }>
-): number {
+function consumeParsedRelation(rows: unknown): number {
+  if (!Array.isArray(rows)) {
+    throw new Error("The parsed relation result was not an array");
+  }
   const first = rows[0];
   if (!first?.author?.name) {
     throw new Error(
@@ -108,7 +124,7 @@ describe("relation read: exact prepared SQL", () => {
 
   bench("raw execution + prepared result parser", async () => {
     const raw = await driver._executeRaw(prepared.sql, prepared.params);
-    const rows = preparedOperation.parseResult(raw);
+    const rows = preparedOwner.parseResult(preparedOperation, raw);
     sink += consumeParsedRelation(rows);
   });
 
@@ -121,19 +137,23 @@ describe("relation read: exact prepared SQL", () => {
 describe("relation read: CPU stages", () => {
   bench("dispatch + validate + build", () => {
     const operation = client.post.findMany(args);
-    const query = operation.prepare();
+    const owner = transactionOperation(operation);
+    const query = owner.prepare(operation);
     sink += (query?.sql.length ?? 0) + (query?.params.length ?? 0);
   });
 
   bench("prepared result parser only", () => {
-    const rows = preparedOperation.parseResult(rawFixture);
+    const rows = preparedOwner.parseResult(preparedOperation, rawFixture);
     sink += consumeParsedRelation(rows);
   });
 });
 
 describe("relation read: parser scaling", () => {
   bench("prepared result parser, 1,000 rows", () => {
-    const rows = largePreparedOperation.parseResult(largeRawFixture);
+    const rows = largePreparedOwner.parseResult(
+      largePreparedOperation,
+      largeRawFixture
+    );
     sink += consumeParsedRelation(rows);
   });
 });

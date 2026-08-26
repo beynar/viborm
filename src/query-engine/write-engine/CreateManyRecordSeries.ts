@@ -1,8 +1,8 @@
 // biome-ignore-all lint/style/useFilenamingConvention: CreateManyRecordSeries is the architecture name (plan §4.6).
 import { QueryEngineError } from "@errors";
 import type { Model } from "@schema/model";
-import { getPrimaryKeyFields } from "../context";
 import type { RecordMutationData } from "../builders/relation-mutation-parser";
+import { getPrimaryKeyFields } from "../context";
 import type { QueryEngine } from "../query-engine";
 import { CreateOperation } from "./CreateOperation";
 import type { ExecutableOperation } from "./OperationExecutor";
@@ -73,6 +73,11 @@ import { getStepModelName, isRecord } from "./shared";
  */
 export class CreateManyRecordSeries implements RecordSeriesOperation {
   readonly executionKind = "recordSeries" as const;
+
+  /** The canonical payload validated at construction. */
+  get validatedArgs(): Record<string, unknown> {
+    return this.args;
+  }
 
   private readonly engine: QueryEngine;
   private readonly model: Model<any>;
@@ -161,10 +166,7 @@ export class CreateManyRecordSeries implements RecordSeriesOperation {
     readonly memberResults: readonly unknown[];
     readonly resultReadResults: readonly unknown[];
   }): unknown {
-    const rowKeys = insertedRowKeys(
-      input.memberResults,
-      this.skipDuplicates
-    );
+    const rowKeys = insertedRowKeys(input.memberResults, this.skipDuplicates);
     if (!this.select) return { count: rowKeys.length };
     return parseSeriesResultReads(
       this.resultReadInput(rowKeys, this.select),

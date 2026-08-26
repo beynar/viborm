@@ -20,6 +20,7 @@ import {
   type ExpectedAggregateResultShape,
   type ExpectedPolymorphicResultShape,
   type ExpectedPolymorphicVariantShape,
+  type ExpectedRelationResultShape,
   type ExpectedResultShape,
   type Operation,
   QueryEngineError,
@@ -55,7 +56,7 @@ function getOwnValue<T>(
 
 function createShape(
   rawKeys: string[],
-  relations = new Map<string, ExpectedResultShape>(),
+  relations = new Map<string, ExpectedRelationResultShape>(),
   aggregates = new Map<string, ExpectedAggregateResultShape>(),
   relationCounts = new Set<string>(),
   polymorphic = new Map<string, ExpectedPolymorphicResultShape>()
@@ -98,7 +99,7 @@ function buildModelShape(
   index: ResolvedRelationIndex
 ): ExpectedResultShape {
   const rawKeys: string[] = [];
-  const relations = new Map<string, ExpectedResultShape>();
+  const relations = new Map<string, ExpectedRelationResultShape>();
   const polymorphic = new Map<string, ExpectedPolymorphicResultShape>();
   const selectedOutputKeys = new Set<string>();
   const scalars = model["~"].state.scalars;
@@ -136,6 +137,7 @@ function buildModelShape(
   }
 
   addSelectedRelations(
+    model,
     modelRelations,
     select,
     rawKeys,
@@ -158,6 +160,7 @@ function buildModelShape(
     );
   }
   addSelectedRelations(
+    model,
     modelRelations,
     include,
     rawKeys,
@@ -238,10 +241,11 @@ function pagesBackward(value: unknown): boolean {
 }
 
 function addSelectedRelations(
+  model: Model<any>,
   modelRelations: Model<any>["~"]["state"]["relations"],
   selection: Record<string, unknown> | undefined,
   rawKeys: string[],
-  relations: Map<string, ExpectedResultShape>,
+  relations: Map<string, ExpectedRelationResultShape>,
   selectedOutputKeys: Set<string>,
   index: ResolvedRelationIndex
 ): void {
@@ -261,10 +265,13 @@ function addSelectedRelations(
       getNestedSelection(value),
       index
     );
-    relations.set(
-      relationName,
-      pagesBackward(value) ? { ...shape, reversed: true } : shape
-    );
+    const resolved = index.get(model)?.get(relationName);
+    relations.set(relationName, {
+      model: targetModel,
+      shape: pagesBackward(value) ? { ...shape, reversed: true } : shape,
+      cardinality: relation["~"].state.cardinality,
+      optional: resolved !== undefined && slotMayBeEmpty(resolved),
+    });
   }
 }
 

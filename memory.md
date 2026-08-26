@@ -123,6 +123,10 @@
   2×MAD does not make a delta trustworthy when it is smaller than the
   independent A/B sampling standard error. Preserve that result as a diagnostic
   and repeat it at an appropriate interval before using it as a keep decision.
+  For repeated hooks, state the ceiling per semantic invocation; a percentage
+  of an amortized batch is invalid, and a fixed cost beyond 2×MAD is compared
+  with an explicit per-invocation budget rather than treated as automatic
+  failure.
 - When V8 allocation sampling includes collected objects across many hot-path
   iterations, use a coarse interval such as 8 KiB; a 128-byte interval can make
   the inspector response exceed Node's maximum string size. Reserve a fine
@@ -164,3 +168,17 @@
   the origin is reachable, but it can bypass the user's DNS, TLS, and network
   policy boundary; when the two disagree, inspect the local denial response and
   report that boundary explicitly.
+- A new path alias is incomplete until every standalone resolver and config has
+  been audited and its isolated project collects. A green main TypeScript or
+  Vitest run does not prove that D1, worker, or other separately configured
+  projects can resolve the alias.
+- When concurrent work partially changes mixed files, validate the feature from
+  an explicit clean snapshot: start from a known base, overlay only owned paths,
+  and assert that excluded blobs still match the base. Never obtain that proof
+  by reverting or cleaning the live worktree. Start validation only from a
+  frozen HEAD, and never advance, mutate, or reuse its worktree while a
+  validator or benchmark is running there; create each successor snapshot in a
+  separate worktree before validating it.
+- In zsh automation, never use `path` as a loop or shell variable: it aliases
+  the executable search path and makes later commands disappear. Use a
+  task-specific name such as `file_path`.

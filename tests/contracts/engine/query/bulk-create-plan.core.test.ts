@@ -5,6 +5,7 @@ import type { QueryResult } from "@drivers/types";
 import { planInsertRowShapes } from "@query-engine/builders/insert-row-shapes";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames, s } from "@schema";
+import { readTestTransactionOperation } from "@tests/fixtures/transaction-operation";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
 
@@ -50,6 +51,12 @@ const engine = new QueryEngine(
   createModelRegistry(schema, createSchemaRegistry(schema))
 );
 
+function transactionOperation(operation: unknown) {
+  const capability = readTestTransactionOperation(operation);
+  if (!capability) throw new Error("expected a transaction operation");
+  return capability;
+}
+
 describe("bulk create planning", () => {
   test("groups only contiguous equal shapes and retains input indexes", () => {
     const groups = planInsertRowShapes(
@@ -76,11 +83,11 @@ describe("bulk create planning", () => {
   });
 
   test("fails closed on a short provider result window", async () => {
-    const prepared = await engine
-      .prepare<{ count: number }>(item, "createMany", {
+    const prepared = await transactionOperation(
+      engine.prepare<{ count: number }>(item, "createMany", {
         data: [{ label: "first" }, { id: 10, label: "second" }],
       })
-      .prepareBatch();
+    ).prepareBatch();
     if (!prepared) throw new Error("bulk program was not batch-lowerable");
 
     // A short provider result window fails closed: the missing statement's output

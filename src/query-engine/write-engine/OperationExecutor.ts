@@ -1,17 +1,28 @@
 // biome-ignore-all lint/style/useFilenamingConvention: OperationExecutor is the architecture name.
 import type { AnyDriver, QueryExecutionContext, QueryResult } from "@drivers";
 import {
+  assertStatementBindParameterCapacity,
+  normalizedBindParameterLimit,
+} from "@drivers/bind-parameter-capacity";
+import {
   type ConsumableResultCandidate,
   executeConsumableResultCandidate,
 } from "@drivers/consumable-result-candidate";
-import { getExecutionInstrumentation } from "@drivers/execution-context";
+import { attachCommitCertainty } from "@drivers/driver-error-context";
+import {
+  bindExecutionTransactionPhases,
+  getExecutionExtensionChain,
+  getExecutionInstrumentation,
+} from "@drivers/execution-context";
 import {
   assertNormalizedBatchResults,
   assertNormalizedQueryResult,
 } from "@drivers/normalized-result";
+import { transferPreparedStatement } from "@drivers/prepared-statement-provenance";
 import {
   attachRecordSeriesProgress,
   hasRecordSeriesProgress,
+  isVibORMError,
   NESTED_WRITE_ASSERTION_FLOOR_MESSAGE,
   NestedWriteAssertionError,
   NestedWriteError,
@@ -22,6 +33,8 @@ import {
   UnsupportedOperationError,
   VibORMErrorCode,
 } from "@errors";
+import { runProtectedObservers } from "@extensions/observation";
+import { retainWriteOutcomeFailure } from "@extensions/query";
 import {
   ATTR_VIBORM_WRITE_ATOMICITY,
   ATTR_VIBORM_WRITE_COMMIT_OUTCOME,
@@ -32,9 +45,18 @@ import {
   ATTR_VIBORM_WRITE_STATEMENT_COUNT,
   SPAN_RECORD_SERIES_SEGMENT,
 } from "@instrumentation";
-import type { TracerWrapper } from "@instrumentation/tracer";
+import { getOfficialInstrumentationChainCapability } from "@instrumentation/extension";
+import type {
+  InstrumentationLifecycleFactsReader,
+  InstrumentationLifecycleOutcome,
+  SegmentInstrumentationFacts,
+} from "@instrumentation/lifecycle-facts";
+import {
+  shouldTraceSpan,
+  type TracerWrapper,
+  type VibORMSpanOptions,
+} from "@instrumentation/tracer";
 import { isSql, Sql } from "@sql";
-import { normalizedBindParameterLimit } from "../bind-budget";
 import { createCorrelationId } from "../execution-context";
 import type { QueryEngine } from "../query-engine";
 import type { ResultParser } from "../result/ResultParser";
@@ -148,9 +170,9 @@ export interface ExecutableOperation {
    * The cache flow keys on this and never on the caller's raw payload — a
    * payload carrying a callback has no stable serialization until validation has
    * run it, and two spellings of the same comparison must land on one key.
-   * Present on the read families, which are the only cacheable operations
-   * ({@link file://../cache-flow.ts}); a caller that asks any other
-   * operation for it gets a loud refusal rather than a raw-payload fallback.
+   * Optional here because nested and synthesized atoms never cross the public
+   * routing boundary. {@link RoutedExecutableOperation} strengthens it to a
+   * required record for every top-level operation.
    */
   readonly validatedArgs?: Record<string, unknown>;
 }
@@ -244,7 +266,9 @@ export class OperationExecutor {
     plan: SingleStatementCandidate,
     operation: ExecutableOperation,
     driver: AnyDriver,
-    context: QueryExecutionContext
+    context: QueryExecutionContext,
+    committedWriteSegment?: CommittedWriteSegmentNotification,
+    writeMayBeVisible?: WriteMayBeVisibleNotification
   ) => Promise<T>;
 
   constructor(
@@ -259,7 +283,7 @@ export class OperationExecutor {
   }
 
   execute<T>(
-    operation: RoutedExecutableOperation,
+    operation: ExecutableOperation | RecordSeriesOperation,
     context: QueryExecutionContext,
     driverOverride?: AnyDriver,
     committedWriteSegment?: CommittedWriteSegmentNotification,
@@ -281,13 +305,15 @@ export class OperationExecutor {
           writeMayBeVisible
         );
       }
-      setTracerAttributes(progressiveTracer(this.engine, context), {
+      setTracerAttributes(progressiveTracer(context), {
         [ATTR_VIBORM_WRITE_ATOMICITY]: "operation",
       });
-      return seriesDriver.withTransaction(
+      return this.runTransactionScope(
+        seriesDriver,
         (driver) => this.runRecordSeries<T>(operation, context, driver),
-        undefined,
-        context
+        context,
+        committedWriteSegment,
+        writeMayBeVisible
       );
     }
     // A caller-supplied driver is already inside its own atomic scope (the
@@ -318,7 +344,9 @@ export class OperationExecutor {
         directCandidate,
         operation,
         driver,
-        context
+        context,
+        committedWriteSegment,
+        writeMayBeVisible
       );
     }
     // A driver with neither an atomic transaction nor an atomic batch cannot run
@@ -329,7 +357,12 @@ export class OperationExecutor {
       );
     }
     if (operation.mode === "transaction") {
-      return this.runTransaction<T>(operation, context);
+      return this.runTransaction<T>(
+        operation,
+        context,
+        committedWriteSegment,
+        writeMayBeVisible
+      );
     }
     return this.runAtomicBatch<T>(
       operation,
@@ -453,10 +486,7 @@ export class OperationExecutor {
       if (hasRecordSeriesProgress(error)) throw error;
       throw attachProgress(error, progress, "planning");
     } finally {
-      setProgressiveParentAttributes(
-        progressiveTracer(this.engine, context),
-        progress
-      );
+      setProgressiveParentAttributes(progressiveTracer(context), progress);
     }
   }
 
@@ -955,7 +985,7 @@ export class OperationExecutor {
       : undefined;
 
     return observeProgressiveSegment(
-      progressiveTracer(this.engine, context),
+      context,
       plan,
       memberPath,
       planHasWrite,
@@ -1077,13 +1107,77 @@ export class OperationExecutor {
 
   private runTransaction<T>(
     operation: ExecutableOperation,
-    context: QueryExecutionContext
+    context: QueryExecutionContext,
+    committedWriteSegment?: CommittedWriteSegmentNotification,
+    writeMayBeVisible?: WriteMayBeVisibleNotification
   ): Promise<T> {
-    return this.engine.driver.withTransaction(
+    return this.runTransactionScope(
+      this.engine.driver,
       (driver) => this.runLinearOn<T>(operation, context, driver),
-      undefined,
-      context
+      context,
+      committedWriteSegment,
+      writeMayBeVisible
     );
+  }
+
+  /** Publish one direct transaction's exact durable phase without changing zero path. */
+  private async runTransactionScope<T>(
+    driver: AnyDriver,
+    callback: (driver: AnyDriver) => Promise<T>,
+    context: QueryExecutionContext,
+    committedWriteSegment?: CommittedWriteSegmentNotification,
+    writeMayBeVisible?: WriteMayBeVisibleNotification
+  ): Promise<T> {
+    if (!(committedWriteSegment || writeMayBeVisible)) {
+      return driver.withTransaction(callback, undefined, context);
+    }
+
+    const transactionState: {
+      phase: "pending" | "ready" | "committed";
+    } = { phase: "pending" };
+    const transactionContext = bindExecutionTransactionPhases(context, {
+      readyToCommit: () => {
+        transactionState.phase = "ready";
+      },
+      committed: () => {
+        transactionState.phase = "committed";
+      },
+    });
+    let transactionResult: T;
+    try {
+      transactionResult = await driver.withTransaction(
+        callback,
+        undefined,
+        transactionContext
+      );
+    } catch (error) {
+      const certainty =
+        transactionState.phase === "committed"
+          ? "committed"
+          : transactionState.phase === "ready"
+            ? "may-have-committed"
+            : undefined;
+      const primary =
+        certainty && isVibORMError(error)
+          ? attachCommitCertainty(error, certainty)
+          : error;
+      const notify =
+        transactionState.phase === "committed"
+          ? committedWriteSegment
+          : transactionState.phase === "ready"
+            ? writeMayBeVisible
+            : undefined;
+      if (notify) {
+        try {
+          await notify();
+        } catch (outcomeFailure) {
+          throw retainWriteOutcomeFailure(primary, outcomeFailure);
+        }
+      }
+      throw primary;
+    }
+    await committedWriteSegment?.();
+    return transactionResult;
   }
 
   private async runLinearOn<T>(
@@ -1171,8 +1265,79 @@ export class OperationExecutor {
       driver,
       normalizedBindParameterLimit(driver.maxBindParametersPerStatement)
     );
-    const execution = await this.executeEntries(plan, driver, context);
-    return operation.parse<T>(execution.outputs);
+    const planHasWrite = atomicPlanHasWrite(plan);
+    let committedNotified = false;
+    let hasOutcomeFailure = false;
+    let outcomeFailure: unknown;
+    const committed =
+      planHasWrite && committedWriteSegment
+        ? async () => {
+            if (committedNotified) return;
+            committedNotified = true;
+            try {
+              await committedWriteSegment();
+            } catch (error) {
+              hasOutcomeFailure = true;
+              outcomeFailure = error;
+            }
+          }
+        : undefined;
+    let dispatched = false;
+    let execution: AtomicExecutionResult;
+    try {
+      execution = await this.executeEntries(
+        plan,
+        driver,
+        context,
+        driver.supportsOrderedCommittedSegments ? committed : undefined,
+        writeMayBeVisible
+          ? () => {
+              dispatched = true;
+            }
+          : undefined
+      );
+      if (planHasWrite && !driver.supportsOrderedCommittedSegments) {
+        await committed?.();
+      }
+    } catch (error) {
+      if (hasOutcomeFailure) {
+        throw retainWriteOutcomeFailure(error, outcomeFailure);
+      }
+      if (
+        planHasWrite &&
+        dispatched &&
+        !committedNotified &&
+        writeMayBeVisible &&
+        !(error instanceof UniqueConstraintError || isRetryableRace(error))
+      ) {
+        try {
+          await writeMayBeVisible();
+        } catch (writeOutcomeFailure) {
+          throw retainWriteOutcomeFailure(error, writeOutcomeFailure);
+        }
+      }
+      throw error;
+    }
+
+    let operationOutcome:
+      | { readonly status: "success"; readonly value: T }
+      | { readonly status: "failure"; readonly error: unknown };
+    try {
+      operationOutcome = {
+        status: "success",
+        value: operation.parse<T>(execution.outputs),
+      };
+    } catch (error) {
+      operationOutcome = { status: "failure", error };
+    }
+    if (hasOutcomeFailure) {
+      if (operationOutcome.status === "failure") {
+        throw retainWriteOutcomeFailure(operationOutcome.error, outcomeFailure);
+      }
+      throw outcomeFailure;
+    }
+    if (operationOutcome.status === "failure") throw operationOutcome.error;
+    return operationOutcome.value;
   }
 
   private async runGeneratedOutputFallback<T>(
@@ -1236,10 +1401,7 @@ export class OperationExecutor {
         throw attachProgress(error, progress, "result");
       }
     } finally {
-      setProgressiveParentAttributes(
-        progressiveTracer(this.engine, context),
-        progress
-      );
+      setProgressiveParentAttributes(progressiveTracer(context), progress);
     }
   }
 
@@ -1303,10 +1465,7 @@ export class OperationExecutor {
         throw attachProgress(error, progress, "result");
       }
     } finally {
-      setProgressiveParentAttributes(
-        progressiveTracer(this.engine, context),
-        progress
-      );
+      setProgressiveParentAttributes(progressiveTracer(context), progress);
     }
   }
 
@@ -1386,7 +1545,9 @@ export class OperationExecutor {
     plan: SingleStatementCandidate,
     operation: ExecutableOperation,
     driver: AnyDriver,
-    context: QueryExecutionContext
+    context: QueryExecutionContext,
+    committedWriteSegment?: CommittedWriteSegmentNotification,
+    writeMayBeVisible?: WriteMayBeVisibleNotification
   ): Promise<T> {
     const { step } = plan;
     assertOperationStatementCapacity(
@@ -1394,27 +1555,93 @@ export class OperationExecutor {
       driver,
       normalizedBindParameterLimit(driver.maxBindParametersPerStatement)
     );
-    const result = await this.executeStatement(
-      step,
-      step.statement,
-      driver,
-      context
-    );
-    assertNormalizedQueryResult(result, {
-      provider: driver.driverName,
-      operation: step.id,
-    });
-    enforcePostcondition(step, result, context);
-    const values: RuntimeValues = new Map();
-    values.set(step.id, extractOutputs(step, result, values));
-    return operation.parse<T>(resolveFragmentOutputs(plan.fragment, values));
+    if (
+      committedWriteSegment === undefined &&
+      writeMayBeVisible === undefined
+    ) {
+      const result = await this.executeStatement(
+        step,
+        step.statement,
+        driver,
+        context
+      );
+      assertNormalizedQueryResult(result, {
+        provider: driver.driverName,
+        operation: step.id,
+      });
+      enforcePostcondition(step, result, context);
+      const values: RuntimeValues = new Map();
+      values.set(step.id, extractOutputs(step, result, values));
+      return operation.parse<T>(resolveFragmentOutputs(plan.fragment, values));
+    }
+
+    let result: QueryResult<unknown>;
+    try {
+      result = await this.executeStatement(
+        step,
+        step.statement,
+        driver,
+        context
+      );
+    } catch (error) {
+      if (
+        step.kind === "write" &&
+        writeMayBeVisible &&
+        !(error instanceof UniqueConstraintError || isRetryableRace(error))
+      ) {
+        try {
+          await writeMayBeVisible();
+        } catch (outcomeFailure) {
+          throw retainWriteOutcomeFailure(error, outcomeFailure);
+        }
+      }
+      throw error;
+    }
+
+    let operationOutcome:
+      | { readonly status: "success"; readonly value: T }
+      | { readonly status: "failure"; readonly error: unknown };
+    try {
+      assertNormalizedQueryResult(result, {
+        provider: driver.driverName,
+        operation: step.id,
+      });
+      enforcePostcondition(step, result, context);
+      const values: RuntimeValues = new Map();
+      values.set(step.id, extractOutputs(step, result, values));
+      operationOutcome = {
+        status: "success",
+        value: operation.parse<T>(
+          resolveFragmentOutputs(plan.fragment, values)
+        ),
+      };
+    } catch (error) {
+      operationOutcome = { status: "failure", error };
+    }
+    if (step.kind === "write" && committedWriteSegment) {
+      try {
+        await committedWriteSegment();
+      } catch (outcomeFailure) {
+        if (operationOutcome.status === "failure") {
+          throw retainWriteOutcomeFailure(
+            operationOutcome.error,
+            outcomeFailure
+          );
+        }
+        throw outcomeFailure;
+      }
+    }
+    if (operationOutcome.status === "failure") throw operationOutcome.error;
+    return operationOutcome.value;
   }
 
   private async runCandidateStatementAtomic<T>(
     plan: SingleStatementCandidate,
     operation: ExecutableOperation,
     driver: AnyDriver,
-    context: QueryExecutionContext
+    context: QueryExecutionContext,
+    committedWriteSegment?: CommittedWriteSegmentNotification,
+    writeMayBeVisible?: WriteMayBeVisibleNotification
   ): Promise<T> {
     const candidate = this.consumableResultCandidate;
     const { step } = plan;
@@ -1423,7 +1650,9 @@ export class OperationExecutor {
         plan,
         operation,
         driver,
-        context
+        context,
+        committedWriteSegment,
+        writeMayBeVisible
       );
     }
     const preparedRead = operation.preparedResultRows;
@@ -1432,7 +1661,9 @@ export class OperationExecutor {
         plan,
         operation,
         driver,
-        context
+        context,
+        committedWriteSegment,
+        writeMayBeVisible
       );
     }
 
@@ -1640,7 +1871,7 @@ export class OperationExecutor {
     context: QueryExecutionContext
   ): Promise<void> {
     const queries = level.map((step) =>
-      driver._prepare(materializeLinearSql(step.statement, values))
+      driver._prepare(materializeLinearSql(step.statement, values), context)
     );
     const results = await driver._executeBatch(queries, undefined, context);
     assertNormalizedBatchResults(results, level.length, {
@@ -1852,7 +2083,9 @@ export class OperationExecutor {
     dispatching?: () => void
   ): Promise<AtomicExecutionResult> {
     const { entries } = plan;
-    const queries = entries.map((entry) => driver._prepare(entry.statement));
+    const queries = entries.map((entry) =>
+      driver._prepare(entry.statement, context)
+    );
 
     let results: QueryResult<unknown>[];
     try {
@@ -1920,17 +2153,13 @@ interface MutableRecordSeriesProgress {
 }
 
 function progressiveTracer(
-  engine: QueryEngine,
   context: QueryExecutionContext
 ): TracerWrapper | undefined {
-  return (
-    getExecutionInstrumentation(context)?.tracer ??
-    engine.instrumentation?.tracer
-  );
+  return getExecutionInstrumentation(context)?.tracer;
 }
 
 async function observeProgressiveSegment<T>(
-  tracer: TracerWrapper | undefined,
+  context: QueryExecutionContext,
   plan: AtomicPlan,
   memberPath: readonly number[],
   hasWrite: boolean,
@@ -1938,53 +2167,94 @@ async function observeProgressiveSegment<T>(
   mayHaveCommitted: () => boolean,
   execute: () => Promise<T>
 ): Promise<T> {
-  if (!tracer) return execute();
-  let succeeded = false;
-  const spanAttributes = {
-    [ATTR_VIBORM_WRITE_ATOMICITY]: "segment",
-    [ATTR_VIBORM_WRITE_MEMBER_PATH]:
-      memberPath.length === 0 ? "root" : memberPath.join("."),
-    [ATTR_VIBORM_WRITE_STATEMENT_COUNT]: plan.entries.length,
-  };
-  return tracer.startActiveSpan(
-    {
-      name: SPAN_RECORD_SERIES_SEGMENT,
-      attributes: spanAttributes,
-    },
-    async (span) => {
-      try {
-        const outputs = await execute();
-        succeeded = true;
-        return outputs;
-      } finally {
-        const outcome = hasWrite
-          ? didCommit()
-            ? "committed"
-            : mayHaveCommitted()
-              ? "unacknowledged"
-              : succeeded
-                ? "unacknowledged"
-                : "rolled_back"
-          : "read_only";
-        const attributes = {
-          [ATTR_VIBORM_WRITE_COMMIT_OUTCOME]: outcome,
-        };
-        Object.assign(spanAttributes, attributes);
-        if (span) {
-          try {
-            span.setAttributes(attributes);
-          } catch {
-            // Instrumentation never changes execution.
-          }
-        } else {
-          // Existing custom tracers are allowed to omit an OpenTelemetry Span.
-          // The optional active-span seam lets those tracers retain late outcome
-          // attributes without making it a required implementation method.
-          setTracerAttributes(tracer, attributes);
-        }
-      }
-    }
+  const observers = getExecutionExtensionChain(context)?.observe;
+  if (observers === undefined || observers.length === 0) {
+    return execute();
+  }
+  const official = getOfficialInstrumentationChainCapability(
+    getExecutionExtensionChain(context)
   );
+  const usesOfficialInstrumentation = official?.observesLifecycle === true;
+  const readInstrumentationFacts =
+    usesOfficialInstrumentation &&
+    official.context.config.tracing !== undefined &&
+    shouldTraceSpan(official.context.tracer, SPAN_RECORD_SERIES_SEGMENT)
+      ? createProgressiveSegmentInstrumentationFacts(
+          plan,
+          memberPath,
+          hasWrite,
+          didCommit,
+          mayHaveCommitted
+        )
+      : undefined;
+  return runProtectedObservers(
+    {
+      kind: "segment",
+      ...(context.operation === undefined
+        ? {}
+        : { operation: context.operation }),
+      ...(context.model === undefined || context.model === "$raw"
+        ? {}
+        : { model: context.model }),
+    },
+    observers,
+    execute,
+    () => {
+      if (!hasWrite) return undefined;
+      if (didCommit()) return { commitCertainty: "committed" };
+      if (mayHaveCommitted()) {
+        return { commitCertainty: "may-have-committed" };
+      }
+      return undefined;
+    },
+    readInstrumentationFacts
+  );
+}
+
+function createProgressiveSegmentInstrumentationFacts(
+  plan: AtomicPlan,
+  memberPath: readonly number[],
+  hasWrite: boolean,
+  didCommit: () => boolean,
+  mayHaveCommitted: () => boolean
+): InstrumentationLifecycleFactsReader {
+  const spanOptions: VibORMSpanOptions = Object.freeze({
+    name: SPAN_RECORD_SERIES_SEGMENT,
+    attributes: Object.freeze({
+      [ATTR_VIBORM_WRITE_ATOMICITY]: "segment",
+      [ATTR_VIBORM_WRITE_MEMBER_PATH]:
+        memberPath.length === 0 ? "root" : memberPath.join("."),
+      [ATTR_VIBORM_WRITE_STATEMENT_COUNT]: plan.entries.length,
+    }),
+  });
+  const facts: SegmentInstrumentationFacts = Object.freeze({
+    kind: "segment",
+    spanOptions,
+    complete: (outcome: InstrumentationLifecycleOutcome) =>
+      Object.freeze({
+        spanAttributes: Object.freeze({
+          [ATTR_VIBORM_WRITE_COMMIT_OUTCOME]: progressiveSegmentOutcome(
+            hasWrite,
+            didCommit(),
+            mayHaveCommitted(),
+            outcome.status === "success"
+          ),
+        }),
+      }),
+  });
+  return () => facts;
+}
+
+function progressiveSegmentOutcome(
+  hasWrite: boolean,
+  didCommit: boolean,
+  mayHaveCommitted: boolean,
+  succeeded: boolean
+): "committed" | "read_only" | "rolled_back" | "unacknowledged" {
+  if (!hasWrite) return "read_only";
+  if (didCommit) return "committed";
+  if (mayHaveCommitted || succeeded) return "unacknowledged";
+  return "rolled_back";
 }
 
 function setProgressiveParentAttributes(
@@ -2060,11 +2330,11 @@ function assertOperationStatementCapacity(
   driver: AnyDriver,
   limit: number | undefined
 ): void {
-  if (limit === undefined || statement.values.length <= limit) return;
-  throw executionRefusal(
-    driver,
-    "operation",
-    `one indivisible statement needs ${statement.values.length} bound values, above the verified limit of ${limit}`
+  assertStatementBindParameterCapacity(
+    statement,
+    driver.driverName,
+    limit,
+    "operation"
   );
 }
 
@@ -2495,8 +2765,12 @@ function prepareBatchQuery(
   driver: AnyDriver,
   context: QueryExecutionContext
 ): PreparedQuery {
-  const prepared = driver._prepare(statement);
-  return { sql: prepared.sql, params: prepared.params ?? [], context };
+  const prepared = driver._prepare(statement, context);
+  return transferPreparedStatement(prepared, {
+    sql: prepared.sql,
+    params: prepared.params ?? [],
+    context,
+  });
 }
 
 function enforcePostcondition(

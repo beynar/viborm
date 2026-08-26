@@ -24,7 +24,6 @@ import {
   createClientFromDriverConfig,
   type DriverConfig,
   type NoExtraDriverConfigKeys,
-  type NoExtraNestedConfigKeys,
   type VibORMClient,
 } from "@client/client";
 import type { Schema } from "@client/types";
@@ -34,6 +33,7 @@ import postgres, {
   type Sql as PostgresSql,
 } from "postgres";
 import { Driver, type QueryExecutionContext } from "../driver";
+import { getExecutionTransactionPhases } from "../execution-context";
 import {
   nestedTransactionDispatchError,
   normalizePostgresRowCount,
@@ -212,7 +212,8 @@ export class PostgresDriver extends Driver<
 
   protected async transaction<T>(
     client: PostgresClient | PostgresTransaction,
-    fn: (tx: PostgresTransaction) => Promise<T>
+    fn: (tx: PostgresTransaction) => Promise<T>,
+    context?: QueryExecutionContext
   ): Promise<T> {
     if (isTransaction(client)) {
       throw nestedTransactionDispatchError(this.driverName);
@@ -221,6 +222,7 @@ export class PostgresDriver extends Driver<
     return runProviderManagedTransaction({
       run: (callback) => client.begin(callback),
       callback: fn,
+      phases: getExecutionTransactionPhases(context),
       close: async () => {
         await client.end();
         this.client = null;
@@ -236,17 +238,9 @@ export class PostgresDriver extends Driver<
 export function createClient<S extends Schema, C extends DriverConfig<S>>(
   config: PostgresClientConfig<C> &
     DriverConfig<S> &
-    NoExtraDriverConfigKeys<C, PostgresDriverOptions, S> &
-    NoExtraNestedConfigKeys<C, S>
+    NoExtraDriverConfigKeys<C, PostgresDriverOptions, S>
 ): VibORMClient<C & { driver: PostgresDriver }> {
-  const {
-    client,
-    options = {},
-    pgvector,
-    postgis,
-    databaseUrl,
-    ...restConfig
-  } = config;
+  const { client, options = {}, pgvector, postgis, databaseUrl } = config;
 
   if (databaseUrl) {
     Object.assign(options, parseDatabaseUrl(databaseUrl));
@@ -259,8 +253,7 @@ export function createClient<S extends Schema, C extends DriverConfig<S>>(
     postgis,
   });
 
-  return createClientFromDriverConfig({
-    ...restConfig,
-    driver,
-  }) as VibORMClient<C & { driver: PostgresDriver }>;
+  return createClientFromDriverConfig(config, driver) as VibORMClient<
+    C & { driver: PostgresDriver }
+  >;
 }

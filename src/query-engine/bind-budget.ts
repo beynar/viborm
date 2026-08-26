@@ -1,20 +1,13 @@
 import type { Sql } from "@sql";
 
+export { normalizedBindParameterLimit } from "@drivers/bind-parameter-capacity";
+
 export interface CompiledBindBudgetChunk {
   /** Inclusive semantic-item offset. */
   readonly start: number;
   /** Exclusive semantic-item offset. */
   readonly end: number;
   readonly statement: Sql;
-}
-
-/** Normalize one driver's optional bind declaration into verified capacity. */
-export function normalizedBindParameterLimit(
-  limit: unknown
-): number | undefined {
-  return typeof limit === "number" && Number.isInteger(limit) && limit > 0
-    ? limit
-    : undefined;
 }
 
 /**

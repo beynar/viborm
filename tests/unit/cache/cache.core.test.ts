@@ -1,11 +1,13 @@
 import { MemoryCache } from "@cache/drivers/memory";
+import { cache as cacheExtension } from "@cache/extension";
 import { VibORM } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite } from "@electric-sql/pglite";
+import { instrumentation } from "@instrumentation/extension";
 import { push } from "@migrations";
 import { s } from "@schema";
-import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createTestClock } from "@tests/fixtures/test-clock";
+import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 // Test schema
 const user = s.model({
@@ -14,7 +16,14 @@ const user = s.model({
   email: s.string().unique(),
 });
 
-const schema = { user };
+const userProfile = s
+  .model({
+    id: s.string().id(),
+    displayName: s.string(),
+  })
+  .map("cache_user_profile");
+
+const schema = { user, userProfile };
 
 // Test helpers
 let pglite: PGlite;
@@ -31,8 +40,18 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   // Clean up data between tests
+  await pglite.exec(`DELETE FROM "cache_user_profile"`);
   await pglite.exec(`DELETE FROM "user"`);
 });
+
+function createCachedClient(
+  cacheDriver: MemoryCache,
+  waitUntil?: (promise: Promise<unknown>) => void
+) {
+  return VibORM.create({ schema, driver }).$extends(
+    cacheExtension({ driver: cacheDriver, waitUntil })
+  );
+}
 
 /**
  * A client for the tests that turn on time passing.
@@ -57,14 +76,10 @@ function cachedClient() {
   let finishedRevalidations = 0;
   const waiting: Array<{ target: number; resolve: () => void }> = [];
 
-  const client = VibORM.create({
-    schema,
-    driver,
-    cache: new MemoryCache({ clock }),
-    waitUntil: (promise) => {
-      background.push(promise);
-    },
-    instrumentation: {
+  const client = createCachedClient(new MemoryCache({ clock }), (promise) => {
+    background.push(promise);
+  }).$extends(
+    instrumentation({
       logging: {
         cache: (event) => {
           const { event: name, status } = event.meta ?? {};
@@ -77,8 +92,8 @@ function cachedClient() {
           }
         },
       },
-    },
-  });
+    })
+  );
 
   return {
     client,
@@ -103,11 +118,7 @@ describe("Cache", () => {
   describe("$withCache basic operations", () => {
     it("caches findMany results", async () => {
       const cache = new MemoryCache();
-      const client = VibORM.create({
-        schema,
-        driver,
-        cache,
-      });
+      const client = createCachedClient(cache);
 
       // Seed data
       await client.user.create({
@@ -138,11 +149,7 @@ describe("Cache", () => {
 
     it("caches findFirst results", async () => {
       const cache = new MemoryCache();
-      const client = VibORM.create({
-        schema,
-        driver,
-        cache,
-      });
+      const client = createCachedClient(cache);
 
       await client.user.create({
         data: { id: "1", name: "Alice", email: "alice@test.com" },
@@ -165,11 +172,7 @@ describe("Cache", () => {
 
     it("caches findUnique results", async () => {
       const cache = new MemoryCache();
-      const client = VibORM.create({
-        schema,
-        driver,
-        cache,
-      });
+      const client = createCachedClient(cache);
 
       await client.user.create({
         data: { id: "1", name: "Alice", email: "alice@test.com" },
@@ -192,11 +195,7 @@ describe("Cache", () => {
 
     it("caches count results", async () => {
       const cache = new MemoryCache();
-      const client = VibORM.create({
-        schema,
-        driver,
-        cache,
-      });
+      const client = createCachedClient(cache);
 
       await client.user.create({
         data: { id: "1", name: "Alice", email: "alice@test.com" },
@@ -221,11 +220,7 @@ describe("Cache", () => {
 
     it("caches exist results", async () => {
       const cache = new MemoryCache();
-      const client = VibORM.create({
-        schema,
-        driver,
-        cache,
-      });
+      const client = createCachedClient(cache);
 
       await client.user.create({
         data: { id: "1", name: "Alice", email: "alice@test.com" },
@@ -279,11 +274,7 @@ describe("Cache", () => {
 
     it("parses string TTL correctly", async () => {
       const cache = new MemoryCache();
-      const client = VibORM.create({
-        schema,
-        driver,
-        cache,
-      });
+      const client = createCachedClient(cache);
 
       await client.user.create({
         data: { id: "1", name: "Alice", email: "alice@test.com" },
@@ -495,11 +486,7 @@ describe("Cache", () => {
   describe("bypass option", () => {
     it("bypasses cache read but still writes to cache", async () => {
       const cache = new MemoryCache();
-      const client = VibORM.create({
-        schema,
-        driver,
-        cache,
-      });
+      const client = createCachedClient(cache);
 
       await client.user.create({
         data: { id: "1", name: "Alice", email: "alice@test.com" },
@@ -530,11 +517,7 @@ describe("Cache", () => {
   describe("auto-generated cache keys", () => {
     it("generates different keys for different queries", async () => {
       const cache = new MemoryCache();
-      const client = VibORM.create({
-        schema,
-        driver,
-        cache,
-      });
+      const client = createCachedClient(cache);
 
       await client.user.create({
         data: { id: "1", name: "Alice", email: "alice@test.com" },
@@ -561,209 +544,83 @@ describe("Cache", () => {
   });
 
   describe("cache invalidation", () => {
-    it("invalidates cache on mutation with autoInvalidate", async () => {
-      const cache = new MemoryCache();
-      const client = VibORM.create({
-        schema,
-        driver,
-        cache,
-      });
+    it("auto-invalidates the exact model without clearing a delimiter sibling", async () => {
+      const { client, settle } = cachedClient();
 
       await client.user.create({
         data: { id: "1", name: "Alice", email: "alice@test.com" },
       });
+      await client.userProfile.create({
+        data: { id: "profile-1", displayName: "Alice" },
+      });
 
-      // Cache the result with explicit key (autoInvalidate clears by model prefix)
-      await client.$withCache({ key: "user:all" }).user.findMany();
+      const readUsers = () =>
+        client
+          .$withCache({ key: "tenant-a" })
+          .user.findMany({ orderBy: { id: "asc" } });
+      const readProfiles = () =>
+        client
+          .$withCache({ key: "tenant-a" })
+          .userProfile.findMany({ orderBy: { id: "asc" } });
 
-      // Create with autoInvalidate - this clears all "user" prefixed cache entries
+      expect(await readUsers()).toHaveLength(1);
+      expect(await readProfiles()).toHaveLength(1);
+      await settle();
+
+      await pglite.exec(
+        `INSERT INTO "cache_user_profile" ("id", "displayName") VALUES ('profile-2', 'Bob')`
+      );
+      expect(await client.userProfile.findMany()).toHaveLength(2);
+
       await client.user.create({
         data: { id: "2", name: "Bob", email: "bob@test.com" },
         cache: { autoInvalidate: true },
       });
 
-      // Use a fresh key to verify new data is fetched
-      const result = await client
-        .$withCache({ key: "user:fresh" })
-        .user.findMany();
-      expect(result).toHaveLength(2);
+      // The exact warmed user operation is fresh. The neighboring
+      // `userProfile` model remains warm: model invalidation owns `user:`, not
+      // the raw string prefix `user`.
+      expect(await readUsers()).toHaveLength(2);
+      expect(await readProfiles()).toHaveLength(1);
     });
 
-    it("invalidates specific keys", async () => {
-      const cache = new MemoryCache();
-      const client = VibORM.create({
-        schema,
-        driver,
-        cache,
-      });
+    it("invalidates every cached operation under a model prefix", async () => {
+      const { client, settle } = cachedClient();
 
       await client.user.create({
         data: { id: "1", name: "Alice", email: "alice@test.com" },
       });
 
-      // Cache with specific key
-      await client.$withCache({ key: "my-users" }).user.findMany();
+      const readUsers = () =>
+        client
+          .$withCache({ key: "manual-model" })
+          .user.findMany({ orderBy: { id: "asc" } });
+      const readCount = () =>
+        client.$withCache({ key: "manual-model" }).user.count();
 
-      // Invalidate that key
-      await client.$invalidate("my-users");
+      expect(await readUsers()).toHaveLength(1);
+      expect(await readCount()).toBe(1);
+      await settle();
 
-      // Add more data
       await pglite.exec(
         `INSERT INTO "user" VALUES ('2', 'Bob', 'bob@test.com')`
       );
 
-      // Should get fresh data
-      const result = await client
-        .$withCache({ key: "my-users" })
-        .user.findMany();
-      expect(result).toHaveLength(2);
-    });
+      // Both exact warmed reads are stale before invalidation.
+      expect(await readUsers()).toHaveLength(1);
+      expect(await readCount()).toBe(1);
 
-    it("invalidates by prefix pattern", async () => {
-      const cache = new MemoryCache();
-      const client = VibORM.create({
-        schema,
-        driver,
-        cache,
-      });
+      await client.$invalidate("user:*");
 
-      await client.user.create({
-        data: { id: "1", name: "Alice", email: "alice@test.com" },
-      });
-
-      // Cache with prefixed keys
-      await client.$withCache({ key: "users:all" }).user.findMany();
-      await client.$withCache({ key: "users:count" }).user.count();
-
-      // Invalidate all keys starting with "users:"
-      await client.$invalidate("users:*");
-
-      // Add more data
-      await pglite.exec(
-        `INSERT INTO "user" VALUES ('2', 'Bob', 'bob@test.com')`
-      );
-
-      // Both should get fresh data
-      const result = await client
-        .$withCache({ key: "users:all" })
-        .user.findMany();
-      expect(result).toHaveLength(2);
-
-      const count = await client
-        .$withCache({ key: "users:count" })
-        .user.count();
-      expect(count).toBe(2);
-    });
-  });
-
-  describe("cache versioning", () => {
-    it("different cache versions have different keys", async () => {
-      // Use separate cache instances to avoid cross-test pollution
-      const cache1 = new MemoryCache();
-      const cache2 = new MemoryCache();
-
-      await pglite.exec(
-        `INSERT INTO "user" VALUES ('1', 'Alice', 'alice@test.com')`
-      );
-
-      // Client with version 1
-      const client1 = VibORM.create({
-        schema,
-        driver,
-        cache: cache1,
-        cacheVersion: 1,
-      });
-
-      // Client with version 2
-      const client2 = VibORM.create({
-        schema,
-        driver,
-        cache: cache2,
-        cacheVersion: 2,
-      });
-
-      // Cache with client1
-      const result1 = await client1
-        .$withCache({ key: "users" })
-        .user.findMany();
-      expect(result1).toHaveLength(1);
-
-      // Add more data
-      await pglite.exec(
-        `INSERT INTO "user" VALUES ('2', 'Bob', 'bob@test.com')`
-      );
-
-      // Client2 should miss cache (different cache instance)
-      const result2 = await client2
-        .$withCache({ key: "users" })
-        .user.findMany();
-      expect(result2).toHaveLength(2);
-
-      // Client1 should still have cached data
-      const result1Cached = await client1
-        .$withCache({ key: "users" })
-        .user.findMany();
-      expect(result1Cached).toHaveLength(1);
-    });
-
-    it("same cache with different versions isolates keys", async () => {
-      const sharedCache = new MemoryCache();
-
-      await pglite.exec(
-        `INSERT INTO "user" VALUES ('1', 'Alice', 'alice@test.com')`
-      );
-
-      // Client with version 1
-      const client1 = VibORM.create({
-        schema,
-        driver,
-        cache: sharedCache,
-        cacheVersion: 1,
-      });
-
-      // Cache with version 1
-      await client1.$withCache({ key: "users" }).user.findMany();
-
-      // Add more data
-      await pglite.exec(
-        `INSERT INTO "user" VALUES ('2', 'Bob', 'bob@test.com')`
-      );
-
-      // Client with version 2 (same cache)
-      const client2 = VibORM.create({
-        schema,
-        driver,
-        cache: sharedCache,
-        cacheVersion: 2,
-      });
-
-      // Version 2 should miss (different version prefix)
-      const result2 = await client2
-        .$withCache({ key: "users" })
-        .user.findMany();
-      expect(result2).toHaveLength(2);
+      expect(await readUsers()).toHaveLength(2);
+      expect(await readCount()).toBe(2);
     });
   });
 
   describe("error handling", () => {
-    it("throws when cache driver not configured", () => {
-      const client = VibORM.create({
-        schema,
-        driver,
-        // No cache
-      });
-
-      // @ts-expect-error - Testing runtime error when cache not configured
-      expect(() => client.$withCache()).toThrow("Cache driver not configured");
-    });
-
     it("throws on non-cacheable operations", async () => {
       const cache = new MemoryCache();
-      const client = VibORM.create({
-        schema,
-        driver,
-        cache,
-      });
+      const client = createCachedClient(cache);
 
       const cachedClient = client.$withCache();
 
@@ -782,11 +639,7 @@ describe("Cache", () => {
 
     it("throws on invalid cache options", () => {
       const cache = new MemoryCache();
-      const client = VibORM.create({
-        schema,
-        driver,
-        cache,
-      });
+      const client = createCachedClient(cache);
 
       expect(() => client.$withCache({ ttl: {} as unknown as string })).toThrow(
         "Invalid cache options"
@@ -801,11 +654,7 @@ describe("Cache", () => {
   describe("OrThrow variants", () => {
     it("caches findUniqueOrThrow results", async () => {
       const cache = new MemoryCache();
-      const client = VibORM.create({
-        schema,
-        driver,
-        cache,
-      });
+      const client = createCachedClient(cache);
 
       await client.user.create({
         data: { id: "1", name: "Alice", email: "alice@test.com" },
@@ -828,11 +677,7 @@ describe("Cache", () => {
 
     it("throws NotFoundError for findUniqueOrThrow cache miss with no result", async () => {
       const cache = new MemoryCache();
-      const client = VibORM.create({
-        schema,
-        driver,
-        cache,
-      });
+      const client = createCachedClient(cache);
 
       await expect(
         client

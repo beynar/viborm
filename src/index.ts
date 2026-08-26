@@ -27,6 +27,10 @@
 export type { VibORMClient, VibORMConfig } from "./client/client.js";
 export { createClient } from "./client/client.js";
 export type { RawOperation } from "./client/raw.js";
+export {
+  type ClientExtension,
+  defineExtension,
+} from "./extensions/index.js";
 // Pending operations (for transaction batching)
 export {
   isPendingOperation,

@@ -1,6 +1,7 @@
 import { env } from "cloudflare:test";
 import type { D1Database } from "@cloudflare/workers-types";
 import { MemoryCache } from "@src/cache/drivers/memory";
+import { cache as cacheExtension } from "@src/cache/extension";
 import { createClient, D1Driver } from "@src/drivers/d1";
 import {
   CacheConfigurationError,
@@ -13,7 +14,6 @@ import { s } from "@src/schema";
 import { string } from "@src/schema/scalars/string/scalar";
 import { parse } from "@src/validation";
 import { getScalarSchemas } from "@src/validation/scalars";
-import { vi } from "vitest";
 
 declare module "cloudflare:test" {
   interface ProvidedEnv {
@@ -23,6 +23,22 @@ declare module "cloudflare:test" {
 
 const TABLE = "viborm_d1_driver_core";
 const CUID_PATTERN = /^[a-z][0-9a-z]{23}$/;
+
+class ProgressiveInvalidationCache extends MemoryCache {
+  clearCalls = 0;
+  private readonly clearFailure: Error | undefined;
+
+  constructor(clearFailure?: Error) {
+    super();
+    this.clearFailure = clearFailure;
+  }
+
+  protected override async clear(prefix: string): Promise<void> {
+    this.clearCalls += 1;
+    if (this.clearFailure) throw this.clearFailure;
+    return super.clear(prefix);
+  }
+}
 
 const progressiveAuthor = s
   .model({
@@ -635,17 +651,14 @@ describe("D1 binding provider", () => {
   });
 
   it("invalidates mutation cache after every committed member", async () => {
-    const cache = new MemoryCache();
-    const invalidate = vi.spyOn(cache, "_invalidate");
+    const cache = new ProgressiveInvalidationCache();
     const client = createClient({
       schema: progressiveSchema,
       database: env.DB,
-      cache,
-    });
+    }).$extends(cacheExtension({ driver: cache }));
     await client.post.deleteMany({});
     await client.author.deleteMany({});
     await client.category.deleteMany({});
-    invalidate.mockClear();
 
     await client.post.createMany({
       data: [
@@ -660,21 +673,20 @@ describe("D1 binding provider", () => {
           author: { create: { id: "a2", name: "two" } },
         },
       ],
+      cache: { autoInvalidate: true },
     });
 
-    expect(invalidate).toHaveBeenCalledTimes(2);
+    expect(cache.clearCalls).toBe(2);
   });
 
   it("owns invalidation failure after the committed member and reports exact progress", async () => {
-    const cache = new MemoryCache();
-    vi.spyOn(cache, "_invalidate").mockRejectedValue(
+    const cache = new ProgressiveInvalidationCache(
       new Error("private cache transport failure")
     );
     const client = createClient({
       schema: progressiveSchema,
       database: env.DB,
-      cache,
-    });
+    }).$extends(cacheExtension({ driver: cache }));
     await env.DB.exec(
       "DELETE FROM viborm_d1_progressive_posts; DELETE FROM viborm_d1_progressive_authors; DELETE FROM viborm_d1_progressive_categories"
     );
@@ -693,6 +705,7 @@ describe("D1 binding provider", () => {
             author: { create: { id: "a2", name: "two" } },
           },
         ],
+        cache: { autoInvalidate: true },
       })
       .catch((error) => error);
 

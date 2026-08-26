@@ -4,10 +4,9 @@
  * Its sibling `omit-result-types.test.ts` pins the query layer by applying
  * `OperationResult` to a hand-written args type. That proves the inference but
  * not the SURFACE: it never asks whether `s.model(…).omit({ … })` refuses a
- * typo, and it never asks whether a client built with
- * `createClient({ omit: … })` carries its default into the types a caller
- * actually reads. Both are what the maintainer hits from an editor, so both
- * are exercised here through the real builders.
+ * typo, and it never asks whether a client extended with
+ * `defaultOmit<typeof schema>()(…)` carries its default into the types a caller
+ * actually reads. Both are exercised here through the real builders.
  *
  * The two claims:
  *
@@ -15,12 +14,11 @@
  *     relation name, or a `false` is a compile error — per KEY, next to valid
  *     keys, and whatever the argument's freshness — and the literal survives
  *     into the state (`{ secret: true }`, not a widened record).
- *  2. CLIENT LEVEL — `createClient({ omit: { user: { passwordHash: true } } })`
- *     removes the key from the DEFAULT result type, a query-level
+ *  2. CLIENT LEVEL — the official `defaultOmit` extension removes the key from
+ *     the DEFAULT result type, a query-level
  *     `omit: { passwordHash: false }` puts it back, an explicit `select`
  *     overrides the client default while local `omit` can subtract from it,
- *     another model is untouched, and a config the type cannot pin down
- *     degrades to an OPTIONAL key rather than claiming presence.
+ *     another model is untouched, and nested defaults remain precise.
  *
  * The runtime twin of every client-level claim below already exists and runs on
  * every driver — `runOmitBehavior` in tests/drivers/omit-behavior.ts, sections
@@ -35,7 +33,9 @@
  */
 
 import { MemoryCache } from "@cache/drivers/memory";
+import { cache } from "@cache/extension";
 import { createClient } from "@client/client";
+import { defaultOmit } from "@client/default-omit-extension";
 import {
   PGliteDriver,
   createClient as pgliteCreateClient,
@@ -331,8 +331,7 @@ describe("client-level omit reaches the result types", () => {
     createClient({
       schema,
       driver: new PGliteDriver(),
-      omit: { user: { passwordHash: true } },
-    });
+    }).$extends(defaultOmit<typeof schema>()({ user: { passwordHash: true } }));
 
   const findUnique = () => client().user.findUnique({ where: { id: "u1" } });
   const findManyBare = () => client().user.findMany();
@@ -471,9 +470,9 @@ describe("client-level omit reaches the result types", () => {
     createClient({
       schema,
       driver: new PGliteDriver(),
-      cache: new MemoryCache(),
-      omit: { user: { passwordHash: true } },
-    });
+    })
+      .$extends(defaultOmit<typeof schema>()({ user: { passwordHash: true } }))
+      .$extends(cache({ driver: new MemoryCache() }));
   const cachedSelectWithOmit = () =>
     cachedClient()
       .$withCache()
@@ -565,8 +564,7 @@ describe("client-level omit reaches the result types", () => {
     createClient({
       schema,
       driver: new PGliteDriver(),
-      omit: { post: { authorId: true } },
-    });
+    }).$extends(defaultOmit<typeof schema>()({ post: { authorId: true } }));
   const withInclude = () =>
     nestedConfigured().user.findMany({ include: { posts: true } });
   const withNestedRestore = () =>
@@ -609,11 +607,12 @@ describe("client-level omit reaches the result types", () => {
     createClient({
       schema,
       driver: new PGliteDriver(),
-      omit: {
+    }).$extends(
+      defaultOmit<typeof schema>()({
         user: { passwordHash: true },
         post: { authorId: true },
-      },
-    });
+      })
+    );
   const withTwoNestedDefaults = () =>
     deeplyConfigured().user.findMany({
       include: { posts: { include: { author: true } } },
@@ -635,9 +634,9 @@ describe("client-level omit reaches the result types", () => {
     createClient({
       schema,
       driver: new PGliteDriver(),
-      cache: new MemoryCache(),
-      omit: { post: { authorId: true } },
-    });
+    })
+      .$extends(defaultOmit<typeof schema>()({ post: { authorId: true } }))
+      .$extends(cache({ driver: new MemoryCache() }));
   const cachedWithNestedInclude = () =>
     nestedCachedClient()
       .$withCache()
@@ -659,13 +658,11 @@ describe("the driver wrapper preserves omit result inference", () => {
   const configured = () =>
     pgliteCreateClient({
       schema,
-      omit: { user: { passwordHash: true } },
-    });
+    }).$extends(defaultOmit<typeof schema>()({ user: { passwordHash: true } }));
   const nestedConfigured = () =>
     pgliteCreateClient({
       schema,
-      omit: { post: { authorId: true } },
-    });
+    }).$extends(defaultOmit<typeof schema>()({ post: { authorId: true } }));
 
   const createWithEveryLegalProjectionLayer = () =>
     wrapped().user.create({
@@ -736,13 +733,15 @@ describe("structurally ambiguous nested client defaults stay sound", () => {
       .fields("rightId")
       .references("id"),
   });
+  const ambiguousSchema = { left, right, root };
 
   const ambiguous = () =>
     createClient({
-      schema: { left, right, root },
+      schema: ambiguousSchema,
       driver: new PGliteDriver(),
-      omit: { left: { secret: true } },
-    });
+    }).$extends(
+      defaultOmit<typeof ambiguousSchema>()({ left: { secret: true } })
+    );
   const rows = () =>
     ambiguous().root.findMany({ include: { left: true, right: true } });
 
@@ -781,12 +780,14 @@ describe("recursive models keep precise nested client defaults", () => {
       .name("parent"),
     children: s.toMany(() => node).name("parent"),
   });
+  const recursiveSchema = { node };
   const recursive = () =>
     createClient({
-      schema: { node },
+      schema: recursiveSchema,
       driver: new PGliteDriver(),
-      omit: { node: { label: true } },
-    });
+    }).$extends(
+      defaultOmit<typeof recursiveSchema>()({ node: { label: true } })
+    );
   const rows = () => recursive().node.findMany({ include: { children: true } });
 
   test("the carrier neither widens to any nor loses the recursive default", () => {
@@ -840,153 +841,6 @@ describe("a client that configures nothing is unaffected", () => {
   test("every scalar is still present and required", () => {
     expectTypeOf<Awaited<ReturnType<typeof rows>>>().toEqualTypeOf<
       FullUser[]
-    >();
-  });
-});
-
-describe("a config the type cannot pin down degrades to optional", () => {
-  /**
-   * `omit?:` — the flag is written, but the type cannot say whether the value
-   * is there. The honest answer is the same one a widened query-level `boolean`
-   * gets: the key becomes OPTIONAL. Claiming it present would be a lie in
-   * exactly the case the config exists for.
-   */
-  type MaybeConfigured = {
-    schema: typeof schema;
-    driver: PGliteDriver;
-    omit?: { user: { passwordHash: true } };
-  };
-
-  // Built inside a function nobody calls: the point is the SIGNATURE, and the
-  // cast config has no driver to hand a real client.
-  const buildMaybe = () => createClient({} as MaybeConfigured);
-  const rows = () => buildMaybe().user.findMany({});
-
-  test("the key is present-or-absent, never silently present", () => {
-    expectTypeOf<Awaited<ReturnType<typeof rows>>>().toEqualTypeOf<
-      { id: string; email: string; passwordHash?: string }[]
-    >();
-  });
-
-  /**
-   * The other half: a client typed from the CONFIG INTERFACE rather than from
-   * a config literal carries `omit?: { [model: string]: { [field: string]:
-   * true } }`, which names nothing at all. Reading that as "every field of
-   * every model might be hidden" would make every key of every result optional
-   * — noise, not honesty — so it is read as no default stated.
-   */
-  const buildBare = () =>
-    createClient({} as { schema: typeof schema; driver: PGliteDriver });
-  const bareRows = () => buildBare().user.findMany({});
-
-  test("a config that names nothing makes no claim", () => {
-    expectTypeOf<Awaited<ReturnType<typeof bareRows>>>().toEqualTypeOf<
-      FullUser[]
-    >();
-  });
-
-  type EitherModelConfigured =
-    | {
-        schema: typeof schema;
-        driver: PGliteDriver;
-        omit: { user: { passwordHash: true } };
-      }
-    | {
-        schema: typeof schema;
-        driver: PGliteDriver;
-        omit: { post: { authorId: true } };
-      };
-  const buildEitherModel = () => createClient({} as EitherModelConfigured);
-  const eitherModelRows = () =>
-    buildEitherModel().user.findMany({ include: { posts: true } });
-
-  test("disjoint model keys in a config union remain visible", () => {
-    expectTypeOf<Awaited<ReturnType<typeof eitherModelRows>>>().toEqualTypeOf<
-      {
-        id: string;
-        email: string;
-        passwordHash?: string;
-        posts: { id: string; title: string; authorId?: string }[];
-      }[]
-    >();
-  });
-
-  type EitherUserFieldConfigured = {
-    schema: typeof schema;
-    driver: PGliteDriver;
-    omit: {
-      user: { passwordHash: true } | { email: true };
-    };
-  };
-  const buildEitherUserField = () =>
-    createClient({} as EitherUserFieldConfigured);
-  const eitherUserFieldRows = () => buildEitherUserField().user.findMany({});
-
-  test("disjoint field keys in one omit union become optional", () => {
-    expectTypeOf<
-      Awaited<ReturnType<typeof eitherUserFieldRows>>
-    >().toEqualTypeOf<
-      { id: string; email?: string; passwordHash?: string }[]
-    >();
-  });
-
-  // Each user declares the inverse its root's foreign key needs: an ordinary
-  // slot without a complete inverse is an error now, and the pairing is what
-  // makes the nested result non-nullable rather than fail-closed.
-  const userA = s.model({
-    id: s.string().id(),
-    secret: s.string(),
-    alpha: s.string(),
-    roots: s.toMany(() => rootA),
-  });
-  const userB = s.model({
-    id: s.string().id(),
-    secret: s.string(),
-    beta: s.string(),
-    roots: s.toMany(() => rootB),
-  });
-  const rootA = s.model({
-    id: s.string().id(),
-    userId: s.string(),
-    user: s
-      .toOne(() => userA)
-      .fields("userId")
-      .references("id"),
-  });
-  const rootB = s.model({
-    id: s.string().id(),
-    userId: s.string(),
-    user: s
-      .toOne(() => userB)
-      .fields("userId")
-      .references("id"),
-  });
-
-  type EitherSchemaConfigured =
-    | {
-        schema: { root: typeof rootA; user: typeof userA };
-        driver: PGliteDriver;
-        omit: { user: { secret: true } };
-      }
-    | {
-        schema: { root: typeof rootB; user: typeof userB };
-        driver: PGliteDriver;
-        omit: { user: { secret: true } };
-      };
-  const buildEitherSchema = () =>
-    createClient<EitherSchemaConfigured["schema"], EitherSchemaConfigured>(
-      {} as EitherSchemaConfigured
-    );
-  const eitherSchemaRows = () =>
-    buildEitherSchema().root.findMany({ include: { user: true } });
-
-  test("a schema union keeps nested omissions visible", () => {
-    type NestedUser = Awaited<
-      ReturnType<typeof eitherSchemaRows>
-    >[number]["user"];
-    expectTypeOf<NestedUser>().toEqualTypeOf<
-      | { id: string; secret?: string; alpha: string }
-      | { id: string; secret?: string; beta: string }
     >();
   });
 });

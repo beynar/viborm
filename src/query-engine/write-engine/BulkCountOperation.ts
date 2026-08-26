@@ -44,6 +44,11 @@ type BulkCountKind = "updateMany" | "deleteMany";
 export class BulkCountOperation {
   readonly mode: ExecutionMode;
 
+  /** The canonical payload validated at construction. */
+  get validatedArgs(): Record<string, unknown> {
+    return this.args;
+  }
+
   private readonly engine: QueryEngine;
   private readonly model: Model<any>;
   private readonly kind: BulkCountKind;

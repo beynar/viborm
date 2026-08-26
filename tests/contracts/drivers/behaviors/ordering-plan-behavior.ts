@@ -1,3 +1,4 @@
+import { instrumentation } from "@instrumentation/extension";
 import { defineContract } from "@tests/contracts/contract";
 /**
  * Ordering and cursor query-plan witnesses (query-performance plan, Phase 5).
@@ -98,7 +99,8 @@ export function runOrderingPlanBehavior({
       client = createClient({
         schema: orderPlanSchema as never,
         driver,
-        instrumentation: {
+      }).$extends(
+        instrumentation({
           logging: {
             query: (event) => {
               statements.push({
@@ -109,8 +111,8 @@ export function runOrderingPlanBehavior({
             includeSql: true,
             includeParams: true,
           },
-        },
-      }) as never;
+        })
+      ) as never;
 
       const c = client as OrderPlanClient as unknown as Record<string, any>;
       await push(client as never, { force: true });

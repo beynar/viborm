@@ -2,6 +2,7 @@
 
 import {
   batchWitness,
+  benchmarkOperation,
   consumeScalarRows,
   prepareOperationPlan,
   witnessChecksum,
@@ -194,10 +195,11 @@ async function createAtomicBatchHarness(fixture, fullFixture, count) {
     );
   const prepareEntries = () =>
     makeOperations().map((operation) => {
-      const prepared = operation.prepare();
+      const capability = benchmarkOperation(operation);
+      const prepared = capability.prepare();
       if (!prepared)
         throw new Error("Atomic read batch member did not prepare");
-      return { operation, prepared };
+      return { capability, prepared };
     });
   const entries = prepareEntries();
   const queries = entries.map((entry) => entry.prepared);
@@ -216,7 +218,7 @@ async function createAtomicBatchHarness(fixture, fullFixture, count) {
   };
   const semanticRaw = await fixture.driver._executeBatch(queries);
   const semanticRows = entries.map((entry, index) =>
-    entry.operation.parseResult(semanticRaw[index])
+    entry.capability.parseResult(semanticRaw[index])
   );
   consumeRows(semanticRows);
   const fullSemantic = await fullFixture.client.$transaction(

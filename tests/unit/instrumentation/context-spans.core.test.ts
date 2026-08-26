@@ -16,13 +16,6 @@
  * to stay isolated.
  */
 
-import type { DatabaseAdapter } from "@adapters/database-adapter";
-import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
-import { Driver } from "@drivers/driver";
-import type { QueryResult } from "@drivers/types";
-import { isVibORMError } from "@errors";
-import { sql } from "@sql";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   createInstrumentationContext,
   hasActiveInstrumentation,
@@ -40,7 +33,6 @@ import {
   ATTR_DB_QUERY_PARAMETER_PREFIX,
   ATTR_DB_QUERY_TEXT,
   ATTR_DB_SYSTEM,
-  ATTR_VIBORM_CORRELATION_ID,
   ATTR_VIBORM_WRITE_ATOMICITY,
   ATTR_VIBORM_WRITE_COMMIT_OUTCOME,
   ATTR_VIBORM_WRITE_COMMITTED_SEGMENTS,
@@ -57,11 +49,7 @@ import {
   SPAN_RECORD_SERIES_SEGMENT,
   SPAN_VALIDATE,
 } from "@src/instrumentation/spans";
-import {
-  getNoopTracer,
-  type TracerWrapper,
-  type VibORMSpanOptions,
-} from "@src/instrumentation/tracer";
+import { getNoopTracer } from "@src/instrumentation/tracer";
 import type {
   InstrumentationConfig,
   LoggingConfig,
@@ -72,6 +60,7 @@ import {
   primeTracer,
   withOtelRecorder,
 } from "@tests/unit/instrumentation/_capture";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 // A single globally-registered recorder for all span-recording tests. Distinct
 // span names per test keep assertions from colliding.
@@ -116,15 +105,12 @@ describe("createInstrumentationContext — tracer", () => {
     const ctx = createInstrumentationContext(config);
 
     config.diagnostics = { includeSql: true };
-    delete config.tracing;
+    config.tracing = undefined;
     config.logging = { query: replacementHandler };
     pattern.lastIndex = 4;
 
     ctx.logger?.query({ timestamp: new Date() });
-    await ctx.tracer.startActiveSpan(
-      { name: SPAN_VALIDATE },
-      () => undefined
-    );
+    await ctx.tracer.startActiveSpan({ name: SPAN_VALIDATE }, () => undefined);
 
     expect(ctx.config.diagnostics).toEqual({
       includeParams: true,
@@ -402,165 +388,5 @@ describe("span + attribute constants", () => {
       SPAN_CACHE_SET,
     ];
     expect(new Set(names).size).toBe(names.length);
-  });
-});
-
-function createGate() {
-  let resolveGate: (() => void) | undefined;
-  const promise = new Promise<void>((resolve) => {
-    resolveGate = resolve;
-  });
-
-  return {
-    promise,
-    open(): void {
-      if (!resolveGate) {
-        throw new Error("gate was not initialized");
-      }
-      resolveGate();
-    },
-  };
-}
-
-class AttributionTracer implements TracerWrapper {
-  readonly attributions: Array<{
-    model: unknown;
-    operation: unknown;
-    correlationId: unknown;
-  }> = [];
-
-  async startActiveSpan<T>(
-    options: VibORMSpanOptions,
-    fn: () => T | Promise<T>
-  ): Promise<T> {
-    if (options.name === SPAN_EXECUTE) {
-      this.attributions.push({
-        model: options.attributes?.[ATTR_DB_COLLECTION],
-        operation: options.attributes?.[ATTR_DB_OPERATION_NAME],
-        correlationId: options.attributes?.[ATTR_VIBORM_CORRELATION_ID],
-      });
-    }
-    return fn();
-  }
-
-  startActiveSpanSync<T>(options: VibORMSpanOptions, fn: () => T): T {
-    if (options.name === SPAN_EXECUTE) {
-      this.attributions.push({
-        model: options.attributes?.[ATTR_DB_COLLECTION],
-        operation: options.attributes?.[ATTR_DB_OPERATION_NAME],
-        correlationId: options.attributes?.[ATTR_VIBORM_CORRELATION_ID],
-      });
-    }
-    return fn();
-  }
-
-  isEnabled(): boolean {
-    return true;
-  }
-}
-
-class OverlappingFailureDriver extends Driver<object, object> {
-  readonly adapter: DatabaseAdapter = new SQLiteAdapter();
-  readonly initializationStarted = createGate();
-  readonly allowInitialization = createGate();
-
-  constructor() {
-    super("sqlite", "overlapping-failure");
-  }
-
-  protected async initClient(): Promise<object> {
-    this.initializationStarted.open();
-    await this.allowInitialization.promise;
-    return {};
-  }
-
-  protected async closeClient(): Promise<void> {
-    // No provider resource to release.
-  }
-
-  protected async execute<T>(): Promise<QueryResult<T>> {
-    throw new Error("fixture execution failure");
-  }
-
-  protected async executeRaw<T>(): Promise<QueryResult<T>> {
-    throw new Error("fixture execution failure");
-  }
-
-  protected async transaction<T>(
-    _client: object,
-    fn: (tx: object) => Promise<T>
-  ): Promise<T> {
-    return fn({});
-  }
-}
-
-describe("overlapping driver operation attribution", () => {
-  it("retains each operation's model and action in its span and error", async () => {
-    const driver = new OverlappingFailureDriver();
-    const tracer = new AttributionTracer();
-    driver.setInstrumentation({
-      ...createInstrumentationContext({ tracing: true }),
-      tracer,
-    });
-
-    const first = driver
-      ._execute(sql`SELECT ${"first"}`, {
-        model: "user",
-        operation: "findMany",
-        correlationId: "first-operation",
-      })
-      .catch((error) => error);
-    await driver.initializationStarted.promise;
-
-    const second = driver
-      ._execute(sql`SELECT ${"second"}`, {
-        model: "post",
-        operation: "delete",
-        correlationId: "second-operation",
-      })
-      .catch((error) => error);
-    driver.allowInitialization.open();
-
-    const errors = await Promise.all([first, second]);
-    const errorAttributions = errors.map((error) => {
-      if (!isVibORMError(error)) {
-        throw new Error("expected a VibORMError");
-      }
-      return {
-        model: error.meta.model,
-        operation: error.meta.operation,
-        correlationId: error.meta.correlationId,
-      };
-    });
-
-    expect({
-      errors: errorAttributions,
-      spans: tracer.attributions,
-    }).toEqual({
-      errors: [
-        {
-          model: "user",
-          operation: "findMany",
-          correlationId: "first-operation",
-        },
-        {
-          model: "post",
-          operation: "delete",
-          correlationId: "second-operation",
-        },
-      ],
-      spans: [
-        {
-          model: "user",
-          operation: "findMany",
-          correlationId: "first-operation",
-        },
-        {
-          model: "post",
-          operation: "delete",
-          correlationId: "second-operation",
-        },
-      ],
-    });
   });
 });

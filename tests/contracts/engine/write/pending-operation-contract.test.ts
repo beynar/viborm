@@ -1,13 +1,13 @@
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite } from "@electric-sql/pglite";
 import { push } from "@migrations";
-import { PendingOperation } from "@query-engine/pending-operation";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import {
   correlatedUpsertArgs,
   updateSliceSchema,
 } from "@tests/contracts/engine/write/update-nested-upsert-behavior";
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
+import { readTestTransactionOperation } from "@tests/fixtures/transaction-operation";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
 
@@ -22,12 +22,13 @@ function engineFor(driver: PGliteDriver) {
 }
 
 function pendingFor(engine: QueryEngine, args: Record<string, unknown>) {
-  return PendingOperation.create<unknown>(
-    engine,
-    updateSliceSchema.user,
-    "update",
-    args
-  );
+  return engine.prepare<unknown>(updateSliceSchema.user, "update", args);
+}
+
+function transactionOperation(operation: unknown) {
+  const capability = readTestTransactionOperation(operation);
+  if (!capability) throw new Error("expected a transaction operation");
+  return capability;
 }
 
 const expected = {
@@ -56,14 +57,16 @@ describe("write engine PendingOperation contract (PLAN P1.5)", () => {
     await push(client, { force: true });
     await client.user.create({ data: { email: "a@x", count: 10 } });
 
-    const result = await pendingFor(engine, args).execute();
+    const result = await pendingFor(engine, args);
     expect(result).toEqual(expected);
     await client.$disconnect();
   });
 
   test("prepare() returns undefined for a multi-step operation", () => {
     const engine = engineFor(new PGliteDriver());
-    expect(pendingFor(engine, args).prepare()).toBeUndefined();
+    expect(
+      transactionOperation(pendingFor(engine, args)).prepare()
+    ).toBeUndefined();
   });
 
   test("prepareBatch() RETURNS entries the shared batch protocol executes", async () => {
@@ -77,7 +80,9 @@ describe("write engine PendingOperation contract (PLAN P1.5)", () => {
 
     const driver = new BatchOnlyPGliteDriver({ client: db });
     const engine = engineFor(driver);
-    const prepared = await pendingFor(engine, args).prepareBatch(driver);
+    const prepared = await transactionOperation(
+      pendingFor(engine, args)
+    ).prepareBatch(driver);
     // `undefined` is the executor's decline for a form with no atomic-batch
     // lowering; this fixture holds one fragment atom, which always has one.
     if (!prepared) throw new Error("the composed operation prepared no batch");
@@ -107,7 +112,9 @@ describe("write engine PendingOperation contract (PLAN P1.5)", () => {
     // envelope. Simulate with a fresh driver on the same database.
     const bound = new PGliteDriver({ client: db });
     const engine = engineFor(bound);
-    const result = await pendingFor(engine, args).executeWith(bound);
+    const result = await transactionOperation(
+      pendingFor(engine, args)
+    ).executeWith(bound);
     expect(result).toEqual(expected);
     await client.$disconnect();
   });
@@ -115,7 +122,7 @@ describe("write engine PendingOperation contract (PLAN P1.5)", () => {
   test("parseResult(raw) parses a terminal read row set into the public shape", () => {
     const engine = engineFor(new PGliteDriver());
     const pending = pendingFor(engine, args);
-    const parsed = pending.parseResult({
+    const parsed = transactionOperation(pending).parseResult({
       rows: [
         {
           email: "a@x",

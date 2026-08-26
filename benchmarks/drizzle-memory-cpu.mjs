@@ -20,6 +20,7 @@ import { desc, eq, relations } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { createClient } from "../dist/index.mjs";
+import { readBenchmarkOperation } from "../dist/internal/benchmark-operation.mjs";
 import { push } from "../dist/migrations.mjs";
 import { s } from "../dist/schema.mjs";
 import { SQLite3Driver } from "../dist/sqlite3.mjs";
@@ -117,17 +118,23 @@ let rawId = 0;
 let drizzleId = 0;
 let vibormId = 0;
 
-const findUniquePrepared = viborm.user
-  .findUnique({ where: { id: "u42" } })
-  .prepare();
-const findManyPrepared = viborm.post
-  .findMany({
+function benchmarkOperation(operation) {
+  const capability = readBenchmarkOperation(operation);
+  if (!capability) throw new Error("Expected a VibORM benchmark operation");
+  return capability;
+}
+
+const findUniquePrepared = benchmarkOperation(
+  viborm.user.findUnique({ where: { id: "u42" } })
+).prepare();
+const findManyPrepared = benchmarkOperation(
+  viborm.post.findMany({
     where: { published: true },
     select: { id: true, title: true, views: true },
     orderBy: { views: "desc" },
     take: 20,
   })
-  .prepare();
+).prepare();
 const relationArgs = {
   select: {
     id: true,
@@ -136,14 +143,18 @@ const relationArgs = {
   },
   take: 20,
 };
-const relationPrepared = viborm.post.findMany(relationArgs).prepare();
-const findMany1000Prepared = viborm.post.findMany({ take: 1000 }).prepare();
+const relationPrepared = benchmarkOperation(
+  viborm.post.findMany(relationArgs)
+).prepare();
+const findMany1000Prepared = benchmarkOperation(
+  viborm.post.findMany({ take: 1000 })
+).prepare();
 const createOperation = viborm.user.create({
   data: { id: "__raw_id__", name: "B", email: "b@x.com", age: 30 },
 });
 const createStatement = createOperation.buildStatement();
 const createPrepared =
-  createOperation.prepare() ??
+  benchmarkOperation(createOperation).prepare() ??
   (createStatement ? vibormDriver._prepare(createStatement) : undefined);
 for (const [name, prepared] of Object.entries({
   findUniquePrepared,

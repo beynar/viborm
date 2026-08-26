@@ -1,5 +1,5 @@
 /**
- * CLIENT-LEVEL `omit` — `createClient({ omit: { user: { passwordHash: true } } })`.
+ * CLIENT-LEVEL `omit` — `defaultOmit()({ user: { passwordHash: true } })`.
  *
  * A per-client DEFAULT, not a schema rule. It is applied by rewriting the
  * payload before validation: every node that will produce a row of a configured
@@ -25,10 +25,9 @@
  * those fields have no `omit` key to name (see
  * `src/validation/model/core/projection.ts`).
  *
- * COST. `undefined` config means the whole module is skipped: `resolve` is never
- * built and `applyClientOmit` is never called, so a client that configures
- * nothing pays nothing. With config, one shallow walk of the `select`/`include`
- * tree per query, copying only the nodes it changes.
+ * COST. A client without the official extension never builds a resolver or
+ * calls `applyClientOmit`. With the extension, one shallow walk of the
+ * `select`/`include` tree runs per query, copying only the nodes it changes.
  */
 
 import { VibORMError, VibORMErrorCode } from "@errors";
@@ -52,14 +51,11 @@ export type ClientOmitConfig<S extends Record<string, AnyModel>> = {
  * MODEL already hides for good (naming one of those has no `omit` key to name;
  * see `@validation/model/core/projection`).
  *
- * The `any` arm is not decoration. `VibORMConfig` is not generic in the
- * schema, so the type this is instantiated with is `Model<any>`, whose
- * `scalars` is `any` — and the subtraction above would then cancel to `never`,
- * leaving `Partial<Record<never, true>>`, a config object with NO known
- * properties. That shape type-checks anything, which is survivable, but it
- * also provides no contextual type for the flags, so the `true` a caller
- * writes widens to `boolean` and the result type can no longer tell "hidden"
- * from "maybe hidden". Answering `string` keeps the flag literal.
+ * The `any` arm is not decoration. A schema-generic extension sees
+ * `Model<any>`, whose `scalars` is `any` — and the subtraction above would then
+ * cancel to `never`, leaving `Partial<Record<never, true>>`, a config object
+ * with no known properties. Answering `string` preserves the contextual
+ * literal `true` until a concrete schema binds the official extension.
  */
 type ProjectableKeysOf<M extends AnyModel> = 0 extends 1 &
   M["~"]["state"]["scalars"]
@@ -90,14 +86,39 @@ export type ClientModelOmit<M extends AnyModel> = Partial<
   Record<ProjectableKeysOf<M>, true>
 >;
 
+type ClientOmitKeys<Value> = Value extends unknown ? keyof Value : never;
+
+type ClientOmitEntry<
+  Given,
+  ModelName extends PropertyKey,
+> = Given extends unknown
+  ? ModelName extends keyof Given
+    ? Given[ModelName]
+    : never
+  : never;
+
+/** Structural exactness for a direct client-default omit configuration. */
+export type ExactClientOmitConfig<
+  Given,
+  S extends Record<string, AnyModel>,
+> = Record<Exclude<ClientOmitKeys<Given>, keyof S>, never> & {
+  [ModelName in Extract<ClientOmitKeys<Given>, keyof S>]?: Record<
+    Exclude<
+      ClientOmitKeys<ClientOmitEntry<Given, ModelName>>,
+      keyof ClientModelOmit<S[ModelName]>
+    >,
+    never
+  >;
+};
+
 /**
  * Resolves a model to the fields this client hides by default, and carries the
  * one resolved topology index the recursion walks.
  *
  * The index travels WITH the resolver because the two are used together at every
- * node and are settled together, once, at client construction: the resolver
- * answers "which columns", the index answers "which model is on the other side
- * of this key" — without ever invoking a target getter (§11.4.11).
+ * node and are settled together when the official extension is applied: the
+ * resolver answers "which columns", the index answers "which model is on the
+ * other side of this key" — without invoking a target getter (§11.4.11).
  */
 export interface ClientOmitResolver {
   /** The fields this client hides by default for one model. */
@@ -116,19 +137,16 @@ const hasEntries = (value: Record<string, boolean>): boolean =>
  */
 export const createClientOmitResolver = <S extends Record<string, AnyModel>>(
   schema: S,
-  config: ClientOmitConfig<S> | undefined,
+  config: ClientOmitConfig<S>,
   relations: ResolvedRelationIndex
 ): ClientOmitResolver | undefined => {
-  if (!config) return undefined;
   const byModel = new Map<AnyModel, Record<string, boolean>>();
   for (const key of Object.keys(config)) {
-    const model = schema[key];
+    const model = Object.hasOwn(schema, key) ? schema[key] : undefined;
     const entry = config[key as keyof ClientOmitConfig<S>];
-    // A config naming a model or a field that does not exist is a typo the
-    // client would otherwise carry silently — the resolver simply never fires
-    // for a name nothing matches. `VibORMConfig` cannot express the per-model
-    // field union (it is not generic in the schema), so the check lives here,
-    // at construction, where it is still cheaper than a wrong query.
+    // A config naming a model or field that does not exist is a typo the
+    // resolver would otherwise carry silently. The official factory owns
+    // structural exactness; this runtime boundary owns hostile JavaScript.
     if (!model) {
       throw new VibORMError(
         `Client 'omit' names model '${key}', which is not in the schema.`,

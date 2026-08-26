@@ -1,4 +1,5 @@
 import { TransactionError } from "@errors";
+import type { TransactionPhaseNotifications } from "../execution-context";
 
 export function nestedTransactionDispatchError(
   driverName: string
@@ -26,6 +27,7 @@ export interface TransactionLifecycle<T> {
   readonly commit: LifecycleStep;
   readonly rollback: LifecycleStep;
   readonly close?: LifecycleStep;
+  readonly phases?: TransactionPhaseNotifications;
 }
 
 export interface ProviderManagedTransaction<T, TTransaction> {
@@ -34,6 +36,7 @@ export interface ProviderManagedTransaction<T, TTransaction> {
   ) => Promise<unknown>;
   readonly callback: (tx: TTransaction) => Promise<T>;
   readonly close: LifecycleStep;
+  readonly phases?: TransactionPhaseNotifications;
 }
 
 type ProviderCallbackOutcome<T> =
@@ -72,6 +75,7 @@ export async function runProviderManagedTransaction<T, TTransaction>(
       callbackPromise = (async () => {
         try {
           const value = await lifecycle.callback(tx);
+          lifecycle.phases?.readyToCommit();
           callbackOutcome = { status: "fulfilled", value };
           return value;
         } catch (error) {
@@ -170,6 +174,7 @@ export async function runProviderManagedTransaction<T, TTransaction>(
       [lifecycle.close]
     );
   }
+  lifecycle.phases?.committed();
   return settledOutcome.value;
 }
 
@@ -192,6 +197,8 @@ export async function runTransactionLifecycle<T>(
     return throwAfterCleanup(error, cleanup);
   }
 
+  lifecycle.phases?.readyToCommit();
+
   try {
     await lifecycle.commit();
   } catch (error) {
@@ -199,6 +206,8 @@ export async function runTransactionLifecycle<T>(
     if (lifecycle.close) cleanup.push(lifecycle.close);
     return throwAfterCleanup(error, cleanup);
   }
+
+  lifecycle.phases?.committed();
 
   if (lifecycle.close) await lifecycle.close();
   return result;

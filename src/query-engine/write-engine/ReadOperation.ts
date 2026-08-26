@@ -12,6 +12,10 @@ import {
 } from "../operations";
 import type { QueryEngine } from "../query-engine";
 import {
+  type CacheResultCodec,
+  compileCacheResultCodec,
+} from "../result/cache-result-codec";
+import {
   parsePreparedResult,
   prepareResultRows,
   ResultParser,
@@ -76,6 +80,8 @@ export class ReadOperation {
    * rather than private.
    */
   readonly validatedArgs: Record<string, unknown>;
+  private readonly expectedResultShape: ExpectedResultShape | undefined;
+  private cacheResultCodec: CacheResultCodec | undefined;
   private readonly read: ReadStep;
 
   constructor(
@@ -118,6 +124,12 @@ export class ReadOperation {
       base as Operation,
       args
     );
+    this.expectedResultShape = buildExpectedResultShape(
+      this.model,
+      this.base as Operation,
+      this.validatedArgs,
+      this.engine.relations
+    );
 
     this.read = {
       id: "read",
@@ -146,7 +158,12 @@ export class ReadOperation {
       this.model,
       this.engine.driver,
       this.engine.decimalDecode
-    ).parse<T>(this.base as Operation, rows, this.validatedArgs);
+    ).parse<T>(
+      this.base as Operation,
+      rows,
+      this.validatedArgs,
+      this.expectedResultShape
+    );
     return this.finishParsedResult(parsed);
   }
 
@@ -160,12 +177,24 @@ export class ReadOperation {
   }
 
   createExpectedResultShape(): ExpectedResultShape | undefined {
-    return buildExpectedResultShape(
+    return this.expectedResultShape;
+  }
+
+  createCacheResultCodec(): CacheResultCodec {
+    const shape = this.expectedResultShape;
+    if (!shape) {
+      throw new QueryEngineError(
+        "query-engine-v2 read has no expected result shape for cache encoding."
+      );
+    }
+    this.cacheResultCodec ??= compileCacheResultCodec(
       this.model,
       this.base as Operation,
-      this.validatedArgs,
-      this.engine.relations
+      this.requestedOperation,
+      shape,
+      this.engine.decimalDecode
     );
+    return this.cacheResultCodec;
   }
 
   compileResultRows(

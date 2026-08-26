@@ -3,31 +3,27 @@ import type {
   CacheInvalidationOptions,
   WithCacheOptions,
 } from "@cache";
-import { type CacheExecutionOptions, withCacheSchema } from "@cache";
+import {
+  type CacheExecutionOptions,
+  cacheInvalidationSchema,
+  withCacheSchema,
+} from "@cache";
+import type { WaitUntilFn } from "@cache/cache-contract";
+import {
+  executeCachedWithResultCodec,
+  invalidateOfficialCache,
+} from "@cache/driver";
 import type { AnyDriver, QueryExecutionContext } from "@drivers";
 import {
   CacheConfigurationError,
   CacheOperationNotCacheableError,
 } from "@errors";
+import type { WriteOutcomeRegistration } from "@extensions/query";
 import { parse } from "@validation";
-import type { PendingOperation } from "./pending-operation";
-import type { TransactionOperation } from "./transaction-operation";
+import { isError } from "../errors/diagnostic-safety";
+import type { CacheResultCodec } from "./result/cache-result-codec";
 import type { PrepareOptions } from "./types";
-
-type WaitUntilFn = (promise: Promise<unknown>) => void;
-
-// The client-facing mutation families. `createMany` / `updateMany` cover both
-// their `{ count }` and their row-returning (`select`) arms — implicit returning
-// added no operation name to invalidate on.
-const MUTATION_OPERATIONS: Set<string> = new Set([
-  "create",
-  "createMany",
-  "update",
-  "updateMany",
-  "delete",
-  "deleteMany",
-  "upsert",
-]);
+import { isWriteOperation } from "./write-engine/routing";
 
 const CACHEABLE_OPERATIONS: Set<string> = new Set([
   "findFirst",
@@ -41,91 +37,171 @@ const CACHEABLE_OPERATIONS: Set<string> = new Set([
   "exist",
 ]);
 
+export interface PreparedMutationCacheInput {
+  readonly args: Record<string, unknown>;
+  readonly options: CacheInvalidationOptions | undefined;
+}
+
+type MutationInputDescriptors = Map<PropertyKey, PropertyDescriptor>;
+
+/**
+ * Remove and validate the client-owned mutation cache option before the core
+ * operation schema sees the payload. The absent-key arm preserves identity.
+ */
+export function prepareMutationCacheInput(
+  operation: string,
+  input: Record<string, unknown>
+): PreparedMutationCacheInput {
+  if (!isWriteOperation(operation)) {
+    return { args: input, options: undefined };
+  }
+
+  let descriptors: MutationInputDescriptors;
+  try {
+    descriptors = new Map();
+    for (const key of Reflect.ownKeys(input)) {
+      const descriptor = Object.getOwnPropertyDescriptor(input, key);
+      if (descriptor) descriptors.set(key, descriptor);
+    }
+  } catch (cause) {
+    throw mutationCacheInputError(
+      `Mutation cache options for '${operation}' could not be inspected.`,
+      cause
+    );
+  }
+  const cacheDescriptor = descriptors.get("cache");
+  if (cacheDescriptor === undefined) {
+    return { args: input, options: undefined };
+  }
+
+  let cache: unknown;
+  try {
+    cache =
+      "value" in cacheDescriptor
+        ? cacheDescriptor.value
+        : cacheDescriptor.get?.call(input);
+  } catch (cause) {
+    throw mutationCacheInputError(
+      `Mutation cache options for '${operation}' could not be read.`,
+      cause
+    );
+  }
+
+  const args: Record<string, unknown> = {};
+  try {
+    for (const [key, descriptor] of descriptors) {
+      if (key === "cache") continue;
+      Object.defineProperty(args, key, descriptor);
+    }
+  } catch (cause) {
+    throw mutationCacheInputError(
+      `Mutation input for '${operation}' could not be copied.`,
+      cause
+    );
+  }
+  const options =
+    cache === undefined
+      ? undefined
+      : parseMutationCacheOptions(operation, cache);
+  return { args, options };
+}
+
+function parseMutationCacheOptions(
+  operation: string,
+  cache: unknown
+): CacheInvalidationOptions {
+  try {
+    const parsed = parse(cacheInvalidationSchema, cache);
+    if (parsed.issues) {
+      throw new CacheConfigurationError(
+        `Invalid mutation cache options: ${parsed.issues.map((issue) => issue.message).join(", ")}`
+      );
+    }
+    const invalidate =
+      parsed.value.invalidate === undefined
+        ? undefined
+        : [...parsed.value.invalidate];
+    return Object.freeze({
+      autoInvalidate: parsed.value.autoInvalidate,
+      ...(invalidate === undefined ? {} : { invalidate }),
+    });
+  } catch (cause) {
+    if (isCacheConfigurationError(cause)) throw cause;
+    throw mutationCacheInputError(
+      `Mutation cache options for '${operation}' could not be validated.`,
+      cause
+    );
+  }
+}
+
+function mutationCacheInputError(
+  message: string,
+  cause: unknown
+): CacheConfigurationError {
+  return new CacheConfigurationError(message, {
+    cause: isError(cause)
+      ? cause
+      : new Error("A non-Error value was thrown.", { cause }),
+  });
+}
+
 export function isCacheManagedExecution(
   options: PrepareOptions | undefined
 ): boolean {
   return options?.skipSpan === true;
 }
 
-/**
- * The invalidation a wrapped mutation runs after it writes, keyed by the
- * operation the caller holds.
- *
- * The wrapper below installs it as a deferred executor, which fires only from
- * the EXECUTE path (`PendingOperation.runExecution`). A batch-only driver (D1,
- * Neon HTTP) takes the client's shared-batch branch of `$transaction([...])`,
- * which prepares every operation and parses the driver's batch results without
- * ever executing them — so that branch looks the operation up here and runs the
- * SAME closure once the batch has committed. One definition, two call paths:
- * which model, which per-operation options and which execution context are
- * invalidated cannot drift between them.
- */
-const mutationInvalidations = new WeakMap<object, () => Promise<void>>();
-
-export function withMutationCacheInvalidation<T>(
-  pendingOperation: PendingOperation<T>,
+/** Prepare the cache listener consumed by the shared write-outcome rail. */
+export function prepareMutationCacheWriteOutcome(
   cache: CacheDriver,
   modelName: string,
   operation: string,
-  cacheOptions: CacheInvalidationOptions | undefined
-): PendingOperation<T> {
-  if (!MUTATION_OPERATIONS.has(operation)) {
-    return pendingOperation;
-  }
+  readCacheOptions: () => CacheInvalidationOptions | undefined,
+  context: QueryExecutionContext,
+  officialScope: object
+): WriteOutcomeRegistration | undefined {
+  if (!isWriteOperation(operation)) return undefined;
+  const options = readCacheOptions();
 
-  const invalidate = async () => {
-    try {
-      await cache._invalidate(
-        modelName,
-        cacheOptions,
-        pendingOperation.getExecutionContext()
-      );
-    } catch (error) {
-      throw new CacheConfigurationError(
-        `Cache invalidation failed after mutation '${operation}' on model '${modelName}'.`,
-        {
-          cause: error instanceof Error ? error : undefined,
-          meta: { method: "invalidate", model: modelName, operation },
-        }
-      );
-    }
-  };
-
-  const wrapped = pendingOperation.wrapExecutor(async (execute) => {
-    let receivedVisibleWrite = false;
-    const writeMayBeVisible = async () => {
-      receivedVisibleWrite = true;
-      await invalidate();
-    };
-    const result = await execute(
-      undefined,
-      writeMayBeVisible,
-      writeMayBeVisible
-    );
-    if (!receivedVisibleWrite) await invalidate();
-    return result;
+  return Object.freeze({
+    extension: "viborm.cache",
+    failurePolicy: "boundary-owned",
+    listener: async (outcome) => {
+      try {
+        await invalidateOfficialCache(
+          cache,
+          modelName,
+          options,
+          context,
+          officialScope
+        );
+      } catch (error) {
+        throw new CacheConfigurationError(
+          `Cache invalidation failed after mutation '${operation}' on model '${modelName}'.`,
+          {
+            cause: isError(error)
+              ? error
+              : new Error("A non-Error value was thrown.", { cause: error }),
+            meta: {
+              method: "invalidate",
+              model: modelName,
+              operation,
+              commitCertainty: outcome.certainty,
+            },
+          }
+        );
+      }
+    },
   });
-  mutationInvalidations.set(wrapped, invalidate);
-  return wrapped;
 }
 
-/**
- * Invalidate for every mutation in a batch that has COMMITTED without running
- * through the execute path — the shared-batch branch of `$transaction([...])`.
- *
- * Called once the driver's batch has committed, so it mirrors the execute path's
- * "write first, then invalidate" order. Operations that carry no invalidation (a
- * read, a mutation on a client with no cache driver) are skipped, and each
- * mutation is invalidated with its own options, exactly as when awaited directly.
- */
-export async function invalidateCommittedBatch(
-  operations: readonly TransactionOperation<unknown>[]
-): Promise<void> {
-  for (const operation of operations) {
-    const invalidate = mutationInvalidations.get(operation);
-    if (invalidate) {
-      await invalidate();
-    }
+function isCacheConfigurationError(
+  value: unknown
+): value is CacheConfigurationError {
+  try {
+    return value instanceof CacheConfigurationError;
+  } catch {
+    return false;
   }
 }
 
@@ -163,29 +239,44 @@ export function createCacheExecutionOptions(
   };
 }
 
-export function executeCachedOperation<T>(
+/** Execute an official read through the detached result representation. */
+export function executeCachedResultOperation(
   cache: CacheDriver,
   modelName: string,
   operation: string,
   args: unknown,
-  executor: () => Promise<T>,
-  options: CacheExecutionOptions
-): Promise<T> {
-  return cache._executeCached(modelName, operation, args, executor, options);
+  executor: () => Promise<unknown>,
+  options: CacheExecutionOptions,
+  codec: CacheResultCodec,
+  officialScope: object
+): Promise<unknown> {
+  return executeCachedWithResultCodec(
+    cache,
+    modelName,
+    operation,
+    args,
+    executor,
+    options,
+    codec,
+    officialScope
+  );
 }
 
 export async function invalidateManualCache(
-  cache: CacheDriver | undefined,
+  cache: CacheDriver,
   keys: string[],
-  context?: QueryExecutionContext
+  context: QueryExecutionContext | undefined,
+  officialScope: object
 ): Promise<void> {
-  if (!cache) {
-    throw new CacheConfigurationError(
-      "Cache driver not configured. Pass a cache driver in createClient options."
-    );
-  }
-
-  await cache._invalidate("manual", { invalidate: keys }, context);
+  const invalidate = [...keys];
+  const options = Object.freeze({ invalidate });
+  await invalidateOfficialCache(
+    cache,
+    "manual",
+    options,
+    context,
+    officialScope
+  );
 }
 
 function resolveSwr(

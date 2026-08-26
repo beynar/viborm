@@ -95,6 +95,7 @@ const ERROR_META_KEYS = new Set([
   "autoIncrement",
   "column",
   "columns",
+  "commitCertainty",
   "conflictsWith",
   "constraint",
   "context",
@@ -663,6 +664,11 @@ function filterAllowedDiagnosticValue(
 ): unknown {
   if (key === "recordSeriesProgress") {
     return sanitizeRecordSeriesProgress(value);
+  }
+  if (key === "commitCertainty") {
+    return value === "committed" || value === "may-have-committed"
+      ? value
+      : undefined;
   }
   if (key === "event" && validateLogMetadata) {
     return typeof value === "string" &&

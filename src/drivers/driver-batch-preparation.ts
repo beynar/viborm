@@ -8,6 +8,7 @@ import {
 } from "./driver-diagnostics";
 import type { ErrorLogDetails } from "./driver-instrumentation";
 import { snapshotExecutionContext } from "./execution-context";
+import { transferPreparedStatement } from "./prepared-statement-provenance";
 import type { BatchQuery, QueryExecutionContext } from "./types";
 
 export interface PreparedAtomicBatch {
@@ -43,6 +44,7 @@ export function prepareAtomicBatch(
     if (isVerbatimBatchQuery(query)) {
       snapshot = markVerbatimBatchQuery(snapshot);
     }
+    transferPreparedStatement(query, snapshot);
     const diagnosticSnapshot = getDiagnosticParameters(params ?? [], context);
     statementDiagnosticSnapshots.push(diagnosticSnapshot);
     Object.defineProperty(snapshot, BATCH_DIAGNOSTIC_PARAMS, {

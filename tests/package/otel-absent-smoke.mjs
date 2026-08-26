@@ -74,6 +74,9 @@ try {
   const { createClient } = await import(
     pathToFileURL(join(packageRoot, "dist", "index.mjs")).href
   );
+  const { instrumentation } = await import(
+    pathToFileURL(join(packageRoot, "dist", "instrumentation.mjs")).href
+  );
   const { Driver } = await import(
     pathToFileURL(join(packageRoot, "dist", "driver.mjs")).href
   );
@@ -109,9 +112,8 @@ try {
   const driver = new ProbeDriver();
   createClient({
     driver,
-    instrumentation: { tracing: true },
     schema: {},
-  });
+  }).$extends(instrumentation({ tracing: true }));
 
   let successCalls = 0;
   const value = await driver._transaction(async () => {

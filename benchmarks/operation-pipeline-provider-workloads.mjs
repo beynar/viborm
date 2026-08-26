@@ -1,14 +1,15 @@
 /** Cross-provider workloads assembled through the public operation seam. */
 
 import {
+  benchmarkOperation,
   preparedWitness,
   rawCarrierConsumer,
 } from "./operation-pipeline-harness.mjs";
+import { createProviderFixture } from "./operation-pipeline-provider-fixtures.mjs";
 import {
   assertSemanticDigest,
   freezeRawResult,
 } from "./operation-pipeline-semantics.mjs";
-import { createProviderFixture } from "./operation-pipeline-provider-fixtures.mjs";
 
 const wideSelection = Object.freeze(
   Object.fromEntries(
@@ -150,7 +151,9 @@ function consumeParsed(value, providerShape) {
       !["active", "inactive"].includes(first.status) ||
       first.metadata === null ||
       typeof first.metadata !== "object" ||
-      !(first.optionalText === null || typeof first.optionalText === "string") ||
+      !(
+        first.optionalText === null || typeof first.optionalText === "string"
+      ) ||
       !(first.payload instanceof Uint8Array)
     ) {
       throw new Error("Expected all mixed scalar result types");
@@ -260,15 +263,19 @@ function createExecutionHarness(
       ),
     "fallback-batch": async () =>
       consume(
-        (await fixture.driver._executeBatch([query], undefined, {
-          operation: "findMany",
-        }))[0]
+        (
+          await fixture.driver._executeBatch([query], undefined, {
+            operation: "findMany",
+          })
+        )[0]
       ),
     "native-batch": async () =>
       consume(
-        (await fixture.driver._executeBatch([query], undefined, {
-          operation: "findMany",
-        }))[0]
+        (
+          await fixture.driver._executeBatch([query], undefined, {
+            operation: "findMany",
+          })
+        )[0]
       ),
   };
   return { fixture, semanticFixture, harness };
@@ -299,9 +306,13 @@ export async function createProviderWorkloadHarness(
   fixture.responseBytes?.activate?.();
 
   const preparedOperation = makeOperation(fixture.client, providerShape);
-  const prepared = preparedOperation.prepare();
+  const preparedCapability = benchmarkOperation(preparedOperation);
+  const prepared = preparedCapability.prepare();
   const statement = preparedOperation.buildStatement();
-  const fullSemantic = await makeOperation(semanticFixture.client, providerShape);
+  const fullSemantic = await makeOperation(
+    semanticFixture.client,
+    providerShape
+  );
 
   if (!(prepared && statement)) {
     if (stage !== "full") {
@@ -326,7 +337,10 @@ export async function createProviderWorkloadHarness(
         semanticDigest,
         responseBytes: fixture.responseBytes,
         full: async () =>
-          consumeParsed(await makeOperation(fixture.client, providerShape), providerShape),
+          consumeParsed(
+            await makeOperation(fixture.client, providerShape),
+            providerShape
+          ),
       },
     };
   }
@@ -342,7 +356,7 @@ export async function createProviderWorkloadHarness(
       { operation: "findMany" }
     )
   );
-  const parsedFixture = preparedOperation.parseResult(rawFixture);
+  const parsedFixture = preparedCapability.parseResult(rawFixture);
   consumeParsed(parsedFixture, providerShape);
   consumeParsed(fullSemantic, providerShape);
   const semanticDigest = assertSemanticDigest(
@@ -390,7 +404,7 @@ export async function createProviderWorkloadHarness(
         providerShape
       ),
     "unowned-parse": () =>
-      consumeParsed(preparedOperation.parseResult(rawFixture), providerShape),
+      consumeParsed(preparedCapability.parseResult(rawFixture), providerShape),
     "provider-parse": async () => {
       const raw = await fixture.driver.execute(
         providerClient,
@@ -398,10 +412,13 @@ export async function createProviderWorkloadHarness(
         prepared.params ?? [],
         { operation: "findMany" }
       );
-      return consumeParsed(preparedOperation.parseResult(raw), providerShape);
+      return consumeParsed(preparedCapability.parseResult(raw), providerShape);
     },
     full: async () =>
-      consumeParsed(await makeOperation(fixture.client, providerShape), providerShape),
+      consumeParsed(
+        await makeOperation(fixture.client, providerShape),
+        providerShape
+      ),
   };
   return { fixture, semanticFixture, harness };
 }

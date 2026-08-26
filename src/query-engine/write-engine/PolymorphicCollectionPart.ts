@@ -54,9 +54,9 @@ export interface PolymorphicCollectionPartInput {
  *  2. cross-verb / cross-variant ordering,
  *  3. the single owner-row publication every leaf correlates on,
  *  4. the cache footprint — **which is empty, as a measured fact**. Invalidation
- *     lives ABOVE the engine: `client.ts` wraps the pending operation with
- *     `withMutationCacheInvalidation`, whose closure fires on the ROOT model name
- *     and public operation, and `$transaction([...])` runs the same closure. No
+ *     lives ABOVE the engine: the pending operation registers one cache listener
+ *     on the shared write-outcome rail for the ROOT model name and public
+ *     operation, including `$transaction([...])`. No
  *     `Part` anywhere in the estate invokes a cache callback. Adding target-model
  *     invalidation here would be exactly the "private dependency-invalidation
  *     system that ordinary relations do not have" §10.6 forbids.

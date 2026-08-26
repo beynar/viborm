@@ -8,6 +8,7 @@ import { ASYNC_DISPOSE, type AsyncDisposeMember } from "./async-dispose";
 import type {
   DriverResultParser,
   NestedTransactionObservation,
+  OfficialDriverLifecycleExecutionGate,
 } from "./driver-instrumentation";
 import { DriverTransactionBase } from "./driver-transaction-base";
 import { normalizeDriverConnectionError } from "./error-mapping";
@@ -47,26 +48,34 @@ export abstract class Driver<
    */
   async _connect(context?: QueryExecutionContext): Promise<void> {
     const executionContext = this.resolveExecutionContext(context, "connect");
+    const hasLifecycleObservers = this.hasTrustedObservers(executionContext);
     const doConnect = async () => {
       await this.getClient(executionContext);
     };
 
-    // Get tracer (always defined - either real or no-op)
-    const tracer = this.getTracer(executionContext);
-
-    const executeConnect = () =>
-      tracer.startActiveSpan(
-        {
-          name: SPAN_CONNECT,
-          attributes: this.getContextAttributes(executionContext),
-        },
-        doConnect
-      );
+    const executeConnect = (gate?: OfficialDriverLifecycleExecutionGate) => {
+      return gate === undefined ? doConnect() : gate.execute(doConnect);
+    };
     if (this.serializeTransactions && !this.inTransaction) {
       this.assertBaseOperationAllowedDuringTransaction(executionContext);
-      return this.connectionQueue.enqueue(executeConnect);
+      if (!hasLifecycleObservers) {
+        return this.connectionQueue.enqueue(executeConnect);
+      }
+      return this.observeTrustedDriverLifecycle(
+        "connection",
+        executionContext,
+        SPAN_CONNECT,
+        (gate) => this.connectionQueue.enqueue(() => executeConnect(gate))
+      );
     }
-    return executeConnect();
+    return hasLifecycleObservers
+      ? this.observeTrustedDriverLifecycle(
+          "connection",
+          executionContext,
+          SPAN_CONNECT,
+          executeConnect
+        )
+      : executeConnect();
   }
 
   /**
@@ -77,7 +86,10 @@ export abstract class Driver<
       context,
       "disconnect"
     );
-    const executeDisconnect = async () => {
+    const hasLifecycleObservers = this.hasTrustedObservers(executionContext);
+    const executeDisconnect = async (
+      gate?: OfficialDriverLifecycleExecutionGate
+    ) => {
       if (this.isDisconnecting) {
         throw new ConnectionError("Database connection is closing", {
           code: VibORMErrorCode.CONNECTION_CLOSED,
@@ -118,14 +130,8 @@ export abstract class Driver<
         }
       };
 
-      const tracer = this.getTracer(executionContext);
-      const disconnectPromise = tracer.startActiveSpan(
-        {
-          name: SPAN_DISCONNECT,
-          attributes: this.getContextAttributes(executionContext),
-        },
-        doDisconnect
-      );
+      const disconnectPromise =
+        gate === undefined ? doDisconnect() : gate.execute(doDisconnect);
 
       try {
         await disconnectPromise;
@@ -138,9 +144,24 @@ export abstract class Driver<
 
     if (this.serializeTransactions && !this.inTransaction) {
       this.assertBaseOperationAllowedDuringTransaction(executionContext);
-      return this.connectionQueue.enqueue(executeDisconnect);
+      if (!hasLifecycleObservers) {
+        return this.connectionQueue.enqueue(executeDisconnect);
+      }
+      return this.observeTrustedDriverLifecycle(
+        "connection",
+        executionContext,
+        SPAN_DISCONNECT,
+        (gate) => this.connectionQueue.enqueue(() => executeDisconnect(gate))
+      );
     }
-    return executeDisconnect();
+    return hasLifecycleObservers
+      ? this.observeTrustedDriverLifecycle(
+          "connection",
+          executionContext,
+          SPAN_DISCONNECT,
+          executeDisconnect
+        )
+      : executeDisconnect();
   }
 
   async disconnect(): Promise<void> {
@@ -227,8 +248,6 @@ export class TransactionBoundDriver<TClient, TTransaction> extends Driver<
       baseDriver.supportsOrderedCommittedSegments;
     this.maxBindParametersPerStatement =
       baseDriver.maxBindParametersPerStatement;
-    // Copy instrumentation - each tx driver gets its own context for proper span parenting
-    this.instrumentation = baseDriver["instrumentation"];
   }
 
   // Always return the bound transaction
@@ -464,18 +483,44 @@ export class TransactionBoundDriver<TClient, TTransaction> extends Driver<
         return Promise.reject(error);
       }
     }
-    const executeTransaction = () =>
+    const plan = this.resolveTransactionOptions(options, "callback");
+    const executionContext = this.resolveExecutionContext(
+      context,
+      "transaction"
+    );
+    const hasLifecycleObservers = this.hasTrustedObservers(executionContext);
+    const executeTransaction = (gate?: OfficialDriverLifecycleExecutionGate) =>
       this.scopeQueue.enqueue(async () => {
         this.assertTransactionCommittable();
         this.isSavepointActive = true;
         try {
-          return await super._transaction(fn, options, context);
+          return await this.runProviderTransactionCore(
+            fn,
+            plan,
+            executionContext,
+            gate
+          );
         } finally {
           this.isSavepointActive = false;
         }
       });
-    if (isAdmittedWithTransactionDispatch) return executeTransaction();
-    return this.trackTransactionOperation(executeTransaction, false);
+    const executeObservedTransaction = hasLifecycleObservers
+      ? () =>
+          this.observeTransactionLifecycle(
+            "savepoint",
+            executionContext,
+            (_transactionContext, gate) => executeTransaction(gate)
+          )
+      : undefined;
+    if (isAdmittedWithTransactionDispatch) {
+      return executeObservedTransaction
+        ? executeObservedTransaction()
+        : executeTransaction();
+    }
+    return this.trackTransactionOperation(
+      executeObservedTransaction ?? executeTransaction,
+      false
+    );
   }
 
   override withTransaction<T>(

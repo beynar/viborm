@@ -1,6 +1,7 @@
 /** Scalar and relation-bearing mutation workload construction. */
 
 import {
+  benchmarkOperation,
   consumeScalarRows,
   preparedWitness,
 } from "./operation-pipeline-harness.mjs";
@@ -504,26 +505,24 @@ async function createMutationHarness(
   workloadShape
 ) {
   const prepareForRawExecution = (operation) => {
-    const prepared = operation.prepare();
-    if (prepared) return prepared;
+    const capability = benchmarkOperation(operation);
+    const prepared = capability.prepare();
+    if (prepared) return { capability, prepared };
     const statement = operation.buildStatement();
     if (!statement) {
       throw new Error(
         "Mutation workload did not build one executable statement"
       );
     }
-    return fixture.driver._prepare(statement);
+    return { capability, prepared: fixture.driver._prepare(statement) };
   };
   const semanticOperation = makeOperation(fixture.client);
-  const semanticEntry = {
-    operation: semanticOperation,
-    prepared: prepareForRawExecution(semanticOperation),
-  };
+  const semanticEntry = prepareForRawExecution(semanticOperation);
   const semanticRaw = await fixture.driver._executeRaw(
     semanticEntry.prepared.sql,
     semanticEntry.prepared.params
   );
-  const semanticValue = semanticEntry.operation.parseResult(semanticRaw);
+  const semanticValue = semanticEntry.capability.parseResult(semanticRaw);
   parsedConsumer(semanticValue);
   const fullSemantic = await makeOperation(fullFixture.client);
   parsedConsumer(fullSemantic);
@@ -536,10 +535,7 @@ async function createMutationHarness(
     stage === "execute" || stage === "raw-parse"
       ? Array.from({ length: operationCount }, () => {
           const operation = makeOperation(fixture.client);
-          return {
-            operation,
-            prepared: prepareForRawExecution(operation),
-          };
+          return prepareForRawExecution(operation);
         })
       : [];
   let preparedIndex = 0;
@@ -552,7 +548,7 @@ async function createMutationHarness(
     witness: preparedWitness(semanticEntry.prepared, workloadShape),
     semanticDigest: digest,
     prepare: () => {
-      const prepared = prepareForRawExecution(makeOperation());
+      const { prepared } = prepareForRawExecution(makeOperation());
       return prepared.sql.length + (prepared.params?.length ?? 0);
     },
     execute: async () => {
@@ -564,12 +560,12 @@ async function createMutationHarness(
       return consumeScalarRows(raw.rows, Object.keys(raw.rows[0] ?? {})[0]);
     },
     "raw-parse": async () => {
-      const { operation, prepared } = nextPrepared();
+      const { capability, prepared } = nextPrepared();
       const raw = await fixture.driver._executeRaw(
         prepared.sql,
         prepared.params
       );
-      return parsedConsumer(operation.parseResult(raw));
+      return parsedConsumer(capability.parseResult(raw));
     },
     full: async () => parsedConsumer(await makeOperation()),
   };

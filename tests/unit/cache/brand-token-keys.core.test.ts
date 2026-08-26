@@ -1,4 +1,5 @@
 import { MemoryCache } from "@cache/drivers/memory";
+import { cache as cacheExtension } from "@cache/extension";
 import { generateCacheKey } from "@cache/key";
 import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
@@ -215,7 +216,7 @@ let driver: PGliteDriver;
 
 const makeClient = () => createClient({ schema, driver });
 const makeCachedClient = (cache: MemoryCache) =>
-  createClient({ schema, driver, cache });
+  createClient({ schema, driver }).$extends(cacheExtension({ driver: cache }));
 
 const seed = async () => {
   // Written by a CACHELESS client: seeding must not populate anything.

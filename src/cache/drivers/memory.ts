@@ -7,13 +7,12 @@
  * @example
  * ```ts
  * // Direct import for optimal tree-shaking
+ * import { cache } from "viborm/cache";
  * import { MemoryCache } from "viborm/cache/memory";
  *
- * const client = createClient({
- *   schema,
- *   driver,
- *   cache: new MemoryCache(),
- * });
+ * const client = createClient({ schema, driver }).$extends(
+ *   cache({ driver: new MemoryCache() })
+ * );
  * ```
  */
 

@@ -13,6 +13,7 @@ import {
   SimpleSpanProcessor,
 } from "@opentelemetry/sdk-trace-node";
 import { createClient } from "../src/drivers/pglite";
+import { instrumentation } from "../src/instrumentation/extension";
 import { push } from "../src/migrations";
 import { s } from "../src/schema";
 
@@ -84,9 +85,8 @@ const tracerProvider = new NodeTracerProvider({
 tracerProvider.register();
 
 let isShowcaseRunning = false;
-const orm = createClient({
-  schema,
-  instrumentation: {
+const orm = createClient({ schema }).$extends(
+  instrumentation({
     logging: {
       includeSql: true,
       includeParams: true,
@@ -100,8 +100,8 @@ const orm = createClient({
       includeSql: true,
       includeParams: true,
     },
-  },
-});
+  })
+);
 
 async function main(): Promise<void> {
   console.log("\nVibORM ORM showcase");

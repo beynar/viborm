@@ -15,10 +15,9 @@ import {
   UnsupportedOperationError,
   VibORMError,
 } from "@errors";
-import {
-  createInstrumentationContext,
-  type InstrumentationContext,
-} from "@instrumentation/context";
+import { readProtectedLifecycleFacts } from "@extensions/observation";
+import type { InstrumentationContext } from "@instrumentation/context";
+import { getOfficialInstrumentationChainCapability } from "@instrumentation/extension";
 import {
   ATTR_VIBORM_WRITE_ATOMICITY,
   ATTR_VIBORM_WRITE_COMMIT_OUTCOME,
@@ -30,14 +29,20 @@ import {
   SPAN_OPERATION,
   SPAN_RECORD_SERIES_SEGMENT,
 } from "@instrumentation/spans";
-import type { TracerWrapper, VibORMSpanOptions } from "@instrumentation/tracer";
 import { push } from "@migrations";
+import { trace } from "@opentelemetry/api";
 import { createOperationExecutionContext } from "@query-engine/execution-context";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames, s } from "@schema";
 import { sql } from "@sql";
 import { createTransactionCleanupError } from "@src/drivers/shared/transactions";
 import type { CommittedBatchNotification } from "@src/drivers/types";
+import {
+  appendResolvedExtension,
+  type ResolvedExtensionChain,
+} from "@src/extensions/chain";
+import { defineExtension } from "@src/index";
+import { instrumentation } from "@src/instrumentation/exports";
 import {
   type ExecutableOperation,
   OperationExecutor,
@@ -54,6 +59,7 @@ import type { RecordSeriesOperation } from "@src/query-engine/write-engine/recor
 import { isRecordSeries } from "@src/query-engine/write-engine/record-series";
 import { executeRoutedOperation } from "@src/query-engine/write-engine/routing";
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
+import { withOtelRecorder } from "@tests/unit/instrumentation/_capture";
 import { createSchemaRegistry } from "@validation";
 import {
   afterAll,
@@ -205,65 +211,6 @@ class MalformedSecondBatchPGliteDriver extends TracingBatchOnlyPGliteDriver {
   }
 }
 
-interface RecordedProgressSpan {
-  readonly name: string;
-  readonly parent: string | undefined;
-  readonly attributes: NonNullable<VibORMSpanOptions["attributes"]>;
-}
-
-/** A custom tracer witness for active parenting and optional late attributes. */
-class RecordingProgressTracer implements TracerWrapper {
-  readonly spans: RecordedProgressSpan[] = [];
-  private active: RecordedProgressSpan | undefined;
-
-  async startActiveSpan<T>(
-    options: VibORMSpanOptions,
-    fn: () => T | Promise<T>
-  ): Promise<T> {
-    const previous = this.active;
-    const current: RecordedProgressSpan = {
-      name: options.name,
-      parent: previous?.name,
-      attributes: options.attributes ?? {},
-    };
-    this.spans.push(current);
-    this.active = current;
-    try {
-      return await fn();
-    } finally {
-      this.active = previous;
-    }
-  }
-
-  startActiveSpanSync<T>(options: VibORMSpanOptions, fn: () => T): T {
-    const previous = this.active;
-    const current: RecordedProgressSpan = {
-      name: options.name,
-      parent: previous?.name,
-      attributes: options.attributes ?? {},
-    };
-    this.spans.push(current);
-    this.active = current;
-    try {
-      return fn();
-    } finally {
-      this.active = previous;
-    }
-  }
-
-  setActiveSpanAttributes(
-    attributes: Parameters<
-      NonNullable<TracerWrapper["setActiveSpanAttributes"]>
-    >[0]
-  ): void {
-    if (this.active) Object.assign(this.active.attributes, attributes);
-  }
-
-  isEnabled(): boolean {
-    return true;
-  }
-}
-
 /**
  * Reproduces the scope-failure arm of `withTransaction`
  * (`src/drivers/driver-transaction-base.ts`): when the transaction scope recorded
@@ -394,10 +341,11 @@ function resultReadOperation(events: string[]): ExecutableOperation {
 function seriesOperation(
   events: string[],
   shape: SeriesShape
-): RecordSeriesOperation {
+): RecordSeriesOperation & { readonly validatedArgs: Record<string, unknown> } {
   let attempt = 0;
   return {
     executionKind: "recordSeries",
+    validatedArgs: {},
     capture(): PlanningFragment {
       attempt += 1;
       events.push(`capture:${attempt}`);
@@ -436,9 +384,10 @@ function staticSeries(
   members: readonly ExecutableOperation[],
   parseSeries: RecordSeriesOperation["parseSeries"] = (input) =>
     input.memberResults
-): RecordSeriesOperation {
+): RecordSeriesOperation & { readonly validatedArgs: Record<string, unknown> } {
   return {
     executionKind: "recordSeries",
+    validatedArgs: {},
     capture: () => ({ steps: [] }),
     compileMembers: () => members,
     compileResultReads: () => [],
@@ -608,28 +557,109 @@ beforeEach(async () => {
 
 function executorFor(
   driver: PGliteDriver,
-  instrumentation?: InstrumentationContext
+  extensionChain?: ResolvedExtensionChain
 ): OperationExecutor {
+  const engine = new QueryEngine(
+    driver,
+    createModelRegistry(
+      recordSeriesSchema,
+      createSchemaRegistry(recordSeriesSchema)
+    ),
+    undefined,
+    undefined,
+    "string",
+    extensionChain
+  );
   return new OperationExecutor(
-    new QueryEngine(
-      driver,
-      createModelRegistry(
-        recordSeriesSchema,
-        createSchemaRegistry(recordSeriesSchema)
-      ),
-      instrumentation
-    )
+    extensionChain === undefined ? engine : engine.bind(driver, extensionChain)
   );
 }
 
 function seriesContext(
-  instrumentation?: InstrumentationContext
+  instrumentation?: InstrumentationContext,
+  extensionChain?: ResolvedExtensionChain
 ): QueryExecutionContext {
   return createOperationExecutionContext(
     "ledger",
     "createMany",
-    instrumentation
+    instrumentation,
+    extensionChain
   );
+}
+
+interface SegmentObservation {
+  readonly unit: Readonly<{
+    kind: string;
+    model?: string;
+    operation?: string;
+  }>;
+  readonly completion: Promise<
+    Readonly<{
+      status: "success" | "failure";
+      commitCertainty?: "committed" | "may-have-committed";
+    }>
+  >;
+  summary?: Readonly<{
+    status: "success" | "failure";
+    commitCertainty?: "committed" | "may-have-committed";
+  }>;
+}
+
+function observedSegmentChain(): {
+  readonly chain: ResolvedExtensionChain;
+  readonly observations: SegmentObservation[];
+} {
+  const observations: SegmentObservation[] = [];
+  const extension = defineExtension<typeof recordSeriesSchema>()({
+    name: "record-series-segment-observer",
+    observe(unit, proceed) {
+      if (unit.kind !== "segment") return;
+      const completion = proceed();
+      const observation: SegmentObservation = { unit, completion };
+      observations.push(observation);
+      completion.then((summary) => {
+        observation.summary = summary;
+      });
+    },
+  });
+  return {
+    chain: appendResolvedExtension(undefined, extension, recordSeriesSchema),
+    observations,
+  };
+}
+
+async function settleSegmentObservations(
+  observations: readonly SegmentObservation[]
+): Promise<void> {
+  await Promise.all(observations.map(({ completion }) => completion));
+  await Promise.resolve();
+}
+
+function officialSegmentExecution(): {
+  readonly chain: ResolvedExtensionChain;
+  readonly instrumentation: InstrumentationContext;
+} {
+  const chain = appendResolvedExtension(
+    undefined,
+    instrumentation({ tracing: true }),
+    recordSeriesSchema
+  );
+  const capability = getOfficialInstrumentationChainCapability(chain);
+  if (capability === undefined) {
+    throw new Error("expected official instrumentation capability");
+  }
+  return { chain, instrumentation: capability.context };
+}
+
+function activeSpanName(): string | undefined {
+  const active = trace.getActiveSpan();
+  if (active === undefined) return undefined;
+  const name = Reflect.get(active, "name");
+  return typeof name === "string" ? name : undefined;
+}
+
+async function settleOfficialSegmentSpans(): Promise<void> {
+  for (let turn = 0; turn < 10; turn += 1) await Promise.resolve();
 }
 
 function ledgerRows(): Promise<Array<{ id: number; label: string }>> {
@@ -979,6 +1009,75 @@ describe("I13 — progressive nested record series", () => {
     ]);
   }, 60_000);
 
+  test("keeps official segment retry spans in exact attempt order", async () => {
+    const recorder = withOtelRecorder();
+    try {
+      await seedRow(9, "clash");
+      const events: string[] = [];
+      const driver = new TracingBatchOnlyPGliteDriver(events, {
+        client: database,
+      });
+      let secondCompiles = 0;
+      const secondProbe: ReadStep = {
+        id: "official-retry.probe",
+        kind: "read",
+        statement: sql`SELECT "id" FROM "rs_ledger" ORDER BY "id" ASC`,
+        outputs: { rows: { kind: "rows" } },
+      };
+      const second: ExecutableOperation = {
+        mode: "batch",
+        planning: () => ({ steps: [secondProbe] }),
+        compile: () => {
+          secondCompiles += 1;
+          const write: WriteStep = {
+            id: "official-retry.write",
+            kind: "write",
+            statement: sql`INSERT INTO "rs_ledger" ("id", "label") VALUES (${2}, ${secondCompiles === 1 ? "clash" : "free"}) RETURNING "id"`,
+            outputs: { rows: { kind: "rows" } },
+            racePin: LABEL_PIN,
+          };
+          return { steps: [write], outputs: { rows: ref(write.id, "rows") } };
+        },
+        parse: <T>(outputs: Readonly<Record<string, unknown>>): T =>
+          outputs.rows as T,
+      };
+      const official = officialSegmentExecution();
+
+      const result = await executeRoutedOperation<unknown>(
+        executorFor(driver, official.chain),
+        staticSeries([
+          memberOperation(events, {
+            id: "official-first",
+            rowId: 1,
+            label: "first",
+          }),
+          second,
+        ]),
+        seriesContext(official.instrumentation, official.chain)
+      );
+      await settleOfficialSegmentSpans();
+
+      expect(result).toEqual([[{ id: 1 }], [{ id: 2 }]]);
+      expect(secondCompiles).toBe(2);
+      expect(
+        recorder
+          .spans()
+          .filter(({ name }) => name === SPAN_RECORD_SERIES_SEGMENT)
+          .map(({ attributes, status }) => ({
+            path: attributes[ATTR_VIBORM_WRITE_MEMBER_PATH],
+            outcome: attributes[ATTR_VIBORM_WRITE_COMMIT_OUTCOME],
+            status: status.code,
+          }))
+      ).toEqual([
+        { path: "0", outcome: "committed", status: 1 },
+        { path: "1", outcome: "rolled_back", status: 2 },
+        { path: "1", outcome: "committed", status: 1 },
+      ]);
+    } finally {
+      await recorder.dispose();
+    }
+  }, 60_000);
+
   test("marks a dispatched malformed weak segment as possibly committed and stops the series", async () => {
     const events: string[] = [];
     const driver = new MalformedSecondBatchPGliteDriver(events, {
@@ -1085,10 +1184,11 @@ describe("I13 — progressive nested record series", () => {
     });
     const direct = nestedProgressiveSeries().compileMembers({})[0];
     if (!direct) throw new Error("expected one direct progressive member");
+    const routedDirect = { ...direct, validatedArgs: {} };
 
     await expect(
       executorFor(driver).prepareSharedBatch(
-        direct,
+        routedDirect,
         driver,
         seriesContext(),
         "create"
@@ -1100,103 +1200,638 @@ describe("I13 — progressive nested record series", () => {
   });
 
   test("emits one child span per segment and final parent progress", async () => {
+    const recorder = withOtelRecorder();
+    try {
+      const events: string[] = [];
+      const driver = new TracingProgressivePGliteDriver(events);
+      const official = officialSegmentExecution();
+
+      await official.instrumentation.tracer.startActiveSpan(
+        { name: SPAN_OPERATION },
+        () =>
+          executorFor(driver, official.chain).execute(
+            nestedProgressiveSeries(),
+            seriesContext(official.instrumentation, official.chain)
+          )
+      );
+      await settleOfficialSegmentSpans();
+
+      const spans = recorder.spans();
+      const parent = spans.find((span) => span.name === SPAN_OPERATION);
+      expect(parent?.attributes).toMatchObject({
+        [ATTR_VIBORM_WRITE_ATOMICITY]: "segment",
+        [ATTR_VIBORM_WRITE_COMMITTED_SEGMENTS]: 3,
+        [ATTR_VIBORM_WRITE_COMPLETED_MEMBERS]: 2,
+        [ATTR_VIBORM_WRITE_COMMITTED_WRITE_MEMBERS]: 2,
+      });
+      expect(
+        spans
+          .filter((span) => span.name === SPAN_RECORD_SERIES_SEGMENT)
+          .map((span) => ({
+            parent:
+              parent !== undefined &&
+              span.parentSpanContext?.spanId === parent.spanContext().spanId
+                ? parent.name
+                : undefined,
+            path: span.attributes[ATTR_VIBORM_WRITE_MEMBER_PATH],
+            statements: span.attributes[ATTR_VIBORM_WRITE_STATEMENT_COUNT],
+            outcome: span.attributes[ATTR_VIBORM_WRITE_COMMIT_OUTCOME],
+          }))
+      ).toEqual([
+        {
+          parent: SPAN_OPERATION,
+          path: "0",
+          statements: 1,
+          outcome: "committed",
+        },
+        {
+          parent: SPAN_OPERATION,
+          path: "0.0",
+          statements: 2,
+          outcome: "committed",
+        },
+        {
+          parent: SPAN_OPERATION,
+          path: "0",
+          statements: 4,
+          outcome: "committed",
+        },
+      ]);
+    } finally {
+      await recorder.dispose();
+    }
+  }, 60_000);
+
+  test("presents official segments in onion order and keeps final progress on the parent", async () => {
+    const recorder = withOtelRecorder();
+    try {
+      const timeline: string[] = [];
+      const summaries: SegmentObservation["summary"][] = [];
+      let chain = appendResolvedExtension(
+        undefined,
+        defineExtension<typeof recordSeriesSchema>()({
+          name: "official-segment-before",
+          observe(unit, proceed) {
+            if (unit.kind !== "segment") return;
+            timeline.push(`A.in:${activeSpanName()}`);
+            return proceed().then((summary) => {
+              timeline.push(`A.out:${summary.status}`);
+            });
+          },
+        }),
+        recordSeriesSchema
+      );
+      chain = appendResolvedExtension(
+        chain,
+        instrumentation({ tracing: true }),
+        recordSeriesSchema
+      );
+      chain = appendResolvedExtension(
+        chain,
+        defineExtension<typeof recordSeriesSchema>()({
+          name: "official-segment-after",
+          observe(unit, proceed) {
+            if (unit.kind !== "segment") return;
+            timeline.push(`B.in:${activeSpanName()}`);
+            const completion = proceed();
+            completion.then((summary) => {
+              summaries.push(summary);
+              timeline.push(`B.out:${summary.status}`);
+            });
+            throw new Error("hostile segment observer");
+          },
+        }),
+        recordSeriesSchema
+      );
+      const capability = getOfficialInstrumentationChainCapability(chain);
+      if (capability === undefined) {
+        throw new Error("expected official instrumentation capability");
+      }
+      const events: string[] = [];
+      const driver = new TracingProgressivePGliteDriver(events);
+
+      const result = await capability.context.tracer.startActiveSpan(
+        { name: SPAN_OPERATION },
+        () =>
+          executorFor(driver, chain).execute(
+            nestedProgressiveSeries(),
+            seriesContext(capability.context, chain)
+          )
+      );
+      await settleOfficialSegmentSpans();
+
+      expect(result).toEqual([{ result: [{ id: 2 }] }]);
+      expect(timeline).toEqual(
+        Array.from({ length: 3 }, () => [
+          `A.in:${SPAN_OPERATION}`,
+          `B.in:${SPAN_RECORD_SERIES_SEGMENT}`,
+          "B.out:success",
+          "A.out:success",
+        ]).flat()
+      );
+      expect(summaries).toHaveLength(3);
+      expect(
+        summaries.every(
+          (summary) =>
+            summary?.status === "success" &&
+            summary.commitCertainty === "committed"
+        )
+      ).toBe(true);
+
+      const spans = recorder.spans();
+      const parent = spans.find(({ name }) => name === SPAN_OPERATION);
+      const segments = spans.filter(
+        ({ name }) => name === SPAN_RECORD_SERIES_SEGMENT
+      );
+      expect(parent?.attributes).toMatchObject({
+        [ATTR_VIBORM_WRITE_ATOMICITY]: "segment",
+        [ATTR_VIBORM_WRITE_COMMITTED_SEGMENTS]: 3,
+        [ATTR_VIBORM_WRITE_COMPLETED_MEMBERS]: 2,
+        [ATTR_VIBORM_WRITE_COMMITTED_WRITE_MEMBERS]: 2,
+      });
+      expect(
+        segments.map(({ attributes, parentSpanContext }) => ({
+          parent: parentSpanContext?.spanId,
+          path: attributes[ATTR_VIBORM_WRITE_MEMBER_PATH],
+          statements: attributes[ATTR_VIBORM_WRITE_STATEMENT_COUNT],
+          outcome: attributes[ATTR_VIBORM_WRITE_COMMIT_OUTCOME],
+          parentProgress: attributes[ATTR_VIBORM_WRITE_COMMITTED_SEGMENTS],
+        }))
+      ).toEqual([
+        {
+          parent: parent?.spanContext().spanId,
+          path: "0",
+          statements: 1,
+          outcome: "committed",
+          parentProgress: undefined,
+        },
+        {
+          parent: parent?.spanContext().spanId,
+          path: "0.0",
+          statements: 2,
+          outcome: "committed",
+          parentProgress: undefined,
+        },
+        {
+          parent: parent?.spanContext().spanId,
+          path: "0",
+          statements: 4,
+          outcome: "committed",
+          parentProgress: undefined,
+        },
+      ]);
+    } finally {
+      await recorder.dispose();
+    }
+  }, 60_000);
+
+  test("keeps segment facts exact to active official tracing on a shared driver", async () => {
+    const recorder = withOtelRecorder();
+    try {
+      const events: string[] = [];
+      const driver = new TracingProgressivePGliteDriver(events);
+      const read: ReadStep = {
+        id: "official-isolation.read",
+        kind: "read",
+        statement: sql`SELECT "id" FROM "rs_ledger" ORDER BY "id" ASC`,
+        outputs: { rows: { kind: "rows" } },
+      };
+      const series = () =>
+        staticSeries([
+          staticMember({
+            steps: [read],
+            outputs: { rows: ref(read.id, "rows") },
+          }),
+        ]);
+      const activeFacts: Array<string | undefined> = [];
+      let activeChain = appendResolvedExtension(
+        undefined,
+        instrumentation({ tracing: true }),
+        recordSeriesSchema
+      );
+      activeChain = appendResolvedExtension(
+        activeChain,
+        defineExtension<typeof recordSeriesSchema>()({
+          name: "official-segment-active-facts",
+          observe(unit, proceed) {
+            if (unit.kind !== "segment") return;
+            activeFacts.push(readProtectedLifecycleFacts(unit)?.kind);
+            return proceed();
+          },
+        }),
+        recordSeriesSchema
+      );
+      const activeCapability =
+        getOfficialInstrumentationChainCapability(activeChain);
+      if (activeCapability === undefined) {
+        throw new Error("expected active official instrumentation capability");
+      }
+
+      await executorFor(driver, activeChain).execute(
+        series(),
+        seriesContext(activeCapability.context, activeChain)
+      );
+
+      const ordinaryFacts: Array<string | undefined> = [];
+      const ordinaryChain = appendResolvedExtension(
+        undefined,
+        defineExtension<typeof recordSeriesSchema>()({
+          name: "ordinary-segment-facts",
+          observe(unit, proceed) {
+            if (unit.kind !== "segment") return;
+            ordinaryFacts.push(readProtectedLifecycleFacts(unit)?.kind);
+            return proceed();
+          },
+        }),
+        recordSeriesSchema
+      );
+      await executorFor(driver, ordinaryChain).execute(
+        series(),
+        seriesContext(undefined, ordinaryChain)
+      );
+
+      const ignoredFacts: Array<string | undefined> = [];
+      let ignoredChain = appendResolvedExtension(
+        undefined,
+        instrumentation({
+          tracing: { ignoreSpanTypes: [SPAN_RECORD_SERIES_SEGMENT] },
+        }),
+        recordSeriesSchema
+      );
+      ignoredChain = appendResolvedExtension(
+        ignoredChain,
+        defineExtension<typeof recordSeriesSchema>()({
+          name: "official-segment-ignored-facts",
+          observe(unit, proceed) {
+            if (unit.kind !== "segment") return;
+            ignoredFacts.push(readProtectedLifecycleFacts(unit)?.kind);
+            return proceed();
+          },
+        }),
+        recordSeriesSchema
+      );
+      const ignoredCapability =
+        getOfficialInstrumentationChainCapability(ignoredChain);
+      if (ignoredCapability === undefined) {
+        throw new Error("expected ignored official instrumentation capability");
+      }
+      await executorFor(driver, ignoredChain).execute(
+        series(),
+        seriesContext(ignoredCapability.context, ignoredChain)
+      );
+      await settleOfficialSegmentSpans();
+
+      expect(activeFacts).toEqual(["segment"]);
+      expect(ordinaryFacts).toEqual([undefined]);
+      expect(ignoredFacts).toEqual([undefined]);
+      expect(
+        recorder
+          .spans()
+          .filter(({ name }) => name === SPAN_RECORD_SERIES_SEGMENT)
+      ).toHaveLength(1);
+    } finally {
+      await recorder.dispose();
+    }
+  }, 60_000);
+
+  test("emits one protected unit beside each existing progressive span", async () => {
+    const recorder = withOtelRecorder();
+    try {
+      const events: string[] = [];
+      const driver = new TracingProgressivePGliteDriver(events);
+      const observed = observedSegmentChain();
+      const chain = appendResolvedExtension(
+        observed.chain,
+        instrumentation({ tracing: true }),
+        recordSeriesSchema
+      );
+      const capability = getOfficialInstrumentationChainCapability(chain);
+      if (capability === undefined) {
+        throw new Error("expected official instrumentation capability");
+      }
+
+      await executorFor(driver, chain).execute(
+        nestedProgressiveSeries(),
+        seriesContext(capability.context, chain)
+      );
+      await settleSegmentObservations(observed.observations);
+      await settleOfficialSegmentSpans();
+
+      expect(observed.observations).toHaveLength(3);
+      expect(
+        observed.observations.map(({ unit, summary }) => ({ unit, summary }))
+      ).toEqual([
+        {
+          unit: {
+            kind: "segment",
+            model: "ledger",
+            operation: "createMany",
+          },
+          summary: {
+            status: "success",
+            commitCertainty: "committed",
+            durationMs: expect.any(Number),
+          },
+        },
+        {
+          unit: {
+            kind: "segment",
+            model: "ledger",
+            operation: "createMany",
+          },
+          summary: {
+            status: "success",
+            commitCertainty: "committed",
+            durationMs: expect.any(Number),
+          },
+        },
+        {
+          unit: {
+            kind: "segment",
+            model: "ledger",
+            operation: "createMany",
+          },
+          summary: {
+            status: "success",
+            commitCertainty: "committed",
+            durationMs: expect.any(Number),
+          },
+        },
+      ]);
+      expect(
+        recorder
+          .spans()
+          .filter(({ name }) => name === SPAN_RECORD_SERIES_SEGMENT)
+      ).toHaveLength(3);
+    } finally {
+      await recorder.dispose();
+    }
+  }, 60_000);
+
+  test("reads committed certainty after acknowledged segment post-work fails", async () => {
     const events: string[] = [];
     const driver = new TracingProgressivePGliteDriver(events);
-    const tracer = new RecordingProgressTracer();
-    const instrumentation: InstrumentationContext = {
-      ...createInstrumentationContext({ tracing: true }),
-      tracer,
-    };
+    const { chain, observations } = observedSegmentChain();
 
-    await tracer.startActiveSpan({ name: SPAN_OPERATION }, () =>
-      executorFor(driver, instrumentation).execute(
+    await executorFor(driver, chain)
+      .execute(
         nestedProgressiveSeries(),
-        seriesContext(instrumentation)
+        seriesContext(undefined, chain),
+        undefined,
+        async () => {
+          throw new Error("committed invalidation failed");
+        }
       )
-    );
+      .catch(() => undefined);
+    await settleSegmentObservations(observations);
 
-    const parent = tracer.spans.find((span) => span.name === SPAN_OPERATION);
-    expect(parent?.attributes).toMatchObject({
-      [ATTR_VIBORM_WRITE_ATOMICITY]: "segment",
-      [ATTR_VIBORM_WRITE_COMMITTED_SEGMENTS]: 3,
-      [ATTR_VIBORM_WRITE_COMPLETED_MEMBERS]: 2,
-      [ATTR_VIBORM_WRITE_COMMITTED_WRITE_MEMBERS]: 2,
+    expect(observations).toHaveLength(1);
+    expect(observations[0]?.summary).toMatchObject({
+      status: "failure",
+      commitCertainty: "committed",
     });
-    expect(
-      tracer.spans
-        .filter((span) => span.name === SPAN_RECORD_SERIES_SEGMENT)
-        .map((span) => ({
-          parent: span.parent,
-          path: span.attributes[ATTR_VIBORM_WRITE_MEMBER_PATH],
-          statements: span.attributes[ATTR_VIBORM_WRITE_STATEMENT_COUNT],
-          outcome: span.attributes[ATTR_VIBORM_WRITE_COMMIT_OUTCOME],
-        }))
-    ).toEqual([
-      {
-        parent: SPAN_OPERATION,
-        path: "0",
-        statements: 1,
-        outcome: "committed",
-      },
-      {
-        parent: SPAN_OPERATION,
-        path: "0.0",
-        statements: 2,
-        outcome: "committed",
-      },
-      {
-        parent: SPAN_OPERATION,
-        path: "0",
-        statements: 4,
-        outcome: "committed",
-      },
+  }, 60_000);
+
+  test("reports only a dispatched unacknowledged write as possibly committed", async () => {
+    const events: string[] = [];
+    const driver = new MalformedSecondBatchPGliteDriver(events, {
+      client: database,
+    });
+    const writeMember = (id: number): ExecutableOperation => {
+      const write: WriteStep = {
+        id: `observed-malformed.${id}`,
+        kind: "write",
+        statement: sql`INSERT INTO "rs_ledger" ("id", "label") VALUES (${id}, ${`observed-${id}`})`,
+        outputs: { count: { kind: "rowCount" } },
+      };
+      return staticMember({
+        steps: [write],
+        outputs: { count: ref(write.id, "count") },
+      });
+    };
+    const { chain, observations } = observedSegmentChain();
+
+    await executorFor(driver, chain)
+      .execute(
+        staticSeries([writeMember(1), writeMember(2), writeMember(3)]),
+        seriesContext(undefined, chain)
+      )
+      .catch(() => undefined);
+    await settleSegmentObservations(observations);
+
+    expect(observations).toHaveLength(2);
+    expect(observations.map(({ summary }) => summary)).toMatchObject([
+      { status: "success", commitCertainty: "committed" },
+      { status: "failure", commitCertainty: "may-have-committed" },
     ]);
   }, 60_000);
 
-  test("marks a segment committed when post-commit invalidation fails", async () => {
+  test("does not claim durable certainty for read-only or rolled-back segments", async () => {
+    await seedRow(1, "occupied");
     const events: string[] = [];
     const driver = new TracingProgressivePGliteDriver(events);
-    const tracer = new RecordingProgressTracer();
-    const instrumentation: InstrumentationContext = {
-      ...createInstrumentationContext({ tracing: true }),
-      tracer,
+    const read: ReadStep = {
+      id: "observed.read",
+      kind: "read",
+      statement: sql`SELECT "id" FROM "rs_ledger" ORDER BY "id" ASC`,
+      outputs: { rows: { kind: "rows" } },
     };
+    const duplicate: WriteStep = {
+      id: "observed.duplicate",
+      kind: "write",
+      statement: sql`INSERT INTO "rs_ledger" ("id", "label") VALUES (${1}, ${"duplicate"})`,
+      outputs: { count: { kind: "rowCount" } },
+    };
+    const { chain, observations } = observedSegmentChain();
 
-    const failure = await tracer
-      .startActiveSpan({ name: SPAN_OPERATION }, () =>
-        executorFor(driver, instrumentation).execute(
-          nestedProgressiveSeries(),
-          seriesContext(instrumentation),
+    await executorFor(driver, chain).execute(
+      staticSeries([
+        staticMember({
+          steps: [read],
+          outputs: { rows: ref(read.id, "rows") },
+        }),
+      ]),
+      seriesContext(undefined, chain)
+    );
+    await executorFor(driver, chain)
+      .execute(
+        staticSeries([
+          staticMember({
+            steps: [duplicate],
+            outputs: { count: ref(duplicate.id, "count") },
+          }),
+        ]),
+        seriesContext(undefined, chain)
+      )
+      .catch(() => undefined);
+    await settleSegmentObservations(observations);
+
+    expect(observations.map(({ summary }) => summary)).toMatchObject([
+      { status: "success" },
+      { status: "failure" },
+    ]);
+    expect(
+      observations.every(
+        ({ summary }) => summary?.commitCertainty === undefined
+      )
+    ).toBe(true);
+  }, 60_000);
+
+  test("publishes exact official read-only, rolled-back, and unacknowledged outcomes", async () => {
+    const recorder = withOtelRecorder();
+    try {
+      const official = officialSegmentExecution();
+      const events: string[] = [];
+      const acknowledgedDriver = new TracingProgressivePGliteDriver(events);
+      const read: ReadStep = {
+        id: "official-outcome.read",
+        kind: "read",
+        statement: sql`SELECT "id" FROM "rs_ledger" ORDER BY "id" ASC`,
+        outputs: { rows: { kind: "rows" } },
+      };
+      await executorFor(acknowledgedDriver, official.chain).execute(
+        staticSeries([
+          staticMember({
+            steps: [read],
+            outputs: { rows: ref(read.id, "rows") },
+          }),
+        ]),
+        seriesContext(official.instrumentation, official.chain)
+      );
+
+      await seedRow(1, "occupied");
+      const duplicate: WriteStep = {
+        id: "official-outcome.duplicate",
+        kind: "write",
+        statement: sql`INSERT INTO "rs_ledger" ("id", "label") VALUES (${1}, ${"duplicate"})`,
+        outputs: { count: { kind: "rowCount" } },
+      };
+      await executorFor(acknowledgedDriver, official.chain)
+        .execute(
+          staticSeries([
+            staticMember({
+              steps: [duplicate],
+              outputs: { count: ref(duplicate.id, "count") },
+            }),
+          ]),
+          seriesContext(official.instrumentation, official.chain)
+        )
+        .catch(() => undefined);
+
+      const committedFailure: WriteStep = {
+        id: "official-outcome.committed-failure",
+        kind: "write",
+        statement: sql`INSERT INTO "rs_ledger" ("id", "label") VALUES (${20}, ${"committed-failure"})`,
+        outputs: { count: { kind: "rowCount" } },
+      };
+      await executorFor(acknowledgedDriver, official.chain)
+        .execute(
+          staticSeries([
+            staticMember({
+              steps: [committedFailure],
+              outputs: {
+                count: ref(committedFailure.id, "count"),
+              },
+            }),
+          ]),
+          seriesContext(official.instrumentation, official.chain),
           undefined,
           async () => {
-            throw new Error("invalidation failed");
+            throw new Error("committed outcome listener failed");
           }
         )
-      )
-      .catch((error) => error);
+        .catch(() => undefined);
 
-    expect(failure).toMatchObject({
-      meta: {
-        recordSeriesProgress: {
-          phase: "invalidation",
-          committedSegments: 1,
-          committedWriteMembers: 1,
+      const weakDriver = new MalformedSecondBatchPGliteDriver(events, {
+        client: database,
+      });
+      const weakMember = (id: number): ExecutableOperation => {
+        const write: WriteStep = {
+          id: `official-outcome.weak.${id}`,
+          kind: "write",
+          statement: sql`INSERT INTO "rs_ledger" ("id", "label") VALUES (${id}, ${`weak-${id}`})`,
+          outputs: { count: { kind: "rowCount" } },
+        };
+        return staticMember({
+          steps: [write],
+          outputs: { count: ref(write.id, "count") },
+        });
+      };
+      await executorFor(weakDriver, official.chain)
+        .execute(
+          staticSeries([weakMember(10), weakMember(11), weakMember(12)]),
+          seriesContext(official.instrumentation, official.chain)
+        )
+        .catch(() => undefined);
+      await settleOfficialSegmentSpans();
+
+      expect(
+        recorder
+          .spans()
+          .filter(({ name }) => name === SPAN_RECORD_SERIES_SEGMENT)
+          .map(({ attributes, status }) => ({
+            outcome: attributes[ATTR_VIBORM_WRITE_COMMIT_OUTCOME],
+            status: status.code,
+          }))
+      ).toEqual([
+        { outcome: "read_only", status: 1 },
+        { outcome: "rolled_back", status: 2 },
+        { outcome: "committed", status: 2 },
+        { outcome: "committed", status: 1 },
+        { outcome: "unacknowledged", status: 2 },
+      ]);
+    } finally {
+      await recorder.dispose();
+    }
+  }, 60_000);
+
+  test("marks a segment committed when post-commit invalidation fails", async () => {
+    const recorder = withOtelRecorder();
+    try {
+      const events: string[] = [];
+      const driver = new TracingProgressivePGliteDriver(events);
+      const official = officialSegmentExecution();
+
+      const failure = await official.instrumentation.tracer
+        .startActiveSpan({ name: SPAN_OPERATION }, () =>
+          executorFor(driver, official.chain).execute(
+            nestedProgressiveSeries(),
+            seriesContext(official.instrumentation, official.chain),
+            undefined,
+            async () => {
+              throw new Error("invalidation failed");
+            }
+          )
+        )
+        .catch((error) => error);
+      await settleOfficialSegmentSpans();
+
+      expect(failure).toMatchObject({
+        meta: {
+          recordSeriesProgress: {
+            phase: "invalidation",
+            committedSegments: 1,
+            committedWriteMembers: 1,
+          },
         },
-      },
-    });
-    const segment = tracer.spans.find(
-      (span) => span.name === SPAN_RECORD_SERIES_SEGMENT
-    );
-    expect(segment?.attributes[ATTR_VIBORM_WRITE_COMMIT_OUTCOME]).toBe(
-      "committed"
-    );
-    const parent = tracer.spans.find((span) => span.name === SPAN_OPERATION);
-    expect(parent?.attributes).toMatchObject({
-      [ATTR_VIBORM_WRITE_ATOMICITY]: "segment",
-      [ATTR_VIBORM_WRITE_COMMITTED_SEGMENTS]: 1,
-      [ATTR_VIBORM_WRITE_COMPLETED_MEMBERS]: 0,
-      [ATTR_VIBORM_WRITE_COMMITTED_WRITE_MEMBERS]: 1,
-    });
+      });
+      const spans = recorder.spans();
+      const segment = spans.find(
+        (span) => span.name === SPAN_RECORD_SERIES_SEGMENT
+      );
+      expect(segment?.attributes[ATTR_VIBORM_WRITE_COMMIT_OUTCOME]).toBe(
+        "committed"
+      );
+      const parent = spans.find((span) => span.name === SPAN_OPERATION);
+      expect(parent?.attributes).toMatchObject({
+        [ATTR_VIBORM_WRITE_ATOMICITY]: "segment",
+        [ATTR_VIBORM_WRITE_COMMITTED_SEGMENTS]: 1,
+        [ATTR_VIBORM_WRITE_COMPLETED_MEMBERS]: 0,
+        [ATTR_VIBORM_WRITE_COMMITTED_WRITE_MEMBERS]: 1,
+      });
+    } finally {
+      await recorder.dispose();
+    }
   }, 60_000);
 
   test.each([

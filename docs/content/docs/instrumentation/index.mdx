@@ -1,103 +1,93 @@
 ---
-title: Introduction
-description: Add observability to your VibORM application with OpenTelemetry tracing and structured logging
+title: Instrumentation
+description: Official protected tracing, logging, and diagnostic disclosure
 icon: activity
 ---
 
-## Features
+Instrumentation is an official client extension. It presents tracing and
+structured logging from VibORM's protected lifecycle rail without giving
+observer code authority over the application.
 
-- **OpenTelemetry Tracing** - Automatic span creation for all database operations
-- **Structured Logging** - Callback-based logging with level filtering
-- **Graceful Degradation** - Tracing works without OTel installed (no-op)
-- **Serverless Compatible** - No module-level request context, safe for edge runtimes
-- **Security Defaults** - SQL and parameters hidden unless explicitly enabled
-- **Request-Scoped Attribution** - Concurrent clients keep separate model, operation, and correlation metadata
-
-## Quick Example
-
-```typescript
+```ts
 import { createClient } from "viborm";
+import { instrumentation } from "viborm/instrumentation";
 
-// Simple: enable both with defaults
-const client = createClient({
-  schema,
-  driver,
-  instrumentation: {
-    tracing: true,  // Enable tracing with defaults
-    logging: true   // Enable pretty console logging for all levels
-  }
-});
-
-// Advanced: custom configuration
-const clientAdvanced = createClient({
-  schema,
-  driver,
-  instrumentation: {
-    tracing: {
-      includeSql: true,    // Explicitly include SQL in spans
-      includeParams: false // Exclude params for security (default: false)
-    },
+const client = createClient({ schema, driver }).$extends(
+  instrumentation({
+    tracing: { includeSql: false, includeParams: false },
     logging: {
-      query: true,                       // Pretty console output
-      error: (event, log) => {           // Custom callback
-        errorTracker.capture(event.error);
-        log();                           // Also use default logger
-      }
+      query: true,
+      cache: true,
+      warning: true,
+      error: true,
     },
-    diagnostics: {
-      includeSql: false,   // Error metadata is independently private
-      includeParams: false
-    }
-  }
-});
+    diagnostics: { includeSql: false, includeParams: false },
+  })
+);
 ```
 
-## Configuration
+`createClient({ instrumentation: ... })` is not a supported configuration.
+The fixed-name `instrumentation()` extension is the sole public owner.
 
-The `instrumentation` option accepts three optional configurations:
+## Independent disclosure channels
 
-| Option | Description |
-|--------|-------------|
-| `tracing` | OpenTelemetry tracing configuration |
-| `logging` | Structured logging configuration |
-| `diagnostics` | SQL/parameter disclosure in thrown and serialized errors |
+Tracing, logging, and thrown-error diagnostics each own separate SQL and
+parameter disclosure settings. Both default to `false`. Enabling disclosure
+for one channel does not enable it for another.
 
-All three are independent - enable only the outputs each destination needs.
-
-## Privacy & Security
-
-By default, VibORM excludes both SQL query text and query parameters:
-
-- **`includeSql: false`** (default) - SQL statements are hidden
-- **`includeParams: false`** (default) - Parameters are hidden to protect sensitive data
-
-Logging, tracing, and error diagnostics have independent disclosure options.
-Enabling SQL for one output does not enable it for the others.
-
-Thrown `VibORMError` instances, their `meta` fields, nested causes, and
-`toJSON()` output follow the diagnostics policy. Raw provider messages and
-undeclared provider fields are redacted. Stable provider codes remain available
-for retry and incident classification.
-
-Cache keys, including custom keys, are omitted from logs and spans. Cache
-event/status, model, operation, and correlation ID remain available for
-diagnosis without deriving another identifier from private key material.
+VibORM snapshots hostile inputs once at the disclosure boundary. Raw provider
+messages and undeclared fields are redacted; stable provider codes remain
+available for retry and incident classification. Cache keys and custom cache
+suffixes never appear in public units, spans, or logs.
 
 :::warning
-Only enable `includeParams` in development or staging environments. Query parameters may contain sensitive user data.
+Only enable parameter disclosure in a controlled development environment.
+Parameters may contain credentials, personal data, or application secrets.
 :::
 
-## Next Steps
+## Lifecycle coverage
+
+Official instrumentation consumes the same real lifecycle units exposed to
+ordinary observers: logical operation, physical statement, public array batch,
+transaction, savepoint, progressive segment, connection, and cache.
+
+- A native array produces one batch, N logical operations, N physical statement
+  units, and one provider execution presentation. It produces no fictional
+  transaction.
+- A fallback array uses the real transaction or savepoint lifecycle.
+- A progressive write produces one segment unit per submitted attempt.
+- Cache revalidation contains the nested cache set and marker cleanup while the
+  stale application result stays authoritative.
+- Connect and disconnect each produce one connection lifecycle.
+
+Logical operation spans begin before lazy request transformation and finish
+after query-interceptor post-work. Execute spans begin at the provider dispatch
+boundary, after statement transformation and client acquisition. Correlation
+is carried by the authenticated execution context, so clients sharing a driver
+or cache keep isolated spans and logs.
+
+## Failure containment
+
+Telemetry is observational. A logger callback, console method, OTel provider,
+observer, or dynamic OTel import can throw, reject, or never settle without
+changing the application value, application error, transaction outcome, or
+commit certainty. The core selects and deduplicates the application error;
+instrumentation receives only normalized and disclosure-approved facts.
+
+An ordinary `observe` contribution is even narrower: it receives a frozen
+public unit and sanitized completion only. It never receives SQL, parameters,
+rows, result values, cache keys, raw errors, drivers, correlation identity, or
+private facts.
+
+## Optional OpenTelemetry dependency
+
+`@opentelemetry/api` is an optional peer dependency and is loaded dynamically.
+If it is absent or setup fails, database work proceeds normally. The official
+observer prewarms the tracer once so the first operation still enters the
+correct active context; later operations do not pay a permanent readiness
+microtask.
 
 <CardGroup>
-  <Card
-    title="Logging"
-    description="Configure structured logging with callbacks"
-    href="/docs/instrumentation/logging"
-  />
-  <Card
-    title="Tracing"
-    description="Set up OpenTelemetry tracing"
-    href="/docs/instrumentation/tracing"
-  />
+  <Card title="Logging" description="Configure structured logs" href="/docs/instrumentation/logging" />
+  <Card title="Tracing" description="Configure OpenTelemetry spans" href="/docs/instrumentation/tracing" />
 </CardGroup>

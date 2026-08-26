@@ -32,6 +32,7 @@ type Attributes = import("@opentelemetry/api").Attributes;
 const TRACER_NAME = "viborm";
 const TRACER_VERSION = VIBORM_VERSION;
 const SHOULD_TRACE_SPAN = Symbol("viborm.shouldTraceSpan");
+const tracerReadiness = new WeakMap<TracerWrapper, Promise<void>>();
 
 /**
  * Extended span options with VibORM-specific attributes
@@ -147,6 +148,7 @@ export function createTracerWrapper(
   // Instance-scoped state (not module-level) for serverless compatibility
   let otel: OTelAPI | null = null;
   let tracer: Tracer | null = null;
+  let otelLoaded = false;
 
   async function tryLoadOtel(): Promise<OTelAPI | null> {
     try {
@@ -200,7 +202,10 @@ export function createTracerWrapper(
   }
 
   // Eagerly load OTel on first tracer creation
-  const otelReady = tryLoadOtel();
+  const otelReady = tryLoadOtel().then((api) => {
+    otelLoaded = true;
+    return api;
+  });
 
   const wrapper: TracerWrapper = {
     async startActiveSpan<T>(
@@ -208,7 +213,7 @@ export function createTracerWrapper(
       fn: (span?: Span) => T | Promise<T>
     ): Promise<T> {
       // Wait for initial load only on first call, then otel is cached
-      if (!otel) await otelReady;
+      if (!otelLoaded) await otelReady;
       if (!otel || shouldIgnoreSpan(options.name)) {
         return fn();
       }
@@ -365,7 +370,15 @@ export function createTracerWrapper(
   Object.defineProperty(wrapper, SHOULD_TRACE_SPAN, {
     value: (name: VibORMSpanName) => !shouldIgnoreSpan(name),
   });
+  const readiness = otelReady.then(() => undefined);
+  tracerReadiness.set(wrapper, readiness);
+  readiness.then(() => tracerReadiness.delete(wrapper));
   return Object.freeze(wrapper);
+}
+
+/** Return this wrapper's outstanding one-shot OTel readiness, if any. */
+export function prewarmTracer(tracer: TracerWrapper): void | Promise<void> {
+  return tracerReadiness.get(tracer);
 }
 
 export function shouldTraceSpan(

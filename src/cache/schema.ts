@@ -37,6 +37,16 @@ export const cacheInvalidationSchema = v.object(
 export type CacheInvalidationOptions =
   CacheInvalidationSchema[" vibInferred"]["0"];
 
+/** Whether normalized mutation options request any invalidation work. */
+export function hasCacheInvalidationWork(
+  options: CacheInvalidationOptions | undefined
+): boolean {
+  return (
+    options?.autoInvalidate === true ||
+    (options?.invalidate !== undefined && options.invalidate.length > 0)
+  );
+}
+
 // =============================================================================
 // WITH CACHE OPTIONS SCHEMA (for $withCache method)
 // =============================================================================
@@ -94,8 +104,8 @@ export const withCacheSchema = v.object(
       }
     ),
     /**
-     * Custom cache key override
-     * If not provided, key is generated from model, operation, and args
+     * The official cache extension retains the canonical model/operation/args
+     * key and appends this value as a suffix contribution.
      */
     key: v.string({ optional: true }),
     /**
@@ -119,5 +129,3 @@ export const withCacheSchema = v.object(
  * Input type for $withCache options (inferred from schema)
  */
 export type WithCacheOptions = WithCacheSchema[" vibInferred"]["0"];
-
-type T = WithCacheSchema[" vibInferred"]["0"];

@@ -82,6 +82,7 @@ type ExecutionMode = "transaction" | "batch";
  */
 export class UpdateOperation {
   readonly mode: ExecutionMode;
+  readonly validatedArgs: Record<string, unknown>;
 
   private readonly engine: QueryEngine;
   private readonly model: Model<any>;
@@ -139,6 +140,7 @@ export class UpdateOperation {
           include: undefined,
         }
       : parseValidated(parentSchemas.args.update, args, "update", "");
+    this.validatedArgs = validatedArgs;
     const where = captured?.where ?? requireRecord(args.where, "update.where");
     const data = captured?.data ?? requireRecord(args.data, "update.data");
     if (!captured) {

@@ -8,12 +8,18 @@ export async function createWorkloadHarness(
   stage,
   operationCount,
   providerName = "sqlite3",
-  targetDirectory = process.cwd()
+  targetDirectory = process.cwd(),
+  extensionArm = "unextended"
 ) {
   const workload = WORKLOADS[workloadName];
   if (!workload) throw new Error(`Unknown benchmark workload: ${workloadName}`);
   if (!workload.providers.includes(providerName)) {
     throw new Error(`${workloadName} is not defined for ${providerName}`);
+  }
+  if (extensionArm !== "unextended" && !workload.extensionProof) {
+    throw new Error(
+      `${workloadName} is not an extension-overhead proof workload`
+    );
   }
   if (workload.fixture === "provider-read") {
     return createProviderWorkloadHarness(
@@ -37,11 +43,13 @@ export async function createWorkloadHarness(
   ]);
   const fixture = await createBenchmarkFixture(
     workload.fixture,
-    workload.substrate
+    workload.substrate,
+    extensionArm
   );
   const semanticFixture = await createBenchmarkFixture(
     workload.fixture,
-    workload.substrate
+    workload.substrate,
+    extensionArm
   );
   const harness =
     (await buildReadWorkload(workloadName, fixture, semanticFixture)) ??

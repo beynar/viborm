@@ -39,6 +39,7 @@ import {
   safeArrayLength,
   safeOwnPropertyDescriptor,
 } from "../errors/diagnostic-safety";
+import { transferLoggedErrorEvidence } from "../instrumentation/logged-errors";
 
 export interface DriverErrorShape {
   code?: string | number;
@@ -120,6 +121,20 @@ export function attachExecutionContext(
   return cloneVibORMError(error, mergedMeta, snapshot, context.diagnostics);
 }
 
+/** Clone one trusted failure with the exact durable write state now known. */
+export function attachCommitCertainty(
+  error: VibORMError,
+  commitCertainty: NonNullable<VibORMErrorMeta["commitCertainty"]>
+): VibORMError {
+  const snapshot = VibORMError.prototype.toJSON.call(error);
+  const snapshotMeta = readProperty(snapshot, "meta");
+  const meta = sanitizeErrorMetadata(
+    isRecord(snapshotMeta) ? snapshotMeta : {}
+  );
+  meta.commitCertainty = commitCertainty;
+  return cloneVibORMError(error, meta, snapshot, undefined);
+}
+
 function cloneVibORMError(
   error: VibORMError,
   meta: VibORMErrorMeta,
@@ -128,7 +143,10 @@ function cloneVibORMError(
 ): VibORMError {
   if (error instanceof ValidationError) {
     const validationClone = cloneValidationError(error, meta, diagnostics);
-    if (validationClone) return validationClone;
+    if (validationClone) {
+      transferLoggedErrorEvidence(error, validationClone);
+      return validationClone;
+    }
   }
   const message =
     typeof snapshot.message === "string"
@@ -160,6 +178,7 @@ function cloneVibORMError(
     candidate instanceof VibORMError
       ? candidate
       : new VibORMError(message, code, options);
+  transferLoggedErrorEvidence(error, clonedError);
   return clonedError;
 }
 

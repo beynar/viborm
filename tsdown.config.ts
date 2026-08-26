@@ -56,6 +56,9 @@ export default defineConfig({
 
     // Adapters (internal, but exposed for advanced usage)
     adapters: "./src/adapters/index.ts",
+
+    // Built benchmark friend. Deliberately absent from package.json exports.
+    "internal/benchmark-operation": "./benchmarks/internal/operation.ts",
   },
 
   // Output format - ESM only since you're "type": "module"

@@ -1,6 +1,7 @@
 /** Read and driver-floor workload construction. */
 
 import {
+  benchmarkOperation,
   consumeFixedCollectionJunction,
   consumeFixedCollectionRelation,
   consumeFixedSingularJunction,
@@ -59,13 +60,14 @@ export async function buildReadWorkload(name, fixture, fullFixture) {
   const { client, driver } = fixture;
   if (name === "driver-raw") {
     const operation = client.user.findUnique({ where: { id: "user_42" } });
-    const prepared = operation.prepare();
+    const capability = benchmarkOperation(operation);
+    const prepared = capability.prepare();
     if (!prepared) throw new Error("findUnique raw floor did not prepare");
     const { sql, params } = prepared;
     const semanticFixture = freezeRawResult(
       await driver._executeRaw(sql, params)
     );
-    const canonicalValue = operation.parseResult(semanticFixture);
+    const canonicalValue = capability.parseResult(semanticFixture);
     const fullValue = await fullFixture.client.user.findUnique({
       where: { id: "user_42" },
     });
@@ -118,11 +120,12 @@ export async function buildReadWorkload(name, fixture, fullFixture) {
       (rows) => consumeScalarRows(rows, "views")
     );
   }
-  if (name === "scalar-find-many-1000") {
+  if (name === "scalar-find-many-1" || name === "scalar-find-many-1000") {
+    const take = name === "scalar-find-many-1" ? 1 : 1000;
     return createReadHarness(
       fixture,
       fullFixture,
-      (targetClient = client) => targetClient.post.findMany({ take: 1000 }),
+      (targetClient = client) => targetClient.post.findMany({ take }),
       (rows) => consumeScalarRows(rows, "views"),
       (rows) => consumeScalarRows(rows, "views")
     );

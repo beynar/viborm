@@ -16,7 +16,7 @@ import type {
 } from "@schema/relation/static-membership";
 import type { Prettify } from "@validation";
 import type { ModelCoreInput, ModelOperationInput } from "@validation/model";
-import type { CacheDriver } from "../cache/driver";
+import type { CacheInvalidationOptions } from "../cache/schema";
 import type { VibORMConfig } from "./client";
 import type {
   AggregateResultType,
@@ -32,8 +32,6 @@ import type {
   NodeSelect,
   SameModelResultSurface,
 } from "./result-types";
-
-export type { WaitUntilFn } from "../cache/cache-contract";
 
 export type Schema = Record<string, Model<any>>;
 
@@ -178,8 +176,8 @@ type BulkProjectionRows<S extends ModelState, Selection, Omission> = Prettify<
 // =============================================================================
 
 /*
- * `createClient({ omit: { user: { passwordHash: true } } })` is a DEFAULT the
- * runtime folds into an unselected node's `omit` before validation
+ * `defaultOmit()({ user: { passwordHash: true } })` is a DEFAULT the runtime
+ * folds into an unselected node's `omit` before validation
  * (`applyClientOmit`, ./omit.ts). The types below apply that default only in
  * the same unselected result world; an explicit select uses the caller's local
  * omit alone.
@@ -195,7 +193,7 @@ type BulkProjectionRows<S extends ModelState, Selection, Omission> = Prettify<
  * fields to optional because the public model types carry no nominal identity.
  */
 
-/** `config.omit` as written, or `undefined` when the config carries none. */
+/** The private default-omit carrier, or `undefined` when the client has none. */
 type ConfigOmit<C> = C extends unknown
   ? "omit" extends keyof C
     ? C[Extract<"omit", keyof C>]
@@ -205,12 +203,10 @@ type ConfigOmit<C> = C extends unknown
 /**
  * Discard a record keyed by an INDEX SIGNATURE rather than by names.
  *
- * `VibORMConfig` declares `omit?: ClientOmitConfig<Schema>` over the loose
- * `Schema` alias, so a client typed from the INTERFACE rather than from a
- * config literal carries `{ [model: string]: { [field: string]: boolean } }`.
- * That names nothing. Reading it as "every field of every model might be
- * hidden" would make every key of every result optional — noise, not honesty —
- * so it is read as what it is: no default stated.
+ * A schema-generic derived client may widen the private carrier to
+ * `{ [model: string]: { [field: string]: boolean } }`. That names nothing.
+ * Reading it as "every field of every model might be hidden" would make every
+ * result key optional, so it is read as no default stated.
  */
 type NamedOnly<O> = O extends unknown
   ? string extends keyof NonNullable<O>
@@ -218,7 +214,7 @@ type NamedOnly<O> = O extends unknown
     : O
   : never;
 
-/** The entry `config.omit` holds for one model key, `undefined` when none. */
+/** The private carrier entry for one model key, `undefined` when none. */
 type ModelOmitEntry<All, K extends PropertyKey> = All extends unknown
   ? [All] extends [undefined]
     ? undefined
@@ -292,15 +288,14 @@ type ModelsWithResultSurface<
 type HasUniqueResultSurface<
   C extends VibORMConfig,
   K extends keyof C["schema"],
-> =
-  SameModelResultSurface<
-    ModelResultSurface<C["schema"][K]>,
-    ModelResultSurface<C["schema"][K]>
-  > extends true
-    ? [Exclude<ModelsWithResultSurface<C, K>, K>] extends [never]
-      ? true
-      : false
-    : false;
+> = SameModelResultSurface<
+  ModelResultSurface<C["schema"][K]>,
+  ModelResultSurface<C["schema"][K]>
+> extends true
+  ? [Exclude<ModelsWithResultSurface<C, K>, K>] extends [never]
+    ? true
+    : false
+  : false;
 
 type ClientRelationOmitEntries<C extends VibORMConfig> = {
   [K in ConfiguredOmitModelKeys<C>]: ClientResultOmitEntry<
@@ -349,9 +344,18 @@ type OperationResultWithClientDefaults<
   Merged = DefaultOperationResultArgs,
   ResultArgs = ResolvedOperationResultArgs<Args, Merged>,
   UnselectedOmit = ResolvedOperationResultOmit<Args, DefaultOmit, Merged>,
-> =
-  M extends Model<infer S>
-    ? O extends "findFirst" | "findUnique"
+> = M extends Model<infer S>
+  ? O extends "findFirst" | "findUnique"
+    ? Prettify<
+        InferSelectInclude<
+          S,
+          ResultArgs,
+          NodeSelect<ResultArgs>,
+          UnselectedOmit,
+          ClientDefaults
+        >
+      > | null
+    : O extends "findFirstOrThrow" | "findUniqueOrThrow"
       ? Prettify<
           InferSelectInclude<
             S,
@@ -360,8 +364,8 @@ type OperationResultWithClientDefaults<
             UnselectedOmit,
             ClientDefaults
           >
-        > | null
-      : O extends "findFirstOrThrow" | "findUniqueOrThrow"
+        >
+      : O extends "findMany"
         ? Prettify<
             InferSelectInclude<
               S,
@@ -370,8 +374,8 @@ type OperationResultWithClientDefaults<
               UnselectedOmit,
               ClientDefaults
             >
-          >
-        : O extends "findMany"
+          >[]
+        : O extends "create" | "update" | "delete" | "upsert"
           ? Prettify<
               InferSelectInclude<
                 S,
@@ -380,29 +384,19 @@ type OperationResultWithClientDefaults<
                 UnselectedOmit,
                 ClientDefaults
               >
-            >[]
-          : O extends "create" | "update" | "delete" | "upsert"
-            ? Prettify<
-                InferSelectInclude<
-                  S,
-                  ResultArgs,
-                  NodeSelect<ResultArgs>,
-                  UnselectedOmit,
-                  ClientDefaults
-                >
-              >
-            : O extends "createMany" | "updateMany" | "deleteMany"
-              ? BulkWriteResult<S, Args, DefaultOmit>
-              : O extends "count"
-                ? CountResultType<Args>
-                : O extends "exist"
-                  ? boolean
-                  : O extends "aggregate"
-                    ? AggregateResultType<ExtractFields<M>, Args>
-                    : O extends "groupBy"
-                      ? GroupByResultType<ExtractFields<M>, Args>[]
-                      : never
-    : never;
+            >
+          : O extends "createMany" | "updateMany" | "deleteMany"
+            ? BulkWriteResult<S, Args, DefaultOmit>
+            : O extends "count"
+              ? CountResultType<Args>
+              : O extends "exist"
+                ? boolean
+                : O extends "aggregate"
+                  ? AggregateResultType<ExtractFields<M>, Args>
+                  : O extends "groupBy"
+                    ? GroupByResultType<ExtractFields<M>, Args>[]
+                    : never
+  : never;
 
 /**
  * Public operation result helper. Its fifth generic remains the historical
@@ -428,6 +422,20 @@ export type OperationResult<
   UnselectedOmit
 >;
 
+/** One concrete client's result, including its top-level and relation defaults. */
+export type ClientOperationResult<
+  C extends VibORMConfig,
+  ModelName extends keyof C["schema"],
+  O extends Operations,
+  Args,
+> = OperationResultWithClientDefaults<
+  O,
+  C["schema"][ModelName],
+  Args,
+  ClientDefaultOmit<C, ModelName>,
+  ClientRelationOmitContext<C>
+>;
+
 /**
  * Client type - provides fully typed access to all model operations
  * Each operation returns a Promise with the properly inferred result type
@@ -435,23 +443,43 @@ export type OperationResult<
 export type Client<
   C extends VibORMConfig,
   ClientDefaults = ClientRelationOmitContext<C>,
+  ExtensionCache extends boolean = false,
 > = {
   [K in keyof C["schema"]]: {
     [O in Operations]: Operation<
       O,
       C["schema"][K],
-      C,
       ClientDefaultOmit<C, K>,
-      ClientDefaults
+      ClientDefaults,
+      ExtensionCache
     >;
   };
 };
 
-type RemoveCacheKey<C extends VibORMConfig, T> = C["cache"] extends CacheDriver
-  ? T
-  : T extends { cache?: infer _ }
-    ? Omit<T, "cache"> & {}
-    : T;
+export type ClientRelationDefaults<C extends VibORMConfig> =
+  ClientRelationOmitContext<C>;
+
+type WithoutCacheKey<T> = T extends { cache?: infer _ }
+  ? Omit<T, "cache"> & {}
+  : T;
+
+type IsClientCacheEnabled<ExtensionCache extends boolean> = [
+  ExtensionCache,
+] extends [true]
+  ? true
+  : false;
+
+type ClientOperationPayload<
+  O extends Operations,
+  T,
+  ExtensionCache extends boolean,
+> = O extends MutationOperations
+  ? IsClientCacheEnabled<ExtensionCache> extends true
+    ? T extends object
+      ? Omit<T, "cache"> & { cache?: CacheInvalidationOptions }
+      : T
+    : WithoutCacheKey<T>
+  : WithoutCacheKey<T>;
 
 /**
  * Every key ONE clause accepts, taking the union across a union-typed clause
@@ -683,19 +711,18 @@ type DirectPolymorphicProjectionGuard<
   Arg,
   M extends Model<any>,
   Clause extends "select" | "include",
-> =
-  M extends Model<infer State>
-    ? string extends keyof State["relations"]
-      ? unknown
-      : Clause extends keyof Arg
-        ? {
-            [Key in Clause]?: PolymorphicClauseGuard<
-              Arg[Key],
-              State["relations"]
-            >;
-          }
-        : unknown
-    : unknown;
+> = M extends Model<infer State>
+  ? string extends keyof State["relations"]
+    ? unknown
+    : Clause extends keyof Arg
+      ? {
+          [Key in Clause]?: PolymorphicClauseGuard<
+            Arg[Key],
+            State["relations"]
+          >;
+        }
+      : unknown
+  : unknown;
 
 type NoExtraOperationKeys<Arg, Payload, M extends Model<any>> = Arg &
   Record<Exclude<keyof Arg, keyof Payload>, never> &
@@ -704,6 +731,7 @@ type NoExtraOperationKeys<Arg, Payload, M extends Model<any>> = Arg &
   ClauseGuard<Arg, Payload, "include"> &
   ClauseGuard<Arg, Payload, "orderBy"> &
   ClauseGuard<Arg, Payload, "omit"> &
+  ClauseGuard<Arg, Payload, "cache"> &
   DirectPolymorphicProjectionGuard<Arg, M, "select"> &
   DirectPolymorphicProjectionGuard<Arg, M, "include">;
 
@@ -716,22 +744,23 @@ type NoExtraOperationKeys<Arg, Payload, M extends Model<any>> = Arg &
 type Operation<
   O extends Operations,
   M extends Model<any>,
-  C extends VibORMConfig,
   DefaultOmit = undefined,
   ClientDefaults = never,
+  ExtensionCache extends boolean = false,
   Payload = OperationPayload<O, M>,
-> = undefined extends Payload
-  ? <Arg extends RemoveCacheKey<C, Payload>>(
+  ClientPayload = ClientOperationPayload<O, Payload, ExtensionCache>,
+> = undefined extends ClientPayload
+  ? <Arg extends ClientPayload>(
       args?: NoExtraOperationKeys<
         Exclude<Arg, undefined>,
-        Exclude<RemoveCacheKey<C, Payload>, undefined>,
+        Exclude<ClientPayload, undefined>,
         M
       >
     ) => PendingOperation<
       OperationResultWithClientDefaults<O, M, Arg, DefaultOmit, ClientDefaults>
     >
-  : <Arg extends RemoveCacheKey<C, Payload>>(
-      args: NoExtraOperationKeys<Arg, RemoveCacheKey<C, Payload>, M>
+  : <Arg extends ClientPayload>(
+      args: NoExtraOperationKeys<Arg, ClientPayload, M>
     ) => PendingOperation<
       OperationResultWithClientDefaults<O, M, Arg, DefaultOmit, ClientDefaults>
     >;

@@ -9,6 +9,7 @@
  */
 
 import { MemoryCache } from "@cache/drivers/memory";
+import { cache } from "@cache/extension";
 import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite } from "@electric-sql/pglite";
@@ -73,8 +74,7 @@ describe("client construction errors", () => {
     const client = createClient({
       schema: { user },
       driver: makeDriver(),
-      cache: new MemoryCache(),
-    });
+    }).$extends(cache({ driver: new MemoryCache() }));
 
     let caught: unknown;
     try {

@@ -11,13 +11,13 @@ import {
   createClientFromDriverConfig,
   type DriverConfig,
   type NoExtraDriverConfigKeys,
-  type NoExtraNestedConfigKeys,
   type VibORMClient,
 } from "@client/client";
 import type { Schema } from "@client/types";
 import { QueryError, TransactionError } from "@errors";
 import type { Pool, PoolConnection, PoolOptions } from "mysql2/promise";
 import { Driver, type QueryExecutionContext } from "../driver";
+import { getExecutionTransactionPhases } from "../execution-context";
 import {
   isNormalizedResultRow,
   type NormalizedResultContext,
@@ -256,7 +256,7 @@ export class MySQL2Driver extends Driver<Pool, PoolConnection> {
   protected async transaction<T>(
     client: Pool | PoolConnection,
     fn: (tx: PoolConnection) => Promise<T>,
-    _context?: QueryExecutionContext,
+    context?: QueryExecutionContext,
     options?: DriverTransactionOptions
   ): Promise<T> {
     if (!("getConnection" in client)) {
@@ -294,6 +294,7 @@ export class MySQL2Driver extends Driver<Pool, PoolConnection> {
       callback: () => fn(connection),
       commit: () => runOrDestroy(() => connection.commit()),
       rollback: () => runOrDestroy(() => connection.rollback()),
+      phases: getExecutionTransactionPhases(context),
       close: () => {
         try {
           if (shouldDestroy) {
@@ -326,10 +327,9 @@ export class MySQL2Driver extends Driver<Pool, PoolConnection> {
 export function createClient<S extends Schema, C extends DriverConfig<S>>(
   config: MySQL2ClientConfig<C> &
     DriverConfig<S> &
-    NoExtraDriverConfigKeys<C, MySQL2DriverOptions, S> &
-    NoExtraNestedConfigKeys<C, S>
+    NoExtraDriverConfigKeys<C, MySQL2DriverOptions, S>
 ): VibORMClient<C & { driver: MySQL2Driver }> {
-  const { pool, options = {}, databaseUrl, ...restConfig } = config;
+  const { pool, options = {}, databaseUrl } = config;
 
   if (databaseUrl) {
     Object.assign(options, parseMySQLUrl(databaseUrl));
@@ -340,8 +340,7 @@ export function createClient<S extends Schema, C extends DriverConfig<S>>(
     options,
   });
 
-  return createClientFromDriverConfig({
-    ...restConfig,
-    driver,
-  }) as VibORMClient<C & { driver: MySQL2Driver }>;
+  return createClientFromDriverConfig(config, driver) as VibORMClient<
+    C & { driver: MySQL2Driver }
+  >;
 }

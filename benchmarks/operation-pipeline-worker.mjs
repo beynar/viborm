@@ -12,6 +12,7 @@ import {
   ALL_MODES,
   ALL_PROVIDERS,
   ALLOCATION_SAMPLING_INTERVAL,
+  EXTENSION_ARMS,
   PROVIDERS,
   WORKLOADS,
 } from "./operation-pipeline-catalog.mjs";
@@ -58,6 +59,7 @@ if (process.argv.includes("--describe")) {
   process.stdout.write(
     `${JSON.stringify({
       allocationSamplingInterval: ALLOCATION_SAMPLING_INTERVAL,
+      extensionArms: EXTENSION_ARMS,
       protocol: protocolIdentity(BENCHMARK_REPOSITORY),
       modes: ALL_MODES,
       providers: PROVIDERS,
@@ -86,6 +88,7 @@ const workloadName = process.env.VIBORM_BENCH_WORKLOAD;
 const providerName = process.env.VIBORM_BENCH_PROVIDER ?? "sqlite3";
 const stage = process.env.VIBORM_BENCH_STAGE;
 const mode = process.env.VIBORM_BENCH_MODE;
+const extensionArm = process.env.VIBORM_BENCH_EXTENSION_ARM ?? "unextended";
 const expectedCommit = process.env.VIBORM_BENCH_EXPECTED_COMMIT;
 const smoke = process.env.VIBORM_BENCH_SMOKE === "1";
 const workload = WORKLOADS[workloadName];
@@ -101,6 +104,14 @@ if (!workload.stages.includes(stage)) {
 }
 if (!ALL_MODES.includes(mode)) {
   throw new Error(`Unknown benchmark mode: ${mode}`);
+}
+if (!EXTENSION_ARMS.includes(extensionArm)) {
+  throw new Error(`Unknown extension benchmark arm: ${extensionArm}`);
+}
+if (extensionArm !== "unextended" && !workload.extensionProof) {
+  throw new Error(
+    `${workloadName} is not an extension-overhead proof workload`
+  );
 }
 const stageKind = workload.stageKinds[stage];
 if (!(stageKind === "sync" || stageKind === "async")) {
@@ -133,6 +144,7 @@ if (unavailableReason) {
       stage,
       stageKind,
       mode,
+      extensionArm,
     })}\n`
   );
   process.exit(0);
@@ -150,6 +162,7 @@ if (process.versions.bun && mode === "alloc") {
       stage,
       stageKind,
       mode,
+      extensionArm,
     })}\n`
   );
   process.exit(0);
@@ -285,8 +298,7 @@ async function measureRetained(runOne) {
       Math.max(0, beforeCollection - afterCollection) /
       (iterations * workload.rowsPerOperation),
     peakRssBytes: process.resourceUsage().maxRSS * 1024,
-    peakRssGrowthBytes:
-      process.resourceUsage().maxRSS * 1024 - peakRssBefore,
+    peakRssGrowthBytes: process.resourceUsage().maxRSS * 1024 - peakRssBefore,
   };
 }
 
@@ -295,7 +307,8 @@ const workloadHarness = await createWorkloadHarness(
   stage,
   iterations + warmupIterations,
   providerName,
-  targetDirectory
+  targetDirectory,
+  extensionArm
 );
 if (workloadHarness.skipReason) {
   process.stdout.write(
@@ -309,6 +322,7 @@ if (workloadHarness.skipReason) {
       stage,
       stageKind,
       mode,
+      extensionArm,
     })}\n`
   );
   process.exit(0);
@@ -348,6 +362,7 @@ process.stdout.write(
     stage,
     stageKind,
     mode,
+    extensionArm,
     rowsPerOperation: workload.rowsPerOperation,
     iterations,
     warmupIterations,

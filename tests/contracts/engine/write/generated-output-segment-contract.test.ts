@@ -33,6 +33,10 @@ const segmentSchema = {
   probe: s.model({ id: s.int().id() }).map("generated_segment_probe"),
 };
 
+type RoutedExecutableFragment = ExecutableOperation & {
+  readonly validatedArgs: Record<string, unknown>;
+};
+
 hydrateSchemaNames(segmentSchema);
 
 type BatchResponder = (
@@ -151,9 +155,10 @@ function providerWrite(
 function operation(
   fragment: OperationFragment,
   onParse?: (outputs: Readonly<Record<string, unknown>>) => void
-): ExecutableOperation {
+): RoutedExecutableFragment {
   return {
     mode: "batch",
+    validatedArgs: {},
     planning: (): PlanningFragment => ({ steps: [] }),
     compile: () => fragment,
     parse: <T>(outputs: Readonly<Record<string, unknown>>): T => {
@@ -174,7 +179,7 @@ function twoSegmentOperation(options?: {
   readonly producerRacePin?: TargetConstraintPin;
   readonly consumerRacePin?: TargetConstraintPin;
   readonly onParse?: (outputs: Readonly<Record<string, unknown>>) => void;
-}): ExecutableOperation {
+}): RoutedExecutableFragment {
   const producer = providerWrite(
     "producer",
     sql`INSERT INTO generated_segment_probe DEFAULT VALUES RETURNING id`,

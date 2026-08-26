@@ -26,6 +26,6 @@ const _inlineTuple: Promise<[number, number, { id: string }[]]> =
     client.$queryRaw<{ id: string }>`SELECT id FROM item`,
   ]);
 
-const _ordinaryPromiseIsStillRefused = () =>
-  // @ts-expect-error - only client-owned transaction operations are batchable
+// Promise-only public operation shapes require runtime ownership authentication.
+const _ordinaryPromiseRequiresRuntimeAuthentication = () =>
   client.$transaction([client.item.count(), Promise.resolve(1)]);

@@ -1,3 +1,4 @@
+import { instrumentation } from "@instrumentation/extension";
 import { defineContract } from "@tests/contracts/contract";
 /**
  * Foreign-key index on the to-many side — live driver behavior.
@@ -474,7 +475,8 @@ export function runFkIndexPlanBehavior({
       client = createClient({
         schema: planSchema as never,
         driver,
-        instrumentation: {
+      }).$extends(
+        instrumentation({
           logging: {
             query: (event) => {
               statements.push({
@@ -485,8 +487,8 @@ export function runFkIndexPlanBehavior({
             includeSql: true,
             includeParams: true,
           },
-        },
-      }) as never;
+        })
+      ) as never;
       const c = client as FkIndexClient as unknown as Record<string, any>;
       await push(client as never, { force: true });
 

@@ -78,4 +78,10 @@ export class PendingExecution<T> {
     this.executedWith = driver;
     this.reservedForBatch = true;
   }
+
+  /** Run the core child once after the array coordinator reserved this operation. */
+  executeReserved(run: () => Promise<T>): Promise<T> {
+    if (!this.promise) this.promise = run();
+    return this.promise;
+  }
 }

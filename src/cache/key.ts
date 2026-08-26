@@ -14,6 +14,31 @@ import { isSql } from "@sql";
  */
 export const CACHE_PREFIX = "viborm";
 
+/** Namespace root reserved for authenticated official cache extensions. */
+export const OFFICIAL_CACHE_NAMESPACE_ROOT = `${CACHE_PREFIX}:cache`;
+
+const OFFICIAL_CACHE_SNAPSHOT_REVISION = "r1";
+
+/** Build the private namespace for one official cache extension composition. */
+export function createOfficialCacheNamespace(
+  version: string | number | undefined
+): string {
+  const base = `${OFFICIAL_CACHE_NAMESPACE_ROOT}:${OFFICIAL_CACHE_SNAPSHOT_REVISION}`;
+  if (version === undefined) return `${base}:u`;
+  if (typeof version === "number") {
+    const bytes = new Uint8Array(8);
+    new DataView(bytes.buffer).setFloat64(0, version, false);
+    let encoded = "";
+    for (const byte of bytes) encoded += byte.toString(16).padStart(2, "0");
+    return `${base}:n:${encoded}`;
+  }
+  let encoded = "";
+  for (let index = 0; index < version.length; index += 1) {
+    encoded += version.charCodeAt(index).toString(16).padStart(4, "0");
+  }
+  return `${base}:s:${encoded}`;
+}
+
 /**
  * Build the versioned prefix
  */
@@ -252,17 +277,27 @@ function fastHash(str: string): string {
 
   for (let i = 0; i < str.length; i++) {
     const ch = str.charCodeAt(i);
+    // biome-ignore lint/suspicious/noBitwiseOperators: Hash mixing requires 32-bit XOR.
     h1 = Math.imul(h1 ^ ch, 2_654_435_761);
+    // biome-ignore lint/suspicious/noBitwiseOperators: Hash mixing requires 32-bit XOR.
     h2 = Math.imul(h2 ^ ch, 1_597_334_677);
   }
 
+  // biome-ignore lint/suspicious/noBitwiseOperators: Hash finalization requires 32-bit mixing.
   h1 = Math.imul(h1 ^ (h1 >>> 16), 2_246_822_507);
+  // biome-ignore lint/suspicious/noBitwiseOperators: Hash finalization requires 32-bit mixing.
   h1 ^= Math.imul(h2 ^ (h2 >>> 13), 3_266_489_909);
+  // biome-ignore lint/suspicious/noBitwiseOperators: Hash finalization requires 32-bit mixing.
   h2 = Math.imul(h2 ^ (h2 >>> 16), 2_246_822_507);
+  // biome-ignore lint/suspicious/noBitwiseOperators: Hash finalization requires 32-bit mixing.
   h2 ^= Math.imul(h1 ^ (h1 >>> 13), 3_266_489_909);
 
   return (
+    // biome-ignore lint/suspicious/noBitwiseOperators: Hex output requires unsigned 32-bit values.
     (h2 >>> 0).toString(16).padStart(8, "0") +
-    (h1 >>> 0).toString(16).padStart(8, "0")
+    // biome-ignore lint/suspicious/noBitwiseOperators: Hex output requires unsigned 32-bit values.
+    (h1 >>> 0)
+      .toString(16)
+      .padStart(8, "0")
   );
 }

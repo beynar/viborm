@@ -1,355 +1,105 @@
 ---
 title: Omitting Fields
-description: Hide scalar fields from results with omit — per query, per client, or once in the schema
+description: Control model truth, client defaults, and per-query projections
 icon: eye-off
 ---
 
 `omit` is the inverse of [`select`](/docs/client/selecting): it returns every
-readable scalar EXCEPT the ones you name.
+readable scalar except the ones you name.
 
 ```ts
 const users = await client.user.findMany({
   omit: { passwordHash: true },
 });
-// Type: { id: string; email: string; name: string }[]
+// { id: string; email: string; name: string }[]
 ```
 
-Use it when a model has one or two fields you want gone and a dozen you want
-kept — the `select` spelling of the same query has to list all twelve, and grows
-a hole every time someone adds a column.
+## Three owners
 
-## Where it works
-
-`omit` is accepted on every operation that returns a model row:
-
-`findUnique`, `findUniqueOrThrow`, `findFirst`, `findFirstOrThrow`, `findMany`,
-`create`, `update`, `upsert`, `delete`, and the bulk writes `createMany`,
-`updateMany`, `deleteMany`.
-
-On a bulk write, `omit` is a projection, so — exactly like `select` — its
-presence is what makes the operation return the affected **rows** instead of
-`{ count }`:
-
-```ts
-const rows = await client.note.updateMany({
-  where: { archived: false },
-  data: { archived: true },
-  omit: { draftBody: true },
-});
-// Type: { id: string; title: string; archived: boolean }[]
-```
-
-## omit composes with select
-
-`select` names the candidate result, then `omit` subtracts selected scalar
-fields. An omitted field that was not selected is simply outside the result
-already:
-
-```ts
-await client.user.findMany({
-  select: { id: true, email: true, passwordHash: true },
-  omit: { passwordHash: true },
-});
-// Type: { id: string; email: string }[]
-```
-
-`false` keeps a selected field but never adds an unselected one. A widened
-`boolean` makes an overlapping selected key optional, because only the runtime
-value decides.
-
-An `omit` that names *every* readable field is refused for the same reason an
-empty `select: {}` is — there is no such result:
-
-```ts
-await client.tag.findMany({ omit: { id: true, label: true } });
-// ValidationError: 'omit' on 'findMany' excluded every readable field of model 'tag'.
-```
-
-## omit composes with include
-
-`include` adds relations on top of the reduced scalar set, and each relation
-node takes its own `omit`:
-
-```ts
-const users = await client.user.findMany({
-  omit: { passwordHash: true },
-  include: {
-    posts: {
-      omit: { draftBody: true },
-      orderBy: { createdAt: "desc" },
-      take: 5,
-    },
-  },
-});
-```
-
-The two are independent: the outer `omit` names fields of `user`, the inner one
-names fields of `post`. A nested node follows the same rules as the top level:
-it can subtract `omit` from `select`, and it cannot empty its own projection.
-
-## The three layers, and which one wins
-
-There are three places a field can be hidden. They are not variants of one
-mechanism, and the difference is the whole story:
-
-| Layer | Where | What it means | Can a query undo it? |
+| Layer | Spelling | Meaning | Can a query undo it? |
 |---|---|---|---|
-| **Model-level** | `s.model({…}).omit({ passwordHash: true })` | Schema truth: this column does not leave the database | **No** |
-| **Client-level** | `createClient({ omit: { user: { passwordHash: true } } })` | This client's default | **Yes** |
-| **Query-level** | `findMany({ omit: { passwordHash: true } })` | This call | — |
+| Model | `s.model({...}).omit({...})` | Schema truth: the scalar is not public | No |
+| Client default | `defaultOmit<typeof schema>()({...})` | Default projection on one derived client | Yes |
+| Query | `findMany({ omit: {...} })` | Projection for one call | — |
 
-### Model-level `.omit()` is a hard exclusion
+### Model `.omit()`
 
-It exists for secrets, so it is not overridable by anything downstream. The
-field has no `select` key and no `omit` key at all — naming it is a parse
-failure, not a silently empty column:
+Model omit is a hard public-schema exclusion. The field has no `select` or
+`omit` key and is not selected from the database:
 
 ```ts
 const vault = s
   .model({ id: s.string().id(), label: s.string(), secret: s.string() })
   .omit({ secret: true });
-
-await client.vault.findMany({});
-// { id: string; label: string }[] — `secret` is not in the SQL either
-
-await client.vault.findMany({ select: { secret: true } });
-// ValidationError: Unknown key: secret
-
-await client.vault.findMany({ omit: { secret: false } });
-// ValidationError: Unknown key: secret
 ```
 
-A query-level `omit` still works on whatever remains:
+Use this for fields that must never appear through the model API. It is still
+not a substitute for database authorization or complete RBAC.
+
+### Client `defaultOmit()`
 
 ```ts
-await client.vault.findMany({ omit: { label: true } });
-// { id: string }[]
-```
+import { defaultOmit } from "viborm/client";
 
-`.omit()` is keyed to the model's own **scalars**, so the names it takes are
-checked and autocompleted. A typo, a relation name, or a `false` is a compile
-error rather than a key that hides nothing — which is the whole point when the
-field is a secret:
-
-```ts
-s.model({ id: s.string().id(), secret: s.string() }).omit({ scret: true });
-//                                                          ^^^^^
-// Type 'true' is not assignable to type 'never' — 'scret' is not a scalar
-
-s.model({ id: s.string().id(), posts: s.toMany(() => post) })
-  .omit({ posts: true });
-// a relation is not a projectable scalar
-
-s.model({ id: s.string().id(), secret: s.string() }).omit({ secret: false });
-// Type 'false' is not assignable to type 'true' — .omit() only ever hides
-```
-
-The refusal is per **key**, not per call. Hiding two secrets and misspelling
-one still fails, on the misspelled one — the case where an
-"unknown-properties" check that only fires when every key is wrong would let
-the column leak:
-
-```ts
-s.model({ id: s.string().id(), secret: s.string(), token: s.string() })
-  .omit({ secret: true, tokne: true });
-//                      ^^^^^ Type 'true' is not assignable to type 'never'
-```
-
-It is also per key regardless of how the object reaches the call. An
-`as const`, a spread, a pre-annotated variable and a widened
-`Record<string, true>` are all refused the same way — a name the model does not
-have never reaches the state, so the result type can never claim a column is
-hidden that is still being returned.
-
-### Client-level `omit` is a default
-
-```ts
-const client = createClient({
-  schema: { user, note },
-  driver,
-  omit: {
+const client = createClient({ schema, driver }).$extends(
+  defaultOmit<typeof schema>()({
     user: { passwordHash: true },
     note: { draftBody: true },
+  })
+);
+```
+
+The configuration is snapshotted once and must contain exact model/scalar keys
+with literal `true` values. It applies to root results and nested relation
+payloads. A query can restore one defaulted field with `false` or override the
+default through an explicit `select`:
+
+```ts
+await client.user.findMany({ omit: { passwordHash: false } });
+await client.user.findMany({ select: { id: true, passwordHash: true } });
+```
+
+A default never changes a bulk operation from `{ count }` to rows. Only a
+projection written on that call does that.
+
+### Ordering with other extensions
+
+Because `defaultOmit()` changes default result types, it may follow only
+extensions whose type context is independent of a concrete pre-omit result:
+
+- request, statement, or observe contributions;
+- a schema-generic polymorphic query function;
+- official `cache()` and `instrumentation()` extensions.
+
+It cannot follow a schema-specific model/operation query map, a client-method
+factory, or a model-method factory. Apply `defaultOmit()` before those
+result-consuming definitions.
+
+## Query-level composition
+
+Query omit works on operations returning model rows, including returning bulk
+writes. `select` first names the candidate result, then `omit` subtracts scalar
+fields. `include` adds relations, and every nested relation node owns its own
+projection:
+
+```ts
+await client.user.findMany({
+  select: { id: true, email: true, passwordHash: true },
+  omit: { passwordHash: true },
+  include: {
+    posts: { omit: { draftBody: true } },
   },
 });
 ```
 
-It applies to every result of those models, including relation payloads reached
-through `include`:
+An omit that removes every readable field is refused. A widened boolean makes
+the corresponding result key optional because runtime decides whether it is
+present.
 
-```ts
-await client.user.findMany({ include: { notes: true } });
-// user rows without passwordHash, note rows without draftBody
-```
+## Security boundary
 
-A query overrides it, per field, with `false`:
-
-```ts
-await client.user.findMany({ omit: { passwordHash: false } });
-// passwordHash is back, for this call only
-```
-
-…and adds to it with `true`:
-
-```ts
-await client.user.findMany({ omit: { email: true } });
-// email AND passwordHash are gone (the client default still applies)
-```
-
-An explicit `select` overrides it wholesale — naming a field is asking for it:
-
-```ts
-await client.user.findMany({ select: { id: true, passwordHash: true } });
-// { id: string; passwordHash: string }[]
-```
-
-:::info
-A client-level `omit` never changes a **return shape**. A bulk write with no
-  projection of its own still answers `{ count }` — only a projection the caller
-  wrote turns it into rows.
-:::
-
-The flags are `true` only. A `false` here would be a key that does nothing —
-the client default is the thing being *set*, and per-field re-inclusion belongs
-on the query, where it can be undone:
-
-```ts
-createClient({ schema, driver, omit: { user: { passwordHash: false } } });
-// Type 'false' is not assignable to type 'true'
-```
-
-A client `omit` naming a model or a field that does not exist is rejected when
-the client is constructed, not silently ignored.
-
-### The client default is in the types too
-
-A field this client hides is **absent from the default result type**, not
-merely missing at runtime:
-
-```ts
-const client = createClient({
-  schema: { user, post },
-  driver,
-  omit: { user: { passwordHash: true } },
-});
-
-const user = await client.user.findUnique({ where: { id } });
-user.passwordHash;
-// Property 'passwordHash' does not exist
-
-const post = await client.post.findMany();
-// unchanged — the config named `user`, not `post`
-```
-
-The per-field override and the `select` rule are type-level too:
-
-```ts
-await client.user.findMany({ omit: { passwordHash: false } });
-// { id: string; email: string; passwordHash: string }[] — restored
-
-await client.user.findMany({ select: { id: true, passwordHash: true } });
-// { id: string; passwordHash: string }[] — a select is untouched
-
-await client.user.updateMany({ where, data });
-// { count: number } — a default never flips a bulk write's return shape
-```
-
-## Types follow the runtime
-
-The result type drops the same keys the runtime does, so an omitted field is a
-compile error rather than an `undefined` at 3am:
-
-```ts
-const user = await client.user.findUnique({
-  where: { id },
-  omit: { passwordHash: true },
-});
-user.passwordHash;
-// Property 'passwordHash' does not exist
-```
-
-One case cannot be decided statically: a flag whose type is a widened `boolean`
-rather than a literal.
-
-```ts
-const hide: boolean = shouldHide();
-const rows = await client.user.findMany({ omit: { passwordHash: hide } });
-// passwordHash?: string — present or not, only the runtime knows
-```
-
-The key becomes **optional** instead of being guessed into one arm. The same
-honesty applies to a bulk write whose `omit` may be `undefined`: the result type
-is the union of `{ count }` and the row array, and the caller narrows.
-
-A client-level default follows the same rule when the *config* is what cannot be
-pinned down — an `omit?:` that may or may not be there gives an optional key,
-never a present one:
-
-```ts
-type Config = { schema: typeof schema; driver: Driver; omit?: typeof defaults };
-const client = createClient(config as Config);
-await client.user.findMany();
-// { id: string; email: string; passwordHash?: string }[]
-```
-
-### Client defaults reach nested result types
-
-Client-level defaults reduce relation payloads reached through `select` and
-`include`, in both the runtime value and its return type.
-
-```ts
-const client = createClient({ schema, driver, omit: { note: { draft: true } } });
-
-await client.note.findMany();
-// { id: string; body: string }[] — draft is gone from the type
-
-await client.user.findMany({ include: { notes: true } });
-// { id: string; email: string; notes: { id: string; body: string }[] }[]
-```
-
-The type identifies a relation target from its shallow model surface: its
-scalar, ordinary-relation, and polymorphic-relation field names. When that
-surface identifies one schema model, the nested result applies that model's
-client default exactly. This keeps relation inference precise without expanding
-recursive model getters or custom scalar schemas.
-
-Two distinct schema models can expose the same shallow surface. TypeScript then
-cannot recover the runtime model identity from the relation type alone. In that
-case, a field hidden by only some matching client defaults becomes optional
-instead of being guessed present or absent:
-
-```ts
-// `document` and `revision` expose the same field names, but only `document`
-// hides `internalNote` in this client.
-const rows = await client.folder.findMany({ include: { records: true } });
-// records[].internalNote?: string
-```
-
-This fallback is limited to nested relations whose model surfaces are
-indistinguishable. A root operation still has its schema key and remains exact.
-An explicit nested `omit` also makes the intended result exact at the call site:
-
-```ts
-await client.user.findMany({ include: { notes: { omit: { draft: true } } } });
-// notes: { id: string; body: string }[]
-```
-
-## Prisma compatibility
-
-Query-level and client-level `omit` mostly match Prisma's semantics, including
-the local-overrides-global rule and the refusal of an `omit` that empties the
-result. VibORM deliberately accepts one useful superset: query-level `omit` can
-subtract from `select`; Prisma rejects the pair.
-
-Three deliberate differences:
-
-- **`select` and query-level `omit` compose.** Selection happens first, then
-  omission removes overlapping selected scalars.
-
-- **Model-level `.omit()` has no Prisma counterpart.** Prisma has only the
-  client-level default, which a `select` can always undo. viborm's schema-level
-  exclusion cannot be undone, which is what makes it usable for secrets.
-- **`omit` on a bulk write returns rows.** Prisma has no returning `deleteMany`
-  at all, and reaches the returning form of the others through the separate
-  `createManyAndReturn` / `updateManyAndReturn` methods, which viborm does not
-  have (see [compatibility](/docs/client/compatibility)).
+Query omit and `defaultOmit()` are presentation defaults and are intentionally
+overridable. Model `.omit()` is stronger model-surface truth, but none of the
+three proves row authorization, relation authorization, or raw-SQL policy.
+VibORM's extension system is a foundation for a future graph-wide policy
+capability; it does not ship an RBAC helper today.

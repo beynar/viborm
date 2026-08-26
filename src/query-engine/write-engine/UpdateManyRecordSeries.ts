@@ -89,6 +89,11 @@ import { UpdateOperation } from "./UpdateOperation";
 export class UpdateManyRecordSeries implements RecordSeriesOperation {
   readonly executionKind = "recordSeries" as const;
 
+  /** The canonical payload validated at construction. */
+  get validatedArgs(): Record<string, unknown> {
+    return this.args;
+  }
+
   private readonly engine: QueryEngine;
   private readonly model: Model<any>;
   /** The validated payload, as the `updateMany` args schema left it (`omit`

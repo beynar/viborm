@@ -10,7 +10,6 @@ import {
   createClientFromDriverConfig,
   type DriverConfig,
   type NoExtraDriverConfigKeys,
-  type NoExtraNestedConfigKeys,
   type VibORMClient,
 } from "@client/client";
 import type { Schema } from "@client/types";
@@ -20,6 +19,7 @@ import {
   type DriverResultParser,
   type QueryExecutionContext,
 } from "../driver";
+import { getExecutionTransactionPhases } from "../execution-context";
 import { normalizeProviderRowCount } from "../normalized-result";
 import {
   acquireWithMaxWait,
@@ -192,7 +192,7 @@ export class LibSQLDriver extends Driver<Client, Client | Transaction> {
   protected async transaction<T>(
     client: Client | Transaction,
     fn: (tx: Client | Transaction) => Promise<T>,
-    _context?: QueryExecutionContext,
+    context?: QueryExecutionContext,
     options?: DriverTransactionOptions
   ): Promise<T> {
     if ("commit" in client) {
@@ -214,6 +214,7 @@ export class LibSQLDriver extends Driver<Client, Client | Transaction> {
         callback: () => fn(client),
         commit: () => executeOrClose("COMMIT"),
         rollback: () => executeOrClose("ROLLBACK"),
+        phases: getExecutionTransactionPhases(context),
         close: () => {
           if (shouldClose) {
             client.close();
@@ -234,6 +235,7 @@ export class LibSQLDriver extends Driver<Client, Client | Transaction> {
       callback: () => fn(tx),
       commit: () => tx.commit(),
       rollback: () => tx.rollback(),
+      phases: getExecutionTransactionPhases(context),
       close: () => tx.close(),
     });
   }
@@ -266,11 +268,9 @@ export class LibSQLDriver extends Driver<Client, Client | Transaction> {
 export function createClient<S extends Schema, C extends DriverConfig<S>>(
   config: LibSQLClientConfig<C> &
     DriverConfig<S> &
-    NoExtraDriverConfigKeys<C, LibSQLDriverOptions, S> &
-    NoExtraNestedConfigKeys<C, S>
+    NoExtraDriverConfigKeys<C, LibSQLDriverOptions, S>
 ): VibORMClient<C & { driver: LibSQLDriver }> {
-  const { client, databaseUrl, dataDir, authToken, options, ...restConfig } =
-    config;
+  const { client, databaseUrl, dataDir, authToken, options } = config;
 
   const driver = new LibSQLDriver({
     client,
@@ -280,8 +280,7 @@ export function createClient<S extends Schema, C extends DriverConfig<S>>(
     options,
   });
 
-  return createClientFromDriverConfig({
-    ...restConfig,
-    driver,
-  }) as VibORMClient<C & { driver: LibSQLDriver }>;
+  return createClientFromDriverConfig(config, driver) as VibORMClient<
+    C & { driver: LibSQLDriver }
+  >;
 }

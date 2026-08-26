@@ -1,4 +1,5 @@
 import { createClient } from "@client/client";
+import { defaultOmit } from "@client/default-omit-extension";
 import type { OperationResult } from "@client/types";
 import {
   createClient as createPGliteClient,
@@ -302,14 +303,16 @@ type _relationLevelFalseOmitsTheField = Expect<
   Equal<FalseRows[number], { id: string; body: string }>
 >;
 
+const targetOmitSchema = { author, post, video, comment };
 const targetOmitClient = createClient({
-  schema: { author, post, video, comment },
+  schema: targetOmitSchema,
   driver: new PGliteDriver(),
-  omit: {
+}).$extends(
+  defaultOmit<typeof targetOmitSchema>()({
     post: { secret: true },
     video: { token: true },
-  },
-});
+  })
+);
 const targetOmitRows = targetOmitClient.comment.findMany({
   include: { subject: true },
 });

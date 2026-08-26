@@ -158,7 +158,23 @@ interface Conditional {
 export class UpsertOperation {
   readonly mode: ExecutionMode;
 
+  /** Build the inspection envelope only when a query interceptor needs it. */
+  get validatedArgs(): Record<string, unknown> {
+    return {
+      ...this.inspectionEnvelope,
+      where: this.parentWhere,
+      ...(this.inspectionProjection.select === undefined
+        ? {}
+        : { select: this.inspectionProjection.select }),
+      ...(this.inspectionProjection.include === undefined
+        ? {}
+        : { include: this.inspectionProjection.include }),
+    };
+  }
+
   private readonly engine: QueryEngine;
+  private readonly inspectionEnvelope: Record<string, unknown>;
+  private readonly inspectionProjection: Record<string, unknown>;
   private readonly model: Model<any>;
   private readonly scope: StepScope;
   private readonly resultArgs: Record<string, unknown>;
@@ -219,6 +235,7 @@ export class UpsertOperation {
   ) {
     this.engine = engine;
     this.model = model;
+    this.inspectionEnvelope = args;
     this.mode = selectExecutionMode(engine, "upsert");
     const txMode = this.mode === "transaction";
     this.scope = new StepScope();
@@ -325,13 +342,14 @@ export class UpsertOperation {
       "upsert",
       ""
     );
-    this.parsedSelect = isRecord(projection?.select)
+    this.inspectionProjection = projection;
+    this.parsedSelect = isRecord(projection.select)
       ? projection.select
       : defaultSelect(model);
     // `include` rides alongside the projection (the `create`/`update` surface). A
     // relation projection forces the terminal-read path (lateral joins), never the
     // scalar RETURNING fold on either arm shape.
-    this.parsedInclude = isRecord(projection?.include)
+    this.parsedInclude = isRecord(projection.include)
       ? projection.include
       : undefined;
     this.resultArgs = {

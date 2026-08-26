@@ -1,8 +1,8 @@
 # VibORM Domain
 
-This glossary names the relation, write-execution, exact-value, and search
-concepts whose distinctions are part of VibORM's public semantics and carry
-domain meaning across its schema, migration, and query boundaries.
+This glossary names the relation, write-execution, exact-value, search, and
+planned client-extension concepts whose distinctions carry domain meaning
+across VibORM's schema, migration, query, and client boundaries.
 
 ## Relation language
 
@@ -221,9 +221,84 @@ The records selected by one normalized search query together with its model and
 attribute filters, before projection or faceting.
 _Avoid_: Hits when pagination or projection has already narrowed the records
 
+## Client-extension language (planned)
+
+**Client extension**:
+One immutable, named contribution applied to a client view. Its optional
+members attach to existing request, query, statement, observation, client, or
+model owners; it is not a mutable plugin registry or a second query pipeline.
+_Avoid_: Universal hook, plugin manager
+
+**Derived client**:
+The lightweight client view returned by `$extends()`. It shares schema and
+database infrastructure with its base, while carrying an immutable extension
+chain and a distinct operation scope. A transaction view inherits that exact
+chain but binds contributed methods to the transaction scope.
+_Avoid_: Client clone, mutable extended client
+
+**Request transform**:
+A synchronous patch over the non-result-shaping part of one unvalidated model
+operation input. Core preserves the caller's result-shaping descriptors and
+feeds the final patched input through the existing semantic validation flow
+without an extra validation pass.
+_Avoid_: Validation hook, argument middleware
+
+**Query interceptor**:
+An asynchronous wrapper around one prepared logical operation. An authorized
+read may complete without provider execution; a mutation or raw operation must
+run its continuation or fail. Once the continuation starts, its outcome is
+authoritative.
+_Avoid_: Query middleware when ordinary replacement semantics are implied
+
+**Statement transform**:
+A trusted, synchronous transformation of one materialized typed `Sql` value
+before placeholder rendering. It can change low-level SQL, but it never
+receives the surrounding private operation program.
+_Avoid_: SQL-string hook, adapter when dialect grammar is meant
+
+**Lifecycle observer**:
+A read-only wrapper around a real operation, statement, transaction, batch,
+segment, connection, or cache lifecycle unit. It receives completion metadata,
+not the application result, and its failures cannot alter application behavior.
+_Avoid_: Query interceptor, event handler with behavioral authority
+
+**Query policy**:
+A graph-wide authorization rule consumed by core at every affected model,
+membership, and field-use scope. A top-level request filter is policy
+scaffolding, not a complete query policy.
+_Avoid_: RBAC when only root arguments are filtered
+
 ## Reading a relation
 
 One declaration, several derived views. A relation slot declares its cardinality
 and target domain once. The paired topology, clearability, and physical
 membership are each derived by one named owner, never stored beside their
 inputs and never re-derived at the point of use.
+
+## Client-extension language (implemented)
+
+The earlier planned-language entries are now implemented with six exact
+capabilities: request transformation, query interception, statement
+transformation, protected lifecycle observation, client methods, and model
+methods. `$extends()` returns an immutable derived client with one compiled
+ordered chain and a distinct operation scope.
+
+The official `cache()`, `instrumentation()`, and `defaultOmit()` factories own
+private unforgeable capabilities. They replace the retired built-in
+`createClient` cache, instrumentation, and client-omit configuration. Cache
+keys use canonical validated-operation identity; a custom key is a suffix.
+Cached values are detached snapshots and every hit materializes a fresh graph.
+
+Protected observation covers operation, statement, batch, transaction,
+savepoint, progressive segment, connection, and cache lifecycle units. Public
+observers receive only frozen unit/completion facts. Their failures and returned
+promises cannot affect the application. Official instrumentation uses the same
+rail with private facts and independent disclosure policy.
+
+`defaultOmit()` may follow request, statement, observe, a global polymorphic
+query contribution, or official cache/instrumentation. It cannot follow a
+schema-mapped query contribution or client/model factory whose result types
+were established before omission. Model omit remains schema truth; query omit
+remains call-owned projection. Omit is not authorization, and VibORM does not
+yet expose an RBAC helper: complete policy still needs graph-wide semantic
+model, membership, field-use, raw, and statement authority.

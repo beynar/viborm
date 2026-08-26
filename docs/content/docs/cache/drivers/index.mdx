@@ -18,12 +18,11 @@ Use `MemoryCache` for local development. It requires no external dependencies an
 
 ```typescript
 import { MemoryCache } from "viborm/cache/memory";
+import { cache } from "viborm/cache";
 
-const client = createClient({
-  schema,
-  driver,
-  cache: new MemoryCache(),
-});
+const client = createClient({ schema, driver }).$extends(
+  cache({ driver: new MemoryCache() })
+);
 ```
 
 ### Production - Cloudflare Workers
@@ -32,12 +31,11 @@ Use `CloudflareKVCache` when deploying to Cloudflare Workers. It provides distri
 
 ```typescript
 import { CloudflareKVCache } from "viborm/cache/cloudflare-kv";
+import { cache } from "viborm/cache";
 
-const client = createClient({
-  schema,
-  driver,
-  cache: new CloudflareKVCache(env.MY_KV_NAMESPACE),
-});
+const client = createClient({ schema, driver }).$extends(
+  cache({ driver: new CloudflareKVCache(env.MY_KV_NAMESPACE) })
+);
 ```
 
 ### Production - Other Environments

@@ -10,6 +10,7 @@
  */
 import inspector from "node:inspector";
 import { createClient } from "../dist/index.mjs";
+import { readBenchmarkOperation } from "../dist/internal/benchmark-operation.mjs";
 import { push } from "../dist/migrations.mjs";
 import { s } from "../dist/schema.mjs";
 import { SQLite3Driver } from "../dist/sqlite3.mjs";
@@ -76,6 +77,12 @@ const args = {
   take: ROWS_PER_OPERATION,
 };
 
+function benchmarkOperation(operation) {
+  const capability = readBenchmarkOperation(operation);
+  if (!capability) throw new Error("Expected a VibORM benchmark operation");
+  return capability;
+}
+
 function consumeRawRelation(raw) {
   const first = raw.rows[0];
   if (!first) return 0;
@@ -112,7 +119,8 @@ if (process.env.VIBORM_FIRST_OPERATION_RETAINED_ONLY === "1") {
   let rowCount;
   if (workload === "raw") {
     let operation = client.post.findMany(args);
-    let query = operation.prepare();
+    let capability = benchmarkOperation(operation);
+    let query = capability.prepare();
     if (!query) {
       throw new Error(
         "The first raw read after client initialization did not produce a prepared statement"
@@ -122,6 +130,7 @@ if (process.env.VIBORM_FIRST_OPERATION_RETAINED_ONLY === "1") {
     rowCount = value.rows.length;
     consumeRawRelation(value);
     operation = undefined;
+    capability = undefined;
     query = undefined;
   } else {
     value = await client.post.findMany(args);
@@ -174,12 +183,13 @@ firstOperationAfterInitializedClient.retainedBytes =
   process.memoryUsage().heapUsed - firstOperationHeapBefore;
 
 const preparedOperation = client.post.findMany(args);
-const prepared = preparedOperation.prepare();
+const preparedCapability = benchmarkOperation(preparedOperation);
+const prepared = preparedCapability.prepare();
 if (!prepared) {
   throw new Error("The relation read did not produce one prepared statement");
 }
 const rawFixture = await driver._executeRaw(prepared.sql, prepared.params);
-const expected = preparedOperation.parseResult(rawFixture);
+const expected = preparedCapability.parseResult(rawFixture);
 if (!Array.isArray(expected) || expected.length !== ROWS_PER_OPERATION) {
   throw new Error(
     `The relation-read fixture did not return ${ROWS_PER_OPERATION} parsed rows`
@@ -195,7 +205,7 @@ const workloads = {
   },
   rawAndParse: async () => {
     const raw = await driver._executeRaw(prepared.sql, prepared.params);
-    const rows = preparedOperation.parseResult(raw);
+    const rows = preparedCapability.parseResult(raw);
     sink += consumeParsedRelation(rows);
   },
   full: async () => {
@@ -203,11 +213,12 @@ const workloads = {
     sink += consumeParsedRelation(rows);
   },
   prepare: () => {
-    const query = client.post.findMany(args).prepare();
+    const operation = client.post.findMany(args);
+    const query = benchmarkOperation(operation).prepare();
     sink += (query?.sql.length ?? 0) + (query?.params.length ?? 0);
   },
   parse: () => {
-    const rows = preparedOperation.parseResult(rawFixture);
+    const rows = preparedCapability.parseResult(rawFixture);
     sink += consumeParsedRelation(rows);
   },
 };
@@ -294,7 +305,7 @@ async function measureResultHeapStages() {
   const before = process.memoryUsage().heapUsed;
   let raw = await driver._executeRaw(prepared.sql, prepared.params);
   const rawBytes = process.memoryUsage().heapUsed - before;
-  let parsed = preparedOperation.parseResult(raw);
+  let parsed = preparedCapability.parseResult(raw);
   const rawAndParsedBytes = process.memoryUsage().heapUsed - before;
   const rowCount = parsed.length;
   raw = undefined;

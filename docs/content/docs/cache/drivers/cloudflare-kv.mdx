@@ -24,6 +24,7 @@ id = "your-namespace-id"
 
 ```typescript
 import { createClient } from "viborm";
+import { cache } from "viborm/cache";
 import { CloudflareKVCache } from "viborm/cache/cloudflare-kv";
 
 export default {
@@ -31,9 +32,10 @@ export default {
     const client = createClient({
       schema: { user, post },
       driver: createD1Driver(env.DB),
-      cache: new CloudflareKVCache(env.CACHE),
+    }).$extends(cache({
+      driver: new CloudflareKVCache(env.CACHE),
       waitUntil: ctx.waitUntil.bind(ctx),
-    });
+    }));
 
     // Use cached queries
     const users = await client
@@ -117,6 +119,7 @@ Add to `tsconfig.json`:
 
 ```typescript
 import { createClient } from "viborm";
+import { cache } from "viborm/cache";
 import { CloudflareKVCache } from "viborm/cache/cloudflare-kv";
 
 export default {
@@ -124,9 +127,10 @@ export default {
     const client = createClient({
       schema: { user, post },
       driver: createD1Driver(env.DB),
-      cache: new CloudflareKVCache(env.CACHE),
+    }).$extends(cache({
+      driver: new CloudflareKVCache(env.CACHE),
       waitUntil: ctx.waitUntil.bind(ctx),
-    });
+    }));
 
     // SWR: return stale data immediately, refresh in background
     const cached = client.$withCache({
@@ -153,8 +157,7 @@ export default {
     const client = createClient({
       schema: { user },
       driver: createD1Driver(env.DB),
-      cache: new CloudflareKVCache(env.CACHE),
-    });
+    }).$extends(cache({ driver: new CloudflareKVCache(env.CACHE) }));
 
     if (request.method === "POST") {
       // Create user and invalidate cache

@@ -15,6 +15,7 @@ import {
 } from "@query-engine/result-aliases";
 import { type Model, s } from "@schema";
 import { parserFor, prepareSchema } from "@tests/fixtures/query-scope";
+import { readTestTransactionOperation } from "@tests/fixtures/transaction-operation";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
 
@@ -161,6 +162,12 @@ function createEngine(
   return new QueryEngine(new ShapeContractDriver(adapter, rows), registry);
 }
 
+function transactionOperation(operation: unknown) {
+  const capability = readTestTransactionOperation(operation);
+  if (!capability) throw new Error("expected a transaction operation");
+  return capability;
+}
+
 function parsePrepared(
   model: Model<any>,
   operation: "findMany" | "aggregate" | "groupBy",
@@ -168,9 +175,11 @@ function parsePrepared(
   rows: unknown[],
   adapter?: DatabaseAdapter
 ): unknown {
-  return createEngine([], adapter)
-    .prepare(model, operation, args)
-    .parseResult({ rows, rowCount: rows.length });
+  const prepared = createEngine([], adapter).prepare(model, operation, args);
+  return transactionOperation(prepared).parseResult({
+    rows,
+    rowCount: rows.length,
+  });
 }
 
 describe("request-aware result shapes", () => {
@@ -244,12 +253,14 @@ describe("request-aware result shapes", () => {
     expect(statement).toContain('"t0"."id" AS "id"');
     expect(statement).not.toContain('"t0"."secret" AS "secret"');
     expect(
-      engine
-        .prepare(models.omitted, "findMany", {})
-        .parseResult({ rows: [{ id: "visible" }], rowCount: 1 })
+      transactionOperation(
+        engine.prepare(models.omitted, "findMany", {})
+      ).parseResult({ rows: [{ id: "visible" }], rowCount: 1 })
     ).toEqual([{ id: "visible" }]);
     expect(() =>
-      engine.prepare(models.omitted, "findMany", {}).parseResult({
+      transactionOperation(
+        engine.prepare(models.omitted, "findMany", {})
+      ).parseResult({
         rows: [{ id: "visible", secret: "leaked" }],
         rowCount: 1,
       })
@@ -638,16 +649,18 @@ describe("request-aware result shapes", () => {
     // raw TypeError from a prototype-chain collision. The engine validates the
     // request at construction, so both the prepare and the parse seams surface the
     // same typed rejection.
-    expect(() => findMany.prepare()).toThrow(ValidationError);
-    expect(() => findMany.parseResult({ rows: [], rowCount: 0 })).toThrow(
+    expect(() => transactionOperation(findMany).prepare()).toThrow(
       ValidationError
     );
+    expect(() =>
+      transactionOperation(findMany).parseResult({ rows: [], rowCount: 0 })
+    ).toThrow(ValidationError);
 
     const count = createEngine().prepare(models.parent, "count", { select });
     const row = Object.fromEntries([[identifier, "1"]]);
-    expect(() => count.parseResult({ rows: [row], rowCount: 1 })).toThrow(
-      ValidationError
-    );
+    expect(() =>
+      transactionOperation(count).parseResult({ rows: [row], rowCount: 1 })
+    ).toThrow(ValidationError);
   });
 
   test("preserves cardinality for models with no public default scalars", () => {

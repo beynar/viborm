@@ -11,13 +11,12 @@ No additional dependencies required. `MemoryCache` is included in the core VibOR
 
 ```typescript
 import { createClient } from "viborm";
+import { cache } from "viborm/cache";
 import { MemoryCache } from "viborm/cache/memory";
 
-const client = createClient({
-  schema: { user, post },
-  driver,
-  cache: new MemoryCache(),
-});
+const client = createClient({ schema: { user, post }, driver }).$extends(
+  cache({ driver: new MemoryCache() })
+);
 ```
 
 The `MemoryCache` constructor takes no arguments.
@@ -60,13 +59,12 @@ Within the storage window, staleness is checked at read time:
 
 ```typescript
 import { createClient } from "viborm";
+import { cache } from "viborm/cache";
 import { MemoryCache } from "viborm/cache/memory";
 
-const client = createClient({
-  schema: { user },
-  driver,
-  cache: new MemoryCache(),
-});
+const client = createClient({ schema: { user }, driver }).$extends(
+  cache({ driver: new MemoryCache() })
+);
 
 // Cache queries for 10 minutes
 const cached = client.$withCache({ ttl: "10 minutes" });

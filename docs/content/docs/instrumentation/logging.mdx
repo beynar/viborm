@@ -1,329 +1,81 @@
 ---
 title: Logging
-description: Configure structured logging with pretty console output or custom callbacks
+description: Structured query, cache, warning, and error logs
 icon: file-text
 ---
 
-## Configuration
+Configure logging through the official instrumentation extension:
 
-```typescript
-import { createClient } from "viborm";
+```ts
+import { instrumentation } from "viborm/instrumentation";
 
-// Simple: enable all levels with pretty console output
-const client = createClient({
-  schema,
-  driver,
-  instrumentation: {
-    logging: true
-  }
-});
-
-// Custom: configure individual levels
-const clientCustom = createClient({
-  schema,
-  driver,
-  instrumentation: {
+const client = createClient({ schema, driver }).$extends(
+  instrumentation({
     logging: {
-      query: true,                    // Pretty console output
-      error: (event, log) => {        // Custom callback
+      query: true,
+      cache: true,
+      warning: true,
+      error: (event, log) => {
         errorTracker.capture(event.error);
         log();
-      }
-      // warning: omitted = disabled
-    }
-  }
+      },
+      includeSql: false,
+      includeParams: false,
+    },
+  })
+);
+```
+
+| Option | Meaning |
+|---|---|
+| `all` | Fallback handler for every enabled level |
+| `query` | Physical provider execution |
+| `cache` | Cache hit, miss, stale, bypass, set, and revalidation events |
+| `warning` | Non-fatal notices, including deprecated raw-string use |
+| `error` | One selected normalized operation failure |
+| `includeSql` | Disclose rendered SQL to logging only |
+| `includeParams` | Disclose snapshotted parameters to logging only |
+
+A level accepts `true` for the built-in pretty logger or a callback. A specific
+level overrides `all`.
+
+```ts
+instrumentation({
+  logging: {
+    all: (event, log) => {
+      appLogger.info(event);
+      log();
+    },
+    error: (event) => errorTracker.capture(event.error),
+  },
 });
 ```
 
-## Options
+## Event facts
 
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `all` | `true \| LogCallback` | - | Catch-all handler for all levels |
-| `query` | `true \| LogCallback` | - | Query log handler |
-| `cache` | `true \| LogCallback` | - | Cache log handler |
-| `warning` | `true \| LogCallback` | - | Warning log handler |
-| `error` | `true \| LogCallback` | - | Error log handler |
-| `includeSql` | `boolean` | `false` | Include SQL query text in events |
-| `includeParams` | `boolean` | `false` | Include query parameters in events |
+Log events can carry level, timestamp, duration, model, operation, correlation,
+a normalized error, disclosure-approved SQL/parameters, and allowlisted
+metadata. Callbacks receive a sanitized snapshot. They do not receive a mutable
+driver event, raw provider fields, cache keys, custom cache suffixes, or private
+lifecycle facts.
 
-## Log Levels
+Query logs are emitted at the provider execution boundary. In a native array,
+N public statement units share one provider call and therefore produce one
+query log. Operation error logging selects one authoritative failure and keeps
+deduplication evidence when package boundaries normalize or add commit
+certainty to a successor error.
 
-Each level can be configured independently:
+Cache logs preserve the canonical sequence for miss, fresh hit, stale hit,
+revalidation start/success/failure, and invalidation. A background failure is
+normalized and observed without changing the stale application result.
 
-- **`true`** - Use the built-in pretty console formatter
-- **`(event, log) => {}`** - Custom callback (receives default logger as second argument)
-- **`undefined`** (or omit) - Falls back to `all` handler, or disabled if no `all`
+## Disclosure and containment
 
-| Level | Description |
-|-------|-------------|
-| `query` | Emitted for every database query |
-| `cache` | Emitted for cache hits, misses, and revalidation |
-| `warning` | Emitted for non-fatal issues |
-| `error` | Emitted when operations fail |
+Logging disclosure is independent from tracing and thrown-error diagnostics.
+Parameters are inspected once for all enabled logging/tracing/diagnostic
+channels before provider mutation, then each channel receives its approved
+snapshot.
 
-## Pretty Console Output
-
-When you set a level to `true`, VibORM uses a colorized console formatter:
-
-```typescript
-logging: {
-  query: true,
-  error: true
-}
-```
-
-Output example:
-```
-2024-01-15T10:30:00.000Z User.findMany 12ms
-  SELECT * FROM "users" WHERE "active" = $1
-```
-
-The formatter includes:
-- Timestamp in ISO format
-- Model and operation name (color-coded)
-- Duration with color based on speed (green < 10ms, yellow < 100ms, red >= 100ms)
-- SQL query when `includeSql` is enabled (dimmed)
-- Parameters if enabled (dimmed)
-
-## Custom Callbacks
-
-For full control, provide a callback function. The callback receives the event and a `log` function that invokes the default pretty logger:
-
-```typescript
-logging: {
-  query: (event, log) => {
-    // Your custom handling
-    myLogger.info(event);
-    log(); // Also print with default pretty formatter
-  },
-  error: (event, log) => {
-    errorTracker.capture(event.error);
-    // Don't call log() - skip default output
-  }
-}
-```
-
-## Catch-All Handler
-
-Use `all` to handle all log levels with a single handler:
-
-```typescript
-logging: {
-  all: true  // Pretty output for everything
-}
-
-// Or with a callback
-logging: {
-  all: (event, log) => {
-    myLogger.log(event);
-    log();
-  }
-}
-```
-
-Specific level handlers take precedence over `all`:
-
-```typescript
-logging: {
-  all: true,                    // Default for all levels
-  error: (event, log) => {      // Override for errors only
-    errorTracker.capture(event.error);
-    log();
-  }
-}
-```
-
-## Log Event Structure
-
-Every log event contains the following fields:
-
-```typescript
-interface LogEvent {
-  level: "query" | "cache" | "warning" | "error";
-  timestamp: Date;
-  duration?: number;       // Query duration in milliseconds
-  model?: string;          // Model name (e.g., "User")
-  operation?: string;      // Operation (e.g., "findMany")
-  correlationId?: string;  // Stable identifier for this ORM operation
-  error?: VibORMError;     // Error object (for error events)
-  sql?: string;            // SQL query (if includeSql enabled)
-  params?: unknown[];      // Query parameters (if includeParams enabled)
-  meta?: Record<string, unknown>; // Allowlisted, sanitized event metadata
-}
-```
-
-Callbacks receive a sanitized snapshot, not the mutable event object produced
-inside the driver. See [Privacy & Security](/docs/instrumentation#privacy--security)
-for the full sanitization and redaction policy.
-
-## Event Examples
-
-### Query Events
-
-Emitted for every successful database operation:
-
-```typescript
-{
-  level: "query",
-  timestamp: new Date("2024-01-15T10:30:00.000Z"),
-  duration: 12,
-  model: "User",
-  operation: "findMany",
-  sql: 'SELECT * FROM "users" WHERE "active" = $1',
-  params: [true]
-}
-```
-
-### Warning Events
-
-Emitted for non-fatal issues that may need attention:
-
-```typescript
-{
-  level: "warning",
-  timestamp: new Date("2024-01-15T10:30:00.000Z"),
-  model: "User",
-  operation: "findMany",
-  duration: 5000
-}
-```
-
-### Error Events
-
-Emitted when operations fail:
-
-```typescript
-// Unique constraint violation
-{
-  level: "error",
-  timestamp: new Date("2024-01-15T10:30:00.000Z"),
-  model: "User",
-  operation: "create",
-  duration: 15,
-  error: UniqueConstraintError,  // VibORMError with code V3001
-  sql: 'INSERT INTO "users" ("email") VALUES ($1)',
-  // Stable constraint/provider details are available on error.meta.
-}
-
-// Connection error
-{
-  level: "error",
-  timestamp: new Date("2024-01-15T10:30:00.000Z"),
-  error: ConnectionError,  // VibORMError with code V1001
-  // Raw connection messages and endpoints are redacted.
-}
-
-// Record not found (for findUniqueOrThrow)
-{
-  level: "error",
-  timestamp: new Date("2024-01-15T10:30:00.000Z"),
-  model: "User",
-  operation: "findUniqueOrThrow",
-  duration: 8,
-  error: NotFoundError,  // VibORMError with code V6001
-  sql: 'SELECT * FROM "users" WHERE "id" = $1'
-}
-```
-
-## Examples
-
-### Development Setup
-
-Pretty output for all levels during development:
-
-```typescript
-logging: {
-  query: true,
-  warning: true,
-  error: true
-}
-```
-
-### Production Setup
-
-JSON logging for queries, error tracking for errors:
-
-```typescript
-logging: {
-  query: (event, log) => {
-    console.log(JSON.stringify({
-      level: event.level,
-      timestamp: event.timestamp.toISOString(),
-      model: event.model,
-      operation: event.operation,
-      duration: event.duration
-    }));
-  },
-  error: (event, log) => {
-    errorTracker.capture(event.error, {
-      model: event.model,
-      operation: event.operation
-    });
-  }
-}
-```
-
-### Integrate with Pino
-
-```typescript
-import pino from "pino";
-
-const logger = pino();
-
-logging: {
-  query: (event, log) => {
-    logger.info({
-      model: event.model,
-      operation: event.operation,
-      duration: event.duration
-    }, `${event.model}.${event.operation}`);
-  },
-  error: (event, log) => {
-    logger.error({
-      model: event.model,
-      operation: event.operation,
-      error: event.error?.message
-    }, `${event.model}.${event.operation} failed`);
-  }
-}
-```
-
-### Errors Only
-
-Log only errors with pretty output:
-
-```typescript
-logging: {
-  error: true
-}
-```
-
-## SQL and Parameters
-
-By default, both SQL and parameters are excluded:
-
-```typescript
-logging: {
-  query: true,
-  includeSql: false,     // SQL hidden (default)
-  includeParams: false   // Params hidden (default)
-}
-```
-
-To include SQL or parameters (development only), opt in to each independently:
-
-```typescript
-logging: {
-  query: true,
-  includeSql: true,
-  includeParams: true
-}
-```
-
-:::warning
-Never enable `includeParams` in production. Query parameters may contain passwords, personal information, or other sensitive data.
-:::
-
-These options affect logging only — tracing and error diagnostics have
-[independent disclosure policies](/docs/instrumentation#privacy--security).
+A logging callback or console failure is contained. It cannot replace the
+application result or error, prevent another lifecycle consumer from running,
+alter commit, or become an unhandled rejection.

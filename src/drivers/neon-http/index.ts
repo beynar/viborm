@@ -15,7 +15,6 @@ import {
   createClientFromDriverConfig,
   type DriverConfig,
   type NoExtraDriverConfigKeys,
-  type NoExtraNestedConfigKeys,
   type VibORMClient,
 } from "@client/client";
 import type { Schema } from "@client/types";
@@ -346,10 +345,9 @@ export class NeonHTTPDriver extends Driver<NeonQuery, NeonTx> {
 export function createClient<S extends Schema, C extends DriverConfig<S>>(
   config: NeonHTTPClientConfig<C> &
     DriverConfig<S> &
-    NoExtraDriverConfigKeys<C, NeonHTTPDriverOptions, S> &
-    NoExtraNestedConfigKeys<C, S>
+    NoExtraDriverConfigKeys<C, NeonHTTPDriverOptions, S>
 ): VibORMClient<C & { driver: NeonHTTPDriver }> {
-  const { databaseUrl, options, pgvector, postgis, ...restConfig } = config;
+  const { databaseUrl, options, pgvector, postgis } = config;
 
   const driver = new NeonHTTPDriver({
     databaseUrl,
@@ -358,8 +356,7 @@ export function createClient<S extends Schema, C extends DriverConfig<S>>(
     postgis,
   });
 
-  return createClientFromDriverConfig({
-    ...restConfig,
-    driver,
-  }) as VibORMClient<C & { driver: NeonHTTPDriver }>;
+  return createClientFromDriverConfig(config, driver) as VibORMClient<
+    C & { driver: NeonHTTPDriver }
+  >;
 }
