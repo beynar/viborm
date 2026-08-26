@@ -48,7 +48,7 @@ export function planNestedCreateIdentity<Value>(
       identity[field] = value;
       continue;
     }
-    if (scalar?.["~"].state.autoGenerate !== "increment") {
+    if (scalar?.["~"].state.autoGenerate?.kind !== "increment") {
       throw new NestedWriteError(
         `Nested create requires primary key field '${field}' to be known before execution.`,
         model["~"].names.sql ?? "unknown"
@@ -70,8 +70,8 @@ export function assertCreateRefetchIdentity(
   if (
     primaryKeyFields.length === 1 &&
     generatedField !== undefined &&
-    ctx.model["~"].state.scalars[generatedField]?.["~"].state.autoGenerate ===
-      "increment"
+    ctx.model["~"].state.scalars[generatedField]?.["~"].state.autoGenerate
+      ?.kind === "increment"
   ) {
     return;
   }

@@ -1243,8 +1243,8 @@ export class UpsertOperation {
     if (
       absent.length === 1 &&
       produced !== undefined &&
-      this.model["~"].state.scalars[produced]?.["~"].state.autoGenerate ===
-        "increment"
+      this.model["~"].state.scalars[produced]?.["~"].state.autoGenerate
+        ?.kind === "increment"
     ) {
       return {
         kind: "generated",

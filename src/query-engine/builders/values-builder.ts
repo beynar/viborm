@@ -176,7 +176,7 @@ function assertApplicationGeneratedValues(
 ): void {
   for (const fieldName of ctx.model["~"].scalarFieldNames) {
     const scalar = ctx.model["~"].state.scalars[fieldName];
-    const genType = scalar?.["~"].state.autoGenerate;
+    const genType = scalar?.["~"].state.autoGenerate?.kind;
     if (!genType) {
       continue;
     }
