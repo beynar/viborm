@@ -209,7 +209,7 @@ const [user, post] = await orm.$transaction([
 
 `$extends()` returns an immutable derived client. Extensions have six distinct
 capabilities: `request`, `query`, `statement`, `observe`, `client`, and `model`.
-See the [extension guide](docs/content/docs/client/extensions.mdx) for their
+See the [extension guide](docs/content/docs/extensions/index.mdx) for their
 authority and exact lifecycle.
 
 Internally, `src/extensions/` is the single generic definition, chain,

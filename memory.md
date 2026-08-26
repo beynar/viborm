@@ -182,3 +182,7 @@
 - In zsh automation, never use `path` as a loop or shell variable: it aliases
   the executable search path and makes later commands disappear. Use a
   task-specific name such as `file_path`.
+- Start multi-step mutation scripts with fail-fast shell behavior. A failed
+  `git add` pathspec must stop before `git commit`; for a rename, stage the
+  existing destination and the source directory instead of naming a source
+  path that no longer exists.

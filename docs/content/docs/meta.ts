@@ -13,6 +13,7 @@ export default defineMeta({
     "cache",
     "migration",
     "instrumentation",
-    "internals"
+    "extensions",
+    "internals",
   ],
 });
