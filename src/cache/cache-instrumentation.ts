@@ -180,6 +180,7 @@ export function createCacheLifecycleInstrumentationFacts(
           return undefined;
         }
         return Object.freeze({
+          kind: "cache" as const,
           ...(spanAttributes === undefined
             ? {}
             : { spanAttributes: Object.freeze({ ...spanAttributes }) }),

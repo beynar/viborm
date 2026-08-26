@@ -58,6 +58,11 @@ acquisition. Transaction/savepoint/connection observation begins outside queue
 wait, while its late execute span starts at the existing serialized provider
 boundary.
 
+Protected completion facts carry the same `kind` discriminant as their start
+facts. Producers publish only that kind's completion shape, and the official
+observer narrows by the discriminant; property-name probes are not a lifecycle
+identity mechanism.
+
 Native arrays emit one batch, N operations, and N statement units but one
 provider execute span/query log. They emit no fictional transaction. Fallback
 arrays use the real transaction or savepoint. Progressive writes emit one

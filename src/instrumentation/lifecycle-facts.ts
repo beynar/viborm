@@ -15,11 +15,13 @@ export interface InstrumentationLifecycleOutcome {
 }
 
 export interface OperationInstrumentationCompletionFacts {
+  readonly kind: "operation";
   readonly errorLogEvent?: Omit<LogEvent, "level">;
   readonly readCacheLogEvents?: () => readonly Omit<LogEvent, "level">[];
 }
 
 export interface StatementInstrumentationCompletionFacts {
+  readonly kind: "statement";
   readonly logEvent?: {
     readonly event: Omit<LogEvent, "level">;
     readonly level: "error" | "query";
@@ -27,10 +29,12 @@ export interface StatementInstrumentationCompletionFacts {
 }
 
 export interface SegmentInstrumentationCompletionFacts {
+  readonly kind: "segment";
   readonly spanAttributes: NonNullable<VibORMSpanOptions["attributes"]>;
 }
 
 export interface CacheInstrumentationCompletionFacts {
+  readonly kind: "cache";
   readonly spanAttributes?: NonNullable<VibORMSpanOptions["attributes"]>;
   readonly logEvents?: readonly Omit<LogEvent, "level">[];
 }

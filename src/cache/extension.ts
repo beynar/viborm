@@ -15,7 +15,7 @@ import type { WaitUntilFn } from "./cache-contract";
 import { CacheDriver, createOfficialCacheScope } from "./driver";
 import { createOfficialCacheNamespace } from "./key";
 
-const OFFICIAL_CACHE_NAME = "viborm.cache";
+export const OFFICIAL_CACHE_NAME = "viborm.cache";
 
 /** The exact official query contribution. It is recognized by identity. */
 export type OfficialCacheQueryContribution = OfficialGenericQueryHandler & {
@@ -174,8 +174,4 @@ export function registerOfficialCacheChain(
   capability: OfficialCacheCapability
 ): void {
   capabilitiesByChain.set(chain, capability);
-}
-
-export function isOfficialCacheName(name: string): boolean {
-  return name === OFFICIAL_CACHE_NAME;
 }

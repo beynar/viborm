@@ -101,6 +101,7 @@ describe("official observer provider failures", () => {
         spanOptions: Object.freeze({ name: SPAN_RECORD_SERIES_SEGMENT }),
         complete: () =>
           Object.freeze({
+            kind: "segment",
             spanAttributes: Object.freeze({
               [ATTR_VIBORM_WRITE_COMMIT_OUTCOME]: "committed",
             }),
@@ -118,6 +119,7 @@ describe("official observer provider failures", () => {
         spanOptions: Object.freeze({ name: SPAN_CACHE_GET }),
         complete: () =>
           Object.freeze({
+            kind: "cache",
             spanAttributes: Object.freeze({ [ATTR_CACHE_RESULT]: "hit" }),
           }),
       }) satisfies CacheInstrumentationFacts,
@@ -149,6 +151,7 @@ describe("official observer provider failures", () => {
       spanOptions: Object.freeze({ name: SPAN_RECORD_SERIES_SEGMENT }),
       complete: () =>
         Object.freeze({
+          kind: "segment",
           spanAttributes: Object.freeze({
             [ATTR_VIBORM_WRITE_COMMIT_OUTCOME]: "committed",
           }),

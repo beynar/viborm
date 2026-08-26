@@ -96,6 +96,7 @@ describe("official protected observer", () => {
       kind: "operation",
       complete: () =>
         Object.freeze({
+          kind: "operation",
           readCacheLogEvents: () =>
             Object.freeze([
               cacheLogEvent("hit"),
@@ -134,6 +135,7 @@ describe("official protected observer", () => {
       kind: "operation",
       complete: () =>
         Object.freeze({
+          kind: "operation",
           readCacheLogEvents() {
             throw readerFailure;
           },
@@ -154,6 +156,7 @@ describe("official protected observer", () => {
       kind: "operation",
       complete: () =>
         Object.freeze({
+          kind: "operation",
           readCacheLogEvents: () => Object.freeze([cacheLogEvent("hit")]),
         }),
     });
@@ -244,6 +247,7 @@ describe("official protected observer", () => {
         spanOptions: Object.freeze({ name: SPAN_RECORD_SERIES_SEGMENT }),
         complete: () =>
           Object.freeze({
+            kind: "segment",
             spanAttributes: Object.freeze({
               [ATTR_VIBORM_WRITE_COMMIT_OUTCOME]: "committed",
             }),
@@ -319,6 +323,7 @@ describe("official protected observer", () => {
         spanOptions: Object.freeze({ name: SPAN_CACHE_GET }),
         complete: () =>
           Object.freeze({
+            kind: "cache",
             spanAttributes: Object.freeze({ [ATTR_CACHE_RESULT]: "miss" }),
           }),
       });
@@ -339,6 +344,7 @@ describe("official protected observer", () => {
         startLogEvents: Object.freeze([cacheLogEvent("revalidate", "start")]),
         complete: () =>
           Object.freeze({
+            kind: "cache",
             logEvents: Object.freeze([cacheLogEvent("revalidate", "success")]),
           }),
       });

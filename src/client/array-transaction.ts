@@ -9,7 +9,6 @@ import {
   InvalidTransactionInputError,
   isVibORMError,
   PendingOperationError,
-  TransactionError,
 } from "@errors";
 import {
   admitArrayQueries,
@@ -37,6 +36,7 @@ import {
   executeInterceptedNativeArray,
   type NativeArraySlot,
 } from "./array-transaction-native";
+import { assertAtomicArraySupport } from "./array-transaction-native-batch";
 
 type ArraySlot = NativeArraySlot;
 
@@ -409,17 +409,4 @@ function startFallbackCore(slot: ArraySlot, driver: AnyDriver): void {
     return;
   }
   core.then(slot.child.resolve, slot.child.reject);
-}
-
-function assertAtomicArraySupport(driver: AnyDriver): void {
-  if (driver.supportsTransactions || driver.supportsBatch) return;
-  throw new TransactionError(
-    `Driver "${driver.driverName}" supports neither transactions nor atomic batch execution.`,
-    {
-      meta: {
-        driver: driver.driverName,
-        method: "$transaction([...])",
-      },
-    }
-  );
 }

@@ -4,12 +4,10 @@ import type {
   QueryExecutionContext,
   QueryResult,
 } from "@drivers";
-import { assertNormalizedBatchResults } from "@drivers/normalized-result";
 import type {
   BatchTransactionOptions,
   TransactionOptions,
 } from "@drivers/shared/transaction-options";
-import { TransactionError } from "@errors";
 import {
   type ArrayAdmissionSlot,
   readArrayQuery,
@@ -19,7 +17,6 @@ import {
   decomposeQueryCoordinationFailure,
   decomposeWriteOutcomePublicationFailure,
 } from "@extensions/query";
-import { attributeOperationBatchError } from "@query-engine/batch-error-attribution";
 import type {
   TransactionOperationCapability,
   TransactionOperationOwner,
@@ -29,6 +26,12 @@ import {
   combineArrayFailures,
   markArrayCommitCertainty,
 } from "./array-transaction-failures";
+import {
+  assertNativeBatchResults,
+  executeNativeBatch,
+  missingOperationResult,
+  unbatchableArrayError,
+} from "./array-transaction-native-batch";
 
 export interface NativeArraySlot extends ArrayAdmissionSlot {
   readonly operation: TransactionOperationCapability;
@@ -74,7 +77,12 @@ export async function executeInterceptedNativeArray(
           parse: (batchResults) =>
             slot.owner.observeBatchPhase(slot.operation, driver, () => {
               const result = batchResults[start];
-              if (!result) throw missingOperationResult(driver, slot);
+              if (!result)
+                throw missingOperationResult(
+                  driver,
+                  slot.operation,
+                  slot.owner
+                );
               return slot.owner.parseResult(slot.operation, result);
             }),
         });
@@ -130,10 +138,7 @@ export async function executeInterceptedNativeArray(
   }
   await confirmCommit();
   try {
-    assertNormalizedBatchResults(batchResults, operationQueries.length, {
-      provider: driver.driverName,
-      operation: "$transaction([...])",
-    });
+    assertNativeBatchResults(driver, batchResults, operationQueries.length);
   } catch (error) {
     throw await closeCommittedFailure(slots, error, commitFailures);
   }
@@ -269,57 +274,8 @@ async function publishNativeOutcome(
   return failures;
 }
 
-async function executeNativeBatch(
-  driver: AnyDriver,
-  queries: BatchQuery[],
-  guards: PreparedBatchGuard[],
-  options: TransactionOptions | BatchTransactionOptions | undefined,
-  context: QueryExecutionContext,
-  committed?: () => Promise<void>
-): Promise<QueryResult<unknown>[]> {
-  if (queries.length === 0) return [];
-  try {
-    return await driver._executeBatch(
-      queries,
-      options as BatchTransactionOptions | undefined,
-      context,
-      committed
-    );
-  } catch (error) {
-    throw await attributeOperationBatchError(error, guards, driver, queries);
-  }
-}
-
 function queryFailureParts(failure: unknown): readonly unknown[] {
   const coordination = decomposeQueryCoordinationFailure(failure);
   if (coordination === undefined) return [failure];
   return [coordination.child, ...coordination.postWork];
-}
-
-function unbatchableArrayError(driver: AnyDriver): TransactionError {
-  return new TransactionError(
-    `Driver "${driver.driverName}" does not support callback transactions and this transaction contains operations that cannot be batched atomically.`,
-    {
-      meta: {
-        driver: driver.driverName,
-        method: "$transaction([...])",
-      },
-    }
-  );
-}
-
-function missingOperationResult(
-  driver: AnyDriver,
-  slot: NativeArraySlot
-): TransactionError {
-  const operationName = slot.owner.operation(slot.operation);
-  return new TransactionError(
-    `Driver "${driver.driverName}" omitted the result for operation "${operationName}".`,
-    {
-      meta: {
-        driver: driver.driverName,
-        operation: operationName,
-      },
-    }
-  );
 }

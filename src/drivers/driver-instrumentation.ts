@@ -571,7 +571,9 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
           return undefined;
         }
         const logEvent = this.createStatementLogEvent(published, outcome);
-        return logEvent === undefined ? undefined : Object.freeze({ logEvent });
+        return logEvent === undefined
+          ? undefined
+          : Object.freeze({ kind: "statement" as const, logEvent });
       },
     });
     const execute = <Result>(

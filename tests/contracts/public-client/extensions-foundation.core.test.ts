@@ -131,7 +131,6 @@ describe("client extension foundation", () => {
     expect(genericOnly.hasQueryHandlers).toBe(true);
     expect(genericOnly.query.global).toHaveLength(1);
     expect(Object.keys(genericOnly.query.models)).toEqual([]);
-    expect(Object.keys(genericOnly.query.raw)).toEqual([]);
     expect(
       lookupResolvedExtensionHandlers(genericOnly, "query", "item", "findMany")
     ).toBe(genericOnly.query.global);
@@ -350,6 +349,7 @@ describe("client extension foundation", () => {
       { name: "non-function", client: () => ({ $bad: 1 }) },
       { name: "missing-dollar", client: () => ({ bad: () => true }) },
       { name: "core", client: () => ({ $transaction: () => true }) },
+      { name: "raw", client: () => ({ $queryRaw: () => true }) },
       { name: "prior-client", client: () => ({ $valid: () => false }) },
       { name: "core-model", model: { item: () => ({ findMany: () => true }) } },
       { name: "then-model", model: { item: () => ({ then: () => true }) } },

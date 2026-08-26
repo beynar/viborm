@@ -2232,6 +2232,7 @@ function createProgressiveSegmentInstrumentationFacts(
     spanOptions,
     complete: (outcome: InstrumentationLifecycleOutcome) =>
       Object.freeze({
+        kind: "segment",
         spanAttributes: Object.freeze({
           [ATTR_VIBORM_WRITE_COMMIT_OUTCOME]: progressiveSegmentOutcome(
             hasWrite,

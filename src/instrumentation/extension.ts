@@ -20,7 +20,7 @@ import type {
   InstrumentationConfig,
 } from "./types";
 
-const OFFICIAL_INSTRUMENTATION_NAME = "viborm.instrumentation";
+export const OFFICIAL_INSTRUMENTATION_NAME = "viborm.instrumentation";
 
 /** The exact official contribution accepted by every concrete client schema. */
 export type OfficialInstrumentationExtension = {
@@ -73,10 +73,6 @@ export function registerOfficialInstrumentationChain(
   capabilitiesByChain.set(chain, capability);
 }
 
-export function isOfficialInstrumentationName(name: string): boolean {
-  return name === OFFICIAL_INSTRUMENTATION_NAME;
-}
-
 function observeOfficialInstrumentation(
   capability: OfficialInstrumentationCapability,
   unit: LifecycleUnit,
@@ -89,11 +85,7 @@ function observeOfficialInstrumentation(
       async (span) => {
         const outcome = await proceed();
         const completionFacts = readProtectedLifecycleCompletionFacts(unit);
-        if (
-          completionFacts &&
-          "spanAttributes" in completionFacts &&
-          completionFacts.spanAttributes !== undefined
-        ) {
+        if (completionFacts?.kind === "segment") {
           setSegmentSpanAttributes(
             capability,
             span,
@@ -144,8 +136,7 @@ function observeOfficialInstrumentation(
     return completion.then((outcome) => {
       const completionFacts = readProtectedLifecycleCompletionFacts(unit);
       if (
-        completionFacts &&
-        "readCacheLogEvents" in completionFacts &&
+        completionFacts?.kind === "operation" &&
         completionFacts.readCacheLogEvents !== undefined
       ) {
         for (const event of completionFacts.readCacheLogEvents()) {
@@ -153,8 +144,7 @@ function observeOfficialInstrumentation(
         }
       }
       if (
-        completionFacts &&
-        "errorLogEvent" in completionFacts &&
+        completionFacts?.kind === "operation" &&
         completionFacts.errorLogEvent !== undefined
       ) {
         capability.context.logger?.error(completionFacts.errorLogEvent);
@@ -186,15 +176,13 @@ function observeCacheInstrumentation(
     const outcome = await proceed();
     const completionFacts = readProtectedLifecycleCompletionFacts(unit);
     if (
-      completionFacts &&
-      "spanAttributes" in completionFacts &&
+      completionFacts?.kind === "cache" &&
       completionFacts.spanAttributes !== undefined
     ) {
       setCacheSpanAttributes(span, completionFacts.spanAttributes);
     }
     if (
-      completionFacts &&
-      "logEvents" in completionFacts &&
+      completionFacts?.kind === "cache" &&
       completionFacts.logEvents !== undefined
     ) {
       for (const event of completionFacts.logEvents) {
@@ -219,7 +207,7 @@ async function observeStatementCompletion(
 ): Promise<void> {
   const outcome = await completion;
   const completionFacts = readProtectedLifecycleCompletionFacts(unit);
-  if (completionFacts && "logEvent" in completionFacts) {
+  if (completionFacts?.kind === "statement") {
     const logEvent = completionFacts.logEvent;
     if (logEvent !== undefined) {
       capability.context.logger?.[logEvent.level](logEvent.event);

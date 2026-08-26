@@ -156,6 +156,7 @@ function createOperationInstrumentationFacts(
           return undefined;
         }
         return Object.freeze({
+          kind: "operation" as const,
           ...(readCacheLogEvents === undefined ? {} : { readCacheLogEvents }),
           ...(errorLogEvent === undefined ? {} : { errorLogEvent }),
         });

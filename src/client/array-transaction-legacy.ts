@@ -10,15 +10,21 @@ import type {
   BatchTransactionOptions,
   TransactionOptions,
 } from "@drivers/shared/transaction-options";
-import { InvalidTransactionInputError, TransactionError } from "@errors";
+import { InvalidTransactionInputError } from "@errors";
 import { prewarmProtectedObservers } from "@extensions/observation";
-import { attributeOperationBatchError } from "@query-engine/batch-error-attribution";
 import type { QueryEngine } from "@query-engine/query-engine";
 import {
   type TransactionOperationCapability,
   transactionOperationOwner,
 } from "@query-engine/transaction-operation";
 import type { PreparedBatchGuard } from "@query-engine/types";
+import {
+  assertAtomicArraySupport,
+  assertNativeBatchResults,
+  executeNativeBatch,
+  missingOperationResult,
+  unbatchableArrayError,
+} from "./array-transaction-native-batch";
 
 interface LegacyNativeMember {
   parse(batchResults: QueryResult<unknown>[]): Promise<unknown>;
@@ -77,7 +83,8 @@ export async function executeLegacyArrayTransaction(
           parse: (batchResults) =>
             owner.observeBatchPhase(operation, driver, () => {
               const result = batchResults[start];
-              if (!result) throw missingOperationResult(driver, operation);
+              if (!result)
+                throw missingOperationResult(driver, operation, owner);
               return owner.parseResult(operation, result);
             }),
         });
@@ -204,7 +211,7 @@ async function executeObservedNativeArray(
         parsers.push((batchResults) =>
           owner.observeBatchPhase(operation, driver, () => {
             const result = batchResults[start];
-            if (!result) throw missingOperationResult(driver, operation);
+            if (!result) throw missingOperationResult(driver, operation, owner);
             return owner.parseResult(operation, result);
           })
         );
@@ -248,10 +255,7 @@ async function executeObservedNativeArray(
   setObservedCertainty(observations, "committed");
   reportCertainty?.("committed");
   try {
-    assertNormalizedBatchResults(batchResults, operationQueries.length, {
-      provider: driver.driverName,
-      operation: "$transaction([...])",
-    });
+    assertNativeBatchResults(driver, batchResults, operationQueries.length);
     for (let index = 0; index < parsers.length; index += 1) {
       const value = await parsers[index]!(batchResults);
       const observation = observations[index]!;
@@ -380,65 +384,4 @@ function setObservedCertainty(
   certainty: "committed" | "may-have-committed"
 ): void {
   for (const observation of observations) observation.certainty = certainty;
-}
-
-async function executeNativeBatch(
-  driver: AnyDriver,
-  queries: BatchQuery[],
-  guards: PreparedBatchGuard[],
-  options: TransactionOptions | BatchTransactionOptions | undefined,
-  context: QueryExecutionContext
-): Promise<QueryResult<unknown>[]> {
-  if (queries.length === 0) return [];
-  try {
-    return await driver._executeBatch(
-      queries,
-      options as BatchTransactionOptions | undefined,
-      context
-    );
-  } catch (error) {
-    throw await attributeOperationBatchError(error, guards, driver, queries);
-  }
-}
-
-function assertAtomicArraySupport(driver: AnyDriver): void {
-  if (driver.supportsTransactions || driver.supportsBatch) return;
-  throw new TransactionError(
-    `Driver "${driver.driverName}" supports neither transactions nor atomic batch execution.`,
-    {
-      meta: {
-        driver: driver.driverName,
-        method: "$transaction([...])",
-      },
-    }
-  );
-}
-
-function unbatchableArrayError(driver: AnyDriver): TransactionError {
-  return new TransactionError(
-    `Driver "${driver.driverName}" does not support callback transactions and this transaction contains operations that cannot be batched atomically.`,
-    {
-      meta: {
-        driver: driver.driverName,
-        method: "$transaction([...])",
-      },
-    }
-  );
-}
-
-function missingOperationResult(
-  driver: AnyDriver,
-  operation: TransactionOperationCapability
-): TransactionError {
-  const operationName =
-    transactionOperationOwner(operation).operation(operation);
-  return new TransactionError(
-    `Driver "${driver.driverName}" omitted the result for operation "${operationName}".`,
-    {
-      meta: {
-        driver: driver.driverName,
-        operation: operationName,
-      },
-    }
-  );
 }

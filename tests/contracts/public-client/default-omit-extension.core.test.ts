@@ -269,6 +269,23 @@ describe("official default omit foundation", () => {
     expect(derived.$extends({ name: "after-refusals" }).$schema).toBe(schema);
   });
 
+  test("preserves official hybrid admission error precedence", () => {
+    const base = extensionOnlyBase();
+    const omit = omission();
+    const observed = instrumentation({ logging: { error: true } });
+    const derived = base.$extends(omit).$extends(observed);
+
+    expect(() =>
+      applyUnsafe(derived, {
+        name: omit.name,
+        request: omit.request,
+        observe: observed.observe,
+      })
+    ).toThrow(
+      "The official instrumentation extension is already present on this client."
+    );
+  });
+
   test("admits result-agnostic extensions before omit and refuses prior result consumers", () => {
     const base = extensionOnlyBase();
     const official = omission();

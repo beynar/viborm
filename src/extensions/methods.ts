@@ -1,5 +1,5 @@
 import type { TransactionClient, VibORMConfig } from "@client/client";
-import type { RawSurface } from "@client/raw";
+import { RAW_METHOD_NAMES, type RawSurface } from "@client/raw";
 import type { Client, ClientRelationDefaults } from "@client/types";
 import { ClientInitializationError } from "@errors";
 import { ROUTED_OPERATIONS } from "@query-engine/write-engine/routing";
@@ -274,10 +274,6 @@ const CORE_CLIENT_METHODS = new Set([
   "$withCache",
   "$invalidate",
   "$extends",
-  "$executeRaw",
-  "$executeRawUnsafe",
-  "$queryRaw",
-  "$queryRawUnsafe",
 ]);
 
 function readMethodRecord(
@@ -436,6 +432,7 @@ export function bindExtensionMethods(
         }
         if (
           CORE_CLIENT_METHODS.has(name) ||
+          Object.hasOwn(RAW_METHOD_NAMES, name) ||
           Object.hasOwn(clientMethods, name)
         ) {
           extensionError(

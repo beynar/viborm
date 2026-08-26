@@ -1,7 +1,7 @@
 import {
   getOfficialCacheChainCapability,
   getOfficialCacheQueryCapability,
-  isOfficialCacheName,
+  OFFICIAL_CACHE_NAME,
   registerOfficialCacheChain,
 } from "@cache/extension";
 import {
@@ -13,7 +13,7 @@ import {
 import type { Schema } from "@client/types";
 import {
   getOfficialInstrumentationChainCapability,
-  isOfficialInstrumentationName,
+  OFFICIAL_INSTRUMENTATION_NAME,
   registerOfficialInstrumentationChain,
 } from "@instrumentation/extension";
 import { isFunction } from "@validation/value-guards";
@@ -44,7 +44,6 @@ export interface ResolvedExtensionOperationLookup {
       Readonly<Record<string, readonly ResolvedExtensionHandler[]>>
     >
   >;
-  readonly raw: Readonly<Record<string, readonly ResolvedExtensionHandler[]>>;
 }
 
 export interface ResolvedExtension {
@@ -77,9 +76,7 @@ export function lookupResolvedExtensionHandlers(
   const lookup = chain[component];
   const global = lookup.global.length === 0 ? undefined : lookup.global;
   if (model === undefined) {
-    return (
-      lookup.raw[operation] ?? (component === "query" ? global : undefined)
-    );
+    return component === "query" ? global : undefined;
   }
   return lookup.models[model]?.[operation] ?? global;
 }
@@ -105,13 +102,11 @@ function appendModelHandler(
 
 function appendGlobalHandler(
   models: Record<string, Record<string, ResolvedExtensionHandler[]>>,
-  raw: Record<string, ResolvedExtensionHandler[]>,
   handler: ResolvedExtensionHandler
 ): void {
   for (const operations of Object.values(models)) {
     for (const handlers of Object.values(operations)) handlers.push(handler);
   }
-  for (const handlers of Object.values(raw)) handlers.push(handler);
 }
 
 function appendOperationHandlers(
@@ -125,7 +120,6 @@ function appendOperationHandlers(
     string,
     Record<string, ResolvedExtensionHandler[]>
   > = Object.create(null);
-  const raw: Record<string, ResolvedExtensionHandler[]> = Object.create(null);
   const global: ResolvedExtensionHandler[] = previous
     ? [...previous.global]
     : [];
@@ -139,16 +133,13 @@ function appendOperationHandlers(
       }
       models[modelName] = operations;
     }
-    for (const [operation, handlers] of Object.entries(previous.raw)) {
-      raw[operation] = [...handlers];
-    }
   }
 
   if (contribution) {
     if (isFunction(contribution)) {
       const handler = resolvedHandler(extension, contribution);
       global.push(handler);
-      appendGlobalHandler(models, raw, handler);
+      appendGlobalHandler(models, handler);
     } else {
       for (const [modelName, operationMap] of Object.entries(contribution)) {
         for (const [operation, handler] of Object.entries(operationMap)) {
@@ -178,24 +169,16 @@ function appendOperationHandlers(
     }
     frozenModels[modelName] = Object.freeze(frozenOperations);
   }
-  const frozenRaw: Record<string, readonly ResolvedExtensionHandler[]> =
-    Object.create(null);
-  for (const [operation, handlers] of Object.entries(raw)) {
-    frozenRaw[operation] = Object.freeze(handlers);
-  }
   return Object.freeze({
     global: Object.freeze(global),
     models: Object.freeze(frozenModels),
-    raw: Object.freeze(frozenRaw),
   });
 }
 
 function hasCompiledHandlers(
   lookup: ResolvedExtensionOperationLookup
 ): boolean {
-  if (lookup.global.length > 0 || Object.keys(lookup.raw).length > 0) {
-    return true;
-  }
+  if (lookup.global.length > 0) return true;
   for (const operations of Object.values(lookup.models)) {
     if (Object.keys(operations).length > 0) return true;
   }
@@ -251,6 +234,31 @@ function consumesOperationResults(
   );
 }
 
+function assertOfficialExtensionAdmission(options: {
+  readonly definitionName: string;
+  readonly officialName: string;
+  readonly label: string;
+  readonly hasIdentity: boolean;
+  readonly isAlreadyPresent: boolean;
+  readonly duplicateMessage: string;
+}): void {
+  if (options.hasIdentity && options.isAlreadyPresent) {
+    extensionError(options.duplicateMessage, options.definitionName);
+  }
+  if (options.hasIdentity && options.definitionName !== options.officialName) {
+    extensionError(
+      `The official ${options.label} extension name must be "${options.officialName}".`,
+      options.definitionName
+    );
+  }
+  if (!options.hasIdentity && options.definitionName === options.officialName) {
+    extensionError(
+      `Extension name "${options.officialName}" is reserved for the official ${options.label} extension.`,
+      options.definitionName
+    );
+  }
+}
+
 export function appendResolvedExtension(
   chain: ResolvedExtensionChain | undefined,
   value: unknown,
@@ -263,42 +271,25 @@ export function appendResolvedExtension(
     definition.request
   );
   const existingDefaultOmit = getOfficialDefaultOmitChainCapability(chain);
-  if (incomingCache !== undefined && existingOfficialCache !== undefined) {
-    extensionError(
+  assertOfficialExtensionAdmission({
+    definitionName: definition.name,
+    officialName: OFFICIAL_CACHE_NAME,
+    label: "cache",
+    hasIdentity: incomingCache !== undefined,
+    isAlreadyPresent: existingOfficialCache !== undefined,
+    duplicateMessage:
       "The official cache extension is already present on this client.",
-      definition.name
-    );
-  }
-  if (incomingCache !== undefined && !isOfficialCacheName(definition.name)) {
-    extensionError(
-      'The official cache extension name must be "viborm.cache".',
-      definition.name
-    );
-  }
-  if (incomingCache === undefined && isOfficialCacheName(definition.name)) {
-    extensionError(
-      'Extension name "viborm.cache" is reserved for the official cache extension.',
-      definition.name
-    );
-  }
-  if (
-    incomingDefaultOmit !== undefined &&
-    definition.name !== OFFICIAL_DEFAULT_OMIT_NAME
-  ) {
-    extensionError(
-      `The official default omit extension name must be "${OFFICIAL_DEFAULT_OMIT_NAME}".`,
-      definition.name
-    );
-  }
-  if (
-    incomingDefaultOmit === undefined &&
-    definition.name === OFFICIAL_DEFAULT_OMIT_NAME
-  ) {
-    extensionError(
-      `Extension name "${OFFICIAL_DEFAULT_OMIT_NAME}" is reserved for the official default omit extension.`,
-      definition.name
-    );
-  }
+  });
+  assertOfficialExtensionAdmission({
+    definitionName: definition.name,
+    officialName: OFFICIAL_DEFAULT_OMIT_NAME,
+    label: "default omit",
+    hasIdentity: incomingDefaultOmit !== undefined,
+    // The generic duplicate-name check owns default-omit duplication after
+    // instrumentation admission, preserving hostile hybrid error precedence.
+    isAlreadyPresent: false,
+    duplicateMessage: `Extension "${OFFICIAL_DEFAULT_OMIT_NAME}" is already present on this client.`,
+  });
   if (incomingDefaultOmit !== undefined && chain?.hasResultConsumers === true) {
     extensionError(
       "The default omit extension cannot follow an extension that defines model-mapped query, client, or model behavior.",
@@ -309,30 +300,15 @@ export function appendResolvedExtension(
     definition.observe
   );
   const existingOfficial = getOfficialInstrumentationChainCapability(chain);
-  if (incomingOfficial !== undefined && existingOfficial !== undefined) {
-    extensionError(
+  assertOfficialExtensionAdmission({
+    definitionName: definition.name,
+    officialName: OFFICIAL_INSTRUMENTATION_NAME,
+    label: "instrumentation",
+    hasIdentity: incomingOfficial !== undefined,
+    isAlreadyPresent: existingOfficial !== undefined,
+    duplicateMessage:
       "The official instrumentation extension is already present on this client.",
-      definition.name
-    );
-  }
-  if (
-    incomingOfficial !== undefined &&
-    !isOfficialInstrumentationName(definition.name)
-  ) {
-    extensionError(
-      'The official instrumentation extension name must be "viborm.instrumentation".',
-      definition.name
-    );
-  }
-  if (
-    incomingOfficial === undefined &&
-    isOfficialInstrumentationName(definition.name)
-  ) {
-    extensionError(
-      'Extension name "viborm.instrumentation" is reserved for the official instrumentation extension.',
-      definition.name
-    );
-  }
+  });
   if (
     chain?.extensions.some((extension) => extension.name === definition.name)
   ) {

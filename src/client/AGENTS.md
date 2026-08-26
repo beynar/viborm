@@ -398,6 +398,13 @@ and cardinality once against its full query list; a multi-statement member then
 trusts and consumes its exact result slice. Pass every original `QueryResult`,
 including `insertId`, to its consumer; never rewrap it or strip its fields.
 
+`array-transaction-native-batch.ts` is the single owner of provider dispatch
+attribution, normalized batch cardinality, and native-batch transaction errors.
+The legacy, observe-only, and intercepted shells keep their preparation and
+result-window loops local: extracting those measured hot loops adds per-member
+CPU and per-array allocation. Keep the unextended legacy shell monomorphic and
+free of extension slots, outcome collectors, and async helper frames.
+
 ---
 
 ## Related Layers
