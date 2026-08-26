@@ -19,7 +19,7 @@ const users = await client.user.findMany({
 | Layer | Spelling | Meaning | Can a query undo it? |
 |---|---|---|---|
 | Model | `s.model({...}).omit({...})` | Schema truth: the scalar is not public | No |
-| Client default | `defaultOmit<typeof schema>()({...})` | Default projection on one derived client | Yes |
+| Client default | [`defaultOmit<typeof schema>()({...})`](/docs/extensions/omit) | Default projection on one derived client | Yes |
 | Query | `findMany({ omit: {...} })` | Projection for one call | — |
 
 ### Model `.omit()`
@@ -38,42 +38,9 @@ not a substitute for database authorization or complete RBAC.
 
 ### Client `defaultOmit()`
 
-```ts
-import { defaultOmit } from "viborm/client";
-
-const client = createClient({ schema, driver }).$extends(
-  defaultOmit<typeof schema>()({
-    user: { passwordHash: true },
-    note: { draftBody: true },
-  })
-);
-```
-
-The configuration is snapshotted once and must contain exact model/scalar keys
-with literal `true` values. It applies to root results and nested relation
-payloads. A query can restore one defaulted field with `false` or override the
-default through an explicit `select`:
-
-```ts
-await client.user.findMany({ omit: { passwordHash: false } });
-await client.user.findMany({ select: { id: true, passwordHash: true } });
-```
-
-A default never changes a bulk operation from `{ count }` to rows. Only a
-projection written on that call does that.
-
-### Ordering with other extensions
-
-Because `defaultOmit()` changes default result types, it may follow only
-extensions whose type context is independent of a concrete pre-omit result:
-
-- request, statement, or observe contributions;
-- a schema-generic polymorphic query function;
-- official `cache()` and `instrumentation()` extensions.
-
-It cannot follow a schema-specific model/operation query map, a client-method
-factory, or a model-method factory. Apply `defaultOmit()` before those
-result-consuming definitions.
+`defaultOmit()` is the official extension for a derived client's default
+projection. See [Default omit](/docs/extensions/omit) for configuration,
+overrides, nested results, and extension ordering.
 
 ## Query-level composition
 

@@ -43,6 +43,29 @@ Statement transforms are trusted low-level SQL rewrites. Observers are
 protected and failure-contained. Client and model factories change the static
 surface.
 
+## Official extensions
+
+Official extensions use the same composition language while retaining private
+access to the core facts they need:
+
+<CardGroup>
+  <Card
+    title="Cache"
+    description="Canonical cached reads, stale-while-revalidate, and commit-aware invalidation"
+    href="/docs/extensions/cache"
+  />
+  <Card
+    title="Instrumentation"
+    description="Protected tracing, structured logging, and diagnostic disclosure"
+    href="/docs/extensions/instrumentation"
+  />
+  <Card
+    title="Default omit"
+    description="Typed default field omission for one derived client"
+    href="/docs/extensions/omit"
+  />
+</CardGroup>
+
 ## Operation lifecycle
 
 Calling a model method still creates a lazy operation. Extension code starts
@@ -135,19 +158,6 @@ const tenant = defineExtension<typeof schema>()({
   },
 });
 ```
-
-## Default omit ordering
-
-`defaultOmit()` changes the client's default result types. It can follow
-extensions whose types do not depend on a concrete pre-omit result:
-
-- request, statement, or observe contributions;
-- a schema-generic polymorphic query function;
-- the official `cache()` or `instrumentation()` extension.
-
-It cannot follow a schema-specific model/operation query map, a client-method
-factory, or a model-method factory. Those contributions were contextually typed
-against the earlier result surface. Apply `defaultOmit()` before them instead.
 
 ## Authorization boundary
 

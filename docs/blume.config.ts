@@ -33,6 +33,42 @@ export default defineConfig({
       to: "/extensions",
       status: 308,
     },
+    { from: "/cache", to: "/extensions/cache", status: 308 },
+    {
+      from: "/cache/drivers",
+      to: "/extensions/cache/drivers",
+      status: 308,
+    },
+    {
+      from: "/cache/drivers/cloudflare-kv",
+      to: "/extensions/cache/drivers/cloudflare-kv",
+      status: 308,
+    },
+    {
+      from: "/cache/drivers/custom",
+      to: "/extensions/cache/drivers/custom",
+      status: 308,
+    },
+    {
+      from: "/cache/drivers/memory",
+      to: "/extensions/cache/drivers/memory",
+      status: 308,
+    },
+    {
+      from: "/instrumentation",
+      to: "/extensions/instrumentation",
+      status: 308,
+    },
+    {
+      from: "/instrumentation/logging",
+      to: "/extensions/instrumentation/logging",
+      status: 308,
+    },
+    {
+      from: "/instrumentation/tracing",
+      to: "/extensions/instrumentation/tracing",
+      status: 308,
+    },
   ],
   deployment: {
     output: "server",

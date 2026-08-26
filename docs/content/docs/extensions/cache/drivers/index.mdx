@@ -7,8 +7,8 @@ description: Multiple cache backends with a unified driver interface
 
 | Driver | Best For | Persistence | Distributed |
 |--------|----------|-------------|-------------|
-| [MemoryCache](/docs/cache/drivers/memory) | Development, single-instance | No | No |
-| [CloudflareKVCache](/docs/cache/drivers/cloudflare-kv) | Cloudflare Workers | Yes | Yes |
+| [MemoryCache](/docs/extensions/cache/drivers/memory) | Development, single-instance | No | No |
+| [CloudflareKVCache](/docs/extensions/cache/drivers/cloudflare-kv) | Cloudflare Workers | Yes | Yes |
 
 ## Choosing a Driver
 
@@ -40,8 +40,8 @@ const client = createClient({ schema, driver }).$extends(
 
 ### Production - Other Environments
 
-For other production environments (Node.js, Vercel, AWS Lambda), implement a custom driver using Redis, Upstash, or another distributed cache. See [Custom Drivers](/docs/cache/drivers/custom).
+For other production environments (Node.js, Vercel, AWS Lambda), implement a custom driver using Redis, Upstash, or another distributed cache. See [Custom Drivers](/docs/extensions/cache/drivers/custom).
 
 ## Driver Interface
 
-All cache drivers extend the abstract `CacheDriver` class and implement four methods: `get`, `set`, `delete`, and `clear`. See [Custom Drivers](/docs/cache/drivers/custom) for the full interface and reference implementations.
+All cache drivers extend the abstract `CacheDriver` class and implement four methods: `get`, `set`, `delete`, and `clear`. See [Custom Drivers](/docs/extensions/cache/drivers/custom) for the full interface and reference implementations.
