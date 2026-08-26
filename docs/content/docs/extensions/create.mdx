@@ -1,0 +1,287 @@
+---
+title: Create an extension
+description: Build a typed reusable extension with the smallest correct capability
+icon: puzzle
+---
+
+An extension is one named, immutable contribution to a client. Start with the
+boundary you need, add only that capability, and apply the definition with
+`$extends()`.
+
+## Create and apply one extension
+
+Use `defineExtension()` for a reusable schema-generic extension. A generic
+`query` function can wrap every model and raw operation while preserving each
+operation's result type:
+
+```ts
+import { defineExtension } from "viborm";
+
+const timing = defineExtension({
+  name: "timing",
+  async query({ kind, model, operation, proceed }) {
+    const startedAt = performance.now();
+
+    try {
+      return await proceed();
+    } finally {
+      const subject = model ?? kind;
+      console.info(
+        `${subject}.${operation}: ${performance.now() - startedAt}ms`
+      );
+    }
+  },
+});
+
+const measured = client.$extends(timing);
+```
+
+`measured` is a new client. `client` remains unchanged, and both clients share
+the same schema, driver, and pool. Extension names must be non-empty and unique
+inside one chain.
+
+:::tip
+Use the official [`instrumentation()`](/docs/extensions/instrumentation)
+extension for production tracing and structured logging. The example above is
+deliberately small so the query protocol is visible.
+:::
+
+## Choose the narrowest capability
+
+| Need | Capability | Contract |
+|---|---|---|
+| Change model-operation arguments | `request` | Synchronous shallow patch before validation |
+| Wrap one prepared logical operation | `query` | Asynchronous continuation around execution |
+| Rewrite materialized SQL | `statement` | Synchronous trusted `Sql → Sql` transform |
+| Record lifecycle completion | `observe` | Protected, failure-contained observation |
+| Add client methods | `client` | Factory returning dollar-prefixed functions |
+| Add model methods | `model` | Per-model factory returning functions |
+
+Do not put every concern into `query`. Each capability exposes only the facts
+and authority appropriate to its boundary.
+
+## Bind an extension to your schema
+
+Use the curried form when the definition names models or operations. It gives
+the definition exact contextual types from your schema:
+
+```ts
+const postTools = defineExtension<typeof schema>()({
+  name: "post-tools",
+
+  request: {
+    post: {
+      findMany({ input }) {
+        const requestedTake = input.take ?? 100;
+        return { take: Math.min(requestedTake, 100) };
+      },
+    },
+  },
+
+  client(scope) {
+    return {
+      $postCount() {
+        return scope.post.count();
+      },
+    };
+  },
+
+  model: {
+    post(delegate) {
+      return {
+        findPublished() {
+          return delegate.findMany({ where: { published: true } });
+        },
+      };
+    },
+  },
+});
+
+const db = client.$extends(postTools);
+
+await db.$postCount();
+await db.post.findPublished();
+```
+
+The factories receive the client or delegate for the current scope. Use that
+supplied value so the methods also work inside callback and nested
+transactions. Capturing an unrelated root client in the extension closure
+deliberately escapes that transaction scope.
+
+Definition normalization and client/model factories run when each concrete
+root or transaction view is constructed. Operation handlers remain lazy until
+an operation is awaited or admitted to an array transaction.
+
+Client method names must start with `$`. A contributed method cannot replace a
+core method, a model name, `then`, or a method from an earlier extension. The
+whole extension application fails if any name collides.
+
+## Transform request input
+
+A `request` handler runs only for model operations. It receives a shallow
+readonly input and must return a synchronous object patch:
+
+```ts
+const boundedReads = defineExtension<typeof schema>()({
+  name: "bounded-reads",
+  request: {
+    post: {
+      findMany({ input }) {
+        return { take: Math.min(input.take ?? 100, 100) };
+      },
+    },
+  },
+});
+```
+
+The patch is merged over the current operation input, then normal validation
+runs. Later request extensions see earlier patches. Result-shaping arguments
+such as `select`, `include`, `omit`, count and aggregate selectors,
+`groupBy.by`, and returning projections are deliberately unavailable. VibORM
+preserves the caller's exact result shape around request transforms.
+
+The readonly contract is shallow. Nested caller values are borrowed, so build a
+patch instead of mutating `input` or anything inside it.
+
+Use `request` for argument defaults, normalization, and ordinary filters. A
+root filter alone is not complete authorization: nested relations, writes,
+raw SQL, and field use require a graph-wide policy.
+
+## Wrap logical execution
+
+A `query` handler runs after mandatory preparation. Its `input` is a detached,
+post-validation inspection snapshot. The safe default is to return the
+continuation exactly once:
+
+```ts
+const aroundPosts = defineExtension<typeof schema>()({
+  name: "around-posts",
+  query: {
+    post: {
+      async findMany({ mode, input, proceed }) {
+        beforeRead({ mode, input });
+        const posts = await proceed();
+        afterRead(posts.length);
+        return posts;
+      },
+    },
+  },
+});
+```
+
+Direct and callback-transaction model reads may return without `proceed()` to
+implement a deliberate short circuit. Mutations, raw operations, and every
+member admitted to `$transaction([...])` must call it exactly once. Once
+`proceed()` starts, its value or error is authoritative; detached work cannot
+replace a failed child or fabricate success.
+
+For mutation-side effects that must follow the real durability boundary,
+register a listener before calling `proceed()`:
+
+```ts
+const refreshAfterUpdates = defineExtension<typeof schema>()({
+  name: "refresh-after-updates",
+  query: {
+    post: {
+      async update({ onWriteOutcome, proceed }) {
+        onWriteOutcome(({ certainty }) => {
+          enqueueRefresh({ certainty });
+        });
+
+        return proceed();
+      },
+    },
+  },
+});
+```
+
+The certainty is `"committed"` or `"may-have-committed"`. Transaction rollback
+discards the listener, and outer commit publishes it.
+
+## Transform physical statements
+
+`statement` is trusted last-mile SQL authority. It runs synchronously for each
+materialized ORM statement and tagged safe raw statement, after references are
+resolved and before placeholder rendering:
+
+```ts
+import { defineExtension, raw, sql } from "viborm";
+
+const labelStatements = defineExtension({
+  name: "statement-labels",
+  statement({ statement, model }) {
+    if (model !== "post") return statement;
+    return sql`${raw("/* posts */ ")}${statement}`;
+  },
+});
+```
+
+The handler must return a `Sql` value. It does not receive the operation
+program, and it never transforms verbatim unsafe raw text. Do not use `raw()`
+with untrusted values. A chain with a statement transform bypasses the official
+cache because the transform's semantic effect cannot be fingerprinted safely.
+
+## Observe without changing behavior
+
+An observer can inspect a frozen lifecycle unit and its sanitized completion:
+
+```ts
+const audit = defineExtension({
+  name: "audit",
+  observe(unit, proceed) {
+    void proceed().then((completion) => {
+      recordLifecycle({ unit, completion });
+    });
+  },
+});
+```
+
+Units cover operations, statements, batches, transactions, savepoints,
+progressive segments, connections, and cache work. Completion includes status,
+duration, a sanitized error summary, and commit certainty where applicable.
+
+Observers never receive SQL, parameters, rows, results, cache keys, drivers, or
+raw errors. Their throws, rejected promises, and returned promises cannot alter
+or delay the application operation. Their synchronous JavaScript still runs on
+the application thread, so keep it small.
+
+## Compose extensions
+
+Apply extensions in the order they should wrap one another:
+
+```ts
+const db = client
+  .$extends(boundedReads)
+  .$extends(timing)
+  .$extends(postTools);
+```
+
+Request transforms run in application order. Query interceptors are nested in
+that order: the first applied interceptor is outermost. Statement transforms
+also receive the previous transform's `Sql` value in application order.
+
+There are no priorities, global registrations, or extension removal. Build the
+desired immutable client once and pass that client to the code that should use
+it.
+
+Transaction clients inherit contributed methods but do not expose `$extends()`.
+Derive the client before entering the callback. Every member of an array
+transaction must also come from the same derived client scope; do not mix base
+and sibling-client operations.
+
+## Before publishing an extension
+
+- Give it one stable, unique name.
+- Use `defineExtension<typeof schema>()({...})` for model or operation maps.
+- Keep request handlers synchronous and return only a shallow patch.
+- Return or await `proceed()` exactly once unless intentionally short-circuiting
+  a non-array model read.
+- Register write-outcome work before `proceed()`.
+- Treat statement transforms as trusted SQL code.
+- Use the supplied scope in client and model factories.
+- Test direct, callback-transaction, and array-transaction execution when the
+  extension participates in those modes.
+
+See the [extension overview](/docs/extensions) for the complete lifecycle and
+the [official extensions](/docs/extensions#official-extensions) for production
+cache, instrumentation, and default omission.

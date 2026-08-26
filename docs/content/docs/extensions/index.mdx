@@ -24,6 +24,14 @@ const timing = defineExtension({
 const measured = client.$extends(timing);
 ```
 
+<CardGroup>
+  <Card
+    title="Create an extension"
+    description="Choose the right boundary and build a typed reusable extension"
+    href="/docs/extensions/create"
+  />
+</CardGroup>
+
 ## The six capabilities
 
 An extension has one name and any subset of exactly six capabilities:
@@ -68,8 +76,10 @@ access to the core facts they need:
 
 ## Operation lifecycle
 
-Calling a model method still creates a lazy operation. Extension code starts
-only when that operation is awaited or admitted to an array transaction:
+Calling a model method still creates a lazy operation. Its operation handlers
+start only when that operation is awaited or admitted to an array transaction.
+Definition normalization and client/model method factories instead run when a
+derived root or transaction view is constructed:
 
 ```text
 operation observer begins
