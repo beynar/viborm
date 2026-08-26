@@ -1,246 +1,134 @@
-# Cache - Caching Layer for Query Results
+# Cache — Official Query-Cache Extension
 
 **Location:** `src/cache/`
-**Layer:** L10 - Cache (see [root AGENTS.md](../../AGENTS.md))
+**Layer:** L10
 
 ## Purpose
 
-Provides a caching abstraction for ORM query results with support for multiple cache backends, TTL management, and stale-while-revalidate (SWR) patterns.
+The cache layer owns deterministic read identity, portable detached result
+snapshots, TTL/SWR orchestration, invalidation, and cache-backend storage. It
+does not own SQL construction, provider execution, core result parsing,
+transaction commit, or query-interceptor application.
 
-## Why This Layer Exists
+Caching is installed only through the authenticated fixed-name extension:
 
-Database queries are often repeated with identical parameters. Caching these results improves performance, reduces database load, and enables edge deployments (Cloudflare Workers). This layer:
-
-1. **Abstracts cache backends** - Memory, Cloudflare KV, Redis (future)
-2. **Handles invalidation** - Automatic on mutations, manual via keys/prefixes
-3. **Supports SWR** - Returns stale data immediately while revalidating in background
-4. **Generates deterministic keys** - From model, operation, and args
-
-```typescript
-// Cache read queries with automatic key generation
-const users = await orm.$withCache({ ttl: "1 hour", swr: true })
-  .user.findMany({ where: { active: true } });
-
-// Mutations automatically invalidate related cache
-await orm.user.update({
-  where: { id: "123" },
-  data: { name: "Alice" },
-  cache: { invalidate: ["user:*"] }  // Clear all user cache
-});
+```ts
+const cached = createClient({ schema, driver }).$extends(
+  cache({
+    driver: new MemoryCache(),
+    version: "r2",
+    waitUntil,
+  })
+);
 ```
 
----
+Base and ordinary-derived clients have no `$withCache` or `$invalidate` surface.
+Never restore `cache`, `cacheVersion`, or `waitUntil` to `createClient()`.
 
-## Entry Points
+## Owners
 
-| File | Purpose | Modify When |
-|------|---------|-------------|
-| `driver.ts` | Abstract CacheDriver base class + orchestration | Adding cache driver methods, SWR logic |
-| `key.ts` | Cache key generation (deterministic hashing) | Changing key format |
-| `ttl.ts` | TTL string parsing ("1 hour" → ms) | Adding time units |
-| `schema.ts` | Cache options schema (TTL, SWR, invalidation) | Adding cache options |
-| `index.ts` | Public exports | Adding new exports |
-| `drivers/memory.ts` | In-memory cache implementation | Memory-specific fixes |
-| `drivers/cloudflare-kv.ts` | Cloudflare KV implementation | KV-specific fixes |
+| Owner | Responsibility |
+|---|---|
+| `src/cache/extension.ts` | Hostile-safe config snapshot, fixed-name provenance, per-chain driver/version/waitUntil/scope |
+| `driver.ts` | Get/set/SWR/invalidation orchestration and the authenticated official scope friend |
+| `key.ts` | Canonical keys, official namespace encoding, legacy key helpers |
+| `schema.ts` | Per-read cache options and mutation invalidation options |
+| `cache-instrumentation.ts` | Cache presentation facts consumed by protected instrumentation |
+| `query-engine/result/cache-result-codec.ts` | Shape-compiled detached snapshot/materialization codec |
+| `query-engine/cache-flow.ts` | Official inner-core read attachment and detached snapshot execution |
+| `drivers/*` | Backend-only get/set/delete/clear primitives |
+| `client/client.ts` | Authenticated capability lookup and the irreducible client-view/cache trigger points |
+| `src/extensions/query.ts` | The single ordered write-outcome rail used for durability-bound invalidation |
 
-**Note:** The `CachedClient` proxy is created in `src/client/client.ts` via `$withCache()`, not in this module.
+There is no second cache manager, mutable cache-driver version, client-config
+fallback, mutation-wrapper registry, or native-batch invalidation owner.
 
----
+## Key identity and scope
 
-## Core Concepts
+Official read identity is canonical post-request validated input plus model,
+operation, projection, version namespace, and the private snapshot-format
+revision. `CacheExecutionOptions.key` contributes a suffix; it never replaces
+that identity.
 
-### Cache Driver Abstraction
+Official namespaces are injectively encoded for undefined, string, and number
+versions and authenticated by a private capability. Public/unscoped driver
+methods must refuse the reserved `viborm:cache:` namespace before backend or
+executor effects. Other legacy-prefixed `viborm:*` storage keys retain their
+public backend contract.
 
-All cache backends extend the abstract `CacheDriver` class:
+Official `$invalidate` and mutation `cache.invalidate` accept relative exact
+keys or `*` suffix prefixes. Validate the complete target list before starting
+any delete or clear. `autoInvalidate` clears `${modelName}:`, including the
+delimiter, inside the exact official namespace.
 
-```typescript
-abstract class CacheDriver {
-  // Abstract methods - implement per backend
-  protected abstract get<T>(key: string): Promise<CacheEntry<T> | null>;
-  protected abstract set<T>(key: string, ttl: number, entry: CacheEntry<T>): Promise<void>;
-  protected abstract delete(keys: string[]): Promise<void>;
-  protected abstract clear(prefix: string): Promise<void>;
+## Result snapshots
 
-  // Public API - handles prefixing, instrumentation
-  async _get<T>(key: string): Promise<CacheEntry<T> | null>;
-  async _set<T>(key: string, value: T, options: CacheSetOptions): Promise<void>;
-  async _invalidate(modelName: string, options?: CacheInvalidationOptions): Promise<void>;
+Cache storage never owns provider rows. The official wrapper receives the
+normally parsed core result, snapshots it synchronously before outer query
+post-work, and materializes a fresh graph on every hit. The compiled codec is
+shape-directed and shares raw-column and aggregate-leaf classification with the
+normal result parser. Do not add a generic serializer or route hits back through
+`ResultParser`.
 
-  // Configuration
-  setVersion(version: string | number | undefined): void;
-  setInstrumentation(ctx: InstrumentationContext | undefined): void;
-}
-```
+Snapshots are hostile input on materialization. Exact node kinds, keys,
+cardinality, dimensions, prototypes, and dense-array structure are validated at
+that boundary. Errors expose no cached values. Custom JSON validation runs on
+the provider result only, not again on a hit.
 
-**Why underscore prefix:** Public methods (`_get`, `_set`) handle cross-cutting concerns (key prefixing, instrumentation). Protected methods (`get`, `set`) are pure backend operations.
+## SWR
 
-**Version storage:** The driver stores the version and uses it in `prefixKey()` to ensure all operations (including manual `$invalidate`) respect the configured `cacheVersion`.
+A stale hit synchronously gives one complete background promise to the exact
+chain's `waitUntil`. That promise owns marker acquisition, inner core replay,
+snapshot, set, and cleanup. Background replay does not rerun request transforms,
+ordinary query interceptors, or a second logical operation.
 
-### Deterministic Cache Keys
+Marker get-then-set is best-effort and is not an atomic distributed claim.
+Always clear the marker. Worker failure stays primary over cleanup failure;
+both are retained for protected lifecycle presentation. Scheduling, work,
+storage, and cleanup failures never alter the stale application result or leak
+an unhandled rejection.
 
-Keys are generated from operation parameters:
+## Invalidation
 
-```
-viborm[:v<version>]:<model>:<operation>:<hash>
-viborm:user:findMany:abc123def456...
-viborm:v2:user:findMany:abc123def456...  // with cacheVersion: 2
-```
+Package cache invalidation is a pre-registered entry on the existing ordered
+`TransactionWriteOutcomes` rail. It is seeded before public listeners and
+published once for committed or possibly committed writes. Rollback and
+savepoint rollback discard it; savepoint success promotes it to the parent.
+The registration owns its `CacheConfigurationError` boundary and adds exact
+commit certainty while later listeners are still attempted.
 
-The hash uses a fast non-cryptographic algorithm (djb2 variant) on stable-stringified args. Stability means `{a: 1, b: 2}` and `{b: 2, a: 1}` produce the same hash.
+Every cache-capable mutation registers the invalidator even when the normalized
+option is absent. This preserves the observable default invalidation lifecycle.
+Do not reintroduce executor wrappers, per-mutation WeakMaps, or native/fallback
+publication branches.
 
-**Branded operand tokens key in a reserved namespace.** A value that is not JSON — a `DbNull`/`JsonNull`/`AnyNull` sentinel, a field reference, an SQL fragment, plus the scalars JSON cannot carry (bigint, `Date`, bytes) — serializes inside delimiters (`U+001F` … `U+001E`) that `JSON.stringify` can never emit, so no user document can forge one. Without it a sentinel and the ordinary document `{ kind: "DbNull" }` hashed alike and a cached client served one query's rows for the other. Note that changing the serialization changes every hash: entries written by an older build are simply never read again (they expire on their own TTL), and `cacheVersion` is a key PREFIX that does not feed the hash, so it neither hides that nor needs bumping for it.
+## Deliberate read bypass
 
-**Cache Versioning:** Setting `cacheVersion` in client config adds a version prefix to all keys. Bump the version when schema changes to automatically invalidate stale cache entries with incompatible shapes.
+Official caching is bypassed for callback/nested transactions, public array
+transactions, statement-transform chains, safe and unsafe raw operations, and
+the existing no-cache execution context. Query interceptors stay outside the
+cache wrapper, independent of extension declaration order. Cache-managed reads
+are always borrowed and never claim consumable provider rows.
 
-### Stale-While-Revalidate (SWR)
+## Instrumentation and privacy
 
-When `swr: true`:
-1. Fresh hit → return immediately
-2. Stale hit → return immediately, revalidate in background
-3. Miss → execute query, cache result
+Cache get, set, invalidate, and actual revalidation work emit protected cache
+lifecycle facts only when observers exist. Marker clear/delete helpers are not
+fictional public cache units. Official instrumentation may present its private
+facts, but ordinary observers see only the frozen public unit and completion.
+Cache keys and suffixes never reach units, spans, logs, errors, or correlation.
 
-The `_markRevalidating` method prevents thundering herd - only one request revalidates.
+## Backend rules
 
-**Serverless environments:** Configure `waitUntil` at the client level to keep the runtime alive during background revalidation:
+- Backends implement asynchronous `get`, `set`, `delete`, and `clear` only.
+- Memory timers use the complete storage TTL and are `unref()`'d.
+- Cloudflare KV listing follows cursors until complete.
+- Backend code does not apply versioning, canonical identity, SWR policy,
+  instrumentation policy, or transaction semantics.
+- Do not mutate a returned cache entry or application result graph.
 
-```typescript
-// Cloudflare Workers
-export default {
-  async fetch(request, env, ctx) {
-    const client = createClient({
-      schema,
-      driver,
-      cache: new CloudflareKVCache(env.CACHE),
-      waitUntil: ctx.waitUntil.bind(ctx),
-    });
-    return client.$withCache({ swr: true }).user.findMany({});
-  }
-}
+## Validation
 
-// Vercel Edge
-import { waitUntil } from '@vercel/functions';
-const client = createClient({ schema, driver, cache, waitUntil });
-const cached = client.$withCache({ swr: true });
-```
-
-### Cache Invalidation
-
-Three patterns:
-- **Direct:** Use `client.$invalidate("user:*")` to invalidate anytime
-- **Automatic:** After mutations, clear model's cache prefix (opt-in via `autoInvalidate: true`)
-- **Manual:** Specify keys or prefixes in mutation's `cache.invalidate` option
-
-```typescript
-// Direct invalidation from client
-await client.$invalidate("user:*", "post:findMany:*");
-
-// Clear specific key in mutation
-cache: { invalidate: ["user:findUnique:abc123"] }
-
-// Clear by prefix (note the *)
-cache: { invalidate: ["user:*"] }
-```
-
-**Version-aware invalidation:** The cache driver stores the version via `setVersion()`. All key prefixing (including in `$invalidate`) respects the stored version automatically.
-
-### Bypass Option
-
-When `bypass: true` is set in `$withCache()`, the cache read is skipped but the result is still written to cache. Useful for debugging or forcing a fresh fetch.
-
-```typescript
-const fresh = client.$withCache({ bypass: true }).user.findMany();
-```
-
----
-
-## Core Rules
-
-### Rule 1: Prefix All Keys
-All cache keys must be prefixed with `viborm:` to avoid collisions with other cache users. The base class handles this automatically.
-
-### Rule 2: Double TTL for Storage
-Storage TTL is 2x the user's TTL to allow SWR to serve stale content. The entry's `ttl` field stores the original value for staleness checks.
-
-### Rule 3: Async-Only Operations
-All cache operations are async. Even in-memory cache returns Promises for interface consistency.
-
-### Rule 4: Instrumentation Support
-All public methods support OpenTelemetry tracing via `this.instrumentation`. Cache operations appear as spans with these attributes:
-- `cache.driver`: Driver name (memory, cloudflare-kv)
-- `cache.key`: The cache key
-- `cache.result`: `hit`, `miss`, `stale`, or `bypass`
-- `cache.ttl`: TTL in milliseconds
-
----
-
-## Anti-Patterns
-
-### Hardcoded Backend Logic in Client
-Put backend-specific code in driver implementations, not in `client.ts`. The client should be backend-agnostic.
-
-### Synchronous Cache Operations
-Even if the backend is synchronous (memory), wrap in Promise. Interface consistency matters.
-
-### Mutable Cache Entries
-Cache entries should be treated as immutable. Don't modify returned values.
-
-### Missing Revalidating Key Cleanup
-Always call `_clearRevalidating` after background revalidation, even on error. Otherwise, the key stays locked.
-
-### Unbounded Memory Cache
-The memory cache doesn't implement TTL eviction at the storage level. It relies on staleness checks at read time. For production, use external caches.
-
----
-
-## Adding New Cache Backend
-
-1. **Create `drivers/{name}.ts`**:
-   ```typescript
-   import { CacheDriver, type CacheEntry } from "../driver";
-
-   export class MyCache extends CacheDriver {
-     constructor(/* backend-specific config */) {
-       super("my-cache");
-     }
-
-     protected async get<T>(key: string): Promise<CacheEntry<T> | null> { ... }
-     protected async set<T>(key: string, storageTtl: number, entry: CacheEntry<T>): Promise<void> { ... }
-     protected async delete(keys: string[]): Promise<void> { ... }
-     protected async clear(prefix: string): Promise<void> { ... }
-   }
-   ```
-
-2. **Export from `index.ts`**:
-   ```typescript
-   export { MyCache } from "./driver/my-cache";
-   ```
-
-3. **Export from `src/index.ts`** (main package)
-
-4. **Add tests**
-
----
-
-## Invisible Knowledge
-
-### Why Double TTL for Storage
-Users expect "1 hour TTL" to mean "fresh for 1 hour". With SWR, we need to serve stale content past that point. Storing for 2x TTL ensures the entry exists for SWR while the entry's internal `ttl` field tracks actual freshness.
-
-### Why Key Prefix Pattern
-`viborm:user:*` as invalidation pattern uses `*` suffix to indicate "clear by prefix". Without `*`, it's a specific key. This matches Redis/Cloudflare KV prefix operations.
-
-### Why Stable Stringify
-Object key order in JavaScript is insertion-order, not alphabetical. `{a:1, b:2}` and `{b:2, a:1}` would hash differently without sorting keys first. Our `stableStringify` sorts keys.
-
-### Why No TTL Eviction in Memory Cache
-Implementing proper TTL eviction requires timers or periodic sweeps. For development/testing, staleness checks at read time are sufficient. Production should use Redis/KV with native TTL.
-
----
-
-## Related Layers
-
-| Layer | Relationship |
-|-------|--------------|
-| **Client** ([client/AGENTS.md](../client/AGENTS.md)) | Creates CachedClient via `$withCache()` |
-| **Instrumentation** | Cache operations emit spans and logs |
-| **Schema** | `cacheSchema` validates invalidation options in mutations |
+Run the focused cache/client contract first, then the cache, client,
+query-engine, driver, and instrumentation layer gates sequentially. Never
+overlap Vitest or TypeScript processes.

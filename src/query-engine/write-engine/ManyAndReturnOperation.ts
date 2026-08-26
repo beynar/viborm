@@ -124,6 +124,11 @@ export function refusesRowReturningSubstrate(
 export class ManyAndReturnOperation {
   readonly mode: ExecutionMode;
 
+  /** The canonical payload validated at construction. */
+  get validatedArgs(): Record<string, unknown> {
+    return this.args;
+  }
+
   private readonly engine: QueryEngine;
   private readonly model: Model<any>;
   private readonly kind: AndReturnKind;

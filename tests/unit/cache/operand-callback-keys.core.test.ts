@@ -1,4 +1,5 @@
 import { MemoryCache } from "@cache/drivers/memory";
+import { cache as cacheExtension } from "@cache/extension";
 import { generateCacheKey } from "@cache/key";
 import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
@@ -6,9 +7,9 @@ import { PGlite } from "@electric-sql/pglite";
 import { CacheInvalidKeyError } from "@errors";
 import { push } from "@migrations";
 import { sql } from "@sql";
+import { fieldRefSchema } from "@tests/fixtures/field-ref-schema";
 import type { OperandCtx } from "@validation/primitives/operand";
 import { beforeAll, beforeEach, describe, expect, test } from "vitest";
-import { fieldRefSchema } from "@tests/fixtures/field-ref-schema";
 
 /**
  * Cache keys and operand callbacks (W8-A Unit 3).
@@ -41,7 +42,7 @@ beforeEach(async () => {
 
 const makeClient = () => createClient({ schema, driver });
 const makeCachedClient = (cache: MemoryCache) =>
-  createClient({ schema, driver, cache });
+  createClient({ schema, driver }).$extends(cacheExtension({ driver: cache }));
 
 const seed = async (client: ReturnType<typeof makeClient>) => {
   await client.user.createMany({

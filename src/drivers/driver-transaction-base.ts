@@ -2,17 +2,23 @@
 
 import { TransactionError } from "@errors";
 import { SPAN_TRANSACTION } from "@instrumentation/spans";
-import type { Sql } from "@sql";
+import { Sql } from "@sql";
 import type { Driver } from "./driver";
 import { prepareAtomicBatch } from "./driver-batch-preparation";
 import { isVerbatimBatchQuery } from "./driver-batch-query-kind";
 import { findUniqueExecutionContextIndex } from "./driver-diagnostics";
-import { DriverInstrumentationBase } from "./driver-instrumentation";
+import {
+  DriverInstrumentationBase,
+  type OfficialDriverLifecycleExecutionGate,
+  type OfficialStatementExecutionGate,
+} from "./driver-instrumentation";
 import { normalizeDriverError } from "./error-mapping";
+import { appendExecutionTransactionPhases } from "./execution-context";
 import {
   assertNormalizedBatchResults,
   assertNormalizedQueryResult,
 } from "./normalized-result";
+import { registerPreparedStatement } from "./prepared-statement-provenance";
 import {
   type BatchTransactionOptions,
   parseTransactionOptions,
@@ -158,49 +164,99 @@ export abstract class DriverTransactionBase<
     context?: QueryExecutionContext
   ): Promise<QueryResult<T>> {
     const executionContext = this.resolveExecutionContext(context, "execute");
-    const sql = this.buildStatement(query);
-    const executionParams = [...query.values];
-    const diagnosticParams = this.getDiagnosticParameters(
-      executionParams,
-      executionContext
-    );
-    const resultContext = {
-      provider: this.driverName,
-      operation: executionContext.operation ?? "execute",
-    };
-    const executeQuery = async () => {
-      const client = await this.getClient(executionContext);
-      return this.withInstrumentation(
-        sql,
-        diagnosticParams,
+    const hasStatementObservers = this.hasTrustedObservers(executionContext);
+    let transformedQuery = hasStatementObservers
+      ? undefined
+      : this.applyTrustedStatementTransforms(
+          query,
+          executionContext,
+          "execute"
+        );
+    const executeQuery = async (
+      gate?: OfficialStatementExecutionGate
+    ): Promise<QueryResult<T>> => {
+      transformedQuery ??= this.applyTrustedStatementTransforms(
+        query,
         executionContext,
-        async () => {
-          const result = await this.execute<T>(
-            client,
-            sql,
-            executionParams,
-            executionContext
-          );
-          assertNormalizedQueryResult(result, resultContext);
-          return result;
-        }
+        "execute"
       );
+      const sql = this.buildStatement(transformedQuery);
+      const executionParams = [...transformedQuery.values];
+      const diagnosticParams = this.getDiagnosticParameters(
+        executionParams,
+        executionContext
+      );
+      const resultContext = {
+        provider: this.driverName,
+        operation: executionContext.operation ?? "execute",
+      };
+      const client = await this.getClient(executionContext);
+      const executeProvider = async () => {
+        const providerResult = await this.execute<T>(
+          client,
+          sql,
+          executionParams,
+          executionContext
+        );
+        assertNormalizedQueryResult(providerResult, resultContext);
+        return providerResult;
+      };
+      return gate === undefined
+        ? this.executeNormalizedStatement(
+            sql,
+            diagnosticParams,
+            executionContext,
+            executeProvider,
+            true
+          )
+        : gate.execute(
+            {
+              context: executionContext,
+              diagnosticParams,
+              forceErrorContext: true,
+              sql,
+            },
+            executeProvider
+          );
     };
+    if (!hasStatementObservers) {
+      if (this.serializeTransactions && !this.inTransaction) {
+        this.assertBaseOperationAllowedDuringTransaction(executionContext);
+        return this.connectionQueue.enqueue(executeQuery);
+      }
+      return executeQuery();
+    }
+    const executeObserved = () =>
+      this.observeTrustedStatement(executionContext, executeQuery);
     if (this.serializeTransactions && !this.inTransaction) {
       this.assertBaseOperationAllowedDuringTransaction(executionContext);
-      return this.connectionQueue.enqueue(executeQuery);
+      return this.connectionQueue.enqueue(executeObserved);
     }
-    return executeQuery();
+    return executeObserved();
   }
 
   /**
    * Convert a typed Sql fragment into a driver-ready batch query.
    * Query-engine planners use this so dialect placeholders stay driver-owned.
    */
-  _prepare(query: Sql): BatchQuery {
+  _prepare(query: Sql, context?: QueryExecutionContext): BatchQuery {
+    if (this.hasTrustedObservers(context)) {
+      const statement = new Sql([...query.strings], [...query.values]);
+      const prepared = {
+        sql: this.buildStatement(statement),
+        params: [...statement.values],
+      };
+      registerPreparedStatement(prepared, statement);
+      return prepared;
+    }
+    const transformedQuery = this.applyTrustedStatementTransforms(
+      query,
+      context,
+      "prepare"
+    );
     return {
-      sql: this.buildStatement(query),
-      params: query.values,
+      sql: this.buildStatement(transformedQuery),
+      params: transformedQuery.values,
     };
   }
 
@@ -216,71 +272,73 @@ export abstract class DriverTransactionBase<
       context,
       "executeRaw"
     );
-    const executionParams = params ? [...params] : [];
-    const diagnosticParams = this.getDiagnosticParameters(
-      executionParams,
-      executionContext
-    );
-    const resultContext = {
-      provider: this.driverName,
-      operation: executionContext.operation ?? "executeRaw",
-    };
-    const executeQuery = async () => {
-      const client = await this.getClient(executionContext);
-      return this.withInstrumentation(
-        sql,
-        diagnosticParams,
-        executionContext,
-        async () => {
-          const result = await this.executeRaw<T>(
-            client,
-            sql,
-            executionParams,
-            executionContext
-          );
-          assertNormalizedQueryResult(result, resultContext);
-          return result;
-        }
+    const executeQuery = async (
+      gate?: OfficialStatementExecutionGate
+    ): Promise<QueryResult<T>> => {
+      const executionParams = params ? [...params] : [];
+      const diagnosticParams = this.getDiagnosticParameters(
+        executionParams,
+        executionContext
       );
+      const resultContext = {
+        provider: this.driverName,
+        operation: executionContext.operation ?? "executeRaw",
+      };
+      const client = await this.getClient(executionContext);
+      const executeProvider = async () => {
+        const providerResult = await this.executeRaw<T>(
+          client,
+          sql,
+          executionParams,
+          executionContext
+        );
+        assertNormalizedQueryResult(providerResult, resultContext);
+        return providerResult;
+      };
+      return gate === undefined
+        ? this.executeNormalizedStatement(
+            sql,
+            diagnosticParams,
+            executionContext,
+            executeProvider,
+            true
+          )
+        : gate.execute(
+            {
+              context: executionContext,
+              diagnosticParams,
+              forceErrorContext: true,
+              sql,
+            },
+            executeProvider
+          );
     };
+    if (!this.hasTrustedObservers(executionContext)) {
+      if (this.serializeTransactions && !this.inTransaction) {
+        this.assertBaseOperationAllowedDuringTransaction(executionContext);
+        return this.connectionQueue.enqueue(executeQuery);
+      }
+      return executeQuery();
+    }
+    const executeObserved = () =>
+      this.observeTrustedStatement(executionContext, executeQuery);
     if (this.serializeTransactions && !this.inTransaction) {
       this.assertBaseOperationAllowedDuringTransaction(executionContext);
-      return this.connectionQueue.enqueue(executeQuery);
+      return this.connectionQueue.enqueue(executeObserved);
     }
-    return executeQuery();
+    return executeObserved();
   }
 
   /**
-   * Execute a function within a transaction.
-   *
-   * The callback receives the raw transaction object. Use `TransactionBoundDriver`
-   * to create a driver that executes all operations within this transaction.
-   *
-   * @param fn - Callback that receives the transaction object
-   * @param options - Prisma-shaped transaction options; each is honored or
-   *   refused per this driver's declared contract, never ignored
+   * Execute one provider transaction after public option/context resolution.
+   * Queue ownership and protected lifecycle observation remain with callers.
    */
-  async _transaction<T>(
+  protected runProviderTransactionCore<T>(
     fn: (tx: TTransaction) => Promise<T>,
-    options?: TransactionOptions,
-    context?: QueryExecutionContext
+    plan: TransactionPlan | undefined,
+    executionContext: QueryExecutionContext,
+    lifecycleGate?: OfficialDriverLifecycleExecutionGate
   ): Promise<T> {
-    const plan = this.resolveTransactionOptions(options, "callback");
-    if (!this.supportsTransactions) {
-      throw new TransactionError(
-        `Driver "${this.driverName}" does not support callback transactions.`,
-        {
-          meta: {
-            driver: this.driverName,
-            method: "$transaction(callback)",
-          },
-        }
-      );
-    }
-    const executionContext = this.resolveExecutionContext(
-      context,
-      "transaction"
-    );
     const noCallbackFailure = Symbol("noCallbackFailure");
     let callbackFailure: unknown = noCallbackFailure;
     // `timeout` on this raw entry point races the callback and lets the
@@ -354,16 +412,90 @@ export abstract class DriverTransactionBase<
       }
     };
 
-    const execute = () =>
-      this.isTracingEnabled(executionContext, SPAN_TRANSACTION)
-        ? this.getTracer(executionContext).startActiveSpan(
-            {
-              name: SPAN_TRANSACTION,
-              attributes: this.getContextAttributes(executionContext),
-            },
-            runTransaction
-          )
-        : runTransaction();
+    return lifecycleGate === undefined
+      ? runTransaction()
+      : lifecycleGate.execute(runTransaction);
+  }
+
+  /** Form one transaction/savepoint lifecycle outside its owning queue. */
+  protected observeTransactionLifecycle<T>(
+    kind: "savepoint" | "transaction",
+    executionContext: QueryExecutionContext,
+    child: (
+      context: QueryExecutionContext,
+      gate: OfficialDriverLifecycleExecutionGate | undefined
+    ) => Promise<T>
+  ): Promise<T> {
+    const observationState:
+      | { phase: "pending" | "ready" | "committed" }
+      | undefined = kind === "transaction" ? { phase: "pending" } : undefined;
+    const transactionExecutionContext = observationState
+      ? appendExecutionTransactionPhases(executionContext, {
+          readyToCommit: () => {
+            observationState.phase = "ready";
+          },
+          committed: () => {
+            observationState.phase = "committed";
+          },
+        })
+      : executionContext;
+    return this.observeTrustedDriverLifecycle(
+      kind,
+      executionContext,
+      SPAN_TRANSACTION,
+      async (gate) => {
+        const result = await child(transactionExecutionContext, gate);
+        if (observationState) observationState.phase = "committed";
+        return result;
+      },
+      observationState === undefined
+        ? undefined
+        : () =>
+            observationState.phase === "pending"
+              ? undefined
+              : {
+                  commitCertainty:
+                    observationState.phase === "committed"
+                      ? "committed"
+                      : "may-have-committed",
+                }
+    );
+  }
+
+  /**
+   * Execute a function within a transaction.
+   *
+   * The callback receives the raw transaction object. Use `TransactionBoundDriver`
+   * to create a driver that executes all operations within this transaction.
+   *
+   * @param fn - Callback that receives the transaction object
+   * @param options - Prisma-shaped transaction options; each is honored or
+   *   refused per this driver's declared contract, never ignored
+   */
+  async _transaction<T>(
+    fn: (tx: TTransaction) => Promise<T>,
+    options?: TransactionOptions,
+    context?: QueryExecutionContext
+  ): Promise<T> {
+    const plan = this.resolveTransactionOptions(options, "callback");
+    if (!this.supportsTransactions) {
+      throw new TransactionError(
+        `Driver "${this.driverName}" does not support callback transactions.`,
+        {
+          meta: {
+            driver: this.driverName,
+            method: "$transaction(callback)",
+          },
+        }
+      );
+    }
+    const executionContext = this.resolveExecutionContext(
+      context,
+      "transaction"
+    );
+    const hasLifecycleObservers = this.hasTrustedObservers(executionContext);
+    const executeTransaction = () =>
+      this.runProviderTransactionCore(fn, plan, executionContext);
 
     // Queue top-level transactions on single-connection drivers so concurrent
     // callers serialize instead of colliding on the shared connection. Nested
@@ -372,21 +504,56 @@ export abstract class DriverTransactionBase<
       this.assertBaseOperationAllowedDuringTransaction(executionContext);
       // This queue wait is exactly what `maxWait` bounds on serialized drivers:
       // a bounded-out transaction never reaches BEGIN, so nothing to roll back.
-      return this.connectionQueue.enqueue(
-        () => this.runConnectionTransactionLease(execute),
-        plan?.maxWaitMode === "queue" && plan.maxWaitMs !== undefined
-          ? {
-              maxWaitMs: plan.maxWaitMs,
-              onMaxWaitExceeded: () =>
-                transactionMaxWaitError(plan.maxWaitMs as number, {
-                  driverName: this.driverName,
-                  form: "callback",
-                }),
-            }
-          : undefined
+      if (!hasLifecycleObservers) {
+        return this.connectionQueue.enqueue(
+          () => this.runConnectionTransactionLease(executeTransaction),
+          plan?.maxWaitMode === "queue" && plan.maxWaitMs !== undefined
+            ? {
+                maxWaitMs: plan.maxWaitMs,
+                onMaxWaitExceeded: () =>
+                  transactionMaxWaitError(plan.maxWaitMs as number, {
+                    driverName: this.driverName,
+                    form: "callback",
+                  }),
+              }
+            : undefined
+        );
+      }
+      return this.observeTransactionLifecycle(
+        "transaction",
+        executionContext,
+        (transactionContext, gate) =>
+          this.connectionQueue.enqueue(
+            () =>
+              this.runConnectionTransactionLease(() =>
+                this.runProviderTransactionCore(
+                  fn,
+                  plan,
+                  transactionContext,
+                  gate
+                )
+              ),
+            plan?.maxWaitMode === "queue" && plan.maxWaitMs !== undefined
+              ? {
+                  maxWaitMs: plan.maxWaitMs,
+                  onMaxWaitExceeded: () =>
+                    transactionMaxWaitError(plan.maxWaitMs as number, {
+                      driverName: this.driverName,
+                      form: "callback",
+                    }),
+                }
+              : undefined
+          )
       );
     }
-    return execute();
+    return hasLifecycleObservers
+      ? this.observeTransactionLifecycle(
+          "transaction",
+          executionContext,
+          (transactionContext, gate) =>
+            this.runProviderTransactionCore(fn, plan, transactionContext, gate)
+        )
+      : executeTransaction();
   }
 
   /**
@@ -502,30 +669,77 @@ export abstract class DriverTransactionBase<
             query.context.operation ?? "executeBatch"
           )
         : batchContext;
-      const diagnosticParams = this.getBatchDiagnosticParameters(query);
+      let executionQuery = query;
+      let diagnosticParams = this.getBatchDiagnosticParameters(query);
       try {
-        const executeStatement = isVerbatimBatchQuery(query)
-          ? () =>
-              this.executeRaw<T>(
-                client,
-                query.sql,
-                query.params,
-                statementContext
-              )
-          : () =>
-              this.execute<T>(
-                client,
-                query.sql,
-                query.params ?? [],
-                statementContext
-              );
+        if (!this.hasTrustedObservers(statementContext)) {
+          const executeStatement = isVerbatimBatchQuery(query)
+            ? () =>
+                this.executeRaw<T>(
+                  client,
+                  query.sql,
+                  query.params,
+                  statementContext
+                )
+            : () =>
+                this.execute<T>(
+                  client,
+                  query.sql,
+                  query.params ?? [],
+                  statementContext
+                );
+          results.push(
+            await this.executeNormalizedStatement(
+              query.sql,
+              diagnosticParams,
+              statementContext,
+              executeStatement,
+              true
+            )
+          );
+          continue;
+        }
         results.push(
-          await this.withInstrumentation(
-            query.sql,
-            diagnosticParams,
-            statementContext,
-            executeStatement
-          )
+          await this.observeTrustedStatement(statementContext, (gate) => {
+            executionQuery = this.materializeTrustedBatchQuery(
+              query,
+              statementContext
+            );
+            diagnosticParams =
+              this.getBatchDiagnosticParameters(executionQuery);
+            const executeStatement = isVerbatimBatchQuery(executionQuery)
+              ? () =>
+                  this.executeRaw<T>(
+                    client,
+                    executionQuery.sql,
+                    executionQuery.params,
+                    statementContext
+                  )
+              : () =>
+                  this.execute<T>(
+                    client,
+                    executionQuery.sql,
+                    executionQuery.params ?? [],
+                    statementContext
+                  );
+            return gate === undefined
+              ? this.executeNormalizedStatement(
+                  executionQuery.sql,
+                  diagnosticParams,
+                  statementContext,
+                  executeStatement,
+                  true
+                )
+              : gate.execute(
+                  {
+                    context: statementContext,
+                    diagnosticParams,
+                    forceErrorContext: true,
+                    sql: executionQuery.sql,
+                  },
+                  executeStatement
+                );
+          })
         );
       } catch (error) {
         throw normalizeDriverError(error, {
@@ -534,7 +748,7 @@ export abstract class DriverTransactionBase<
           operation: statementContext.operation,
           correlationId: statementContext.correlationId,
           statementIndex,
-          query: query.sql,
+          query: executionQuery.sql,
           params: diagnosticParams,
           diagnostics: this.getErrorDisclosure(statementContext),
           forceContext: true,
@@ -577,17 +791,6 @@ export abstract class DriverTransactionBase<
       context,
       "executeBatch"
     );
-    const {
-      queries: batchQueries,
-      diagnosticParams,
-      errorLogDetails,
-    } = prepareAtomicBatch(
-      queries,
-      executionContext,
-      (params, context) =>
-        this.getDiagnosticParameters(params, context, executionContext),
-      this.canDiscloseParameters(executionContext)
-    );
     const resultContext = {
       provider: this.driverName,
       operation: executionContext.operation ?? "executeBatch",
@@ -602,71 +805,125 @@ export abstract class DriverTransactionBase<
           `Driver '${this.driverName}' cannot acknowledge ordered committed segments.`
         );
       }
-      const sql = batchQueries.map((query) => query.sql).join("; ");
-      const executeNativeBatch = async () => {
-        const client = await this.getClient(executionContext);
-        return this.withInstrumentation(
-          sql,
+      const hasStatementObservers = this.hasTrustedObservers(executionContext);
+      const executeNativeBatch = async (
+        sourceQueries: readonly BatchQuery[] = queries,
+        gate?: OfficialStatementExecutionGate
+      ) => {
+        const {
+          queries: batchQueries,
           diagnosticParams,
+          errorLogDetails,
+        } = prepareAtomicBatch(
+          sourceQueries,
           executionContext,
-          async () => {
-            try {
-              const results = await this.executeBatch<T>(
-                client,
-                batchQueries,
-                executionContext,
-                committed
-              );
-              assertNormalizedBatchResults(
-                results,
-                batchQueries.length,
-                resultContext
-              );
-              return results;
-            } catch (error) {
-              const statementIndex = findUniqueExecutionContextIndex(
-                error,
-                batchQueries
-              );
-              if (statementIndex !== undefined) {
-                const statement = batchQueries[statementIndex];
-                if (statement) {
-                  const statementContext =
-                    statement.context ?? executionContext;
-                  throw normalizeDriverError(error, {
-                    driverName: this.driverName,
-                    model: statementContext.model,
-                    operation: statementContext.operation,
-                    correlationId: statementContext.correlationId,
-                    query: statement.sql,
-                    params: this.getBatchDiagnosticParameters(statement),
-                    diagnostics: this.getErrorDisclosure(statementContext),
-                    forceContext: true,
-                  });
-                }
-              }
-              throw normalizeDriverError(error, {
-                driverName: this.driverName,
-                model: executionContext.model,
-                operation: executionContext.operation,
-                correlationId: executionContext.correlationId,
-                query: sql,
-                params: diagnosticParams,
-                diagnostics: this.getErrorDisclosure(executionContext),
-                forceContext: true,
-              });
-            }
-          },
-          false,
-          errorLogDetails
+          (params, statementContext) =>
+            this.getDiagnosticParameters(
+              params,
+              statementContext,
+              executionContext
+            ),
+          this.canDiscloseParameters(executionContext)
         );
+        const sql = batchQueries.map((query) => query.sql).join("; ");
+        const client = await this.getClient(executionContext);
+        const executeProvider = async () => {
+          try {
+            const results = await this.executeBatch<T>(
+              client,
+              batchQueries,
+              executionContext,
+              committed
+            );
+            assertNormalizedBatchResults(
+              results,
+              batchQueries.length,
+              resultContext
+            );
+            return results;
+          } catch (error) {
+            const statementIndex = findUniqueExecutionContextIndex(
+              error,
+              batchQueries
+            );
+            if (statementIndex !== undefined) {
+              const statement = batchQueries[statementIndex];
+              if (statement) {
+                const statementContext = statement.context ?? executionContext;
+                throw normalizeDriverError(error, {
+                  driverName: this.driverName,
+                  model: statementContext.model,
+                  operation: statementContext.operation,
+                  correlationId: statementContext.correlationId,
+                  query: statement.sql,
+                  params: this.getBatchDiagnosticParameters(statement),
+                  diagnostics: this.getErrorDisclosure(statementContext),
+                  forceContext: true,
+                });
+              }
+            }
+            throw normalizeDriverError(error, {
+              driverName: this.driverName,
+              model: executionContext.model,
+              operation: executionContext.operation,
+              correlationId: executionContext.correlationId,
+              query: sql,
+              params: diagnosticParams,
+              diagnostics: this.getErrorDisclosure(executionContext),
+              forceContext: true,
+            });
+          }
+        };
+        return gate === undefined
+          ? this.executeNormalizedStatement(
+              sql,
+              diagnosticParams,
+              executionContext,
+              executeProvider,
+              false
+            )
+          : gate.execute(
+              {
+                context: executionContext,
+                diagnosticParams,
+                errorLogDetails,
+                forceErrorContext: false,
+                sql,
+              },
+              executeProvider
+            );
       };
+      if (!hasStatementObservers) {
+        if (this.serializeTransactions && !this.inTransaction) {
+          this.assertBaseOperationAllowedDuringTransaction(executionContext);
+          return this.connectionQueue.enqueue(executeNativeBatch);
+        }
+        return executeNativeBatch();
+      }
+      const submitNativeBatch = () =>
+        this.observeTrustedBatchStatements(
+          queries,
+          executionContext,
+          executeNativeBatch
+        );
       if (this.serializeTransactions && !this.inTransaction) {
         this.assertBaseOperationAllowedDuringTransaction(executionContext);
-        return this.connectionQueue.enqueue(executeNativeBatch);
+        return this.connectionQueue.enqueue(submitNativeBatch);
       }
-      return executeNativeBatch();
+      return submitNativeBatch();
     }
+
+    const { queries: batchQueries } = prepareAtomicBatch(
+      queries,
+      executionContext,
+      (params, statementContext) =>
+        this.getDiagnosticParameters(
+          params,
+          statementContext,
+          executionContext
+        ),
+      this.canDiscloseParameters(executionContext)
+    );
 
     // If driver supports transactions, wrap in transaction (or use existing one)
     if (this.supportsTransactions) {

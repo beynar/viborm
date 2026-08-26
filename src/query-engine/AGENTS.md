@@ -701,6 +701,37 @@ and `JunctionStatements`. `QueryMetadata` is not a runtime boundary. Do not
 add a generic mutation DSL, payload walker, branch-step IR, locator, strategy,
 lifecycle hook, or shared utility landfill.
 
+## Extension execution boundary
+
+The query engine consumes the client chain; it does not own a second middleware
+registry. Request transforms run before core validation. Query interceptors run
+around the prepared logical operation and must preserve the authoritative child
+once `proceed()` starts. Statement transforms run once at the common typed
+`Sql` boundary after statement observation and before rendering; verbatim unsafe
+raw excludes transforms. Protected observers receive public completion facts
+only, while official instrumentation reads private facts keyed by the exact
+core-created lifecycle unit.
+
+The capability protocols and their single runners live in
+`src/extensions/request.ts`, `query.ts`, `statement.ts`, and `observation.ts`.
+The engine consumes the resolved lookups from `src/extensions/chain.ts`; native
+and fallback arrays share only the extension admission latch in
+`src/extensions/array-admission.ts`. The query engine retains only irreducible
+lifecycle triggers and the private facts it can know at execution time; it does
+not wrap, copy, or reinterpret an extension handler. Core array dispatch remains
+here and in the client rather than moving into the extension module.
+
+Array coordination resolves transaction authority from the private WeakMap in
+`transaction-operation.ts`. Client/scope ownership is read from unshadowable
+class-private state before reservation or preparation. No operation method,
+symbol property, public token, or structural protocol grants execution
+authority.
+
+Official cache execution attaches at the prepared operation's inner-core seam,
+inside ordinary query interceptors. It snapshots the parsed core result before
+outer post-work and remains a borrowed-row path. Callback/array transactions,
+raw operations, and statement-transform chains bypass cached reads.
+
 ## Core rules
 
 1. Adapter owns dialect SQL; driver mapping owns provider error recognition.

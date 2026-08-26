@@ -1,9 +1,13 @@
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { describe, it } from "vitest";
 import { REPOSITORY_ROOT } from "@tests/fixtures/repo-paths";
+import { describe, it } from "vitest";
 
 const scripts = [
+  [
+    "shares only genuine built operation identity with benchmark harnesses",
+    "./benchmark-operation-smoke.mjs",
+  ],
   [
     "imports every runtime export and resolves every type entry",
     "./exports-smoke.mjs",

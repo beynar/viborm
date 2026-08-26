@@ -10,12 +10,16 @@ import {
   createClientFromDriverConfig,
   type DriverConfig,
   type NoExtraDriverConfigKeys,
-  type NoExtraNestedConfigKeys,
   type VibORMClient,
 } from "@client/client";
 import type { Schema } from "@client/types";
 import { FeatureNotSupportedError } from "@errors";
-import { Driver, type DriverResultParser } from "../driver";
+import {
+  Driver,
+  type DriverResultParser,
+  type QueryExecutionContext,
+} from "../driver";
+import { getExecutionTransactionPhases } from "../execution-context";
 import {
   convertValuesForSQLite,
   isSQLiteBinaryValue,
@@ -218,7 +222,8 @@ export class BunSQLiteDriver extends Driver<
 
   protected async transaction<T>(
     client: BunSQLiteDatabase,
-    fn: (tx: BunSQLiteDatabase) => Promise<T>
+    fn: (tx: BunSQLiteDatabase) => Promise<T>,
+    context?: QueryExecutionContext
   ): Promise<T> {
     let shouldClose = false;
     const executeOrClose = (statement: string) => {
@@ -234,6 +239,7 @@ export class BunSQLiteDriver extends Driver<
       callback: () => fn(client),
       commit: () => executeOrClose("COMMIT"),
       rollback: () => executeOrClose("ROLLBACK"),
+      phases: getExecutionTransactionPhases(context),
       close: () => {
         if (shouldClose) {
           client.close();
@@ -251,15 +257,13 @@ export class BunSQLiteDriver extends Driver<
 export function createClient<S extends Schema, C extends DriverConfig<S>>(
   config: BunSQLiteClientConfig<C> &
     DriverConfig<S> &
-    NoExtraDriverConfigKeys<C, BunSQLiteDriverOptions, S> &
-    NoExtraNestedConfigKeys<C, S>
+    NoExtraDriverConfigKeys<C, BunSQLiteDriverOptions, S>
 ): VibORMClient<C & { driver: BunSQLiteDriver }> {
-  const { client, dataDir, options, ...restConfig } = config;
+  const { client, dataDir, options } = config;
 
   const driver = new BunSQLiteDriver({ client, dataDir, options });
 
-  return createClientFromDriverConfig({
-    ...restConfig,
-    driver,
-  }) as VibORMClient<C & { driver: BunSQLiteDriver }>;
+  return createClientFromDriverConfig(config, driver) as VibORMClient<
+    C & { driver: BunSQLiteDriver }
+  >;
 }

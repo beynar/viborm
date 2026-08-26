@@ -169,3 +169,21 @@ export interface InstrumentationConfig {
    */
   logging?: true | LoggingConfig | undefined;
 }
+
+type NoExtraInstrumentationKeys<Given, Allowed> = Given extends object
+  ? Record<Exclude<keyof Given, keyof Allowed>, never>
+  : unknown;
+
+/** Exact public instrumentation input, including each nested configuration bag. */
+export type ExactInstrumentationConfig<Given> = NoExtraInstrumentationKeys<
+  Given,
+  InstrumentationConfig
+> & {
+  [Key in keyof Given]: Key extends "tracing"
+    ? NoExtraInstrumentationKeys<Given[Key], TracingConfig>
+    : Key extends "logging"
+      ? NoExtraInstrumentationKeys<Given[Key], LoggingConfig>
+      : Key extends "diagnostics"
+        ? NoExtraInstrumentationKeys<Given[Key], DiagnosticDisclosure>
+        : unknown;
+};

@@ -53,4 +53,13 @@ describe("createTracerWrapper without the optional OTel peer", () => {
     ).toThrow(failure);
     expect(callback).toHaveBeenCalledTimes(1);
   });
+
+  it("keeps late active-span attributes inert without the optional peer", async () => {
+    const tracer = createTracerWrapper();
+    await tracer.startActiveSpan({ name: SPAN_EXECUTE }, () => undefined);
+
+    expect(() =>
+      tracer.setActiveSpanAttributes?.({ "viborm.test.late": "ignored" })
+    ).not.toThrow();
+  });
 });

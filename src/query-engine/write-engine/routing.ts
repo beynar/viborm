@@ -1,5 +1,9 @@
 import type { AnyDriver, QueryExecutionContext } from "@drivers";
-import { hasCommittedRecordSeriesProgress, TransactionError } from "@errors";
+import {
+  hasCommittedRecordSeriesProgress,
+  QueryEngineError,
+  TransactionError,
+} from "@errors";
 import type { Model } from "@schema/model";
 import {
   createQueryScope,
@@ -8,6 +12,7 @@ import {
   lookupRelation,
 } from "../context/query-scope";
 import type { QueryEngine } from "../query-engine";
+import type { CacheResultCodec } from "../result/cache-result-codec";
 import type { QueryScope } from "../types";
 import { BulkCountOperation } from "./BulkCountOperation";
 import { CreateManyOperation } from "./CreateManyOperation";
@@ -51,6 +56,11 @@ const READ_OPERATIONS: ReadonlySet<string> = new Set([
   "exist",
 ]);
 
+/** Whether a public operation routes through the engine's read owner. */
+export function isReadOperation(operation: string): boolean {
+  return READ_OPERATIONS.has(operation);
+}
+
 /**
  * The operation names the engine owns a construction path for. Every client
  * operation family is here; a name outside it (there is none on the client path)
@@ -66,6 +76,23 @@ export const ROUTED_OPERATIONS: ReadonlySet<string> = new Set([
   "updateMany",
   "deleteMany",
 ]);
+
+/** Whether a public operation routes through the engine's write owner. */
+export function isWriteOperation(operation: string): boolean {
+  return ROUTED_OPERATIONS.has(operation) && !isReadOperation(operation);
+}
+
+/** Read the codec from the exact routed read owner. */
+export function createRoutedCacheResultCodec(
+  operation: RoutedExecutableOperation
+): CacheResultCodec {
+  if (operation instanceof ReadOperation) {
+    return operation.createCacheResultCodec();
+  }
+  throw new QueryEngineError(
+    "query-engine-v2 internal: cache result encoding reached a non-read operation."
+  );
+}
 
 /**
  * Construct the V2 operation for a routed payload. Returns `undefined` only for an
@@ -91,7 +118,7 @@ export function constructRoutedOperation(
   // contracts depend on that capability, so the refusal must NOT live in the
   // operation constructor (it would regress them). It lives here, on the public
   // client path (this function is reached only through `client.ts` →
-  // `PendingOperation.create`), while the executor keeps its capability for the
+  // `QueryEngine.prepare`), while the executor keeps its capability for the
   // direct-executor contracts. A bulk write WITH `select` refuses in the
   // row-returning constructor instead (its identities need a post-commit read no
   // in-batch SELECT can supply); the `{ count }` arms of
@@ -186,7 +213,7 @@ function constructOperation(
   operation: string,
   args: Record<string, unknown>
 ): RoutedExecutableOperation | undefined {
-  if (READ_OPERATIONS.has(operation)) {
+  if (isReadOperation(operation)) {
     return new ReadOperation(engine, model, operation, args);
   }
   switch (operation) {

@@ -45,6 +45,7 @@ type ExecutionMode = "transaction" | "batch";
  */
 export class CreateManyOperation {
   readonly mode: ExecutionMode;
+  readonly validatedArgs: Record<string, unknown>;
 
   private writes: readonly WriteStep[];
   private countOutput: FragmentOutputSource;
@@ -73,6 +74,7 @@ export class CreateManyOperation {
       "createMany",
       "createMany"
     );
+    this.validatedArgs = parsed;
     const data = parsed.data;
     if (!Array.isArray(data)) {
       throw new QueryEngineError(

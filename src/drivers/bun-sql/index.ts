@@ -10,12 +10,12 @@ import {
   createClientFromDriverConfig,
   type DriverConfig,
   type NoExtraDriverConfigKeys,
-  type NoExtraNestedConfigKeys,
   type VibORMClient,
 } from "@client/client";
 import type { Schema } from "@client/types";
 import { unsupportedGeospatial, unsupportedVector } from "@errors";
 import { Driver, type QueryExecutionContext } from "../driver";
+import { getExecutionTransactionPhases } from "../execution-context";
 import { normalizeProviderRowCount } from "../normalized-result";
 import {
   nestedTransactionDispatchError,
@@ -178,7 +178,8 @@ export class BunSQLDriver extends Driver<BunSQL, BunSQLTransaction> {
 
   protected async transaction<T>(
     client: BunSQL | BunSQLTransaction,
-    fn: (tx: BunSQLTransaction) => Promise<T>
+    fn: (tx: BunSQLTransaction) => Promise<T>,
+    context?: QueryExecutionContext
   ): Promise<T> {
     if ("savepoint" in client) {
       throw nestedTransactionDispatchError(this.driverName);
@@ -187,6 +188,7 @@ export class BunSQLDriver extends Driver<BunSQL, BunSQLTransaction> {
     return runProviderManagedTransaction({
       run: (callback) => client.begin(callback),
       callback: fn,
+      phases: getExecutionTransactionPhases(context),
       close: async () => {
         await client.close();
         this.client = null;
@@ -202,11 +204,9 @@ export class BunSQLDriver extends Driver<BunSQL, BunSQLTransaction> {
 export function createClient<S extends Schema, C extends DriverConfig<S>>(
   config: BunSQLClientConfig<C> &
     DriverConfig<S> &
-    NoExtraDriverConfigKeys<C, BunSQLDriverOptions, S> &
-    NoExtraNestedConfigKeys<C, S>
+    NoExtraDriverConfigKeys<C, BunSQLDriverOptions, S>
 ): VibORMClient<C & { driver: BunSQLDriver }> {
-  const { client, databaseUrl, options, pgvector, postgis, ...restConfig } =
-    config;
+  const { client, databaseUrl, options, pgvector, postgis } = config;
 
   const driver = new BunSQLDriver({
     client,
@@ -216,8 +216,7 @@ export function createClient<S extends Schema, C extends DriverConfig<S>>(
     postgis,
   });
 
-  return createClientFromDriverConfig({
-    ...restConfig,
-    driver,
-  }) as VibORMClient<C & { driver: BunSQLDriver }>;
+  return createClientFromDriverConfig(config, driver) as VibORMClient<
+    C & { driver: BunSQLDriver }
+  >;
 }

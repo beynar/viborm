@@ -196,6 +196,8 @@ export interface VibORMErrorMeta {
   feature?: string;
   /** Method name */
   method?: string;
+  /** Durable write state known when the error surfaced. */
+  commitCertainty?: "committed" | "may-have-committed";
   /** Additional context */
   [key: string]: unknown;
 }

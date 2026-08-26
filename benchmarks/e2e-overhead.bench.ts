@@ -11,6 +11,7 @@
 import { createClient } from "@client/client";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import { push } from "@migrations";
+import { readTransactionOperation } from "@query-engine/transaction-operation";
 import { afterAll, bench, describe } from "vitest";
 import { sqliteUserPostSchema } from "../tests/fixtures/user-post-schema";
 
@@ -41,10 +42,23 @@ function preparedOrThrow<T>(prepared: T | undefined): T {
   return prepared;
 }
 
+function prepareTransactionOperation(operation: unknown) {
+  if (operation === null || typeof operation !== "object") {
+    throw new Error("Expected a VibORM benchmark operation");
+  }
+  const owner = readTransactionOperation(operation);
+  if (!owner) throw new Error("Expected a VibORM benchmark operation");
+  return owner.prepare(operation);
+}
+
+function prepareOperation(operation: unknown) {
+  return preparedOrThrow(prepareTransactionOperation(operation));
+}
+
 function prepareMutationForRaw(
   operation: ReturnType<typeof client.user.create>
 ) {
-  const prepared = operation.prepare();
+  const prepared = prepareTransactionOperation(operation);
   if (prepared) return prepared;
   const statement = operation.buildStatement();
   if (!statement)
@@ -58,8 +72,8 @@ function firstOrThrow<T>(rows: readonly T[], name: string): T {
   return first;
 }
 
-const findUniquePrepared = preparedOrThrow(
-  client.user.findUnique({ where: { id: "user_42" } }).prepare()
+const findUniquePrepared = prepareOperation(
+  client.user.findUnique({ where: { id: "user_42" } })
 );
 const findManyArgs = {
   where: { published: true },
@@ -67,9 +81,7 @@ const findManyArgs = {
   orderBy: { views: "desc" },
   take: 20,
 } satisfies Parameters<typeof client.post.findMany>[0];
-const findManyPrepared = preparedOrThrow(
-  client.post.findMany(findManyArgs).prepare()
-);
+const findManyPrepared = prepareOperation(client.post.findMany(findManyArgs));
 
 describe("e2e: read one row by id", () => {
   bench("raw SQL string", async () => {
@@ -111,7 +123,7 @@ describe("e2e: read 20 rows with relation", () => {
     },
     take: 20,
   } satisfies Parameters<typeof client.post.findMany>[0];
-  const prepared = client.post.findMany(args).prepare();
+  const prepared = prepareTransactionOperation(client.post.findMany(args));
   if (!prepared) {
     throw new Error("The relation read did not produce one prepared statement");
   }

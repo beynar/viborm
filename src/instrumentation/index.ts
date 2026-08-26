@@ -12,6 +12,7 @@ export {
   isLoggingActive,
   isTracingActive,
 } from "./context";
+export { instrumentation } from "./extension";
 // Logger
 export {
   type CacheEventType,
@@ -88,6 +89,7 @@ export {
 } from "./tracer";
 // Configuration types
 export type {
+  ExactInstrumentationConfig,
   InstrumentationConfig,
   LogCallback,
   LogEvent,

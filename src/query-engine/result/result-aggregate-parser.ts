@@ -1,10 +1,11 @@
 import { tryParseJsonString } from "@adapters/shared/result-parsing";
 import type { Scalar } from "@schema/scalars";
+import type { AggregateResultName } from "../result-aliases";
 import type { ExpectedAggregateResultShape, Operation } from "../types";
 import type { ResultParser } from "./ResultParser";
+import { classifyAggregateLeaf } from "./result-aggregate-leaf";
 import { parseCountValue } from "./result-count-parser";
 import {
-  getOwnValue,
   isResultRow,
   malformedResult,
   type ParseScalarField,
@@ -14,7 +15,7 @@ import { parseFiniteProviderNumber } from "./scalar-structured-parser";
 export function parseAggregateResult(
   ctx: ResultParser,
   operation: Operation,
-  key: string,
+  key: AggregateResultName,
   raw: unknown,
   scalars: Record<string, Scalar>,
   expected: ExpectedAggregateResultShape | undefined,
@@ -55,7 +56,6 @@ export function parseAggregateResult(
     );
   }
 
-  const typed = key === "_sum" || key === "_min" || key === "_max";
   const result: Record<string, unknown> = {};
   const entries = Object.entries(value);
   if (entries.length === 0) {
@@ -78,6 +78,14 @@ export function parseAggregateResult(
     );
   }
   for (const [field, fieldValue] of entries) {
+    const leaf = classifyAggregateLeaf(key, field, scalars);
+    if (leaf.kind === "unknown") {
+      return malformedResult(
+        ctx,
+        operation,
+        `${key === "_count" ? "aggregate count field" : "aggregate field"} "${field}" is not part of the active model`
+      );
+    }
     if (fieldValue === undefined) {
       return malformedResult(
         ctx,
@@ -86,7 +94,7 @@ export function parseAggregateResult(
       );
     }
     if (fieldValue === null) {
-      if (key === "_count") {
+      if (!leaf.nullable) {
         return malformedResult(
           ctx,
           operation,
@@ -96,33 +104,13 @@ export function parseAggregateResult(
       result[field] = null;
       continue;
     }
-    if (key === "_count") {
-      if (field !== "_all" && !Object.hasOwn(scalars, field)) {
-        return malformedResult(
-          ctx,
-          operation,
-          `aggregate count field "${field}" is not part of the active model`
-        );
-      }
+    if (leaf.kind === "count") {
       result[field] = parseCountValue(ctx, operation, fieldValue);
       continue;
     }
-    const scalar = getOwnValue(scalars, field);
-    if (!scalar) {
-      return malformedResult(
-        ctx,
-        operation,
-        `aggregate field "${field}" is not part of the active model`
-      );
-    }
-    // `_avg` normally widens to a JS number — but an average OF decimals is
-    // still a decimal, computed exactly by the database and cast to text on the
-    // way out. Parsing it as a number would reintroduce, in the one place it is
-    // most likely to matter, exactly the float error this scalar avoids.
-    const isDecimal = scalar["~"].state.type === "decimal";
     result[field] =
-      typed || isDecimal
-        ? parseField(scalar, fieldValue, operation)
+      leaf.kind === "scalar"
+        ? parseField(leaf.scalar, fieldValue, operation)
         : parseAggregateNumber(ctx, operation, field, fieldValue);
   }
   return result;

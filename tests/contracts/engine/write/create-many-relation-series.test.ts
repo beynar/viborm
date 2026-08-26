@@ -20,6 +20,7 @@ import {
   BatchOnlyPGliteDriver,
   usePGliteSchemaFamily,
 } from "@tests/fixtures/drivers/pglite";
+import { readTestTransactionOperation } from "@tests/fixtures/transaction-operation";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
 
@@ -53,6 +54,12 @@ function engineFor(driver: AnyDriver): QueryEngine {
       createSchemaRegistry(createManySeriesSchema)
     )
   );
+}
+
+function transactionOperation(operation: unknown) {
+  const capability = readTestTransactionOperation(operation);
+  if (!capability) throw new Error("expected a transaction operation");
+  return capability;
 }
 
 function routeCreateMany(
@@ -776,21 +783,27 @@ describe("the series seams on PendingOperation, now that a payload reaches them"
     // series then. It is reachable now, and this is its falsifier — the same seam,
     // the same operation name, one payload apart.
     expect(() =>
-      pendingFor(RELATION_ROW).parseResult({ rows: [], rowCount: 0 })
+      transactionOperation(pendingFor(RELATION_ROW)).parseResult({
+        rows: [],
+        rowCount: 0,
+      })
     ).toThrow(
       "Operation 'createMany' on model 'post' runs as a transactional record series and parses no single driver result."
     );
     expect(
-      pendingFor(SCALAR_ROW).parseResult({ rows: [], rowCount: 3 })
+      transactionOperation(pendingFor(SCALAR_ROW)).parseResult({
+        rows: [],
+        rowCount: 3,
+      })
     ).toEqual({ count: 3 });
   });
 
   test("cacheKeyArgs refuses a series — by the SAME absence every write lands on", () => {
     // The honest half: this refusal is now REACHED by a series, but it is not
-    // DISTINGUISHABLE from the one a scalar bulk write already got. A series exposes
-    // no `validatedArgs` because it is a write form; `CreateManyOperation` exposes
-    // none for the same reason, and the sentence is identical. Only a read carries
-    // one. Recorded rather than dressed up as a second observation.
+    // DISTINGUISHABLE from the one a scalar bulk write already got. Both write forms
+    // carry canonical `validatedArgs` for request/query inspection, but this
+    // cache-only seam refuses every write with the same sentence. Recorded rather
+    // than dressed up as a second observation.
     const message =
       "Operation 'createMany' on model 'post' exposes no validated payload to key a cache entry on.";
     expect(() => pendingFor(RELATION_ROW).cacheKeyArgs()).toThrow(message);
@@ -808,7 +821,7 @@ describe("the series seams on PendingOperation, now that a payload reaches them"
 
   test("prepare() and buildStatement() decline a series without touching a phase", () => {
     const pending = pendingFor(RELATION_ROW);
-    expect(pending.prepare()).toBeUndefined();
+    expect(transactionOperation(pending).prepare()).toBeUndefined();
     expect(pending.buildStatement()).toBeUndefined();
   });
 });

@@ -1,0 +1,180 @@
+---
+title: Extensions
+description: Extend request, query, statement, observation, client, and model boundaries
+icon: puzzle
+---
+
+`$extends()` returns an immutable derived client. The base client is unchanged,
+and the derived client carries one ordered extension chain and its own operation
+scope.
+
+```ts
+import { defineExtension } from "viborm";
+
+const timing = defineExtension({
+  name: "timing",
+  query: async ({ proceed }) => {
+    const startedAt = performance.now();
+    const value = await proceed();
+    recordDuration(performance.now() - startedAt);
+    return value;
+  },
+});
+
+const measured = client.$extends(timing);
+```
+
+<CardGroup>
+  <Card
+    title="Create an extension"
+    description="Choose the right boundary and build a typed reusable extension"
+    href="/docs/extensions/create"
+  />
+</CardGroup>
+
+## The six capabilities
+
+An extension has one name and any subset of exactly six capabilities:
+
+| Capability | Boundary | Authority |
+|---|---|---|
+| `request` | Unvalidated model-operation input | Return a synchronous patch before core validation |
+| `query` | Prepared logical model or raw operation | Wrap execution; a read can return without provider execution |
+| `statement` | One materialized typed `Sql` statement | Return a replacement `Sql` before rendering |
+| `observe` | A real lifecycle unit | Read completion only; cannot change application behavior |
+| `client` | Derived client proxy | Add typed dollar-prefixed methods |
+| `model` | Derived model delegate | Add typed model methods |
+
+These are one extension language, not one universal hook. Request transforms
+are synchronous. Query interceptors are asynchronous and authoritative.
+Statement transforms are trusted low-level SQL rewrites. Observers are
+protected and failure-contained. Client and model factories change the static
+surface.
+
+## Official extensions
+
+Official extensions use the same composition language while retaining private
+access to the core facts they need:
+
+<CardGroup>
+  <Card
+    title="Cache"
+    description="Canonical cached reads, stale-while-revalidate, and commit-aware invalidation"
+    href="/docs/extensions/cache"
+  />
+  <Card
+    title="Instrumentation"
+    description="Protected tracing, structured logging, and diagnostic disclosure"
+    href="/docs/extensions/instrumentation"
+  />
+  <Card
+    title="Default omit"
+    description="Typed default field omission for one derived client"
+    href="/docs/extensions/omit"
+  />
+</CardGroup>
+
+## Operation lifecycle
+
+Calling a model method still creates a lazy operation. Its operation handlers
+start only when that operation is awaited or admitted to an array transaction.
+Definition normalization and client/model method factories instead run when a
+derived root or transaction view is constructed:
+
+```text
+operation observer begins
+  request transforms
+  default omit
+  core validation and mandatory preparation
+  query interceptors
+    official cache around the prepared core read
+      planning, compilation, and late validation
+      for each physical statement
+        statement observer begins
+        statement transform
+        render and provider execution
+      core result parse
+    query post-work
+operation observer completes
+```
+
+Array transactions add one outer `batch` unit. Every member completes request
+preparation and query admission before provider work begins. Fallback execution
+then runs members in order inside the real transaction or savepoint; a native
+batch uses one provider submission while retaining one logical operation and
+one physical statement unit for each member statement.
+
+The `statement` transform receives safe model statements and tagged/fragment
+raw `Sql`. It excludes verbatim `$queryRawUnsafe` and `$executeRawUnsafe` text.
+Physical statement observation still covers unsafe raw without disclosing SQL
+or parameters.
+
+## Query continuation authority
+
+For mutations and raw operations, a matched query interceptor must call
+`proceed()` exactly once. Reads may deliberately return without it. Once
+`proceed()` starts, the child result or error is authoritative: returning a
+fabricated value does not replace it. A rejected child and rejected post-work
+remain distinct failures.
+
+In `$transaction([...])`, all matched query chains must reach `proceed()`
+before any provider work. A refusal, double call, late detached call, or
+rejected handler aborts admission and submits nothing.
+
+## Protected observation
+
+An ordinary observer receives only a frozen lifecycle unit and a protected
+completion:
+
+```ts
+const audit = defineExtension({
+  name: "audit",
+  observe(unit, proceed) {
+    void proceed().then((completion) => {
+      record({ unit, completion });
+    });
+  },
+});
+```
+
+Units are discriminated as `operation`, `statement`, `batch`, `transaction`,
+`savepoint`, `segment`, `connection`, or `cache`. Public facts are limited to
+the unit kind, applicable model/operation spelling, duration, success/failure,
+a sanitized error summary, and optional commit certainty. Observers never see
+the application result, rows, SQL, parameters, cache keys, raw provider error,
+driver, correlation identity, or internal tokens. A throw, rejection, or
+never-settling promise returned by an ordinary observer cannot delay or alter
+the application.
+
+The official `instrumentation()` extension uses the same protected rail plus
+private core facts. Public observers do not gain those facts or their disclosure
+authority.
+
+## Reusable and schema-bound definitions
+
+`defineExtension({...})` creates a schema-generic extension. Its request and
+query contributions use the polymorphic all-operation function form.
+Schema-specific model/operation maps use the curried binder:
+
+```ts
+const tenant = defineExtension<typeof schema>()({
+  name: "tenant",
+  request: {
+    post: {
+      findMany({ input }) {
+        return { where: addTenant(input.where, tenantId) };
+      },
+    },
+  },
+});
+```
+
+## Authorization boundary
+
+Request and query capabilities are useful policy foundations, but a root
+filter is not complete RBAC. Nested reads and writes, relation membership,
+field use, raw SQL, statement transforms, and data-dependent write scopes need
+one graph-wide semantic policy owner. VibORM does not currently export an RBAC
+helper. `omit` is presentation control, not authorization: query-level and
+client-default omission can be overridden, and even model `.omit()` does not
+replace database authorization.

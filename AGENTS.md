@@ -187,6 +187,41 @@ carrier parser created it with `JSON.parse`, completed structural validation of
 the fixed or variant carrier and its full row set before mutation, and decodes
 it through the existing nested parser.
 
+### Rule 6: One Immutable Six-Capability Extension Chain
+
+`$extends()` compiles one ordered immutable chain. Its exact capabilities are
+`request`, `query`, `statement`, `observe`, `client`, and `model`; do not add a
+second middleware/plugin registry, priority system, public execution token, or
+operation-program surface.
+
+The lazy lifecycle is operation observation → request transforms → default omit
+→ core validation/preparation → query interception → physical statement
+observation → statement transform → render/provider → parse → query post-work →
+operation completion. A query child becomes authoritative once `proceed()`
+starts. Ordinary observer failures and returned promises never affect the
+application. Statement transforms exclude verbatim unsafe raw, while protected
+physical statement observation remains disclosure-limited and still covers it.
+
+Generic extension ownership is exact: `src/extensions/definition.ts` owns the
+public envelope and hostile-definition boundary; `chain.ts` owns the one
+resolved chain and handler lookup; `methods.ts` owns client/model factories and
+collisions; `request.ts`, `query.ts`, `statement.ts`, and `observation.ts` each
+own their capability contract and single runner; `array-admission.ts` owns only
+the extension admission latch; and `index.ts` is the intentional surface. Core
+array dispatch and the lifecycle facts known only by client, query-engine,
+executor, cache, and driver composition roots remain with those roots.
+
+Official `cache()`, `instrumentation()`, and `defaultOmit()` capabilities are
+implemented only in `src/cache/extension.ts`,
+`src/instrumentation/extension.ts`, and
+`src/client/default-omit-extension.ts`. They are authenticated by identity and
+replace their old `createClient()` config keys.
+Cached values are detached/fresh and custom keys are canonical-key suffixes;
+cached reads bypass callback/array transactions, raw calls, and statement-
+transform chains. Omit is presentation, not authorization. The extension
+foundation ships no RBAC helper; complete policy still needs graph-wide
+semantic ownership.
+
 ---
 
 ## Type Flow (High-Level)
@@ -285,32 +320,23 @@ expectTypeOf<Cfg>().toMatchTypeOf<{ user: { passwordHash?: true } }>();
 // ❌ ALSO BAD: enters the public API, but the typo is ALONE — this is red even
 // on a completely unkeyed surface, because of weak-type detection (below).
 const _typoAlone = () =>
-  createClient({
-    schema: { user },
-    driver,
+  defaultOmit<typeof schema>()({
     // @ts-expect-error - "passwordHsh" is not a field of user
-    omit: { user: { passwordHsh: true } },
+    user: { passwordHsh: true },
   });
 
 // ✅ GOOD: public API, and the typo sits beside a key that IS real
 const _typoBesideReal = () =>
-  createClient({
-    schema: { user },
-    driver,
-    omit: {
-      // @ts-expect-error - "passwordHsh" is refused next to the real one
-      user: { passwordHash: true, passwordHsh: true },
-    },
+  defaultOmit<typeof schema>()({
+    // @ts-expect-error - "passwordHsh" is refused next to the real one
+    user: { passwordHash: true, passwordHsh: true },
   });
 ```
 
-**Why this exists:** `omit` shipped the same gap twice. `f842302` keyed the core
-`createClient` config after the contextual type turned out to be an index
-signature — results were correct, but the editor had no keys to offer and a
-typo'd model name compiled. `2f7bd59` then found the identical hole still open in
-all eleven driver-package wrappers, the entry point most apps import. Both times
-the RESULT types were already right; only the type contextual to the literal
-being written was wrong, which no result-shape assertion can see.
+**Why this exists:** the retired built-in omit configuration shipped this gap
+twice. The same evidence now enters through `defaultOmit()`, the current public
+owner. Both times the RESULT types were already right; only the type contextual
+to the literal being written was wrong, which no result-shape assertion can see.
 
 Three rules follow. The third one invalidated the first version of this section,
 which is why it is stated first now.
@@ -321,9 +347,10 @@ which is why it is stated first now.
    So `omit: { user: { passwordHsh: true } }` and `where: { ttitle: "x" }` are
    red on a *completely unkeyed* surface: what rejected them was that rule, not
    this codebase's types. Add one correct key and the rule stops applying. When
-   this was measured, `omit: { passwordHash: true, passwordHsh: true }` hid one
-   of two secrets and compiled, `instrumentation: { tracing: true, loging: true }`
-   started no logger and compiled, and `where: { title: "x", ttitle: "x" }`
+   this was measured, `defaultOmit()({ user: { passwordHash: true,
+   passwordHsh: true } })` hid one of two secrets and compiled,
+   `instrumentation({ tracing: true, loging: true })` started no logger and
+   compiled, and `where: { title: "x", ttitle: "x" }`
    returned rows the caller never asked for and compiled — all three while a gate
    full of alone-probes was green. Write both: `…Alone` and `…BesideReal`. Only
    the second is evidence.
@@ -421,6 +448,7 @@ pnpm test:layer:client
 pnpm bench:operation-pipeline
 pnpm bench:operation-pipeline:check
 pnpm bench:operation-pipeline:describe
+pnpm bench:operation-pipeline:diagnostic # Fast directional tuning only; never keep evidence
 
 # Large selections must use the package scripts. Vitest runs one file at a time
 # with a 768 MB heap. Full tsc has a measured 4 GB cap. Launchers stop the whole

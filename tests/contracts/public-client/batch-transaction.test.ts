@@ -22,6 +22,10 @@ import {
 } from "@query-engine/pending-operation";
 import { s } from "@schema";
 import { batchPrimaryKeyDataflowSchema } from "@tests/fixtures/batch-primary-key-dataflow-schema";
+import {
+  overrideTransactionOperation,
+  readTestTransactionOperation,
+} from "@tests/fixtures/transaction-operation";
 import type Database from "better-sqlite3";
 import {
   afterAll,
@@ -55,6 +59,12 @@ const post = s.model({
 });
 
 const schema = { user, post };
+
+function transactionOperation(operation: unknown) {
+  const capability = readTestTransactionOperation(operation);
+  if (!capability) throw new Error("expected a transaction operation");
+  return capability;
+}
 
 class NoAtomicTransactionDriver extends Driver<unknown, unknown> {
   readonly adapter: DatabaseAdapter = new SQLiteAdapter();
@@ -190,28 +200,27 @@ describe("PendingOperation", () => {
     expect(users[0]!.name).toBe("Alice");
   });
 
-  test("PendingOperation has execute() method", async () => {
+  test("a pending operation exposes only its awaited application result", async () => {
     await client.user.create({
       data: { id: "1", name: "Bob", email: "bob@test.com" },
     });
 
-    const operation = client.user.findMany();
-    const users = await operation.execute();
+    const users = await client.user.findMany();
     expect(users).toHaveLength(1);
     expect(users[0]!.name).toBe("Bob");
   });
 
-  test("canBatch() returns true for simple operations", () => {
+  test("simple operations carry private array authority", () => {
     const findOp = client.user.findMany();
-    expect(findOp.canBatch()).toBe(true);
+    expect(transactionOperation(findOp)).toBeDefined();
 
     const createOp = client.user.create({
       data: { id: "1", name: "Test", email: "test@test.com" },
     });
-    expect(createOp.canBatch()).toBe(true);
+    expect(transactionOperation(createOp)).toBeDefined();
   });
 
-  test("canBatch() accepts composed createMany writes", () => {
+  test("composed createMany writes carry private array authority", () => {
     const nestedCreateManyOp = client.user.create({
       data: {
         id: "1",
@@ -225,11 +234,10 @@ describe("PendingOperation", () => {
       },
     });
 
-    expect(nestedCreateManyOp.canBatch()).toBe(true);
-    expect(nestedCreateManyOp.prepare()).toBeUndefined();
+    expect(transactionOperation(nestedCreateManyOp).prepare()).toBeUndefined();
   });
 
-  test("canBatch() accepts update with composed createMany writes", () => {
+  test("updates with composed createMany carry private array authority", () => {
     const nestedUpdateOp = client.user.update({
       where: { id: "1" },
       data: {
@@ -241,11 +249,10 @@ describe("PendingOperation", () => {
       },
     });
 
-    expect(nestedUpdateOp.canBatch()).toBe(true);
-    expect(nestedUpdateOp.prepare()).toBeUndefined();
+    expect(transactionOperation(nestedUpdateOp).prepare()).toBeUndefined();
   });
 
-  test("canBatch() accepts update with composed connect writes", () => {
+  test("updates with composed connect carry private array authority", () => {
     const nestedUpdateOp = client.user.update({
       where: { id: "1" },
       data: {
@@ -255,11 +262,10 @@ describe("PendingOperation", () => {
       },
     });
 
-    expect(nestedUpdateOp.canBatch()).toBe(true);
-    expect(nestedUpdateOp.prepare()).toBeUndefined();
+    expect(transactionOperation(nestedUpdateOp).prepare()).toBeUndefined();
   });
 
-  test("canBatch() accepts update with a single composed set target", () => {
+  test("updates with a composed set target carry private array authority", () => {
     const nestedUpdateOp = client.user.update({
       where: { id: "1" },
       data: {
@@ -269,11 +275,10 @@ describe("PendingOperation", () => {
       },
     });
 
-    expect(nestedUpdateOp.canBatch()).toBe(true);
-    expect(nestedUpdateOp.prepare()).toBeUndefined();
+    expect(transactionOperation(nestedUpdateOp).prepare()).toBeUndefined();
   });
 
-  test("canBatch() accepts update with composed connectOrCreate writes", () => {
+  test("updates with connectOrCreate carry private array authority", () => {
     const nestedUpdateOp = client.user.update({
       where: { id: "1" },
       data: {
@@ -289,11 +294,10 @@ describe("PendingOperation", () => {
       },
     });
 
-    expect(nestedUpdateOp.canBatch()).toBe(true);
-    expect(nestedUpdateOp.prepare()).toBeUndefined();
+    expect(transactionOperation(nestedUpdateOp).prepare()).toBeUndefined();
   });
 
-  test("canBatch() accepts upsert with composed create writes", () => {
+  test("upserts with composed create carry private array authority", () => {
     const nestedUpsertOp = client.user.upsert({
       where: { id: "1" },
       create: {
@@ -307,11 +311,10 @@ describe("PendingOperation", () => {
       update: { name: "Updated" },
     });
 
-    expect(nestedUpsertOp.canBatch()).toBe(true);
-    expect(nestedUpsertOp.prepare()).toBeUndefined();
+    expect(transactionOperation(nestedUpsertOp).prepare()).toBeUndefined();
   });
 
-  test("canBatch() accepts upsert with composed createMany writes", () => {
+  test("upserts with composed createMany carry private array authority", () => {
     const nestedUpsertOp = client.user.upsert({
       where: { id: "1" },
       create: {
@@ -328,11 +331,10 @@ describe("PendingOperation", () => {
       },
     });
 
-    expect(nestedUpsertOp.canBatch()).toBe(true);
-    expect(nestedUpsertOp.prepare()).toBeUndefined();
+    expect(transactionOperation(nestedUpsertOp).prepare()).toBeUndefined();
   });
 
-  test("canBatch() accepts upsert with composed connect writes", () => {
+  test("upserts with composed connect carry private array authority", () => {
     const nestedUpsertOp = client.user.upsert({
       where: { id: "1" },
       create: {
@@ -347,15 +349,14 @@ describe("PendingOperation", () => {
       },
     });
 
-    expect(nestedUpsertOp.canBatch()).toBe(true);
-    expect(nestedUpsertOp.prepare()).toBeUndefined();
+    expect(transactionOperation(nestedUpsertOp).prepare()).toBeUndefined();
   });
 
-  test("canBatch() returns true for simple create without nested writes", () => {
+  test("simple create carries private array authority", () => {
     const simpleCreateOp = client.user.create({
       data: { id: "1", name: "Test", email: "test@test.com" },
     });
-    expect(simpleCreateOp.canBatch()).toBe(true);
+    expect(transactionOperation(simpleCreateOp)).toBeDefined();
   });
 });
 
@@ -574,12 +575,18 @@ describe("$transaction with array (batch mode)", () => {
         data: { id: "1", name: "Before", email: "partition@test.com" },
       });
 
-      const beforeOperation = batchOnlyClient.user.findUnique({
+      const beforeSource = batchOnlyClient.user.findUnique({
         where: { id: "1" },
         select: { name: true },
       });
-      const beforeParser = vi.spyOn(beforeOperation, "parseResult");
-      const updateOperation = batchOnlyClient.user.update({
+      const beforeCapability = transactionOperation(beforeSource);
+      const beforeParser = vi.fn((raw: QueryResult<unknown>) =>
+        beforeCapability.parseResult(raw)
+      );
+      const beforeOperation = overrideTransactionOperation(beforeSource, {
+        parseResult: beforeParser,
+      });
+      const updateSource = batchOnlyClient.user.update({
         where: { id: "1" },
         data: {
           name: "After",
@@ -587,13 +594,12 @@ describe("$transaction with array (batch mode)", () => {
         },
         select: { name: true },
       });
-      const originalPrepareBatch =
-        updateOperation.prepareBatch.bind(updateOperation);
+      const updateCapability = transactionOperation(updateSource);
       let preparedQueryCount = 0;
       let preparedInsertIds: Array<number | bigint | undefined> | undefined;
-      vi.spyOn(updateOperation, "prepareBatch").mockImplementation(
-        async (driver) => {
-          const prepared = await originalPrepareBatch(driver);
+      const updateOperation = overrideTransactionOperation(updateSource, {
+        prepareBatch: async (driver) => {
+          const prepared = await updateCapability.prepareBatch(driver);
           if (!prepared) return undefined;
           preparedQueryCount = prepared.queries.length;
           return {
@@ -603,8 +609,8 @@ describe("$transaction with array (batch mode)", () => {
               return prepared.parseResult(batchResults);
             },
           };
-        }
-      );
+        },
+      });
 
       const batchResult = await withTransactions(batchOnlyClient).$transaction([
         beforeOperation,

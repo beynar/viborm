@@ -7,8 +7,12 @@
  */
 
 import type { QueryExecutionContext } from "@drivers";
-import { getExecutionInstrumentation } from "@drivers/execution-context";
-import type { InstrumentationContext } from "@instrumentation/context";
+import {
+  getExecutionExtensionChain,
+  getExecutionInstrumentation,
+} from "@drivers/execution-context";
+import { CacheInvalidKeyError } from "@errors";
+import { runProtectedObservers } from "@extensions/observation";
 import {
   ATTR_CACHE_DRIVER,
   ATTR_CACHE_RESULT,
@@ -21,7 +25,8 @@ import {
   SPAN_OPERATION,
   type VibORMSpanName,
 } from "@instrumentation/spans";
-import type { Span } from "@instrumentation/tracer";
+import type { VibORMSpanOptions } from "@instrumentation/tracer";
+import type { LogEvent } from "@instrumentation/types";
 import { type Clock, systemClock } from "../clock";
 import {
   REVALIDATING_SUFFIX,
@@ -35,13 +40,107 @@ import type {
 } from "./cache-contract";
 import {
   type CacheLogEvent,
+  completeOfficialCacheSetFailure,
+  createCacheInstrumentationLogEvent,
+  createCacheLifecycleInstrumentationFacts,
   emitCacheLogEvent,
   getCacheOperationAttributes,
-  getCacheTracer,
-  setSpanAttribute,
+  hasOfficialCacheInstrumentation,
+  hasOfficialCacheLogging,
 } from "./cache-instrumentation";
-import { CACHE_PREFIX, generateUnprefixedCacheKey } from "./key";
-import type { CacheInvalidationOptions } from "./schema";
+import {
+  CACHE_PREFIX,
+  generateUnprefixedCacheKey,
+  OFFICIAL_CACHE_NAMESPACE_ROOT,
+} from "./key";
+import {
+  type CacheInvalidationOptions,
+  hasCacheInvalidationWork,
+} from "./schema";
+
+type ObservedCacheOperation = "get" | "set" | "revalidate" | "invalidate";
+
+interface DetachedCacheResultCodec<T> {
+  snapshot(value: T): unknown;
+  materialize(snapshot: unknown): T;
+}
+
+interface ObservedCacheSpanCompletion {
+  readonly readSpanAttributes?: () =>
+    | NonNullable<VibORMSpanOptions["attributes"]>
+    | undefined;
+  readonly logSetFailure?: boolean;
+}
+
+interface RevalidationPresentationState {
+  terminalLogEvent?: Omit<LogEvent, "level">;
+}
+
+interface ObservedRevalidationFailure {
+  failed: boolean;
+  error: unknown;
+}
+
+type ExecuteCachedWithResultCodec = <T>(
+  cache: CacheDriver,
+  modelName: string,
+  operation: string,
+  args: unknown,
+  executor: () => Promise<T>,
+  options: CacheExecutionOptions,
+  codec: DetachedCacheResultCodec<T>,
+  scope: object
+) => Promise<T>;
+
+let executeCachedWithResultCodecFriend: ExecuteCachedWithResultCodec;
+
+type InvalidateOfficialCache = (
+  cache: CacheDriver,
+  modelName: string,
+  options: CacheInvalidationOptions | undefined,
+  context: QueryExecutionContext | undefined,
+  scope: object
+) => Promise<void>;
+
+let invalidateOfficialCacheFriend: InvalidateOfficialCache;
+
+const officialCacheNamespaces = new WeakMap<object, string>();
+
+/** Create one opaque scope recognized only by this module's private namespace map. */
+export function createOfficialCacheScope(namespace: string): object {
+  const scope = Object.freeze({});
+  officialCacheNamespaces.set(scope, namespace);
+  return scope;
+}
+
+function readOfficialCacheNamespace(scope: object): string {
+  const namespace = officialCacheNamespaces.get(scope);
+  if (namespace === undefined) {
+    throw new CacheInvalidKeyError(
+      "Official cache scope is not authentic for this cache execution."
+    );
+  }
+  return namespace;
+}
+
+function refuseExternalScope(scope: unknown): void {
+  if (scope === undefined) return;
+  throw new CacheInvalidKeyError(
+    "Cache driver methods do not accept an external cache scope."
+  );
+}
+
+type PreparedInvalidationTarget =
+  | {
+      readonly kind: "clear";
+      readonly key: string;
+      readonly prefixedKey: string;
+    }
+  | {
+      readonly kind: "delete";
+      readonly key: string;
+      readonly prefixedKey: string;
+    };
 
 export type {
   CacheEntry,
@@ -60,8 +159,6 @@ export type {
  */
 export abstract class CacheDriver {
   readonly driverName: string;
-  protected instrumentation?: InstrumentationContext;
-  protected version?: string | number;
   /**
    * Every freshness decision this class makes reads from here. Internal seam,
    * not public API: it exists so tests can advance time rather than sleep
@@ -69,16 +166,46 @@ export abstract class CacheDriver {
    */
   protected readonly clock: Clock;
 
+  static {
+    executeCachedWithResultCodecFriend = (
+      cache,
+      modelName,
+      operation,
+      args,
+      executor,
+      options,
+      codec,
+      scope
+    ) => {
+      const namespace = readOfficialCacheNamespace(scope);
+      return cache.#executeCached(
+        modelName,
+        operation,
+        args,
+        executor,
+        options,
+        codec,
+        namespace
+      );
+    };
+    invalidateOfficialCacheFriend = (
+      cache,
+      modelName,
+      options,
+      context,
+      scope
+    ) =>
+      cache.invalidateScoped(
+        modelName,
+        options,
+        context,
+        readOfficialCacheNamespace(scope)
+      );
+  }
+
   constructor(driverName: string, clock: Clock = systemClock) {
     this.driverName = driverName;
     this.clock = clock;
-  }
-
-  /**
-   * Set cache version for key prefixing
-   */
-  setVersion(version: string | number | undefined): void {
-    this.version = version;
   }
 
   // ============================================================
@@ -118,45 +245,38 @@ export abstract class CacheDriver {
   // CACHE ORCHESTRATION - Hit/Miss/Stale/SWR logic
   // ============================================================
 
-  /**
-   * Execute an operation with caching
-   *
-   * Handles the full cache flow:
-   * - Cache key generation
-   * - Hit/miss/stale detection
-   * - SWR (stale-while-revalidate) pattern
-   * - Background revalidation with thundering herd prevention
-   * - Instrumentation (operation span + cache event logging)
-   *
-   * @param modelName - Model name for key generation and logging
-   * @param operation - Operation name (findMany, findFirst, etc.)
-   * @param args - Operation arguments for key generation
-   * @param executor - Function to execute when cache miss
-   * @param options - Cache options (ttl, swr, bypass, key, waitUntil, dbAttributes)
-   */
-  async _executeCached<T>(
+  async #executeCached<T>(
     modelName: string,
     operation: string,
     args: unknown,
     executor: () => Promise<T>,
-    options: CacheExecutionOptions
+    options: CacheExecutionOptions,
+    codec: DetachedCacheResultCodec<T>,
+    namespace: string
   ): Promise<T> {
-    // Generate cache key (unprefixed - prefixKey() adds the prefix)
-    const cacheKey =
-      options.key ?? generateUnprefixedCacheKey(modelName, operation, args);
+    const cacheKey = `${generateUnprefixedCacheKey(
+      modelName,
+      operation,
+      args
+    )}${options.key === undefined ? "" : `:${options.key}`}`;
 
     // Core execution logic
     const executeCore = async (): Promise<T> => {
       // Bypass cache read if requested
       if (options.bypass) {
         const result = await executor();
-        this.setInBackground(cacheKey, result, options);
+        this.setResultInBackground(cacheKey, result, options, codec, namespace);
         this.logExecutionCacheEvent(options, cacheKey, "bypass");
         return result;
       }
 
       // Try to get from cache
-      const cached = await this._get<T>(cacheKey, options.executionContext);
+      const cached = await this.getCachedResult<T>(
+        cacheKey,
+        options.executionContext,
+        namespace,
+        codec
+      );
 
       if (cached) {
         const age = this.clock.now() - cached.createdAt;
@@ -170,13 +290,18 @@ export abstract class CacheDriver {
 
         if (options.swr !== false) {
           // Stale but SWR enabled - return stale and revalidate in background
-          this.revalidateInBackground(
-            modelName,
-            operation,
-            cacheKey,
-            executor,
-            options
-          ).catch(() => undefined);
+          scheduleBackground(
+            this.revalidateInBackground(
+              modelName,
+              operation,
+              cacheKey,
+              executor,
+              options,
+              codec,
+              namespace
+            ),
+            options.waitUntil
+          );
           this.logExecutionCacheEvent(options, cacheKey, "hit", "stale");
           return cached.value;
         }
@@ -186,26 +311,51 @@ export abstract class CacheDriver {
 
       // Cache miss or stale without SWR - execute query
       const result = await executor();
-      this.setInBackground(cacheKey, result, options);
+      this.setResultInBackground(cacheKey, result, options, codec, namespace);
       this.logExecutionCacheEvent(options, cacheKey, "miss");
       return result;
     };
 
-    return getCacheTracer(
-      getExecutionInstrumentation(options.executionContext) ??
-        this.instrumentation
-    ).startActiveSpan(
-      {
-        name: SPAN_OPERATION,
-        attributes: getCacheOperationAttributes(
-          modelName,
-          operation,
-          options.dbAttributes,
-          options.executionContext
-        ),
-      },
-      executeCore
-    );
+    return executeCore();
+  }
+
+  private async getCachedResult<T>(
+    key: string,
+    context: QueryExecutionContext | undefined,
+    namespace: string,
+    codec: DetachedCacheResultCodec<T>
+  ): Promise<CacheEntry<T> | null> {
+    const cached = await this.getScoped<unknown>(key, context, namespace);
+    return cached === null
+      ? null
+      : {
+          createdAt: cached.createdAt,
+          ttl: cached.ttl,
+          value: codec.materialize(cached.value),
+        };
+  }
+
+  private setResultInBackground<T>(
+    key: string,
+    value: T,
+    options: CacheExecutionOptions,
+    codec: DetachedCacheResultCodec<T>,
+    namespace: string
+  ): void {
+    let stored: unknown;
+    try {
+      stored = codec.snapshot(value);
+    } catch (error) {
+      this.logExecutionCacheEvent(
+        options,
+        key,
+        "miss",
+        "cache-set-failed",
+        error
+      );
+      return;
+    }
+    this.setInBackground(key, stored, options, namespace);
   }
 
   /**
@@ -214,24 +364,29 @@ export abstract class CacheDriver {
   private setInBackground<T>(
     key: string,
     value: T,
-    options: CacheExecutionOptions
+    options: CacheExecutionOptions,
+    namespace: string
   ): void {
-    const cachePromise = this._set(
+    const cachePromise = this.setScoped(
       key,
       value,
       {
         ttl: options.ttlMs,
         swrTtl: options.swr !== false ? options.swr : undefined,
       },
-      options.executionContext
+      options.executionContext,
+      namespace,
+      true
     ).catch((error) => {
-      this.logExecutionCacheEvent(
-        options,
-        key,
-        "miss",
-        "cache-set-failed",
-        error
-      );
+      if (!hasOfficialCacheInstrumentation(options.executionContext)) {
+        this.logExecutionCacheEvent(
+          options,
+          key,
+          "miss",
+          "cache-set-failed",
+          error
+        );
+      }
     });
 
     scheduleBackground(cachePromise, options.waitUntil);
@@ -239,19 +394,21 @@ export abstract class CacheDriver {
 
   /**
    * Revalidate cache entry in background (for SWR)
-   * Uses _markRevalidating to prevent thundering herd (multiple concurrent revalidations)
+   * Uses the backing cache marker for best-effort duplicate suppression.
    */
   private async revalidateInBackground<T>(
     modelName: string,
     operation: string,
     cacheKey: string,
     executor: () => Promise<T>,
-    options: CacheExecutionOptions
+    options: CacheExecutionOptions,
+    codec: DetachedCacheResultCodec<T>,
+    namespace: string
   ): Promise<void> {
-    // Check if another request is already revalidating this key
+    // Check whether another request has already published this marker.
     let shouldRevalidate: boolean;
     try {
-      shouldRevalidate = await this._markRevalidating(cacheKey);
+      shouldRevalidate = await this.markRevalidatingScoped(cacheKey, namespace);
     } catch {
       // If marking fails, skip revalidation to avoid request failure
       return;
@@ -261,56 +418,141 @@ export abstract class CacheDriver {
       return;
     }
 
+    const observers = getExecutionExtensionChain(
+      options.executionContext
+    )?.observe;
+    const observedFailure: ObservedRevalidationFailure | undefined =
+      observers === undefined || observers.length === 0
+        ? undefined
+        : { failed: false, error: undefined };
+    const officialPresentation = hasOfficialCacheInstrumentation(
+      options.executionContext
+    );
+    const officialCacheLogging = hasOfficialCacheLogging(
+      options.executionContext
+    );
+    const presentationState: RevalidationPresentationState = {};
+
     const doRevalidate = async () => {
       try {
-        this.logExecutionCacheEvent(options, cacheKey, "revalidate", "start");
-
         const result = await executor();
-        await this._set(
+        const stored = codec.snapshot(result);
+        await this.setScoped(
           cacheKey,
-          result,
+          stored,
           {
             ttl: options.ttlMs,
             swrTtl: options.swr !== false ? options.swr : undefined,
           },
-          options.executionContext
+          options.executionContext,
+          namespace
         );
 
-        this.logExecutionCacheEvent(options, cacheKey, "revalidate", "success");
+        if (officialPresentation) {
+          if (officialCacheLogging) {
+            presentationState.terminalLogEvent =
+              createCacheInstrumentationLogEvent(
+                options.executionContext,
+                "revalidate",
+                "success"
+              );
+          }
+        } else {
+          this.logExecutionCacheEvent(
+            options,
+            cacheKey,
+            "revalidate",
+            "success"
+          );
+        }
       } catch (error) {
         // Log error but don't throw - this is background operation
-        this.logExecutionCacheEvent(
-          options,
-          cacheKey,
-          "revalidate",
-          "error",
-          error
-        );
+        if (observedFailure !== undefined) {
+          observedFailure.failed = true;
+          observedFailure.error = error;
+        }
+        if (officialPresentation) {
+          if (officialCacheLogging) {
+            presentationState.terminalLogEvent =
+              createCacheInstrumentationLogEvent(
+                options.executionContext,
+                "revalidate",
+                "error",
+                error
+              );
+          }
+        } else {
+          this.logExecutionCacheEvent(
+            options,
+            cacheKey,
+            "revalidate",
+            "error",
+            error
+          );
+        }
       } finally {
-        await this._clearRevalidating(cacheKey).catch(() => undefined);
+        if (observedFailure === undefined) {
+          await this.clearRevalidatingScoped(cacheKey, namespace).catch(
+            () => undefined
+          );
+        } else {
+          try {
+            await this.clearRevalidatingScoped(cacheKey, namespace);
+          } catch (cleanupFailure) {
+            if (observedFailure.failed) {
+              const workerFailure = observedFailure.error;
+              observedFailure.error = new AggregateError(
+                [workerFailure, cleanupFailure],
+                "Cache revalidation work and cleanup both failed.",
+                { cause: workerFailure }
+              );
+            } else {
+              observedFailure.failed = true;
+              observedFailure.error = cleanupFailure;
+            }
+          }
+        }
       }
     };
 
-    // Wrap with operation span if tracer available
-    // Use root: true to create a new trace (not child of current context)
-    const revalidationPromise = getCacheTracer(
-      getExecutionInstrumentation(options.executionContext) ??
-        this.instrumentation
-    ).startActiveSpan(
-      {
-        name: SPAN_OPERATION,
-        attributes: getCacheOperationAttributes(
-          modelName,
-          operation,
-          options.dbAttributes,
-          options.executionContext
-        ),
-        root: true,
-      },
-      doRevalidate
-    );
+    const instrumentationFacts = officialPresentation
+      ? createCacheLifecycleInstrumentationFacts({
+          context: options.executionContext,
+          spanName: SPAN_OPERATION,
+          spanAttributes: getCacheOperationAttributes(
+            modelName,
+            operation,
+            options.dbAttributes
+          ),
+          rootSpan: true,
+          readStartLogEvents: () => [
+            createCacheInstrumentationLogEvent(
+              options.executionContext,
+              "revalidate",
+              "start"
+            ),
+          ],
+          readCompletionLogEvents: () =>
+            presentationState.terminalLogEvent === undefined
+              ? undefined
+              : [presentationState.terminalLogEvent],
+        })
+      : undefined;
+    const revalidationPromise =
+      observedFailure === undefined
+        ? doRevalidate()
+        : runProtectedObservers(
+            { kind: "cache", operation: "revalidate" },
+            observers,
+            async () => {
+              await doRevalidate();
+              if (observedFailure.failed) throw observedFailure.error;
+            },
+            undefined,
+            instrumentationFacts
+          );
 
-    scheduleBackground(revalidationPromise, options.waitUntil);
+    await revalidationPromise;
   }
 
   /**
@@ -323,15 +565,7 @@ export abstract class CacheDriver {
     status?: string,
     error?: unknown
   ): void {
-    emitCacheLogEvent(
-      getExecutionInstrumentation(options.executionContext) ??
-        this.instrumentation,
-      key,
-      event,
-      status,
-      error,
-      options.executionContext
-    );
+    emitCacheLogEvent(key, event, status, error, options.executionContext);
   }
 
   // ============================================================
@@ -353,20 +587,57 @@ export abstract class CacheDriver {
   private withSpan<T>(
     spanName: VibORMSpanName,
     _key: string,
-    execute: (span?: Span) => Promise<T>,
+    execute: () => Promise<T>,
     extraAttributes?: Record<string, string>,
-    context?: QueryExecutionContext
+    context?: QueryExecutionContext,
+    observedOperation?: ObservedCacheOperation,
+    completion?: ObservedCacheSpanCompletion
   ): Promise<T> {
-    return getCacheTracer(
-      getExecutionInstrumentation(context) ?? this.instrumentation
-    ).startActiveSpan(
-      {
-        name: spanName,
-        attributes: {
-          ...this.getBaseAttributes(),
-          ...extraAttributes,
-        },
-      },
+    if (observedOperation === undefined) {
+      const tracer = getExecutionInstrumentation(context)?.tracer;
+      return tracer === undefined
+        ? execute()
+        : tracer.startActiveSpan(
+            {
+              name: spanName,
+              attributes: {
+                ...this.getBaseAttributes(),
+                ...extraAttributes,
+              },
+            },
+            execute
+          );
+    }
+    const observers = getExecutionExtensionChain(context)?.observe;
+    if (observers === undefined || observers.length === 0) {
+      return execute();
+    }
+    if (hasOfficialCacheInstrumentation(context)) {
+      const instrumentationFacts = createCacheLifecycleInstrumentationFacts({
+        context,
+        driverName: this.driverName,
+        spanName,
+        spanAttributes: extraAttributes,
+        readSpanAttributes: completion?.readSpanAttributes,
+        readCompletionLogEvents:
+          completion?.logSetFailure === true
+            ? (outcome) =>
+                outcome.status === "failure"
+                  ? completeOfficialCacheSetFailure(context, outcome.failure)
+                  : undefined
+            : undefined,
+      });
+      return runProtectedObservers(
+        { kind: "cache", operation: observedOperation },
+        observers,
+        () => execute(),
+        undefined,
+        instrumentationFacts
+      );
+    }
+    return runProtectedObservers(
+      { kind: "cache", operation: observedOperation },
+      observers,
       execute
     );
   }
@@ -375,27 +646,49 @@ export abstract class CacheDriver {
    * Get a value from cache
    * @param key - Cache key (will be prefixed automatically)
    */
-  async _get<T>(
+  _get<T>(
     key: string,
     context?: QueryExecutionContext
+  ): Promise<CacheEntry<T> | null>;
+  async _get<T>(
+    key: string,
+    context?: QueryExecutionContext,
+    externalScope?: unknown
   ): Promise<CacheEntry<T> | null> {
-    const prefixedKey = this.prefixKey(key);
+    refuseExternalScope(externalScope);
+    return this.getScoped<T>(key, context);
+  }
+
+  private async getScoped<T>(
+    key: string,
+    context?: QueryExecutionContext,
+    namespace?: string
+  ): Promise<CacheEntry<T> | null> {
+    const prefixedKey = this.prefixKey(key, namespace);
+    let cacheResult: "hit" | "miss" | "stale" | undefined;
 
     return this.withSpan(
       SPAN_CACHE_GET,
       key,
-      async (span) => {
+      async () => {
         const entry = await this.get<T>(prefixedKey);
         if (entry) {
           const isStale = this.clock.now() - entry.createdAt > entry.ttl;
-          setSpanAttribute(span, ATTR_CACHE_RESULT, isStale ? "stale" : "hit");
+          cacheResult = isStale ? "stale" : "hit";
         } else {
-          setSpanAttribute(span, ATTR_CACHE_RESULT, "miss");
+          cacheResult = "miss";
         }
         return entry;
       },
       undefined,
-      context
+      context,
+      "get",
+      {
+        readSpanAttributes: () =>
+          cacheResult === undefined
+            ? undefined
+            : { [ATTR_CACHE_RESULT]: cacheResult },
+      }
     );
   }
 
@@ -405,12 +698,32 @@ export abstract class CacheDriver {
    * @param value - Value to cache
    * @param options - Cache options including TTL
    */
-  async _set<T>(
+  _set<T>(
     key: string,
     value: T,
     options: CacheSetOptions,
     context?: QueryExecutionContext
+  ): Promise<void>;
+  async _set<T>(
+    key: string,
+    value: T,
+    options: CacheSetOptions,
+    context?: QueryExecutionContext,
+    externalScope?: unknown
   ): Promise<void> {
+    refuseExternalScope(externalScope);
+    return this.setScoped(key, value, options, context);
+  }
+
+  private async setScoped<T>(
+    key: string,
+    value: T,
+    options: CacheSetOptions,
+    context?: QueryExecutionContext,
+    namespace?: string,
+    logSetFailure = false
+  ): Promise<void> {
+    const prefixedKey = this.prefixKey(key, namespace);
     const entry: CacheEntry<T> = {
       value,
       createdAt: this.clock.now(),
@@ -423,9 +736,11 @@ export abstract class CacheDriver {
     return this.withSpan(
       SPAN_CACHE_SET,
       key,
-      () => this.set(this.prefixKey(key), storageTtl, entry),
+      () => this.set(prefixedKey, storageTtl, entry),
       { [ATTR_CACHE_TTL]: String(options.ttl) },
-      context
+      context,
+      "set",
+      logSetFailure ? { logSetFailure: true } : undefined
     );
   }
 
@@ -433,41 +748,30 @@ export abstract class CacheDriver {
    * Delete a specific key (and its revalidating key)
    * @param key - Cache key (will be prefixed automatically)
    */
-  async _delete(key: string, context?: QueryExecutionContext): Promise<void> {
+  _delete(key: string, context?: QueryExecutionContext): Promise<void>;
+  async _delete(
+    key: string,
+    context?: QueryExecutionContext,
+    externalScope?: unknown
+  ): Promise<void> {
+    refuseExternalScope(externalScope);
     const prefixedKey = this.prefixKey(key);
-    const keys = [prefixedKey, `${prefixedKey}${REVALIDATING_SUFFIX}`];
-
-    return this.withSpan(
-      SPAN_CACHE_DELETE,
-      key,
-      () => this.delete(keys),
-      undefined,
-      context
-    );
+    return this.deletePrefixed(key, prefixedKey, context);
   }
 
   /**
-   * Clear cache by prefix or all (within the active version namespace)
+   * Clear cache by prefix or all within the public unscoped namespace.
    * @param prefix - Optional prefix to clear (will be prefixed automatically)
-   *
-   * When cacheVersion is set, clearing without a prefix clears only the active
-   * version namespace (e.g., viborm:v2:*), preserving other versions.
    */
+  _clear(prefix?: string, context?: QueryExecutionContext): Promise<void>;
   async _clear(
     prefix?: string,
-    context?: QueryExecutionContext
+    context?: QueryExecutionContext,
+    externalScope?: unknown
   ): Promise<void> {
-    // Use prefixKey("") to get the versioned base prefix (e.g., "viborm:v2")
-    // This ensures we only clear within the active version namespace
+    refuseExternalScope(externalScope);
     const prefixedPrefix = this.prefixKey(prefix ?? "");
-
-    return this.withSpan(
-      SPAN_CACHE_CLEAR,
-      prefix ?? "*",
-      () => this.clear(prefixedPrefix),
-      undefined,
-      context
-    );
+    return this.clearPrefixed(prefix ?? "*", prefixedPrefix, context);
   }
 
   /**
@@ -475,8 +779,20 @@ export abstract class CacheDriver {
    * Returns true if this caller should perform revalidation
    * @param key - Cache key (will be prefixed automatically)
    */
-  async _markRevalidating(key: string): Promise<boolean> {
-    const revalidatingKey = `${this.prefixKey(key)}${REVALIDATING_SUFFIX}`;
+  _markRevalidating(key: string): Promise<boolean>;
+  async _markRevalidating(
+    key: string,
+    externalScope?: unknown
+  ): Promise<boolean> {
+    refuseExternalScope(externalScope);
+    return this.markRevalidatingScoped(key);
+  }
+
+  private async markRevalidatingScoped(
+    key: string,
+    namespace?: string
+  ): Promise<boolean> {
+    const revalidatingKey = `${this.prefixKey(key, namespace)}${REVALIDATING_SUFFIX}`;
 
     // Check if already revalidating
     const existing = await this.get(revalidatingKey);
@@ -497,8 +813,20 @@ export abstract class CacheDriver {
    * Clear revalidating flag
    * @param key - Cache key (will be prefixed automatically)
    */
-  async _clearRevalidating(key: string): Promise<void> {
-    const revalidatingKey = `${this.prefixKey(key)}${REVALIDATING_SUFFIX}`;
+  _clearRevalidating(key: string): Promise<void>;
+  async _clearRevalidating(
+    key: string,
+    externalScope?: unknown
+  ): Promise<void> {
+    refuseExternalScope(externalScope);
+    return this.clearRevalidatingScoped(key);
+  }
+
+  private async clearRevalidatingScoped(
+    key: string,
+    namespace?: string
+  ): Promise<void> {
+    const revalidatingKey = `${this.prefixKey(key, namespace)}${REVALIDATING_SUFFIX}`;
     await this.delete([revalidatingKey]);
   }
 
@@ -507,48 +835,65 @@ export abstract class CacheDriver {
    * @param modelName - The model name for auto-invalidation
    * @param options - Cache invalidation options
    */
-  async _invalidate(
+  _invalidate(
     modelName: string,
     options?: CacheInvalidationOptions,
     context?: QueryExecutionContext
+  ): Promise<void>;
+  async _invalidate(
+    modelName: string,
+    options?: CacheInvalidationOptions,
+    context?: QueryExecutionContext,
+    externalScope?: unknown
   ): Promise<void> {
+    refuseExternalScope(externalScope);
+    return this.invalidateScoped(modelName, options, context);
+  }
+
+  private async invalidateScoped(
+    modelName: string,
+    options?: CacheInvalidationOptions,
+    context?: QueryExecutionContext,
+    namespace?: string
+  ): Promise<void> {
+    if (!hasCacheInvalidationWork(options)) return;
+    const targets: PreparedInvalidationTarget[] = [];
+    if (options?.autoInvalidate) {
+      targets.push({
+        kind: "clear",
+        key: modelName,
+        prefixedKey: this.prefixKey(`${modelName}:`, namespace),
+      });
+    }
+    if (options?.invalidate) {
+      for (const entry of options.invalidate) {
+        const isPrefix = entry.endsWith("*");
+        const key = isPrefix ? entry.slice(0, -1) : entry;
+        targets.push({
+          kind: isPrefix ? "clear" : "delete",
+          key,
+          prefixedKey: this.prefixKey(key, namespace),
+        });
+      }
+    }
     return this.withSpan(
       SPAN_CACHE_INVALIDATE,
       modelName,
       async () => {
         const promises: Promise<void>[] = [];
-
-        // Auto-invalidate model cache if enabled
-        if (options?.autoInvalidate) {
-          // Use modelName directly as unprefixed prefix - _clear() will add the full prefix
-          promises.push(this._clear(modelName, context));
+        for (const target of targets) {
+          promises.push(
+            target.kind === "clear"
+              ? this.clearPrefixed(target.key, target.prefixedKey, context)
+              : this.deletePrefixed(target.key, target.prefixedKey, context)
+          );
         }
-
-        // Custom invalidation - detect prefix (ends with *) vs specific key
-        if (options?.invalidate) {
-          for (const entry of options.invalidate) {
-            if (entry.endsWith("*")) {
-              // Prefix invalidation - strip the * and clear by prefix
-              promises.push(this._clear(entry.slice(0, -1), context));
-            } else {
-              // Specific key invalidation (include revalidating key)
-              promises.push(this._delete(entry, context));
-            }
-          }
-        }
-
         await Promise.all(promises);
       },
       undefined,
-      context
+      context,
+      "invalidate"
     );
-  }
-
-  /**
-   * Set instrumentation context
-   */
-  setInstrumentation(ctx: InstrumentationContext | undefined): void {
-    this.instrumentation = ctx;
   }
 
   /**
@@ -565,22 +910,104 @@ export abstract class CacheDriver {
   // INTERNAL HELPERS
   // ============================================================
 
+  private deletePrefixed(
+    key: string,
+    prefixedKey: string,
+    context?: QueryExecutionContext
+  ): Promise<void> {
+    const keys = [prefixedKey, `${prefixedKey}${REVALIDATING_SUFFIX}`];
+    return this.withSpan(
+      SPAN_CACHE_DELETE,
+      key,
+      () => this.delete(keys),
+      undefined,
+      context
+    );
+  }
+
+  private clearPrefixed(
+    key: string,
+    prefixedKey: string,
+    context?: QueryExecutionContext
+  ): Promise<void> {
+    return this.withSpan(
+      SPAN_CACHE_CLEAR,
+      key,
+      () => this.clear(prefixedKey),
+      undefined,
+      context
+    );
+  }
+
   /**
-   * Prefix a key with the cache prefix (including version if set)
-   * Skips prefixing if the key is already prefixed (starts with CACHE_PREFIX)
+   * Prefix a public storage key, or rebase an official relative key into its
+   * authenticated extension namespace.
    */
-  private prefixKey(key: string): string {
-    // Skip prefixing if already prefixed (e.g., from generateCacheKey for manual invalidation)
-    if (key.startsWith(`${CACHE_PREFIX}:`)) {
-      return key;
+  private prefixKey(key: string, namespace?: string): string {
+    if (namespace !== undefined) {
+      if (key.startsWith(`${CACHE_PREFIX}:`)) {
+        throw new CacheInvalidKeyError(
+          "Official cache keys and prefixes must be relative and cannot begin with 'viborm:'."
+        );
+      }
+      return key ? `${namespace}:${key}` : namespace;
     }
 
-    const base =
-      this.version !== undefined
-        ? `${CACHE_PREFIX}:v${this.version}`
+    const prefixedKey = key.startsWith(`${CACHE_PREFIX}:`)
+      ? key
+      : key
+        ? `${CACHE_PREFIX}:${key}`
         : CACHE_PREFIX;
-    return key ? `${base}:${key}` : base;
+    if (
+      prefixedKey === OFFICIAL_CACHE_NAMESPACE_ROOT ||
+      prefixedKey.startsWith(`${OFFICIAL_CACHE_NAMESPACE_ROOT}:`)
+    ) {
+      throw new CacheInvalidKeyError(
+        "The official cache namespace requires an authenticated cache extension."
+      );
+    }
+    return prefixedKey;
   }
+}
+
+/** Internal cache-result seam; absent from the package cache barrel. */
+export function executeCachedWithResultCodec<T>(
+  cache: CacheDriver,
+  modelName: string,
+  operation: string,
+  args: unknown,
+  executor: () => Promise<T>,
+  options: CacheExecutionOptions,
+  codec: DetachedCacheResultCodec<T>,
+  scope: object
+): Promise<T> {
+  return executeCachedWithResultCodecFriend(
+    cache,
+    modelName,
+    operation,
+    args,
+    executor,
+    options,
+    codec,
+    scope
+  );
+}
+
+/** Internal official invalidation seam; absent from the package cache barrel. */
+export function invalidateOfficialCache(
+  cache: CacheDriver,
+  modelName: string,
+  options: CacheInvalidationOptions | undefined,
+  context: QueryExecutionContext | undefined,
+  scope: object
+): Promise<void> {
+  return invalidateOfficialCacheFriend(
+    cache,
+    modelName,
+    options,
+    context,
+    scope
+  );
 }
 
 /**

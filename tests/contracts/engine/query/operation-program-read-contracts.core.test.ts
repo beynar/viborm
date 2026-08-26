@@ -4,43 +4,20 @@ import { COUNT_RESULT_KEY } from "@adapters/shared/result-parsing";
 import { type Dialect, Driver } from "@drivers";
 import type { QueryResult } from "@drivers/types";
 import {
-  createInstrumentationContext,
-  type InstrumentationContext,
-} from "@instrumentation/context";
-import {
   SPAN_BUILD,
   SPAN_EXECUTE,
   SPAN_OPERATION,
   SPAN_PARSE,
   SPAN_VALIDATE,
 } from "@instrumentation/spans";
-import type { TracerWrapper, VibORMSpanOptions } from "@instrumentation/tracer";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { getAggregateResultKey } from "@query-engine/result-aliases";
 import { hydrateSchemaNames, s } from "@schema";
+import { appendResolvedExtension } from "@src/extensions/chain";
+import { instrumentation } from "@src/instrumentation/exports";
+import { withOtelRecorder } from "@tests/unit/instrumentation/_capture";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, it } from "vitest";
-
-class RecordingTracer implements TracerWrapper {
-  readonly names: string[] = [];
-
-  startActiveSpan<T>(
-    options: VibORMSpanOptions,
-    execute: () => T | Promise<T>
-  ): Promise<T> {
-    this.names.push(options.name);
-    return Promise.resolve(execute());
-  }
-
-  startActiveSpanSync<T>(options: VibORMSpanOptions, execute: () => T): T {
-    this.names.push(options.name);
-    return execute();
-  }
-
-  isEnabled(): boolean {
-    return true;
-  }
-}
 
 class ReadContractDriver extends Driver<
   { ready: true },
@@ -100,34 +77,30 @@ describe("read result and lifecycle contracts", () => {
     ];
 
     await expect(
-      engine.prepare(user, "findMany", { take: -2 }).execute()
+      engine.prepare(user, "findMany", { take: -2 })
     ).resolves.toEqual([...driver.rows].reverse());
     driver.rows = [{ id: "user-1", name: "Arnaud" }];
-    await expect(
-      engine.prepare(user, "findFirst", {}).execute()
-    ).resolves.toEqual(driver.rows[0]);
+    await expect(engine.prepare(user, "findFirst", {})).resolves.toEqual(
+      driver.rows[0]
+    );
     driver.rows = [];
     await expect(
-      engine.prepare(user, "findUnique", { where: { id: "missing" } }).execute()
+      engine.prepare(user, "findUnique", { where: { id: "missing" } })
     ).resolves.toBeNull();
     driver.rows = [{ [COUNT_RESULT_KEY]: 2 }];
-    await expect(engine.prepare(user, "count", {}).execute()).resolves.toBe(2);
+    await expect(engine.prepare(user, "count", {})).resolves.toBe(2);
     driver.rows = [{ [COUNT_RESULT_KEY]: 0 }];
-    await expect(engine.prepare(user, "exist", {}).execute()).resolves.toBe(
-      false
-    );
+    await expect(engine.prepare(user, "exist", {})).resolves.toBe(false);
     driver.rows = [{ [COUNT_RESULT_KEY]: 1 }];
-    await expect(engine.prepare(user, "exist", {}).execute()).resolves.toBe(
-      true
-    );
+    await expect(engine.prepare(user, "exist", {})).resolves.toBe(true);
     const countKey = getAggregateResultKey("_count");
     driver.rows = [{ [countKey]: 2 }];
     await expect(
-      engine.prepare(user, "aggregate", { _count: true }).execute()
+      engine.prepare(user, "aggregate", { _count: true })
     ).resolves.toEqual({ _count: 2 });
     driver.rows = [{ name: "Arnaud", [countKey]: 1 }];
     await expect(
-      engine.prepare(user, "groupBy", { by: "name", _count: true }).execute()
+      engine.prepare(user, "groupBy", { by: "name", _count: true })
     ).resolves.toEqual([{ name: "Arnaud", _count: 1 }]);
 
     expect(driver.executionCount).toBe(8);
@@ -135,37 +108,52 @@ describe("read result and lifecycle contracts", () => {
   });
 
   it("wraps execution in the operation span and fails validation before execution", async () => {
-    const tracer = new RecordingTracer();
-    const instrumentation: InstrumentationContext = {
-      ...createInstrumentationContext({ tracing: true }),
-      tracer,
-    };
+    const recorder = withOtelRecorder();
     const driver = new ReadContractDriver(new SQLiteAdapter(), "sqlite");
-    const engine = new QueryEngine(driver, registry, instrumentation);
-    driver.rows = [{ id: "user-1", name: "Arnaud" }];
+    const extensionChain = appendResolvedExtension(
+      undefined,
+      instrumentation({ tracing: true }),
+      schema
+    );
+    const engine = new QueryEngine(
+      driver,
+      registry,
+      undefined,
+      undefined,
+      "string",
+      extensionChain
+    );
 
-    await expect(
-      engine.prepare(user, "findMany", {}).execute()
-    ).resolves.toEqual(driver.rows);
-    // The single engine emits the user-facing operation span wrapping the
-    // execute span (it validates and builds SQL at construction, without the
-    // separate validate/build/parse spans V1's staged runtime used).
-    expect(
-      tracer.names.filter((name) =>
-        [
-          SPAN_OPERATION,
-          SPAN_VALIDATE,
-          SPAN_BUILD,
-          SPAN_EXECUTE,
-          SPAN_PARSE,
-        ].includes(name)
-      )
-    ).toEqual([SPAN_OPERATION, SPAN_EXECUTE]);
+    try {
+      driver.rows = [{ id: "user-1", name: "Arnaud" }];
+      await expect(engine.prepare(user, "findMany", {})).resolves.toEqual(
+        driver.rows
+      );
+      // The single engine emits the user-facing operation span wrapping the
+      // execute span (it validates and builds SQL at construction, without the
+      // separate validate/build/parse spans V1's staged runtime used).
+      expect(
+        recorder
+          .spans()
+          .map(({ name }) => name)
+          .filter((name) =>
+            [
+              SPAN_OPERATION,
+              SPAN_VALIDATE,
+              SPAN_BUILD,
+              SPAN_EXECUTE,
+              SPAN_PARSE,
+            ].includes(name)
+          )
+      ).toEqual([SPAN_EXECUTE, SPAN_OPERATION]);
 
-    const executions = driver.executionCount;
-    await expect(
-      engine.prepare(user, "findUnique", {}).execute()
-    ).rejects.toMatchObject({ name: "ValidationError" });
-    expect(driver.executionCount).toBe(executions);
+      const executions = driver.executionCount;
+      await expect(
+        engine.prepare(user, "findUnique", {})
+      ).rejects.toMatchObject({ name: "ValidationError" });
+      expect(driver.executionCount).toBe(executions);
+    } finally {
+      await recorder.dispose();
+    }
   });
 });

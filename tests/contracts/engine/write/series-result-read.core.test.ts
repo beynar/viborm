@@ -122,7 +122,6 @@ function engineFromDriver(
     createModelRegistry(schema, schemas),
     undefined,
     undefined,
-    undefined,
     decimalDecode
   );
 }

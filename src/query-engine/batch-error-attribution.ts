@@ -1,4 +1,4 @@
-import type { AnyDriver } from "@drivers";
+import type { AnyDriver, QueryExecutionContext } from "@drivers";
 import { batchMayContainAssertionCollision } from "@drivers/error-mapping";
 import {
   isVibORMError,
@@ -43,7 +43,10 @@ export async function attributeOperationBatchError(
   error: unknown,
   guards: readonly PreparedBatchGuard[],
   driver: AnyDriver,
-  statements: readonly { readonly sql: string }[] = []
+  statements: readonly {
+    readonly sql: string;
+    readonly context?: QueryExecutionContext;
+  }[] = []
 ): Promise<unknown> {
   if (!(error instanceof NestedWriteAssertionError)) return error;
   const statementIndex = isVibORMError(error)
@@ -59,9 +62,10 @@ export async function attributeOperationBatchError(
     return error;
   }
   for (const guard of guards) {
-    const result = await driver._execute(guard.probe, {
-      operation: "batchGuardAttribution",
-    });
+    const result = await driver._execute(
+      guard.probe,
+      statements[guard.queryIndex]?.context
+    );
     const exists = result.rows.length > 0;
     if (guard.premise === "exists" ? !exists : exists) {
       return createFailureError(guard.failure, guard.model, guard.operation);

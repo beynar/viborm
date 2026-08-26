@@ -22,6 +22,7 @@ import { createClient } from "@client/client";
 import type { RawOperation } from "@client/raw";
 import type { AnyDriver } from "@drivers";
 import { PendingOperationError, VibORMErrorCode } from "@errors";
+import { instrumentation } from "@instrumentation/extension";
 import { push } from "@migrations";
 import { s } from "@schema";
 import { empty, join, raw, sql } from "@sql";
@@ -59,7 +60,8 @@ function createProbedClient(createDriver: () => AnyDriver) {
   const client = createClient({
     schema,
     driver: createDriver(),
-    instrumentation: {
+  }).$extends(
+    instrumentation({
       diagnostics: { includeParams: true, includeSql: true },
       logging: {
         includeParams: true,
@@ -67,8 +69,8 @@ function createProbedClient(createDriver: () => AnyDriver) {
         query: probe.callback,
         warning: probe.callback,
       },
-    },
-  });
+    })
+  );
   return { client, probe };
 }
 

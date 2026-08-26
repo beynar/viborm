@@ -1,5 +1,6 @@
 import { createClient } from "@client/client";
 import { QueryEngineError } from "@errors";
+import { instrumentation } from "@instrumentation/extension";
 import { s } from "@schema";
 import { sql } from "@sql";
 import { defineContract } from "@tests/contracts/contract";
@@ -257,7 +258,8 @@ export function runPolymorphicRelationBehavior(
       const observed = createClient({
         schema: polymorphicRelationSchema,
         driver,
-        instrumentation: {
+      }).$extends(
+        instrumentation({
           logging: {
             query: (event) => {
               queryEvents.push({
@@ -266,8 +268,8 @@ export function runPolymorphicRelationBehavior(
               });
             },
           },
-        },
-      });
+        })
+      );
 
       const direct = await observed.comment.findMany({
         where: {
@@ -439,7 +441,8 @@ export function runPolymorphicRelationBehavior(
         const observed = createClient({
           schema: polymorphicRelationSchema,
           driver,
-          instrumentation: {
+        }).$extends(
+          instrumentation({
             logging: {
               query: (event) => {
                 statements.push({
@@ -450,8 +453,8 @@ export function runPolymorphicRelationBehavior(
               includeSql: true,
               includeParams: true,
             },
-          },
-        });
+          })
+        );
 
         const selected = await observed.post.findUniqueOrThrow({
           where: { id: 1000 },

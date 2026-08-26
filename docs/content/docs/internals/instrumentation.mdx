@@ -23,11 +23,17 @@ policy, translate SQL, or recover from failures. SQL and parameter disclosure
 remain explicit configuration choices because they may expose sensitive data.
 Both `includeSql` and `includeParams` default to `false`.
 
-The public instrumentation configuration crosses its trust boundary once, when
-the client is created. VibORM copies and freezes disclosure flags, handlers,
-and cloned ignore patterns into one internal context. That context travels from
-the client through the query engine and the execution-context mapping to cache
-and driver work. Downstream code trusts it and does not repeat shape checks.
+The public configuration crosses its trust boundary once in the official
+`instrumentation()` extension. VibORM copies and freezes disclosure flags,
+handlers, and cloned ignore patterns into one chain-owned context. Authenticated
+execution context carries it through the query engine to cache and driver work;
+shared drivers never store or choose a client's instrumentation context.
+
+`src/instrumentation/extension.ts` owns that official factory and trusted
+handler. The generic lifecycle contract, completion onion, identity registry,
+and contained runner live only in `src/extensions/observation.ts`. Client,
+query-engine, cache, executor, and driver code retain only the lifecycle facts
+and trigger points each layer alone can know.
 
 User log callbacks, console methods, diagnostic values, and the optional
 OpenTelemetry API/provider remain untrusted. Their failures are isolated at the
@@ -35,14 +41,15 @@ call boundary. The tracer wrapper owns exact-once callback execution and keeps
 the application result or error authoritative even when a provider span method
 fails.
 
-See [Instrumentation](/docs/instrumentation) for logging, tracing, and privacy
-configuration.
+See [Instrumentation](/docs/extensions/instrumentation) for logging, tracing,
+and privacy configuration.
 
 ## Connection to Other Layers
 
-- **L9 (Client)**: Creates operation and transaction context
+- **L9 (Client)**: Applies the official extension and creates operation context
 - **L10 (Cache)**: Emits cache events and spans
-- **L6-L8 (Execution)**: Emits validation, build, execution, and driver spans
+- **L6-L8 (Execution)**: Emits protected operation, statement, transaction,
+  batch, segment, connection, and cache lifecycle facts
 
 ## Verification
 

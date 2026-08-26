@@ -1,435 +1,128 @@
-# Instrumentation - Tracing & Logging
+# Instrumentation — Protected Tracing and Logging
 
 **Location:** `src/instrumentation/`
-**Layer:** L11 - Instrumentation (see [root AGENTS.md](../../AGENTS.md))
+**Layer:** L11
 
 ## Purpose
 
-Provides observability for VibORM through OpenTelemetry tracing and structured logging. Instrumentation is opt-in, has zero overhead when disabled, and gracefully handles missing OTel dependencies.
+Instrumentation presents OpenTelemetry spans, structured logs, and diagnostic
+disclosure from authenticated core lifecycle facts. It observes application
+work; it never chooses SQL, cache policy, query recovery, transaction outcome,
+or application error authority.
 
-## Why This Layer Exists
+The sole public configuration is the fixed-name official extension:
 
-Production ORMs need observability:
-
-1. **Performance debugging** - Identify slow queries, N+1 problems, cache misses
-2. **Distributed tracing** - Trace requests across services with proper span parenting
-3. **Structured logging** - Query logs, cache events, errors with consistent format
-4. **Zero-cost when disabled** - No performance impact if not configured
-
-```typescript
-// Enable tracing and logging
-const client = createClient({
-  schema,
-  driver,
-  instrumentation: {
-    tracing: { includeSql: true, includeParams: false },
+```ts
+const observed = createClient({ schema, driver }).$extends(
+  instrumentation({
+    tracing: { includeSql: false, includeParams: false },
     logging: { query: true, cache: true, error: true },
-  },
-});
-
-// Spans are automatically created:
-// viborm.operation (findMany)
-//   └── viborm.validate
-//   └── viborm.build
-//   └── viborm.execute
-//        └── viborm.driver.execute
-//   └── viborm.parse
+    diagnostics: { includeSql: false, includeParams: false },
+  })
+);
 ```
 
----
-
-## Entry Points
-
-| File | Purpose | Modify When |
-|------|---------|-------------|
-| `context.ts` | `InstrumentationContext` - combines tracer + logger | Changing how context is created/passed |
-| `tracer.ts` | `TracerWrapper` - OpenTelemetry span management | Changing tracing behavior |
-| `logger.ts` | `Logger` - structured console/callback logging | Changing log format or levels |
-| `spans.ts` | Span names and attribute constants | Adding new span types or attributes |
-| `types.ts` | Configuration interfaces | Adding new config options |
-| `index.ts` | Public exports | Adding new exports |
-
----
-
-## Core Concepts
-
-### Instrumentation Context
-
-All instrumentation flows through a single context object:
-
-```typescript
-interface InstrumentationContext {
-  config: ResolvedInstrumentationConfig; // Frozen internal snapshot
-  tracer: TracerWrapper;                  // Real or no-op tracer
-  logger?: Logger;                        // Logger when logging is enabled
-}
-```
-
-The public `InstrumentationConfig` is read once when the client is created.
-Disclosure flags, handlers, and ignore patterns are copied into an immutable
-snapshot. The context then flows through the query engine and an execution-
-context `WeakMap`; transaction engines reuse the same trusted context. Internal
-driver setters connect a driver to that context, but they are not an alternative
-public client configuration shape.
-
-### Tracer Wrapper
-
-Wraps OpenTelemetry API with graceful fallback:
-
-```typescript
-const tracer = createTracerWrapper({ includeSql: true });
-
-// Async span (most common)
-await tracer.startActiveSpan({
-  name: SPAN_OPERATION,
-  attributes: { [ATTR_DB_COLLECTION]: "user" },
-}, async (span) => {
-  // Code runs inside span context
-  // Child spans automatically parented
-});
-
-// Sync span (for non-async code paths)
-tracer.startActiveSpanSync({ name: SPAN_VALIDATE }, (span) => {
-  // Synchronous operation
-});
-```
-
-**Key behaviors:**
-- OTel is dynamically imported (optional peer dependency)
-- If OTel unavailable, callbacks execute without spans (no-op)
-- `context.with()` ensures proper parent-child relationships
-- `root: true` option starts a new trace (for background revalidation)
-
-### Logger
-
-Structured logging with pretty console output or custom callbacks:
-
-```typescript
-const logger = createLogger({
-  query: true,                           // Pretty console
-  cache: (event, log) => {               // Custom handler
-    metrics.recordCacheEvent(event);
-    log();                               // Also use default formatter
-  },
-  error: true,
-});
-
-logger.query({
-  timestamp: new Date(),
-  model: "user",
-  operation: "findMany",
-  duration: 12,
-  sql: "SELECT ...",
-});
-```
-
-**Log levels:** `query`, `cache`, `warning`, `error`
-
-### Span Names
-
-All spans follow the `viborm.*` naming convention:
-
-| Span | Description | Parent |
-|------|-------------|--------|
-| `viborm.operation` | High-level client operation | Request/transaction |
-| `viborm.validate` | Input validation | operation |
-| `viborm.build` | SQL building | operation |
-| `viborm.execute` | Query execution wrapper | operation |
-| `viborm.driver.execute` | Actual database round-trip | execute |
-| `viborm.parse` | Result hydration | operation |
-| `viborm.transaction` | Transaction boundary | Request |
-| `viborm.write.record_series.segment` | One progressive record-series segment attempt | operation |
-| `viborm.cache.get` | Cache read | operation |
-| `viborm.cache.set` | Cache write | operation |
-
-### Attributes
-
-Follow OTel semantic conventions where possible:
-
-```typescript
-// Standard OTel attributes
-ATTR_DB_SYSTEM        // "postgresql", "mysql", "sqlite"
-ATTR_DB_COLLECTION    // Table name
-ATTR_DB_OPERATION_NAME // Operation type
-ATTR_DB_QUERY_TEXT    // SQL query (if includeSql)
-
-// VibORM custom attributes
-ATTR_DB_DRIVER        // Driver name ("pg", "mysql2", etc.)
-ATTR_CACHE_DRIVER     // Cache driver ("memory", "cloudflare-kv")
-ATTR_CACHE_RESULT     // "hit", "miss", "stale", "bypass"
-```
-
-### Progressive record-series spans
-
-An ordered committed-segment write emits
-`viborm.write.record_series.segment` around each submitted segment attempt. It
-records only structural facts:
-
-- `viborm.write.atomicity = "segment"`;
-- `viborm.write.member_path`, as a dot-separated ordinal path or `root`;
-- `viborm.write.statement_count`;
-- `viborm.write.commit_outcome`, one of `committed`, `rolled_back`,
-  `unacknowledged`, or `read_only`.
-
-The active parent operation span receives the final committed-segment,
-completed-member, and committed-write-member counts. The executor updates a
-late commit outcome through `Span.setAttributes` when an OpenTelemetry span is
-available, or through the optional `TracerWrapper.setActiveSpanAttributes`
-seam for a custom tracer. Instrumentation failure never changes the database
-outcome. Do not attach row keys, private relation columns, SQL, or payload
-values to these progress attributes.
-
----
-
-## Core Rules
-
-### Rule 1: One Trust Boundary
-
-Configuration becomes trusted only in `createInstrumentationContext()`. It is
-resolved and frozen there, so downstream instrumentation must not revalidate
-logger, tracer, timestamp, duration, span-option, or disclosure shapes.
-
-User callbacks, console methods, diagnostic values, and the OpenTelemetry
-API/provider remain untrusted boundaries. Contain their failures where they are
-invoked without changing the application result or error. Diagnostic array and
-property reads use `src/errors/diagnostic-safety.ts`; unrelated domain predicates
-remain with their semantic owners. Generic string and callable narrowing uses
-`src/validation/value-guards.ts`; do not recreate primitive predicates here.
-
-### Rule 2: Optional Dependency
-OpenTelemetry is a peer dependency, not required. All tracing code must handle missing OTel gracefully:
-
-```typescript
-// OTel is dynamically imported
-const otel = await import("@opentelemetry/api").catch(() => null);
-if (!otel) return fn();  // Execute without tracing
-```
-
-### Rule 3: Instance-Scoped State
-All mutable state lives inside `createTracerWrapper()` closure, not at module level. This ensures serverless compatibility (Cloudflare Workers, Lambda).
-
-**Two deliberate weak-reference exceptions:** `logged-errors.ts` keeps a
-module-scoped `WeakSet<Error>` so one failure is logged once across execution
-layers. `drivers/execution-context.ts` keeps a `WeakMap` from each frozen
-execution snapshot to the same trusted instrumentation context. Neither
-collection retains request objects, and both entries disappear with their weak
-keys.
-
-```typescript
-// ✅ Correct: state inside closure
-function createTracerWrapper() {
-  let otel: OTelAPI | null = null;  // Instance-scoped
-  // ...
-}
-
-// ❌ Wrong: module-level state
-let globalOtel: OTelAPI | null = null;  // Breaks serverless
-```
-
-### Rule 4: Eager OTel Loading
-OTel is loaded once when tracer is created, not on every span:
-
-```typescript
-// Load once at creation
-const otelReady = tryLoadOtel();
-
-// Subsequent spans just check cached value
-async startActiveSpan(options, fn) {
-  if (!otel) await otelReady;  // Only waits on first call
-  // ...
-}
-```
-
-### Rule 5: Context Propagation
-Always use `context.with()` to ensure proper span parenting:
-
-```typescript
-// ✅ Correct: child spans are properly parented
-return otel.context.with(contextWithSpan, async () => {
-  await childOperation();  // Gets current span as parent
-});
-
-// ❌ Wrong: breaks parent-child relationship
-span.end();
-await childOperation();  // No parent context
-```
-
-### Rule 6: SQL Sensitivity
-SQL and params are opt-in via config to prevent accidental PII exposure:
-
-```typescript
-tracing: {
-  includeSql: true,      // Show SQL in traces (default: false)
-  includeParams: false,  // Show params in traces (default: false - PII risk!)
-}
-```
-
----
-
-## Anti-Patterns
-
-### Awaiting OTel on Every Span
-```typescript
-// ❌ Wrong: loads OTel on every span
-async startActiveSpan() {
-  const otel = await import("@opentelemetry/api");  // Slow!
-}
-
-// ✅ Correct: load once, cache result
-const otelReady = tryLoadOtel();
-async startActiveSpan() {
-  if (!otel) await otelReady;
-}
-```
-
-### Module-Level Mutable State
-```typescript
-// ❌ Wrong: persists across requests in serverless
-let tracer: Tracer;
-
-// ✅ Correct: scoped to instance
-function createTracerWrapper() {
-  let tracer: Tracer | null = null;
-}
-```
-
-### Blocking on Background Operations
-```typescript
-// ❌ Wrong: blocks response on tracing
-const span = tracer.startSpan();
-await backgroundWork();
-span.end();
-return response;
-
-// ✅ Correct: fire-and-forget for background work
-const promise = tracer.startActiveSpan({ root: true }, async () => {
-  await backgroundWork();
-});
-waitUntil?.(promise);
-return response;
-```
-
-### Missing Span Status on Error
-```typescript
-// ❌ Wrong: span shows success even on error
-try {
-  await operation();
-} catch (e) {
-  throw e;  // Span has no error status
-}
-
-// ✅ Correct: set error status before rethrowing
-try {
-  await operation();
-  span.setStatus({ code: SpanStatusCode.OK });
-} catch (error) {
-  span.setStatus({ code: SpanStatusCode.ERROR, message: error.message });
-  span.recordException(error);
-  throw error;
-}
-```
-
----
-
-## Adding New Instrumentation
-
-### Adding a New Span Type
-
-1. **Add constant to `spans.ts`**:
-   ```typescript
-   export const SPAN_MY_OPERATION = "viborm.my.operation";
-   ```
-
-2. **Add to `VibORMSpanName` union**:
-   ```typescript
-   export type VibORMSpanName =
-     | typeof SPAN_OPERATION
-     | typeof SPAN_MY_OPERATION  // Add here
-     // ...
-   ```
-
-3. **Use in code**:
-   ```typescript
-   await ctx.instrumentation?.tracer?.startActiveSpan({
-     name: SPAN_MY_OPERATION,
-     attributes: { /* ... */ },
-   }, async (span) => {
-     // Operation code
-   });
-   ```
-
-### Adding a New Attribute
-
-1. **Add constant to `spans.ts`**:
-   ```typescript
-   export const ATTR_MY_CUSTOM = "viborm.my.custom";
-   ```
-
-2. **Use in span creation**:
-   ```typescript
-   attributes: {
-     [ATTR_MY_CUSTOM]: value,
-   }
-   ```
-
-### Adding a New Log Level
-
-1. **Add to `LogLevel` type** in `types.ts`:
-   ```typescript
-   export type LogLevel = "query" | "cache" | "warning" | "error" | "myLevel";
-   ```
-
-2. **Add handler in `LoggingConfig`**:
-   ```typescript
-   myLevel?: LogLevelHandler | undefined;
-   ```
-
-3. **Add method to `Logger`** in `logger.ts`:
-   ```typescript
-   myLevel(event: Omit<LogEvent, "level">): void {
-     emit({ ...event, level: "myLevel" });
-   }
-   ```
-
-4. **Add pretty formatter case** in `prettyLog()`.
-
----
-
-## Invisible Knowledge
-
-### Why Dynamic Import for OTel
-OTel is optional - many users don't need tracing. Static import would fail if `@opentelemetry/api` isn't installed. Dynamic import with catch allows graceful degradation.
-
-### Why Root Span for Background Revalidation
-SWR revalidation happens after the response is sent. If we don't use `root: true`, the span would be orphaned (parent trace already ended). Starting a new root trace keeps the span hierarchy clean.
-
-### Why Separate Tracer and Logger
-They serve different purposes: tracing is for distributed tracing systems (Jaeger, Zipkin), logging is for local debugging and monitoring. Users may want one without the other.
-
-### Why Both Disclosure Defaults Are False
-SQL can reveal table, column, tenant, and business-domain details. Parameters
-can contain PII, credentials, or other secrets. Both are therefore opt-in for
-logs, traces, and error diagnostics.
-
-## Verification
-
-```bash
-pnpm test:layer:instrumentation       # Runtime sentinels + public type probes, under 30 seconds
-pnpm test:coverage:instrumentation    # Memory-capped, one-worker, 100% four-metric gate
-```
-
-The dedicated coverage command reports only `src/instrumentation/**/*.ts` to
-`coverage/instrumentation`. It enforces 100% statements, lines, functions, and
-branches without coverage exclusions. The repository-wide coverage command is
-diagnostic and has no global percentage threshold.
-
----
-
-## Related Layers
-
-| Layer | Relationship |
-|-------|--------------|
-| **Client** ([client/AGENTS.md](../client/AGENTS.md)) | Creates instrumentation context, wraps operations |
-| **Query Engine** | Emits build/validate/parse spans |
-| **Cache** ([cache/AGENTS.md](../cache/AGENTS.md)) | Emits cache get/set/invalidate spans |
-| **Drivers** | Emits driver.execute spans |
+Never restore `instrumentation` to `createClient()` or driver-wrapper config.
+There is no driver/cache setter fallback. Each exact chain owns one immutable
+`InstrumentationContext`; shared drivers and caches do not share its tracer,
+logger, disclosure, or correlation.
+
+## Owners
+
+| Owner | Responsibility |
+|---|---|
+| `src/instrumentation/extension.ts` | Fixed-name factory and the one trusted protected-observer handler |
+| `context.ts` | Hostile-safe config snapshot and instrumentation context |
+| `lifecycle-facts.ts` | Private facts keyed by core-created frozen lifecycle units |
+| `tracer.ts` | Optional OTel loading, active spans, containment, span mutation |
+| `logger.ts` | Level selection, callback containment, pretty presentation |
+| `driver-instrumentation.ts` | Provider-dispatch facts and instrumentation presentation only; no generic extension runner |
+| `src/extensions/observation.ts` | Public unit/completion onion, trusted identity registry, and the one contained observer runner |
+
+Do not add another event registry, presenter, context manager, public token, or
+driver-attached instrumentation state.
+
+## Lifecycle rail
+
+Public units are discriminated as `operation`, `statement`, `batch`,
+`transaction`, `savepoint`, `segment`, `connection`, or `cache`. Core creates
+and freezes the exact unit. The official handler identity unlocks private facts
+through WeakMaps; a clone, rename, bind, copied context, or ordinary observer
+cannot recover them.
+
+Operation observation begins before lazy request transformation and completes
+after query-interceptor post-work. Statement observation begins before the
+statement transform. The execute presentation starts later at the old provider
+dispatch boundary, after transformation, rendering preparation, and client
+acquisition. Transaction/savepoint/connection observation begins outside queue
+wait, while its late execute span starts at the existing serialized provider
+boundary.
+
+Protected completion facts carry the same `kind` discriminant as their start
+facts. Producers publish only that kind's completion shape, and the official
+observer narrows by the discriminant; property-name probes are not a lifecycle
+identity mechanism.
+
+Native arrays emit one batch, N operations, and N statement units but one
+provider execute span/query log. They emit no fictional transaction. Fallback
+arrays use the real transaction or savepoint. Progressive writes emit one
+segment per submitted attempt. Cache revalidation owns its real nested set and
+cleanup facts without exposing marker helpers as public lifecycle units.
+
+## Protected observer contract
+
+Ordinary observers receive only a frozen unit and a frozen completion. They do
+not receive SQL, parameters, rows, application results, cache keys, raw errors,
+driver objects, correlation, or private facts. Their throw, rejection, or
+never-settling returned promise cannot delay or change the application.
+
+The official handler has a separate downstream-only application bridge. First
+use can await OTel readiness while preserving its declared onion index and
+active context. Setup failure is consumed and core still starts the exact child
+once. Array coordination prewarms the one trusted capability once before member
+observers, preparation, admission, or provider effects; ordinary-only/already-
+warm paths return synchronously without a Promise allocation.
+
+## Disclosure and errors
+
+Tracing, logging, and diagnostics snapshot independently approved SQL and
+parameter disclosures. Both fields default to false. One hostile parameter
+surface is read once before provider mutation and reused by every enabled
+channel. Cache keys and custom suffixes are never disclosed.
+
+Provider failures are normalized at the driver boundary. Core owns selected
+error logging and exact-error deduplication, including transfer to package-owned
+successor errors that add execution context or commit certainty. Public
+completion exposes only a sanitized summary and optional certainty.
+
+Observer, logger, console, OTel import/provider/span, and cache-presentation
+failures are contained. They cannot replace the child value/error, prevent an
+independent durable-fact consumer from running, alter commit, or cause an
+unhandled rejection.
+
+## Span rules
+
+- `viborm.operation` owns the complete logical operation.
+- `viborm.execute` owns one provider statement dispatch, or the one native
+  provider batch presentation.
+- `viborm.transaction`, `viborm.savepoint`, `viborm.batch`, `viborm.segment`,
+  connection, and cache spans represent only real lifecycle boundaries.
+- There are no separate validate/build/parse spans.
+- Ignoring a cache span must not write late cache attributes onto its parent.
+- Segment aggregate attributes can update the exact active operation span at
+  the existing final boundary.
+- Verbatim unsafe raw excludes statement transformation, but its physical
+  execution remains observed without implicit SQL/parameter disclosure.
+
+## Optional OTel
+
+`@opentelemetry/api` is dynamically imported. Missing or hostile OTel falls
+back to application execution. Readiness is one-shot: after it settles,
+prewarming returns `undefined` synchronously and does not add a permanent
+microtask to traced operations.
+
+## Validation
+
+Run focused instrumentation contracts, then the client, driver,
+instrumentation, query-engine, and cache layer gates sequentially. The
+instrumentation coverage script remains the 100% layer report.

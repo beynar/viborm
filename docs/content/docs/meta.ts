@@ -10,9 +10,8 @@ export default defineMeta({
     "drivers",
     "schema",
     "client",
-    "cache",
     "migration",
-    "instrumentation",
-    "internals"
+    "extensions",
+    "internals",
   ],
 });

@@ -11,7 +11,6 @@ import {
   createClientFromDriverConfig,
   type DriverConfig,
   type NoExtraDriverConfigKeys,
-  type NoExtraNestedConfigKeys,
   type VibORMClient,
 } from "@client/client";
 import type { Schema } from "@client/types";
@@ -27,6 +26,7 @@ import {
   registerConsumableResultCandidate,
 } from "../consumable-result-candidate";
 import { type AnyDriver, Driver, type QueryExecutionContext } from "../driver";
+import { getExecutionTransactionPhases } from "../execution-context";
 import { normalizeProviderRowCount } from "../normalized-result";
 import {
   nestedTransactionDispatchError,
@@ -210,7 +210,8 @@ export class PGliteDriver extends Driver<PGlite, Transaction> {
 
   protected transaction<T>(
     client: PGlite | Transaction,
-    fn: (tx: Transaction) => Promise<T>
+    fn: (tx: Transaction) => Promise<T>,
+    context?: QueryExecutionContext
   ): Promise<T> {
     if (!(client instanceof PGlite)) {
       throw nestedTransactionDispatchError(this.driverName);
@@ -218,6 +219,7 @@ export class PGliteDriver extends Driver<PGlite, Transaction> {
     return runProviderManagedTransaction({
       run: (callback) => client.transaction(callback),
       callback: fn,
+      phases: getExecutionTransactionPhases(context),
       close: async () => {
         try {
           await client.close();
@@ -256,10 +258,9 @@ function hasStockPGliteSubstrate(options: PGliteOptions): boolean {
 export function createClient<S extends Schema, C extends DriverConfig<S>>(
   config: PGliteConfig<C> &
     DriverConfig<S> &
-    NoExtraDriverConfigKeys<C, PGliteDriverOptions, S> &
-    NoExtraNestedConfigKeys<C, S>
+    NoExtraDriverConfigKeys<C, PGliteDriverOptions, S>
 ): VibORMClient<C & { driver: PGliteDriver }> {
-  const { client, dataDir, options, pgvector, postgis, ...restConfig } = config;
+  const { client, dataDir, options, pgvector, postgis } = config;
 
   const driver = new PGliteDriver({
     client,
@@ -269,8 +270,7 @@ export function createClient<S extends Schema, C extends DriverConfig<S>>(
     postgis,
   });
 
-  return createClientFromDriverConfig({
-    ...restConfig,
-    driver,
-  }) as VibORMClient<C & { driver: PGliteDriver }>;
+  return createClientFromDriverConfig(config, driver) as VibORMClient<
+    C & { driver: PGliteDriver }
+  >;
 }

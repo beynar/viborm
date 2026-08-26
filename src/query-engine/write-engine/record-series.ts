@@ -58,6 +58,7 @@ export type SeriesRootConflictDisposition = {
  */
 export interface RecordSeriesOperation {
   readonly executionKind: "recordSeries";
+  readonly validatedArgs?: Record<string, unknown>;
 
   capture(): PlanningFragment;
 
@@ -97,10 +98,14 @@ export function isSkippableCreateMemberResult(
   );
 }
 
-/** What a routed payload may resolve to: one fragment atom, or one series. */
+type CanonicalRoutedPayload = {
+  readonly validatedArgs: Record<string, unknown>;
+};
+
+/** What a routed payload may resolve to: one canonical fragment atom, or one canonical series. */
 export type RoutedExecutableOperation =
-  | ExecutableOperation
-  | RecordSeriesOperation;
+  | (ExecutableOperation & CanonicalRoutedPayload)
+  | (RecordSeriesOperation & CanonicalRoutedPayload);
 
 /**
  * Is this routed operation a series? `executionKind` exists on no fragment atom,
@@ -108,7 +113,7 @@ export type RoutedExecutableOperation =
  * before it reaches for a planning phase the series does not have.
  */
 export function isRecordSeries(
-  operation: RoutedExecutableOperation
+  operation: ExecutableOperation | RecordSeriesOperation
 ): operation is RecordSeriesOperation {
   return "executionKind" in operation;
 }

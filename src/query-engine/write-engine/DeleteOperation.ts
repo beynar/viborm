@@ -53,6 +53,7 @@ type ExecutionMode = "transaction" | "batch";
  */
 export class DeleteOperation {
   readonly mode: ExecutionMode;
+  readonly validatedArgs: Record<string, unknown>;
 
   private readonly engine: QueryEngine;
   private readonly model: Model<any>;
@@ -123,6 +124,7 @@ export class DeleteOperation {
       "delete",
       ""
     );
+    this.validatedArgs = validated;
     this.parentWhere = validated.where;
     // The projection: an explicit `select`, else the default scalar projection
     // (respecting `.omit()`). `include` rides alongside the default scalars —

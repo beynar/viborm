@@ -3,6 +3,7 @@ import { publicOperationName } from "@errors";
 import type { Model } from "@schema/model";
 import type { AnyRelation } from "@schema/relation";
 import type { Scalar } from "@schema/scalars";
+import type { AggregateResultName } from "../result-aliases";
 import type {
   ExpectedAggregateResultShape,
   ExpectedPolymorphicResultShape,
@@ -50,7 +51,7 @@ export interface RowValueParsers {
   ): unknown;
   parseAggregate(
     operation: Operation,
-    key: string,
+    key: AggregateResultName,
     raw: unknown,
     scalars: Record<string, Scalar>,
     expected?: ExpectedAggregateResultShape

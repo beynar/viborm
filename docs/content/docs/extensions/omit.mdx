@@ -1,0 +1,68 @@
+---
+title: Default omit
+description: Add typed default field omission to one derived client
+icon: eye-off
+---
+
+`defaultOmit()` is the official extension for a client's default projection.
+It changes one derived client's result types without changing the base client,
+the model definition, or another client created from the same schema.
+
+```ts
+import { defaultOmit } from "viborm/client";
+
+const publicClient = client.$extends(
+  defaultOmit<typeof schema>()({
+    user: { passwordHash: true },
+    note: { draftBody: true },
+  })
+);
+```
+
+The configuration is snapshotted when the extension is applied. Model and
+scalar names are checked exactly, and omitted entries must use the literal
+value `true`.
+
+## Results and overrides
+
+Defaults apply to root model results and nested relation payloads. A query can
+restore one defaulted field with `false`, or replace the default projection
+with an explicit `select`:
+
+```ts
+await publicClient.user.findMany({
+  omit: { passwordHash: false },
+});
+
+await publicClient.user.findMany({
+  select: { id: true, passwordHash: true },
+});
+```
+
+A default does not change a bulk operation from `{ count }` to returned rows.
+Only a projection written on that bulk call requests rows.
+
+For model-level hard exclusions and one-query `omit`, see
+[Omitting fields](/docs/client/omit).
+
+## Ordering
+
+Because `defaultOmit()` changes default result types, it may follow only
+extensions whose type context does not depend on the earlier result surface:
+
+- request, statement, or observe contributions;
+- a schema-generic polymorphic query function;
+- the official [`cache()`](/docs/extensions/cache) or
+  [`instrumentation()`](/docs/extensions/instrumentation) extension.
+
+Apply `defaultOmit()` before a schema-specific model/operation query map, a
+client-method factory, or a model-method factory. Those contributions are
+contextually typed against the result surface that exists when they are
+applied.
+
+## Not authorization
+
+`defaultOmit()` is an overridable presentation default. It does not authorize
+rows, relations, filters, writes, or raw SQL. Use model `.omit()` when a field
+must be absent from the model's public surface, and use database or application
+authorization for access control.

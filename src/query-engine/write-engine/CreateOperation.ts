@@ -455,7 +455,13 @@ function explicitCreateScalarFields(
 export class CreateOperation {
   readonly mode: ExecutionMode;
 
+  /** The canonical top-level payload, read only by public query interception. */
+  get validatedArgs(): Record<string, unknown> {
+    return this.inspectionArgs;
+  }
+
   private readonly engine: QueryEngine;
+  private readonly inspectionArgs: Record<string, unknown>;
   private readonly model: Model<any>;
   private readonly scope: StepScope;
   private readonly resultArgs: Record<string, unknown>;
@@ -558,6 +564,7 @@ export class CreateOperation {
     let data: RecordMutationData;
     if (nestedFresh) {
       data = nestedFresh.data;
+      this.inspectionArgs = nestedFresh.data.parsed;
       this.parsedInclude = undefined;
       this.parsedSelect = undefined;
       this.resultArgs = {};
@@ -567,6 +574,7 @@ export class CreateOperation {
       // replaced: this operation keeps its terminal read, its own-write preflight,
       // and its result parse, because it IS a root — see `SubOperationOptions`.
       data = options.parsedRoot.data;
+      this.inspectionArgs = options.parsedRoot.data.parsed;
       this.parsedInclude = undefined;
       this.parsedSelect = options.parsedRoot.select;
       this.resultArgs = { select: this.parsedSelect };
@@ -587,6 +595,7 @@ export class CreateOperation {
         "create",
         ""
       );
+      this.inspectionArgs = parsedArgs;
       data = {
         parsed: parsedArgs.data,
         source: isRecord(args.data) ? args.data : undefined,

@@ -18,7 +18,6 @@ import {
   createClientFromDriverConfig,
   type DriverConfig,
   type NoExtraDriverConfigKeys,
-  type NoExtraNestedConfigKeys,
   type VibORMClient,
 } from "@client/client";
 import type { Schema } from "@client/types";
@@ -29,6 +28,7 @@ import {
 } from "@errors";
 import { Pool, type PoolClient, type PoolConfig, types as pgTypes } from "pg";
 import { Driver, type QueryExecutionContext } from "../driver";
+import { getExecutionTransactionPhases } from "../execution-context";
 import {
   acquireWithMaxWait,
   type DriverTransactionOptions,
@@ -165,7 +165,7 @@ export class PgDriver extends Driver<Pool, PoolClient> {
   protected async transaction<T>(
     client: Pool | PoolClient,
     fn: (tx: PoolClient) => Promise<T>,
-    _context?: QueryExecutionContext,
+    context?: QueryExecutionContext,
     options?: DriverTransactionOptions
   ): Promise<T> {
     if ("release" in client) {
@@ -194,6 +194,7 @@ export class PgDriver extends Driver<Pool, PoolClient> {
       callback: () => fn(poolClient),
       commit: () => queryOrDiscard("COMMIT"),
       rollback: () => queryOrDiscard("ROLLBACK"),
+      phases: getExecutionTransactionPhases(context),
       close: () => {
         try {
           if (releaseError) {
@@ -226,17 +227,9 @@ export class PgDriver extends Driver<Pool, PoolClient> {
 export function createClient<S extends Schema, C extends DriverConfig<S>>(
   config: PgClientConfig<C> &
     DriverConfig<S> &
-    NoExtraDriverConfigKeys<C, PgDriverOptions, S> &
-    NoExtraNestedConfigKeys<C, S>
+    NoExtraDriverConfigKeys<C, PgDriverOptions, S>
 ): VibORMClient<C & { driver: PgDriver }> {
-  const {
-    pool,
-    options = {},
-    pgvector,
-    postgis,
-    databaseUrl,
-    ...restConfig
-  } = config;
+  const { pool, options = {}, pgvector, postgis, databaseUrl } = config;
 
   const driverOptions: PgDriverOptions = {};
   if (databaseUrl !== undefined) options.connectionString = databaseUrl;
@@ -247,8 +240,7 @@ export function createClient<S extends Schema, C extends DriverConfig<S>>(
 
   const driver = new PgDriver(driverOptions);
 
-  return createClientFromDriverConfig({
-    ...restConfig,
-    driver,
-  }) as VibORMClient<C & { driver: PgDriver }>;
+  return createClientFromDriverConfig(config, driver) as VibORMClient<
+    C & { driver: PgDriver }
+  >;
 }

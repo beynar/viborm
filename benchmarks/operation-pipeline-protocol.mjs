@@ -6,6 +6,11 @@ import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 export const PROTOCOL_PATHS = Object.freeze([
+  "benchmarks/drizzle-memory-cpu.mjs",
+  "benchmarks/drizzle.bench.ts",
+  "benchmarks/e2e-overhead.bench.ts",
+  "benchmarks/internal/operation.ts",
+  "benchmarks/operation-lifecycle.bench.ts",
   "benchmarks/operation-pipeline-batch-workloads.mjs",
   "benchmarks/operation-pipeline-catalog.mjs",
   "benchmarks/operation-pipeline-compare.mjs",
@@ -20,7 +25,10 @@ export const PROTOCOL_PATHS = Object.freeze([
   "benchmarks/operation-pipeline-semantics.mjs",
   "benchmarks/operation-pipeline-worker.mjs",
   "benchmarks/operation-pipeline-workloads.mjs",
+  "benchmarks/relation-read-memory.mjs",
+  "benchmarks/relation-read-overhead.bench.ts",
   "scripts/test-run-lock.mjs",
+  "tsdown.config.ts",
 ]);
 
 export function protocolSha256(readContents) {

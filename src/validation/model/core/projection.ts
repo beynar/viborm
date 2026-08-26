@@ -11,7 +11,7 @@
  *     `select` schema, not in the `omit` schema, and not in the result type.
  *     No client option and no query argument can put it back. Asking for it is
  *     an "Unknown key" parse failure, not a silent empty column.
- *  2. **Client-level `omit`** (`createClient({ omit: … })`) is a DEFAULT. It
+ *  2. **Client-level `omit`** (`defaultOmit()({ … })`) is a DEFAULT. It
  *     drops the field from projections that did not name one, and a query
  *     overrides it per field with `omit: { field: false }` or by naming the
  *     field in an explicit `select`.

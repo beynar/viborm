@@ -99,7 +99,7 @@ await orm.user.findMany({
 // → { id, email }[]
 ```
 
-An explicit `select` overrides the client-level omit default, but a query-level
+An explicit `select` overrides the `defaultOmit()` client default, but a query-level
 `omit` written beside that select still subtracts from it. The same rule applies
 on nested relation nodes and row-returning bulk writes.
 
@@ -144,6 +144,15 @@ inferred return type. Holding many constructed clients in module scope keeps
 their schema registries alive for the full Vitest worker and can exhaust the
 client layer's memory cap. Runtime contracts should construct and execute a
 real client normally.
+
+`ExtendedClient<Base, Extensions>` is the one public type-only reducer for
+naming an immutable extension chain across modules. `Extensions` is a finite
+readonly tuple in application order. Its implementation delegates every step
+to the same extension admission, client-config, and accumulated-state types as
+`$extends()`; do not add a second public extension-state description or a
+runtime "apply all" owner. Statically invalid ordering and repeated official
+cache/default-omit capabilities resolve to `never`; name and instrumentation
+collisions remain runtime-owned.
 
 ---
 
@@ -209,9 +218,57 @@ We need to intercept: (1) model name, (2) operation name, (3) the actual call. E
 
 ---
 
-## Caching Integration
+## Extension ownership
 
-The client integrates with the cache layer via `$withCache()`:
+`$extends()` creates an immutable derived client carrying a frozen compiled
+chain. The public extension language has exactly six capabilities: `request`,
+`query`, `statement`, `observe`, `client`, and `model`. Do not add another hook
+registry, priority system, public operation token, or deferred-operation type.
+
+`src/extensions/` owns the one normalized definition boundary, immutable chain,
+method binding, and one runner per execution capability. A resolved chain keeps
+only compiled execution handlers plus the client/model factories that must run
+for each concrete view; it never retains a second full extension definition.
+`array-admission.ts` owns only the extension query-admission latch. This client
+layer still owns candidate authority, request triggering, substrate selection,
+provider dispatch, parsing, result order, and commit publication.
+
+| Generic owner | Responsibility |
+|---|---|
+| `src/extensions/definition.ts` | Public envelope, `defineExtension()`, exact top-level guard, hostile-definition normalization |
+| `src/extensions/chain.ts` | The single frozen resolved chain, composition, official capability attachment, compiled handler lookup |
+| `src/extensions/methods.ts` | Client/model factory types, collisions, state merging, and concrete-view binding |
+| `src/extensions/request.ts` | Synchronous request-transform contract and runner |
+| `src/extensions/query.ts` | Query interception, authoritative continuation, and write-outcome rail |
+| `src/extensions/statement.ts` | Trusted `Sql` transformation contract and runner |
+| `src/extensions/observation.ts` | Public/protected lifecycle units, completion onion, and contained observer runner |
+| `src/extensions/array-admission.ts` | Extension-only native/fallback admission latch; never core array dispatch |
+| `src/extensions/index.ts` | Intentional public/internal extension exports |
+
+Official implementations stay at `src/cache/extension.ts`,
+`src/instrumentation/extension.ts`, and
+`src/client/default-omit-extension.ts`. Do not recreate a generic extension
+representation or runner in `src/client/`, `src/query-engine/`, or
+`src/drivers/`.
+
+- Request transforms run lazily before default omit and core validation.
+- Query interceptors run around one prepared logical operation. Once
+  `proceed()` starts, its result/error is authoritative.
+- Statement transforms run once per materialized typed `Sql`, after statement
+  observation and before rendering. Verbatim unsafe raw is excluded.
+- Observers see only frozen public lifecycle/completion facts; their returned
+  promise never controls the application.
+- Client/model factories add typed methods to the derived scope.
+
+The default-omit extension can follow request, statement, observe, a global
+polymorphic query function, and official cache/instrumentation. It cannot follow
+a schema-mapped query or client/model factory whose result types were fixed
+before omission.
+
+## Caching integration
+
+Only an exact client derived with `cache({ driver, version?, waitUntil? })` has
+`$withCache()` and `$invalidate()`:
 
 ```typescript
 // Basic caching with default TTL (5 minutes)
@@ -233,13 +290,14 @@ const data = await orm.$withCache({
 }).user.findMany();
 ```
 
-**Cache options:**
+Cache options:
+
 - `ttl` - Time to live (number in ms or string like "1 hour")
 - `swr` - Enable SWR (boolean or custom TTL)
 - `bypass` - Force fresh fetch but still cache result
-- `key` - Custom cache key override
+- `key` - Suffix contribution to the canonical validated-operation key
 
-**Cache invalidation in mutations:**
+Mutation invalidation:
 ```typescript
 await orm.user.update({
   where: { id: "1" },
@@ -251,10 +309,15 @@ await orm.user.update({
 });
 ```
 
-**Manual invalidation:**
+Manual invalidation:
 ```typescript
-await orm.$invalidate(["user:*", "post:list"]);
+await orm.$invalidate("user:*", "post:list");
 ```
+
+The official cache snapshots the parsed core value before query post-work and
+materializes a fresh detached graph on every hit. It bypasses callback and array
+transactions, raw calls, and statement-transform chains. Mutation invalidation
+uses the ordered write-outcome rail at the exact commit/savepoint boundary.
 
 ---
 
@@ -315,7 +378,7 @@ per-driver table.
 ## Transaction operations
 
 Model operations return `PendingOperation`; raw methods return `RawOperation`.
-Both implement the internal transaction-operation protocol and defer execution
+Both register private WeakMap-backed array authority and defer execution
 until awaited or consumed by `$transaction([...])`:
 
 ```typescript
@@ -332,7 +395,9 @@ const [a, b] = await orm.$transaction([
 Raw and model operations can share the same array transaction. Raw operations
 remain structurally compatible with `Promise<T>`, but ordinary promises are not
 transaction operations and remain invalid array members. Client and scope IDs
-are checked for both implementations before dispatch.
+are read from unshadowable class-private state and checked for both
+implementations before dispatch. No transaction capability property is exposed
+on the public object or prototype.
 
 ### Shared batch result ownership
 
@@ -341,6 +406,13 @@ consumes the exact result at its index. The shared batch validates normalization
 and cardinality once against its full query list; a multi-statement member then
 trusts and consumes its exact result slice. Pass every original `QueryResult`,
 including `insertId`, to its consumer; never rewrap it or strip its fields.
+
+`array-transaction-native-batch.ts` is the single owner of provider dispatch
+attribution, normalized batch cardinality, and native-batch transaction errors.
+The legacy, observe-only, and intercepted shells keep their preparation and
+result-window loops local: extracting those measured hot loops adds per-member
+CPU and per-array allocation. Keep the unextended legacy shell monomorphic and
+free of extension slots, outcome collectors, and async helper frames.
 
 ---
 

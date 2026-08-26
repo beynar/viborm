@@ -11,6 +11,7 @@
 import { createClient } from "@client/client";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import { push } from "@migrations";
+import { readTransactionOperation } from "@query-engine/transaction-operation";
 import { s } from "@schema";
 import Database from "better-sqlite3";
 import { desc, eq, relations } from "drizzle-orm";
@@ -113,25 +114,36 @@ function preparedOrThrow<T>(prepared: T | undefined, name: string): T {
   return prepared;
 }
 
+function prepareTransactionOperation(operation: unknown) {
+  if (operation === null || typeof operation !== "object") {
+    throw new Error("Expected a VibORM benchmark operation");
+  }
+  const owner = readTransactionOperation(operation);
+  if (!owner) throw new Error("Expected a VibORM benchmark operation");
+  return owner.prepare(operation);
+}
+
+function prepareOperation(operation: unknown, name: string) {
+  return preparedOrThrow(prepareTransactionOperation(operation), name);
+}
+
 function firstOrThrow<T>(rows: readonly T[], name: string): T {
   const first = rows[0];
   if (!first) throw new Error(`${name} returned no rows`);
   return first;
 }
 
-const findUniquePrepared = preparedOrThrow(
-  viborm.user.findUnique({ where: { id: "u42" } }).prepare(),
+const findUniquePrepared = prepareOperation(
+  viborm.user.findUnique({ where: { id: "u42" } }),
   "findUnique"
 );
-const findManyPrepared = preparedOrThrow(
-  viborm.post
-    .findMany({
-      where: { published: true },
-      select: { id: true, title: true, views: true },
-      orderBy: { views: "desc" },
-      take: 20,
-    })
-    .prepare(),
+const findManyPrepared = prepareOperation(
+  viborm.post.findMany({
+    where: { published: true },
+    select: { id: true, title: true, views: true },
+    orderBy: { views: "desc" },
+    take: 20,
+  }),
   "findMany 20"
 );
 const relationArgs = {
@@ -142,12 +154,12 @@ const relationArgs = {
   },
   take: 20,
 } satisfies Parameters<typeof viborm.post.findMany>[0];
-const relationPrepared = preparedOrThrow(
-  viborm.post.findMany(relationArgs).prepare(),
+const relationPrepared = prepareOperation(
+  viborm.post.findMany(relationArgs),
   "relation findMany"
 );
-const findMany1000Prepared = preparedOrThrow(
-  viborm.post.findMany({ take: 1000 }).prepare(),
+const findMany1000Prepared = prepareOperation(
+  viborm.post.findMany({ take: 1000 }),
   "findMany 1000"
 );
 const rawCreateTemplateId = "__raw_drizzle_id__";
@@ -161,7 +173,7 @@ const createPrepared = preparedOrThrow(
         age: 30,
       },
     });
-    const prepared = operation.prepare();
+    const prepared = prepareTransactionOperation(operation);
     if (prepared) return prepared;
     const statement = operation.buildStatement();
     return statement ? vibormDriver._prepare(statement) : undefined;

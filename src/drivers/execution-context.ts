@@ -1,12 +1,21 @@
+import type { ResolvedExtensionChain } from "@extensions/chain";
 import type { InstrumentationContext } from "@instrumentation/context";
 import type { QueryExecutionContext } from "./types";
 
 interface TrustedExecutionContext {
   readonly correlationId?: string;
   readonly correlationIdGetter?: () => string;
+  readonly extensionChain?: ResolvedExtensionChain;
   readonly instrumentation?: InstrumentationContext;
   readonly model?: string;
   readonly operation?: string;
+  readonly transactionPhases?: TransactionPhaseNotifications;
+}
+
+/** Private exact transaction lifecycle facts attached only to trusted contexts. */
+export interface TransactionPhaseNotifications {
+  readonly readyToCommit: () => void;
+  readonly committed: () => void;
 }
 
 const trustedExecutionContexts = new WeakMap<object, TrustedExecutionContext>();
@@ -14,14 +23,16 @@ const trustedExecutionContexts = new WeakMap<object, TrustedExecutionContext>();
 export function createExecutionContext(
   values: QueryExecutionContext,
   instrumentation?: InstrumentationContext,
-  correlationIdFactory?: () => string
+  correlationIdFactory?: () => string,
+  extensionChain?: ResolvedExtensionChain
 ): QueryExecutionContext {
   if (!correlationIdFactory) {
     return snapshotExecutionContext(
       values,
       undefined,
       undefined,
-      instrumentation
+      instrumentation,
+      extensionChain
     );
   }
 
@@ -32,6 +43,7 @@ export function createExecutionContext(
   };
   return createTrustedExecutionContext({
     correlationIdGetter,
+    extensionChain,
     instrumentation,
     model: readString(values, "model"),
     operation: readString(values, "operation"),
@@ -42,7 +54,8 @@ export function snapshotExecutionContext(
   context: QueryExecutionContext | undefined,
   boundContext?: QueryExecutionContext,
   fallbackOperation?: string,
-  instrumentationOverride?: InstrumentationContext
+  instrumentationOverride?: InstrumentationContext,
+  extensionChainOverride?: ResolvedExtensionChain
 ): QueryExecutionContext {
   const trustedContext = context
     ? trustedExecutionContexts.get(context)
@@ -71,6 +84,12 @@ export function snapshotExecutionContext(
     contextValues.instrumentation ??
     boundValues.instrumentation ??
     instrumentationOverride;
+  const extensionChain =
+    contextValues.extensionChain ??
+    boundValues.extensionChain ??
+    extensionChainOverride;
+  const transactionPhases =
+    contextValues.transactionPhases ?? boundValues.transactionPhases;
 
   if (
     context &&
@@ -81,7 +100,9 @@ export function snapshotExecutionContext(
       operation,
       correlationId,
       correlationIdGetter,
-      instrumentation
+      instrumentation,
+      extensionChain,
+      transactionPhases
     )
   ) {
     return context;
@@ -95,7 +116,9 @@ export function snapshotExecutionContext(
       operation,
       correlationId,
       correlationIdGetter,
-      instrumentation
+      instrumentation,
+      extensionChain,
+      transactionPhases
     )
   ) {
     return boundContext;
@@ -104,9 +127,11 @@ export function snapshotExecutionContext(
   return createTrustedExecutionContext({
     correlationId,
     correlationIdGetter,
+    extensionChain,
     instrumentation,
     model,
     operation,
+    transactionPhases,
   });
 }
 
@@ -115,6 +140,63 @@ export function getExecutionInstrumentation(
 ): InstrumentationContext | undefined {
   if (!context) return undefined;
   return trustedExecutionContexts.get(context)?.instrumentation;
+}
+
+/** Read only the chain attached by the trusted context owner. */
+export function getExecutionExtensionChain(
+  context: QueryExecutionContext | undefined
+): ResolvedExtensionChain | undefined {
+  if (!context) return undefined;
+  return trustedExecutionContexts.get(context)?.extensionChain;
+}
+
+/** Attach private lifecycle notifications without accepting caller-spoofed state. */
+export function bindExecutionTransactionPhases(
+  context: QueryExecutionContext,
+  transactionPhases: TransactionPhaseNotifications
+): QueryExecutionContext {
+  const values =
+    trustedExecutionContexts.get(context) ??
+    snapshotExternalExecutionContext(context);
+  return createTrustedExecutionContext({ ...values, transactionPhases });
+}
+
+/** Add one private lifecycle reader without replacing an existing consumer. */
+export function appendExecutionTransactionPhases(
+  context: QueryExecutionContext,
+  appendedPhases: TransactionPhaseNotifications
+): QueryExecutionContext {
+  const values =
+    trustedExecutionContexts.get(context) ??
+    snapshotExternalExecutionContext(context);
+  const existingPhases = values.transactionPhases;
+  if (existingPhases === undefined) {
+    return createTrustedExecutionContext({
+      ...values,
+      transactionPhases: appendedPhases,
+    });
+  }
+  return createTrustedExecutionContext({
+    ...values,
+    transactionPhases: {
+      readyToCommit: () => {
+        appendedPhases.readyToCommit();
+        existingPhases.readyToCommit();
+      },
+      committed: () => {
+        appendedPhases.committed();
+        existingPhases.committed();
+      },
+    },
+  });
+}
+
+/** Read lifecycle notifications only from a context created by this owner. */
+export function getExecutionTransactionPhases(
+  context: QueryExecutionContext | undefined
+): TransactionPhaseNotifications | undefined {
+  if (!context) return undefined;
+  return trustedExecutionContexts.get(context)?.transactionPhases;
 }
 
 function createTrustedExecutionContext(
@@ -153,14 +235,18 @@ function representsExecutionContext(
   operation: string | undefined,
   correlationId: string | undefined,
   correlationIdGetter: (() => string) | undefined,
-  instrumentation: InstrumentationContext | undefined
+  instrumentation: InstrumentationContext | undefined,
+  extensionChain: ResolvedExtensionChain | undefined,
+  transactionPhases: TransactionPhaseNotifications | undefined
 ): boolean {
   return (
     values.model === model &&
     values.operation === operation &&
     values.correlationId === correlationId &&
     values.correlationIdGetter === correlationIdGetter &&
-    values.instrumentation === instrumentation
+    values.instrumentation === instrumentation &&
+    values.extensionChain === extensionChain &&
+    values.transactionPhases === transactionPhases
   );
 }
 

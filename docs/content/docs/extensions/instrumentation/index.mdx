@@ -1,0 +1,93 @@
+---
+title: Instrumentation
+description: Official protected tracing, logging, and diagnostic disclosure
+icon: activity
+---
+
+Instrumentation is an official client extension. It presents tracing and
+structured logging from VibORM's protected lifecycle rail without giving
+observer code authority over the application.
+
+```ts
+import { createClient } from "viborm";
+import { instrumentation } from "viborm/instrumentation";
+
+const client = createClient({ schema, driver }).$extends(
+  instrumentation({
+    tracing: { includeSql: false, includeParams: false },
+    logging: {
+      query: true,
+      cache: true,
+      warning: true,
+      error: true,
+    },
+    diagnostics: { includeSql: false, includeParams: false },
+  })
+);
+```
+
+`createClient({ instrumentation: ... })` is not a supported configuration.
+The fixed-name `instrumentation()` extension is the sole public owner.
+
+## Independent disclosure channels
+
+Tracing, logging, and thrown-error diagnostics each own separate SQL and
+parameter disclosure settings. Both default to `false`. Enabling disclosure
+for one channel does not enable it for another.
+
+VibORM snapshots hostile inputs once at the disclosure boundary. Raw provider
+messages and undeclared fields are redacted; stable provider codes remain
+available for retry and incident classification. Cache keys and custom cache
+suffixes never appear in public units, spans, or logs.
+
+:::warning
+Only enable parameter disclosure in a controlled development environment.
+Parameters may contain credentials, personal data, or application secrets.
+:::
+
+## Lifecycle coverage
+
+Official instrumentation consumes the same real lifecycle units exposed to
+ordinary observers: logical operation, physical statement, public array batch,
+transaction, savepoint, progressive segment, connection, and cache.
+
+- A native array produces one batch, N logical operations, N physical statement
+  units, and one provider execution presentation. It produces no fictional
+  transaction.
+- A fallback array uses the real transaction or savepoint lifecycle.
+- A progressive write produces one segment unit per submitted attempt.
+- Cache revalidation contains the nested cache set and marker cleanup while the
+  stale application result stays authoritative.
+- Connect and disconnect each produce one connection lifecycle.
+
+Logical operation spans begin before lazy request transformation and finish
+after query-interceptor post-work. Execute spans begin at the provider dispatch
+boundary, after statement transformation and client acquisition. Correlation
+is carried by the authenticated execution context, so clients sharing a driver
+or cache keep isolated spans and logs.
+
+## Failure containment
+
+Telemetry is observational. A logger callback, console method, OTel provider,
+observer, or dynamic OTel import can throw, reject, or never settle without
+changing the application value, application error, transaction outcome, or
+commit certainty. The core selects and deduplicates the application error;
+instrumentation receives only normalized and disclosure-approved facts.
+
+An ordinary `observe` contribution is even narrower: it receives a frozen
+public unit and sanitized completion only. It never receives SQL, parameters,
+rows, result values, cache keys, raw errors, drivers, correlation identity, or
+private facts.
+
+## Optional OpenTelemetry dependency
+
+`@opentelemetry/api` is an optional peer dependency and is loaded dynamically.
+If it is absent or setup fails, database work proceeds normally. The official
+observer prewarms the tracer once so the first operation still enters the
+correct active context; later operations do not pay a permanent readiness
+microtask.
+
+<CardGroup>
+  <Card title="Logging" description="Configure structured logs" href="/docs/extensions/instrumentation/logging" />
+  <Card title="Tracing" description="Configure OpenTelemetry spans" href="/docs/extensions/instrumentation/tracing" />
+</CardGroup>

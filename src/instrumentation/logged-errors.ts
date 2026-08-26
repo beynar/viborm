@@ -37,6 +37,14 @@ export function markErrorLogged(error: Error): void {
   loggedErrors.add(error);
 }
 
+/** Preserve the report record when package code replaces one failure with its successor. */
+export function transferLoggedErrorEvidence(
+  source: Error,
+  successor: Error
+): void {
+  if (loggedErrors.has(source)) loggedErrors.add(successor);
+}
+
 /** Whether this error has already been reported to the logger. */
 export function isErrorLogged(error: Error): boolean {
   return loggedErrors.has(error);

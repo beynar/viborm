@@ -2,6 +2,15 @@
 
 export const ALLOCATION_SAMPLING_INTERVAL = 4096;
 export const ALL_MODES = Object.freeze(["alloc", "cpu", "retained"]);
+export const EXTENSION_ARMS = Object.freeze([
+  "unextended",
+  "request",
+  "query",
+  "statement",
+  "observe",
+  "client",
+  "model",
+]);
 export const CROSS_PROVIDER_BASELINE_COMMIT =
   "52eef9ebfc710407e1e5fe6042e2ed5a11adf19e";
 
@@ -127,6 +136,7 @@ function workload(fixture, selectedStages, rowsPerOperation, options = {}) {
     rowsPerOperation,
     substrate: options.substrate ?? "transactional",
     providers: options.providers ?? Object.freeze(["sqlite3"]),
+    extensionProof: options.extensionProof === true,
     ...(options.providerShape
       ? { providerShape: Object.freeze(options.providerShape) }
       : {}),
@@ -134,7 +144,7 @@ function workload(fixture, selectedStages, rowsPerOperation, options = {}) {
 }
 
 const providerWorkloads = Object.fromEntries([
-  ...[1, 20, 1000, 10000].flatMap((rows) =>
+  ...[1, 20, 1000, 10_000].flatMap((rows) =>
     ["identity", "mixed-scalar"].map((kind) => [
       `provider-${kind}-${rows}`,
       workload("provider-read", stages.providerRead, rows, {
@@ -161,7 +171,7 @@ const providerWorkloads = Object.fromEntries([
     `provider-${kind}-10000`,
     workload("provider-read", stages.providerRead, 1, {
       providers: ALL_PROVIDERS,
-      providerShape: { kind, sourceRows: 10000 },
+      providerShape: { kind, sourceRows: 10_000 },
     }),
   ]),
   [
@@ -195,8 +205,13 @@ export const WORKLOADS = Object.freeze({
     1
   ),
   "scalar-find-unique": workload("core", stages.allRead, 1),
+  "scalar-find-many-1": workload("core", stages.parseRead, 1, {
+    extensionProof: true,
+  }),
   "scalar-find-many-20": workload("core", stages.allRead, 20),
-  "scalar-find-many-1000": workload("core", stages.parseRead, 1000),
+  "scalar-find-many-1000": workload("core", stages.parseRead, 1000, {
+    extensionProof: true,
+  }),
   "wide-scalar-select-1": workload("wide", stages.prepareFull, 1),
   "wide-scalar-select-20": workload("wide", stages.prepareFull, 1),
   "wide-scalar-select-100": workload("wide", stages.prepareFull, 1),
@@ -214,14 +229,18 @@ export const WORKLOADS = Object.freeze({
   "fixed-collection-junction": workload("variant", stages.prepareParseFull, 20),
   "enum-heavy-20": workload("core", stages.parseFull, 20),
   "enum-heavy-1000": workload("core", stages.parseFull, 1000),
-  "flat-create-explicit-id": workload("core", stages.mutation, 1),
+  "flat-create-explicit-id": workload("core", stages.mutation, 1, {
+    extensionProof: true,
+  }),
   "flat-create-generated-id": workload("core", stages.mutation, 1),
   "flat-scalar-update": workload("core", stages.mutation, 1),
   "wide-create-1": workload("wide", stages.prepareFull, 1),
   "wide-create-20": workload("wide", stages.prepareFull, 1),
   "wide-update-1": workload("wide", stages.prepareFull, 1),
   "wide-update-20": workload("wide", stages.prepareFull, 1),
-  "fixed-rowref-create": workload("core", stages.fullOnly, 1),
+  "fixed-rowref-create": workload("core", stages.fullOnly, 1, {
+    extensionProof: true,
+  }),
   "fixed-rowref-update": workload("core", stages.fullOnly, 1),
   "fixed-junction-create": workload("variant", stages.fullOnly, 1),
   "fixed-junction-update": workload("variant", stages.fullOnly, 1),
@@ -242,6 +261,7 @@ export const WORKLOADS = Object.freeze({
   }),
   "atomic-batch-100": workload("core", stages.atomic, 100, {
     substrate: "batch-only",
+    extensionProof: true,
   }),
   "nested-transaction-0-reference": workload("core", stages.fullOnly, 2, {
     substrate: "batch-only",

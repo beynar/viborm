@@ -647,6 +647,147 @@ describe("object schema", () => {
       expect(result.issues).toBeUndefined();
     });
 
+    test("settles constraint and default accessors once without publishing scratch state", () => {
+      let authorReads = 0;
+      let labelReads = 0;
+      const accessorSchema = v.object(
+        {
+          authorId: v.string(),
+          label: v.string({ default: "fallback" }),
+        },
+        { requiresOneOfKeySets: [[["authorId"]]] }
+      );
+      const input = Object.defineProperties(
+        {},
+        {
+          authorId: {
+            enumerable: true,
+            get: () => {
+              authorReads += 1;
+              return "author-1";
+            },
+          },
+          label: {
+            enumerable: true,
+            get: () => {
+              labelReads += 1;
+              return undefined;
+            },
+          },
+        }
+      );
+
+      const result = parse(accessorSchema, input);
+
+      expect(result).toEqual({
+        value: { authorId: "author-1", label: "fallback" },
+      });
+      expect(authorReads).toBe(1);
+      expect(labelReads).toBe(1);
+      expect(Reflect.ownKeys((result as { value: object }).value)).toEqual([
+        "authorId",
+        "label",
+      ]);
+    });
+
+    test("settles a duplicate constraint-only dependency once without publishing it", () => {
+      let dependencyReads = 0;
+      const dependencySchema = v.object(
+        { title: v.string() },
+        {
+          strict: false,
+          requiresOneOf: [["external"], ["external"]],
+        }
+      );
+      const input = Object.defineProperties(
+        { title: "entry" },
+        {
+          external: {
+            enumerable: true,
+            get: () => {
+              dependencyReads += 1;
+              return "available";
+            },
+          },
+        }
+      );
+
+      const result = parse(dependencySchema, input);
+
+      expect(result).toEqual({ value: { title: "entry" } });
+      expect(dependencyReads).toBe(1);
+      expect(Reflect.ownKeys((result as { value: object }).value)).toEqual([
+        "title",
+      ]);
+    });
+
+    test("preserves a throwing constraint accessor and invokes it once", () => {
+      const refusal = new Error("constraint accessor refused");
+      let dependencyReads = 0;
+      const accessorSchema = v.object(
+        { title: v.string() },
+        { requiresOneOf: [["title"], ["title"]] }
+      );
+      const input = Object.defineProperty({}, "title", {
+        enumerable: true,
+        get: () => {
+          dependencyReads += 1;
+          throw refusal;
+        },
+      });
+
+      expect(() => parse(accessorSchema, input)).toThrow(refusal);
+      expect(dependencyReads).toBe(1);
+    });
+
+    test("does not observe inherited numeric accessors while settling a slot", () => {
+      let titleReads = 0;
+      let inheritedGets = 0;
+      let inheritedSets = 0;
+      const accessorSchema = v.object(
+        { title: v.string() },
+        { requiresOneOf: [["title"]] }
+      );
+      const input = Object.defineProperty({}, "title", {
+        enumerable: true,
+        get: () => {
+          titleReads += 1;
+          return "entry";
+        },
+      });
+      parse(accessorSchema, { title: "warmup" });
+      const previousDescriptor = Object.getOwnPropertyDescriptor(
+        Array.prototype,
+        "0"
+      );
+      let result: ReturnType<typeof parse> | undefined;
+
+      try {
+        Object.defineProperty(Array.prototype, "0", {
+          configurable: true,
+          get: () => {
+            inheritedGets += 1;
+            return "poisoned";
+          },
+          set: () => {
+            inheritedSets += 1;
+          },
+        });
+        result = parse(accessorSchema, input);
+      } finally {
+        if (previousDescriptor === undefined) {
+          Reflect.deleteProperty(Array.prototype, "0");
+        } else {
+          Object.defineProperty(Array.prototype, "0", previousDescriptor);
+        }
+      }
+
+      expect(result).toEqual({ value: { title: "entry" } });
+      expect(titleReads).toBe(1);
+      expect(inheritedGets).toBe(0);
+      expect(inheritedSets).toBe(0);
+    });
+
     test("type inference requires a complete key-set alternative", () => {
       type Input = Prettify<InferInput<typeof schema>>;
 
@@ -999,6 +1140,7 @@ describe("object wrapper combinations", () => {
     });
     const valueThrow = v.object(entries, {
       transform: () => {
+        // biome-ignore lint/style/useThrowOnlyError: validates the non-Error failure boundary.
         throw "object transform refused";
       },
     });

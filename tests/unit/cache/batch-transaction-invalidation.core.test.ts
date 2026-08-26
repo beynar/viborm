@@ -4,10 +4,9 @@ import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
  *
  * A batch-only driver (D1, Neon HTTP — `supportsTransactions === false`,
  * `supportsBatch === true`) takes the client's SHARED-BATCH branch, which
- * prepares every operation and parses the driver's batch results. It never
- * calls `execute()`, so the `wrapExecutor` closure that carries mutation cache
- * invalidation (query-engine/cache-flow.ts) does not fire on that path — the
- * branch has to run the same invalidation itself, after the commit.
+ * prepares every operation and parses the driver's batch results. It stages the
+ * same package-owned write outcome registrations before dispatch, then publishes
+ * them only after the batch commit.
  *
  * On D1 the callback form of `$transaction` throws, so `$transaction([...])` is
  * the ONLY atomic multi-write API there: a cached read after a batched write
@@ -16,10 +15,10 @@ import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
  */
 
 import { MemoryCache } from "@cache/drivers/memory";
+import { cache as cacheExtension } from "@cache/extension";
 import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
-import type { BatchQuery, QueryResult } from "@drivers/types";
-import { PGlite, type Transaction } from "@electric-sql/pglite";
+import { PGlite } from "@electric-sql/pglite";
 import { push } from "@migrations";
 import { s } from "@schema";
 import { describe, expect, test } from "vitest";
@@ -45,18 +44,30 @@ async function boot(mode: Mode) {
   await push(setupClient, { force: true });
 
   const cache = new MemoryCache();
+  const background: Promise<unknown>[] = [];
   const client = createClient({
     schema,
     driver:
       mode === "batch"
         ? new BatchOnlyPGliteDriver({ client: db })
         : new PGliteDriver({ client: db }),
-    cache,
-  });
+  }).$extends(
+    cacheExtension({
+      driver: cache,
+      waitUntil: (promise) => background.push(promise),
+    })
+  );
   await client.user.create({
     data: { id: "1", name: "Alice", email: "alice@test.com" },
   });
-  return { cache, client };
+  return {
+    client,
+    settle: async () => {
+      while (background.length > 0) {
+        await Promise.all(background.splice(0));
+      }
+    },
+  };
 }
 
 const MODES: Mode[] = ["batch", "transaction"];
@@ -64,12 +75,13 @@ const MODES: Mode[] = ["batch", "transaction"];
 describe("$transaction([...]) mutation cache invalidation", () => {
   for (const mode of MODES) {
     test(`${mode}: a batched autoInvalidate write clears the model's cached reads`, async () => {
-      const { client } = await boot(mode);
+      const { client, settle } = await boot(mode);
 
       const warm = await client
         .$withCache({ key: "user:all" })
         .user.findMany({ orderBy: { id: "asc" } });
       expect(warm).toHaveLength(1);
+      await settle();
 
       await client.$transaction([
         client.user.create({
@@ -87,19 +99,21 @@ describe("$transaction([...]) mutation cache invalidation", () => {
     });
 
     test(`${mode}: a batched write honors its own invalidate keys and no others`, async () => {
-      const { client } = await boot(mode);
+      const { client, settle } = await boot(mode);
 
       await client.$withCache({ key: "user:all" }).user.findMany();
       await client.$withCache({ key: "user:count" }).user.count();
+      await settle();
 
       await client.$transaction([
         client.user.create({
           data: { id: "2", name: "Bob", email: "bob@test.com" },
-          cache: { invalidate: ["user:all"] },
+          cache: { invalidate: ["user:findMany:*"] },
         }),
       ]);
 
-      // The named key was cleared and re-read against the committed batch…
+      // The named operation prefix was cleared and re-read against the
+      // committed batch…
       expect(
         await client.$withCache({ key: "user:all" }).user.findMany()
       ).toHaveLength(2);
@@ -112,11 +126,12 @@ describe("$transaction([...]) mutation cache invalidation", () => {
     });
 
     test(`${mode}: a batched write with no cache options invalidates nothing`, async () => {
-      const { client } = await boot(mode);
+      const { client, settle } = await boot(mode);
 
       expect(
         await client.$withCache({ key: "user:all" }).user.findMany()
       ).toHaveLength(1);
+      await settle();
 
       await client.$transaction([
         client.user.create({
@@ -135,11 +150,12 @@ describe("$transaction([...]) mutation cache invalidation", () => {
     });
 
     test(`${mode}: every mutation in a mixed batch invalidates, reads do not`, async () => {
-      const { client } = await boot(mode);
+      const { client, settle } = await boot(mode);
 
       expect(
         await client.$withCache({ key: "user:all" }).user.findMany()
       ).toHaveLength(1);
+      await settle();
 
       const [count, , updated] = await client.$transaction([
         client.user.count(),
@@ -166,11 +182,12 @@ describe("$transaction([...]) mutation cache invalidation", () => {
     });
 
     test(`${mode}: a rolled-back batch leaves the cache alone`, async () => {
-      const { client } = await boot(mode);
+      const { client, settle } = await boot(mode);
 
       expect(
         await client.$withCache({ key: "user:all" }).user.findMany()
       ).toHaveLength(1);
+      await settle();
 
       await expect(
         client.$transaction([

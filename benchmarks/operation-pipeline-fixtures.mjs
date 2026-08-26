@@ -22,6 +22,54 @@ class BatchOnlySQLite3Driver extends SQLite3Driver {
   }
 }
 
+const EMPTY_EXTENSION_PATCH = Object.freeze({});
+const NOOP_CLIENT_METHODS = Object.freeze({
+  $benchmarkNoop: () => undefined,
+});
+const NOOP_MODEL_METHODS = Object.freeze({
+  benchmarkNoop: () => undefined,
+});
+const NOOP_EXTENSION_DEFINITIONS = Object.freeze({
+  request: Object.freeze({
+    name: "benchmark-noop-request",
+    request: () => EMPTY_EXTENSION_PATCH,
+  }),
+  query: Object.freeze({
+    name: "benchmark-noop-query",
+    query: async ({ proceed }) => proceed(),
+  }),
+  statement: Object.freeze({
+    name: "benchmark-noop-statement",
+    statement: ({ statement }) => statement,
+  }),
+  observe: Object.freeze({
+    name: "benchmark-noop-observe",
+    observe: () => undefined,
+  }),
+  client: Object.freeze({
+    name: "benchmark-noop-client",
+    client: () => NOOP_CLIENT_METHODS,
+  }),
+  model: Object.freeze({
+    name: "benchmark-noop-model",
+    model: Object.freeze({ user: () => NOOP_MODEL_METHODS }),
+  }),
+});
+
+function applyExtensionArm(client, extensionArm) {
+  if (extensionArm === "unextended") return client;
+  const definition = NOOP_EXTENSION_DEFINITIONS[extensionArm];
+  if (!definition) {
+    throw new Error(`Unknown extension benchmark arm: ${extensionArm}`);
+  }
+  if (typeof client.$extends !== "function") {
+    throw new Error(
+      `Extension benchmark arm ${extensionArm} requires client.$extends()`
+    );
+  }
+  return client.$extends(definition);
+}
+
 function createDriver(substrate) {
   const DriverClass =
     substrate === "batch-only" ? BatchOnlySQLite3Driver : SQLite3Driver;
@@ -43,7 +91,7 @@ async function insertRows(driver, table, columns, rows) {
   }
 }
 
-async function setupCoreFixture(substrate) {
+async function setupCoreFixture(substrate, extensionArm) {
   const user = s
     .model({
       id: s.string().id(),
@@ -101,7 +149,7 @@ async function setupCoreFixture(substrate) {
     })
     .map("bench_enum_records");
   const driver = createDriver(substrate);
-  const client = createClient({
+  const baseClient = createClient({
     schema: {
       user,
       post,
@@ -112,7 +160,7 @@ async function setupCoreFixture(substrate) {
     },
     driver,
   });
-  await push(client, { force: true });
+  await push(baseClient, { force: true });
   await insertRows(
     driver,
     "bench_users",
@@ -148,7 +196,7 @@ async function setupCoreFixture(substrate) {
       ["private", "team", "public"][index % 3],
     ])
   );
-  await client.user.create({
+  await baseClient.user.create({
     data: {
       id: "update_target",
       name: "Update",
@@ -156,7 +204,7 @@ async function setupCoreFixture(substrate) {
       age: 1,
     },
   });
-  await client.user.create({
+  await baseClient.user.create({
     data: {
       id: "relation_update_target",
       name: "Relation update",
@@ -164,7 +212,7 @@ async function setupCoreFixture(substrate) {
       age: 1,
     },
   });
-  return { client, driver };
+  return { client: applyExtensionArm(baseClient, extensionArm), driver };
 }
 
 async function setupVariantFixture(substrate) {
@@ -406,8 +454,12 @@ async function setupWideFixture(substrate) {
   return { client, driver };
 }
 
-export async function createBenchmarkFixture(fixtureName, substrate) {
+export async function createBenchmarkFixture(
+  fixtureName,
+  substrate,
+  extensionArm = "unextended"
+) {
   if (fixtureName === "variant") return setupVariantFixture(substrate);
   if (fixtureName === "wide") return setupWideFixture(substrate);
-  return setupCoreFixture(substrate);
+  return setupCoreFixture(substrate, extensionArm);
 }

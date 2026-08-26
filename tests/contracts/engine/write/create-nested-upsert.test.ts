@@ -11,9 +11,10 @@ import { getExecutionInstrumentation } from "@drivers/execution-context";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { NestedWriteError, QueryError, UniqueConstraintError } from "@errors";
-import { createInstrumentationContext } from "@instrumentation/context";
 import { push } from "@migrations";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
+import { appendResolvedExtension } from "@src/extensions/chain";
+import { instrumentation } from "@src/instrumentation/exports";
 import { CreateOperation } from "@src/query-engine/write-engine/CreateOperation";
 import {
   isOperationValueReference,
@@ -460,7 +461,11 @@ describe("write engine linear operation fragments", () => {
 
   test("passes engine-owned attribution through staged transaction execution", async () => {
     const driver = new TransactionProbeDriver();
-    const instrumentation = createInstrumentationContext({});
+    const extensionChain = appendResolvedExtension(
+      undefined,
+      instrumentation({}),
+      operationFragmentSchema
+    );
     const runner = createOperationRunner(
       new QueryEngine(
         driver,
@@ -468,7 +473,10 @@ describe("write engine linear operation fragments", () => {
           operationFragmentSchema,
           createSchemaRegistry(operationFragmentSchema)
         ),
-        instrumentation
+        undefined,
+        undefined,
+        "string",
+        extensionChain
       )
     );
 

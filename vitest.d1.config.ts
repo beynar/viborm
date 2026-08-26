@@ -8,6 +8,7 @@ export default defineWorkersConfig({
       "@tests": resolve(__dirname, "tests"),
       "@schema": resolve(__dirname, "src/schema"),
       "@client": resolve(__dirname, "src/client"),
+      "@extensions": resolve(__dirname, "src/extensions"),
       "@validation": resolve(__dirname, "src/validation"),
       "@query-engine": resolve(__dirname, "src/query-engine"),
       "@adapters": resolve(__dirname, "src/adapters"),

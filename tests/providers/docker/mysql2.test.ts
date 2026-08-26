@@ -11,6 +11,7 @@
 import { COUNT_RESULT_KEY } from "@adapters/shared/result-parsing";
 import { createClient } from "@client/client";
 import { MySQL2Driver } from "@drivers/mysql2";
+import { instrumentation } from "@instrumentation/extension";
 import { push } from "@migrations";
 import {
   EMPTY_ROW_RESULT_KEY,
@@ -942,7 +943,8 @@ describeIf("MySQL2 Driver", () => {
       client = createClient({
         schema: planProbeSchema as never,
         driver: createMySQL2Driver(),
-        instrumentation: {
+      }).$extends(
+        instrumentation({
           logging: {
             query: (event) => {
               statements.push({
@@ -953,8 +955,8 @@ describeIf("MySQL2 Driver", () => {
             includeSql: true,
             includeParams: true,
           },
-        },
-      }) as never;
+        })
+      ) as never;
       const c = client as unknown as Record<string, any>;
       await push(client as never, { force: true });
       await c.planProbe.deleteMany({});

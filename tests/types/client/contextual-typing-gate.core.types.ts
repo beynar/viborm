@@ -46,7 +46,6 @@
  */
 
 import { MemoryCache } from "@cache/drivers/memory";
-import { createClient } from "@client/client";
 import {
   PGliteDriver,
   createClient as pgliteCreateClient,
@@ -56,9 +55,10 @@ import { createMigrationClient } from "@migrations/client";
 import { push } from "@migrations/push";
 import { createFsStorageDriver } from "@migrations/storage/fs";
 import { s } from "@schema";
+import { cache } from "@src/cache/exports";
 // Deliberately the published entry point, not `@schema/field-ref`: the alias
 // would compile while the import the docs teach did not.
-import { createModelFieldRefs } from "@src/index";
+import { createClient, createModelFieldRefs } from "@src/index";
 import { describe, expectTypeOf, test } from "vitest";
 
 const author = s.model({
@@ -94,8 +94,7 @@ const client = createClient({ schema, driver: new PGliteDriver() });
 const cachedClient = createClient({
   schema,
   driver: new PGliteDriver(),
-  cache: new MemoryCache(),
-});
+}).$extends(cache({ driver: new MemoryCache() }));
 
 // ============================================================================
 // MODEL BUILDER — field-name lists
@@ -415,14 +414,44 @@ const sharedConfig = {
   cacheVerison: 1,
 };
 
+const heldRemovedRootCacheConfig = {
+  schema,
+  driver: new PGliteDriver(),
+  decimal: "string",
+  cache: new MemoryCache(),
+  cacheVersion: 1,
+  waitUntil: (_promise: Promise<unknown>) => undefined,
+} as const;
+
+const heldRemovedPGliteCacheConfig = {
+  schema,
+  dataDir: "memory://",
+  decimal: "string",
+  cache: new MemoryCache(),
+  cacheVersion: 1,
+  waitUntil: (_promise: Promise<unknown>) => undefined,
+} as const;
+
+const heldRemovedRootOmitConfig = {
+  schema,
+  driver: new PGliteDriver(),
+  decimal: "string",
+  omit: { author: { passwordHash: true } },
+} as const;
+
+const heldRemovedPGliteOmitConfig = {
+  schema,
+  dataDir: "memory://",
+  decimal: "string",
+  omit: { author: { passwordHash: true } },
+} as const;
+
 describe("createClient config refuses a key it does not read", () => {
   const _keyed = () =>
     createClient({
       schema,
       driver: new PGliteDriver(),
-      cacheVersion: 1,
       decimal: "string",
-      omit: { author: { passwordHash: true } },
     });
 
   const _configTypo = () =>
@@ -437,7 +466,7 @@ describe("createClient config refuses a key it does not read", () => {
     createClient({
       schema,
       driver: new PGliteDriver(),
-      cacheVersion: 1,
+      decimal: "string",
       // @ts-expect-error - "cacheVerison" is not a config key
       cacheVerison: 1,
     });
@@ -453,98 +482,55 @@ describe("createClient config refuses a key it does not read", () => {
       decimal: "strng",
     });
 
+  const _removedCacheConfigFresh = () =>
+    createClient({
+      schema,
+      driver: new PGliteDriver(),
+      decimal: "string",
+      // @ts-expect-error - cache configuration belongs to cache({...})
+      cache: new MemoryCache(),
+      // @ts-expect-error - cache versioning belongs to cache({...})
+      cacheVersion: 1,
+      // @ts-expect-error - background scheduling belongs to cache({...})
+      waitUntil: (_promise: Promise<unknown>) => undefined,
+    });
+
+  const _removedCacheConfigHeld = () =>
+    // @ts-expect-error - held legacy cache configuration is refused structurally
+    createClient(heldRemovedRootCacheConfig);
+
+  const _removedOmitConfigFresh = () =>
+    createClient({
+      schema,
+      driver: new PGliteDriver(),
+      decimal: "string",
+      // @ts-expect-error - client defaults belong to defaultOmit<typeof schema>()
+      omit: { author: { passwordHash: true } },
+    });
+
+  const _removedOmitConfigHeld = () =>
+    // @ts-expect-error - held built-in omit configuration is refused structurally
+    createClient(heldRemovedRootOmitConfig);
+
   test("the probes above compile (assertions live in @ts-expect-error)", () => {
     expectTypeOf(_keyed).toBeFunction();
     expectTypeOf(_configTypo).toBeFunction();
     expectTypeOf(_configTypoBesideReal).toBeFunction();
     expectTypeOf(_configTypoNonFresh).toBeFunction();
     expectTypeOf(_decimalValueTypo).toBeFunction();
+    expectTypeOf(_removedCacheConfigFresh).toBeFunction();
+    expectTypeOf(_removedCacheConfigHeld).toBeFunction();
+    expectTypeOf(_removedOmitConfigFresh).toBeFunction();
+    expectTypeOf(_removedOmitConfigHeld).toBeFunction();
   });
 });
 
-/**
- * INSIDE `omit` — the level the case study never reached, and the one where a
- * silently-ignored key is a leaked column.
- *
- * `{ passwordHsh: true }` alone was refused before this lane, but only by
- * weak-type detection; `{ passwordHash: true, passwordHsh: true }` compiled and
- * hid exactly one of the two secrets. Two secrets with one misspelled is the
- * realistic case — it is the case `UnknownOmitKeys` cites at the model level —
- * so the `BesideReal` probes are the ones with evidentiary weight here.
- */
-describe("client omit is keyed per KEY at both of its levels", () => {
-  const _keyed = () =>
-    createClient({
-      schema,
-      driver: new PGliteDriver(),
-      omit: {
-        author: { passwordHash: true, email: true },
-        book: { pages: true },
-      },
-    });
-
-  const _fieldTypoAlone = () =>
-    createClient({
-      schema,
-      driver: new PGliteDriver(),
-      // @ts-expect-error - "passwordHsh" is not a field of author
-      omit: { author: { passwordHsh: true } },
-    });
-
-  const _fieldTypoBesideReal = () =>
-    createClient({
-      schema,
-      driver: new PGliteDriver(),
-      omit: {
-        // @ts-expect-error - "passwordHsh" is refused next to the real "passwordHash"
-        author: { passwordHash: true, passwordHsh: true },
-      },
-    });
-
-  const _modelTypoAlone = () =>
-    createClient({
-      schema,
-      driver: new PGliteDriver(),
-      // @ts-expect-error - "reader" is not a model of this schema
-      omit: { reader: { passwordHash: true } },
-    });
-
-  const _modelTypoBesideReal = () =>
-    createClient({
-      schema,
-      driver: new PGliteDriver(),
-      omit: {
-        author: { passwordHash: true },
-        // @ts-expect-error - "authro" is refused next to the real "author"
-        authro: { passwordHash: true },
-      },
-    });
-
-  const _relationKey = () =>
-    createClient({
-      schema,
-      driver: new PGliteDriver(),
-      // @ts-expect-error - relations are not omittable, only scalars
-      omit: { book: { writer: true } },
-    });
-
-  test("the probes above compile (assertions live in @ts-expect-error)", () => {
-    expectTypeOf(_keyed).toBeFunction();
-    expectTypeOf(_fieldTypoAlone).toBeFunction();
-    expectTypeOf(_fieldTypoBesideReal).toBeFunction();
-    expectTypeOf(_modelTypoAlone).toBeFunction();
-    expectTypeOf(_modelTypoBesideReal).toBeFunction();
-    expectTypeOf(_relationKey).toBeFunction();
-  });
-});
-
-describe("the driver-package createClient is keyed the same way, all levels", () => {
+describe("the driver-package createClient refuses removed shared config", () => {
   const _keyed = () =>
     pgliteCreateClient({
       schema,
       dataDir: "memory://",
-      cacheVersion: 1,
-      omit: { author: { passwordHash: true } },
+      decimal: "string",
     });
 
   const _driverOptionTypo = () =>
@@ -561,33 +547,53 @@ describe("the driver-package createClient is keyed the same way, all levels", ()
       cacheVerison: 1,
     });
 
-  const _omitTypoBesideReal = () =>
+  const _removedOmitConfigFresh = () =>
     pgliteCreateClient({
       schema,
       dataDir: "memory://",
-      omit: {
-        // @ts-expect-error - "passwordHsh" is refused next to the real "passwordHash"
-        author: { passwordHash: true, passwordHsh: true },
-      },
+      decimal: "string",
+      // @ts-expect-error - client defaults belong to defaultOmit<typeof schema>()
+      omit: { author: { passwordHash: true } },
     });
 
-  const _instrumentationTypoBesideReal = () =>
+  const _removedOmitConfigHeld = () =>
+    // @ts-expect-error - held wrapper omit configuration is refused structurally
+    pgliteCreateClient(heldRemovedPGliteOmitConfig);
+
+  const _removedInstrumentationConfig = () =>
     pgliteCreateClient({
       schema,
       dataDir: "memory://",
-      instrumentation: {
-        tracing: true,
-        // @ts-expect-error - "loging" is refused next to the real "tracing"
-        loging: true,
-      },
+      // @ts-expect-error - instrumentation is extension-owned
+      instrumentation: { tracing: true },
     });
+
+  const _removedCacheConfigFresh = () =>
+    pgliteCreateClient({
+      schema,
+      dataDir: "memory://",
+      decimal: "string",
+      // @ts-expect-error - cache configuration belongs to cache({...})
+      cache: new MemoryCache(),
+      // @ts-expect-error - cache versioning belongs to cache({...})
+      cacheVersion: 1,
+      // @ts-expect-error - background scheduling belongs to cache({...})
+      waitUntil: (_promise: Promise<unknown>) => undefined,
+    });
+
+  const _removedCacheConfigHeld = () =>
+    // @ts-expect-error - held wrapper cache configuration is refused structurally
+    pgliteCreateClient(heldRemovedPGliteCacheConfig);
 
   test("the probes above compile (assertions live in @ts-expect-error)", () => {
     expectTypeOf(_keyed).toBeFunction();
     expectTypeOf(_driverOptionTypo).toBeFunction();
     expectTypeOf(_sharedConfigKeyTypo).toBeFunction();
-    expectTypeOf(_omitTypoBesideReal).toBeFunction();
-    expectTypeOf(_instrumentationTypoBesideReal).toBeFunction();
+    expectTypeOf(_removedOmitConfigFresh).toBeFunction();
+    expectTypeOf(_removedOmitConfigHeld).toBeFunction();
+    expectTypeOf(_removedInstrumentationConfig).toBeFunction();
+    expectTypeOf(_removedCacheConfigFresh).toBeFunction();
+    expectTypeOf(_removedCacheConfigHeld).toBeFunction();
   });
 });
 
@@ -1099,7 +1105,9 @@ describe("the array spelling of orderBy is keyed at its elements", () => {
  *  - naming `data` / `create` / `update` turns six estate sites into
  *    `TS2589: Type instantiation is excessively deep` and takes the estate
  *    type-check from 34s to 172s;
- *  - naming `cursor` / `having` / `cache` adds three more TS2589 sites;
+ *  - naming `cursor` / `having` adds two more TS2589 sites;
+ *  - the cache extension now owns its shallow finite cache clause, so that
+ *    clause is guarded without resolving a model or relation payload;
  *  - depth 3 (`where.title.contians`, `select.books.select`) walks INTO a
  *    relation, resolving the target model mid-inference — the thing
  *    `RelationState.getter: any` exists to prevent.
@@ -1134,13 +1142,6 @@ describe("the unguarded query levels are pinned as compiling", () => {
       having: { pages: { _sum: { gt: 1 } }, pagess: { _sum: { gt: 1 } } },
     });
 
-  const _cacheTypoCompiles = () =>
-    cachedClient.book.create({
-      data: { id: "1", title: "t", pages: 1, authorId: "a" },
-      // "autoInvalidat" is NOT a compile error — `cache` is unguarded (TS2589)
-      cache: { autoInvalidate: true, autoInvalidat: true },
-    });
-
   const _operatorLevelTypoCompiles = () =>
     // depth 3: "contians" is NOT a compile error
     client.book.findMany({
@@ -1163,7 +1164,6 @@ describe("the unguarded query levels are pinned as compiling", () => {
     expectTypeOf(_updateClauseTypoCompiles).toBeFunction();
     expectTypeOf(_cursorTypoCompiles).toBeFunction();
     expectTypeOf(_havingTypoCompiles).toBeFunction();
-    expectTypeOf(_cacheTypoCompiles).toBeFunction();
     expectTypeOf(_operatorLevelTypoCompiles).toBeFunction();
     expectTypeOf(_booleanGroupTypoCompiles).toBeFunction();
     expectTypeOf(_nestedRelationTypoCompiles).toBeFunction();

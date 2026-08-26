@@ -3,7 +3,7 @@ import { NeonHTTPDriver } from "@drivers/neon-http";
 import { PlanetScaleDriver } from "@drivers/planetscale";
 import type { BatchQuery } from "@drivers/types";
 import { isVibORMError, QueryError } from "@errors";
-import { createInstrumentationContext } from "@instrumentation/context";
+import { createOfficialTestExecutionContext } from "@tests/unit/instrumentation/_official-context";
 import { describe, expect, it, vi } from "vitest";
 
 interface Deferred<T> {
@@ -75,21 +75,23 @@ describe("provider execution-context concurrency", () => {
     const clientReady = createDeferred<typeof database>();
     Reflect.set(driver, "client", null);
     Reflect.set(driver, "initClient", () => clientReady.promise);
-    driver.setInstrumentation(
-      createInstrumentationContext({
-        diagnostics: { includeParams: true, includeSql: true },
-      })
-    );
-    const firstContext = {
+    const officialContext = (values: BatchQuery["context"]) =>
+      createOfficialTestExecutionContext(
+        { diagnostics: { includeParams: true, includeSql: true } },
+        values ?? {}
+      );
+    const firstSource = {
       model: "user",
       operation: "findMany",
       correlationId: "d1-first",
     };
-    const secondContext = {
+    const secondSource = {
       model: "post",
       operation: "findMany",
       correlationId: "d1-second",
     };
+    const firstContext = officialContext(firstSource);
+    const secondContext = officialContext(secondSource);
     const binary = new Uint8Array([1, 2]);
     const secondQuery: BatchQuery = {
       sql: "SELECT id FROM posts",
@@ -102,17 +104,21 @@ describe("provider execution-context concurrency", () => {
     ];
 
     const failure = captureQueryError(
-      driver._executeBatch(queries, undefined, {
-        model: "$transaction",
-        operation: "$transaction([...])",
-        correlationId: "d1-outer",
-      })
+      driver._executeBatch(
+        queries,
+        undefined,
+        officialContext({
+          model: "$transaction",
+          operation: "$transaction([...])",
+          correlationId: "d1-outer",
+        })
+      )
     );
     await Promise.resolve();
     expect(database.prepare).not.toHaveBeenCalled();
-    secondContext.model = "mutated-model";
-    secondContext.operation = "mutated-operation";
-    secondContext.correlationId = "mutated-correlation";
+    secondSource.model = "mutated-model";
+    secondSource.operation = "mutated-operation";
+    secondSource.correlationId = "mutated-correlation";
     secondQuery.sql = "SELECT private_mutation";
     binary[0] = 9;
     clientReady.resolve(database);
@@ -249,37 +255,39 @@ describe("provider execution-context concurrency", () => {
     const client = Object.assign(vi.fn(), { transaction });
     const driver = new NeonHTTPDriver();
     Reflect.set(driver, "client", client);
-    driver.setInstrumentation(
-      createInstrumentationContext({ diagnostics: { includeParams: true } })
-    );
+    const officialContext = (values: BatchQuery["context"]) =>
+      createOfficialTestExecutionContext(
+        { diagnostics: { includeParams: true } },
+        values ?? {}
+      );
 
     const parameter = { value: "original" };
     const execution = driver._executeBatch(
       [
         {
           sql: "SELECT valid",
-          context: {
+          context: officialContext({
             model: "user",
             operation: "findMany",
             correlationId: "neon-first-construction",
-          },
+          }),
         },
         {
           sql: "SELECT broken",
           params: [parameter],
-          context: {
+          context: officialContext({
             model: "post",
             operation: "findMany",
             correlationId: "neon-second-construction",
-          },
+          }),
         },
       ],
       undefined,
-      {
+      officialContext({
         model: "$transaction",
         operation: "$transaction([...])",
         correlationId: "neon-outer-construction",
-      }
+      })
     );
     parameter.value = "caller-mutated";
     const error = await captureQueryError(execution);

@@ -157,7 +157,7 @@ function printTraceTable() {
       // Show SQL for driver.execute spans
       if (span.sql) {
         const truncatedSql =
-          span.sql.length > 80 ? span.sql.slice(0, 77) + "..." : span.sql;
+          span.sql.length > 80 ? `${span.sql.slice(0, 77)}...` : span.sql;
         console.log(`${c.dim}  SQL: ${truncatedSql}${c.reset}`);
       }
     }
@@ -233,8 +233,9 @@ function formatDuration(microseconds: number): string {
   return `${(microseconds / 1_000_000).toFixed(2)} s`;
 }
 
-import { MemoryCache } from "@cache";
+import { cache, MemoryCache } from "@cache";
 import { PGlite } from "@electric-sql/pglite";
+import { instrumentation } from "@instrumentation/extension";
 import { push } from "@migrations/push";
 import { VibORM } from "./src/client/client";
 import { PGliteDriver } from "./src/drivers/pglite";
@@ -250,22 +251,21 @@ const pglite = new PGlite();
 const driver = new PGliteDriver({ client: pglite, dataDir: "memory://" });
 async function main() {
   const clientInstantStart = performance.now();
-  const client = VibORM.create({
-    schema: { user },
-    driver,
-    cache: new MemoryCache(),
-    instrumentation: {
-      logging: {
-        query: true,
-        includeParams: false,
-        error: true,
-        cache: true,
-      },
-      tracing: {
-        includeSql: false,
-      },
-    },
-  });
+  const client = VibORM.create({ schema: { user }, driver })
+    .$extends(cache({ driver: new MemoryCache() }))
+    .$extends(
+      instrumentation({
+        logging: {
+          query: true,
+          includeParams: false,
+          error: true,
+          cache: true,
+        },
+        tracing: {
+          includeSql: false,
+        },
+      })
+    );
 
   const clientInstantEnd = performance.now();
   await push(client);
@@ -275,7 +275,7 @@ async function main() {
 
   console.log("\n--- findMany ---\n");
 
-  const query = client.user.findMany();
+  const _query = client.user.findMany();
   await client.user.findMany({
     where: {
       AND: [
@@ -368,11 +368,9 @@ async function main() {
 await main();
 
 const withoutInstrumentation = async () => {
-  const client = VibORM.create({
-    schema: { user },
-    driver,
-    cache: new MemoryCache(),
-  });
+  const client = VibORM.create({ schema: { user }, driver }).$extends(
+    cache({ driver: new MemoryCache() })
+  );
 
   console.log("\n--- Benchmark (no instrumentation) ---\n");
 

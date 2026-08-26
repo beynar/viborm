@@ -55,13 +55,13 @@ Status legend:
 | `groupBy` | `by`, aggregates, `having`, `orderBy`, `skip`, `take`; no `select` | Supports scalar `by`, aggregate selections, `having`, order, `skip`, `take`; invalid group/having shapes reject | `Supported` |
 | Nested writes | Broad nested create/connect/update/delete/upsert matrix | Supports `create`, `createMany`, `connect`, `connectOrCreate`, nullable/correlated `disconnect`, `delete`, `set`, `update`, to-many `updateMany`, `upsert`, and to-many `deleteMany`; callback-transaction and atomic-batch paths propagate generated and updated primary keys where the shape is safe; create-branch update/delete-like shapes are excluded | `Subset` |
 | Transactions | Callback and array `$transaction` | Callback transactions on transactional drivers; batch mode on transactional or atomic-batch drivers | `Supported` |
-| `omit` | Prisma supports per-query and client-level `omit` | Supports both and lets query-level `omit` subtract from `select`; the local `{ field: false }` override of a client default also works. VibORM additionally has a schema-level `.omit()` that is a hard exclusion no query can undo | `Different` |
+| `omit` | Prisma supports per-query and client-level `omit` | Supports per-query `omit` plus the official `defaultOmit()` client extension, and lets query-level `omit` subtract from `select`; the local `{ field: false }` override of that default also works. VibORM additionally has a schema-level `.omit()` that is a hard exclusion no query can undo | `Different` |
 | Raw SQL | Prisma tagged `$queryRaw`/`$executeRaw` plus unsafe variants | Tagged `$queryRaw` (returns `T[]`) / `$executeRaw` (returns the affected count) plus `$queryRawUnsafe`/`$executeRawUnsafe`; lazy raw operations mix with model operations in array transactions and also run on the interactive transaction client. `sql`/`join`/`empty`/`raw` are exported from the package root | `Supported` |
 | Existence check | Emulated with `count`/`findFirst` in Prisma | `exist({ where })` is a VibORM extension returning `boolean`; no `exists` alias | `Different` |
 
 ```typescript
 import { s } from "viborm";
-import { createClient } from "viborm/drivers/pglite";
+import { createClient } from "viborm/pglite";
 
 // Schema carries type information
 const user = s.model({
@@ -127,7 +127,7 @@ export const schema = { user, post };
 
 ```typescript
 // db.ts
-import { createClient } from "viborm/drivers/pglite";
+import { createClient } from "viborm/pglite";
 import { push } from "viborm/migrations";
 import { schema } from "./schema";
 
@@ -205,20 +205,53 @@ const [user, post] = await orm.$transaction([
 
 ---
 
+## Client Extensions
+
+`$extends()` returns an immutable derived client. Extensions have six distinct
+capabilities: `request`, `query`, `statement`, `observe`, `client`, and `model`.
+See the [extension guide](docs/content/docs/extensions/index.mdx) for their
+authority and exact lifecycle.
+
+Internally, `src/extensions/` is the single generic definition, chain,
+method-binding, admission, and capability-runner boundary. The official
+implementations remain with their domains in `src/cache/extension.ts`,
+`src/instrumentation/extension.ts`, and
+`src/client/default-omit-extension.ts`; client, query-engine, and drivers only
+retain the lifecycle trigger points whose facts they create.
+
+Client default projection is also an extension:
+
+```typescript
+import { defaultOmit } from "viborm/client";
+
+const publicOrm = orm.$extends(
+  defaultOmit<typeof schema>()({
+    user: { passwordHash: true },
+  })
+);
+```
+
+`defaultOmit()` is a presentation default, not authorization. VibORM does not
+currently ship an RBAC helper; complete policy must account for the full query
+and mutation graph.
+
+---
+
 ## Caching
 
-VibORM includes built-in query caching with TTL and stale-while-revalidate (SWR) support.
+VibORM provides query caching as an official client extension, with TTL and
+stale-while-revalidate (SWR) support.
 
 ### Setup
 
 ```typescript
-import { createClient } from "viborm/drivers/pglite";
-import { MemoryCache } from "viborm/cache";
+import { createClient } from "viborm/pglite";
+import { cache } from "viborm/cache";
+import { MemoryCache } from "viborm/cache/memory";
 
-const orm = createClient({
-  schema,
-  cache: new MemoryCache(),
-});
+const orm = createClient({ schema }).$extends(
+  cache({ driver: new MemoryCache() })
+);
 ```
 
 ### Basic Caching
@@ -232,6 +265,11 @@ const posts = await orm.$withCache({ ttl: "1 hour" }).post.findMany();
 
 // TTL in milliseconds
 const recent = await orm.$withCache({ ttl: 30000 }).user.findMany();
+
+// A custom key is a suffix of the canonical model/operation/argument key.
+const active = await orm
+  .$withCache({ key: "active-users" })
+  .user.findMany({ where: { active: true } });
 ```
 
 ### Stale-While-Revalidate (SWR)
@@ -259,6 +297,12 @@ await orm.user.create({
 await orm.$invalidate("user:*", "post:findMany:*");
 ```
 
+Cached values are portable snapshots. Every hit materializes a fresh detached
+result graph, so one caller cannot mutate a later caller's value. Official
+cache reads bypass caching inside callback transactions, array transactions,
+raw operations, and clients with statement transforms. Mutation invalidation
+still follows the transaction's write-outcome boundary.
+
 ### Cache Drivers
 
 | Driver | Use Case |
@@ -275,13 +319,12 @@ VibORM supports OpenTelemetry tracing and structured logging.
 ### Setup
 
 ```typescript
-import { createClient } from "viborm/drivers/pglite";
+import { createClient } from "viborm/pglite";
+import { instrumentation } from "viborm/instrumentation";
 
-const orm = createClient({
-  schema,
-  instrumentation: {
+const orm = createClient({ schema }).$extends(
+  instrumentation({
     tracing: {
-      enabled: true,
       // Optional: customize tracer
     },
     logging: {
@@ -289,23 +332,26 @@ const orm = createClient({
       cache: true,    // Log cache hits/misses
       warning: true,  // Log warnings
       error: true,    // Log errors
-    }
-  }
-});
+    },
+  })
+);
 ```
 
 ### Serverless Support
 
-For serverless environments, provide a `waitUntil` function to ensure background operations complete:
+For serverless caching, provide `waitUntil` to the cache extension so the
+request lifetime owns background revalidation:
 
 ```typescript
 // Cloudflare Workers
 export default {
   async fetch(request, env, ctx) {
-    const orm = createClient({
-      schema,
-      waitUntil: ctx.waitUntil.bind(ctx),
-    });
+    const orm = createClient({ schema }).$extends(
+      cache({
+        driver: new CloudflareKVCache(env.CACHE),
+        waitUntil: ctx.waitUntil.bind(ctx),
+      })
+    );
     // ...
   }
 };
@@ -399,6 +445,9 @@ src/
 ├── drivers/           L8  Connection management, query execution
 │                          11 drivers: pglite, pg, postgres, neon-http, bun-sql,
 │                          mysql2, planetscale, sqlite3, libsql, d1, bun-sqlite
+│
+├── extensions/        Cross-cutting six-capability contracts, immutable chain,
+│                          method binding, runners, and array-admission latch
 │
 ├── client/            L9  Type inference, ORM interface
 │                          Recursive proxy pattern, result types

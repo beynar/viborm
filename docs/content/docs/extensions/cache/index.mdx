@@ -1,0 +1,155 @@
+---
+title: Caching
+description: Official query-cache extension with invalidation and stale-while-revalidate
+icon: database
+---
+
+Caching is an official client extension. A base client has no `$withCache()` or
+`$invalidate()` method; the derived client created by `cache()` has both.
+
+## Setup
+
+```ts
+import { createClient } from "viborm";
+import { cache } from "viborm/cache";
+import { MemoryCache } from "viborm/cache/memory";
+
+const client = createClient({ schema, driver }).$extends(
+  cache({ driver: new MemoryCache(), version: "2026-08" })
+);
+```
+
+The extension snapshots its configuration once. `version` and `waitUntil`
+belong to that exact extension chain, not to the shared cache driver. Two
+clients can share one `CacheDriver` while using different namespaces and
+background schedulers.
+
+## Cached reads
+
+`$withCache()` returns a read-only view:
+
+```ts
+const users = await client
+  .$withCache({ ttl: "5 minutes" })
+  .user.findMany({ where: { active: true } });
+
+const fresh = await client
+  .$withCache({ ttl: 30_000, bypass: true })
+  .post.findMany();
+```
+
+| Option | Type | Default | Meaning |
+|---|---|---|---|
+| `ttl` | `string \| number` | 5 minutes | Freshness duration |
+| `swr` | `boolean \| string \| number` | `false` | Stale-while-revalidate window |
+| `key` | `string` | absent | Suffix contributed to the canonical key |
+| `bypass` | `boolean` | `false` | Skip lookup, execute core, then store |
+
+The canonical identity always includes model, operation, normalized validated
+arguments, projection, the private result-format revision, and the extension's
+version namespace. A custom `key` is only a suffix contribution. It does not
+replace the canonical identity, so two different queries using the same suffix
+do not collide.
+
+Official invalidation accepts relative keys and prefixes such as `user:*`.
+Strings beginning with `viborm:` are refused before backend effects; only the
+authenticated extension rail can address its private namespace. The public
+`generateCacheKey` helpers describe the legacy storage-key format and are not
+an escape into the official namespace.
+
+## Detached values
+
+The cache stores a backend-portable snapshot of the parsed core result before
+ordinary query-interceptor post-work can mutate it. Every hit materializes a
+fresh complete public graph. Arrays, objects, dates, byte arrays, relations,
+JSON, decimals, bigints, aggregates, counts, and grouped results retain their
+documented public values without sharing mutable references between calls.
+
+Malformed stored snapshots fail at the cache boundary. VibORM does not route
+them back through the provider result parser or rerun custom JSON validation.
+Cache-managed reads remain outside consumable-provider-row optimization.
+
+## Stale-while-revalidate
+
+```ts
+const cached = client.$withCache({ ttl: "5 minutes", swr: "1 hour" });
+```
+
+- A fresh hit returns immediately.
+- A stale hit returns a fresh materialization of the old snapshot and schedules
+  one background promise covering claim, inner core replay, snapshot, set, and
+  marker cleanup.
+- A miss runs the inner prepared/core read and stores its snapshot.
+
+Background replay does not rerun request transforms, ordinary query
+interceptors, or another logical application operation. The stale application
+result remains authoritative if replay, snapshot, storage, or cleanup fails.
+The built-in marker is best-effort; it is not an atomic distributed lock and
+does not promise a single winner across concurrent workers.
+
+For serverless runtimes, give the scheduler to this cache extension:
+
+```ts
+const client = createClient({ schema, driver }).$extends(
+  cache({
+    driver: new CloudflareKVCache(env.CACHE),
+    waitUntil: ctx.waitUntil.bind(ctx),
+  })
+);
+```
+
+The stale call hands the complete background promise to `waitUntil`
+synchronously, before asynchronous marker I/O. A throwing scheduler is
+contained and cannot replace the read result.
+
+## Invalidation
+
+```ts
+await client.$invalidate("user:*", "post:findMany:*");
+
+await client.user.update({
+  where: { id: "123" },
+  data: { name: "Alice" },
+  cache: {
+    autoInvalidate: true,
+    invalidate: ["dashboard:*"],
+  },
+});
+```
+
+Mutation cache options are extension-owned. They are removed after request
+transforms and before core validation, then registered on the existing ordered
+write-outcome rail. A rollback or savepoint rollback publishes no invalidation.
+A committed or possibly committed write attempts cache invalidation before
+later public write-outcome listeners, while retaining all failures in order.
+
+`autoInvalidate` clears the canonical `<model>:` prefix inside the extension's
+namespace. Manual invalidation validates every target before starting any
+backend delete or clear, so an invalid mixed list has no partial effects.
+
+## Deliberate bypasses
+
+Official read caching is bypassed for callback and nested callback
+transactions, `$transaction([...])` on both substrates, any chain with a
+statement transform, safe and unsafe raw operations, and an existing internal
+no-cache execution context.
+
+Ordinary query interceptors remain outside the cache wrapper on hits and
+misses. Bypass preserves their behavior and the existing transaction,
+statement, raw, and result-ownership contracts.
+
+## Observability
+
+With the official `instrumentation()` extension, cache get, set, invalidate,
+and revalidate work uses protected cache lifecycle units. Logs and spans report
+hit, miss, stale, bypass, duration, model, operation, and correlation where
+applicable. Cache keys and custom suffixes are never disclosed. Observer or
+telemetry failures do not alter cache, application, or commit behavior.
+
+## Drivers
+
+| Driver | Best for | Persistence |
+|---|---|---|
+| [MemoryCache](/docs/extensions/cache/drivers/memory) | Development and single-instance deployments | No |
+| [CloudflareKVCache](/docs/extensions/cache/drivers/cloudflare-kv) | Cloudflare Workers | Yes |
+| [Custom driver](/docs/extensions/cache/drivers/custom) | Redis, Upstash, or another backend | Varies |

@@ -32,6 +32,8 @@
       "@schema/*": ["./src/schema/*"],
       "@client/*": ["./src/client/*"],
       "@client": ["./src/client/index.ts"],
+      "@extensions/*": ["./src/extensions/*"],
+      "@extensions": ["./src/extensions/index.ts"],
       "@schema": ["./src/schema/index.ts"],
       "@validation/*": ["./src/validation/*"],
       "@validation": ["./src/validation/index.ts"],

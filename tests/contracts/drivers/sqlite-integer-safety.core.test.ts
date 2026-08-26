@@ -26,9 +26,9 @@ import { BunSQLiteDriver } from "@drivers/bun-sqlite";
 import { LibSQLDriver } from "@drivers/libsql";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import { FeatureNotSupportedError } from "@errors";
-import { isTransactionOperation } from "@query-engine/transaction-operation";
 import { s } from "@schema";
 import { sql } from "@sql";
+import { readTestTransactionOperation } from "@tests/fixtures/transaction-operation";
 import { describe, expect, test, vi } from "vitest";
 
 type BunSQLiteOptions = NonNullable<
@@ -102,10 +102,11 @@ function createBunIntegerFixture({
 }
 
 function prepareOperation(operation: unknown, driver: AnyDriver): BatchQuery {
-  if (!isTransactionOperation(operation)) {
+  const capability = readTestTransactionOperation(operation);
+  if (capability === undefined) {
     throw new Error("Expected a transaction operation");
   }
-  const prepared = operation.prepare(driver);
+  const prepared = capability.prepare(driver);
   if (!prepared) {
     throw new Error("Expected one prepared statement");
   }

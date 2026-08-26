@@ -3,6 +3,7 @@ import {
   type VibORMClient,
   type VibORMConfig,
 } from "@client/client";
+import { defaultOmit } from "@client/default-omit-extension";
 import type { AnyDriver } from "@drivers";
 import { ValidationError } from "@errors";
 import { push } from "@migrations";
@@ -76,7 +77,7 @@ export interface OmitBehaviorOptions {
  *
  * Three layers are exercised together because their INTERACTION is the contract:
  *  - query-level `omit`, on reads and on every write that returns a row;
- *  - client-level `omit` (`createClient({ omit: … })`), including the per-field
+ *  - official client-default `omit`, including the per-field
  *    `{ field: false }` re-include and the "an explicit `select` wins" rule;
  *  - model-level `.omit()`, which neither of the other two can undo.
  */
@@ -136,16 +137,19 @@ export function runOmitBehavior({
     });
 
     /**
-     * A SECOND client over the SAME driver, differing only in its `omit`
-     * config. Same connection, same rows, same schema — so every difference
-     * below is attributable to the option and nothing else.
+     * A SECOND client over the SAME driver, differing only by the official
+     * default-omit extension. Same connection, rows, and schema.
      */
     const withClientOmit = () =>
       createClient({
         schema,
         driver: driver as AnyDriver,
-        omit: { account: { passwordHash: true }, note: { draft: true } },
-      });
+      }).$extends(
+        defaultOmit<typeof schema>()({
+          account: { passwordHash: true },
+          note: { draft: true },
+        })
+      );
 
     // -----------------------------------------------------------------------
     // Query-level

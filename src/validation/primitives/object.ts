@@ -372,6 +372,28 @@ const OBJECT_TYPE_ERROR = Object.freeze({
 
 const EMPTY_METADATA_ARRAY: readonly never[] = Object.freeze([]);
 const EMPTY_KEY_INDEX: ReadonlyMap<string, number> = Object.freeze(new Map());
+const INPUT_VALUE_UNREAD = Symbol("inputValueUnread");
+
+function readObjectInputValue(
+  input: Record<string, unknown>,
+  key: string,
+  inputValueScratch: unknown[] | undefined,
+  inputValueScratchIndexByName: ReadonlyMap<string, number> | undefined
+): unknown {
+  if (
+    inputValueScratch === undefined ||
+    inputValueScratchIndexByName === undefined
+  ) {
+    return input[key];
+  }
+  const scratchIndex = inputValueScratchIndexByName.get(key);
+  if (scratchIndex === undefined) return input[key];
+  const settledInputValue = inputValueScratch[scratchIndex];
+  if (settledInputValue !== INPUT_VALUE_UNREAD) return settledInputValue;
+  const inputValue = input[key];
+  inputValueScratch[scratchIndex] = inputValue;
+  return inputValue;
+}
 
 /**
  * Create an optimized validator for an object schema.
@@ -399,6 +421,8 @@ function createObjectValidator(
   let runOnMissingIdx: readonly number[] = EMPTY_METADATA_ARRAY;
   let acceptsUndefined: readonly boolean[] = EMPTY_METADATA_ARRAY;
   let requiredByAtLeast: readonly boolean[] | null = null;
+  let inputValueScratchTemplate: readonly unknown[] | undefined;
+  let inputValueScratchIndexByName: ReadonlyMap<string, number> | undefined;
 
   // Compile only when a record first reaches this validator. Registry schemas
   // that are never used retain their public entries, but no lookup structures.
@@ -471,6 +495,34 @@ function createObjectValidator(
         mutableAcceptsUndefined[i] = doesAcceptUndefined;
       }
     }
+
+    const resolvedInputValueScratchIndexByName = new Map<string, number>();
+    const registerInputValueScratchIndex = (key: string): void => {
+      if (resolvedInputValueScratchIndexByName.has(key)) return;
+      resolvedInputValueScratchIndexByName.set(
+        key,
+        resolvedInputValueScratchIndexByName.size
+      );
+    };
+    for (const group of resolvedActiveRequiresOneOf ?? EMPTY_METADATA_ARRAY) {
+      for (const key of group) registerInputValueScratchIndex(key);
+    }
+    for (const group of resolvedActiveRequiresOneOfKeySets ??
+      EMPTY_METADATA_ARRAY) {
+      for (const keySet of group) {
+        for (const key of keySet) registerInputValueScratchIndex(key);
+      }
+    }
+    for (const i of runOnMissingIdx) {
+      registerInputValueScratchIndex(resolvedKeys[i]!);
+    }
+    if (resolvedInputValueScratchIndexByName.size > 0) {
+      inputValueScratchTemplate = Array.from(
+        { length: resolvedInputValueScratchIndexByName.size },
+        () => INPUT_VALUE_UNREAD
+      );
+      inputValueScratchIndexByName = resolvedInputValueScratchIndexByName;
+    }
   };
 
   return (value: unknown): ValidationResult<Record<string, unknown>> => {
@@ -482,6 +534,7 @@ function createObjectValidator(
     const input = value as Record<string, unknown>;
     if (resolve) resolve();
     const output: Record<string, unknown> = {};
+    const inputValueScratch = inputValueScratchTemplate?.slice();
 
     // Strict mode: check for extra keys first (fail-fast)
     if (strict) {
@@ -509,7 +562,15 @@ function createObjectValidator(
 
     if (activeRequiresOneOf) {
       for (const group of activeRequiresOneOf) {
-        const hasOne = group.some((key) => input[key] !== undefined);
+        const hasOne = group.some(
+          (key) =>
+            readObjectInputValue(
+              input,
+              key,
+              inputValueScratch,
+              inputValueScratchIndexByName
+            ) !== undefined
+        );
         if (!hasOne) {
           return {
             issues: [
@@ -525,7 +586,15 @@ function createObjectValidator(
     if (activeRequiresOneOfKeySets) {
       for (const group of activeRequiresOneOfKeySets) {
         const hasAlternative = group.some((keySet) =>
-          keySet.every((key) => input[key] !== undefined)
+          keySet.every(
+            (key) =>
+              readObjectInputValue(
+                input,
+                key,
+                inputValueScratch,
+                inputValueScratchIndexByName
+              ) !== undefined
+          )
         );
         if (!hasAlternative) {
           const alternatives = group
@@ -558,11 +627,17 @@ function createObjectValidator(
         // presence ("where" in config, hasRecordKeys) as meaningful, so
         // { f: undefined } must behave exactly like {}. Defaults for such
         // keys still fire via the absent-keys loop below.
-        if (input[key] === undefined) {
+        const inputValue = readObjectInputValue(
+          input,
+          key,
+          inputValueScratch,
+          inputValueScratchIndexByName
+        );
+        if (inputValue === undefined) {
           continue;
         }
 
-        const result = validates[i]!(input[key]);
+        const result = validates[i]!(inputValue);
         if (result.issues) {
           const issue = result.issues[0]!;
           return {
@@ -583,7 +658,14 @@ function createObjectValidator(
       // schema can apply a default
       for (const i of runOnMissingIdx) {
         const key = keys[i]!;
-        if (input[key] !== undefined) {
+        if (
+          readObjectInputValue(
+            input,
+            key,
+            inputValueScratch,
+            inputValueScratchIndexByName
+          ) !== undefined
+        ) {
           continue;
         }
         const result = validates[i]!(undefined);
@@ -615,7 +697,13 @@ function createObjectValidator(
       // `createMany({ data, select: undefined })` failed with "Expected object"
       // while the identical `deleteMany` call (fully partial, fast path)
       // returned `{ count }`.
-      if (input[key] === undefined) {
+      const inputValue = readObjectInputValue(
+        input,
+        key,
+        inputValueScratch,
+        inputValueScratchIndexByName
+      );
+      if (inputValue === undefined) {
         // Key is required (partial: false OR in atLeast) and schema doesn't accept undefined
         if (
           (!partial || requiredByAtLeast?.[i] === true) &&
@@ -641,7 +729,7 @@ function createObjectValidator(
       }
 
       // Validate field - direct function call
-      const result = validates[i]!(input[key]);
+      const result = validates[i]!(inputValue);
 
       // Handle validation error (most common unhappy path)
       if (result.issues) {

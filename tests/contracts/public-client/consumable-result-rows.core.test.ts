@@ -1,4 +1,5 @@
 import { MemoryCache } from "@cache/drivers/memory";
+import { cache } from "@cache/extension";
 import { createClient } from "@client/client";
 import type { AnyDriver } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
@@ -34,7 +35,7 @@ afterEach(() => {
 describe("executor-proven consumable rows", () => {
   test("reuses SQLite3 roots only on an ordinary direct read", async () => {
     const driver = new SQLite3Driver();
-    const client = createClient({ schema, driver, cache: new MemoryCache() });
+    const client = createClient({ schema, driver });
     await seed(driver);
 
     const consumableParse = vi.spyOn(
@@ -59,14 +60,17 @@ describe("executor-proven consumable rows", () => {
     expect(direct[0]?.recordedAt).toEqual(new Date(RECORDED_AT));
 
     try {
+      const official = createClient({ schema, driver }).$extends(
+        cache({ driver: new MemoryCache() })
+      );
       consumableParse.mockClear();
-      const cached = await client.$withCache().entry.findMany();
+      const officialMiss = await official.$withCache().entry.findMany();
       expect(consumableParse).not.toHaveBeenCalled();
-
       consumableParse.mockClear();
-      const cacheHit = await client.$withCache().entry.findMany();
+      const officialHit = await official.$withCache().entry.findMany();
       expect(consumableParse).not.toHaveBeenCalled();
-      expect(cacheHit).toEqual(cached);
+      expect(officialHit).toEqual(officialMiss);
+      expect(officialHit).not.toBe(officialMiss);
 
       sqliteResultParser.parseResult = (raw, operation, next) => {
         if (operation === "findMany" && Array.isArray(raw)) {

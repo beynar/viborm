@@ -1228,22 +1228,22 @@ describe("write engine route inventory (P6 accounting)", () => {
       [
         15,
         "query-engine/write-engine/CreateOperation.ts",
-        3544,
-        3536,
+        3553,
+        3545,
         "requireRecordReferenced",
       ],
       [
         19,
         "query-engine/write-engine/CreateOperation.ts",
-        3648,
-        3630,
+        3657,
+        3639,
         "producedReference",
       ],
       [
         20,
         "query-engine/write-engine/CreateOperation.ts",
-        4019,
-        4008,
+        4028,
+        4017,
         "assertSelectedSharedPkValue",
       ],
       [
@@ -1256,15 +1256,15 @@ describe("write engine route inventory (P6 accounting)", () => {
       [
         27,
         "query-engine/write-engine/OperationExecutor.ts",
-        2042,
-        2037,
+        2312,
+        2307,
         "executionRefusal",
       ],
       [
         28,
         "query-engine/write-engine/OperationExecutor.ts",
-        2373,
-        2363,
+        2643,
+        2633,
         "assertIndivisibleGeneratedOutput",
       ],
       [

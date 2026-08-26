@@ -20,19 +20,34 @@
 
 import type { AnyDriver, QueryExecutionContext, QueryResult } from "@drivers";
 import { markVerbatimBatchQuery } from "@drivers/driver-batch-query-kind";
-import { QueryError, VibORMErrorCode } from "@errors";
+import { transferPreparedStatement } from "@drivers/prepared-statement-provenance";
+import {
+  InvalidTransactionInputError,
+  QueryError,
+  VibORMErrorCode,
+} from "@errors";
+import { lookupResolvedExtensionHandlers } from "@extensions/chain";
+import { observeOperation } from "@extensions/observation";
+import {
+  executePreparedQuery,
+  type RawQueryKind,
+  retainWriteOutcomeFailure,
+  type WriteOutcomeNotifications,
+} from "@extensions/query";
 import type { InstrumentationContext } from "@instrumentation";
 import {
   createOperationExecutionContext,
+  createRawOperationInstrumentationFacts,
   observeTransactionBatchPhase,
 } from "@query-engine/execution-context";
 import { PendingExecution } from "@query-engine/pending-execution";
 import type { QueryEngine } from "@query-engine/query-engine";
+import { snapshotQueryInput } from "@query-engine/query-inspection";
 import {
-  TRANSACTION_OPERATION_SYMBOL,
+  registerTransactionOperationOwner,
   type TransactionOperation,
+  type TransactionOperationOwner,
 } from "@query-engine/transaction-operation";
-import type { PreparedQuery } from "@query-engine/types";
 import { isSql, Sql } from "@sql";
 
 /** The four raw methods, spelled exactly as a caller types them. */
@@ -41,6 +56,26 @@ export type RawMethodName =
   | "$executeRawUnsafe"
   | "$queryRaw"
   | "$queryRawUnsafe";
+
+/** The exact runtime inventory used by client routing and extension lookup. */
+export const RAW_METHOD_NAMES = Object.freeze({
+  $executeRaw: true,
+  $executeRawUnsafe: true,
+  $queryRaw: true,
+  $queryRawUnsafe: true,
+} satisfies Readonly<Record<RawMethodName, true>>);
+
+function rawQueryKind(method: RawMethodName): RawQueryKind {
+  if (method === "$queryRaw") return "queryRaw";
+  if (method === "$executeRaw") return "executeRaw";
+  if (method === "$queryRawUnsafe") return "queryRawUnsafe";
+  return "executeRawUnsafe";
+}
+
+/** The execute families are the only raw calls that publish write outcomes. */
+function isRawWrite(method: RawMethodName): boolean {
+  return method === "$executeRaw" || method === "$executeRawUnsafe";
+}
 
 /** What a safe raw call accepts as its first argument. */
 export type RawQueryInput = Sql | TemplateStringsArray;
@@ -196,171 +231,412 @@ function captureValues(values: readonly unknown[]): readonly unknown[] {
 }
 
 /** A lazy raw statement that remains assignable to `Promise<T>`. */
-export interface RawOperation<T> extends Promise<T> {
-  readonly [TRANSACTION_OPERATION_SYMBOL]: true;
-}
+export interface RawOperation<T> extends Promise<T> {}
+
+const rawOperationConstruction = Object.freeze({});
+
+type CreateDeferredRawOperation = <T>(
+  engine: QueryEngine,
+  method: RawMethodName,
+  captured: CapturedRawQuery,
+  parse: (raw: QueryResult<RawRow<T>>) => T,
+  warnLegacyString: LegacyRawWarner
+) => DeferredRawOperation<T>;
+
+let createDeferredRawOperation: CreateDeferredRawOperation;
+
+let rawTransactionOwner: TransactionOperationOwner<
+  DeferredRawOperation<unknown>
+>;
 
 class DeferredRawOperation<T>
   implements RawOperation<T>, TransactionOperation<T>
 {
-  readonly [TRANSACTION_OPERATION_SYMBOL] = true;
   readonly [Symbol.toStringTag] = "Promise";
 
-  private readonly execution: PendingExecution<T>;
-  private readonly context: QueryExecutionContext;
-  private readonly engine: QueryEngine;
-  private readonly method: RawMethodName;
-  private readonly captured: CapturedRawQuery;
-  private readonly parse: (raw: QueryResult<RawRow<T>>) => T;
-  private readonly warnLegacyString: LegacyRawWarner;
-  private resolved: ResolvedRawQuery | undefined;
+  readonly #engine: QueryEngine;
+  readonly #execution: PendingExecution<T>;
+  readonly #context: QueryExecutionContext;
+  readonly #method: RawMethodName;
+  readonly #captured: CapturedRawQuery;
+  readonly #parse: (raw: QueryResult<RawRow<T>>) => T;
+  readonly #warnLegacyString: LegacyRawWarner;
+  #resolved: ResolvedRawQuery | undefined;
+  #observationCommitCertainty: "committed" | "may-have-committed" | undefined;
 
-  constructor(
+  static {
+    createDeferredRawOperation = <T>(
+      engine: QueryEngine,
+      method: RawMethodName,
+      captured: CapturedRawQuery,
+      parse: (raw: QueryResult<RawRow<T>>) => T,
+      warnLegacyString: LegacyRawWarner
+    ) =>
+      new DeferredRawOperation<T>(
+        rawOperationConstruction,
+        engine,
+        method,
+        captured,
+        parse,
+        warnLegacyString
+      );
+    rawTransactionOwner = Object.freeze({
+      clientId: (operation) => operation.#engine.clientId,
+      scopeId: (operation) => operation.#engine.scopeId,
+      model: () => "$raw",
+      operation: (operation) => operation.#method,
+      context: (operation) => operation.#context,
+      requiresInterception: (operation) => {
+        const handlers = lookupResolvedExtensionHandlers(
+          operation.#engine.extensionChain,
+          "query",
+          undefined,
+          operation.#method
+        );
+        return handlers !== undefined && handlers.length > 0;
+      },
+      prepareAdmission: (operation) => {
+        operation.#resolve();
+      },
+      stagePackageWriteOutcomes: () => undefined,
+      startInterception: (operation, child, outcomes, control) => {
+        const handlers = lookupResolvedExtensionHandlers(
+          operation.#engine.extensionChain,
+          "query",
+          undefined,
+          operation.#method
+        );
+        if (handlers === undefined || handlers.length === 0) return child();
+        const query = operation.#resolve();
+        const inspectionInput =
+          query.kind === "fragment"
+            ? { query: query.query }
+            : { sql: query.sql, params: [...query.params] };
+        const queryContext = Object.freeze({
+          mode: "array" as const,
+          kind: rawQueryKind(operation.#method),
+          model: undefined,
+          operation: operation.#method,
+          input: snapshotQueryInput(inspectionInput),
+        });
+        return executePreparedQuery<unknown, Record<string, unknown>>(
+          queryContext,
+          handlers,
+          child,
+          isRawWrite(operation.#method),
+          outcomes,
+          control
+        );
+      },
+      executeCore: (operation, driver, notifications) =>
+        operation.#execution.executeReserved(() =>
+          operation.#runResolved(driver, operation.#resolve(), notifications)
+        ),
+      isWrite: (operation) => isRawWrite(operation.#method),
+      hasObservation: (operation) =>
+        (operation.#engine.extensionChain?.observe.length ?? 0) > 0,
+      observe: (operation, child, readCompletionFacts) => {
+        const observers = operation.#engine.extensionChain?.observe;
+        if (observers === undefined || observers.length === 0) return child();
+        return observeOperation(
+          observers,
+          operation.#method,
+          undefined,
+          child,
+          readCompletionFacts,
+          operation.#readInstrumentationFacts()
+        );
+      },
+      reserveWith: (operation, driver) => {
+        operation.#execution.reserveWith(driver);
+      },
+      executeWith: (operation, driver) => {
+        const execute = () =>
+          operation.#runResolved(driver, operation.#resolve());
+        const observers = operation.#engine.extensionChain?.observe;
+        if (observers === undefined || observers.length === 0) {
+          return operation.#execution.executeWith(driver, execute);
+        }
+        return operation.#execution.executeWith(driver, () =>
+          observeOperation(
+            observers,
+            operation.#method,
+            undefined,
+            execute,
+            () =>
+              operation.#observationCommitCertainty === undefined
+                ? undefined
+                : {
+                    commitCertainty: operation.#observationCommitCertainty,
+                  },
+            operation.#readInstrumentationFacts()
+          )
+        );
+      },
+      prepare: (operation, driver = operation.#engine.driver) => {
+        const query = operation.#resolve();
+        if (query.kind === "verbatim") {
+          return markVerbatimBatchQuery({
+            sql: query.sql,
+            params: [...query.params],
+            context: operation.#context,
+          });
+        }
+        const prepared = driver._prepare(query.query, operation.#context);
+        return transferPreparedStatement(prepared, {
+          sql: prepared.sql,
+          params: prepared.params ? [...prepared.params] : [],
+          context: operation.#context,
+        });
+      },
+      prepareBatch: async () => undefined,
+      parseResult: (operation, raw) => operation.#parse(raw),
+      observeBatchPhase: (operation, driver, execute) =>
+        observeTransactionBatchPhase(operation.#context, driver, execute),
+    } satisfies TransactionOperationOwner<DeferredRawOperation<unknown>>);
+    registerTransactionOperationOwner(
+      DeferredRawOperation.prototype,
+      (value): value is DeferredRawOperation<unknown> => #engine in value,
+      rawTransactionOwner
+    );
+    Object.freeze(DeferredRawOperation.prototype);
+  }
+
+  private constructor(
+    construction: typeof rawOperationConstruction,
     engine: QueryEngine,
     method: RawMethodName,
     captured: CapturedRawQuery,
     parse: (raw: QueryResult<RawRow<T>>) => T,
     warnLegacyString: LegacyRawWarner
   ) {
-    this.engine = engine;
-    this.method = method;
-    this.captured = captured;
-    this.parse = parse;
-    this.warnLegacyString = warnLegacyString;
-    this.execution = new PendingExecution<T>("$raw", method);
-    this.context = createOperationExecutionContext(
+    if (construction !== rawOperationConstruction) {
+      throw new InvalidTransactionInputError();
+    }
+    this.#engine = engine;
+    this.#method = method;
+    this.#captured = captured;
+    this.#parse = parse;
+    this.#warnLegacyString = warnLegacyString;
+    this.#execution = new PendingExecution<T>("$raw", method);
+    this.#context = createOperationExecutionContext(
       "$raw",
       method,
-      engine.instrumentation
+      engine.instrumentation,
+      engine.extensionChain
     );
+    Object.freeze(this);
   }
 
-  private resolve(): ResolvedRawQuery {
-    if (this.resolved) return this.resolved;
+  #resolve(): ResolvedRawQuery {
+    if (this.#resolved) return this.#resolved;
 
-    const { query, values } = this.captured;
-    if (this.captured.family === "unsafe") {
-      if (typeof query !== "string") throw invalidRawQueryError(this.method);
-      this.resolved = {
+    const { query, values } = this.#captured;
+    if (this.#captured.family === "unsafe") {
+      if (typeof query !== "string") throw invalidRawQueryError(this.#method);
+      this.#resolved = {
         kind: "verbatim",
         sql: query,
         params: [...values],
       };
-      return this.resolved;
+      return this.#resolved;
     }
 
     if (isTemplateStringsArray(query)) {
-      this.resolved = {
+      this.#resolved = {
         kind: "fragment",
         query: new Sql(query, values),
       };
-      return this.resolved;
+      return this.#resolved;
     }
     if (isSql(query)) {
-      if (values.length > 0) throw fragmentWithValuesError(this.method);
-      this.resolved = { kind: "fragment", query };
-      return this.resolved;
+      if (values.length > 0) throw fragmentWithValuesError(this.#method);
+      this.#resolved = { kind: "fragment", query };
+      return this.#resolved;
     }
     if (typeof query === "string") {
-      this.warnLegacyString(this.method);
-      this.resolved = {
+      this.#warnLegacyString(this.#method);
+      this.#resolved = {
         kind: "verbatim",
         sql: query,
         params: legacyParams(values),
       };
-      return this.resolved;
+      return this.#resolved;
     }
-    throw invalidRawQueryError(this.method);
+    throw invalidRawQueryError(this.#method);
   }
 
-  private async run(driver: AnyDriver): Promise<T> {
-    const query = this.resolve();
-    const raw =
+  #run(driver: AnyDriver): Promise<T> {
+    const handlers = lookupResolvedExtensionHandlers(
+      this.#engine.extensionChain,
+      "query",
+      undefined,
+      this.#method
+    );
+    if (handlers === undefined || handlers.length === 0) {
+      return this.#runResolved(
+        driver,
+        this.#resolve(),
+        this.#withObservationNotifications()
+      );
+    }
+    let query: ResolvedRawQuery;
+    try {
+      query = this.#resolve();
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    const inspectionInput =
       query.kind === "fragment"
-        ? await driver._execute<RawRow<T>>(query.query, this.context)
-        : await driver._executeRaw<RawRow<T>>(
-            query.sql,
-            [...query.params],
-            this.context
-          );
-    return this.parse(raw);
+        ? { query: query.query }
+        : { sql: query.sql, params: [...query.params] };
+    const context = Object.freeze({
+      mode: this.#engine.transactionWriteOutcomes ? "transaction" : "direct",
+      kind: rawQueryKind(this.#method),
+      model: undefined,
+      operation: this.#method,
+      input: snapshotQueryInput(inspectionInput),
+    });
+    return executePreparedQuery<T, Record<string, unknown>>(
+      context,
+      handlers,
+      (notifications) =>
+        this.#runResolved(
+          driver,
+          query,
+          this.#withObservationNotifications(notifications)
+        ),
+      isRawWrite(this.#method),
+      this.#engine.transactionWriteOutcomes
+    );
   }
 
-  private getPromise(): Promise<T> {
-    return this.execution.executeDefault(() => this.run(this.engine.driver));
-  }
-
-  reserveWith(driver: AnyDriver): void {
-    this.execution.reserveWith(driver);
-  }
-
-  executeWith(driver: AnyDriver): Promise<T> {
-    return this.execution.executeWith(driver, () => this.run(driver));
-  }
-
-  prepare(driver: AnyDriver = this.engine.driver): PreparedQuery {
-    const query = this.resolve();
-    if (query.kind === "verbatim") {
-      return markVerbatimBatchQuery({
-        sql: query.sql,
-        params: [...query.params],
-        context: this.context,
-      });
-    }
-    const prepared = driver._prepare(query.query);
-    return {
-      sql: prepared.sql,
-      params: prepared.params ? [...prepared.params] : [],
-      context: this.context,
-    };
-  }
-
-  parseResult(raw: QueryResult<RawRow<T>>): T {
-    return this.parse(raw);
-  }
-
-  observeBatchPhase<R>(
+  async #runResolved(
     driver: AnyDriver,
-    execute: () => R | Promise<R>
-  ): Promise<R> {
-    return observeTransactionBatchPhase(this, driver, execute);
+    query: ResolvedRawQuery,
+    notifications?: WriteOutcomeNotifications
+  ): Promise<T> {
+    const writeNotifications = isRawWrite(this.#method)
+      ? notifications
+      : undefined;
+    let raw: QueryResult<RawRow<T>>;
+    try {
+      raw =
+        query.kind === "fragment"
+          ? await driver._execute<RawRow<T>>(query.query, this.#context)
+          : await driver._executeRaw<RawRow<T>>(
+              query.sql,
+              [...query.params],
+              this.#context
+            );
+    } catch (error) {
+      try {
+        await writeNotifications?.mayHaveCommitted();
+      } catch (outcomeFailure) {
+        throw retainWriteOutcomeFailure(error, outcomeFailure);
+      }
+      throw error;
+    }
+
+    let parseOutcome:
+      | { readonly status: "success"; readonly value: T }
+      | { readonly status: "failure"; readonly error: unknown };
+    try {
+      parseOutcome = { status: "success", value: this.#parse(raw) };
+    } catch (error) {
+      parseOutcome = { status: "failure", error };
+    }
+    try {
+      await writeNotifications?.committed();
+    } catch (outcomeFailure) {
+      if (parseOutcome.status === "failure") {
+        throw retainWriteOutcomeFailure(parseOutcome.error, outcomeFailure);
+      }
+      throw outcomeFailure;
+    }
+    if (parseOutcome.status === "failure") throw parseOutcome.error;
+    return parseOutcome.value;
   }
 
-  getModel(): string {
-    return "$raw";
+  #getPromise(): Promise<T> {
+    return this.#execution.executeDefault(() => {
+      const observers = this.#engine.extensionChain?.observe;
+      if (observers === undefined || observers.length === 0) {
+        return this.#run(this.#engine.driver);
+      }
+      return observeOperation(
+        observers,
+        this.#method,
+        undefined,
+        () => this.#run(this.#engine.driver),
+        () =>
+          this.#observationCommitCertainty === undefined
+            ? undefined
+            : { commitCertainty: this.#observationCommitCertainty },
+        this.#readInstrumentationFacts()
+      );
+    });
   }
 
-  getOperation(): string {
-    return this.method;
+  #readInstrumentationFacts() {
+    return createRawOperationInstrumentationFacts(
+      this.#engine.driver,
+      this.#context,
+      this.#method
+    );
   }
 
-  getExecutionContext(): QueryExecutionContext {
-    return this.context;
-  }
-
-  getClientId(): symbol {
-    return this.engine.clientId;
-  }
-
-  getScopeId(): symbol {
-    return this.engine.scopeId;
+  #withObservationNotifications(
+    notifications?: WriteOutcomeNotifications
+  ): WriteOutcomeNotifications | undefined {
+    if (
+      this.#engine.transactionWriteOutcomes !== undefined ||
+      (this.#engine.extensionChain?.observe.length ?? 0) === 0
+    ) {
+      return notifications;
+    }
+    const publish = async (
+      certainty: "committed" | "may-have-committed",
+      notify: (() => Promise<void>) | undefined
+    ): Promise<void> => {
+      let notificationFailed = false;
+      let notificationFailure: unknown;
+      try {
+        await notify?.();
+      } catch (error) {
+        notificationFailed = true;
+        notificationFailure = error;
+      }
+      if (
+        certainty === "committed" ||
+        this.#observationCommitCertainty === undefined
+      ) {
+        this.#observationCommitCertainty = certainty;
+      }
+      if (notificationFailed) throw notificationFailure;
+    };
+    return Object.freeze({
+      committed: () => publish("committed", notifications?.committed),
+      mayHaveCommitted: () =>
+        publish("may-have-committed", notifications?.mayHaveCommitted),
+    });
   }
 
   then<TResult1 = T, TResult2 = never>(
     onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | null,
     onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null
   ): Promise<TResult1 | TResult2> {
-    return this.getPromise().then(onfulfilled, onrejected);
+    return this.#getPromise().then(onfulfilled, onrejected);
   }
 
   catch<TResult = never>(
     onrejected?: ((reason: unknown) => TResult | PromiseLike<TResult>) | null
   ): Promise<T | TResult> {
-    return this.getPromise().catch(onrejected);
+    return this.#getPromise().catch(onrejected);
   }
 
   finally(onfinally?: (() => void) | null): Promise<T> {
-    return this.getPromise().finally(onfinally);
+    return this.#getPromise().finally(onfinally);
   }
 }
 
@@ -386,7 +662,7 @@ export function createRawSurface(options: RawSurfaceOptions): RawSurface {
     query: RawQueryInput | string,
     ...values: unknown[]
   ): RawOperation<T[]> {
-    return new DeferredRawOperation<T[]>(
+    return createDeferredRawOperation<T[]>(
       engine,
       "$queryRaw",
       { family: "safe", query, values: captureValues(values) },
@@ -399,7 +675,7 @@ export function createRawSurface(options: RawSurfaceOptions): RawSurface {
     query: string,
     ...values: unknown[]
   ): RawOperation<T[]> {
-    return new DeferredRawOperation<T[]>(
+    return createDeferredRawOperation<T[]>(
       engine,
       "$queryRawUnsafe",
       { family: "unsafe", query, values: captureValues(values) },
@@ -417,7 +693,7 @@ export function createRawSurface(options: RawSurfaceOptions): RawSurface {
     query: RawQueryInput | string,
     ...values: unknown[]
   ): RawOperation<number> {
-    return new DeferredRawOperation<number>(
+    return createDeferredRawOperation<number>(
       engine,
       "$executeRaw",
       { family: "safe", query, values: captureValues(values) },
@@ -430,7 +706,7 @@ export function createRawSurface(options: RawSurfaceOptions): RawSurface {
     query: string,
     ...values: unknown[]
   ): RawOperation<number> {
-    return new DeferredRawOperation<number>(
+    return createDeferredRawOperation<number>(
       engine,
       "$executeRawUnsafe",
       { family: "unsafe", query, values: captureValues(values) },

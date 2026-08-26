@@ -1,0 +1,94 @@
+---
+title: Tracing
+description: OpenTelemetry spans from protected VibORM lifecycle facts
+icon: radar
+---
+
+Install the optional OpenTelemetry API, configure its SDK, then apply the
+official instrumentation extension:
+
+```bash
+npm install @opentelemetry/api
+```
+
+```ts
+import { instrumentation } from "viborm/instrumentation";
+
+const client = createClient({ schema, driver }).$extends(
+  instrumentation({
+    tracing: {
+      includeSql: false,
+      includeParams: false,
+      ignoreSpanTypes: [/viborm\.cache\./],
+    },
+  })
+);
+```
+
+| Option | Type | Default | Meaning |
+|---|---|---|---|
+| `includeSql` | `boolean` | `false` | Add rendered SQL to execute spans |
+| `includeParams` | `boolean` | `false` | Add one attribute per snapshotted parameter |
+| `ignoreSpanTypes` | `Array<string \| RegExp>` | `[]` | Skip matching exact span names |
+
+Ignoring a span does not redirect its late attributes to the active parent.
+Cache hit/miss/TTL facts target only their exact cache span, while progressive
+segment aggregate attributes retain their documented operation-parent behavior.
+
+## Span families
+
+| Span | Boundary |
+|---|---|
+| `viborm.operation` | One logical model or raw operation |
+| `viborm.execute` | One provider statement submission, or one native provider batch presentation |
+| `viborm.transaction` | One real outer transaction |
+| `viborm.savepoint` | One real nested savepoint |
+| `viborm.batch` | One public array transaction |
+| `viborm.segment` | One submitted progressive write segment |
+| `viborm.connect` / `viborm.disconnect` | Connection lifecycle |
+| `viborm.cache.*` | Cache get, set, invalidate, and revalidate work |
+
+There are no separate validate, build, or parse spans. Those stages remain
+inside the logical operation span. A native array is not represented as a
+transaction. N public physical statement units can feed one native provider
+execute span and one query log.
+
+Statement observation begins before statement transformation. The execute span
+starts later, immediately before provider execution, and therefore records the
+exact transformed/rendered SQL when disclosure is enabled. Verbatim unsafe raw
+has no statement-transform authority, but its physical execution is still
+observed and traced without implicit SQL or parameter disclosure.
+
+## Attributes and correlation
+
+Spans use OpenTelemetry database semantic attributes where applicable:
+
+- `db.system.name` and `db.system.driver`;
+- `db.collection.name` and `db.operation.name` on attributed work;
+- `viborm.correlation.id` across logical operation, execute, and cache spans;
+- `db.query.text` and `db.query.parameter.<index>` only when enabled;
+- cache result/TTL and progressive outcome facts on their exact owners.
+
+The active span at each provider call is the corresponding execute span. Two
+official clients can share one driver without sharing tracer context,
+correlation, disclosure policy, or error attribution.
+
+## Failure and commit semantics
+
+Failed spans use OpenTelemetry error status and exception recording. The
+application error remains authoritative and is logged once even when package
+boundaries normalize or attach commit certainty to successor errors.
+
+Transaction completion distinguishes acknowledged commit, dispatched but
+unacknowledged commit, and pre-commit rollback. Savepoints never claim durable
+commit certainty. A committed native provider result remains committed if
+later result parsing, cache publication, or interceptor post-work fails.
+
+Tracing failures are contained. OTel setup, provider callbacks, span mutation,
+or span completion cannot block provider release or alter the application.
+
+## Graceful degradation
+
+If `@opentelemetry/api` is not installed, tracing becomes a no-op and database
+operations continue. Diagnostics-only and logging-only instrumentation do not
+allocate execute-span gates. Ignored execute spans do not read parameters.

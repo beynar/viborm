@@ -13,6 +13,7 @@ import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import { push } from "@migrations";
+import { readTransactionOperation } from "@query-engine/transaction-operation";
 import { type Sql, sql } from "@sql";
 import { bench, describe } from "vitest";
 import { sqliteUserPostSchema } from "../tests/fixtures/user-post-schema";
@@ -79,6 +80,15 @@ const pendingSink: unknown[] = [];
 const preparedSink: unknown[] = [];
 let nestedPostId = 0;
 
+function prepareTransactionOperation(operation: unknown) {
+  if (operation === null || typeof operation !== "object") {
+    throw new Error("Expected a VibORM benchmark operation");
+  }
+  const owner = readTransactionOperation(operation);
+  if (!owner) throw new Error("Expected a VibORM benchmark operation");
+  return owner.prepare(operation);
+}
+
 describe("operation lifecycle", () => {
   bench("create deferred one-step read", () => {
     pendingSink.length = 0;
@@ -92,11 +102,11 @@ describe("operation lifecycle", () => {
 
   bench("prepare deferred one-step read", () => {
     preparedSink.length = 0;
-    preparedSink.push(
-      sqliteClient.user
-        .findMany({ where: { age: { gte: 18 } }, take: 20 })
-        .prepare()
-    );
+    const operation = sqliteClient.user.findMany({
+      where: { age: { gte: 18 } },
+      take: 20,
+    });
+    preparedSink.push(prepareTransactionOperation(operation));
   });
 
   bench("execute direct write", async () => {

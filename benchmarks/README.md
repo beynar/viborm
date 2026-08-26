@@ -159,7 +159,8 @@ pnpm bench:operation-pipeline \
   --stages prepare,full \
   --modes alloc,cpu \
   --target scalar-find-unique/prepare/cpu/cpuMicrosecondsPerOperation \
-  --target fixed-singular-rowref-20/prepare/alloc/allocatedBytesPerOperation
+  --target fixed-singular-rowref-20/prepare/alloc/allocatedBytesPerOperation \
+  --budget sqlite3/fixed-singular-rowref-20/full/alloc/allocatedBytesPerOperation/absolute/4096
 
 # Cross-provider surface. Its baseline is fixed to the exact Phase-0 commit.
 pnpm bench:operation-pipeline \
@@ -182,6 +183,19 @@ pnpm bench:operation-pipeline --smoke \
   --candidate-dir /absolute/path/to/candidate \
   --candidate-commit <full-candidate-sha> \
   --workloads scalar-find-unique --stages prepare --modes cpu
+
+# Directional extension tuning. This requires an affected workload subset,
+# defaults to full/alloc+cpu, and runs two reduced-count alternating pairs.
+# Its report is diagnosticOnly and can never authorize a keep.
+pnpm bench:operation-pipeline:diagnostic \
+  --baseline-dir /absolute/path/to/baseline \
+  --baseline-commit <full-baseline-sha> \
+  --candidate-dir /absolute/path/to/candidate \
+  --candidate-commit <full-candidate-sha> \
+  --baseline-arm unextended \
+  --candidate-arm request \
+  --workloads scalar-find-many-1,flat-create-explicit-id,atomic-batch-100 \
+  --output /absolute/path/to/diagnostic-report.json
 ```
 
 Every worker records its exact commit, branch, clean status, Node and V8
@@ -192,13 +206,41 @@ SQL, parameters, and statement count when the preparation seam exposes them.
 The coordinator rejects semantic, SQL, protocol-field, lockfile, protocol, or
 runtime mismatches. Custom iteration or warmup counts remain useful diagnostics
 but invalidate keep evidence. A normal report without at least one repeatable
-`--target provider/workload/stage/mode/metric` contract remains valid
-measurement, but
+`--target`, `--ceiling`, or `--budget` contract remains valid measurement, but
 is not keep-eligible. Every declared target must improve by more than 2×MAD;
 non-target noise cannot grant eligibility. Each targeted workload must also
 include both its full/allocation and full/CPU evidence pairs. Any significant
 measured regression or a full-operation regression above 10% blocks the keep
 gate.
+
+`--budget provider/workload/stage/mode/metric/absolute/max` and
+`--budget provider/workload/stage/mode/metric/percent/max` are the two
+discriminated forms of one allowed-overhead contract. Budgets accept only
+measured `*PerOperation` metrics. An absolute cap uses the metric's native unit:
+bytes for allocation, retained, released, and response-size metrics;
+microseconds for CPU and wall metrics. A percentage cap compares the relative
+candidate-minus-baseline delta and fails when the baseline cannot produce a
+percentage. An improvement has a negative delta and stays below either
+non-negative cap. A passed budget may cover an exact metric even when that fixed
+overhead is statistically significant or more than the generic 10% limit. The
+budget also covers only the mechanically derived same-base per-row projection,
+such as
+`allocatedBytesPerOperation` → `allocatedBytesPerRow` or
+`responseBytesPerOperation` → `responseBytesPerRow`. CPU and wall have no such
+pair: declare separate budgets for `cpuMicrosecondsPerOperation` and
+`wallMicrosecondsPerOperation` when both fixed costs are expected. A budget
+exempts no other metric, does not weaken a separately declared target or
+ceiling, and still requires the budgeted workload's complete `full/alloc` and
+`full/cpu` evidence. Per-row metrics cannot be budgeted directly; use
+`--row-scaling` with a per-operation metric to prove that an accepted fixed cost
+does not grow with result cardinality. Strict `--ceiling` contracts remain
+independent and can reject the same metric even when its allowed-overhead budget
+passes.
+
+Diagnostic mode keeps the same clean-checkout, fresh-process, semantic digest,
+checksum, SQL witness, lockfile, catalog, and protocol-hash checks. It uses two
+alternating pairs and one fifth of the ordinary iteration count, subject to a
+50-operation floor. The ordinary five-pair run remains the final keep evidence.
 The allocation sampler uses 4,096 bytes. Mutation databases are new for every
 worker process, so baseline and candidate start every replicate from equal
 table and index state.

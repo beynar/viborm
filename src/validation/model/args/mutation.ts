@@ -1,9 +1,5 @@
 // Mutation operation args schema factories
 
-import {
-  type CacheInvalidationSchema,
-  cacheInvalidationSchema,
-} from "@cache/schema";
 import type { AnyModel } from "@schema/model";
 import v, { type V } from "../../primitives/v";
 import type { CoreSchemas } from "../core";
@@ -28,7 +24,6 @@ export type CreateArgs<
     select: CoreSchemas<M, F>["select"];
     include: CoreSchemas<M, F>["include"];
     omit: OmitSchema<M>;
-    cache: CacheInvalidationSchema;
   },
   { atLeast: ["data"] }
 >;
@@ -44,7 +39,6 @@ export const getCreateArgs = <M extends AnyModel, F extends ScalarSchemas<M>>(
           select: v.lazyRef(() => core.select),
           include: v.lazyRef(() => core.include),
           omit: v.lazyRef(() => core.omit),
-          cache: cacheInvalidationSchema,
         },
         { atLeast: ["data"] }
       )
@@ -79,7 +73,6 @@ type AvailableCreateManyArgs<
     skipDuplicates: V.Boolean<{ optional: true }>;
     select: CoreSchemas<M, F>["scalarSelect"];
     omit: OmitSchema<M>;
-    cache: CacheInvalidationSchema;
   },
   { atLeast: ["data"] }
 >;
@@ -102,7 +95,6 @@ export const getCreateManyArgs = <
           skipDuplicates: v.boolean({ optional: true }),
           select: v.lazyRef(() => core.scalarSelect),
           omit: v.lazyRef(() => core.omit),
-          cache: cacheInvalidationSchema,
         },
         { atLeast: ["data"] }
       ),
@@ -137,7 +129,6 @@ export type UpdateArgs<
     select: CoreSchemas<M, F>["select"];
     include: CoreSchemas<M, F>["include"];
     omit: OmitSchema<M>;
-    cache: CacheInvalidationSchema;
   },
   { atLeast: ["where", "data"] }
 >;
@@ -155,7 +146,6 @@ export const getUpdateArgs = <M extends AnyModel, F extends ScalarSchemas<M>>(
           select: v.lazyRef(() => core.select),
           include: v.lazyRef(() => core.include),
           omit: v.lazyRef(() => core.omit),
-          cache: cacheInvalidationSchema,
         },
         { atLeast: ["where", "data"] }
       )
@@ -215,7 +205,6 @@ export type UpdateManyArgs<
     select: CoreSchemas<M, F>["scalarSelect"];
     omit: OmitSchema<M>;
     limit: BulkWriteLimitSchema;
-    cache: CacheInvalidationSchema;
   },
   { atLeast: ["data"] }
 >;
@@ -235,7 +224,6 @@ export const getUpdateManyArgs = <
           select: v.lazyRef(() => core.scalarSelect),
           omit: v.lazyRef(() => core.omit),
           limit: bulkWriteLimit(),
-          cache: cacheInvalidationSchema,
         },
         { atLeast: ["data"] }
       ),
@@ -265,7 +253,6 @@ export type DeleteArgs<
     select: CoreSchemas<M, F>["select"];
     include: CoreSchemas<M, F>["include"];
     omit: OmitSchema<M>;
-    cache: CacheInvalidationSchema;
   },
   { atLeast: ["where"] }
 >;
@@ -281,7 +268,6 @@ export const getDeleteArgs = <M extends AnyModel, F extends ScalarSchemas<M>>(
           select: v.lazyRef(() => core.select),
           include: v.lazyRef(() => core.include),
           omit: v.lazyRef(() => core.omit),
-          cache: cacheInvalidationSchema,
         },
         { atLeast: ["where"] }
       )
@@ -316,7 +302,6 @@ export type DeleteManyArgs<
     select: CoreSchemas<M, F>["scalarSelect"];
     omit: OmitSchema<M>;
     limit: BulkWriteLimitSchema;
-    cache: CacheInvalidationSchema;
   },
   { optional: true }
 >;
@@ -335,7 +320,6 @@ export const getDeleteManyArgs = <
           select: v.lazyRef(() => core.scalarSelect),
           omit: v.lazyRef(() => core.omit),
           limit: bulkWriteLimit(),
-          cache: cacheInvalidationSchema,
         },
         { optional: true }
       ),
@@ -352,7 +336,7 @@ export const getDeleteManyArgs = <
 // =============================================================================
 
 /**
- * Upsert args: { where: whereUniqueExtended, create, update, select?, include?, cache?, targetWhere?, setWhere? }
+ * Upsert args: { where: whereUniqueExtended, create, update, select?, include?, targetWhere?, setWhere? }
  *
  * Additional options for advanced ON CONFLICT handling:
  * - targetWhere: WHERE clause for partial unique index matching
@@ -371,7 +355,6 @@ export type UpsertArgs<
     select: CoreSchemas<M, F>["select"];
     include: CoreSchemas<M, F>["include"];
     omit: OmitSchema<M>;
-    cache: CacheInvalidationSchema;
     /** WHERE clause for partial unique index matching (PostgreSQL/SQLite only) */
     targetWhere: CoreSchemas<M, F>["where"];
     /** WHERE clause for conditional updates (PostgreSQL/SQLite only) */
@@ -394,7 +377,6 @@ export const getUpsertArgs = <M extends AnyModel, F extends ScalarSchemas<M>>(
           select: v.lazyRef(() => core.select),
           include: v.lazyRef(() => core.include),
           omit: v.lazyRef(() => core.omit),
-          cache: cacheInvalidationSchema,
           targetWhere: v.lazyRef(() => core.where),
           setWhere: v.lazyRef(() => core.where),
         },

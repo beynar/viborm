@@ -200,14 +200,11 @@ export const withOmitProjection = <
 export type UpsertProjectionSchema<
   M extends AnyModel,
   F extends ScalarSchemas<M>,
-> = V.Object<
-  {
-    select: CoreSchemas<M, F>["select"];
-    include: CoreSchemas<M, F>["include"];
-    omit: OmitSchema<M>;
-  },
-  { optional: true }
->;
+> = V.Object<{
+  select: CoreSchemas<M, F>["select"];
+  include: CoreSchemas<M, F>["include"];
+  omit: OmitSchema<M>;
+}>;
 
 export const getUpsertProjectionSchema = <
   M extends AnyModel,
@@ -217,14 +214,11 @@ export const getUpsertProjectionSchema = <
   core: CoreSchemas<M, F>
 ): UpsertProjectionSchema<M, F> =>
   withOmitProjection(
-    v.object(
-      {
-        select: v.lazyRef(() => core.select),
-        include: v.lazyRef(() => core.include),
-        omit: v.lazyRef(() => core.omit),
-      },
-      { optional: true }
-    ),
+    v.object({
+      select: v.lazyRef(() => core.select),
+      include: v.lazyRef(() => core.include),
+      omit: v.lazyRef(() => core.omit),
+    }),
     model,
     "upsert"
   );

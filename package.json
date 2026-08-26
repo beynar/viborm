@@ -151,6 +151,7 @@
     "bench:baseline": "vitest bench --run --outputJson benchmarks/baseline.json",
     "bench:compare": "vitest bench --run --compare benchmarks/baseline.json",
     "bench:operation-pipeline": "node benchmarks/operation-pipeline-compare.mjs",
+    "bench:operation-pipeline:diagnostic": "node benchmarks/operation-pipeline-compare.mjs --diagnostic",
     "bench:operation-pipeline:check": "node --test benchmarks/operation-pipeline-report.test.mjs",
     "bench:operation-pipeline:describe": "node benchmarks/operation-pipeline-worker.mjs --describe",
     "db:run": "docker run -d --name baseorm -p 2222:5432 -e POSTGRES_DB=baseorm -e POSTGRES_PASSWORD=password postgres",

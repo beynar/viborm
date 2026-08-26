@@ -26,11 +26,12 @@ import {
   VibORMError,
   VibORMErrorCode,
 } from "@errors";
-import { createInstrumentationContext } from "@instrumentation/context";
+import { instrumentation } from "@instrumentation/extension";
 import type { LogEvent } from "@instrumentation/types";
 import { push } from "@migrations";
 import { s } from "@schema";
 import { getFieldSqlName, getModelSqlName } from "@schema/hydration";
+import { createOfficialTestExecutionContext } from "@tests/unit/instrumentation/_official-context";
 
 const REDACTED_ERROR_CONTENT_PATTERN =
   /secret-password-value|SELECT id FROM users/;
@@ -65,14 +66,15 @@ describe("driver error mapping", () => {
     const client = createClient({
       schema,
       driver,
-      instrumentation: {
+    }).$extends(
+      instrumentation({
         logging: {
           error: (event) => {
             loggedEvent = event;
           },
         },
-      },
-    });
+      })
+    );
     await push(client, { force: true });
 
     await client.user.create({
@@ -763,6 +765,7 @@ describe("serialized error disclosure", () => {
       actualChecksum: "actual-checksum",
       autoIncrement: true,
       column: "id",
+      commitCertainty: "committed",
       conflictsWith: "set",
       context: "upsertCreate",
       expectedChecksum: "expected-checksum",
@@ -777,6 +780,7 @@ describe("serialized error disclosure", () => {
       actualChecksum: "actual-checksum",
       autoIncrement: true,
       column: "id",
+      commitCertainty: "committed",
       conflictsWith: "set",
       context: "upsertCreate",
       expectedChecksum: "expected-checksum",
@@ -791,6 +795,7 @@ describe("serialized error disclosure", () => {
     const deceptive = sanitizeErrorMetadata({
       autoIncrement: canary,
       columns: ["id", { token: canary }],
+      commitCertainty: "certainly-secret",
       expectedChecksum: { token: canary },
       model: { token: canary },
       params: [canary],
@@ -842,19 +847,22 @@ describe("serialized error disclosure", () => {
       values: ["business-value"],
     };
     cyclic.self = cyclic;
-    driver.setInstrumentation(
-      createInstrumentationContext({
-        diagnostics: scenario.diagnostics,
-      })
+    const context = createOfficialTestExecutionContext(
+      { diagnostics: scenario.diagnostics },
+      {
+        model: "user",
+        operation: "findMany",
+        correlationId: "error-disclosure",
+      }
     );
 
     let thrown: unknown;
     try {
-      await driver._executeRaw(query, [secret, 2n, cyclic, jsonParameter], {
-        model: "user",
-        operation: "findMany",
-        correlationId: "error-disclosure",
-      });
+      await driver._executeRaw(
+        query,
+        [secret, 2n, cyclic, jsonParameter],
+        context
+      );
     } catch (error) {
       thrown = error;
     }
@@ -909,8 +917,8 @@ describe("serialized error disclosure", () => {
   test("applies logger disclosure independently to raw and serialized errors", async () => {
     let event: LogEvent | undefined;
     const driver = new SecretFailingDriver();
-    driver.setInstrumentation(
-      createInstrumentationContext({
+    const context = createOfficialTestExecutionContext(
+      {
         diagnostics: { includeSql: true, includeParams: true },
         logging: {
           error: (received) => {
@@ -919,14 +927,15 @@ describe("serialized error disclosure", () => {
           includeSql: false,
           includeParams: false,
         },
-      })
+      },
+      { model: "user", operation: "findMany" }
     );
 
     await driver
       ._executeRaw(
         "SELECT id FROM users WHERE password = ?",
         ["secret-password-value"],
-        { model: "user", operation: "findMany" }
+        context
       )
       .catch(() => undefined);
 

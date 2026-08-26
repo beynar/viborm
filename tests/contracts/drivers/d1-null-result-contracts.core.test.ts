@@ -1,6 +1,6 @@
 import { D1Driver } from "@drivers/d1";
 import { QueryError } from "@errors";
-import { createInstrumentationContext } from "@instrumentation/context";
+import { createOfficialTestExecutionContext } from "@tests/unit/instrumentation/_official-context";
 import { describe, expect, test, vi } from "vitest";
 
 type D1Database = ConstructorParameters<typeof D1Driver>[0]["database"];
@@ -243,37 +243,39 @@ describe("D1 binding null-result statement contracts", () => {
       batch,
     } as unknown as D1Database;
     const driver = new D1Driver({ database });
-    driver.setInstrumentation(
-      createInstrumentationContext({ diagnostics: { includeParams: true } })
-    );
+    const officialContext = (values: Record<string, string>) =>
+      createOfficialTestExecutionContext(
+        { diagnostics: { includeParams: true } },
+        values
+      );
 
     const parameter = { value: "original" };
     const execution = driver._executeBatch(
       [
         {
           sql: "SELECT valid",
-          context: {
+          context: officialContext({
             model: "user",
             operation: "findMany",
             correlationId: "d1-first-correlation",
-          },
+          }),
         },
         {
           sql: "SELECT broken",
           params: [parameter],
-          context: {
+          context: officialContext({
             model: "post",
             operation: "findMany",
             correlationId: "d1-second-correlation",
-          },
+          }),
         },
       ],
       undefined,
-      {
+      officialContext({
         model: "$transaction",
         operation: "$transaction([...])",
         correlationId: "d1-outer-correlation",
-      }
+      })
     );
     parameter.value = "caller-mutated";
     const error = await captureMalformedResult(execution);

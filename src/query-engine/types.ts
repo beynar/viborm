@@ -195,12 +195,20 @@ export interface ExpectedPolymorphicResultShape {
   readonly variants: ReadonlyMap<string, ExpectedPolymorphicVariantShape>;
 }
 
+/** Exact public result contract for one ordinary relation projection. */
+export interface ExpectedRelationResultShape {
+  readonly model: Model<any>;
+  readonly shape: ExpectedResultShape;
+  readonly cardinality: RelationCardinality;
+  readonly optional: boolean;
+}
+
 /** Exact raw columns and nested projections expected for one returned row. */
 export interface ExpectedResultShape {
   /** Raw statement carrier declared by the compiled operation result. */
   carrier: "rows" | "count" | "existence";
   rawKeys: readonly string[];
-  relations: ReadonlyMap<string, ExpectedResultShape>;
+  relations: ReadonlyMap<string, ExpectedRelationResultShape>;
   polymorphic: ReadonlyMap<string, ExpectedPolymorphicResultShape>;
   aggregates: ReadonlyMap<string, ExpectedAggregateResultShape>;
   relationCounts: ReadonlySet<string>;

@@ -11,7 +11,6 @@ import {
   createClientFromDriverConfig,
   type DriverConfig,
   type NoExtraDriverConfigKeys,
-  type NoExtraNestedConfigKeys,
   type VibORMClient,
 } from "@client/client";
 import type { Schema } from "@client/types";
@@ -21,7 +20,13 @@ import {
   deactivateConsumableResultProducer,
   registerConsumableResultCandidate,
 } from "../consumable-result-candidate";
-import { type AnyDriver, Driver, type DriverResultParser } from "../driver";
+import {
+  type AnyDriver,
+  Driver,
+  type DriverResultParser,
+  type QueryExecutionContext,
+} from "../driver";
+import { getExecutionTransactionPhases } from "../execution-context";
 import {
   convertValuesForSQLite,
   isSQLiteBinaryValue,
@@ -218,7 +223,8 @@ export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
 
   protected async transaction<T>(
     client: SQLite3Database,
-    fn: (tx: SQLite3Database) => Promise<T>
+    fn: (tx: SQLite3Database) => Promise<T>,
+    context?: QueryExecutionContext
   ): Promise<T> {
     let shouldClose = false;
     const executeOrClose = (statement: string) => {
@@ -234,6 +240,7 @@ export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
       callback: () => fn(client),
       commit: () => executeOrClose("COMMIT"),
       rollback: () => executeOrClose("ROLLBACK"),
+      phases: getExecutionTransactionPhases(context),
       close: () => {
         if (shouldClose) {
           try {
@@ -255,15 +262,13 @@ export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
 export function createClient<S extends Schema, C extends DriverConfig<S>>(
   config: SQLite3ClientConfig<C> &
     DriverConfig<S> &
-    NoExtraDriverConfigKeys<C, SQLite3DriverOptions, S> &
-    NoExtraNestedConfigKeys<C, S>
+    NoExtraDriverConfigKeys<C, SQLite3DriverOptions, S>
 ): VibORMClient<C & { driver: SQLite3Driver }> {
-  const { client, dataDir, options, ...restConfig } = config;
+  const { client, dataDir, options } = config;
 
   const driver = new SQLite3Driver({ client, dataDir, options });
 
-  return createClientFromDriverConfig({
-    ...restConfig,
-    driver,
-  }) as VibORMClient<C & { driver: SQLite3Driver }>;
+  return createClientFromDriverConfig(config, driver) as VibORMClient<
+    C & { driver: SQLite3Driver }
+  >;
 }
