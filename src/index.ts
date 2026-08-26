@@ -24,12 +24,21 @@
 // CLIENT
 // =============================================================================
 
-export type { VibORMClient, VibORMConfig } from "./client/client.js";
+export type {
+  ExtendedClient,
+  VibORMClient,
+  VibORMConfig,
+} from "./client/client.js";
 export { createClient } from "./client/client.js";
 export type { RawOperation } from "./client/raw.js";
 export {
   type ClientExtension,
   defineExtension,
+  type ObservationCompletion,
+  type ObservationUnit,
+  type ObserveHandler,
+  type StatementContext,
+  type StatementHandler,
 } from "./extensions/index.js";
 // Pending operations (for transaction batching)
 export {

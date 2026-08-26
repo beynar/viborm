@@ -61,7 +61,7 @@ Status legend:
 
 ```typescript
 import { s } from "viborm";
-import { createClient } from "viborm/drivers/pglite";
+import { createClient } from "viborm/pglite";
 
 // Schema carries type information
 const user = s.model({
@@ -127,7 +127,7 @@ export const schema = { user, post };
 
 ```typescript
 // db.ts
-import { createClient } from "viborm/drivers/pglite";
+import { createClient } from "viborm/pglite";
 import { push } from "viborm/migrations";
 import { schema } from "./schema";
 
@@ -245,7 +245,7 @@ stale-while-revalidate (SWR) support.
 ### Setup
 
 ```typescript
-import { createClient } from "viborm/drivers/pglite";
+import { createClient } from "viborm/pglite";
 import { cache } from "viborm/cache";
 import { MemoryCache } from "viborm/cache/memory";
 
@@ -319,7 +319,7 @@ VibORM supports OpenTelemetry tracing and structured logging.
 ### Setup
 
 ```typescript
-import { createClient } from "viborm/drivers/pglite";
+import { createClient } from "viborm/pglite";
 import { instrumentation } from "viborm/instrumentation";
 
 const orm = createClient({ schema }).$extends(

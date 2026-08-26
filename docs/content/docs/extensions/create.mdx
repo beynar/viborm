@@ -256,6 +256,44 @@ const db = client
   .$extends(postTools);
 ```
 
+### Name the complete client type
+
+Use `ExtendedClient` when the base client, extension definitions, and final
+composition live in different modules but the application needs one shared
+client type:
+
+```ts
+import type { ExtendedClient } from "viborm";
+
+export const applicationExtensions = [
+  boundedReads,
+  timing,
+  postTools,
+] as const;
+
+export type ApplicationClient = ExtendedClient<
+  typeof client,
+  typeof applicationExtensions
+>;
+```
+
+The tuple is the real application order. Keep it `as const`, then build the
+runtime client in the same order wherever it belongs:
+
+```ts
+export const db: ApplicationClient = client
+  .$extends(applicationExtensions[0])
+  .$extends(applicationExtensions[1])
+  .$extends(applicationExtensions[2]);
+```
+
+`ExtendedClient` is type-only: it does not apply extensions or create a second
+runtime chain. It also accepts an already extended client as its first argument,
+so separately composed sections can name the remaining type incrementally. A
+statically invalid order or repeated cache/default-omit capability resolves to
+`never`, matching `$extends()` admission. Name collisions and repeated
+instrumentation remain runtime checks and fail when the extension is applied.
+
 Request transforms run in application order. Query interceptors are nested in
 that order: the first applied interceptor is outermost. Statement transforms
 also receive the previous transform's `Sql` value in application order.

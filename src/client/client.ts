@@ -405,6 +405,47 @@ export type VibORMClient<
     HasExtensionCache<X> extends true ? "never" : "$withCache" | "$invalidate"
   >;
 
+type ApplyClientExtensions<
+  C extends VibORMConfig,
+  X extends ExtensionStateConstraint,
+  Definitions extends readonly unknown[],
+> = Definitions extends readonly []
+  ? VibORMClient<C, X>
+  : Definitions extends readonly [
+        infer Definition,
+        ...infer RemainingDefinitions,
+      ]
+    ? Definition extends OfficialAwareDefinition<C, X>
+      ? Definition extends ExtensionAdmission<Definition, C, X>
+        ? ApplyClientExtensions<
+            AppliedClientConfig<C, Definition>,
+            AppliedExtensionState<X, Definition>,
+            RemainingDefinitions
+          >
+        : never
+      : never
+    : never;
+
+/**
+ * The exact client surface produced by applying an ordered extension tuple.
+ *
+ * @example
+ * ```ts
+ * type AppClient = ExtendedClient<
+ *   typeof db,
+ *   readonly [typeof defaults, typeof cached, typeof methods]
+ * >;
+ * ```
+ */
+export type ExtendedClient<
+  Base,
+  Extensions extends readonly unknown[],
+> = number extends Extensions["length"]
+  ? never
+  : Base extends VibORMClient<infer C, infer X>
+    ? ApplyClientExtensions<C, X, Extensions>
+    : never;
+
 /**
  * VibORM Client
  */
@@ -1230,7 +1271,7 @@ function assertConstructed<T>(build: () => T): T {
  * @example
  * ```ts
  * import { PGlite } from "@electric-sql/pglite";
- * import { PGliteDriver } from "viborm/drivers/pglite";
+ * import { PGliteDriver } from "viborm/pglite";
  * import { createClient } from "viborm";
  *
  * const db = new PGlite();

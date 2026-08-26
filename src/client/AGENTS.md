@@ -145,6 +145,15 @@ their schema registries alive for the full Vitest worker and can exhaust the
 client layer's memory cap. Runtime contracts should construct and execute a
 real client normally.
 
+`ExtendedClient<Base, Extensions>` is the one public type-only reducer for
+naming an immutable extension chain across modules. `Extensions` is a finite
+readonly tuple in application order. Its implementation delegates every step
+to the same extension admission, client-config, and accumulated-state types as
+`$extends()`; do not add a second public extension-state description or a
+runtime "apply all" owner. Statically invalid ordering and repeated official
+cache/default-omit capabilities resolve to `never`; name and instrumentation
+collisions remain runtime-owned.
+
 ---
 
 ## Anti-Patterns
