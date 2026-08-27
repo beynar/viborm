@@ -49,7 +49,7 @@ classDiagram
     class NumberScalar~T~ {
         +config: NumberScalarConfig
         +int(): NumberScalar
-        +float(): NumberScalar
+        +number(): NumberScalar
         +autoIncrement(): NumberScalar
     }
     
@@ -229,7 +229,7 @@ import { s } from "viborm";
 
 // Scalars
 s.string()           // StringScalar
-s.number() / s.int() / s.float() / s.decimal()
+s.number() / s.int() / s.decimal()
 s.boolean()
 s.bigint()
 s.datetime()

@@ -56,7 +56,7 @@ const ageScalar = s
   .auto.increment(); // ✅ Number auto-generation
 
 const priceScalar = s
-  .float()
+  .number()
   .min(0.01) // ✅ Minimum value
   .max(9999.99); // ✅ Maximum value
 

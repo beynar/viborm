@@ -1,5 +1,11 @@
 # VibORM Developer Specifications
 
+> **Scope note (2026-08-27):** these are development-era design
+> specifications; parts predate the implementation and sketch APIs that
+> never shipped (`.min()`, `.list()`, `.positive()`, `s.jsonb()`). The
+> current public API reference is `docs/content/docs/` and the layer
+> `AGENTS.md` files.
+
 This folder contains detailed specifications for each component of the VibORM project. These documents are designed to be comprehensive guides for developers working on individual parts of the system.
 
 ## Table of Contents

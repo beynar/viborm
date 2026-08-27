@@ -730,8 +730,8 @@ These types are shared across all models:
 - `NullableStringScalarUpdateOperationsInput` - Nullable string scalar updates
 - `IntScalarUpdateOperationsInput` - Integer scalar update operations
 - `NullableIntScalarUpdateOperationsInput` - Nullable integer scalar updates
-- `FloatScalarUpdateOperationsInput` - Float scalar update operations
-- `NullableFloatScalarUpdateOperationsInput` - Nullable float scalar updates
+- `NumberScalarUpdateOperationsInput` - Number scalar update operations
+- `NullableNumberScalarUpdateOperationsInput` - Nullable number scalar updates
 - `BoolScalarUpdateOperationsInput` - Boolean scalar update operations
 - `NullableBoolScalarUpdateOperationsInput` - Nullable boolean scalar updates
 - `DateTimeScalarUpdateOperationsInput` - DateTime scalar update operations

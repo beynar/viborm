@@ -184,10 +184,12 @@ to:
 ```
 
 **2026-08-27 — version gate adjudicated, does not trigger.** Schema JSON merged
-to `main` (`ac3e84ef`, PR #28), but the `viborm` package itself is unreleased, so
-no v1 document with `"float"` has ever shipped. The rename lands now, before the
-first release, and document-format version 1 keeps one history in which the
-approximate scalar was only ever `"number"`.
+to `main` (`ac3e84ef`, PR #28). The `viborm` package HAS been published
+(`0.1.0`, January 2026), but that release predates the format and exports no
+`viborm/schema/json` entry — the Schema JSON FORMAT itself is unreleased, so no
+v1 document with `"float"` has ever shipped. The rename lands now, before the
+format's first release, and document-format version 1 keeps one history in
+which the approximate scalar was only ever `"number"`.
 
 Preserve the Schema JSON theorems:
 
@@ -234,7 +236,14 @@ type is already `"number"`. Update model fixtures from `s.float()` to
 - `toJsonSchema(numberFilter)` emits a shorthand `{ "type": "number" }` and
   the existing recursive filter structure;
 - `numberFilter["~standard"].jsonSchema.input(...)` emits the same document;
-- number lists emit `{ "type": "array", "items": { "type": "number" } }`;
+- number lists emit the element primitive `{ "type": "number" }` — CORRECTED
+  2026-08-27: this plan originally expected `{ "type": "array", "items": … }`,
+  but the standards converter has never emitted an array representation for
+  ANY scalar's list surface, and changing that for every scalar would violate
+  this plan's own behavior-preservation constraint. The implemented contract
+  (`tests/unit/validation/json-schema.core.test.ts:950`) pins the measured
+  behavior; a future array/items emission is a converter feature, not part of
+  this rename;
 - the all-scalar conversion matrix includes the renamed number scalar on
   Draft-07, Draft 2020-12, and OpenAPI 3.0;
 - recursive `not` remains represented through the existing `$ref`/`$defs`

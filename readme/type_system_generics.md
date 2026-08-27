@@ -171,7 +171,7 @@ const user = s.model({
   age: s.int().min(0).max(120),
   email: s.string().regex(/^[^\s@]+@[^\s@]+\.[^\s@]+$/),
   isVerified: s.boolean().default(false),
-  balance: s.float().min(0.0),
+  balance: s.number().min(0.0),
   createdAt: s.dateTime().auto.now(),
 });
 ```
