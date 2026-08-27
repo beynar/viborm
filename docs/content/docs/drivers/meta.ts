@@ -6,6 +6,7 @@ export default defineMeta({
   order:3,
   pages: [
     "index",
+    "namespaces",
     "postgresql",
     "mysql",
     "sqlite"

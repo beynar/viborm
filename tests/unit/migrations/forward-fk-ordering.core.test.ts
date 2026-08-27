@@ -24,7 +24,6 @@ import { createClient } from "@client/client";
 import { apply, generate } from "@migrations";
 import { MigrationStorageDriver } from "@migrations/storage";
 import { s } from "@schema";
-import { describe, expect, it } from "vitest";
 import type { MigrationDriver } from "@src/migrations/drivers";
 import { libsqlMigrationDriver } from "@src/migrations/drivers/libsql";
 import { mysqlMigrationDriver } from "@src/migrations/drivers/mysql";
@@ -33,6 +32,8 @@ import { sqlite3MigrationDriver } from "@src/migrations/drivers/sqlite";
 import type { DiffOperation, ForeignKeyDef } from "@src/migrations/types";
 import { extractForwardReferenceForeignKeys } from "@src/migrations/utils";
 import { createInMemoryPGliteDriver } from "@tests/fixtures/drivers/pglite";
+import { ddlContextFor } from "@tests/unit/migrations/_estate";
+import { describe, expect, it } from "vitest";
 
 const CREATE_TABLE_RE = /CREATE TABLE/i;
 const FOREIGN_KEY_RE = /FOREIGN KEY/i;
@@ -225,7 +226,10 @@ describe("emitted DDL ordering (forward-ref schema)", () => {
     const ops = extractForwardReferenceForeignKeys(FORWARD_REF_OPS, driver);
     const statements: string[] = [];
     for (const op of ops) {
-      const ddl = driver.generateDDL(op, { currentSchema: { tables: [] } });
+      const ddl = driver.generateDDL(
+        op,
+        ddlContextFor("artifact", { tables: [] })
+      );
       statements.push(...ddl.split(";\n").filter((s) => s.trim()));
     }
     return statements;

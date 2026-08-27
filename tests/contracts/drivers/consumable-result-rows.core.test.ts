@@ -30,6 +30,11 @@ async function expectDirectReadMode(
   const client = createClient({ schema, driver });
   try {
     await push(client, { force: true });
+    // A supplied client survives this driver's `$disconnect()` and is
+    // reinstalled by identity, so a second round runs against the SAME database
+    // with the first round's row still in it. The read mode is what these
+    // rounds are about, and one row is what they read.
+    await client.entry.deleteMany();
     await client.entry.create({
       data: { id: "entry-1", enabled: true, recordedAt: RECORDED_AT },
     });

@@ -42,7 +42,7 @@ for (const substrate of substrates) {
 }
 
 /** The target table's INSERT, as the pinned statement must spell it. */
-const TARGET_INSERT = /INSERT INTO "e4u3_stamps"/;
+const TARGET_INSERT = /INSERT INTO (?:"[^"]+"\.)?"e4u3_stamps"/;
 
 /** The fragment's write statements, narrowed to the owner of `racePin`. */
 function writeSteps(steps: readonly OperationStep[]): readonly WriteStep[] {
@@ -147,7 +147,9 @@ describe("E4-U3 the missing-premise race pin survives the delegation", () => {
     const compiled = operation.compile({ "post.locate.rows": [{ id: "p1" }] });
     const writes = writeSteps(compiled.steps);
     const producing = writes.find((step) =>
-      step.statement.strings.join("?").includes('INSERT INTO "e4u3_stamps"')
+      step.statement.strings
+        .join("?")
+        .includes('INSERT INTO "public"."e4u3_stamps"')
     );
     const join = writes.find((step) => step.id.includes("junction.insert"));
     expect(producing).toBeDefined();

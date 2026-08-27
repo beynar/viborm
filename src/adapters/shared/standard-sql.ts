@@ -1,8 +1,9 @@
 import { type Sql, sql } from "@sql";
+import {
+  createQualifiedIdentifierRenderer,
+  type IdentifierQuoter,
+} from "../../sql/identifiers";
 import type { CastType, DatabaseAdapter } from "../database-adapter";
-
-/** Quote a single identifier for the dialect: `"name"` or `` `name` ``. */
-export type IdentifierQuoter = (name: string) => string;
 
 type StandardLiterals = Pick<
   DatabaseAdapter["literals"],
@@ -194,37 +195,38 @@ export const createSetOperations = (): DatabaseAdapter["setOperations"] => ({
 // adapters, differing only in the identifier quote character.
 // ============================================================
 
-/** Build an identifier quoter that doubles embedded quote characters to prevent SQL injection. */
-export const createIdentifierQuoter =
-  (quoteChar: '"' | "`"): IdentifierQuoter =>
-  (name: string): string => {
-    const escaped =
-      name.indexOf(quoteChar) === -1
-        ? name
-        : name.replaceAll(quoteChar, quoteChar + quoteChar);
-    return quoteChar + escaped + quoteChar;
-  };
-
+/**
+ * `namespace` is the adapter's prevalidated database namespace, or `undefined`
+ * for the unqualified dialects. It is quoted once here, at adapter
+ * construction — `table()` runs once per persistent table per compiled
+ * statement and must not re-quote it.
+ */
 export const createIdentifiers = (
-  quoteIdent: IdentifierQuoter
-): DatabaseAdapter["identifiers"] => ({
-  escape: (name: string): Sql => sql.raw(quoteIdent(name)),
+  quoteIdent: IdentifierQuoter,
+  namespace?: string
+): DatabaseAdapter["identifiers"] => {
+  const qualify = createQualifiedIdentifierRenderer(quoteIdent, namespace);
+  return {
+    escape: (name: string): Sql => sql.raw(quoteIdent(name)),
 
-  column: (alias: string, field: string): Sql => {
-    const identifier = alias
-      ? `${quoteIdent(alias)}.${quoteIdent(field)}`
-      : quoteIdent(field);
-    return sql.raw(identifier);
-  },
+    column: (alias: string, field: string): Sql => {
+      const identifier = alias
+        ? `${quoteIdent(alias)}.${quoteIdent(field)}`
+        : quoteIdent(field);
+      return sql.raw(identifier);
+    },
 
-  table: (tableName: string, alias: string): Sql => {
-    const identifier = `${quoteIdent(tableName)} AS ${quoteIdent(alias)}`;
-    return sql.raw(identifier);
-  },
+    table: (tableName: string, alias?: string): Sql => {
+      const qualified = qualify(tableName);
+      return sql.raw(
+        alias === undefined ? qualified : `${qualified} AS ${quoteIdent(alias)}`
+      );
+    },
 
-  aliased: (expression: Sql, alias: string): Sql =>
-    sql`${expression} AS ${sql.raw(quoteIdent(alias))}`,
-});
+    aliased: (expression: Sql, alias: string): Sql =>
+      sql`${expression} AS ${sql.raw(quoteIdent(alias))}`,
+  };
+};
 
 export const createSubqueries = (
   quoteIdent: IdentifierQuoter

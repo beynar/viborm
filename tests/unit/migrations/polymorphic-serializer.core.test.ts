@@ -8,6 +8,7 @@ import { s } from "@src/schema";
 import { hydrateSchemaNames } from "@src/schema/hydration";
 import { validateSchema, validateSchemaOrThrow } from "@src/schema/validation";
 import { resolveSchemaOrThrow } from "@src/schema/validation/validator";
+import { ddlContext } from "@tests/unit/migrations/_estate";
 import { describe, expect, it } from "vitest";
 
 const RELATION_CONSTRAINT_KEYWORDS = /\b(?:FOREIGN KEY|CHECK|UNIQUE)\b/i;
@@ -134,14 +135,14 @@ describe("polymorphic migration serialization", () => {
       throw new Error("Polymorphic owner table was not serialized");
     }
 
-    const requiredDdl = driver.generateDDL({
-      type: "createTable",
-      table: requiredOwner,
-    });
-    const optionalDdl = driver.generateDDL({
-      type: "createTable",
-      table: optionalOwner,
-    });
+    const requiredDdl = driver.generateDDL(
+      { type: "createTable", table: requiredOwner },
+      ddlContext("artifact")
+    );
+    const optionalDdl = driver.generateDDL(
+      { type: "createTable", table: optionalOwner },
+      ddlContext("artifact")
+    );
 
     expect(requiredDdl).toContain(requiredTypeColumn);
     expect(requiredDdl).toContain(requiredIdColumn);
@@ -230,7 +231,10 @@ describe("polymorphic migration serialization", () => {
     }).tables.find((table) => table.name === "comment");
     if (!owner) throw new Error("Polymorphic owner table was not serialized");
 
-    const ddl = driver.generateDDL({ type: "createTable", table: owner });
+    const ddl = driver.generateDDL(
+      { type: "createTable", table: owner },
+      ddlContext("artifact")
+    );
 
     expect(ddl).toMatch(CREATE_UNIQUE_INDEX);
     expect(ddl).toContain("comment_commentable_poly_idx");

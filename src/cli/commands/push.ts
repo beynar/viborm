@@ -10,9 +10,10 @@
 
 import * as p from "@clack/prompts";
 import { Command } from "commander";
+import { admitLiveMigrationCapability } from "../../migrations/admission";
 import { getMigrationDriver } from "../../migrations/drivers";
 import { push } from "../../migrations/push";
-import { normalizeDialect } from "../../migrations/utils";
+import { formatMigrationTarget } from "../../migrations/target";
 import { displayOperations, displaySQL, interactiveResolve } from "../prompts";
 import { createRecordingResolver } from "../resolve-recorder";
 import { loadConfig } from "../utils";
@@ -53,56 +54,73 @@ export const pushCommand = new Command("push")
 
       spinner.stop("Configuration loaded");
 
-      // 2. Connect to database if needed
+      // 2. Admission FIRST — before the connection, before any confirmation,
+      // and long before an inventory decides what to drop. §10's letter is
+      // "before connection, lock, further storage reads, storage writes, or
+      // other provider work", and the order used to be the other way round:
+      // `--force-reset` connected, ran its own destructive program, and only
+      // then reached the refusal, so an unattested MySQL driver had its
+      // database wiped before being told the command was not supported.
+      const migrationDriver = getMigrationDriver(driver);
+      admitLiveMigrationCapability(
+        migrationDriver,
+        options.dryRun ? "read-only" : "effectful",
+        options.forceReset ? "push({ forceReset: true })" : "push()"
+      );
+
+      // 3. Confirm the destructive intent, naming the exact target — the
+      // schema on PostgreSQL and the DATABASE on MySQL, whose estate target
+      // carries no name of its own (DECISIONS N6). The CLI owns confirmation
+      // and presentation; the effect itself belongs to the one programmatic
+      // reset owner, which `push({ forceReset: true })` reaches under the same
+      // session lock as the rebuild. A dry run drops nothing, so it is not
+      // confirmed.
+      const forceReset = options.forceReset && !options.dryRun;
+      if (forceReset) {
+        const confirmReset = await p.confirm({
+          message: `This will DROP ALL TABLES in ${formatMigrationTarget(migrationDriver.target, migrationDriver.namespace)} and rebuild it. Are you sure?`,
+          initialValue: false,
+        });
+
+        if (p.isCancel(confirmReset) || !confirmReset) {
+          p.cancel("Operation cancelled.");
+          process.exit(0);
+        }
+      }
+
+      // 4. Connect to database if needed
       if (driver.connect) {
         spinner.start("Connecting to database...");
         await driver.connect();
         spinner.stop("Connected to database");
       }
 
-      // 3. Handle --force-reset (drop all tables first)
-      if (options.forceReset) {
-        const confirmReset = await p.confirm({
-          message:
-            "This will DROP ALL TABLES and reset the database. Are you sure?",
-          initialValue: false,
+      // 5. Force-reset is clear-and-rebuild, not a diff: previewing it against
+      // the database it is about to empty would describe a program that never
+      // runs. One push owns the whole thing — clear and rebuild under one lock
+      // — and what it reports is what it did.
+      if (forceReset) {
+        spinner.start("Resetting and rebuilding schema...");
+        const rebuilt = await push(client, {
+          force: true,
+          dryRun: false,
+          forceReset: true,
         });
+        spinner.stop(`Rebuilt ${rebuilt.operations.length} object(s)`);
 
-        if (p.isCancel(confirmReset) || !confirmReset) {
-          p.cancel("Operation cancelled.");
-          if (driver.disconnect) await driver.disconnect();
-          process.exit(0);
+        displayOperations(rebuilt.operations);
+        if (options.verbose && rebuilt.sql.length > 0) {
+          displaySQL(rebuilt.sql);
         }
 
-        spinner.start("Resetting database...");
-
-        const dialect = normalizeDialect(driver.dialect);
-        const migrationDriver = getMigrationDriver(driver.driverName, dialect);
-        const resetStatements = migrationDriver.generateResetSQL();
-
-        if (resetStatements.length > 0) {
-          // Use driver-specific reset SQL
-          for (const sql of resetStatements) {
-            await driver._executeRaw(sql);
-          }
-        } else {
-          // Fallback for databases without dynamic SQL (e.g., SQLite)
-          // Query for tables and drop each one
-          const tablesQuery = migrationDriver.generateListTables();
-          const result = await driver._executeRaw(tablesQuery);
-          const tables =
-            (result as unknown as { rows?: { name: string }[] }).rows ?? [];
-
-          for (const table of tables) {
-            const dropSql = migrationDriver.generateDropTableSQL(table.name);
-            await driver._executeRaw(dropSql);
-          }
+        if (driver.disconnect) {
+          await driver.disconnect();
         }
-
-        spinner.stop("Database reset complete");
+        p.outro(`Done in ${formatDuration(Date.now() - startTime)}`);
+        return;
       }
 
-      // 4. Introspect and diff
+      // 6. Introspect and diff
       spinner.start("Comparing schemas...");
 
       // Record every interactive decision made during the dry-run pass so the
@@ -121,15 +139,15 @@ export const pushCommand = new Command("push")
 
       spinner.stop("Schema comparison complete");
 
-      // 5. Display changes
+      // 7. Display changes
       displayOperations(result.operations);
 
-      // 6. Verbose mode: show all SQL
+      // 8. Verbose mode: show all SQL
       if (options.verbose && result.sql.length > 0) {
         displaySQL(result.sql);
       }
 
-      // 7. If no changes, we're done
+      // 9. If no changes, we're done
       if (result.operations.length === 0) {
         const duration = Date.now() - startTime;
         p.outro(`Done in ${formatDuration(duration)}`);
@@ -140,7 +158,7 @@ export const pushCommand = new Command("push")
         return;
       }
 
-      // 8. If dry-run mode, don't apply
+      // 10. If dry-run mode, don't apply
       if (options.dryRun) {
         if (!options.verbose) {
           displaySQL(result.sql);
@@ -154,7 +172,7 @@ export const pushCommand = new Command("push")
         return;
       }
 
-      // 9. Strict mode or normal confirmation
+      // 11. Strict mode or normal confirmation
       if (options.strict) {
         // In strict mode, show SQL and ask for confirmation
         if (!options.verbose) {
@@ -185,7 +203,7 @@ export const pushCommand = new Command("push")
         }
       }
 
-      // 10. Apply changes
+      // 12. Apply changes
       spinner.start("Applying changes...");
 
       // --force keeps force semantics (no interactive pass at all). The
@@ -201,7 +219,7 @@ export const pushCommand = new Command("push")
 
       spinner.stop(`Applied ${applyResult.operations.length} change(s)`);
 
-      // 11. Disconnect
+      // 13. Disconnect
       if (driver.disconnect) {
         await driver.disconnect();
       }

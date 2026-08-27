@@ -29,7 +29,7 @@ Never restore `cache`, `cacheVersion`, or `waitUntil` to `createClient()`.
 
 | Owner | Responsibility |
 |---|---|
-| `src/cache/extension.ts` | Hostile-safe config snapshot, fixed-name provenance, per-chain driver/version/waitUntil/scope |
+| `src/cache/extension.ts` | Hostile-safe config snapshot, fixed-name provenance, the definition/bound capability split, and the one client-bound scope binder |
 | `driver.ts` | Get/set/SWR/invalidation orchestration and the authenticated official scope friend |
 | `key.ts` | Canonical keys, official namespace encoding, legacy key helpers |
 | `schema.ts` | Per-read cache options and mutation invalidation options |
@@ -50,11 +50,36 @@ operation, projection, version namespace, and the private snapshot-format
 revision. `CacheExecutionOptions.key` contributes a suffix; it never replaces
 that identity.
 
-Official namespaces are injectively encoded for undefined, string, and number
-versions and authenticated by a private capability. Public/unscoped driver
-methods must refuse the reserved `viborm:cache:` namespace before backend or
-executor effects. Other legacy-prefixed `viborm:*` storage keys retain their
-public backend contract.
+Official namespaces are injectively encoded and authenticated by a private
+capability. Public/unscoped driver methods must refuse the reserved
+`viborm:cache:` namespace before backend or executor effects. Other
+legacy-prefixed `viborm:*` storage keys retain their public backend contract.
+
+The official scope is a PURE function of four facts: the private snapshot
+revision, the cache `version`, the driver dialect, and `adapter.namespace`.
+`cache()` produces a DEFINITION with no scope — one definition may be appended
+to several clients — and the client composition root (`$extends`, the one place
+holding both the resolved chain and the concrete driver) calls
+`bindOfficialCacheChain` for a chain that carries the official cache. Generic
+extension-chain code sees only `getOfficialCacheChainDefinition`; no dialect
+condition enters it, and an ordinary extension makes no bind call.
+
+Because the derivation is pure, re-appending an extension retains the scope by
+VALUE. Never introduce a registry keyed on chain or client identity to hand an
+old scope back, and never let a transaction view mint its own — views reuse
+their chain and therefore its scope.
+
+Every component of the namespace is fixed-width-hex encoded behind a
+discriminator letter, and the separator never appears inside a body. That is
+what makes the join injective: an absent namespace is a bare token no string can
+spell, so a database named `undefined` cannot collide with an unbound one, and a
+PostgreSQL schema `billing` cannot collide with a MySQL database `billing`.
+Extend `createOfficialCacheNamespace`'s facts; never string-append at a call
+site. Bump the snapshot revision whenever the derivation changes meaning, and
+re-pin the exact-byte tests deliberately in the same change.
+
+No connection string, host, username, or credential enters cache identity, and
+the SQL namespace never appears in a public cache key or an operation argument.
 
 Official `$invalidate` and mutation `cache.invalidate` accept relative exact
 keys or `*` suffix prefixes. Validate the complete target list before starting

@@ -134,7 +134,12 @@ export function usePGliteSchemaFamily<const S extends Schema>(
   });
 
   afterAll(async () => {
-    if (family) await family.client.$disconnect();
+    if (family) {
+      await family.client.$disconnect();
+      // The fixture supplied this database, so the driver correctly declines
+      // to close it — the owner does, or every suite leaks one WASM instance.
+      await family.database.close();
+    }
     family = undefined;
   });
 

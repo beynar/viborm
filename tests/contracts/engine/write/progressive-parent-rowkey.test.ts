@@ -158,7 +158,7 @@ const RELATION_BEARING_ROW = {
   notes: { create: { id: "n1", text: "note one" } },
 };
 
-const SPOKE_INSERT = /^INSERT INTO "h1_spokes"/;
+const SPOKE_INSERT = /^INSERT INTO (?:"[^"]+"\.)?"h1_spokes"/;
 const HUB_GUARD = /__viborm_assert__/;
 const PARENT_MOVED = /parent record changed across a committed segment/;
 
@@ -389,7 +389,7 @@ describe("H1 — the complete parent row key at a progressive nested series", ()
       notes: [["n1", "sp1"]],
     });
     const rootMove = driver.batches.findIndex((batch) =>
-      batch.some((statement) => statement.includes('UPDATE "h1_hubs"'))
+      batch.some((statement) => statement.includes('UPDATE "public"."h1_hubs"'))
     );
     const member = driver.batches.findIndex((batch) =>
       batch.some((statement) => SPOKE_INSERT.test(statement))

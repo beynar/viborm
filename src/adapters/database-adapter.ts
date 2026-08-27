@@ -34,6 +34,20 @@ export type { AdapterResultParser } from "./adapter-result-parser";
  */
 export interface DatabaseAdapter {
   /**
+   * NAMESPACE
+   * The one normalized SQL qualification value for this adapter's persistent
+   * objects — a PostgreSQL schema, a MySQL database, or a requested Vitess
+   * keyspace qualifier. `undefined` means deliberately unqualified: unbound
+   * MySQL and every SQLite adapter. It is selected once at construction and
+   * installed non-writable, and THAT INSTALL is where its immutability lives —
+   * not a ban on copies: the two readers that capture it once, the bound
+   * migration driver at bind time and the `dbAttributes` snapshot a cached read
+   * takes, cannot go stale because the property they read can never be
+   * reassigned.
+   */
+  readonly namespace?: string;
+
+  /**
    * RAW
    * Escape hatch for raw SQL strings (use sparingly)
    */
@@ -48,8 +62,13 @@ export interface DatabaseAdapter {
     escape: (name: string) => Sql;
     /** Create qualified column reference: "alias"."field" */
     column: (alias: string, field: string) => Sql;
-    /** Create table with alias: "table" AS "alias" */
-    table: (tableName: string, alias: string) => Sql;
+    /**
+     * The one renderer for a persistent model or junction table: applies the
+     * adapter's namespace and, when an alias is given, the `AS` clause.
+     * Statement-local names — CTEs, aliases, columns, constraints — use
+     * `escape` instead, and an omitted alias is for a site that splices its own.
+     */
+    table: (tableName: string, alias?: string) => Sql;
     /** Create aliased expression: expr AS "alias" */
     aliased: (expression: Sql, alias: string) => Sql;
   };

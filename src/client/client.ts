@@ -7,7 +7,10 @@ import type {
   OfficialCacheExtension,
   OfficialCacheQueryContribution,
 } from "@cache/extension";
-import { getOfficialCacheChainCapability } from "@cache/extension";
+import {
+  bindOfficialCacheChain,
+  getOfficialCacheChainCapability,
+} from "@cache/extension";
 import type { AnyDriver } from "@drivers";
 import { ASYNC_DISPOSE, type AsyncDisposeMember } from "@drivers/async-dispose";
 import { attachCommitCertainty } from "@drivers/driver-error-context";
@@ -1143,6 +1146,13 @@ export class VibORM<C extends VibORMConfig> {
               extension,
               this.schema
             );
+            // The one point that holds both the resolved chain and the concrete
+            // driver, so the one point that can partition the official cache by
+            // this client's dialect and SQL namespace. A chain without the
+            // official cache makes no call at all.
+            if (extensionChain.hasCache) {
+              bindOfficialCacheChain(extensionChain, engine.driver);
+            }
             return this.createRootView(
               engine.bind(engine.driver, extensionChain),
               extensionChain
@@ -1224,6 +1234,19 @@ export class VibORM<C extends VibORMConfig> {
     if (!config.driver) {
       throw new ClientInitializationError(
         "Driver is required to create a client. Pass a driver in createClient options."
+      );
+    }
+
+    // PostgreSQL always qualifies, so an adapter with no namespace would send
+    // this client's SQL wherever the connection's search_path points while
+    // migrations altered another schema. Only `PostgresAdapter` owns the
+    // `public` default; a custom adapter is refused rather than defaulted.
+    if (
+      config.driver.dialect === "postgresql" &&
+      config.driver.adapter.namespace === undefined
+    ) {
+      throw new ClientInitializationError(
+        "A PostgreSQL driver must supply an adapter with a namespace. Construct PostgresAdapter, or set `namespace` on a custom adapter."
       );
     }
 

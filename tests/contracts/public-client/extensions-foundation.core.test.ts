@@ -185,6 +185,12 @@ describe("client extension foundation", () => {
     expect(sibling.extensionChain).not.toBe(chain);
     expect(derived.clientId).toBe(root.clientId);
     expect(derived.scopeId).not.toBe(root.scopeId);
+    // Driver identity is also what proves the `$extends()` leg of the
+    // namespace contract: the adapter reference and the migration attestation
+    // are immutable own properties of this exact driver, so a derived view
+    // that holds the same object holds the same two facts. If `$extends` ever
+    // rebinds to a different driver, this is the assertion that must be
+    // revisited before the namespace witnesses in namespace-options are.
     expect(derived.driver).toBe(driver);
     expect(derived.registry).toBe(root.registry);
     expect(derived.relations).toBe(root.relations);

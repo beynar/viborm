@@ -18,12 +18,14 @@ import {
 } from "@src/migrations/resolver";
 import { serializeModels } from "@src/migrations/serializer";
 import {
+  createEmptyJournal,
   formatMigrationFilename,
   MigrationStorageDriver,
 } from "@src/migrations/storage";
 import type {
   DiffOperation,
   GenerateOptions,
+  MigrationTarget,
   PolymorphicSnapshotStorage,
   PolymorphicToManySnapshot,
   PolymorphicToManySnapshotMember,
@@ -817,6 +819,23 @@ class MemoryStorage extends MigrationStorageDriver {
   }
 }
 
+/** The estate these SQLite fixtures describe: empty history, stored snapshot. */
+const SQLITE_ESTATE: MigrationTarget = { dialect: "sqlite" };
+
+/**
+ * Writes a stored snapshot together with the journal that proves its estate.
+ *
+ * A snapshot with no journal is refused by the journal/snapshot state table:
+ * nothing names the estate it describes.
+ */
+async function seedEstate(
+  storageDriver: MemoryStorage,
+  snapshot: SchemaSnapshot
+): Promise<void> {
+  await storageDriver.writeJournal(createEmptyJournal(SQLITE_ESTATE));
+  await storageDriver.writeSnapshot(snapshot);
+}
+
 const metadataDrivers: ReturnType<typeof createInMemorySQLite3Driver>[] = [];
 
 function metadataOnlyFixture(): {
@@ -876,7 +895,7 @@ describe("generate polymorphic metadata-only snapshots", () => {
   it("is a no-op when the stored snapshot already has current metadata", async () => {
     const { client, current } = metadataOnlyFixture();
     const storageDriver = new MemoryStorage();
-    await storageDriver.writeSnapshot(current);
+    await seedEstate(storageDriver, current);
     storageDriver.writes.length = 0;
 
     const result = await generate(client, { storageDriver });
@@ -895,7 +914,7 @@ describe("generate polymorphic metadata-only snapshots", () => {
     const { client, current } = metadataOnlyFixture();
     const storageDriver = new MemoryStorage();
     const currentStorage = currentToOneStorage(current);
-    await storageDriver.writeSnapshot({
+    await seedEstate(storageDriver, {
       ...current,
       polymorphicStorage: [
         {
@@ -915,8 +934,11 @@ describe("generate polymorphic metadata-only snapshots", () => {
       written: true,
       message: "Updated polymorphic migration metadata snapshot.",
     });
-    expect(storageDriver.writes).toEqual(["meta/_snapshot.json"]);
-    expect(await storageDriver.readJournal()).toBeNull();
+    expect(storageDriver.writes).toEqual([
+      "meta/_journal.json",
+      "meta/_snapshot.json",
+    ]);
+    expect((await storageDriver.readJournal())?.entries).toEqual([]);
     expect(await storageDriver.readSnapshot()).toEqual(current);
   });
 
@@ -924,7 +946,7 @@ describe("generate polymorphic metadata-only snapshots", () => {
     const { client, current } = metadataOnlyFixture();
     const storageDriver = new MemoryStorage();
     const currentStorage = currentToOneStorage(current);
-    await storageDriver.writeSnapshot({
+    await seedEstate(storageDriver, {
       ...current,
       polymorphicStorage: [
         {
@@ -957,7 +979,7 @@ describe("generate polymorphic metadata-only snapshots", () => {
     if (!firstMember) {
       throw new Error("fixture must serialize at least one toOne member");
     }
-    await storageDriver.writeSnapshot({
+    await seedEstate(storageDriver, {
       ...current,
       polymorphicStorage: [
         {
@@ -975,7 +997,7 @@ describe("generate polymorphic metadata-only snapshots", () => {
       code: "V11010",
     });
     expect(storageDriver.writes).toEqual([]);
-    expect(await storageDriver.readJournal()).toBeNull();
+    expect((await storageDriver.readJournal())?.entries).toEqual([]);
 
     // The refusal flows through dry-run unchanged: only correcting the schema,
     // or owning the transition through `manualMigration`, lifts it.
@@ -1007,7 +1029,7 @@ describe("generate polymorphic metadata-only snapshots", () => {
         uniqueConstraints: table.uniqueConstraints,
       };
     });
-    await storageDriver.writeSnapshot({
+    await seedEstate(storageDriver, {
       ...current,
       tables: [
         ...previousTables,
@@ -1050,7 +1072,7 @@ describe("generate polymorphic metadata-only snapshots", () => {
       generate(client, { storageDriver, dryRun: true })
     ).rejects.toThrow(REFUSAL);
     expect(storageDriver.writes).toEqual([]);
-    expect(await storageDriver.readJournal()).toBeNull();
+    expect((await storageDriver.readJournal())?.entries).toEqual([]);
   });
 });
 
@@ -1088,7 +1110,7 @@ describe("generate manual migration artifacts", () => {
     if (!firstMember) {
       throw new Error("fixture must serialize at least one toOne member");
     }
-    await storageDriver.writeSnapshot({
+    await seedEstate(storageDriver, {
       ...current,
       polymorphicStorage: [
         {
@@ -1306,7 +1328,7 @@ describe("generate manual migration artifacts", () => {
         ).rejects.toThrow(artifactCase.message);
 
         expect(storageDriver.writes).toEqual([]);
-        expect(await storageDriver.readJournal()).toBeNull();
+        expect((await storageDriver.readJournal())?.entries).toEqual([]);
       });
     }
   });

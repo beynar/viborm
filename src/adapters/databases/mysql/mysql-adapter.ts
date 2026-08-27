@@ -1,5 +1,7 @@
 import { unsupportedGeospatial, unsupportedVector } from "@errors";
 import { type Sql, sql } from "@sql";
+import { createIdentifierQuoter } from "../../../sql/identifiers";
+import { installAdapterNamespace } from "../../adapter-namespace";
 import type { DatabaseAdapter, QueryParts } from "../../database-adapter";
 import { createMySqlBatchRefs } from "../../shared/batch-refs";
 import {
@@ -21,7 +23,6 @@ import {
   createDirectionOrderBy,
   createEmulatedNullsOrderBy,
   createExistenceOperators,
-  createIdentifierQuoter,
   createIdentifiers,
   createInsertStatement,
   createLateralJoins,
@@ -97,6 +98,25 @@ const inlineIntegerLiteral = (fragment: Sql): Sql => {
  */
 export class MySQLAdapter implements DatabaseAdapter {
   // ============================================================
+  // NAMESPACE
+  // ============================================================
+
+  /**
+   * The bound database, or `undefined` for the unqualified mode a
+   * provider-configured MySQL2 client and every PlanetScale client keep. Under
+   * Vitess the value is the keyspace qualifier submitted before routing rules
+   * apply, not a proof of the routed backend.
+   */
+  declare readonly namespace: string | undefined;
+
+  constructor(namespace?: string) {
+    installAdapterNamespace(this, namespace, "mysql");
+    // Reads the installed value, so it cannot be a field initializer: those run
+    // before the constructor body.
+    this.identifiers = createIdentifiers(quoteIdent, this.namespace);
+  }
+
+  // ============================================================
   // RAW
   // ============================================================
 
@@ -106,7 +126,7 @@ export class MySQLAdapter implements DatabaseAdapter {
   // IDENTIFIERS
   // ============================================================
 
-  identifiers = createIdentifiers(quoteIdent);
+  identifiers: DatabaseAdapter["identifiers"];
 
   // ============================================================
   // LITERALS
@@ -557,6 +577,7 @@ export class MySQLAdapter implements DatabaseAdapter {
     supportsFullOuterJoin: false,
     supportsLateralJoins: true, // MySQL 8.0.14+
     supportsVector: false,
+    supportsGeospatial: false,
     supportsUpsertWhere: false, // ON DUPLICATE KEY UPDATE doesn't support WHERE clauses
     // ON DUPLICATE KEY UPDATE carries no conflict target and fires on ANY unique
     // collision — see the `onConflict` note above. A targeted upsert cannot be

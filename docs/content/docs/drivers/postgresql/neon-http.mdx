@@ -25,6 +25,7 @@ const client = createClient({
 | Option | Type | Description |
 |--------|------|-------------|
 | `databaseUrl` | `string` | PostgreSQL connection URL |
+| `namespace` | `string` | PostgreSQL schema for VibORM-owned objects (default `public`) |
 | `options.fetchOptions` | `RequestInit` | Custom fetch options |
 | `pgvector` | `boolean` | Enable pgvector support |
 | `postgis` | `boolean` | Enable PostGIS support |
@@ -40,6 +41,43 @@ const client = createClient({
   schema,
 });
 ```
+
+## Namespace
+
+`namespace` selects the PostgreSQL schema holding this driver's tables,
+junctions, indexes, ORM-managed enums, and migration tracking table. Omitted, it
+is `public`.
+
+```typescript
+import { createClient } from "viborm/neon-http";
+
+const db = createClient({
+  databaseUrl: process.env.DATABASE_URL,
+  namespace: "billing",
+  schema,
+});
+```
+
+Qualification happens before execution, so each HTTP request already carries the
+schema and no setup statement is sent — direct queries and native batches alike:
+
+```sql
+SELECT "user"."id" FROM "billing"."user" AS "user"
+```
+
+:::warning
+**Migration capability is a subset here.** Neon HTTP cannot pin a session, so it
+supports schema-aware runtime, admitted read-only, and offline migration paths
+only. Effectful push/migration verbs and concurrency-stable dry
+`down`/`reset`/`squash` decisions require a session-capable driver.
+
+Use Neon HTTP for application traffic and point a `pg` or postgres.js driver at
+the **same** `namespace` for deployment migrations. This is not a `migrationUrl`
+option or a hidden second client — it is two drivers you construct.
+:::
+
+Raw SQL is never rewritten and keeps ordinary `search_path` semantics — see
+[Namespaces](/docs/drivers/namespaces).
 
 ## Serverless Usage
 

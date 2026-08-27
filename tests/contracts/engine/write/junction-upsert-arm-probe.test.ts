@@ -64,8 +64,8 @@ function writes(steps: readonly OperationStep[]): readonly StatementStep[] {
   return steps.filter((step): step is StatementStep => step.kind === "write");
 }
 
-const NOTE_INSERT = /INSERT INTO "e61_notes"/;
-const TAG_UPDATE = /UPDATE "e61_tags"/;
+const NOTE_INSERT = /INSERT INTO (?:"[^"]+"\.)?"e61_notes"/;
+const TAG_UPDATE = /UPDATE (?:"[^"]+"\.)?"e61_tags"/;
 const jsonOf = (value: unknown): string =>
   JSON.stringify(value, (_k, v) => (typeof v === "bigint" ? String(v) : v));
 

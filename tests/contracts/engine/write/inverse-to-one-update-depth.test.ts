@@ -658,8 +658,8 @@ for (const substrate of ["transaction", "atomic batch"] as const) {
       expect(
         driver.statements.filter(
           (sql) =>
-            sql.startsWith('UPDATE "e2u1_profiles"') ||
-            sql.startsWith('INSERT INTO "e2u1_profiles"')
+            sql.startsWith('UPDATE "public"."e2u1_profiles"') ||
+            sql.startsWith('INSERT INTO "public"."e2u1_profiles"')
         )
       ).toEqual([]);
       await expect(state(client)).resolves.toMatchObject({
@@ -734,10 +734,10 @@ describe("E2-U1 batch ordering: the child Parts compile under the presence guard
         sql.includes("__viborm_assert__") && sql.includes("e2u1_profiles")
     );
     const selfUpdate = driver.statements.findIndex((sql) =>
-      sql.startsWith('UPDATE "e2u1_profiles"')
+      sql.startsWith('UPDATE "public"."e2u1_profiles"')
     );
     const deeperInsert = driver.statements.findIndex((sql) =>
-      sql.startsWith('INSERT INTO "e2u1_notes"')
+      sql.startsWith('INSERT INTO "public"."e2u1_notes"')
     );
     expect(guard).toBeGreaterThanOrEqual(0);
     expect(selfUpdate).toBeGreaterThan(guard);

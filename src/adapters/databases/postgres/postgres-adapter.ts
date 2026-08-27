@@ -1,4 +1,6 @@
 import { type Sql, sql } from "@sql";
+import { createIdentifierQuoter } from "../../../sql/identifiers";
+import { installAdapterNamespace } from "../../adapter-namespace";
 import type { DatabaseAdapter, QueryParts } from "../../database-adapter";
 import { createOnConflictBatchRefs } from "../../shared/batch-refs";
 import { convertBigIntToNumber } from "../../shared/result-parsing";
@@ -15,7 +17,6 @@ import {
   createCteBuilders,
   createDirectionOrderBy,
   createExistenceOperators,
-  createIdentifierQuoter,
   createIdentifiers,
   createInsertStatement,
   createLateralJoins,
@@ -53,6 +54,24 @@ const quoteIdent = createIdentifierQuoter('"');
  */
 export class PostgresAdapter implements DatabaseAdapter {
   // ============================================================
+  // NAMESPACE
+  // ============================================================
+
+  /**
+   * The bound schema. PostgreSQL always qualifies, so this adapter has no
+   * unbound mode: an omitted or explicitly `undefined` argument means the
+   * `public` schema, whatever a connection's `search_path` says.
+   */
+  declare readonly namespace: string;
+
+  constructor(namespace = "public") {
+    installAdapterNamespace(this, namespace, "postgresql");
+    // Reads the installed value, so it cannot be a field initializer: those run
+    // before the constructor body.
+    this.identifiers = createIdentifiers(quoteIdent, this.namespace);
+  }
+
+  // ============================================================
   // RAW
   // ============================================================
 
@@ -62,7 +81,7 @@ export class PostgresAdapter implements DatabaseAdapter {
   // IDENTIFIERS
   // ============================================================
 
-  identifiers = createIdentifiers(quoteIdent);
+  identifiers: DatabaseAdapter["identifiers"];
 
   // ============================================================
   // LITERALS
@@ -430,6 +449,9 @@ export class PostgresAdapter implements DatabaseAdapter {
     supportsFullOuterJoin: true,
     supportsLateralJoins: true,
     supportsVector: false,
+    // PostGIS is an installed extension; the pg-family drivers flip this and
+    // replace `geospatial` together when `postgis` is enabled.
+    supportsGeospatial: false,
     supportsUpsertWhere: true, // PostgreSQL supports WHERE in ON CONFLICT
     supportsTargetedUpsert: true, // ON CONFLICT (cols) arbitrates on those cols
     supportsMutationTargetInSubquery: true,

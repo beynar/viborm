@@ -6,10 +6,12 @@
  */
 
 import type { Scalar, ScalarState } from "@schema/scalars";
+import type { AnyDriver } from "../../drivers/driver";
 import { MigrationError, VibORMErrorCode } from "../../errors";
 import type {
   ColumnDef,
   DiffOperation,
+  MigrationTarget,
   ReferentialAction,
   SchemaSnapshot,
   TableDef,
@@ -21,6 +23,18 @@ import type { Dialect, MigrationCapabilities } from "./types";
  * Contains information needed for operations that require knowledge of the current schema.
  */
 export interface DDLContext {
+  /**
+   * Where the rendered statement is going.
+   *
+   * REQUIRED, and deliberately not defaulted anywhere: an artifact is durable
+   * and a live statement is not, and the two differ for MySQL (relative
+   * artifacts, qualified live SQL). A dispatcher default would reintroduce
+   * exactly the implicit mode this fact replaces, so every caller states it.
+   * Generation and generated rollback pass `"artifact"`; push, live reset and
+   * every immediate DDL path pass `"live"`. SQLite ignores the distinction.
+   */
+  readonly destination: "artifact" | "live";
+
   /**
    * Current database schema snapshot.
    * Required for SQLite table recreation operations.
@@ -122,6 +136,46 @@ export abstract class MigrationDriver {
   abstract readonly capabilities: MigrationCapabilities;
 
   // ===========================================================================
+  // ESTATE BINDING (installed by the registry, never mutated on a singleton)
+  // ===========================================================================
+
+  // All three are `declare`: the class DECLARES the shape a bound view has and
+  // emits no field for it. Under `useDefineForClassFields` (tsconfig target
+  // es2022) an ordinary optional field would install a writable, enumerable own
+  // property valued `undefined` on the REGISTERED SINGLETON — module-level
+  // state that `Reflect.set` could then fill in, which §3.1 forbids. With
+  // `declare`, `"namespace" in postgresMigrationDriver` is false, and the only
+  // instances carrying these facts are the frozen views the registry defines
+  // them on.
+
+  /**
+   * The estate target this instance is bound to.
+   *
+   * Absent on the REGISTERED singleton, which stays stateless: binding happens
+   * at lookup and produces a separate frozen view whose prototype is the
+   * singleton. Renderers that need the estate must handle the unbound case
+   * rather than assume one, because a singleton reached by name renders
+   * artifact SQL with no estate behind it.
+   */
+  declare readonly target?: MigrationTarget;
+
+  /**
+   * The exact concrete execution driver this instance was bound to, retained
+   * for live admission (its immutable attestation) and for the adapter's
+   * capabilities. Absent on the unbound singleton.
+   */
+  declare readonly executionDriver?: AnyDriver;
+
+  /**
+   * The live execution namespace read once from the bound adapter.
+   *
+   * Present for PostgreSQL (its target proved it) and for a bound MySQL
+   * adapter; absent for an unbound MySQL adapter used for artifact-only work
+   * and for SQLite, which has no namespace.
+   */
+  declare readonly namespace?: string;
+
+  // ===========================================================================
   // INTROSPECTION
   // ===========================================================================
 
@@ -202,28 +256,52 @@ export abstract class MigrationDriver {
   // DDL GENERATION - Table Operations
   // ===========================================================================
 
-  abstract generateCreateTable(op: CreateTableOperation): string;
-  abstract generateDropTable(op: DropTableOperation): string;
-  abstract generateRenameTable(op: RenameTableOperation): string;
+  abstract generateCreateTable(
+    op: CreateTableOperation,
+    context: DDLContext
+  ): string;
+  abstract generateDropTable(
+    op: DropTableOperation,
+    context: DDLContext
+  ): string;
+  abstract generateRenameTable(
+    op: RenameTableOperation,
+    context: DDLContext
+  ): string;
 
   // ===========================================================================
   // DDL GENERATION - Column Operations
   // ===========================================================================
 
-  abstract generateAddColumn(op: AddColumnOperation): string;
-  abstract generateDropColumn(op: DropColumnOperation): string;
-  abstract generateRenameColumn(op: RenameColumnOperation): string;
+  abstract generateAddColumn(
+    op: AddColumnOperation,
+    context: DDLContext
+  ): string;
+  abstract generateDropColumn(
+    op: DropColumnOperation,
+    context: DDLContext
+  ): string;
+  abstract generateRenameColumn(
+    op: RenameColumnOperation,
+    context: DDLContext
+  ): string;
   abstract generateAlterColumn(
     op: AlterColumnOperation,
-    context?: DDLContext
+    context: DDLContext
   ): string;
 
   // ===========================================================================
   // DDL GENERATION - Index Operations
   // ===========================================================================
 
-  abstract generateCreateIndex(op: CreateIndexOperation): string;
-  abstract generateDropIndex(op: DropIndexOperation): string;
+  abstract generateCreateIndex(
+    op: CreateIndexOperation,
+    context: DDLContext
+  ): string;
+  abstract generateDropIndex(
+    op: DropIndexOperation,
+    context: DDLContext
+  ): string;
 
   // ===========================================================================
   // DDL GENERATION - Foreign Key Operations
@@ -231,11 +309,11 @@ export abstract class MigrationDriver {
 
   abstract generateAddForeignKey(
     op: AddForeignKeyOperation,
-    context?: DDLContext
+    context: DDLContext
   ): string;
   abstract generateDropForeignKey(
     op: DropForeignKeyOperation,
-    context?: DDLContext
+    context: DDLContext
   ): string;
 
   // ===========================================================================
@@ -244,11 +322,11 @@ export abstract class MigrationDriver {
 
   abstract generateAddUniqueConstraint(
     op: AddUniqueConstraintOperation,
-    context?: DDLContext
+    context: DDLContext
   ): string;
   abstract generateDropUniqueConstraint(
     op: DropUniqueConstraintOperation,
-    context?: DDLContext
+    context: DDLContext
   ): string;
 
   // ===========================================================================
@@ -257,11 +335,11 @@ export abstract class MigrationDriver {
 
   abstract generateAddPrimaryKey(
     op: AddPrimaryKeyOperation,
-    context?: DDLContext
+    context: DDLContext
   ): string;
   abstract generateDropPrimaryKey(
     op: DropPrimaryKeyOperation,
-    context?: DDLContext
+    context: DDLContext
   ): string;
 
   // ===========================================================================
@@ -270,15 +348,12 @@ export abstract class MigrationDriver {
 
   abstract generateCreateEnum(
     op: CreateEnumOperation,
-    context?: DDLContext
+    context: DDLContext
   ): string;
-  abstract generateDropEnum(
-    op: DropEnumOperation,
-    context?: DDLContext
-  ): string;
+  abstract generateDropEnum(op: DropEnumOperation, context: DDLContext): string;
   abstract generateAlterEnum(
     op: AlterEnumOperation,
-    context?: DDLContext
+    context: DDLContext
   ): string;
 
   /**
@@ -502,11 +577,11 @@ export abstract class MigrationDriver {
    * @param column - The column definition
    * @returns SQL column definition string
    */
-  protected generateColumnDef(column: ColumnDef): string {
+  protected generateColumnDef(column: ColumnDef, context: DDLContext): string {
     const parts: string[] = [this.escapeIdentifier(column.name)];
 
     // Handle type (may be overridden for auto-increment handling)
-    const columnType = this.formatColumnType(column);
+    const columnType = this.formatColumnType(column, context);
     parts.push(columnType);
 
     // NOT NULL constraint
@@ -525,8 +600,12 @@ export abstract class MigrationDriver {
   /**
    * Formats the column type, handling auto-increment and other special cases.
    * Override for database-specific type handling (e.g., PostgreSQL SERIAL).
+   *
+   * Takes the DDL context because a column type can name a managed enum type,
+   * and a managed enum type is qualified exactly like any other persistent
+   * object — which is a destination-dependent decision.
    */
-  protected formatColumnType(column: ColumnDef): string {
+  protected formatColumnType(column: ColumnDef, _context: DDLContext): string {
     return column.type;
   }
 
@@ -552,6 +631,77 @@ export abstract class MigrationDriver {
   generateSelectAppliedMigrations(tableName: string): string {
     const table = this.escapeIdentifier(tableName);
     return `SELECT name, checksum, applied_at FROM ${table} ORDER BY id ASC`;
+  }
+
+  /**
+   * Proves the configured namespace exists before an empty inventory or an
+   * empty applied set may be published.
+   *
+   * A catalog-driven read cannot otherwise tell a configured-but-absent
+   * namespace from an existing namespace holding zero managed objects, and
+   * PostgreSQL reports a missing schema and a missing table with the same
+   * SQLSTATE. Default: nothing to prove — SQLite has no namespace, and this
+   * is not a SQLite namespace feature. PostgreSQL (`pg_namespace`) and MySQL
+   * (`information_schema.SCHEMATA`) install their proofs in their own units.
+   */
+  proveNamespaceExists(
+    _executeRaw: <T>(sql: string, params?: unknown[]) => Promise<{ rows: T[] }>
+  ): Promise<void> {
+    return Promise.resolve();
+  }
+
+  /**
+   * A POSITIVE, read-only probe for the exact configured tracking table, or
+   * null when this dialect proves absence by translating its failure instead.
+   *
+   * SQLite is the positive case: one exact `sqlite_schema` lookup distinguishes
+   * an absent tracking table from every other failure, because SQLite has no
+   * error code that means "this exact table is missing" and no namespace proof
+   * to lean on. PostgreSQL and MySQL return null and translate their exact
+   * missing-table failure (see `isMissingTrackingTable`) AFTER their namespace
+   * proof.
+   */
+  generateTrackingTableProbe(
+    _tableName: string
+  ): { sql: string; params: unknown[] } | null {
+    return null;
+  }
+
+  /**
+   * Whether a failed applied-state SELECT means exactly "the configured
+   * tracking table does not exist", and therefore that zero migrations are
+   * applied.
+   *
+   * Default: false. Nothing is translated, so permissions, transport, dialect
+   * and every other failure surfaces instead of being reported as an empty
+   * estate — the plausible-success catch-all this replaces reported all three
+   * as "no migrations applied".
+   */
+  isMissingTrackingTable(_error: unknown, _tableName: string): boolean {
+    return false;
+  }
+
+  /**
+   * The provider's own failure code, read off a normalized driver error.
+   *
+   * `meta.providerCode` is the normalized SQLSTATE/errno and is the ONLY
+   * provider detail that survives: VibORM redacts provider message text when it
+   * normalizes an error, so a translation cannot read the failing object's name
+   * out of the error and must get its exactness from the statement it asked
+   * about. The property is reached reflectively because an error is data.
+   */
+  protected describeProviderFailure(error: unknown): {
+    readonly code: string | undefined;
+  } {
+    const meta: unknown =
+      typeof error === "object" && error !== null
+        ? Reflect.get(error, "meta")
+        : undefined;
+    const code: unknown =
+      typeof meta === "object" && meta !== null
+        ? Reflect.get(meta, "providerCode")
+        : undefined;
+    return { code: typeof code === "string" ? code : undefined };
   }
 
   /**
@@ -593,8 +743,12 @@ export abstract class MigrationDriver {
   // ===========================================================================
 
   /**
-   * Generates SQL for acquiring a migration lock.
-   * Returns null if locking is handled differently (e.g., SQLite transactions).
+   * Generates SQL for acquiring a migration lock, with a stable `acquired`
+   * alias so the caller reads one known column rather than a provider-shaped
+   * name derived from the expression text.
+   *
+   * Returns null when this dialect takes no session lock (SQLite/LibSQL, which
+   * keep their own single-connection queue).
    *
    * @param lockId - A numeric lock identifier
    * @returns SQL statement or null
@@ -602,8 +756,8 @@ export abstract class MigrationDriver {
   abstract generateAcquireLock(lockId: number): string | null;
 
   /**
-   * Generates SQL for releasing a migration lock.
-   * Returns null if locking is handled differently (e.g., SQLite transactions).
+   * Generates SQL for releasing a migration lock, with a stable `released`
+   * alias. Returns null on the dialects that take no lock.
    *
    * @param lockId - A numeric lock identifier
    * @returns SQL statement or null
@@ -611,54 +765,82 @@ export abstract class MigrationDriver {
   abstract generateReleaseLock(lockId: number): string | null;
 
   /**
-   * Generates SQL statements for resetting the database (dropping all tables and enums).
-   * Used by `--force-reset` flag in CLI.
+   * Whether the provider's answer to {@link generateAcquireLock} PROVES the
+   * lock is held.
    *
-   * @returns Array of SQL statements to execute
+   * Asked only when a lock statement was emitted, so the dialects that emit
+   * none never reach it. The default is `false` because a lock nobody proved is
+   * a lock nobody holds: MySQL's `GET_LOCK` returns `0` on timeout and `NULL`
+   * on error, and the previous owner discarded that answer entirely and ran the
+   * "protected" work anyway.
    */
-  abstract generateResetSQL(): string[];
+  provesLockAcquired(_rows: readonly unknown[]): boolean {
+    return false;
+  }
+
+  /**
+   * Whether the provider's answer to {@link generateReleaseLock} PROVES the
+   * lock was released. A false answer condemns the session: it is holding a
+   * lock nobody will release, and returning it to a pool would strand it.
+   */
+  provesLockReleased(_rows: readonly unknown[]): boolean {
+    return false;
+  }
+
+  /**
+   * Selects the live migration target on a pinned session, or null when this
+   * dialect has nothing to select.
+   *
+   * MySQL is the only arm: its generated artifacts are database-relative, so
+   * the target has to be selected on the connection that executes them. Every
+   * other dialect qualifies its statements and must never touch session state
+   * (§13).
+   */
+  generateSelectTarget(): string | null {
+    return null;
+  }
 
   // ===========================================================================
   // SCHEMA INTROSPECTION HELPERS
   // ===========================================================================
 
   /**
-   * Generates SQL for listing all user tables.
-   * Used by reset command.
+   * The live-namespace table inventory: the exact set of tables a reset may
+   * drop, as a BOUND read.
    *
-   * @returns SQL SELECT statement that returns rows with 'name' column
+   * `{ sql, params }` rather than a bare string because §4.2/§5.2 require the
+   * namespace to reach a catalog predicate through the parameter channel: a
+   * bare-string seam has nothing to bind through, so it can only splice the
+   * name into the statement as an escaped literal.
+   *
+   * @returns Bound SELECT returning rows with a `name` column
    */
-  abstract generateListTables(): string;
+  abstract generateInventoryTables(): { sql: string; params: unknown[] };
 
   /**
-   * Generates SQL for listing all enum types.
-   * Returns null for databases that don't support enums.
-   *
-   * @returns SQL SELECT statement or null
+   * The live-namespace enum inventory, or null for dialects with no standalone
+   * enum types.
    */
-  abstract generateListEnums(): string | null;
+  abstract generateInventoryEnums(): {
+    sql: string;
+    params: unknown[];
+  } | null;
 
   /**
    * Generates SQL for dropping a table.
    *
+   * There is no `CASCADE` arm. §6.1: a namespace is a containment boundary, and
+   * `DROP TABLE ... CASCADE` drops dependants in OTHER namespaces even when the
+   * enumeration that produced this name only ever selected one. The dependency
+   * graph is materialized as explicit foreign-key drops before the table drops
+   * instead, and an unknown external dependency then aborts the operation
+   * through PostgreSQL's default `RESTRICT` rather than deleting collaterally.
+   *
    * @param tableName - The table name
-   * @param cascade - Whether to cascade (drop dependent objects)
    * @returns SQL DROP TABLE statement
    */
-  generateDropTableSQL(tableName: string, cascade = false): string {
-    const table = this.escapeIdentifier(tableName);
-    return cascade
-      ? `DROP TABLE IF EXISTS ${table} CASCADE`
-      : `DROP TABLE IF EXISTS ${table}`;
-  }
-
-  /**
-   * Statements to run before dropping all tables during a database reset.
-   * MySQL ignores DROP TABLE ... CASCADE, so it drops FK constraints here
-   * first; other dialects need nothing. Default: none.
-   */
-  getPreResetStatements(_snapshot: SchemaSnapshot): string[] {
-    return [];
+  generateDropTableSQL(tableName: string): string {
+    return `DROP TABLE IF EXISTS ${this.escapeIdentifier(tableName)}`;
   }
 
   /**
@@ -680,30 +862,36 @@ export abstract class MigrationDriver {
    * Generates DDL for a diff operation.
    * Dispatches to the appropriate generate* method.
    *
+   * The context reaches EVERY arm. Eight renderers used to be dispatched
+   * without one, which made the artifact/live destination unknowable exactly
+   * where tables, columns and indexes are named — the positions that must be
+   * qualified.
+   *
    * @param operation - The diff operation
-   * @param context - Optional context for operations that need schema info (e.g., SQLite table recreation)
+   * @param context - Required DDL context: destination, plus schema info for
+   *   operations that need it (e.g. SQLite table recreation)
    * @returns SQL DDL statement(s)
    */
-  generateDDL(operation: DiffOperation, context?: DDLContext): string {
+  generateDDL(operation: DiffOperation, context: DDLContext): string {
     switch (operation.type) {
       case "createTable":
-        return this.generateCreateTable(operation);
+        return this.generateCreateTable(operation, context);
       case "dropTable":
-        return this.generateDropTable(operation);
+        return this.generateDropTable(operation, context);
       case "renameTable":
-        return this.generateRenameTable(operation);
+        return this.generateRenameTable(operation, context);
       case "addColumn":
-        return this.generateAddColumn(operation);
+        return this.generateAddColumn(operation, context);
       case "dropColumn":
-        return this.generateDropColumn(operation);
+        return this.generateDropColumn(operation, context);
       case "renameColumn":
-        return this.generateRenameColumn(operation);
+        return this.generateRenameColumn(operation, context);
       case "alterColumn":
         return this.generateAlterColumn(operation, context);
       case "createIndex":
-        return this.generateCreateIndex(operation);
+        return this.generateCreateIndex(operation, context);
       case "dropIndex":
-        return this.generateDropIndex(operation);
+        return this.generateDropIndex(operation, context);
       case "addForeignKey":
         return this.generateAddForeignKey(operation, context);
       case "dropForeignKey":

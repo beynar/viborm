@@ -54,6 +54,10 @@ export default defineWorkspace([
         // `src/schema/json/**` is inside this gate's globs; its whole suite
         // lives here so the 100% report reads the tests that own it.
         "tests/unit/schema-json/**/*.core.test.ts",
+        // `src/schema/identifier.ts` joined this gate's globs with the database
+        // namespace grammar; its owner suite lives in the schema-validation
+        // layer, so the 100% report must read it here.
+        "tests/unit/schema-validation/namespace-identifier.core.test.ts",
       ],
     },
   },

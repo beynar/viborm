@@ -5,6 +5,7 @@
  * returning a normalized SchemaSnapshot.
  */
 
+import { MigrationError, VibORMErrorCode } from "../../../errors";
 import type {
   ColumnDef,
   EnumDef,
@@ -17,6 +18,7 @@ import type {
   UniqueConstraintDef,
 } from "../../types";
 import { groupBy, groupByNested } from "../utils";
+import { type CatalogReader, resolveCatalogNamespace } from "./catalog";
 import type {
   MySQLColumn,
   MySQLForeignKey,
@@ -29,11 +31,13 @@ import type {
 // SQL QUERIES
 // =============================================================================
 
-// Note: DATABASE() returns current database name in MySQL
+// Every filter below binds the resolved database as DATA (§5.2). The name is
+// never spliced into the statement, and `DATABASE()` — the connection's ambient
+// default, which the ORM never configured — appears nowhere.
 const TABLES_QUERY = `
 SELECT TABLE_NAME
 FROM information_schema.TABLES
-WHERE TABLE_SCHEMA = DATABASE()
+WHERE TABLE_SCHEMA = ?
   AND TABLE_TYPE = 'BASE TABLE'
 ORDER BY TABLE_NAME
 `;
@@ -51,7 +55,7 @@ SELECT
   NUMERIC_SCALE,
   EXTRA
 FROM information_schema.COLUMNS
-WHERE TABLE_SCHEMA = DATABASE()
+WHERE TABLE_SCHEMA = ?
 ORDER BY TABLE_NAME, ORDINAL_POSITION
 `;
 
@@ -66,7 +70,7 @@ JOIN information_schema.KEY_COLUMN_USAGE kcu
   ON tc.CONSTRAINT_NAME = kcu.CONSTRAINT_NAME
   AND tc.TABLE_SCHEMA = kcu.TABLE_SCHEMA
   AND tc.TABLE_NAME = kcu.TABLE_NAME
-WHERE tc.TABLE_SCHEMA = DATABASE()
+WHERE tc.TABLE_SCHEMA = ?
   AND tc.CONSTRAINT_TYPE = 'PRIMARY KEY'
 ORDER BY tc.TABLE_NAME, kcu.ORDINAL_POSITION
 `;
@@ -80,16 +84,22 @@ SELECT
   INDEX_TYPE,
   SEQ_IN_INDEX
 FROM information_schema.STATISTICS
-WHERE TABLE_SCHEMA = DATABASE()
+WHERE TABLE_SCHEMA = ?
   AND INDEX_NAME != 'PRIMARY'
 ORDER BY TABLE_NAME, INDEX_NAME, SEQ_IN_INDEX
 `;
 
+// Both endpoints are projected and BOTH are admitted as filter candidates
+// (§5.2): a constraint that leaves the estate in either direction has to be
+// visible here before it can be refused, and an inbound one is not reachable
+// through the referencing side's schema at all.
 const FOREIGN_KEYS_QUERY = `
 SELECT
+  tc.TABLE_SCHEMA,
   tc.TABLE_NAME,
   tc.CONSTRAINT_NAME,
   kcu.COLUMN_NAME,
+  kcu.REFERENCED_TABLE_SCHEMA,
   kcu.REFERENCED_TABLE_NAME,
   kcu.REFERENCED_COLUMN_NAME,
   rc.DELETE_RULE,
@@ -103,8 +113,8 @@ JOIN information_schema.KEY_COLUMN_USAGE kcu
 JOIN information_schema.REFERENTIAL_CONSTRAINTS rc
   ON rc.CONSTRAINT_NAME = tc.CONSTRAINT_NAME
   AND rc.CONSTRAINT_SCHEMA = tc.TABLE_SCHEMA
-WHERE tc.TABLE_SCHEMA = DATABASE()
-  AND tc.CONSTRAINT_TYPE = 'FOREIGN KEY'
+WHERE tc.CONSTRAINT_TYPE = 'FOREIGN KEY'
+  AND (tc.TABLE_SCHEMA = ? OR kcu.REFERENCED_TABLE_SCHEMA = ?)
 ORDER BY tc.TABLE_NAME, tc.CONSTRAINT_NAME, kcu.ORDINAL_POSITION
 `;
 
@@ -228,13 +238,66 @@ function isAutoIncrement(extra: string): boolean {
   return extra.toLowerCase().includes("auto_increment");
 }
 
+/**
+ * Refuses every foreign key with one endpoint outside the selected database
+ * (§5.2), before the snapshot exists.
+ *
+ * Both directions are refused for the same reason: the estate's own DDL cannot
+ * express, drop or recreate a constraint whose other half lives in a database
+ * this client does not manage, so a reset, a push, or a generated down would
+ * plan work that is either impossible or destructive to a stranger's schema.
+ *
+ * This runs BEFORE the rows are grouped, because the grouped set is also what
+ * hides MySQL's auto-created FK indexes from the snapshot: admitting a foreign
+ * row here would silently change which indexes the differ sees.
+ */
+function admitContainedForeignKeys(
+  rows: readonly MySQLForeignKey[],
+  namespace: string
+): void {
+  for (const row of rows) {
+    if (
+      row.TABLE_SCHEMA === namespace &&
+      row.REFERENCED_TABLE_SCHEMA === namespace
+    ) {
+      continue;
+    }
+    throw new MigrationError(
+      `Foreign key "${row.CONSTRAINT_NAME}" crosses a database boundary: \`${row.TABLE_SCHEMA}\`.\`${row.TABLE_NAME}\` references \`${row.REFERENCED_TABLE_SCHEMA}\`.\`${row.REFERENCED_TABLE_NAME}\`, and this client manages only "${namespace}". ` +
+        "Migration work is refused before any snapshot, plan or DDL: VibORM cannot recreate or drop a constraint whose other half lives in a database it does not own.",
+      VibORMErrorCode.MIGRATION_INVALID_STATE,
+      {
+        // BOTH endpoints are reported (§5.2), each on its own allowlisted
+        // channel: the referencing one on `table`, the referenced one on
+        // `referencedTable`, beside the database this client manages.
+        meta: {
+          dialect: "mysql",
+          type: "cross-database-foreign-key",
+          constraint: row.CONSTRAINT_NAME,
+          namespace,
+          table: `${row.TABLE_SCHEMA}.${row.TABLE_NAME}`,
+          referencedTable: `${row.REFERENCED_TABLE_SCHEMA}.${row.REFERENCED_TABLE_NAME}`,
+        },
+      }
+    );
+  }
+}
+
 // =============================================================================
 // INTROSPECTION
 // =============================================================================
 
 export async function introspect(
-  executeRaw: <T>(sql: string, params?: unknown[]) => Promise<{ rows: T[] }>
+  executeRaw: CatalogReader,
+  namespace: string | undefined
 ): Promise<SchemaSnapshot> {
+  // The database is proven to exist BEFORE anything is read, so an absent one
+  // can never be published as an empty inventory (§5.2). Its returned spelling
+  // is what every filter below binds and what the containment comparison uses:
+  // under `lower_case_table_names` the server's spelling is the identity the
+  // catalog rows actually carry.
+  const catalogNamespace = await resolveCatalogNamespace(executeRaw, namespace);
+
   // Execute all queries in parallel
   const [
     tablesResult,
@@ -243,12 +306,17 @@ export async function introspect(
     indexesResult,
     foreignKeysResult,
   ] = await Promise.all([
-    executeRaw<MySQLTable>(TABLES_QUERY),
-    executeRaw<MySQLColumn>(COLUMNS_QUERY),
-    executeRaw<MySQLPrimaryKey>(PRIMARY_KEYS_QUERY),
-    executeRaw<MySQLIndex>(INDEXES_QUERY),
-    executeRaw<MySQLForeignKey>(FOREIGN_KEYS_QUERY),
+    executeRaw<MySQLTable>(TABLES_QUERY, [catalogNamespace]),
+    executeRaw<MySQLColumn>(COLUMNS_QUERY, [catalogNamespace]),
+    executeRaw<MySQLPrimaryKey>(PRIMARY_KEYS_QUERY, [catalogNamespace]),
+    executeRaw<MySQLIndex>(INDEXES_QUERY, [catalogNamespace]),
+    executeRaw<MySQLForeignKey>(FOREIGN_KEYS_QUERY, [
+      catalogNamespace,
+      catalogNamespace,
+    ]),
   ]);
+
+  admitContainedForeignKeys(foreignKeysResult.rows, catalogNamespace);
 
   // Group results
   const columnsByTable = groupBy(columnsResult.rows, (col) => col.TABLE_NAME);

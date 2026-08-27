@@ -17,26 +17,87 @@ export const CACHE_PREFIX = "viborm";
 /** Namespace root reserved for authenticated official cache extensions. */
 export const OFFICIAL_CACHE_NAMESPACE_ROOT = `${CACHE_PREFIX}:cache`;
 
-const OFFICIAL_CACHE_SNAPSHOT_REVISION = "r1";
+/**
+ * Private storage-format revision. It moved r1 → r2 when the SQL namespace and
+ * dialect entered the derivation below: every r1 entry keyed a scope that made
+ * no claim about which schema or database produced the rows, so no r1 entry may
+ * ever be served to an r2 reader. The bump is the invalidation.
+ */
+const OFFICIAL_CACHE_SNAPSHOT_REVISION = "r2";
 
-/** Build the private namespace for one official cache extension composition. */
-export function createOfficialCacheNamespace(
-  version: string | number | undefined
-): string {
-  const base = `${OFFICIAL_CACHE_NAMESPACE_ROOT}:${OFFICIAL_CACHE_SNAPSHOT_REVISION}`;
-  if (version === undefined) return `${base}:u`;
+/**
+ * The facts one official cache scope partitions on.
+ *
+ * `dialect` is load-bearing on its own: a PostgreSQL schema `billing` and a
+ * MySQL database `billing` are different stores that spell their qualifier the
+ * same way. `namespace` is `undefined` for exactly the families the feature
+ * leaves unqualified — SQLite and unbound MySQL/PlanetScale — and that absence
+ * is encoded as its own token, never as text that a real namespace could spell.
+ */
+export interface OfficialCacheScopeFacts {
+  readonly version: string | number | undefined;
+  readonly dialect: string;
+  readonly namespace: string | undefined;
+}
+
+/**
+ * Encode text as fixed-width hex per UTF-16 code unit.
+ *
+ * Fixed width is what makes the joined namespace INJECTIVE: every component
+ * below is either a bare discriminator letter or `<letter>:<hex>`, hex never
+ * contains the `:` separator, and no variable-length body can absorb the
+ * component after it. Two different fact tuples therefore cannot produce one
+ * namespace, which is the whole isolation guarantee.
+ */
+function encodeText(value: string): string {
+  let encoded = "";
+  for (let index = 0; index < value.length; index += 1) {
+    encoded += value.charCodeAt(index).toString(16).padStart(4, "0");
+  }
+  return encoded;
+}
+
+/** `u` unversioned, `n:<f64 hex>` numeric, `s:<hex>` string. */
+function encodeVersion(version: string | number | undefined): string {
+  if (version === undefined) return "u";
   if (typeof version === "number") {
     const bytes = new Uint8Array(8);
     new DataView(bytes.buffer).setFloat64(0, version, false);
     let encoded = "";
     for (const byte of bytes) encoded += byte.toString(16).padStart(2, "0");
-    return `${base}:n:${encoded}`;
+    return `n:${encoded}`;
   }
-  let encoded = "";
-  for (let index = 0; index < version.length; index += 1) {
-    encoded += version.charCodeAt(index).toString(16).padStart(4, "0");
-  }
-  return `${base}:s:${encoded}`;
+  return `s:${encodeText(version)}`;
+}
+
+/**
+ * `x` unknown, `k:<hex>` known.
+ *
+ * An unknown namespace is a bare `x` with no body, so it cannot be reached by
+ * encoding any string whatsoever — a database literally named `undefined`
+ * encodes as `k:0075...`. Absence is a distinct value here, not a spelling.
+ */
+function encodeNamespace(namespace: string | undefined): string {
+  return namespace === undefined ? "x" : `k:${encodeText(namespace)}`;
+}
+
+/**
+ * Build the private namespace for one client-bound official cache extension.
+ *
+ * Pure: the same facts always give the same string, which is why re-binding the
+ * chain after another extension is appended retains the scope by value instead
+ * of needing a registry to hand the old one back.
+ */
+export function createOfficialCacheNamespace(
+  facts: OfficialCacheScopeFacts
+): string {
+  return [
+    OFFICIAL_CACHE_NAMESPACE_ROOT,
+    OFFICIAL_CACHE_SNAPSHOT_REVISION,
+    `d:${encodeText(facts.dialect)}`,
+    encodeNamespace(facts.namespace),
+    encodeVersion(facts.version),
+  ].join(":");
 }
 
 /**

@@ -71,10 +71,10 @@ function compiledFor(
   return new CreateOperation(engine, model, { data }).compile(known);
 }
 
-const ENTRY_UPDATE = /UPDATE "e60_entries"/;
-const ENTRY_INSERT = /INSERT INTO "e60_entries"/;
-const TICK_UPDATE = /UPDATE "e60_ticks"/;
-const FILE_UPDATE = /UPDATE "e60_files"/;
+const ENTRY_UPDATE = /UPDATE (?:"[^"]+"\.)?"e60_entries"/;
+const ENTRY_INSERT = /INSERT INTO (?:"[^"]+"\.)?"e60_entries"/;
+const TICK_UPDATE = /UPDATE (?:"[^"]+"\.)?"e60_ticks"/;
+const FILE_UPDATE = /UPDATE (?:"[^"]+"\.)?"e60_files"/;
 
 describe("U-E6.0 the emitted relation-key expression", () => {
   test("the dateTime reparent SET wears NO cast", () => {

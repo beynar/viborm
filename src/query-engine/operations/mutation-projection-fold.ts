@@ -144,7 +144,12 @@ export function buildMutationProjectionFold(
   // be a second spelling of a cardinality the mutation's own `where` fixes.
   const parts: QueryParts = {
     columns: projection.sql,
-    from: adapter.identifiers.table(MUTATION_CTE, rootAlias),
+    // Statement-local: the CTE lives in this statement, not in the adapter's
+    // namespace, so it must not go through the persistent-table renderer.
+    from: adapter.identifiers.aliased(
+      adapter.identifiers.escape(MUTATION_CTE),
+      rootAlias
+    ),
   };
   if (projection.lateralJoins.length > 0) {
     parts.joins = projection.lateralJoins;

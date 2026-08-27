@@ -26,7 +26,9 @@ import type {
 import { Driver, type QueryExecutionContext } from "../driver";
 import { isNormalizedResultRow } from "../normalized-result";
 import {
+  defineImmutableDriverFact,
   normalizePostgresRowCount,
+  resolveNamespaceOption,
   type TransactionOptionSupport,
   unsupportedCallbackTransactionError,
 } from "../shared";
@@ -47,6 +49,8 @@ export interface NeonHTTPDriverOptions {
   };
   pgvector?: boolean;
   postgis?: boolean;
+  /** The PostgreSQL schema this driver's persistent objects live in. Defaults to `public`. */
+  namespace?: string;
 }
 
 export type NeonHTTPClientConfig<C extends DriverConfig> =
@@ -124,7 +128,7 @@ function isNeonQueryFunction(client: NeonQuery | NeonTx): client is NeonQuery {
 }
 
 export class NeonHTTPDriver extends Driver<NeonQuery, NeonTx> {
-  readonly adapter: DatabaseAdapter;
+  declare readonly adapter: DatabaseAdapter;
   readonly maxBindParametersPerStatement: number | undefined = 65_535;
 
   // Neon HTTP only supports non-interactive (batch) transactions
@@ -156,13 +160,15 @@ export class NeonHTTPDriver extends Driver<NeonQuery, NeonTx> {
 
   constructor(options: NeonHTTPDriverOptions = {}) {
     super("postgresql", "neon-http");
+    const namespace = resolveNamespaceOption(options);
     this.driverOptions = options;
 
-    const adapter = new PostgresAdapter();
+    const adapter = new PostgresAdapter(namespace);
     adapter.capabilities.supportsVector = options.pgvector === true;
+    adapter.capabilities.supportsGeospatial = options.postgis === true;
     if (!options.pgvector) adapter.vector = unsupportedVector;
     if (!options.postgis) adapter.geospatial = unsupportedGeospatial;
-    this.adapter = adapter;
+    defineImmutableDriverFact(this, "adapter", adapter);
   }
 
   protected async initClient(): Promise<NeonQuery> {
@@ -348,12 +354,14 @@ export function createClient<S extends Schema, C extends DriverConfig<S>>(
     NoExtraDriverConfigKeys<C, NeonHTTPDriverOptions, S>
 ): VibORMClient<C & { driver: NeonHTTPDriver }> {
   const { databaseUrl, options, pgvector, postgis } = config;
+  const namespace = resolveNamespaceOption(config);
 
   const driver = new NeonHTTPDriver({
     databaseUrl,
     options,
     pgvector,
     postgis,
+    namespace,
   });
 
   return createClientFromDriverConfig(config, driver) as VibORMClient<

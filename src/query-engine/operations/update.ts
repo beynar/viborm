@@ -89,7 +89,7 @@ export function buildUpdateStatement(
     tableName
   );
 
-  const table = adapter.identifiers.escape(tableName);
+  const table = adapter.identifiers.table(tableName);
   return adapter.mutations.update(table, setSql, whereSql);
 }
 
@@ -178,7 +178,7 @@ export function buildUpdateMany(ctx: QueryScope, args: UpdateManyArgs): Sql {
   );
 
   // Build UPDATE
-  const table = adapter.identifiers.escape(tableName);
+  const table = adapter.identifiers.table(tableName);
   const updateSql = adapter.mutations.update(table, setSql, limited.where);
   return limited.suffix ? sql`${updateSql} ${limited.suffix}` : updateSql;
 }

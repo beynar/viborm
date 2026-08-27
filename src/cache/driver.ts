@@ -942,6 +942,23 @@ export abstract class CacheDriver {
   /**
    * Prefix a public storage key, or rebase an official relative key into its
    * authenticated extension namespace.
+   *
+   * An EMPTY relative key is the whole scope — `$invalidate("*")` — and it
+   * rebases to `<scope>:`, WITH the separator, because the storage backends
+   * clear by `startsWith`. A bare `<scope>` would also match every sibling scope
+   * whose namespace string merely extends this one, and one axis of the scope
+   * grammar can do that: the cache `version` is the last component and its `s:`
+   * body is variable-length, so `version: "a"` is a strict prefix of
+   * `version: "ab"` at the same dialect and namespace. That axis is exactly what
+   * §7.1 leaves users to partition SQLite and unbound MySQL databases with, so a
+   * clear-all crossing it would empty a physically different database's entries.
+   *
+   * Adding the separator loses nothing: every key this scope can hold is written
+   * through `#executeCached`, whose relative key is always
+   * `<model>:<operation>:<hash>`, so no stored key is ever equal to the bare
+   * scope. The unscoped arm below deliberately keeps its bare `viborm` root — a
+   * public caller CAN store at exactly that key, there is only one such root,
+   * and no sibling exists for a clear to cross into.
    */
   private prefixKey(key: string, namespace?: string): string {
     if (namespace !== undefined) {
@@ -950,7 +967,7 @@ export abstract class CacheDriver {
           "Official cache keys and prefixes must be relative and cannot begin with 'viborm:'."
         );
       }
-      return key ? `${namespace}:${key}` : namespace;
+      return `${namespace}:${key}`;
     }
 
     const prefixedKey = key.startsWith(`${CACHE_PREFIX}:`)

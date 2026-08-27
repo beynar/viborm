@@ -289,7 +289,7 @@ describe("polymorphic collection inverse read SQL", () => {
 
     // ONE row, LIMIT 1, ordinary to-one shape — no aggregation, no array.
     expect(statement).toContain(
-      'ELSE (SELECT json_build_object($3::text, "t2"."id", $4::text, "t2"."name") FROM "gallery_items_article" AS "t1", "gallery" AS "t2" WHERE ("t1"."articleId" = "t0"."id" AND "t2"."id" = "t1"."galleryId") LIMIT $5)'
+      'ELSE (SELECT json_build_object($3::text, "t2"."id", $4::text, "t2"."name") FROM "public"."gallery_items_article" AS "t1", "public"."gallery" AS "t2" WHERE ("t1"."articleId" = "t0"."id" AND "t2"."id" = "t1"."galleryId") LIMIT $5)'
     );
     expect(statement).not.toContain("json_agg");
     // No LATERAL: a member table takes the correlated route on every adapter,
@@ -311,9 +311,9 @@ describe("polymorphic collection inverse read SQL", () => {
     // target filter nor the `LIMIT 1` can hide malformed provider state. Each
     // branch answers ONE invariant.
     const orphanBranch =
-      'WHEN (SELECT COUNT(*) FROM "gallery_items_article" AS "t1" LEFT JOIN "gallery" AS "t2" ON "t2"."id" = "t1"."galleryId" WHERE ("t1"."articleId" = "t0"."id" AND "t2"."id" IS NULL)) > $1';
+      'WHEN (SELECT COUNT(*) FROM "public"."gallery_items_article" AS "t1" LEFT JOIN "public"."gallery" AS "t2" ON "t2"."id" = "t1"."galleryId" WHERE ("t1"."articleId" = "t0"."id" AND "t2"."id" IS NULL)) > $1';
     const duplicateBranch =
-      'WHEN (SELECT COUNT(*) FROM "gallery_items_article" AS "t1" WHERE "t1"."articleId" = "t0"."id") > $2';
+      'WHEN (SELECT COUNT(*) FROM "public"."gallery_items_article" AS "t1" WHERE "t1"."articleId" = "t0"."id") > $2';
     expect(statement).toContain(orphanBranch);
     expect(statement).toContain(duplicateBranch);
 
@@ -348,7 +348,7 @@ describe("polymorphic collection inverse read SQL", () => {
     // so only the orphan fact is a violation.
     expect(statement.match(/WHEN /g)).toHaveLength(1);
     expect(statement).toContain(
-      '(SELECT COUNT(*) FROM "gallery_items_clip" AS "t1" LEFT JOIN "gallery" AS "t2" ON "t2"."id" = "t1"."galleryId" WHERE ("t1"."clipId" = "t0"."id" AND "t2"."id" IS NULL)) > $1'
+      '(SELECT COUNT(*) FROM "public"."gallery_items_clip" AS "t1" LEFT JOIN "public"."gallery" AS "t2" ON "t2"."id" = "t1"."galleryId" WHERE ("t1"."clipId" = "t0"."id" AND "t2"."id" IS NULL)) > $1'
     );
     // A JSON object where a to-many leaf owes a row array.
     expect(statement).toContain("THEN '{}'::json");
@@ -369,7 +369,7 @@ describe("polymorphic collection inverse read SQL", () => {
     // still yield a parent row.
     expect(parts.joins).toHaveLength(1);
     expect(parts.joins[0]?.toStatement("$n")).toBe(
-      'LEFT JOIN "gallery_items_article" AS "t1" ON "t1"."articleId" = "t0"."id" LEFT JOIN "gallery" AS "t2" ON "t2"."id" = "t1"."galleryId"'
+      'LEFT JOIN "public"."gallery_items_article" AS "t1" ON "t1"."articleId" = "t0"."id" LEFT JOIN "public"."gallery" AS "t2" ON "t2"."id" = "t1"."galleryId"'
     );
     expect(parts.orderBy?.toStatement("$n")).toBe('"t2"."name" ASC');
   });

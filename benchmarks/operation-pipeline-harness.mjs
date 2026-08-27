@@ -21,14 +21,29 @@ export function consumeScalarRows(rows, key) {
   throw new Error(`Expected scalar ${key} in the measured result`);
 }
 
+/**
+ * The relation carrier as TEXT, whatever the provider handed back.
+ *
+ * SQLite returns a JSON relation payload as a string; PostgreSQL and MySQL
+ * decode `json`/`jsonb` in the provider itself and hand back an object. The
+ * marker being looked for is the same nested scalar either way, so the string
+ * branch is unchanged and a decoded carrier is read through its own text.
+ */
+function carrierText(value) {
+  if (typeof value === "string") return value;
+  if (value !== null && typeof value === "object") return JSON.stringify(value);
+  return undefined;
+}
+
 export function rawCarrierConsumer(marker) {
   return (rows) => {
     const first = rows[0];
     if (!first) return 0;
     for (const value of Object.values(first)) {
-      if (typeof value === "string" && value.includes(marker)) {
-        const offset = value.indexOf(marker);
-        return rows.length + value.charCodeAt(offset + marker.length);
+      const text = carrierText(value);
+      if (text?.includes(marker)) {
+        const offset = text.indexOf(marker);
+        return rows.length + text.charCodeAt(offset + marker.length);
       }
     }
     throw new Error(

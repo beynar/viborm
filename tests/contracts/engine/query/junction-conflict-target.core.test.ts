@@ -146,7 +146,7 @@ describe("junction insert duplicate-skip clause", () => {
     expect(
       junctionInsert(postgres, scalarPair.shelf, "books", scalarRows, "$n")
     ).toBe(
-      'INSERT  INTO "jct_shelf_book" ("shelf", "book") VALUES ($1, $2), ($3, $4) ON CONFLICT ("shelf", "book") DO NOTHING'
+      'INSERT  INTO "public"."jct_shelf_book" ("shelf", "book") VALUES ($1, $2), ($3, $4) ON CONFLICT ("shelf", "book") DO NOTHING'
     );
   });
 
@@ -186,7 +186,7 @@ describe("junction insert duplicate-skip clause", () => {
     expect(
       junctionInsert(postgres, compoundPair.owner, "items", compoundRows, "$n")
     ).toBe(
-      'INSERT  INTO "jct_owner_item" ("owner_1", "owner_2", "item_1", "item_2") VALUES ($1, $2, $3, $4) ON CONFLICT ("owner_1", "owner_2", "item_1", "item_2") DO NOTHING'
+      'INSERT  INTO "public"."jct_owner_item" ("owner_1", "owner_2", "item_1", "item_2") VALUES ($1, $2, $3, $4) ON CONFLICT ("owner_1", "owner_2", "item_1", "item_2") DO NOTHING'
     );
   });
 

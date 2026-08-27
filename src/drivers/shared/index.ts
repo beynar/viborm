@@ -4,10 +4,24 @@
  * Re-exports common utilities for driver implementations.
  */
 
+export { readCleanupFailures, withCleanupFailure } from "./cleanup-failure";
+export {
+  defineImmutableDriverFact,
+  type MigrationNamespaceAttestation,
+  resolveMigrationNamespaceAttestationOption,
+  resolveNamespaceOption,
+} from "./driver-options";
 export {
   type MySQLConnectionOptions,
   parseMySQLUrl,
 } from "./mysql-utils";
+export {
+  condemnedSessionError,
+  type PinnedSessionControl,
+  type PinnedSessionReservation,
+  releaseReservedPostgresSession,
+  unprovenLockStateError,
+} from "./pinned-session";
 export { normalizePostgresRowCount } from "./postgres-result";
 export {
   classifySQLiteStatementResult,

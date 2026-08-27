@@ -2,12 +2,13 @@ import type { AnyDriver } from "../../drivers/driver";
 import { MigrationError, VibORMErrorCode } from "../../errors";
 import type { AnyModel } from "../../schema/model";
 import type { ResolvedRelationIndex } from "../../schema/validation/relation-resolution";
+import { admitLiveMigrationCapability } from "../admission";
 import { diff, type IndexPredicateCanonicalizer } from "../differ";
-import type { MigrationDriver } from "../drivers";
+import type { BoundMigrationDriver, MigrationDriver } from "../drivers";
 import { getMigrationDriver } from "../drivers";
 import { alwaysAddDropResolver, resolveAmbiguousChanges } from "../resolver";
 import { serializeResolvedModels } from "../serializer";
-import type { MigrationStorageDriver } from "../storage/driver";
+import { createEmptySnapshot } from "../storage/driver";
 import {
   type AmbiguousChange,
   type ChangeResolution,
@@ -18,7 +19,10 @@ import {
   type ResolveChange,
   type SchemaSnapshot,
 } from "../types";
-import { extractForwardReferenceForeignKeys } from "../utils";
+import {
+  extractForwardReferenceForeignKeys,
+  materializeDroppedTableForeignKeys,
+} from "../utils";
 import {
   applyForceEnumResolutions,
   applyResolvedEnumMappings,
@@ -91,13 +95,12 @@ export interface PushOptions {
    * ```
    */
   resolve?: ResolveCallback;
-  /**
-   * Internal: storage driver passed from migration client.
-   * Used for forceReset to clear migration tracking if available.
-   * @internal
-   */
-  _storageDriver?: MigrationStorageDriver;
 }
+
+// Push deliberately carries NO storage owner. Ordinary push and force-reset
+// synchronize the live namespace and nothing else: they read no journal, write
+// no journal or snapshot, and cannot rewrite an estate's history as a side
+// effect of a schema sync.
 
 export interface PushPlan {
   operations: DiffOperation[];
@@ -106,18 +109,28 @@ export interface PushPlan {
 
 export function getPushMigrationDriver(
   client: MigrationClient
-): MigrationDriver {
-  return getMigrationDriver(client.$driver.driverName, client.$driver.dialect);
+): BoundMigrationDriver {
+  return getMigrationDriver(client.$driver);
 }
 
 /**
  * Introspects the current database schema without making any changes.
  * Useful for debugging or displaying current state.
+ *
+ * It changes nothing, but it READS live state, so it is a live migration
+ * command and takes the one shared admission owner like every other one —
+ * before any provider work. Without this gate an unbound MySQL client would
+ * publish an inventory of whatever database its connection happened to default
+ * to, which is exactly the ambient-default target §3.3 refuses to accept.
+ * `push({ dryRun: true })` performs the same introspection behind the same
+ * `read-only` admission; this entry point must not be the way around it.
  */
 export async function introspect(
   client: MigrationClient
 ): Promise<SchemaSnapshot> {
-  return introspectSchema(client.$driver, getPushMigrationDriver(client));
+  const migrationDriver = getPushMigrationDriver(client);
+  admitLiveMigrationCapability(migrationDriver, "read-only", "introspect()");
+  return introspectSchema(client.$driver, migrationDriver);
 }
 
 export async function introspectSchema(
@@ -169,6 +182,47 @@ function buildIndexPredicateCanonicalizer(
   };
 }
 
+/**
+ * The COMPLETE empty-to-desired program, compiled before a force-reset entry.
+ *
+ * §6.2: "Before entry, serialize and validate the desired schema, resolve its
+ * relation index, compile the empty-to-desired DDL, and prove that program
+ * contains no commit-boundary statement." Diffing against the LIVE database
+ * would describe a program for a database this command is about to empty, so
+ * the baseline is the empty snapshot — the state the clear produces.
+ *
+ * Nothing here reads live state, so it runs before the clear and its result is
+ * what the one locked transaction executes.
+ */
+export async function planRebuildFromEmpty(
+  client: MigrationClient,
+  migrationDriver: MigrationDriver,
+  options: PushOptions,
+  relations: ResolvedRelationIndex
+): Promise<PushPlan> {
+  const desired = serializeResolvedModels(
+    client.$schema,
+    migrationDriver,
+    relations
+  );
+  const current = createEmptySnapshot();
+  const diffResult = await diff(current, desired, {
+    matchConstraintsByShape:
+      !migrationDriver.capabilities.introspectionReadsConstraintNames,
+  });
+  const operations = await resolvePushOperations(
+    diffResult,
+    desired,
+    current,
+    options
+  );
+
+  return {
+    operations: extractForwardReferenceForeignKeys(operations, migrationDriver),
+    currentSchema: current,
+  };
+}
+
 export async function planPush(
   client: MigrationClient,
   migrationDriver: MigrationDriver,
@@ -212,64 +266,13 @@ export async function planPush(
   );
 
   return {
-    operations: addFkDropsForDroppedTables(
+    operations: materializeDroppedTableForeignKeys(
       orderedOperations,
       current,
       migrationDriver
     ),
     currentSchema: current,
   };
-}
-
-/**
- * MySQL ignores DROP TABLE ... CASCADE (error 3730/1217 instead), so every
- * FK that belongs to or references a dropped table must be dropped first.
- * Other dialects drop with CASCADE (PG) or rebuild tables (SQLite), so this
- * is a no-op for them.
- */
-function addFkDropsForDroppedTables(
-  operations: DiffOperation[],
-  current: SchemaSnapshot,
-  migrationDriver: MigrationDriver
-): DiffOperation[] {
-  if (migrationDriver.dialect !== "mysql") {
-    return operations;
-  }
-
-  const droppedTables = new Set(
-    operations
-      .filter((op) => op.type === "dropTable")
-      .map((op) => (op as { tableName: string }).tableName)
-  );
-  if (droppedTables.size === 0) {
-    return operations;
-  }
-
-  const plannedFkDrops = new Set(
-    operations
-      .filter((op) => op.type === "dropForeignKey")
-      .map((op) => {
-        const fkOp = op as { tableName: string; fkName: string };
-        return `${fkOp.tableName} ${fkOp.fkName}`;
-      })
-  );
-
-  const fkDrops: DiffOperation[] = [];
-  for (const table of current.tables) {
-    for (const fk of table.foreignKeys) {
-      const implicated =
-        droppedTables.has(table.name) || droppedTables.has(fk.referencedTable);
-      if (implicated && !plannedFkDrops.has(`${table.name} ${fk.name}`)) {
-        fkDrops.push({
-          type: "dropForeignKey",
-          tableName: table.name,
-          fkName: fk.name,
-        });
-      }
-    }
-  }
-
-  return [...fkDrops, ...operations];
 }
 
 async function resolvePushOperations(

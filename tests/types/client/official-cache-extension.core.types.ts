@@ -22,9 +22,15 @@ const _publicExecutionOptions: CacheExecutionOptions = {
   swr: false,
   ttlMs: 1000,
   // @ts-expect-error - official cache scope is not a public execution option
-  keyScope: { namespace: "viborm:cache:r1:u" },
+  keyScope: {
+    namespace:
+      "viborm:cache:r2:d:0070006f0073007400670072006500730071006c:k:007000750062006c00690063:u",
+  },
 };
-const _forgedScope = { namespace: "viborm:cache:r1:u" };
+const _forgedScope = {
+  namespace:
+    "viborm:cache:r2:d:0070006f0073007400670072006500730071006c:k:007000750062006c00690063:u",
+};
 // @ts-expect-error - public cache reads accept no external scope
 cacheDriver._get("key", undefined, _forgedScope);
 // @ts-expect-error - public cache writes accept no external scope

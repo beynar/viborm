@@ -44,7 +44,7 @@ Without adapters, we'd have `if (postgres) ... else if (mysql) ...` scattered ev
 
 | Group | Methods | Critical For |
 |-------|---------|--------------|
-| `identifiers` | escape, column, table, aliased | Identifier quoting |
+| `identifiers` | escape, column, table, aliased | Identifier quoting; `table()` also applies `namespace` |
 | `literals` | value, null, true, false, list, json | Value formatting |
 | `operators` | eq, neq, like, ilike, in, between, and, or | WHERE conditions |
 | `json` | object, array, agg, extract | **Nested includes!** |
@@ -74,6 +74,32 @@ Adapters transform syntax only. Don't decide which tables to join or what condit
 
 ### Rule 4: Test Across All Databases
 A change that works in PostgreSQL might break MySQL or SQLite. Always run the full test suite.
+
+### Rule 5: The Adapter Owns The One Namespace Fact
+`adapter.namespace` is the sole normalized SQL qualification value — a
+PostgreSQL schema, a MySQL database, a requested Vitess keyspace qualifier.
+`PostgresAdapter` defaults it to `public`; `MySQLAdapter` leaves it `undefined`
+when unbound; SQLite adapters carry no such property at all (`"namespace" in
+sqliteAdapter === false`). It is selected once in the constructor and installed
+non-writable, and THAT INSTALL is where its immutability lives — not in a ban on
+copies: models, relations, query scopes, operation programs, result types,
+journals, cache identity, and instrumentation all read it or do without it, and
+the two readers that capture it once — the bound migration driver at bind time
+(`getMigrationDriver`), and the `dbAttributes` snapshot a cached read takes at
+`$withCache` — are safe precisely because the property they read cannot be
+reassigned under them.
+
+`identifiers.table()` is the one renderer that applies it, and its alias is
+optional. Everything statement-local — CTEs, aliases, columns, constraints,
+temporaries — goes through `escape()`, which must never become namespace-aware.
+Compose the qualified text through `renderQualifiedIdentifier` /
+`createQualifiedIdentifierRenderer` in `src/sql/identifiers.ts`; never build
+`schema.table` by hand, and never hand a dotted name to a quoter.
+
+Do not add a second configurable namespace source, a per-model or per-query
+namespace, a compatibility alias (`databaseSchema`, `databaseName`,
+`databaseNamespace`, `pgSchema`, `keyspace`, `searchPath`), or a SQLite
+attachment equivalent. Runtime emits neither `SET search_path` nor `USE`.
 
 ---
 

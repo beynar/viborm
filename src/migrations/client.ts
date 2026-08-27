@@ -7,12 +7,13 @@
 import { MigrationError, VibORMErrorCode } from "../errors";
 import { type DownOptions, type DownResult, down } from "./apply/down";
 import { type ApplyResult, apply, pending, status } from "./apply/index";
+import { MigrationContext } from "./context";
 import { generate, preview } from "./generate";
 import {
   type MigrationClient,
   type PushOptions,
   type PushResult,
-  push,
+  pushWithDeclaredTrackingTable,
 } from "./push";
 import { type ResetOptions, type ResetResult, reset } from "./reset";
 import { type SquashOptions, type SquashResult, squash } from "./squash";
@@ -26,6 +27,7 @@ import type {
   MigrationStatus,
   SchemaSnapshot,
 } from "./types";
+import { DEFAULT_TABLE_NAME, validateTableName } from "./utils";
 
 // =============================================================================
 // TYPES
@@ -63,10 +65,10 @@ export interface Migrations {
   // ===========================================================================
 
   /**
-   * List all migrations from the journal.
+   * List all migrations from this estate's journal.
    * Useful for displaying available migrations (e.g., before squash).
    */
-  list(): Promise<MigrationEntry[]>;
+  list(): Promise<readonly MigrationEntry[]>;
 
   /**
    * Get the migration journal.
@@ -208,6 +210,16 @@ export function createMigrationClient(
     storageDriver: requireStorage("context"),
   });
 
+  // Every NAMED accessor is estate-bound: it reaches storage through the one
+  // context gate, so a client configured for one estate cannot list, read or
+  // report another's history. Only `migrations.storage` stays unbound, and it
+  // cannot execute database effects.
+  const boundContext = (operation: string) =>
+    new MigrationContext(client, {
+      tableName,
+      storageDriver: requireStorage(operation),
+    });
+
   return {
     get storage() {
       return requireStorage("storage");
@@ -218,17 +230,41 @@ export function createMigrationClient(
     // =========================================================================
 
     list: async () => {
-      const storage = requireStorage("list");
-      const journal = await storage.readJournal();
+      const journal = await boundContext("list").readEstateJournal();
       return journal?.entries ?? [];
     },
 
-    journal: () => requireStorage("journal").readJournal(),
+    journal: () => boundContext("journal").readEstateJournal(),
 
-    snapshot: () => requireStorage("snapshot").readSnapshot(),
+    snapshot: async () => {
+      // The gate first — §3.2's state table refuses a snapshot with no journal
+      // and another estate's journal — then exactly what storage holds. `null`
+      // means "no snapshot document", which is what the accessor documents; an
+      // empty snapshot is a diff input generation synthesizes, never something
+      // this accessor may fabricate on storage's behalf.
+      const { snapshot } = await boundContext("snapshot").readEstateBaseline();
+      return snapshot;
+    },
 
-    read: (entry: MigrationEntry) =>
-      requireStorage("read").readMigration(entry),
+    read: async (entry: MigrationEntry) => {
+      const ctx = boundContext("read");
+      const journal = await ctx.readEstateJournal();
+      const member = journal?.entries.find(
+        (candidate) =>
+          candidate.idx === entry.idx &&
+          candidate.name === entry.name &&
+          candidate.checksum === entry.checksum
+      );
+      if (!member) {
+        throw new MigrationError(
+          `Migration "${entry.name}" (idx ${entry.idx}) is not a member of this estate's journal, so its artifact cannot be read through the migration client. ` +
+            "A caller-fabricated entry or a fresh estate cannot turn `read()` into an unbound storage reader; use `migrations.storage` for raw access.",
+          VibORMErrorCode.MIGRATION_NOT_FOUND,
+          { meta: { migrationName: entry.name } }
+        );
+      }
+      return ctx.storage.readMigration(member);
+    },
 
     status: () => status(client, getContextOptions()),
 
@@ -252,8 +288,17 @@ export function createMigrationClient(
 
     squash: (opts = {}) => squash(client, { ...getContextOptions(), ...opts }),
 
-    // Push works without storage driver
+    // Push works without storage driver — and is given none. A push that could
+    // reach migration storage could rewrite the estate's history while
+    // synchronizing a schema. The ONE thing that travels is the normalized
+    // tracking-table NAME, so a force-reset clears the rows of the table this
+    // client declared instead of guessing which inventoried table is special
+    // (§6.2). It grants no storage access and no journal claim.
     push: (opts = {}) =>
-      push(client, { ...opts, _storageDriver: storageDriver }),
+      pushWithDeclaredTrackingTable(
+        client,
+        opts,
+        validateTableName(tableName ?? DEFAULT_TABLE_NAME)
+      ),
   };
 }

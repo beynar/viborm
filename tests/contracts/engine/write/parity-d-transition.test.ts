@@ -324,7 +324,7 @@ for (const substrate of [
   const lock = substrate.batch ? "" : " FOR UPDATE";
 
   /** The occupied probe: the OLD referenced value, and nothing else. */
-  const OCCUPIED_PROBE_SQL = `SELECT "t0"."id" AS "id" FROM "e67_seats" AS "t0" WHERE "t0"."orgId" = $1 ORDER BY "t0"."id" ASC LIMIT $2`;
+  const OCCUPIED_PROBE_SQL = `SELECT "t0"."id" AS "id" FROM "public"."e67_seats" AS "t0" WHERE "t0"."orgId" = $1 ORDER BY "t0"."id" ASC LIMIT $2`;
 
   describe(`parity D — regime "guarded" (${substrate.name})`, () => {
     test("the transition probe reads the OLD value and leads the planning list", () => {
@@ -339,7 +339,7 @@ for (const substrate of [
           {
             id: "org.locate",
             kind: "read",
-            sql: `SELECT "t0"."id" AS "id" FROM "e67_orgs" AS "t0" WHERE "t0"."id" = $1 LIMIT 1${lock}`,
+            sql: `SELECT "t0"."id" AS "id" FROM "public"."e67_orgs" AS "t0" WHERE "t0"."id" = $1 LIMIT 1${lock}`,
             params: ["o1"],
             outputs: {
               rows: { kind: "rows" },
@@ -363,7 +363,7 @@ for (const substrate of [
           {
             id: "seat.find",
             kind: "read",
-            sql: `SELECT "t0"."id" AS "id" FROM "e67_seats" AS "t0" WHERE "t0"."id" = $1 LIMIT 1${lock}`,
+            sql: `SELECT "t0"."id" AS "id" FROM "public"."e67_seats" AS "t0" WHERE "t0"."id" = $1 LIMIT 1${lock}`,
             params: ["st1"],
             outputs: { rows: { kind: "rows" } },
             expects: null,
@@ -408,7 +408,7 @@ for (const substrate of [
                   id: "org.guard.exists",
                   premise: {
                     kind: "exists",
-                    sql: 'SELECT "t0"."id" AS "id" FROM "e67_orgs" AS "t0" WHERE "t0"."id" = $1 LIMIT 1',
+                    sql: 'SELECT "t0"."id" AS "id" FROM "public"."e67_orgs" AS "t0" WHERE "t0"."id" = $1 LIMIT 1',
                     params: ["o1"],
                   },
                   failure: orgNotFound,
@@ -435,7 +435,7 @@ for (const substrate of [
                   id: "seat.guard.exists",
                   premise: {
                     kind: "exists",
-                    sql: 'SELECT "t0"."id" AS "id" FROM "e67_seats" AS "t0" WHERE "t0"."id" = $1 LIMIT 1',
+                    sql: 'SELECT "t0"."id" AS "id" FROM "public"."e67_seats" AS "t0" WHERE "t0"."id" = $1 LIMIT 1',
                     params: ["st1"],
                   },
                   failure: {
@@ -451,7 +451,7 @@ for (const substrate of [
           {
             id: "org.update",
             kind: "write",
-            sql: 'UPDATE "e67_orgs" SET "id" = $1 WHERE "e67_orgs"."id" = $2 RETURNING "id" AS "id"',
+            sql: 'UPDATE "public"."e67_orgs" SET "id" = $1 WHERE "e67_orgs"."id" = $2 RETURNING "id" AS "id"',
             params: ["o2", "o1"],
             outputs: {},
             expects: substrate.batch
@@ -468,7 +468,7 @@ for (const substrate of [
             // NEW-WRITE, ordered AFTER the root UPDATE that makes `o2` exist.
             id: "seat.connect",
             kind: "write",
-            sql: 'UPDATE "e67_seats" SET "orgId" = CAST($1 AS TEXT) WHERE "e67_seats"."id" = $2 RETURNING "id" AS "id"',
+            sql: 'UPDATE "public"."e67_seats" SET "orgId" = CAST($1 AS TEXT) WHERE "e67_seats"."id" = $2 RETURNING "id" AS "id"',
             params: ["o2", "st1"],
             outputs: {},
             expects: null,
@@ -478,7 +478,7 @@ for (const substrate of [
           {
             id: "org.select",
             kind: "read",
-            sql: 'SELECT "t0"."id" AS "id" FROM "e67_orgs" AS "t0" WHERE "t0"."id" = $1 LIMIT 1',
+            sql: 'SELECT "t0"."id" AS "id" FROM "public"."e67_orgs" AS "t0" WHERE "t0"."id" = $1 LIMIT 1',
             params: ["o2"],
             outputs: { result: { kind: "rows" } },
             expects: substrate.batch
@@ -563,7 +563,7 @@ describe("parity D — the derived post-transition value equals the SQL operand"
           id: "counter.update",
           kind: "write",
           // The database does the arithmetic …
-          sql: 'UPDATE "e67_counters" SET "id" = "id" + $1 WHERE "e67_counters"."id" = $2 RETURNING "id" AS "id"',
+          sql: 'UPDATE "public"."e67_counters" SET "id" = "id" + $1 WHERE "e67_counters"."id" = $2 RETURNING "id" AS "id"',
           params: [5, 10],
           outputs: {},
           expects: {
@@ -584,7 +584,7 @@ describe("parity D — the derived post-transition value equals the SQL operand"
           // between the two is a foreign-key violation, not a wrong row.
           id: "tick.create",
           kind: "write",
-          sql: 'INSERT INTO "e67_ticks" ("id", "counterId") VALUES ($1, CAST($2 AS INTEGER))',
+          sql: 'INSERT INTO "public"."e67_ticks" ("id", "counterId") VALUES ($1, CAST($2 AS INTEGER))',
           params: ["tk1", 15],
           outputs: {},
           expects: null,
@@ -594,7 +594,7 @@ describe("parity D — the derived post-transition value equals the SQL operand"
         {
           id: "counter.select",
           kind: "read",
-          sql: 'SELECT "t0"."id" AS "id" FROM "e67_counters" AS "t0" WHERE "t0"."id" = $1 LIMIT 1',
+          sql: 'SELECT "t0"."id" AS "id" FROM "public"."e67_counters" AS "t0" WHERE "t0"."id" = $1 LIMIT 1',
           params: [15],
           outputs: { result: { kind: "rows" } },
           expects: {
@@ -676,7 +676,7 @@ describe("parity D — the shapes D2 lifted", () => {
         {
           id: "zone.locate",
           kind: "read",
-          sql: 'SELECT "t0"."region" AS "region", "t0"."code" AS "code" FROM "e67_zones" AS "t0" WHERE ("t0"."region" = $1 AND "t0"."code" = $2) LIMIT 1 FOR UPDATE',
+          sql: 'SELECT "t0"."region" AS "region", "t0"."code" AS "code" FROM "public"."e67_zones" AS "t0" WHERE ("t0"."region" = $1 AND "t0"."code" = $2) LIMIT 1 FOR UPDATE',
           params: ["eu", "west"],
           outputs: {
             rows: { kind: "rows" },
@@ -695,7 +695,7 @@ describe("parity D — the shapes D2 lifted", () => {
           // had before (the guarded describes above still pin that byte for byte).
           id: "spot.transition.find",
           kind: "read",
-          sql: 'SELECT "t0"."id" AS "id" FROM "e67_spots" AS "t0" WHERE ("t0"."zoneRegion" = $1 AND "t0"."zoneCode" = $2) ORDER BY "t0"."id" ASC LIMIT $3 FOR UPDATE',
+          sql: 'SELECT "t0"."id" AS "id" FROM "public"."e67_spots" AS "t0" WHERE ("t0"."zoneRegion" = $1 AND "t0"."zoneCode" = $2) ORDER BY "t0"."id" ASC LIMIT $3 FOR UPDATE',
           params: ["eu", "west", 1],
           outputs: { rows: { kind: "rows" } },
           expects: null,
@@ -723,7 +723,7 @@ describe("parity D — the shapes D2 lifted", () => {
         {
           id: "zone.update",
           kind: "write",
-          sql: 'UPDATE "e67_zones" SET "code" = $1 WHERE ("e67_zones"."region" = $2 AND "e67_zones"."code" = $3) RETURNING "region" AS "region", "code" AS "code"',
+          sql: 'UPDATE "public"."e67_zones" SET "code" = $1 WHERE ("e67_zones"."region" = $2 AND "e67_zones"."code" = $3) RETURNING "region" AS "region", "code" AS "code"',
           params: ["east", "eu", "west"],
           outputs: {},
           expects: {
@@ -745,7 +745,7 @@ describe("parity D — the shapes D2 lifted", () => {
           // and this parameter goes undefined.
           id: "spot.create",
           kind: "write",
-          sql: 'INSERT INTO "e67_spots" ("id", "name", "zoneRegion", "zoneCode") VALUES ($1, $2, CAST($3 AS TEXT), CAST($4 AS TEXT))',
+          sql: 'INSERT INTO "public"."e67_spots" ("id", "name", "zoneRegion", "zoneCode") VALUES ($1, $2, CAST($3 AS TEXT), CAST($4 AS TEXT))',
           params: ["sp1", "n", "eu", "east"],
           outputs: {},
           expects: null,
@@ -755,7 +755,7 @@ describe("parity D — the shapes D2 lifted", () => {
         {
           id: "zone.select",
           kind: "read",
-          sql: 'SELECT "t0"."code" AS "code" FROM "e67_zones" AS "t0" WHERE ("t0"."region" = $1 AND "t0"."code" = $2) LIMIT 1',
+          sql: 'SELECT "t0"."code" AS "code" FROM "public"."e67_zones" AS "t0" WHERE ("t0"."region" = $1 AND "t0"."code" = $2) LIMIT 1',
           params: ["eu", "east"],
           outputs: { result: { kind: "rows" } },
           expects: {
@@ -902,7 +902,7 @@ describe("parity D — the shapes D2 lifted", () => {
     expect(planning.steps[1]).toEqual({
       id: "seat.transition.find",
       kind: "read",
-      sql: 'SELECT "t0"."id" AS "id" FROM "e67_seats" AS "t0" WHERE "t0"."orgId" = $1 ORDER BY "t0"."id" ASC LIMIT $2 FOR UPDATE',
+      sql: 'SELECT "t0"."id" AS "id" FROM "public"."e67_seats" AS "t0" WHERE "t0"."orgId" = $1 ORDER BY "t0"."id" ASC LIMIT $2 FOR UPDATE',
       // THE lift: a pre-transition value with no `where` literal behind it, read from
       // the located row by reference. Before D2 this payload never reached planning.
       params: [reference("org.locate", "id"), 1],
@@ -927,7 +927,7 @@ describe("parity D — the shapes D2 lifted", () => {
     expect(compiled.steps[1]).toEqual({
       id: "seat.connect",
       kind: "write",
-      sql: 'UPDATE "e67_seats" SET "orgId" = CAST($1 AS TEXT) WHERE "e67_seats"."id" = $2 RETURNING "id" AS "id"',
+      sql: 'UPDATE "public"."e67_seats" SET "orgId" = CAST($1 AS TEXT) WHERE "e67_seats"."id" = $2 RETURNING "id" AS "id"',
       params: ["o2", "st1"],
       outputs: {},
       expects: null,
@@ -955,7 +955,7 @@ describe("parity D — the shapes D2 lifted", () => {
     expect(compiled.steps[1]).toEqual({
       id: "spot.connect",
       kind: "write",
-      sql: 'UPDATE "e67_spots" SET "zoneRegion" = CAST($1 AS TEXT), "zoneCode" = CAST($2 AS TEXT) WHERE "e67_spots"."id" = $3 RETURNING "id" AS "id"',
+      sql: 'UPDATE "public"."e67_spots" SET "zoneRegion" = CAST($1 AS TEXT), "zoneCode" = CAST($2 AS TEXT) WHERE "e67_spots"."id" = $3 RETURNING "id" AS "id"',
       // Per member: `region` is not in the SET so it comes back verbatim; `code` is,
       // so it is derived. One source, two answers.
       params: ["eu", "east", "sp1"],
@@ -987,7 +987,7 @@ describe("parity D — the shapes D2 lifted", () => {
       "spot.find",
     ]);
     expect(planning.steps[2].sql).toBe(
-      'SELECT "t0"."id" AS "id" FROM "e67_spots" AS "t0" WHERE ("t0"."id" = $1 AND "t0"."zoneRegion" = $2 AND "t0"."zoneCode" = $3) ORDER BY "t0"."id" ASC LIMIT $4 FOR UPDATE'
+      'SELECT "t0"."id" AS "id" FROM "public"."e67_spots" AS "t0" WHERE ("t0"."id" = $1 AND "t0"."zoneRegion" = $2 AND "t0"."zoneCode" = $3) ORDER BY "t0"."id" ASC LIMIT $4 FOR UPDATE'
     );
     expect(planning.steps[2].params).toEqual([
       "sp1",
@@ -1035,7 +1035,7 @@ describe("parity D — the shapes D2 lifted", () => {
       id: "spot.guard.occupied",
       premise: {
         kind: "notExists",
-        sql: 'SELECT "t0"."id" AS "id" FROM "e67_spots" AS "t0" WHERE ("t0"."zoneRegion" = $1 AND "t0"."zoneCode" = $2) ORDER BY "t0"."id" ASC LIMIT $3',
+        sql: 'SELECT "t0"."id" AS "id" FROM "public"."e67_spots" AS "t0" WHERE ("t0"."zoneRegion" = $1 AND "t0"."zoneCode" = $2) ORDER BY "t0"."id" ASC LIMIT $3',
         params: ["eu", "west", 1],
       },
       failure: {
@@ -1085,7 +1085,7 @@ describe('parity D — regime "none" emits no transition probe', () => {
           // carries `b1` to `d2`, so the engine must not do it a second time.
           id: "bin.connect",
           kind: "write",
-          sql: 'UPDATE "parity_d_bins" SET "depotId" = CAST($1 AS TEXT) WHERE "parity_d_bins"."id" = $2 RETURNING "id" AS "id"',
+          sql: 'UPDATE "public"."parity_d_bins" SET "depotId" = CAST($1 AS TEXT) WHERE "parity_d_bins"."id" = $2 RETURNING "id" AS "id"',
           params: ["d1", "b1"],
           outputs: {},
           expects: null,
@@ -1095,7 +1095,7 @@ describe('parity D — regime "none" emits no transition probe', () => {
         {
           id: "depot.update",
           kind: "write",
-          sql: 'UPDATE "parity_d_depots" SET "id" = $1 WHERE "parity_d_depots"."id" = $2 RETURNING "id" AS "id"',
+          sql: 'UPDATE "public"."parity_d_depots" SET "id" = $1 WHERE "parity_d_depots"."id" = $2 RETURNING "id" AS "id"',
           params: ["d2", "d1"],
           outputs: {},
           expects: {
@@ -1114,7 +1114,7 @@ describe('parity D — regime "none" emits no transition probe', () => {
         {
           id: "depot.select",
           kind: "read",
-          sql: 'SELECT "t0"."id" AS "id" FROM "parity_d_depots" AS "t0" WHERE "t0"."id" = $1 LIMIT 1',
+          sql: 'SELECT "t0"."id" AS "id" FROM "public"."parity_d_depots" AS "t0" WHERE "t0"."id" = $1 LIMIT 1',
           params: ["d2"],
           outputs: { result: { kind: "rows" } },
           expects: {
@@ -1206,7 +1206,7 @@ for (const substrate of [
   const orgLocate = {
     id: "org.locate",
     kind: "read",
-    sql: `SELECT "t0"."id" AS "id" FROM "e67_orgs" AS "t0" WHERE "t0"."id" = $1 LIMIT 1${lock}`,
+    sql: `SELECT "t0"."id" AS "id" FROM "public"."e67_orgs" AS "t0" WHERE "t0"."id" = $1 LIMIT 1${lock}`,
     params: ["o1"],
     outputs: {
       rows: { kind: "rows" },
@@ -1220,7 +1220,7 @@ for (const substrate of [
   const transitionProbe = {
     id: "seat.transition.find",
     kind: "read",
-    sql: `SELECT "t0"."id" AS "id" FROM "e67_seats" AS "t0" WHERE "t0"."orgId" = $1 ORDER BY "t0"."id" ASC LIMIT $2${lock}`,
+    sql: `SELECT "t0"."id" AS "id" FROM "public"."e67_seats" AS "t0" WHERE "t0"."orgId" = $1 ORDER BY "t0"."id" ASC LIMIT $2${lock}`,
     params: ["o1", 1],
     outputs: { rows: { kind: "rows" } },
     expects: null,
@@ -1232,7 +1232,7 @@ for (const substrate of [
     id: "org.guard.exists",
     premise: {
       kind: "exists",
-      sql: 'SELECT "t0"."id" AS "id" FROM "e67_orgs" AS "t0" WHERE "t0"."id" = $1 LIMIT 1',
+      sql: 'SELECT "t0"."id" AS "id" FROM "public"."e67_orgs" AS "t0" WHERE "t0"."id" = $1 LIMIT 1',
       params: ["o1"],
     },
     failure: orgNotFound,
@@ -1242,7 +1242,7 @@ for (const substrate of [
     id: "seat.guard.occupied",
     premise: {
       kind: "notExists",
-      sql: 'SELECT "t0"."id" AS "id" FROM "e67_seats" AS "t0" WHERE "t0"."orgId" = $1 ORDER BY "t0"."id" ASC LIMIT $2',
+      sql: 'SELECT "t0"."id" AS "id" FROM "public"."e67_seats" AS "t0" WHERE "t0"."orgId" = $1 ORDER BY "t0"."id" ASC LIMIT $2',
       params: ["o1", 1],
     },
     failure: {
@@ -1257,7 +1257,7 @@ for (const substrate of [
   const orgUpdateStep = {
     id: "org.update",
     kind: "write",
-    sql: 'UPDATE "e67_orgs" SET "id" = $1 WHERE "e67_orgs"."id" = $2 RETURNING "id" AS "id"',
+    sql: 'UPDATE "public"."e67_orgs" SET "id" = $1 WHERE "e67_orgs"."id" = $2 RETURNING "id" AS "id"',
     params: ["o2", "o1"],
     outputs: {},
     expects: substrate.batch
@@ -1270,7 +1270,7 @@ for (const substrate of [
   const orgTerminal = {
     id: "org.select",
     kind: "read",
-    sql: 'SELECT "t0"."id" AS "id" FROM "e67_orgs" AS "t0" WHERE "t0"."id" = $1 LIMIT 1',
+    sql: 'SELECT "t0"."id" AS "id" FROM "public"."e67_orgs" AS "t0" WHERE "t0"."id" = $1 LIMIT 1',
     params: ["o2"],
     outputs: { result: { kind: "rows" } },
     expects: substrate.batch
@@ -1309,7 +1309,7 @@ for (const substrate of [
             // `set` locates globally, so this probe carries no membership conjunct.
             id: "seat.find",
             kind: "read",
-            sql: `SELECT "t0"."id" AS "id" FROM "e67_seats" AS "t0" WHERE "t0"."id" = $1 LIMIT 1${lock}`,
+            sql: `SELECT "t0"."id" AS "id" FROM "public"."e67_seats" AS "t0" WHERE "t0"."id" = $1 LIMIT 1${lock}`,
             params: ["st1"],
             outputs: { rows: { kind: "rows" } },
             expects: null,
@@ -1330,7 +1330,7 @@ for (const substrate of [
                     id: "seat.guard.exists",
                     premise: {
                       kind: "exists",
-                      sql: 'SELECT "t0"."id" AS "id" FROM "e67_seats" AS "t0" WHERE ("t0"."id" = $1 AND "t0"."id" = $2) ORDER BY "t0"."id" ASC LIMIT $3',
+                      sql: 'SELECT "t0"."id" AS "id" FROM "public"."e67_seats" AS "t0" WHERE ("t0"."id" = $1 AND "t0"."id" = $2) ORDER BY "t0"."id" ASC LIMIT $3',
                       params: ["st1", "st1", 1],
                     },
                     failure: {
@@ -1348,7 +1348,7 @@ for (const substrate of [
               // OLD: the orphan clears rows that still carry the vacated key.
               id: "seat.orphan",
               kind: "write",
-              sql: 'UPDATE "e67_seats" SET "orgId" = NULL WHERE ("e67_seats"."orgId" = $1 AND NOT ("e67_seats"."id" = $2))',
+              sql: 'UPDATE "public"."e67_seats" SET "orgId" = NULL WHERE ("e67_seats"."orgId" = $1 AND NOT ("e67_seats"."id" = $2))',
               params: ["o1", "st1"],
               outputs: {},
               expects: null,
@@ -1359,7 +1359,7 @@ for (const substrate of [
               // NEW: the adopt writes the post-transition key.
               id: "seat.set",
               kind: "write",
-              sql: 'UPDATE "e67_seats" SET "orgId" = CAST($1 AS TEXT) WHERE "e67_seats"."id" IN ($2)',
+              sql: 'UPDATE "public"."e67_seats" SET "orgId" = CAST($1 AS TEXT) WHERE "e67_seats"."id" IN ($2)',
               params: ["o2", "st1"],
               outputs: {},
               expects: null,
@@ -1387,7 +1387,7 @@ for (const substrate of [
           {
             id: "seat.find",
             kind: "read",
-            sql: `SELECT "t0"."id" AS "id" FROM "e67_seats" AS "t0" WHERE ("t0"."id" = $1 AND "t0"."orgId" = $2) ORDER BY "t0"."id" ASC LIMIT $3${lock}`,
+            sql: `SELECT "t0"."id" AS "id" FROM "public"."e67_seats" AS "t0" WHERE ("t0"."id" = $1 AND "t0"."orgId" = $2) ORDER BY "t0"."id" ASC LIMIT $3${lock}`,
             // The membership value is the located row's PRE-transition key.
             params: ["st1", reference("org.locate", "id"), 1],
             outputs: { rows: { kind: "rows" } },
@@ -1409,7 +1409,7 @@ for (const substrate of [
                     id: "seat.guard.exists",
                     premise: {
                       kind: "exists",
-                      sql: 'SELECT "t0"."id" AS "id" FROM "e67_seats" AS "t0" WHERE ("t0"."id" = $1 AND "t0"."orgId" = $2) ORDER BY "t0"."id" ASC LIMIT $3',
+                      sql: 'SELECT "t0"."id" AS "id" FROM "public"."e67_seats" AS "t0" WHERE ("t0"."id" = $1 AND "t0"."orgId" = $2) ORDER BY "t0"."id" ASC LIMIT $3',
                       params: ["st1", "o1", 1],
                     },
                     failure: {
@@ -1426,7 +1426,7 @@ for (const substrate of [
               // No adopt to order after the root UPDATE, so the child leads.
               id: "seat.disconnect",
               kind: "write",
-              sql: 'UPDATE "e67_seats" SET "orgId" = NULL WHERE "e67_seats"."id" = $1 RETURNING "id" AS "id"',
+              sql: 'UPDATE "public"."e67_seats" SET "orgId" = NULL WHERE "e67_seats"."id" = $1 RETURNING "id" AS "id"',
               params: ["st1"],
               outputs: {},
               expects: null,
@@ -1465,7 +1465,7 @@ for (const substrate of [
           {
             id: "seat.find",
             kind: "read",
-            sql: `SELECT "t0"."id" AS "id" FROM "e67_seats" AS "t0" WHERE ("t0"."id" = $1 AND "t0"."orgId" = $2) ORDER BY "t0"."id" ASC LIMIT $3${lock}`,
+            sql: `SELECT "t0"."id" AS "id" FROM "public"."e67_seats" AS "t0" WHERE ("t0"."id" = $1 AND "t0"."orgId" = $2) ORDER BY "t0"."id" ASC LIMIT $3${lock}`,
             params: ["st1", reference("org.locate", "id"), 1],
             outputs: {
               rows: { kind: "rows" },
@@ -1492,7 +1492,7 @@ for (const substrate of [
                     id: "seat.guard.exists",
                     premise: {
                       kind: "exists",
-                      sql: 'SELECT "t0"."id" AS "id" FROM "e67_seats" AS "t0" WHERE ("t0"."id" = $1 AND "t0"."orgId" = $2 AND "t0"."id" = $3) ORDER BY "t0"."id" ASC LIMIT $4',
+                      sql: 'SELECT "t0"."id" AS "id" FROM "public"."e67_seats" AS "t0" WHERE ("t0"."id" = $1 AND "t0"."orgId" = $2 AND "t0"."id" = $3) ORDER BY "t0"."id" ASC LIMIT $4',
                       params: ["st1", "o1", "st1", 1],
                     },
                     failure: targetMissing,
@@ -1502,7 +1502,7 @@ for (const substrate of [
             {
               id: "seat.update",
               kind: "write",
-              sql: 'UPDATE "e67_seats" SET "name" = $1 WHERE "e67_seats"."id" = $2 RETURNING "id" AS "id"',
+              sql: 'UPDATE "public"."e67_seats" SET "name" = $1 WHERE "e67_seats"."id" = $2 RETURNING "id" AS "id"',
               params: ["n", "st1"],
               outputs: {},
               expects: substrate.batch
@@ -1732,19 +1732,19 @@ describe("parity D — a polymorphic referenced-identity transition", () => {
     ]);
     // The root moves 1 → 2, addressed by the located pre-transition key …
     expect(compiled.steps[0]).toMatchObject({
-      sql: 'UPDATE "parity_d_posts" SET "id" = $1 WHERE "parity_d_posts"."id" = $2 RETURNING "id" AS "id"',
+      sql: 'UPDATE "public"."parity_d_posts" SET "id" = $1 WHERE "parity_d_posts"."id" = $2 RETURNING "id" AS "id"',
       params: [2, 1],
     });
     // … the adopt writes the private pair with the POST-transition identity …
     expect(compiled.steps[1]).toMatchObject({
-      sql: 'UPDATE "parity_d_comments" SET "commentable_type" = $1, "commentable_id" = CAST($2 AS INTEGER) WHERE "parity_d_comments"."id" = $3 RETURNING "id" AS "id"',
+      sql: 'UPDATE "public"."parity_d_comments" SET "commentable_type" = $1, "commentable_id" = CAST($2 AS INTEGER) WHERE "parity_d_comments"."id" = $3 RETURNING "id" AS "id"',
       params: ["parity.d.v1", 2, 10],
     });
     // … and so does the fresh row. The discriminator is a fixed qualifier of the
     // MEMBERSHIP key, never a member of the target's row key, so the transition
     // touches only the id half of the pair.
     expect(compiled.steps[2]).toMatchObject({
-      sql: 'INSERT INTO "parity_d_comments" ("id", "body", "commentable_type", "commentable_id") VALUES ($1, $2, $3, CAST($4 AS INTEGER))',
+      sql: 'INSERT INTO "public"."parity_d_comments" ("id", "body", "commentable_type", "commentable_id") VALUES ($1, $2, $3, CAST($4 AS INTEGER))',
       params: [11, "fresh", "parity.d.v1", 2],
     });
   });

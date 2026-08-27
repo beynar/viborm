@@ -1,5 +1,5 @@
 import {
-  getOfficialCacheChainCapability,
+  getOfficialCacheChainDefinition,
   getOfficialCacheQueryCapability,
   OFFICIAL_CACHE_NAME,
   registerOfficialCacheChain,
@@ -266,7 +266,7 @@ export function appendResolvedExtension(
 ): ResolvedExtensionChain {
   const definition = normalizeExtensionDefinition(value, schema);
   const incomingCache = getOfficialCacheQueryCapability(definition.query);
-  const existingOfficialCache = getOfficialCacheChainCapability(chain);
+  const existingOfficialCache = getOfficialCacheChainDefinition(chain);
   const incomingDefaultOmit = getOfficialDefaultOmitRequestCapability(
     definition.request
   );

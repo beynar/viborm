@@ -7,6 +7,7 @@
 
 import type { Scalar, ScalarState } from "@schema/scalars";
 import { MigrationError, VibORMErrorCode } from "../../../errors";
+import { renderQualifiedIdentifier } from "../../../sql/identifiers";
 import type { ColumnDef, SchemaSnapshot, TableDef } from "../../types";
 
 // Regex patterns for spatial type detection
@@ -25,6 +26,7 @@ const SPATIAL_TYPE_PATTERNS = [
 // e.g., "INT UNSIGNED" -> "int", "BIGINT(20)" -> "bigint"
 const BASE_TYPE_PATTERN = /[\s(]/;
 
+import type { CatalogRead, CommandNamespaceResolver } from "../../target";
 import {
   type AddColumnOperation,
   type AddForeignKeyOperation,
@@ -47,12 +49,48 @@ import {
   type RenameColumnOperation,
   type RenameTableOperation,
 } from "../base";
-
 import { getMySQLType } from "../type-mapping";
 import type { MigrationCapabilities } from "../types";
-import { introspect } from "./introspect";
+import { type CatalogReader, resolveCatalogNamespace } from "./catalog";
+import { introspect as introspectMySQL } from "./introspect";
+import {
+  mysqlAcquireLockStatement,
+  mysqlLockAnswer,
+  mysqlReleaseLockStatement,
+  mysqlSelectTargetStatement,
+} from "./pinned-session";
 
-export class MySQLMigrationDriver extends MigrationDriver {
+/** MySQL's "table doesn't exist" identity, on both channels it travels by. */
+const MISSING_TABLE_ERRNO = 1146;
+const MISSING_TABLE_SQLSTATE = "42S02";
+
+/**
+ * `GET_LOCK`'s wait bound. A migration command that cannot take the lock within
+ * this window reports `MIGRATION_LOCK_FAILED` instead of waiting forever;
+ * PostgreSQL's `pg_advisory_lock` blocks by contrast, which is its own
+ * documented behaviour.
+ */
+const MIGRATION_LOCK_TIMEOUT_SECONDS = 30;
+
+/**
+ * An error's safe-metadata bag, as untyped data.
+ *
+ * The bag is read reflectively for the same reason the estate resolver reads
+ * `adapter.namespace` that way: it is optional runtime evidence, and reading it
+ * as data keeps this driver from claiming any thrown value already carries it.
+ */
+function readErrorMeta(error: unknown): object {
+  const meta: unknown =
+    typeof error === "object" && error !== null
+      ? Reflect.get(error, "meta")
+      : undefined;
+  return typeof meta === "object" && meta !== null ? meta : {};
+}
+
+export class MySQLMigrationDriver
+  extends MigrationDriver
+  implements CommandNamespaceResolver
+{
   readonly dialect = "mysql" as const;
   readonly driverName = "mysql";
 
@@ -70,7 +108,16 @@ export class MySQLMigrationDriver extends MigrationDriver {
   // INTROSPECTION
   // ===========================================================================
 
-  introspect = introspect;
+  /**
+   * Reads the live catalog for the database THIS driver is bound to.
+   *
+   * The namespace travels as an argument rather than being read from the
+   * connection, so an ambient default database — a pooled session, a proxy, a
+   * URL path nobody re-read — can never decide which estate is introspected.
+   */
+  introspect(executeRaw: CatalogReader): Promise<SchemaSnapshot> {
+    return introspectMySQL(executeRaw, this.namespace);
+  }
 
   // ===========================================================================
   // IDENTIFIER ESCAPING (MySQL uses backticks)
@@ -84,6 +131,32 @@ export class MySQLMigrationDriver extends MigrationDriver {
       );
     }
     return `\`${String(name).replace(/`/g, "``")}\``;
+  }
+
+  /**
+   * THE table-position renderer (§5.1).
+   *
+   * A `"live"` statement names `` `database`.`table` `` so it reaches the bound
+   * database whatever the connection's own default is; an `"artifact"`
+   * statement names the table relative so ONE generated MySQL estate deploys to
+   * `app_dev`, `app_test` and `app_prod` unchanged (§13 rejects embedded
+   * database names in stored artifacts).
+   *
+   * An unbound driver has no database to name, so both destinations render the
+   * bare table and unbound MySQL output stays byte-identical (§12.21). The
+   * database and the object are quoted SEPARATELY, through the one
+   * qualification primitive: handing `database.table` to `escapeIdentifier`
+   * would silently produce one identifier naming a table with a dot in it.
+   */
+  private tableRef(
+    tableName: string,
+    destination: DDLContext["destination"]
+  ): string {
+    return renderQualifiedIdentifier(
+      (name) => this.escapeIdentifier(name),
+      destination === "live" ? this.namespace : undefined,
+      tableName
+    );
   }
 
   // ===========================================================================
@@ -248,7 +321,10 @@ export class MySQLMigrationDriver extends MigrationDriver {
   /**
    * Generates a column definition string for MySQL.
    */
-  protected override generateColumnDef(column: ColumnDef): string {
+  protected override generateColumnDef(
+    column: ColumnDef,
+    _context: DDLContext
+  ): string {
     const parts: string[] = [this.escapeIdentifier(column.name)];
 
     // Handle auto-increment (MySQL uses AUTO_INCREMENT keyword)
@@ -297,9 +373,11 @@ export class MySQLMigrationDriver extends MigrationDriver {
   // DDL GENERATION - Table Operations
   // ===========================================================================
 
-  generateCreateTable(op: CreateTableOperation): string {
+  generateCreateTable(op: CreateTableOperation, context: DDLContext): string {
     const { table } = op;
-    const columnDefs = table.columns.map((col) => this.generateColumnDef(col));
+    const columnDefs = table.columns.map((col) =>
+      this.generateColumnDef(col, context)
+    );
 
     // Primary key
     if (table.primaryKey) {
@@ -325,7 +403,7 @@ export class MySQLMigrationDriver extends MigrationDriver {
         .join(", ");
       let fkDef = `CONSTRAINT ${this.escapeIdentifier(fk.name)} `;
       fkDef += `FOREIGN KEY (${fkCols}) `;
-      fkDef += `REFERENCES ${this.escapeIdentifier(fk.referencedTable)} (${refCols})`;
+      fkDef += `REFERENCES ${this.tableRef(fk.referencedTable, context.destination)} (${refCols})`;
       if (fk.onDelete && fk.onDelete !== "noAction") {
         fkDef += ` ON DELETE ${this.formatReferentialAction(fk.onDelete)}`;
       }
@@ -335,58 +413,65 @@ export class MySQLMigrationDriver extends MigrationDriver {
       columnDefs.push(fkDef);
     }
 
-    const sql = `CREATE TABLE ${this.escapeIdentifier(table.name)} (\n  ${columnDefs.join(",\n  ")}\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin`;
+    const sql = `CREATE TABLE ${this.tableRef(table.name, context.destination)} (\n  ${columnDefs.join(",\n  ")}\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin`;
 
     const statements = [sql];
 
     // Indexes are created separately
     for (const idx of table.indexes) {
       statements.push(
-        this.generateCreateIndex({
-          type: "createIndex",
-          tableName: table.name,
-          index: idx,
-        })
+        this.generateCreateIndex(
+          {
+            type: "createIndex",
+            tableName: table.name,
+            index: idx,
+          },
+          context
+        )
       );
     }
 
     return statements.join(";\n");
   }
 
-  generateDropTable(op: DropTableOperation): string {
+  generateDropTable(op: DropTableOperation, context: DDLContext): string {
     // MySQL doesn't have CASCADE for DROP TABLE in the same way
     // Foreign key checks need to be disabled or FKs dropped first
-    return `DROP TABLE IF EXISTS ${this.escapeIdentifier(op.tableName)}`;
+    return `DROP TABLE IF EXISTS ${this.tableRef(op.tableName, context.destination)}`;
   }
 
-  generateRenameTable(op: RenameTableOperation): string {
-    return `RENAME TABLE ${this.escapeIdentifier(op.from)} TO ${this.escapeIdentifier(op.to)}`;
+  generateRenameTable(op: RenameTableOperation, context: DDLContext): string {
+    // BOTH sides carry the database (§5.1): `RENAME TABLE a TO b` names two
+    // independent tables, and an unqualified destination would move the table
+    // into the connection's default database instead of renaming it in place.
+    return `RENAME TABLE ${this.tableRef(op.from, context.destination)} TO ${this.tableRef(op.to, context.destination)}`;
   }
 
   // ===========================================================================
   // DDL GENERATION - Column Operations
   // ===========================================================================
 
-  generateAddColumn(op: AddColumnOperation): string {
-    const colDef = this.generateColumnDef(op.column);
-    return `ALTER TABLE ${this.escapeIdentifier(op.tableName)} ADD COLUMN ${colDef}`;
+  generateAddColumn(op: AddColumnOperation, context: DDLContext): string {
+    const colDef = this.generateColumnDef(op.column, context);
+    return `ALTER TABLE ${this.tableRef(op.tableName, context.destination)} ADD COLUMN ${colDef}`;
   }
 
-  generateDropColumn(op: DropColumnOperation): string {
-    return `ALTER TABLE ${this.escapeIdentifier(op.tableName)} DROP COLUMN ${this.escapeIdentifier(op.columnName)}`;
+  generateDropColumn(op: DropColumnOperation, context: DDLContext): string {
+    return `ALTER TABLE ${this.tableRef(op.tableName, context.destination)} DROP COLUMN ${this.escapeIdentifier(op.columnName)}`;
   }
 
-  generateRenameColumn(op: RenameColumnOperation): string {
-    // MySQL 8.0+ supports RENAME COLUMN
-    return `ALTER TABLE ${this.escapeIdentifier(op.tableName)} RENAME COLUMN ${this.escapeIdentifier(op.from)} TO ${this.escapeIdentifier(op.to)}`;
+  generateRenameColumn(op: RenameColumnOperation, context: DDLContext): string {
+    // MySQL 8.0+ supports RENAME COLUMN. Column names stay ONE identifier —
+    // only the table position carries the database (§5.1).
+    return `ALTER TABLE ${this.tableRef(op.tableName, context.destination)} RENAME COLUMN ${this.escapeIdentifier(op.from)} TO ${this.escapeIdentifier(op.to)}`;
   }
 
-  generateAlterColumn(op: AlterColumnOperation, _context?: DDLContext): string {
+  generateAlterColumn(op: AlterColumnOperation, context: DDLContext): string {
     const { tableName, columnName, to } = op;
-    const table = this.escapeIdentifier(tableName);
+    const table = this.tableRef(tableName, context.destination);
 
     // Build the new column definition
-    const colDef = this.generateColumnDef(to);
+    const colDef = this.generateColumnDef(to, context);
 
     // If column name changed, use CHANGE COLUMN (which handles rename + alter)
     if (columnName !== to.name) {
@@ -401,7 +486,7 @@ export class MySQLMigrationDriver extends MigrationDriver {
   // DDL GENERATION - Index Operations
   // ===========================================================================
 
-  generateCreateIndex(op: CreateIndexOperation): string {
+  generateCreateIndex(op: CreateIndexOperation, context: DDLContext): string {
     const { tableName, index } = op;
 
     // Validate index type
@@ -447,12 +532,15 @@ export class MySQLMigrationDriver extends MigrationDriver {
     }
     const unique = index.unique ? "UNIQUE " : "";
 
-    return `CREATE ${unique}${indexPrefix}INDEX ${this.escapeIdentifier(index.name)} ON ${this.escapeIdentifier(tableName)} (${cols})`;
+    // The index NAME stays one identifier; the table it is built on carries the
+    // database (§5.1).
+    return `CREATE ${unique}${indexPrefix}INDEX ${this.escapeIdentifier(index.name)} ON ${this.tableRef(tableName, context.destination)} (${cols})`;
   }
 
-  generateDropIndex(op: DropIndexOperation): string {
-    // MySQL DROP INDEX requires ON tableName syntax
-    return `DROP INDEX ${this.escapeIdentifier(op.indexName)} ON ${this.escapeIdentifier(op.tableName)}`;
+  generateDropIndex(op: DropIndexOperation, context: DDLContext): string {
+    // MySQL DROP INDEX requires ON tableName syntax, and that table position is
+    // the one that carries the database — the index name stays bare (§5.1).
+    return `DROP INDEX ${this.escapeIdentifier(op.indexName)} ON ${this.tableRef(op.tableName, context.destination)}`;
   }
 
   // ===========================================================================
@@ -461,7 +549,7 @@ export class MySQLMigrationDriver extends MigrationDriver {
 
   generateAddForeignKey(
     op: AddForeignKeyOperation,
-    _context?: DDLContext
+    context: DDLContext
   ): string {
     const { tableName, fk } = op;
     const cols = fk.columns.map((c) => this.escapeIdentifier(c)).join(", ");
@@ -469,10 +557,10 @@ export class MySQLMigrationDriver extends MigrationDriver {
       .map((c) => this.escapeIdentifier(c))
       .join(", ");
 
-    let sql = `ALTER TABLE ${this.escapeIdentifier(tableName)} `;
+    let sql = `ALTER TABLE ${this.tableRef(tableName, context.destination)} `;
     sql += `ADD CONSTRAINT ${this.escapeIdentifier(fk.name)} `;
     sql += `FOREIGN KEY (${cols}) `;
-    sql += `REFERENCES ${this.escapeIdentifier(fk.referencedTable)} (${refCols})`;
+    sql += `REFERENCES ${this.tableRef(fk.referencedTable, context.destination)} (${refCols})`;
 
     if (fk.onDelete && fk.onDelete !== "noAction") {
       sql += ` ON DELETE ${this.formatReferentialAction(fk.onDelete)}`;
@@ -486,39 +574,32 @@ export class MySQLMigrationDriver extends MigrationDriver {
 
   generateDropForeignKey(
     op: DropForeignKeyOperation,
-    _context?: DDLContext
+    context: DDLContext
   ): string {
-    return `ALTER TABLE ${this.escapeIdentifier(op.tableName)} DROP FOREIGN KEY ${this.escapeIdentifier(op.fkName)}`;
-  }
-
-  /**
-   * MySQL ignores DROP TABLE ... CASCADE, so a reset must drop every FK
-   * constraint first to allow dropping tables in any order.
-   */
-  override getPreResetStatements(snapshot: SchemaSnapshot): string[] {
-    return snapshot.tables.flatMap((table) =>
-      table.foreignKeys.map(
-        (fk) =>
-          `ALTER TABLE ${this.escapeIdentifier(table.name)} DROP FOREIGN KEY ${this.escapeIdentifier(fk.name)}`
-      )
-    );
+    return `ALTER TABLE ${this.tableRef(op.tableName, context.destination)} DROP FOREIGN KEY ${this.escapeIdentifier(op.fkName)}`;
   }
 
   // ===========================================================================
   // DDL GENERATION - Unique Constraint Operations
   // ===========================================================================
 
-  generateAddUniqueConstraint(op: AddUniqueConstraintOperation): string {
+  generateAddUniqueConstraint(
+    op: AddUniqueConstraintOperation,
+    context: DDLContext
+  ): string {
     const { tableName, constraint } = op;
     const cols = constraint.columns
       .map((c) => this.escapeIdentifier(c))
       .join(", ");
-    return `ALTER TABLE ${this.escapeIdentifier(tableName)} ADD CONSTRAINT ${this.escapeIdentifier(constraint.name)} UNIQUE (${cols})`;
+    return `ALTER TABLE ${this.tableRef(tableName, context.destination)} ADD CONSTRAINT ${this.escapeIdentifier(constraint.name)} UNIQUE (${cols})`;
   }
 
-  generateDropUniqueConstraint(op: DropUniqueConstraintOperation): string {
+  generateDropUniqueConstraint(
+    op: DropUniqueConstraintOperation,
+    context: DDLContext
+  ): string {
     // MySQL uses DROP INDEX for unique constraints
-    return `ALTER TABLE ${this.escapeIdentifier(op.tableName)} DROP INDEX ${this.escapeIdentifier(op.constraintName)}`;
+    return `ALTER TABLE ${this.tableRef(op.tableName, context.destination)} DROP INDEX ${this.escapeIdentifier(op.constraintName)}`;
   }
 
   // ===========================================================================
@@ -527,21 +608,21 @@ export class MySQLMigrationDriver extends MigrationDriver {
 
   generateAddPrimaryKey(
     op: AddPrimaryKeyOperation,
-    _context?: DDLContext
+    context: DDLContext
   ): string {
     const { tableName, primaryKey } = op;
     const cols = primaryKey.columns
       .map((c) => this.escapeIdentifier(c))
       .join(", ");
-    return `ALTER TABLE ${this.escapeIdentifier(tableName)} ADD PRIMARY KEY (${cols})`;
+    return `ALTER TABLE ${this.tableRef(tableName, context.destination)} ADD PRIMARY KEY (${cols})`;
   }
 
   generateDropPrimaryKey(
     op: DropPrimaryKeyOperation,
-    _context?: DDLContext
+    context: DDLContext
   ): string {
     // MySQL doesn't name primary keys in DROP
-    return `ALTER TABLE ${this.escapeIdentifier(op.tableName)} DROP PRIMARY KEY`;
+    return `ALTER TABLE ${this.tableRef(op.tableName, context.destination)} DROP PRIMARY KEY`;
   }
 
   // ===========================================================================
@@ -549,17 +630,17 @@ export class MySQLMigrationDriver extends MigrationDriver {
   // MySQL doesn't have standalone enum types - they're part of column defs
   // ===========================================================================
 
-  generateCreateEnum(_op: CreateEnumOperation, _context?: DDLContext): string {
+  generateCreateEnum(_op: CreateEnumOperation, _context: DDLContext): string {
     // MySQL enums are inline with column definitions
     return "-- MySQL: ENUM type is part of column definition";
   }
 
-  generateDropEnum(_op: DropEnumOperation, _context?: DDLContext): string {
+  generateDropEnum(_op: DropEnumOperation, _context: DDLContext): string {
     // No standalone enum to drop
     return "-- MySQL: ENUM type is part of column definition";
   }
 
-  generateAlterEnum(op: AlterEnumOperation, context?: DDLContext): string {
+  generateAlterEnum(op: AlterEnumOperation, context: DDLContext): string {
     // To alter an enum in MySQL, we need to MODIFY COLUMN for each dependent column
     const { enumName, newValues, dependentColumns } = op;
 
@@ -578,10 +659,10 @@ export class MySQLMigrationDriver extends MigrationDriver {
     // holding a removed value, MODIFY errors in strict mode. Replacement
     // targets must already exist in the old enum (surviving values or NULL);
     // mapping to a value added in the same alter is not supported.
-    statements.push(...this.buildEnumReplacementUpdates(op));
+    statements.push(...this.buildMySQLEnumReplacementUpdates(op, context));
 
     for (const dep of dependentColumns) {
-      const currentTable = context?.currentSchema?.tables.find(
+      const currentTable = context.currentSchema?.tables.find(
         (t) => t.name === dep.tableName
       );
       const column = currentTable?.columns.find(
@@ -595,7 +676,7 @@ export class MySQLMigrationDriver extends MigrationDriver {
         continue;
       }
 
-      const table = this.escapeIdentifier(dep.tableName);
+      const table = this.tableRef(dep.tableName, context.destination);
       const col = this.escapeIdentifier(dep.columnName);
       const nullable = column.nullable ? "" : " NOT NULL";
       const defaultVal =
@@ -609,12 +690,134 @@ export class MySQLMigrationDriver extends MigrationDriver {
     return statements.join(";\n");
   }
 
+  /**
+   * The enum-replacement UPDATEs, with their table position qualified (§5.1).
+   *
+   * `MigrationDriver.buildEnumReplacementUpdates` renders the same statements
+   * database-relative and takes no `DDLContext`, so it cannot express a live
+   * table position; `base.ts` is shared with the PostgreSQL and SQLite dialects
+   * and is owned by no unit of this change, so MySQL renders its own text here
+   * and keeps the SHARED decision — which surviving value (or NULL) replaces a
+   * removed one — in `getEnumValueReplacement`.
+   *
+   * With no namespace or an artifact destination this produces the base
+   * builder's exact bytes.
+   */
+  private buildMySQLEnumReplacementUpdates(
+    op: AlterEnumOperation,
+    context: DDLContext
+  ): string[] {
+    const { removeValues, dependentColumns } = op;
+    if (!(removeValues?.length && dependentColumns?.length)) {
+      return [];
+    }
+
+    const statements: string[] = [];
+    for (const { tableName, columnName } of dependentColumns) {
+      const table = this.tableRef(tableName, context.destination);
+      const column = this.escapeIdentifier(columnName);
+      for (const removedValue of removeValues) {
+        const replacement = this.getEnumValueReplacement(
+          op,
+          tableName,
+          columnName,
+          removedValue
+        );
+        if (replacement === undefined) {
+          continue;
+        }
+        const newValue =
+          replacement === null ? "NULL" : this.escapeValue(replacement);
+        statements.push(
+          `UPDATE ${table} SET ${column} = ${newValue} WHERE ${column} = ${this.escapeValue(removedValue)}`
+        );
+      }
+    }
+    return statements;
+  }
+
   // ===========================================================================
   // MIGRATION TRACKING TABLE
   // ===========================================================================
 
+  /**
+   * MySQL reports a missing table as error 1146, SQLSTATE `42S02`.
+   *
+   * Both spellings are read because that is where the identity actually
+   * survives VibORM's error normalization. A live mysql2 failure normalizes to
+   * `meta = { providerErrno: 1146, providerSqlState: "42S02" }` and carries NO
+   * `providerCode`: mysql2's own `code` is `ER_NO_SUCH_TABLE`, which is not on
+   * the safe-metadata code allowlist and is dropped
+   * (`src/errors/diagnostic-safety.ts`). The base class's shared
+   * `describeProviderFailure` publishes only `providerCode`, so it cannot see
+   * either fact — hence the local read.
+   *
+   * Neither channel subsumes the other: `providerErrno` requires a numeric
+   * `errno` on the provider error, while `providerSqlState` also has a
+   * message-extraction fallback (`src/drivers/driver-error-context.ts`), so a
+   * transport carrying only one of the two still resolves.
+   *
+   * As on PostgreSQL, exactness comes from the STATEMENT rather than the
+   * message: VibORM's error normalization redacts provider text, so the table
+   * name never survives, and this is asked only about the failure of the
+   * applied-state SELECT — one statement, one table, database existence already
+   * proven. A missing database is therefore never mistaken for an empty estate.
+   */
+  override isMissingTrackingTable(error: unknown, _tableName: string): boolean {
+    const meta = readErrorMeta(error);
+    return (
+      Reflect.get(meta, "providerErrno") === MISSING_TABLE_ERRNO ||
+      Reflect.get(meta, "providerSqlState") === MISSING_TABLE_SQLSTATE
+    );
+  }
+
+  /**
+   * Proves the configured database exists (§5.2).
+   *
+   * The proof IS the resolution ({@link resolveCommandNamespace}), and no
+   * migration command reaches this arm: the shared owner asks a dialect that
+   * answers a spelling for that spelling instead, so `status()`, `pending()`
+   * and a dry push all keep the answer rather than discarding it here. The
+   * override remains because the base class's proof is part of the dialect
+   * contract and its default answers "nothing to prove", which is false for a
+   * dialect whose estates are database-relative — an unlocked caller that only
+   * wants the fact must not get a silent yes.
+   */
+  override async proveNamespaceExists(
+    executeRaw: CatalogReader
+  ): Promise<void> {
+    await this.resolveCommandNamespace(executeRaw);
+  }
+
+  /**
+   * Proves the configured database exists and answers the SERVER's spelling of
+   * it, for the length of one command (§5.2).
+   *
+   * ONE `information_schema.SCHEMATA` read, with the configured name BOUND as
+   * data. `DATABASE()` would answer with the connection's ambient default, and
+   * an inference is exactly what this proof exists to remove: it would report
+   * an existing sibling database as proof that the configured one is there.
+   *
+   * The answer matters because the read is deliberately case-insensitive:
+   * `lower_case_table_names` can make a differently cased configured value name
+   * the same physical database, so one case-folded candidate is accepted (see
+   * `catalog.ts`). Under that acceptance the configured spelling is NOT what
+   * the server has — `USE` fails on it, `TABLE_SCHEMA = ?` matches nothing, and
+   * a reset inventory that binds it reports an existing database as empty. The
+   * command-driver owner therefore binds this spelling onto the command's
+   * driver view — for locked and read-only commands alike — and every statement
+   * below renders from it.
+   */
+  async resolveCommandNamespace(read: CatalogRead): Promise<string> {
+    return await resolveCatalogNamespace(read, this.namespace);
+  }
+
+  // Tracking and inventory statements exist only to touch live state — there is
+  // no artifact form of a tracking write or a reset inventory — so each one
+  // carries the bound namespace unconditionally (§5.1).
+
   generateCreateTrackingTable(tableName: string): string {
-    const table = this.escapeIdentifier(tableName);
+    const table = this.tableRef(tableName, "live");
     return `CREATE TABLE IF NOT EXISTS ${table} (
   id INT AUTO_INCREMENT PRIMARY KEY,
   name VARCHAR(255) NOT NULL UNIQUE,
@@ -623,11 +826,16 @@ export class MySQLMigrationDriver extends MigrationDriver {
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin`;
   }
 
+  override generateSelectAppliedMigrations(tableName: string): string {
+    const table = this.tableRef(tableName, "live");
+    return `SELECT name, checksum, applied_at FROM ${table} ORDER BY id ASC`;
+  }
+
   generateInsertMigration(tableName: string): {
     sql: string;
     paramCount: number;
   } {
-    const table = this.escapeIdentifier(tableName);
+    const table = this.tableRef(tableName, "live");
     return {
       sql: `INSERT INTO ${table} (name, checksum) VALUES (?, ?)`,
       paramCount: 2,
@@ -638,45 +846,141 @@ export class MySQLMigrationDriver extends MigrationDriver {
     sql: string;
     paramCount: number;
   } {
-    const table = this.escapeIdentifier(tableName);
+    const table = this.tableRef(tableName, "live");
     return {
       sql: `DELETE FROM ${table} WHERE name = ?`,
       paramCount: 1,
     };
   }
 
+  override generateClearMigrations(tableName: string): string {
+    return `DELETE FROM ${this.tableRef(tableName, "live")}`;
+  }
+
+  override generateDropTableSQL(tableName: string): string {
+    return `DROP TABLE IF EXISTS ${this.tableRef(tableName, "live")}`;
+  }
+
   // ===========================================================================
   // MIGRATION LOCKING
   // ===========================================================================
 
-  generateAcquireLock(lockId: number): string | null {
-    // MySQL uses GET_LOCK for advisory locking
-    // Returns 1 if lock acquired, 0 if timeout, NULL if error
-    return `SELECT GET_LOCK('viborm_migration_${lockId}', 30)`;
+  /**
+   * MySQL named locks are per-SERVER, not per-database, so a single global name
+   * would serialize every database on the instance and a per-connection name
+   * would serialize none. The name is derived from the configured database
+   * (`mysqlMigrationLockName`), which is also why an unbound driver has no lock
+   * to take: there is no scope to name.
+   *
+   * `lockId` is deliberately unused. It was the whole identity before; keeping
+   * it in the name would only add a constant, and the scope that matters is the
+   * database.
+   */
+  generateAcquireLock(_lockId: number): string | null {
+    return mysqlAcquireLockStatement(
+      this.requireLockScope(),
+      MIGRATION_LOCK_TIMEOUT_SECONDS,
+      (value) => this.escapeValue(value)
+    );
   }
 
-  generateReleaseLock(lockId: number): string | null {
-    return `SELECT RELEASE_LOCK('viborm_migration_${lockId}')`;
+  generateReleaseLock(_lockId: number): string | null {
+    return mysqlReleaseLockStatement(this.requireLockScope(), (value) =>
+      this.escapeValue(value)
+    );
   }
 
-  generateResetSQL(): string[] {
-    // MySQL requires disabling foreign key checks to drop tables
-    return [
-      "SET FOREIGN_KEY_CHECKS = 0",
-      // Tables will be dropped programmatically
-      "SET FOREIGN_KEY_CHECKS = 1",
-    ];
+  override provesLockAcquired(rows: readonly unknown[]): boolean {
+    return mysqlLockAnswer(rows, "acquired");
+  }
+
+  override provesLockReleased(rows: readonly unknown[]): boolean {
+    return mysqlLockAnswer(rows, "released");
+  }
+
+  /**
+   * The one admitted `USE`, spelled by the pinned-session owner (§13). It is
+   * reachable only from a pinned migration session, which destroys its
+   * connection afterwards, so the selection cannot leak into pooled traffic.
+   *
+   * On the command's own driver view `this.namespace` is the spelling the
+   * SERVER answered with, which is the only one `USE` is guaranteed to accept:
+   * on a case-sensitive server the configured `ProbeCase` is not the existing
+   * `probecase`, and selecting it is a raw `Unknown database` error after a
+   * proof that just admitted the database.
+   */
+  override generateSelectTarget(): string | null {
+    if (this.namespace === undefined) {
+      return null;
+    }
+    return mysqlSelectTargetStatement(this.namespace, (name) =>
+      this.escapeIdentifier(name)
+    );
+  }
+
+  /**
+   * The database whose migrations this lock serializes.
+   *
+   * An unbound driver is refused rather than falling back to a server-wide
+   * name: a lock that covers every database on the instance is not this
+   * estate's lock, and one that covers none protects nothing. No admitted path
+   * reaches here unbound — the admission owner gates every locking command on
+   * the resolved namespace first.
+   */
+  private requireLockScope(): string {
+    if (this.namespace === undefined) {
+      throw new MigrationError(
+        "This MySQL migration driver is not bound to a database, so there is no lock scope to name. " +
+          "A MySQL named lock is server-wide, and VibORM will not take one that covers every database on the instance. Supply the live destination explicitly, in the connection URL, or through the driver's database option.",
+        VibORMErrorCode.MIGRATION_INVALID_STATE,
+        { meta: { dialect: "mysql", type: "unbound-database" } }
+      );
+    }
+    return this.namespace;
   }
 
   // ===========================================================================
   // SCHEMA INTROSPECTION HELPERS
   // ===========================================================================
 
-  generateListTables(): string {
-    return `SELECT TABLE_NAME AS name FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = 'BASE TABLE' ORDER BY TABLE_NAME`;
+  /**
+   * The reset inventory, filtered on the bound database.
+   *
+   * `DATABASE()` had to go: with a connection whose default database is not the
+   * configured one, it inventories — and therefore drops — a database this
+   * client never targeted.
+   *
+   * The bound name is the command's own spelling (§5.2): `information_schema`
+   * rows carry the server's, so binding a case-folded configured spelling here
+   * matches nothing and reports an existing database as empty — an inventory
+   * that decides what a reset DROPS cannot be answered by the wrong catalog.
+   *
+   * An unbound driver REFUSES rather than rendering a statement (plan §14,
+   * 2026-08-27 — the one declared exception to §12.21's unbound byte-freeze).
+   * There is no third option worth having: the baseline `DATABASE()` form is
+   * the ambient target this feature exists to remove, and `= NULL` matches
+   * nothing, so `reset` would inventory nothing, drop nothing, and report
+   * success over a database it never looked at. No admitted command path
+   * reaches here unbound — every caller is an effectful command the admission
+   * owner has already gated — so this is what an unreachable arm does when it
+   * is reached anyway.
+   */
+  generateInventoryTables(): { sql: string; params: unknown[] } {
+    if (this.namespace === undefined) {
+      throw new MigrationError(
+        "This MySQL migration driver is not bound to a database, so there is no table inventory to read. " +
+          "VibORM will not fall back to the connection's ambient default database here: a reset inventory decides what gets DROPPED. Supply the live destination explicitly, in the connection URL, or through the driver's database option.",
+        VibORMErrorCode.MIGRATION_INVALID_STATE,
+        { meta: { dialect: "mysql", type: "unbound-database" } }
+      );
+    }
+    return {
+      sql: "SELECT TABLE_NAME AS name FROM information_schema.TABLES WHERE TABLE_SCHEMA = ? AND TABLE_TYPE = 'BASE TABLE' ORDER BY TABLE_NAME",
+      params: [this.namespace],
+    };
   }
 
-  generateListEnums(): string | null {
+  generateInventoryEnums(): { sql: string; params: unknown[] } | null {
     // MySQL doesn't have standalone enum types
     return null;
   }

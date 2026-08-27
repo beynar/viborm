@@ -513,7 +513,8 @@ describe("official cache reads", () => {
     const fakeScope: object = Reflect.construct(Object, []);
     Reflect.defineProperty(fakeScope, "namespace", {
       enumerable: true,
-      value: "viborm:cache:r1:u",
+      value:
+        "viborm:cache:r2:d:0070006f0073007400670072006500730071006c:k:007000750062006c00690063:u",
     });
     const publicCalls = [
       () =>
@@ -574,7 +575,8 @@ describe("official cache reads", () => {
 
   test("reserves the official namespace on normal public cache calls", async () => {
     const cacheDriver = new RecordingCache();
-    const reservedKey = "viborm:cache:r1:u:author:findMany:forged";
+    const reservedKey =
+      "viborm:cache:r2:d:0070006f0073007400670072006500730071006c:k:007000750062006c00690063:u:author:findMany:forged";
     const publicCalls = [
       () => cacheDriver._get(reservedKey),
       () => cacheDriver._set(reservedKey, 1, { ttl: 1000 }),

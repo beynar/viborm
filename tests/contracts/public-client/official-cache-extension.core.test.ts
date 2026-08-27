@@ -1,5 +1,9 @@
 import { MemoryCache } from "@cache/drivers/memory";
-import { cache, getOfficialCacheChainCapability } from "@cache/extension";
+import {
+  cache,
+  getOfficialCacheChainCapability,
+  getOfficialCacheChainDefinition,
+} from "@cache/extension";
 import {
   createClient as createPGliteClient,
   PGliteDriver,
@@ -29,6 +33,12 @@ function applyUnsafe(client: object, extension: unknown): object {
   return Reflect.apply(Reflect.get(client, "$extends"), client, [extension]);
 }
 
+/**
+ * Append with no client and therefore no driver. Such a chain carries the cache
+ * DEFINITION only: the scope partitions on dialect and SQL namespace, which do
+ * not exist until a client composition root binds the chain, so every assertion
+ * here reads the definition rather than a bound capability.
+ */
 function appendOfficial(
   extension: unknown,
   chain?: ResolvedExtensionChain
@@ -62,8 +72,9 @@ describe("official cache extension foundation", () => {
 
     const extension = cache(config);
     const chain = appendOfficial(extension);
-    const capability = getOfficialCacheChainCapability(chain);
+    const capability = getOfficialCacheChainDefinition(chain);
 
+    expect(getOfficialCacheChainCapability(chain)).toBeUndefined();
     expect(extension.name).toBe("viborm.cache");
     expect(Reflect.ownKeys(extension)).toEqual(["name", "query"]);
     expect(Object.isFrozen(extension)).toBe(true);
@@ -89,12 +100,12 @@ describe("official cache extension foundation", () => {
       cache({ driver, version: "second", waitUntil: secondWaitUntil })
     );
 
-    expect(getOfficialCacheChainCapability(first)).toMatchObject({
+    expect(getOfficialCacheChainDefinition(first)).toMatchObject({
       driver,
       version: "first",
       waitUntil: firstWaitUntil,
     });
-    expect(getOfficialCacheChainCapability(second)).toMatchObject({
+    expect(getOfficialCacheChainDefinition(second)).toMatchObject({
       driver,
       version: "second",
       waitUntil: secondWaitUntil,

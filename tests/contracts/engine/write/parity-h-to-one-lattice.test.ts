@@ -299,7 +299,7 @@ const CREATE_TERMINAL_EXPECTS = {
 };
 
 const HUB_ROW_SQL =
-  'SELECT "t0"."id" AS "id" FROM "ph_hubs" AS "t0" WHERE "t0"."id" = $1 LIMIT 1';
+  'SELECT "t0"."id" AS "id" FROM "public"."ph_hubs" AS "t0" WHERE "t0"."id" = $1 LIMIT 1';
 
 /** The planning outputs map is mechanically `<step>.<output>` for every statement
  *  output a planning step publishes — the rule, not a copy of what the engine did. */
@@ -372,7 +372,7 @@ function hubUpdate(
 ): Step {
   return write(
     "hub.update",
-    `UPDATE "ph_hubs" SET ${setClause} WHERE "ph_hubs"."id" = $${params.length} RETURNING "id" AS "id"`,
+    `UPDATE "public"."ph_hubs" SET ${setClause} WHERE "ph_hubs"."id" = $${params.length} RETURNING "id" AS "id"`,
     params,
     substrate.batch
       ? null
@@ -410,9 +410,9 @@ const KNOWN = {
 // =============================================================================
 
 const OWNER_ROW_SQL =
-  'SELECT "t0"."id" AS "id" FROM "ph_owners" AS "t0" WHERE "t0"."id" = $1 LIMIT 1';
+  'SELECT "t0"."id" AS "id" FROM "public"."ph_owners" AS "t0" WHERE "t0"."id" = $1 LIMIT 1';
 const BADGE_BY_ID_SQL =
-  'SELECT "t0"."id" AS "id" FROM "ph_badges" AS "t0" WHERE "t0"."id" = $1 LIMIT 1';
+  'SELECT "t0"."id" AS "id" FROM "public"."ph_badges" AS "t0" WHERE "t0"."id" = $1 LIMIT 1';
 
 const CONNECT_OWNER_MISSING = {
   kind: "nestedWrite",
@@ -436,22 +436,22 @@ const BADGE_UPDATE_MISSING = {
 
 const BADGE_DISCONNECT = write(
   "badge.disconnect",
-  'UPDATE "ph_badges" SET "hubId" = NULL WHERE "ph_badges"."hubId" = $1',
+  'UPDATE "public"."ph_badges" SET "hubId" = NULL WHERE "ph_badges"."hubId" = $1',
   ["h1"]
 );
 const BADGE_DELETE = write(
   "badge.deleteMany",
-  'DELETE FROM "ph_badges" WHERE "ph_badges"."hubId" = $1',
+  'DELETE FROM "public"."ph_badges" WHERE "ph_badges"."hubId" = $1',
   ["h1"]
 );
 const BADGE_CREATE = write(
   "badge.create",
-  'INSERT INTO "ph_badges" ("id", "tag", "hubId") VALUES ($1, $2, CAST($3 AS TEXT))',
+  'INSERT INTO "public"."ph_badges" ("id", "tag", "hubId") VALUES ($1, $2, CAST($3 AS TEXT))',
   ["b9", "fresh", "h1"]
 );
 const BADGE_CONNECT = write(
   "badge.connect",
-  'UPDATE "ph_badges" SET "hubId" = CAST($1 AS TEXT) WHERE "ph_badges"."id" = $2 RETURNING "id" AS "id"',
+  'UPDATE "public"."ph_badges" SET "hubId" = CAST($1 AS TEXT) WHERE "ph_badges"."id" = $2 RETURNING "id" AS "id"',
   ["h1", "b-alt"]
 );
 
@@ -519,7 +519,7 @@ for (const substrate of SUBSTRATES) {
         [
           write(
             "owner.create",
-            'INSERT INTO "ph_owners" ("id", "name") VALUES ($1, $2)',
+            'INSERT INTO "public"."ph_owners" ("id", "name") VALUES ($1, $2)',
             ["o9", "fresh"]
           ),
           hubUpdate(substrate, '"ownerId" = CAST($1 AS TEXT)', ["o9", "h1"]),
@@ -576,7 +576,7 @@ for (const substrate of SUBSTRATES) {
           hubLocate(substrate),
           read(
             "badge.find",
-            `SELECT "t0"."id" AS "id" FROM "ph_badges" AS "t0" WHERE "t0"."hubId" = $1 ORDER BY "t0"."id" ASC LIMIT $2${substrate.batch ? "" : " FOR UPDATE"}`,
+            `SELECT "t0"."id" AS "id" FROM "public"."ph_badges" AS "t0" WHERE "t0"."hubId" = $1 ORDER BY "t0"."id" ASC LIMIT $2${substrate.batch ? "" : " FOR UPDATE"}`,
             // The parent value is a planning-internal reference, never a literal.
             [reference("hub.locate", "id"), 1],
             { rows: ROWS, id: firstRowField("id") },
@@ -586,7 +586,7 @@ for (const substrate of SUBSTRATES) {
         [
           guard(
             "badge.guard.exists",
-            'SELECT "t0"."id" AS "id" FROM "ph_badges" AS "t0" WHERE ("t0"."hubId" = $1 AND "t0"."id" = $2) ORDER BY "t0"."id" ASC LIMIT $3',
+            'SELECT "t0"."id" AS "id" FROM "public"."ph_badges" AS "t0" WHERE ("t0"."hubId" = $1 AND "t0"."id" = $2) ORDER BY "t0"."id" ASC LIMIT $3',
             ["h1", "b-alt", 1],
             BADGE_UPDATE_MISSING
           ),
@@ -594,7 +594,7 @@ for (const substrate of SUBSTRATES) {
         [
           write(
             "badge.update",
-            'UPDATE "ph_badges" SET "tag" = $1 WHERE "ph_badges"."id" = $2 RETURNING "id" AS "id"',
+            'UPDATE "public"."ph_badges" SET "tag" = $1 WHERE "ph_badges"."id" = $2 RETURNING "id" AS "id"',
             ["t", "b-alt"],
             substrate.batch
               ? null
@@ -657,7 +657,7 @@ for (const substrate of SUBSTRATES) {
     const supplierProbe = (columns: string) =>
       read(
         "badge.find#1",
-        `SELECT ${columns} FROM "ph_badges" AS "t0" WHERE "t0"."id" = $1 LIMIT 1${substrate.batch ? "" : " FOR UPDATE"}`,
+        `SELECT ${columns} FROM "public"."ph_badges" AS "t0" WHERE "t0"."id" = $1 LIMIT 1${substrate.batch ? "" : " FOR UPDATE"}`,
         ["b-alt"],
         { rows: ROWS }
       );
@@ -705,7 +705,7 @@ for (const substrate of SUBSTRATES) {
         [
           guard(
             "badge.guard.exists",
-            'SELECT "t0"."id" AS "id", "t0"."hubId" AS "hubId" FROM "ph_badges" AS "t0" WHERE ("t0"."id" = $1 AND "t0"."id" = $2) ORDER BY "t0"."id" ASC LIMIT $3',
+            'SELECT "t0"."id" AS "id", "t0"."hubId" AS "hubId" FROM "public"."ph_badges" AS "t0" WHERE ("t0"."id" = $1 AND "t0"."id" = $2) ORDER BY "t0"."id" ASC LIMIT $3',
             ["b-alt", "b-alt", 1],
             {
               kind: "nestedWrite",
@@ -720,7 +720,7 @@ for (const substrate of SUBSTRATES) {
           BADGE_DISCONNECT,
           write(
             "badge.update",
-            'UPDATE "ph_badges" SET "hubId" = CAST($1 AS TEXT) WHERE "ph_badges"."id" = $2 RETURNING "id" AS "id", "hubId" AS "hubId"',
+            'UPDATE "public"."ph_badges" SET "hubId" = CAST($1 AS TEXT) WHERE "ph_badges"."id" = $2 RETURNING "id" AS "id", "hubId" AS "hubId"',
             ["h1", "b-alt"],
             substrate.batch
               ? null
@@ -784,7 +784,7 @@ for (const substrate of SUBSTRATES) {
 
     const membershipProbe = read(
       "badge.find",
-      `SELECT "t0"."id" AS "id" FROM "ph_badges" AS "t0" WHERE "t0"."hubId" = $1 ORDER BY "t0"."id" ASC LIMIT $2${substrate.batch ? "" : " FOR UPDATE"}`,
+      `SELECT "t0"."id" AS "id" FROM "public"."ph_badges" AS "t0" WHERE "t0"."hubId" = $1 ORDER BY "t0"."id" ASC LIMIT $2${substrate.batch ? "" : " FOR UPDATE"}`,
       [reference("hub.locate", "id"), 1],
       {
         rows: ROWS,
@@ -805,7 +805,7 @@ for (const substrate of SUBSTRATES) {
                 HUB_ROOT_GUARD,
                 guard(
                   "badge.guard.exists",
-                  'SELECT "t0"."id" AS "id" FROM "ph_badges" AS "t0" WHERE ("t0"."hubId" = $1 AND "t0"."id" = $2) ORDER BY "t0"."id" ASC LIMIT $3',
+                  'SELECT "t0"."id" AS "id" FROM "public"."ph_badges" AS "t0" WHERE ("t0"."hubId" = $1 AND "t0"."id" = $2) ORDER BY "t0"."id" ASC LIMIT $3',
                   ["h1", "b-alt", 1],
                   {
                     kind: "nestedWrite",
@@ -819,7 +819,7 @@ for (const substrate of SUBSTRATES) {
             : []),
           write(
             "badge.update",
-            'UPDATE "ph_badges" SET "tag" = $1 WHERE "ph_badges"."id" = $2 RETURNING "id" AS "id"',
+            'UPDATE "public"."ph_badges" SET "tag" = $1 WHERE "ph_badges"."id" = $2 RETURNING "id" AS "id"',
             ["u", "b-alt"],
             substrate.batch
               ? null
@@ -855,7 +855,7 @@ for (const substrate of SUBSTRATES) {
           ...(substrate.batch ? [HUB_ROOT_GUARD] : []),
           write(
             "badge.create",
-            'INSERT INTO "ph_badges" ("id", "tag", "hubId") VALUES ($1, $2, CAST($3 AS TEXT))',
+            'INSERT INTO "public"."ph_badges" ("id", "tag", "hubId") VALUES ($1, $2, CAST($3 AS TEXT))',
             ["b9", "c", "h1"]
           ),
           hubSelect(substrate),
@@ -875,7 +875,7 @@ for (const substrate of SUBSTRATES) {
         planningOf([
           read(
             "hub.locate",
-            `SELECT "t0"."id" AS "id", "t0"."ownerId" AS "ownerId" FROM "ph_hubs" AS "t0" WHERE "t0"."id" = $1 LIMIT 1${substrate.batch ? "" : " FOR UPDATE"}`,
+            `SELECT "t0"."id" AS "id", "t0"."ownerId" AS "ownerId" FROM "public"."ph_hubs" AS "t0" WHERE "t0"."id" = $1 LIMIT 1${substrate.batch ? "" : " FOR UPDATE"}`,
             ["h1"],
             {
               rows: ROWS,
@@ -886,7 +886,7 @@ for (const substrate of SUBSTRATES) {
           ),
           read(
             "owner.find",
-            `SELECT "t0"."id" AS "id" FROM "ph_owners" AS "t0" WHERE "t0"."id" = $1 ORDER BY "t0"."id" ASC LIMIT $2${substrate.batch ? "" : " FOR UPDATE"}`,
+            `SELECT "t0"."id" AS "id" FROM "public"."ph_owners" AS "t0" WHERE "t0"."id" = $1 ORDER BY "t0"."id" ASC LIMIT $2${substrate.batch ? "" : " FOR UPDATE"}`,
             [reference("hub.locate", "ownerId"), 1],
             {
               rows: ROWS,
@@ -910,7 +910,7 @@ for (const substrate of SUBSTRATES) {
                 HUB_ROOT_GUARD,
                 guard(
                   "owner.guard.exists",
-                  'SELECT "t0"."id" AS "id" FROM "ph_owners" AS "t0" WHERE ("t0"."id" = $1 AND "t0"."id" = $2) ORDER BY "t0"."id" ASC LIMIT $3',
+                  'SELECT "t0"."id" AS "id" FROM "public"."ph_owners" AS "t0" WHERE ("t0"."id" = $1 AND "t0"."id" = $2) ORDER BY "t0"."id" ASC LIMIT $3',
                   ["o1", "o1", 1],
                   {
                     kind: "nestedWrite",
@@ -924,7 +924,7 @@ for (const substrate of SUBSTRATES) {
             : []),
           write(
             "owner.update",
-            'UPDATE "ph_owners" SET "name" = $1 WHERE "ph_owners"."id" = $2 RETURNING "id" AS "id"',
+            'UPDATE "public"."ph_owners" SET "name" = $1 WHERE "ph_owners"."id" = $2 RETURNING "id" AS "id"',
             ["u", "o1"],
             substrate.batch
               ? null
@@ -953,7 +953,7 @@ for (const substrate of SUBSTRATES) {
   describe(`parity H — an inactive to-one payload reaches no compiler (${substrate.name})`, () => {
     const rootOnly = write(
       "hub.update",
-      'UPDATE "ph_hubs" SET "label" = $1 WHERE "ph_hubs"."id" = $2 RETURNING "id" AS "id"',
+      'UPDATE "public"."ph_hubs" SET "label" = $1 WHERE "ph_hubs"."id" = $2 RETURNING "id" AS "id"',
       ["L", "h1"],
       substrate.batch
         ? null
@@ -1013,7 +1013,7 @@ for (const substrate of SUBSTRATES) {
           ...(substrate.batch ? [HUB_ROOT_GUARD] : []),
           write(
             "owner.create",
-            'INSERT INTO "ph_owners" ("id", "name") VALUES ($1, $2)',
+            'INSERT INTO "public"."ph_owners" ("id", "name") VALUES ($1, $2)',
             ["o9", "fresh"]
           ),
           hubUpdate(substrate, '"ownerId" = CAST($1 AS TEXT)', ["o9", "h1"]),
@@ -1078,7 +1078,7 @@ for (const substrate of SUBSTRATES) {
             : []),
           write(
             "hub.create",
-            'INSERT INTO "ph_hubs" ("id", "label", "ownerId") VALUES ($1, $2, CAST($3 AS TEXT))',
+            'INSERT INTO "public"."ph_hubs" ("id", "label", "ownerId") VALUES ($1, $2, CAST($3 AS TEXT))',
             ["h1", "L", "o1"]
           ),
           hubSelect(substrate, true),
@@ -1102,12 +1102,12 @@ for (const substrate of SUBSTRATES) {
         steps: [
           write(
             "owner.create",
-            'INSERT INTO "ph_owners" ("id", "name") VALUES ($1, $2)',
+            'INSERT INTO "public"."ph_owners" ("id", "name") VALUES ($1, $2)',
             ["o9", "fresh"]
           ),
           write(
             "hub.create",
-            'INSERT INTO "ph_hubs" ("id", "label", "ownerId") VALUES ($1, $2, CAST($3 AS TEXT))',
+            'INSERT INTO "public"."ph_hubs" ("id", "label", "ownerId") VALUES ($1, $2, CAST($3 AS TEXT))',
             ["h1", "L", "o9"]
           ),
           // No guard on either substrate: nothing was probed, so nothing is reasserted.
@@ -1148,7 +1148,7 @@ for (const substrate of SUBSTRATES) {
             : []),
           write(
             "hub.create",
-            'INSERT INTO "ph_hubs" ("id", "label", "ownerId") VALUES ($1, $2, NULL)',
+            'INSERT INTO "public"."ph_hubs" ("id", "label", "ownerId") VALUES ($1, $2, NULL)',
             ["h1", "L"]
           ),
           BADGE_CONNECT,
@@ -1173,7 +1173,7 @@ describe("parity H — create root, child-held create: the CTE fold", () => {
       steps: [
         write(
           "hub.create",
-          'WITH "__viborm_mutation" AS (INSERT INTO "ph_hubs" ("id", "label", "ownerId") VALUES ($1, $2, NULL) RETURNING "id", "label", "ownerId"), "__viborm_write_0" AS (INSERT INTO "ph_badges" ("id", "tag", "hubId") VALUES ($3, $4, CAST($5 AS TEXT))) SELECT "t0"."id" AS "id" FROM "__viborm_mutation" AS "t0"',
+          'WITH "__viborm_mutation" AS (INSERT INTO "public"."ph_hubs" ("id", "label", "ownerId") VALUES ($1, $2, NULL) RETURNING "id", "label", "ownerId"), "__viborm_write_0" AS (INSERT INTO "public"."ph_badges" ("id", "tag", "hubId") VALUES ($3, $4, CAST($5 AS TEXT))) SELECT "t0"."id" AS "id" FROM "__viborm_mutation" AS "t0"',
           ["h1", "L", "b9", "fresh", "h1"],
           CREATE_TERMINAL_EXPECTS,
           { result: ROWS }
@@ -1195,7 +1195,7 @@ describe("parity H — create root, child-held create: the CTE fold", () => {
       steps: [
         write(
           "hub.create",
-          'WITH "__viborm_mutation" AS (INSERT INTO "ph_hubs" ("id", "label", "ownerId") VALUES ($1, $2, NULL) RETURNING "id", "label", "ownerId"), "__viborm_write_0" AS (INSERT INTO "ph_badges" ("id", "tag", "hubId") VALUES ($3, $4, CAST($5 AS TEXT))) SELECT "t0"."id" AS "id" FROM "__viborm_mutation" AS "t0"',
+          'WITH "__viborm_mutation" AS (INSERT INTO "public"."ph_hubs" ("id", "label", "ownerId") VALUES ($1, $2, NULL) RETURNING "id", "label", "ownerId"), "__viborm_write_0" AS (INSERT INTO "public"."ph_badges" ("id", "tag", "hubId") VALUES ($3, $4, CAST($5 AS TEXT))) SELECT "t0"."id" AS "id" FROM "__viborm_mutation" AS "t0"',
           ["h1", "L", "b9", "fresh", "h1"],
           null,
           { result: ROWS }
@@ -1668,13 +1668,13 @@ describe("parity H — the compositions the lattice accepts", () => {
         .map((step) => prepared(driver, step));
     expect(probeSql(parentHeld)).toEqual([
       {
-        sql: 'SELECT "t0"."id" AS "id" FROM "ph_owners" AS "t0" WHERE "t0"."id" = $1 ORDER BY "t0"."id" ASC LIMIT $2 FOR UPDATE',
+        sql: 'SELECT "t0"."id" AS "id" FROM "public"."ph_owners" AS "t0" WHERE "t0"."id" = $1 ORDER BY "t0"."id" ASC LIMIT $2 FOR UPDATE',
         params: ["o1", 1],
       },
     ]);
     expect(probeSql(childHeld)).toEqual([
       {
-        sql: 'SELECT "t0"."id" AS "id" FROM "ph_badges" AS "t0" WHERE "t0"."id" = $1 ORDER BY "t0"."id" ASC LIMIT $2 FOR UPDATE',
+        sql: 'SELECT "t0"."id" AS "id" FROM "public"."ph_badges" AS "t0" WHERE "t0"."id" = $1 ORDER BY "t0"."id" ASC LIMIT $2 FOR UPDATE',
         params: ["b-alt", 1],
       },
     ]);

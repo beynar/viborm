@@ -27,6 +27,8 @@ const client = createClient({
 | `pool` | `Pool` | Existing mysql2 pool instance |
 | `options` | `PoolOptions` | mysql2 pool configuration |
 | `databaseUrl` | `string` | MySQL connection URL |
+| `namespace` | `string` | MySQL database for VibORM-owned objects |
+| `migrationNamespaceAttestation` | `"non-redirecting"` | Caller assertion required for effectful migrations |
 
 ### Using Pool Options
 
@@ -63,6 +65,106 @@ const client = createClient({
   schema,
 });
 ```
+
+## Namespace
+
+`namespace` selects the MySQL database holding this driver's tables, junctions,
+indexes, and migration tracking table.
+
+```typescript
+import { createClient } from "viborm/mysql2";
+
+const db = createClient({
+  databaseUrl: "mysql://user:password@localhost:3306/app_dev",
+  namespace: "billing",
+  schema,
+});
+```
+
+```sql
+SELECT `user`.`id` FROM `billing`.`user` AS `user`
+```
+
+The target is resolved once, in this order:
+
+1. an explicit `namespace`;
+2. for a **driver-created** pool, a non-empty database path in `databaseUrl`;
+3. for a **driver-created** pool, `options.database`;
+4. otherwise **unbound** — SQL stays unqualified and is byte-for-byte what it
+   was before this option existed.
+
+A URL overrides copied pool options, and an empty URL path contributes neither a
+namespace nor a pool-database override. Whichever source resolves the target,
+the driver-created pool's default `database` is set to that same value on a
+**copy** of your options — the object you passed in is never mutated, and the
+`databaseUrl` is parsed once at construction and never re-read, so the pool
+cannot be pointed somewhere the resolved target never saw.
+
+:::info
+A pool you supply is opaque. Only an explicit `namespace` binds it; VibORM does
+not read mysql2 internals to guess a target.
+:::
+
+:::warning
+**Behavior change.** A DERIVED database name is validated by the same grammar as
+an explicit `namespace`, so `mysql://host/app-dev` (hyphen) is now refused at
+construction with `ClientInitializationError` where it previously connected and
+ran unqualified. Only an exactly-empty candidate is absent — a whitespace-only
+`options.database` is still a name, and still a refusal. A name VibORM cannot
+qualify later must not bind silently.
+:::
+
+## Effectful migrations need an attestation
+
+A resolved database says which qualifier VibORM emits. It does not prove that a
+qualified `database.table` reference reaches that database — mysql2 is also an
+ordinary Vitess/PlanetScale client, and a proxy can rewrite qualifiers while
+emulating host, handshake, vendor, and server-version evidence.
+
+VibORM performs no backend detection. It asks you instead:
+
+```typescript
+const db = createClient({
+  databaseUrl: process.env.DATABASE_URL,
+  namespace: "billing",
+  migrationNamespaceAttestation: "non-redirecting",
+  schema,
+});
+```
+
+| Work | Needs `namespace` | Needs the attestation |
+|---|---|---|
+| Runtime queries | No (unbound is valid) | No |
+| Offline generation | No | No |
+| Admitted read-only live migration commands | Yes | No |
+| Effectful or concurrency-stable live migration work | Yes | **Yes** |
+
+Omission fails closed, and the value is never inferred from the driver class,
+URL, host, server version, handshake, or the resolved namespace. It is immutable
+across transactions, nested transaction views, and the pinned migration session.
+
+:::warning
+A false assertion can direct destructive work through a rewriting proxy. It is a
+caller-owned safety claim, not a detection feature.
+:::
+
+### `reset` no longer does nothing
+
+MySQL `reset` previously emitted only foreign-key-check toggles, so the CLI reset
+dropped **nothing**. That silent no-op is fixed: reset is now real, the CLI
+confirmation names the target namespace, and effectful reset additionally
+requires the attestation. An unattested driver now **refuses loudly** where it
+used to succeed while doing nothing.
+
+## Portable migration artifacts
+
+Generated MySQL artifacts stay database-relative, so one estate deploys to
+`app_dev`, `app_test`, and `app_prod` unchanged. Execution establishes the
+selected database on one private pinned migration session; live push/reset SQL
+and tracking SQL stay explicitly qualified.
+
+Unqualified raw SQL remains caller-owned and follows the connection's default
+database — see [Namespaces](/docs/drivers/namespaces).
 
 ## Transactions
 

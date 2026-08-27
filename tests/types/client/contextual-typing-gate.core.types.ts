@@ -1408,8 +1408,8 @@ describe("$transaction and push option bags are keyed", () => {
 
 /**
  * The file-based migration commands — `down`, `reset`, `apply`, `squash`,
- * `generate`, `preview`, `createMigrationClient`, `MigrationContext` — take a
- * plain options interface. A FRESH literal is refused by excess-property
+ * `generate`, `preview`, `createMigrationClient` — take a plain options
+ * interface. A FRESH literal is refused by excess-property
  * checking (probed below); a bag held in a variable is NOT, and is pinned as
  * such.
  *

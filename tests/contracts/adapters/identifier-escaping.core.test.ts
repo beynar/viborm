@@ -10,13 +10,16 @@ import { sqliteAdapter } from "@src/adapters/databases/sqlite/sqlite-adapter";
 
 describe("identifier escaping", () => {
   const malicious = 'users"; DROP TABLE users; --';
+  // The stock `postgresAdapter` singleton is bound to the default `public`
+  // schema, so its persistent-table renders carry that prefix; the unbound
+  // MySQL and SQLite singletons carry none.
   const dialects = [
-    ["postgres", postgresAdapter, '"'],
-    ["mysql", mysqlAdapter, "`"],
-    ["sqlite", sqliteAdapter, '"'],
+    ["postgres", postgresAdapter, '"', '"public".'],
+    ["mysql", mysqlAdapter, "`", ""],
+    ["sqlite", sqliteAdapter, '"', ""],
   ] as const;
 
-  for (const [name, adapter, quote] of dialects) {
+  for (const [name, adapter, quote, qualifier] of dialects) {
     describe(`${name} shared identifier builders`, () => {
       test("ordinary and reserved identifiers remain raw and parameter-free", () => {
         const fragments = [
@@ -24,13 +27,15 @@ describe("identifier escaping", () => {
           adapter.identifiers.escape("select"),
           adapter.identifiers.column("users", "email"),
           adapter.identifiers.table("users", "u"),
+          adapter.identifiers.table("users"),
         ];
 
         expect(fragments.map((fragment) => fragment.toStatement())).toEqual([
           "SELECT trusted_sql",
           `${quote}select${quote}`,
           `${quote}users${quote}.${quote}email${quote}`,
-          `${quote}users${quote} AS ${quote}u${quote}`,
+          `${qualifier}${quote}users${quote} AS ${quote}u${quote}`,
+          `${qualifier}${quote}users${quote}`,
         ]);
         expect(
           fragments.every((fragment) => fragment.values.length === 0)
@@ -75,9 +80,9 @@ describe("identifier escaping", () => {
     });
   }
 
-  for (const [name, adapter] of [
-    ["postgres", postgresAdapter],
-    ["sqlite", sqliteAdapter],
+  for (const [name, adapter, qualifier] of [
+    ["postgres", postgresAdapter, '"public".'],
+    ["sqlite", sqliteAdapter, ""],
   ] as const) {
     describe(name, () => {
       test("escape doubles embedded double quotes", () => {
@@ -91,7 +96,7 @@ describe("identifier escaping", () => {
           '"a""b"."c""d"'
         );
         expect(adapter.identifiers.table('t"1', 'a"lias').toStatement()).toBe(
-          '"t""1" AS "a""lias"'
+          `${qualifier}"t""1" AS "a""lias"`
         );
       });
     });

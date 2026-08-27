@@ -6,7 +6,7 @@
  */
 
 import { MigrationError, VibORMErrorCode } from "../../errors";
-import { MigrationContext, type MigrationContextOptions } from "../context";
+import { MigrationContext } from "../context";
 import {
   assertForeignKeysIntact,
   type ForeignKeyBracket,
@@ -15,14 +15,29 @@ import {
 } from "../foreign-keys";
 import { parseStatements } from "../generate/file-writer";
 import type { MigrationClient } from "../push";
-import { formatMigrationFilename } from "../storage";
+import { assertArtifactExecutionSafe } from "../statement-safety";
+import {
+  formatMigrationFilename,
+  type MigrationStorageDriver,
+} from "../storage";
 import type { MigrationEntry } from "../types";
 
 // =============================================================================
 // TYPES
 // =============================================================================
 
-export interface DownOptions extends MigrationContextOptions {
+/**
+ * The fields are inlined rather than inherited: the internal context options
+ * type is not part of the public surface, and a public option type cannot
+ * extend one that is not exported.
+ */
+export interface DownOptions {
+  /** Migrations directory (default: ./migrations) */
+  dir?: string;
+  /** Migration tracking table name (default: _viborm_migrations) */
+  tableName?: string;
+  /** Storage driver for migration files (required) */
+  storageDriver: MigrationStorageDriver;
   /** Number of migrations to roll back (default: 1) */
   steps?: number;
   /** Roll back to a specific migration (by name or index) */
@@ -48,16 +63,24 @@ export interface DownResult {
  * Rolls back applied migrations.
  * Throws MigrationError on failure.
  *
+ * One pre-admission probe runs first, outside the lock: an estate with no
+ * journal returns `{ rolledBack: [] }` having connected to nothing, and an
+ * estate whose journal names another target is refused before the lock exists.
+ * The probe is ADVISORY — the authoritative journal is the one reread under the
+ * lock, so a journal that changes while admission or acquisition is in progress
+ * is still caught.
+ *
  * Everything the decision depends on is read INSIDE the migration lock, in one
  * order:
- * 1. Read the journal (format- and policy-validated by the storage driver)
+ * 1. Reread and revalidate the journal (the authoritative read)
  * 2. Read applied state and recompute the exact group from both
  * 3. Verify checksums for every group entry
  * 4. Refuse the whole group if any entry is irreversible — before any artifact
  *    read, so the two refusals cannot mask each other
  * 5. Refuse the whole group if any entry's down artifact is missing or parses
- *    empty — before the transaction, so no earlier reversible entry has run
- * 6. Execute the down scripts and untrack, in one transaction
+ *    empty — before execution, so no earlier reversible entry has run
+ * 6. Execute the down scripts and untrack, in one transaction where the dialect
+ *    has one to open, and as one sequential program on MySQL, which does not
  *
  * The preflight runs before the dry-run return as well: the CLI confirms
  * against the dry run, so a preview that cannot report a refusal is not a
@@ -76,15 +99,24 @@ export async function down(
 
   const ctx = new MigrationContext(client, options);
 
-  return ctx.withLock(async () => {
-    // 1. Read journal
-    const journal = await ctx.storage.readJournal();
+  // 0. Pre-admission probe. No journal means the documented storage-only
+  // return, with no connection and no lock; a present journal means live work
+  // follows, so the effectful capability is admitted before the lock statement.
+  // A dry run takes the same gate: its answer is a claim about live state.
+  if (!(await ctx.readEstateJournal())) {
+    return { rolledBack: [] };
+  }
+  ctx.admitLive("effectful", "down()");
+
+  return ctx.withLockedSession(async (locked) => {
+    // 1. Reread the journal under the lock — the authoritative input
+    const journal = await locked.readEstateJournal();
     if (!journal) {
       return { rolledBack: [] };
     }
 
     // 2. Get applied migrations
-    const appliedMigrations = await ctx.getAppliedMigrations();
+    const appliedMigrations = await locked.readAppliedMigrations();
     if (appliedMigrations.length === 0) {
       return { rolledBack: [] };
     }
@@ -159,7 +191,7 @@ export async function down(
     // "untrack it anyway".
     const scripts: Array<{ entry: MigrationEntry; statements: string[] }> = [];
     for (const entry of toRollback) {
-      const content = await ctx.storage.readDownMigration(entry);
+      const content = await locked.storage.readDownMigration(entry);
       if (content === null) {
         throw new MigrationError(
           `Migration "${entry.name}" has no down artifact at meta/_down/${formatMigrationFilename(entry)}, so rolling it back would remove its tracking row while leaving its schema changes live. ` +
@@ -177,6 +209,14 @@ export async function down(
           { meta: { migrationName: entry.name } }
         );
       }
+      // Same pre-effect stage as the two refusals above: an artifact that would
+      // end this rollback's transaction or release its migration lock is
+      // refused before ANY entry in the group has run.
+      assertArtifactExecutionSafe(
+        statements,
+        locked.target.dialect,
+        entry.name
+      );
       scripts.push({ entry, statements });
     }
 
@@ -196,7 +236,7 @@ export async function down(
     let bracket: ForeignKeyBracket | null = null;
 
     for (const script of scripts) {
-      const lifted = liftForeignKeyPragmas(ctx.driver, script.statements);
+      const lifted = liftForeignKeyPragmas(locked.driver, script.statements);
       bracket ??= lifted.bracket;
       liftedScripts.push({
         entry: script.entry,
@@ -204,22 +244,32 @@ export async function down(
       });
     }
 
-    return withForeignKeysLifted(ctx.driver, bracket, () =>
-      ctx.transaction(async (txCtx) => {
-        const rolledBack: MigrationEntry[] = [];
+    const runGroup = async (groupCtx: MigrationContext) => {
+      const rolledBack: MigrationEntry[] = [];
 
-        for (const script of liftedScripts) {
-          // Step 6 proved every script non-empty, so execution is
-          // unconditional: tracking is never advanced past SQL that did not run.
-          await txCtx.executeMigrationStatements(script.statements);
-          // Remove from tracking
-          await txCtx.markMigrationRolledBack(script.entry.name);
-          rolledBack.push(script.entry);
-        }
+      for (const script of liftedScripts) {
+        // Step 6 proved every script non-empty, so execution is
+        // unconditional: tracking is never advanced past SQL that did not run.
+        await groupCtx.executeMigrationStatements(script.statements);
+        // Remove from tracking
+        await groupCtx.markMigrationRolledBack(script.entry.name);
+        rolledBack.push(script.entry);
+      }
 
-        await assertForeignKeysIntact(txCtx.driver, bracket);
-        return { rolledBack };
-      })
+      await assertForeignKeysIntact(groupCtx.driver, bracket);
+      return { rolledBack };
+    };
+
+    // 9. The commit model, chosen BEFORE the owner that would open a
+    // transaction. PostgreSQL and SQLite roll the whole group and its tracking
+    // deletes back as one unit. MySQL commits DDL implicitly, so a transaction
+    // here would manufacture that atomicity rather than provide it: the group
+    // runs as ONE sequential program instead, and a failure reports the last
+    // statement that completed rather than a rollback that did not happen.
+    return withForeignKeysLifted(locked.driver, bracket, () =>
+      locked.target.dialect === "mysql"
+        ? locked.sequentialProgram(runGroup)
+        : locked.transaction(runGroup)
     );
   });
 }
@@ -231,7 +281,10 @@ export async function down(
 /**
  * Find a migration index by name.
  */
-function findMigrationIndex(entries: MigrationEntry[], name: string): number {
+function findMigrationIndex(
+  entries: readonly MigrationEntry[],
+  name: string
+): number {
   const entry = entries.find((e) => e.name === name);
   return entry ? entry.idx : -1;
 }

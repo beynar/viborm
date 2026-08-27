@@ -235,7 +235,7 @@ describe("F2 — a RETURNING provider publishes in the INSERT it already sends",
         // as every column (`returningEveryColumn`), because the outer SELECT
         // projects from it. The demand-narrowed list is asserted on the substrates
         // that keep it.
-        sql: 'WITH "__viborm_mutation" AS (INSERT INTO "pkgf_depots" ("id", "name", "slot") VALUES ($1, $2, NULL) RETURNING "id", "name", "serial", "slot"), "__viborm_write_0" AS (INSERT INTO "pkgf_crates" ("id", "depotSerial") VALUES ($3, CAST((SELECT "serial" FROM "__viborm_mutation") AS INTEGER))) SELECT "t0"."id" AS "id" FROM "__viborm_mutation" AS "t0"',
+        sql: 'WITH "__viborm_mutation" AS (INSERT INTO "public"."pkgf_depots" ("id", "name", "slot") VALUES ($1, $2, NULL) RETURNING "id", "name", "serial", "slot"), "__viborm_write_0" AS (INSERT INTO "public"."pkgf_crates" ("id", "depotSerial") VALUES ($3, CAST((SELECT "serial" FROM "__viborm_mutation") AS INTEGER))) SELECT "t0"."id" AS "id" FROM "__viborm_mutation" AS "t0"',
         params: ["d1", "D", "c1"],
         outputs: { result: { kind: "rows" } },
       },
@@ -265,10 +265,10 @@ describe("F2 — a RETURNING provider publishes in the INSERT it already sends",
       merged.match(/\(SELECT "serial" FROM "__viborm_mutation"\)/g)
     ).toHaveLength(2);
     expect(merged).toContain(
-      '"__viborm_write_0" AS (INSERT INTO "pkgf_crates" ("id", "depotSerial") VALUES ($3, CAST((SELECT "serial" FROM "__viborm_mutation") AS INTEGER)))'
+      '"__viborm_write_0" AS (INSERT INTO "public"."pkgf_crates" ("id", "depotSerial") VALUES ($3, CAST((SELECT "serial" FROM "__viborm_mutation") AS INTEGER)))'
     );
     expect(merged).toContain(
-      '"__viborm_write_1" AS (INSERT INTO "pkgf_bins" ("id", "depotSerial") VALUES ($4, CAST((SELECT "serial" FROM "__viborm_mutation") AS INTEGER)))'
+      '"__viborm_write_1" AS (INSERT INTO "public"."pkgf_bins" ("id", "depotSerial") VALUES ($4, CAST((SELECT "serial" FROM "__viborm_mutation") AS INTEGER)))'
     );
   });
 
@@ -308,10 +308,10 @@ describe("F2 — a RETURNING provider publishes in the INSERT it already sends",
     // difference in the SQL, not only in the output keys.
     expect(both).toHaveLength(1);
     expect(both[0].sql).toContain(
-      '"__viborm_write_0" AS (INSERT INTO "pkgf_spans" ("id", "hubId") VALUES ($1, CAST((SELECT "id" FROM "__viborm_mutation") AS INTEGER)))'
+      '"__viborm_write_0" AS (INSERT INTO "public"."pkgf_spans" ("id", "hubId") VALUES ($1, CAST((SELECT "id" FROM "__viborm_mutation") AS INTEGER)))'
     );
     expect(both[0].sql).toContain(
-      '"__viborm_write_1" AS (INSERT INTO "pkgf_marks" ("id", "hubCode") VALUES ($2, CAST((SELECT "code" FROM "__viborm_mutation") AS INTEGER)))'
+      '"__viborm_write_1" AS (INSERT INTO "public"."pkgf_marks" ("id", "hubCode") VALUES ($2, CAST((SELECT "code" FROM "__viborm_mutation") AS INTEGER)))'
     );
   });
 });

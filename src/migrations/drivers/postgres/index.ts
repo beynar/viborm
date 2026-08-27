@@ -7,7 +7,8 @@
 
 import type { Scalar, ScalarState } from "@schema/scalars";
 import { MigrationError, VibORMErrorCode } from "../../../errors";
-import type { ColumnDef } from "../../types";
+import { renderQualifiedIdentifier } from "../../../sql/identifiers";
+import type { ColumnDef, SchemaSnapshot } from "../../types";
 import {
   type AddColumnOperation,
   type AddForeignKeyOperation,
@@ -33,7 +34,40 @@ import {
 import { getPostgresType } from "../type-mapping";
 import type { MigrationCapabilities } from "../types";
 import { canonicalizeIndexPredicates } from "./canonicalize-index-predicate";
-import { introspect } from "./introspect";
+import { introspectPostgresSchema } from "./introspect";
+
+type RawExecutor = <T>(
+  sql: string,
+  params?: unknown[]
+) => Promise<{ rows: T[] }>;
+
+/**
+ * One catalog existence proof for the estate's schema.
+ *
+ * Bound, never interpolated, and asking `pg_namespace` exactly one question:
+ * does this schema exist. Privilege failures are deliberately NOT folded in —
+ * a schema this role cannot use is a different fact with a different fix, and
+ * it surfaces as the provider's own error from the statement that needed the
+ * privilege.
+ */
+const NAMESPACE_EXISTS_QUERY =
+  "SELECT 1 AS present FROM pg_catalog.pg_namespace WHERE nspname = $1";
+
+/**
+ * Extension-owned base types whose SERVER-FORMATTED spelling introspection
+ * reads, keyed by the adapter capability that declares them.
+ *
+ * These are the types whose modifiers a snapshot cannot be written without
+ * (`vector(3)`, `geometry(Point,4326)`), so introspection reads
+ * `format_type` for them instead of `udt_name`. The set admits a SPELLING,
+ * never a type: an extension type outside it — `citext`, and anything else a
+ * database has installed — reads back through `udt_name` like every built-in,
+ * which is the spelling this driver's own renderer emits for it.
+ */
+const EXTENSION_TYPES_BY_CAPABILITY = {
+  supportsVector: ["vector"],
+  supportsGeospatial: ["geometry", "geography"],
+} as const;
 
 export class PostgresMigrationDriver extends MigrationDriver {
   readonly dialect = "postgresql" as const;
@@ -50,15 +84,210 @@ export class PostgresMigrationDriver extends MigrationDriver {
   };
 
   // ===========================================================================
+  // ESTATE QUALIFICATION
+  // ===========================================================================
+
+  /**
+   * The schema this estate's persistent objects are named with, or undefined
+   * on the REGISTERED singleton, which is bound to no estate.
+   *
+   * ONE source: the estate target. `this.namespace` holds the same string for
+   * a PostgreSQL estate — `getMigrationDriver` reads both from the same
+   * adapter, and the journal gate refuses an estate whose schema is not this
+   * one — so reading exactly one of them is what keeps the two from ever being
+   * asked to disagree.
+   *
+   * `DDLContext.destination` does not enter: §3.4 binds GENERATED PostgreSQL
+   * SQL to the configured schema for the same reason live SQL is bound, so an
+   * artifact and a live statement in one estate name one schema. That is the
+   * dialect difference from MySQL, whose artifacts stay database-relative.
+   *
+   * The dialect comparison is the union narrowing `MigrationTarget` requires
+   * before `namespace` is readable at all, not a second check on top of the
+   * registry's: a PostgreSQL implementation is only ever bound to a PostgreSQL
+   * target.
+   */
+  private estateNamespace(): string | undefined {
+    const target = this.target;
+    return target?.dialect === "postgresql" ? target.namespace : undefined;
+  }
+
+  /**
+   * The estate schema where a statement cannot be written without one.
+   *
+   * A catalog predicate and a schema-scoped inventory have no unqualified
+   * reading: with no schema operand they answer for every schema in the
+   * database, and any default answers for a schema nothing proved. DDL text is
+   * the opposite case and renders unqualified off an unbound singleton (see
+   * {@link qualify}).
+   */
+  private requireEstateNamespace(): string {
+    const namespace = this.estateNamespace();
+    if (namespace === undefined) {
+      throw new MigrationError(
+        "This PostgreSQL migration driver is not bound to an estate, so it has no schema to read the catalog for. " +
+          "Reach the driver through `getMigrationDriver(driver)`, which binds the adapter's namespace, instead of the registered singleton.",
+        VibORMErrorCode.MIGRATION_INVALID_STATE,
+        { meta: { dialect: this.dialect } }
+      );
+    }
+    return namespace;
+  }
+
+  /**
+   * `"schema"."object"` — the one qualified spelling, through the one shared
+   * primitive, with this driver's own quoter (§2.2, N11).
+   *
+   * An unbound singleton renders `"object"`: it is the dialect's renderer with
+   * no estate behind it, and every shipped path reaches a bound view because
+   * `getMigrationDriver` refuses a PostgreSQL adapter that declares no
+   * namespace. Qualification is never composed by hand anywhere in this file.
+   */
+  private qualify(objectName: string): string {
+    return renderQualifiedIdentifier(
+      (name) => this.escapeIdentifier(name),
+      this.estateNamespace(),
+      objectName
+    );
+  }
+
+  /**
+   * The enum types this DDL batch may name as a column type.
+   *
+   * Membership is the ONLY thing that qualifies a column's type token, which is
+   * what replaced the `_enum` suffix guess: an explicitly named enum such as
+   * `state` is no less managed, and an arbitrary type token cannot prove enum
+   * ownership. The set is the introspected schema's enums plus the enums the
+   * operations already emitted in this batch have created — a table created
+   * beside its own new enum must qualify that enum's name.
+   *
+   * A `dropEnum` earlier in the batch is deliberately not subtracted: a column
+   * type naming a type this batch already dropped is a broken batch either way,
+   * and the subtraction would silently UNqualify the very statements that run
+   * before the drop.
+   *
+   * `createEnum` is the only operation type read, because it is the only one
+   * that can add a name this set does not already hold. An `alterEnum` cannot,
+   * twice over: `sortOperations` (`src/migrations/utils.ts:149`) runs it at
+   * priority 17, after every arm that renders a column type (`createTable` 8,
+   * `addColumn` 9, `alterColumn` 10), so it is never IN `precedingOperations`
+   * when one of them asks; and both producers of an `alterEnum` — the differ
+   * (`differ.ts:742`) and its inversion (`generate/down.ts:249`) — emit one
+   * only for an enum the context's own snapshot already holds, which the loop
+   * above contributes.
+   */
+  private managedEnumNames(context: DDLContext): ReadonlySet<string> {
+    const names = new Set<string>();
+    for (const enumDef of context.currentSchema?.enums ?? []) {
+      names.add(enumDef.name);
+    }
+    for (const operation of context.precedingOperations ?? []) {
+      if (operation.type === "createEnum") {
+        names.add(operation.enumDef.name);
+      }
+    }
+    return names;
+  }
+
+  /**
+   * A column type token, qualified when it names a managed enum.
+   *
+   * Built-in types and the adapter-supported extension spellings (`vector(3)`,
+   * `geometry(Point,4326)`) pass through untouched: they are provider objects
+   * resolved through `search_path`, not estate objects, and prefixing every
+   * type token would break them.
+   */
+  private renderTypeToken(type: string, context: DDLContext): string {
+    const isArray = type.endsWith("[]");
+    const baseType = isArray ? type.slice(0, -2) : type;
+    if (!this.managedEnumNames(context).has(baseType)) {
+      return type;
+    }
+    const qualified = this.qualify(baseType);
+    return isArray ? `${qualified}[]` : qualified;
+  }
+
+  /**
+   * The extension-owned base types this driver's adapter declares, and whose
+   * `format_type` spelling introspection therefore reads.
+   */
+  private admittedExtensionTypes(): ReadonlySet<string> {
+    const capabilities = this.executionDriver?.adapter.capabilities;
+    const admitted = new Set<string>();
+    if (capabilities?.supportsVector) {
+      for (const type of EXTENSION_TYPES_BY_CAPABILITY.supportsVector) {
+        admitted.add(type);
+      }
+    }
+    if (capabilities?.supportsGeospatial) {
+      for (const type of EXTENSION_TYPES_BY_CAPABILITY.supportsGeospatial) {
+        admitted.add(type);
+      }
+    }
+    return admitted;
+  }
+
+  // ===========================================================================
   // INTROSPECTION
   // ===========================================================================
 
-  introspect = introspect;
+  /**
+   * Reads the estate's schema, and nothing else's.
+   *
+   * The namespace proof runs FIRST and here rather than at every caller: this
+   * is the one inventory every catalog-driven path goes through (public
+   * `introspect`, push including dry-run, and force-reset), and a configured
+   * but absent schema must not be published as an empty database.
+   */
+  async introspect(executeRaw: RawExecutor): Promise<SchemaSnapshot> {
+    await this.proveNamespaceExists(executeRaw);
+    return await introspectPostgresSchema(executeRaw, {
+      namespace: this.requireEstateNamespace(),
+      admittedExtensionTypes: this.admittedExtensionTypes(),
+    });
+  }
+
+  /**
+   * PostgreSQL reports a missing schema as SQLSTATE `3F000` only where the
+   * statement names one; a catalog read filtered on a schema name that does not
+   * exist just returns nothing. This proof is what makes that silence
+   * impossible, and it runs before any missing-tracking-table translation can
+   * be consulted, because PostgreSQL reports a missing schema and a missing
+   * relation alike as `42P01`.
+   */
+  override async proveNamespaceExists(executeRaw: RawExecutor): Promise<void> {
+    const namespace = this.requireEstateNamespace();
+    const { rows } = await executeRaw<{ present: number }>(
+      NAMESPACE_EXISTS_QUERY,
+      [namespace]
+    );
+    if (rows.length === 0) {
+      // The schema is named in the message AND on the allowlist's `namespace`
+      // key (`src/errors/diagnostics.ts`), so a caller can read which estate
+      // was missing without parsing prose.
+      throw new MigrationError(
+        `The configured PostgreSQL schema "${namespace}" does not exist. ` +
+          "VibORM never creates or drops a schema: create it (or fix the configured `namespace`) before running migrations.",
+        VibORMErrorCode.MIGRATION_INVALID_STATE,
+        { meta: { dialect: this.dialect, driver: this.driverName, namespace } }
+      );
+    }
+  }
 
   // PostgreSQL deparses an index predicate rather than storing the statement,
   // so the declared spelling and the introspected one never match on their own
   // (Decision 7.4). The other dialects have no such gap and leave this unset.
-  canonicalizeIndexPredicates = canonicalizeIndexPredicates;
+  override canonicalizeIndexPredicates(
+    tableName: string,
+    predicates: readonly string[],
+    executeRaw: RawExecutor
+  ): Promise<ReadonlyArray<string | undefined>> {
+    return canonicalizeIndexPredicates(
+      this.qualify(tableName),
+      predicates,
+      executeRaw
+    );
+  }
 
   // ===========================================================================
   // TYPE MAPPING
@@ -131,9 +360,12 @@ export class PostgresMigrationDriver extends MigrationDriver {
 
   /**
    * Formats the column type for PostgreSQL.
-   * Handles SERIAL types for auto-increment and enum type escaping.
+   * Handles SERIAL types for auto-increment and managed-enum qualification.
    */
-  protected override formatColumnType(column: ColumnDef): string {
+  protected override formatColumnType(
+    column: ColumnDef,
+    context: DDLContext
+  ): string {
     // Handle auto-increment with SERIAL types
     if (column.autoIncrement) {
       const normalizedType = column.type.toLowerCase();
@@ -158,29 +390,22 @@ export class PostgresMigrationDriver extends MigrationDriver {
       return serialType;
     }
 
-    // Handle enum types (need to be escaped as identifiers)
-    if (column.type.endsWith("_enum")) {
-      return this.escapeIdentifier(column.type);
-    }
-
-    // Handle array of enum types
-    if (column.type.endsWith("[]")) {
-      const baseType = column.type.slice(0, -2);
-      if (baseType.endsWith("_enum")) {
-        return `${this.escapeIdentifier(baseType)}[]`;
-      }
-    }
-
-    return column.type;
+    // A managed enum is a persistent object of this estate and is qualified
+    // exactly like a table; its array form takes the same prefix. Everything
+    // else — built-ins and the adapter-supported extension spellings — is a
+    // provider object and passes through.
+    return this.renderTypeToken(column.type, context);
   }
 
   // ===========================================================================
   // DDL GENERATION - Table Operations
   // ===========================================================================
 
-  generateCreateTable(op: CreateTableOperation): string {
+  generateCreateTable(op: CreateTableOperation, context: DDLContext): string {
     const { table } = op;
-    const columnDefs = table.columns.map((col) => this.generateColumnDef(col));
+    const columnDefs = table.columns.map((col) =>
+      this.generateColumnDef(col, context)
+    );
 
     if (table.primaryKey) {
       const pkCols = table.primaryKey.columns
@@ -199,67 +424,93 @@ export class PostgresMigrationDriver extends MigrationDriver {
       );
     }
 
-    const sql = `CREATE TABLE ${this.escapeIdentifier(table.name)} (\n  ${columnDefs.join(",\n  ")}\n)`;
+    const sql = `CREATE TABLE ${this.qualify(table.name)} (\n  ${columnDefs.join(",\n  ")}\n)`;
 
     const statements = [sql];
 
     for (const idx of table.indexes) {
       statements.push(
-        this.generateCreateIndex({
-          type: "createIndex",
-          tableName: table.name,
-          index: idx,
-        })
+        this.generateCreateIndex(
+          {
+            type: "createIndex",
+            tableName: table.name,
+            index: idx,
+          },
+          context
+        )
       );
     }
 
     for (const fk of table.foreignKeys) {
       statements.push(
-        this.generateAddForeignKey({
-          type: "addForeignKey",
-          tableName: table.name,
-          fk,
-        })
+        this.generateAddForeignKey(
+          {
+            type: "addForeignKey",
+            tableName: table.name,
+            fk,
+          },
+          context
+        )
       );
     }
 
     return statements.join(";\n");
   }
 
-  generateDropTable(op: DropTableOperation): string {
-    return `DROP TABLE ${this.escapeIdentifier(op.tableName)} CASCADE`;
+  /**
+   * No `CASCADE` (§6.1). It dropped views, foreign keys and dependants in OTHER
+   * schemas even though the enumeration behind this operation only ever
+   * selected one, which made the namespace a filter instead of a boundary. The
+   * foreign keys inside the program are materialized as explicit
+   * `dropForeignKey` operations that sort ahead of every table drop
+   * (`materializeDroppedTableForeignKeys`), and anything left is a dependency
+   * this estate does not own: PostgreSQL's default `RESTRICT` then aborts the
+   * transaction instead of deleting it.
+   */
+  generateDropTable(op: DropTableOperation, _context: DDLContext): string {
+    return `DROP TABLE ${this.qualify(op.tableName)}`;
   }
 
-  generateRenameTable(op: RenameTableOperation): string {
-    return `ALTER TABLE ${this.escapeIdentifier(op.from)} RENAME TO ${this.escapeIdentifier(op.to)}`;
+  // `RENAME TO` takes ONE unqualified identifier: PostgreSQL renames the table
+  // inside its own schema, and a qualified new name is a syntax error, not a
+  // move (§4.1).
+  generateRenameTable(op: RenameTableOperation, _context: DDLContext): string {
+    return `ALTER TABLE ${this.qualify(op.from)} RENAME TO ${this.escapeIdentifier(op.to)}`;
   }
 
   // ===========================================================================
   // DDL GENERATION - Column Operations
   // ===========================================================================
 
-  generateAddColumn(op: AddColumnOperation): string {
-    const colDef = this.generateColumnDef(op.column);
-    return `ALTER TABLE ${this.escapeIdentifier(op.tableName)} ADD COLUMN ${colDef}`;
+  generateAddColumn(op: AddColumnOperation, context: DDLContext): string {
+    const colDef = this.generateColumnDef(op.column, context);
+    return `ALTER TABLE ${this.qualify(op.tableName)} ADD COLUMN ${colDef}`;
   }
 
-  generateDropColumn(op: DropColumnOperation): string {
-    return `ALTER TABLE ${this.escapeIdentifier(op.tableName)} DROP COLUMN ${this.escapeIdentifier(op.columnName)}`;
+  generateDropColumn(op: DropColumnOperation, _context: DDLContext): string {
+    return `ALTER TABLE ${this.qualify(op.tableName)} DROP COLUMN ${this.escapeIdentifier(op.columnName)}`;
   }
 
-  generateRenameColumn(op: RenameColumnOperation): string {
-    return `ALTER TABLE ${this.escapeIdentifier(op.tableName)} RENAME COLUMN ${this.escapeIdentifier(op.from)} TO ${this.escapeIdentifier(op.to)}`;
+  generateRenameColumn(
+    op: RenameColumnOperation,
+    _context: DDLContext
+  ): string {
+    return `ALTER TABLE ${this.qualify(op.tableName)} RENAME COLUMN ${this.escapeIdentifier(op.from)} TO ${this.escapeIdentifier(op.to)}`;
   }
 
-  generateAlterColumn(op: AlterColumnOperation, _context?: DDLContext): string {
+  generateAlterColumn(op: AlterColumnOperation, context: DDLContext): string {
     const { tableName, columnName, from, to } = op;
     const statements: string[] = [];
-    const table = this.escapeIdentifier(tableName);
+    const table = this.qualify(tableName);
     const col = this.escapeIdentifier(columnName);
 
     if (from.type !== to.type) {
+      // The new type is a column type token like any other, so a managed enum
+      // is qualified here too — in BOTH positions, since the `USING` cast names
+      // the same type the column is being changed to.
+      const newType = this.renderTypeToken(to.type, context);
       statements.push(
-        `ALTER TABLE ${table} ALTER COLUMN ${col} TYPE ${to.type} USING ${col}::${to.type}`
+        `ALTER TABLE ${table} ALTER COLUMN ${col} TYPE ${newType} USING ${col}::${newType}`
       );
     }
 
@@ -294,7 +545,7 @@ export class PostgresMigrationDriver extends MigrationDriver {
   // DDL GENERATION - Index Operations
   // ===========================================================================
 
-  generateCreateIndex(op: CreateIndexOperation): string {
+  generateCreateIndex(op: CreateIndexOperation, _context: DDLContext): string {
     const { tableName, index } = op;
 
     // Validate index type against capabilities
@@ -304,11 +555,16 @@ export class PostgresMigrationDriver extends MigrationDriver {
     const indexType = index.type ? `USING ${index.type} ` : "";
     const cols = index.columns.map((c) => this.escapeIdentifier(c)).join(", ");
     const where = index.where ? ` WHERE ${index.where}` : "";
-    return `CREATE ${unique}INDEX ${this.escapeIdentifier(index.name)} ON ${this.escapeIdentifier(tableName)} ${indexType}(${cols})${where}`;
+    // PostgreSQL does not allow a schema on the index name in CREATE INDEX —
+    // the index is created in the target table's schema, which is why the
+    // TABLE carries the qualification and the index name is one identifier.
+    return `CREATE ${unique}INDEX ${this.escapeIdentifier(index.name)} ON ${this.qualify(tableName)} ${indexType}(${cols})${where}`;
   }
 
-  generateDropIndex(op: DropIndexOperation): string {
-    return `DROP INDEX ${this.escapeIdentifier(op.indexName)}`;
+  // DROP INDEX names the index itself, which lives in a schema and takes one
+  // (§4.1) — the mirror of CREATE INDEX above.
+  generateDropIndex(op: DropIndexOperation, _context: DDLContext): string {
+    return `DROP INDEX ${this.qualify(op.indexName)}`;
   }
 
   // ===========================================================================
@@ -317,7 +573,7 @@ export class PostgresMigrationDriver extends MigrationDriver {
 
   generateAddForeignKey(
     op: AddForeignKeyOperation,
-    _context?: DDLContext
+    _context: DDLContext
   ): string {
     const { tableName, fk } = op;
     const cols = fk.columns.map((c) => this.escapeIdentifier(c)).join(", ");
@@ -330,30 +586,39 @@ export class PostgresMigrationDriver extends MigrationDriver {
     const onUpdate = fk.onUpdate
       ? ` ON UPDATE ${this.formatReferentialAction(fk.onUpdate)}`
       : "";
-    return `ALTER TABLE ${this.escapeIdentifier(tableName)} ADD CONSTRAINT ${this.escapeIdentifier(fk.name)} FOREIGN KEY (${cols}) REFERENCES ${this.escapeIdentifier(fk.referencedTable)} (${refCols})${onDelete}${onUpdate}`;
+    // Both TABLE positions are qualified — the owner and the reference target.
+    // A bare `REFERENCES` target resolves through `search_path` and would let
+    // one estate's constraint point at another schema's table.
+    return `ALTER TABLE ${this.qualify(tableName)} ADD CONSTRAINT ${this.escapeIdentifier(fk.name)} FOREIGN KEY (${cols}) REFERENCES ${this.qualify(fk.referencedTable)} (${refCols})${onDelete}${onUpdate}`;
   }
 
   generateDropForeignKey(
     op: DropForeignKeyOperation,
-    _context?: DDLContext
+    _context: DDLContext
   ): string {
-    return `ALTER TABLE ${this.escapeIdentifier(op.tableName)} DROP CONSTRAINT ${this.escapeIdentifier(op.fkName)}`;
+    return `ALTER TABLE ${this.qualify(op.tableName)} DROP CONSTRAINT ${this.escapeIdentifier(op.fkName)}`;
   }
 
   // ===========================================================================
   // DDL GENERATION - Unique Constraint Operations
   // ===========================================================================
 
-  generateAddUniqueConstraint(op: AddUniqueConstraintOperation): string {
+  generateAddUniqueConstraint(
+    op: AddUniqueConstraintOperation,
+    _context: DDLContext
+  ): string {
     const { tableName, constraint } = op;
     const cols = constraint.columns
       .map((c) => this.escapeIdentifier(c))
       .join(", ");
-    return `ALTER TABLE ${this.escapeIdentifier(tableName)} ADD CONSTRAINT ${this.escapeIdentifier(constraint.name)} UNIQUE (${cols})`;
+    return `ALTER TABLE ${this.qualify(tableName)} ADD CONSTRAINT ${this.escapeIdentifier(constraint.name)} UNIQUE (${cols})`;
   }
 
-  generateDropUniqueConstraint(op: DropUniqueConstraintOperation): string {
-    return `ALTER TABLE ${this.escapeIdentifier(op.tableName)} DROP CONSTRAINT ${this.escapeIdentifier(op.constraintName)}`;
+  generateDropUniqueConstraint(
+    op: DropUniqueConstraintOperation,
+    _context: DDLContext
+  ): string {
+    return `ALTER TABLE ${this.qualify(op.tableName)} DROP CONSTRAINT ${this.escapeIdentifier(op.constraintName)}`;
   }
 
   // ===========================================================================
@@ -362,7 +627,7 @@ export class PostgresMigrationDriver extends MigrationDriver {
 
   generateAddPrimaryKey(
     op: AddPrimaryKeyOperation,
-    _context?: DDLContext
+    _context: DDLContext
   ): string {
     const { tableName, primaryKey } = op;
     const cols = primaryKey.columns
@@ -371,36 +636,59 @@ export class PostgresMigrationDriver extends MigrationDriver {
     const name = primaryKey.name
       ? this.escapeIdentifier(primaryKey.name)
       : this.escapeIdentifier(`${tableName}_pkey`);
-    return `ALTER TABLE ${this.escapeIdentifier(tableName)} ADD CONSTRAINT ${name} PRIMARY KEY (${cols})`;
+    return `ALTER TABLE ${this.qualify(tableName)} ADD CONSTRAINT ${name} PRIMARY KEY (${cols})`;
   }
 
   generateDropPrimaryKey(
     op: DropPrimaryKeyOperation,
-    _context?: DDLContext
+    _context: DDLContext
   ): string {
-    return `ALTER TABLE ${this.escapeIdentifier(op.tableName)} DROP CONSTRAINT ${this.escapeIdentifier(op.constraintName)}`;
+    return `ALTER TABLE ${this.qualify(op.tableName)} DROP CONSTRAINT ${this.escapeIdentifier(op.constraintName)}`;
   }
 
   // ===========================================================================
   // DDL GENERATION - Enum Operations
   // ===========================================================================
 
-  generateCreateEnum(op: CreateEnumOperation, _context?: DDLContext): string {
+  // An enum OPERATION names an ORM-managed enum by construction, so its type
+  // name is qualified unconditionally — the managed-enum SET exists only to
+  // decide whether a COLUMN's type token happens to name one.
+  generateCreateEnum(op: CreateEnumOperation, _context: DDLContext): string {
     const { enumDef } = op;
     const values = enumDef.values.map((v) => this.escapeValue(v)).join(", ");
-    return `CREATE TYPE ${this.escapeIdentifier(enumDef.name)} AS ENUM (${values})`;
+    return `CREATE TYPE ${this.qualify(enumDef.name)} AS ENUM (${values})`;
   }
 
-  generateDropEnum(op: DropEnumOperation, _context?: DDLContext): string {
-    return `DROP TYPE ${this.escapeIdentifier(op.enumName)}`;
+  generateDropEnum(op: DropEnumOperation, _context: DDLContext): string {
+    return `DROP TYPE ${this.qualify(op.enumName)}`;
   }
 
   // ===========================================================================
   // MIGRATION TRACKING TABLE
   // ===========================================================================
 
+  /**
+   * PostgreSQL reports a missing relation as SQLSTATE `42P01` — the SAME code
+   * it reports for a missing schema, which is exactly why the namespace proof
+   * runs first and this translation second.
+   *
+   * The translation is exact for the CONFIGURED tracking table even though the
+   * error cannot name it: VibORM's error normalization redacts provider message
+   * text, so the relation name never survives. Exactness comes from the
+   * statement instead — this is asked only about the failure of the
+   * applied-state SELECT, which references exactly one relation, the tracking
+   * table, and whose schema was already proven to exist. Any other statement's
+   * `42P01` never reaches here.
+   */
+  override isMissingTrackingTable(error: unknown, _tableName: string): boolean {
+    return this.describeProviderFailure(error).code === "42P01";
+  }
+
+  // The tracking table is a persistent object of this estate like any other:
+  // every statement that names it carries the schema, so two estates in one
+  // database keep two histories and neither can read or write the other's.
   generateCreateTrackingTable(tableName: string): string {
-    const table = this.escapeIdentifier(tableName);
+    const table = this.qualify(tableName);
     return `CREATE TABLE IF NOT EXISTS ${table} (
   id SERIAL PRIMARY KEY,
   name VARCHAR(255) NOT NULL UNIQUE,
@@ -409,11 +697,16 @@ export class PostgresMigrationDriver extends MigrationDriver {
 )`;
   }
 
+  override generateSelectAppliedMigrations(tableName: string): string {
+    const table = this.qualify(tableName);
+    return `SELECT name, checksum, applied_at FROM ${table} ORDER BY id ASC`;
+  }
+
   generateInsertMigration(tableName: string): {
     sql: string;
     paramCount: number;
   } {
-    const table = this.escapeIdentifier(tableName);
+    const table = this.qualify(tableName);
     return {
       sql: `INSERT INTO ${table} (name, checksum) VALUES ($1, $2)`,
       paramCount: 2,
@@ -424,11 +717,15 @@ export class PostgresMigrationDriver extends MigrationDriver {
     sql: string;
     paramCount: number;
   } {
-    const table = this.escapeIdentifier(tableName);
+    const table = this.qualify(tableName);
     return {
       sql: `DELETE FROM ${table} WHERE name = $1`,
       paramCount: 1,
     };
+  }
+
+  override generateClearMigrations(tableName: string): string {
+    return `DELETE FROM ${this.qualify(tableName)}`;
   }
 
   // ===========================================================================
@@ -436,68 +733,91 @@ export class PostgresMigrationDriver extends MigrationDriver {
   // ===========================================================================
 
   generateAcquireLock(lockId: number): string | null {
-    return `SELECT pg_advisory_lock(${lockId})`;
+    return `SELECT pg_advisory_lock(${lockId}) AS acquired`;
   }
 
   generateReleaseLock(lockId: number): string | null {
-    return `SELECT pg_advisory_unlock(${lockId})`;
+    return `SELECT pg_advisory_unlock(${lockId}) AS released`;
   }
 
-  generateResetSQL(): string[] {
-    return [
-      // Drop all tables in public schema
-      `DO $$ DECLARE
-        r RECORD;
-      BEGIN
-        FOR r IN (SELECT tablename FROM pg_tables WHERE schemaname = 'public') LOOP
-          EXECUTE 'DROP TABLE IF EXISTS "' || r.tablename || '" CASCADE';
-        END LOOP;
-      END $$`,
-      // Drop all enum types in public schema
-      `DO $$ DECLARE
-        r RECORD;
-      BEGIN
-        FOR r IN (SELECT typname FROM pg_type t JOIN pg_namespace n ON t.typnamespace = n.oid WHERE n.nspname = 'public' AND t.typtype = 'e') LOOP
-          EXECUTE 'DROP TYPE IF EXISTS "' || r.typname || '" CASCADE';
-        END LOOP;
-      END $$`,
-    ];
+  /**
+   * `pg_advisory_lock` returns `void` and BLOCKS until the lock is held, so the
+   * proof is that the statement answered at all — exactly one row, produced
+   * after the wait. There is no truthy value to read: a `void` column arrives
+   * as an empty string or null on every admitted transport, which is why the
+   * arm tests the row's presence rather than its content.
+   */
+  override provesLockAcquired(rows: readonly unknown[]): boolean {
+    return rows.length === 1;
+  }
+
+  /**
+   * `pg_advisory_unlock` returns a real boolean: `true` when this session held
+   * the lock and released it, `false` when it never held it. Only one boolean
+   * `true` proves the release; `false`, a missing row, extra rows, or anything
+   * that is not a boolean leaves the session holding a lock nobody will free.
+   */
+  override provesLockReleased(rows: readonly unknown[]): boolean {
+    if (rows.length !== 1) {
+      return false;
+    }
+    const row = rows[0];
+    if (typeof row !== "object" || row === null) {
+      return false;
+    }
+    return Reflect.get(row, "released") === true;
   }
 
   // ===========================================================================
   // SCHEMA INTROSPECTION HELPERS
   // ===========================================================================
 
-  generateListTables(): string {
-    return `SELECT tablename AS name FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename`;
+  // Both inventories BIND the schema: they are the reads that decide what a
+  // reset drops, and §4.2 admits no interpolated catalog operand.
+  generateInventoryTables(): { sql: string; params: unknown[] } {
+    return {
+      sql: "SELECT tablename AS name FROM pg_tables WHERE schemaname = $1 ORDER BY tablename",
+      params: [this.requireEstateNamespace()],
+    };
   }
 
-  generateListEnums(): string | null {
-    return `SELECT t.typname AS name
+  generateInventoryEnums(): { sql: string; params: unknown[] } | null {
+    return {
+      sql: `SELECT t.typname AS name
       FROM pg_type t
       JOIN pg_catalog.pg_namespace n ON n.oid = t.typnamespace
-      WHERE t.typtype = 'e' AND n.nspname = 'public'
-      ORDER BY t.typname`;
+      WHERE t.typtype = 'e' AND n.nspname = $1
+      ORDER BY t.typname`,
+      params: [this.requireEstateNamespace()],
+    };
+  }
+
+  // No CASCADE on either drop (§6.1). PostgreSQL's default RESTRICT is the
+  // containment boundary: a dependant this estate does not own aborts the
+  // operation instead of being deleted with it.
+  override generateDropTableSQL(tableName: string): string {
+    return `DROP TABLE IF EXISTS ${this.qualify(tableName)}`;
   }
 
   override generateDropEnumSQL(enumName: string): string | null {
-    return `DROP TYPE IF EXISTS ${this.escapeIdentifier(enumName)} CASCADE`;
+    return `DROP TYPE IF EXISTS ${this.qualify(enumName)}`;
   }
 
   // ===========================================================================
   // DDL GENERATION - Enum Operations
   // ===========================================================================
 
-  generateAlterEnum(op: AlterEnumOperation, _context?: DDLContext): string {
+  generateAlterEnum(op: AlterEnumOperation, _context: DDLContext): string {
     const { enumName, addValues, removeValues, newValues, dependentColumns } =
       op;
     const statements: string[] = [];
+    const enumType = this.qualify(enumName);
 
     // Simple case: only adding values
     if (addValues && (!removeValues || removeValues.length === 0)) {
       for (const value of addValues) {
         statements.push(
-          `ALTER TYPE ${this.escapeIdentifier(enumName)} ADD VALUE ${this.escapeValue(value)}`
+          `ALTER TYPE ${enumType} ADD VALUE ${this.escapeValue(value)}`
         );
       }
       return statements.join(";\n");
@@ -515,7 +835,7 @@ export class PostgresMigrationDriver extends MigrationDriver {
       if (dependentColumns && dependentColumns.length > 0) {
         for (const { tableName, columnName } of dependentColumns) {
           statements.push(
-            `ALTER TABLE ${this.escapeIdentifier(tableName)} ALTER COLUMN ${this.escapeIdentifier(columnName)} TYPE text`
+            `ALTER TABLE ${this.qualify(tableName)} ALTER COLUMN ${this.escapeIdentifier(columnName)} TYPE text`
           );
         }
       }
@@ -525,13 +845,11 @@ export class PostgresMigrationDriver extends MigrationDriver {
       statements.push(...this.buildEnumReplacementUpdates(op));
 
       // Step 3: Drop old enum
-      statements.push(`DROP TYPE ${this.escapeIdentifier(enumName)}`);
+      statements.push(`DROP TYPE ${enumType}`);
 
       // Step 4: Create new enum
       const values = newValues.map((v) => this.escapeValue(v)).join(", ");
-      statements.push(
-        `CREATE TYPE ${this.escapeIdentifier(enumName)} AS ENUM (${values})`
-      );
+      statements.push(`CREATE TYPE ${enumType} AS ENUM (${values})`);
 
       // Step 5: Convert columns back to enum
       const unreplacedValues = removeValues.filter((v) =>
@@ -555,14 +873,55 @@ export class PostgresMigrationDriver extends MigrationDriver {
 
       if (dependentColumns && dependentColumns.length > 0) {
         for (const { tableName, columnName } of dependentColumns) {
+          const column = this.escapeIdentifier(columnName);
           statements.push(
-            `ALTER TABLE ${this.escapeIdentifier(tableName)} ALTER COLUMN ${this.escapeIdentifier(columnName)} TYPE ${this.escapeIdentifier(enumName)} USING ${this.escapeIdentifier(columnName)}::${this.escapeIdentifier(enumName)}`
+            `ALTER TABLE ${this.qualify(tableName)} ALTER COLUMN ${column} TYPE ${enumType} USING ${column}::${enumType}`
           );
         }
       }
     }
 
     return statements.join(";\n");
+  }
+
+  /**
+   * The data migration off removed enum values, with its table qualified.
+   *
+   * The shared base implementation names the table with one identifier, which
+   * is right for a dialect whose statements are namespace-relative. These
+   * UPDATEs run in the middle of an enum recreation on THIS estate's tables, so
+   * PostgreSQL owns the statement rather than inheriting a spelling that
+   * `search_path` resolves.
+   */
+  protected override buildEnumReplacementUpdates(
+    op: AlterEnumOperation
+  ): string[] {
+    const { removeValues, dependentColumns } = op;
+    if (!(removeValues?.length && dependentColumns?.length)) {
+      return [];
+    }
+
+    const statements: string[] = [];
+    for (const { tableName, columnName } of dependentColumns) {
+      for (const removedValue of removeValues) {
+        const replacement = this.getEnumValueReplacement(
+          op,
+          tableName,
+          columnName,
+          removedValue
+        );
+        if (replacement === undefined) {
+          continue;
+        }
+        const newValue =
+          replacement === null ? "NULL" : this.escapeValue(replacement);
+        const column = this.escapeIdentifier(columnName);
+        statements.push(
+          `UPDATE ${this.qualify(tableName)} SET ${column} = ${newValue} WHERE ${column} = ${this.escapeValue(removedValue)}`
+        );
+      }
+    }
+    return statements;
   }
 }
 

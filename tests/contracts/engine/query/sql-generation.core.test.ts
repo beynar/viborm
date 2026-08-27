@@ -481,10 +481,10 @@ describe("Basic CRUD Operations", () => {
 
       expect(joins).toHaveLength(2);
       expect(joins[0]).toContain(
-        'LEFT JOIN "nested_order_authors" AS "t1" ON "t0"."authorId" = "t1"."id"'
+        'LEFT JOIN "public"."nested_order_authors" AS "t1" ON "t0"."authorId" = "t1"."id"'
       );
       expect(joins[1]).toContain(
-        'LEFT JOIN "nested_order_publishers" AS "t2" ON "t1"."publisherId" = "t2"."id"'
+        'LEFT JOIN "public"."nested_order_publishers" AS "t2" ON "t1"."publisherId" = "t2"."id"'
       );
       expect(parts.orderBy?.toStatement("$n")).toBe(
         '"t2"."name" ASC, "t2"."rank" DESC'
@@ -508,13 +508,13 @@ describe("Basic CRUD Operations", () => {
 
       expect(joins).toHaveLength(3);
       expect(joins[0]).toContain(
-        'LEFT JOIN "nested_order_posts" AS "t1" ON "t0"."postId" = "t1"."id"'
+        'LEFT JOIN "public"."nested_order_posts" AS "t1" ON "t0"."postId" = "t1"."id"'
       );
       expect(joins[1]).toContain(
-        'LEFT JOIN "nested_order_authors" AS "t2" ON "t1"."authorId" = "t2"."id"'
+        'LEFT JOIN "public"."nested_order_authors" AS "t2" ON "t1"."authorId" = "t2"."id"'
       );
       expect(joins[2]).toContain(
-        'LEFT JOIN "nested_order_publishers" AS "t3" ON "t2"."publisherId" = "t3"."id"'
+        'LEFT JOIN "public"."nested_order_publishers" AS "t3" ON "t2"."publisherId" = "t3"."id"'
       );
       expect(parts.orderBy?.toStatement("$n")).toBe('"t3"."name" ASC');
     });
@@ -583,7 +583,7 @@ describe("Basic CRUD Operations", () => {
 
       expect(statement).not.toMatch(LEFT_JOIN_SQL);
       expect(statement).toMatch(ORDER_BY_COUNT_SQL);
-      expect(statement).toContain('FROM "posts" AS "t1"');
+      expect(statement).toContain('FROM "public"."posts" AS "t1"');
       expect(statement).toMatch(DESC_SQL);
     });
 

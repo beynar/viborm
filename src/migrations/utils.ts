@@ -15,6 +15,7 @@ import type {
   EnumValueRemoval,
   EnumValueResolver,
   MigrationEntry,
+  SchemaSnapshot,
 } from "./types";
 
 // =============================================================================
@@ -314,6 +315,67 @@ export function extractForwardReferenceForeignKeys(
   }
 
   return [...result, ...liftedForeignKeys];
+}
+
+/**
+ * Materializes the foreign-key drops a dropped-table graph needs, ONCE, for
+ * every consumer: push, generated up SQL, and inverted generated down SQL.
+ *
+ * The differ omits a foreign-key drop when both endpoint tables disappear —
+ * there is no surviving table to alter, so nothing produces the operation — and
+ * §6.1 removes the `CASCADE` that used to paper over it. Without this stage a
+ * `RESTRICT` drop of two mutually-referencing tables fails no matter which
+ * order they are emitted in, and a cycle fails in every order.
+ *
+ * Every implicated key is included regardless of the table order the batch
+ * happens to have, including keys whose owning AND referenced tables are both
+ * being dropped, and including cycles. `sortOperations` then puts every
+ * `dropForeignKey` (priority 2) ahead of every `dropTable` (priority 7).
+ *
+ * Drivers that cannot `ALTER TABLE ... DROP CONSTRAINT` keep their operations
+ * byte-identical: SQLite and LibSQL hold foreign keys inline and rebuild tables
+ * instead, so an explicit drop is not a statement they can emit.
+ */
+export function materializeDroppedTableForeignKeys(
+  operations: DiffOperation[],
+  current: SchemaSnapshot,
+  migrationDriver: MigrationDriver
+): DiffOperation[] {
+  if (!migrationDriver.capabilities.supportsAddForeignKeyViaAlter) {
+    return operations;
+  }
+
+  const droppedTables = new Set<string>();
+  const plannedDrops = new Set<string>();
+  for (const op of operations) {
+    if (op.type === "dropTable") {
+      droppedTables.add(op.tableName);
+    } else if (op.type === "dropForeignKey") {
+      plannedDrops.add(`${op.tableName} ${op.fkName}`);
+    }
+  }
+  if (droppedTables.size === 0) {
+    return operations;
+  }
+
+  const materialized: DiffOperation[] = [];
+  for (const table of current.tables) {
+    for (const fk of table.foreignKeys) {
+      const implicated =
+        droppedTables.has(table.name) || droppedTables.has(fk.referencedTable);
+      if (implicated && !plannedDrops.has(`${table.name} ${fk.name}`)) {
+        materialized.push({
+          type: "dropForeignKey",
+          tableName: table.name,
+          fkName: fk.name,
+        });
+      }
+    }
+  }
+
+  return materialized.length === 0
+    ? operations
+    : [...materialized, ...operations];
 }
 
 // =============================================================================

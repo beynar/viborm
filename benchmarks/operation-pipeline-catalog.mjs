@@ -14,6 +14,22 @@ export const EXTENSION_ARMS = Object.freeze([
 export const CROSS_PROVIDER_BASELINE_COMMIT =
   "52eef9ebfc710407e1e5fe6042e2ed5a11adf19e";
 
+/**
+ * The engines the CORE fixture can build.
+ *
+ * These are ordinary workload names, not `provider-*` ones, so a run over them
+ * is not a cross-provider run: it does not touch the pinned
+ * `CROSS_PROVIDER_BASELINE_COMMIT` surface, and each checkout measures its own
+ * built package through its own worker. That is what makes "flat read, nested
+ * read, create, and 100-statement batch on PGlite and MySQL2" expressible
+ * against an arbitrary baseline. `mysql2` needs `VIBORM_BENCH_MYSQL2_URL`.
+ */
+export const CORE_FIXTURE_PROVIDERS = Object.freeze([
+  "sqlite3",
+  "pglite",
+  "mysql2",
+]);
+
 export const PROVIDERS = Object.freeze({
   sqlite3: Object.freeze({
     runtime: "node",
@@ -208,7 +224,9 @@ export const WORKLOADS = Object.freeze({
   "scalar-find-many-1": workload("core", stages.parseRead, 1, {
     extensionProof: true,
   }),
-  "scalar-find-many-20": workload("core", stages.allRead, 20),
+  "scalar-find-many-20": workload("core", stages.allRead, 20, {
+    providers: CORE_FIXTURE_PROVIDERS,
+  }),
   "scalar-find-many-1000": workload("core", stages.parseRead, 1000, {
     extensionProof: true,
   }),
@@ -217,7 +235,9 @@ export const WORKLOADS = Object.freeze({
   "wide-scalar-select-100": workload("wide", stages.prepareFull, 1),
   "wide-scalar-predicates-10": workload("wide", stages.prepareFull, 1),
   "scalar-cursor-take": workload("core", stages.prepareFull, 20),
-  "fixed-singular-rowref-20": workload("core", stages.allRead, 20),
+  "fixed-singular-rowref-20": workload("core", stages.allRead, 20, {
+    providers: CORE_FIXTURE_PROVIDERS,
+  }),
   "fixed-singular-rowref-1000": workload("core", stages.allRead, 1000),
   "fixed-collection-rowref-20": workload("core", stages.allRead, 20),
   "fixed-collection-rowref-1000": workload("core", stages.allRead, 1000),
@@ -229,8 +249,13 @@ export const WORKLOADS = Object.freeze({
   "fixed-collection-junction": workload("variant", stages.prepareParseFull, 20),
   "enum-heavy-20": workload("core", stages.parseFull, 20),
   "enum-heavy-1000": workload("core", stages.parseFull, 1000),
+  // MySQL has no RETURNING, so a create is emulated as an insert plus a read
+  // and cannot be expressed as the ONE executable statement this workload's
+  // prepared/raw floor and its SQL witness are built from. That is a visible
+  // capability limit, not a substitutable one, so mysql2 is not listed here.
   "flat-create-explicit-id": workload("core", stages.mutation, 1, {
     extensionProof: true,
+    providers: Object.freeze(["sqlite3", "pglite"]),
   }),
   "flat-create-generated-id": workload("core", stages.mutation, 1),
   "flat-scalar-update": workload("core", stages.mutation, 1),
@@ -262,6 +287,7 @@ export const WORKLOADS = Object.freeze({
   "atomic-batch-100": workload("core", stages.atomic, 100, {
     substrate: "batch-only",
     extensionProof: true,
+    providers: CORE_FIXTURE_PROVIDERS,
   }),
   "nested-transaction-0-reference": workload("core", stages.fullOnly, 2, {
     substrate: "batch-only",

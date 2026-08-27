@@ -23,18 +23,39 @@ const video = s
   .map("official_cache_invalidation_video");
 const schema = { user, video };
 
+/**
+ * The exact backend namespace for each version form, spelled out.
+ *
+ * Every client below is PGlite, so the dialect component is `postgresql` and
+ * the namespace component is the defaulted schema `public` — both encoded the
+ * same fixed-width way as the version, which is what keeps the joined string
+ * injective. Literals, not derivation: a non-injective join (one component
+ * absorbing the next, an absent namespace colliding with a real one) shows up
+ * here as a changed byte and nowhere else.
+ *
+ * The revision reads `r2` because the dialect and SQL namespace entered the
+ * derivation; no `r1` entry may be served to a reader that partitions on them.
+ */
 const NAMESPACE = Object.freeze({
-  one: "viborm:cache:r1:s:006f006e0065",
-  tx: "viborm:cache:r1:s:00740078",
-  fallback: "viborm:cache:r1:s:00660061006c006c006200610063006b",
-  native: "viborm:cache:r1:s:006e00610074006900760065",
-  A: "viborm:cache:r1:s:0041",
-  colon: "viborm:cache:r1:s:0061003a0062",
-  stringOne: "viborm:cache:r1:s:0031",
-  numberOne: "viborm:cache:r1:n:3ff0000000000000",
-  loneSurrogate: "viborm:cache:r1:s:d800",
-  unversioned: "viborm:cache:r1:u",
-  ambiguous: "viborm:cache:r1:s:0061006d0062006900670075006f00750073",
+  one: "viborm:cache:r2:d:0070006f0073007400670072006500730071006c:k:007000750062006c00690063:s:006f006e0065",
+  tx: "viborm:cache:r2:d:0070006f0073007400670072006500730071006c:k:007000750062006c00690063:s:00740078",
+  fallback:
+    "viborm:cache:r2:d:0070006f0073007400670072006500730071006c:k:007000750062006c00690063:s:00660061006c006c006200610063006b",
+  native:
+    "viborm:cache:r2:d:0070006f0073007400670072006500730071006c:k:007000750062006c00690063:s:006e00610074006900760065",
+  A: "viborm:cache:r2:d:0070006f0073007400670072006500730071006c:k:007000750062006c00690063:s:0041",
+  colon:
+    "viborm:cache:r2:d:0070006f0073007400670072006500730071006c:k:007000750062006c00690063:s:0061003a0062",
+  stringOne:
+    "viborm:cache:r2:d:0070006f0073007400670072006500730071006c:k:007000750062006c00690063:s:0031",
+  numberOne:
+    "viborm:cache:r2:d:0070006f0073007400670072006500730071006c:k:007000750062006c00690063:n:3ff0000000000000",
+  loneSurrogate:
+    "viborm:cache:r2:d:0070006f0073007400670072006500730071006c:k:007000750062006c00690063:s:d800",
+  unversioned:
+    "viborm:cache:r2:d:0070006f0073007400670072006500730071006c:k:007000750062006c00690063:u",
+  ambiguous:
+    "viborm:cache:r2:d:0070006f0073007400670072006500730071006c:k:007000750062006c00690063:s:0061006d0062006900670075006f00750073",
 });
 
 const fallbackFamily = usePGliteSchemaFamily(schema);

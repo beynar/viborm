@@ -596,7 +596,7 @@ export function buildConnectSubqueryForField(
 
   const fieldColumn = getColumnName(targetModel, selectField);
   const fieldSql = adapter.identifiers.column(subAlias, fieldColumn);
-  const tableSql = adapter.identifiers.escape(targetTable);
+  const tableSql = adapter.identifiers.table(targetTable);
 
   const lookup = sql`SELECT ${fieldSql} FROM ${tableSql} ${sql.raw([
     subAlias,

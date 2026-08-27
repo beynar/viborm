@@ -1,44 +1,51 @@
 import type { AnyDriver } from "../../drivers/driver";
-import type { MigrationDriver } from "../drivers";
-import type { MigrationStorageDriver } from "../storage/driver";
-import { introspectSchema } from "./planner";
+import type { BoundMigrationDriver } from "../drivers";
+import {
+  executeLiveNamespaceReset,
+  type LiveNamespaceResetPlan,
+  planLiveNamespaceReset,
+} from "../live-reset";
 
 /**
- * Resets the database by dropping all tables and enums.
- * If storage driver is provided, also clears migration tracking.
+ * Decides the live-namespace clear for `push({ forceReset: true })`.
+ *
+ * It touches NO migration storage. The previous storage arm wrote a journal
+ * hardcoded to format version "1" — a version this build refuses to read — so a
+ * successful force-reset left the estate permanently unreadable. Push
+ * synchronizes live state; rewriting an estate's history is not a push effect.
+ *
+ * The declared tracking table is an ORDINARY managed object here: force-reset
+ * clears its rows and then removes it through the same dependency-safe program
+ * as everything else, and the versioned artifact estate stays byte-identical. A
+ * later `status()` therefore reports the unchanged journal entries as pending,
+ * which is the truth. Users who want a history-aware destructive rebuild use
+ * `migrations.reset()`.
+ *
+ * Force-reset's clear is TWO steps for the same reason every other caller's is:
+ * the plan is decided from catalog reads and can refuse — a cross-database
+ * foreign key, an inbound tracking reference — while the execution is nothing
+ * but effects. Only the second belongs inside the commit-model reporter.
+ *
+ * @param trackingTableName - the normalized name this command DECLARES, never
+ *   one guessed from the inventory. A sibling custom-named table the invoking
+ *   command did not declare is an ordinary table and receives no
+ *   tracking-history claim.
  */
+export function planResetDatabase(
+  driver: AnyDriver,
+  migrationDriver: BoundMigrationDriver,
+  trackingTableName: string
+): Promise<LiveNamespaceResetPlan> {
+  return planLiveNamespaceReset(driver, migrationDriver, {
+    trackingTable: "drop",
+    trackingTableName,
+  });
+}
+
+/** Executes a planned force-reset clear on the producer the caller chose. */
 export async function resetDatabase(
   driver: AnyDriver,
-  migrationDriver: MigrationDriver,
-  storageDriver?: MigrationStorageDriver
+  plan: LiveNamespaceResetPlan
 ): Promise<void> {
-  const current = await introspectSchema(driver, migrationDriver);
-
-  for (const statement of migrationDriver.getPreResetStatements(current)) {
-    await driver._executeRaw(`${statement};`);
-  }
-
-  const tablesToDrop = [...current.tables].reverse();
-  for (const table of tablesToDrop) {
-    const dropSql = migrationDriver.generateDropTableSQL(table.name, true);
-    await driver._executeRaw(`${dropSql};`);
-  }
-
-  if (current.enums) {
-    for (const enumDef of current.enums) {
-      const dropSql = migrationDriver.generateDropEnumSQL(enumDef.name);
-      if (dropSql) {
-        await driver._executeRaw(`${dropSql};`);
-      }
-    }
-  }
-
-  if (storageDriver) {
-    await storageDriver.writeJournal({
-      version: "1",
-      dialect: driver.dialect,
-      entries: [],
-    });
-    await storageDriver.writeSnapshot({ tables: [], enums: [] });
-  }
+  await executeLiveNamespaceReset(driver, plan);
 }

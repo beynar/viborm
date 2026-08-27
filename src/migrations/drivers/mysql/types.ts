@@ -38,9 +38,12 @@ export interface MySQLIndex {
 }
 
 export interface MySQLForeignKey {
+  /** Both endpoints are read so cross-database topology can be refused (§5.2). */
+  TABLE_SCHEMA: string;
   TABLE_NAME: string;
   CONSTRAINT_NAME: string;
   COLUMN_NAME: string;
+  REFERENCED_TABLE_SCHEMA: string;
   REFERENCED_TABLE_NAME: string;
   REFERENCED_COLUMN_NAME: string;
   DELETE_RULE: string;

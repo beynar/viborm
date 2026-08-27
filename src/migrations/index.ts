@@ -20,9 +20,11 @@ export {
 export type { MigrationClientOptions, Migrations } from "./client";
 // Client
 export { createMigrationClient } from "./client";
-export type { MigrationContextOptions } from "./context";
-// Context
-export { MigrationContext } from "./context";
+// `MigrationContext` and `MigrationContextOptions` are deliberately NOT
+// exported. The context is the internal command-composition owner: its raw,
+// lock, tracking and statement methods would be a public route around the one
+// estate gate and the one live-capability admission decision. No compatibility
+// export remains; the concrete public command-option types inline their fields.
 // Differ
 export {
   diff,
@@ -97,7 +99,9 @@ export type {
   GenerateResult,
   IndexDef,
   MigrationEntry,
+  MigrationJournal,
   MigrationStatus,
+  MigrationTarget,
   PolymorphicSnapshotStorage,
   PolymorphicToManySnapshot,
   PolymorphicToManySnapshotMember,

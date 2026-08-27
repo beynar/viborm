@@ -463,7 +463,7 @@ export function buildInsert(
     throw new QueryEngineError("No columns to insert");
   }
 
-  const table = ctx.adapter.identifiers.escape(tableName);
+  const table = ctx.adapter.identifiers.table(tableName);
   if (columns.length === 0) {
     return ctx.adapter.mutations.insertDefault(table);
   }

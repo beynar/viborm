@@ -88,13 +88,25 @@ const PARAMETER_KEYS = new Set([
   "values",
 ]);
 const CAUSE_KEYS = new Set(["cause", "originalcause"]);
+// Seven of these keys name a MIGRATION ESTATE: `namespace` (the configured
+// schema/database), `target`, `journalTarget` and `clientTarget` (formatted
+// estate descriptions a refusal compares), `command` (the migration verb that
+// was refused), `referencedTable` (the far end of a cross-database foreign
+// key), and `candidates` (the catalog spellings a configured namespace
+// matched). All seven are ORM configuration or catalog identifiers — never row
+// data, query text, or credentials — and plan §3.3 requires the normalized
+// namespace to reach safe metadata, so a refusal can be read programmatically
+// instead of only as prose.
 const ERROR_META_KEYS = new Set([
   "actualChecksum",
   "actualResultCount",
   "actualRowCount",
   "autoIncrement",
+  "candidates",
+  "clientTarget",
   "column",
   "columns",
+  "command",
   "commitCertainty",
   "conflictsWith",
   "constraint",
@@ -111,11 +123,13 @@ const ERROR_META_KEYS = new Set([
   "hint",
   "indexName",
   "indexType",
+  "journalTarget",
   "method",
   "migrationIndex",
   "migrationName",
   "migrationsDir",
   "model",
+  "namespace",
   "operation",
   "params",
   "providerCode",
@@ -124,6 +138,7 @@ const ERROR_META_KEYS = new Set([
   "providerStatus",
   "query",
   "recordSeriesProgress",
+  "referencedTable",
   "relation",
   "relations",
   "representation",
@@ -133,6 +148,7 @@ const ERROR_META_KEYS = new Set([
   "step",
   "strategy",
   "table",
+  "target",
   "timeout",
   "type",
 ]);
@@ -141,7 +157,9 @@ const ERROR_META_KEYS = new Set([
 const LOG_META_KEYS = new Set(["deprecation", "event", "status"]);
 const STRING_META_KEYS = new Set([
   "actualChecksum",
+  "clientTarget",
   "column",
+  "command",
   "conflictsWith",
   "constraint",
   "context",
@@ -155,20 +173,24 @@ const STRING_META_KEYS = new Set([
   "hint",
   "indexName",
   "indexType",
+  "journalTarget",
   "method",
   "migrationName",
   "migrationsDir",
   "model",
+  "namespace",
   "operation",
+  "referencedTable",
   "relation",
   "representation",
   "scalarType",
   "step",
   "strategy",
   "table",
+  "target",
   "type",
 ]);
-const STRING_ARRAY_META_KEYS = new Set(["columns", "relations"]);
+const STRING_ARRAY_META_KEYS = new Set(["candidates", "columns", "relations"]);
 const NUMBER_META_KEYS = new Set([
   "actualResultCount",
   "actualRowCount",

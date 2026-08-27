@@ -1,12 +1,12 @@
-import { defineContract } from "@tests/contracts/contract";
 import { createClient } from "@client/client";
 import type { QueryExecutionContext } from "@drivers/driver";
 import { MySQL2Driver } from "@drivers/mysql2";
 import type { QueryResult } from "@drivers/types";
 import { NotFoundError } from "@errors";
 import { push } from "@migrations";
-import type { Pool, PoolConnection } from "mysql2/promise";
 import { s } from "@schema";
+import { defineContract } from "@tests/contracts/contract";
+import type { Pool, PoolConnection } from "mysql2/promise";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
 interface Deferred {
@@ -34,7 +34,11 @@ class HookedMySQL2Driver extends MySQL2Driver {
       afterStatement?: StatementHook;
     } = {}
   ) {
-    super({ databaseUrl });
+    // The URL's path binds the namespace; the attestation is the separate fact
+    // effectful live migration work needs (plan §5.3), and this contract pushes
+    // its own fixture schema. A docker MySQL reached directly is not behind a
+    // rewriting proxy, so the assertion is true here by construction.
+    super({ databaseUrl, migrationNamespaceAttestation: "non-redirecting" });
     this.beforeStatement = hooks.beforeStatement;
     this.afterStatement = hooks.afterStatement;
   }
@@ -370,18 +374,28 @@ function isItemLock(statement: string): boolean {
   return isItemSelect(statement) && /FOR UPDATE/i.test(statement);
 }
 
+/**
+ * These fixtures run on a URL-bound driver, and a bound MySQL adapter qualifies
+ * every persistent table position (`` `db`.`table` ``). The optional prefix
+ * keeps one matcher honest for both the bound and the unbound spelling — the
+ * write path is what is under test here, not how the table is named.
+ */
+const ITEM_UPDATE = /^UPDATE (?:`[^`]+`\.)?`atomic_mysql_items`/i;
+const AUTO_ITEM_INSERT =
+  /^INSERT INTO (?:`[^`]+`\.)?`atomic_mysql_auto_items`/i;
+const NATIVE_UPSERT =
+  /INSERT INTO (?:`[^`]+`\.)?`atomic_mysql_items`[\s\S]*ON DUPLICATE KEY UPDATE/i;
+
 function isItemUpdate(statement: string): boolean {
-  return /^UPDATE `atomic_mysql_items`/i.test(statement);
+  return ITEM_UPDATE.test(statement);
 }
 
 function isAutoItemInsert(statement: string): boolean {
-  return /^INSERT INTO `atomic_mysql_auto_items`/i.test(statement);
+  return AUTO_ITEM_INSERT.test(statement);
 }
 
 function isNativeUpsert(statement: string): boolean {
-  return /INSERT INTO `atomic_mysql_items`[\s\S]*ON DUPLICATE KEY UPDATE/i.test(
-    statement
-  );
+  return NATIVE_UPSERT.test(statement);
 }
 
 export const nonReturningMutationAtomicityContract = defineContract({

@@ -174,7 +174,7 @@ export class JunctionStatements {
             )
           : source;
         return this.ctx.adapter.mutations.delete(
-          this.ctx.adapter.identifiers.escape(junction.membership.table),
+          this.ctx.adapter.identifiers.table(junction.membership.table),
           where
         );
       }
@@ -186,7 +186,7 @@ export class JunctionStatements {
             ? this.falseCondition()
             : buildJunctionDeleteCondition(this.ctx, junction, values);
         return this.ctx.adapter.mutations.delete(
-          this.ctx.adapter.identifiers.escape(junction.membership.table),
+          this.ctx.adapter.identifiers.table(junction.membership.table),
           condition
         );
       }
@@ -197,7 +197,7 @@ export class JunctionStatements {
         // therefore a different statement.
         const target = this.targetValue(junction, args);
         return this.ctx.adapter.mutations.delete(
-          this.ctx.adapter.identifiers.escape(junction.membership.table),
+          this.ctx.adapter.identifiers.table(junction.membership.table),
           this.ctx.adapter.operators.and(
             buildJunctionSourceMatch(this.ctx, junction, parentValues),
             buildJunctionTargetValuesMatch(this.ctx, junction, [target])
@@ -241,7 +241,7 @@ export class JunctionStatements {
         ),
         ", "
       ),
-      from: this.ctx.adapter.identifiers.escape(junction.membership.table),
+      from: this.ctx.adapter.identifiers.table(junction.membership.table),
       where: buildJunctionTargetValuesMatch(this.ctx, junction, [target]),
       limit: this.ctx.adapter.literals.value(2),
       ...(this.lockReads && args.lock === "transaction"
@@ -324,7 +324,7 @@ export class JunctionStatements {
       columns: additionalColumns.length
         ? sql.join([selected, ...additionalColumns], ", ")
         : selected,
-      from: this.ctx.adapter.identifiers.escape(table),
+      from: this.ctx.adapter.identifiers.table(table),
       where: this.ctx.adapter.operators.and(...predicates),
       ...(typeof args.take === "number"
         ? { limit: this.ctx.adapter.literals.value(args.take) }
@@ -389,7 +389,7 @@ export class JunctionStatements {
     }
     return this.ctx.adapter.assemble.select({
       columns: this.ctx.adapter.literals.value(1),
-      from: this.ctx.adapter.identifiers.escape(table),
+      from: this.ctx.adapter.identifiers.table(table),
       where,
       limit: this.ctx.adapter.literals.value(1),
     });
@@ -417,7 +417,7 @@ export class JunctionStatements {
       : undefined;
     const data = requireRecord(args.data, "data");
     return this.ctx.adapter.mutations.update(
-      this.ctx.adapter.identifiers.escape(table),
+      this.ctx.adapter.identifiers.table(table),
       buildSet(child, data),
       filter ? this.ctx.adapter.operators.and(membership, filter) : membership
     );

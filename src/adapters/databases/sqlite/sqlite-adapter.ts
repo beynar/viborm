@@ -1,5 +1,6 @@
 import { unsupportedGeospatial, unsupportedVector } from "@errors";
 import { type Sql, sql } from "@sql";
+import { createIdentifierQuoter } from "../../../sql/identifiers";
 import type { DatabaseAdapter, QueryParts } from "../../database-adapter";
 import { createOnConflictBatchRefs } from "../../shared/batch-refs";
 import {
@@ -15,7 +16,6 @@ import {
   createCteBuilders,
   createDirectionOrderBy,
   createExistenceOperators,
-  createIdentifierQuoter,
   createIdentifiers,
   createInsertStatement,
   createLogicalOperators,
@@ -559,6 +559,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
     supportsFullOuterJoin: false,
     supportsLateralJoins: false, // SQLite does not support LATERAL joins
     supportsVector: false,
+    supportsGeospatial: false,
     supportsUpsertWhere: true, // SQLite supports WHERE in ON CONFLICT (3.24+)
     supportsTargetedUpsert: true, // ON CONFLICT (cols) arbitrates on those cols
     supportsMutationTargetInSubquery: true,

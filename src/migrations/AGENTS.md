@@ -28,6 +28,7 @@ Provides two approaches for syncing TypeScript schema to the database:
 | `types.ts` | SchemaSnapshot, DiffOperation, MigrationEntry types |
 | `generate/polymorphic-history.ts` | Non-SQL history for stable polymorphic members |
 | `generate/manual-artifact.ts` | Validates `GenerateOptions.manualMigration` (all five refusals) |
+| `statement-safety.ts` | The ONE artifact classifier — refuses DIRECT boundary controls, and is not a sandbox (Rule 6c) |
 
 ### Subdirectories
 
@@ -126,15 +127,58 @@ It needs no `storageRef`: each member names its junction table directly, and the
 structural differ owns that table's shape — columns, primary key, reverse index,
 both foreign keys, and the singular member's unique constraint — entirely.
 
+### Migration Estate Target
+
+One discriminated value names the estate a history was generated for:
+
+```typescript
+type MigrationTarget =
+  | { readonly dialect: "postgresql"; readonly namespace: string }
+  | { readonly dialect: "mysql" }
+  | { readonly dialect: "sqlite" };
+```
+
+PostgreSQL carries its schema because generated artifacts are schema-qualified.
+MySQL is dialect-only ON PURPOSE — artifacts are database-relative, so one
+estate deploys to `app_dev`, `app_test` and `app_prod` — and the LIVE MySQL
+destination comes from the adapter's namespace at the live boundary, never from
+the journal and never from `DATABASE()`.
+
+`resolveMigrationEstate(driver)` is the only producer of BOTH facts — the
+durable target and the live namespace — from ONE read of `adapter.namespace`.
+It is reached through `getMigrationDriver(driver)`, which returns a frozen
+adapter-bound view of the registered stateless singleton and must never read
+that fact a second time: an accessor-backed custom adapter could answer
+differently, and the view would then name one estate and render another. A
+PostgreSQL adapter that declares no namespace is refused there: it must not
+silently acquire `"public"`.
+
+One internal `MigrationContext.readEstateJournal()` is the SINGLE
+exact-estate-target gate. A dialect difference is `MIGRATION_DIALECT_MISMATCH`;
+a PostgreSQL schema difference is `MIGRATION_INVALID_STATE`. Every high-level
+verb and every named migration-client accessor passes through it BEFORE it
+reads a snapshot or artifact, creates or queries tracking, writes storage, or
+executes SQL. `migrations.storage` stays the deliberately unbound low-level
+escape.
+
+PostgreSQL qualifies in BOTH destinations — a PG estate is schema-bound in the
+artifact and live alike, so `destination` is legitimately unread by its renderers
+and artifact ≡ live is witnessed. MySQL qualifies only at `destination === "live"`;
+its artifacts stay database-relative, and an UNBOUND MySQL driver renders bare for
+both destinations (which is what keeps §12.21 true) while its catalog reads refuse
+rather than falling back to `DATABASE()`. Managed PostgreSQL enum types are derived
+from what this estate manages, replacing the old `_enum`-suffix guess, and the
+enum-cast strip is keyed on the column's catalog-proven `udt_schema`/`udt_name`.
+
 ### Migration Journal
 
 Tracks migration history in `meta/_journal.json`:
 
 ```typescript
 interface MigrationJournal {
-  version: string;   // "2" — bumped when entries gained their policy
-  dialect: Dialect;
-  entries: MigrationEntry[];
+  readonly version: "3";   // "2" → "3" when the top-level dialect became the target
+  readonly target: MigrationTarget;
+  readonly entries: readonly MigrationEntry[];
 }
 
 interface MigrationEntry {
@@ -155,13 +199,33 @@ interface MigrationEntry {
 given a default, and the only available default (`automatic`) is exactly the
 bypass the policy exists to close.
 
-`readJournal()` is the SINGLE journal funnel — `apply`, `down`, `squash`,
-`reset`, `status` and the client accessors all reach the journal through it — so
-it validates once: a journal whose `version` is not `"2"`, or any entry missing
+`readJournal()` is the SINGLE STRUCTURAL journal parser — `apply`, `down`,
+`squash`, `reset`, `status` and the client accessors all reach the journal
+through the context gate, which reaches it through here — so the format is
+validated once: a journal whose `version` is not `"3"`, whose `target` is
+missing, malformed, unknown, or carrying fields its arm does not define, one
+that still carries a top-level `dialect` beside the target, or any entry missing
 `mode`, missing `rollback`, carrying an unknown rollback kind, or declaring
 `irreversible` with a blank `reason`, is refused with `V11009`. There is no
 legacy reader and no journal migrator; regenerate the estate instead. After that
-guard `entry.rollback` is total and no downstream verb re-checks it.
+guard `entry.rollback` is total and no downstream verb re-checks it. Whether a
+readable journal is THIS client's estate is a different question with a
+different owner — the context gate.
+
+### Applied State Is Read-Only
+
+`MigrationContext.readAppliedMigrations()` is the one applied-state reader and
+it NEVER creates the tracking table. It obtains this command's driver view
+first — which is where the configured namespace is proven, and where MySQL's
+server spelling is answered — and renders through it, then establishes an absent
+tracking table either positively — SQLite's one exact `sqlite_schema` lookup on
+the configured name — or through the dialect's exact missing-table translation.
+That view has ONE owner, `resolveCommandDriver` in `pinned-session.ts`: a locked
+command gets it when its producer is reserved, and a read-only command
+(`status()`, `pending()`, dry push) asks the same owner without taking a lock. Every other failure surfaces: there is no
+catch-all that reports permissions or transport failures as an empty estate.
+`ensureTrackingTable()` is a WRITE and lives only inside an admitted effectful
+owner.
 
 **What checksum verification proves.** Only that the journal entry and the
 tracking row agree (`apply/index.ts`, `apply/down.ts`). The written file embeds
@@ -197,8 +261,14 @@ Separate from database drivers. Handle DDL generation and introspection:
 
 ```typescript
 abstract class MigrationDriver {
+  // `ctx.destination` is REQUIRED ("artifact" | "live") and reaches EVERY
+  // renderer arm through the one dispatcher. There is no default and no mode.
   abstract generateDDL(operation: DiffOperation, ctx: DDLContext): string;
-  abstract introspect(): Promise<SchemaSnapshot>;
+  // The namespace travels as an argument, so no ambient connection state can
+  // pick the estate.
+  abstract introspect(
+    executeRaw: <T>(sql: string, params?: unknown[]) => Promise<{ rows: T[] }>
+  ): Promise<SchemaSnapshot>;
   abstract generateCreateTrackingTable(tableName: string): string;
   // ... more methods
 }
@@ -270,9 +340,16 @@ When column/table dropped AND added, always ask user. Never assume rename.
 
 Migrations are checksummed. Modifying an applied migration is an error.
 
-### Rule 4: Transactional Apply
+### Rule 4: Atomicity Is The Dialect's
 
-Each migration is applied in a transaction. Failure rolls back that migration.
+Each migration is applied in a transaction on every dialect that has one to
+open, and a failure rolls that migration back. MySQL commits DDL implicitly, so
+no transaction is opened there and none is faked: the entry runs as one
+SEQUENTIAL PROGRAM on the pinned producer, and a failure reports the last
+statement that completed, states that nothing was rolled back, and makes no
+claim about the statement that failed. One owner answers for every such program
+— apply, ordinary push, the force-reset rebuild, down and the reset replay —
+and it is `runSequentialProgram` in `pinned-session.ts`.
 
 ### Rule 5: Journal is Source of Truth
 
@@ -364,21 +441,52 @@ or `manual` policy are fatal.
 discriminator history, so push cannot detect a stored-value rename, removal, or
 retarget. Push users must migrate data before changing those mappings.
 
-### Rule 6b: Rollback Reads Everything Under The Lock — And The Lock Is Weak
+### Rule 6b: Rollback Reads Everything Under The Lock — On One Pinned Session
 
-`down()` and `squash()` do all of it inside `ctx.withLock`: read the journal,
-read applied state, recompute the group, verify checksums, refuse on policy,
-validate every artifact, and only then execute. The dry-run return comes AFTER
-the whole preflight, because the CLI confirms against the dry run and a preview
-that cannot report a refusal is not a preview.
+`down()` and `squash()` do all of it inside `ctx.withLockedSession`: read the
+journal, read applied state, recompute the group, verify checksums, refuse on
+policy, validate every artifact, and only then execute. The dry-run return comes
+AFTER the whole preflight, because the CLI confirms against the dry run and a
+preview that cannot report a refusal is not a preview.
 
-State that honestly: this closes the window between the caller's request and
-lock acquisition by recomputing, not by serializing. The lock itself is weaker
-than it looks — SQLite and libSQL take no lock at all and report success, and on
-PostgreSQL/MySQL the advisory lock is session-scoped and issued outside the
-transaction, so it is not connection-pinned. On the substrates the round-trip
-tests run on, the in-lock recomputation is the ONLY defence. `apply()` still
-does not take the lock at all; that is a known gap, not a claim.
+State that honestly: the in-lock recomputation closes the window between the
+caller's request and lock acquisition by recomputing, not by trusting the lock.
+The lock is now CONNECTION-PINNED — `withLockedSession` reserves ONE physical
+session, and the acquisition, every authoritative read, every statement and the
+release all run on it — and both the acquisition and the release are PROVEN from
+the provider's own answer, an unproven one destroying that session rather than
+returning it to a pool holding a lock nobody owns. `apply()` takes the same lock
+and commits once per entry inside it, rereading the authoritative journal and
+tracking state before each entry. What stays weak is SQLite and libSQL: they
+reserve nothing, take no lock, and report success, so on those substrates the
+in-lock recomputation is still the ONLY defence.
+
+### Rule 6c: The Artifact Classifier Refuses Direct Controls, And Is Not A Sandbox
+
+`statement-safety.ts` is the ONE lexical classifier, and it runs before any
+artifact effect. It refuses DIRECT boundary control at the head of a statement,
+read in each dialect's own comment and string grammar: PostgreSQL transaction
+control and every `pg_advisory_*` call, quoted or schema-qualified; MySQL
+transaction/XA control, `SET autocommit`, table lock/unlock, and every named-lock
+function. `PREPARE TRANSACTION` is refused as a two-word PHRASE, because
+`PREPARE plan AS ...` leads with the same word and controls nothing.
+
+It is **not a sandbox**, and no source comment, doc, or error message may say
+otherwise. A dollar-quoted body is DATA to the scan — it has to be, or every
+ordinary `CREATE FUNCTION` is refused — and the same bytes are a statement to the
+server, so `DO $$ BEGIN PERFORM pg_advisory_unlock_all(); END $$` frees the
+migration lock mid-command, and a safe-named function or dynamic SQL is the same
+escape by another route.
+`tests/unit/migrations/pinned-migration-session.core.test.ts` runs that exact
+artifact through `apply()` on a real PostgreSQL and pins the lock gone.
+
+Manual migration SQL is therefore trusted last-mile authority. Do NOT answer a
+procedural escape with another spelling in the scanner: the enumeration does not
+close, and each addition costs valid author SQL. The deliberate case is answered
+after the fact by the release PROOF on the pinned session (Rule 6b), which fails
+the command and discards the session when the lock it acquired is no longer
+held. Add a spelling only for a DIRECT statement the scanner already reads and
+misclassifies.
 
 ### Rule 7: Junction Sides Are Complete Stored References
 
@@ -411,6 +519,7 @@ entry pins `table`, `source`, and `target`.
 | Untracking an applied migration to "undo" it | Leaves the schema live and bypasses manual/irreversible policy | `migrations.down()` — it executes the artifact and untracks together |
 | Writing an empty or comment-only down artifact | Rollback would advance tracking past SQL that never ran | Declare `{ kind: "irreversible", reason }` |
 | A second journal reader or SQL parser | Two definitions of "current format" or "non-empty" cannot agree | `storage.readJournal()` and `parseStatements()` are the only ones |
+| Adding a classifier spelling to stop procedural SQL | The scanner reads a dollar-quoted body as data and the server runs it, so the enumeration never closes while valid author SQL starts failing | Keep the honest contract (Rule 6c); the release proof answers the deliberate case |
 
 ---
 

@@ -108,6 +108,21 @@ unhandled rejection.
 - `viborm.transaction`, `viborm.savepoint`, `viborm.batch`, `viborm.segment`,
   connection, and cache spans represent only real lifecycle boundaries.
 - There are no separate validate/build/parse spans.
+- `db.namespace` reports `adapter.namespace` and is added in exactly one place,
+  `Driver.getBaseAttributes()` in `src/drivers/driver-instrumentation.ts` —
+  outside this layer's 100% coverage glob, and the single choke point every
+  `db.*`-carrying unit already flows through. When the adapter is unqualified the
+  KEY IS ABSENT; never emit `null`, `""`, or the text `undefined`. Do not add the
+  attribute to a unit that carries no other `db.*` (write segments, the cache
+  backend's own get/set spans), and do not invent a lifecycle kind for it — the
+  five kinds are fixed. Immutability rides the non-writable `adapter.namespace`
+  install, NOT a ban on copies: `getBaseAttributes()` returns a fresh literal on
+  every call, and the cache unit's span is deliberately built from a snapshot of
+  one, taken at `$withCache` and carried as `options.dbAttributes`. That
+  snapshot cannot go stale, because the property it read cannot be reassigned —
+  which is also why no reader may take its namespace from anywhere else.
+- The unobserved native-batch phase must keep calling `getBaseAttributes` zero
+  times; it is pinned, and any new base attribute has to preserve that.
 - Ignoring a cache span must not write late cache attributes onto its parent.
 - Segment aggregate attributes can update the exact active operation span at
   the existing final boundary.

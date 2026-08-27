@@ -52,6 +52,12 @@ function quoteIdentifier(name: string): string {
  * Deparses each predicate through PostgreSQL and returns the answers
  * positionally.
  *
+ * `table` arrives ALREADY QUALIFIED and quoted by the bound migration driver.
+ * The scratch view is parsed on whatever `search_path` the session carries, so
+ * a bare name would canonicalize this estate's predicate against a same-named
+ * table in another schema — and then hand that answer to the differ as if it
+ * described the estate's own index.
+ *
  * Throws rather than reporting a failure per predicate. The caller runs this
  * inside one transaction: a statement that fails aborts it, every later
  * statement in it fails too, and the rollback is what removes the scratch views
@@ -59,13 +65,11 @@ function quoteIdentifier(name: string): string {
  * table later in the same push.
  */
 export async function canonicalizeIndexPredicates(
-  tableName: string,
+  table: string,
   predicates: readonly string[],
   executeRaw: RawExecutor
 ): Promise<ReadonlyArray<string | undefined>> {
   if (predicates.length === 0) return [];
-
-  const table = quoteIdentifier(tableName);
   const views = predicates.map((_, position) =>
     quoteIdentifier(`${SCRATCH_VIEW_PREFIX}${position}`)
   );

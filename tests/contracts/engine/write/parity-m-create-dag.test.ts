@@ -188,6 +188,9 @@ interface Substrate {
   readonly name: string;
   readonly createDriver: () => AnyDriver;
   readonly quote: (name: string) => string;
+  /** A persistent table, as opposed to a column/alias/CTE name: PostgreSQL
+   *  renders it schema-qualified, SQLite and unbound MySQL2 render it bare. */
+  readonly table: (name: string) => string;
   readonly placeholder: (index: number) => string;
   readonly intCast: string;
   readonly textCast: string;
@@ -201,6 +204,7 @@ const SUBSTRATES: readonly Substrate[] = [
     name: "PGlite transaction (RETURNING, mutation CTEs)",
     createDriver: () => new PGliteDriver(),
     quote: (name) => `"${name}"`,
+    table: (name) => `"public"."${name}"`,
     placeholder: (index) => `$${index}`,
     intCast: "INTEGER",
     textCast: "TEXT",
@@ -212,6 +216,7 @@ const SUBSTRATES: readonly Substrate[] = [
     name: "SQLite3 transaction (RETURNING, read-only CTEs)",
     createDriver: () => new SQLite3Driver(),
     quote: (name) => `"${name}"`,
+    table: (name) => `"${name}"`,
     placeholder: () => "?",
     intCast: "INTEGER",
     textCast: "TEXT",
@@ -223,6 +228,7 @@ const SUBSTRATES: readonly Substrate[] = [
     name: "MySQL2 (insertId, no RETURNING)",
     createDriver: () => new MySQL2Driver(),
     quote: (name) => `\`${name}\``,
+    table: (name) => `\`${name}\``,
     placeholder: () => "?",
     intCast: "SIGNED",
     textCast: "CHAR",
@@ -234,6 +240,7 @@ const SUBSTRATES: readonly Substrate[] = [
 
 for (const substrate of SUBSTRATES) {
   const q = substrate.quote;
+  const tbl = substrate.table;
   const p = substrate.placeholder;
   const identityOutput = substrate.capturesByReturning
     ? { kind: "firstRowField", field: "id" }
@@ -269,7 +276,7 @@ for (const substrate of SUBSTRATES) {
             {
               id: "hub.create",
               kind: "write",
-              sql: `WITH ${q("__viborm_mutation")} AS (INSERT INTO ${q("parity_m_hubs")} (${q("name")}) VALUES (${p(1)}) RETURNING ${q("id")}, ${q("name")}), ${q("__viborm_write_0")} AS (INSERT INTO ${q("parity_m_spans")} (${q("id")}, ${q("hubId")}) VALUES (${p(2)}, CAST((SELECT ${q("id")} FROM ${q("__viborm_mutation")}) AS ${substrate.intCast}))) SELECT ${q("t0")}.${q("id")} AS ${q("id")} FROM ${q("__viborm_mutation")} AS ${q("t0")}`,
+              sql: `WITH ${q("__viborm_mutation")} AS (INSERT INTO ${tbl("parity_m_hubs")} (${q("name")}) VALUES (${p(1)}) RETURNING ${q("id")}, ${q("name")}), ${q("__viborm_write_0")} AS (INSERT INTO ${tbl("parity_m_spans")} (${q("id")}, ${q("hubId")}) VALUES (${p(2)}, CAST((SELECT ${q("id")} FROM ${q("__viborm_mutation")}) AS ${substrate.intCast}))) SELECT ${q("t0")}.${q("id")} AS ${q("id")} FROM ${q("__viborm_mutation")} AS ${q("t0")}`,
               params: ["H", "s1"],
               outputs: { result: { kind: "rows" } },
               expects: substrate.terminalExpects,
@@ -286,7 +293,7 @@ for (const substrate of SUBSTRATES) {
           {
             id: "hub.create",
             kind: "write",
-            sql: `INSERT INTO ${q("parity_m_hubs")} (${q("name")}) VALUES (${p(1)})${idReturning}`,
+            sql: `INSERT INTO ${tbl("parity_m_hubs")} (${q("name")}) VALUES (${p(1)})${idReturning}`,
             params: ["H"],
             outputs: { id: identityOutput },
             expects: null,
@@ -299,7 +306,7 @@ for (const substrate of SUBSTRATES) {
             // keeps this cast exactly where it is.
             id: "span.create",
             kind: "write",
-            sql: `INSERT INTO ${q("parity_m_spans")} (${q("id")}, ${q("hubId")}) VALUES (${p(1)}, CAST(${p(2)} AS ${substrate.intCast}))`,
+            sql: `INSERT INTO ${tbl("parity_m_spans")} (${q("id")}, ${q("hubId")}) VALUES (${p(1)}, CAST(${p(2)} AS ${substrate.intCast}))`,
             params: ["s1", reference("hub.create", "id")],
             outputs: {},
             expects: null,
@@ -309,7 +316,7 @@ for (const substrate of SUBSTRATES) {
           {
             id: "hub.select",
             kind: "read",
-            sql: `SELECT ${q("t0")}.${q("id")} AS ${q("id")} FROM ${q("parity_m_hubs")} AS ${q("t0")} WHERE ${q("t0")}.${q("id")} = CAST(${p(1)} AS ${substrate.intCast}) LIMIT 1`,
+            sql: `SELECT ${q("t0")}.${q("id")} AS ${q("id")} FROM ${tbl("parity_m_hubs")} AS ${q("t0")} WHERE ${q("t0")}.${q("id")} = CAST(${p(1)} AS ${substrate.intCast}) LIMIT 1`,
             params: [reference("hub.create", "id")],
             outputs: { result: { kind: "rows" } },
             expects: substrate.terminalExpects,
@@ -342,7 +349,7 @@ for (const substrate of SUBSTRATES) {
           {
             id: "hub.create",
             kind: "write",
-            sql: `INSERT INTO ${q("parity_m_hubs")} (${q("name")}) VALUES (${p(1)})${idReturning}`,
+            sql: `INSERT INTO ${tbl("parity_m_hubs")} (${q("name")}) VALUES (${p(1)})${idReturning}`,
             params: ["H"],
             outputs: { id: identityOutput },
             expects: null,
@@ -352,7 +359,7 @@ for (const substrate of SUBSTRATES) {
           {
             id: "cell.create",
             kind: "write",
-            sql: `INSERT INTO ${q("parity_m_cells")} (${q("hubId")}) VALUES (CAST(${p(1)} AS ${substrate.intCast}))${idReturning}`,
+            sql: `INSERT INTO ${tbl("parity_m_cells")} (${q("hubId")}) VALUES (CAST(${p(1)} AS ${substrate.intCast}))${idReturning}`,
             params: [reference("hub.create", "id")],
             outputs: { id: identityOutput },
             expects: null,
@@ -362,7 +369,7 @@ for (const substrate of SUBSTRATES) {
           {
             id: "leaf.create",
             kind: "write",
-            sql: `INSERT INTO ${q("parity_m_leaves")} (${q("id")}, ${q("cellId")}) VALUES (${p(1)}, CAST(${p(2)} AS ${substrate.intCast}))`,
+            sql: `INSERT INTO ${tbl("parity_m_leaves")} (${q("id")}, ${q("cellId")}) VALUES (${p(1)}, CAST(${p(2)} AS ${substrate.intCast}))`,
             params: ["l1", reference("cell.create", "id")],
             outputs: {},
             expects: null,
@@ -372,7 +379,7 @@ for (const substrate of SUBSTRATES) {
           {
             id: "hub.select",
             kind: "read",
-            sql: `SELECT ${q("t0")}.${q("id")} AS ${q("id")} FROM ${q("parity_m_hubs")} AS ${q("t0")} WHERE ${q("t0")}.${q("id")} = CAST(${p(1)} AS ${substrate.intCast}) LIMIT 1`,
+            sql: `SELECT ${q("t0")}.${q("id")} AS ${q("id")} FROM ${tbl("parity_m_hubs")} AS ${q("t0")} WHERE ${q("t0")}.${q("id")} = CAST(${p(1)} AS ${substrate.intCast}) LIMIT 1`,
             params: [reference("hub.create", "id")],
             outputs: { result: { kind: "rows" } },
             expects: substrate.terminalExpects,
@@ -409,7 +416,7 @@ for (const substrate of SUBSTRATES) {
         // Phase 8.2's tree fold already merges them. M must leave this alone.
         expect(compiled.steps).toHaveLength(1);
         expect(compiled.steps[0]?.sql).toContain(
-          `WITH ${q("__viborm_mutation")} AS (INSERT INTO ${q("parity_m_depots")}`
+          `WITH ${q("__viborm_mutation")} AS (INSERT INTO ${tbl("parity_m_depots")}`
         );
         expect(compiled.steps[0]?.params).toEqual([
           "eu",
@@ -422,7 +429,7 @@ for (const substrate of SUBSTRATES) {
       }
       expect(compiled.steps).toHaveLength(3);
       expect(compiled.steps[1]).toMatchObject({
-        sql: `INSERT INTO ${q("parity_m_crates")} (${q("id")}, ${q("depotRegion")}, ${q("depotCode")}) VALUES (${p(1)}, CAST(${p(2)} AS ${substrate.textCast}), CAST(${p(3)} AS ${substrate.textCast}))`,
+        sql: `INSERT INTO ${tbl("parity_m_crates")} (${q("id")}, ${q("depotRegion")}, ${q("depotCode")}) VALUES (${p(1)}, CAST(${p(2)} AS ${substrate.textCast}), CAST(${p(3)} AS ${substrate.textCast}))`,
         params: ["k1", "eu", "c1"],
       });
     });

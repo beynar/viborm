@@ -35,8 +35,12 @@ import postgres, {
 import { Driver, type QueryExecutionContext } from "../driver";
 import { getExecutionTransactionPhases } from "../execution-context";
 import {
+  defineImmutableDriverFact,
   nestedTransactionDispatchError,
   normalizePostgresRowCount,
+  type PinnedSessionReservation,
+  releaseReservedPostgresSession,
+  resolveNamespaceOption,
   runProviderManagedTransaction,
   type TransactionOptionSupport,
 } from "../shared";
@@ -54,6 +58,8 @@ export interface PostgresDriverOptions {
   pgvector?: boolean;
   postgis?: boolean;
   databaseUrl?: string;
+  /** The PostgreSQL schema this driver's persistent objects live in. Defaults to `public`. */
+  namespace?: string;
 }
 
 const parseDatabaseUrl = (url: string): PostgresOptions => {
@@ -114,27 +120,50 @@ export class PostgresDriver extends Driver<
   PostgresClient,
   PostgresTransaction
 > {
-  readonly adapter: DatabaseAdapter;
+  declare readonly adapter: DatabaseAdapter;
   readonly maxBindParametersPerStatement: number | undefined = 65_535;
 
   private readonly driverOptions: PostgresDriverOptions;
+  /**
+   * The EXACT transport the caller supplied, or absent when this driver makes
+   * its own. Identity, settled here from ONE read, is the whole ownership
+   * answer: the caller's options object is theirs to change, and a `client`
+   * getter answering differently on a second read used to leave this driver
+   * holding the caller's transport while believing it had made its own.
+   */
+  private readonly suppliedClient: PostgresClient | undefined;
 
   constructor(options: PostgresDriverOptions = {}) {
     super("postgresql", "postgres");
+    const namespace = resolveNamespaceOption(options);
     this.driverOptions = options;
+    this.suppliedClient = options.client;
 
-    if (options.client) {
-      this.client = options.client;
+    if (this.suppliedClient) {
+      this.client = this.suppliedClient;
     }
 
-    const adapter = new PostgresAdapter();
+    const adapter = new PostgresAdapter(namespace);
     adapter.capabilities.supportsVector = options.pgvector === true;
+    adapter.capabilities.supportsGeospatial = options.postgis === true;
     if (!options.pgvector) adapter.vector = unsupportedVector;
     if (!options.postgis) adapter.geospatial = unsupportedGeospatial;
-    this.adapter = adapter;
+    defineImmutableDriverFact(this, "adapter", adapter);
   }
 
+  /**
+   * The transport this driver connects through.
+   *
+   * A caller's transport is RETURNED rather than replaced: reconnecting after a
+   * `$disconnect()` used to build a second one behind their back — a transport
+   * they never asked for, pointed at whatever their options record said by
+   * then, and then never closed, because the ownership question was still
+   * answered "supplied".
+   */
   protected async initClient(): Promise<PostgresClient> {
+    if (this.suppliedClient !== undefined) {
+      return this.suppliedClient;
+    }
     const { databaseUrl, options } = this.driverOptions;
     if (databaseUrl) {
       return postgres(
@@ -144,7 +173,21 @@ export class PostgresDriver extends Driver<
     return postgres(withVibormTypes(options));
   }
 
+  /**
+   * A supplied transport belongs to the caller, who may be sharing it with
+   * other clients — two schema-scoped estates over one transport is the
+   * documented shape — and §5.3's rule is that VibORM never changes a caller's
+   * connection state. `$disconnect()` used to end it regardless, so
+   * disconnecting one client tore down every other consumer of that transport.
+   *
+   * The test is on the transport's IDENTITY against what construction
+   * captured, so it answers for the transport actually being closed rather than
+   * for whatever the caller's record says now.
+   */
   protected async closeClient(sql: PostgresClient): Promise<void> {
+    if (sql === this.suppliedClient) {
+      return;
+    }
     await sql.end();
   }
 
@@ -223,11 +266,66 @@ export class PostgresDriver extends Driver<
       run: (callback) => client.begin(callback),
       callback: fn,
       phases: getExecutionTransactionPhases(context),
+      // Containment for a transaction the provider broke, through the one place
+      // that decides whether a transport may be closed at all: ending the
+      // caller's transport to contain VibORM's transaction would be a far
+      // larger effect than the one being contained.
       close: async () => {
-        await client.end();
+        await this.closeClient(client);
         this.client = null;
       },
     });
+  }
+
+  /**
+   * One `reserve()` result — plan §3.5's pinned producer for postgres.js.
+   *
+   * postgres.js exposes no destroy for a reserved connection, so a condemned
+   * session is reset with PostgreSQL's own instrument before it goes back:
+   * `pg_advisory_unlock_all()` releases every advisory lock the session still
+   * holds, which is the exact state that must not survive the release. When
+   * that reset FAILS the session's lock state is unknown, and the shared rule
+   * below is what keeps it out of the pool — the reset's failure is not
+   * swallowed, because a session that may still hold VibORM's migration lock is
+   * not something a caller can be left unaware of.
+   */
+  protected override async pinnedSession(): Promise<
+    PinnedSessionReservation<PostgresClient | PostgresTransaction>
+  > {
+    const client = await this.getClient({ operation: "pinnedSession" });
+    if (isTransaction(client)) {
+      throw nestedTransactionDispatchError(this.driverName);
+    }
+    const reserved = await client.reserve();
+    return {
+      session: reserved,
+      release: (discard) =>
+        releaseReservedPostgresSession({
+          driverName: this.driverName,
+          discard,
+          reset: () => reserved.unsafe("SELECT pg_advisory_unlock_all()"),
+          release: () => reserved.release(),
+          // Ownership is the identity this driver settled at construction,
+          // never a later read of the caller's options object: a `client` key
+          // deleted after construction would otherwise make VibORM end a
+          // transport it was handed.
+          closeOwnedTransport:
+            client === this.suppliedClient
+              ? undefined
+              : async () => {
+                  // Withdrawn BEFORE the close, never after it. `end()` can
+                  // reject — a socket already gone is the ordinary way — and
+                  // withdrawing afterwards left this exact transport installed,
+                  // so the next ordinary query ran on the connection whose
+                  // advisory-lock state is precisely what could not be
+                  // accounted for. The in-flight connect goes with it, because
+                  // `getClient()` answers from it when `client` is null.
+                  this.client = null;
+                  this.initPromise = null;
+                  await client.end();
+                },
+        }),
+    };
   }
 }
 
@@ -241,16 +339,20 @@ export function createClient<S extends Schema, C extends DriverConfig<S>>(
     NoExtraDriverConfigKeys<C, PostgresDriverOptions, S>
 ): VibORMClient<C & { driver: PostgresDriver }> {
   const { client, options = {}, pgvector, postgis, databaseUrl } = config;
+  const namespace = resolveNamespaceOption(config);
 
-  if (databaseUrl) {
-    Object.assign(options, parseDatabaseUrl(databaseUrl));
-  }
+  // The URL still wins over the caller's option keys, on a copy this wrapper
+  // owns rather than in the caller's record.
+  const mergedOptions = databaseUrl
+    ? { ...options, ...parseDatabaseUrl(databaseUrl) }
+    : options;
 
   const driver = new PostgresDriver({
     client,
-    options,
+    options: mergedOptions,
     pgvector,
     postgis,
+    namespace,
   });
 
   return createClientFromDriverConfig(config, driver) as VibORMClient<

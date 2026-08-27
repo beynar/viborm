@@ -659,13 +659,36 @@ export interface PushResult {
 
 export type Dialect = "postgresql" | "sqlite" | "mysql";
 
+/**
+ * The durable estate target a migration history is generated for.
+ *
+ * PostgreSQL carries its schema because generated artifacts are
+ * schema-qualified: a history generated for `billing` cannot be replayed as a
+ * `public` estate. MySQL and SQLite arms carry ONLY their dialect — MySQL
+ * artifacts are database-relative on purpose, so one estate deploys to
+ * `app_dev`, `app_test` and `app_prod`, and SQLite has no namespace concept.
+ *
+ * This is the DURABLE compatibility claim, not the live execution destination.
+ * The live destination is the adapter's namespace, which MySQL reads at its
+ * live boundary and never persists here.
+ */
+export type MigrationTarget =
+  | { readonly dialect: "postgresql"; readonly namespace: string }
+  | { readonly dialect: "mysql" }
+  | { readonly dialect: "sqlite" };
+
+/**
+ * Version-3 journal. The independent top-level `dialect` field is gone: the
+ * estate target replaces it, and a journal carrying both representations is
+ * refused rather than reconciled.
+ */
 export interface MigrationJournal {
-  /** Schema version for the journal format */
-  version: string;
-  /** Database dialect */
-  dialect: Dialect;
+  /** Journal format version. Exactly `"3"`; there is no legacy reader. */
+  readonly version: "3";
+  /** The estate this history was generated for. */
+  readonly target: MigrationTarget;
   /** List of migration entries */
-  entries: MigrationEntry[];
+  readonly entries: readonly MigrationEntry[];
 }
 
 /** How a migration's up artifact was produced. */

@@ -44,12 +44,14 @@ export async function createWorkloadHarness(
   const fixture = await createBenchmarkFixture(
     workload.fixture,
     workload.substrate,
-    extensionArm
+    extensionArm,
+    providerName
   );
   const semanticFixture = await createBenchmarkFixture(
     workload.fixture,
     workload.substrate,
-    extensionArm
+    extensionArm,
+    providerName
   );
   const harness =
     (await buildReadWorkload(workloadName, fixture, semanticFixture)) ??

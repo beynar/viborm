@@ -25,8 +25,10 @@ import {
 } from "../normalized-result";
 import {
   type DriverTransactionOptions,
+  defineImmutableDriverFact,
   isolationLevelStatement,
   nestedTransactionDispatchError,
+  resolveNamespaceOption,
   runTransactionLifecycle,
   type TransactionOptionSupport,
 } from "../shared";
@@ -43,6 +45,13 @@ export interface PlanetScaleDriverOptions {
   client?: Client;
   databaseUrl?: string;
   options?: PlanetScaleOptions;
+  /**
+   * The Vitess keyspace qualifier this driver submits before VTGate applies
+   * routing rules. It is never inferred from the PlanetScale database
+   * resource, the SDK config, the URL, or a `@primary`/`@replica` selector,
+   * and an omitted value leaves routing entirely with PlanetScale.
+   */
+  namespace?: string;
 }
 
 export type PlanetScaleClientConfig<C extends DriverConfig> =
@@ -77,15 +86,20 @@ export class PlanetScaleDriver extends Driver<
   PlanetScaleClient,
   PlanetScaleTransaction
 > {
-  readonly adapter: DatabaseAdapter = new MySQLAdapter();
+  declare readonly adapter: DatabaseAdapter;
   readonly maxBindParametersPerStatement: number | undefined = 65_535;
   readonly supportsTransactions = true;
 
   private readonly driverOptions: PlanetScaleDriverOptions;
 
   constructor(options: PlanetScaleDriverOptions = {}) {
+    // Only the explicit option records a qualifier here. This driver exposes no
+    // attestation option and never reads one, so its base fact stays an
+    // immutable `undefined` whatever the caller's object carries.
+    const namespace = resolveNamespaceOption(options);
     super("mysql", "planetscale");
     this.driverOptions = options;
+    defineImmutableDriverFact(this, "adapter", new MySQLAdapter(namespace));
   }
 
   protected async initClient(): Promise<PlanetScaleClient> {
@@ -203,11 +217,13 @@ export function createClient<S extends Schema, C extends DriverConfig<S>>(
     NoExtraDriverConfigKeys<C, PlanetScaleDriverOptions, S>
 ): VibORMClient<C & { driver: PlanetScaleDriver }> {
   const { client, databaseUrl, options } = config;
+  const namespace = resolveNamespaceOption(config);
 
   const driver = new PlanetScaleDriver({
     client,
     databaseUrl,
     options,
+    namespace,
   });
 
   return createClientFromDriverConfig(config, driver) as VibORMClient<

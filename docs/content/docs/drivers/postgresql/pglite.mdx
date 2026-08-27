@@ -26,6 +26,7 @@ const client = createClient({
 | `client` | `PGlite` | Existing PGlite instance |
 | `dataDir` | `string` | Data directory for persistence |
 | `options` | `PGliteOptions` | PGlite configuration |
+| `namespace` | `string` | PostgreSQL schema for VibORM-owned objects (default `public`) |
 | `pgvector` | `boolean` | Enable pgvector support |
 | `postgis` | `boolean` | Enable PostGIS support |
 
@@ -64,6 +65,36 @@ const client = createClient({
   schema,
 });
 ```
+
+## Namespace
+
+`namespace` selects the PostgreSQL schema holding this driver's tables,
+junctions, indexes, ORM-managed enums, and migration tracking table. Omitted, it
+is `public`.
+
+```typescript
+import { createClient } from "viborm/pglite";
+
+const db = createClient({
+  namespace: "billing",
+  schema,
+});
+```
+
+PGlite is a real PostgreSQL server, so the schema must already exist. VibORM
+never creates or drops one:
+
+```typescript
+await db.$executeRawUnsafe('CREATE SCHEMA IF NOT EXISTS "billing"');
+```
+
+That makes PGlite a convenient place to exercise multi-schema behavior locally:
+two clients over two namespaces in one in-memory database stay isolated in SQL
+names, migration estate, and official cache scope. PGlite pins a session, so it
+supports the full migration verb set.
+
+Raw SQL is never rewritten and keeps ordinary `search_path` semantics — see
+[Namespaces](/docs/drivers/namespaces).
 
 ## Use Cases
 

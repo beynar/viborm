@@ -8,11 +8,11 @@
 import { createHash } from "node:crypto";
 import { MigrationError, VibORMErrorCode } from "../../errors";
 import type {
-  Dialect,
   MigrationEntry,
   MigrationJournal,
   MigrationMode,
   MigrationRollback,
+  MigrationTarget,
   SchemaSnapshot,
 } from "../types";
 
@@ -22,10 +22,11 @@ import type {
 
 /**
  * Journal format version. Bumped "1" → "2" when migration entries gained their
- * required `mode`/`rollback` policy. There is deliberately no legacy reader and
- * no dual serializer: a version-"1" journal is refused, not upgraded.
+ * required `mode`/`rollback` policy, and "2" → "3" when the independent
+ * top-level dialect became the estate target. There is deliberately no legacy
+ * reader and no dual serializer: an older journal is refused, not upgraded.
  */
-const JOURNAL_VERSION = "2";
+const JOURNAL_VERSION = "3";
 const JOURNAL_PATH = "meta/_journal.json";
 const SNAPSHOT_PATH = "meta/_snapshot.json";
 const BACKUP_PREFIX = "meta/_backup/";
@@ -105,20 +106,16 @@ export abstract class MigrationStorageDriver {
   }
 
   /**
-   * Get or create a journal for the given dialect.
+   * Get the stored journal, or an empty journal for the exact estate target.
+   *
+   * This is a storage-level convenience and NOT an estate gate: comparing a
+   * stored journal with the configured target belongs to the one internal
+   * context gate, which every high-level verb passes through before it reaches
+   * storage. A second comparison here would be a second definition of "matching
+   * estate".
    */
-  async getOrCreateJournal(dialect: Dialect): Promise<MigrationJournal> {
-    const existing = await this.readJournal();
-    if (existing) {
-      if (existing.dialect !== dialect) {
-        throw new Error(
-          `Journal dialect mismatch: expected "${dialect}", found "${existing.dialect}". ` +
-            "Cannot mix migrations from different database dialects."
-        );
-      }
-      return existing;
-    }
-    return createEmptyJournal(dialect);
+  async getOrCreateJournal(target: MigrationTarget): Promise<MigrationJournal> {
+    return (await this.readJournal()) ?? createEmptyJournal(target);
   }
 
   // ===========================================================================
@@ -142,13 +139,6 @@ export abstract class MigrationStorageDriver {
    */
   async writeSnapshot(snapshot: SchemaSnapshot): Promise<void> {
     await this.put(SNAPSHOT_PATH, JSON.stringify(snapshot, null, 2));
-  }
-
-  /**
-   * Get the snapshot or return an empty one.
-   */
-  async getSnapshotOrEmpty(): Promise<SchemaSnapshot> {
-    return (await this.readSnapshot()) ?? createEmptySnapshot();
   }
 
   // ===========================================================================
@@ -275,6 +265,7 @@ function assertValidJournal(
       `it declares format version ${JSON.stringify(version)} but this build reads version ${JSON.stringify(JOURNAL_VERSION)} (entries carry a required mode and rollback policy)`
     );
   }
+  assertJournalTarget(parsed);
   const entries: unknown = Reflect.get(parsed, "entries");
   if (!Array.isArray(entries)) {
     refuseJournal("its `entries` field is not an array");
@@ -282,6 +273,56 @@ function assertValidJournal(
   for (const entry of entries) {
     assertEntryPolicy(entry);
   }
+}
+
+/**
+ * The estate target is the journal's one binding claim, so its shape is exact.
+ *
+ * A version-3 journal states its estate ONCE. A surviving top-level `dialect`
+ * is refused rather than reconciled — two representations of one fact cannot be
+ * kept in agreement — and each arm carries exactly the keys that arm defines,
+ * so a MySQL journal cannot smuggle a `namespace` it does not mean and a
+ * PostgreSQL journal cannot omit the schema its SQL contains.
+ */
+function assertJournalTarget(journal: object): void {
+  if (Object.hasOwn(journal, "dialect")) {
+    refuseJournal(
+      "it carries both a top-level `dialect` and the version-3 estate `target`; a journal states its estate exactly once"
+    );
+  }
+  const target: unknown = Reflect.get(journal, "target");
+  if (typeof target !== "object" || target === null || Array.isArray(target)) {
+    refuseJournal(
+      `its \`target\` field is not an estate object (found ${JSON.stringify(target)})`
+    );
+  }
+  const dialect: unknown = Reflect.get(target, "dialect");
+  const keys = Object.keys(target).sort();
+  if (dialect === "postgresql") {
+    const namespace: unknown = Reflect.get(target, "namespace");
+    if (typeof namespace !== "string" || namespace.length === 0) {
+      refuseJournal(
+        `its PostgreSQL target states no schema (found namespace ${JSON.stringify(namespace)}); generated PostgreSQL SQL is schema-qualified, so the estate cannot be inferred`
+      );
+    }
+    if (keys.join(",") !== "dialect,namespace") {
+      refuseJournal(
+        `its PostgreSQL target carries unexpected fields [${keys.join(", ")}]; the arm is exactly { dialect, namespace }`
+      );
+    }
+    return;
+  }
+  if (dialect === "mysql" || dialect === "sqlite") {
+    if (keys.join(",") !== "dialect") {
+      refuseJournal(
+        `its ${dialect} target carries unexpected fields [${keys.join(", ")}]; the arm is exactly { dialect } because ${dialect === "mysql" ? "MySQL artifacts are database-relative" : "SQLite has no namespace"}`
+      );
+    }
+    return;
+  }
+  refuseJournal(
+    `its target declares an unknown dialect ${JSON.stringify(dialect)}`
+  );
 }
 
 function assertEntryPolicy(entry: unknown): void {
@@ -339,12 +380,12 @@ export function formatMigrationPath(entry: MigrationEntry): string {
 }
 
 /**
- * Create an empty journal.
+ * Create an empty journal bound to the exact estate target.
  */
-export function createEmptyJournal(dialect: Dialect): MigrationJournal {
+export function createEmptyJournal(target: MigrationTarget): MigrationJournal {
   return {
     version: JOURNAL_VERSION,
-    dialect,
+    target,
     entries: [],
   };
 }
@@ -453,17 +494,9 @@ export function addJournalEntry(
   };
 }
 
-/**
- * Validate journal dialect.
- */
-export function validateJournalDialect(
-  journal: MigrationJournal,
-  expectedDialect: Dialect
-): void {
-  if (journal.dialect !== expectedDialect) {
-    throw new Error(
-      `Journal dialect mismatch: expected "${expectedDialect}", found "${journal.dialect}". ` +
-        "Cannot apply migrations from a different database dialect."
-    );
-  }
-}
+// There is deliberately NO `validateJournalDialect` here any more. Comparing a
+// stored journal with the configured estate has exactly one owner — the
+// internal migration context's estate gate — and it compares the whole target,
+// not a dialect. A storage-level dialect check could only ever agree with the
+// gate by accident, and disagreed with it in practice: `apply()` was the one
+// verb that called it.

@@ -287,7 +287,7 @@ export function buildJunctionInsertWhenTargetExists(
     );
     select = adapter.assemble.select({
       columns: sql.join([...parentValues, ...selectedTargetValues], ", "),
-      from: adapter.identifiers.escape(targetTable),
+      from: adapter.identifiers.table(targetTable),
       where: buildJunctionReferencedValuesMatch(
         ctx,
         target,
@@ -304,7 +304,7 @@ export function buildJunctionInsertWhenTargetExists(
     policy
   );
   const insert = adapter.mutations.insert(
-    adapter.identifiers.escape(junction.membership.table),
+    adapter.identifiers.table(junction.membership.table),
     [...sourceFields, ...targetFields],
     { select },
     duplicateSkip?.prefix
@@ -391,7 +391,7 @@ export function buildJunctionInsertMany(
       "Junction source has no stored-reference member."
     );
   }
-  const table = adapter.identifiers.escape(membership.table);
+  const table = adapter.identifiers.table(membership.table);
   const duplicateSkip = junctionDuplicateSkip(
     ctx,
     sourceFields,
@@ -554,7 +554,7 @@ export function buildTargetPkSubqueries(
       targetTableName,
       getColumnName(model, member.referencedField)
     );
-    return sql`(SELECT ${pkCol} FROM ${adapter.identifiers.escape(targetTableName)} WHERE ${whereClause})`;
+    return sql`(SELECT ${pkCol} FROM ${adapter.identifiers.table(targetTableName)} WHERE ${whereClause})`;
   });
 }
 
@@ -570,7 +570,7 @@ export function buildJunctionMembership(
 ): Sql {
   const { adapter } = ctx;
   const target = junction.membership.target;
-  const junctionTable = adapter.identifiers.escape(junction.membership.table);
+  const junctionTable = adapter.identifiers.table(junction.membership.table);
   if (target.members.length === 1) {
     const sourceMatch = buildJunctionSourceMatch(ctx, junction, parentValues);
     const targetMember = target.members[0]!;

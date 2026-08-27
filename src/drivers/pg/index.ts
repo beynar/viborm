@@ -32,8 +32,11 @@ import { getExecutionTransactionPhases } from "../execution-context";
 import {
   acquireWithMaxWait,
   type DriverTransactionOptions,
+  defineImmutableDriverFact,
   nestedTransactionDispatchError,
   normalizePostgresRowCount,
+  type PinnedSessionReservation,
+  resolveNamespaceOption,
   runTransactionLifecycle,
   type TransactionOptionSupport,
 } from "../shared";
@@ -67,6 +70,8 @@ export interface PgDriverOptions {
   pgvector?: boolean;
   postgis?: boolean;
   databaseUrl?: string;
+  /** The PostgreSQL schema this driver's persistent objects live in. Defaults to `public`. */
+  namespace?: string;
 }
 
 export type PgClientConfig<C extends DriverConfig> = PgDriverOptions & C;
@@ -76,38 +81,86 @@ export type PgClientConfig<C extends DriverConfig> = PgDriverOptions & C;
 // ============================================================
 
 export class PgDriver extends Driver<Pool, PoolClient> {
-  readonly adapter: DatabaseAdapter;
+  declare readonly adapter: DatabaseAdapter;
   readonly maxBindParametersPerStatement: number | undefined = 65_535;
 
-  private readonly driverOptions: PgDriverOptions;
+  /**
+   * The EXACT pool the caller supplied, or absent when this driver makes its
+   * own. Identity, settled here, is the whole ownership answer: the caller's
+   * options object is theirs to change, and a `pool` key deleted after
+   * construction used to make `$disconnect()` end a transport VibORM was handed
+   * and may be sharing with the caller's own code.
+   */
+  private readonly suppliedPool: Pool | undefined;
+  /**
+   * The caller's connection record, copied once.
+   *
+   * A copy of THIS record, not of what it points at: a nested `ssl` object or
+   * stream is the caller's to own, and the keys that decide where a pool
+   * connects — host, port, user, database, connectionString — all live here.
+   */
+  private readonly connectionOptions: PoolConfig;
+  /** The caller's `databaseUrl`, read once, for the same reason. */
+  private readonly connectionString: string | undefined;
 
   constructor(options: PgDriverOptions = {}) {
     super("postgresql", "pg");
-    this.driverOptions = options;
+    const namespace = resolveNamespaceOption(options);
+    this.suppliedPool = options.pool;
+    this.connectionOptions = { ...options.options };
+    this.connectionString = options.databaseUrl;
 
-    if (options.pool) {
-      this.client = options.pool;
+    if (this.suppliedPool) {
+      this.client = this.suppliedPool;
     }
 
-    const adapter = new PostgresAdapter();
+    const adapter = new PostgresAdapter(namespace);
     adapter.capabilities.supportsVector = options.pgvector === true;
+    adapter.capabilities.supportsGeospatial = options.postgis === true;
     if (!options.pgvector) adapter.vector = unsupportedVector;
     if (!options.postgis) adapter.geospatial = unsupportedGeospatial;
-    this.adapter = adapter;
+    defineImmutableDriverFact(this, "adapter", adapter);
   }
 
+  /**
+   * The pool this driver connects through.
+   *
+   * A caller's pool is RETURNED rather than replaced: reconnecting after a
+   * `$disconnect()` used to build a second pool behind their back — a transport
+   * they never asked for, pointed at whatever their options record said by
+   * then, and then never closed, because the ownership question was still
+   * answered "supplied".
+   */
   protected initClient(): Promise<Pool> {
+    if (this.suppliedPool !== undefined) {
+      return Promise.resolve(this.suppliedPool);
+    }
     const options: PoolConfig = {
       types: utcSafeTypes,
-      ...this.driverOptions.options,
+      ...this.connectionOptions,
     };
-    if (this.driverOptions.databaseUrl !== undefined) {
-      options.connectionString ??= this.driverOptions.databaseUrl;
+    if (this.connectionString !== undefined) {
+      options.connectionString ??= this.connectionString;
     }
     return Promise.resolve(new Pool(options));
   }
 
+  /**
+   * A supplied pool belongs to the caller, who may be sharing it with other
+   * clients — two schema-scoped estates over one pool is the documented shape
+   * — and §5.3's rule is that VibORM never changes a caller's connection
+   * state. `$disconnect()` used to end it regardless, so disconnecting one
+   * client tore down every other consumer of that pool.
+   *
+   * The test is on the pool's IDENTITY against what construction captured, so
+   * it answers for the pool actually being closed rather than for whatever the
+   * caller's record says now: every pool this driver made is ended, and the one
+   * it was handed never is.
+   */
   protected async closeClient(pool: Pool): Promise<void> {
+    if (pool === this.suppliedPool) {
+      return;
+    }
     await pool.end();
   }
 
@@ -218,6 +271,28 @@ export class PgDriver extends Driver<Pool, PoolClient> {
   protected override transactionCleanupFailed(_error: Error): void {
     // The failed PoolClient was discarded with release(error); the pool stays usable.
   }
+
+  /**
+   * One `PoolClient` from `pool.connect()` — plan §3.5's pinned producer for
+   * `pg`. `release(true)` destroys the connection instead of returning it, so a
+   * session whose advisory-lock state is unknown never re-enters the pool.
+   */
+  protected override async pinnedSession(): Promise<
+    PinnedSessionReservation<Pool | PoolClient>
+  > {
+    const client = await this.getClient({ operation: "pinnedSession" });
+    if ("release" in client) {
+      throw nestedTransactionDispatchError(this.driverName);
+    }
+    const poolClient = await client.connect();
+    return {
+      session: poolClient,
+      release: (discard) => {
+        poolClient.release(discard ? true : undefined);
+        return Promise.resolve();
+      },
+    };
+  }
 }
 
 // ============================================================
@@ -230,13 +305,20 @@ export function createClient<S extends Schema, C extends DriverConfig<S>>(
     NoExtraDriverConfigKeys<C, PgDriverOptions, S>
 ): VibORMClient<C & { driver: PgDriver }> {
   const { pool, options = {}, pgvector, postgis, databaseUrl } = config;
+  const namespace = resolveNamespaceOption(config);
 
-  const driverOptions: PgDriverOptions = {};
-  if (databaseUrl !== undefined) options.connectionString = databaseUrl;
+  // The caller's `options` record is theirs: the connection string goes on a
+  // copy this wrapper owns.
+  const driverOptions: PgDriverOptions = {
+    options:
+      databaseUrl === undefined
+        ? options
+        : { ...options, connectionString: databaseUrl },
+  };
   if (pool) driverOptions.pool = pool;
-  if (options) driverOptions.options = options;
   if (pgvector !== undefined) driverOptions.pgvector = pgvector;
   if (postgis !== undefined) driverOptions.postgis = postgis;
+  if (namespace !== undefined) driverOptions.namespace = namespace;
 
   const driver = new PgDriver(driverOptions);
 

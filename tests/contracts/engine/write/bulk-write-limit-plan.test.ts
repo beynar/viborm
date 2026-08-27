@@ -200,7 +200,7 @@ describe("the per-dialect spelling of a nonzero limit", () => {
     for (const statement of statements) {
       const prepared = new PGliteDriver()._prepare(statement);
       expect(prepared.sql).toContain(
-        'FROM "limit_plan_gadgets" AS "limit_plan_gadgets"'
+        'FROM "public"."limit_plan_gadgets" AS "limit_plan_gadgets"'
       );
       expect(prepared.sql).toContain('"limit_plan_gadgets"."code" = $');
       expect(prepared.params).toContain("kept");

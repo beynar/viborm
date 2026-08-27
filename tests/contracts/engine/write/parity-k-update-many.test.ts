@@ -201,7 +201,7 @@ describe("parity K — the scalar updateMany is ONE statement and no planning", 
     {
       name: "PostgreSQL",
       driver: () => new PGliteDriver(),
-      sql: 'UPDATE "pk_gadgets" SET "name" = $1 WHERE "pk_gadgets"."qty" = $2',
+      sql: 'UPDATE "public"."pk_gadgets" SET "name" = $1 WHERE "pk_gadgets"."qty" = $2',
     },
     {
       name: "SQLite",
@@ -247,7 +247,7 @@ describe("parity K — the scalar updateMany is ONE statement and no planning", 
     const dialects = [
       {
         driver: new PGliteDriver(),
-        sql: 'UPDATE "pk_gadgets" SET "qty" = $1 WHERE "pk_gadgets"."name" = $2',
+        sql: 'UPDATE "public"."pk_gadgets" SET "qty" = $1 WHERE "pk_gadgets"."name" = $2',
         params: [1, "Alpha"],
       },
       {
@@ -311,7 +311,7 @@ describe("parity K — the two limit spellings, byte for byte", () => {
     [
       "PostgreSQL",
       () => new PGliteDriver(),
-      'UPDATE "pk_gadgets" SET "name" = $1 WHERE "pk_gadgets"."id" IN (SELECT "t1"."id" AS "id" FROM "pk_gadgets" AS "t1" WHERE "t1"."qty" = $2 ORDER BY "t1"."id" ASC LIMIT $3)',
+      'UPDATE "public"."pk_gadgets" SET "name" = $1 WHERE "pk_gadgets"."id" IN (SELECT "t1"."id" AS "id" FROM "public"."pk_gadgets" AS "t1" WHERE "t1"."qty" = $2 ORDER BY "t1"."id" ASC LIMIT $3)',
     ],
     [
       // The dialect `bulk-write-limit-plan.test.ts` covers by regex only.
@@ -376,7 +376,7 @@ describe("parity K — the returning arm's round trips", () => {
           // fragment alone, which is what makes a router change visible here.
           id: "gadget.updateManyReturn",
           kind: "write",
-          sql: 'UPDATE "pk_gadgets" SET "name" = $1 WHERE "pk_gadgets"."qty" = $2 RETURNING "id" AS "id", "qty" AS "qty"',
+          sql: 'UPDATE "public"."pk_gadgets" SET "name" = $1 WHERE "pk_gadgets"."qty" = $2 RETURNING "id" AS "id", "qty" AS "qty"',
           params: ["beta", 5],
           outputs: { result: { kind: "rows" } },
           ...NO_BRANCH,
@@ -494,7 +494,7 @@ describe("parity K — deleteMany rides the same owners and must not move", () =
     [
       "PostgreSQL",
       () => new PGliteDriver(),
-      'DELETE FROM "pk_gadgets" WHERE "pk_gadgets"."qty" = $1',
+      'DELETE FROM "public"."pk_gadgets" WHERE "pk_gadgets"."qty" = $1',
     ],
     [
       "SQLite",
@@ -533,7 +533,7 @@ describe("parity K — deleteMany rides the same owners and must not move", () =
     [
       "PostgreSQL",
       () => new PGliteDriver(),
-      'DELETE FROM "pk_gadgets" WHERE "pk_gadgets"."id" IN (SELECT "t1"."id" AS "id" FROM "pk_gadgets" AS "t1" WHERE "t1"."qty" = $1 ORDER BY "t1"."id" ASC LIMIT $2)',
+      'DELETE FROM "public"."pk_gadgets" WHERE "pk_gadgets"."id" IN (SELECT "t1"."id" AS "id" FROM "public"."pk_gadgets" AS "t1" WHERE "t1"."qty" = $1 ORDER BY "t1"."id" ASC LIMIT $2)',
       [5, 3],
     ],
     [
@@ -575,7 +575,7 @@ describe("parity K — deleteMany rides the same owners and must not move", () =
         {
           id: "gadget.deleteManyReturn",
           kind: "write",
-          sql: 'DELETE FROM "pk_gadgets" WHERE "pk_gadgets"."qty" = $1 RETURNING "id" AS "id", "qty" AS "qty"',
+          sql: 'DELETE FROM "public"."pk_gadgets" WHERE "pk_gadgets"."qty" = $1 RETURNING "id" AS "id", "qty" AS "qty"',
           params: [5],
           outputs: { result: { kind: "rows" } },
           ...NO_BRANCH,
@@ -697,7 +697,7 @@ describe("parity K — the refusal K1 lifted, and the destination that replaced 
         {
           id: "updateMany",
           kind: "write",
-          sql: 'UPDATE "pk_gadgets" SET "name" = $1 WHERE "pk_gadgets"."qty" = $2',
+          sql: 'UPDATE "public"."pk_gadgets" SET "name" = $1 WHERE "pk_gadgets"."qty" = $2',
           params: ["beta", 5],
           outputs: { count: { kind: "rowCount" } },
           ...NO_BRANCH,
@@ -722,7 +722,7 @@ describe("parity K — the refusal K1 lifted, and the destination that replaced 
           kind: "read",
           // ONE evaluation of the public `where`, the `limit` applied HERE (before
           // the in-memory sort), `FOR UPDATE`, and the row key alone.
-          sql: 'SELECT "t0"."id" AS "id" FROM "pk_gadgets" AS "t0" WHERE "t0"."qty" = $1 ORDER BY "t0"."id" ASC LIMIT $2 FOR UPDATE',
+          sql: 'SELECT "t0"."id" AS "id" FROM "public"."pk_gadgets" AS "t0" WHERE "t0"."qty" = $1 ORDER BY "t0"."id" ASC LIMIT $2 FOR UPDATE',
           params: [5, 3],
           outputs: { rows: { kind: "rows" } },
           ...NO_BRANCH,

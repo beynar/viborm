@@ -222,6 +222,43 @@ transform chains. Omit is presentation, not authorization. The extension
 foundation ships no RBAC helper; complete policy still needs graph-wide
 semantic ownership.
 
+`cache()` produces a namespace-free DEFINITION; the client composition root
+binds it to the concrete driver, deriving one scope from the private snapshot
+revision, the cache `version`, the dialect, and `adapter.namespace`. The
+derivation is pure, so a re-appended chain retains the scope by value — never
+add a registry to hand an old one back.
+
+### Rule 7: One namespace, owned by the adapter
+
+`adapter.namespace` is the ONE representation of a driver's SQL qualification
+target — a PostgreSQL schema, a MySQL database, a requested Vitess keyspace
+qualifier — resolved once at construction from the public `namespace` driver
+option. PostgreSQL defaults to `public`; unbound MySQL/PlanetScale leave it
+`undefined`; SQLite adapters carry no such property. Its immutability rides the
+INSTALL — own, non-writable, non-configurable — not a ban on copies: models,
+relations, query scopes, operation programs, result types, journals, cache
+identity, and instrumentation read it or do without it, and the two readers that
+deliberately capture it once — the bound migration driver at bind time, and the
+`dbAttributes` snapshot a cached read takes at `$withCache` — cannot go stale
+because the property they read can never be reassigned.
+
+Every VibORM-generated persistent-object reference goes through
+`identifiers.table()` (runtime) or a migration driver's qualifier, both composing
+through `src/sql/identifiers.ts`. Statement-local names, raw SQL, and stored
+MySQL artifacts are the explicit exceptions. Runtime emits neither
+`SET search_path` nor `USE`, there is no second configurable source, no
+per-model or per-query namespace, no compatibility alias, and no SQLite
+attachment equivalent — `tests/contracts/architecture/database-namespace-census.test.ts`
+enforces all of that against shipped source.
+
+MySQL2's `migrationNamespaceAttestation: "non-redirecting"` is an independent
+transport assertion, never a target and never inferred from a URL, class, host,
+handshake, or server version. `db.namespace` is only the OpenTelemetry
+attribute; there is no client-level namespace accessor.
+
+**See:** [docs/content/docs/drivers/namespaces.mdx](docs/content/docs/drivers/namespaces.mdx),
+[adapters/AGENTS.md](src/adapters/AGENTS.md)
+
 ---
 
 ## Type Flow (High-Level)

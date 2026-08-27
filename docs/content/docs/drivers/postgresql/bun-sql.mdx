@@ -24,6 +24,7 @@ const client = createClient({
 |--------|------|-------------|
 | `client` | `SQL` | Existing Bun SQL client |
 | `databaseUrl` | `string` | PostgreSQL connection URL |
+| `namespace` | `string` | PostgreSQL schema for VibORM-owned objects (default `public`) |
 | `options` | `object` | Connection options |
 | `pgvector` | `boolean` | Enable pgvector support |
 | `postgis` | `boolean` | Enable PostGIS support |
@@ -70,6 +71,34 @@ const client = createClient({
   schema,
 });
 ```
+
+## Namespace
+
+`namespace` selects the PostgreSQL schema holding this driver's tables,
+junctions, indexes, ORM-managed enums, and migration tracking table. Omitted, it
+is `public`.
+
+```typescript
+import { createClient } from "viborm/bun-sql";
+
+const db = createClient({
+  databaseUrl: process.env.DATABASE_URL,
+  namespace: "billing",
+  schema,
+});
+```
+
+Generated SQL is always qualified, so routing never depends on `search_path`,
+and the `database` connection option keeps its ordinary meaning — it selects the
+PostgreSQL database, while `namespace` selects the schema inside it:
+
+```sql
+SELECT "user"."id" FROM "billing"."user" AS "user"
+```
+
+Bun SQL can reserve a session, so it supports the full migration verb set
+against the selected schema. Raw SQL is never rewritten and keeps ordinary
+`search_path` semantics — see [Namespaces](/docs/drivers/namespaces).
 
 ## Transactions
 

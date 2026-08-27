@@ -71,11 +71,11 @@ const ADOPT_UPSERT = {
   },
 };
 
-const TARGET_SELECT = /FROM "e5u1_topics"/;
+const TARGET_SELECT = /FROM (?:"[^"]+"\.)?"e5u1_topics"/;
 const JUNCTION_TABLE = /article_topic/i;
 const ANY_INSERT = /INSERT\s+INTO/;
-const TARGET_UPDATE = /UPDATE "e5u1_topics"/;
-const TARGET_INSERT = /INSERT INTO "e5u1_topics"/;
+const TARGET_UPDATE = /UPDATE (?:"[^"]+"\.)?"e5u1_topics"/;
+const TARGET_INSERT = /INSERT INTO (?:"[^"]+"\.)?"e5u1_topics"/;
 
 describe("E5-U1 the fresh-parent upsert plans and compiles as an adopt", () => {
   test("planning reads the GLOBAL probe only — no membership read", () => {

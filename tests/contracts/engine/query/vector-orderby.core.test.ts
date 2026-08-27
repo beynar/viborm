@@ -578,7 +578,7 @@ describe("Vector distance orderBy SQL generation", () => {
 
     const statement = query.toStatement("$n");
     expect(statement).toContain(
-      'LEFT JOIN "vector_order_collections" AS "t1" ON "t0"."collectionId" = "t1"."id"'
+      'LEFT JOIN "public"."vector_order_collections" AS "t1" ON "t0"."collectionId" = "t1"."id"'
     );
     expect(statement).toContain('ORDER BY "t1"."centroid" <-> $1::vector ASC');
     expect(query.values).toEqual(["[1,2,3]"]);

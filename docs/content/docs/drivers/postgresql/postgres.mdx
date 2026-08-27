@@ -27,6 +27,7 @@ const client = createClient({
 | `client` | `Sql` | Existing postgres.js client |
 | `options` | `Options` | postgres.js configuration |
 | `databaseUrl` | `string` | PostgreSQL connection URL |
+| `namespace` | `string` | PostgreSQL schema for VibORM-owned objects (default `public`) |
 | `pgvector` | `boolean` | Enable pgvector support |
 | `postgis` | `boolean` | Enable PostGIS support |
 
@@ -73,6 +74,37 @@ const client = createClient({
   schema,
 });
 ```
+
+## Namespace
+
+`namespace` selects the PostgreSQL schema holding this driver's tables,
+junctions, indexes, ORM-managed enums, and migration tracking table. Omitted, it
+is `public`.
+
+```typescript
+import { createClient } from "viborm/postgres";
+
+const db = createClient({
+  databaseUrl: process.env.DATABASE_URL,
+  namespace: "billing",
+  schema,
+});
+```
+
+Generated SQL is always qualified, so routing never depends on the connection's
+`search_path` — including a `search_path` set through postgres.js options:
+
+```sql
+SELECT "user"."id" FROM "billing"."user" AS "user"
+```
+
+A supplied `Sql` client is bound the same way; the namespace comes from the
+option, never from inspecting the client. postgres.js reserves a connection with
+`reserve()`, so it supports the full migration verb set against the selected
+schema.
+
+Raw SQL is never rewritten and keeps ordinary `search_path` semantics — see
+[Namespaces](/docs/drivers/namespaces).
 
 ## Transactions
 

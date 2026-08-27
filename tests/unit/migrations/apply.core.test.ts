@@ -7,7 +7,10 @@
 
 import { createClient } from "@client/client";
 import type { AnyDriver } from "@drivers";
-import { apply, down, generate, MigrationContext, status } from "@migrations";
+import { apply, down, generate, status } from "@migrations";
+// The context is internal: it is deliberately absent from `viborm/migrations`,
+// so a suite that must exercise command ownership reaches the module directly.
+import { MigrationContext } from "@migrations/context";
 import type { MigrationClient } from "@migrations/push";
 import {
   formatMigrationFilename,
@@ -549,15 +552,33 @@ function runApplyDownRoundTrip(
 
         // A concurrent process finishes its own rollback of `add-name` in the
         // window between this caller's request and lock acquisition.
+        //
+        // The seam is `withLockedSession` — the pinned-session owner that
+        // replaced `acquireLock`/`releaseLock`. The interleaved rollback runs
+        // after this caller has read its pre-admission journal and BEFORE the
+        // lock exists, which is exactly the window the in-lock recomputation is
+        // defending: everything this caller decides from is read after the
+        // acquisition, so the stale pre-lock answer cannot reach the group.
+        //
+        // It cannot run INSIDE the lock: a pinned session leases this driver's
+        // one connection for its whole body, so a second command genuinely
+        // cannot acquire, plan or execute until the first releases — and a
+        // nested one on a single-connection driver would wait for a lock its
+        // own caller is holding, forever. That impossibility is the guarantee,
+        // not an obstacle to it.
         let fired = false;
-        const acquire = MigrationContext.prototype.acquireLock;
+        const takeLock = MigrationContext.prototype.withLockedSession;
         const spy = vi
-          .spyOn(MigrationContext.prototype, "acquireLock")
-          .mockImplementation(async function (this: MigrationContext) {
-            await acquire.call(this);
-            if (fired) return;
-            fired = true;
-            await down(clientV2, { storageDriver: storage, steps: 1 });
+          .spyOn(MigrationContext.prototype, "withLockedSession")
+          .mockImplementation(async function (
+            this: MigrationContext,
+            body: (locked: MigrationContext) => Promise<unknown>
+          ) {
+            if (!fired) {
+              fired = true;
+              await down(clientV2, { storageDriver: storage, steps: 1 });
+            }
+            return await takeLock.call(this, body);
           });
 
         try {
@@ -593,17 +614,12 @@ runApplyDownRoundTrip("SQLite3", createInMemorySQLite3Driver);
 function inverseOneSchemas() {
   const postOne = s.model({
     id: s.string().id(),
-    galleryOwner: s
-      .toOne(() => ownerOne)
-      .name("gallery"),
+    galleryOwner: s.toOne(() => ownerOne).name("gallery"),
   });
   const ownerOne = s.model({
     id: s.string().id(),
     gallery: s
-      .toMany(
-        { post: () => postOne },
-        { values: { post: "gallery.post" } }
-      )
+      .toMany({ post: () => postOne }, { values: { post: "gallery.post" } })
       .name("gallery"),
   });
 
@@ -613,10 +629,7 @@ function inverseOneSchemas() {
   const ownerMany = s.model({
     id: s.string().id(),
     gallery: s
-      .toMany(
-        { post: () => postMany },
-        { values: { post: "gallery.post" } }
-      )
+      .toMany({ post: () => postMany }, { values: { post: "gallery.post" } })
       .name("gallery"),
   });
 

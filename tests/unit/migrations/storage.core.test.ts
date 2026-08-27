@@ -15,6 +15,7 @@ import {
 import type {
   MigrationEntry,
   MigrationJournal,
+  MigrationTarget,
   SchemaSnapshot,
 } from "@src/migrations/types";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -25,12 +26,22 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 const TEST_DIR = join(__dirname, ".test-storage");
 
-const STALE_FORMAT_VERSION = /format version "1".*version "2"/s;
+const STALE_FORMAT_VERSION = /format version "2".*version "3"/s;
 const NO_VALID_MODE = /entry "policyless".*declares no valid mode/;
 const NO_IRREVERSIBLE_REASON = /marked irreversible but states no reason/;
+const ESTATE_STATED_TWICE = /states its estate exactly once/;
+const NO_POSTGRES_SCHEMA = /states no schema/;
+const MYSQL_EXTRA_FIELDS = /mysql target carries unexpected fields/;
+const NO_TARGET_OBJECT = /`target` field is not an estate object/;
+const UNKNOWN_TARGET_DIALECT = /unknown dialect "oracle"/;
+
+const PG_ESTATE: MigrationTarget = {
+  dialect: "postgresql",
+  namespace: "public",
+};
 
 /** The journal format version this build writes, read off the code itself. */
-const JOURNAL_VERSION = createEmptyJournal("postgresql").version;
+const JOURNAL_VERSION = createEmptyJournal(PG_ESTATE).version;
 
 function makeEntry(idx: number, name: string): MigrationEntry {
   return {
@@ -104,7 +115,7 @@ describe("MigrationStorageDriver", () => {
     it("should write and read journal", async () => {
       const journal: MigrationJournal = {
         version: JOURNAL_VERSION,
-        dialect: "postgresql",
+        target: PG_ESTATE,
         entries: [makeEntry(0, "initial")],
       };
 
@@ -113,41 +124,96 @@ describe("MigrationStorageDriver", () => {
 
       expect(read).not.toBeNull();
       expect(read!.version).toBe(JOURNAL_VERSION);
-      expect(read!.dialect).toBe("postgresql");
+      expect(read!.target).toEqual(PG_ESTATE);
       expect(read!.entries).toHaveLength(1);
       expect(read!.entries[0]?.name).toBe("initial");
     });
 
     it("should get or create journal", async () => {
       // Should create new journal
-      const journal = await storage.getOrCreateJournal("postgresql");
-      expect(journal.dialect).toBe("postgresql");
+      const journal = await storage.getOrCreateJournal(PG_ESTATE);
+      expect(journal.target).toEqual(PG_ESTATE);
       expect(journal.entries).toHaveLength(0);
     });
 
-    it("should return existing journal with matching dialect", async () => {
+    it("should return the existing journal rather than a fresh one", async () => {
       const journal: MigrationJournal = {
         version: JOURNAL_VERSION,
-        dialect: "postgresql",
+        target: PG_ESTATE,
         entries: [makeEntry(0, "existing")],
       };
       await storage.writeJournal(journal);
 
-      const result = await storage.getOrCreateJournal("postgresql");
+      const result = await storage.getOrCreateJournal(PG_ESTATE);
       expect(result.entries).toHaveLength(1);
       expect(result.entries[0]?.name).toBe("existing");
     });
 
-    it("should throw on dialect mismatch", async () => {
-      const journal: MigrationJournal = {
-        version: JOURNAL_VERSION,
-        dialect: "postgresql",
-        entries: [],
-      };
-      await storage.writeJournal(journal);
+    // The storage driver is the STRUCTURAL parser: it decides whether a
+    // document is a readable version-3 journal at all. Deciding whether that
+    // journal's estate is THIS client's estate belongs to the context gate, so
+    // there is deliberately no target comparison here.
+    it("refuses a journal that also carries the retired top-level dialect", async () => {
+      await storage.put(
+        "meta/_journal.json",
+        JSON.stringify({
+          version: JOURNAL_VERSION,
+          dialect: "postgresql",
+          target: PG_ESTATE,
+          entries: [],
+        })
+      );
 
-      await expect(storage.getOrCreateJournal("sqlite")).rejects.toThrow(
-        "Journal dialect mismatch"
+      await expect(storage.readJournal()).rejects.toThrow(ESTATE_STATED_TWICE);
+    });
+
+    it("refuses a PostgreSQL target that states no schema", async () => {
+      await storage.put(
+        "meta/_journal.json",
+        JSON.stringify({
+          version: JOURNAL_VERSION,
+          target: { dialect: "postgresql" },
+          entries: [],
+        })
+      );
+
+      await expect(storage.readJournal()).rejects.toThrow(NO_POSTGRES_SCHEMA);
+    });
+
+    it("refuses a MySQL target carrying a namespace it cannot mean", async () => {
+      await storage.put(
+        "meta/_journal.json",
+        JSON.stringify({
+          version: JOURNAL_VERSION,
+          target: { dialect: "mysql", namespace: "app_prod" },
+          entries: [],
+        })
+      );
+
+      await expect(storage.readJournal()).rejects.toThrow(MYSQL_EXTRA_FIELDS);
+    });
+
+    it("refuses a journal with no target at all", async () => {
+      await storage.put(
+        "meta/_journal.json",
+        JSON.stringify({ version: JOURNAL_VERSION, entries: [] })
+      );
+
+      await expect(storage.readJournal()).rejects.toThrow(NO_TARGET_OBJECT);
+    });
+
+    it("refuses a target naming an unknown dialect", async () => {
+      await storage.put(
+        "meta/_journal.json",
+        JSON.stringify({
+          version: JOURNAL_VERSION,
+          target: { dialect: "oracle" },
+          entries: [],
+        })
+      );
+
+      await expect(storage.readJournal()).rejects.toThrow(
+        UNKNOWN_TARGET_DIALECT
       );
     });
 
@@ -158,7 +224,7 @@ describe("MigrationStorageDriver", () => {
       await storage.put(
         "meta/_journal.json",
         JSON.stringify({
-          version: "1",
+          version: "2",
           dialect: "postgresql",
           entries: [
             {
@@ -183,7 +249,7 @@ describe("MigrationStorageDriver", () => {
         "meta/_journal.json",
         JSON.stringify({
           version: JOURNAL_VERSION,
-          dialect: "postgresql",
+          target: PG_ESTATE,
           entries: [
             {
               idx: 0,
@@ -207,7 +273,7 @@ describe("MigrationStorageDriver", () => {
         "meta/_journal.json",
         JSON.stringify({
           version: JOURNAL_VERSION,
-          dialect: "postgresql",
+          target: PG_ESTATE,
           entries: [
             {
               idx: 0,
@@ -253,11 +319,6 @@ describe("MigrationStorageDriver", () => {
       expect(read).not.toBeNull();
       expect(read!.tables).toHaveLength(1);
       expect(read!.tables[0]?.name).toBe("users");
-    });
-
-    it("should return empty snapshot when none exists", async () => {
-      const snapshot = await storage.getSnapshotOrEmpty();
-      expect(snapshot.tables).toHaveLength(0);
     });
   });
 

@@ -12,7 +12,14 @@ import { COUNT_RESULT_KEY } from "@adapters/shared/result-parsing";
 import { createClient } from "@client/client";
 import { MySQL2Driver } from "@drivers/mysql2";
 import { instrumentation } from "@instrumentation/extension";
-import { push } from "@migrations";
+import {
+  apply,
+  introspect,
+  type MigrationEntry,
+  MigrationStorageDriver,
+  push,
+  status,
+} from "@migrations";
 import {
   EMPTY_ROW_RESULT_KEY,
   getAggregateResultKey,
@@ -91,12 +98,24 @@ import { runUpdateFamilyBehavior } from "@tests/contracts/engine/write/update-fa
 import { runUpdateNestedUpsertBehavior } from "@tests/contracts/engine/write/update-nested-upsert-behavior";
 import { runUpsertFamilyBehavior } from "@tests/contracts/engine/write/upsert-family-behavior";
 import { MySQL2BatchForcedDriver } from "@tests/fixtures/drivers/batch-forced-mysql2";
+import type { Pool as MySQLPool } from "mysql2/promise";
 
 const TEST_CONNECTION_STRING = process.env.MYSQL_TEST_CONNECTION_STRING;
 const describeIf = TEST_CONNECTION_STRING ? describe : describe.skip;
 
+/**
+ * The connection string carries the database, so this driver is namespace-bound
+ * from its URL path. The attestation is the SECOND, independent fact effectful
+ * live migration work requires (plan §5.3): it asserts that nothing between the
+ * client and the server reinterprets a qualified `database.table`. It is true
+ * here by construction — a docker `mysql:8` reached directly on 3307 is not
+ * behind VTGate or a rewriting proxy — and stating it is what admits `push()`.
+ */
 function createMySQL2Driver(): MySQL2Driver {
-  return new MySQL2Driver({ databaseUrl: TEST_CONNECTION_STRING });
+  return new MySQL2Driver({
+    databaseUrl: TEST_CONNECTION_STRING,
+    migrationNamespaceAttestation: "non-redirecting",
+  });
 }
 
 /**
@@ -456,8 +475,7 @@ describeIf("MySQL2 Driver", () => {
   // non-returning and cannot roll public parsing back after a batch commits.
   nestedWriteConcurrencyContract.register({
     driverName: "mysql2",
-    createTxDriver: () =>
-      new MySQL2Driver({ databaseUrl: TEST_CONNECTION_STRING }),
+    createTxDriver: createMySQL2Driver,
   });
 
   runCreateNestedUpsertBehavior({
@@ -1081,4 +1099,409 @@ describeIf("MySQL2 Driver", () => {
   // The batch-only suites (batch-primary-key-dataflow, batch-ref-smoke) are
   // not wired here: they need a batch-only driver subclass and MySQL2
   // exercises the transaction-based nested-write path instead.
+});
+
+// =============================================================================
+// NAMESPACE CONTAINMENT (plan §5)
+// =============================================================================
+
+/**
+ * The live half of §5, against a real server.
+ *
+ * The containment claim is one sentence: an attested connection whose OWN
+ * default database is `beta`, told to target `alpha`, touches only `alpha`.
+ * Nothing here leans on session state — no `USE`, no search-path equivalent —
+ * so every effect lands because the emitted SQL named its database, or it lands
+ * beside the beta sentinel and these tests say so.
+ */
+const ALPHA_DB = "viborm_ns_alpha";
+const BETA_DB = "viborm_ns_beta";
+
+function urlForDatabase(database: string): string {
+  const url = new URL(TEST_CONNECTION_STRING ?? "mysql://127.0.0.1/viborm");
+  url.pathname = `/${database}`;
+  return url.toString();
+}
+
+const note = s
+  .model({ id: s.string().id(), title: s.string() })
+  .map("ns_notes");
+const noteSchema = { note };
+
+/** In-memory migration storage: this leg is about the database, not the disk. */
+class MemoryStorage extends MigrationStorageDriver {
+  private readonly files = new Map<string, string>();
+
+  constructor() {
+    super("memory");
+  }
+
+  get(path: string): Promise<string | null> {
+    return Promise.resolve(this.files.get(path) ?? null);
+  }
+
+  put(path: string, content: string): Promise<void> {
+    this.files.set(path, content);
+    return Promise.resolve();
+  }
+
+  delete(path: string): Promise<void> {
+    this.files.delete(path);
+    return Promise.resolve();
+  }
+}
+
+/**
+ * The applied estate, carrying NO DDL of its own.
+ *
+ * A generated MySQL artifact is database-relative by design (§13), so its
+ * statements would execute wherever the connection points — that selection is
+ * the pinned migration session's job and does not exist yet. What this entry
+ * isolates is the half that IS landed: the tracking statements VibORM itself
+ * builds, every one of which qualifies the target.
+ */
+const TRACKING_ENTRY: MigrationEntry = {
+  idx: 0,
+  version: "20260827000000",
+  name: "ns_tracking",
+  when: 1,
+  checksum: "checksum-ns-tracking",
+  mode: "manual",
+  rollback: { kind: "manual" },
+};
+
+const TRACKING_MIGRATION =
+  "-- Deliberately empty: this estate exists to be TRACKED, not to emit DDL.\n";
+
+/**
+ * A DATABASE-RELATIVE artifact, exactly as MySQL generation emits one (§13).
+ *
+ * It carries no qualifier, so executing it verbatim on a connection whose
+ * default database is `beta` lands the table in `beta`. §5.3's "validated
+ * target selection for relative artifact execution" is what makes it land in
+ * the configured `alpha` instead, and the pinned session is where that
+ * selection happens — on the one connection that runs the artifact, immediately
+ * before it.
+ */
+const RELATIVE_ENTRY: MigrationEntry = {
+  idx: 1,
+  version: "20260827000001",
+  name: "ns_relative_ddl",
+  when: 2,
+  checksum: "checksum-ns-relative",
+  mode: "manual",
+  rollback: { kind: "manual" },
+};
+
+const RELATIVE_MIGRATION =
+  "CREATE TABLE `ns_relative` (`id` VARCHAR(64) NOT NULL PRIMARY KEY);\n";
+
+/** The caller-owned pool whose OWN default database is `beta`. */
+let betaPool: MySQLPool | null = null;
+
+function requireBetaPool(): MySQLPool {
+  if (!betaPool) {
+    throw new Error("the beta pool is created in beforeAll");
+  }
+  return betaPool;
+}
+
+describeIf("MySQL namespace containment", () => {
+  /** A client on the default database, used only to build and inspect fixtures. */
+  function adminClient(): PlanProbeClient {
+    const client = createClient({
+      schema: {},
+      driver: new MySQL2Driver({
+        databaseUrl: TEST_CONNECTION_STRING,
+        migrationNamespaceAttestation: "non-redirecting",
+      }),
+    });
+    return client as unknown as PlanProbeClient;
+  }
+
+  /**
+   * The §10 control itself: a CALLER-OWNED pool whose own default database is
+   * `beta`, with the explicit `namespace` selecting `alpha`.
+   *
+   * A supplied pool is opaque — VibORM never derives a target from it and never
+   * changes its connection state — so this is the only construction where the
+   * connection's default and the ORM's target genuinely differ. That divergence
+   * is what makes the sentinel assertions meaningful: any statement that forgot
+   * its qualifier lands in `beta`.
+   */
+  function crossTargetDriver(namespace = ALPHA_DB): MySQL2Driver {
+    return new MySQL2Driver({
+      pool: requireBetaPool(),
+      namespace,
+      migrationNamespaceAttestation: "non-redirecting",
+    });
+  }
+
+  async function withAdmin(
+    run: (client: PlanProbeClient) => Promise<void>
+  ): Promise<void> {
+    const admin = adminClient();
+    try {
+      await run(admin);
+    } finally {
+      await admin.$disconnect();
+    }
+  }
+
+  async function tableNamesIn(database: string): Promise<string[]> {
+    let names: string[] = [];
+    await withAdmin(async (admin) => {
+      const rows = await admin.$queryRawUnsafe<{ TABLE_NAME: string }>(
+        "SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = ? ORDER BY TABLE_NAME",
+        database
+      );
+      names = rows.map((row) => row.TABLE_NAME);
+    });
+    return names;
+  }
+
+  /** The migration names one database's tracking ledger holds. */
+  async function trackedNamesIn(database: string): Promise<string[]> {
+    let names: string[] = [];
+    await withAdmin(async (admin) => {
+      const rows = await admin.$queryRawUnsafe<{ name: string }>(
+        `SELECT name FROM \`${database}\`.\`_viborm_migrations\` ORDER BY name`
+      );
+      names = rows.map((row) => row.name);
+    });
+    return names;
+  }
+
+  /**
+   * `beta` is dropped first because the cross-database control puts the
+   * referencing table there: MySQL refuses to drop a parent database while a
+   * foreign key in another one still points at it.
+   */
+  async function dropFixtureDatabases(admin: PlanProbeClient): Promise<void> {
+    for (const database of [BETA_DB, ALPHA_DB]) {
+      await admin.$executeRawUnsafe(`DROP DATABASE IF EXISTS \`${database}\``);
+    }
+  }
+
+  beforeAll(async () => {
+    await withAdmin(async (admin) => {
+      await dropFixtureDatabases(admin);
+      for (const database of [ALPHA_DB, BETA_DB]) {
+        await admin.$executeRawUnsafe(`CREATE DATABASE \`${database}\``);
+      }
+      // A sentinel the ORM never manages, in the database the CONNECTION
+      // defaults to. Anything that forgot its qualifier lands beside it.
+      await admin.$executeRawUnsafe(
+        `CREATE TABLE \`${BETA_DB}\`.\`ns_sentinel\` (id INT PRIMARY KEY)`
+      );
+    });
+
+    const mysql = await import("mysql2/promise");
+    betaPool = mysql.createPool({
+      uri: urlForDatabase(BETA_DB),
+      timezone: "Z",
+      supportBigNumbers: true,
+      dateStrings: ["DATE"],
+    });
+  });
+
+  afterAll(async () => {
+    // VibORM never ends a pool it did not create, so the caller does.
+    await betaPool?.end();
+    betaPool = null;
+    await withAdmin(dropFixtureDatabases);
+  });
+
+  // `push` deliberately carries no storage owner and never touches tracking
+  // (`src/migrations/push/planner.ts`), so this leg proves DDL and runtime
+  // writes only. The tracking half is the separate `apply` leg below.
+  test("pushes and writes into the target, not the connection's database", async () => {
+    const client = createClient({
+      schema: noteSchema,
+      driver: crossTargetDriver(),
+    });
+    // These clients are NOT disconnected: `MySQL2Driver.closeClient` ends
+    // whatever pool it holds, including a supplied one, so the fixture that
+    // created the pool owns its lifetime and closes it once in `afterAll`.
+    await push(client, { force: true });
+    await client.note.create({ data: { id: "n1", title: "alpha only" } });
+    const found = await client.note.findMany({});
+    expect(found.map((row: { id: string }) => row.id)).toEqual(["n1"]);
+
+    expect(await tableNamesIn(ALPHA_DB)).toContain("ns_notes");
+    expect(await tableNamesIn(BETA_DB)).toEqual(["ns_sentinel"]);
+  });
+
+  test("introspects only the target and converges on a second push", async () => {
+    const client = createClient({
+      schema: noteSchema,
+      driver: crossTargetDriver(),
+    });
+    const snapshot = await introspect(client);
+    const names = snapshot.tables.map((table) => table.name);
+    expect(names).toContain("ns_notes");
+    expect(names).not.toContain("ns_sentinel");
+
+    const second = await push(client, { force: true });
+    expect(second.operations).toEqual([]);
+  });
+
+  test("applies into the TARGET's tracking table, over a connection pointing elsewhere", async () => {
+    const storage = new MemoryStorage();
+    await storage.writeJournal({
+      version: "3",
+      target: { dialect: "mysql" },
+      entries: [TRACKING_ENTRY, RELATIVE_ENTRY],
+    });
+    await storage.writeMigration(TRACKING_ENTRY, TRACKING_MIGRATION);
+    await storage.writeMigration(RELATIVE_ENTRY, RELATIVE_MIGRATION);
+
+    const client = createClient({
+      schema: noteSchema,
+      driver: crossTargetDriver(),
+    });
+
+    // A DECOY tracking table in the database the CONNECTION defaults to. Every
+    // tracking statement `apply` runs — the CREATE, the applied-state SELECT,
+    // the INSERT — was unqualified at baseline; any one that still forgot its
+    // qualifier would find this table and succeed silently. With the decoy
+    // present, "alpha holds the ledger and beta's stays empty" is a claim only
+    // correctly qualified statements can satisfy.
+    await withAdmin(async (admin) => {
+      await admin.$executeRawUnsafe(
+        `CREATE TABLE \`${BETA_DB}\`.\`_viborm_migrations\` (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(255) NOT NULL UNIQUE, checksum VARCHAR(64) NOT NULL, applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)`
+      );
+    });
+
+    try {
+      // Alpha has no tracking table yet, so the read-only reader has to report
+      // "nothing applied" — the one live exercise of MySQL's missing-table
+      // translation (errno 1146 / SQLSTATE 42S02). Before the translation read
+      // the channels VibORM actually preserves, this surfaced the raw failure.
+      expect(await tableNamesIn(ALPHA_DB)).not.toContain("_viborm_migrations");
+      const before = await status(client, { storageDriver: storage });
+      expect(before.map((row) => row.applied)).toEqual([false, false]);
+
+      const result = await apply(client, { storageDriver: storage });
+      expect(result.applied.map((entry) => entry.name)).toEqual([
+        TRACKING_ENTRY.name,
+        RELATIVE_ENTRY.name,
+      ]);
+
+      // The ledger was created and written in the TARGET…
+      expect(await tableNamesIn(ALPHA_DB)).toContain("_viborm_migrations");
+      expect((await trackedNamesIn(ALPHA_DB)).sort()).toEqual(
+        [TRACKING_ENTRY.name, RELATIVE_ENTRY.name].sort()
+      );
+      // …and so did the RELATIVE artifact's own DDL, which names no database at
+      // all: the pinned session selected `alpha` before executing it (§5.3).
+      expect(await tableNamesIn(ALPHA_DB)).toContain("ns_relative");
+      // …and the connection's own database gained nothing but the decoy, which
+      // is still empty: no tracking statement and no artifact statement landed
+      // there.
+      expect(await tableNamesIn(BETA_DB)).toEqual([
+        "_viborm_migrations",
+        "ns_sentinel",
+      ]);
+      expect(await trackedNamesIn(BETA_DB)).toEqual([]);
+
+      // …and the same reader now reads it back from alpha, not from the decoy.
+      const after = await status(client, { storageDriver: storage });
+      expect(after.map((row) => row.applied)).toEqual([true, true]);
+    } finally {
+      await withAdmin(async (admin) => {
+        for (const database of [ALPHA_DB, BETA_DB]) {
+          await admin.$executeRawUnsafe(
+            `DROP TABLE IF EXISTS \`${database}\`.\`_viborm_migrations\``
+          );
+          await admin.$executeRawUnsafe(
+            `DROP TABLE IF EXISTS \`${database}\`.\`ns_relative\``
+          );
+        }
+      });
+    }
+
+    expect(await tableNamesIn(BETA_DB)).toEqual(["ns_sentinel"]);
+  });
+
+  test("refuses a configured database the server does not have, before any DDL", async () => {
+    const client = createClient({
+      schema: noteSchema,
+      driver: crossTargetDriver("viborm_ns_absent"),
+    });
+    await expect(push(client, { force: true })).rejects.toMatchObject({
+      code: "V11009",
+    });
+
+    expect(await tableNamesIn(BETA_DB)).toEqual(["ns_sentinel"]);
+  });
+
+  test("refuses the same attested pool when no namespace resolves it", async () => {
+    // §5.3: a supplied pool is opaque, so the attestation alone selects nothing.
+    const client = createClient({
+      schema: noteSchema,
+      driver: new MySQL2Driver({
+        pool: requireBetaPool(),
+        migrationNamespaceAttestation: "non-redirecting",
+      }),
+    });
+    await expect(push(client, { force: true })).rejects.toMatchObject({
+      code: "V11009",
+    });
+
+    expect(await tableNamesIn(BETA_DB)).toEqual(["ns_sentinel"]);
+  });
+
+  test("refuses an inbound cross-database foreign key before planning", async () => {
+    await withAdmin(async (admin) => {
+      await admin.$executeRawUnsafe(
+        `CREATE TABLE \`${ALPHA_DB}\`.\`ns_target\` (id INT PRIMARY KEY)`
+      );
+      await admin.$executeRawUnsafe(
+        `CREATE TABLE \`${BETA_DB}\`.\`ns_outbound\` (id INT PRIMARY KEY, target_id INT, CONSTRAINT ns_cross_fk FOREIGN KEY (target_id) REFERENCES \`${ALPHA_DB}\`.\`ns_target\` (id))`
+      );
+    });
+
+    const client = createClient({
+      schema: noteSchema,
+      driver: crossTargetDriver(),
+    });
+    await expect(introspect(client)).rejects.toMatchObject({
+      code: "V11009",
+      meta: {
+        type: "cross-database-foreign-key",
+        table: `${BETA_DB}.ns_outbound`,
+        referencedTable: `${ALPHA_DB}.ns_target`,
+      },
+    });
+
+    await withAdmin(async (admin) => {
+      await admin.$executeRawUnsafe(
+        `DROP TABLE \`${BETA_DB}\`.\`ns_outbound\``
+      );
+      await admin.$executeRawUnsafe(`DROP TABLE \`${ALPHA_DB}\`.\`ns_target\``);
+    });
+  });
+
+  test("applies the same portable estate to a second database", async () => {
+    const second = createClient({
+      schema: noteSchema,
+      driver: crossTargetDriver(BETA_DB),
+    });
+    await push(second, { force: true });
+    await second.note.create({ data: { id: "b1", title: "beta copy" } });
+    expect(
+      (await second.note.findMany({})).map((row: { id: string }) => row.id)
+    ).toEqual(["b1"]);
+
+    // ONE portable estate, two live databases, independent rows — over the very
+    // same connection pool.
+    const first = createClient({
+      schema: noteSchema,
+      driver: crossTargetDriver(),
+    });
+    expect(
+      (await first.note.findMany({})).map((row: { id: string }) => row.id)
+    ).toEqual(["n1"]);
+  });
 });

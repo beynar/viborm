@@ -585,7 +585,7 @@ describe("push command", () => {
     const result = await runPush(["--force-reset"]);
 
     expect(result.output).toContain("Operation cancelled.");
-    expect(result.output).not.toContain("Database reset complete");
+    expect(result.output).not.toContain("Rebuilt");
     // No reset happened; table survives.
     expect(await tableExists(project, "user")).toBe(true);
   });
@@ -598,15 +598,18 @@ describe("push command", () => {
     await execOnDb(project, "CREATE TABLE stray (x int)");
     expect(await tableExists(project, "stray")).toBe(true);
 
-    // reset confirm YES, then apply confirm YES.
-    queueAnswers([true, true]);
+    // One confirmation: force-reset is a single clear-and-rebuild program
+    // behind a single consent naming the target, not a reset confirm
+    // followed by an apply confirm.
+    queueAnswers([true]);
     const result = await runPush(["--force-reset"]);
 
     expect(result.thrown).toBeUndefined();
     expect(result.exitCode).toBeNull();
-    expect(result.output).toContain("Database reset complete");
-    expect(result.output).toContain("Applied");
-    // Stray table dropped by reset; schema table re-created.
+    expect(result.output).toContain("Rebuilt 1 object(s)");
+    expect(result.output).toContain('Create table "user"');
+    // Stray table dropped by the clear; schema table re-created by the
+    // rebuild — the output claims above are only credible with both proven.
     expect(await tableExists(project, "stray")).toBe(false);
     expect(await tableExists(project, "user")).toBe(true);
   });

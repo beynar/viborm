@@ -290,7 +290,7 @@ function foldedOneChild(
       {
         id: "hub.create",
         kind: "write",
-        sql: 'WITH "__viborm_mutation" AS (INSERT INTO "parity_f_hubs" ("name", "tag") VALUES ($1, $2) RETURNING "id", "name", "tag"), "__viborm_write_0" AS (INSERT INTO "parity_f_spans" ("id", "hubId") VALUES ($3, CAST((SELECT "id" FROM "__viborm_mutation") AS INTEGER))) SELECT "t0"."id" AS "id" FROM "__viborm_mutation" AS "t0"',
+        sql: 'WITH "__viborm_mutation" AS (INSERT INTO "public"."parity_f_hubs" ("name", "tag") VALUES ($1, $2) RETURNING "id", "name", "tag"), "__viborm_write_0" AS (INSERT INTO "public"."parity_f_spans" ("id", "hubId") VALUES ($3, CAST((SELECT "id" FROM "__viborm_mutation") AS INTEGER))) SELECT "t0"."id" AS "id" FROM "__viborm_mutation" AS "t0"',
         params: ["H", "t", "s1"],
         outputs: { result: { kind: "rows" } },
         expects: terminalExpects,
@@ -312,7 +312,7 @@ function foldedTwoChildren(
         kind: "write",
         // ONE `RETURNING` list, and the same CTE column read by BOTH arms — the
         // fold spends the published field twice exactly as the series did.
-        sql: 'WITH "__viborm_mutation" AS (INSERT INTO "parity_f_hubs" ("name", "tag") VALUES ($1, $2) RETURNING "id", "name", "tag"), "__viborm_write_0" AS (INSERT INTO "parity_f_spans" ("id", "hubId") VALUES ($3, CAST((SELECT "id" FROM "__viborm_mutation") AS INTEGER))), "__viborm_write_1" AS (INSERT INTO "parity_f_clips" ("id", "hubId") VALUES ($4, CAST((SELECT "id" FROM "__viborm_mutation") AS INTEGER))) SELECT "t0"."id" AS "id" FROM "__viborm_mutation" AS "t0"',
+        sql: 'WITH "__viborm_mutation" AS (INSERT INTO "public"."parity_f_hubs" ("name", "tag") VALUES ($1, $2) RETURNING "id", "name", "tag"), "__viborm_write_0" AS (INSERT INTO "public"."parity_f_spans" ("id", "hubId") VALUES ($3, CAST((SELECT "id" FROM "__viborm_mutation") AS INTEGER))), "__viborm_write_1" AS (INSERT INTO "public"."parity_f_clips" ("id", "hubId") VALUES ($4, CAST((SELECT "id" FROM "__viborm_mutation") AS INTEGER))) SELECT "t0"."id" AS "id" FROM "__viborm_mutation" AS "t0"',
         params: ["H", "t", "s1", "k1"],
         outputs: { result: { kind: "rows" } },
         expects: terminalExpects,
@@ -335,6 +335,9 @@ for (const substrate of [
     name: "PGlite transaction (RETURNING)",
     createDriver: () => new PGliteDriver(),
     quote: (name: string) => `"${name}"`,
+    // A persistent table, as opposed to a column/alias/CTE name: PostgreSQL
+    // renders it schema-qualified, unbound MySQL2 renders it bare.
+    table: (name: string) => `"public"."${name}"`,
     placeholder: (index: number) => `$${index}`,
     intCast: "INTEGER",
     capturesByReturning: true,
@@ -350,6 +353,7 @@ for (const substrate of [
     name: "PGlite atomic batch (RETURNING + CTE fold)",
     createDriver: () => new BatchOnlyPGliteDriver(),
     quote: (name: string) => `"${name}"`,
+    table: (name: string) => `"public"."${name}"`,
     placeholder: (index: number) => `$${index}`,
     intCast: "INTEGER",
     capturesByReturning: true,
@@ -362,6 +366,7 @@ for (const substrate of [
     name: "MySQL2 (insertId)",
     createDriver: () => new MySQL2Driver(),
     quote: (name: string) => `\`${name}\``,
+    table: (name: string) => `\`${name}\``,
     placeholder: () => "?",
     intCast: "SIGNED",
     capturesByReturning: false,
@@ -371,6 +376,7 @@ for (const substrate of [
   },
 ]) {
   const q = substrate.quote;
+  const t = substrate.table;
   const p = substrate.placeholder;
   const identityOutput = substrate.capturesByReturning
     ? { kind: "firstRowField", field: "id" }
@@ -406,7 +412,7 @@ for (const substrate of [
             kind: "write",
             // Provider RETURNING capability decides this clause and output kind.
             // The non-returning control below keeps insertId transport.
-            sql: `INSERT INTO ${q("parity_f_hubs")} (${q("name")}, ${q("tag")}) VALUES (${p(1)}, ${p(2)})${returningClause}`,
+            sql: `INSERT INTO ${t("parity_f_hubs")} (${q("name")}, ${q("tag")}) VALUES (${p(1)}, ${p(2)})${returningClause}`,
             params: ["H", "t"],
             outputs: { id: identityOutput },
             expects: null,
@@ -416,7 +422,7 @@ for (const substrate of [
           {
             id: "span.create",
             kind: "write",
-            sql: `INSERT INTO ${q("parity_f_spans")} (${q("id")}, ${q("hubId")}) VALUES (${p(1)}, CAST(${p(2)} AS ${substrate.intCast}))`,
+            sql: `INSERT INTO ${t("parity_f_spans")} (${q("id")}, ${q("hubId")}) VALUES (${p(1)}, CAST(${p(2)} AS ${substrate.intCast}))`,
             params: ["s1", reference("hub.create", "id")],
             outputs: {},
             expects: null,
@@ -429,7 +435,7 @@ for (const substrate of [
             // spent rather than re-deriving the key.
             id: "hub.select",
             kind: "read",
-            sql: `SELECT ${q("t0")}.${q("id")} AS ${q("id")} FROM ${q("parity_f_hubs")} AS ${q("t0")} WHERE ${q("t0")}.${q("id")} = CAST(${p(1)} AS ${substrate.intCast}) LIMIT 1`,
+            sql: `SELECT ${q("t0")}.${q("id")} AS ${q("id")} FROM ${t("parity_f_hubs")} AS ${q("t0")} WHERE ${q("t0")}.${q("id")} = CAST(${p(1)} AS ${substrate.intCast}) LIMIT 1`,
             params: [reference("hub.create", "id")],
             outputs: { result: { kind: "rows" } },
             expects: substrate.terminalExpects,
@@ -472,7 +478,7 @@ for (const substrate of [
             kind: "write",
             // ONE clause and ONE output key, with two descendants demanding the field.
             // A demand registry that appended per consumer would double both.
-            sql: `INSERT INTO ${q("parity_f_hubs")} (${q("name")}, ${q("tag")}) VALUES (${p(1)}, ${p(2)})${returningClause}`,
+            sql: `INSERT INTO ${t("parity_f_hubs")} (${q("name")}, ${q("tag")}) VALUES (${p(1)}, ${p(2)})${returningClause}`,
             params: ["H", "t"],
             outputs: { id: identityOutput },
             expects: null,
@@ -482,7 +488,7 @@ for (const substrate of [
           {
             id: "span.create",
             kind: "write",
-            sql: `INSERT INTO ${q("parity_f_spans")} (${q("id")}, ${q("hubId")}) VALUES (${p(1)}, CAST(${p(2)} AS ${substrate.intCast}))`,
+            sql: `INSERT INTO ${t("parity_f_spans")} (${q("id")}, ${q("hubId")}) VALUES (${p(1)}, CAST(${p(2)} AS ${substrate.intCast}))`,
             params: ["s1", reference("hub.create", "id")],
             outputs: {},
             expects: null,
@@ -492,7 +498,7 @@ for (const substrate of [
           {
             id: "clip.create",
             kind: "write",
-            sql: `INSERT INTO ${q("parity_f_clips")} (${q("id")}, ${q("hubId")}) VALUES (${p(1)}, CAST(${p(2)} AS ${substrate.intCast}))`,
+            sql: `INSERT INTO ${t("parity_f_clips")} (${q("id")}, ${q("hubId")}) VALUES (${p(1)}, CAST(${p(2)} AS ${substrate.intCast}))`,
             // The SAME reference, not a second one.
             params: ["k1", reference("hub.create", "id")],
             outputs: {},
@@ -503,7 +509,7 @@ for (const substrate of [
           {
             id: "hub.select",
             kind: "read",
-            sql: `SELECT ${q("t0")}.${q("id")} AS ${q("id")} FROM ${q("parity_f_hubs")} AS ${q("t0")} WHERE ${q("t0")}.${q("id")} = CAST(${p(1)} AS ${substrate.intCast}) LIMIT 1`,
+            sql: `SELECT ${q("t0")}.${q("id")} AS ${q("id")} FROM ${t("parity_f_hubs")} AS ${q("t0")} WHERE ${q("t0")}.${q("id")} = CAST(${p(1)} AS ${substrate.intCast}) LIMIT 1`,
             params: [reference("hub.create", "id")],
             outputs: { result: { kind: "rows" } },
             expects: substrate.terminalExpects,
@@ -534,7 +540,7 @@ for (const substrate of [
                 {
                   id: "hub.create",
                   kind: "write",
-                  sql: `INSERT INTO ${q("parity_f_hubs")} (${q("name")}, ${q("tag")}) VALUES (${p(1)}, NULL) RETURNING ${q("name")} AS ${q("name")}`,
+                  sql: `INSERT INTO ${t("parity_f_hubs")} (${q("name")}, ${q("tag")}) VALUES (${p(1)}, NULL) RETURNING ${q("name")} AS ${q("name")}`,
                   params: ["H"],
                   outputs: { result: { kind: "rows" } },
                   expects: substrate.terminalExpects,
@@ -549,7 +555,7 @@ for (const substrate of [
                 {
                   id: "hub.create",
                   kind: "write",
-                  sql: `INSERT INTO ${q("parity_f_hubs")} (${q("name")}, ${q("tag")}) VALUES (${p(1)}, NULL)`,
+                  sql: `INSERT INTO ${t("parity_f_hubs")} (${q("name")}, ${q("tag")}) VALUES (${p(1)}, NULL)`,
                   params: ["H"],
                   outputs: { id: { kind: "insertId" } },
                   expects: null,
@@ -559,7 +565,7 @@ for (const substrate of [
                 {
                   id: "hub.select",
                   kind: "read",
-                  sql: `SELECT ${q("t0")}.${q("name")} AS ${q("name")} FROM ${q("parity_f_hubs")} AS ${q("t0")} WHERE ${q("t0")}.${q("id")} = CAST(${p(1)} AS ${substrate.intCast}) LIMIT 1`,
+                  sql: `SELECT ${q("t0")}.${q("name")} AS ${q("name")} FROM ${t("parity_f_hubs")} AS ${q("t0")} WHERE ${q("t0")}.${q("id")} = CAST(${p(1)} AS ${substrate.intCast}) LIMIT 1`,
                   params: [reference("hub.create", "id")],
                   outputs: { result: { kind: "rows" } },
                   expects: substrate.terminalExpects,
@@ -586,7 +592,7 @@ for (const substrate of [
                 {
                   id: "crate.create",
                   kind: "write",
-                  sql: `INSERT INTO ${q("parity_f_crates")} (${q("id")}, ${q("slotKey")}) VALUES (${p(1)}, NULL) RETURNING ${q("id")} AS ${q("id")}`,
+                  sql: `INSERT INTO ${t("parity_f_crates")} (${q("id")}, ${q("slotKey")}) VALUES (${p(1)}, NULL) RETURNING ${q("id")} AS ${q("id")}`,
                   params: ["c1"],
                   outputs: { result: { kind: "rows" } },
                   expects: substrate.terminalExpects,
@@ -601,7 +607,7 @@ for (const substrate of [
                 {
                   id: "crate.create",
                   kind: "write",
-                  sql: `INSERT INTO ${q("parity_f_crates")} (${q("id")}, ${q("slotKey")}) VALUES (${p(1)}, NULL)`,
+                  sql: `INSERT INTO ${t("parity_f_crates")} (${q("id")}, ${q("slotKey")}) VALUES (${p(1)}, NULL)`,
                   params: ["c1"],
                   // NO output at all: the key was the caller's, so nothing is captured.
                   outputs: {},
@@ -612,7 +618,7 @@ for (const substrate of [
                 {
                   id: "crate.select",
                   kind: "read",
-                  sql: `SELECT ${q("t0")}.${q("id")} AS ${q("id")} FROM ${q("parity_f_crates")} AS ${q("t0")} WHERE ${q("t0")}.${q("id")} = ${p(1)} LIMIT 1`,
+                  sql: `SELECT ${q("t0")}.${q("id")} AS ${q("id")} FROM ${t("parity_f_crates")} AS ${q("t0")} WHERE ${q("t0")}.${q("id")} = ${p(1)} LIMIT 1`,
                   params: ["c1"],
                   outputs: { result: { kind: "rows" } },
                   expects: substrate.terminalExpects,
@@ -644,7 +650,7 @@ for (const substrate of [
             id: "hub.create",
             kind: "write",
             // The omitted nullable unique is spelled as an explicit NULL, not skipped.
-            sql: `INSERT INTO ${q("parity_f_hubs")} (${q("name")}, ${q("tag")}) VALUES (${p(1)}, NULL)${returningClause}`,
+            sql: `INSERT INTO ${t("parity_f_hubs")} (${q("name")}, ${q("tag")}) VALUES (${p(1)}, NULL)${returningClause}`,
             params: ["H"],
             outputs: { id: identityOutput },
             expects: null,
@@ -654,7 +660,7 @@ for (const substrate of [
           {
             id: "badge.create",
             kind: "write",
-            sql: `INSERT INTO ${q("parity_f_badges")} (${q("hubId")}, ${q("note")}) VALUES (CAST(${p(1)} AS ${substrate.intCast}), ${p(2)})`,
+            sql: `INSERT INTO ${t("parity_f_badges")} (${q("hubId")}, ${q("note")}) VALUES (CAST(${p(1)} AS ${substrate.intCast}), ${p(2)})`,
             params: [reference("hub.create", "id"), "n"],
             outputs: {},
             expects: null,
@@ -664,7 +670,7 @@ for (const substrate of [
           {
             id: "badge.select",
             kind: "read",
-            sql: `SELECT ${q("t0")}.${q("hubId")} AS ${q("hubId")} FROM ${q("parity_f_badges")} AS ${q("t0")} WHERE ${q("t0")}.${q("hubId")} = CAST(${p(1)} AS ${substrate.intCast}) LIMIT 1`,
+            sql: `SELECT ${q("t0")}.${q("hubId")} AS ${q("hubId")} FROM ${t("parity_f_badges")} AS ${q("t0")} WHERE ${q("t0")}.${q("hubId")} = CAST(${p(1)} AS ${substrate.intCast}) LIMIT 1`,
             params: [reference("hub.create", "id")],
             outputs: { result: { kind: "rows" } },
             expects: substrate.terminalExpects,
@@ -725,7 +731,7 @@ describe("parity F — a junction target whose own key its INSERT produces", () 
       reference("wire.create", "id"),
     ]);
     expect(compiled.steps[1]?.sql).toBe(
-      `INSERT INTO "parity_f_wires" ("label") VALUES ($1) RETURNING "id" AS "id"`
+      `INSERT INTO "public"."parity_f_wires" ("label") VALUES ($1) RETURNING "id" AS "id"`
     );
   });
 });
@@ -757,7 +763,7 @@ describe("parity F — a referenced field already known from the create data", (
           // column, once as the child's foreign key. A demand-driven publication that
           // re-read it through the root's RETURNING would buy a second statement for
           // a value construction already had.
-          sql: 'WITH "__viborm_mutation" AS (INSERT INTO "parity_f_hubs" ("name", "tag") VALUES ($1, $2) RETURNING "id", "name", "tag"), "__viborm_write_0" AS (INSERT INTO "parity_f_marks" ("id", "hubTag") VALUES ($3, CAST($4 AS TEXT))) SELECT "t0"."id" AS "id" FROM "__viborm_mutation" AS "t0"',
+          sql: 'WITH "__viborm_mutation" AS (INSERT INTO "public"."parity_f_hubs" ("name", "tag") VALUES ($1, $2) RETURNING "id", "name", "tag"), "__viborm_write_0" AS (INSERT INTO "public"."parity_f_marks" ("id", "hubTag") VALUES ($3, CAST($4 AS TEXT))) SELECT "t0"."id" AS "id" FROM "__viborm_mutation" AS "t0"',
           params: ["H", "t", "m1", "t"],
           outputs: { result: { kind: "rows" } },
           expects: CREATE_TERMINAL_FAILURE,

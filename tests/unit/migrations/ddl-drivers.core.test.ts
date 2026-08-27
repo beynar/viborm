@@ -4,13 +4,26 @@
  * Tests SQLite3, LibSQL, MySQL, and PostgreSQL drivers for DDL generation.
  */
 
+import { getMigrationDriver } from "@src/migrations/drivers";
 import { libsqlMigrationDriver } from "@src/migrations/drivers/libsql";
 import { mysqlMigrationDriver } from "@src/migrations/drivers/mysql";
 import { postgresMigrationDriver } from "@src/migrations/drivers/postgres";
 import { sqlite3MigrationDriver } from "@src/migrations/drivers/sqlite";
 import type { DiffOperation, SchemaSnapshot } from "@src/migrations/types";
 import type { ScalarState, ScalarType } from "@src/schema/scalars/common";
+import {
+  ddlContext,
+  mysqlEstateDriver,
+  pgEstateDriver,
+} from "@tests/unit/migrations/_estate";
 import { describe, expect, it } from "vitest";
+
+/** The bounded, database-scoped MySQL lock name (section 3.5), by shape. */
+const MYSQL_ACQUIRE_LOCK_SHAPE =
+  /^SELECT GET_LOCK\('viborm_migration_billing_[0-9a-f]{8}', 30\) AS acquired$/;
+const MYSQL_RELEASE_LOCK_SHAPE =
+  /^SELECT RELEASE_LOCK\('viborm_migration_billing_[0-9a-f]{8}'\) AS released$/;
+const UNBOUND_LOCK_SCOPE = /not bound to a database/;
 
 // =============================================================================
 // SQLITE3 DRIVER TESTS
@@ -21,7 +34,10 @@ describe("SQLite3 DDL Generation", () => {
     op: DiffOperation,
     context?: { currentSchema?: SchemaSnapshot }
   ): string {
-    return sqlite3MigrationDriver.generateDDL(op, context);
+    return sqlite3MigrationDriver.generateDDL(
+      op,
+      ddlContext("artifact", context)
+    );
   }
 
   describe("createTable", () => {
@@ -583,7 +599,10 @@ describe("LibSQL DDL Generation", () => {
     op: DiffOperation,
     context?: { currentSchema?: SchemaSnapshot }
   ): string {
-    return libsqlMigrationDriver.generateDDL(op, context);
+    return libsqlMigrationDriver.generateDDL(
+      op,
+      ddlContext("artifact", context)
+    );
   }
 
   describe("inherits SQLite3 behavior", () => {
@@ -867,7 +886,10 @@ describe("MySQL DDL Generation", () => {
     op: DiffOperation,
     context?: { currentSchema?: SchemaSnapshot }
   ): string {
-    return mysqlMigrationDriver.generateDDL(op, context);
+    return mysqlMigrationDriver.generateDDL(
+      op,
+      ddlContext("artifact", context)
+    );
   }
 
   describe("identifier escaping", () => {
@@ -1504,14 +1526,29 @@ describe("MySQL DDL Generation", () => {
   });
 
   describe("locking", () => {
-    it("should generate GET_LOCK for acquire", () => {
-      const sql = mysqlMigrationDriver.generateAcquireLock(12_345);
-      expect(sql).toBe("SELECT GET_LOCK('viborm_migration_12345', 30)");
+    // MySQL named locks are per-SERVER, so the lock identity is derived from
+    // the bound DATABASE, not from the numeric id (section 3.5). The unbound
+    // singleton has no scope to name and refuses; its scoped-name, collision
+    // and result-parsing arms are pinned in
+    // `pinned-migration-session.core.test.ts`.
+    const lockDriver = getMigrationDriver(
+      mysqlEstateDriver({ namespace: "billing", attested: true })
+    );
+
+    it("should generate GET_LOCK for acquire, scoped to the bound database", () => {
+      const sql = lockDriver.generateAcquireLock(12_345);
+      expect(sql).toMatch(MYSQL_ACQUIRE_LOCK_SHAPE);
     });
 
-    it("should generate RELEASE_LOCK for release", () => {
-      const sql = mysqlMigrationDriver.generateReleaseLock(12_345);
-      expect(sql).toBe("SELECT RELEASE_LOCK('viborm_migration_12345')");
+    it("should generate RELEASE_LOCK for release, on the same name", () => {
+      const sql = lockDriver.generateReleaseLock(12_345);
+      expect(sql).toMatch(MYSQL_RELEASE_LOCK_SHAPE);
+    });
+
+    it("refuses to name a lock for an unbound driver", () => {
+      expect(() => mysqlMigrationDriver.generateAcquireLock(12_345)).toThrow(
+        UNBOUND_LOCK_SCOPE
+      );
     });
   });
 
@@ -1726,7 +1763,10 @@ describe("PostgreSQL DDL Generation", () => {
     op: DiffOperation,
     context?: { currentSchema?: SchemaSnapshot }
   ): string {
-    return postgresMigrationDriver.generateDDL(op, context);
+    return postgresMigrationDriver.generateDDL(
+      op,
+      ddlContext("artifact", context)
+    );
   }
 
   describe("identifier escaping", () => {
@@ -1944,7 +1984,7 @@ describe("PostgreSQL DDL Generation", () => {
   });
 
   describe("dropTable", () => {
-    it("should generate DROP TABLE CASCADE", () => {
+    it("should generate DROP TABLE with no CASCADE (section 6.1)", () => {
       const op: DiffOperation = {
         type: "dropTable",
         tableName: "users",
@@ -1952,7 +1992,7 @@ describe("PostgreSQL DDL Generation", () => {
 
       const ddl = generateDDL(op);
 
-      expect(ddl).toBe('DROP TABLE "users" CASCADE');
+      expect(ddl).toBe('DROP TABLE "users"');
     });
   });
 
@@ -2573,14 +2613,14 @@ describe("PostgreSQL DDL Generation", () => {
   });
 
   describe("locking", () => {
-    it("should generate pg_advisory_lock for acquire", () => {
+    it("should generate pg_advisory_lock for acquire, with a stable alias", () => {
       const sql = postgresMigrationDriver.generateAcquireLock(12_345);
-      expect(sql).toBe("SELECT pg_advisory_lock(12345)");
+      expect(sql).toBe("SELECT pg_advisory_lock(12345) AS acquired");
     });
 
-    it("should generate pg_advisory_unlock for release", () => {
+    it("should generate pg_advisory_unlock for release, with a stable alias", () => {
       const sql = postgresMigrationDriver.generateReleaseLock(12_345);
-      expect(sql).toBe("SELECT pg_advisory_unlock(12345)");
+      expect(sql).toBe("SELECT pg_advisory_unlock(12345) AS released");
     });
   });
 
@@ -2748,35 +2788,35 @@ describe("PostgreSQL DDL Generation", () => {
     });
   });
 
-  describe("generateResetSQL", () => {
-    it("should return SQL to drop all tables and enums", () => {
-      const statements = postgresMigrationDriver.generateResetSQL();
+  // The catalog builders below read the ESTATE's schema, so they are asked of
+  // a bound driver. The registered singleton is bound to no estate and refuses
+  // rather than inventing one — its own control is in
+  // `postgres-namespace.core.test.ts`.
+  const boundDriver = getMigrationDriver(pgEstateDriver("billing"));
 
-      expect(statements.length).toBe(2);
-      expect(statements[0]).toContain("DROP TABLE IF EXISTS");
-      expect(statements[0]).toContain("pg_tables");
-      expect(statements[1]).toContain("DROP TYPE IF EXISTS");
-      expect(statements[1]).toContain("pg_type");
+  // `generateResetSQL()` is gone: §6.2 leaves one live-namespace reset owner
+  // (`src/migrations/live-reset.ts`), and the dialect's contribution to it is
+  // the bound inventory below plus the drop renderers.
+
+  describe("generateInventoryTables", () => {
+    it("should BIND the bound schema into the table inventory", () => {
+      const inventory = boundDriver.generateInventoryTables();
+
+      expect(inventory.sql).toContain("pg_tables");
+      expect(inventory.sql).not.toContain("'billing'");
+      expect(inventory.params).toEqual(["billing"]);
     });
   });
 
-  describe("generateListTables", () => {
-    it("should return SQL to list public tables", () => {
-      const sql = postgresMigrationDriver.generateListTables();
+  describe("generateInventoryEnums", () => {
+    it("should BIND the bound schema into the enum inventory", () => {
+      const inventory = boundDriver.generateInventoryEnums();
 
-      expect(sql).toContain("pg_tables");
-      expect(sql).toContain("schemaname = 'public'");
-    });
-  });
-
-  describe("generateListEnums", () => {
-    it("should return SQL to list public enums", () => {
-      const sql = postgresMigrationDriver.generateListEnums();
-
-      expect(sql).not.toBeNull();
-      expect(sql).toContain("pg_type");
-      expect(sql).toContain("typtype = 'e'");
-      expect(sql).toContain("nspname = 'public'");
+      expect(inventory).not.toBeNull();
+      expect(inventory?.sql).toContain("pg_type");
+      expect(inventory?.sql).toContain("typtype = 'e'");
+      expect(inventory?.sql).not.toContain("'billing'");
+      expect(inventory?.params).toEqual(["billing"]);
     });
   });
 });

@@ -83,17 +83,24 @@ export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
   protected override readonly serializeTransactions = true;
 
   private readonly driverOptions: SQLite3DriverOptions;
-  private readonly ownsClient: boolean;
+  /**
+   * The exact transport the caller handed over, captured from ONE read of
+   * `options.client` at construction. That identity owns installation,
+   * reconnect, and the close decision: a getter answering differently on a
+   * second read used to leave this driver holding the caller's database while
+   * believing it had made its own.
+   */
+  private readonly suppliedClient: SQLite3Database | undefined;
   private readonly canonicalAdapterParseResult =
     this.adapter.result.parseResult;
 
   constructor(options: SQLite3DriverOptions = {}) {
     super("sqlite", "sqlite3");
     this.driverOptions = options;
-    this.ownsClient = options.client === undefined;
+    this.suppliedClient = options.client;
 
-    if (options.client) {
-      this.client = options.client;
+    if (this.suppliedClient) {
+      this.client = this.suppliedClient;
     }
     if (SQLite3Driver.isConsumableCandidate(this)) {
       registerConsumableResultCandidate(
@@ -106,6 +113,13 @@ export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
   }
 
   protected async initClient(): Promise<SQLite3Database> {
+    // A supplied database is reinstalled by the exact identity construction
+    // captured: two namespace-scoped wrappers can share one transport, and a
+    // reconnect that built a fresh `:memory:` database silently swapped the
+    // caller's data for an empty file.
+    if (this.suppliedClient !== undefined) {
+      return this.suppliedClient;
+    }
     deactivateConsumableResultProducer(this);
     const dataDir = this.driverOptions.dataDir ?? ":memory:";
     const options = this.driverOptions.options ?? {};
@@ -122,6 +136,12 @@ export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
   }
 
   protected async closeClient(db: SQLite3Database): Promise<void> {
+    // A supplied database belongs to the caller, who may be sharing it with a
+    // sibling wrapper; the identity test is against the transport actually
+    // being closed, not whatever the caller's record says now.
+    if (db === this.suppliedClient) {
+      return;
+    }
     try {
       db.close();
     } finally {
@@ -186,8 +206,7 @@ export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
   private static isConsumableCandidate(driver: AnyDriver): boolean {
     if (!(driver instanceof SQLite3Driver)) return false;
     return (
-      driver.ownsClient &&
-      driver.driverOptions.client === undefined &&
+      driver.suppliedClient === undefined &&
       driver.driverOptions.options?.nativeBinding === undefined &&
       SQLite3Driver.hasCanonicalProducerSurface(driver)
     );
@@ -241,12 +260,15 @@ export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
       commit: () => executeOrClose("COMMIT"),
       rollback: () => executeOrClose("ROLLBACK"),
       phases: getExecutionTransactionPhases(context),
-      close: () => {
+      // Containment for a transaction whose control statement failed, through
+      // the one place that decides whether a transport may be closed at all:
+      // ending the caller's database to contain VibORM's transaction would be
+      // a far larger effect than the one being contained.
+      close: async () => {
         if (shouldClose) {
           try {
-            client.close();
+            await this.closeClient(client);
           } finally {
-            deactivateConsumableResultProducer(this, client);
             this.client = null;
           }
         }

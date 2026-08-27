@@ -327,7 +327,7 @@ function absorbedCard(driver: PGliteDriver): CreateOperation {
 const CARD_INSERT = {
   id: "card.create",
   kind: "write",
-  sql: 'INSERT INTO "parity_e_cards" ("accountId", "label") VALUES (CAST($1 AS TEXT), $2)',
+  sql: 'INSERT INTO "public"."parity_e_cards" ("accountId", "label") VALUES (CAST($1 AS TEXT), $2)',
   params: ["a1", "L"],
   outputs: {},
   expects: null,
@@ -339,7 +339,7 @@ const CARD_INSERT = {
 const ACCOUNT_INSERT = {
   id: "account.create",
   kind: "write",
-  sql: 'INSERT INTO "parity_e_accounts" ("id", "email", "name") VALUES ($1, $2, $3)',
+  sql: 'INSERT INTO "public"."parity_e_accounts" ("id", "email", "name") VALUES ($1, $2, $3)',
   params: ["a1", "a1@x", "A"],
   outputs: {},
   expects: null,
@@ -367,7 +367,7 @@ for (const substrate of [
   const cardTerminal = {
     id: "card.select",
     kind: "read",
-    sql: 'SELECT "t0"."accountId" AS "accountId", "t0"."label" AS "label" FROM "parity_e_cards" AS "t0" WHERE "t0"."accountId" = $1 LIMIT 1',
+    sql: 'SELECT "t0"."accountId" AS "accountId", "t0"."label" AS "label" FROM "public"."parity_e_cards" AS "t0" WHERE "t0"."accountId" = $1 LIMIT 1',
     params: ["a1"],
     outputs: { result: { kind: "rows" } },
     expects: substrate.batch
@@ -394,7 +394,7 @@ for (const substrate of [
             {
               id: "account.find",
               kind: "read",
-              sql: `SELECT "t0"."id" AS "id" FROM "parity_e_accounts" AS "t0" WHERE "t0"."id" = $1 LIMIT 1${lock}`,
+              sql: `SELECT "t0"."id" AS "id" FROM "public"."parity_e_accounts" AS "t0" WHERE "t0"."id" = $1 LIMIT 1${lock}`,
               params: ["a1"],
               outputs: { rows: { kind: "rows" } },
               expects: null,
@@ -424,7 +424,7 @@ for (const substrate of [
                   id: "account.guard.exists",
                   premise: {
                     kind: "exists",
-                    sql: 'SELECT "t0"."id" AS "id" FROM "parity_e_accounts" AS "t0" WHERE "t0"."id" = $1 LIMIT 1',
+                    sql: 'SELECT "t0"."id" AS "id" FROM "public"."parity_e_accounts" AS "t0" WHERE "t0"."id" = $1 LIMIT 1',
                     params: ["a1"],
                   },
                   failure: {
@@ -481,7 +481,7 @@ describe("parity E — the NON-shared control fold at an update root", () => {
         {
           id: "widget.locate",
           kind: "read",
-          sql: 'SELECT "t0"."id" AS "id" FROM "parity_e_widgets" AS "t0" WHERE "t0"."id" = $1 LIMIT 1 FOR UPDATE',
+          sql: 'SELECT "t0"."id" AS "id" FROM "public"."parity_e_widgets" AS "t0" WHERE "t0"."id" = $1 LIMIT 1 FOR UPDATE',
           params: ["w1"],
           outputs: {
             rows: { kind: "rows" },
@@ -507,7 +507,7 @@ describe("parity E — the NON-shared control fold at an update root", () => {
         {
           id: "account.create",
           kind: "write",
-          sql: 'INSERT INTO "parity_e_accounts" ("id", "email", "name") VALUES ($1, $2, $3)',
+          sql: 'INSERT INTO "public"."parity_e_accounts" ("id", "email", "name") VALUES ($1, $2, $3)',
           params: ["a9", "a9@x", "A9"],
           outputs: {},
           expects: null,
@@ -519,7 +519,7 @@ describe("parity E — the NON-shared control fold at an update root", () => {
           // second statement and no Part for the to-one target.
           id: "widget.update",
           kind: "write",
-          sql: 'UPDATE "parity_e_widgets" SET "ownerId" = CAST($1 AS TEXT) WHERE "parity_e_widgets"."id" = $2 RETURNING "id" AS "id"',
+          sql: 'UPDATE "public"."parity_e_widgets" SET "ownerId" = CAST($1 AS TEXT) WHERE "parity_e_widgets"."id" = $2 RETURNING "id" AS "id"',
           params: ["a9", "w1"],
           outputs: {},
           expects: {
@@ -533,7 +533,7 @@ describe("parity E — the NON-shared control fold at an update root", () => {
         {
           id: "widget.select",
           kind: "read",
-          sql: 'SELECT "t0"."id" AS "id" FROM "parity_e_widgets" AS "t0" WHERE "t0"."id" = $1 LIMIT 1',
+          sql: 'SELECT "t0"."id" AS "id" FROM "public"."parity_e_widgets" AS "t0" WHERE "t0"."id" = $1 LIMIT 1',
           params: ["w1"],
           outputs: { result: { kind: "rows" } },
           expects: {
@@ -696,7 +696,7 @@ for (const substrate of [
   const CARD_LOCATE = {
     id: "card.locate",
     kind: "read",
-    sql: `SELECT "t0"."accountId" AS "accountId" FROM "parity_e_cards" AS "t0" WHERE "t0"."accountId" = $1 LIMIT 1${lock}`,
+    sql: `SELECT "t0"."accountId" AS "accountId" FROM "public"."parity_e_cards" AS "t0" WHERE "t0"."accountId" = $1 LIMIT 1${lock}`,
     params: ["a1"],
     outputs: {
       rows: { kind: "rows" },
@@ -710,7 +710,7 @@ for (const substrate of [
     id: "card.guard.exists",
     premise: {
       kind: "exists",
-      sql: 'SELECT "t0"."accountId" AS "accountId" FROM "parity_e_cards" AS "t0" WHERE "t0"."accountId" = $1 LIMIT 1',
+      sql: 'SELECT "t0"."accountId" AS "accountId" FROM "public"."parity_e_cards" AS "t0" WHERE "t0"."accountId" = $1 LIMIT 1',
       params: ["a1"],
     },
     failure: cardNotFound,
@@ -719,7 +719,7 @@ for (const substrate of [
   const cardFold = (key: string) => ({
     id: "card.update",
     kind: "write",
-    sql: 'UPDATE "parity_e_cards" SET "accountId" = CAST($1 AS TEXT) WHERE "parity_e_cards"."accountId" = $2 RETURNING "accountId" AS "accountId"',
+    sql: 'UPDATE "public"."parity_e_cards" SET "accountId" = CAST($1 AS TEXT) WHERE "parity_e_cards"."accountId" = $2 RETURNING "accountId" AS "accountId"',
     params: [key, "a1"],
     outputs: {},
     expects: substrate.batch
@@ -731,7 +731,7 @@ for (const substrate of [
   const cardTerminalAt = (key: string) => ({
     id: "card.select",
     kind: "read",
-    sql: 'SELECT "t0"."accountId" AS "accountId" FROM "parity_e_cards" AS "t0" WHERE "t0"."accountId" = $1 LIMIT 1',
+    sql: 'SELECT "t0"."accountId" AS "accountId" FROM "public"."parity_e_cards" AS "t0" WHERE "t0"."accountId" = $1 LIMIT 1',
     params: [key],
     outputs: { result: { kind: "rows" } },
     expects: substrate.batch
@@ -751,7 +751,7 @@ for (const substrate of [
   const ACCOUNT_A2_INSERT = {
     id: "account.create",
     kind: "write",
-    sql: 'INSERT INTO "parity_e_accounts" ("id", "email", "name") VALUES ($1, $2, $3)',
+    sql: 'INSERT INTO "public"."parity_e_accounts" ("id", "email", "name") VALUES ($1, $2, $3)',
     params: ["a2", "a2@x", "A2"],
     outputs: {},
     expects: null,
@@ -812,7 +812,7 @@ for (const substrate of [
           {
             id: "account.find",
             kind: "read",
-            sql: `SELECT "t0"."id" AS "id" FROM "parity_e_accounts" AS "t0" WHERE "t0"."id" = $1 LIMIT 1${lock}`,
+            sql: `SELECT "t0"."id" AS "id" FROM "public"."parity_e_accounts" AS "t0" WHERE "t0"."id" = $1 LIMIT 1${lock}`,
             params: ["a2"],
             outputs: { rows: { kind: "rows" } },
             expects: null,
@@ -843,7 +843,7 @@ for (const substrate of [
                   id: "account.guard.exists",
                   premise: {
                     kind: "exists",
-                    sql: 'SELECT "t0"."id" AS "id" FROM "parity_e_accounts" AS "t0" WHERE "t0"."id" = $1 LIMIT 1',
+                    sql: 'SELECT "t0"."id" AS "id" FROM "public"."parity_e_accounts" AS "t0" WHERE "t0"."id" = $1 LIMIT 1',
                     params: ["a2"],
                   },
                   failure: {
@@ -893,7 +893,7 @@ for (const substrate of [
                   id: "account.guard.exists",
                   premise: {
                     kind: "exists",
-                    sql: 'SELECT "t0"."id" AS "id" FROM "parity_e_accounts" AS "t0" WHERE "t0"."id" = $1 LIMIT 1',
+                    sql: 'SELECT "t0"."id" AS "id" FROM "public"."parity_e_accounts" AS "t0" WHERE "t0"."id" = $1 LIMIT 1',
                     params: ["a2"],
                   },
                   failure: {
@@ -965,7 +965,7 @@ for (const substrate of [
             // One provenance again: the arm's probe binds the record's own key.
             id: "account.find",
             kind: "read",
-            sql: `SELECT "t0"."id" AS "id" FROM "parity_e_accounts" AS "t0" WHERE "t0"."id" = $1 ORDER BY "t0"."id" ASC LIMIT $2${lock}`,
+            sql: `SELECT "t0"."id" AS "id" FROM "public"."parity_e_accounts" AS "t0" WHERE "t0"."id" = $1 ORDER BY "t0"."id" ASC LIMIT $2${lock}`,
             params: [reference("card.locate", "accountId"), 1],
             outputs: {
               rows: { kind: "rows" },
@@ -1000,7 +1000,7 @@ for (const substrate of [
                   id: "account.guard.exists",
                   premise: {
                     kind: "exists",
-                    sql: 'SELECT "t0"."id" AS "id" FROM "parity_e_accounts" AS "t0" WHERE ("t0"."id" = $1 AND "t0"."id" = $2) ORDER BY "t0"."id" ASC LIMIT $3',
+                    sql: 'SELECT "t0"."id" AS "id" FROM "public"."parity_e_accounts" AS "t0" WHERE ("t0"."id" = $1 AND "t0"."id" = $2) ORDER BY "t0"."id" ASC LIMIT $3',
                     params: ["a1", "a1", 1],
                   },
                   failure: {
@@ -1016,7 +1016,7 @@ for (const substrate of [
           {
             id: "account.update",
             kind: "write",
-            sql: 'UPDATE "parity_e_accounts" SET "name" = $1 WHERE "parity_e_accounts"."id" = $2 RETURNING "id" AS "id"',
+            sql: 'UPDATE "public"."parity_e_accounts" SET "name" = $1 WHERE "parity_e_accounts"."id" = $2 RETURNING "id" AS "id"',
             params: ["A1b", "a1"],
             outputs: {},
             expects: substrate.batch
@@ -1061,7 +1061,7 @@ for (const substrate of [
       const OCCUPIED_FIND = {
         id: "note.transition.find",
         kind: "read",
-        sql: `SELECT "t0"."id" AS "id" FROM "parity_e_notes" AS "t0" WHERE "t0"."cardId" = $1 ORDER BY "t0"."id" ASC LIMIT $2${lock}`,
+        sql: `SELECT "t0"."id" AS "id" FROM "public"."parity_e_notes" AS "t0" WHERE "t0"."cardId" = $1 ORDER BY "t0"."id" ASC LIMIT $2${lock}`,
         // The OLD key: the slot the transition is about to vacate.
         params: ["a1", 1],
         outputs: { rows: { kind: "rows" } },
@@ -1097,7 +1097,7 @@ for (const substrate of [
                   id: "note.guard.occupied",
                   premise: {
                     kind: "notExists",
-                    sql: 'SELECT "t0"."id" AS "id" FROM "parity_e_notes" AS "t0" WHERE "t0"."cardId" = $1 ORDER BY "t0"."id" ASC LIMIT $2',
+                    sql: 'SELECT "t0"."id" AS "id" FROM "public"."parity_e_notes" AS "t0" WHERE "t0"."cardId" = $1 ORDER BY "t0"."id" ASC LIMIT $2',
                     params: ["a1", 1],
                   },
                   failure: {
@@ -1117,7 +1117,7 @@ for (const substrate of [
             // does not cascade a fresh row onto an id the transition has not written yet.
             id: "note.create",
             kind: "write",
-            sql: 'INSERT INTO "parity_e_notes" ("id", "cardId", "body") VALUES ($1, CAST($2 AS TEXT), $3)',
+            sql: 'INSERT INTO "public"."parity_e_notes" ("id", "cardId", "body") VALUES ($1, CAST($2 AS TEXT), $3)',
             params: ["n1", "a2", "B"],
             outputs: {},
             expects: null,
@@ -1169,7 +1169,7 @@ for (const substrate of [
                   id: "ticket.guard.exists",
                   premise: {
                     kind: "exists",
-                    sql: 'SELECT "t0"."deskId" AS "deskId" FROM "parity_e_tickets" AS "t0" WHERE "t0"."deskId" = $1 LIMIT 1',
+                    sql: 'SELECT "t0"."deskId" AS "deskId" FROM "public"."parity_e_tickets" AS "t0" WHERE "t0"."deskId" = $1 LIMIT 1',
                     params: [1],
                   },
                   failure: ticketNotFound,
@@ -1179,7 +1179,7 @@ for (const substrate of [
           {
             id: "desk.create",
             kind: "write",
-            sql: 'INSERT INTO "parity_e_desks" ("title") VALUES ($1) RETURNING "id" AS "id"',
+            sql: 'INSERT INTO "public"."parity_e_desks" ("title") VALUES ($1) RETURNING "id" AS "id"',
             params: ["T"],
             outputs: { id: { kind: "firstRowField", field: "id" } },
             expects: null,
@@ -1189,7 +1189,7 @@ for (const substrate of [
           {
             id: "ticket.update",
             kind: "write",
-            sql: 'UPDATE "parity_e_tickets" SET "deskId" = CAST($1 AS INTEGER) WHERE "parity_e_tickets"."deskId" = $2 RETURNING "deskId" AS "deskId"',
+            sql: 'UPDATE "public"."parity_e_tickets" SET "deskId" = CAST($1 AS INTEGER) WHERE "parity_e_tickets"."deskId" = $2 RETURNING "deskId" AS "deskId"',
             params: [reference("desk.create", "id"), 1],
             outputs: {},
             expects: substrate.batch
@@ -1202,7 +1202,7 @@ for (const substrate of [
             id: "ticket.select",
             kind: "read",
             // The SAME reference, lowered by the same caster.
-            sql: 'SELECT "t0"."deskId" AS "deskId" FROM "parity_e_tickets" AS "t0" WHERE "t0"."deskId" = CAST($1 AS INTEGER) LIMIT 1',
+            sql: 'SELECT "t0"."deskId" AS "deskId" FROM "public"."parity_e_tickets" AS "t0" WHERE "t0"."deskId" = CAST($1 AS INTEGER) LIMIT 1',
             params: [reference("desk.create", "id")],
             outputs: { result: { kind: "rows" } },
             expects: substrate.batch
@@ -1291,7 +1291,7 @@ for (const substrate of [
     id: "widget.guard.exists",
     premise: {
       kind: "exists",
-      sql: 'SELECT "t0"."id" AS "id" FROM "parity_e_widgets" AS "t0" WHERE "t0"."id" = $1 LIMIT 1',
+      sql: 'SELECT "t0"."id" AS "id" FROM "public"."parity_e_widgets" AS "t0" WHERE "t0"."id" = $1 LIMIT 1',
       params: ["w1"],
     },
     failure: widgetNotFound,
@@ -1310,7 +1310,7 @@ for (const substrate of [
   const widgetTerminal = (key: string) => ({
     id: "widget.select",
     kind: "read",
-    sql: 'SELECT "t0"."id" AS "id" FROM "parity_e_widgets" AS "t0" WHERE "t0"."id" = $1 LIMIT 1',
+    sql: 'SELECT "t0"."id" AS "id" FROM "public"."parity_e_widgets" AS "t0" WHERE "t0"."id" = $1 LIMIT 1',
     params: [key],
     outputs: { result: { kind: "rows" } },
     expects: substrate.batch
@@ -1323,7 +1323,7 @@ for (const substrate of [
   const ownerFold = {
     id: "widget.update",
     kind: "write",
-    sql: 'UPDATE "parity_e_widgets" SET "ownerId" = CAST($1 AS TEXT) WHERE "parity_e_widgets"."id" = $2 RETURNING "id" AS "id"',
+    sql: 'UPDATE "public"."parity_e_widgets" SET "ownerId" = CAST($1 AS TEXT) WHERE "parity_e_widgets"."id" = $2 RETURNING "id" AS "id"',
     params: ["a9", "w1"],
     outputs: {},
     expects: substrate.batch
@@ -1336,7 +1336,7 @@ for (const substrate of [
   const ACCOUNT_A9_INSERT = {
     id: "account.create",
     kind: "write",
-    sql: 'INSERT INTO "parity_e_accounts" ("id", "email", "name") VALUES ($1, $2, $3)',
+    sql: 'INSERT INTO "public"."parity_e_accounts" ("id", "email", "name") VALUES ($1, $2, $3)',
     params: ["a9", "a9@x", "A9"],
     outputs: {},
     expects: null,
@@ -1364,7 +1364,7 @@ for (const substrate of [
         {
           id: "widget.locate",
           kind: "read",
-          sql: `SELECT "t0"."id" AS "id" FROM "parity_e_widgets" AS "t0" WHERE "t0"."id" = $1 LIMIT 1${lock}`,
+          sql: `SELECT "t0"."id" AS "id" FROM "public"."parity_e_widgets" AS "t0" WHERE "t0"."id" = $1 LIMIT 1${lock}`,
           params: ["w1"],
           outputs: {
             rows: { kind: "rows" },
@@ -1377,7 +1377,7 @@ for (const substrate of [
         {
           id: "account.find",
           kind: "read",
-          sql: `SELECT "t0"."id" AS "id" FROM "parity_e_accounts" AS "t0" WHERE "t0"."id" = $1 LIMIT 1${lock}`,
+          sql: `SELECT "t0"."id" AS "id" FROM "public"."parity_e_accounts" AS "t0" WHERE "t0"."id" = $1 LIMIT 1${lock}`,
           params: ["a9"],
           outputs: { rows: { kind: "rows" } },
           expects: null,
@@ -1415,7 +1415,7 @@ for (const substrate of [
                   id: "account.guard.exists",
                   premise: {
                     kind: "exists",
-                    sql: 'SELECT "t0"."id" AS "id" FROM "parity_e_accounts" AS "t0" WHERE "t0"."id" = $1 LIMIT 1',
+                    sql: 'SELECT "t0"."id" AS "id" FROM "public"."parity_e_accounts" AS "t0" WHERE "t0"."id" = $1 LIMIT 1',
                     params: ["a9"],
                   },
                   failure: {
@@ -1478,7 +1478,7 @@ for (const substrate of [
             // parent's own stored value, not from a payload selector.
             id: "widget.locate",
             kind: "read",
-            sql: `SELECT "t0"."id" AS "id", "t0"."ownerId" AS "ownerId" FROM "parity_e_widgets" AS "t0" WHERE "t0"."id" = $1 LIMIT 1${lock}`,
+            sql: `SELECT "t0"."id" AS "id", "t0"."ownerId" AS "ownerId" FROM "public"."parity_e_widgets" AS "t0" WHERE "t0"."id" = $1 LIMIT 1${lock}`,
             params: ["w1"],
             outputs: {
               rows: { kind: "rows" },
@@ -1492,7 +1492,7 @@ for (const substrate of [
           {
             id: "account.find",
             kind: "read",
-            sql: `SELECT "t0"."id" AS "id" FROM "parity_e_accounts" AS "t0" WHERE "t0"."id" = $1 ORDER BY "t0"."id" ASC LIMIT $2${lock}`,
+            sql: `SELECT "t0"."id" AS "id" FROM "public"."parity_e_accounts" AS "t0" WHERE "t0"."id" = $1 ORDER BY "t0"."id" ASC LIMIT $2${lock}`,
             params: [reference("widget.locate", "ownerId"), 1],
             outputs: {
               rows: { kind: "rows" },
@@ -1528,7 +1528,7 @@ for (const substrate of [
                   id: "account.guard.exists",
                   premise: {
                     kind: "exists",
-                    sql: 'SELECT "t0"."id" AS "id" FROM "parity_e_accounts" AS "t0" WHERE ("t0"."id" = $1 AND "t0"."id" = $2) ORDER BY "t0"."id" ASC LIMIT $3',
+                    sql: 'SELECT "t0"."id" AS "id" FROM "public"."parity_e_accounts" AS "t0" WHERE ("t0"."id" = $1 AND "t0"."id" = $2) ORDER BY "t0"."id" ASC LIMIT $3',
                     params: ["a9", "a9", 1],
                   },
                   failure: {
@@ -1544,7 +1544,7 @@ for (const substrate of [
           {
             id: "account.update",
             kind: "write",
-            sql: 'UPDATE "parity_e_accounts" SET "name" = $1 WHERE "parity_e_accounts"."id" = $2 RETURNING "id" AS "id"',
+            sql: 'UPDATE "public"."parity_e_accounts" SET "name" = $1 WHERE "parity_e_accounts"."id" = $2 RETURNING "id" AS "id"',
             params: ["A9b", "a9"],
             outputs: {},
             expects: substrate.batch
@@ -1609,7 +1609,7 @@ for (const substrate of [
           {
             id: "parent.fkset",
             kind: "write",
-            sql: 'UPDATE "parity_e_widgets" SET "ownerId" = CAST($1 AS TEXT) WHERE "parity_e_widgets"."id" = $2 RETURNING "id" AS "id"',
+            sql: 'UPDATE "public"."parity_e_widgets" SET "ownerId" = CAST($1 AS TEXT) WHERE "parity_e_widgets"."id" = $2 RETURNING "id" AS "id"',
             params: ["a9", "w1"],
             outputs: {},
             expects: null,
@@ -1645,7 +1645,7 @@ for (const substrate of [
             // Both the moved key and the folded edge ride ONE SET, in that order.
             id: "widget.update",
             kind: "write",
-            sql: 'UPDATE "parity_e_widgets" SET "id" = $1, "ownerId" = CAST($2 AS TEXT) WHERE "parity_e_widgets"."id" = $3 RETURNING "id" AS "id"',
+            sql: 'UPDATE "public"."parity_e_widgets" SET "id" = $1, "ownerId" = CAST($2 AS TEXT) WHERE "parity_e_widgets"."id" = $3 RETURNING "id" AS "id"',
             params: ["w2", "a9", "w1"],
             outputs: {},
             expects: substrate.batch
@@ -1692,7 +1692,7 @@ for (const substrate of [
           {
             id: "card.locate",
             kind: "read",
-            sql: `SELECT "t0"."accountId" AS "accountId" FROM "parity_e_cards" AS "t0" WHERE "t0"."accountId" = $1 LIMIT 1${lock}`,
+            sql: `SELECT "t0"."accountId" AS "accountId" FROM "public"."parity_e_cards" AS "t0" WHERE "t0"."accountId" = $1 LIMIT 1${lock}`,
             params: ["a1"],
             outputs: {
               rows: { kind: "rows" },
@@ -1705,7 +1705,7 @@ for (const substrate of [
           {
             id: "account.find",
             kind: "read",
-            sql: `SELECT "t0"."id" AS "id" FROM "parity_e_accounts" AS "t0" WHERE "t0"."id" = $1 ORDER BY "t0"."id" ASC LIMIT $2${lock}`,
+            sql: `SELECT "t0"."id" AS "id" FROM "public"."parity_e_accounts" AS "t0" WHERE "t0"."id" = $1 ORDER BY "t0"."id" ASC LIMIT $2${lock}`,
             // One provenance: the record's primary key IS the edge's value.
             params: [reference("card.locate", "accountId"), 1],
             outputs: { rows: { kind: "rows" } },
@@ -1736,7 +1736,7 @@ for (const substrate of [
                   id: "card.guard.exists",
                   premise: {
                     kind: "exists",
-                    sql: 'SELECT "t0"."accountId" AS "accountId" FROM "parity_e_cards" AS "t0" WHERE "t0"."accountId" = $1 LIMIT 1',
+                    sql: 'SELECT "t0"."accountId" AS "accountId" FROM "public"."parity_e_cards" AS "t0" WHERE "t0"."accountId" = $1 LIMIT 1',
                     params: ["a1"],
                   },
                   failure: cardNotFound,
@@ -1745,7 +1745,7 @@ for (const substrate of [
                   id: "account.guard.exists",
                   premise: {
                     kind: "exists",
-                    sql: 'SELECT "t0"."id" AS "id" FROM "parity_e_accounts" AS "t0" WHERE ("t0"."id" = $1 AND "t0"."id" = $2) ORDER BY "t0"."id" ASC LIMIT $3',
+                    sql: 'SELECT "t0"."id" AS "id" FROM "public"."parity_e_accounts" AS "t0" WHERE ("t0"."id" = $1 AND "t0"."id" = $2) ORDER BY "t0"."id" ASC LIMIT $3',
                     params: ["a1", "a1", 1],
                   },
                   failure: targetMissing,
@@ -1755,7 +1755,7 @@ for (const substrate of [
           {
             id: "account.update",
             kind: "write",
-            sql: 'UPDATE "parity_e_accounts" SET "name" = $1 WHERE "parity_e_accounts"."id" = $2 RETURNING "id" AS "id"',
+            sql: 'UPDATE "public"."parity_e_accounts" SET "name" = $1 WHERE "parity_e_accounts"."id" = $2 RETURNING "id" AS "id"',
             params: ["X", "a1"],
             outputs: {},
             expects: substrate.batch
@@ -1776,7 +1776,7 @@ for (const substrate of [
           {
             id: "card.select",
             kind: "read",
-            sql: 'SELECT "t0"."accountId" AS "accountId" FROM "parity_e_cards" AS "t0" WHERE "t0"."accountId" = $1 LIMIT 1',
+            sql: 'SELECT "t0"."accountId" AS "accountId" FROM "public"."parity_e_cards" AS "t0" WHERE "t0"."accountId" = $1 LIMIT 1',
             params: ["a1"],
             outputs: { result: { kind: "rows" } },
             expects: substrate.batch

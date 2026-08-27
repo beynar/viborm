@@ -26,6 +26,7 @@ const client = createClient({
 |--------|------|-------------|
 | `client` | `Client` | Existing PlanetScale client |
 | `databaseUrl` | `string` | PlanetScale connection URL |
+| `namespace` | `string` | Vitess keyspace qualifier submitted before VTGate routing |
 | `options` | `Config` | PlanetScale configuration options |
 
 ### Using Options
@@ -42,6 +43,67 @@ const client = createClient({
   schema,
 });
 ```
+
+## Namespace
+
+`namespace` records the **Vitess keyspace qualifier** VibORM submits in the
+MySQL database position of a table reference. Omitted, runtime SQL stays
+unqualified so PlanetScale's Global Edge Network and VTGate keep full routing
+authority.
+
+```typescript
+import { createClient } from "viborm/planetscale";
+
+const db = createClient({
+  databaseUrl: process.env.DATABASE_URL,
+  namespace: "billing",
+  schema,
+});
+```
+
+```sql
+SELECT `user`.`id` FROM `billing`.`user` AS `user`
+```
+
+Three things stay separate here:
+
+| Concept | What it is | Is it `namespace`? |
+|---|---|---|
+| PlanetScale database | The enclosing product/cluster resource, which can contain several keyspaces | No |
+| Keyspace qualifier | The identifier submitted in the table reference's database position | Yes — and only from an explicit `namespace` |
+| `@primary` / `@replica` | A connection routing selector | No |
+
+The SDK config, endpoint, and resource name do not prove which keyspace
+qualifier a query should submit, so VibORM never derives one. `@primary` and
+`@replica` remain provider connection configuration: they are never accepted as
+`namespace`, never copied to the adapter fact, and never emitted as a table
+qualifier. A supplied `Client` is opaque and is bound only by an explicit
+`namespace`.
+
+:::warning
+**A qualifier is not containment.** Vitess
+[schema-routing rules](https://vitess.io/docs/25.0/reference/features/schema-routing-rules/)
+may redirect even a fully qualified `keyspace.table` reference, so this value
+never proves which backend served the statement, and instrumentation's
+`db.namespace` reports the requested qualifier only.
+:::
+
+### Migrations are refused
+
+PlanetScale exposes no non-redirecting attestation option, and neither an
+explicit qualifier nor a reserved session can prove containment across routing
+rules. **Every effectful migration, push, reset, and destructive live verb is
+refused** — with or without a `namespace`. Admitted read-only and offline
+migration paths still work, as does runtime qualification.
+
+### Cache scope follows the qualifier
+
+Official cache entries are scoped by dialect plus the requested qualifier. Equal
+qualifiers share a scope and distinct qualifiers stay separated, but a
+routing-rule change is an **external cache-topology event**: invalidate every
+affected qualifier scope or bump `cache({ version })` before switching traffic.
+VibORM does not query the PlanetScale control plane or correlate routing
+aliases. See [Namespaces](/docs/drivers/namespaces).
 
 ## Transactions & Batching
 

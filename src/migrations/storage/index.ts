@@ -22,7 +22,6 @@ export {
   getNextMigrationIndex,
   MigrationStorageDriver,
   toKebabCase,
-  validateJournalDialect,
 } from "./driver";
 
 // NOTE: Concrete drivers are NOT re-exported here to allow tree-shaking.

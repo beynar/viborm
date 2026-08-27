@@ -593,7 +593,7 @@ describe("M4 — PostgreSQL statement count, and the answer it must not change",
     // Four statements before: root INSERT, pallet INSERT, label INSERT, terminal.
     expect(statements).toHaveLength(1);
     expect(statements[0]).toContain(
-      '"__viborm_write_0" AS (INSERT INTO "pm_pallets" ("crateId") VALUES (CAST($3 AS TEXT)) RETURNING "pallet_pk" AS "id")'
+      '"__viborm_write_0" AS (INSERT INTO "public"."pm_pallets" ("crateId") VALUES (CAST($3 AS TEXT)) RETURNING "pallet_pk" AS "id")'
     );
     // The FIELD alias, not the column, and not the root's mapping either.
     expect(statements[0]).toContain('(SELECT "id" FROM "__viborm_write_0")');

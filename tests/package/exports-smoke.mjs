@@ -85,11 +85,110 @@ if (schemaBuilder && "float" in schemaBuilder) {
   throw new Error("Export ./schema must not provide a retired s.float()");
 }
 
+// The adapter namespace fact, on the BUILT adapters subpath: one spelling, the
+// PostgreSQL default bound, MySQL deliberately unbound, SQLite without the
+// member at all.
+const packagedAdapters = runtimeExports.get("./adapters");
+if (packagedAdapters?.postgresAdapter?.namespace !== "public") {
+  throw new Error(
+    "Export ./adapters must publish a postgresAdapter bound to the public schema"
+  );
+}
+if (packagedAdapters.mysqlAdapter?.namespace !== undefined) {
+  throw new Error("Export ./adapters must publish an unbound mysqlAdapter");
+}
+if ("namespace" in packagedAdapters.sqliteAdapter) {
+  throw new Error(
+    "Export ./adapters must publish a sqliteAdapter with no namespace"
+  );
+}
+if (new packagedAdapters.PostgresAdapter("alpha").namespace !== "alpha") {
+  throw new Error(
+    "Export ./adapters must publish a PostgresAdapter that selects its schema"
+  );
+}
+if (new packagedAdapters.MySQLAdapter("alpha").namespace !== "alpha") {
+  throw new Error(
+    "Export ./adapters must publish a MySQLAdapter that selects its database"
+  );
+}
+for (const alias of ["databaseNamespace", "databaseSchema", "keyspace"]) {
+  if (alias in packagedAdapters.postgresAdapter) {
+    throw new Error(`Export ./adapters must not publish the alias ${alias}`);
+  }
+}
+
+// The persistent-table renderer, on the BUILT bundle: an optional alias is the
+// published signature, so both forms must survive bundling.
+const packagedTableRenders = [
+  [
+    packagedAdapters.postgresAdapter.identifiers.table("users"),
+    '"public"."users"',
+  ],
+  [
+    packagedAdapters.postgresAdapter.identifiers.table("users", "t0"),
+    '"public"."users" AS "t0"',
+  ],
+  [packagedAdapters.mysqlAdapter.identifiers.table("users"), "`users`"],
+  [
+    new packagedAdapters.MySQLAdapter("alpha").identifiers.table("users", "t0"),
+    "`alpha`.`users` AS `t0`",
+  ],
+  [packagedAdapters.sqliteAdapter.identifiers.table("users"), '"users"'],
+];
+for (const [fragment, expected] of packagedTableRenders) {
+  if (fragment.toStatement() !== expected) {
+    throw new Error(
+      `Export ./adapters must render ${expected}, got ${fragment.toStatement()}`
+    );
+  }
+}
+
+// The two driver-installed facts, on the BUILT bundles: the bundler must not
+// re-declare either member as a class field, which would silently replace the
+// installed property with `undefined`.
+const packagedPgDriver = new (runtimeExports.get("./pg").PgDriver)({
+  namespace: "alpha",
+});
+if (packagedPgDriver.adapter.namespace !== "alpha") {
+  throw new Error(
+    "Export ./pg must build a driver whose adapter carries the selected schema"
+  );
+}
+if (Reflect.set(packagedPgDriver, "adapter", {})) {
+  throw new Error("Export ./pg must build a non-writable adapter reference");
+}
+const packagedMySQL2Driver = new (runtimeExports.get("./mysql2").MySQL2Driver)({
+  namespace: "alpha",
+  migrationNamespaceAttestation: "non-redirecting",
+});
+if (packagedMySQL2Driver.migrationNamespaceAttestation !== "non-redirecting") {
+  throw new Error(
+    "Export ./mysql2 must build a driver carrying its transport assertion"
+  );
+}
+if (
+  Reflect.set(packagedMySQL2Driver, "migrationNamespaceAttestation", undefined)
+) {
+  throw new Error(
+    "Export ./mysql2 must build a non-writable transport assertion"
+  );
+}
+
 requireRuntimeFunction("./client", "defineExtension");
 requireRuntimeFunction("./client", "defaultOmit");
+// The migration context is internal. Its raw, lock, tracking and statement
+// methods would be a public route around the one estate gate and the one
+// live-capability admission decision, so the bundled surface must not carry it.
+requireRuntimeFunction("./migrations", "createMigrationClient");
+requireRuntimeAbsence("./migrations", "MigrationContext");
 requireRuntimeFunction("./cache", "cache");
 requireRuntimeFunction("./instrumentation", "instrumentation");
 
+const adaptersRuntimeFile = resolve(
+  repositoryRoot,
+  packageJson.exports["./adapters"].import
+);
 const rootRuntimeFile = resolve(
   repositoryRoot,
   packageJson.exports["."].import
@@ -99,6 +198,7 @@ const clientRuntimeFile = resolve(
   packageJson.exports["./client"].import
 );
 typeConsumerImports.push(
+  `import type { DatabaseAdapter as PackagedDatabaseAdapter } from ${JSON.stringify(adaptersRuntimeFile)};`,
   `import type { ClientExtension as RootClientExtension, ExtendedClient as RootExtendedClient, VibORMClient as RootVibORMClient } from ${JSON.stringify(rootRuntimeFile)};`,
   `import type { ClientExtension as ClientSubpathExtension, ExtendedClient as ClientSubpathExtendedClient } from ${JSON.stringify(clientRuntimeFile)};`,
   `import type { ObservationCompletion as RootObservationCompletion, ObservationUnit as RootObservationUnit, ObserveHandler as RootObserveHandler, StatementContext as RootStatementContext, StatementHandler as RootStatementHandler } from ${JSON.stringify(rootRuntimeFile)};`,
@@ -123,7 +223,12 @@ typeConsumerImports.push(
   "void rootObserver;",
   "void clientObserver;",
   "void rootStatement;",
-  "void clientStatement;"
+  "void clientStatement;",
+  "declare const packagedAdapter: PackagedDatabaseAdapter;",
+  "const packagedNamespace: string | undefined = packagedAdapter.namespace;",
+  "const packagedTable: (tableName: string, alias?: string) => unknown = packagedAdapter.identifiers.table;",
+  "void packagedNamespace;",
+  "void packagedTable;"
 );
 
 for (const binTarget of Object.values(packageJson.bin ?? {})) {

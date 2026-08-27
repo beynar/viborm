@@ -76,7 +76,7 @@ export function buildInsertStatement(
     throw new QueryEngineError("No data to insert");
   }
 
-  const table = adapter.identifiers.escape(tableName);
+  const table = adapter.identifiers.table(tableName);
   return columns.length === 0
     ? adapter.mutations.insertDefault(table)
     : adapter.mutations.insert(table, columns, values);
@@ -318,7 +318,7 @@ function buildCreateManyStatement(
     throw new QueryEngineError("No data to insert");
   }
 
-  const table = ctx.adapter.identifiers.escape(getTableName(ctx.model));
+  const table = ctx.adapter.identifiers.table(getTableName(ctx.model));
   if (group.columns.length === 0) {
     assertPortableCreateManySkip(skipDuplicates, true);
     const insertSql = ctx.adapter.mutations.insertDefault(table);

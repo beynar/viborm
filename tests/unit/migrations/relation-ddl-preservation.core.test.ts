@@ -45,6 +45,7 @@ import {
   type RelationDdlCase,
   relationDdlCorpus,
 } from "@tests/fixtures/relation-ddl-corpus";
+import { ddlContext } from "@tests/unit/migrations/_estate";
 import { describe, expect, it } from "vitest";
 
 const migrationDrivers = {
@@ -171,7 +172,10 @@ describe("scalar defaults through a JSON document", () => {
     });
     const table = snapshot.tables[0];
     if (table === undefined) throw new Error("one table was serialized");
-    return sqlite3MigrationDriver.generateDDL({ type: "createTable", table });
+    return sqlite3MigrationDriver.generateDDL(
+      { type: "createTable", table },
+      ddlContext("artifact")
+    );
   }
 
   const cases: [string, () => Record<string, AnyModel>, string][] = [

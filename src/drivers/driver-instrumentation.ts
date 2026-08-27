@@ -27,6 +27,7 @@ import { markErrorLogged } from "@instrumentation/logged-errors";
 import {
   ATTR_DB_COLLECTION,
   ATTR_DB_DRIVER,
+  ATTR_DB_NAMESPACE,
   ATTR_DB_OPERATION_NAME,
   ATTR_DB_SYSTEM,
   ATTR_VIBORM_CORRELATION_ID,
@@ -61,6 +62,10 @@ import {
 } from "./execution-context";
 import { readPreparedStatement } from "./prepared-statement-provenance";
 import { SavepointQueue } from "./savepoint-queue";
+import {
+  defineImmutableDriverFact,
+  type MigrationNamespaceAttestation,
+} from "./shared/driver-options";
 import type {
   DriverTransactionOptions,
   TransactionOptionSupport,
@@ -261,9 +266,33 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
    */
   readonly maxBindParametersPerStatement: number | undefined = undefined;
 
-  readonly dialect: Dialect;
+  /**
+   * The SQL family this driver speaks. It is a CACHE IDENTITY fact and not only
+   * a rendering switch: `bindOfficialCacheChain` derives the official cache
+   * scope from this value together with `adapter.namespace`, and a PostgreSQL
+   * schema `alpha` and a MySQL database `alpha` spell that qualifier the same
+   * way — so the dialect is the only thing separating those two scopes. The
+   * adapter reference and the namespace on it are already installed
+   * non-writable and non-configurable; installing this one the same way closes
+   * the last member of that tuple, and with it the window between constructing
+   * a driver and binding its scope in which a relabelled driver would address
+   * another store's entries. Client construction's PostgreSQL-target admission
+   * reads it once at `create()` too, so an immutable value is also what keeps
+   * that refusal from being stepped around after it passed.
+   */
+  declare readonly dialect: Dialect;
   readonly driverName: string;
   abstract readonly adapter: DatabaseAdapter;
+  /**
+   * This driver's transport assertion, or `undefined` for every driver that
+   * makes none. It is never a target and never derived: only a constructor
+   * that was handed the exact literal has it, so a URL, a provider class, a
+   * server version, or a resolved namespace cannot manufacture one. Migration
+   * admission is its one consumer.
+   */
+  declare readonly migrationNamespaceAttestation:
+    | MigrationNamespaceAttestation
+    | undefined;
   readonly result?: DriverResultParser;
   protected client: TClient | TTransaction | null = null;
   /** Immutable per-instance marker; only TransactionBoundDriver is true. */
@@ -349,21 +378,44 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
   constructor(
     dialect: Dialect,
     driverName: string,
-    boundContext: QueryExecutionContext = {}
+    boundContext: QueryExecutionContext = {},
+    migrationNamespaceAttestation?: MigrationNamespaceAttestation
   ) {
-    this.dialect = dialect;
+    defineImmutableDriverFact(this, "dialect", dialect);
     this.driverName = driverName;
     this.boundContext = snapshotExecutionContext(boundContext);
+    defineImmutableDriverFact(
+      this,
+      "migrationNamespaceAttestation",
+      migrationNamespaceAttestation
+    );
   }
 
   /**
    * Get base OTel attributes for this driver.
    * Can be used by other parts of the code to include standard database attributes.
+   *
+   * `db.namespace` reports the adapter's one normalized SQL qualifier — a
+   * PostgreSQL schema, a MySQL database, a requested Vitess keyspace. VibORM
+   * knows it from configuration, so no provider is asked and no connection
+   * string is parsed to guess one. When the adapter is unqualified (SQLite,
+   * unbound MySQL/PlanetScale) the KEY IS ABSENT rather than carrying `null`,
+   * `""`, or the text `undefined`: OTel lets a reporter give the component it
+   * has and say nothing about the one it does not, and a placeholder value
+   * would be indistinguishable from a namespace actually spelled that way.
+   *
+   * This one addition reaches every unit that carries `db.*`: operation
+   * (`query-engine/execution-context.ts`), statement and driver-lifecycle (via
+   * `getContextAttributes` below), and cache (`client/client.ts` →
+   * `cache-flow.ts`). Segment units carry only `viborm.write.*` and are
+   * unaffected, and the unobserved native-batch phase still calls nothing here.
    */
   getBaseAttributes(): Record<string, string> {
+    const namespace = this.adapter.namespace;
     return {
       [ATTR_DB_SYSTEM]: this.dialect,
       [ATTR_DB_DRIVER]: this.driverName,
+      ...(namespace === undefined ? {} : { [ATTR_DB_NAMESPACE]: namespace }),
     };
   }
 

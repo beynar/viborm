@@ -53,14 +53,14 @@ export class LibSQLMigrationDriver extends SQLite3MigrationDriver {
    */
   override generateAlterColumn(
     op: AlterColumnOperation,
-    _context?: DDLContext
+    context: DDLContext
   ): string {
     const { tableName, columnName, to } = op;
     const table = this.escapeIdentifier(tableName);
     const col = this.escapeIdentifier(columnName);
 
     // Build new column definition
-    const colDef = this.generateColumnDef(to);
+    const colDef = this.generateColumnDef(to, context);
 
     // LibSQL syntax: ALTER TABLE t ALTER COLUMN old_name TO new_def
     return `ALTER TABLE ${table} ALTER COLUMN ${col} TO ${colDef}`;
@@ -124,7 +124,7 @@ export class LibSQLMigrationDriver extends SQLite3MigrationDriver {
    */
   override generateAddForeignKey(
     op: AddForeignKeyOperation,
-    context?: DDLContext
+    context: DDLContext
   ): string {
     const { tableName, fk } = op;
 
@@ -178,7 +178,7 @@ export class LibSQLMigrationDriver extends SQLite3MigrationDriver {
    */
   override generateDropForeignKey(
     op: DropForeignKeyOperation,
-    context?: DDLContext
+    context: DDLContext
   ): string {
     const currentTable = this.getCurrentTable(op.tableName, context);
     if (!currentTable) {

@@ -1,0 +1,671 @@
+---
+title: Namespaces
+description: Target one PostgreSQL schema or one MySQL database per driver
+---
+
+A **namespace** is the SQL qualification value used for one driver's VibORM
+persistent objects. It maps to a PostgreSQL schema and to a MySQL database;
+under Vitess, the MySQL database position submits a keyspace qualifier that
+routing rules may redirect.
+
+```typescript
+import { createClient } from "viborm/pg";
+
+const db = createClient({
+  schema,
+  databaseUrl: process.env.DATABASE_URL,
+  namespace: "billing",
+});
+```
+
+```sql
+-- every VibORM-generated statement qualifies its persistent objects
+SELECT "user"."id"
+FROM "billing"."user" AS "user"
+```
+
+One option name is used at every boundary, and the dialect decides what it
+means. It is deliberately **not** a promise that the dialects share catalog,
+migration, transaction, sharding, provider-resource, or physical-containment
+semantics.
+
+| Driver family | `namespace` selects | Omitted value |
+|---|---|---|
+| PostgreSQL (`pg`, `postgres`, `pglite`, `neon-http`, `bun-sql`) | Schema | `public` |
+| MySQL2 | MySQL database | Derived only from driver-created connection configuration; otherwise unbound |
+| PlanetScale (Vitess) | Keyspace qualifier submitted before VTGate routing | Unbound, so PlanetScale and VTGate keep full routing authority |
+| SQLite (`sqlite3`, `libsql`, `bun-sqlite`, `d1`) | Unsupported | The provider's primary database |
+
+## One namespace per driver
+
+The value is immutable for the lifetime of a driver, and it applies to every
+VibORM-owned persistent object:
+
+- model tables;
+- implicit and explicit junction tables;
+- variant-member junction tables;
+- foreign-key targets;
+- indexes;
+- ORM-managed PostgreSQL enum types; and
+- the migration tracking table.
+
+A caller who needs two PostgreSQL schemas, two MySQL databases, or two requested
+Vitess keyspace qualifiers creates **two drivers**:
+
+```typescript
+const acme = createClient({ schema, driver: new PgDriver({ pool, namespace: "tenant_acme" }) });
+const globex = createClient({ schema, driver: new PgDriver({ pool, namespace: "tenant_globex" }) });
+```
+
+The namespace never becomes model state. Models, relations, query scopes,
+operation programs, and result types contain no copy of it, so the same model
+graph can be reused across namespaces — or a genuinely different model graph can
+be supplied for each one.
+
+:::info
+There is no per-model namespace, no namespace map, no per-operation switching,
+and no dotted `.map()` name. A dotted name would be quoted as one identifier
+(`"billing.user"`) rather than as `"billing"."user"`, and it would contaminate
+logical naming and junction derivation.
+:::
+
+## Where it can be set
+
+`namespace` is a **driver** option. It is accepted by the five PostgreSQL and
+two MySQL `createClient()` wrappers, by the corresponding driver constructors,
+and by the two public adapter constructors:
+
+```typescript
+import { createClient } from "viborm";
+import { PgDriver } from "viborm/pg";
+
+const db = createClient({
+  schema,
+  driver: new PgDriver({ pool, namespace: "billing" }),
+});
+```
+
+```typescript
+import { PostgresAdapter, MySQLAdapter } from "viborm/adapters";
+
+new PostgresAdapter("billing"); // schema-bound
+new MySQLAdapter("billing");    // database-bound
+new MySQLAdapter();             // deliberately unqualified
+```
+
+It is **not** accepted on generic client configuration beside `driver`. A
+configured driver is already generic configuration's physical database owner;
+adding the same value beside it would create two possible answers and would make
+unsupported dialects appear to accept the feature.
+
+There is no compatibility alias. `databaseSchema`, `databaseName`,
+`databaseNamespace`, `pgSchema`, `keyspace`, `attachment`, and `searchPath` are
+all rejected, and so is `schema: "billing"` — `schema` already means the model
+record in every client.
+
+## Validation
+
+The value is validated once, at construction, before any provider connection
+work:
+
+- the existing ASCII identifier grammar and prototype-collision rule apply;
+- PostgreSQL enforces 63 bytes and MySQL 64 characters;
+- caller case is preserved and each component is quoted, so `PG_CATALOG` stays
+  distinct from `pg_catalog`;
+- empty strings, dots, punctuation, quote characters, non-strings, and overlong
+  values are rejected;
+- keywords such as `select` are allowed, because the renderer quotes them.
+
+One dialect check runs after the shared grammar: PostgreSQL rejects exact
+lowercase `information_schema` and every lowercase `pg_` prefix; MySQL rejects
+`information_schema`, `mysql`, `performance_schema`, `sys`, and `ndbinfo`
+case-insensitively.
+
+Failures raise `ClientInitializationError` at the wrapper, driver, or adapter
+construction boundary. The grammar is intentionally narrower than every
+identifier MySQL can represent — that is a portability choice, not a claim to
+support full MySQL filename syntax.
+
+### A derived MySQL database is validated too
+
+The grammar applies to the MySQL database VibORM *derives* from a URL path or
+from `options.database`, not only to an explicit `namespace`. Only a candidate
+that is EXACTLY the empty string counts as absent:
+
+```typescript
+// refused at construction — a hyphen is outside the grammar
+createClient({ schema, databaseUrl: "mysql://host/app-dev" });
+
+// unbound, exactly as before: an empty path contributes no candidate
+createClient({ schema, databaseUrl: "mysql://host/" });
+
+// refused: whitespace is not emptiness, so this stays a validated name
+createClient({ schema, options: { database: " " } });
+```
+
+This is a **behavior change**: `mysql://host/app-dev` previously connected and
+ran unqualified. A name VibORM cannot later qualify must not bind silently, so
+it now fails at construction instead of producing correct-looking unqualified
+SQL that no migration command can target.
+
+:::info
+The option is read exactly once and snapshotted. Mutating the options object
+after construction cannot change SQL, migrations, cache identity, or
+instrumentation. A present `databaseUrl` is parsed once at construction even
+when an explicit `namespace` wins precedence, so a malformed URL fails there
+rather than at first connect.
+:::
+
+## PostgreSQL: independent schema estates
+
+PostgreSQL has one rule: omitted or explicit `undefined` means `public`, even
+when provider options configure another `search_path`. Generated SQL is always
+qualified, so table routing, ORM-managed enums, indexes, and tracking never
+depend on a mutable session search path.
+
+That makes several schemas inside one database into genuinely independent
+estates. Each estate has four independent inputs:
+
+```typescript
+const acme = createClient({
+  schema: acmeModels,
+  driver: new PgDriver({
+    pool: sharedPool,
+    namespace: "tenant_acme",
+  }),
+});
+```
+
+- `schema` supplies that estate's exact model graph;
+- `namespace` selects the PostgreSQL schema containing those objects;
+- one migration storage root owns that namespace-bound journal and artifact
+  history; and
+- one immutable client/driver view binds the three while sharing an externally
+  owned connection pool with other estates.
+
+The model graph and the namespace are independent facts: changing `namespace`
+never changes the model graph, and supplying a different model graph requires no
+extra namespace feature. Generated PostgreSQL artifacts and journals retain the
+exact namespace, so applying tenant A's estate to tenant B is refused after at
+most lock acquisition/release and the authoritative journal read — before
+snapshot/artifact reads, tracking, DDL, other provider work, or any storage
+write.
+
+:::warning
+This is SQL-name and migration-estate containment inside one PostgreSQL
+database. It is **not** a claim of separate compute, WAL, backup, failure, or
+database-level security boundaries. Roles and grants remain deployment concerns.
+VibORM never creates a schema, discovers tenants, switches a client between
+namespaces, or caches a tenant-client registry.
+:::
+
+## MySQL2: target evidence and routing evidence
+
+MySQL2 resolves one immutable target in this order:
+
+1. an explicit `namespace`;
+2. for a **driver-created** pool, a non-empty database path in `databaseUrl`;
+3. for a **driver-created** pool, `options.database`;
+4. otherwise no bound namespace, and the existing unqualified runtime mode.
+
+A URL overrides copied pool options, mirroring the existing provider precedence.
+An absent or empty URL path contributes no namespace and no pool-database
+override. A supplied `Pool` is opaque: only an explicit `namespace` can bind it,
+and VibORM never inspects mysql2 internals or mutates the caller's `options`
+object.
+
+An unqualified MySQL runtime client stays valid, and its SQL is unchanged.
+
+### The migration attestation
+
+A resolved database is **target** evidence. It is not evidence that a qualified
+`database.table` reference reaches that database. MySQL2 is also an ordinary
+supported Vitess/PlanetScale client, and a proxy can rewrite qualifiers or
+emulate host, handshake, vendor, and server-version evidence. VibORM therefore
+performs no backend detection at all and asks the caller instead:
+
+```typescript
+const db = createClient({
+  schema,
+  databaseUrl: process.env.DATABASE_URL,
+  namespace: "billing",
+  migrationNamespaceAttestation: "non-redirecting",
+});
+```
+
+The literal states that, for this driver's lifetime, database-qualified
+references and the pinned migration session's `USE` resolve in that named MySQL
+database without qualifier rewriting. It is:
+
+- **required** for effectful MySQL migration work and for concurrency-stable
+  live decisions;
+- **not required** for runtime queries, offline generation, or admitted
+  read-only migration commands;
+- **never inferred** from the driver class, URL, host, server version,
+  handshake, or resolved namespace — omission fails closed;
+- **immutable** across transactions, nested transaction views, and the pinned
+  session view;
+- exposed by **no other stock driver**. A trusted custom MySQL execution driver
+  may supply the same base-driver fact and thereby owns the same assertion.
+
+:::warning
+A false assertion can direct destructive work through a rewriting proxy. This is
+a caller-owned safety claim, not a provider-detection feature.
+:::
+
+### Portable MySQL artifacts
+
+Generated MySQL migration artifacts stay **database-relative**. A MySQL database
+usually names an environment (`app_dev`, `app_test`, `app_prod`), so baking the
+physical value into versioned SQL would make one migration estate unusable in the
+next environment.
+
+Artifact execution establishes the selected database on one pinned migration
+session; live push/reset SQL and tracking SQL remain explicitly qualified. That
+private `USE` is the single exception to the no-session-state rule: its owner,
+lifetime, lock, target, and cleanup are the same physical session, and it never
+becomes runtime routing or a public statement.
+
+Generated PostgreSQL artifacts stay schema-qualified and are therefore
+schema-bound. The asymmetry is deliberate: a PostgreSQL schema names a tenant or
+a component, while a MySQL database usually names an environment.
+
+## PlanetScale: three different things
+
+PlanetScale requires three ideas to stay separate.
+
+| Concept | What it is | Is it `namespace`? |
+|---|---|---|
+| PlanetScale database | The enclosing product/cluster resource, which can contain several keyspaces | No |
+| Keyspace qualifier | The identifier submitted in the MySQL database position of a table reference | Yes — and only from an explicit `namespace` |
+| `@primary` / `@replica` | A connection routing selector | No |
+
+An omitted `namespace` preserves unqualified runtime SQL so PlanetScale's Global
+Edge Network and VTGate keep routing authority. If a connection API requires a
+database selector, `@primary` or `@replica` remains provider connection
+configuration — it is never accepted as `namespace`, copied to the adapter fact,
+or emitted as a table qualifier.
+
+An explicit `namespace` means the caller asks VibORM to submit the named Vitess
+keyspace qualifier:
+
+```typescript
+const db = createClient({
+  schema,
+  databaseUrl: process.env.DATABASE_URL,
+  namespace: "billing",
+});
+```
+
+```sql
+SELECT `user`.`id`
+FROM `billing`.`user` AS `user`
+```
+
+:::warning
+Vitess schema-routing rules may redirect even a fully qualified
+`keyspace.table` reference, so this value does not prove physical containment.
+PlanetScale exposes no attestation option, so **every** effectful migration,
+push, reset, and destructive live verb is refused — with or without a
+`namespace`.
+:::
+
+## SQLite: deliberately excluded
+
+The SQLite-family clients accept no namespace option, and their runtime SQL,
+migration DDL, and generated artifacts are unchanged.
+
+SQLite adapters carry **no `namespace` property at all** — `"namespace" in
+sqliteAdapter` is `false`, rather than the property existing with an `undefined`
+value. Absence is the truthful shape for a family the feature excludes, and it
+is what a custom adapter should copy.
+
+`main`, `temp`, and `ATTACH ... AS` aliases are connection-local names, not a
+portable database namespace. `ATTACH` support, session persistence, cross-file
+foreign keys, and migration containment all differ across `sqlite3`,
+`bun-sqlite`, `libsql`, and D1. VibORM therefore emits the existing unqualified
+SQLite SQL and continues to target the provider's primary database.
+
+Portable attachment support, if it is ever added, will be a separate
+provider-scoped feature that owns those semantics explicitly — not a third
+spelling of this option.
+
+## Raw SQL and manual migration SQL stay yours
+
+VibORM never rewrites SQL you wrote. Safe rewriting would require parsing a full
+dialect and still could not infer author intent.
+
+```typescript
+// qualified by VibORM
+await db.user.findMany();
+
+// NOT rewritten: ordinary PostgreSQL search_path semantics apply
+await db.$queryRaw`SELECT * FROM "user"`;
+```
+
+- tagged raw SQL and unsafe raw SQL keep ordinary session semantics: PostgreSQL
+  resolves unqualified names through `search_path`, and MySQL through the
+  connection's default database;
+- hand-written migration artifacts are executed as written;
+- extension-owned types run with their installed extension schema visible.
+
+Qualify raw SQL yourself when you want it to follow the driver's namespace.
+
+:::info
+Only the semantic table renderer qualifies persistent tables. `identifiers.escape()`
+also renders columns, aliases, constraints, CTEs, and temporary names, so it is
+never schema-aware.
+:::
+
+### Manual migration SQL is trusted authority
+
+Every migration command executes its artifacts inside a boundary it publishes:
+an apply/down/reset transaction on PostgreSQL, and a migration session lock on
+PostgreSQL and MySQL. Before any artifact effect, VibORM refuses an artifact that
+contains a **direct** control over that boundary:
+
+- PostgreSQL — transaction control (`BEGIN`, `START TRANSACTION`, `COMMIT`/`END`,
+  `ROLLBACK`/`ABORT`, `SAVEPOINT`, `RELEASE`, `PREPARE TRANSACTION`,
+  `COMMIT PREPARED`, `ROLLBACK PREPARED`) and every `pg_advisory_*` acquisition,
+  probe, or release, including through a quoted or schema-qualified name;
+- MySQL — transaction and XA control, `SET autocommit`, table `LOCK`/`UNLOCK`,
+  and every named-lock function. A manual `USE` stays valid, because the
+  executor reselects its target before the next artifact.
+
+Ordinary author SQL that merely reads like one of those is untouched: a comment,
+a string literal, a column named `"commit"`, a `CREATE FUNCTION` whose body
+mentions `COMMIT`, and `PREPARE plan AS SELECT ...` are all valid migration SQL.
+
+:::warning
+This preflight refuses direct controls. It is **not a sandbox**, and it is not a
+claim that an artifact is confined. A dollar-quoted body is data to a scanner and
+a statement to the server, so this artifact is admitted and frees the lock while
+the command holds it:
+
+```sql
+DO $$ BEGIN PERFORM pg_advisory_unlock_all(); END $$;
+```
+
+A function with an ordinary name and dynamic SQL reach the same functions by
+another route. No lexical scanner closes that, and trying would start refusing
+valid SQL you wrote.
+
+Manual migration SQL is trusted last-mile authority: you own what it does. What
+VibORM does about the deliberate case is prove the release at the end of the
+command — a command whose migration lock is no longer held fails loudly and
+discards its session, instead of reporting a migration that ran outside the
+boundary the command published.
+:::
+
+## Migration contract changes
+
+The namespace feature changes the public migration contract:
+
+- **Journal version 3** replaces the journal's top-level dialect with the
+  migration-estate target. Version 2 is refused: there is no alias, legacy
+  reader, or automatic upgrader.
+- **`MigrationTarget` and the version-3 `MigrationJournal` shape are exported**
+  from `viborm/migrations`, because the public storage driver and journal
+  accessors name those types.
+- **`MigrationContext` and `MigrationContextOptions` are no longer exported.**
+  The context is an internal command-composition owner, not a supported
+  low-level execution API — retaining its raw, lock, tracking, and statement
+  methods publicly would bypass the one target/capability admission boundary.
+  No compatibility export remains.
+- **PostgreSQL estates bind their schema**, because their generated SQL is
+  schema-qualified. **MySQL estates stay database-relative** and can be deployed
+  to different database names.
+- **Every MySQL migration command that reaches live state requires a resolved
+  `namespace`.** Every effectful or concurrency-stable live decision
+  additionally requires the non-redirecting attestation. Admitted read-only live
+  work requires the namespace but not the attestation; an absent-journal
+  storage-only return, offline generation, and unqualified runtime use require
+  neither.
+- **`push()` and `push({ forceReset: true })` synchronize only the live
+  namespace** and never read or mutate migration storage.
+- **`status()` and `pending()` are genuinely read-only** and never create the
+  tracking table.
+- **PostgreSQL migration reset refuses** a generated history containing an
+  enum-addition commit boundary before doing destructive work.
+- **MySQL migration reset and force-reset preflight completely** but report their
+  unavoidable partial-commit boundary honestly, because MySQL DDL implicitly
+  commits.
+- **Neon HTTP** supports schema-aware runtime, read-only, and offline migration
+  paths, but effectful push/migration verbs and concurrency-stable dry
+  down/reset/squash decisions require a session-capable driver.
+- **PlanetScale** supports runtime qualification plus admitted read-only and
+  offline paths; every effectful push/migration verb is refused.
+
+:::info
+Neon HTTP can serve application traffic while a `pg` or postgres.js driver
+targeting the same `namespace` runs deployment migrations. This does not add a
+`migrationUrl` option or a hidden second client.
+:::
+
+### How a missing tracking table is recognized
+
+`VibORMError` stores a sanitized cause: the provider's message text is redacted
+and only `meta.providerCode` survives, so the failing relation's name cannot be
+read back out of an error. The "tracking table does not exist yet" translation
+is therefore keyed on the STATEMENT rather than on the error text. It is
+consulted only for the failure of the applied-state `SELECT`, which references
+exactly one relation and runs only after the namespace-existence proof has
+passed. An unrelated missing relation in a different statement is never
+mistaken for absent migration state.
+
+### The bound migration driver reads the namespace once
+
+A MySQL migration target is deliberately portable, so it carries no namespace
+member and the live destination cannot ride in the target. The bound migration
+driver instead reads `adapter.namespace` **exactly once, at bind time**, and
+holds that value frozen; renderers read the frozen bind. A read-through
+reference was rejected: against a custom adapter with an accessor, per-render
+reads would let the destination change between admission and DDL — the exact
+swap the immutable install exists to prevent.
+
+## Cache and instrumentation
+
+Official cache entries and invalidations are isolated by dialect **and**
+namespace. A `cache()` value is a *definition* — a backend, a `version`, a
+`waitUntil` — and it knows no namespace, because one definition may be attached
+to several clients. The scope is derived when the definition meets a concrete
+client, from the official snapshot revision, the cache `version`, the dialect,
+and the adapter namespace, so:
+
+- two schema-scoped PostgreSQL clients sharing one `cache()` extension and one
+  backend cannot cross-hit, cross-invalidate, or cross-SWR;
+- PostgreSQL schema `billing` and MySQL database `billing` never share a scope;
+- omitted and explicit PostgreSQL `public` resolve to the same scope;
+- SQLite and unbound MySQL keep today's targetless behavior, under an encoding
+  for "no namespace" that no real namespace can spell — a database named
+  `undefined` is a different scope from an unbound one.
+
+The derivation is a pure function of those four facts, so appending further
+extensions to a cached client keeps addressing the same entries rather than
+quietly minting a second scope.
+
+The namespace never appears in public cache keys and is never appended to
+operation arguments. `cache({ version })` remains the partition between
+physically distinct databases that otherwise share dialect and namespace, and it
+holds for every version string: a clear-all (`$invalidate("*")`) is delimited by
+the issuing client's own scope, so a client on `version: "a"` cannot evict the
+entries of a client on `version: "ab"`.
+
+:::warning
+For PlanetScale the scope component is the **requested** keyspace qualifier, not
+the resolved backend. A Vitess routing-rule change is an external cache-topology
+event: invalidate every affected qualifier scope or bump `cache({ version })`
+before switching traffic. The extension does not query the PlanetScale control
+plane or correlate routing aliases.
+:::
+
+Instrumentation reports the configured value through the OpenTelemetry
+`db.namespace` attribute, on every existing lifecycle unit that already carries
+`db.*`: the operation, statement, connection/transaction, and cache units.
+VibORM knows the configured schema without a network call, so PostgreSQL reports
+that schema alone; MySQL reports the configured database or requested keyspace
+qualifier.
+
+Unbound MySQL, unbound PlanetScale, and SQLite **omit the key entirely** — not
+`null`, not `""`, not the text `undefined`. A placeholder would be
+indistinguishable from a schema actually spelled that way. Write-segment units
+and the cache backend's own get/set spans describe write atomicity and a cache
+call rather than a database connection; they carry no `db.*` attribute and
+therefore no namespace either.
+
+`db.namespace` is *only* an OpenTelemetry attribute. There is no client-level
+namespace accessor to read it back from.
+
+What keeps every reader honest is the install, not an absence of copies:
+`adapter.namespace` is own, non-writable and non-configurable, so a value read
+from it can never be made stale afterwards. Most spans read it as they are
+built. Two readers deliberately capture it once instead, and both are safe for
+that reason: the bound migration driver, at bind time (above), and a cached
+read, which snapshots the driver's `db.*` attributes when you call
+`$withCache()` and hands that snapshot to the cache unit's span.
+
+No connection string, host, username, or credential ever enters cache identity
+or a diagnostic attribute, and the attribute never claims the final Vitess
+backend after routing rules.
+
+## Adapter contract
+
+`viborm/adapters` is a public export, so custom adapters are affected:
+
+- `DatabaseAdapter.namespace` is the sole optional normalized fact. A concrete
+  `PostgresAdapter` exposes a required `string`, a bound `MySQLAdapter` exposes
+  a string, and unbound MySQL/SQLite adapters expose `undefined`.
+- `identifiers.table(tableName, alias?)` takes an **optional** alias, so custom
+  adapter implementations must support the one-argument form. The old
+  mandatory-alias signature is not retained as an overload.
+- `postgresAdapter` is the exported instance representing explicit `public`
+  qualification; `mysqlAdapter` remains explicitly unqualified; `sqliteAdapter`
+  is unchanged.
+- Custom PostgreSQL adapters must expose a normalized schema and are trusted to
+  render it. VibORM can validate presence but cannot prove an arbitrary
+  renderer's behavior.
+- A custom MySQL adapter may remain unbound for runtime use, but effectful live
+  migration commands refuse unless the execution driver supplies both an exact
+  namespace and the explicit attestation.
+- The adapter capability record gains optional `supportsGeospatial`. Stock
+  adapters set it explicitly and absence means unsupported; paired with
+  `supportsVector` it lets migration introspection distinguish enabled PostGIS
+  types from unknown external UDTs.
+
+## Release notes: what changes for an existing project
+
+- **`$disconnect()` no longer ends a caller-supplied pool** (`pg` and
+  `mysql2`): the pool is yours, possibly shared with a sibling estate, so the
+  driver ends only pools it created. A program whose only cleanup was
+  `$disconnect()` on a client built over a supplied pool must now end that
+  pool itself, or the process stays alive.
+
+Everything below is a deliberate behavior change, not a bug. SQLite runtime SQL,
+migration DDL, and generated artifacts are byte-identical, and so is unbound
+MySQL runtime output; bound MySQL and PlanetScale runtime SQL change only by the
+qualification you asked for. PostgreSQL SQL and DDL change everywhere, because
+they are now always qualified — with `public` when you configure nothing.
+
+### MySQL CLI reset now drops objects
+
+Previously, MySQL `reset` emitted only foreign-key-check toggles, so the CLI
+reset dropped **nothing**. That silent no-op is fixed: MySQL reset is now real,
+and it goes through the same live-namespace reset owner as the other dialects.
+
+The guardrails are part of the fix:
+
+- CLI confirmation stays, and it names the target namespace;
+- effectful MySQL reset additionally requires
+  `migrationNamespaceAttestation: "non-redirecting"`.
+
+For an unattested MySQL2 driver, a command that used to succeed while doing
+nothing now **refuses loudly**. For an attested driver it does real, contained
+work. Review any automation that relied on the previous no-op.
+
+### A derived MySQL database name can now refuse
+
+`mysql://host/app-dev` and `options: { database: "app-dev" }` are refused at
+construction, because the derived name is validated by the same grammar as an
+explicit `namespace`. Only an exactly-empty candidate is absent; whitespace is
+not. See [Validation](#validation) above.
+
+### PostgreSQL introspection refuses what it cannot represent
+
+Two new fail-closed refusals protect the estate boundary, and both fire before
+any destructive work:
+
+- **A foreign key that crosses the schema boundary** — in either direction —
+  refuses the whole run. A snapshot carries names relative to the estate, so a
+  constraint pointing outside it cannot be recorded honestly, and silently
+  dropping it would also shift the automatic FK-index diff.
+- **A column typed by an enum, domain, composite, or UDT owned by another
+  schema, with no extension behind it**, refuses for the same reason: the
+  snapshot's bare name would re-render as a same-named object inside the
+  estate rather than reach the one the column actually has.
+
+### Extension types keep their server spelling — but only two capabilities
+
+A column whose type is owned by an extension the adapter DECLARES a typmod
+capability for (pgvector's `vector`, PostGIS's `geometry`/`geography`) is read
+through PostgreSQL's own `format_type`, so `vector(3)` and
+`geometry(Point,4326)` survive the round trip and a declared driver converges in
+**one** push where it previously churned. On a driver that declares neither, the
+modifier is dropped exactly as before — that is the restored baseline, not a
+regression.
+
+Every other extension-owned type — `citext` is the shipped example — **falls
+through to the ordinary `udt_name` read**, byte-identically to before. A
+capability decides which SPELLING is read, never whether a type is
+representable; refusing `citext` would brick `introspect` and `push` for an
+estate that uses it.
+
+### PostgreSQL managed enums are derived, not guessed
+
+Enum types are recognized by being managed by this estate, replacing the old
+`_enum`-suffix guess, and the enum-cast strip in defaults is keyed on the
+column's catalog-proven type rather than on the default's text. A default
+casting to a built-in, an extension type, a domain, or a composite reaches the
+generic strip unchanged, so every already-converged column stays byte-identical.
+
+### MySQL estate resolution is case-folded, once
+
+The MySQL estate is resolved by one parameterized `information_schema.SCHEMATA`
+read — never `DATABASE()`. A byte-exact spelling wins; a single case-only match
+is accepted and the server's own spelling is used for every later catalog
+filter; an ambiguous case-only pair refuses. Migration commands render their
+`USE`, tracking DDL, inventory filters, and live DDL from that resolved
+spelling — the configured one reaches the server only as bound catalog data.
+Runtime ORM SQL keeps quoting the immutable configured name.
+
+Inbound and outbound foreign keys that cross the MySQL database boundary refuse
+the run, mirroring the PostgreSQL rule. The two dialects spell the refusal
+differently — PostgreSQL raises `FEATURE_NOT_SUPPORTED` with
+`meta.feature: "cross-schema-foreign-key"`, MySQL raises
+`MIGRATION_INVALID_STATE` with `meta.type: "cross-database-foreign-key"` —
+so a handler matching one code catches one dialect only. An unbound MySQL driver asked for a live
+table inventory now **refuses** instead of rendering the old
+`WHERE TABLE_SCHEMA = DATABASE()`; that ambient-target shape is exactly what
+this feature removes, and no admitted command path reaches it — the admission
+owner refuses first.
+
+### The official cache storage revision moved
+
+The private official-cache snapshot revision advanced because the storage
+namespace now encodes dialect and SQL namespace. Existing official cache entries
+are unreachable after upgrade and expire on their own; this is a cold cache, not
+a data change. Public cache keys, `cache({ version })`, and the manual
+`$invalidate` key grammar are unchanged.
+
+## What this feature is not
+
+- no per-model schemas or databases, and no namespace map;
+- no cross-schema or cross-database relations and foreign keys;
+- no per-operation switching or tenant routing;
+- no automatic `CREATE`/`DROP SCHEMA` or `CREATE`/`DROP DATABASE` — namespace
+  provisioning is privileged infrastructure work;
+- no public `searchPath` setting and no runtime connection-state mutation;
+- no rewriting of tagged raw SQL, unsafe raw SQL, or manual migration artifacts;
+- no PlanetScale database-resource selection or automatic keyspace discovery;
+- no SQLite `ATTACH`/`DETACH`, attachment alias, or cross-file migration
+  ownership;
+- no pgvector/PostGIS extension-schema option.

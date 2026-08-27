@@ -27,6 +27,7 @@ const client = createClient({
 | `pool` | `Pool` | Existing pg Pool instance |
 | `options` | `PoolConfig` | pg pool configuration |
 | `databaseUrl` | `string` | PostgreSQL connection URL |
+| `namespace` | `string` | PostgreSQL schema for VibORM-owned objects (default `public`) |
 | `pgvector` | `boolean` | Enable pgvector support |
 | `postgis` | `boolean` | Enable PostGIS support |
 
@@ -75,6 +76,47 @@ const client = createClient({
   schema,
 });
 ```
+
+## Namespace
+
+`namespace` selects the PostgreSQL schema holding this driver's tables,
+junctions, indexes, ORM-managed enums, and migration tracking table. Omitted, it
+is `public`.
+
+```typescript
+import { createClient } from "viborm/pg";
+
+const db = createClient({
+  databaseUrl: process.env.DATABASE_URL,
+  namespace: "billing",
+  schema,
+});
+```
+
+Generated SQL is always qualified, so routing never depends on `search_path` —
+including when pool options set one:
+
+```sql
+SELECT "user"."id" FROM "billing"."user" AS "user"
+```
+
+Because the pool is an ordinary constructor input, one externally owned `Pool`
+can serve several schema-scoped clients at once, each with its own
+namespace-bound migration estate:
+
+```typescript
+import { Pool } from "pg";
+
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+
+const acme = createClient({ pool, namespace: "tenant_acme", schema: acmeModels });
+const globex = createClient({ pool, namespace: "tenant_globex", schema: globexModels });
+// the test or the application closes `pool` once, not each client
+```
+
+`pg` can pin one session, so it supports the full migration verb set against the
+selected schema. Raw SQL is never rewritten and keeps ordinary `search_path`
+semantics — see [Namespaces](/docs/drivers/namespaces).
 
 ## Transactions
 

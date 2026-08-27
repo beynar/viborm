@@ -34,9 +34,9 @@ interface StatementCall {
 
 function labelComposedCreateStatement(statement: Sql): string {
   const text = statement.toStatement("$n");
-  if (text.startsWith('INSERT INTO "author"')) return "write:author";
-  if (text.startsWith('INSERT INTO "post"')) return "write:post";
-  if (text.startsWith("SELECT") && text.includes('FROM "author"')) {
+  if (text.startsWith('INSERT INTO "public"."author"')) return "write:author";
+  if (text.startsWith('INSERT INTO "public"."post"')) return "write:post";
+  if (text.startsWith("SELECT") && text.includes('FROM "public"."author"')) {
     return "result:author";
   }
   return `unexpected:${text}`;

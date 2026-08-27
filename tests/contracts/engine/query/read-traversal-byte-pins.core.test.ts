@@ -410,7 +410,7 @@ describe("self-relation many-to-many read SQL", () => {
           "id",
           "name",
         ],
-        "sql": "SELECT "t0"."id" AS "id", "t0"."name" AS "name", "t3"."_result" AS "follows" FROM "rtb_users" AS "t0" LEFT JOIN LATERAL (SELECT COALESCE(json_agg("t4"."_json"), '[]'::json) AS "_result" FROM (SELECT json_build_object($1::text, "t2"."id", $2::text, "t2"."name") AS "_json" FROM "user_follows" AS "t1", "rtb_users" AS "t2" WHERE ("t1"."followerId" = "t0"."id" AND "t2"."id" = "t1"."followedId")) "t4") AS "t3" ON TRUE",
+        "sql": "SELECT "t0"."id" AS "id", "t0"."name" AS "name", "t3"."_result" AS "follows" FROM "public"."rtb_users" AS "t0" LEFT JOIN LATERAL (SELECT COALESCE(json_agg("t4"."_json"), '[]'::json) AS "_result" FROM (SELECT json_build_object($1::text, "t2"."id", $2::text, "t2"."name") AS "_json" FROM "public"."user_follows" AS "t1", "public"."rtb_users" AS "t2" WHERE ("t1"."followerId" = "t0"."id" AND "t2"."id" = "t1"."followedId")) "t4") AS "t3" ON TRUE",
       }
     `);
   });
@@ -452,7 +452,7 @@ describe("self-relation many-to-many read SQL", () => {
           "id",
           "name",
         ],
-        "sql": "SELECT "t0"."id" AS "id", "t0"."name" AS "name", "t3"."_result" AS "followedBy" FROM "rtb_users" AS "t0" LEFT JOIN LATERAL (SELECT COALESCE(json_agg("t4"."_json"), '[]'::json) AS "_result" FROM (SELECT json_build_object($1::text, "t2"."id", $2::text, "t2"."name") AS "_json" FROM "user_follows" AS "t1", "rtb_users" AS "t2" WHERE ("t1"."followedId" = "t0"."id" AND "t2"."id" = "t1"."followerId")) "t4") AS "t3" ON TRUE",
+        "sql": "SELECT "t0"."id" AS "id", "t0"."name" AS "name", "t3"."_result" AS "followedBy" FROM "public"."rtb_users" AS "t0" LEFT JOIN LATERAL (SELECT COALESCE(json_agg("t4"."_json"), '[]'::json) AS "_result" FROM (SELECT json_build_object($1::text, "t2"."id", $2::text, "t2"."name") AS "_json" FROM "public"."user_follows" AS "t1", "public"."rtb_users" AS "t2" WHERE ("t1"."followedId" = "t0"."id" AND "t2"."id" = "t1"."followerId")) "t4") AS "t3" ON TRUE",
       }
     `);
   });
@@ -481,7 +481,7 @@ describe("self-relation many-to-many read SQL", () => {
         "params": [
           "Alice",
         ],
-        "sql": "SELECT "t0"."id" AS "id", "t0"."name" AS "name" FROM "rtb_users" AS "t0" WHERE EXISTS (SELECT 1 FROM "user_follows" AS "t1", "rtb_users" AS "t2" WHERE ("t1"."followerId" = "t0"."id" AND "t2"."id" = "t1"."followedId" AND "t2"."name" = $1))",
+        "sql": "SELECT "t0"."id" AS "id", "t0"."name" AS "name" FROM "public"."rtb_users" AS "t0" WHERE EXISTS (SELECT 1 FROM "public"."user_follows" AS "t1", "public"."rtb_users" AS "t2" WHERE ("t1"."followerId" = "t0"."id" AND "t2"."id" = "t1"."followedId" AND "t2"."name" = $1))",
       }
     `);
     expect(
@@ -493,7 +493,7 @@ describe("self-relation many-to-many read SQL", () => {
         "params": [
           "Mallory",
         ],
-        "sql": "SELECT "t0"."id" AS "id", "t0"."name" AS "name" FROM "rtb_users" AS "t0" WHERE NOT EXISTS (SELECT 1 FROM "user_follows" AS "t1", "rtb_users" AS "t2" WHERE ("t1"."followerId" = "t0"."id" AND "t2"."id" = "t1"."followedId" AND "t2"."name" = $1))",
+        "sql": "SELECT "t0"."id" AS "id", "t0"."name" AS "name" FROM "public"."rtb_users" AS "t0" WHERE NOT EXISTS (SELECT 1 FROM "public"."user_follows" AS "t1", "public"."rtb_users" AS "t2" WHERE ("t1"."followerId" = "t0"."id" AND "t2"."id" = "t1"."followedId" AND "t2"."name" = $1))",
       }
     `);
   });
@@ -535,7 +535,7 @@ describe("self-relation many-to-many read SQL", () => {
         "params": [
           "follows",
         ],
-        "sql": "SELECT "t0"."id" AS "id", json_build_object($1::text, (SELECT COUNT(*) FROM "user_follows" AS "t1", "rtb_users" AS "t2" WHERE ("t1"."followerId" = "t0"."id" AND "t2"."id" = "t1"."followedId"))) AS "0viborm_relation_counts" FROM "rtb_users" AS "t0"",
+        "sql": "SELECT "t0"."id" AS "id", json_build_object($1::text, (SELECT COUNT(*) FROM "public"."user_follows" AS "t1", "public"."rtb_users" AS "t2" WHERE ("t1"."followerId" = "t0"."id" AND "t2"."id" = "t1"."followedId"))) AS "0viborm_relation_counts" FROM "public"."rtb_users" AS "t0"",
       }
     `);
   });
@@ -570,7 +570,7 @@ describe("ordinary many-to-many read SQL", () => {
           "id",
           "name",
         ],
-        "sql": "SELECT "t0"."id" AS "id", "t0"."title" AS "title", "t0"."authorId" AS "authorId", "t3"."_result" AS "tags" FROM "rtb_posts" AS "t0" LEFT JOIN LATERAL (SELECT COALESCE(json_agg("t4"."_json"), '[]'::json) AS "_result" FROM (SELECT json_build_object($1::text, "t2"."id", $2::text, "t2"."name") AS "_json" FROM "post_tag" AS "t1", "rtb_tags" AS "t2" WHERE ("t1"."postId" = "t0"."id" AND "t2"."id" = "t1"."tagId")) "t4") AS "t3" ON TRUE",
+        "sql": "SELECT "t0"."id" AS "id", "t0"."title" AS "title", "t0"."authorId" AS "authorId", "t3"."_result" AS "tags" FROM "public"."rtb_posts" AS "t0" LEFT JOIN LATERAL (SELECT COALESCE(json_agg("t4"."_json"), '[]'::json) AS "_result" FROM (SELECT json_build_object($1::text, "t2"."id", $2::text, "t2"."name") AS "_json" FROM "public"."post_tag" AS "t1", "public"."rtb_tags" AS "t2" WHERE ("t1"."postId" = "t0"."id" AND "t2"."id" = "t1"."tagId")) "t4") AS "t3" ON TRUE",
       }
     `);
   });
@@ -599,7 +599,7 @@ describe("ordinary many-to-many read SQL", () => {
         "params": [
           "typescript",
         ],
-        "sql": "SELECT "t0"."id" AS "id", "t0"."title" AS "title", "t0"."authorId" AS "authorId" FROM "rtb_posts" AS "t0" WHERE EXISTS (SELECT 1 FROM "post_tag" AS "t1", "rtb_tags" AS "t2" WHERE ("t1"."postId" = "t0"."id" AND "t2"."id" = "t1"."tagId" AND "t2"."name" = $1))",
+        "sql": "SELECT "t0"."id" AS "id", "t0"."title" AS "title", "t0"."authorId" AS "authorId" FROM "public"."rtb_posts" AS "t0" WHERE EXISTS (SELECT 1 FROM "public"."post_tag" AS "t1", "public"."rtb_tags" AS "t2" WHERE ("t1"."postId" = "t0"."id" AND "t2"."id" = "t1"."tagId" AND "t2"."name" = $1))",
       }
     `);
     expect(
@@ -611,7 +611,7 @@ describe("ordinary many-to-many read SQL", () => {
         "params": [
           "typescript",
         ],
-        "sql": "SELECT "t0"."id" AS "id", "t0"."title" AS "title", "t0"."authorId" AS "authorId" FROM "rtb_posts" AS "t0" WHERE NOT EXISTS (SELECT 1 FROM "post_tag" AS "t1", "rtb_tags" AS "t2" WHERE ("t1"."postId" = "t0"."id" AND "t2"."id" = "t1"."tagId" AND NOT ("t2"."name" = $1)))",
+        "sql": "SELECT "t0"."id" AS "id", "t0"."title" AS "title", "t0"."authorId" AS "authorId" FROM "public"."rtb_posts" AS "t0" WHERE NOT EXISTS (SELECT 1 FROM "public"."post_tag" AS "t1", "public"."rtb_tags" AS "t2" WHERE ("t1"."postId" = "t0"."id" AND "t2"."id" = "t1"."tagId" AND NOT ("t2"."name" = $1)))",
       }
     `);
     expect(
@@ -623,7 +623,7 @@ describe("ordinary many-to-many read SQL", () => {
         "params": [
           "deprecated",
         ],
-        "sql": "SELECT "t0"."id" AS "id", "t0"."title" AS "title", "t0"."authorId" AS "authorId" FROM "rtb_posts" AS "t0" WHERE NOT EXISTS (SELECT 1 FROM "post_tag" AS "t1", "rtb_tags" AS "t2" WHERE ("t1"."postId" = "t0"."id" AND "t2"."id" = "t1"."tagId" AND "t2"."name" = $1))",
+        "sql": "SELECT "t0"."id" AS "id", "t0"."title" AS "title", "t0"."authorId" AS "authorId" FROM "public"."rtb_posts" AS "t0" WHERE NOT EXISTS (SELECT 1 FROM "public"."post_tag" AS "t1", "public"."rtb_tags" AS "t2" WHERE ("t1"."postId" = "t0"."id" AND "t2"."id" = "t1"."tagId" AND "t2"."name" = $1))",
       }
     `);
   });
@@ -638,7 +638,7 @@ describe("ordinary many-to-many read SQL", () => {
         "params": [
           "tags",
         ],
-        "sql": "SELECT "t0"."id" AS "id", json_build_object($1::text, (SELECT COUNT(*) FROM "post_tag" AS "t1", "rtb_tags" AS "t2" WHERE ("t1"."postId" = "t0"."id" AND "t2"."id" = "t1"."tagId"))) AS "0viborm_relation_counts" FROM "rtb_posts" AS "t0"",
+        "sql": "SELECT "t0"."id" AS "id", json_build_object($1::text, (SELECT COUNT(*) FROM "public"."post_tag" AS "t1", "public"."rtb_tags" AS "t2" WHERE ("t1"."postId" = "t0"."id" AND "t2"."id" = "t1"."tagId"))) AS "0viborm_relation_counts" FROM "public"."rtb_posts" AS "t0"",
       }
     `);
   });
@@ -659,7 +659,7 @@ describe("foreign-key read SQL", () => {
           "name",
           1,
         ],
-        "sql": "SELECT "t0"."id" AS "id", "t0"."title" AS "title", "t0"."authorId" AS "authorId", "t2"."_result" AS "author" FROM "rtb_posts" AS "t0" LEFT JOIN LATERAL (SELECT json_build_object($1::text, "t1"."id", $2::text, "t1"."name") AS "_result" FROM "rtb_authors" AS "t1" WHERE "t0"."authorId" = "t1"."id" LIMIT $3) AS "t2" ON TRUE",
+        "sql": "SELECT "t0"."id" AS "id", "t0"."title" AS "title", "t0"."authorId" AS "authorId", "t2"."_result" AS "author" FROM "public"."rtb_posts" AS "t0" LEFT JOIN LATERAL (SELECT json_build_object($1::text, "t1"."id", $2::text, "t1"."name") AS "_result" FROM "public"."rtb_authors" AS "t1" WHERE "t0"."authorId" = "t1"."id" LIMIT $3) AS "t2" ON TRUE",
       }
     `);
     expect(
@@ -671,7 +671,7 @@ describe("foreign-key read SQL", () => {
           "title",
           "authorId",
         ],
-        "sql": "SELECT "t0"."id" AS "id", "t0"."name" AS "name", "t2"."_result" AS "posts" FROM "rtb_authors" AS "t0" LEFT JOIN LATERAL (SELECT COALESCE(json_agg("t3"."_json"), '[]'::json) AS "_result" FROM (SELECT json_build_object($1::text, "t1"."id", $2::text, "t1"."title", $3::text, "t1"."authorId") AS "_json" FROM "rtb_posts" AS "t1" WHERE "t0"."id" = "t1"."authorId") "t3") AS "t2" ON TRUE",
+        "sql": "SELECT "t0"."id" AS "id", "t0"."name" AS "name", "t2"."_result" AS "posts" FROM "public"."rtb_authors" AS "t0" LEFT JOIN LATERAL (SELECT COALESCE(json_agg("t3"."_json"), '[]'::json) AS "_result" FROM (SELECT json_build_object($1::text, "t1"."id", $2::text, "t1"."title", $3::text, "t1"."authorId") AS "_json" FROM "public"."rtb_posts" AS "t1" WHERE "t0"."id" = "t1"."authorId") "t3") AS "t2" ON TRUE",
       }
     `);
   });
@@ -714,7 +714,7 @@ describe("foreign-key read SQL", () => {
           "slug",
           1,
         ],
-        "sql": "SELECT "t0"."id" AS "id", "t0"."role" AS "role", "t0"."tenantRegion" AS "tenantRegion", "t0"."tenantSlug" AS "tenantSlug", "t2"."_result" AS "tenant" FROM "rtb_memberships" AS "t0" LEFT JOIN LATERAL (SELECT json_build_object($1::text, "t1"."id", $2::text, "t1"."region", $3::text, "t1"."slug") AS "_result" FROM "rtb_tenants" AS "t1" WHERE ("t0"."tenantRegion" = "t1"."region" AND "t0"."tenantSlug" = "t1"."slug") LIMIT $4) AS "t2" ON TRUE",
+        "sql": "SELECT "t0"."id" AS "id", "t0"."role" AS "role", "t0"."tenantRegion" AS "tenantRegion", "t0"."tenantSlug" AS "tenantSlug", "t2"."_result" AS "tenant" FROM "public"."rtb_memberships" AS "t0" LEFT JOIN LATERAL (SELECT json_build_object($1::text, "t1"."id", $2::text, "t1"."region", $3::text, "t1"."slug") AS "_result" FROM "public"."rtb_tenants" AS "t1" WHERE ("t0"."tenantRegion" = "t1"."region" AND "t0"."tenantSlug" = "t1"."slug") LIMIT $4) AS "t2" ON TRUE",
       }
     `);
   });
@@ -730,7 +730,7 @@ describe("foreign-key read SQL", () => {
           "eu-west",
           "acme",
         ],
-        "sql": "SELECT "t0"."id" AS "id", "t0"."region" AS "region", "t0"."slug" AS "slug" FROM "rtb_tenants" AS "t0" WHERE ("t0"."region" = $1 AND "t0"."slug" = $2) LIMIT 1",
+        "sql": "SELECT "t0"."id" AS "id", "t0"."region" AS "region", "t0"."slug" AS "slug" FROM "public"."rtb_tenants" AS "t0" WHERE ("t0"."region" = $1 AND "t0"."slug" = $2) LIMIT 1",
       }
     `);
   });
@@ -747,7 +747,7 @@ describe("relation ordering read SQL", () => {
     ).toMatchInlineSnapshot(`
       {
         "params": [],
-        "sql": "SELECT "t0"."id" AS "id", "t0"."title" AS "title", "t0"."authorId" AS "authorId" FROM "rtb_posts" AS "t0" LEFT JOIN "rtb_authors" AS "t1" ON "t0"."authorId" = "t1"."id" ORDER BY "t1"."name" ASC",
+        "sql": "SELECT "t0"."id" AS "id", "t0"."title" AS "title", "t0"."authorId" AS "authorId" FROM "public"."rtb_posts" AS "t0" LEFT JOIN "public"."rtb_authors" AS "t1" ON "t0"."authorId" = "t1"."id" ORDER BY "t1"."name" ASC",
       }
     `);
   });
@@ -758,7 +758,7 @@ describe("relation ordering read SQL", () => {
     ).toMatchInlineSnapshot(`
       {
         "params": [],
-        "sql": "SELECT "t0"."id" AS "id", "t0"."name" AS "name" FROM "rtb_authors" AS "t0" ORDER BY (SELECT COUNT(*) FROM "rtb_posts" AS "t1" WHERE "t0"."id" = "t1"."authorId") DESC",
+        "sql": "SELECT "t0"."id" AS "id", "t0"."name" AS "name" FROM "public"."rtb_authors" AS "t0" ORDER BY (SELECT COUNT(*) FROM "public"."rtb_posts" AS "t1" WHERE "t0"."id" = "t1"."authorId") DESC",
       }
     `);
   });
@@ -779,7 +779,7 @@ describe("polymorphic inverse read SQL", () => {
           "body",
           "content.post.v1",
         ],
-        "sql": "SELECT "t0"."post_pk" AS "id", "t2"."_result" AS "comments" FROM "post" AS "t0" LEFT JOIN LATERAL (SELECT COALESCE(json_agg("t3"."_json"), '[]'::json) AS "_result" FROM (SELECT json_build_object($1::text, "t1"."id", $2::text, "t1"."body") AS "_json" FROM "comment" AS "t1" WHERE ("t1"."subject_id" = "t0"."post_pk" AND "t1"."subject_type" = $3)) "t3") AS "t2" ON TRUE",
+        "sql": "SELECT "t0"."post_pk" AS "id", "t2"."_result" AS "comments" FROM "public"."post" AS "t0" LEFT JOIN LATERAL (SELECT COALESCE(json_agg("t3"."_json"), '[]'::json) AS "_result" FROM (SELECT json_build_object($1::text, "t1"."id", $2::text, "t1"."body") AS "_json" FROM "public"."comment" AS "t1" WHERE ("t1"."subject_id" = "t0"."post_pk" AND "t1"."subject_type" = $3)) "t3") AS "t2" ON TRUE",
       }
     `);
   });
@@ -812,7 +812,7 @@ describe("polymorphic inverse read SQL", () => {
           "post",
           1,
         ],
-        "sql": "SELECT "t0"."post_pk" AS "id", "t2"."_result" AS "featuredComment" FROM "singularPost" AS "t0" LEFT JOIN LATERAL (SELECT json_build_object($1::text, "t1"."id", $2::text, "t1"."body") AS "_result" FROM "singularComment" AS "t1" WHERE ("t1"."commentable_id" = "t0"."post_pk" AND "t1"."commentable_type" = $3) LIMIT $4) AS "t2" ON TRUE",
+        "sql": "SELECT "t0"."post_pk" AS "id", "t2"."_result" AS "featuredComment" FROM "public"."singularPost" AS "t0" LEFT JOIN LATERAL (SELECT json_build_object($1::text, "t1"."id", $2::text, "t1"."body") AS "_result" FROM "public"."singularComment" AS "t1" WHERE ("t1"."commentable_id" = "t0"."post_pk" AND "t1"."commentable_type" = $3) LIMIT $4) AS "t2" ON TRUE",
       }
     `);
   });
@@ -850,7 +850,7 @@ describe("nested include read SQL", () => {
           "type",
           3,
         ],
-        "sql": "SELECT "t0"."id" AS "id", "t0"."name" AS "name", "t2"."_result" AS "posts" FROM "rtb_authors" AS "t0" LEFT JOIN LATERAL (SELECT COALESCE(json_agg("t7"."_json"), '[]'::json) AS "_result" FROM (SELECT json_build_object($1::text, "t1"."id", $2::text, "t1"."title", $3::text, "t1"."authorId", $4::text, "t5"."_result") AS "_json" FROM "rtb_posts" AS "t1" LEFT JOIN LATERAL (SELECT COALESCE(json_agg("t6"."_json"), '[]'::json) AS "_result" FROM (SELECT json_build_object($5::text, "t4"."id", $6::text, "t4"."name") AS "_json" FROM "post_tag" AS "t3", "rtb_tags" AS "t4" WHERE ("t3"."postId" = "t1"."id" AND "t4"."id" = "t3"."tagId" AND POSITION($7 IN "t4"."name") > 0) ORDER BY "t4"."name" DESC, "t4"."id" ASC LIMIT $8) "t6") AS "t5" ON TRUE WHERE "t0"."id" = "t1"."authorId") "t7") AS "t2" ON TRUE",
+        "sql": "SELECT "t0"."id" AS "id", "t0"."name" AS "name", "t2"."_result" AS "posts" FROM "public"."rtb_authors" AS "t0" LEFT JOIN LATERAL (SELECT COALESCE(json_agg("t7"."_json"), '[]'::json) AS "_result" FROM (SELECT json_build_object($1::text, "t1"."id", $2::text, "t1"."title", $3::text, "t1"."authorId", $4::text, "t5"."_result") AS "_json" FROM "public"."rtb_posts" AS "t1" LEFT JOIN LATERAL (SELECT COALESCE(json_agg("t6"."_json"), '[]'::json) AS "_result" FROM (SELECT json_build_object($5::text, "t4"."id", $6::text, "t4"."name") AS "_json" FROM "public"."post_tag" AS "t3", "public"."rtb_tags" AS "t4" WHERE ("t3"."postId" = "t1"."id" AND "t4"."id" = "t3"."tagId" AND POSITION($7 IN "t4"."name") > 0) ORDER BY "t4"."name" DESC, "t4"."id" ASC LIMIT $8) "t6") AS "t5" ON TRUE WHERE "t0"."id" = "t1"."authorId") "t7") AS "t2" ON TRUE",
       }
     `);
   });

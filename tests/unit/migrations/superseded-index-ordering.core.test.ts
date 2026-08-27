@@ -28,12 +28,13 @@
 import { createClient } from "@client/client";
 import { push } from "@migrations";
 import { s } from "@schema";
-import { describe, expect, it } from "vitest";
 import { mysqlMigrationDriver } from "@src/migrations/drivers/mysql";
 import type { DiffOperation } from "@src/migrations/types";
 import { sortOperations } from "@src/migrations/utils";
 import { createInMemoryPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
+import { ddlContext } from "@tests/unit/migrations/_estate";
+import { describe, expect, it } from "vitest";
 
 function dropIndex(tableName: string, indexName: string): DiffOperation {
   return { type: "dropIndex", tableName, indexName };
@@ -224,7 +225,9 @@ describe("emitted DDL — MySQL creates the wider index before dropping the old 
         "authorId",
         "createdAt",
       ]),
-    ]).map((op) => mysqlMigrationDriver.generateDDL(op));
+    ]).map((op) =>
+      mysqlMigrationDriver.generateDDL(op, ddlContext("artifact"))
+    );
 
     expect(statements).toEqual([
       "CREATE INDEX `posts_authorId_createdAt_idx` ON `posts` (`authorId`, `createdAt`)",

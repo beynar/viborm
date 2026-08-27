@@ -2,17 +2,18 @@
  * PostgreSQL DDL Generation Tests
  */
 
-import { describe, expect, it } from "vitest";
 import { postgresMigrationDriver } from "@src/migrations/drivers/postgres";
 import type { DiffOperation } from "@src/migrations/types";
 import type { ScalarState, ScalarType } from "@src/schema/scalars/common";
+import { ddlContext } from "@tests/unit/migrations/_estate";
+import { describe, expect, it } from "vitest";
 
 // =============================================================================
 // HELPERS
 // =============================================================================
 
 function generateDDL(op: DiffOperation): string {
-  return postgresMigrationDriver.generateDDL(op);
+  return postgresMigrationDriver.generateDDL(op, ddlContext("artifact"));
 }
 
 // =============================================================================
@@ -131,7 +132,7 @@ describe("PostgreSQL DDL Generation", () => {
   });
 
   describe("dropTable", () => {
-    it("should generate DROP TABLE CASCADE", () => {
+    it("should generate DROP TABLE with no CASCADE (section 6.1)", () => {
       const op: DiffOperation = {
         type: "dropTable",
         tableName: "users",
@@ -139,7 +140,7 @@ describe("PostgreSQL DDL Generation", () => {
 
       const ddl = generateDDL(op);
 
-      expect(ddl).toBe('DROP TABLE "users" CASCADE');
+      expect(ddl).toBe('DROP TABLE "users"');
     });
   });
 

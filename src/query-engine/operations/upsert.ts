@@ -48,7 +48,7 @@ export function buildUpsert(ctx: QueryScope, args: UpsertArgs): Sql {
     throw new QueryEngineError("No data to insert");
   }
 
-  const table = adapter.identifiers.escape(tableName);
+  const table = adapter.identifiers.table(tableName);
   const insertSql = adapter.mutations.insert(table, columns, values);
 
   // Build conflict target from where (unique fields)

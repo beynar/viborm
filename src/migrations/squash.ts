@@ -6,21 +6,35 @@
  */
 
 import { MigrationError, VibORMErrorCode } from "../errors";
-import { MigrationContext, type MigrationContextOptions } from "./context";
+import { MigrationContext } from "./context";
 import { formatDownMigrationContent } from "./generate/down";
 import {
   formatMigrationContent,
   parseStatements,
 } from "./generate/file-writer";
 import type { MigrationClient } from "./push";
-import { createMigrationEntry, formatMigrationFilename } from "./storage";
+import {
+  createMigrationEntry,
+  formatMigrationFilename,
+  type MigrationStorageDriver,
+} from "./storage";
 import type { MigrationEntry, MigrationJournal } from "./types";
 
 // =============================================================================
 // TYPES
 // =============================================================================
 
-export interface SquashOptions extends MigrationContextOptions {
+/**
+ * The fields are inlined rather than inherited: the internal context options
+ * type is not part of the public surface.
+ */
+export interface SquashOptions {
+  /** Migrations directory (default: ./migrations) */
+  dir?: string;
+  /** Migration tracking table name (default: _viborm_migrations) */
+  tableName?: string;
+  /** Storage driver for migration files (required) */
+  storageDriver: MigrationStorageDriver;
   /** Name for the squashed migration */
   name?: string;
   /** Start index (default: 0) */
@@ -92,9 +106,21 @@ export async function squash(
 
   const ctx = new MigrationContext(client, options);
 
-  return ctx.withLock(async () => {
-    // 1. Read journal (format- and policy-validated by the storage driver)
-    const journal = await ctx.storage.readJournal();
+  // 0. Pre-admission probe, outside the lock: an estate with no journal is
+  // `MIGRATION_NOT_FOUND` with no connection and no lock, and a journal for
+  // another estate is refused before the lock statement exists. The dry run
+  // takes the same gate — it reports applied state, which is live.
+  if (!(await ctx.readEstateJournal())) {
+    throw new MigrationError(
+      "No migrations found",
+      VibORMErrorCode.MIGRATION_NOT_FOUND
+    );
+  }
+  ctx.admitLive("effectful", "squash()");
+
+  return ctx.withLockedSession(async (locked) => {
+    // 1. Reread the journal under the lock — the authoritative input
+    const journal = await locked.readEstateJournal();
     if (!journal) {
       throw new MigrationError(
         "No migrations found",
@@ -139,7 +165,7 @@ export async function squash(
 
     // 5. Uniform applied-state premise. A mixed range has no truthful outcome:
     // marking it applied strands the pending DDL forever.
-    const appliedMigrations = await ctx.getAppliedMigrations();
+    const appliedMigrations = await locked.readAppliedMigrations();
     const appliedNames = new Set(appliedMigrations.map((m) => m.name));
     const squashedAppliedEntries = entriesToSquash.filter((e) =>
       appliedNames.has(e.name)
@@ -158,7 +184,7 @@ export async function squash(
     // 6. Compose the up artifact forward, preserving in-file statement order
     const allStatements: string[] = [];
     for (const entry of entriesToSquash) {
-      const content = await ctx.storage.readMigration(entry);
+      const content = await locked.storage.readMigration(entry);
       if (!content) {
         throw new MigrationError(
           `Migration file not found: ${formatMigrationFilename(entry)}`,
@@ -177,7 +203,7 @@ export async function squash(
     // rather than producing a squashed entry that cannot be rolled back.
     const downStatements: string[] = [];
     for (const entry of [...entriesToSquash].reverse()) {
-      const content = await ctx.storage.readDownMigration(entry);
+      const content = await locked.storage.readDownMigration(entry);
       if (content === null) {
         throw new MigrationError(
           `Migration "${entry.name}" has no down artifact at meta/_down/${formatMigrationFilename(entry)}, so the squashed migration could not be rolled back.`,
@@ -215,7 +241,7 @@ export async function squash(
     const content = formatMigrationContent(
       placeholderEntry,
       allStatements,
-      ctx.dialect
+      locked.target.dialect
     );
     const newEntry = createMigrationEntry(from, migrationName, content, policy);
 
@@ -223,7 +249,7 @@ export async function squash(
     const finalContent = formatMigrationContent(
       newEntry,
       allStatements,
-      ctx.dialect
+      locked.target.dialect
     );
     const downContent = formatDownMigrationContent(
       migrationName,
@@ -244,19 +270,19 @@ export async function squash(
     // 10. Write artifacts, then the journal. The snapshot is deliberately left
     // verbatim: squash never changes the schema, and the next `generate` must
     // re-check its coherence against exactly the bytes already stored.
-    await ctx.storage.writeMigration(newEntry, finalContent);
-    await ctx.storage.writeDownMigration(newEntry, downContent);
+    await locked.storage.writeMigration(newEntry, finalContent);
+    await locked.storage.writeDownMigration(newEntry, downContent);
 
     const newJournal: MigrationJournal = {
       ...journal,
       entries: [...journal.entries.filter((e) => e.idx < from), newEntry],
     };
-    await ctx.storage.writeJournal(newJournal);
+    await locked.storage.writeJournal(newJournal);
 
     // 11. Tracking. After the uniformity premise this is the all-applied case;
     // an all-pending range leaves tracking untouched by construction.
     if (squashedAppliedEntries.length > 0) {
-      await ctx.transaction(async (txCtx) => {
+      await locked.transaction(async (txCtx) => {
         for (const entry of squashedAppliedEntries) {
           await txCtx.deleteMigration(entry.name);
         }
@@ -269,7 +295,7 @@ export async function squash(
     if (cleanup) {
       archivedFiles = [];
       for (const entry of entriesToSquash) {
-        const archivePath = await ctx.storage.archiveMigration(entry);
+        const archivePath = await locked.storage.archiveMigration(entry);
         if (archivePath) {
           archivedFiles.push(archivePath);
         }

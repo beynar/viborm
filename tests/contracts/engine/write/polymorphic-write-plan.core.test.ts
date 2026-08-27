@@ -370,7 +370,7 @@ test("the singular inverse `delete` scopes to ONE captured owner, never a connec
   // ONE row, addressed by its captured row key — not `IN (…)` over a set, and
   // not a correlated subquery over the membership.
   expect(prepared.sql).toBe(
-    'DELETE FROM "board" WHERE "board"."id" = $1 RETURNING "id" AS "id", "label" AS "label"'
+    'DELETE FROM "public"."board" WHERE "board"."id" = $1 RETURNING "id" AS "id", "label" AS "label"'
   );
   expect(prepared.params).toEqual([2]);
   // …and exactly one owner delete exists, so a second captured row could not
@@ -389,7 +389,7 @@ test("the singular inverse `delete` scopes to ONE captured owner, never a connec
   }
   const memberSql = new PGliteDriver()._prepare(memberDelete.statement);
   expect(memberSql.sql).toBe(
-    'DELETE FROM "board_items_clip" WHERE "clipId" = $1'
+    'DELETE FROM "public"."board_items_clip" WHERE "clipId" = $1'
   );
   expect(memberSql.params).toEqual([20]);
 });
@@ -565,7 +565,7 @@ test("reverse-spelled polymorphic fields keep declaration-ordered root pairs", (
     statement(compiled, "comment.create").statement
   );
   expect(prepared.sql).toBe(
-    'INSERT INTO "comment" ("id", "body", "authorId", "primary_type", "primary_id", "secondary_type", "secondary_id") VALUES ($1, $2, CAST($3 AS INTEGER), $4, CAST($5 AS INTEGER), $6, CAST($7 AS INTEGER))'
+    'INSERT INTO "public"."comment" ("id", "body", "authorId", "primary_type", "primary_id", "secondary_type", "secondary_id") VALUES ($1, $2, CAST($3 AS INTEGER), $4, CAST($5 AS INTEGER), $6, CAST($7 AS INTEGER))'
   );
   expect(prepared.params).toEqual([
     1,

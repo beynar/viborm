@@ -17,8 +17,8 @@ import { describe, expect, test } from "vitest";
 
 const SEGMENT_REFUSAL =
   /cannot execute this record series as committed segments/;
-const BADGE_INSERT = /^INSERT INTO "e7_badges"/;
-const BADGE_UPDATE = /^UPDATE "e7_badges"/;
+const BADGE_INSERT = /^INSERT INTO (?:"[^"]+"\.)?"e7_badges"/;
+const BADGE_UPDATE = /^UPDATE (?:"[^"]+"\.)?"e7_badges"/;
 const ANY_SELECT = /^SELECT/;
 const PARENT_MOVED = /parent record changed across a committed segment/;
 

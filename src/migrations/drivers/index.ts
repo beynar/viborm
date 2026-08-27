@@ -5,7 +5,10 @@
  * driver name and can be looked up by driver name or dialect.
  */
 
+import type { AnyDriver } from "../../drivers/driver";
 import { MigrationError, VibORMErrorCode } from "../../errors";
+import { resolveMigrationEstate } from "../target";
+import type { MigrationTarget } from "../types";
 import type { MigrationDriver } from "./base";
 import type { Dialect } from "./types";
 
@@ -62,18 +65,64 @@ export function registerMigrationDriver(driver: MigrationDriver): void {
 }
 
 /**
- * Gets a migration driver by driver name or dialect.
+ * A migration driver bound to one estate.
+ *
+ * Binding narrows two of the base class's optional facts — the durable target
+ * and the execution driver — to present ones, so an admitted live boundary
+ * never has to ask whether its driver knows which estate it serves. The live
+ * `namespace` stays optional: an unbound MySQL adapter binds to a real estate,
+ * and refusing it for effectful work belongs to the admission owner.
+ */
+export interface BoundMigrationDriver extends MigrationDriver {
+  readonly target: MigrationTarget;
+  readonly executionDriver: AnyDriver;
+}
+
+/**
+ * Looks up the dialect implementation and returns it BOUND to this driver's
+ * estate.
+ *
+ * The registry stays the dialect implementation registry and its entries stay
+ * stateless: binding never mutates a registered singleton and never parks an
+ * active namespace in module-level state. The bound value is a frozen view
+ * whose prototype is the registered instance, so two clients on two schemas
+ * hold two immutable targets over one implementation.
+ *
+ * This is the ONE place a driver becomes a migration estate. Resolving the
+ * estate here is what makes an unproven PostgreSQL adapter fail at lookup
+ * rather than at some later statement.
+ *
+ * The durable target and the live namespace are BOTH taken from one
+ * `resolveMigrationEstate` call, which reads `adapter.namespace` exactly once.
+ * Binding must never read that fact a second time: an accessor-backed custom
+ * adapter could answer differently, and the frozen view would then name one
+ * estate in its target and render another in its DDL.
+ *
+ * @throws MigrationError if no implementation is registered, or if the estate
+ *   target cannot be proven
+ */
+export function getMigrationDriver(driver: AnyDriver): BoundMigrationDriver {
+  const { target, namespace } = resolveMigrationEstate(driver);
+  const implementation = findMigrationDriver(driver.driverName, target.dialect);
+
+  const bound: BoundMigrationDriver = Object.create(implementation);
+  Object.defineProperties(bound, {
+    target: { value: target, enumerable: true },
+    executionDriver: { value: driver, enumerable: true },
+    namespace: { value: namespace, enumerable: true },
+  });
+  Object.freeze(bound);
+  return bound;
+}
+
+/**
+ * Resolves the registered implementation.
  *
  * Lookup order:
  * 1. Exact match by driver name
  * 2. Fallback to dialect default
- *
- * @param driverName - The driver name (e.g., "pg", "pglite", "sqlite3", "libsql")
- * @param dialect - The dialect to use as fallback
- * @returns The migration driver
- * @throws MigrationError if no driver found
  */
-export function getMigrationDriver(
+function findMigrationDriver(
   driverName: string,
   dialect: Dialect
 ): MigrationDriver {

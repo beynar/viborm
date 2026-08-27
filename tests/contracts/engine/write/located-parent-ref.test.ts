@@ -455,10 +455,14 @@ describe("the batch root address, statement by statement", () => {
     }
   }
 
+  // `ACCOUNTS` is the CORRELATION name and stays bare beside a qualified target;
+  // `ACCOUNTS_TABLE` is the persistent identifier, which PostgreSQL always
+  // qualifies. One constant cannot serve both positions.
   const ACCOUNTS = '"n1_ref_accounts"';
-  const PK_LOCATE = `SELECT "t0"."id" AS "id" FROM ${ACCOUNTS} AS "t0" WHERE "t0"."id" = $1 LIMIT 1`;
-  const TERMINAL = `SELECT "t0"."id" AS "id", "t0"."email" AS "email", "t0"."code" AS "code", "t0"."label" AS "label" FROM ${ACCOUNTS} AS "t0" WHERE "t0"."id" = $1 LIMIT 1`;
-  const NOTE_INSERT = `INSERT INTO "n1_ref_notes" ("id", "body", "accountId") VALUES ($1, $2, CAST($3 AS INTEGER))`;
+  const ACCOUNTS_TABLE = `"public".${ACCOUNTS}`;
+  const PK_LOCATE = `SELECT "t0"."id" AS "id" FROM ${ACCOUNTS_TABLE} AS "t0" WHERE "t0"."id" = $1 LIMIT 1`;
+  const TERMINAL = `SELECT "t0"."id" AS "id", "t0"."email" AS "email", "t0"."code" AS "code", "t0"."label" AS "label" FROM ${ACCOUNTS_TABLE} AS "t0" WHERE "t0"."id" = $1 LIMIT 1`;
+  const NOTE_INSERT = `INSERT INTO "public"."n1_ref_notes" ("id", "body", "accountId") VALUES ($1, $2, CAST($3 AS INTEGER))`;
 
   test("where:{id} issues the pre-change batch, statement for statement", async () => {
     const db = new PGlite();
@@ -486,7 +490,7 @@ describe("the batch root address, statement by statement", () => {
         // unchanged because here the captured PK and the `where` are the same conjunct
         // with the same literal — which is also why the write site carries no branch for
         // this shape: there would be nothing to tell the two arms apart.
-        `UPDATE ${ACCOUNTS} SET "label" = $1 WHERE ${ACCOUNTS}."id" = $2 RETURNING "id" AS "id"`,
+        `UPDATE ${ACCOUNTS_TABLE} SET "label" = $1 WHERE ${ACCOUNTS}."id" = $2 RETURNING "id" AS "id"`,
         NOTE_INSERT,
         TERMINAL,
       ]);
@@ -512,15 +516,15 @@ describe("the batch root address, statement by statement", () => {
 
       expect(driver.statements).toEqual([
         // The locate still asks the question the caller asked.
-        `SELECT "t0"."id" AS "id" FROM ${ACCOUNTS} AS "t0" WHERE "t0"."email" = $1 LIMIT 1`,
+        `SELECT "t0"."id" AS "id" FROM ${ACCOUNTS_TABLE} AS "t0" WHERE "t0"."email" = $1 LIMIT 1`,
         // The guard is now the split-witness: the selector AND the row it located.
         // The tie-breaker carries no null placement (query-performance plan
         // Unit 5.1): `id` is NOT NULL, so `NULLS LAST` named nothing and cost
         // the index. The guard's meaning is unchanged.
-        `SELECT 1 / CASE WHEN EXISTS (SELECT "t0"."id" AS "id" FROM ${ACCOUNTS} AS "t0" WHERE ("t0"."email" = $1 AND "t0"."id" = $2) ORDER BY "t0"."id" ASC LIMIT $3) THEN 1 ELSE 0 END AS "__viborm_assert__"`,
+        `SELECT 1 / CASE WHEN EXISTS (SELECT "t0"."id" AS "id" FROM ${ACCOUNTS_TABLE} AS "t0" WHERE ("t0"."email" = $1 AND "t0"."id" = $2) ORDER BY "t0"."id" ASC LIMIT $3) THEN 1 ELSE 0 END AS "__viborm_assert__"`,
         // The root UPDATE addresses the captured PK — the same row the note INSERT
         // below and the terminal read already address.
-        `UPDATE ${ACCOUNTS} SET "label" = $1 WHERE ${ACCOUNTS}."id" = $2 RETURNING "id" AS "id"`,
+        `UPDATE ${ACCOUNTS_TABLE} SET "label" = $1 WHERE ${ACCOUNTS}."id" = $2 RETURNING "id" AS "id"`,
         NOTE_INSERT,
         TERMINAL,
       ]);

@@ -7,6 +7,9 @@ export default defineConfig({
       include: [
         "src/schema/field-ref.ts",
         "src/schema/hydration.ts",
+        // The identifier grammar every schema name and every database
+        // namespace is admitted by.
+        "src/schema/identifier.ts",
         "src/schema/json/**/*.ts",
         // Lifted out of `json/` when `s.model(...)`'s member maps became its
         // second consumer; the gate follows the file rather than the folder.

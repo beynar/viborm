@@ -59,7 +59,7 @@ const dialects = [
 const expected = {
   postgresql: {
     read: {
-      sql: 'SELECT "t0"."id" AS "id", "t0"."title" AS "title" FROM "posts" AS "t0" WHERE ("t0"."published" = $1 AND "t0"."views" >= $2) ORDER BY "t0"."views" DESC, "t0"."id" ASC LIMIT $3',
+      sql: 'SELECT "t0"."id" AS "id", "t0"."title" AS "title" FROM "public"."posts" AS "t0" WHERE ("t0"."published" = $1 AND "t0"."views" >= $2) ORDER BY "t0"."views" DESC, "t0"."id" ASC LIMIT $3',
       params: [true, 10, 5],
     },
   },

@@ -299,7 +299,7 @@ describe("one record, one compiler parity", () => {
       const planning = operation.planning();
       expect(ids(planning)).toEqual(["user.locate", "profile.find"]);
       expect(prepared(driver, statementStep(planning, "user.locate"))).toEqual({
-        sql: `SELECT "t0"."id" AS "id" FROM "nested_behavior_users" AS "t0" WHERE "t0"."id" = $1 LIMIT 1${substrate.batch ? "" : " FOR UPDATE"}`,
+        sql: `SELECT "t0"."id" AS "id" FROM "public"."nested_behavior_users" AS "t0" WHERE "t0"."id" = $1 LIMIT 1${substrate.batch ? "" : " FOR UPDATE"}`,
         params: ["u1"],
       });
       expect(effects(statementStep(planning, "user.locate"))).toEqual({
@@ -321,7 +321,7 @@ describe("one record, one compiler parity", () => {
       });
       expect(prepared(driver, statementStep(planning, "profile.find"))).toEqual(
         {
-          sql: `SELECT "t0"."id" AS "id" FROM "nested_behavior_profiles" AS "t0" WHERE "t0"."userId" = $1 ORDER BY "t0"."id" ASC LIMIT $2${substrate.batch ? "" : " FOR UPDATE"}`,
+          sql: `SELECT "t0"."id" AS "id" FROM "public"."nested_behavior_profiles" AS "t0" WHERE "t0"."userId" = $1 ORDER BY "t0"."id" ASC LIMIT $2${substrate.batch ? "" : " FOR UPDATE"}`,
           params: [reference("user.locate", "id"), 1],
         }
       );
@@ -361,7 +361,7 @@ describe("one record, one compiler parity", () => {
             id: "user.guard.exists",
             premise: {
               kind: "exists",
-              sql: 'SELECT "t0"."id" AS "id" FROM "nested_behavior_users" AS "t0" WHERE "t0"."id" = $1 LIMIT 1',
+              sql: 'SELECT "t0"."id" AS "id" FROM "public"."nested_behavior_users" AS "t0" WHERE "t0"."id" = $1 LIMIT 1',
               params: ["u1"],
             },
             failure: {
@@ -378,7 +378,7 @@ describe("one record, one compiler parity", () => {
           id: "profile.guard.exists",
           premise: {
             kind: "exists",
-            sql: 'SELECT "t0"."id" AS "id" FROM "nested_behavior_profiles" AS "t0" WHERE ("t0"."userId" = $1 AND "t0"."id" = $2) ORDER BY "t0"."id" ASC LIMIT $3',
+            sql: 'SELECT "t0"."id" AS "id" FROM "public"."nested_behavior_profiles" AS "t0" WHERE ("t0"."userId" = $1 AND "t0"."id" = $2) ORDER BY "t0"."id" ASC LIMIT $3',
             params: ["u1", "pr1", 1],
           },
           failure: {
@@ -390,7 +390,7 @@ describe("one record, one compiler parity", () => {
         });
       }
       expect(prepared(driver, statementStep(found, "profile.update"))).toEqual({
-        sql: 'UPDATE "nested_behavior_profiles" SET "bio" = $1 WHERE "nested_behavior_profiles"."id" = $2 RETURNING "id" AS "id"',
+        sql: 'UPDATE "public"."nested_behavior_profiles" SET "bio" = $1 WHERE "nested_behavior_profiles"."id" = $2 RETURNING "id" AS "id"',
         params: ["updated", "pr1"],
       });
       expect(effects(statementStep(found, "profile.update"))).toEqual({
@@ -424,7 +424,7 @@ describe("one record, one compiler parity", () => {
       expect(
         prepared(driver, statementStep(missing, "profile.create"))
       ).toEqual({
-        sql: 'INSERT INTO "nested_behavior_profiles" ("id", "bio", "userId") VALUES ($1, $2, CAST($3 AS TEXT))',
+        sql: 'INSERT INTO "public"."nested_behavior_profiles" ("id", "bio", "userId") VALUES ($1, $2, CAST($3 AS TEXT))',
         params: ["pr-new", "fresh", "u1"],
       });
       expect(effects(statementStep(missing, "profile.create"))).toEqual({
@@ -435,7 +435,7 @@ describe("one record, one compiler parity", () => {
       });
       for (const final of [found, missing]) {
         expect(prepared(driver, statementStep(final, "user.select"))).toEqual({
-          sql: 'SELECT "t0"."id" AS "id" FROM "nested_behavior_users" AS "t0" WHERE "t0"."id" = $1 LIMIT 1',
+          sql: 'SELECT "t0"."id" AS "id" FROM "public"."nested_behavior_users" AS "t0" WHERE "t0"."id" = $1 LIMIT 1',
           params: ["u1"],
         });
         expect(effects(statementStep(final, "user.select"))).toEqual({
@@ -535,7 +535,7 @@ describe("one record, one compiler parity", () => {
       const found = operation.compile(known);
       // The write addresses the CAPTURED row key, not the correlation it was found by.
       expect(prepared(driver, statementStep(found, "profile.update"))).toEqual({
-        sql: 'UPDATE "nested_behavior_profiles" SET "bio" = $1, "userId" = CAST($2 AS TEXT) WHERE "nested_behavior_profiles"."id" = $3 RETURNING "id" AS "id"',
+        sql: 'UPDATE "public"."nested_behavior_profiles" SET "bio" = $1, "userId" = CAST($2 AS TEXT) WHERE "nested_behavior_profiles"."id" = $3 RETURNING "id" AS "id"',
         params: ["updated", "u2", "pr1"],
       });
 
@@ -678,7 +678,7 @@ describe("one record, one compiler parity", () => {
       // Both private columns are cleared atomically, by the captured row key.
       expect(prepared(driver, statementStep(upsertArm, "card.update"))).toEqual(
         {
-          sql: 'UPDATE "g_poly_cards" SET "subject_type" = NULL, "subject_id" = NULL WHERE "g_poly_cards"."id" = $1 RETURNING "id" AS "id"',
+          sql: 'UPDATE "public"."g_poly_cards" SET "subject_type" = NULL, "subject_id" = NULL WHERE "g_poly_cards"."id" = $1 RETURNING "id" AS "id"',
           params: ["c1"],
         }
       );
@@ -712,7 +712,7 @@ describe("one record, one compiler parity", () => {
       expect(
         prepared(driver, statementStep(operation.planning(), "slot.find")).sql
       ).toBe(
-        `SELECT "t0"."tenantId" AS "tenantId", "t0"."code" AS "code" FROM "g_compound_slots" AS "t0" WHERE "t0"."ownerId" = $1 ORDER BY "t0"."tenantId" ASC, "t0"."code" ASC LIMIT $2${substrate.batch ? "" : " FOR UPDATE"}`
+        `SELECT "t0"."tenantId" AS "tenantId", "t0"."code" AS "code" FROM "public"."g_compound_slots" AS "t0" WHERE "t0"."ownerId" = $1 ORDER BY "t0"."tenantId" ASC, "t0"."code" ASC LIMIT $2${substrate.batch ? "" : " FOR UPDATE"}`
       );
       const found = operation.compile({
         "owner.locate.rows": [{ id: "o1" }],
@@ -721,7 +721,7 @@ describe("one record, one compiler parity", () => {
         "slot.find.rows": [{ tenantId: "t9", code: "c9", ownerId: "o1" }],
       });
       expect(prepared(driver, statementStep(found, "slot.update"))).toEqual({
-        sql: 'UPDATE "g_compound_slots" SET "note" = $1 WHERE ("g_compound_slots"."tenantId" = $2 AND "g_compound_slots"."code" = $3) RETURNING "tenantId" AS "tenantId", "code" AS "code"',
+        sql: 'UPDATE "public"."g_compound_slots" SET "note" = $1 WHERE ("g_compound_slots"."tenantId" = $2 AND "g_compound_slots"."code" = $3) RETURNING "tenantId" AS "tenantId", "code" AS "code"',
         params: ["updated", "t9", "c9"],
       });
       if (substrate.batch) {
@@ -731,7 +731,7 @@ describe("one record, one compiler parity", () => {
             id: "slot.guard.exists",
             premise: {
               kind: "exists",
-              sql: 'SELECT "t0"."tenantId" AS "tenantId", "t0"."code" AS "code" FROM "g_compound_slots" AS "t0" WHERE ("t0"."ownerId" = $1 AND "t0"."tenantId" = $2 AND "t0"."code" = $3) ORDER BY "t0"."tenantId" ASC, "t0"."code" ASC LIMIT $4',
+              sql: 'SELECT "t0"."tenantId" AS "tenantId", "t0"."code" AS "code" FROM "public"."g_compound_slots" AS "t0" WHERE ("t0"."ownerId" = $1 AND "t0"."tenantId" = $2 AND "t0"."code" = $3) ORDER BY "t0"."tenantId" ASC, "t0"."code" ASC LIMIT $4',
               params: ["o1", "t9", "c9", 1],
             },
             failure: {
@@ -864,7 +864,7 @@ describe("one record, one compiler parity", () => {
         {
           id: "user.update",
           kind: "write",
-          sql: 'UPDATE "update_slice_users" SET "count" = "count" + $1 WHERE "update_slice_users"."email" = $2 RETURNING "id" AS "id", "email" AS "email", "count" AS "count"',
+          sql: 'UPDATE "public"."update_slice_users" SET "count" = "count" + $1 WHERE "update_slice_users"."email" = $2 RETURNING "id" AS "id", "email" AS "email", "count" AS "count"',
           params: [3, "direct@x"],
           outputs: { result: { kind: "rows" } },
           expects: {
@@ -909,7 +909,7 @@ describe("one record, one compiler parity", () => {
         {
           id: "user.locate",
           kind: "read",
-          sql: 'SELECT "t0"."id" AS "id" FROM "update_slice_users" AS "t0" WHERE "t0"."email" = $1 LIMIT 1 FOR UPDATE',
+          sql: 'SELECT "t0"."id" AS "id" FROM "public"."update_slice_users" AS "t0" WHERE "t0"."email" = $1 LIMIT 1 FOR UPDATE',
           params: ["projected@x"],
           outputs: {
             rows: { kind: "rows" },
@@ -943,7 +943,7 @@ describe("one record, one compiler parity", () => {
         {
           id: "user.update",
           kind: "write",
-          sql: 'UPDATE "update_slice_users" SET "count" = "count" + $1 WHERE "update_slice_users"."id" = $2 RETURNING "id" AS "id"',
+          sql: 'UPDATE "public"."update_slice_users" SET "count" = "count" + $1 WHERE "update_slice_users"."id" = $2 RETURNING "id" AS "id"',
           params: [2, 41],
           outputs: {},
           expects: {
@@ -962,7 +962,7 @@ describe("one record, one compiler parity", () => {
         {
           id: "user.select",
           kind: "read",
-          sql: 'SELECT "t0"."id" AS "id", "t2"."_result" AS "posts" FROM "update_slice_users" AS "t0" LEFT JOIN LATERAL (SELECT COALESCE(json_agg("t4"."_json"), \'[]\'::json) AS "_result" FROM (SELECT json_build_object($1::text, "t1"."id", $2::text, "t1"."title") AS "_json" FROM "update_slice_posts" AS "t1" WHERE ("t0"."id" = "t1"."userId" AND EXISTS (SELECT 1 FROM "update_slice_users" AS "t3" WHERE ("t1"."userId" = "t3"."id" AND "t3"."count" = $3)))) "t4") AS "t2" ON TRUE WHERE "t0"."id" = $4 LIMIT 1',
+          sql: 'SELECT "t0"."id" AS "id", "t2"."_result" AS "posts" FROM "public"."update_slice_users" AS "t0" LEFT JOIN LATERAL (SELECT COALESCE(json_agg("t4"."_json"), \'[]\'::json) AS "_result" FROM (SELECT json_build_object($1::text, "t1"."id", $2::text, "t1"."title") AS "_json" FROM "public"."update_slice_posts" AS "t1" WHERE ("t0"."id" = "t1"."userId" AND EXISTS (SELECT 1 FROM "public"."update_slice_users" AS "t3" WHERE ("t1"."userId" = "t3"."id" AND "t3"."count" = $3)))) "t4") AS "t2" ON TRUE WHERE "t0"."id" = $4 LIMIT 1',
           params: ["id", "title", 2, 41],
           outputs: { result: { kind: "rows" } },
           expects: terminalExpectation("update"),
@@ -997,13 +997,13 @@ describe("one record, one compiler parity", () => {
     expect(
       prepared(driver, statementStep(literal.planning(), "account.locate"))
     ).toEqual({
-      sql: 'SELECT "t0"."id" AS "id" FROM "n1_ref_accounts" AS "t0" WHERE "t0"."id" = $1 LIMIT 1 FOR UPDATE',
+      sql: 'SELECT "t0"."id" AS "id" FROM "public"."n1_ref_accounts" AS "t0" WHERE "t0"."id" = $1 LIMIT 1 FOR UPDATE',
       params: [2],
     });
     expect(
       prepared(driver, statementStep(planned.planning(), "account.locate"))
     ).toEqual({
-      sql: 'SELECT "t0"."id" AS "id" FROM "n1_ref_accounts" AS "t0" WHERE "t0"."email" = $1 LIMIT 1 FOR UPDATE',
+      sql: 'SELECT "t0"."id" AS "id" FROM "public"."n1_ref_accounts" AS "t0" WHERE "t0"."email" = $1 LIMIT 1 FOR UPDATE',
       params: ["target@x"],
     });
     expect(
@@ -1027,7 +1027,7 @@ describe("one record, one compiler parity", () => {
     expect(
       prepared(driver, statementStep(literalFinal, "note.create"))
     ).toEqual({
-      sql: 'INSERT INTO "n1_ref_notes" ("id", "body", "accountId") VALUES ($1, $2, CAST($3 AS INTEGER))',
+      sql: 'INSERT INTO "public"."n1_ref_notes" ("id", "body", "accountId") VALUES ($1, $2, CAST($3 AS INTEGER))',
       params: [10, "fresh", 2],
     });
     expect(effects(statementStep(literalFinal, "note.create"))).toEqual({
@@ -1064,7 +1064,7 @@ describe("one record, one compiler parity", () => {
     expect(
       prepared(driver, statementStep(planning, "item.transition.find"))
     ).toEqual({
-      sql: 'SELECT "t0"."id" AS "id" FROM "n5_pta_items" AS "t0" WHERE "t0"."listId" = $1 ORDER BY "t0"."id" ASC LIMIT $2 FOR UPDATE',
+      sql: 'SELECT "t0"."id" AS "id" FROM "public"."n5_pta_items" AS "t0" WHERE "t0"."listId" = $1 ORDER BY "t0"."id" ASC LIMIT $2 FOR UPDATE',
       params: [1, 1],
     });
     expect(outputContract(planning)).toEqual({
@@ -1076,11 +1076,11 @@ describe("one record, one compiler parity", () => {
     const final = operation.compile({ "list.locate.rows": [{ id: 1 }] });
     expect(ids(final)).toEqual(["list.update", "item.create", "list.select"]);
     expect(prepared(driver, statementStep(final, "list.update"))).toEqual({
-      sql: 'UPDATE "n5_pta_lists" SET "id" = $1 WHERE "n5_pta_lists"."id" = $2 RETURNING "id" AS "id"',
+      sql: 'UPDATE "public"."n5_pta_lists" SET "id" = $1 WHERE "n5_pta_lists"."id" = $2 RETURNING "id" AS "id"',
       params: [5, 1],
     });
     expect(prepared(driver, statementStep(final, "item.create"))).toEqual({
-      sql: 'INSERT INTO "n5_pta_items" ("id", "label", "listId") VALUES ($1, $2, CAST($3 AS INTEGER))',
+      sql: 'INSERT INTO "public"."n5_pta_items" ("id", "label", "listId") VALUES ($1, $2, CAST($3 AS INTEGER))',
       params: [20, "fresh", 5],
     });
     expect(statementStep(final, "list.update").expects).toMatchObject({
@@ -1152,7 +1152,7 @@ describe("one record, one compiler parity", () => {
     );
     expect(prepared(driver, statementStep(nestedFinal, "team.create"))).toEqual(
       {
-        sql: 'INSERT INTO "n4pi_teams" ("id", "code", "title", "orgId", "leadId") VALUES ($1, $2, $3, CAST($4 AS INTEGER), NULL)',
+        sql: 'INSERT INTO "public"."n4pi_teams" ("id", "code", "title", "orgId", "leadId") VALUES ($1, $2, $3, CAST($4 AS INTEGER), NULL)',
         params: [20, "T-FRESH", "fresh", 2],
       }
     );
@@ -1169,7 +1169,7 @@ describe("one record, one compiler parity", () => {
     });
     expect(prepared(driver, statementStep(nestedFinal, "task.create"))).toEqual(
       {
-        sql: 'INSERT INTO "n4pi_tasks" ("id", "label", "teamId", "ownerId") VALUES ($1, $2, CAST($3 AS INTEGER), NULL)',
+        sql: 'INSERT INTO "public"."n4pi_tasks" ("id", "label", "teamId", "ownerId") VALUES ($1, $2, CAST($3 AS INTEGER), NULL)',
         params: [100, "deep", 20],
       }
     );
@@ -1210,7 +1210,7 @@ describe("one record, one compiler parity", () => {
       "post.select",
     ]);
     expect(prepared(driver, statementStep(final, "stamp.create"))).toEqual({
-      sql: 'INSERT INTO "e4u3_stamps" ("name") VALUES ($1) RETURNING "id" AS "id"',
+      sql: 'INSERT INTO "public"."e4u3_stamps" ("name") VALUES ($1) RETURNING "id" AS "id"',
       params: ["stamp"],
     });
     expect(effects(statementStep(final, "stamp.create"))).toEqual({
@@ -1220,7 +1220,7 @@ describe("one record, one compiler parity", () => {
       onUniqueConflict: null,
     });
     expect(prepared(driver, statementStep(final, "note.create"))).toEqual({
-      sql: 'INSERT INTO "e4u3_notes" ("id", "body", "stampId") VALUES ($1, $2, CAST($3 AS INTEGER))',
+      sql: 'INSERT INTO "public"."e4u3_notes" ("id", "body", "stampId") VALUES ($1, $2, CAST($3 AS INTEGER))',
       params: ["n1", "deep", reference("stamp.create", "id")],
     });
     // The junction skip's conflict target — AMENDED by the polymorphic
@@ -1236,7 +1236,7 @@ describe("one record, one compiler parity", () => {
     expect(
       prepared(driver, statementStep(final, "stamp.junction.insert"))
     ).toEqual({
-      sql: 'INSERT  INTO "post_stamp" ("postId", "stampId") VALUES ($1, CAST($2 AS INTEGER)) ON CONFLICT ("postId", "stampId") DO NOTHING',
+      sql: 'INSERT  INTO "public"."post_stamp" ("postId", "stampId") VALUES ($1, CAST($2 AS INTEGER)) ON CONFLICT ("postId", "stampId") DO NOTHING',
       params: ["p1", reference("stamp.create", "id")],
     });
     expect(statementStep(final, "post.select").expects).toEqual(
@@ -1306,7 +1306,7 @@ describe("one record, one compiler parity", () => {
       racePin: { fields: ["name"], table: "e4u3_stamps" },
     });
     expect(prepared(driver, statementStep(final, "note.create"))).toEqual({
-      sql: 'INSERT INTO "e4u3_notes" ("id", "body", "stampId") VALUES ($1, $2, CAST($3 AS INTEGER))',
+      sql: 'INSERT INTO "public"."e4u3_notes" ("id", "body", "stampId") VALUES ($1, $2, CAST($3 AS INTEGER))',
       params: ["n-first", "first", reference("stamp.create", "id")],
     });
     const firstJoin = prepared(
@@ -1317,7 +1317,7 @@ describe("one record, one compiler parity", () => {
       prepared(driver, statementStep(final, "stamp.junction.insert#1"))
     ).toEqual(firstJoin);
     expect(firstJoin).toEqual({
-      sql: 'INSERT  INTO "post_stamp" ("postId", "stampId") VALUES ($1, CAST($2 AS INTEGER)) ON CONFLICT ("postId", "stampId") DO NOTHING',
+      sql: 'INSERT  INTO "public"."post_stamp" ("postId", "stampId") VALUES ($1, CAST($2 AS INTEGER)) ON CONFLICT ("postId", "stampId") DO NOTHING',
       params: ["p1", reference("stamp.create", "id")],
     });
     expect(JSON.stringify(fragmentContract(driver, final))).not.toContain(
@@ -1351,7 +1351,7 @@ describe("one record, one compiler parity", () => {
     expect(
       prepared(driver, statementStep(operation.planning(), "topic.find"))
     ).toEqual({
-      sql: 'SELECT "t0"."id" AS "id" FROM "e5u1_topics" AS "t0" WHERE "t0"."name" = $1 LIMIT 1 FOR UPDATE',
+      sql: 'SELECT "t0"."id" AS "id" FROM "public"."e5u1_topics" AS "t0" WHERE "t0"."name" = $1 LIMIT 1 FOR UPDATE',
       params: ["topic"],
     });
     expect(outputContract(operation.planning())).toEqual({
@@ -1374,7 +1374,7 @@ describe("one record, one compiler parity", () => {
       "article.select",
     ]);
     expect(prepared(driver, statementStep(missing, "topic.create"))).toEqual({
-      sql: 'INSERT INTO "e5u1_topics" ("name", "weight", "authorId") VALUES ($1, $2, NULL) RETURNING "id" AS "id"',
+      sql: 'INSERT INTO "public"."e5u1_topics" ("name", "weight", "authorId") VALUES ($1, $2, NULL) RETURNING "id" AS "id"',
       params: ["topic", 1],
     });
     expect(statementStep(missing, "topic.create")).toMatchObject({
@@ -1384,20 +1384,20 @@ describe("one record, one compiler parity", () => {
     expect(
       prepared(driver, statementStep(missing, "topic.junction.insert"))
     ).toEqual({
-      sql: 'INSERT  INTO "article_topic" ("articleId", "topicId") VALUES (CAST($1 AS INTEGER), CAST($2 AS INTEGER)) ON CONFLICT ("articleId", "topicId") DO NOTHING',
+      sql: 'INSERT  INTO "public"."article_topic" ("articleId", "topicId") VALUES (CAST($1 AS INTEGER), CAST($2 AS INTEGER)) ON CONFLICT ("articleId", "topicId") DO NOTHING',
       params: [
         reference("article.create", "id"),
         reference("topic.create", "id"),
       ],
     });
     expect(prepared(driver, statementStep(found, "topic.update"))).toEqual({
-      sql: 'UPDATE "e5u1_topics" SET "weight" = $1 WHERE "e5u1_topics"."id" = $2 RETURNING "id" AS "id"',
+      sql: 'UPDATE "public"."e5u1_topics" SET "weight" = $1 WHERE "e5u1_topics"."id" = $2 RETURNING "id" AS "id"',
       params: [2, 11],
     });
     expect(
       prepared(driver, statementStep(found, "topic.junction.insert"))
     ).toEqual({
-      sql: 'INSERT  INTO "article_topic" ("articleId", "topicId") VALUES (CAST($1 AS INTEGER), $2) ON CONFLICT ("articleId", "topicId") DO NOTHING',
+      sql: 'INSERT  INTO "public"."article_topic" ("articleId", "topicId") VALUES (CAST($1 AS INTEGER), $2) ON CONFLICT ("articleId", "topicId") DO NOTHING',
       params: [reference("article.create", "id"), 11],
     });
     expect(outputContract(missing)).toEqual({
@@ -1434,8 +1434,8 @@ describe("one record, one compiler parity", () => {
     expect(ids(final)).toEqual(["user.create#1"]);
     const folded = prepared(driver, statementStep(final, "user.create#1"));
     expect(folded.sql).toMatch(MUTATION_CTE_PREFIX);
-    expect(folded.sql).toContain('INSERT INTO "update_slice_users"');
-    expect(folded.sql).toContain('INSERT INTO "update_slice_posts"');
+    expect(folded.sql).toContain('INSERT INTO "public"."update_slice_users"');
+    expect(folded.sql).toContain('INSERT INTO "public"."update_slice_posts"');
     expect(folded.params).toEqual(["new@x", 0, 7, "child", "child"]);
     expect(statementStep(final, "user.create#1")).toMatchObject({
       outputs: { result: { kind: "rows" } },
@@ -1515,7 +1515,7 @@ describe("one record, one compiler parity", () => {
       id: "user.guard.exists",
       premise: {
         kind: "exists",
-        sql: 'SELECT "t0"."id" AS "id" FROM "update_slice_users" AS "t0" WHERE ("t0"."email" = $1 AND "t0"."id" = $2) ORDER BY "t0"."id" ASC LIMIT $3',
+        sql: 'SELECT "t0"."id" AS "id" FROM "public"."update_slice_users" AS "t0" WHERE ("t0"."email" = $1 AND "t0"."id" = $2) ORDER BY "t0"."id" ASC LIMIT $3',
         params: ["z@x", 42, 1],
       },
       failure: {
@@ -1529,7 +1529,7 @@ describe("one record, one compiler parity", () => {
       id: "post.guard.exists",
       premise: {
         kind: "exists",
-        sql: 'SELECT "t0"."id" AS "id", "t0"."userId" AS "userId" FROM "update_slice_posts" AS "t0" WHERE ("t0"."id" = $1 AND "t0"."id" = $2 AND "t0"."userId" = $3) ORDER BY "t0"."id" ASC LIMIT $4',
+        sql: 'SELECT "t0"."id" AS "id", "t0"."userId" AS "userId" FROM "public"."update_slice_posts" AS "t0" WHERE ("t0"."id" = $1 AND "t0"."id" = $2 AND "t0"."userId" = $3) ORDER BY "t0"."id" ASC LIMIT $4',
         params: [5, 5, 42, 1],
       },
       failure: {
@@ -1582,7 +1582,7 @@ describe("one record, one compiler parity", () => {
     const final = operation.compile({ "account.locate.rows": [{ id: 2 }] });
     expect(ids(final)).toEqual(["note.createMany", "account.select"]);
     expect(prepared(driver, statementStep(final, "note.createMany"))).toEqual({
-      sql: 'INSERT INTO "n1_ref_notes" ("id", "body", "accountId") VALUES ($1, $2, CAST($3 AS INTEGER)), ($4, $5, CAST($6 AS INTEGER))',
+      sql: 'INSERT INTO "public"."n1_ref_notes" ("id", "body", "accountId") VALUES ($1, $2, CAST($3 AS INTEGER)), ($4, $5, CAST($6 AS INTEGER))',
       params: [10, "first", 2, 11, "second", 2],
     });
     expect(effects(statementStep(final, "note.createMany"))).toEqual({

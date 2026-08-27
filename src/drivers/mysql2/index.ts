@@ -14,7 +14,11 @@ import {
   type VibORMClient,
 } from "@client/client";
 import type { Schema } from "@client/types";
-import { QueryError, TransactionError } from "@errors";
+import {
+  ClientInitializationError,
+  QueryError,
+  TransactionError,
+} from "@errors";
 import type { Pool, PoolConnection, PoolOptions } from "mysql2/promise";
 import { Driver, type QueryExecutionContext } from "../driver";
 import { getExecutionTransactionPhases } from "../execution-context";
@@ -27,9 +31,15 @@ import {
 import {
   acquireWithMaxWait,
   type DriverTransactionOptions,
+  defineImmutableDriverFact,
   isolationLevelStatement,
+  type MigrationNamespaceAttestation,
+  type MySQLConnectionOptions,
   nestedTransactionDispatchError,
+  type PinnedSessionReservation,
   parseMySQLUrl,
+  resolveMigrationNamespaceAttestationOption,
+  resolveNamespaceOption,
   runTransactionLifecycle,
   type TransactionOptionSupport,
 } from "../shared";
@@ -45,6 +55,19 @@ export interface MySQL2DriverOptions {
   pool?: Pool;
   options?: PoolOptions;
   databaseUrl?: string;
+  /**
+   * The MySQL database this driver's persistent objects live in. Omitted, the
+   * target is derived from a driver-created pool's own configuration, and a
+   * driver that resolves none keeps the existing unqualified mode.
+   */
+  namespace?: string;
+  /**
+   * Caller-owned assertion that qualified `database.table` references and the
+   * pinned migration session's `USE` cannot be redirected by VTGate
+   * schema-routing rules or an equivalent proxy. It selects nothing, is never
+   * inferred, and only effectful live migration work requires it.
+   */
+  migrationNamespaceAttestation?: MigrationNamespaceAttestation;
 }
 
 export type MySQL2ClientConfig<C extends DriverConfig> = MySQL2DriverOptions &
@@ -144,42 +167,155 @@ function toQueryResult<T>(
   };
 }
 
+/**
+ * The target derived from a pool this driver will create: the URL's database
+ * path, then the connection options' `database`. A supplied `Pool` is opaque —
+ * VibORM does not inspect mysql2 internals, so only an explicit `namespace` can
+ * bind one. A pathless URL contributes nothing, and neither does an empty
+ * `options.database`: §1.3's empty candidate is an absent one rather than a
+ * name handed to identifier validation. A non-empty derived name is validated
+ * exactly like an explicit one, by the adapter that installs it.
+ */
+function deriveMySQL2Namespace(
+  configuration: Omit<MySQL2Configuration, "namespace">
+): string | undefined {
+  if (configuration.suppliedPool) return undefined;
+  const configured =
+    configuration.urlOptions?.database ??
+    configuration.connectionOptions.database;
+  return configured === "" ? undefined : configured;
+}
+
+/** What this driver settles from its caller's object, each source read once. */
+interface MySQL2Configuration {
+  readonly namespace: string | undefined;
+  /** The parsed `databaseUrl`, or `undefined` when the caller supplied none. */
+  readonly urlOptions: MySQLConnectionOptions | undefined;
+  /**
+   * The EXACT pool the caller supplied, or absent when this driver makes its
+   * own. Identity, settled once, is the whole ownership answer: the caller's
+   * options object is theirs to change, and a `pool` key deleted after
+   * construction used to make `$disconnect()` end a transport VibORM was handed.
+   */
+  readonly suppliedPool: Pool | undefined;
+  /**
+   * The caller's connection record, copied once.
+   *
+   * A copy of THIS record, not of what it points at: a nested `ssl` object or
+   * stream is the caller's to own, and the keys that decide where a pool
+   * connects — host, port, user, database — all live here. It is also what the
+   * constructor's refusals read, so the options this driver validated are the
+   * exact options it later connects with.
+   */
+  readonly connectionOptions: PoolOptions;
+}
+
+/**
+ * The one immutable ORM target for this driver, in the plan's exact order: an
+ * explicit `namespace`, then the driver-created pool's own derivation.
+ *
+ * `databaseUrl` is read once and parsed once, here, and the parse is kept: a
+ * second read at connect time would let a caller-owned accessor hand the
+ * provider a different URL than the one that decided the target. A present URL
+ * is parsed even when an explicit `namespace` outranks it, because an unusable
+ * connection string is a construction failure either way; `""`, `null`, and an
+ * absent property are the same absent request. Both rules are the convenience
+ * wrapper's too, so the two entry points cannot disagree.
+ *
+ * None of these sources is transport evidence: the attestation is read
+ * separately and never derived from a resolved target.
+ */
+function resolveMySQL2Configuration(
+  options: MySQL2DriverOptions
+): MySQL2Configuration {
+  const explicit = resolveNamespaceOption(options);
+  const databaseUrl = options.databaseUrl;
+  const captured = {
+    urlOptions: databaseUrl ? parseMySQL2ConfiguredUrl(databaseUrl) : undefined,
+    suppliedPool: options.pool,
+    connectionOptions: { ...options.options },
+  };
+  return {
+    namespace: explicit ?? deriveMySQL2Namespace(captured),
+    ...captured,
+  };
+}
+
+/** The URL now decides a target, so a malformed one fails at construction. */
+function parseMySQL2ConfiguredUrl(databaseUrl: string): MySQLConnectionOptions {
+  try {
+    return parseMySQLUrl(databaseUrl);
+  } catch (cause) {
+    throw new ClientInitializationError(
+      'Driver "mysql2" could not parse its databaseUrl.',
+      { cause: cause instanceof Error ? cause : undefined }
+    );
+  }
+}
+
 export class MySQL2Driver extends Driver<Pool, PoolConnection> {
-  readonly adapter: DatabaseAdapter = new MySQLAdapter();
+  declare readonly adapter: DatabaseAdapter;
   readonly maxBindParametersPerStatement: number | undefined = 65_535;
 
-  private readonly driverOptions: MySQL2DriverOptions;
+  /** The caller's `databaseUrl` as parsed at construction; see above. */
+  private readonly urlOptions: MySQLConnectionOptions | undefined;
+  /** The caller's pool and connection record, as construction captured them. */
+  private readonly suppliedPool: Pool | undefined;
+  private readonly connectionOptions: PoolOptions;
 
   constructor(options: MySQL2DriverOptions = {}) {
-    super("mysql", "mysql2");
-    if (options.options?.multipleStatements === true) {
-      throw new QueryError(
+    // Both facts are read before `super(...)` so the transport assertion is
+    // installed by the base constructor and no option can be read twice.
+    const attestation = resolveMigrationNamespaceAttestationOption(options);
+    const configuration = resolveMySQL2Configuration(options);
+    super("mysql", "mysql2", {}, attestation);
+    if (configuration.connectionOptions.multipleStatements === true) {
+      throw new ClientInitializationError(
         'Driver "mysql2" does not support options.multipleStatements=true because VibORM operations require one result per statement.',
         { meta: { driver: "mysql2", operation: "configuration" } }
       );
     }
-    if (options.options?.rowsAsArray === true) {
-      throw new QueryError(
+    if (configuration.connectionOptions.rowsAsArray === true) {
+      throw new ClientInitializationError(
         'Driver "mysql2" does not support options.rowsAsArray=true because VibORM requires row objects keyed by column name.',
         { meta: { driver: "mysql2", operation: "configuration" } }
       );
     }
     if (
-      options.options?.nestTables === true ||
-      typeof options.options?.nestTables === "string"
+      configuration.connectionOptions.nestTables === true ||
+      typeof configuration.connectionOptions.nestTables === "string"
     ) {
-      throw new QueryError(
+      throw new ClientInitializationError(
         'Driver "mysql2" does not support enabled options.nestTables because VibORM requires flat row objects keyed by result aliases.',
         { meta: { driver: "mysql2", operation: "configuration" } }
       );
     }
-    this.driverOptions = options;
-    if (options.pool) {
-      this.client = options.pool;
+    this.urlOptions = configuration.urlOptions;
+    this.suppliedPool = configuration.suppliedPool;
+    this.connectionOptions = configuration.connectionOptions;
+    defineImmutableDriverFact(
+      this,
+      "adapter",
+      new MySQLAdapter(configuration.namespace)
+    );
+    if (this.suppliedPool) {
+      this.client = this.suppliedPool;
     }
   }
 
+  /**
+   * The pool this driver connects through.
+   *
+   * A caller's pool is RETURNED rather than replaced: reconnecting after a
+   * `$disconnect()` used to build a second pool behind their back — a transport
+   * they never asked for, pointed at whatever their options record said by
+   * then, and then never closed, because the ownership question was still
+   * answered "supplied".
+   */
   protected async initClient(): Promise<Pool> {
+    if (this.suppliedPool !== undefined) {
+      return this.suppliedPool;
+    }
     const mysql = await import("mysql2/promise");
 
     let options: PoolOptions = {
@@ -192,21 +328,45 @@ export class MySQL2Driver extends Driver<Pool, PoolConnection> {
       // DATE as plain "YYYY-MM-DD" — the result parser builds a UTC-midnight
       // Date, matching every other driver (mysql2 would build local midnight)
       dateStrings: ["DATE"],
-      ...this.driverOptions.options,
+      ...this.connectionOptions,
     };
 
-    // Parse databaseUrl if provided (same logic as createClient)
-    if (this.driverOptions.databaseUrl) {
-      options = {
-        ...options,
-        ...parseMySQLUrl(this.driverOptions.databaseUrl),
-      };
+    // The URL still wins over the copied connection options, from the one
+    // parse construction made: this driver never re-reads the caller's
+    // `databaseUrl`, so the pool cannot be pointed somewhere the resolved
+    // target never saw.
+    if (this.urlOptions) {
+      options = { ...options, ...this.urlOptions };
+    }
+
+    // The pool this driver creates defaults to the same database the adapter
+    // qualifies with, whichever source resolved it. A supplied pool never
+    // reaches here, so VibORM never changes a caller's connection state.
+    if (this.adapter.namespace !== undefined) {
+      options = { ...options, database: this.adapter.namespace };
     }
 
     return mysql.createPool(options);
   }
 
+  /**
+   * Ends only a pool this driver created.
+   *
+   * A supplied pool belongs to the caller, who may be sharing it with other
+   * clients or with their own code, and §5.3's rule is that VibORM never
+   * changes a caller's connection state. `$disconnect()` used to end it
+   * regardless, so disconnecting one client tore down every other consumer of
+   * that pool.
+   *
+   * The test is on the pool's IDENTITY against what construction captured, so
+   * it answers for the pool actually being closed rather than for whatever the
+   * caller's record says now: every pool this driver made is ended, and the one
+   * it was handed never is.
+   */
   protected async closeClient(pool: Pool): Promise<void> {
+    if (pool === this.suppliedPool) {
+      return;
+    }
     await pool.end();
   }
 
@@ -318,6 +478,34 @@ export class MySQL2Driver extends Driver<Pool, PoolConnection> {
   protected override transactionCleanupFailed(_error: Error): void {
     // A connection with failed cleanup is destroyed; the pool remains usable.
   }
+
+  /**
+   * One `PoolConnection` from `pool.getConnection()` — plan §3.5's pinned
+   * producer for MySQL2.
+   *
+   * It is ALWAYS destroyed, never released, and the `discard` flag is therefore
+   * ignored: this session has executed `USE` to select the migration target and
+   * may have executed author-owned statements from a manual artifact, and
+   * mysql2's release resets neither. Returning it to an owned or a supplied
+   * pool would leak that state into unrelated queries. This is correctness, not
+   * an optimization.
+   */
+  protected override async pinnedSession(): Promise<
+    PinnedSessionReservation<Pool | PoolConnection>
+  > {
+    const client = await this.getClient({ operation: "pinnedSession" });
+    if (!("getConnection" in client)) {
+      throw nestedTransactionDispatchError(this.driverName);
+    }
+    const connection = await client.getConnection();
+    return {
+      session: connection,
+      release: () => {
+        connection.destroy();
+        return Promise.resolve();
+      },
+    };
+  }
 }
 
 // ============================================================
@@ -330,15 +518,23 @@ export function createClient<S extends Schema, C extends DriverConfig<S>>(
     NoExtraDriverConfigKeys<C, MySQL2DriverOptions, S>
 ): VibORMClient<C & { driver: MySQL2Driver }> {
   const { pool, options = {}, databaseUrl } = config;
+  const attestation = resolveMigrationNamespaceAttestationOption(config);
+  const namespace = resolveNamespaceOption(config);
 
-  if (databaseUrl) {
-    Object.assign(options, parseMySQLUrl(databaseUrl));
+  const driverOptions: MySQL2DriverOptions = {
+    pool,
+    // The URL still wins over the caller's option keys, on a copy this wrapper
+    // owns rather than in the caller's record.
+    options: databaseUrl
+      ? { ...options, ...parseMySQL2ConfiguredUrl(databaseUrl) }
+      : options,
+  };
+  if (namespace !== undefined) driverOptions.namespace = namespace;
+  if (attestation !== undefined) {
+    driverOptions.migrationNamespaceAttestation = attestation;
   }
 
-  const driver = new MySQL2Driver({
-    pool,
-    options,
-  });
+  const driver = new MySQL2Driver(driverOptions);
 
   return createClientFromDriverConfig(config, driver) as VibORMClient<
     C & { driver: MySQL2Driver }

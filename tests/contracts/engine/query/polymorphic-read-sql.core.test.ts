@@ -510,11 +510,11 @@ describe("direct polymorphic collection read SQL", () => {
     // to be counted. An inner join — which is what the ordinary junction
     // traversal emits — would drop it silently.
     expect(statement).toContain(
-      'FROM "gallery_items_article" AS "t1" LEFT JOIN "article" AS "t2" ON "t2"."id" = "t1"."articleId" WHERE ("t1"."galleryId" = "t0"."id" AND "t2"."id" IS NULL)'
+      'FROM "public"."gallery_items_article" AS "t1" LEFT JOIN "public"."article" AS "t2" ON "t2"."id" = "t1"."articleId" WHERE ("t1"."galleryId" = "t0"."id" AND "t2"."id" IS NULL)'
     );
     // The membership count is the member table ALONE — no target join at all.
     expect(statement).toContain(
-      'SELECT COUNT(*) FROM "gallery_items_article" AS "t1" WHERE "t1"."galleryId" = "t0"."id"'
+      'SELECT COUNT(*) FROM "public"."gallery_items_article" AS "t1" WHERE "t1"."galleryId" = "t0"."id"'
     );
   });
 
@@ -539,10 +539,10 @@ describe("direct polymorphic collection read SQL", () => {
     // ...and nowhere near either integrity subquery, whose text is byte-identical
     // to the unfiltered read's.
     expect(statement).toContain(
-      'SELECT COUNT(*) FROM "gallery_items_article" AS "t1" WHERE "t1"."galleryId" = "t0"."id"'
+      'SELECT COUNT(*) FROM "public"."gallery_items_article" AS "t1" WHERE "t1"."galleryId" = "t0"."id"'
     );
     expect(statement).toContain(
-      'FROM "gallery_items_article" AS "t1" LEFT JOIN "article" AS "t2" ON "t2"."id" = "t1"."articleId" WHERE ("t1"."galleryId" = "t0"."id" AND "t2"."id" IS NULL)'
+      'FROM "public"."gallery_items_article" AS "t1" LEFT JOIN "public"."article" AS "t2" ON "t2"."id" = "t1"."articleId" WHERE ("t1"."galleryId" = "t0"."id" AND "t2"."id" IS NULL)'
     );
   });
 
@@ -564,14 +564,14 @@ describe("direct polymorphic collection read SQL", () => {
     expect(statement).toContain("$19::text, NULL)");
     // Its integrity pair survives untouched.
     expect(statement).toContain(
-      'SELECT COUNT(*) FROM "gallery_items_clip" AS "t4" WHERE "t4"."galleryId" = "t0"."id"'
+      'SELECT COUNT(*) FROM "public"."gallery_items_clip" AS "t4" WHERE "t4"."galleryId" = "t0"."id"'
     );
     expect(statement).toContain(
-      'FROM "gallery_items_clip" AS "t4" LEFT JOIN "clip" AS "t5" ON "t5"."id" = "t4"."clipId" WHERE ("t4"."galleryId" = "t0"."id" AND "t5"."id" IS NULL)'
+      'FROM "public"."gallery_items_clip" AS "t4" LEFT JOIN "public"."clip" AS "t5" ON "t5"."id" = "t4"."clipId" WHERE ("t4"."galleryId" = "t0"."id" AND "t5"."id" IS NULL)'
     );
     // The allow-listed arm still emits its comma-pair row branch.
     expect(statement).toContain(
-      'FROM "gallery_items_article" AS "t1", "article" AS "t2"'
+      'FROM "public"."gallery_items_article" AS "t1", "public"."article" AS "t2"'
     );
   });
 
@@ -644,7 +644,7 @@ describe("direct polymorphic collection read SQL", () => {
     // Both members of the compound key, under their MAPPED column names, in the
     // orphan LEFT JOIN and again in the row branch — never abbreviated to one.
     expect(statement).toContain(
-      'LEFT JOIN "region" AS "t2" ON ("t2"."region_code" = "t1"."region_1" AND "t2"."slug" = "t1"."region_2")'
+      'LEFT JOIN "public"."region" AS "t2" ON ("t2"."region_code" = "t1"."region_1" AND "t2"."slug" = "t1"."region_2")'
     );
     expect(statement).toContain(
       '("t2"."region_code" = "t1"."region_1" AND "t2"."slug" = "t1"."region_2")'
@@ -718,7 +718,7 @@ describe("direct polymorphic collection filter and count SQL", () => {
         items: { some: { type: "article", is: { title: { equals: "x" } } } },
       })
     ).toBe(
-      'EXISTS (SELECT 1 FROM "gallery_items_article" AS "t1", "article" AS "t2" WHERE ("t1"."galleryId" = "t0"."id" AND "t2"."id" = "t1"."articleId" AND "t2"."title" = $1))'
+      'EXISTS (SELECT 1 FROM "public"."gallery_items_article" AS "t1", "public"."article" AS "t2" WHERE ("t1"."galleryId" = "t0"."id" AND "t2"."id" = "t1"."articleId" AND "t2"."title" = $1))'
     );
     // No OR(), no IN (): a missing arm emits nothing at all.
     expect(whereSql({ items: { some: { type: "article" } } })).not.toContain(
@@ -732,7 +732,7 @@ describe("direct polymorphic collection filter and count SQL", () => {
         items: { none: { type: "article", is: { title: { equals: "x" } } } },
       })
     ).toBe(
-      'NOT EXISTS (SELECT 1 FROM "gallery_items_article" AS "t1", "article" AS "t2" WHERE ("t1"."galleryId" = "t0"."id" AND "t2"."id" = "t1"."articleId" AND "t2"."title" = $1))'
+      'NOT EXISTS (SELECT 1 FROM "public"."gallery_items_article" AS "t1", "public"."article" AS "t2" WHERE ("t1"."galleryId" = "t0"."id" AND "t2"."id" = "t1"."articleId" AND "t2"."title" = $1))'
     );
   });
 
@@ -744,7 +744,7 @@ describe("direct polymorphic collection filter and count SQL", () => {
         items: { none: { type: "article", isNot: { title: { equals: "x" } } } },
       })
     ).toBe(
-      'NOT EXISTS (SELECT 1 FROM "gallery_items_article" AS "t1", "article" AS "t2" WHERE ("t1"."galleryId" = "t0"."id" AND "t2"."id" = "t1"."articleId" AND NOT ("t2"."title" = $1)))'
+      'NOT EXISTS (SELECT 1 FROM "public"."gallery_items_article" AS "t1", "public"."article" AS "t2" WHERE ("t1"."galleryId" = "t0"."id" AND "t2"."id" = "t1"."articleId" AND NOT ("t2"."title" = $1)))'
     );
   });
 
@@ -757,11 +757,11 @@ describe("direct polymorphic collection filter and count SQL", () => {
       // Conjunct 1 — no ARTICLE member violates the predicate, read through a
       // membership-first LEFT JOIN so an ORPHAN counts as a violation (it
       // cannot satisfy P) instead of vanishing into an inner join.
-      '(NOT EXISTS (SELECT 1 FROM "gallery_items_article" AS "t1" LEFT JOIN "article" AS "t2" ON "t2"."id" = "t1"."articleId" WHERE ("t1"."galleryId" = "t0"."id" AND ("t2"."id" IS NULL OR NOT ("t2"."title" = $1)))) ' +
+      '(NOT EXISTS (SELECT 1 FROM "public"."gallery_items_article" AS "t1" LEFT JOIN "public"."article" AS "t2" ON "t2"."id" = "t1"."articleId" WHERE ("t1"."galleryId" = "t0"."id" AND ("t2"."id" IS NULL OR NOT ("t2"."title" = $1)))) ' +
         // Conjunct 2 — no member of ANY OTHER arm exists at all. Without it the
         // statement would silently mean "others allowed", which is the wrong
         // truth table rather than an error.
-        'AND NOT EXISTS (SELECT 1 FROM "gallery_items_clip" AS "t3" WHERE "t3"."galleryId" = "t0"."id"))'
+        'AND NOT EXISTS (SELECT 1 FROM "public"."gallery_items_clip" AS "t3" WHERE "t3"."galleryId" = "t0"."id"))'
     );
   });
 
@@ -769,7 +769,7 @@ describe("direct polymorphic collection filter and count SQL", () => {
     // The ordinary to-many `every` returns `undefined` with no inner condition.
     // A tagged `every` still asserts the variant, so it keeps conjunct 2.
     expect(whereSql({ items: { every: { type: "article" } } })).toBe(
-      'NOT EXISTS (SELECT 1 FROM "gallery_items_clip" AS "t3" WHERE "t3"."galleryId" = "t0"."id")'
+      'NOT EXISTS (SELECT 1 FROM "public"."gallery_items_clip" AS "t3" WHERE "t3"."galleryId" = "t0"."id")'
     );
   });
 
@@ -785,7 +785,7 @@ describe("direct polymorphic collection filter and count SQL", () => {
     // MEMBERSHIP ONLY — no target join. Counting through the join would answer
     // a different question than "how many members does this owner hold".
     expect(statement).toContain(
-      '((SELECT COUNT(*) FROM "gallery_items_article" AS "t1" WHERE "t1"."galleryId" = "t0"."id") + (SELECT COUNT(*) FROM "gallery_items_clip" AS "t3" WHERE "t3"."galleryId" = "t0"."id"))'
+      '((SELECT COUNT(*) FROM "public"."gallery_items_article" AS "t1" WHERE "t1"."galleryId" = "t0"."id") + (SELECT COUNT(*) FROM "public"."gallery_items_clip" AS "t3" WHERE "t3"."galleryId" = "t0"."id"))'
     );
   });
 
@@ -808,7 +808,7 @@ describe("direct polymorphic collection filter and count SQL", () => {
     ).sql.toStatement("$n");
 
     expect(statement).toContain(
-      '(SELECT COUNT(*) FROM "gallery_items_article" AS "t1", "article" AS "t2" WHERE ("t1"."galleryId" = "t0"."id" AND "t2"."id" = "t1"."articleId" AND "t2"."title" = $2))'
+      '(SELECT COUNT(*) FROM "public"."gallery_items_article" AS "t1", "public"."article" AS "t2" WHERE ("t1"."galleryId" = "t0"."id" AND "t2"."id" = "t1"."articleId" AND "t2"."title" = $2))'
     );
     expect(statement).not.toContain("gallery_items_clip");
   });
@@ -829,7 +829,7 @@ describe("direct polymorphic collection filter and count SQL", () => {
     ).sql.toStatement("$n");
 
     const summed =
-      '((SELECT COUNT(*) FROM "gallery_items_article" AS "t1" WHERE "t1"."galleryId" = "t0"."id") + (SELECT COUNT(*) FROM "gallery_items_clip" AS "t3" WHERE "t3"."galleryId" = "t0"."id"))';
+      '((SELECT COUNT(*) FROM "public"."gallery_items_article" AS "t1" WHERE "t1"."galleryId" = "t0"."id") + (SELECT COUNT(*) FROM "public"."gallery_items_clip" AS "t3" WHERE "t3"."galleryId" = "t0"."id"))';
     // ONE builder, therefore one expression and one parameter order — the count
     // in the projection and the count in the ORDER BY cannot drift apart.
     expect(order.orderBy?.toStatement("$n")).toBe(`${summed} DESC`);

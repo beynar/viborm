@@ -38,9 +38,9 @@ for (const substrate of substrates) {
   });
 }
 
-const THING_UPDATE = /UPDATE "e5u2_things"/;
-const THING_INSERT = /INSERT INTO "e5u2_things"/;
-const TIME_UPDATE = /UPDATE "e5u2_time_rows"/;
+const THING_UPDATE = /UPDATE (?:"[^"]+"\.)?"e5u2_things"/;
+const THING_INSERT = /INSERT INTO (?:"[^"]+"\.)?"e5u2_things"/;
+const TIME_UPDATE = /UPDATE (?:"[^"]+"\.)?"e5u2_time_rows"/;
 const OWNER_COLUMN = /"owner_fk"/g;
 const SET_CLAUSE = /SET (.*?) WHERE /;
 

@@ -32,9 +32,11 @@ const VALID_UPDATE_ARGS = {
   data: { name: "Updated" },
 };
 
-const OFFICIAL_CACHE_NAMESPACE = createOfficialCacheNamespace(
-  "pending-operation-contract"
-);
+const OFFICIAL_CACHE_NAMESPACE = createOfficialCacheNamespace({
+  version: "pending-operation-contract",
+  dialect: "postgresql",
+  namespace: "public",
+});
 const OFFICIAL_CACHE_SCOPE = createOfficialCacheScope(OFFICIAL_CACHE_NAMESPACE);
 const USER_CACHE_PREFIX = `${OFFICIAL_CACHE_NAMESPACE}:user:`;
 

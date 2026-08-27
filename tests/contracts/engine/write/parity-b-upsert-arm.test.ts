@@ -284,7 +284,7 @@ function batchGuards(): unknown[] {
       id: "org.guard.exists",
       premise: {
         kind: "exists",
-        sql: 'SELECT "t0"."id" AS "id" FROM "parity_b_orgs" AS "t0" WHERE "t0"."id" = $1 LIMIT 1',
+        sql: 'SELECT "t0"."id" AS "id" FROM "public"."parity_b_orgs" AS "t0" WHERE "t0"."id" = $1 LIMIT 1',
         params: ["o1"],
       },
       failure: ORG_NOT_FOUND,
@@ -293,7 +293,7 @@ function batchGuards(): unknown[] {
       id: "team.guard.exists",
       premise: {
         kind: "exists",
-        sql: 'SELECT "t0"."id" AS "id", "t0"."orgId" AS "orgId" FROM "parity_b_teams" AS "t0" WHERE ("t0"."id" = $1 AND "t0"."id" = $2 AND "t0"."orgId" = $3) ORDER BY "t0"."id" ASC LIMIT $4',
+        sql: 'SELECT "t0"."id" AS "id", "t0"."orgId" AS "orgId" FROM "public"."parity_b_teams" AS "t0" WHERE ("t0"."id" = $1 AND "t0"."id" = $2 AND "t0"."orgId" = $3) ORDER BY "t0"."id" ASC LIMIT $4',
         params: ["t1", "t1", "o1", 1],
       },
       failure: {
@@ -310,7 +310,7 @@ function terminalStep(batch: boolean): unknown {
   return {
     id: "org.select",
     kind: "read",
-    sql: 'SELECT "t0"."id" AS "id" FROM "parity_b_orgs" AS "t0" WHERE "t0"."id" = $1 LIMIT 1',
+    sql: 'SELECT "t0"."id" AS "id" FROM "public"."parity_b_orgs" AS "t0" WHERE "t0"."id" = $1 LIMIT 1',
     params: ["o1"],
     outputs: { result: { kind: "rows" } },
     expects: batch ? null : TERMINAL_EXPECTS,
@@ -322,7 +322,7 @@ function terminalStep(batch: boolean): unknown {
 const NOTE_CREATE = {
   id: "note.create",
   kind: "write",
-  sql: 'INSERT INTO "parity_b_notes" ("id", "body", "teamId") VALUES ($1, $2, CAST($3 AS TEXT))',
+  sql: 'INSERT INTO "public"."parity_b_notes" ("id", "body", "teamId") VALUES ($1, $2, CAST($3 AS TEXT))',
   params: ["nX", "x", "t1"],
   outputs: {},
   expects: null,
@@ -360,7 +360,7 @@ for (const substrate of [
         {
           id: "org.locate",
           kind: "read",
-          sql: `SELECT "t0"."id" AS "id" FROM "parity_b_orgs" AS "t0" WHERE "t0"."id" = $1 LIMIT 1${lock}`,
+          sql: `SELECT "t0"."id" AS "id" FROM "public"."parity_b_orgs" AS "t0" WHERE "t0"."id" = $1 LIMIT 1${lock}`,
           params: ["o1"],
           outputs: {
             rows: { kind: "rows" },
@@ -373,7 +373,7 @@ for (const substrate of [
         {
           id: "team.find",
           kind: "read",
-          sql: `SELECT "t0"."id" AS "id", "t0"."orgId" AS "orgId" FROM "parity_b_teams" AS "t0" WHERE "t0"."id" = $1 LIMIT 1${lock}`,
+          sql: `SELECT "t0"."id" AS "id", "t0"."orgId" AS "orgId" FROM "public"."parity_b_teams" AS "t0" WHERE "t0"."id" = $1 LIMIT 1${lock}`,
           params: ["t1"],
           outputs: {
             rows: { kind: "rows" },
@@ -404,7 +404,7 @@ for (const substrate of [
           {
             id: "team.update",
             kind: "write",
-            sql: 'UPDATE "parity_b_teams" SET "label" = $1 WHERE "parity_b_teams"."id" = $2 RETURNING "id" AS "id"',
+            sql: 'UPDATE "public"."parity_b_teams" SET "label" = $1 WHERE "parity_b_teams"."id" = $2 RETURNING "id" AS "id"',
             params: ["T1b", "t1"],
             outputs: {},
             expects: substrate.batch ? null : ARM_VANISHED,
@@ -430,7 +430,7 @@ for (const substrate of [
           {
             id: "note.find",
             kind: "read",
-            sql: `SELECT "t0"."id" AS "id" FROM "parity_b_notes" AS "t0" WHERE "t0"."id" = $1 LIMIT 1${lock}`,
+            sql: `SELECT "t0"."id" AS "id" FROM "public"."parity_b_notes" AS "t0" WHERE "t0"."id" = $1 LIMIT 1${lock}`,
             params: ["n1"],
             outputs: { rows: { kind: "rows" } },
             expects: null,
@@ -452,7 +452,7 @@ for (const substrate of [
                   id: "note.guard.exists",
                   premise: {
                     kind: "exists",
-                    sql: 'SELECT "t0"."id" AS "id" FROM "parity_b_notes" AS "t0" WHERE "t0"."id" = $1 LIMIT 1',
+                    sql: 'SELECT "t0"."id" AS "id" FROM "public"."parity_b_notes" AS "t0" WHERE "t0"."id" = $1 LIMIT 1',
                     params: ["n1"],
                   },
                   failure: {
@@ -468,7 +468,7 @@ for (const substrate of [
           {
             id: "team.update",
             kind: "write",
-            sql: 'UPDATE "parity_b_teams" SET "label" = $1 WHERE "parity_b_teams"."id" = $2 RETURNING "id" AS "id"',
+            sql: 'UPDATE "public"."parity_b_teams" SET "label" = $1 WHERE "parity_b_teams"."id" = $2 RETURNING "id" AS "id"',
             params: ["T1b", "t1"],
             outputs: {},
             expects: substrate.batch ? null : ARM_VANISHED,
@@ -478,7 +478,7 @@ for (const substrate of [
           {
             id: "note.connect",
             kind: "write",
-            sql: 'UPDATE "parity_b_notes" SET "teamId" = CAST($1 AS TEXT) WHERE "parity_b_notes"."id" = $2 RETURNING "id" AS "id"',
+            sql: 'UPDATE "public"."parity_b_notes" SET "teamId" = CAST($1 AS TEXT) WHERE "parity_b_notes"."id" = $2 RETURNING "id" AS "id"',
             params: ["t1", "n1"],
             outputs: {},
             expects: null,
@@ -503,7 +503,7 @@ for (const substrate of [
           {
             id: "note.find",
             kind: "read",
-            sql: `SELECT "t0"."id" AS "id" FROM "parity_b_notes" AS "t0" WHERE ("t0"."id" = $1 AND "t0"."teamId" = $2) ORDER BY "t0"."id" ASC LIMIT $3${lock}`,
+            sql: `SELECT "t0"."id" AS "id" FROM "public"."parity_b_notes" AS "t0" WHERE ("t0"."id" = $1 AND "t0"."teamId" = $2) ORDER BY "t0"."id" ASC LIMIT $3${lock}`,
             // THE ARM'S PARENT VALUE, as a planning-internal reference to the captured
             // row — never the `where` literal the caller wrote one level up.
             params: ["n1", reference("team.find", "id"), 1],
@@ -531,7 +531,7 @@ for (const substrate of [
                   id: "note.guard.exists",
                   premise: {
                     kind: "exists",
-                    sql: 'SELECT "t0"."id" AS "id" FROM "parity_b_notes" AS "t0" WHERE ("t0"."id" = $1 AND "t0"."teamId" = $2 AND "t0"."id" = $3) ORDER BY "t0"."id" ASC LIMIT $4',
+                    sql: 'SELECT "t0"."id" AS "id" FROM "public"."parity_b_notes" AS "t0" WHERE ("t0"."id" = $1 AND "t0"."teamId" = $2 AND "t0"."id" = $3) ORDER BY "t0"."id" ASC LIMIT $4',
                     params: ["n1", "t1", "n1", 1],
                   },
                   failure: {
@@ -547,7 +547,7 @@ for (const substrate of [
           {
             id: "team.update",
             kind: "write",
-            sql: 'UPDATE "parity_b_teams" SET "label" = $1 WHERE "parity_b_teams"."id" = $2 RETURNING "id" AS "id"',
+            sql: 'UPDATE "public"."parity_b_teams" SET "label" = $1 WHERE "parity_b_teams"."id" = $2 RETURNING "id" AS "id"',
             params: ["T1b", "t1"],
             outputs: {},
             expects: substrate.batch ? null : ARM_VANISHED,
@@ -557,7 +557,7 @@ for (const substrate of [
           {
             id: "note.update",
             kind: "write",
-            sql: 'UPDATE "parity_b_notes" SET "body" = $1 WHERE "parity_b_notes"."id" = $2 RETURNING "id" AS "id"',
+            sql: 'UPDATE "public"."parity_b_notes" SET "body" = $1 WHERE "parity_b_notes"."id" = $2 RETURNING "id" AS "id"',
             params: ["y", "n1"],
             outputs: {},
             expects: substrate.batch
@@ -599,7 +599,7 @@ for (const substrate of [
           {
             id: "team.create",
             kind: "write",
-            sql: 'INSERT INTO "parity_b_teams" ("id", "label", "region", "code", "slug", "orgId", "ownerId") VALUES ($1, $2, $3, $4, $5, CAST($6 AS TEXT), NULL)',
+            sql: 'INSERT INTO "public"."parity_b_teams" ("id", "label", "region", "code", "slug", "orgId", "ownerId") VALUES ($1, $2, $3, $4, $5, CAST($6 AS TEXT), NULL)',
             params: ["t1", "T1", "eu", "alpha", "team-1", "o1"],
             outputs: {},
             expects: null,
@@ -630,7 +630,7 @@ for (const substrate of [
           {
             id: "team.update",
             kind: "write",
-            sql: 'UPDATE "parity_b_teams" SET "id" = $1, "label" = $2 WHERE "parity_b_teams"."id" = $3 RETURNING "id" AS "id"',
+            sql: 'UPDATE "public"."parity_b_teams" SET "id" = $1, "label" = $2 WHERE "parity_b_teams"."id" = $3 RETURNING "id" AS "id"',
             params: ["t1", "T1b", "t1"],
             outputs: {},
             expects: substrate.batch ? null : ARM_VANISHED,
@@ -654,7 +654,7 @@ for (const substrate of [
           {
             id: "team.update",
             kind: "write",
-            sql: 'UPDATE "parity_b_teams" SET "id" = $1, "label" = $2 WHERE "parity_b_teams"."id" = $3 RETURNING "id" AS "id"',
+            sql: 'UPDATE "public"."parity_b_teams" SET "id" = $1, "label" = $2 WHERE "parity_b_teams"."id" = $3 RETURNING "id" AS "id"',
             params: ["tMoved", "T1b", "t1"],
             outputs: {},
             expects: substrate.batch ? null : ARM_VANISHED,
@@ -697,7 +697,7 @@ for (const substrate of [
         id: "org.guard.exists",
         premise: {
           kind: "exists",
-          sql: 'SELECT "t0"."id" AS "id" FROM "parity_b_orgs" AS "t0" WHERE "t0"."id" = $1 LIMIT 1',
+          sql: 'SELECT "t0"."id" AS "id" FROM "public"."parity_b_orgs" AS "t0" WHERE "t0"."id" = $1 LIMIT 1',
           params: ["o1"],
         },
         failure: ORG_NOT_FOUND,
@@ -708,7 +708,7 @@ for (const substrate of [
         id: "team.guard.exists",
         premise: {
           kind: "exists",
-          sql: 'SELECT "t0"."id" AS "id", "t0"."orgId" AS "orgId" FROM "parity_b_teams" AS "t0" WHERE ("t0"."slug" = $1 AND "t0"."id" = $2 AND "t0"."orgId" = $3) ORDER BY "t0"."id" ASC LIMIT $4',
+          sql: 'SELECT "t0"."id" AS "id", "t0"."orgId" AS "orgId" FROM "public"."parity_b_teams" AS "t0" WHERE ("t0"."slug" = $1 AND "t0"."id" = $2 AND "t0"."orgId" = $3) ORDER BY "t0"."id" ASC LIMIT $4',
           params: ["team-1", "tCaptured", "o1", 1],
         },
         failure: {
@@ -728,7 +728,7 @@ for (const substrate of [
           {
             id: "org.locate",
             kind: "read",
-            sql: `SELECT "t0"."id" AS "id" FROM "parity_b_orgs" AS "t0" WHERE "t0"."id" = $1 LIMIT 1${lock}`,
+            sql: `SELECT "t0"."id" AS "id" FROM "public"."parity_b_orgs" AS "t0" WHERE "t0"."id" = $1 LIMIT 1${lock}`,
             params: ["o1"],
             outputs: {
               rows: { kind: "rows" },
@@ -741,7 +741,7 @@ for (const substrate of [
           {
             id: "team.find",
             kind: "read",
-            sql: `SELECT "t0"."id" AS "id", "t0"."orgId" AS "orgId" FROM "parity_b_teams" AS "t0" WHERE "t0"."slug" = $1 LIMIT 1${lock}`,
+            sql: `SELECT "t0"."id" AS "id", "t0"."orgId" AS "orgId" FROM "public"."parity_b_teams" AS "t0" WHERE "t0"."slug" = $1 LIMIT 1${lock}`,
             params: ["team-1"],
             outputs: {
               rows: { kind: "rows" },
@@ -773,7 +773,7 @@ for (const substrate of [
           {
             id: "team.update",
             kind: "write",
-            sql: 'UPDATE "parity_b_teams" SET "label" = $1 WHERE "parity_b_teams"."id" = $2 RETURNING "id" AS "id"',
+            sql: 'UPDATE "public"."parity_b_teams" SET "label" = $1 WHERE "parity_b_teams"."id" = $2 RETURNING "id" AS "id"',
             params: ["T1b", "tCaptured"],
             outputs: {},
             expects: substrate.batch ? null : ARM_VANISHED,
@@ -783,7 +783,7 @@ for (const substrate of [
           {
             id: "note.create",
             kind: "write",
-            sql: 'INSERT INTO "parity_b_notes" ("id", "body", "teamId") VALUES ($1, $2, CAST($3 AS TEXT))',
+            sql: 'INSERT INTO "public"."parity_b_notes" ("id", "body", "teamId") VALUES ($1, $2, CAST($3 AS TEXT))',
             params: ["nX", "x", "tCaptured"],
             outputs: {},
             expects: null,
@@ -814,7 +814,7 @@ for (const substrate of [
           {
             id: "team.create",
             kind: "write",
-            sql: 'INSERT INTO "parity_b_teams" ("id", "label", "region", "code", "slug", "orgId", "ownerId") VALUES ($1, $2, $3, $4, $5, CAST($6 AS TEXT), NULL)',
+            sql: 'INSERT INTO "public"."parity_b_teams" ("id", "label", "region", "code", "slug", "orgId", "ownerId") VALUES ($1, $2, $3, $4, $5, CAST($6 AS TEXT), NULL)',
             params: ["t1", "T1", "eu", "alpha", "team-1", "o1"],
             outputs: {},
             expects: null,

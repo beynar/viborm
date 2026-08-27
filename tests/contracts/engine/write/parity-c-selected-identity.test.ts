@@ -312,7 +312,7 @@ const OWNER_GUARD = {
   id: "owner.guard.exists",
   premise: {
     kind: "exists",
-    sql: 'SELECT "t0"."id" AS "id" FROM "parity_c_owners" AS "t0" WHERE "t0"."id" = $1 LIMIT 1',
+    sql: 'SELECT "t0"."id" AS "id" FROM "public"."parity_c_owners" AS "t0" WHERE "t0"."id" = $1 LIMIT 1',
     params: ["o1"],
   },
   failure: OWNER_NOT_FOUND,
@@ -347,7 +347,7 @@ for (const substrate of [
   const ownerLocate = {
     id: "owner.locate",
     kind: "read",
-    sql: `SELECT "t0"."id" AS "id" FROM "parity_c_owners" AS "t0" WHERE "t0"."id" = $1 LIMIT 1${lock}`,
+    sql: `SELECT "t0"."id" AS "id" FROM "public"."parity_c_owners" AS "t0" WHERE "t0"."id" = $1 LIMIT 1${lock}`,
     params: ["o1"],
     outputs: {
       rows: { kind: "rows" },
@@ -361,7 +361,7 @@ for (const substrate of [
   const terminal = {
     id: "owner.select",
     kind: "read",
-    sql: 'SELECT "t0"."id" AS "id" FROM "parity_c_owners" AS "t0" WHERE "t0"."id" = $1 LIMIT 1',
+    sql: 'SELECT "t0"."id" AS "id" FROM "public"."parity_c_owners" AS "t0" WHERE "t0"."id" = $1 LIMIT 1',
     params: ["o1"],
     outputs: { result: { kind: "rows" } },
     expects: substrate.batch
@@ -390,7 +390,7 @@ for (const substrate of [
   const correlatedFind = (publishesIdentity: boolean) => ({
     id: "item.find",
     kind: "read",
-    sql: `SELECT "t0"."id" AS "id" FROM "parity_c_items" AS "t0" WHERE ("t0"."code" = $1 AND "t0"."ownerId" = $2) ORDER BY "t0"."id" ASC LIMIT $3${lock}`,
+    sql: `SELECT "t0"."id" AS "id" FROM "public"."parity_c_items" AS "t0" WHERE ("t0"."code" = $1 AND "t0"."ownerId" = $2) ORDER BY "t0"."id" ASC LIMIT $3${lock}`,
     params: ["c1", reference("owner.locate", "id"), 1],
     outputs: publishesIdentity
       ? { rows: { kind: "rows" }, id: { kind: "firstRowField", field: "id" } }
@@ -411,7 +411,7 @@ for (const substrate of [
   });
 
   const CORRELATED_GUARD_SQL =
-    'SELECT "t0"."id" AS "id" FROM "parity_c_items" AS "t0" WHERE ("t0"."code" = $1 AND "t0"."ownerId" = $2 AND "t0"."id" = $3) ORDER BY "t0"."id" ASC LIMIT $4';
+    'SELECT "t0"."id" AS "id" FROM "public"."parity_c_items" AS "t0" WHERE ("t0"."code" = $1 AND "t0"."ownerId" = $2 AND "t0"."id" = $3) ORDER BY "t0"."id" ASC LIMIT $4';
 
   /** The junction target: the public selector says "G", the captured row is "gCaptured". */
   const tagProbeRows = {
@@ -431,7 +431,7 @@ for (const substrate of [
   const junctionFind = {
     id: "tag.find",
     kind: "read",
-    sql: `SELECT "parity_c_tags"."id" AS "id" FROM "parity_c_tags" WHERE ("parity_c_tags"."id" IN (SELECT "tagId" FROM "owner_tag" WHERE "ownerId" = $1) AND "parity_c_tags"."name" = $2) LIMIT $3${lock}`,
+    sql: `SELECT "parity_c_tags"."id" AS "id" FROM "public"."parity_c_tags" WHERE ("parity_c_tags"."id" IN (SELECT "tagId" FROM "public"."owner_tag" WHERE "ownerId" = $1) AND "parity_c_tags"."name" = $2) LIMIT $3${lock}`,
     params: [reference("owner.locate", "id"), "G", 1],
     outputs: { rows: { kind: "rows" } },
     expects: null,
@@ -443,7 +443,7 @@ for (const substrate of [
     id: "tag.guard.exists",
     premise: {
       kind: "exists",
-      sql: 'SELECT "parity_c_tags"."id" AS "id" FROM "parity_c_tags" WHERE ("parity_c_tags"."id" IN (SELECT "tagId" FROM "owner_tag" WHERE "ownerId" = $1) AND "parity_c_tags"."name" = $2 AND "parity_c_tags"."id" = $3) LIMIT $4',
+      sql: 'SELECT "parity_c_tags"."id" AS "id" FROM "public"."parity_c_tags" WHERE ("parity_c_tags"."id" IN (SELECT "tagId" FROM "public"."owner_tag" WHERE "ownerId" = $1) AND "parity_c_tags"."name" = $2 AND "parity_c_tags"."id" = $3) LIMIT $4',
       params: ["o1", "G", "gCaptured", 1],
     },
     failure,
@@ -472,7 +472,7 @@ for (const substrate of [
             {
               id: "tag.update",
               kind: "write",
-              sql: 'UPDATE "parity_c_tags" SET "name" = $1 WHERE "parity_c_tags"."id" = $2 RETURNING "id" AS "id"',
+              sql: 'UPDATE "public"."parity_c_tags" SET "name" = $1 WHERE "parity_c_tags"."id" = $2 RETURNING "id" AS "id"',
               params: ["G2", "gCaptured"],
               outputs: {},
               expects: substrate.batch
@@ -521,7 +521,7 @@ for (const substrate of [
               // target key is the captured id — never the "G" the caller wrote.
               id: "tag.delete",
               kind: "write",
-              sql: 'DELETE FROM "owner_tag" WHERE "tagId" IN ($1)',
+              sql: 'DELETE FROM "public"."owner_tag" WHERE "tagId" IN ($1)',
               params: ["gCaptured"],
               outputs: {},
               expects: null,
@@ -531,7 +531,7 @@ for (const substrate of [
             {
               id: "tag.delete.child",
               kind: "write",
-              sql: 'DELETE FROM "parity_c_tags" WHERE "parity_c_tags"."id" = $1 RETURNING "id" AS "id", "name" AS "name"',
+              sql: 'DELETE FROM "public"."parity_c_tags" WHERE "parity_c_tags"."id" = $1 RETURNING "id" AS "id", "name" AS "name"',
               params: ["gCaptured"],
               outputs: {},
               expects: null,
@@ -556,7 +556,7 @@ for (const substrate of [
             // membership subquery — the same split the child-held `set` shows above.
             id: "tag.find",
             kind: "read",
-            sql: `SELECT "t0"."id" AS "id" FROM "parity_c_tags" AS "t0" WHERE "t0"."name" = $1 LIMIT 1${lock}`,
+            sql: `SELECT "t0"."id" AS "id" FROM "public"."parity_c_tags" AS "t0" WHERE "t0"."name" = $1 LIMIT 1${lock}`,
             params: ["G"],
             outputs: { rows: { kind: "rows" } },
             expects: null,
@@ -580,7 +580,7 @@ for (const substrate of [
                     id: "tag.guard.exists",
                     premise: {
                       kind: "exists",
-                      sql: 'SELECT "t0"."id" AS "id" FROM "parity_c_tags" AS "t0" WHERE ("t0"."name" = $1 AND "t0"."id" = $2) ORDER BY "t0"."id" ASC LIMIT $3',
+                      sql: 'SELECT "t0"."id" AS "id" FROM "public"."parity_c_tags" AS "t0" WHERE ("t0"."name" = $1 AND "t0"."id" = $2) ORDER BY "t0"."id" ASC LIMIT $3',
                       params: ["G", "gCaptured", 1],
                     },
                     failure: {
@@ -596,7 +596,7 @@ for (const substrate of [
             {
               id: "tag.set.clear",
               kind: "write",
-              sql: 'DELETE FROM "owner_tag" WHERE "ownerId" = $1',
+              sql: 'DELETE FROM "public"."owner_tag" WHERE "ownerId" = $1',
               params: ["o1"],
               outputs: {},
               expects: null,
@@ -612,7 +612,7 @@ for (const substrate of [
               // what changed is that a target-side UNIQUE, which only a
               // singular polymorphic member table has, can now raise instead of
               // being swallowed.
-              sql: 'INSERT  INTO "owner_tag" ("ownerId", "tagId") VALUES ($1, $2) ON CONFLICT ("ownerId", "tagId") DO NOTHING',
+              sql: 'INSERT  INTO "public"."owner_tag" ("ownerId", "tagId") VALUES ($1, $2) ON CONFLICT ("ownerId", "tagId") DO NOTHING',
               params: ["o1", "gCaptured"],
               outputs: {},
               expects: null,
@@ -661,7 +661,7 @@ for (const substrate of [
           {
             id: "item.updateMany",
             kind: "write",
-            sql: 'UPDATE "parity_c_items" SET "label" = $1 WHERE ("parity_c_items"."ownerId" = $2 AND "parity_c_items"."label" = $3)',
+            sql: 'UPDATE "public"."parity_c_items" SET "label" = $1 WHERE ("parity_c_items"."ownerId" = $2 AND "parity_c_items"."label" = $3)',
             params: ["L2", "o1", "L"],
             outputs: {},
             expects: null,
@@ -693,7 +693,7 @@ for (const substrate of [
           {
             id: "item.deleteMany",
             kind: "write",
-            sql: 'DELETE FROM "parity_c_items" WHERE ("parity_c_items"."ownerId" = $1 AND "parity_c_items"."label" = $2)',
+            sql: 'DELETE FROM "public"."parity_c_items" WHERE ("parity_c_items"."ownerId" = $1 AND "parity_c_items"."label" = $2)',
             params: ["o1", "L"],
             outputs: {},
             expects: null,
@@ -735,7 +735,7 @@ for (const substrate of [
           {
             id: "item.update",
             kind: "write",
-            sql: 'UPDATE "parity_c_items" SET "label" = $1 WHERE "parity_c_items"."id" = $2 RETURNING "id" AS "id"',
+            sql: 'UPDATE "public"."parity_c_items" SET "label" = $1 WHERE "parity_c_items"."id" = $2 RETURNING "id" AS "id"',
             params: ["L2", "iCaptured"],
             outputs: {},
             expects: substrate.batch
@@ -783,7 +783,7 @@ for (const substrate of [
           {
             id: "item.delete",
             kind: "write",
-            sql: 'DELETE FROM "parity_c_items" WHERE "parity_c_items"."id" = $1 RETURNING "id" AS "id", "code" AS "code", "label" AS "label", "ownerId" AS "ownerId"',
+            sql: 'DELETE FROM "public"."parity_c_items" WHERE "parity_c_items"."id" = $1 RETURNING "id" AS "id", "code" AS "code", "label" AS "label", "ownerId" AS "ownerId"',
             params: ["iCaptured"],
             outputs: {},
             expects: null,
@@ -809,7 +809,7 @@ for (const substrate of [
           {
             id: "item.find",
             kind: "read",
-            sql: `SELECT "t0"."id" AS "id" FROM "parity_c_items" AS "t0" WHERE "t0"."code" = $1 LIMIT 1${lock}`,
+            sql: `SELECT "t0"."id" AS "id" FROM "public"."parity_c_items" AS "t0" WHERE "t0"."code" = $1 LIMIT 1${lock}`,
             params: ["c1"],
             outputs: { rows: { kind: "rows" } },
             expects: null,
@@ -825,7 +825,7 @@ for (const substrate of [
             ? [
                 OWNER_GUARD,
                 capturedGuard(
-                  'SELECT "t0"."id" AS "id" FROM "parity_c_items" AS "t0" WHERE ("t0"."code" = $1 AND "t0"."id" = $2) ORDER BY "t0"."id" ASC LIMIT $3',
+                  'SELECT "t0"."id" AS "id" FROM "public"."parity_c_items" AS "t0" WHERE ("t0"."code" = $1 AND "t0"."id" = $2) ORDER BY "t0"."id" ASC LIMIT $3',
                   ["c1", "iCaptured", 1],
                   targetNotFound("set")
                 ),
@@ -834,7 +834,7 @@ for (const substrate of [
           {
             id: "item.orphan",
             kind: "write",
-            sql: 'UPDATE "parity_c_items" SET "ownerId" = NULL WHERE ("parity_c_items"."ownerId" = $1 AND NOT ("parity_c_items"."code" = $2))',
+            sql: 'UPDATE "public"."parity_c_items" SET "ownerId" = NULL WHERE ("parity_c_items"."ownerId" = $1 AND NOT ("parity_c_items"."code" = $2))',
             params: ["o1", "c1"],
             outputs: {},
             expects: null,
@@ -844,7 +844,7 @@ for (const substrate of [
           {
             id: "item.set",
             kind: "write",
-            sql: 'UPDATE "parity_c_items" SET "ownerId" = CAST($1 AS TEXT) WHERE "parity_c_items"."id" IN ($2)',
+            sql: 'UPDATE "public"."parity_c_items" SET "ownerId" = CAST($1 AS TEXT) WHERE "parity_c_items"."id" IN ($2)',
             params: ["o1", "iCaptured"],
             outputs: {},
             expects: null,
@@ -898,7 +898,7 @@ describe("parity C — compound child row keys, per owner", () => {
       })
       .catch(() => undefined);
     expect(driver.statements).toEqual([
-      'SELECT "t0"."tenantId" AS "tenantId", "t0"."slot" AS "slot", "t0"."ownerId" AS "ownerId" FROM "parity_c_pairs" AS "t0" WHERE ("t0"."tenantId" = $1 AND "t0"."slot" = $2) LIMIT 1 FOR UPDATE',
+      'SELECT "t0"."tenantId" AS "tenantId", "t0"."slot" AS "slot", "t0"."ownerId" AS "ownerId" FROM "public"."parity_c_pairs" AS "t0" WHERE ("t0"."tenantId" = $1 AND "t0"."slot" = $2) LIMIT 1 FOR UPDATE',
     ]);
   });
 
@@ -927,7 +927,7 @@ describe("parity C — compound child row keys, per owner", () => {
         {
           id: "owner.locate",
           kind: "read",
-          sql: 'SELECT "t0"."id" AS "id" FROM "parity_c_owners" AS "t0" WHERE "t0"."id" = $1 LIMIT 1 FOR UPDATE',
+          sql: 'SELECT "t0"."id" AS "id" FROM "public"."parity_c_owners" AS "t0" WHERE "t0"."id" = $1 LIMIT 1 FOR UPDATE',
           params: ["o1"],
           outputs: {
             rows: { kind: "rows" },
@@ -940,7 +940,7 @@ describe("parity C — compound child row keys, per owner", () => {
         {
           id: "tagSlot.find",
           kind: "read",
-          sql: 'SELECT "t0"."tenantId" AS "tenantId", "t0"."slot" AS "slot" FROM "parity_c_tag_slots" AS "t0" WHERE ("t0"."tenantId" = $1 AND "t0"."slot" = $2) LIMIT 1 FOR UPDATE',
+          sql: 'SELECT "t0"."tenantId" AS "tenantId", "t0"."slot" AS "slot" FROM "public"."parity_c_tag_slots" AS "t0" WHERE ("t0"."tenantId" = $1 AND "t0"."slot" = $2) LIMIT 1 FOR UPDATE',
           params: ["t1", "s1"],
           outputs: { rows: { kind: "rows" } },
           expects: null,
@@ -983,7 +983,7 @@ describe("parity C — compound child row keys, per owner", () => {
   const compoundTerminal = (batch: boolean) => ({
     id: "owner.select",
     kind: "read",
-    sql: 'SELECT "t0"."id" AS "id" FROM "parity_c_owners" AS "t0" WHERE "t0"."id" = $1 LIMIT 1',
+    sql: 'SELECT "t0"."id" AS "id" FROM "public"."parity_c_owners" AS "t0" WHERE "t0"."id" = $1 LIMIT 1',
     params: ["o1"],
     outputs: { result: { kind: "rows" } },
     expects: batch
@@ -1004,7 +1004,7 @@ describe("parity C — compound child row keys, per owner", () => {
   const compoundOwnerLocate = (batch: boolean) => ({
     id: "owner.locate",
     kind: "read",
-    sql: `SELECT "t0"."id" AS "id" FROM "parity_c_owners" AS "t0" WHERE "t0"."id" = $1 LIMIT 1${
+    sql: `SELECT "t0"."id" AS "id" FROM "public"."parity_c_owners" AS "t0" WHERE "t0"."id" = $1 LIMIT 1${
       batch ? "" : " FOR UPDATE"
     }`,
     params: ["o1"],
@@ -1051,7 +1051,7 @@ describe("parity C — compound child row keys, per owner", () => {
             kind: "read",
             // The correlated probe publishes BOTH row-key members as firstRowField
             // outputs — the single-member version published one.
-            sql: `SELECT "t0"."tenantId" AS "tenantId", "t0"."slot" AS "slot" FROM "parity_c_pairs" AS "t0" WHERE ("t0"."tenantId" = $1 AND "t0"."slot" = $2 AND "t0"."ownerId" = $3) ORDER BY "t0"."tenantId" ASC, "t0"."slot" ASC LIMIT $4${lock}`,
+            sql: `SELECT "t0"."tenantId" AS "tenantId", "t0"."slot" AS "slot" FROM "public"."parity_c_pairs" AS "t0" WHERE ("t0"."tenantId" = $1 AND "t0"."slot" = $2 AND "t0"."ownerId" = $3) ORDER BY "t0"."tenantId" ASC, "t0"."slot" ASC LIMIT $4${lock}`,
             params: ["t1", "s1", reference("owner.locate", "id"), 1],
             outputs: {
               rows: { kind: "rows" },
@@ -1091,7 +1091,7 @@ describe("parity C — compound child row keys, per owner", () => {
                   id: "pair.guard.exists",
                   premise: {
                     kind: "exists",
-                    sql: 'SELECT "t0"."tenantId" AS "tenantId", "t0"."slot" AS "slot" FROM "parity_c_pairs" AS "t0" WHERE ("t0"."tenantId" = $1 AND "t0"."slot" = $2 AND "t0"."ownerId" = $3 AND "t0"."tenantId" = $4 AND "t0"."slot" = $5) ORDER BY "t0"."tenantId" ASC, "t0"."slot" ASC LIMIT $6',
+                    sql: 'SELECT "t0"."tenantId" AS "tenantId", "t0"."slot" AS "slot" FROM "public"."parity_c_pairs" AS "t0" WHERE ("t0"."tenantId" = $1 AND "t0"."slot" = $2 AND "t0"."ownerId" = $3 AND "t0"."tenantId" = $4 AND "t0"."slot" = $5) ORDER BY "t0"."tenantId" ASC, "t0"."slot" ASC LIMIT $6',
                     params: ["t1", "s1", "o1", "tCap", "sCap", 1],
                   },
                   failure: {
@@ -1107,7 +1107,7 @@ describe("parity C — compound child row keys, per owner", () => {
           {
             id: "pair.update",
             kind: "write",
-            sql: 'UPDATE "parity_c_pairs" SET "note" = $1 WHERE ("parity_c_pairs"."tenantId" = $2 AND "parity_c_pairs"."slot" = $3) RETURNING "tenantId" AS "tenantId", "slot" AS "slot"',
+            sql: 'UPDATE "public"."parity_c_pairs" SET "note" = $1 WHERE ("parity_c_pairs"."tenantId" = $2 AND "parity_c_pairs"."slot" = $3) RETURNING "tenantId" AS "tenantId", "slot" AS "slot"',
             params: ["n2", "tCap", "sCap"],
             outputs: {},
             expects: substrate.batch
@@ -1152,7 +1152,7 @@ describe("parity C — compound child row keys, per owner", () => {
             // also publishes the FK it will overwrite; both row-key members lead.
             id: "pair.find",
             kind: "read",
-            sql: `SELECT "t0"."tenantId" AS "tenantId", "t0"."slot" AS "slot", "t0"."ownerId" AS "ownerId" FROM "parity_c_pairs" AS "t0" WHERE ("t0"."tenantId" = $1 AND "t0"."slot" = $2) LIMIT 1${lock}`,
+            sql: `SELECT "t0"."tenantId" AS "tenantId", "t0"."slot" AS "slot", "t0"."ownerId" AS "ownerId" FROM "public"."parity_c_pairs" AS "t0" WHERE ("t0"."tenantId" = $1 AND "t0"."slot" = $2) LIMIT 1${lock}`,
             params: ["t1", "s1"],
             outputs: {
               rows: { kind: "rows" },
@@ -1187,7 +1187,7 @@ describe("parity C — compound child row keys, per owner", () => {
                   id: "pair.guard.exists",
                   premise: {
                     kind: "exists",
-                    sql: 'SELECT "t0"."tenantId" AS "tenantId", "t0"."slot" AS "slot", "t0"."ownerId" AS "ownerId" FROM "parity_c_pairs" AS "t0" WHERE ("t0"."tenantId" = $1 AND "t0"."slot" = $2 AND "t0"."tenantId" = $3 AND "t0"."slot" = $4 AND "t0"."ownerId" = $5) ORDER BY "t0"."tenantId" ASC, "t0"."slot" ASC LIMIT $6',
+                    sql: 'SELECT "t0"."tenantId" AS "tenantId", "t0"."slot" AS "slot", "t0"."ownerId" AS "ownerId" FROM "public"."parity_c_pairs" AS "t0" WHERE ("t0"."tenantId" = $1 AND "t0"."slot" = $2 AND "t0"."tenantId" = $3 AND "t0"."slot" = $4 AND "t0"."ownerId" = $5) ORDER BY "t0"."tenantId" ASC, "t0"."slot" ASC LIMIT $6',
                     params: ["t1", "s1", "tCap", "sCap", "o1", 1],
                   },
                   failure: {
@@ -1205,7 +1205,7 @@ describe("parity C — compound child row keys, per owner", () => {
             // the captured pair without redundantly rewriting the agreeing owner FK.
             id: "pair.update",
             kind: "write",
-            sql: 'UPDATE "parity_c_pairs" SET "note" = $1 WHERE ("parity_c_pairs"."tenantId" = $2 AND "parity_c_pairs"."slot" = $3) RETURNING "tenantId" AS "tenantId", "slot" AS "slot"',
+            sql: 'UPDATE "public"."parity_c_pairs" SET "note" = $1 WHERE ("parity_c_pairs"."tenantId" = $2 AND "parity_c_pairs"."slot" = $3) RETURNING "tenantId" AS "tenantId", "slot" AS "slot"',
             params: ["n2", "tCap", "sCap"],
             outputs: {},
             expects: substrate.batch
@@ -1342,7 +1342,7 @@ describe("parity C4 — a row key that is not the reference key", () => {
           {
             id: "ref.locate",
             kind: "read",
-            sql: `SELECT "t0"."id" AS "id", "t0"."tenantId" AS "tenantId", "t0"."targetCode" AS "targetCode" FROM "parity_c_refs" AS "t0" WHERE "t0"."id" = $1 LIMIT 1${lock}`,
+            sql: `SELECT "t0"."id" AS "id", "t0"."tenantId" AS "tenantId", "t0"."targetCode" AS "targetCode" FROM "public"."parity_c_refs" AS "t0" WHERE "t0"."id" = $1 LIMIT 1${lock}`,
             params: ["r1"],
             outputs: {
               rows: { kind: "rows" },
@@ -1368,7 +1368,7 @@ describe("parity C4 — a row key that is not the reference key", () => {
             // `targetCode` with the target's `code`.
             id: "anchor.find",
             kind: "read",
-            sql: `SELECT "t0"."id" AS "id", "t0"."tenantId" AS "tenantId", "t0"."code" AS "code" FROM "parity_c_anchors" AS "t0" WHERE ("t0"."tenantId" = $1 AND "t0"."code" = $2) ORDER BY "t0"."id" ASC LIMIT $3${lock}`,
+            sql: `SELECT "t0"."id" AS "id", "t0"."tenantId" AS "tenantId", "t0"."code" AS "code" FROM "public"."parity_c_anchors" AS "t0" WHERE ("t0"."tenantId" = $1 AND "t0"."code" = $2) ORDER BY "t0"."id" ASC LIMIT $3${lock}`,
             params: [
               reference("ref.locate", "tenantId"),
               reference("ref.locate", "targetCode"),
@@ -1396,7 +1396,7 @@ describe("parity C4 — a row key that is not the reference key", () => {
           {
             id: "ref.find",
             kind: "read",
-            sql: `SELECT "t0"."id" AS "id" FROM "parity_c_refs" AS "t0" WHERE "t0"."id" = $1 LIMIT 1${lock}`,
+            sql: `SELECT "t0"."id" AS "id" FROM "public"."parity_c_refs" AS "t0" WHERE "t0"."id" = $1 LIMIT 1${lock}`,
             params: ["r2"],
             outputs: { rows: { kind: "rows" } },
             expects: null,
@@ -1427,7 +1427,7 @@ describe("parity C4 — a row key that is not the reference key", () => {
                   id: "ref.guard.exists",
                   premise: {
                     kind: "exists",
-                    sql: 'SELECT "t0"."id" AS "id" FROM "parity_c_refs" AS "t0" WHERE "t0"."id" = $1 LIMIT 1',
+                    sql: 'SELECT "t0"."id" AS "id" FROM "public"."parity_c_refs" AS "t0" WHERE "t0"."id" = $1 LIMIT 1',
                     params: ["r1"],
                   },
                   failure: {
@@ -1443,7 +1443,7 @@ describe("parity C4 — a row key that is not the reference key", () => {
                   id: "anchor.guard.exists",
                   premise: {
                     kind: "exists",
-                    sql: 'SELECT "t0"."id" AS "id" FROM "parity_c_anchors" AS "t0" WHERE ("t0"."tenantId" = $1 AND "t0"."code" = $2 AND "t0"."id" = $3) ORDER BY "t0"."id" ASC LIMIT $4',
+                    sql: 'SELECT "t0"."id" AS "id" FROM "public"."parity_c_anchors" AS "t0" WHERE ("t0"."tenantId" = $1 AND "t0"."code" = $2 AND "t0"."id" = $3) ORDER BY "t0"."id" ASC LIMIT $4',
                     params: ["tSel", "cSel", "aCaptured", 1],
                   },
                   failure: {
@@ -1458,7 +1458,7 @@ describe("parity C4 — a row key that is not the reference key", () => {
                   id: "ref.guard.exists#1",
                   premise: {
                     kind: "exists",
-                    sql: 'SELECT "t0"."id" AS "id" FROM "parity_c_refs" AS "t0" WHERE "t0"."id" = $1 LIMIT 1',
+                    sql: 'SELECT "t0"."id" AS "id" FROM "public"."parity_c_refs" AS "t0" WHERE "t0"."id" = $1 LIMIT 1',
                     params: ["r2"],
                   },
                   failure: {
@@ -1475,7 +1475,7 @@ describe("parity C4 — a row key that is not the reference key", () => {
             // The complete row key, and ONLY the row key.
             id: "anchor.update",
             kind: "write",
-            sql: 'UPDATE "parity_c_anchors" SET "note" = $1 WHERE "parity_c_anchors"."id" = $2 RETURNING "id" AS "id"',
+            sql: 'UPDATE "public"."parity_c_anchors" SET "note" = $1 WHERE "parity_c_anchors"."id" = $2 RETURNING "id" AS "id"',
             params: ["n2", "aCaptured"],
             outputs: {},
             expects: substrate.batch
@@ -1498,7 +1498,7 @@ describe("parity C4 — a row key that is not the reference key", () => {
             // the REFERENCE key in schema order, out of the captured row.
             id: "ref.connect",
             kind: "write",
-            sql: 'UPDATE "parity_c_refs" SET "tenantId" = CAST($1 AS TEXT), "targetCode" = CAST($2 AS TEXT) WHERE "parity_c_refs"."id" = $3 RETURNING "id" AS "id"',
+            sql: 'UPDATE "public"."parity_c_refs" SET "tenantId" = CAST($1 AS TEXT), "targetCode" = CAST($2 AS TEXT) WHERE "parity_c_refs"."id" = $3 RETURNING "id" AS "id"',
             params: ["tCap", "cCap", "r2"],
             outputs: {},
             expects: null,
@@ -1508,7 +1508,7 @@ describe("parity C4 — a row key that is not the reference key", () => {
           {
             id: "ref.select",
             kind: "read",
-            sql: 'SELECT "t0"."id" AS "id" FROM "parity_c_refs" AS "t0" WHERE "t0"."id" = $1 LIMIT 1',
+            sql: 'SELECT "t0"."id" AS "id" FROM "public"."parity_c_refs" AS "t0" WHERE "t0"."id" = $1 LIMIT 1',
             params: ["r1"],
             outputs: { result: { kind: "rows" } },
             expects: substrate.batch

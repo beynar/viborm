@@ -272,7 +272,7 @@ describe("parity J — the scalar grouped multi-row INSERT", () => {
         {
           id: "crate.createMany",
           kind: "write",
-          sql: 'INSERT INTO "pj_crates" ("id", "label") VALUES ($1, $2), ($3, $4), ($5, $6)',
+          sql: 'INSERT INTO "public"."pj_crates" ("id", "label") VALUES ($1, $2), ($3, $4), ($5, $6)',
           params: [1, "one", 2, "two", 3, "three"],
           outputs: COUNT_OUTPUT,
           ...NO_BRANCH,
@@ -333,7 +333,7 @@ describe("parity J — the scalar grouped multi-row INSERT", () => {
         {
           id: "parcel.createMany",
           kind: "write",
-          sql: 'INSERT INTO "pj_parcels" ("id", "label", "binId") VALUES ($1, $2, NULL), ($3, $4, $5)',
+          sql: 'INSERT INTO "public"."pj_parcels" ("id", "label", "binId") VALUES ($1, $2, NULL), ($3, $4, $5)',
           params: [1, "one", 2, "two", 7],
           outputs: COUNT_OUTPUT,
           ...NO_BRANCH,
@@ -359,7 +359,7 @@ describe("parity J — the scalar grouped multi-row INSERT", () => {
         {
           id: "autoCrate.createMany",
           kind: "write",
-          sql: 'INSERT INTO "pj_auto_crates" ("id", "label") VALUES ($1, $2), ($3, $4)',
+          sql: 'INSERT INTO "public"."pj_auto_crates" ("id", "label") VALUES ($1, $2), ($3, $4)',
           params: [30, "explicit-high", 20, "explicit-low"],
           outputs: COUNT_OUTPUT,
           ...NO_BRANCH,
@@ -367,7 +367,7 @@ describe("parity J — the scalar grouped multi-row INSERT", () => {
         {
           id: "autoCrate.createMany#1",
           kind: "write",
-          sql: 'INSERT INTO "pj_auto_crates" ("label") VALUES ($1), ($2)',
+          sql: 'INSERT INTO "public"."pj_auto_crates" ("label") VALUES ($1), ($2)',
           params: ["generated-first", "generated-second"],
           outputs: COUNT_OUTPUT,
           ...NO_BRANCH,
@@ -403,7 +403,7 @@ describe("parity J — each dialect's skipDuplicates spelling", () => {
     const dialects = [
       {
         driver: new PGliteDriver(),
-        sql: 'INSERT  INTO "pj_crates" ("id", "label") VALUES ($1, $2), ($3, $4), ($5, $6) ON CONFLICT DO NOTHING',
+        sql: 'INSERT  INTO "public"."pj_crates" ("id", "label") VALUES ($1, $2), ($3, $4), ($5, $6) ON CONFLICT DO NOTHING',
       },
       {
         driver: new SQLite3Driver(),
@@ -486,7 +486,7 @@ describe("parity J — the RETURNING fold", () => {
         {
           id: "crate.createManyReturn",
           kind: "write",
-          sql: 'INSERT INTO "pj_crates" ("id", "label") VALUES ($1, $2), ($3, $4), ($5, $6), ($7, $8) RETURNING "id" AS "id", "label" AS "label"',
+          sql: 'INSERT INTO "public"."pj_crates" ("id", "label") VALUES ($1, $2), ($3, $4), ($5, $6), ($7, $8) RETURNING "id" AS "id", "label" AS "label"',
           params: [40, "first", 10, "second", 30, "third", 20, "fourth"],
           outputs: { result: { kind: "rows" } },
           ...NO_BRANCH,
@@ -555,7 +555,7 @@ describe("parity J — the atomic-batch substrate plans nothing either", () => {
         {
           id: "crate.createMany",
           kind: "write",
-          sql: 'INSERT INTO "pj_crates" ("id", "label") VALUES ($1, $2), ($3, $4), ($5, $6)',
+          sql: 'INSERT INTO "public"."pj_crates" ("id", "label") VALUES ($1, $2), ($3, $4), ($5, $6)',
           params: [1, "one", 2, "two", 3, "three"],
           outputs: COUNT_OUTPUT,
           ...NO_BRANCH,
@@ -577,7 +577,7 @@ describe("parity J — the atomic-batch substrate plans nothing either", () => {
         {
           id: "crate.createManyReturn",
           kind: "write",
-          sql: 'INSERT INTO "pj_crates" ("id", "label") VALUES ($1, $2), ($3, $4), ($5, $6) RETURNING "id" AS "id", "label" AS "label"',
+          sql: 'INSERT INTO "public"."pj_crates" ("id", "label") VALUES ($1, $2), ($3, $4), ($5, $6) RETURNING "id" AS "id", "label" AS "label"',
           params: [1, "one", 2, "two", 3, "three"],
           outputs: { result: { kind: "rows" } },
           ...NO_BRANCH,
@@ -662,7 +662,7 @@ describe("parity J — the direct-polymorphic bulk connect route", () => {
         {
           id: "label.find",
           kind: "read",
-          sql: 'SELECT "t0"."id" AS "id" FROM "pj_labels" AS "t0" WHERE ("t0"."id" = $1 OR "t0"."id" = $2) FOR UPDATE',
+          sql: 'SELECT "t0"."id" AS "id" FROM "public"."pj_labels" AS "t0" WHERE ("t0"."id" = $1 OR "t0"."id" = $2) FOR UPDATE',
           params: [10, 11],
           outputs: { rows: { kind: "rows" } },
           ...NO_BRANCH,
@@ -670,7 +670,7 @@ describe("parity J — the direct-polymorphic bulk connect route", () => {
         {
           id: "sticker.find",
           kind: "read",
-          sql: 'SELECT "t0"."id" AS "id" FROM "pj_stickers" AS "t0" WHERE "t0"."id" = $1 FOR UPDATE',
+          sql: 'SELECT "t0"."id" AS "id" FROM "public"."pj_stickers" AS "t0" WHERE "t0"."id" = $1 FOR UPDATE',
           params: [20],
           outputs: { rows: { kind: "rows" } },
           ...NO_BRANCH,
@@ -686,7 +686,7 @@ describe("parity J — the direct-polymorphic bulk connect route", () => {
         {
           id: "tag.createMany",
           kind: "write",
-          sql: 'INSERT INTO "pj_tags" ("id", "note", "subject_type", "subject_id") VALUES ($1, $2, $3, $4), ($5, $6, $7, $8), ($9, $10, $11, $12)',
+          sql: 'INSERT INTO "public"."pj_tags" ("id", "note", "subject_type", "subject_id") VALUES ($1, $2, $3, $4), ($5, $6, $7, $8), ($9, $10, $11, $12)',
           params: GROUPED_INSERT_PARAMS,
           outputs: COUNT_OUTPUT,
           ...NO_BRANCH,
@@ -705,7 +705,7 @@ describe("parity J — the direct-polymorphic bulk connect route", () => {
         {
           id: "label.find",
           kind: "read",
-          sql: 'SELECT "t0"."id" AS "id" FROM "pj_labels" AS "t0" WHERE ("t0"."id" = $1 OR "t0"."id" = $2)',
+          sql: 'SELECT "t0"."id" AS "id" FROM "public"."pj_labels" AS "t0" WHERE ("t0"."id" = $1 OR "t0"."id" = $2)',
           params: [10, 11],
           outputs: { rows: { kind: "rows" } },
           ...NO_BRANCH,
@@ -713,7 +713,7 @@ describe("parity J — the direct-polymorphic bulk connect route", () => {
         {
           id: "sticker.find",
           kind: "read",
-          sql: 'SELECT "t0"."id" AS "id" FROM "pj_stickers" AS "t0" WHERE "t0"."id" = $1',
+          sql: 'SELECT "t0"."id" AS "id" FROM "public"."pj_stickers" AS "t0" WHERE "t0"."id" = $1',
           params: [20],
           outputs: { rows: { kind: "rows" } },
           ...NO_BRANCH,
@@ -730,7 +730,7 @@ describe("parity J — the direct-polymorphic bulk connect route", () => {
           id: "label.guard.exists",
           kind: "guard",
           premise: "exists",
-          sql: 'SELECT "t0"."id" AS "id" FROM "pj_labels" AS "t0" WHERE "t0"."id" = $1 ORDER BY "t0"."id" ASC LIMIT $2',
+          sql: 'SELECT "t0"."id" AS "id" FROM "public"."pj_labels" AS "t0" WHERE "t0"."id" = $1 ORDER BY "t0"."id" ASC LIMIT $2',
           params: [10, 1],
           failure: TARGET_MISSING,
         },
@@ -738,7 +738,7 @@ describe("parity J — the direct-polymorphic bulk connect route", () => {
           id: "label.guard.exists#1",
           kind: "guard",
           premise: "exists",
-          sql: 'SELECT "t0"."id" AS "id" FROM "pj_labels" AS "t0" WHERE "t0"."id" = $1 ORDER BY "t0"."id" ASC LIMIT $2',
+          sql: 'SELECT "t0"."id" AS "id" FROM "public"."pj_labels" AS "t0" WHERE "t0"."id" = $1 ORDER BY "t0"."id" ASC LIMIT $2',
           params: [11, 1],
           failure: TARGET_MISSING,
         },
@@ -746,14 +746,14 @@ describe("parity J — the direct-polymorphic bulk connect route", () => {
           id: "sticker.guard.exists",
           kind: "guard",
           premise: "exists",
-          sql: 'SELECT "t0"."id" AS "id" FROM "pj_stickers" AS "t0" WHERE "t0"."id" = $1 ORDER BY "t0"."id" ASC LIMIT $2',
+          sql: 'SELECT "t0"."id" AS "id" FROM "public"."pj_stickers" AS "t0" WHERE "t0"."id" = $1 ORDER BY "t0"."id" ASC LIMIT $2',
           params: [20, 1],
           failure: TARGET_MISSING,
         },
         {
           id: "tag.createMany",
           kind: "write",
-          sql: 'INSERT INTO "pj_tags" ("id", "note", "subject_type", "subject_id") VALUES ($1, $2, $3, $4), ($5, $6, $7, $8), ($9, $10, $11, $12)',
+          sql: 'INSERT INTO "public"."pj_tags" ("id", "note", "subject_type", "subject_id") VALUES ($1, $2, $3, $4), ($5, $6, $7, $8), ($9, $10, $11, $12)',
           params: GROUPED_INSERT_PARAMS,
           outputs: COUNT_OUTPUT,
           ...NO_BRANCH,
@@ -774,7 +774,7 @@ describe("parity J — the direct-polymorphic bulk connect route", () => {
         {
           id: "tag.createManyReturn",
           kind: "write",
-          sql: 'INSERT INTO "pj_tags" ("id", "note", "subject_type", "subject_id") VALUES ($1, $2, $3, $4), ($5, $6, $7, $8), ($9, $10, $11, $12) RETURNING "id" AS "id"',
+          sql: 'INSERT INTO "public"."pj_tags" ("id", "note", "subject_type", "subject_id") VALUES ($1, $2, $3, $4), ($5, $6, $7, $8), ($9, $10, $11, $12) RETURNING "id" AS "id"',
           params: GROUPED_INSERT_PARAMS,
           outputs: { result: { kind: "rows" } },
           ...NO_BRANCH,

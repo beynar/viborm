@@ -736,9 +736,9 @@ function runSuite(
       expect(
         driver.statements.filter((sql) => !sql.startsWith("SELECT"))
       ).toEqual([
-        expect.stringContaining('UPDATE "e3_teams"'),
-        expect.stringContaining('UPDATE "e3_notes"'),
-        expect.stringContaining('INSERT INTO "e3_notes"'),
+        expect.stringContaining('UPDATE "public"."e3_teams"'),
+        expect.stringContaining('UPDATE "public"."e3_notes"'),
+        expect.stringContaining('INSERT INTO "public"."e3_notes"'),
       ]);
       expect(await teams()).toEqual([
         { id: "tDecoy", label: "DECOY", orgId: "o1" },
@@ -851,8 +851,8 @@ function runSuite(
       expect(
         driver.statements.filter((sql) => !sql.startsWith("SELECT"))
       ).toEqual([
-        expect.stringContaining('INSERT  INTO "tag_team"'),
-        expect.stringContaining('UPDATE "e3_teams"'),
+        expect.stringContaining('INSERT  INTO "public"."tag_team"'),
+        expect.stringContaining('UPDATE "public"."e3_teams"'),
       ]);
       expect(await junction()).toEqual([{ teamId: "tMoved", tagId: "g1" }]);
       expect(await teams()).toEqual([
@@ -1108,8 +1108,8 @@ function runJunctionResidue(
     const REFUSED_BY_THE_CONSTRAINT = {
       error: "ForeignKeyError",
       writes: [
-        expect.stringContaining('INSERT  INTO "tag_team"'),
-        expect.stringContaining('UPDATE "b1_res_teams"'),
+        expect.stringContaining('INSERT  INTO "public"."tag_team"'),
+        expect.stringContaining('UPDATE "public"."b1_res_teams"'),
       ],
       junction: [],
       teams: [{ id: "t1" }],
@@ -1170,7 +1170,7 @@ function runJunctionResidue(
       ).toEqual({
         error: "ForeignKeyError",
         // No relation payload at all — one statement, and the constraint still owns it.
-        writes: [expect.stringContaining('UPDATE "b1_res_teams"')],
+        writes: [expect.stringContaining('UPDATE "public"."b1_res_teams"')],
         junction: [{ tagId: "g1", teamId: "t1" }],
         teams: [{ id: "t1" }],
       });

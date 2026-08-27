@@ -55,7 +55,7 @@ export function buildDelete(ctx: QueryScope, args: DeleteArgs): Sql {
   );
 
   // Build DELETE
-  const table = adapter.identifiers.escape(tableName);
+  const table = adapter.identifiers.table(tableName);
   const deleteSql = adapter.mutations.delete(table, whereSql);
 
   // Build RETURNING clause if supported (no alias for DELETE RETURNING)
@@ -107,7 +107,7 @@ export function buildDeleteMany(ctx: QueryScope, args: DeleteManyArgs): Sql {
   );
 
   // Build DELETE
-  const table = adapter.identifiers.escape(tableName);
+  const table = adapter.identifiers.table(tableName);
   const deleteSql = adapter.mutations.delete(table, limited.where);
   return limited.suffix ? sql`${deleteSql} ${limited.suffix}` : deleteSql;
 }

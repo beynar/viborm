@@ -7,13 +7,15 @@
 
 import { hydrateSchemaNames } from "../../schema/hydration";
 import { resolveSchemaOrThrow } from "../../schema/validation";
+import { MigrationContext } from "../context";
 import { diff } from "../differ";
-import { getMigrationDriver } from "../drivers";
 import type { MigrationClient } from "../push";
 import { resolveAmbiguousChanges, strictResolver } from "../resolver";
 import { serializeResolvedModels } from "../serializer";
 import {
   addJournalEntry,
+  createEmptyJournal,
+  createEmptySnapshot,
   createMigrationEntry,
   formatMigrationFilename,
   getNextMigrationIndex,
@@ -27,7 +29,7 @@ import type {
 import {
   extractForwardReferenceForeignKeys,
   generateMigrationName,
-  normalizeDialect,
+  materializeDroppedTableForeignKeys,
   resolveEnumValueRemovals,
 } from "../utils";
 import {
@@ -62,7 +64,6 @@ export async function generate(
     manualMigration,
   } = options;
 
-  const driver = client.$driver;
   const models = client.$schema;
   // Plan §7.3: migration generation is an effect-capable boundary, so both
   // phases of the definition pipeline run here too — the identity preflight
@@ -73,7 +74,6 @@ export async function generate(
   // ONE resolution for this composition root, handed to the serializer by
   // identity — the gate's index IS the serializer's topology input (§10E.6).
   const relations = resolveSchemaOrThrow(models);
-  const dialect = normalizeDialect(driver.dialect);
 
   // Storage driver is required (client.ts validates this)
   if (!storageDriver) {
@@ -84,8 +84,13 @@ export async function generate(
   }
   const storage = storageDriver;
 
-  // Get the migration driver
-  const migrationDriver = getMigrationDriver(driver.driverName, driver.dialect);
+  // The context owns the estate: one resolved target, one bound migration
+  // driver, one gate. Generation is offline — it never admits live capability
+  // and never connects.
+  const ctx = new MigrationContext(client, { storageDriver: storage });
+  const { target } = ctx;
+  const dialect = target.dialect;
+  const migrationDriver = ctx.migrationDriver;
 
   // 0. Validate the caller-owned artifact BEFORE any snapshot read: supplying
   // it elects manual mode for the whole migration (whether or not a
@@ -95,8 +100,15 @@ export async function generate(
     ? resolveManualArtifact(manualMigration, name, dialect)
     : null;
 
-  // 1. Read previous snapshot (or create empty for first migration)
-  const previousSnapshot = await storage.getSnapshotOrEmpty();
+  // 1. Read and validate the estate BEFORE the snapshot is deserialized, and
+  // before the no-op return below: a `beta` client must not consume, diff
+  // against, or extend an `alpha` estate even when it would emit nothing.
+  const baseline = await ctx.readEstateBaseline();
+  // A fresh estate, and a target-bound estate with no migrations yet, hold no
+  // snapshot document. The empty baseline is a DIFF INPUT synthesized here, at
+  // the one place that needs one — the gate reports what storage actually
+  // holds, so an accessor cannot report a document that does not exist.
+  const previousSnapshot = baseline.snapshot ?? createEmptySnapshot();
 
   // 2. Serialize current models to SchemaSnapshot
   const currentSnapshot = serializeResolvedModels(
@@ -156,6 +168,16 @@ export async function generate(
     migrationDriver
   );
 
+  // 5c. Materialize the foreign-key drops a dropped-table graph needs. The
+  // differ omits a drop when BOTH endpoint tables disappear, and §6.1 removed
+  // the `CASCADE` that used to hide it — so the generated up artifact has to
+  // carry the drops explicitly, exactly as push does.
+  finalOperations = materializeDroppedTableForeignKeys(
+    finalOperations,
+    previousSnapshot,
+    migrationDriver
+  );
+
   // 6. Check if there are any changes.
   // A manual migration is never zero-op: its statements ARE the migration, and
   // the flagship case — a toOne stored-value rewrite — produces no structural
@@ -163,6 +185,12 @@ export async function generate(
   // caller's artifact and write only the snapshot.
   if (finalOperations.length === 0 && !manualArtifact) {
     if (polymorphicMetadataChanged && !dryRun) {
+      // A metadata-only snapshot is still an estate document, so it gets its
+      // journal: a snapshot with no journal has no target proof and the next
+      // read of this estate would refuse it. A fresh no-op writes neither.
+      await storage.writeJournal(
+        baseline.journal ?? createEmptyJournal(target)
+      );
       await storage.writeSnapshot(currentSnapshot);
     }
 
@@ -184,8 +212,9 @@ export async function generate(
     };
   }
 
-  // 7. Get or create journal
-  const journal = await storage.getOrCreateJournal(dialect);
+  // 7. The journal for this estate — the one the gate already validated, or a
+  // new empty one bound to this exact target.
+  const journal = baseline.journal ?? createEmptyJournal(target);
 
   // 8. Emit the migration's SQL.
   //
@@ -212,6 +241,9 @@ export async function generate(
     // `DDLContext.precedingOperations`).
     for (const [position, op] of finalOperations.entries()) {
       const ddl = migrationDriver.generateDDL(op, {
+        // Durable artifact: MySQL stays database-relative here, PostgreSQL
+        // still contains its schema because its estate is bound to one.
+        destination: "artifact",
         currentSchema: previousSnapshot,
         precedingOperations: finalOperations.slice(0, position),
       });
@@ -227,9 +259,19 @@ export async function generate(
     // 8b. Generate down (rollback) DDL from inverted operations.
     // Down statements run against the post-migration schema.
     const inverted = invertOperations(finalOperations, previousSnapshot);
+    // The inverted program runs against the POST-migration schema, so its
+    // dropped-table graph is read from `currentSnapshot`. Same stage, same
+    // owner: a rollback that drops two mutually-referencing tables needs the
+    // same explicit key drops the forward program does.
+    inverted.operations = materializeDroppedTableForeignKeys(
+      inverted.operations,
+      currentSnapshot,
+      migrationDriver
+    );
 
     for (const [position, op] of inverted.operations.entries()) {
       const ddl = migrationDriver.generateDDL(op, {
+        destination: "artifact",
         currentSchema: currentSnapshot,
         precedingOperations: inverted.operations.slice(0, position),
       });
@@ -321,4 +363,9 @@ export async function preview(
 export { formatMigrationFilename, getNextMigrationIndex } from "../storage";
 export { generateMigrationName } from "../utils";
 export { getMigrationFilePath, parseStatements } from "./file-writer";
-export { getSnapshotOrEmpty, readSnapshot } from "./snapshot";
+// This barrel deliberately re-exports NO snapshot reader. It once carried an
+// fs-backed twin of the storage driver's snapshot API — its own `existsSync`
+// and its own unvalidated `JSON.parse` — with no caller left in `src/`, exactly
+// the second-reader shape §3.2 removed for journals. There is one snapshot
+// funnel: `MigrationStorageDriver.readSnapshot()`, reached through the estate
+// gate (`MigrationContext.readEstateBaseline`).

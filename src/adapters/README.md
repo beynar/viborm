@@ -15,11 +15,17 @@ The query engine calls adapter methods to build SQL fragments, then composes the
 
 ## Supported Databases
 
-| Database | Adapter Class | Min Version |
-|----------|---------------|-------------|
-| PostgreSQL | `PostgresAdapter` | 12+ |
-| MySQL | `MySQLAdapter` | 8.0+ (requires JSON functions) |
-| SQLite | `SQLiteAdapter` | 3.38+ (requires JSON functions) |
+| Database | Adapter Class | Min Version | `namespace` |
+|----------|---------------|-------------|-------------|
+| PostgreSQL | `PostgresAdapter` | 12+ | Schema; `new PostgresAdapter()` defaults to `public` |
+| MySQL | `MySQLAdapter` | 8.0+ (requires JSON functions) | Database; `new MySQLAdapter()` is deliberately unqualified |
+| SQLite | `SQLiteAdapter` | 3.38+ (requires JSON functions) | Not supported — the property is absent, not `undefined` |
+
+`namespace` is selected once at construction and installed non-writable, and it
+is the sole normalized qualification fact. The non-writable install is what makes
+it safe to read anywhere, including from the two readers that deliberately
+capture it once — the bound migration driver, and a cached read's attribute
+snapshot. See `docs/content/docs/drivers/namespaces.mdx` for the full contract.
 
 ---
 
@@ -38,6 +44,12 @@ adapter.raw("CURRENT_TIMESTAMP")
 
 Database-specific identifier escaping.
 
+`table()` is the ONE renderer for a persistent model or junction table: it
+applies the adapter's `namespace` and, when an alias is given, the `AS` clause.
+Statement-local names — CTEs, aliases, columns, constraints, temporaries — go
+through `escape()`, which is never namespace-aware. The alias is optional, for
+the sites that splice their own.
+
 ```ts
 // Escape single identifier
 adapter.identifiers.escape("users")
@@ -49,10 +61,18 @@ adapter.identifiers.column("t0", "name")
 // PostgreSQL/SQLite → "t0"."name"
 // MySQL → `t0`.`name`
 
-// Table with alias
+// Persistent table, with alias. PostgreSQL always qualifies (default `public`);
+// MySQL qualifies only when bound to a database; SQLite never qualifies.
 adapter.identifiers.table("users", "t0")
-// PostgreSQL/SQLite → "users" AS "t0"
-// MySQL → `users` AS `t0`
+// new PostgresAdapter()          → "public"."users" AS "t0"
+// new PostgresAdapter("billing") → "billing"."users" AS "t0"
+// new MySQLAdapter("billing")    → `billing`.`users` AS `t0`
+// new MySQLAdapter()             → `users` AS `t0`
+// new SQLiteAdapter()            → "users" AS "t0"
+
+// The same table with no alias, for a site that splices its own
+adapter.identifiers.table("users")
+// new PostgresAdapter() → "public"."users"
 
 // Aliased expression
 adapter.identifiers.aliased(someExpr, "total")
@@ -415,17 +435,19 @@ const mainQuery = adapter.assemble.select({
 });
 ```
 
-This produces (PostgreSQL):
+This produces (PostgreSQL, with the adapter's default `public` namespace — the
+`FROM` clauses carry it because `table()` qualifies, while every alias and
+column stays statement-local):
 ```sql
 SELECT json_build_object(
   'name', "t0"."name",
   'posts', (
     SELECT COALESCE(json_agg(json_build_object('title', "t1"."title")), '[]'::json)
-    FROM "posts" AS "t1"
+    FROM "public"."posts" AS "t1"
     WHERE "t1"."authorId" = "t0"."id"
   )
 )
-FROM "users" AS "t0"
+FROM "public"."users" AS "t0"
 WHERE ...
 LIMIT 1
 ```
