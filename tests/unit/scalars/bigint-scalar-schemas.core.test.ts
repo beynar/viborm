@@ -567,7 +567,7 @@ describe("Increment BigInt Scalar", () => {
   });
 
   test("state: autoGenerate is increment", () => {
-    expect(scalar["~"].state.autoGenerate).toBe("increment");
+    expect(scalar["~"].state.autoGenerate).toEqual({ kind: "increment" });
   });
 
   test("type: create is optional", () => {

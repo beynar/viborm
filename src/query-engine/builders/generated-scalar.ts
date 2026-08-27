@@ -5,7 +5,7 @@ export function isMissingGeneratedIncrement(
   value: unknown
 ): boolean {
   const state = field?.["~"].state;
-  if (state?.autoGenerate !== "increment") {
+  if (state?.autoGenerate?.kind !== "increment") {
     return false;
   }
 

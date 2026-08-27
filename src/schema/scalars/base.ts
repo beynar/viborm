@@ -58,6 +58,7 @@ export type AnyScalar = Scalar;
 // =============================================================================
 
 export {
+  type AutoGenerate,
   type AutoGenerateType,
   createDefaultState,
   type DefaultValue,

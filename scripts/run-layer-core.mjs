@@ -9,6 +9,7 @@ const LAYERS = new Set([
   "operation-schemas",
   "relations",
   "schema-validation",
+  "schema-json",
   "query-engine",
   "adapters",
   "drivers",
@@ -19,7 +20,7 @@ const LAYERS = new Set([
 ]);
 
 const layer = process.argv[2];
-if (!layer || !LAYERS.has(layer)) {
+if (!(layer && LAYERS.has(layer))) {
   process.stderr.write(`Unknown test layer: ${layer ?? "<missing>"}\n`);
   process.exit(2);
 }
@@ -28,7 +29,9 @@ let releaseTestRunLock;
 try {
   releaseTestRunLock = acquireTestRunLock(`layer-${layer}`);
 } catch (error) {
-  process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+  process.stderr.write(
+    `${error instanceof Error ? error.message : String(error)}\n`
+  );
   process.exit(1);
 }
 
@@ -45,10 +48,7 @@ const childOptions = (memoryLimitMb) => ({
   detached: process.platform !== "win32",
   env: {
     ...process.env,
-    NODE_OPTIONS: [
-      existingNodeOptions,
-      `--max-old-space-size=${memoryLimitMb}`,
-    ]
+    NODE_OPTIONS: [existingNodeOptions, `--max-old-space-size=${memoryLimitMb}`]
       .filter(Boolean)
       .join(" "),
   },
@@ -96,7 +96,7 @@ const terminate = (signal = "SIGTERM") => {
   for (const child of children) signalChild(child, signal);
   forceKill ??= setTimeout(() => {
     for (const child of children) signalChild(child, "SIGKILL");
-  }, 1_000);
+  }, 1000);
 };
 
 let exceededBudget = false;

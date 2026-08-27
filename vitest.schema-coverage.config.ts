@@ -4,7 +4,14 @@ export default defineConfig({
   test: {
     coverage: {
       provider: "v8",
-      include: ["src/schema/field-ref.ts", "src/schema/hydration.ts"],
+      include: [
+        "src/schema/field-ref.ts",
+        "src/schema/hydration.ts",
+        "src/schema/json/**/*.ts",
+        // Lifted out of `json/` when `s.model(...)`'s member maps became its
+        // second consumer; the gate follows the file rather than the folder.
+        "src/schema/record.ts",
+      ],
       processingConcurrency: 1,
       reporter: ["text", "json-summary", "lcov", "html"],
       reportsDirectory: "coverage/schema",

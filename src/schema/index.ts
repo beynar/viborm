@@ -60,10 +60,10 @@ export const s = {
   string,
   boolean,
   /**
- * @description Creates a new int scalar.
- * @param nativeType - The native type to use for the scalar.
- * @returns A new int scalar.
- */
+   * @description Creates a new int scalar.
+   * @param nativeType - The native type to use for the scalar.
+   * @returns A new int scalar.
+   */
   int,
   float,
   decimal,
@@ -136,6 +136,7 @@ export * from "./validation";
 
 // Re-export core types from common
 export type {
+  AutoGenerate,
   AutoGenerateType,
   InferBaseType,
   InferCreateType,
@@ -192,7 +193,7 @@ export type InferInputType<
   TState extends import("./scalars/common").ScalarState,
 > = TState["hasDefault"] extends true
   ? InferType<TState> | undefined
-  : TState["autoGenerate"] extends import("./scalars/common").AutoGenerateType
+  : TState["autoGenerate"] extends import("./scalars/common").AutoGenerate
     ? InferType<TState> | undefined
     : InferType<TState>;
 

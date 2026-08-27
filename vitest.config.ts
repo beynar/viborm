@@ -51,6 +51,7 @@ export default defineConfig({
         "src/schema/scalars/**/*.ts": { 100: true },
         "src/schema/validation/**/*.ts": { 100: true },
         "src/schema/field-ref.ts": { 100: true },
+        "src/schema/json/**/*.ts": { 100: true },
         "src/schema/hydration.ts": { 100: true },
         "src/sql/sql.ts": { 100: true },
         "src/validation/**/*.ts": { 100: true },

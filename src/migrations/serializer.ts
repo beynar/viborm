@@ -240,7 +240,7 @@ export function serializeResolvedModels(
         type: columnType,
         nullable: scalarState.nullable,
         default: migrationDriver.getDefaultExpression(scalarState),
-        autoIncrement: scalarState.autoGenerate === "increment",
+        autoIncrement: scalarState.autoGenerate?.kind === "increment",
       };
 
       columns.push(columnDef);

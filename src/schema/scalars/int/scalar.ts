@@ -105,7 +105,7 @@ export class IntScalar<State extends ScalarState<"int">> {
     return new IntScalar(
       updateState(this, {
         hasDefault: true,
-        autoGenerate: "increment",
+        autoGenerate: { kind: "increment" },
         default: undefined,
         disallowZero: true,
         optional: true,
@@ -123,7 +123,6 @@ export class IntScalar<State extends ScalarState<"int">> {
     });
   }
 }
-
 
 export const int = (nativeType?: NativeType) =>
   new IntScalar(createDefaultState("int", intBase), nativeType);

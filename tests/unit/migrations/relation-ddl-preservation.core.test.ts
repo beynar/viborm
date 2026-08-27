@@ -27,6 +27,8 @@
 
 import { createClient } from "@client/client";
 import { push } from "@migrations";
+import { s } from "@schema";
+import { parseSchema, serializeSchema } from "@schema/json";
 import type { AnyModel } from "@schema/model";
 import { libsqlMigrationDriver } from "@src/migrations/drivers/libsql";
 import { mysqlMigrationDriver } from "@src/migrations/drivers/mysql";
@@ -103,6 +105,107 @@ describe("relation → DDL preservation corpus", () => {
       });
       expect(snapshot).toEqual(relationDdlBaseline[testCase.id]?.[dialect]);
     }
+  });
+});
+
+// =============================================================================
+// JSON DOCUMENT ROUND TRIP (schema-json plan §4, T1)
+// =============================================================================
+
+/**
+ * The semantic round-trip theorem. `parseSchema(serializeSchema(S))` and `S`
+ * are the same schema, and the strongest available statement of that is this
+ * file's own oracle: the round-tripped graph must produce the FROZEN artifact,
+ * byte for byte, in every dialect the case pins — same columns, same order,
+ * same constraints, same junction tables, same table positions.
+ *
+ * The document is written from a FRESH build, before hydration, because
+ * serializing must not bind or settle anything (see the schema-json serializer).
+ */
+describe("relation → DDL preservation through a JSON document", () => {
+  it.each(relationDdlCorpus)("$id survives parse ∘ serialize", (testCase) => {
+    const document = serializeSchema(testCase.build());
+    const roundTripped = parseSchema(document);
+    hydrateSchemaNames(roundTripped);
+    const result = validateSchema(roundTripped);
+    if (result.valid) {
+      validateSchemaOrThrow(roundTripped);
+    }
+
+    const expectedVerdict = testCase.intendedVerdict ?? testCase.headVerdict;
+    expect(result.valid).toBe(expectedVerdict === "valid");
+
+    for (const dialect of testCase.dialects) {
+      const snapshot = serializeModels(roundTripped, {
+        migrationDriver: migrationDrivers[dialect],
+      });
+      expect(snapshot).toEqual(relationDdlBaseline[testCase.id]?.[dialect]);
+    }
+
+    // T2 on the same corpus: the document a round trip writes is the one it
+    // read, so the canonical form is a fixed point.
+    expect(serializeSchema(roundTripped)).toEqual(document);
+  });
+});
+
+// =============================================================================
+// DEFAULTS THROUGH A JSON DOCUMENT — the DDL-visible half of T1
+// =============================================================================
+
+/**
+ * A default's TYPE is a DDL fact, not just an application one.
+ *
+ * `getDefaultExpression` emits a SQL `DEFAULT` clause for a string and nothing
+ * at all for an object, so a `Date` default and the ISO string that spells it
+ * produce two DIFFERENT tables. A document that flattened one into the other
+ * would round-trip a schema into a schema that migrates differently — which is
+ * exactly what T1 forbids — so the codec keeps them apart and this is the
+ * statement of what "apart" buys.
+ */
+describe("scalar defaults through a JSON document", () => {
+  const AT = "2020-01-02T03:04:05.000Z";
+
+  function createTable(schema: Record<string, AnyModel>): string {
+    const snapshot = serializeModels(schema, {
+      migrationDriver: sqlite3MigrationDriver,
+    });
+    const table = snapshot.tables[0];
+    if (table === undefined) throw new Error("one table was serialized");
+    return sqlite3MigrationDriver.generateDDL({ type: "createTable", table });
+  }
+
+  const cases: [string, () => Record<string, AnyModel>, string][] = [
+    [
+      "a Date default stays an application default",
+      () => ({
+        row: s.model({
+          id: s.string().id(),
+          at: s.dateTime().default(new Date(AT)),
+        }),
+      }),
+      '"at" TEXT NOT NULL',
+    ],
+    [
+      "an ISO string default stays a SQL default",
+      () => ({
+        row: s.model({ id: s.string().id(), at: s.dateTime().default(AT) }),
+      }),
+      `"at" TEXT NOT NULL DEFAULT '${AT}'`,
+    ],
+    [
+      "a bigint default survives as a bigint",
+      () => ({
+        row: s.model({ id: s.string().id(), n: s.bigInt().default(5n) }),
+      }),
+      '"n" INTEGER NOT NULL',
+    ],
+  ];
+
+  it.each(cases)("%s", (_label, build, expected) => {
+    const before = createTable(build());
+    const after = createTable(parseSchema(serializeSchema(build())));
+    expect(before).toContain(expected);
+    expect(after).toBe(before);
   });
 });
 

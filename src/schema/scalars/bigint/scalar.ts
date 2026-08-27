@@ -107,7 +107,7 @@ export class BigIntScalar<State extends ScalarState<"bigint">> {
     return new BigIntScalar(
       updateState(this, {
         hasDefault: true,
-        autoGenerate: "increment",
+        autoGenerate: { kind: "increment" },
         default: undefined,
         disallowZero: true,
         optional: true,

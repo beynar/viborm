@@ -27,6 +27,7 @@ export default defineWorkspace([
   layerProject("schema-validation", [
     "tests/unit/schema-validation/**/*.core.test.ts",
   ]),
+  layerProject("schema-json", ["tests/unit/schema-json/**/*.core.test.ts"]),
   layerProject("query-engine", [
     "tests/contracts/architecture/**/*.core.test.ts",
     "tests/contracts/engine/**/*.core.test.ts",
@@ -50,6 +51,9 @@ export default defineWorkspace([
         // schema key it refuses is that file's own invariant — its witnesses
         // live in the schema-validation layer, so the gate must read them here.
         "tests/unit/schema-validation/model-registration-identity.core.test.ts",
+        // `src/schema/json/**` is inside this gate's globs; its whole suite
+        // lives here so the 100% report reads the tests that own it.
+        "tests/unit/schema-json/**/*.core.test.ts",
       ],
     },
   },

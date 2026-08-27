@@ -64,6 +64,48 @@ export type AutoGenerateType =
   | "now"
   | "updatedAt";
 
+/**
+ * A generator declaration.
+ *
+ * `kind` is the only statement of which generator runs. `prefix` and `length`
+ * are declaration facts the string generators otherwise bake into their default
+ * closure, where nothing can read them back; state is their durable home so a
+ * serializer can restate the declaration that produced the closure.
+ * `increment`/`now`/`updatedAt` take neither.
+ */
+export interface AutoGenerate {
+  kind: AutoGenerateType;
+  prefix?: string | undefined;
+  length?: number | undefined;
+}
+
+/**
+ * The closures the generator modifiers installed.
+ *
+ * A generator writes TWO facts: `autoGenerate`, which is the declaration, and
+ * `default`, which is the closure that produces the value. A later
+ * `.default(fn)` replaces only the second, so `autoGenerate !== undefined` is
+ * not evidence that the closure standing in `default` is the generator's — and
+ * a consumer that restates a declaration from state (the JSON serializer) would
+ * otherwise silently substitute a random generator for a caller's own function.
+ *
+ * Identity is the only thing that distinguishes them, so identity is what is
+ * recorded. One owner, beside the declaration it belongs to; nothing outside
+ * the eight modifier writers may add to it.
+ */
+const GENERATOR_DEFAULTS = new WeakSet<object>();
+
+/** Mark a closure as the default a generator modifier installed. */
+export function generatorDefault<F extends () => unknown>(closure: F): F {
+  GENERATOR_DEFAULTS.add(closure);
+  return closure;
+}
+
+/** Whether this default value IS a generator's own installed closure. */
+export function isGeneratorDefault(value: unknown): boolean {
+  return typeof value === "function" && GENERATOR_DEFAULTS.has(value);
+}
+
 // =============================================================================
 // SCALAR STATE
 // =============================================================================
@@ -81,7 +123,7 @@ export interface ScalarState<T extends ScalarType = ScalarType> {
   isId: boolean;
   isUnique: boolean;
   default: DefaultValue<any> | undefined;
-  autoGenerate: AutoGenerateType | undefined;
+  autoGenerate: AutoGenerate | undefined;
   /** Runtime create validation for portable auto-increment semantics. */
   disallowZero?: boolean;
   schema: StandardSchemaV1<any, any> | undefined;

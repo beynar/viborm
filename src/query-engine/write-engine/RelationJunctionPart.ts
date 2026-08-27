@@ -2050,7 +2050,7 @@ export class RelationJunctionPart implements JunctionCompilePart {
       );
     }
     const scalar = this.childScope.model["~"].state.scalars[missingMember];
-    if (scalar?.["~"].state.autoGenerate === "increment") {
+    if (scalar?.["~"].state.autoGenerate?.kind === "increment") {
       return {
         kind: "produced",
         values: {

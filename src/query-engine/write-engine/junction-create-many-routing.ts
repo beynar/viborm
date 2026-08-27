@@ -143,8 +143,8 @@ function hasOmittedGeneratedRowKey(
 ): boolean {
   return targetFields.some(
     (field) =>
-      scope.model["~"].state.scalars[field]?.["~"].state.autoGenerate ===
-        "increment" && row[field] === undefined
+      scope.model["~"].state.scalars[field]?.["~"].state.autoGenerate
+        ?.kind === "increment" && row[field] === undefined
   );
 }
 

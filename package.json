@@ -14,6 +14,10 @@
       "types": "./dist/schema.d.mts",
       "import": "./dist/schema.mjs"
     },
+    "./schema/json": {
+      "types": "./dist/schema/json.d.mts",
+      "import": "./dist/schema/json.mjs"
+    },
     "./driver": {
       "types": "./dist/driver.d.mts",
       "import": "./dist/driver.mjs"
@@ -140,6 +144,7 @@
     "test:layer:operation-schemas": "node scripts/run-layer-core.mjs operation-schemas",
     "test:layer:relations": "node scripts/run-layer-core.mjs relations",
     "test:layer:schema-validation": "node scripts/run-layer-core.mjs schema-validation",
+    "test:layer:schema-json": "node scripts/run-layer-core.mjs schema-json",
     "test:layer:query-engine": "node scripts/run-layer-core.mjs query-engine",
     "test:layer:adapters": "node scripts/run-layer-core.mjs adapters",
     "test:layer:drivers": "node scripts/run-layer-core.mjs drivers",

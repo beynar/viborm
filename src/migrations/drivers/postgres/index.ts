@@ -91,7 +91,7 @@ export class PostgresMigrationDriver extends MigrationDriver {
   protected override getAutoGenerateExpression(
     autoGenerate: import("@schema/scalars").ScalarState["autoGenerate"]
   ): string | undefined {
-    switch (autoGenerate) {
+    switch (autoGenerate?.kind) {
       case "uuid":
         // gen_random_uuid() is available in PostgreSQL 13+ (pgcrypto extension in older versions)
         return "gen_random_uuid()";

@@ -8,6 +8,7 @@ export { BlobScalar, blob } from "./blob/scalar";
 export { BooleanScalar, boolean } from "./boolean/scalar";
 // Base types and utilities from common
 export {
+  type AutoGenerate,
   type AutoGenerateType,
   createDefaultState,
   type DefaultValue,

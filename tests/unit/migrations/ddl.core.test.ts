@@ -865,17 +865,17 @@ describe("PostgreSQL DDL Generation", () => {
       expect(
         postgresMigrationDriver.mapScalarType(
           createMockScalar(
-            createScalarState("int", { autoGenerate: "increment" })
+            createScalarState("int", { autoGenerate: { kind: "increment" } })
           ),
-          createScalarState("int", { autoGenerate: "increment" })
+          createScalarState("int", { autoGenerate: { kind: "increment" } })
         )
       ).toBe("integer");
       expect(
         postgresMigrationDriver.mapScalarType(
           createMockScalar(
-            createScalarState("bigint", { autoGenerate: "increment" })
+            createScalarState("bigint", { autoGenerate: { kind: "increment" } })
           ),
-          createScalarState("bigint", { autoGenerate: "increment" })
+          createScalarState("bigint", { autoGenerate: { kind: "increment" } })
         )
       ).toBe("bigint");
     });

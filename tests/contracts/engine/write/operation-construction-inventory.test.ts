@@ -1256,15 +1256,15 @@ describe("write engine route inventory (P6 accounting)", () => {
       [
         27,
         "query-engine/write-engine/OperationExecutor.ts",
-        2312,
-        2307,
+        2313,
+        2308,
         "executionRefusal",
       ],
       [
         28,
         "query-engine/write-engine/OperationExecutor.ts",
-        2643,
-        2633,
+        2644,
+        2634,
         "assertIndivisibleGeneratedOutput",
       ],
       [

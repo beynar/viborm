@@ -6,13 +6,14 @@ import v from "@validation/primitives/v";
 import {
   createDefaultState,
   type DefaultValueInput,
+  generatorDefault,
   type ScalarState,
   updateState,
 } from "../common";
 import type { NativeType } from "../native-types";
 
-const defaultNow = () => new Date().toISOString();
-const defaultUpdatedAt = () => new Date().toISOString();
+const defaultNow = generatorDefault(() => new Date().toISOString());
+const defaultUpdatedAt = generatorDefault(() => new Date().toISOString());
 const datetimeBase = v.isoTimestamp();
 
 export class DateTimeScalar<State extends ScalarState<"datetime">> {
@@ -112,7 +113,7 @@ export class DateTimeScalar<State extends ScalarState<"datetime">> {
     return new DateTimeScalar(
       updateState(this, {
         hasDefault: true,
-        autoGenerate: "now",
+        autoGenerate: { kind: "now" },
         default: defaultNow,
         optional: true,
       }),
@@ -124,7 +125,7 @@ export class DateTimeScalar<State extends ScalarState<"datetime">> {
     return new DateTimeScalar(
       updateState(this, {
         hasDefault: true,
-        autoGenerate: "updatedAt",
+        autoGenerate: { kind: "updatedAt" },
         default: defaultUpdatedAt,
         optional: true,
       }),

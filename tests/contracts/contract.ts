@@ -6,6 +6,7 @@ export const TEST_LAYERS = [
   "operation-schemas",
   "relations",
   "schema-validation",
+  "schema-json",
   "query-engine",
   "adapters",
   "drivers",

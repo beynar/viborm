@@ -4045,7 +4045,7 @@ function targetProducesKey(
 ): boolean {
   return (
     targetModel["~"].state.scalars[referencedField]?.["~"].state
-      .autoGenerate === "increment"
+      .autoGenerate?.kind === "increment"
   );
 }
 

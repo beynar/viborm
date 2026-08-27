@@ -1,3 +1,4 @@
+import { emptyRecord, put } from "@schema/record";
 import type { AnyRelation } from "@schema/relation";
 import { refuseRelationInput } from "@schema/relation/terminal";
 // Deep import: the references-stage predicate is the `s.model(...)` boundary's
@@ -158,16 +159,28 @@ function isScalar(value: unknown): value is Scalar {
   return typeof type === "string" && SCALAR_TYPES.has(type);
 }
 
+/**
+ * The classified member maps are a PROJECTION of the shape: every member an
+ * extractor recognizes appears in the map that claims it, under the key the
+ * shape gave it. A shape key comes from the caller — a hand-written literal, a
+ * generated schema, a JSON document's field name — so it can be any string, and
+ * `map[key] = value` would lose a `__proto__` member to `Object.prototype`'s
+ * setter, leaving `state.shape` and `state.scalars` disagreeing with no
+ * diagnostic anywhere. `emptyRecord`/`put` make that unrepresentable: a data key
+ * can only ever be an own entry.
+ *
+ * Whether such a key is a LEGAL identifier is a separate question with a
+ * separate owner (`isValidSchemaIdentifier`, enforced at hydration and by the
+ * document reader). Keeping the member is what lets that owner name it.
+ */
 export const extractScalarMap = <T extends ModelShape>(fields: T) => {
-  return Object.entries(fields).reduce(
-    (acc, [key, value]) => {
-      if (isScalar(value)) {
-        acc[key] = value;
-      }
-      return acc;
-    },
-    {} as ScalarMap<T>
-  );
+  const scalars = emptyRecord<Scalar>();
+  for (const [key, value] of Object.entries(fields)) {
+    if (isScalar(value)) {
+      put(scalars, key, value);
+    }
+  }
+  return scalars as ScalarMap<T>;
 };
 
 /**
@@ -180,38 +193,32 @@ export const extractScalarMap = <T extends ModelShape>(fields: T) => {
  * its existing silent-drop behavior; widening that is a separate decision.
  */
 export const extractRelationMap = <T extends ModelShape>(fields: T) => {
-  return Object.entries(fields).reduce(
-    (acc, [key, value]) => {
-      if (isRelation(value)) {
-        acc[key] = value;
-        return acc;
-      }
-      if (isReferencesStage(value)) {
-        refuseRelationInput(
-          "s.model",
-          key,
-          `Relation '${key}' started \`.fields(...)\` without \`.references(...)\`; complete the foreign key before using it as a model field`
-        );
-      }
-      return acc;
-    },
-    {} as RelationMap<T>
-  );
+  const relations = emptyRecord<AnyRelation>();
+  for (const [key, value] of Object.entries(fields)) {
+    if (isRelation(value)) {
+      put(relations, key, value);
+    } else if (isReferencesStage(value)) {
+      refuseRelationInput(
+        "s.model",
+        key,
+        `Relation '${key}' started \`.fields(...)\` without \`.references(...)\`; complete the foreign key before using it as a model field`
+      );
+    }
+  }
+  return relations as RelationMap<T>;
 };
 
 export const extractUniqueScalarMap = <T extends ModelShape>(fields: T) => {
-  return Object.entries(fields).reduce(
-    (acc, [key, value]) => {
-      if (
-        isScalar(value) &&
-        (value["~"].state.isUnique || value["~"].state.isId)
-      ) {
-        acc[key] = value;
-      }
-      return acc;
-    },
-    {} as UniqueScalarMap<T>
-  );
+  const uniques = emptyRecord<Scalar>();
+  for (const [key, value] of Object.entries(fields)) {
+    if (
+      isScalar(value) &&
+      (value["~"].state.isUnique || value["~"].state.isId)
+    ) {
+      put(uniques, key, value);
+    }
+  }
+  return uniques as UniqueScalarMap<T>;
 };
 
 export const getNameFromKeys = <
