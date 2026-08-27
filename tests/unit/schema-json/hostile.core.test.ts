@@ -237,6 +237,20 @@ describe("node shape", () => {
   });
 
   /**
+   * The wire boundary refuses the retired approximate-number token.
+   *
+   * `s.float()` being absent from the code API says nothing about a document:
+   * a stored or hostile artifact still carries whatever token it was written
+   * with, and this format has one spelling per scalar. `"float"` is unknown
+   * here exactly as `"nope"` is.
+   */
+  it("refuses the retired `float` scalar token", () => {
+    expect(issues(refusal(withUserField({ type: "float" })))).toEqual([
+      "[J004] /models/user/fields/probe/type",
+    ]);
+  });
+
+  /**
    * An unknown `type` means the ARM is unknown, so the keys reported are the
    * ones no arm has. `fields` belongs to a `toOne`, `nullable` to a scalar:
    * neither can be called unknown while the arm is undecided.

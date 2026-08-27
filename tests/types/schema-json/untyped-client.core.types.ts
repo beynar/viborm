@@ -62,6 +62,33 @@ const _typedDocument: SchemaDocument = {
   models: { user: { fields: { id: { type: "string", id: true } } } },
 };
 const _roundTripped: SchemaDocument = serializeSchema(parsed);
+
+// The approximate-number scalar has ONE spelling in the format, and the
+// published type is where a generator meets it first — before the reader ever
+// runs. `"number"` is a scalar type; the retired `"float"` token is not.
+const _numberFieldIsADocument: SchemaDocument = {
+  version: 1,
+  models: {
+    reading: {
+      fields: {
+        id: { type: "string", id: true },
+        value: { type: "number", default: 1.5 },
+      },
+    },
+  },
+};
+const _floatFieldIsNotADocument = (): SchemaDocument => ({
+  version: 1,
+  models: {
+    reading: {
+      fields: {
+        id: { type: "string", id: true },
+        // @ts-expect-error - the retired `float` token is not a scalar type
+        value: { type: "float", default: 1.5 },
+      },
+    },
+  },
+});
 const _attached: Schema = attachFieldSchemas(parsed, {});
 
 // Both entry points take the same options bag, and both answer the same type

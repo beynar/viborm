@@ -16,9 +16,9 @@ import { buildDateSchema, type DateSchemas } from "./date";
 import { buildDateTimeSchema, type DateTimeSchemas } from "./datetime";
 import { buildDecimalSchema, type DecimalSchemas } from "./decimal";
 import { buildEnumSchema, type EnumSchemas } from "./enum";
-import { buildFloatSchema, type FloatSchemas } from "./float";
 import { buildIntSchema, type IntSchemas } from "./int";
 import { buildJsonSchema, type JsonSchemas } from "./json";
+import { buildNumberSchema, type NumberSchemas } from "./number";
 import { buildPointSchema, type PointSchemas } from "./point";
 import { buildStringSchema, type StringSchemas } from "./string";
 import { buildTimeSchema, type TimeSchemas } from "./time";
@@ -32,9 +32,9 @@ export { buildDateSchema, type DateSchemas } from "./date";
 export { buildDateTimeSchema, type DateTimeSchemas } from "./datetime";
 export { buildDecimalSchema, type DecimalSchemas } from "./decimal";
 export { buildEnumSchema, type EnumSchemas } from "./enum";
-export { buildFloatSchema, type FloatSchemas } from "./float";
 export { buildIntSchema, type IntSchemas } from "./int";
 export { buildJsonSchema, type JsonSchemas } from "./json";
+export { buildNumberSchema, type NumberSchemas } from "./number";
 export { buildPointSchema, type PointSchemas } from "./point";
 export { buildStringSchema, type StringSchemas } from "./string";
 export { buildTimeSchema, type TimeSchemas } from "./time";
@@ -63,12 +63,12 @@ export type GetScalarSchemas<
           ? DecimalSchemas<F, C>
           : F extends ScalarState<"enum">
             ? EnumSchemas<EnumValues<F["base"]>, F, C>
-            : F extends ScalarState<"float">
-              ? FloatSchemas<F, C>
-              : F extends ScalarState<"int">
-                ? IntSchemas<F, C>
-                : F extends ScalarState<"json">
-                  ? JsonSchemas<F>
+            : F extends ScalarState<"int">
+              ? IntSchemas<F, C>
+              : F extends ScalarState<"json">
+                ? JsonSchemas<F>
+                : F extends ScalarState<"number">
+                  ? NumberSchemas<F, C>
                   : F extends ScalarState<"point">
                     ? PointSchemas<F>
                     : F extends ScalarState<"string">
@@ -109,10 +109,6 @@ export const getScalarSchemas = <F extends ScalarState>(
       return buildEnumSchema(
         scalar as ScalarState<"enum">
       ) as GetScalarSchemas<F>;
-    case "float":
-      return buildFloatSchema(
-        scalar as ScalarState<"float">
-      ) as GetScalarSchemas<F>;
     case "int":
       return buildIntSchema(
         scalar as ScalarState<"int">
@@ -120,6 +116,10 @@ export const getScalarSchemas = <F extends ScalarState>(
     case "json":
       return buildJsonSchema(
         scalar as ScalarState<"json">
+      ) as GetScalarSchemas<F>;
+    case "number":
+      return buildNumberSchema(
+        scalar as ScalarState<"number">
       ) as GetScalarSchemas<F>;
     case "point":
       return buildPointSchema(

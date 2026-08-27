@@ -24,7 +24,7 @@ s.string().minLength(3).maxLength(100); // String-specific validations
 
 ```typescript
 s.int().id().positive().max(100); // Returns NumberScalar<...>
-s.float().nullable().list(); // Returns NumberScalar<...>
+s.number().nullable().list(); // Returns NumberScalar<...>
 s.decimal().min(0).max(999.99); // Number-specific validations
 ```
 
@@ -82,7 +82,7 @@ const fields = {
   optionalTags: s.string().list().nullable(), // infer: string[] | null
 
   age: s.int(), // infer: number
-  scores: s.float().list(), // infer: number[]
+  scores: s.number().list(), // infer: number[]
 
   isActive: s.boolean(), // infer: boolean
   permissions: s.boolean().list(), // infer: boolean[]
@@ -123,7 +123,7 @@ const userModel = s.model({
   tags: s.string().list(),
 
   age: s.int().min(0).max(150),
-  score: s.float().positive(),
+  score: s.number().positive(),
   isActive: s.boolean().default(true),
 
   userId: s.bigInt().id(),

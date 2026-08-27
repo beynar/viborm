@@ -354,7 +354,7 @@ Opening that surface exposed two latent engine bugs, both fixed in review, and b
 
 | Prisma | viborm | Status |
 |---|---|---|
-| String, Int, BigInt, Float, Boolean, DateTime, Json, Bytes | `s.string/int/bigInt/float/boolean/dateTime/json/blob` | ✅ |
+| String, Int, BigInt, Float, Boolean, DateTime, Json, Bytes | `s.string/int/bigInt/number/boolean/dateTime/json/blob` | ✅ |
 | **Decimal** | `s.decimal()` | ✅ **exact, string-backed** (W6-U1). Reads a canonical decimal `string`; writes accept `string \| number`. Prisma returns a `decimal.js` instance that serializes to a string — viborm returns the string itself and skips the dependency |
 | enum | `s.enum([...])`, `.name(dbEnumName)` | ✅ (inline only). Native PG/MySQL enums; SQLite `CHECK` emulation |
 | `Unsupported("...")` | — | ❌ closed `ScalarType` union |

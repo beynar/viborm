@@ -12,7 +12,7 @@ export type ScalarType =
   | "boolean"
   | "int"
   | "bigInt"
-  | "float"
+  | "number"
   | "decimal"
   | "dateTime"
   | "json"
@@ -59,10 +59,10 @@ export interface StringScalarConfig extends BaseScalarConfig<string> {
 }
 
 /**
- * Number scalar configuration (int, float, decimal)
+ * Numeric-family scalar configuration (int, number, decimal)
  */
-export interface NumberScalarConfig extends BaseScalarConfig<number> {
-  scalarType: "int" | "float" | "decimal";
+export interface NumericScalarConfig extends BaseScalarConfig<number> {
+  scalarType: "int" | "number" | "decimal";
 }
 
 /**
@@ -124,7 +124,7 @@ export interface VectorScalarConfig extends BaseScalarConfig<number[]> {
 
 export type ScalarConfig =
   | StringScalarConfig
-  | NumberScalarConfig
+  | NumericScalarConfig
   | BooleanScalarConfig
   | BigIntScalarConfig
   | DateTimeScalarConfig

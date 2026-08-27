@@ -22,7 +22,7 @@ import {
  * Build aggregate scalar schemas (for _count, _avg, _sum, _min, _max)
  * Following Prisma's API:
  * - _count: can be `true` or object with `_all` + all scalar names
- * - _avg, _sum: only numeric scalars (int, float, decimal, bigint)
+ * - _avg, _sum: only numeric scalars (int, number, decimal, bigint)
  * - _min, _max: all comparable types (all scalars)
  */
 type OptionalBoolean = V.Boolean<{ optional: true }>;
@@ -74,7 +74,7 @@ export const getAggregateScalarSchemas = <M extends AnyModel>(
     countKeys.push(name);
 
     // Avg/Sum only for numeric types
-    if (["int", "float", "decimal", "bigint"].includes(scalarType)) {
+    if (["int", "number", "decimal", "bigint"].includes(scalarType)) {
       numericKeys.push(name);
     }
 
@@ -398,7 +398,7 @@ export const getGroupByOrderBySchema = <M extends AnyModel>(
     const scalar = state.scalars[name]!;
     scalarKeys.push(name);
     if (
-      ["int", "float", "decimal", "bigint"].includes(scalar["~"].state.type)
+      ["int", "number", "decimal", "bigint"].includes(scalar["~"].state.type)
     ) {
       numericKeys.push(name);
     }

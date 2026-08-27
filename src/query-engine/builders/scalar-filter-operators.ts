@@ -63,7 +63,7 @@ const JSON_FILTER_OPERATORS = new Set([
 
 const COMPARISON_SCALAR_TYPES: Set<ScalarType> = new Set([
   "int",
-  "float",
+  "number",
   "decimal",
   "bigint",
   "date",

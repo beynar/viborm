@@ -4,7 +4,7 @@ export interface AdapterResultParser {
    * transformation for any scalar type (it is a pure `next()` passthrough) and
    * the provider returns native JS values (text→string, int→number,
    * bool→boolean, float→number). This lets the result parser take an identity
-   * fast path for plain string/int/float/boolean columns, skipping the typed
+   * fast path for plain string/int/number/boolean columns, skipping the typed
    * decode switch. The path stays byte-identical: a per-value guard defers any
    * non-native value back to the full parser. Adapters that coerce field values
    * (MySQL/SQLite: 0/1→boolean, JSON-as-text, …) leave this unset.

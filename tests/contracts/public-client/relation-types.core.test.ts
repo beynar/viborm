@@ -35,7 +35,7 @@ const parentModel = s.model({
   // Number scalars
   intRequired: s.int(),
   intNullable: s.int().nullable(),
-  floatRequired: s.float(),
+  numberRequired: s.number(),
   decimalRequired: s.decimal(),
 
   // Boolean scalars
@@ -133,7 +133,7 @@ describe("Relation Types Integration Test", () => {
         stringRequired: string;
         stringArray: string[];
         intRequired: number;
-        floatRequired: number;
+        numberRequired: number;
         decimalRequired: number;
         booleanRequired: boolean;
         bigintRequired: bigint;
@@ -241,7 +241,7 @@ describe("Relation Types Integration Test", () => {
         stringRequired: string;
         stringArray: string[];
         intRequired: number;
-        floatRequired: number;
+        numberRequired: number;
         decimalRequired: number;
         booleanRequired: boolean;
         bigintRequired: bigint;
@@ -302,7 +302,7 @@ describe("Relation Types Integration Test", () => {
         stringRequired: string;
         stringArray: string[];
         intRequired: number;
-        floatRequired: number;
+        numberRequired: number;
         decimalRequired: number;
         booleanRequired: boolean;
         bigintRequired: bigint;
@@ -371,7 +371,7 @@ describe("Relation Types Integration Test", () => {
         stringArray: ["a", "b", "c"],
         intRequired: 42,
         intNullable: null,
-        floatRequired: 3.14,
+        numberRequired: 3.14,
         decimalRequired: 99.99,
         booleanRequired: true,
         booleanNullable: false,
@@ -488,8 +488,8 @@ describe("Relation Types Integration Test", () => {
     expect(typeof parent.intRequired).toBe("number");
     expect(parent.intRequired).toBe(42);
     expect(parent.intNullable).toBeNull();
-    expect(typeof parent.floatRequired).toBe("number");
-    expect(parent.floatRequired).toBeCloseTo(3.14);
+    expect(typeof parent.numberRequired).toBe("number");
+    expect(parent.numberRequired).toBeCloseTo(3.14);
     // W6-U1: a decimal comes back as its exact canonical string, through a
     // relation as much as at the top level. `toBeCloseTo` was the tell that the
     // old value was approximate — an exact one can be compared exactly.
@@ -540,7 +540,7 @@ describe("Relation Types Integration Test", () => {
     expectTypeOf(childWithParent.parent.intNullable).toEqualTypeOf<
       number | null
     >();
-    expectTypeOf(childWithParent.parent.floatRequired).toEqualTypeOf<number>();
+    expectTypeOf(childWithParent.parent.numberRequired).toEqualTypeOf<number>();
     // W6-U1: decimals read as exact strings, through relations too
     expectTypeOf(
       childWithParent.parent.decimalRequired
@@ -591,7 +591,7 @@ describe("Relation Types Integration Test", () => {
         stringRequired: "nested test",
         stringArray: [],
         intRequired: 999,
-        floatRequired: 1.5,
+        numberRequired: 1.5,
         decimalRequired: 50.0,
         booleanRequired: false,
         bigintRequired: 100n,

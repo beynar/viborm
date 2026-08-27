@@ -340,7 +340,7 @@ to-one relation, ordering inside a nested read, and `groupBy`'s `orderBy`.
 
 A `gt` that silently skips a row differing in the 20th digit is worse than an
 error, so it is an error, and the error names the field, the reason, and the two
-workarounds (`s.float()` for approximate ordering, scaled integers in an
+workarounds (`s.number()` for approximate ordering, scaled integers in an
 `s.bigInt()` for exact ordered money). Full detail, including the column-type
 migration, is in [the Decimal scalar page](/docs/schema/scalars/decimal).
 

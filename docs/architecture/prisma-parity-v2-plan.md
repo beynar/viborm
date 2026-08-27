@@ -1185,7 +1185,7 @@ cannot be answered truthfully.**
   the file. A database whose contents you cannot read is not honest either.
 
 The refusal is a typed `UnsupportedOperationError`, names the field and the dialect, and
-points at the two escapes: `s.float()` if approximate ordering is what you want, or a
+points at the two escapes: `s.number()` if approximate ordering is what you want, or a
 scaled `s.bigInt()` if you need exact ordered money on SQLite.
 
 #### Migration note (SQLite, breaking)

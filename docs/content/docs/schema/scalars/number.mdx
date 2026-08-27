@@ -1,6 +1,6 @@
 ---
 title: Number
-description: Integer, float, and decimal scalar types with different precision characteristics
+description: Integer, approximate-number, and decimal scalar types with different precision characteristics
 icon: hash
 ---
 
@@ -9,14 +9,14 @@ icon: hash
 | Scalar        | TypeScript | Precision              | Use for                                        |
 | ------------- | ---------- | ---------------------- | ---------------------------------------------- |
 | `s.int()`     | `number`   | Whole numbers          | Counts, IDs, quantities                        |
-| `s.float()`   | `number`   | Approximate            | Scientific data, coordinates, ratings          |
+| `s.number()`  | `number`   | Approximate            | Scientific data, coordinates, ratings          |
 | `s.decimal()` | `string`   | Exact, any precision   | Money, percentages, anything you'd audit — see [Decimal](/docs/schema/scalars/decimal) |
 
 ```ts
 import { s } from "viborm";
 
 s.int(); // Required integer
-s.float().nullable(); // number | null
+s.number().nullable(); // number | null
 s.decimal().default("0"); // With default — a decimal is a string
 ```
 
@@ -42,7 +42,7 @@ const id = s.int().id().increment();
 const age = s.int().schema(pipe(number(), minValue(0), maxValue(150)));
 
 // Rating between 1-5
-const rating = s.float()
+const rating = s.number()
   .nullable()
   .schema(pipe(number(), minValue(1), maxValue(5)));
 
@@ -50,6 +50,43 @@ const rating = s.float()
 const views = s.int().default(0);
 
 // Latitude/Longitude
-const lat = s.float();
-const lng = s.float();
+const lat = s.number();
+const lng = s.number();
 ```
+
+## Migrating from `s.float()`
+
+`s.float()` was replaced by `s.number()`. The scalar's behaviour is unchanged —
+it is the same approximate, finite JavaScript `number`, backed by the same
+column — so the migration is a rename in your source:
+
+```ts
+// Before
+const score = s.float();
+
+// After
+const score = s.number();
+```
+
+There is no `s.float()` alias. Code that names the class or inspects scalar
+state has three renames:
+
+| Before | After |
+| --- | --- |
+| `FloatScalar` | `NumberScalar` |
+| `NumberScalar` (the int/float/decimal union) | `NumericScalar` |
+| `"float"` (scalar state `type`, read by extensions) | `"number"` |
+
+**No database migration is needed.** The physical column type is unchanged:
+`double precision` on PostgreSQL, `DOUBLE` on MySQL, `REAL` on SQLite. An
+existing database and an existing migration snapshot both match a schema that
+now says `s.number()`, and the differ emits no operation.
+
+[Schema JSON](/docs/schema/json) documents spell this scalar `"number"` too, and
+a document that still says `"float"` is refused as an unknown type. The format
+is being updated before its first release, so there is no supported version 1
+`"float"` document to migrate.
+
+The native-type namespaces keep their database names —
+`PG.FLOAT.DOUBLE_PRECISION`, `MYSQL.FLOAT.DOUBLE`, `SQLITE.FLOAT.REAL` — because
+they name what the database calls the type, not what VibORM calls the scalar.

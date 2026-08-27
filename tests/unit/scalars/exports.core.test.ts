@@ -25,13 +25,12 @@ const BARRELS = [
     ["DecimalScalar", "decimal"],
   ],
   ["enum", () => import("@schema/scalars/enum"), ["EnumScalar", "enumScalar"]],
-  ["float", () => import("@schema/scalars/float"), ["FloatScalar", "float"]],
   ["int", () => import("@schema/scalars/int"), ["IntScalar", "int"]],
   ["json", () => import("@schema/scalars/json"), ["JsonScalar", "json"]],
   [
     "number",
     () => import("@schema/scalars/number"),
-    ["DecimalScalar", "FloatScalar", "IntScalar", "decimal", "float", "int"],
+    ["NumberScalar", "number"],
   ],
   ["point", () => import("@schema/scalars/point"), ["PointScalar", "point"]],
   [

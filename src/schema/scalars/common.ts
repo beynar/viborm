@@ -42,7 +42,7 @@ export interface HydratedSchemaNames {
 export type ScalarType =
   | "string"
   | "int"
-  | "float"
+  | "number"
   | "decimal"
   | "boolean"
   | "datetime"

@@ -11,9 +11,9 @@ import {
   dateTime,
   decimal,
   enumScalar,
-  float,
   int,
   json,
+  number,
   point,
   string,
   time,
@@ -65,7 +65,7 @@ export const s = {
    * @returns A new int scalar.
    */
   int,
-  float,
+  number,
   decimal,
   bigInt,
   dateTime,
@@ -107,7 +107,7 @@ export * from "./model";
 export { Model } from "./model";
 export * from "./relation";
 // Types
-export type { NumberScalar, Scalar } from "./scalars";
+export type { NumericScalar, Scalar } from "./scalars";
 // Export all from submodules
 export * from "./scalars";
 // Classes for advanced usage
@@ -119,9 +119,9 @@ export {
   DateTimeScalar,
   DecimalScalar,
   EnumScalar,
-  FloatScalar,
   IntScalar,
   JsonScalar,
+  NumberScalar,
   PointScalar,
   StringScalar,
   TimeScalar,
@@ -153,7 +153,7 @@ export type {
 export type ScalarTypeToTS<T extends import("./scalars/common").ScalarType> =
   T extends "string"
     ? string
-    : T extends "int" | "float" | "decimal"
+    : T extends "int" | "number" | "decimal"
       ? number
       : T extends "boolean"
         ? boolean

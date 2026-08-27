@@ -850,8 +850,8 @@ describe("JSON Schema conversion", () => {
       strList: s.string().array(),
       int: s.int(),
       intList: s.int().array(),
-      float: s.float(),
-      floatList: s.float().array(),
+      num: s.number(),
+      numList: s.number().array(),
       big: s.bigInt(),
       bigList: s.bigInt().array(),
       dec: s.decimal(),
@@ -925,6 +925,35 @@ describe("JSON Schema conversion", () => {
       });
 
       expect(viaStandard).toEqual(toJsonSchema(filter));
+    });
+
+    /**
+     * The two `"number"`s, told apart.
+     *
+     * VibORM's own scalar discriminator moved from `"float"` to `"number"`, and
+     * that token lives in the Schema JSON DOCUMENT format. The document below is
+     * standard JSON Schema, whose `"number"` is the spec's primitive keyword and
+     * was never the ORM's vocabulary — it is what `v.number()` has always
+     * emitted. So the rename must be invisible here, on both public routes and
+     * for the list shape.
+     */
+    test("the number scalar converts to the JSON Schema primitive", () => {
+      const filter = filterOf("num");
+      const document = toJsonSchema(filter);
+
+      expect(document.anyOf).toHaveLength(2);
+      expect(document.anyOf?.[0]).toEqual({ type: "number" });
+      expect(
+        filter["~standard"].jsonSchema.input({ target: "draft-07" })
+      ).toEqual(document);
+
+      // The list filter reaches the same primitive. A scalar's array-ness has
+      // no representation in this converter on ANY scalar — the element type is
+      // what it emits — so the list surface is pinned to the primitive it
+      // actually answers rather than to an `items` document it never had.
+      expect(toJsonSchema(filterOf("numList")).anyOf?.[0]).toEqual({
+        type: "number",
+      });
     });
 
     /**

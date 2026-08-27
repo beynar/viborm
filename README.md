@@ -365,7 +365,7 @@ export default {
 |------|-------------|---------|
 | `string()` | Text scalars | `s.string().unique()` |
 | `int()` | 32-bit integers | `s.int().default(0)` |
-| `float()` | Floating-point | `s.float()` |
+| `number()` | Approximate number | `s.number()` |
 | `decimal()` | High-precision decimals | `s.decimal()` |
 | `bigInt()` | 64-bit integers | `s.bigInt()` |
 | `boolean()` | Boolean values | `s.boolean().default(false)` |
@@ -591,7 +591,7 @@ Most tests run against PGlite (in-memory PostgreSQL). Driver tests in `tests/dri
 - Relations: two factories, `s.toOne` and `s.toMany`, over one model or a map of named variants. Every ordinary cardinality cell (one-to-one, one-to-many, many-to-many) and both variant cardinalities are derived from the declared pair, each with direct and inverse read/write surfaces
 - Supported nested writes (`create`, `createMany`, `connect`, `connectOrCreate`, `disconnect`, `delete`, `set`, `update`, `updateMany`, `upsert`, `deleteMany`) across callback-transaction and atomic-batch paths
 - Select/include with typed results
-- All scalar types (string, int, float, boolean, dateTime, json, enum, etc.)
+- All scalar types (string, int, number, boolean, dateTime, json, enum, etc.)
 - PostgreSQL, MySQL, and SQLite adapters, including `push` migrations for all three
 - Query caching with TTL and SWR
 - Transactions (callback and batch modes), with Prisma's `{ isolationLevel, timeout, maxWait }` options honored or refused per driver — never ignored

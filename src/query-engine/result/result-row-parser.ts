@@ -280,7 +280,7 @@ export function createRowParser(
     exact: Record<string, unknown> | undefined
   ) => void)[] = new Array(len);
   // The identity fast path (only on native-passthrough providers): a per-column
-  // guard for plain string/int/float/boolean scalars. `identityGuards` is dense
+  // guard for plain string/int/number/boolean scalars. `identityGuards` is dense
   // (one entry per column) ONLY when every column is identity-eligible — the
   // signal that the whole-row passthrough below is available. Any non-identity
   // column clears it, falling the whole row back to the per-cell build.
@@ -325,7 +325,7 @@ export function createRowParser(
         identityGuards[i] = guard;
         steps[i] = (result, value, exact) => {
           // A native value is returned unchanged; anything else (null, wrong
-          // type, unsafe int, non-finite float) defers to the full parser.
+          // type, unsafe int, non-finite number) defers to the full parser.
           if (guard(value)) {
             result[key] = value;
             if (captureExact && exact) exact[key] = value;

@@ -41,7 +41,7 @@ const scalarModel = s.model({
   text: s.string(),
   nullableText: s.string().nullable(),
   integer: s.int(),
-  float: s.float(),
+  ratio: s.number(),
   decimal: s.decimal(),
   large: s.bigInt(),
   flag: s.boolean(),
@@ -186,7 +186,7 @@ describe("compiled detached cache result codec", () => {
       writable: true,
     });
     const row = {
-      float: -0,
+      ratio: -0,
       id: "scalar-1",
       text: "Albert",
       nullableText: null,
@@ -225,7 +225,7 @@ describe("compiled detached cache result codec", () => {
     expect(Object.keys(kvRow)).toEqual(order);
     expect(Object.getPrototypeOf(kvRow)).toBe(Object.prototype);
     expect(kvRow.text).toBe("Albert");
-    expect(Object.is(kvRow.float, -0)).toBe(true);
+    expect(Object.is(kvRow.ratio, -0)).toBe(true);
     expect(kvRow.large).toBe(9_007_199_254_740_993n);
     expect(kvRow.happenedAt).toEqual(new Date("2026-08-25T10:11:12.345Z"));
     expect(kvRow.bytes).toEqual(new Uint8Array([0, 128, 255]));
@@ -251,16 +251,16 @@ describe("compiled detached cache result codec", () => {
     const codec = codecFor(
       scalarModel,
       "findMany",
-      { select: { decimal: true, float: true } },
+      { select: { decimal: true, ratio: true } },
       "findMany",
       "number"
     );
     const materialized = codec.materialize(
-      portableSnapshot(codec.snapshot([{ decimal: -0, float: 1.5 }]))
+      portableSnapshot(codec.snapshot([{ decimal: -0, ratio: 1.5 }]))
     );
     const row = requireRecord(requireRows(materialized)[0]);
     expect(Object.is(row.decimal, -0)).toBe(true);
-    expect(row.float).toBe(1.5);
+    expect(row.ratio).toBe(1.5);
   });
 
   test("round-trips ordinary and tagged singular/collection relations", () => {
@@ -464,14 +464,14 @@ describe("compiled detached cache result codec", () => {
 
     const aggregate = codecFor(scalarModel, "aggregate", {
       _count: { _all: true },
-      _avg: { float: true, decimal: true },
+      _avg: { ratio: true, decimal: true },
       _sum: { large: true, decimal: true },
       _min: { happenedAt: true },
     });
     const aggregateValue = {
       _min: { happenedAt: new Date("2026-01-01T00:00:00.000Z") },
       _sum: { large: 9_007_199_254_740_993n, decimal: "3.5" },
-      _avg: { float: -0, decimal: "1.75" },
+      _avg: { ratio: -0, decimal: "1.75" },
       _count: { _all: 2 },
     };
     const aggregateResult = aggregate.materialize(
@@ -479,7 +479,7 @@ describe("compiled detached cache result codec", () => {
     );
     expect(aggregateResult).toEqual(aggregateValue);
     const aggregateRow = requireRecord(aggregateResult);
-    expect(Object.is(requireRecord(aggregateRow._avg).float, -0)).toBe(true);
+    expect(Object.is(requireRecord(aggregateRow._avg).ratio, -0)).toBe(true);
 
     const grouped = codecFor(scalarModel, "groupBy", {
       by: "status",

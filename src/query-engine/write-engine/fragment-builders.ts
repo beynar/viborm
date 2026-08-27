@@ -59,7 +59,7 @@ import {
  *
  * A `Ref` or a pre-built `Sql` cannot be canonicalized here (its value does not
  * exist yet), so it keeps the cast path — which for a decimal is the
- * EXACT-decimal cast (`getScalarCastType` -> `"decimal"`), not the float
+ * EXACT-decimal cast (`getScalarCastType` -> `"decimal"`), not the number
  * `"numeric"` one, and for a temporal is no cast at all.
  */
 export function referenceSql(

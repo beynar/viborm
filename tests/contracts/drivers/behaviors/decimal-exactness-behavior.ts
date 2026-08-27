@@ -55,7 +55,7 @@ export interface DecimalExactnessOptions {
 
 /** The refusal must name the field and point at a real alternative. */
 const REFUSAL_NAMES_FIELD = /decimal field 'amount'/;
-const REFUSAL_SUGGESTS_FLOAT = /s\.float\(\)/;
+const REFUSAL_SUGGESTS_NUMBER = /s\.number\(\)/;
 
 /**
  * Values a double cannot hold, and values whose order byte-order gets wrong.
@@ -193,15 +193,15 @@ export function runDecimalExactnessBehavior({
       // The documented convenience, and its documented caveat, end to end.
       await active().ledger.create({
         data: {
-          id: "r-float",
+          id: "r-double",
           amount: 0.1 + 0.2,
           bucket: "alpha",
-          note: "float error in",
+          note: "double error in",
         },
       });
 
       const row = await active().ledger.findUnique({
-        where: { id: "r-float" },
+        where: { id: "r-double" },
       });
       expect(row?.amount).toBe("0.30000000000000004");
     });
@@ -574,7 +574,7 @@ export function runDecimalExactnessBehavior({
         ).rejects.toThrow(REFUSAL_NAMES_FIELD);
         await expect(
           active().ledger.findMany({ where: { amount: { gt: "9" } } })
-        ).rejects.toThrow(REFUSAL_SUGGESTS_FLOAT);
+        ).rejects.toThrow(REFUSAL_SUGGESTS_NUMBER);
       });
 
       test("orderBy on a decimal is REFUSED", async () => {

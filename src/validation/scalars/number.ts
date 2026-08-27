@@ -11,38 +11,38 @@ import {
 // BASE TYPES
 // =============================================================================
 
-const floatBase = v.number();
-const floatList = v.number({ array: true });
+const numberBase = v.number();
+const numberList = v.number({ array: true });
 
 // =============================================================================
 // FILTER TYPES
 // =============================================================================
 
 /**
- * Comparison operand: a literal, a field reference to another float column, an
+ * Comparison operand: a literal, a field reference to another number column, an
  * SQL fragment, or a callback returning one of the latter two.
  */
-type FloatOperand<
+type NumberOperand<
   S extends V.Schema,
   C extends V.Operand<any>,
-> = V.ComparisonOperand<"float", S, C>;
+> = V.ComparisonOperand<"number", S, C>;
 
-type FloatFilterBase<S extends V.Schema, C extends V.Operand<any>> = {
-  equals: FloatOperand<S, C>;
+type NumberFilterBase<S extends V.Schema, C extends V.Operand<any>> = {
+  equals: NumberOperand<S, C>;
   in: V.Number<{ array: true }>;
   notIn: V.Number<{ array: true }>;
-  lt: FloatOperand<V.Number, C>;
-  lte: FloatOperand<V.Number, C>;
-  gt: FloatOperand<V.Number, C>;
-  gte: FloatOperand<V.Number, C>;
+  lt: NumberOperand<V.Number, C>;
+  lte: NumberOperand<V.Number, C>;
+  gt: NumberOperand<V.Number, C>;
+  gte: NumberOperand<V.Number, C>;
 };
 
-type FloatFilterSchema<
+type NumberFilterSchema<
   S extends V.Schema,
   C extends V.Operand<any>,
-> = NegatableFilterSchema<FloatOperand<S, C>, FloatFilterBase<S, C>>;
+> = NegatableFilterSchema<NumberOperand<S, C>, NumberFilterBase<S, C>>;
 
-type FloatListFilterBase<S extends V.Schema> = {
+type NumberListFilterBase<S extends V.Schema> = {
   equals: S;
   has: V.Number;
   hasEvery: V.Number<{ array: true }>;
@@ -50,16 +50,16 @@ type FloatListFilterBase<S extends V.Schema> = {
   isEmpty: V.Boolean;
 };
 
-type FloatListFilterSchema<S extends V.Schema> = NegatableFilterSchema<
+type NumberListFilterSchema<S extends V.Schema> = NegatableFilterSchema<
   S,
-  FloatListFilterBase<S>
+  NumberListFilterBase<S>
 >;
 
 // =============================================================================
 // UPDATE TYPES
 // =============================================================================
 
-type FloatUpdateSchema<S extends V.Schema> = V.Union<
+type NumberUpdateSchema<S extends V.Schema> = V.Union<
   readonly [
     V.ShorthandUpdate<S>,
     V.Object<{
@@ -72,7 +72,7 @@ type FloatUpdateSchema<S extends V.Schema> = V.Union<
   ]
 >;
 
-type FloatListUpdateSchema<S extends V.Schema> = V.Union<
+type NumberListUpdateSchema<S extends V.Schema> = V.Union<
   readonly [
     V.ShorthandUpdate<S>,
     V.Object<{
@@ -91,112 +91,112 @@ type FloatListUpdateSchema<S extends V.Schema> = V.Union<
 // SCHEMA BUILDERS
 // =============================================================================
 
-const floatFilterBase = v.object({
-  in: floatList,
-  notIn: floatList,
-  lt: v.comparisonOperand("float", floatBase),
-  lte: v.comparisonOperand("float", floatBase),
-  gt: v.comparisonOperand("float", floatBase),
-  gte: v.comparisonOperand("float", floatBase),
+const numberFilterBase = v.object({
+  in: numberList,
+  notIn: numberList,
+  lt: v.comparisonOperand("number", numberBase),
+  lte: v.comparisonOperand("number", numberBase),
+  gt: v.comparisonOperand("number", numberBase),
+  gte: v.comparisonOperand("number", numberBase),
 });
 
-const buildFloatFilterSchema = <S extends V.Schema, C extends V.Operand<any>>(
+const buildNumberFilterSchema = <S extends V.Schema, C extends V.Operand<any>>(
   schema: S
-): FloatFilterSchema<S, C> => {
-  const operand = v.comparisonOperand("float", schema);
-  const filter = floatFilterBase.extend({
+): NumberFilterSchema<S, C> => {
+  const operand = v.comparisonOperand("number", schema);
+  const filter = numberFilterBase.extend({
     equals: operand,
   });
-  return buildNegatableFilterSchema<FloatOperand<S, C>, FloatFilterBase<S, C>>(
-    filter,
-    operand
-  );
+  return buildNegatableFilterSchema<
+    NumberOperand<S, C>,
+    NumberFilterBase<S, C>
+  >(filter, operand);
 };
 
-const floatListFilterBase = v.object({
-  has: floatBase,
-  hasEvery: floatList,
-  hasSome: floatList,
+const numberListFilterBase = v.object({
+  has: numberBase,
+  hasEvery: numberList,
+  hasSome: numberList,
   isEmpty: v.boolean(),
 });
 
-const buildFloatListFilterSchema = <S extends V.Schema>(
+const buildNumberListFilterSchema = <S extends V.Schema>(
   schema: S
-): FloatListFilterSchema<S> => {
-  const filter = floatListFilterBase.extend({
+): NumberListFilterSchema<S> => {
+  const filter = numberListFilterBase.extend({
     equals: schema,
   });
-  return buildNegatableFilterSchema<S, FloatListFilterBase<S>>(filter, schema);
+  return buildNegatableFilterSchema<S, NumberListFilterBase<S>>(filter, schema);
 };
 
-const buildFloatUpdateSchema = <S extends V.Schema>(
+const buildNumberUpdateSchema = <S extends V.Schema>(
   schema: S
-): FloatUpdateSchema<S> =>
+): NumberUpdateSchema<S> =>
   v.union([
     v.shorthandUpdate(schema),
     v.object({
       set: schema,
-      increment: floatBase,
-      decrement: floatBase,
-      multiply: floatBase,
-      divide: floatBase,
+      increment: numberBase,
+      decrement: numberBase,
+      multiply: numberBase,
+      divide: numberBase,
     }),
   ]);
 
-const buildFloatListUpdateSchema = <S extends V.Schema>(
+const buildNumberListUpdateSchema = <S extends V.Schema>(
   schema: S
-): FloatListUpdateSchema<S> =>
+): NumberListUpdateSchema<S> =>
   v.union([
     v.shorthandUpdate(schema),
     v.object({
       set: schema,
-      push: v.union([v.shorthandArray(floatBase), floatList]),
-      unshift: v.union([v.shorthandArray(floatBase), floatList]),
+      push: v.union([v.shorthandArray(numberBase), numberList]),
+      unshift: v.union([v.shorthandArray(numberBase), numberList]),
     }),
   ]);
 
 // =============================================================================
-// FLOAT SCHEMA BUILDER
+// NUMBER SCHEMA BUILDER
 // =============================================================================
 
-export interface FloatSchemas<
-  F extends ScalarState<"float">,
+export interface NumberSchemas<
+  F extends ScalarState<"number">,
   C extends V.Operand<any> = V.Operand<any>,
 > {
   base: F["base"];
   create: V.Number<F>;
   update: F["array"] extends true
-    ? FloatListUpdateSchema<F["base"]>
-    : FloatUpdateSchema<F["base"]>;
+    ? NumberListUpdateSchema<F["base"]>
+    : NumberUpdateSchema<F["base"]>;
   filter: F["array"] extends true
-    ? FloatListFilterSchema<F["base"]>
-    : FloatFilterSchema<F["base"], C>;
+    ? NumberListFilterSchema<F["base"]>
+    : NumberFilterSchema<F["base"], C>;
 }
 
 const internFilter = createScalarInterner<unknown>();
 const internUpdate = createScalarInterner<unknown>();
 
-export const buildFloatSchema = <
-  F extends ScalarState<"float">,
+export const buildNumberSchema = <
+  F extends ScalarState<"number">,
   C extends V.Operand<any> = V.Operand<any>,
 >(
   state: F
-): FloatSchemas<F, C> => {
+): NumberSchemas<F, C> => {
   const key = scalarInternKey(state);
-  return lazyScalarSchemas<FloatSchemas<F, C>>({
+  return lazyScalarSchemas<NumberSchemas<F, C>>({
     base: state.base,
     create: () => v.number(state),
     update: () =>
       internUpdate(key, () =>
         state.array
-          ? buildFloatListUpdateSchema(state.base)
-          : buildFloatUpdateSchema(state.base)
+          ? buildNumberListUpdateSchema(state.base)
+          : buildNumberUpdateSchema(state.base)
       ) as never,
     filter: () =>
       internFilter(key, () =>
         state.array
-          ? buildFloatListFilterSchema(state.base)
-          : buildFloatFilterSchema(state.base)
+          ? buildNumberListFilterSchema(state.base)
+          : buildNumberFilterSchema(state.base)
       ) as never,
   });
 };

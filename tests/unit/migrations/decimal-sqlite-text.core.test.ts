@@ -27,11 +27,11 @@ describe("SQLite decimal column type", () => {
     expect(getSQLiteType({ type: "decimal", array: false })).toBe("TEXT");
   });
 
-  test("a float column still maps to REAL — only decimal moved", () => {
+  test("an approximate-number column still maps to REAL — only decimal moved", () => {
     // Guards the fix at the site that caused the bug: getSQLiteType used to
-    // route `decimal` to the FLOAT default, which made the decimal entry in
+    // route `decimal` to the approximate-number default, which made the decimal entry in
     // SQLITE_TYPE_DEFAULTS dead code and the first TEXT mapping a no-op.
-    expect(getSQLiteType({ type: "float", array: false })).toBe("REAL");
+    expect(getSQLiteType({ type: "number", array: false })).toBe("REAL");
   });
 
   test("push creates the column as TEXT", async () => {
@@ -60,7 +60,7 @@ describe("SQLite decimal column type", () => {
     // Stand in for a database created before W6-U1: same table, same column
     // name, but the old approximate type.
     const legacy = s
-      .model({ id: s.string().id(), amount: s.float() })
+      .model({ id: s.string().id(), amount: s.number() })
       .map("decimal_migration_ledger");
     const legacyClient = createClient({ schema: { legacy }, driver });
     const legacyPush = await push(legacyClient, { force: true });

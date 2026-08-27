@@ -380,7 +380,7 @@ export function getScalarTypeForScalar(
 /**
  * The cast a value must wear to land in this field's column domain.
  *
- * `decimal` is deliberately NOT `numeric`: `numeric` is the float cast, and on
+ * `decimal` is deliberately NOT `numeric`: `numeric` is the number cast, and on
  * two of three dialects it destroys an exact decimal (SQLite NUMERIC affinity
  * rounds the canonical spelling into a double; MySQL's bare `DECIMAL` is
  * `DECIMAL(10,0)` and rounds away every fraction). See {@link CastType}.
@@ -415,7 +415,7 @@ export function getScalarCastType(
     case "int":
     case "bigint":
       return "integer";
-    case "float":
+    case "number":
       return "numeric";
     case "decimal":
       return "decimal";
@@ -435,7 +435,7 @@ export function getScalarCastTypeForScalar(
     case "int":
     case "bigint":
       return "integer";
-    case "float":
+    case "number":
       return "numeric";
     case "decimal":
       return "decimal";

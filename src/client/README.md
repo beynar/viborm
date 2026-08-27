@@ -302,7 +302,7 @@ These operators work on most scalar types:
 
 ### Number Filters
 
-Works for `int`, `float`, and `decimal` fields.
+Works for `int`, `number`, and `decimal` fields.
 
 ```ts
 // Shorthand - equals

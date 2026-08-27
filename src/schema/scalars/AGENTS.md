@@ -39,7 +39,7 @@ selection fields.
 
 **Scalar Types (14 total):**
 - **Text:** string
-- **Numeric:** int, float, decimal, bigInt
+- **Numeric:** int, number, decimal, bigInt
 - **Boolean:** boolean
 - **Temporal:** dateTime, date, time
 - **Complex:** json, enum, blob, vector, point
