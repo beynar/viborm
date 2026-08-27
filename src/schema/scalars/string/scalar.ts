@@ -6,6 +6,7 @@ import v from "@validation/primitives/v";
 import {
   createDefaultState,
   type DefaultValueInput,
+  generatorDefault,
   type ScalarState,
   updateState,
 } from "../common";
@@ -72,8 +73,8 @@ export class StringScalar<State extends ScalarState<"string">> {
       updateState(this, {
         isId: true,
         isUnique: true,
-        autoGenerate: "ulid",
-        default: defaultUlid(prefix),
+        autoGenerate: { kind: "ulid", prefix },
+        default: generatorDefault(defaultUlid(prefix)),
         optional: true,
       }),
       this._nativeType
@@ -132,8 +133,8 @@ export class StringScalar<State extends ScalarState<"string">> {
     return new StringScalar(
       updateState(this, {
         hasDefault: true,
-        default: defaultUuid(prefix),
-        autoGenerate: "uuid",
+        default: generatorDefault(defaultUuid(prefix)),
+        autoGenerate: { kind: "uuid", prefix },
         optional: true,
       }),
       this._nativeType
@@ -144,8 +145,8 @@ export class StringScalar<State extends ScalarState<"string">> {
     return new StringScalar(
       updateState(this, {
         hasDefault: true,
-        default: defaultUlid(prefix),
-        autoGenerate: "ulid",
+        default: generatorDefault(defaultUlid(prefix)),
+        autoGenerate: { kind: "ulid", prefix },
         optional: true,
       }),
       this._nativeType
@@ -156,8 +157,8 @@ export class StringScalar<State extends ScalarState<"string">> {
     return new StringScalar(
       updateState(this, {
         hasDefault: true,
-        default: defaultNanoid(length, prefix),
-        autoGenerate: "nanoid",
+        default: generatorDefault(defaultNanoid(length, prefix)),
+        autoGenerate: { kind: "nanoid", prefix, length },
         optional: true,
       }),
       this._nativeType
@@ -168,8 +169,8 @@ export class StringScalar<State extends ScalarState<"string">> {
     return new StringScalar(
       updateState(this, {
         hasDefault: true,
-        default: defaultCuid(prefix),
-        autoGenerate: "cuid",
+        default: generatorDefault(defaultCuid(prefix)),
+        autoGenerate: { kind: "cuid", prefix },
         optional: true,
       }),
       this._nativeType

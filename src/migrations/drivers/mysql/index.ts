@@ -180,7 +180,7 @@ export class MySQLMigrationDriver extends MigrationDriver {
   protected override getAutoGenerateExpression(
     autoGenerate: ScalarState["autoGenerate"]
   ): string | undefined {
-    switch (autoGenerate) {
+    switch (autoGenerate?.kind) {
       case "now":
         return "CURRENT_TIMESTAMP";
       case "uuid":

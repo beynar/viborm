@@ -1,4 +1,5 @@
 import { s } from "@src/schema";
+import { hydrateSchemaNames } from "@src/schema/hydration";
 import { validateSchema } from "@src/schema/validation";
 import { describe, expect, it } from "vitest";
 
@@ -44,13 +45,57 @@ describe("model definition rules", () => {
     expect(errorCodes({ invalidIndex })).toContain("I001");
   });
 
-  it("retains unknown compound fields so validation can reject them", () => {
+  it("refuses an unknown compound member at the declaring site", () => {
     const base = s.model({ id: s.string().id(), tenant: s.string() });
-    const invalidId = Reflect.apply(base.id, base, [["missing"]]);
-    const invalidUnique = Reflect.apply(base.unique, base, [["unknown"]]);
 
-    expect(errorCodes({ invalidId })).toContain("I003");
-    expect(errorCodes({ invalidUnique })).toContain("I003");
+    expect(() => Reflect.apply(base.id, base, [["missing"]])).toThrow(
+      "Compound ID field 'missing' does not exist"
+    );
+    expect(() => Reflect.apply(base.unique, base, [["unknown"]])).toThrow(
+      "Compound unique field 'unknown' does not exist"
+    );
+  });
+
+  it("refuses a relation named as a compound member", () => {
+    const target = s.model({ id: s.string().id() });
+    const base = s.model({
+      region: s.string(),
+      owner: s.toOne(() => target),
+    });
+
+    expect(() => Reflect.apply(base.id, base, [["region", "owner"]])).toThrow(
+      "Compound ID field 'owner' is a relation and cannot be a key member"
+    );
+  });
+
+  /**
+   * The witness for the old misdirection: a typo'd compound-ID member used to
+   * survive `.id()` as a refused schema, and on validation-rule-free paths the
+   * first diagnostic was `[FK005] [region, slug] in 'post' should be unique/ID`
+   * — pointing at the foreign key that referenced the INTENDED tuple, never at
+   * the typo. The declaration now fails on its own line, naming the field.
+   */
+  it("fails a typo'd compound ID at its own declaration, not as FK005 at a referencing FK", () => {
+    expect(() => {
+      const withTypoId = s.model({
+        region: s.string(),
+        slug: s.string(),
+        comments: s.toMany(() => comment),
+      });
+      const post = Reflect.apply(withTypoId.id, withTypoId, [
+        ["region", "slgu"],
+      ]);
+      const comment = s.model({
+        id: s.string().id(),
+        postRegion: s.string(),
+        postSlug: s.string(),
+        post: s
+          .toOne(() => post)
+          .fields("postRegion", "postSlug")
+          .references("region", "slug"),
+      });
+      return { post, comment };
+    }).toThrow("Compound ID field 'slgu' does not exist");
   });
 
   it("rejects empty compound constraints", () => {
@@ -68,5 +113,77 @@ describe("model definition rules", () => {
       .id(["tenant"]);
 
     expect(errorCodes({ model })).toContain("F002");
+  });
+});
+
+/**
+ * A model's classified member maps are a projection of its shape: every shape
+ * member the extractors recognize must appear in the map that claims it. A
+ * shape key comes from the caller — a JSON document's field name, a generated
+ * schema, a hand-written literal — so it can be any string, `__proto__`
+ * included, and a map that loses such a member is a model whose scalars,
+ * uniques and relations disagree with the shape they were read from.
+ *
+ * Legality of the key is a SEPARATE question with its own owner
+ * (`isValidSchemaIdentifier`, enforced at hydration and by the JSON document
+ * reader). These two witnesses are the pair: extraction keeps the member,
+ * hydration then refuses it by name.
+ */
+describe("model member extraction", () => {
+  // A computed key is an own data property; the bare `__proto__:` literal form
+  // would set the object's prototype instead and never reach the model.
+  const prototypeKey = "__proto__";
+
+  it("classifies a shape member whose key is a prototype property name", () => {
+    const tag = s.model({ id: s.string().id() });
+    const model = s.model({
+      id: s.string().id(),
+      [prototypeKey]: s.string().unique(),
+      toString: s.toMany(() => tag),
+    });
+    const state = model["~"].state;
+
+    expect(Object.keys(state.shape)).toEqual(["id", prototypeKey, "toString"]);
+    expect(Object.keys(state.scalars)).toEqual(["id", prototypeKey]);
+    expect(Object.keys(state.uniques)).toEqual(["id", prototypeKey]);
+    expect(Object.keys(state.relations)).toEqual(["toString"]);
+  });
+
+  it("classifies such a member added by .extends()", () => {
+    const model = s
+      .model({ id: s.string().id() })
+      .extends({ [prototypeKey]: s.string() });
+    const state = model["~"].state;
+
+    expect(Object.keys(state.shape)).toEqual(["id", prototypeKey]);
+    expect(Object.keys(state.scalars)).toEqual(["id", prototypeKey]);
+  });
+
+  it("keeps such a member usable as a compound key member", () => {
+    const model = s
+      .model({ id: s.string(), [prototypeKey]: s.string() })
+      .id(["id", prototypeKey]);
+    const constraint = model["~"].state.compoundId?.[`id_${prototypeKey}`];
+
+    expect(Object.keys(constraint?.entries ?? {})).toEqual([
+      "id",
+      prototypeKey,
+    ]);
+  });
+
+  /**
+   * The member survives extraction so that the identifier owner can refuse it
+   * loudly — surviving is not being granted a capability.
+   */
+  it("still refuses that field at hydration, naming it", () => {
+    const model = s.model({
+      id: s.string().id(),
+      [prototypeKey]: s.string(),
+    });
+
+    expect(() => hydrateSchemaNames({ account: model })).toThrow(
+      "Field '__proto__' in 'account' is invalid identifier"
+    );
+    expect(errorCodes({ account: model })).toContain("F001");
   });
 });

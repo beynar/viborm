@@ -3,6 +3,7 @@
 
 import type { ObjectSchema, VibSchema } from "@validation";
 import v from "@validation/primitives/v";
+import { emptyRecord, put } from "../record";
 import type { AnyRelation } from "../relation";
 import type { Scalar } from "../scalars/base";
 import type { HydratedSchemaNames, SchemaNames } from "../scalars/common";
@@ -209,6 +210,43 @@ type MergeCompound<Existing, Added> = Added &
     : unknown);
 
 /**
+ * Resolve compound-key members to their base schemas, refusing any name that
+ * is not a scalar of the model AT THE DECLARING SITE. The typed surface
+ * already refuses these names; this throw is the runtime backstop for
+ * untyped callers and JSON documents (the document interpreter relocates it
+ * onto the `ids[]`/`uniques[]` node that wrote it), and it must fire on the
+ * rule-free paths (`serializeModels`, `generate`,
+ * `push({ skipValidation: true })`) that never run the advisory rules. I003
+ * keeps its own coverage: post-construction shape drift (`.extends()`
+ * shadowing a key member) is invisible to this constructor.
+ *
+ * A module function rather than a `Model` method: adding members to the class
+ * perturbs how TS compares mutually-recursive model instantiations.
+ */
+function compoundMembers(
+  state: ModelState,
+  fields: readonly string[],
+  label: string
+): Record<string, VibSchema> {
+  const members = emptyRecord<VibSchema>();
+  for (const fieldName of fields) {
+    // `in` is exact here: both maps come from the extractors, which build
+    // prototype-free records, so no key can resolve an inherited member.
+    const scalar =
+      fieldName in state.scalars ? state.scalars[fieldName] : undefined;
+    if (!scalar) {
+      throw new Error(
+        fieldName in state.relations
+          ? `${label} field '${fieldName}' is a relation and cannot be a key member`
+          : `${label} field '${fieldName}' does not exist`
+      );
+    }
+    put(members, fieldName, scalar["~"].state.base);
+  }
+  return members;
+}
+
+/**
  * Name registry for scalars and relations.
  * Maps scalar/relation keys to their resolved names (ts and sql).
  * This is populated during hydration.
@@ -309,19 +347,7 @@ export class Model<State extends ModelState> {
     const O extends CompoundKeyOptions = Record<never, never>,
   >(fields: Keys, options?: ExactOptions<O, CompoundKeyOptions>) {
     const name = getNameFromKeys(options?.name, fields);
-    const fieldsRecord = fields.reduce(
-      (acc, fieldName) => {
-        const scalar =
-          fieldName in this.state.scalars
-            ? this.state.scalars[fieldName]
-            : undefined;
-        acc[fieldName] =
-          scalar?.["~"].state.base ??
-          v.refused(`Compound ID field '${fieldName}' does not exist`);
-        return acc;
-      },
-      {} as Record<string, VibSchema>
-    );
+    const fieldsRecord = compoundMembers(this.state, fields, "Compound ID");
 
     const compoundId = {
       ...this.state.compoundId,
@@ -349,19 +375,7 @@ export class Model<State extends ModelState> {
     const O extends CompoundKeyOptions = Record<never, never>,
   >(fields: Keys, options?: ExactOptions<O, CompoundKeyOptions>) {
     const name = getNameFromKeys(options?.name, fields);
-    const fieldsRecord = fields.reduce(
-      (acc, fieldName) => {
-        const scalar =
-          fieldName in this.state.scalars
-            ? this.state.scalars[fieldName]
-            : undefined;
-        acc[fieldName] =
-          scalar?.["~"].state.base ??
-          v.refused(`Compound unique field '${fieldName}' does not exist`);
-        return acc;
-      },
-      {} as Record<string, VibSchema>
-    );
+    const fieldsRecord = compoundMembers(this.state, fields, "Compound unique");
 
     const compoundUniques = {
       ...this.state.compoundUniques,

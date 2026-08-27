@@ -6,13 +6,18 @@ import v from "@validation/primitives/v";
 import {
   createDefaultState,
   type DefaultValueInput,
+  generatorDefault,
   type ScalarState,
   updateState,
 } from "../common";
 import type { NativeType } from "../native-types";
 
-const defaultNow = () => new Date().toISOString().split("T")[0]!;
-const defaultUpdatedAt = () => new Date().toISOString().split("T")[0]!;
+const defaultNow = generatorDefault(
+  () => new Date().toISOString().split("T")[0]!
+);
+const defaultUpdatedAt = generatorDefault(
+  () => new Date().toISOString().split("T")[0]!
+);
 const dateBase = v.isoDate();
 
 export class DateScalar<State extends ScalarState<"date">> {
@@ -113,7 +118,7 @@ export class DateScalar<State extends ScalarState<"date">> {
     return new DateScalar(
       updateState(this, {
         hasDefault: true,
-        autoGenerate: "now",
+        autoGenerate: { kind: "now" },
         default: defaultNow,
         optional: true,
       }),
@@ -125,7 +130,7 @@ export class DateScalar<State extends ScalarState<"date">> {
     return new DateScalar(
       updateState(this, {
         hasDefault: true,
-        autoGenerate: "updatedAt",
+        autoGenerate: { kind: "updatedAt" },
         default: defaultUpdatedAt,
         optional: true,
       }),

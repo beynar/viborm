@@ -16,7 +16,8 @@ const _numericColumn: string = numericId["~"].state.columnName;
 
 const localTimestamp = s.dateTime().withoutTimezone().updatedAt();
 const _withoutTimezone: false = localTimestamp["~"].state.withTimezone;
-const _generatedOnUpdate: "updatedAt" = localTimestamp["~"].state.autoGenerate;
+const _generatedOnUpdate: "updatedAt" =
+  localTimestamp["~"].state.autoGenerate.kind;
 
 const namedEnum = s.enum(["PENDING", "ACTIVE"]).name("status");
 const _enumName: string = namedEnum["~"].state.enumName;

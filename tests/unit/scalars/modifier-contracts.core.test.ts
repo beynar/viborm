@@ -209,7 +209,7 @@ describe("scalar modifier contracts", () => {
     ["bigint", () => bigInt().increment()],
   ] as const)("configures portable %s increment generation", (_name, create) => {
     expect(create()["~"].state).toMatchObject({
-      autoGenerate: "increment",
+      autoGenerate: { kind: "increment" },
       default: undefined,
       disallowZero: true,
       hasDefault: true,
@@ -357,7 +357,7 @@ describe("temporal generated defaults", () => {
       [createUpdatedAt, "updatedAt"],
     ] as const) {
       const state = create()["~"].state;
-      expect(state.autoGenerate).toBe(autoGenerate);
+      expect(state.autoGenerate).toEqual({ kind: autoGenerate });
       expect(state.hasDefault).toBe(true);
       expect(state.optional).toBe(true);
       const generate = state.default;
