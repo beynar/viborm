@@ -116,7 +116,7 @@ const scalarModel = s.model({
   nullableText: s.string().nullable(),
   _distance: s.string(),
   integer: s.int(),
-  float: s.float(),
+  ratio: s.number(),
   decimal: s.decimal(),
   large: s.bigInt(),
   flag: s.boolean(),
@@ -200,7 +200,7 @@ describe("strict scalar result contracts", () => {
     expect(parseField("flag", 1, new MySQLAdapter())).toBe(true);
     expect(parseField("flag", 0n)).toBe(false);
     expect(parseField("integer", "-42")).toBe(-42);
-    expect(parseField("float", "1e2")).toBe(100);
+    expect(parseField("ratio", "1e2")).toBe(100);
     // W6-U1: a decimal decodes to its canonical STRING, never a double. The
     // provider hands it over as text on every dialect; the only work is
     // agreeing on one spelling.
@@ -271,8 +271,8 @@ describe("strict scalar result contracts", () => {
     ["unsafe integer", "integer", Number.MAX_SAFE_INTEGER + 1, "int"],
     ["hex integer", "integer", "0x10", "int"],
     ["exponent integer", "integer", "1e2", "int"],
-    ["non-finite float", "float", Number.POSITIVE_INFINITY, "float"],
-    ["hex float", "float", "0x10", "float"],
+    ["non-finite number", "ratio", Number.POSITIVE_INFINITY, "number"],
+    ["hex number", "ratio", "0x10", "number"],
     ["malformed decimal", "decimal", "phase6-private-value", "decimal"],
     ["unsafe bigint number", "large", Number.MAX_SAFE_INTEGER + 1, "bigint"],
     ["fractional bigint", "large", 1.5, "bigint"],

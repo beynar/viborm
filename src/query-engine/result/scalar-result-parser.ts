@@ -255,7 +255,7 @@ function parseTypedValueDefault(
       return parsed;
     }
 
-    case "float": {
+    case "number": {
       const parsed = parseFiniteProviderNumber(value);
       if (parsed === undefined) {
         return malformedScalarValue(

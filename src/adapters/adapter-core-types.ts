@@ -7,7 +7,7 @@ import type { Sql } from "@sql";
  * use these logical types and let each adapter map to the correct syntax.
  *
  * `numeric` and `decimal` are DIFFERENT casts and must stay different. `numeric`
- * is the approximate/whatever-the-dialect-calls-a-number cast used for `float`;
+ * is the approximate/whatever-the-dialect-calls-a-number cast used for `number`;
  * `decimal` is the EXACT decimal domain of the `s.decimal()` storage column, and
  * it is the only one a decimal value may pass through. Spelling a decimal as
  * `numeric` is silent corruption on two of the three dialects: SQLite's NUMERIC

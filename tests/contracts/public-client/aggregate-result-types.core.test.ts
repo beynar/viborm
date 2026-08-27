@@ -12,7 +12,7 @@
  * `.toFixed()` threw, and — the silent one — `agg._sum.big === 150` was always
  * false under bigint-vs-number strict equality.
  *
- * This file is the matrix: every numeric-capable scalar (int, float, bigint,
+ * This file is the matrix: every numeric-capable scalar (int, number, bigint,
  * decimal) x (_sum, _avg, _min, _max), on `aggregate()` AND on `groupBy()`,
  * plus a live PGlite probe that asserts `typeof` agrees with the static claim
  * for the two scalars the widening lie covered up.
@@ -36,7 +36,7 @@ const ledger = s
     id: s.string().id(),
     bucket: s.string(),
     qty: s.int(),
-    ratio: s.float(),
+    ratio: s.number(),
     big: s.bigInt(),
     amount: s.decimal(),
   })

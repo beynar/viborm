@@ -10,9 +10,9 @@ import type { DateTimeScalar } from "./datetime/scalar";
 import type { TimeScalar } from "./datetime/time-scalar";
 import type { DecimalScalar } from "./decimal/scalar";
 import type { EnumScalar } from "./enum/scalar";
-import type { FloatScalar } from "./float/scalar";
 import type { IntScalar } from "./int/scalar";
 import type { JsonScalar } from "./json/scalar";
+import type { NumberScalar } from "./number/scalar";
 import type { PointScalar } from "./point/scalar";
 import type { StringScalar } from "./string/scalar";
 import type { VectorScalar } from "./vector/scalar";
@@ -34,7 +34,7 @@ import type { VectorScalar } from "./vector/scalar";
 export type Scalar =
   | StringScalar<ScalarState<"string">>
   | IntScalar<ScalarState<"int">>
-  | FloatScalar<ScalarState<"float">>
+  | NumberScalar<ScalarState<"number">>
   | DecimalScalar<ScalarState<"decimal">>
   | BooleanScalar<ScalarState<"boolean">>
   | DateTimeScalar<ScalarState<"datetime">>

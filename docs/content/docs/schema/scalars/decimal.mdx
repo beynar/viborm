@@ -28,7 +28,7 @@ This is not a stylistic choice. `numeric` on Postgres and `DECIMAL(65,30)` on
 MySQL hold values a JavaScript `number` cannot: a `number` is an IEEE-754
 double, good for about 15 significant digits. Handing you a `number` would mean
 handing you a value that quietly disagrees with the database — which is exactly
-what `s.decimal()` exists to prevent. Use [`s.float()`](/docs/schema/scalars/number)
+what `s.decimal()` exists to prevent. Use [`s.number()`](/docs/schema/scalars/number)
 when approximate is genuinely fine.
 
 :::info
@@ -142,7 +142,7 @@ pagination silently adds it as the tie-breaker that decides page boundaries.
 `_count` is never refused anywhere: counting rows needs no ordering.
 
 If you need ordered decimals on SQLite, the two honest options are
-[`s.float()`](/docs/schema/scalars/number) (approximate, and says so) or scaled
+[`s.number()`](/docs/schema/scalars/number) (approximate, and says so) or scaled
 integers in an [`s.bigInt()`](/docs/schema/scalars/bigint) — cents rather than
 dollars.
 

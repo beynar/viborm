@@ -9,7 +9,7 @@ const INTEGER_ERROR = /integer/i;
 
 /**
  * The read fast path (identity decoders + whole-row passthrough) is a PURE
- * performance optimization: for plain string/int/float/boolean columns on a
+ * performance optimization: for plain string/int/number/boolean columns on a
  * native-passthrough provider (Postgres family), the row parser skips the typed
  * decode switch and, when every cell of an all-scalar row is native, returns the
  * driver row itself. These tests pin the one property that matters — the fast
@@ -22,7 +22,7 @@ const INTEGER_ERROR = /integer/i;
  * the mixed-projection equality — restore to green.
  */
 
-// A wide mixed projection: identity-eligible scalars (string/int/float/boolean,
+// A wide mixed projection: identity-eligible scalars (string/int/number/boolean,
 // nullable string) interleaved with every coercing type the gate must exclude
 // (enum, json, date, bigint, decimal).
 const mixedModel = s.model({
@@ -30,7 +30,7 @@ const mixedModel = s.model({
   name: s.string(),
   nick: s.string().nullable(),
   age: s.int(),
-  score: s.float(),
+  score: s.number(),
   active: s.boolean(),
   status: s.enum(["ACTIVE", "INACTIVE"] as const),
   meta: s.json(),
@@ -45,7 +45,7 @@ const pureScalarModel = s.model({
   name: s.string(),
   nick: s.string().nullable(),
   age: s.int(),
-  score: s.float(),
+  score: s.number(),
   active: s.boolean(),
 });
 

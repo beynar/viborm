@@ -79,7 +79,7 @@ export type UniqueScalarKeys<T extends ModelShape> = {
 }[keyof T];
 
 /** Numeric scalar types for aggregations (avg, sum) */
-export type NumericScalarType = "int" | "float" | "decimal" | "bigint";
+export type NumericScalarType = "int" | "number" | "decimal" | "bigint";
 
 /** Extract keys of numeric scalars from a ModelShape */
 export type NumericScalarKeys<T extends ModelShape> = {
@@ -130,7 +130,7 @@ function isRelation(value: unknown): value is AnyRelation {
 const SCALAR_TYPES = new Set<string>([
   "string",
   "int",
-  "float",
+  "number",
   "decimal",
   "boolean",
   "datetime",

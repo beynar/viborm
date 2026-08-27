@@ -10,7 +10,7 @@ icon: columns
 | --------------- | ----------------------------------- | ---------------------------------- |
 | `s.string()`    | `string`                            | Text, IDs, emails                  |
 | `s.int()`       | `number`                            | Whole numbers, counts              |
-| `s.float()`     | `number`                            | Approximate decimals               |
+| `s.number()`    | `number`                            | Approximate decimals               |
 | `s.decimal()`   | `string`                            | Exact decimals, money              |
 | `s.bigInt()`    | `bigint`                            | Integers beyond `2^53`             |
 | `s.boolean()`   | `boolean`                           | Flags                              |
@@ -56,7 +56,7 @@ Not every modifier exists on every scalar:
 | ---------- | ------- | ----------- | ---------- | ----------- | ----------------------- |
 | `string`   | ✓       | ✓           | ✓          | ✓           | `.uuid()` `.ulid()` `.nanoid()` `.cuid()` |
 | `int`      | ✓       | ✓           | ✓          | ✓           | `.increment()`          |
-| `float`    | ✓       | ✓           | ✓          | ✓           | —                       |
+| `number`   | ✓       | ✓           | ✓          | ✓           | —                       |
 | `decimal`  | ✓       | ✓           | ✓          | ✓           | —                       |
 | `bigInt`   | ✓       | ✓           | ✓          | ✓           | `.increment()`          |
 | `boolean`  | —       | —           | ✓          | —           | —                       |

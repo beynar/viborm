@@ -792,8 +792,8 @@ describe("PostgreSQL DDL Generation", () => {
       ).toBe("integer");
       expect(
         postgresMigrationDriver.mapScalarType(
-          createMockScalar(createScalarState("float")),
-          createScalarState("float")
+          createMockScalar(createScalarState("number")),
+          createScalarState("number")
         )
       ).toBe("double precision");
       expect(

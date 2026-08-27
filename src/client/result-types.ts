@@ -36,7 +36,7 @@ import type { EnumValues } from "@validation/primitives/enum";
 type ScalarResultTypeMap = {
   string: string;
   int: number;
-  float: number;
+  number: number;
   // A decimal reads back as its exact canonical spelling. A JS number could not
   // carry the value a `numeric` / `DECIMAL(65,30)` column actually holds.
   decimal: string;
@@ -1028,7 +1028,7 @@ export type AggregateResultType<T extends ModelShape, Args> = Prettify<{
       ? Args[K] extends object
         ? {
             // Decoded through the field's own scalar: bigint -> bigint,
-            // decimal -> string, int/float -> number.
+            // decimal -> string, int/number -> number.
             [F in keyof Args[K]]:
               | (F extends ScalarKeys<T> ? InferScalarBase<T[F]> : number)
               | null;

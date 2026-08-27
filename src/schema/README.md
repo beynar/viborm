@@ -118,7 +118,7 @@ src/schema/
 │   ├── common.ts         # ScalarState interface & helpers
 │   ├── native-types.ts   # PG, MYSQL, SQLITE type constants
 │   ├── string/           # StringScalar class + schemas
-│   ├── int/, float/, decimal/, number/  # Numeric scalar classes
+│   ├── int/, number/, decimal/ # Numeric scalar classes
 │   ├── boolean/          # BooleanScalar
 │   ├── datetime/         # DateTimeScalar
 │   ├── bigint/           # BigIntScalar
@@ -161,7 +161,7 @@ export const s = {
   model,
 
   // Scalars
-  string, boolean, int, float, decimal, bigInt,
+  string, boolean, int, number, decimal, bigInt,
   dateTime, json, blob, enum: enumScalar, vector,
 
   // Relations — two factories; the argument states the target domain
@@ -181,7 +181,7 @@ Scalars represent database columns. Each scalar type has its own class with type
 |-------|----------------|---------------|
 | `s.string()` | `string` | VARCHAR/TEXT |
 | `s.int()` | `number` | INTEGER |
-| `s.float()` | `number` | FLOAT/REAL |
+| `s.number()` | `number` | FLOAT/REAL |
 | `s.decimal()` | `number` | DECIMAL/NUMERIC |
 | `s.bigInt()` | `bigint` | BIGINT |
 | `s.boolean()` | `boolean` | BOOLEAN |
@@ -251,7 +251,7 @@ s.decimal(TYPES.MYSQL.DECIMAL.DECIMAL(10, 2))
 
 // SQLite (limited type affinity)
 s.string(TYPES.SQLITE.STRING.TEXT)
-s.float(TYPES.SQLITE.FLOAT.REAL)
+s.number(TYPES.SQLITE.FLOAT.REAL)
 ```
 
 ### Custom Validators

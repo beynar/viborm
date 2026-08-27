@@ -40,7 +40,7 @@ export function compileScalarCodec(
       case "int":
         item = integerCodec();
         break;
-      case "float":
+      case "number":
         item = numberCodec();
         break;
       case "decimal":

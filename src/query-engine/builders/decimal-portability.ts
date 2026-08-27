@@ -59,7 +59,7 @@ export function assertExactDecimalOperation(
       "on a decimal would have to go through a 64-bit float and could answer wrongly " +
       "past ~15 significant digits — viborm refuses instead of answering approximately. " +
       "Reads, writes, and equality filters (equals/not/in/notIn) stay exact. " +
-      "If approximate ordering is acceptable use s.float(); if you need exact ordered " +
+      "If approximate ordering is acceptable use s.number(); if you need exact ordered " +
       "money on SQLite, store scaled integers in an s.bigInt()."
   );
 }

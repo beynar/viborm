@@ -376,7 +376,7 @@ describe.each(sqlDialects)("$name decimal FK lowering", (dialectCase) => {
     ).toEqual([HALF]);
   });
 
-  test("a deferred FK expression takes the EXACT-decimal cast, not the float one", () => {
+  test("a deferred FK expression takes the EXACT-decimal cast, not the number one", () => {
     const engine = engineFor();
     // A `Ref`/subquery cannot be canonicalized at build time — its value does
     // not exist yet — so it keeps the cast path. That path must still land in
@@ -391,21 +391,24 @@ describe.each(sqlDialects)("$name decimal FK lowering", (dialectCase) => {
     expect(deferred.statement).toContain("captured_key");
   });
 
-  test("a FLOAT column keeps the numeric cast — the two are not merged", () => {
-    // The fix splits `decimal` off from `numeric`; this pins that `float` was
+  test("an approximate column keeps the numeric cast — the two are not merged", () => {
+    // The fix splits `decimal` off from `numeric`; this pins that `number` was
     // not dragged along with it into the exact-decimal domain.
     const engine = engineFor();
-    const floatFk = rendered(referenceSql(engine, gauge, "readingRef", 1.5));
+    const numberFk = rendered(referenceSql(engine, gauge, "readingRef", 1.5));
 
-    expect(floatFk.statement).toContain("CAST(");
-    expect(floatFk.values).toEqual([1.5]);
+    expect(numberFk.statement).toContain("CAST(");
+    expect(numberFk.values).toEqual([1.5]);
   });
 });
 
-/** A float FK, to prove the `decimal`/`numeric` split did not swallow floats. */
+/**
+ * An approximate-number FK, to prove the `decimal`/`numeric` split did not
+ * swallow the `number` scalar.
+ */
 const gauge = s
   .model({
     id: s.string().id(),
-    readingRef: s.float(),
+    readingRef: s.number(),
   })
   .map("decimal_relkey_gauges");

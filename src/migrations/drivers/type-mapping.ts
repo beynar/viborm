@@ -18,7 +18,7 @@ import { PG, SQLITE } from "@schema/scalars/native-types";
 export const PG_TYPE_DEFAULTS = {
   string: PG.STRING.TEXT.type,
   int: PG.INT.INTEGER.type,
-  float: PG.FLOAT.DOUBLE_PRECISION.type,
+  number: PG.FLOAT.DOUBLE_PRECISION.type,
   decimal: "numeric", // PG.DECIMAL.NUMERIC() returns a function, use literal
   boolean: PG.BOOLEAN.BOOLEAN.type,
   datetime: "timestamp",
@@ -41,7 +41,7 @@ export const PG_TYPE_DEFAULTS = {
 export const SQLITE_TYPE_DEFAULTS = {
   string: SQLITE.STRING.TEXT.type,
   int: SQLITE.INT.INTEGER.type,
-  float: SQLITE.FLOAT.REAL.type,
+  number: SQLITE.FLOAT.REAL.type,
   // TEXT, not REAL: SQLite has no exact decimal type, and REAL (or anything
   // with NUMERIC affinity) rounds a fractional value into a double as it is
   // stored. TEXT keeps the canonical spelling byte-exact at any precision. The
@@ -68,7 +68,7 @@ export const SQLITE_TYPE_DEFAULTS = {
 export const MYSQL_TYPE_DEFAULTS = {
   string: "TEXT",
   int: "INT",
-  float: "DOUBLE",
+  number: "DOUBLE",
   decimal: "DECIMAL(65,30)", // bare DECIMAL means DECIMAL(10,0), silently truncating fractions; match Prisma's default
   boolean: "TINYINT(1)", // MySQL uses TINYINT(1) for boolean
   datetime: "DATETIME(3)", // Use DATETIME(3) to preserve JavaScript Date millisecond precision
@@ -91,7 +91,7 @@ export const MYSQL_TYPE_DEFAULTS = {
 export type VibORMScalarType =
   | "string"
   | "int"
-  | "float"
+  | "number"
   | "decimal"
   | "boolean"
   | "datetime"
@@ -124,8 +124,8 @@ export function getPostgresType(context: ScalarTypeContext): string {
     case "int":
       baseType = PG_TYPE_DEFAULTS.int;
       break;
-    case "float":
-      baseType = PG_TYPE_DEFAULTS.float;
+    case "number":
+      baseType = PG_TYPE_DEFAULTS.number;
       break;
     case "decimal":
       baseType = PG_TYPE_DEFAULTS.decimal;
@@ -196,9 +196,9 @@ export function getSQLiteType(context: ScalarTypeContext): string {
     case "bigint":
     case "boolean":
       return SQLITE_TYPE_DEFAULTS.int;
-    case "float":
-      return SQLITE_TYPE_DEFAULTS.float;
-    // NOT the float default: a decimal column is TEXT on SQLite so the
+    case "number":
+      return SQLITE_TYPE_DEFAULTS.number;
+    // NOT the number default: a decimal column is TEXT on SQLite so the
     // exact spelling survives. REAL rounds it into a double on the way in.
     case "decimal":
       return SQLITE_TYPE_DEFAULTS.decimal;
@@ -228,8 +228,8 @@ export function getMySQLType(context: ScalarTypeContext): string {
       return MYSQL_TYPE_DEFAULTS.string;
     case "int":
       return MYSQL_TYPE_DEFAULTS.int;
-    case "float":
-      return MYSQL_TYPE_DEFAULTS.float;
+    case "number":
+      return MYSQL_TYPE_DEFAULTS.number;
     case "decimal":
       return MYSQL_TYPE_DEFAULTS.decimal;
     case "boolean":

@@ -45,7 +45,7 @@ Keep the callback **pure**. It is called during validation, and a payload may be
 | Position | Field reference | SQL fragment |
 |---|---|---|
 | `equals`, `not` | ✅ every non-list scalar, enums included | ✅ |
-| `lt`, `lte`, `gt`, `gte` | ✅ int, float, decimal, bigint, string, datetime, date, time | ✅ |
+| `lt`, `lte`, `gt`, `gte` | ✅ int, number, decimal, bigint, string, datetime, date, time | ✅ |
 | Bare shorthand `{ views: (ctx) => … }` | ✅ (normalizes to `equals`) | ✅ |
 | `contains`, `startsWith`, `endsWith` | ✅ string — **token only**, see below | ❌ |
 | `in`, `notIn` | ❌ | ❌ |

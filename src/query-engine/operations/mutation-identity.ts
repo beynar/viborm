@@ -232,7 +232,7 @@ export function assertPortablePrimaryKeyUpdateInput(
     );
     if (
       arithmeticOperation !== undefined &&
-      (scalarType === "float" || scalarType === "decimal")
+      (scalarType === "number" || scalarType === "decimal")
     ) {
       throw new QueryEngineError(
         `Arithmetic updates are not portable for ${scalarType} primary key field '${primaryKeyField}'. Use an explicit set value.`

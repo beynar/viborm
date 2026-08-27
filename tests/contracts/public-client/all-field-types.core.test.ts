@@ -56,17 +56,17 @@ const allFieldsModel = s.model({
   // Int with default
   intWithDefault: s.int().default(42),
 
-  // ============= FLOAT SCALARS =============
-  // Required float
-  floatRequired: s.float(),
-  // Nullable float
-  floatNullable: s.float().nullable(),
-  // Float array
-  floatArray: s.float().array(),
-  // Nullable float array
-  floatArrayNullable: s.float().array().nullable(),
-  // Float with default
-  floatWithDefault: s.float().default(3.14),
+  // ============= NUMBER SCALARS =============
+  // Required number
+  numberRequired: s.number(),
+  // Nullable number
+  numberNullable: s.number().nullable(),
+  // Number array
+  numberArray: s.number().array(),
+  // Nullable number array
+  numberArrayNullable: s.number().array().nullable(),
+  // Number with default
+  numberWithDefault: s.number().default(3.14),
 
   // ============= DECIMAL SCALARS =============
   // Required decimal
@@ -253,12 +253,12 @@ describe("All Scalar Types Integration Test", () => {
         intArrayNullable: [10, 20],
         // intWithDefault uses default
 
-        // Float scalars
-        floatRequired: 1.5,
-        floatNullable: 2.75,
-        floatArray: [0.1, 0.2, 0.3],
-        floatArrayNullable: [1.1, 2.2],
-        // floatWithDefault uses default
+        // Number scalars
+        numberRequired: 1.5,
+        numberNullable: 2.75,
+        numberArray: [0.1, 0.2, 0.3],
+        numberArrayNullable: [1.1, 2.2],
+        // numberWithDefault uses default
 
         // Decimal scalars
         decimalRequired: 100.5,
@@ -367,18 +367,18 @@ describe("All Scalar Types Integration Test", () => {
     expect(found.intWithDefault).toBe(42);
 
     // =========================================================================
-    // FLOAT SCALAR VERIFICATIONS
+    // NUMBER SCALAR VERIFICATIONS
     // =========================================================================
-    expect(found.floatRequired).toBe(1.5);
-    expect(typeof found.floatRequired).toBe("number");
+    expect(found.numberRequired).toBe(1.5);
+    expect(typeof found.numberRequired).toBe("number");
 
-    expect(found.floatNullable).toBe(2.75);
+    expect(found.numberNullable).toBe(2.75);
 
-    expect(found.floatArray).toEqual([0.1, 0.2, 0.3]);
+    expect(found.numberArray).toEqual([0.1, 0.2, 0.3]);
 
-    expect(found.floatArrayNullable).toEqual([1.1, 2.2]);
+    expect(found.numberArrayNullable).toEqual([1.1, 2.2]);
 
-    expect(found.floatWithDefault).toBe(3.14);
+    expect(found.numberWithDefault).toBe(3.14);
 
     // =========================================================================
     // DECIMAL SCALAR VERIFICATIONS
@@ -545,8 +545,8 @@ describe("All Scalar Types Integration Test", () => {
         stringUnique: "unique-null-test",
         intRequired: 0,
         intArray: [],
-        floatRequired: 0,
-        floatArray: [],
+        numberRequired: 0,
+        numberArray: [],
         decimalRequired: 0,
         decimalArray: [],
         bigintRequired: 0n,
@@ -568,8 +568,8 @@ describe("All Scalar Types Integration Test", () => {
         stringArrayNullable: null,
         intNullable: null,
         intArrayNullable: null,
-        floatNullable: null,
-        floatArrayNullable: null,
+        numberNullable: null,
+        numberArrayNullable: null,
         decimalNullable: null,
         decimalArrayNullable: null,
         bigintNullable: null,
@@ -601,8 +601,8 @@ describe("All Scalar Types Integration Test", () => {
     expect(found.stringArrayNullable).toBeNull();
     expect(found.intNullable).toBeNull();
     expect(found.intArrayNullable).toBeNull();
-    expect(found.floatNullable).toBeNull();
-    expect(found.floatArrayNullable).toBeNull();
+    expect(found.numberNullable).toBeNull();
+    expect(found.numberArrayNullable).toBeNull();
     expect(found.decimalNullable).toBeNull();
     expect(found.decimalArrayNullable).toBeNull();
     expect(found.bigintNullable).toBeNull();
@@ -629,7 +629,7 @@ describe("All Scalar Types Integration Test", () => {
         stringRequired: "required",
         stringUnique: "unique-empty-arrays",
         intRequired: 1,
-        floatRequired: 1.0,
+        numberRequired: 1.0,
         decimalRequired: 1.0,
         bigintRequired: 1n,
         booleanRequired: true,
@@ -645,8 +645,8 @@ describe("All Scalar Types Integration Test", () => {
         stringArrayNullable: [],
         intArray: [],
         intArrayNullable: [],
-        floatArray: [],
-        floatArrayNullable: [],
+        numberArray: [],
+        numberArrayNullable: [],
         decimalArray: [],
         decimalArrayNullable: [],
         bigintArray: [],
@@ -663,7 +663,7 @@ describe("All Scalar Types Integration Test", () => {
         // Nullable non-array scalars
         stringNullable: null,
         intNullable: null,
-        floatNullable: null,
+        numberNullable: null,
         decimalNullable: null,
         bigintNullable: null,
         booleanNullable: null,
@@ -689,8 +689,8 @@ describe("All Scalar Types Integration Test", () => {
     expect(found.stringArrayNullable).toEqual([]);
     expect(found.intArray).toEqual([]);
     expect(found.intArrayNullable).toEqual([]);
-    expect(found.floatArray).toEqual([]);
-    expect(found.floatArrayNullable).toEqual([]);
+    expect(found.numberArray).toEqual([]);
+    expect(found.numberArrayNullable).toEqual([]);
     expect(found.decimalArray).toEqual([]);
     expect(found.decimalArrayNullable).toEqual([]);
     expect(found.bigintArray).toEqual([]);
@@ -707,7 +707,7 @@ describe("All Scalar Types Integration Test", () => {
     // Verify they are actually arrays
     expect(Array.isArray(found.stringArray)).toBe(true);
     expect(Array.isArray(found.intArray)).toBe(true);
-    expect(Array.isArray(found.floatArray)).toBe(true);
+    expect(Array.isArray(found.numberArray)).toBe(true);
     expect(Array.isArray(found.decimalArray)).toBe(true);
     expect(Array.isArray(found.bigintArray)).toBe(true);
     expect(Array.isArray(found.booleanArray)).toBe(true);
@@ -792,17 +792,17 @@ describe("Runtime type verification using v validation", () => {
     assertValid(v.integer(), found.intWithDefault, "intWithDefault");
 
     // =========================================================================
-    // FLOAT SCALARS
+    // NUMBER SCALARS
     // =========================================================================
-    assertValid(v.number(), found.floatRequired, "floatRequired");
-    assertValid(v.number(), found.floatNullable, "floatNullable");
-    assertValid(v.number({ array: true }), found.floatArray, "floatArray");
+    assertValid(v.number(), found.numberRequired, "numberRequired");
+    assertValid(v.number(), found.numberNullable, "numberNullable");
+    assertValid(v.number({ array: true }), found.numberArray, "numberArray");
     assertValid(
       v.number({ array: true }),
-      found.floatArrayNullable,
-      "floatArrayNullable"
+      found.numberArrayNullable,
+      "numberArrayNullable"
     );
-    assertValid(v.number(), found.floatWithDefault, "floatWithDefault");
+    assertValid(v.number(), found.numberWithDefault, "numberWithDefault");
 
     // =========================================================================
     // DECIMAL SCALARS
@@ -940,17 +940,17 @@ describe("Runtime type verification using v validation", () => {
 
     assertValid(
       v.number({ nullable: true }),
-      found.floatNullable,
-      "floatNullable"
+      found.numberNullable,
+      "numberNullable"
     );
-    expect(found.floatNullable).toBeNull();
+    expect(found.numberNullable).toBeNull();
 
     assertValid(
       v.number({ nullable: true, array: true }),
-      found.floatArrayNullable,
-      "floatArrayNullable"
+      found.numberArrayNullable,
+      "numberArrayNullable"
     );
-    expect(found.floatArrayNullable).toBeNull();
+    expect(found.numberArrayNullable).toBeNull();
 
     assertValid(
       v.number({ nullable: true }),
@@ -1052,13 +1052,13 @@ describe("Runtime type verification using v validation", () => {
       },
       {
         schema: v.number({ array: true }),
-        value: found.floatArray,
-        name: "floatArray",
+        value: found.numberArray,
+        name: "numberArray",
       },
       {
         schema: v.number({ array: true }),
-        value: found.floatArrayNullable,
-        name: "floatArrayNullable",
+        value: found.numberArrayNullable,
+        name: "numberArrayNullable",
       },
       {
         schema: v.boolean({ array: true }),
@@ -1107,7 +1107,7 @@ describe("Runtime type verification using v validation", () => {
 
     // Integer schema rejects non-integers
     assertInvalid(v.integer(), "hello", "integer with string");
-    assertInvalid(v.integer(), 3.14, "integer with float");
+    assertInvalid(v.integer(), 3.14, "integer with a fractional value");
     assertInvalid(v.integer(), true, "integer with boolean");
 
     // Boolean schema rejects non-booleans
@@ -1164,13 +1164,13 @@ describe("Compile-time type verification", () => {
     expectTypeOf(found.intWithDefault).toEqualTypeOf<number>();
 
     // =========================================================================
-    // FLOAT TYPES - Compile-time
+    // NUMBER TYPES - Compile-time
     // =========================================================================
-    expectTypeOf(found.floatRequired).toEqualTypeOf<number>();
-    expectTypeOf(found.floatNullable).toEqualTypeOf<number | null>();
-    expectTypeOf(found.floatArray).toEqualTypeOf<number[]>();
-    expectTypeOf(found.floatArrayNullable).toEqualTypeOf<number[] | null>();
-    expectTypeOf(found.floatWithDefault).toEqualTypeOf<number>();
+    expectTypeOf(found.numberRequired).toEqualTypeOf<number>();
+    expectTypeOf(found.numberNullable).toEqualTypeOf<number | null>();
+    expectTypeOf(found.numberArray).toEqualTypeOf<number[]>();
+    expectTypeOf(found.numberArrayNullable).toEqualTypeOf<number[] | null>();
+    expectTypeOf(found.numberWithDefault).toEqualTypeOf<number>();
 
     // =========================================================================
     // DECIMAL TYPES - Compile-time

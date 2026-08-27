@@ -74,6 +74,17 @@ requireRuntimeFunction(".", "defineExtension");
 requireRuntimeAbsence(".", "defaultOmit");
 requireRuntimeAbsence(".", "instrumentation");
 requireRuntimeAbsence(".", "readBenchmarkOperation");
+// The approximate-number scalar, on the BUILT builder. The source barrel pins
+// the whole key set; this pins that bundling publishes the surviving factory
+// and publishes no retired one.
+const schemaBuilder = runtimeExports.get("./schema")?.s;
+if (typeof schemaBuilder?.number !== "function") {
+  throw new Error("Export ./schema must provide the s.number() scalar factory");
+}
+if (schemaBuilder && "float" in schemaBuilder) {
+  throw new Error("Export ./schema must not provide a retired s.float()");
+}
+
 requireRuntimeFunction("./client", "defineExtension");
 requireRuntimeFunction("./client", "defaultOmit");
 requireRuntimeFunction("./cache", "cache");

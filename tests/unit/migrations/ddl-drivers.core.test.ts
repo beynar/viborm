@@ -1670,8 +1670,8 @@ describe("MySQL DDL Generation", () => {
       ).toBe("INT");
       expect(
         mysqlMigrationDriver.mapScalarType(
-          createMockScalar(createScalarState("float")),
-          createScalarState("float")
+          createMockScalar(createScalarState("number")),
+          createScalarState("number")
         )
       ).toBe("DOUBLE");
       expect(
@@ -2659,8 +2659,8 @@ describe("PostgreSQL DDL Generation", () => {
       ).toBe("integer");
       expect(
         postgresMigrationDriver.mapScalarType(
-          createMockScalar(createScalarState("float")),
-          createScalarState("float")
+          createMockScalar(createScalarState("number")),
+          createScalarState("number")
         )
       ).toBe("double precision");
       expect(

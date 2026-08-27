@@ -4,7 +4,7 @@ import type { Scalar } from "@schema/scalars";
  * A cheap per-value runtime check: `true` when the raw driver value is ALREADY
  * the field's exact target JS type, so the full typed scalar parser would return
  * it unchanged. A `false` result (null, wrong type, unsafe integer, non-finite
- * float) means the caller must delegate to the full parser — the two paths are
+ * number) means the caller must delegate to the full parser — the two paths are
  * byte-identical, so the guard only ever shortcuts the provably-unchanged case.
  */
 export type IdentityGuard = (value: unknown) => boolean;
@@ -15,9 +15,9 @@ const booleanGuard: IdentityGuard = (value) => typeof value === "boolean";
 // rejects a non-integer or out-of-range number — the guard defers to it there).
 const intGuard: IdentityGuard = (value) =>
   typeof value === "number" && Number.isSafeInteger(value);
-// A `float` is returned unchanged only when it is finite (NaN/±Infinity are
+// A `number` is returned unchanged only when it is finite (NaN/±Infinity are
 // malformed in the full parser, so a non-finite number falls through the guard).
-const floatGuard: IdentityGuard = (value) =>
+const numberGuard: IdentityGuard = (value) =>
   typeof value === "number" && Number.isFinite(value);
 
 /**
@@ -27,7 +27,7 @@ const floatGuard: IdentityGuard = (value) =>
  * value, whether the identity shortcut is exact; any non-matching value defers
  * to the full parser so the result is byte-identical either way.
  *
- * Only `string`, `boolean`, `int` and `float` are eligible. List, enum, json,
+ * Only `string`, `boolean`, `int` and `number` are eligible. List, enum, json,
  * vector, point, blob, date, time, datetime, bigint and decimal fields always
  * coerce (decimal/bigint arrive as strings, dates as Date/strings, enums need a
  * membership check) and return `undefined` — the full parser owns them.
@@ -44,8 +44,8 @@ export function identityGuardFor(scalar: Scalar): IdentityGuard | undefined {
       return booleanGuard;
     case "int":
       return intGuard;
-    case "float":
-      return floatGuard;
+    case "number":
+      return numberGuard;
     default:
       return undefined;
   }

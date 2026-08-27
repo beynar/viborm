@@ -36,7 +36,7 @@ const MediumModel = s.model({
   age: s.int().nullable(),
   bio: s.string().nullable(),
   active: s.boolean().default(true),
-  score: s.float().nullable(),
+  score: s.number().nullable(),
   createdAt: s.dateTime().now(),
   updatedAt: s.dateTime().now(),
 });

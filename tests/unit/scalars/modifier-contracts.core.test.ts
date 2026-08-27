@@ -6,14 +6,15 @@ import {
   dateTime,
   decimal,
   enumScalar,
-  float,
   int,
   json,
+  number,
   point,
   string,
   time,
   vector,
 } from "@schema/scalars";
+import { isGeneratorDefault } from "@schema/scalars/common";
 import { parse } from "@validation";
 import v from "@validation/primitives/v";
 import { describe, expect, it } from "vitest";
@@ -27,7 +28,7 @@ const USER_PREFIX_PATTERN = /^usr-/;
 const MAP_CASES = [
   ["string", () => string(nativeType)],
   ["int", () => int(nativeType)],
-  ["float", () => float(nativeType)],
+  ["number", () => number(nativeType)],
   ["decimal", () => decimal(nativeType)],
   ["boolean", () => boolean(nativeType)],
   ["datetime", () => dateTime(nativeType)],
@@ -44,7 +45,7 @@ const MAP_CASES = [
 const ID_CASES = [
   ["string", () => string(), () => string().id()],
   ["int", () => int(), () => int().id()],
-  ["float", () => float(), () => float().id()],
+  ["number", () => number(), () => number().id()],
   ["decimal", () => decimal(), () => decimal().id()],
   ["datetime", () => dateTime(), () => dateTime().id()],
   ["date", () => date(), () => date().id()],
@@ -55,7 +56,7 @@ const ID_CASES = [
 const UNIQUE_CASES = [
   ["string", () => string(), () => string().unique()],
   ["int", () => int(), () => int().unique()],
-  ["float", () => float(), () => float().unique()],
+  ["number", () => number(), () => number().unique()],
   ["decimal", () => decimal(), () => decimal().unique()],
   ["datetime", () => dateTime(), () => dateTime().unique()],
   ["date", () => date(), () => date().unique()],
@@ -81,9 +82,9 @@ const SCHEMA_CASES = [
     },
   ],
   [
-    "float",
+    "number",
     () => {
-      const before = float();
+      const before = number();
       const schema = v.number();
       return { before, after: before.schema(schema), schema, value: 4.2 };
     },
@@ -304,9 +305,9 @@ describe("scalar modifier contracts", () => {
       },
     ],
     [
-      "float",
+      "number",
       () => {
-        const before = float();
+        const before = number();
         return { before, after: before.default(4.2), value: 4.2 };
       },
     ],
@@ -367,6 +368,20 @@ describe("temporal generated defaults", () => {
       }
       expect(generate()).toMatch(pattern);
     }
+  });
+});
+
+describe("generator default identity", () => {
+  it("distinguishes a generator's installed closure from a caller's own function default", () => {
+    // The serializer relies on this to refuse a custom function default
+    // beside a generator instead of silently emitting `generate` alone.
+    const generated = string().uuid()["~"].state.default;
+    expect(isGeneratorDefault(generated)).toBe(true);
+    const overridden = string()
+      .uuid()
+      .default(() => "fixed")["~"].state.default;
+    expect(isGeneratorDefault(overridden)).toBe(false);
+    expect(isGeneratorDefault("not a function")).toBe(false);
   });
 });
 

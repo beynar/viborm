@@ -24,6 +24,6 @@ export type {
   RelationSlot,
   RelationState,
 } from "./relation";
-export type { NumberScalar, Scalar } from "./scalars";
+export type { NumberScalar, NumericScalar, Scalar } from "./scalars";
 // Native database types (PG, MYSQL, SQLITE)
 export { MYSQL, type NativeType, PG, SQLITE } from "./scalars/native-types";

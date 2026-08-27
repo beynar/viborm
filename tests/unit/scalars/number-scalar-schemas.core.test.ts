@@ -3,7 +3,7 @@
  *
  * Systematically tests type inference AND runtime validation for all number scalar variants:
  * - Int (integer numbers)
- * - Float (floating-point numbers)
+ * - Number (approximate finite JavaScript numbers)
  * - Decimal (exact decimals: accepts string | number, produces a canonical string)
  *
  * For each number type, tests these variants:
@@ -19,8 +19,9 @@
  * - filter: Input type for filtering + shorthand transforms
  */
 
-import type { ScalarState } from "@schema/scalars/common";
-import { decimal, float, int } from "@schema/scalars/number/scalar";
+import { type AnyFieldRef, FIELD_REF_BRAND } from "@schema/field-ref";
+import { decimal, int, number } from "@schema/scalars";
+import type { ScalarState, ScalarType } from "@schema/scalars/common";
 import { type InferInput, type InferOutput, parse } from "@validation";
 import { type GetScalarSchemas, getScalarSchemas } from "@validation/scalars";
 import {
@@ -29,14 +30,25 @@ import {
   integer,
   maxValue,
   minValue,
-  number,
   pipe,
   regex,
   string,
+  number as valibotNumber,
 } from "valibot";
 import { describe, expect, expectTypeOf, test } from "vitest";
 
 const TWO_DECIMAL_PRICE = /^\d+\.\d{2}$/;
+
+/** A reference token standing for a column of the named scalar domain. */
+const fieldRefOfType = (type: ScalarType): AnyFieldRef =>
+  Object.freeze({
+    [FIELD_REF_BRAND]: Object.freeze({
+      model: "reading",
+      field: "other",
+      type,
+      list: false,
+    }),
+  });
 
 type InferScalarInput<
   State extends ScalarState,
@@ -46,8 +58,8 @@ type InferIntInput<
   State extends ScalarState<"int">,
   Key extends keyof GetScalarSchemas<State>,
 > = InferScalarInput<State, Key>;
-type InferFloatInput<
-  State extends ScalarState<"float">,
+type InferNumberInput<
+  State extends ScalarState<"number">,
   Key extends keyof GetScalarSchemas<State>,
 > = InferScalarInput<State, Key>;
 type InferDecimalInput<
@@ -89,7 +101,7 @@ describe("Int Scalar", () => {
         expect(r3.value).toBe(-100);
       });
 
-      test("runtime: rejects float (not integer)", () => {
+      test("runtime: rejects a fractional value (not integer)", () => {
         expect(parse(schemas.base, 3.14).issues).toBeDefined();
         expect(parse(schemas.base, 0.1).issues).toBeDefined();
       });
@@ -669,7 +681,12 @@ describe("Int Scalar", () => {
 
   describe("Custom Schema Validation", () => {
     describe("min/max validation", () => {
-      const positiveInt = pipe(number(), integer(), minValue(1), maxValue(100));
+      const positiveInt = pipe(
+        valibotNumber(),
+        integer(),
+        minValue(1),
+        maxValue(100)
+      );
       const scalar = int().schema(positiveInt);
       const schemas = getScalarSchemas(scalar["~"].state);
 
@@ -717,7 +734,7 @@ describe("Int Scalar", () => {
 
     describe("branded type preservation", () => {
       const ageSchema = pipe(
-        number(),
+        valibotNumber(),
         integer(),
         minValue(0),
         maxValue(150),
@@ -741,26 +758,26 @@ describe("Int Scalar", () => {
 });
 
 // =============================================================================
-// FLOAT SCALAR TESTS
+// NUMBER SCALAR TESTS
 // =============================================================================
 
-describe("Float Scalar", () => {
+describe("Number Scalar", () => {
   // ===========================================================================
-  // RAW FLOAT SCALAR (required, no modifiers)
+  // RAW NUMBER SCALAR (required, no modifiers)
   // ===========================================================================
 
-  describe("Raw Float Scalar", () => {
-    const scalar = float();
+  describe("Raw Number Scalar", () => {
+    const scalar = number();
     type State = (typeof scalar)["~"]["state"];
     const schemas = getScalarSchemas(scalar["~"].state);
 
     describe("base", () => {
       test("type: base is number", () => {
-        type Base = InferFloatInput<State, "base">;
+        type Base = InferNumberInput<State, "base">;
         expectTypeOf<Base>().toEqualTypeOf<number>();
       });
 
-      test("runtime: parses float", () => {
+      test("runtime: parses a fractional value", () => {
         const r1 = parse(schemas.base, 3.14);
         if (r1.issues) throw new Error("Expected success");
         expect(r1.value).toBe(3.14);
@@ -774,7 +791,7 @@ describe("Float Scalar", () => {
         expect(r3.value).toBe(-2.5);
       });
 
-      test("runtime: parses integer (valid float)", () => {
+      test("runtime: parses an integer (a valid number)", () => {
         const r1 = parse(schemas.base, 42);
         if (r1.issues) throw new Error("Expected success");
         expect(r1.value).toBe(42);
@@ -792,11 +809,11 @@ describe("Float Scalar", () => {
 
     describe("create", () => {
       test("type: create is required number", () => {
-        type Create = InferFloatInput<State, "create">;
+        type Create = InferNumberInput<State, "create">;
         expectTypeOf<Create>().toEqualTypeOf<number>();
       });
 
-      test("runtime: accepts float", () => {
+      test("runtime: accepts a fractional value", () => {
         const result = parse(schemas.create, Math.PI);
         if (result.issues) throw new Error("Expected success");
         expect(result.value).toBe(Math.PI);
@@ -809,7 +826,7 @@ describe("Float Scalar", () => {
 
     describe("update", () => {
       test("type: update accepts arithmetic operations", () => {
-        type Update = InferFloatInput<State, "update">;
+        type Update = InferNumberInput<State, "update">;
         expectTypeOf<number>().toExtend<Update>();
         expectTypeOf<{ set: number }>().toExtend<Update>();
         expectTypeOf<{ increment: number }>().toExtend<Update>();
@@ -837,7 +854,7 @@ describe("Float Scalar", () => {
 
     describe("filter", () => {
       test("type: filter accepts comparison operations", () => {
-        type Filter = InferFloatInput<State, "filter">;
+        type Filter = InferNumberInput<State, "filter">;
         expectTypeOf<number>().toExtend<Filter>();
         expectTypeOf<{ equals: number }>().toExtend<Filter>();
         expectTypeOf<{ lt: number }>().toExtend<Filter>();
@@ -859,25 +876,45 @@ describe("Float Scalar", () => {
         if (r2.issues) throw new Error("Expected success");
         expect(r2.value).toEqual({ gte: 0.0 });
       });
+
+      /**
+       * The operand domain this scalar wires.
+       *
+       * The field-reference MECHANISM is owned once, in
+       * `tests/unit/validation/operand.core.test.ts`. What only this can catch
+       * is the token `buildNumberSchema` hands `v.comparisonOperand`: it has to
+       * be this scalar's own state type, or a reference to another `number`
+       * column is refused and a reference from a different scalar domain is
+       * admitted.
+       */
+      test("runtime: admits a number field reference, refuses another domain", () => {
+        expect(
+          parse(schemas.filter, { equals: fieldRefOfType("number") }).issues
+        ).toBeUndefined();
+        expect(
+          parse(schemas.filter, { equals: fieldRefOfType("decimal") })
+            .issues?.[0]?.message
+        ).toContain("a 'number' operand");
+      });
     });
   });
 
   // ===========================================================================
-  // NULLABLE FLOAT SCALAR
+  // NULLABLE NUMBER SCALAR
   // ===========================================================================
 
-  describe("Nullable Float Scalar", () => {
-    const scalar = float().nullable();
+  describe("Nullable Number Scalar", () => {
+    const scalar = number().nullable();
     type State = (typeof scalar)["~"]["state"];
     const schemas = getScalarSchemas(scalar["~"].state);
 
     describe("base", () => {
       test("type: base is number | null", () => {
-        type Base = InferFloatInput<State, "base">;
+        type Base = InferNumberInput<State, "base">;
         expectTypeOf<Base>().toEqualTypeOf<number | null>();
       });
 
-      test("runtime: parses float", () => {
+      test("runtime: parses a fractional value", () => {
         const result = parse(schemas.base, 3.14);
         if (result.issues) throw new Error("Expected success");
         expect(result.value).toBe(3.14);
@@ -892,7 +929,7 @@ describe("Float Scalar", () => {
 
     describe("create", () => {
       test("type: create is optional (has default null)", () => {
-        type Create = InferFloatInput<State, "create">;
+        type Create = InferNumberInput<State, "create">;
         expectTypeOf<number | null | undefined>().toExtend<Create>();
       });
 
@@ -921,21 +958,21 @@ describe("Float Scalar", () => {
   });
 
   // ===========================================================================
-  // LIST FLOAT SCALAR
+  // LIST NUMBER SCALAR
   // ===========================================================================
 
-  describe("List Float Scalar", () => {
-    const scalar = float().array();
+  describe("List Number Scalar", () => {
+    const scalar = number().array();
     type State = (typeof scalar)["~"]["state"];
     const schemas = getScalarSchemas(scalar["~"].state);
 
     describe("base", () => {
       test("type: base is number[]", () => {
-        type Base = InferFloatInput<State, "base">;
+        type Base = InferNumberInput<State, "base">;
         expectTypeOf<Base>().toEqualTypeOf<number[]>();
       });
 
-      test("runtime: parses array of floats", () => {
+      test("runtime: parses an array of fractional values", () => {
         const result = parse(schemas.base, [1.1, 2.2, 3.3]);
         if (result.issues) throw new Error("Expected success");
         expect(result.value).toEqual([1.1, 2.2, 3.3]);
@@ -944,7 +981,7 @@ describe("Float Scalar", () => {
 
     describe("create", () => {
       test("type: create is required number[]", () => {
-        type Create = InferFloatInput<State, "create">;
+        type Create = InferNumberInput<State, "create">;
         expectTypeOf<Create>().toEqualTypeOf<number[]>();
       });
     });
@@ -967,17 +1004,17 @@ describe("Float Scalar", () => {
   });
 
   // ===========================================================================
-  // NULLABLE LIST FLOAT SCALAR
+  // NULLABLE LIST NUMBER SCALAR
   // ===========================================================================
 
-  describe("Nullable List Float Scalar", () => {
-    const scalar = float().array().nullable();
+  describe("Nullable List Number Scalar", () => {
+    const scalar = number().array().nullable();
     type State = (typeof scalar)["~"]["state"];
     const schemas = getScalarSchemas(scalar["~"].state);
 
     describe("base", () => {
       test("type: base is number[] | null", () => {
-        type Base = InferFloatInput<State, "base">;
+        type Base = InferNumberInput<State, "base">;
         expectTypeOf<Base>().toEqualTypeOf<number[] | null>();
       });
     });
@@ -997,8 +1034,12 @@ describe("Float Scalar", () => {
 
   describe("Custom Schema Validation", () => {
     describe("percentage validation (0-100)", () => {
-      const percentageSchema = pipe(number(), minValue(0), maxValue(100));
-      const scalar = float().schema(percentageSchema);
+      const percentageSchema = pipe(
+        valibotNumber(),
+        minValue(0),
+        maxValue(100)
+      );
+      const scalar = number().schema(percentageSchema);
       const schemas = getScalarSchemas(scalar["~"].state);
 
       test("runtime: accepts valid percentage", () => {
@@ -1023,11 +1064,11 @@ describe("Float Scalar", () => {
 
     describe("branded type preservation", () => {
       const temperatureSchema = pipe(
-        number(),
+        valibotNumber(),
         minValue(-273.15),
         brand("Celsius")
       );
-      const scalar = float().schema(temperatureSchema);
+      const scalar = number().schema(temperatureSchema);
       type BrandedOutput = InferOutput<(typeof scalar)["~"]["state"]["base"]>;
 
       test("type: base output preserves brand", () => {
