@@ -139,7 +139,7 @@ await ageScalar.validate(25, minValue(0), maxValue(120));
 ### Type-Specific Validation
 
 ```typescript
-// Integer validator (for float/decimal scalars)
+// Integer validator (for number/decimal scalars)
 const integer = () => (value: number) =>
   Number.isInteger(value) || "Must be an integer";
 

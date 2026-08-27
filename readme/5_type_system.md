@@ -715,8 +715,8 @@ These types are shared across all models:
 - `StringNullableFilter` - Nullable string scalar filtering
 - `IntFilter` - Integer scalar filtering operations
 - `IntNullableFilter` - Nullable integer scalar filtering
-- `FloatFilter` - Float scalar filtering operations
-- `FloatNullableFilter` - Nullable float scalar filtering
+- `NumberFilter` - Number scalar filtering operations
+- `NumberNullableFilter` - Nullable number scalar filtering
 - `BoolFilter` - Boolean scalar filtering operations
 - `BoolNullableFilter` - Nullable boolean scalar filtering
 - `DateTimeFilter` - DateTime scalar filtering operations

@@ -43,7 +43,7 @@ The Schema Builder is the foundation of our ORM. Its purpose is to allow users t
 ### 3. Scalar Class
 
 - Implement a `Scalar` class (or factory) with chainable methods for:
-  - Setting the type (string, int, float, boolean, date, jsonb, enum, etc.).
+  - Setting the type (string, int, number, boolean, date, jsonb, enum, etc.).
   - Setting default values.
   - Setting custom validators (including regex).
   - Marking as primary key, unique, nullable, etc.
