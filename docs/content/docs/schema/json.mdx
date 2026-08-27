@@ -1,0 +1,421 @@
+---
+title: JSON schemas
+description: "Define a schema as a JSON document — the surface for programmatic and agent-written schemas"
+icon: braces
+---
+
+A VibORM schema is normally written in TypeScript. `viborm/schema/json` lets a
+program write one as **data** instead: a JSON document goes in, a real schema
+comes out.
+
+```ts
+import { createClient } from "viborm";
+import { parseSchema, serializeSchema } from "viborm/schema/json";
+
+const schema = parseSchema(document);        // JSON text OR a plain object
+const db = createClient({ schema, driver });
+const back = serializeSchema(schema);        // the reverse direction
+```
+
+`parseSchema` calls the same builders a human calls, so what it returns is not a
+second kind of schema — it is the same models. `createClient`, `push` and the
+query engine consume it unchanged and refuse a bad graph with their own
+diagnostics.
+
+The one thing you give up is **type inference**: the model names are strings, so
+the client is an `UntypedClient` — see [The untyped
+client](#the-untyped-client).
+
+## The document
+
+`version` and `models` are required. Every other key is optional.
+
+```json
+{
+  "version": 1,
+  "enums": {
+    "role": { "values": ["admin", "member"], "name": "user_role" }
+  },
+  "models": {
+    "user": {
+      "table": "users",
+      "fields": {
+        "id":    { "type": "string", "id": true, "generate": { "kind": "ulid", "prefix": "usr" } },
+        "email": { "type": "string", "unique": true },
+        "role":  { "type": "enum", "enum": "role", "default": "member" },
+        "bio":   { "type": "string", "nullable": true },
+        "posts": { "type": "toMany", "target": "post", "name": "PostAuthor" }
+      },
+      "indexes": [{ "fields": ["email"], "unique": true }],
+      "omit": ["bio"]
+    },
+    "post": {
+      "fields": {
+        "id":       { "type": "string", "id": true, "generate": { "kind": "ulid" } },
+        "authorId": { "type": "string" },
+        "author":   { "type": "toOne", "target": "user", "name": "PostAuthor",
+                      "fields": ["authorId"], "references": ["id"], "onDelete": "cascade" },
+        "topic":    { "type": "toOne",
+                      "variants": { "thread": "thread", "review": "review" },
+                      "values": { "thread": "topic.thread.v1", "review": "topic.review.v1" },
+                      "optional": true }
+      }
+    },
+    "thread": {
+      "fields": {
+        "id":    { "type": "string", "id": true, "generate": { "kind": "ulid" } },
+        "title": { "type": "string" }
+      }
+    },
+    "review": {
+      "fields": {
+        "id":     { "type": "string", "id": true, "generate": { "kind": "ulid" } },
+        "rating": { "type": "int" }
+      }
+    }
+  }
+}
+```
+
+Every `json` block on this page is a complete document that the test suite
+parses and round-trips, so an example here cannot drift from the parser.
+
+**Field order matters.** DDL column order follows the order of the keys in
+`fields`, and the format binds it to JSON key order. `JSON.parse` preserves that
+order; a producer that sorts keys destroys it.
+
+### Model
+
+| Key | Means |
+| --- | --- |
+| `table` | `.map(tableName)` |
+| `fields` | the model's scalars and relations, in declaration order |
+| `indexes` | `.index(fields, options)` — `{ fields, name?, unique?, type? }` |
+| `ids` | compound `.id(fields, { name })`, in declaration order |
+| `uniques` | compound `.unique(fields, { name })`, in declaration order |
+| `omit` | scalar field keys to hide from every result |
+
+`.extends()` has no spelling: a document states the complete, merged shape.
+
+### Scalar fields
+
+`type` is one of `string`, `int`, `float`, `decimal`, `boolean`, `datetime`,
+`date`, `time`, `bigint`, `json`, `blob`, `vector`, `point`, `enum`.
+
+| Key | Means |
+| --- | --- |
+| `native` | the factory's native-type argument — `{ "db": "pg" \| "mysql" \| "sqlite", "type": "varchar(255)" }`, see [Native types](#native-types) |
+| `nullable`, `array`, `id`, `unique` | the matching modifier |
+| `column` | `.map(columnName)` |
+| `default` | a literal default — see [Defaults](#defaults) |
+| `generate` | `{ "kind": "uuid" \| "ulid" \| "nanoid" \| "cuid" \| "increment" \| "now" \| "updatedAt", "prefix"?, "length"? }` |
+| `enum` | an `enums` reference, or the values inline — `type: "enum"` only |
+| `dimension` | `.dimension(n)` — vectors |
+| `withoutTimezone` | `.withoutTimezone()` — `datetime` and `time` |
+
+The key set is the same for every type; whether a given type HAS a modifier is
+decided by the scalar itself. `{ "type": "json", "array": true }` is refused
+because `s.json()` has no `.array()`, and the error says so.
+
+`"id": true` means exactly what `.id()` means — including the implicit ULID
+generator on a string id. That generator is only a default; supplying an id at
+create time overrides it.
+
+### Relations
+
+`type` is `toOne` or `toMany`. The target domain is `target` (one model key)
+**or** `variants` (a map of variant key → model key) — exactly one of the two.
+
+| Key | Arm |
+| --- | --- |
+| `name` | any — the pairing label, a free-form non-empty string |
+| `fields`, `references`, `onDelete`, `onUpdate` | `toOne` with `target` |
+| `junction` | `toMany` with `target` — `{ table?, source?, target?, onDelete?, onUpdate? }`, at least one key |
+| `values` | variants — the stored discriminator per variant, exact over every variant key |
+| `optional` | `toOne` with `variants` |
+| `through` | `toMany` with `variants` — `{ "<variant>": { "table", "source", "target" } }` |
+
+A key that belongs to another arm is refused, so a `toMany` cannot carry
+`references` and a `toOne` cannot carry `through`.
+
+### Native types
+
+`native.type` is the one string in a document that reaches the database
+verbatim: the migration drivers emit it as the column's type, unescaped. A
+document is written by whoever hands you one, so the parser does not try to
+RECOGNIZE a type — a constraint clause and a multi-word type name are the same
+shape, and `TEXT UNIQUE` is not a type. It checks MEMBERSHIP instead, against a
+closed catalog **per dialect**, and the catalog is the set of values the
+[native type constants](/docs/schema/native-types) themselves produce:
+
+```text
+pg      text   varchar(191)  numeric(10,2)  double precision  timestamptz  geometry(Point)
+mysql   TEXT   VARCHAR(191)  NUMERIC(10,2)  TINYINT UNSIGNED  BIGINT UNSIGNED
+sqlite  TEXT   INTEGER       REAL           NUMERIC           BLOB
+```
+
+A value belongs to the catalog of the `db` it declares and no other: `TEXT` is a
+mysql and sqlite type, and a pg field spells it `text`. A parameterized type is
+admitted at the argument counts its constant publishes, with integer arguments —
+`varchar(191)`, `numeric(10,2)`. Anything else is `J011`, including every
+spelling that made this a raw SQL channel: quotes, semicolons, comment markers,
+newlines, and constraint clauses such as `TEXT UNIQUE` or `TEXT REFERENCES
+other(id)`.
+
+So a document written from the `PG`, `MYSQL` and `SQLITE` constants is never
+refused, and a native type those constants cannot produce is a **coded-schema**
+capability: `s.string({ db, type })` in TypeScript takes any type you like,
+because you wrote it. `serializeSchema` applies the identical rule, so a schema
+holding a type the document cannot carry is named rather than written into a
+document its own parser would reject.
+
+### Enums
+
+An `enums` definition with a `name` yields ONE database enum type shared by
+every field that references it. Without `name` — or written inline as
+`"enum": ["a", "b"]` — each column keeps its own derived type. That is the same
+distinction `.name()` makes in code.
+
+**The key and the name are different things.** An `enums` key is a
+document-local reference and must be a schema identifier (`J005`); `name` is the
+database's own type name, which may be anything the database allows. When a
+database name happens to be a valid identifier the canonical document uses it as
+the key too; when it is not — `status-v2` — the key becomes `enum_1`, `enum_2` …
+by declaration order and `name` carries the real spelling:
+
+```json
+{
+  "version": 1,
+  "enums": { "enum_1": { "values": ["draft", "live"], "name": "status-v2" } },
+  "models": {
+    "article": {
+      "fields": {
+        "id":     { "type": "string", "id": true, "generate": { "kind": "ulid" } },
+        "status": { "type": "enum", "enum": "enum_1", "default": "draft" }
+      }
+    }
+  }
+}
+```
+
+### Defaults
+
+A default is a JSON value. Values from domains JSON has no spelling for take a
+**tag**: a one-key object naming the domain.
+
+| Tag | Means |
+| --- | --- |
+| `{ "$bigint": "9007199254740993" }` | a `bigint`, written as a decimal integer string |
+| `{ "$bytes": "AQID" }` | bytes, written as base64 |
+| `{ "$date": "2020-01-02T03:04:05.000Z" }` | a real `Date` |
+| `{ "$raw": <value> }` | the value itself, when its own shape looks like a tag |
+| anything else | the JSON value itself |
+
+Tags are read **at any depth**, so a `bigint[]` default is an array of them:
+
+```json
+{
+  "version": 1,
+  "models": {
+    "reading": {
+      "fields": {
+        "id":     { "type": "string", "id": true, "generate": { "kind": "ulid" } },
+        "counts": { "type": "bigint", "array": true,
+                    "default": [{ "$bigint": "1" }, { "$bigint": "2" }] },
+        "seed":   { "type": "blob", "default": { "$bytes": "AQID" } },
+        "at":     { "type": "datetime", "default": { "$date": "2020-01-02T03:04:05.000Z" } },
+        "since":  { "type": "datetime", "default": "2020-01-02T03:04:05.000Z" },
+        "shape":  { "type": "json", "default": { "$raw": { "$date": "not a date" } } }
+      }
+    }
+  }
+}
+```
+
+**`at` and `since` are different declarations.** A temporal field accepts both a
+`Date` and an ISO string, and the two do not produce the same table: a string
+default becomes a SQL `DEFAULT` clause, while a `Date` is applied by the
+application at insert time. `{ "$date": … }` says `Date`; a bare string says
+string. Nothing is inferred from the field's type.
+
+A one-key object whose key starts with `$` is **reserved**: an unknown one is
+refused rather than read as a literal, so a later version can add a tag without
+changing what an existing document means. A literal that really does look like a
+tag — `{"$date": "not a date"}` above — says so with `$raw`.
+
+A default that is outside the field's own domain is refused **at parse time**,
+because a default bypasses validation everywhere downstream — an `int` field
+with `"default": "seven"` would otherwise survive all the way to the database.
+That includes an untagged value on a tagged domain: `"default": "42"` on a
+`bigint` field is the string `"42"`, and the field's domain refuses it.
+
+## What the format refuses
+
+Three things, each with a named alternative.
+
+**Function defaults.** `.default(() => …)` is arbitrary code. Use one of the
+seven `generate` kinds, a literal default, or a database-side default through
+`native`.
+
+A generator installs a closure of its own, so `.uuid()` alone serializes as
+`"generate": { "kind": "uuid" }` with no `default`. `.uuid().default(() => …)`
+does not: the generator declaration is still in state but the function standing
+in `default` is yours, and emitting `generate` there would publish a field that
+produces random values where the original produced a fixed one. That is refused
+by name too.
+
+**Custom validators.** `.schema(someStandardSchema)` is arbitrary code too. A
+hybrid codebase re-attaches them by field path:
+
+```ts
+import { attachFieldSchemas, parseSchema } from "viborm/schema/json";
+
+const schema = attachFieldSchemas(parseSchema(document), {
+  "user.email": z.string().email(),
+});
+```
+
+`attachFieldSchemas` re-reads the schema as a document and applies each
+validator through the real `.schema()` builder, last — after nullability and
+arity are settled. A path that names no scalar field is refused, because a
+validator nobody applies validates nothing.
+
+**Partial-index predicates.** `indexes[].where` is refused in v1. It is the
+declaration surface's only raw SQL, interpolated unescaped into DDL, and a
+document written by a program is exactly the artifact that must not carry an
+execution channel: anyone who can hand you a document could otherwise hand you
+a statement to run. It returns when a structured predicate form exists. Until
+then a partial index stays in TypeScript.
+
+Each refusal happens in **both** directions — `serializeSchema` names the field
+carrying a function default, a validator or a `where` rather than dropping it,
+so a round trip can never silently produce a different schema.
+
+## The canonical form
+
+The canonical form of a document IS `serializeSchema(parseSchema(doc))`. Running
+the pair once normalizes every builder coupling — an enum reference becomes its
+database type name, a `values` bag that merely echoes its keys disappears, a
+compound-constraint name equal to the default disappears — and running it again
+changes nothing.
+
+```ts
+const canonical = serializeSchema(parseSchema(document));
+// Two documents describe the same schema iff their canonical forms match.
+```
+
+That is also how to diff two schemas: canonicalize both, then compare.
+
+## Validating the graph
+
+A document can be perfectly well-formed and still describe a schema no client
+will accept — a `toMany` whose target names nobody back, two models mapped to
+one table, a foreign key that does not pair. Neither `parseSchema` nor
+`serializeSchema` checks that by default: a document is often read to inspect,
+canonicalize or diff it, and a schema is often dumped precisely because it is
+broken.
+
+Both take an options object to ask for the check:
+
+```ts
+const schema = parseSchema(document, { validate: true });
+const back = serializeSchema(schema, { validate: true });
+```
+
+`validate: true` runs **the schema validator** — the same full rule list `push`
+and the CLI run. It is not a second opinion about what a valid schema is; it is
+the same one, called earlier.
+
+**The two vocabularies stay separate.** A `J0xx` code describes the shape of the
+**artifact** — a key the format does not define, a default outside its domain.
+A graph is refused in the graph's own words: a `SchemaValidationError` carrying
+`M0xx` / `R0xx` / `P0xx` issues, untranslated.
+
+```ts
+parseSchema(loneToManyDocument, { validate: true });
+// SchemaValidationError: [R002] 'user.posts' has no inverse relation in 'post'
+```
+
+Where it runs differs by direction, and each has a consequence worth knowing:
+
+| Call | When | Consequence |
+| --- | --- | --- |
+| `parseSchema(doc, { validate: true })` | **after** the document is interpreted | the models are name-bound under the document's own keys — the same binding `createClient` performs, so the client that follows is unaffected |
+| `serializeSchema(schema, { validate: true })` | **before** anything is emitted | garbage in is refused loudly, and **the call is no longer non-mutating**: validating hydrates the passed record's keys and settles its relation targets, exactly as `createClient` would |
+
+Leave the option off — the default — to keep `serializeSchema` a pure dump you
+can point at a schema you do not own.
+
+An unknown option is refused rather than ignored, because an option that asked
+for validation and silently did not get it is worse than not asking:
+
+```text
+Validation failed for schema-json: 1 validation error
+  /options/validat   [J003] Unknown option 'validat'; this call declares 'validate'
+```
+
+## Errors
+
+Every refusal is one `ValidationError` (`V4002`) carrying every issue the
+document has, each with a `J0xx` code and a JSON pointer into the document.
+
+```text
+Validation failed for schema-json: 2 validation errors
+  /models/user/fields/email/uniqu   [J003] Unknown key 'uniqu'; …
+  /models/user/fields/role/enum     [J006] `enum` must name a definition in `enums` …
+```
+
+| Code | Means |
+| --- | --- |
+| `J001` | the input is not a JSON document |
+| `J002` | the `version` is not one this parser reads |
+| `J003` | a node carries a key the format does not define |
+| `J004` | a node is missing a required key, or a value has the wrong shape |
+| `J005` | a key that must be a schema identifier is not one |
+| `J006` | a reference names something the document does not declare |
+| `J007` | the scalar type has no such modifier |
+| `J008` | a default is outside the field's own domain |
+| `J009` | the document spells a surface v1 refuses |
+| `J010` | a builder refused the declaration this node denotes |
+| `J011` | a `native.type` is not in the declared dialect's native type catalog |
+
+Anything the document itself can be wrong about is reported **all at once**.
+Anything semantic — a foreign key that does not pair, a graph that does not
+resolve — is refused by the builder or the resolution gate that owns it, with
+the document location attached, and keeps its own code: see [Validating the
+graph](#validating-the-graph).
+
+An unknown `version` is refused by name. A document key never changes meaning
+between versions; evolution only adds keys.
+
+## The untyped client
+
+```ts
+import type { UntypedClient } from "viborm/schema/json";
+```
+
+A parsed schema is `Record<string, Model<any>>`, so the client built from it
+cannot know model names or field shapes. What survives, measured:
+
+- **model access is stringly and possibly-undefined** — write
+  `db.user?.findMany(…)`;
+- **the operation set stays exact** — `findMani` is still a type error;
+- **clause keys are still refused** — a loose model publishes no field clauses,
+  so an unknown one does not silently pass;
+- **results are an empty row** — reading a field off one is a type error.
+
+Nothing crashes the compiler and nothing collapses to `never`. Runtime
+validation is unaffected: the validators are built from the real schema state,
+so a bad payload is refused exactly as it would be for a typed client.
+
+## Dialect neutrality
+
+The document is dialect-neutral exactly as far as the builders are. `native` has
+one slot per scalar, and decimal precision has no other spelling — so a document
+that pins `DECIMAL(10,2)` names one database and cannot name a second.
+
+## Client configuration is not in the document
+
+`omit` at the client level, `decimal`, cache and extensions are **client**
+configuration, not schema declaration. The document describes the schema; the
+client is still constructed in code.

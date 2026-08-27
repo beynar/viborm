@@ -1,11 +1,11 @@
-import { readFile, readdir } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { join, relative } from "node:path";
-import { describe, expect, it } from "vitest";
 import { TEST_LAYERS, type TestLayer } from "@tests/contracts/contract";
 import { DRIVER_CONTRACT_IDS } from "@tests/contracts/drivers/contract-ids";
 import { REPOSITORY_ROOT } from "@tests/fixtures/repo-paths";
-import { CONTRACT_ASSIGNMENTS, PROVIDERS } from "@tests/providers/matrix";
 import { classifyTestFile } from "@tests/inventory";
+import { CONTRACT_ASSIGNMENTS, PROVIDERS } from "@tests/providers/matrix";
+import { describe, expect, it } from "vitest";
 
 async function collectFiles(directory: string): Promise<string[]> {
   const files: string[] = [];
@@ -35,6 +35,7 @@ const runtimeOwners: ReadonlyArray<{
     prefix: "tests/unit/schema-validation/",
     layer: "schema-validation",
   },
+  { prefix: "tests/unit/schema-json/", layer: "schema-json" },
   { prefix: "tests/contracts/architecture/", layer: "query-engine" },
   { prefix: "tests/contracts/engine/", layer: "query-engine" },
   { prefix: "tests/contracts/adapters/", layer: "adapters" },

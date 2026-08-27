@@ -10,6 +10,9 @@ export default defineConfig({
     // Schema (viborm/schema)
     schema: "./src/schema/exports.ts",
 
+    // JSON-defined schemas (viborm/schema/json)
+    "schema/json": "./src/schema/json/index.ts",
+
     // Driver base (viborm/driver)
     driver: "./src/drivers/exports.ts",
 

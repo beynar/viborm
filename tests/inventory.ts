@@ -24,6 +24,7 @@ const unitOwners: ReadonlyArray<{ prefix: string; layer: TestLayer }> = [
     prefix: "tests/unit/schema-validation/",
     layer: "schema-validation",
   },
+  { prefix: "tests/unit/schema-json/", layer: "schema-json" },
   { prefix: "tests/unit/cache/", layer: "cache" },
   { prefix: "tests/unit/instrumentation/", layer: "instrumentation" },
   { prefix: "tests/unit/migrations/", layer: "migrations" },
@@ -45,6 +46,7 @@ function typeLayer(file: string): TestLayer | undefined {
     case "operation-schemas":
     case "relations":
     case "schema-validation":
+    case "schema-json":
     case "query-engine":
     case "adapters":
     case "drivers":
