@@ -324,6 +324,14 @@ export async function resolveCommandDriver(
  * covering only the clear would tell a `reset()` nothing about the replay that
  * followed it.
  */
+export function mayWrapTransaction(
+  producer: Pick<AnyDriver, "supportsTransactions">,
+  dialect: string,
+  transactional: boolean
+): boolean {
+  return transactional && dialect !== "mysql" && producer.supportsTransactions;
+}
+
 export async function runSequentialProgram<T>(
   producer: AnyDriver,
   migrationDriver: BoundMigrationDriver,

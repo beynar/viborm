@@ -47,6 +47,7 @@ import {
 import type {
   GenerateV1Options,
   ManualMigrationInput,
+  ManualTransitionInput,
   MigrationBooleanCheckV1,
   MigrationParentTransitionV1,
   MigrationStateManifestV1,
@@ -106,6 +107,7 @@ export async function generateV1(
   const destinationPlaceholders: MigrationBooleanCheckV1[] = [];
 
   if (options.manualMigration) {
+    assertManualParents(loaded, options.manualMigration.transitions);
     for (const transition of options.manualMigration.transitions) {
       const compiled = compileManualTransition(
         transition.up,
@@ -246,6 +248,36 @@ export async function generateV1(
     operations: reported,
     sql: sqlText,
   };
+}
+
+function assertManualParents(
+  graph: MigrationGraph,
+  transitions: readonly ManualTransitionInput[]
+): void {
+  const seen = new Set<string>();
+  for (const transition of transitions) {
+    if (transition.from === null) {
+      if (graph.states.size > 0) {
+        throw new MigrationError(
+          "A second virtual-root transition is refused",
+          VibORMErrorCode.MIGRATION_INVALID_ESTATE
+        );
+      }
+    } else if (!graph.states.has(transition.from)) {
+      throw new MigrationError(
+        `Unknown parent state ${transition.from}`,
+        VibORMErrorCode.MIGRATION_NOT_FOUND
+      );
+    }
+    const key = transition.from ?? "null";
+    if (seen.has(key)) {
+      throw new MigrationError(
+        "A manual migration names a parent more than once",
+        VibORMErrorCode.MIGRATION_INVALID_ESTATE
+      );
+    }
+    seen.add(key);
+  }
 }
 
 function resolveParents(

@@ -159,6 +159,16 @@ describe("push command", () => {
     expect(await tableExists(project, "user")).toBe(false);
   });
 
+  it("--json without --yes refuses an effectful apply", async () => {
+    writePersistentConfig(project);
+
+    const result = await runPush(["--json"]);
+
+    expect(result.exitCode ?? 1).not.toBe(0);
+    expect(result.output).toContain("--yes");
+    expect(await tableExists(project, "user")).toBe(false);
+  });
+
   it("--dry-run --json prints an inert preview", async () => {
     writePersistentConfig(project);
 

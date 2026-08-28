@@ -15,6 +15,7 @@ import type {
   DDLContext,
   MigrationDriver,
 } from "./drivers";
+import { emptyManagedSnapshot } from "./empty-snapshot";
 import { domainHash, HASH_DOMAIN, type Sha256 } from "./identity";
 import {
   type LiveNamespaceResetPlan,
@@ -164,7 +165,7 @@ export async function buildPushPlan(
     reset,
     operations,
     planningDriver,
-    options.forceReset ? { tables: [], enums: [] } : current
+    options.forceReset ? emptyManagedSnapshot() : current
   );
   const reportedOperations: PushOperation[] = operations.map(
     (operation, index) => ({

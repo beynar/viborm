@@ -116,7 +116,8 @@ Stored snapshot identity (`encodeSnapshot` / `hashSnapshot`) is those exact
 canonical bytes. Live physical comparison uses `fingerprintLive` in
 `push-fingerprint.ts`. That path is the dialect canonicalization owner: it
 projects partial-index predicates through the live database, drops constraint
-names when `introspectionReadsConstraintNames` is false, normalizes types and
+names when `introspectionReadsConstraintNames` is false, keeps PostgreSQL
+primary-key names, normalizes types and
 defaults, and excludes logical-only history such as `polymorphicStorage`.
 Apply, baseline, verify, down, resolve, reset, and push compare live schema
 through that function. Do not compare an introspected snapshot with
@@ -159,7 +160,9 @@ open `unknown` payload bags.
 `sql-blob.ts` owns SQL framing. A dispatch references one SQL blob by hash plus
 a UTF-8 byte offset and length. Before the first effect, the complete range
 table is checked for matching blob hashes, valid bounds, order, non-overlap,
-and exact `\n\n` display gaps. Execution slices those exact bytes.
+and exact `\n\n` display gaps. The complete blob is fatal-decoded as UTF-8
+before any slice is executed, so a later check cannot fail after stepwise
+effects. Execution slices those exact bytes.
 
 Generated DDL already has provider statement boundaries. One manual `Sql` value
 is one opaque provider dispatch, even if its text contains internal semicolons.
@@ -315,10 +318,17 @@ transaction.
 
 `operators.ts` owns the operator workflows. `status`, `verify`, and `log` are
 read-only. `baseline` requires exact live equality and a provable structural
-root path. `down` executes the authenticated rollback for the actual arrival
-edge. `resolve` accepts only outcomes established by origin/destination proof.
-`reset` preloads and authenticates the complete clear-and-replay program before
-the first drop and records recoverable stepwise progress.
+root path; it publishes the marker and `baselined` event in one transaction
+when the producer can. `down` preflights every reverse program, appends
+`started` before the first rollback dispatch, records step progress, and uses
+the same transaction wrap as apply. An unfinished rollback can only be resumed
+by `down()`. `resolve` accepts only outcomes established by origin/destination
+proof; generated structural opacity may complete from a fingerprint, while
+manual opaque work still needs state checks. `reset` preloads and authenticates
+the complete clear-and-replay program before the first drop, classifies every
+replay transition before clearing, and if the marker already names the target
+after a crashed CAS it attests and appends `reset-applied` without clearing
+again.
 
 ## Shared live infrastructure — no second engine
 
@@ -399,6 +409,7 @@ dependency-safe clear are compiled before anything is dropped.
 | Structured operation, dispatch, rollback, and parameter compilation | `compile.ts` |
 | Candidate generation and manifest-last publication | `generate-v1.ts` |
 | Marker, ledger, control naming, qualification, and CAS | `control.ts` |
+| Live transaction wrap predicate | `pinned-session.ts` `mayWrapTransaction` |
 | Authenticated forward execution | `apply-v1.ts` |
 | Offline estate integrity findings | `check.ts` |
 | Status, verification, history display, rollback, baseline, recovery, and history-aware reset | `operators.ts` |

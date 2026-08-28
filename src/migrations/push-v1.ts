@@ -30,6 +30,7 @@ import { executeDispatch } from "./execute-dispatch";
 import { assertForeignKeysIntact, liftForeignKeyPragmas } from "./foreign-keys";
 import { domainHash, HASH_DOMAIN, type Sha256 } from "./identity";
 import {
+  mayWrapTransaction,
   resolveCommandDriver,
   runSequentialProgram,
   withLockedMigrationProducer,
@@ -248,9 +249,7 @@ async function executeLockedPlan(
     executeAndAttest(producer, command, plan, plan.statements);
 
   if (
-    plan.atomicity === "transactional" &&
-    command.target.dialect !== "mysql" &&
-    pinned.supportsTransactions
+    mayWrapTransaction(pinned, command.target.dialect, plan.atomicity === "transactional")
   ) {
     const fingerprint = await executeTransactional(pinned, command, plan);
     return appliedResult(plan, fingerprint, "applied");

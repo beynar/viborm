@@ -82,6 +82,39 @@ describe("migration v1 SQL framing", () => {
     validateSqlRanges(blob.bytes, [dispatchAt(blob, 0)]);
   });
 
+  test("invalid UTF-8 is refused before any slice is decoded", () => {
+    const bytes = new Uint8Array([0x53, 0x45, 0x4c, 0x45, 0x43, 0x54, 0x20, 0x80]);
+    const sqlHash = encodeSqlBlob(bytes);
+    expect(() =>
+      validateSqlRanges(bytes, [
+        {
+          dispatchId: encodeDispatchIdentity(sqlHash, 0, bytes.length, []),
+          sqlHash,
+          offset: 0,
+          length: bytes.length,
+          parameters: [],
+        },
+      ])
+    ).toThrow(MigrationError);
+    try {
+      validateSqlRanges(bytes, [
+        {
+          dispatchId: encodeDispatchIdentity(sqlHash, 0, bytes.length, []),
+          sqlHash,
+          offset: 0,
+          length: bytes.length,
+          parameters: [],
+        },
+      ]);
+      throw new Error("expected refusal");
+    } catch (error) {
+      expect(error).toBeInstanceOf(MigrationError);
+      expect((error as MigrationError).code).toBe(
+        VibORMErrorCode.MIGRATION_INVALID_ESTATE
+      );
+    }
+  });
+
   test("manual CRLF and BOM are refused before composition", () => {
     expect(() => encodeSqlText("SELECT 1\r\n")).toThrow(MigrationError);
     expect(() => encodeSqlText("\uFEFFSELECT 1")).toThrow(MigrationError);

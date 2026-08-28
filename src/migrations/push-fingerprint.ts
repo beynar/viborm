@@ -151,7 +151,12 @@ export function fingerprintSnapshot(
         }))
         .sort(byName),
       primaryKey: table.primaryKey
-        ? { columns: table.primaryKey.columns }
+        ? {
+            columns: table.primaryKey.columns,
+            ...(driver.dialect === "postgresql" && table.primaryKey.name
+              ? { name: table.primaryKey.name }
+              : {}),
+          }
         : null,
       indexes: table.indexes
         .map((index) => ({

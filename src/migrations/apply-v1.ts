@@ -5,7 +5,10 @@
 
 import { MigrationError, VibORMErrorCode } from "../errors";
 import { admitLiveMigrationCapability } from "./admission";
-import { classifyStoredAtomicity } from "./compile";
+import {
+  assertTransactionalBoundaryHonored,
+  classifyStoredAtomicity,
+} from "./compile";
 import {
   appendLedger,
   casMarker,
@@ -35,7 +38,10 @@ import {
   selectRoute,
 } from "./graph";
 import type { Sha256 } from "./identity";
-import { withLockedMigrationProducer } from "./pinned-session";
+import {
+  mayWrapTransaction,
+  withLockedMigrationProducer,
+} from "./pinned-session";
 import { getPushMigrationDriver, type MigrationClient } from "./push/planner";
 import { fingerprintLive } from "./push-fingerprint";
 import { introspectManaged } from "./push-plan";
@@ -140,6 +146,10 @@ export async function applyPathUnderLock(
   const transactional = path.every((to, index) => {
     const from = index === 0 ? origin : path[index - 1]!;
     const transition = parentTransition(graph, from, to);
+    assertTransactionalBoundaryHonored(
+      pinned.supportsTransactions,
+      transition.requestedForwardBoundary
+    );
     return (
       classifyStoredAtomicity(
         command,
@@ -286,11 +296,7 @@ export async function applyPathUnderLock(
     pinned,
     previewStatements(graph, origin, path)
   );
-  if (
-    transactional &&
-    command.target.dialect !== "mysql" &&
-    pinned.supportsTransactions
-  ) {
+  if (mayWrapTransaction(pinned, command.target.dialect, transactional)) {
     await withForeignKeysLifted(pinned, lifted.bracket, () =>
       pinned.withTransaction(async (transaction) => {
         await run(transaction);

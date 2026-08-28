@@ -308,6 +308,39 @@ describe("migration v1 identity", () => {
     );
   });
 
+  test("PostgreSQL fingerprints include primary-key names; SQLite ignores them", () => {
+    const named: SchemaSnapshot = {
+      tables: [
+        {
+          name: "item",
+          columns: [{ name: "id", type: "integer", nullable: false }],
+          primaryKey: { columns: ["id"], name: "item_pkey" },
+          indexes: [],
+          foreignKeys: [],
+          uniqueConstraints: [],
+        },
+      ],
+    };
+    const renamed: SchemaSnapshot = {
+      tables: [
+        {
+          name: "item",
+          columns: [{ name: "id", type: "integer", nullable: false }],
+          primaryKey: { columns: ["id"], name: "item_pk" },
+          indexes: [],
+          foreignKeys: [],
+          uniqueConstraints: [],
+        },
+      ],
+    };
+    expect(fingerprintSnapshot(named, sqlite3MigrationDriver)).toBe(
+      fingerprintSnapshot(renamed, sqlite3MigrationDriver)
+    );
+    expect(fingerprintSnapshot(named, postgresMigrationDriver)).not.toBe(
+      fingerprintSnapshot(renamed, postgresMigrationDriver)
+    );
+  });
+
   test("hostile sha256 values are refused", () => {
     expect(() => parseSha256("ABC", "id")).toThrow(MigrationError);
     try {

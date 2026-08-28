@@ -9,7 +9,7 @@ import {
   canonicalizeJsonText,
 } from "@src/migrations/canonical-json";
 import { createMigrationClient } from "@src/migrations/client";
-import { unfinishedAttempts } from "@src/migrations/control";
+import { markerFromPath, unfinishedAttempts } from "@src/migrations/control";
 import { emptyManagedSnapshot } from "@src/migrations/empty-snapshot";
 import { generateV1 } from "@src/migrations/generate-v1";
 import { domainHash, HASH_DOMAIN } from "@src/migrations/identity";
@@ -119,6 +119,24 @@ describe("migration v1 operators", () => {
     expect(reset.preview).toBe(true);
     const after = await migrations.status();
     expect(after.marker?.revision).toBe(before.marker?.revision);
+    await client.$disconnect();
+  });
+
+  test("down records a rollback start before it moves the marker", async () => {
+    const storage = new MemoryEstateStorage();
+    const client = liveClient();
+    const migrations = createMigrationClient(client, { storage });
+    await migrations.generate({ name: "init" });
+    await migrations.apply();
+    const rolled = await migrations.down({ steps: 1 });
+    expect(rolled.preview).toBe(false);
+    const log = await migrations.log();
+    expect(
+      log.some(
+        (event) => event.kind === "started" && event.direction === "rollback"
+      )
+    ).toBe(true);
+    expect(log.some((event) => event.kind === "rolled-back")).toBe(true);
     await client.$disconnect();
   });
 
@@ -260,6 +278,7 @@ function startedEvent(toState: string, estateHash: string): LedgerEventV1 {
 
 function controlRespond(options: {
   readonly ledger?: readonly LedgerEventV1[];
+  readonly marker?: ReturnType<typeof markerFromPath>;
 }) {
   const ledger = options.ledger ?? [];
   return (sql: string, params: unknown[]): unknown[] | Error => {
@@ -275,7 +294,9 @@ function controlRespond(options: {
       sql.includes("SELECT payload FROM") &&
       sql.includes("_viborm_migration_state")
     ) {
-      return [];
+      return options.marker
+        ? [{ payload: canonicalizeJsonText(options.marker) }]
+        : [];
     }
     if (
       sql.includes("SELECT payload FROM") &&
@@ -329,6 +350,48 @@ describe("migration v1 resolve and reset shapes", () => {
     expectTypeOf<ResolveV1Options["outcome"]>().toEqualTypeOf<
       "complete" | "rolled-back" | "retry"
     >();
+  });
+
+  test("resolve completes a generated structural opaque step from a fingerprint", async () => {
+    const storage = new MemoryEstateStorage();
+    const estate = encodeEstateDescriptor({ dialect: "sqlite" });
+    const snapshot = encodeSnapshot(emptyManagedSnapshot());
+    const blob = composeSqlBlob(["ALTER TABLE item ADD COLUMN name TEXT"]);
+    await storage.publishEstate(estate.bytes);
+    await storage.publishSnapshot(snapshot.snapshotHash, snapshot.bytes);
+    await storage.publishSql(blob.sqlHash, blob.bytes);
+    const parent: Omit<MigrationParentTransitionV1, "transitionHash"> = {
+      fromState: null,
+      originChecks: [],
+      requestedForwardBoundary: null,
+      operations: [
+        {
+          id: "addColumn:0",
+          label: "addColumn",
+          origin: "generated",
+          risk: "safe",
+          steps: [{ retry: "opaque", execute: opaqueDispatch(blob) }],
+        },
+      ],
+      rollback: { kind: "irreversible", reason: "no inverse" },
+    };
+    const encoded = encodeStateManifest({
+      format: "1",
+      estateHash: estate.estateHash,
+      name: "generated",
+      snapshotHash: snapshot.snapshotHash,
+      sqlHash: blob.sqlHash,
+      destinationChecks: [],
+      parents: [{ ...parent, transitionHash: encodeTransitionHash(parent) }],
+    });
+    await storage.publishState(encoded.stateId, encoded.bytes);
+    const driver = sqliteEstateDriver();
+    driver.respond = controlRespond({
+      ledger: [startedEvent(encoded.stateId, estate.estateHash)],
+    });
+    expect(
+      await resolveV1(clientFor(driver), storage, { outcome: "complete" })
+    ).toEqual({ outcome: "complete" });
   });
 
   test("resolve refuses opaque data without the required state checks", async () => {
@@ -394,6 +457,65 @@ describe("migration v1 resolve and reset shapes", () => {
     const driver = sqliteEstateDriver();
     driver.respond = controlRespond({
       ledger: [{ ...started, eventId: eventIdFor(started) }],
+    });
+    const result = await resetV1(clientFor(driver), published.storage);
+    expect(result.preview).toBe(false);
+    expect(result.path).toEqual([published.stateId]);
+  });
+
+  test("reset closes a crashed CAS when the marker already names the target", async () => {
+    const published = await publishRoot();
+    const emptySnapshot = encodeSnapshot(emptyManagedSnapshot()).snapshotHash;
+    const parent = emptyParent();
+    const marker = markerFromPath(
+      published.estateHash,
+      emptySnapshot,
+      [
+        {
+          stateId: published.stateId,
+          transitionHash: encodeTransitionHash(parent),
+          baselineBoundary: false,
+        },
+      ],
+      1
+    );
+    const planBody = {
+      estateHash: published.estateHash,
+      targetIdentity: "sqlite:",
+      sourceRevision: 0,
+      sourceFingerprint: emptySnapshot,
+      replayPath: [published.stateId],
+      clearDispatches: [] as const,
+      referencedStates: [published.stateId],
+    };
+    const resetPlanHash = domainHash(
+      HASH_DOMAIN.resetPlan,
+      canonicalizeJson(planBody)
+    );
+    const started = {
+      format: "1" as const,
+      attemptId: resetPlanHash,
+      kind: "reset-started" as const,
+      estateHash: published.estateHash,
+      snapshotHash: emptySnapshot,
+      sqlHash: null,
+      fromState: null,
+      toState: published.stateId,
+      transitionHash: null,
+      direction: "reset" as const,
+      operationId: null,
+      dispatchId: null,
+      effectState: "none" as const,
+      startedAt: "2026-08-28T00:00:00.000Z",
+      finishedAt: null,
+      toolVersion: "v1",
+      resetPlan: { ...planBody, resetPlanHash },
+      failure: null,
+    };
+    const driver = sqliteEstateDriver();
+    driver.respond = controlRespond({
+      ledger: [{ ...started, eventId: eventIdFor(started) }],
+      marker,
     });
     const result = await resetV1(clientFor(driver), published.storage);
     expect(result.preview).toBe(false);

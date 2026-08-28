@@ -396,6 +396,18 @@ export function classifyGeneratedAtomicity(
   return "transactional";
 }
 
+export function assertTransactionalBoundaryHonored(
+  supportsTransactions: boolean,
+  requested: "transactional" | "stepwise" | null
+): void {
+  if (requested === "transactional" && !supportsTransactions) {
+    throw new MigrationError(
+      "This producer cannot honor a transactional manual boundary",
+      VibORMErrorCode.MIGRATION_UNSUPPORTED_PROVIDER
+    );
+  }
+}
+
 export function classifyStoredAtomicity(
   driver: MigrationDriver,
   requested: "transactional" | "stepwise" | null,

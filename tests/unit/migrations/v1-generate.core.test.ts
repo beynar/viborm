@@ -1,5 +1,6 @@
 import { createClient } from "@client/client";
 import { s } from "@schema";
+import { sql } from "@sql";
 import { VibORMErrorCode } from "@src/errors";
 import { checkEstate } from "@src/migrations/check";
 import { type GenerateV1Result, generateV1 } from "@src/migrations/generate-v1";
@@ -46,6 +47,31 @@ describe("migration v1 generate", () => {
     expect(first.snapshotHash).toBe(second.snapshotHash);
     expect(isSha256(first.stateId)).toBe(true);
     expectTypeOf(first).toMatchTypeOf<GenerateV1Result>();
+    await client.$disconnect();
+  });
+
+  test("manual generation refuses an unknown parent before publishing", async () => {
+    const storage = new MemoryEstateStorage();
+    const client = clientWith({ user });
+    await generateV1(client, storage, { name: "init" });
+    await expect(
+      generateV1(client, storage, {
+        name: "orphan",
+        manualMigration: {
+          transitions: [
+            {
+              from: "a".repeat(64),
+              execution: "transactional",
+              up: [sql`SELECT 1`],
+              rollback: { kind: "irreversible", reason: "manual" },
+            },
+          ],
+        },
+      })
+    ).rejects.toMatchObject({
+      code: VibORMErrorCode.MIGRATION_NOT_FOUND,
+    });
+    expect(await storage.listStates()).toHaveLength(1);
     await client.$disconnect();
   });
 

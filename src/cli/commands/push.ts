@@ -68,7 +68,12 @@ async function runPush(options: PushCliOptions): Promise<void> {
 
     if (!options.json) printPlan(preview);
 
-    if (preview.outcome !== "noop" && !options.json && !options.yes) {
+    if (preview.outcome !== "noop" && !options.yes) {
+      if (options.json) {
+        failCli(
+          new Error("Non-interactive push requires --yes to apply a plan")
+        );
+      }
       const accepted = await confirm({
         message: preview.destructive
           ? "Apply this destructive push plan?"

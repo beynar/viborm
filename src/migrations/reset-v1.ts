@@ -7,7 +7,10 @@ import { MigrationError, VibORMErrorCode } from "../errors";
 import { admitLiveMigrationCapability } from "./admission";
 import { canonicalizeJson } from "./canonical-json";
 import { tableExistsProbe } from "./catalog-probes";
-import { classifyStoredAtomicity } from "./compile";
+import {
+  assertTransactionalBoundaryHonored,
+  classifyStoredAtomicity,
+} from "./compile";
 import {
   appendLedger,
   casMarker,
@@ -23,6 +26,7 @@ import {
   unfinishedAttempts,
 } from "./control";
 import type { BoundMigrationDriver } from "./drivers";
+import { emptyManagedSnapshot } from "./empty-snapshot";
 import {
   evaluateAllChecks,
   executeExactSql,
@@ -37,7 +41,10 @@ import {
 } from "./graph";
 import { domainHash, HASH_DOMAIN, type Sha256 } from "./identity";
 import { planLiveNamespaceReset } from "./live-reset";
-import { withLockedMigrationProducer } from "./pinned-session";
+import {
+  mayWrapTransaction,
+  withLockedMigrationProducer,
+} from "./pinned-session";
 import { getPushMigrationDriver, type MigrationClient } from "./push/planner";
 import { fingerprintLive } from "./push-fingerprint";
 import { introspectManaged } from "./push-plan";
@@ -94,6 +101,53 @@ export async function resetV1(
       if (!resetAttempt) {
         refuseIncompatibleHistory(marker, ledger);
       }
+      if (resetAttempt && marker) {
+        const targetState = graph.states.get(target);
+        const expected =
+          targetState === undefined
+            ? undefined
+            : (graph.snapshots.get(targetState.snapshotHash) ??
+              (targetState.snapshotHash === graph.emptySnapshotHash
+                ? emptyManagedSnapshot()
+                : undefined));
+        if (
+          targetState &&
+          expected &&
+          marker.stateId === resetAttempt.toState &&
+          marker.stateId === target &&
+          marker.snapshotHash === resetAttempt.snapshotHash &&
+          marker.snapshotHash === targetState.snapshotHash &&
+          marker.estateHash === resetAttempt.estateHash &&
+          marker.estateHash === graph.estateHash &&
+          (await fingerprintLive(await introspectManaged(pinned, command), command, pinned)) ===
+            (await fingerprintLive(expected, command, pinned))
+        ) {
+          const applied = {
+            format: "1" as const,
+            attemptId: resetAttempt.attemptId,
+            kind: "reset-applied" as const,
+            estateHash: graph.estateHash,
+            snapshotHash: marker.snapshotHash,
+            sqlHash: null,
+            fromState: resetAttempt.fromState,
+            toState: target,
+            transitionHash: null,
+            direction: "reset" as const,
+            operationId: null,
+            dispatchId: null,
+            effectState: "committed" as const,
+            startedAt: new Date().toISOString(),
+            finishedAt: new Date().toISOString(),
+            toolVersion: "v1",
+            failure: null,
+          };
+          await appendLedger(pinned, command, DEFAULT_CONTROL_BASE, {
+            ...applied,
+            eventId: eventIdFor(applied),
+          });
+          return { preview: false, path };
+        }
+      }
       const livePlan = await planLiveNamespaceReset(pinned, command, {
         trackingTable: "preserve",
         trackingTableName: names.state,
@@ -135,20 +189,23 @@ export async function resetV1(
         ? stored.resetPlanHash
         : domainHash(HASH_DOMAIN.resetPlan, canonicalizeJson(planBody));
       const plan: ResetPlanV1 = stored ?? { ...planBody, resetPlanHash };
+      const classes = path.map((to, index) => {
+        const from = index === 0 ? null : path[index - 1]!;
+        const transition = parentTransition(graph, from, to);
+        assertTransactionalBoundaryHonored(
+          pinned.supportsTransactions,
+          transition.requestedForwardBoundary
+        );
+        return classifyStoredAtomicity(
+          command,
+          transition.requestedForwardBoundary,
+          transition.operations,
+          graph.sql.get(graph.states.get(to)!.sqlHash)
+        );
+      });
       const transactional =
         command.target.dialect !== "mysql" &&
-        path.every((to, index) => {
-          const from = index === 0 ? null : path[index - 1]!;
-          const transition = parentTransition(graph, from, to);
-          return (
-            classifyStoredAtomicity(
-              command,
-              transition.requestedForwardBoundary,
-              transition.operations,
-              graph.sql.get(graph.states.get(to)!.sqlHash)
-            ) === "transactional"
-          );
-        });
+        classes.every((item) => item === "transactional");
       if (!resetAttempt) {
         const started = {
           format: "1" as const,
@@ -246,7 +303,7 @@ export async function resetV1(
           eventId: eventIdFor(applied),
         });
       };
-      if (transactional && pinned.supportsTransactions) {
+      if (mayWrapTransaction(pinned, command.target.dialect, transactional)) {
         await pinned.withTransaction((transaction) => run(transaction));
       } else {
         await run(pinned);

@@ -6,7 +6,7 @@
  */
 
 import { MigrationError, VibORMErrorCode } from "../errors";
-import type { Sha256 } from "./identity";
+import { decodeUtf8, type Sha256 } from "./identity";
 import { encodeSqlBlob } from "./v1-parse";
 import type { MigrationDispatchV1, MigrationSqlRangeV1 } from "./v1-types";
 
@@ -81,6 +81,14 @@ export function validateSqlRanges(
   if (bytes.includes(0x0d)) {
     throw new MigrationError(
       "SQL blobs must be UTF-8/LF without carriage returns",
+      VibORMErrorCode.MIGRATION_INVALID_ESTATE
+    );
+  }
+  try {
+    decodeUtf8(bytes);
+  } catch {
+    throw new MigrationError(
+      "SQL blobs must be valid UTF-8",
       VibORMErrorCode.MIGRATION_INVALID_ESTATE
     );
   }
