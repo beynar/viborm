@@ -153,8 +153,8 @@ export function fingerprintSnapshot(
       primaryKey: table.primaryKey
         ? {
             columns: table.primaryKey.columns,
-            ...(driver.dialect === "postgresql" && table.primaryKey.name
-              ? { name: table.primaryKey.name }
+            ...(driver.dialect === "postgresql"
+              ? { name: table.primaryKey.name || `${table.name}_pkey` }
               : {}),
           }
         : null,

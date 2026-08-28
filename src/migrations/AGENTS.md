@@ -117,7 +117,8 @@ canonical bytes. Live physical comparison uses `fingerprintLive` in
 `push-fingerprint.ts`. That path is the dialect canonicalization owner: it
 projects partial-index predicates through the live database, drops constraint
 names when `introspectionReadsConstraintNames` is false, keeps PostgreSQL
-primary-key names, normalizes types and
+primary-key names (an omitted name is `{table}_pkey`, the catalog default),
+normalizes types and
 defaults, and excludes logical-only history such as `polymorphicStorage`.
 Apply, baseline, verify, down, resolve, reset, and push compare live schema
 through that function. Do not compare an introspected snapshot with

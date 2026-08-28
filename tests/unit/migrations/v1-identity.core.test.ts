@@ -341,6 +341,39 @@ describe("migration v1 identity", () => {
     );
   });
 
+  test("an omitted PostgreSQL primary-key name fingerprints as {table}_pkey", () => {
+    const unnamed: SchemaSnapshot = {
+      tables: [
+        {
+          name: "item",
+          columns: [{ name: "id", type: "integer", nullable: false }],
+          primaryKey: { columns: ["id"] },
+          indexes: [],
+          foreignKeys: [],
+          uniqueConstraints: [],
+        },
+      ],
+    };
+    const catalogDefault: SchemaSnapshot = {
+      tables: [
+        {
+          name: "item",
+          columns: [{ name: "id", type: "integer", nullable: false }],
+          primaryKey: { columns: ["id"], name: "item_pkey" },
+          indexes: [],
+          foreignKeys: [],
+          uniqueConstraints: [],
+        },
+      ],
+    };
+    expect(fingerprintSnapshot(unnamed, postgresMigrationDriver)).toBe(
+      fingerprintSnapshot(catalogDefault, postgresMigrationDriver)
+    );
+    expect(fingerprintSnapshot(unnamed, sqlite3MigrationDriver)).toBe(
+      fingerprintSnapshot(catalogDefault, sqlite3MigrationDriver)
+    );
+  });
+
   test("hostile sha256 values are refused", () => {
     expect(() => parseSha256("ABC", "id")).toThrow(MigrationError);
     try {
