@@ -1,11 +1,12 @@
 import { createClient } from "@client/client";
 import type { BatchQuery, QueryResult } from "@drivers";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { push } from "@migrations";
+
 import { hydrateSchemaNames, s } from "@schema";
 import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import type Database from "better-sqlite3";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 const generatedOutputSchema = (() => {
   const owner = s
@@ -219,7 +220,7 @@ describe("generated output exact batch scratch", () => {
   const client = createClient({ schema: consumedPublicationSchema, driver });
 
   beforeAll(async () => {
-    await push(client, { force: true });
+    await syncLiveSchema(client);
   });
 
   afterAll(async () => {
@@ -254,7 +255,7 @@ describe("generated root result through exact batch scratch", () => {
   const client = createClient({ schema: generatedOutputSchema, driver });
 
   beforeAll(async () => {
-    await push(client, { force: true });
+    await syncLiveSchema(client);
   });
 
   afterAll(async () => {

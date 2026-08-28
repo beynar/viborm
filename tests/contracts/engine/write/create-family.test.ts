@@ -2,7 +2,7 @@ import { createClient } from "@client/client";
 import type { BatchQuery, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
-import { push } from "@migrations";
+
 import { s } from "@schema";
 import type { Model } from "@schema/model";
 import { operationFragmentSchema } from "@tests/contracts/engine/write/create-nested-upsert-behavior";
@@ -19,6 +19,7 @@ import {
 import { manyToManySchema } from "@tests/fixtures/many-to-many-schema";
 import { nestedWriteBehaviorSchema } from "@tests/fixtures/nested-write-behavior-schema";
 import { describe, expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 // A batch-only driver that runs a mutation on the same DB just before the atomic
 // batch commits — the staleness injection (a concurrent writer moved committed
@@ -662,7 +663,7 @@ describe("write boundary create family staleness (batch non-elided connect pins)
       schema: opf,
       driver: new PGliteDriver({ client: db }),
     });
-    await push(base as never, { force: true } as never);
+    await syncLiveSchema(base as never);
     await (base as any).user.create({ data: { name: "owner" } });
 
     const driver = new BeforeBatchPGliteDriver(
@@ -706,7 +707,7 @@ describe("write boundary create family staleness (batch non-elided connect pins)
       schema: opf,
       driver: new PGliteDriver({ client: db }),
     });
-    await push(base as never, { force: true } as never);
+    await syncLiveSchema(base as never);
     await (base as any).post.create({
       data: { id: 31, title: "orphan", slug: "s31", userId: null },
     });

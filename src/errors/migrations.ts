@@ -14,6 +14,18 @@ export interface MigrationErrorMeta extends VibORMErrorMeta {
   migrationIndex?: number;
   /** Directory path */
   migrationsDir?: string;
+  /** Last confirmed dispatch or step identity */
+  lastConfirmedStep?: string;
+  /** Estate digest involved in the refusal */
+  estateHash?: string;
+  /** State digest involved in the refusal */
+  stateId?: string;
+  /** Push plan digest involved in the refusal */
+  planHash?: string;
+  /** Honest effect classification after a non-transactional failure */
+  effectState?: "none" | "committed" | "partial" | "may-have-committed";
+  /** True when some provider work may already have committed */
+  partial?: boolean;
 }
 
 /**
@@ -37,6 +49,17 @@ export type MigrationErrorCode =
   | typeof VibORMErrorCode.MIGRATION_INVALID_STATE
   | typeof VibORMErrorCode.MIGRATION_DESTRUCTIVE_REJECTED
   | typeof VibORMErrorCode.MIGRATION_STORAGE_REQUIRED
+  | typeof VibORMErrorCode.MIGRATION_INVALID_ESTATE
+  | typeof VibORMErrorCode.MIGRATION_PATH_REQUIRED
+  | typeof VibORMErrorCode.MIGRATION_DRIFT
+  | typeof VibORMErrorCode.MIGRATION_MARKER_CONFLICT
+  | typeof VibORMErrorCode.MIGRATION_UNFINISHED_ATTEMPT
+  | typeof VibORMErrorCode.MIGRATION_CONSENT_REQUIRED
+  | typeof VibORMErrorCode.MIGRATION_CONSENT_MISMATCH
+  | typeof VibORMErrorCode.MIGRATION_PARTIAL_EFFECT
+  | typeof VibORMErrorCode.MIGRATION_AMBIGUOUS_COMMIT
+  | typeof VibORMErrorCode.MIGRATION_UNSUPPORTED_PROVIDER
+  | typeof VibORMErrorCode.MIGRATION_CORRUPTION
   | typeof VibORMErrorCode.INVALID_INPUT
   | typeof VibORMErrorCode.FEATURE_NOT_SUPPORTED
   | typeof VibORMErrorCode.DRIVER_NOT_SUPPORTED

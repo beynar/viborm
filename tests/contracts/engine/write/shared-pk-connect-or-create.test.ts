@@ -3,7 +3,7 @@ import type { BatchQuery, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
-import { push } from "@migrations";
+
 import {
   registerSharedPkConnectOrCreateBehavior,
   sharedPkConnectOrCreateSchema,
@@ -11,6 +11,7 @@ import {
 import { batchIsAtomicUnit } from "@tests/fixtures/atomic-unit-batch";
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 /** The deterministic TOCTOU window: `beforeBatch` runs between the planning probe and
  *  the atomic WRITE batch (the `staleness-injection.test.ts` driver, same rule). */
@@ -73,7 +74,7 @@ for (const substrate of substrates) {
         schema: sharedPkConnectOrCreateSchema,
         driver: substrate.make(),
       }) as any;
-      await push(shared, { force: true });
+      await syncLiveSchema(shared);
     }
     return shared;
   });
@@ -85,7 +86,7 @@ test("BATCH TOCTOU: the found target deleted after planning aborts the batch, wr
     schema: sharedPkConnectOrCreateSchema,
     driver: new PGliteDriver({ client: db }),
   }) as any;
-  await push(setup, { force: true });
+  await syncLiveSchema(setup);
   await setup.user.create({ data: { id: "u1", email: "u1@x", name: "seed" } });
 
   // The probe finds `u1`, so the FOUND arm compiles (no user INSERT). The row then
@@ -132,7 +133,7 @@ test("BATCH TOCTOU: an alternate-unique replacement cannot donate a different sh
     schema: sharedPkConnectOrCreateSchema,
     driver: new PGliteDriver({ client: db }),
   }) as any;
-  await push(setup, { force: true });
+  await syncLiveSchema(setup);
   await setup.user.create({ data: { id: "u1", email: "same@x", name: "old" } });
 
   const racing = createClient({

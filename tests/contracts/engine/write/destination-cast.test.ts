@@ -6,7 +6,7 @@ import { createClient } from "@client/client";
 import { type Dialect, Driver } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite } from "@electric-sql/pglite";
-import { push } from "@migrations";
+
 import { buildScalarSqlValue } from "@query-engine/builders/values-builder";
 import { createQueryScope } from "@query-engine/context";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
@@ -25,6 +25,7 @@ import {
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 const substrates = [
   {
@@ -45,7 +46,7 @@ for (const substrate of substrates) {
         schema: destinationCastSchema,
         driver: substrate.make(),
       }) as any;
-      await push(shared, { force: true });
+      await syncLiveSchema(shared);
     }
     return shared;
   });

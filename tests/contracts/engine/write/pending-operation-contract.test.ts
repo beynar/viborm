@@ -1,6 +1,6 @@
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite } from "@electric-sql/pglite";
-import { push } from "@migrations";
+
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import {
   correlatedUpsertArgs,
@@ -10,6 +10,7 @@ import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { readTestTransactionOperation } from "@tests/fixtures/transaction-operation";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 function engineFor(driver: PGliteDriver) {
   return new QueryEngine(
@@ -54,7 +55,7 @@ describe("write engine PendingOperation contract (PLAN P1.5)", () => {
       schema: updateSliceSchema,
       driver: new PGliteDriver({ client: db }),
     });
-    await push(client, { force: true });
+    await syncLiveSchema(client);
     await client.user.create({ data: { email: "a@x", count: 10 } });
 
     const result = await pendingFor(engine, args);
@@ -75,7 +76,7 @@ describe("write engine PendingOperation contract (PLAN P1.5)", () => {
       schema: updateSliceSchema,
       driver: new PGliteDriver({ client: db }),
     });
-    await push(client, { force: true });
+    await syncLiveSchema(client);
     await client.user.create({ data: { email: "a@x", count: 10 } });
 
     const driver = new BatchOnlyPGliteDriver({ client: db });
@@ -105,7 +106,7 @@ describe("write engine PendingOperation contract (PLAN P1.5)", () => {
       schema: updateSliceSchema,
       driver: new PGliteDriver({ client: db }),
     });
-    await push(client, { force: true });
+    await syncLiveSchema(client);
     await client.user.create({ data: { email: "a@x", count: 10 } });
 
     // A tx-bound driver from a callback: the operation must not open a second

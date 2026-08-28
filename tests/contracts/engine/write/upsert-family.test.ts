@@ -7,7 +7,7 @@ import {
   TransactionError,
   UniqueConstraintError,
 } from "@errors";
-import { push } from "@migrations";
+
 import { createOperationExecutionContext } from "@query-engine/execution-context";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import type { Model } from "@schema/model";
@@ -28,6 +28,7 @@ import {
 } from "@tests/fixtures/drivers/pglite";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 // The whole upsert family on PGlite, both substrates (driver-matrix legs live in
 // tests/drivers/{sqlite3,mysql2,pg,libsql}.test.ts).
@@ -536,7 +537,7 @@ describe("write boundary upsert-family staleness injection (per premise class)",
   test("connectOrCreate found premise: a concurrent delete aborts the batch typed", async () => {
     const db = new PGlite();
     const client = makeClient(db);
-    await push(client, { force: true });
+    await syncLiveSchema(client);
     await client.user.create({ data: { email: "own@x", score: 0 } });
     await client.post.create({
       data: { id: 60, title: "orphan", slug: "s60", userId: null },
@@ -574,7 +575,7 @@ describe("write boundary upsert-family staleness injection (per premise class)",
   test("targetWhere skip premise: a concurrent write that makes the row match aborts the batch typed", async () => {
     const db = new PGlite();
     const client = makeClient(db);
-    await push(client, { force: true });
+    await syncLiveSchema(client);
     await client.user.create({ data: { email: "sk@x", score: 10 } });
 
     // Planning sees the row does NOT match targetWhere{score:999} → skip. The
@@ -612,7 +613,7 @@ describe("write boundary upsert-family staleness injection (per premise class)",
   test("setWhere skip premise: a concurrent write that makes the row match aborts the batch typed", async () => {
     const db = new PGlite();
     const client = makeClient(db);
-    await push(client, { force: true });
+    await syncLiveSchema(client);
     await client.user.create({ data: { email: "sk2@x", score: 10 } });
 
     const injector = makeClient(db);
@@ -643,7 +644,7 @@ describe("write boundary upsert-family staleness injection (per premise class)",
   test("targetWhere skip premise: through the observed retry the raceable abort re-plans and converges", async () => {
     const db = new PGlite();
     const client = makeClient(db);
-    await push(client, { force: true });
+    await syncLiveSchema(client);
     await client.user.create({ data: { email: "sk3@x", score: 10 } });
 
     // The SAME staleness as above, but through `executeRoutedOperation` (the
@@ -692,7 +693,7 @@ describe("write boundary connectOrCreate create-branch race convergence", () => 
   test("the loser surfaces a pinned unique conflict, never a guard abort", async () => {
     const db = new PGlite();
     const client = makeClient(db);
-    await push(client, { force: true });
+    await syncLiveSchema(client);
     await client.user.create({ data: { email: "race@x", score: 0 } });
 
     const injector = makeClient(db);

@@ -14,9 +14,10 @@
  */
 
 import { createClient as PGliteCreateClient } from "@drivers/pglite";
-import { push } from "@migrations";
+
 import { s } from "@schema";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 // =============================================================================
 // TEST CONSTANTS
@@ -74,7 +75,7 @@ beforeAll(async () => {
   const { PGlite } = await import("@electric-sql/pglite");
   const pglite = new PGlite();
   client = await PGliteCreateClient({ schema, client: pglite });
-  await push(client, { force: true });
+  await syncLiveSchema(client);
 });
 
 afterAll(async () => {

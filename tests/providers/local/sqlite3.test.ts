@@ -8,7 +8,7 @@ import {
   NotNullConstraintError,
   UniqueConstraintError,
 } from "@errors";
-import { push } from "@migrations";
+
 import { s } from "@schema";
 import { batchPrimaryKeyDataflowContract } from "@tests/contracts/drivers/behaviors/batch-primary-key-dataflow-behavior";
 import { batchRefSmokeContract } from "@tests/contracts/drivers/behaviors/batch-ref-smoke-behavior";
@@ -88,6 +88,7 @@ import {
 import { seedWindowUserPosts } from "@tests/fixtures/user-post-seed";
 import type Database from "better-sqlite3";
 import { vi } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 class BatchOnlySQLite3Driver extends SQLite3Driver {
   override readonly supportsTransactions = false;
@@ -408,7 +409,7 @@ describe("SQLite3 Driver", () => {
   describe("Error Mapping", () => {
     test("maps ORM unique constraint errors with model and operation context", async () => {
       const client = createSQLite3UserPostClient();
-      await push(client, { force: true });
+      await syncLiveSchema(client);
 
       await client.user.create({
         data: {
@@ -499,7 +500,7 @@ describe("SQLite3 Driver", () => {
       const client = createSQLite3UserPostClient();
 
       // Push schema to create tables
-      await push(client, { force: true });
+      await syncLiveSchema(client);
 
       // Create user
       const newUser = await client.user.create({
@@ -564,7 +565,7 @@ describe("SQLite3 Driver", () => {
       const client = createSQLite3UserPostClient();
 
       // Push schema to create tables
-      await push(client, { force: true });
+      await syncLiveSchema(client);
 
       // Successful transaction
       await client.$transaction(async (tx) => {
@@ -599,7 +600,7 @@ describe("SQLite3 Driver", () => {
       const client = createSQLite3UserPostClient();
 
       // Push schema to create tables
-      await push(client, { force: true });
+      await syncLiveSchema(client);
 
       // Transaction that fails
       await expect(
@@ -631,7 +632,7 @@ describe("SQLite3 Driver", () => {
       client = createSQLite3UserPostClient();
 
       // Push schema to create tables
-      await push(client, { force: true });
+      await syncLiveSchema(client);
 
       // Seed data
       await seedWindowUserPosts(client);
@@ -925,7 +926,7 @@ describe("SQLite3 Driver", () => {
     });
 
     try {
-      await push(client, { force: true });
+      await syncLiveSchema(client);
       await client.mutableUser.create({
         data: { id: 330, name: "Divide operation" },
       });

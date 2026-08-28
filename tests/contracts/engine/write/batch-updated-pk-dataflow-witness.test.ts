@@ -3,10 +3,11 @@ import { createClient } from "@client/client";
 import type { BatchQuery, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
-import { push } from "@migrations";
+
 import { describe, expect, test } from "vitest";
 import { batchPrimaryKeyDataflowSchema as schema } from "@tests/fixtures/batch-primary-key-dataflow-schema";
 import { observeClientOperations } from "@tests/contracts/engine/write/operation-observer";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 function makeDirectClient(db: PGlite) {
   return createClient({
@@ -87,7 +88,7 @@ const EXPECTED: Snapshot = {
 async function runDirect(): Promise<Snapshot> {
   const db = new PGlite();
   const client = makeDirectClient(db);
-  await push(client as any, { force: true });
+  await syncLiveSchema(client as any);
   await seed(client);
   await runWorkload((client as any).mutableUser);
   const state = await snapshot(client);
@@ -100,7 +101,7 @@ async function runObserved(
 ): Promise<{ state: Snapshot; engines: Set<"direct" | "production"> }> {
   const db = new PGlite();
   const fallback = makeDirectClient(db);
-  await push(fallback as any, { force: true });
+  await syncLiveSchema(fallback as any);
   await seed(fallback);
   const driver =
     substrate === "tx"

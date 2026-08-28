@@ -1,12 +1,13 @@
 import { createClient } from "@client/client";
 import { MySQL2Driver } from "@drivers/mysql2";
 import { PgDriver } from "@drivers/pg";
-import { push } from "@migrations";
+
 import {
   junctionUpsertArmSchema,
   registerJunctionUpsertArmProbeBehavior,
 } from "@tests/contracts/engine/write/junction-upsert-arm-probe-behavior";
 import { afterAll, describe } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 /**
  * U-E6.1 on the live servers.
@@ -39,7 +40,7 @@ function suite(
           schema: junctionUpsertArmSchema,
           driver: makeDriver(),
         }) as any;
-        // Children before parents, so a re-run never asks `push(force)` to re-shape an
+        // Children before parents, so a re-run never asks `syncLiveSchema(force)` to re-shape an
         // index a live foreign key still needs.
         for (const table of [
           "tag_user",
@@ -50,7 +51,7 @@ function suite(
         ]) {
           await shared.$executeRawUnsafe(`DROP TABLE IF EXISTS ${table}`);
         }
-        await push(shared, { force: true });
+        await syncLiveSchema(shared);
       }
       return shared;
     },

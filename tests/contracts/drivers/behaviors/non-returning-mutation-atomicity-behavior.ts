@@ -3,11 +3,12 @@ import type { QueryExecutionContext } from "@drivers/driver";
 import { MySQL2Driver } from "@drivers/mysql2";
 import type { QueryResult } from "@drivers/types";
 import { NotFoundError } from "@errors";
-import { push } from "@migrations";
+
 import { s } from "@schema";
 import { defineContract } from "@tests/contracts/contract";
 import type { Pool, PoolConnection } from "mysql2/promise";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 interface Deferred {
   readonly promise: Promise<void>;
@@ -103,7 +104,7 @@ export function runNonReturningMutationAtomicityBehavior(
 
     beforeEach(async () => {
       const setup = boot(createDriver());
-      await push(setup, { force: true });
+      await syncLiveSchema(setup);
     });
 
     afterEach(async () => {

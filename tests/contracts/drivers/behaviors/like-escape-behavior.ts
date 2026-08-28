@@ -5,9 +5,10 @@ import {
   type VibORMConfig,
 } from "@client/client";
 import type { AnyDriver } from "@drivers";
-import { push } from "@migrations";
+
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { windowUserPostSchema } from "@tests/fixtures/user-post-schema";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 const schema = windowUserPostSchema;
 
@@ -41,7 +42,7 @@ export function runLikeEscapeBehavior({
         schema,
         driver: createDriver(),
       });
-      await push(client, { force: true });
+      await syncLiveSchema(client);
       await client.user.createMany({
         data: [
           { id: "percent", name: "100% organic", email: "p@example.com" },

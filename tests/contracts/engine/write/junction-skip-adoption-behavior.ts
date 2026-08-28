@@ -1,6 +1,6 @@
 import { createClient } from "@client/client";
 import type { AnyDriver } from "@drivers";
-import { push } from "@migrations";
+
 import { createOperationExecutionContext } from "@query-engine/execution-context";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { s } from "@schema";
@@ -10,6 +10,7 @@ import { OperationExecutor } from "@src/query-engine/write-engine/OperationExecu
 import { UpdateOperation } from "@src/query-engine/write-engine/UpdateOperation";
 import { createSchemaRegistry } from "@validation";
 import { afterAll, describe, expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 /**
  * E6.8 — `skipDuplicates` on a junction `createMany` whose target primary key the
@@ -324,7 +325,7 @@ const UNIQUE_VIOLATION = /Unique constraint/;
 /** The other class a member ROOT can fail with — never absorbed by the savepoint. */
 const FOREIGN_KEY_VIOLATION = /Foreign key constraint/;
 /** The tables this schema owns, children first — dropped once on a shared live server so a
- *  re-run never asks `push(force)` to re-shape an index a live foreign key still needs. */
+ *  re-run never asks `syncLiveSchema(force)` to re-shape an index a live foreign key still needs. */
 export const junctionSkipAdoptTables = [
   "e68_article_label",
   "e68_board_mark",
@@ -402,7 +403,7 @@ export function runJunctionSkipAdoptBehavior(options: {
               );
             }
           }
-          await push(client, { force: true });
+          await syncLiveSchema(client);
           shared = { client, run: makeRunner(driver), driver };
         }
         await reset(shared.client);

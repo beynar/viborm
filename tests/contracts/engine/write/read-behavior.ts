@@ -1,9 +1,10 @@
 import { createClient } from "@client/client";
 import type { AnyDriver } from "@drivers";
-import { push } from "@migrations";
+
 import { s } from "@schema";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { observeClientOperations } from "@tests/contracts/engine/write/operation-observer";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 /**
  * The read family (PLAN P4 item 1) as single read steps, across the driver
@@ -345,7 +346,7 @@ export function runReadBehavior(options: {
     beforeAll(async () => {
       const v1Driver = options.createDriver();
       direct = makeReadClient(v1Driver);
-      await push(direct, { force: true });
+      await syncLiveSchema(direct);
       await seedReads(direct);
 
       // Default the Observed arm to Direct's own driver so both read one seeded database;

@@ -5,10 +5,11 @@ import {
   type VibORMConfig,
 } from "@client/client";
 import type { AnyDriver } from "@drivers";
-import { push } from "@migrations";
+
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { windowUserPostSchema } from "@tests/fixtures/user-post-schema";
 import { seedWindowUserPosts } from "@tests/fixtures/user-post-seed";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 const schema = windowUserPostSchema;
 
@@ -36,7 +37,7 @@ export function runCountAggregateWindowBehavior({
         schema,
         driver: createDriver(),
       });
-      await push(client, { force: true });
+      await syncLiveSchema(client);
       await seedWindowUserPosts(client);
     });
 

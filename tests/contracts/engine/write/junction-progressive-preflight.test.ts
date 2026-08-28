@@ -3,7 +3,7 @@ import type { BatchQuery, QueryExecutionContext, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
-import { push } from "@migrations";
+
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames, s } from "@schema";
 import { validateClientSchemaOrThrow } from "@schema/validation/validator";
@@ -15,6 +15,7 @@ import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { createSchemaRegistry } from "@validation";
 import type Database from "better-sqlite3";
 import { describe, expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 hydrateSchemaNames(junctionSkipAdoptSchema);
 
@@ -151,7 +152,7 @@ describe("root-first junction suppression on batch-only substrates", () => {
         schema: junctionSkipAdoptSchema,
         driver: new PGliteDriver({ client: database }),
       });
-      await push(state, { force: true });
+      await syncLiveSchema(state);
       await state.gem.create({ data: { tag: "taken", text: "ORIGINAL" } });
       await state.vault.create({ data: { id: "v1" } });
 
@@ -234,7 +235,7 @@ describe("nested root-first suppression keeps each progressive guard exact", () 
       schema: progressiveSkipSchema,
       driver: new PGliteDriver({ client: database }),
     });
-    await push(state, { force: true });
+    await syncLiveSchema(state);
     await state.owner.create({ data: { id: "o1", marker: "before" } });
     await state.bucket.create({
       data: { id: "b1", label: "before", ownerId: "o1" },
@@ -296,7 +297,7 @@ describe("nested root-first suppression keeps each progressive guard exact", () 
       schema: progressiveSkipSchema,
       driver: new PGliteDriver({ client: database }),
     });
-    await push(state, { force: true });
+    await syncLiveSchema(state);
     await state.bucket.create({ data: { id: "b1", label: "before" } });
     await state.board.create({
       data: {
@@ -397,7 +398,7 @@ describe("replayable defaults are evaluated for each selected member", () => {
       schema,
       driver: new PGliteDriver({ client: database }),
     });
-    await push(state, { force: true });
+    await syncLiveSchema(state);
     await state.owner.create({ data: { id: "o1", marker: "before" } });
     await state.bucket.create({ data: { id: "b1", ownerId: "o1" } });
 
@@ -480,7 +481,7 @@ describe("residual F3 — a vacuous relation-bearing skip drops the flag", () =>
       schema: vacuousProgressiveSchema,
       driver,
     });
-    await push(client, { force: true });
+    await syncLiveSchema(client);
     await client.owner.create({ data: { id: "o1" } });
 
     await client.owner.update({
@@ -751,7 +752,7 @@ describe("§9.6 — a collection-bearing createMany row", () => {
       schema: collectionBulkSchema,
       driver: new PGliteDriver({ client: database }),
     });
-    await push(state, { force: true });
+    await syncLiveSchema(state);
     await state.holder.create({ data: { id: "h1", name: "Holder" } });
     await state.note.create({ data: { id: "n1", body: "Note one" } });
 
@@ -838,7 +839,7 @@ describe("§9.6 — a collection-bearing createMany row", () => {
       schema: collectionBulkSchema,
       driver: new PGliteDriver({ client: database }),
     });
-    await push(state, { force: true });
+    await syncLiveSchema(state);
     await state.holder.create({ data: { id: "h1", name: "Holder" } });
     await state.note.create({ data: { id: "n1", body: "Note one" } });
 
@@ -893,7 +894,7 @@ describe("§9.6 — a collection-bearing createMany row", () => {
   test("a skipped collection-bearing root emits no member effect, and a fresh sibling lands", async () => {
     const driver = new PGliteDriver();
     const client = createClient({ schema: collectionBulkSchema, driver });
-    await push(client, { force: true });
+    await syncLiveSchema(client);
     await client.holder.create({ data: { id: "h1", name: "Holder" } });
     await client.note.create({ data: { id: "n1", body: "Note one" } });
     await client.note.create({ data: { id: "n2", body: "Note two" } });
@@ -953,7 +954,7 @@ describe("§9.6 — a collection-bearing createMany row", () => {
   test("a duplicate root still raises for a MISSING collection target: the skip rule covers effects, not premises", async () => {
     const driver = new PGliteDriver();
     const client = createClient({ schema: collectionBulkSchema, driver });
-    await push(client, { force: true });
+    await syncLiveSchema(client);
     await client.holder.create({ data: { id: "h1", name: "Holder" } });
     await client.box.create({
       data: { id: "b0", title: "taken", holderId: "h1" },

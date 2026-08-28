@@ -6,12 +6,13 @@ import { PGliteDriver, type PGliteOptions } from "@drivers/pglite";
 import { SQLite3Driver, type SQLite3Options } from "@drivers/sqlite3";
 import { PGlite } from "@electric-sql/pglite";
 import { vector } from "@electric-sql/pglite/vector";
-import { push } from "@migrations";
+
 import { ReadOperation } from "@query-engine/write-engine/ReadOperation";
 import { s } from "@schema";
 import { sql } from "@sql";
 import Database from "better-sqlite3";
 import { afterEach, describe, expect, test, vi } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 const schema = {
   entry: s.model({
@@ -29,7 +30,7 @@ async function expectDirectReadMode(
 ): Promise<void> {
   const client = createClient({ schema, driver });
   try {
-    await push(client, { force: true });
+    await syncLiveSchema(client);
     // A supplied client survives this driver's `$disconnect()` and is
     // reinstalled by identity, so a second round runs against the SAME database
     // with the first round's row still in it. The read mode is what these

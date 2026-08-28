@@ -29,7 +29,7 @@ import {
   SPAN_OPERATION,
   SPAN_RECORD_SERIES_SEGMENT,
 } from "@instrumentation/spans";
-import { push } from "@migrations";
+
 import { trace } from "@opentelemetry/api";
 import { createOperationExecutionContext } from "@query-engine/execution-context";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
@@ -70,6 +70,7 @@ import {
   test,
 } from "vitest";
 
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 /**
  * PACKAGE I3 — the transactional record series, proven on a FAKE operation.
  *
@@ -544,7 +545,7 @@ function seedRow(id: number, label: string): Promise<unknown> {
 beforeAll(async () => {
   database = new PGlite();
   stateClient = makeStateClient();
-  await push(stateClient, { force: true });
+  await syncLiveSchema(stateClient);
 }, 60_000);
 
 afterAll(async () => {

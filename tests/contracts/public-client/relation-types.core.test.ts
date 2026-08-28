@@ -7,7 +7,7 @@
 
 import type { BatchPayload } from "@client/exports";
 import { createClient as PGliteCreateClient } from "@drivers/pglite";
-import { push } from "@migrations";
+
 import { DbNull, s } from "@schema";
 import Decimal from "decimal.js";
 import {
@@ -19,6 +19,7 @@ import {
   test,
 } from "vitest";
 import { z } from "zod/v4";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 // =============================================================================
 // MODEL DEFINITIONS - All scalar types
@@ -117,7 +118,7 @@ beforeAll(async () => {
   const { PGlite } = await import("@electric-sql/pglite");
   const pglite = new PGlite();
   client = await PGliteCreateClient({ schema, client: pglite });
-  await push(client, { force: true });
+  await syncLiveSchema(client);
 });
 
 afterAll(async () => {

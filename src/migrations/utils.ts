@@ -1,11 +1,7 @@
 /**
- * Migration Utilities
- *
- * Shared utilities for migration operations. Consolidates duplicated code
- * from push.ts, generate/index.ts, and apply/index.ts.
+ * Shared migration helpers that do not own a V1 command.
  */
 
-import { relative, resolve } from "node:path";
 import type { AnyDriver } from "../drivers/driver";
 import { MigrationError, VibORMErrorCode } from "../errors";
 import type { MigrationDriver } from "./drivers";
@@ -14,19 +10,9 @@ import type {
   DiffOperation,
   EnumValueRemoval,
   EnumValueResolver,
-  MigrationEntry,
   SchemaSnapshot,
 } from "./types";
 
-// =============================================================================
-// CONSTANTS
-// =============================================================================
-
-export const DEFAULT_MIGRATIONS_DIR = "./migrations";
-export const DEFAULT_TABLE_NAME = "_viborm_migrations";
-const MIGRATION_TABLE_NAME_PATTERN = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
-
-// =============================================================================
 // DIALECT UTILITIES
 // =============================================================================
 
@@ -52,70 +38,27 @@ export function normalizeDialect(dialect: string): Dialect {
   );
 }
 
-// =============================================================================
-// PATH UTILITIES
-// =============================================================================
-
-/**
- * Validates and resolves the migrations directory path.
- * Ensures the path doesn't escape the project root (security).
- */
-export function validateMigrationsDir(dir: string): string {
-  const cwd = process.cwd();
-  const resolved = resolve(cwd, dir);
-  const rel = relative(cwd, resolved);
-
-  // Ensure path doesn't escape project root
-  if (rel.startsWith("..") || resolve(rel) === rel) {
-    throw new MigrationError(
-      `Invalid migrations directory: "${dir}". Path must be within project root.`,
-      VibORMErrorCode.INVALID_INPUT,
-      { meta: { migrationsDir: dir } }
-    );
-  }
-
-  return resolved;
-}
-
-// =============================================================================
-// TABLE NAME UTILITIES
-// =============================================================================
-
-/**
- * Validates the migration table name to prevent SQL injection.
- * Only allows alphanumeric characters and underscores.
- */
-export function validateTableName(tableName: string): string {
-  if (!MIGRATION_TABLE_NAME_PATTERN.test(tableName)) {
-    throw new MigrationError(
-      `Invalid migration table name: "${tableName}". ` +
-        "Only alphanumeric characters and underscores are allowed.",
-      VibORMErrorCode.INVALID_INPUT,
-      { meta: { table: tableName } }
-    );
-  }
-  return tableName;
-}
-
-// =============================================================================
 // QUERY EXECUTOR
 // =============================================================================
 
 /**
  * Type for executing SQL queries and returning rows.
  */
-export type QueryExecutor = <T = unknown>(
+export type QueryExecutor = (
   sql: string,
   params?: unknown[]
-) => Promise<T[]>;
+) => Promise<unknown[]>;
 
 /**
  * Creates a query executor from a driver.
  * Extracts rows from the QueryResult.
  */
 export function createQueryExecutor(driver: AnyDriver): QueryExecutor {
-  return async <T = unknown>(sql: string, params?: unknown[]) => {
-    const result = await driver._executeRaw<T>(sql, params);
+  return async (sql: string, params?: unknown[]) => {
+    const result = await driver._executeRaw<Record<string, unknown>>(
+      sql,
+      params
+    );
     return result.rows;
   };
 }
@@ -396,6 +339,23 @@ export function materializeDroppedTableForeignKeys(
     : [...materialized, ...operations];
 }
 
+/**
+ * One compile-order owner for generated schema programs. Generate and push
+ * both hand this result to the compiler. Do not lift or materialize at a
+ * second call site.
+ */
+export function prepareSchemaProgram(
+  operations: DiffOperation[],
+  current: SchemaSnapshot,
+  migrationDriver: MigrationDriver
+): DiffOperation[] {
+  return materializeDroppedTableForeignKeys(
+    extractForwardReferenceForeignKeys(operations, migrationDriver),
+    current,
+    migrationDriver
+  );
+}
+
 // =============================================================================
 // ENUM VALUE RESOLUTION
 // =============================================================================
@@ -470,15 +430,6 @@ export async function resolveEnumValueRemovals(
 // =============================================================================
 // MIGRATION FILE UTILITIES
 // =============================================================================
-
-/**
- * Formats a migration filename from entry.
- * Example: 0000_initial.sql, 0001_add-users.sql
- */
-export function formatMigrationFilename(entry: MigrationEntry): string {
-  const paddedIdx = String(entry.idx).padStart(4, "0");
-  return `${paddedIdx}_${entry.name}.sql`;
-}
 
 /**
  * Generate a migration name based on the operations.

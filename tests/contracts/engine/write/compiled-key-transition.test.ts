@@ -3,7 +3,7 @@ import { createClient } from "@client/client";
 import type { BatchQuery, QueryExecutionContext, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
-import { push } from "@migrations";
+
 import { describe, expect, test } from "vitest";
 import { batchIsAtomicUnit } from "@tests/fixtures/atomic-unit-batch";
 import {
@@ -12,6 +12,7 @@ import {
   resetCompileTransition,
 } from "@tests/contracts/engine/write/compiled-key-transition-behavior";
 
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 /** Rewrites the located counter's `id` after the database answered the locate. */
 class CorruptLocateDriver extends PGliteDriver {
   private armed = true;
@@ -107,7 +108,7 @@ async function setup(driver: PGliteDriver) {
     schema: compileTransitionSchema,
     driver,
   }) as any;
-  await push(client, { force: true });
+  await syncLiveSchema(client);
   return client;
 }
 

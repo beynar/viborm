@@ -4,9 +4,10 @@ import type { AnyDriver, BatchQuery, QueryResult } from "@drivers";
 import { isVerbatimBatchQuery } from "@drivers/driver-batch-query-kind";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
-import { push } from "@migrations";
+
 import type { ProviderFixture } from "@tests/contracts/contract";
 import { afterAll, beforeAll, beforeEach } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 /**
  * Exercises the batch-only execution substrate with PostgreSQL semantics.
@@ -95,7 +96,7 @@ export function usePGliteSchemaFamily<const S extends Schema>(
         : new BatchOnlyPGliteDriver({ client: database });
     const client = createClient({ schema, driver });
     try {
-      await push(client, { force: true });
+      await syncLiveSchema(client);
     } catch (setupError) {
       try {
         await client.$disconnect();
@@ -174,7 +175,7 @@ export function useBehaviorDatabase<const S extends Schema>(
     const stateDriver = source.createStateDriver?.() ?? driver;
     const client = createClient({ schema, driver: stateDriver });
     try {
-      await push(client, { force: true });
+      await syncLiveSchema(client);
     } catch (setupError) {
       const cleanup = await Promise.allSettled([
         client.$disconnect(),

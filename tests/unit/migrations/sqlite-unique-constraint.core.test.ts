@@ -38,12 +38,13 @@
  */
 
 import { createClient } from "@client/client";
-import { push } from "@migrations";
+import { VibORMErrorCode } from "@errors";
 import { s } from "@schema";
-import { describe, expect, it } from "vitest";
 import type { SQLite3Driver } from "@src/drivers/sqlite3";
 import { createInMemoryLibSQLDriver } from "@tests/fixtures/drivers/libsql";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
+import { describe, expect, it } from "vitest";
+import { syncLiveSchema } from "../../fixtures/sync-schema";
 
 // --- schemas ---------------------------------------------------------------
 
@@ -151,7 +152,7 @@ describe("a unique constraint added to an existing SQLite table", () => {
       driver,
     }) as never;
 
-    await push(before, { force: true });
+    await syncLiveSchema(before);
 
     // A row that must survive the recreation the add now performs.
     await driver._executeRaw(`INSERT INTO "uq_users" ("id") VALUES ('u1')`);
@@ -160,11 +161,11 @@ describe("a unique constraint added to an existing SQLite table", () => {
     );
 
     const planned = [
-      (await push(after, { force: true })).operations.map((op) => op.type),
+      (await syncLiveSchema(after)).operations.map((op) => op.label),
       // Push #3 is the one that died on `index … already exists`, and push #4
       // proves the quiet is stable rather than alternating.
-      (await push(after, { force: true })).operations.map((op) => op.type),
-      (await push(after, { force: true })).operations.map((op) => op.type),
+      (await syncLiveSchema(after)).operations.map((op) => op.label),
+      (await syncLiveSchema(after)).operations.map((op) => op.label),
     ];
 
     expect(planned[0]).toEqual(["addUniqueConstraint"]);
@@ -203,15 +204,15 @@ describe("a unique constraint added to an existing SQLite table", () => {
       driver,
     }) as never;
 
-    await push(before, { force: true });
+    await syncLiveSchema(before);
     // Verbatim what the pre-fix `generateAddUniqueConstraint` emitted.
     await driver._executeRaw(
       'CREATE UNIQUE INDEX "uq_posts_slug_tenant_key" ON "uq_posts" ("slug", "tenant")'
     );
 
     const planned = [
-      (await push(after, { force: true })).operations.map((op) => op.type),
-      (await push(after, { force: true })).operations.map((op) => op.type),
+      (await syncLiveSchema(after)).operations.map((op) => op.label),
+      (await syncLiveSchema(after)).operations.map((op) => op.label),
     ];
 
     // The add rebuilds the table with the constraint inline; the stale index is
@@ -236,12 +237,12 @@ describe("a real change to a compound unique on SQLite", () => {
     const ab = createClient({ schema: { orderAB } as never, driver }) as never;
     const ba = createClient({ schema: { orderBA } as never, driver }) as never;
 
-    await push(ab, { force: true });
+    await syncLiveSchema(ab);
     expect(await ownedUniqueColumns(driver, "uq_order")).toEqual([["a", "b"]]);
 
     const planned = [
-      (await push(ba, { force: true })).operations.map((op) => op.type),
-      (await push(ba, { force: true })).operations.map((op) => op.type),
+      (await syncLiveSchema(ba)).operations.map((op) => op.label),
+      (await syncLiveSchema(ba)).operations.map((op) => op.label),
     ];
 
     // Before the fix this pair emitted `DROP INDEX "sqlite_autoindex_uq_order_2"`,
@@ -256,31 +257,16 @@ describe("a real change to a compound unique on SQLite", () => {
   });
 });
 
-describe("LibSQL inherits the spelling", () => {
-  it("adds a unique to an existing table and then plans nothing", async () => {
+describe("LibSQL refuses effectful live sync", () => {
+  it("refuses DRIVER_NOT_SUPPORTED instead of applying the unique spelling", async () => {
     const driver = createInMemoryLibSQLDriver();
     const before = createClient({
       schema: { plainUser, plainPost } as never,
       driver,
     }) as never;
-    const after = createClient({
-      schema: { uniqueUser, uniquePost } as never,
-      driver,
-    }) as never;
 
-    await push(before, { force: true });
-
-    const planned = [
-      (await push(after, { force: true })).operations.map((op) => op.type),
-      (await push(after, { force: true })).operations.map((op) => op.type),
-      (await push(after, { force: true })).operations.map((op) => op.type),
-    ];
-
-    expect(planned[0]).toEqual(["addUniqueConstraint"]);
-    expect(planned[1]).toEqual([]);
-    expect(planned[2]).toEqual([]);
-    expect(await ownedUniqueColumns(driver, "uq_posts")).toEqual([
-      ["slug", "tenant"],
-    ]);
+    await expect(syncLiveSchema(before)).rejects.toMatchObject({
+      code: VibORMErrorCode.DRIVER_NOT_SUPPORTED,
+    });
   });
 });

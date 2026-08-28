@@ -1,6 +1,6 @@
 import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
-import { push } from "@migrations";
+
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames, s } from "@schema";
 import type { Model } from "@schema/model";
@@ -17,6 +17,7 @@ import {
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { createSchemaRegistry } from "@validation";
 import { expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 // The whole extended-whereUnique surface on PGlite, both substrates. The driver
 // matrix legs run the same module from tests/drivers/*.test.ts.
@@ -321,7 +322,7 @@ test(
       schema: identitySchema,
       driver: new PGliteDriver(),
     });
-    await push(client, { force: true });
+    await syncLiveSchema(client);
     try {
       // Seed without needing the generated compound row key as an immediate result.
       await client.seat.createMany({
@@ -371,7 +372,7 @@ test(
       schema: identitySchema,
       driver: new PGliteDriver(),
     });
-    await push(client, { force: true });
+    await syncLiveSchema(client);
     try {
       expect(
         await client.slot.create({
@@ -445,7 +446,7 @@ test(
       schema: extendedWhereUniqueSchema,
       driver: new BatchOnlyPGliteDriver(),
     });
-    await push(client, { force: true });
+    await syncLiveSchema(client);
     try {
       const [created] = await client.$transaction([
         client.note.upsert({

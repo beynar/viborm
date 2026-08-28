@@ -1,11 +1,12 @@
 import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite } from "@electric-sql/pglite";
-import { push } from "@migrations";
+
 import { s } from "@schema";
 import { observeClientOperations } from "@tests/contracts/engine/write/operation-observer";
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { describe, expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 /**
  * T4a CLASS VI — deep create-context grandchildren (the three absorbed blast-radius keys).
@@ -108,7 +109,7 @@ async function runDirect(
 ): Promise<unknown> {
   const db = new PGlite();
   const client = makeDirectClient(schema, db);
-  await push(client as never, { force: true });
+  await syncLiveSchema(client as never);
   await seed(client);
   await op(client);
   const state = await snap(client);
@@ -125,7 +126,7 @@ async function runObserved(
 ): Promise<{ state: unknown; engines: Set<"direct" | "production"> }> {
   const db = new PGlite();
   const fallback = makeDirectClient(schema, db);
-  await push(fallback as never, { force: true });
+  await syncLiveSchema(fallback as never);
   await seed(fallback);
   const driver =
     substrate === "tx"

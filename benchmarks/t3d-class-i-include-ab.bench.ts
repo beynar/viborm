@@ -43,7 +43,7 @@ const schema = (() => {
 const makeClient = async () => {
   const driver = new SQLite3Driver({ dataDir: ":memory:" });
   const client = createClient({ schema, driver });
-  await push(client, { force: true });
+  await push(client);
   // 200 users, each owning two posts — the update refetches the included to-many.
   for (let i = 0; i < 200; i += 1) {
     await (client as any).user.create({

@@ -6,9 +6,10 @@ import {
 } from "@client/client";
 import type { AnyDriver } from "@drivers";
 import { UniqueConstraintError } from "@errors";
-import { push } from "@migrations";
+
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { upsertAtomicitySchema as schema } from "@tests/fixtures/upsert-atomicity-schema";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 const UPDATED_NAME_PATTERN = /^updated-/;
 
@@ -48,7 +49,7 @@ export function runUpsertAtomicityBehavior({
       ]) {
         await driver._executeRaw(`DROP TABLE IF EXISTS ${table}`);
       }
-      await push(client, { force: true });
+      await syncLiveSchema(client);
     });
 
     afterEach(async () => {

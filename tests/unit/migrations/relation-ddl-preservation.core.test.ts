@@ -26,7 +26,6 @@
  */
 
 import { createClient } from "@client/client";
-import { push } from "@migrations";
 import { s } from "@schema";
 import { parseSchema, serializeSchema } from "@schema/json";
 import type { AnyModel } from "@schema/model";
@@ -47,6 +46,10 @@ import {
 } from "@tests/fixtures/relation-ddl-corpus";
 import { ddlContext } from "@tests/unit/migrations/_estate";
 import { describe, expect, it } from "vitest";
+import { syncLiveSchema } from "../../fixtures/sync-schema";
+
+const CREATE_TABLE_NAME =
+  /CREATE TABLE\s+(?:IF NOT EXISTS\s+)?(?:(?:"[^"]+"|`[^`]+`|\w+)\.)?(?:"([^"]+)"|`([^`]+)`|(\w+))/i;
 
 const migrationDrivers = {
   postgres: postgresMigrationDriver,
@@ -218,6 +221,20 @@ describe("scalar defaults through a JSON document", () => {
 // strongest statement that the frozen snapshot and the database agree.
 // =============================================================================
 
+function createdTableNames(result: {
+  readonly statements: readonly { readonly sql: string }[];
+}): string[] {
+  const names: string[] = [];
+  for (const statement of result.statements) {
+    const match = statement.sql.match(CREATE_TABLE_NAME);
+    const name = match?.[1] ?? match?.[2] ?? match?.[3];
+    if (name && !name.startsWith("__new_")) {
+      names.push(name);
+    }
+  }
+  return names;
+}
+
 const convergingCases = relationDdlCorpus.filter(
   (testCase) => testCase.converges
 );
@@ -243,17 +260,20 @@ describe("relation → DDL convergence", () => {
     const driver = createInMemorySQLite3Driver();
     try {
       const client = createClient({ schema: prepare(testCase).schema, driver });
-      const first = await push(client, { force: true });
+      const first = await syncLiveSchema(client);
       expect(
-        first.operations
-          .filter((operation) => operation.type === "createTable")
-          .map((operation) => operation.table.name)
-      ).toEqual(
+        first.operations.filter(
+          (operation) => operation.label === "createTable"
+        )
+      ).toHaveLength(
+        relationDdlBaseline[testCase.id]?.postgres?.tables.length ?? 0
+      );
+      expect(createdTableNames(first)).toEqual(
         relationDdlBaseline[testCase.id]?.postgres?.tables.map(
           (table) => table.name
         )
       );
-      expect((await push(client, { force: true })).operations).toEqual([]);
+      expect((await syncLiveSchema(client)).operations).toEqual([]);
     } finally {
       await driver.disconnect();
     }
@@ -265,17 +285,20 @@ describe("relation → DDL convergence", () => {
     const driver = createInMemoryPGliteDriver();
     try {
       const client = createClient({ schema: prepare(testCase).schema, driver });
-      const first = await push(client, { force: true });
+      const first = await syncLiveSchema(client);
       expect(
-        first.operations
-          .filter((operation) => operation.type === "createTable")
-          .map((operation) => operation.table.name)
-      ).toEqual(
+        first.operations.filter(
+          (operation) => operation.label === "createTable"
+        )
+      ).toHaveLength(
+        relationDdlBaseline[testCase.id]?.postgres?.tables.length ?? 0
+      );
+      expect(createdTableNames(first)).toEqual(
         relationDdlBaseline[testCase.id]?.postgres?.tables.map(
           (table) => table.name
         )
       );
-      expect((await push(client, { force: true })).operations).toEqual([]);
+      expect((await syncLiveSchema(client)).operations).toEqual([]);
     } finally {
       await driver.disconnect();
     }

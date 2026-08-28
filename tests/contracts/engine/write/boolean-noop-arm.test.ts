@@ -3,13 +3,14 @@ import { createClient } from "@client/client";
 import type { BatchQuery, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
 import type { PGlite, Transaction } from "@electric-sql/pglite";
-import { push } from "@migrations";
+
 import { expect, test } from "vitest";
 import {
   booleanNoOpSchema,
   runBooleanNoOpArmBehavior,
 } from "@tests/contracts/engine/write/boolean-noop-arm-behavior";
 
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 // Both substrates on PGlite; the driver matrix legs run the same module.
 runBooleanNoOpArmBehavior({
   name: "PGlite transaction",
@@ -36,7 +37,7 @@ test("through the PUBLIC client: `disconnect: false` moves nothing, `true` disco
     driver: new PGliteDriver(),
   });
   try {
-    await push(client, { force: true });
+    await syncLiveSchema(client);
     await client.card.create({ data: { id: 10, face: "face-a" } });
     await client.holder.create({ data: { id: 1, name: "h", cardId: 10 } });
 
@@ -62,7 +63,7 @@ test("through the PUBLIC client: an empty nested update writes nothing and needs
     driver: new PGliteDriver(),
   });
   try {
-    await push(client, { force: true });
+    await syncLiveSchema(client);
     await client.holder.create({ data: { id: 1, name: "h" } });
     await client.item.create({
       data: { id: 30, title: "item-a", holderId: 1 },

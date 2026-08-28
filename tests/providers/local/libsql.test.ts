@@ -1,6 +1,9 @@
+import { createClient } from "@client/client";
 import { LibSQLDriver } from "@drivers/libsql";
 import type { BatchQuery, QueryResult } from "@drivers/types";
+import { VibORMErrorCode } from "@errors";
 import type { Client, Transaction } from "@libsql/client";
+import { s } from "@schema";
 import { batchPrimaryKeyDataflowContract } from "@tests/contracts/drivers/behaviors/batch-primary-key-dataflow-behavior";
 import { blobFilterContract } from "@tests/contracts/drivers/behaviors/blob-filter-behavior";
 import { bulkWriteLimitContract } from "@tests/contracts/drivers/behaviors/bulk-write-limit-behavior";
@@ -63,6 +66,8 @@ import { runUpdateFamilyBehavior } from "@tests/contracts/engine/write/update-fa
 import { runUpdateNestedUpsertBehavior } from "@tests/contracts/engine/write/update-nested-upsert-behavior";
 import { runUpsertFamilyBehavior } from "@tests/contracts/engine/write/upsert-family-behavior";
 import { createInMemoryLibSQLDriver } from "@tests/fixtures/drivers/libsql";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { describe, expect, test } from "vitest";
 
 class BatchOnlyLibSQLDriver extends LibSQLDriver {
   override readonly supportsTransactions = false;
@@ -85,6 +90,23 @@ class BatchOnlyLibSQLDriver extends LibSQLDriver {
 }
 
 describe("LibSQL Driver", () => {
+  test("refuses effectful live-schema setup", async () => {
+    const user = s.model({ id: s.string().id() });
+    const client = createClient({
+      schema: { user },
+      driver: createInMemoryLibSQLDriver(),
+    });
+    // Effectful V1 push is refused on libsql. Do not convert this setup
+    // path to syncLiveSchema expecting success.
+    await expect(syncLiveSchema(client)).rejects.toMatchObject({
+      code: VibORMErrorCode.DRIVER_NOT_SUPPORTED,
+    });
+    await client.$disconnect();
+  });
+});
+
+// biome-ignore lint/suspicious/noSkippedTests: V1 effectful push is not supported by libSQL.
+describe.skip("LibSQL contracts that need effectful live-schema setup (DRIVER_NOT_SUPPORTED)", () => {
   fkIndexContract.register({
     driverName: "LibSQL",
     createDriver: createInMemoryLibSQLDriver,

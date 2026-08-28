@@ -98,7 +98,7 @@ export class PostgresMigrationDriver extends MigrationDriver {
    *
    * ONE source: the estate target. `this.namespace` holds the same string for
    * a PostgreSQL estate — `getMigrationDriver` reads both from the same
-   * adapter, and the journal gate refuses an estate whose schema is not this
+   * adapter, and the estate gate refuses a schema that is not this
    * one — so reading exactly one of them is what keeps the two from ever being
    * asked to disagree.
    *
@@ -408,6 +408,13 @@ export class PostgresMigrationDriver extends MigrationDriver {
   // ===========================================================================
 
   generateCreateTable(op: CreateTableOperation, context: DDLContext): string {
+    return this.compileCreateTable(op, context).join(";\n");
+  }
+
+  override compileCreateTable(
+    op: CreateTableOperation,
+    context: DDLContext
+  ): readonly string[] {
     const { table } = op;
     const columnDefs = table.columns.map((col) =>
       this.generateColumnDef(col, context)
@@ -460,7 +467,7 @@ export class PostgresMigrationDriver extends MigrationDriver {
       );
     }
 
-    return statements.join(";\n");
+    return this.filterStatements(statements);
   }
 
   /**
@@ -505,6 +512,13 @@ export class PostgresMigrationDriver extends MigrationDriver {
   }
 
   generateAlterColumn(op: AlterColumnOperation, context: DDLContext): string {
+    return this.compileAlterColumn(op, context).join(";\n");
+  }
+
+  override compileAlterColumn(
+    op: AlterColumnOperation,
+    context: DDLContext
+  ): readonly string[] {
     const { tableName, columnName, from, to } = op;
     const statements: string[] = [];
     const table = this.qualify(tableName);
@@ -586,7 +600,7 @@ export class PostgresMigrationDriver extends MigrationDriver {
       );
     }
 
-    return statements.join(";\n");
+    return this.filterStatements(statements);
   }
 
   // ===========================================================================
@@ -711,67 +725,6 @@ export class PostgresMigrationDriver extends MigrationDriver {
     return `DROP TYPE ${this.qualify(op.enumName)}`;
   }
 
-  // ===========================================================================
-  // MIGRATION TRACKING TABLE
-  // ===========================================================================
-
-  /**
-   * PostgreSQL reports a missing relation as SQLSTATE `42P01` — the SAME code
-   * it reports for a missing schema, which is exactly why the namespace proof
-   * runs first and this translation second.
-   *
-   * The translation is exact for the CONFIGURED tracking table even though the
-   * error cannot name it: VibORM's error normalization redacts provider message
-   * text, so the relation name never survives. Exactness comes from the
-   * statement instead — this is asked only about the failure of the
-   * applied-state SELECT, which references exactly one relation, the tracking
-   * table, and whose schema was already proven to exist. Any other statement's
-   * `42P01` never reaches here.
-   */
-  override isMissingTrackingTable(error: unknown, _tableName: string): boolean {
-    return this.describeProviderFailure(error).code === "42P01";
-  }
-
-  // The tracking table is a persistent object of this estate like any other:
-  // every statement that names it carries the schema, so two estates in one
-  // database keep two histories and neither can read or write the other's.
-  generateCreateTrackingTable(tableName: string): string {
-    const table = this.qualify(tableName);
-    return `CREATE TABLE IF NOT EXISTS ${table} (
-  id SERIAL PRIMARY KEY,
-  name VARCHAR(255) NOT NULL UNIQUE,
-  checksum VARCHAR(64) NOT NULL,
-  applied_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-)`;
-  }
-
-  override generateSelectAppliedMigrations(tableName: string): string {
-    const table = this.qualify(tableName);
-    return `SELECT name, checksum, applied_at FROM ${table} ORDER BY id ASC`;
-  }
-
-  generateInsertMigration(tableName: string): {
-    sql: string;
-    paramCount: number;
-  } {
-    const table = this.qualify(tableName);
-    return {
-      sql: `INSERT INTO ${table} (name, checksum) VALUES ($1, $2)`,
-      paramCount: 2,
-    };
-  }
-
-  generateDeleteMigration(tableName: string): {
-    sql: string;
-    paramCount: number;
-  } {
-    const table = this.qualify(tableName);
-    return {
-      sql: `DELETE FROM ${table} WHERE name = $1`,
-      paramCount: 1,
-    };
-  }
-
   override generateClearMigrations(tableName: string): string {
     return `DELETE FROM ${this.qualify(tableName)}`;
   }
@@ -856,6 +809,13 @@ export class PostgresMigrationDriver extends MigrationDriver {
   // ===========================================================================
 
   generateAlterEnum(op: AlterEnumOperation, _context: DDLContext): string {
+    return this.compileAlterEnum(op, _context).join(";\n");
+  }
+
+  override compileAlterEnum(
+    op: AlterEnumOperation,
+    _context: DDLContext
+  ): readonly string[] {
     const { enumName, addValues, removeValues, newValues, dependentColumns } =
       op;
     const statements: string[] = [];
@@ -868,7 +828,7 @@ export class PostgresMigrationDriver extends MigrationDriver {
           `ALTER TYPE ${enumType} ADD VALUE ${this.escapeValue(value)}`
         );
       }
-      return statements.join(";\n");
+      return this.filterStatements(statements);
     }
 
     // Complex case: removing values requires enum recreation
@@ -929,7 +889,7 @@ export class PostgresMigrationDriver extends MigrationDriver {
       }
     }
 
-    return statements.join(";\n");
+    return this.filterStatements(statements);
   }
 
   /**

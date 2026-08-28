@@ -1,12 +1,13 @@
 import { createClient } from "@client/client";
 import { MySQL2Driver } from "@drivers/mysql2";
 import { PgDriver } from "@drivers/pg";
-import { push } from "@migrations";
+
 import {
   createManySeriesSchema,
   registerCreateManySeriesBehavior,
 } from "@tests/contracts/engine/write/create-many-relation-series-behavior";
 import { afterAll, describe } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 /**
  * Package J on the live servers.
@@ -43,7 +44,7 @@ function suite(
           schema: createManySeriesSchema,
           driver: makeDriver(),
         }) as any;
-        // Children before parents, so a re-run never asks `push(force)` to re-shape an
+        // Children before parents, so a re-run never asks `syncLiveSchema(force)` to re-shape an
         // index a live foreign key still needs. The m2m junction goes first of all.
         for (const table of [
           "jseries_post_tag",
@@ -58,7 +59,7 @@ function suite(
         ]) {
           await shared.$executeRawUnsafe(`DROP TABLE IF EXISTS ${table}`);
         }
-        await push(shared, { force: true });
+        await syncLiveSchema(shared);
       }
       return shared;
     },

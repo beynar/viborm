@@ -20,10 +20,11 @@ import { join } from "node:path";
 import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite } from "@electric-sql/pglite";
-import { push } from "@migrations";
+
 import { s } from "@schema";
 import { REPOSITORY_ROOT } from "@tests/fixtures/repo-paths";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 const DEPTH_CAP_RE = /const MAX_RELATION_ORDER_DEPTH = (\d+);/;
 const UNKNOWN_PARENT_KEY_ERROR = /Unknown key: parent/;
@@ -96,7 +97,7 @@ const leafIds = (rows: readonly { id: string }[]): string[] =>
 
 beforeAll(async () => {
   client = createDepthClient();
-  await push(client, { force: true });
+  await syncLiveSchema(client);
 
   // Parents must exist before children: seed depth 0 upwards.
   for (let depth = 0; depth < CHAIN_LENGTH; depth++) {

@@ -47,43 +47,37 @@ npx viborm migrate status
 For programmatic control (scripts, CI/CD, custom tooling), use the migration client:
 
 ```ts title="src/db/migrations.ts"
-import { createMigrationClient } from "viborm/migrations";
-import { createFsStorageDriver } from "viborm/migrations/storage/fs";
+import { createFsStorageWriter, createMigrationClient } from "viborm/migrations";
 import { client } from "./client";
 
 const migrations = createMigrationClient(client, {
-  storageDriver: createFsStorageDriver("./migrations"),
+  storage: createFsStorageWriter("./migrations"),
 });
 
-// File-based migration operations (require storage driver)
 await migrations.generate({ name: "add-users" });
 await migrations.apply();
 await migrations.status();
 
-// Push works with or without storage driver
 await migrations.push({
   resolve: async (change) => {
-    // Handle destructive or ambiguous changes
     if (change.type === "destructive") {
-      return "proceed"; // or "reject"
+      return "proceed";
     }
-    return "rename"; // or "addAndDrop" or "reject"
+    return "rename";
   },
 });
 ```
 
-:::info[Storage Driver Required]
-File-based operations (`generate`, `apply`, `status`, `down`, `reset`, `squash`) require a storage driver. The `push()` method works without a storage driver since it doesn't use migration files.
+:::info[Storage Required]
+Estate commands (`generate`, `apply`, `status`, `down`, `reset`, `check`) need a storage reader or writer. `push()` is history-free and does not read or write the estate.
 :::
 
 ### Migration Client Options
 
 ```ts
 interface MigrationClientOptions {
-  /** Storage driver for migration files (required for file-based operations) */
-  storageDriver?: MigrationStorageDriver;
-  /** Migration tracking table name (default: _viborm_migrations) */
-  tableName?: string;
+  /** Estate reader/writer for authenticated migration artifacts */
+  storage?: MigrationStorageReader | MigrationStorageWriter;
 }
 ```
 

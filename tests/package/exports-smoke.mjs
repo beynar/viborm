@@ -242,7 +242,17 @@ requireRuntimeFunction("./client", "defaultOmit");
 // methods would be a public route around the one estate gate and the one
 // live-capability admission decision, so the bundled surface must not carry it.
 requireRuntimeFunction("./migrations", "createMigrationClient");
+requireRuntimeFunction("./migrations", "createFsStorageWriter");
+requireRuntimeFunction("./migrations", "previewPush");
 requireRuntimeAbsence("./migrations", "MigrationContext");
+requireRuntimeAbsence("./migrations", "squash");
+requireRuntimeAbsence("./migrations", "journal");
+requireRuntimeAbsence("./migrations", "parseStatements");
+requireRuntimeAbsence("./migrations", "createFsStorageDriver");
+requireRuntimeAbsence("./migrations", "storageDriver");
+requireRuntimeAbsence("./migrations", "pending");
+requireRuntimeAbsence("./migrations", "MigrationStorageDriver");
+requireRuntimeAbsence("./migrations", "diff");
 requireRuntimeFunction("./cache", "cache");
 requireRuntimeFunction("./instrumentation", "instrumentation");
 

@@ -11,8 +11,8 @@
  * the producer whenever either proof fails.
  *
  * The lock statement and the namespace proof are the only provider operations
- * allowed before the authoritative under-lock journal read, and both are
- * non-durable: a journal mismatch after acquisition unlocks and leaves zero
+ * allowed before the authoritative under-lock marker and ledger read, and both
+ * are non-durable: a target mismatch after acquisition unlocks and leaves zero
  * tracking, DDL, artifact or snapshot effects behind.
  *
  * Two facts about that producer live here with it, because both are answers no
@@ -25,7 +25,6 @@
 import type { AnyDriver } from "../drivers/driver";
 import { withCleanupFailure } from "../drivers/shared/cleanup-failure";
 import { MigrationError, VibORMErrorCode } from "../errors";
-import type { MigrationContext } from "./context";
 import type { BoundMigrationDriver } from "./drivers";
 import { planInterruptedMySQLDecimalRecovery } from "./drivers/mysql/decimal-recovery";
 import { type CatalogRead, readsCommandNamespace } from "./target";
@@ -74,9 +73,9 @@ function isMySQLDecimalRecoveryScope(
  * than making the new seam a regression for them. The callback then receives
  * the caller's own driver, which is exactly what it received before.
  *
- * This is the primitive both entry points share — `MigrationContext` commands
- * through {@link withLockedMigrationSession}, and `push()`, which owns no
- * migration storage and therefore no context.
+ * This is the primitive both entry points share — estate commands through
+ * {@link withLockedMigrationProducer}, and `push()`, which owns no migration
+ * storage.
  */
 export function withLockedMigrationProducer<T>(
   driver: AnyDriver,
@@ -110,21 +109,6 @@ export function withLockedMigrationProducer<T>(
     await releaseLock(pinned, migrationDriver, control);
     return result;
   });
-}
-
-/**
- * Runs `fn` under this estate's migration lock with a context bound to the
- * pinned producer.
- */
-export function withLockedMigrationSession<T>(
-  ctx: MigrationContext,
-  fn: (locked: MigrationContext) => Promise<T>
-): Promise<T> {
-  return withLockedMigrationProducer(
-    ctx.driver,
-    ctx.migrationDriver,
-    (pinned, command) => fn(pinContext(ctx, pinned, command))
-  );
 }
 
 /**
@@ -287,7 +271,7 @@ function supportsEnforcedMySQLChecks(version: string): boolean {
  * very `USE` the proof had just admitted — while the reset inventory read a
  * database the server does not have.
  *
- * READ-ONLY commands take no lock — `status()`, `pending()` and a dry `push()`
+ * READ-ONLY commands take no lock — `status()`, `log()` and a dry `push()`
  * are point-in-time reports, not concurrency-stable decisions — and they reach
  * this same owner on their own producer. That is deliberate: the spelling is a
  * fact about the SERVER, not about the lock, so a command that proves it and
@@ -464,33 +448,10 @@ function partialProgramFailure(
   return new MigrationError(
     "This migration program failed partway through. MySQL commits DDL as each statement runs, so NOTHING was rolled back: every statement that completed stands, and VibORM makes no claim about whether the statement that failed took effect. " +
       `The last statement that completed was: ${boundary}. ` +
-      "The migration journal, snapshot and artifacts are untouched — fix the cause and re-run.",
-    VibORMErrorCode.MIGRATION_FAILED,
+      "Estate artifacts and the control plane were not rewritten as a successful apply — fix the cause and re-run.",
+    VibORMErrorCode.MIGRATION_PARTIAL_EFFECT,
     { cause: cause instanceof Error ? cause : undefined }
   );
-}
-
-/**
- * The caller's context, viewed with its producer pinned.
- *
- * Same estate, same storage, same tracking-table name — a different producer,
- * and the command's own migration driver. Defined rather than assigned because
- * the facts it replaces are readonly; this is the shape `MigrationContext`'s
- * own transaction view already uses.
- */
-function pinContext(
-  ctx: MigrationContext,
-  pinned: AnyDriver,
-  command: BoundMigrationDriver
-): MigrationContext {
-  const locked: MigrationContext = Object.create(ctx);
-  Object.defineProperties(locked, {
-    driver: { value: pinned },
-    executor: { value: createQueryExecutor(pinned) },
-    isPinned: { value: true },
-    migrationDriver: { value: command },
-  });
-  return locked;
 }
 
 /**

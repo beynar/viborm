@@ -2,7 +2,7 @@ import { createClient } from "@client/client";
 import { MySQL2Driver } from "@drivers/mysql2";
 import { PgDriver } from "@drivers/pg";
 import { TransactionError } from "@errors";
-import { push } from "@migrations";
+
 import { describe, expect, test } from "vitest";
 import {
   runSkipSelectCaptureBehavior,
@@ -10,6 +10,7 @@ import {
   skipSelectCaptureTables,
 } from "@tests/contracts/engine/write/skip-select-capture-behavior";
 
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 /**
  * E6.9 on the live servers.
  *
@@ -77,7 +78,7 @@ runSkipSelectCaptureBehavior({
             `DROP TABLE IF EXISTS ${table}`
           );
         }
-        await push(setupClient, { force: true });
+        await syncLiveSchema(setupClient);
         await setupClient.$disconnect();
 
         const client = createClient({

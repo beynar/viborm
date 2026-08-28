@@ -2,9 +2,10 @@ import { createClient } from "@client/client";
 import type { QueryExecutionContext, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
-import { push } from "@migrations";
+
 import { s } from "@schema";
 import { beforeAll, expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 /**
  * A to-one create and a parent-held update have at most one active operation.
@@ -131,7 +132,7 @@ const driver = new RecordingPGliteDriver({ client: new PGlite() });
 const client = createClient({ schema, driver });
 
 beforeAll(async () => {
-  await push(client, { force: true });
+  await syncLiveSchema(client);
 });
 
 /** Runs `call` with the statement recorder on, and returns what it emitted. */

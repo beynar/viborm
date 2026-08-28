@@ -1,9 +1,27 @@
 import { createClient } from "@client/client";
-import { push } from "@migrations";
+import { VibORMErrorCode } from "@errors";
 import { s } from "@schema";
 import { createInMemoryLibSQLDriver } from "@tests/fixtures/drivers/libsql";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
 import { describe, expect, it } from "vitest";
+import { syncLiveSchema } from "../../fixtures/sync-schema";
+
+const CREATE_TABLE_NAME =
+  /CREATE TABLE\s+(?:IF NOT EXISTS\s+)?(?:(?:"[^"]+"|`[^`]+`|\w+)\.)?(?:"([^"]+)"|`([^`]+)`|(\w+))/i;
+
+function createdTableNames(result: {
+  readonly statements: readonly { readonly sql: string }[];
+}): string[] {
+  const names: string[] = [];
+  for (const statement of result.statements) {
+    const match = statement.sql.match(CREATE_TABLE_NAME);
+    const name = match?.[1] ?? match?.[2] ?? match?.[3];
+    if (name && !name.startsWith("__new_")) {
+      names.push(name);
+    }
+  }
+  return names;
+}
 
 function polymorphicSchema() {
   const post = s
@@ -35,18 +53,14 @@ function polymorphicOneToOneSchema() {
     .model({
       id: s.string().id(),
       title: s.string(),
-      featuredComment: s
-        .toOne(() => comment)
-        .name("subject"),
+      featuredComment: s.toOne(() => comment).name("subject"),
     })
     .map("poly_push_posts");
   const video = s
     .model({
       id: s.string().id(),
       title: s.string(),
-      featuredComment: s
-        .toOne(() => comment)
-        .name("subject"),
+      featuredComment: s.toOne(() => comment).name("subject"),
     })
     .map("poly_push_videos");
   const comment = s
@@ -70,23 +84,14 @@ function polymorphicOneToOneSchema() {
 }
 
 describe("polymorphic migration push convergence", () => {
-  it.each([
-    ["SQLite", createInMemorySQLite3Driver],
-    ["libSQL", createInMemoryLibSQLDriver],
-  ] as const)("%s creates once and then plans no operations", async (_, createDriver) => {
-    const driver = createDriver();
+  it("SQLite creates once and then plans no operations", async () => {
+    const driver = createInMemorySQLite3Driver();
     try {
       const client = createClient({ schema: polymorphicSchema(), driver });
-      const first = await push(client, { force: true });
-      const second = await push(client, { force: true });
+      const first = await syncLiveSchema(client);
+      const second = await syncLiveSchema(client);
 
-      expect(
-        new Set(
-          first.operations
-            .filter((operation) => operation.type === "createTable")
-            .map((operation) => operation.table.name)
-        )
-      ).toEqual(
+      expect(new Set(createdTableNames(first))).toEqual(
         new Set(["poly_push_posts", "poly_push_videos", "poly_push_comments"])
       );
       expect(second.operations).toEqual([]);
@@ -95,27 +100,24 @@ describe("polymorphic migration push convergence", () => {
     }
   });
 
-  it.each([
-    ["SQLite", createInMemorySQLite3Driver],
-    ["libSQL", createInMemoryLibSQLDriver],
-  ] as const)("%s recreates the same storage index when inverse cardinality changes", async (_, createDriver) => {
-    const driver = createDriver();
+  it("SQLite recreates the same storage index when inverse cardinality changes", async () => {
+    const driver = createInMemorySQLite3Driver();
     try {
       const many = createClient({ schema: polymorphicSchema(), driver });
-      await push(many, { force: true });
+      await syncLiveSchema(many);
 
       const one = createClient({
         schema: polymorphicOneToOneSchema(),
         driver,
       });
-      const toOne = await push(one, { force: true });
-      const toMany = await push(many, { force: true });
+      const toOne = await syncLiveSchema(one);
+      const toMany = await syncLiveSchema(many);
 
-      expect(toOne.operations.map((operation) => operation.type)).toEqual([
+      expect(toOne.operations.map((operation) => operation.label)).toEqual([
         "dropIndex",
         "createIndex",
       ]);
-      expect(toMany.operations.map((operation) => operation.type)).toEqual([
+      expect(toMany.operations.map((operation) => operation.label)).toEqual([
         "dropIndex",
         "createIndex",
       ]);
@@ -124,14 +126,11 @@ describe("polymorphic migration push convergence", () => {
     }
   });
 
-  it.each([
-    ["SQLite", createInMemorySQLite3Driver],
-    ["libSQL", createInMemoryLibSQLDriver],
-  ] as const)("%s fails the singular migration when existing memberships are duplicated", async (_, createDriver) => {
-    const driver = createDriver();
+  it("SQLite fails the singular migration when existing memberships are duplicated", async () => {
+    const driver = createInMemorySQLite3Driver();
     try {
       const many = createClient({ schema: polymorphicSchema(), driver });
-      await push(many, { force: true });
+      await syncLiveSchema(many);
       await many.$executeRawUnsafe(
         'INSERT INTO "poly_push_posts" ("id", "title") VALUES (?, ?)',
         "post-1",
@@ -151,9 +150,21 @@ describe("polymorphic migration push convergence", () => {
         schema: polymorphicOneToOneSchema(),
         driver,
       });
-      await expect(push(one, { force: true })).rejects.toThrow();
+      await expect(syncLiveSchema(one)).rejects.toThrow();
 
-      expect((await push(many, { force: true })).operations).toEqual([]);
+      expect((await syncLiveSchema(many)).operations).toEqual([]);
+    } finally {
+      await driver.disconnect();
+    }
+  });
+
+  it("libSQL refuses effectful live sync", async () => {
+    const driver = createInMemoryLibSQLDriver();
+    try {
+      const client = createClient({ schema: polymorphicSchema(), driver });
+      await expect(syncLiveSchema(client)).rejects.toMatchObject({
+        code: VibORMErrorCode.DRIVER_NOT_SUPPORTED,
+      });
     } finally {
       await driver.disconnect();
     }
@@ -168,10 +179,7 @@ describe("polymorphic migration push convergence", () => {
 // database reports are the same shape.
 // =============================================================================
 
-const collectionDrivers = [
-  ["SQLite", createInMemorySQLite3Driver],
-  ["libSQL", createInMemoryLibSQLDriver],
-] as const;
+const collectionDrivers = [["SQLite", createInMemorySQLite3Driver]] as const;
 
 /** One collection group: singular inverse (book) + plural inverse (video). */
 function collectionSchema() {
@@ -247,18 +255,12 @@ describe("polymorphic collection push convergence", () => {
     const driver = createDriver();
     try {
       const client = createClient({ schema: collectionSchema(), driver });
-      const first = await push(client, { force: true });
-      const second = await push(client, { force: true });
+      const first = await syncLiveSchema(client);
+      const second = await syncLiveSchema(client);
 
       // Model tables PLUS one member junction per variant — and nothing for
       // the bound manyToMany view, whose membership those member tables ARE.
-      expect(
-        new Set(
-          first.operations
-            .filter((operation) => operation.type === "createTable")
-            .map((operation) => operation.table.name)
-        )
-      ).toEqual(
+      expect(new Set(createdTableNames(first))).toEqual(
         new Set([
           "poly_coll_books",
           "poly_coll_videos",
@@ -283,26 +285,26 @@ describe("polymorphic collection push convergence", () => {
     const driver = createDriver();
     try {
       const before = createClient({ schema: collectionSchema(), driver });
-      await push(before, { force: true });
+      await syncLiveSchema(before);
 
       const after = createClient({
         schema: collectionSchemaWithNote(),
         driver,
       });
-      const added = await push(after, { force: true });
+      const added = await syncLiveSchema(after);
 
       // A member addition is PURELY structural: the new variant's table and
       // its target model, nothing touched on the existing members.
+      expect(createdTableNames(added).sort()).toEqual([
+        "poly_coll_notes",
+        "poly_coll_shelves_items_note",
+      ]);
       expect(
-        added.operations
-          .filter((operation) => operation.type === "createTable")
-          .map((operation) => operation.table.name)
-          .sort()
-      ).toEqual(["poly_coll_notes", "poly_coll_shelves_items_note"]);
-      expect(
-        added.operations.filter((operation) => operation.type !== "createTable")
+        added.operations.filter(
+          (operation) => operation.label !== "createTable"
+        )
       ).toEqual([]);
-      expect((await push(after, { force: true })).operations).toEqual([]);
+      expect((await syncLiveSchema(after)).operations).toEqual([]);
     } finally {
       await driver.disconnect();
     }
@@ -314,7 +316,7 @@ describe("polymorphic collection push convergence", () => {
     const driver = createDriver();
     try {
       const client = createClient({ schema: collectionSchema(), driver });
-      await push(client, { force: true });
+      await syncLiveSchema(client);
 
       // Push NEVER reads the snapshot's polymorphic metadata — it plans
       // against what introspection reports, which carries no
@@ -323,7 +325,7 @@ describe("polymorphic collection push convergence", () => {
       // push would churn forever. A fresh client over the same database is
       // the sharpest form of the check.
       const rebuilt = createClient({ schema: collectionSchema(), driver });
-      expect((await push(rebuilt, { force: true })).operations).toEqual([]);
+      expect((await syncLiveSchema(rebuilt)).operations).toEqual([]);
     } finally {
       await driver.disconnect();
     }

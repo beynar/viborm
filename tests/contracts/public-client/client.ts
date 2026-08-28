@@ -137,15 +137,7 @@ const _res2 = await client.user.create({
 // ]);
 
 // // Push schema (will be no-op if already in sync)
-// const pushResult = await push(client, {
-//   force: true,
-//   resolve: async (change) => {
-//     if (change.type === "enumValueRemoval") {
-//       return change.useNull();
-//     }
-//     return change.reject();
-//   },
-// });
+// const pushResult = await syncLiveSchema(client);
 // console.log("Push result:", {
 //   applied: pushResult.applied,
 //   operationsCount: pushResult.operations.length,

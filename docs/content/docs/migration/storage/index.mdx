@@ -1,116 +1,58 @@
 ---
-title: Storage Drivers
-description: Abstract storage for migration files, journals, and snapshots
+title: Storage
+description: Semantic estate storage for snapshots, SQL blobs, and state manifests
 icon: hard-drive
 ---
 
-## What Storage Drivers Do
+## What Storage Does
 
-- **Store migration SQL files** - Up and down migrations
-- **Store the journal** - Index of all migrations with checksums
-- **Store schema snapshots** - Current schema state for diffing
-- **Handle backups** - Archive migrations before modification
+- **Publish immutable estate artifacts** - `estate.json`, snapshots, SQL blobs, and state manifests
+- **List and read by content hash** - filenames are not proof
+- **Refuse path-level get/put/delete** - parsers, not drivers, admit trusted values
 
-## Available Drivers
+## Available Writers
 
-| Driver | Storage | Best For |
+| Writer | Storage | Best For |
 |--------|---------|----------|
 | [Filesystem](/docs/migration/storage/filesystem) | Local files | Development, CI/CD, version control |
 
-## Abstract Interface
+## Semantic Interface
 
-All storage drivers implement three core methods:
+Storage is a reader/writer of content-addressed objects, not a path store:
 
 ```ts
-abstract class MigrationStorageDriver {
-  abstract get(path: string): Promise<string | null>;
-  abstract put(path: string, content: string): Promise<void>;
-  abstract delete(path: string): Promise<void>;
+interface MigrationStorageWriter {
+  readEstate(): Promise<Uint8Array | null>;
+  listStates(): Promise<readonly string[]>;
+  publishEstate(bytes: Uint8Array): Promise<PublishResult>;
+  publishSnapshot(hash: string, bytes: Uint8Array): Promise<PublishResult>;
+  publishSql(hash: string, bytes: Uint8Array): Promise<PublishResult>;
+  publishState(id: string, bytes: Uint8Array): Promise<PublishResult>;
 }
 ```
-
-| Method | Description |
-|--------|-------------|
-| `get(path)` | Read content from path, returns `null` if not found |
-| `put(path, content)` | Write content to path, creates directories as needed |
-| `delete(path)` | Delete file at path, no-op if not found |
-
-The base class builds everything else (journal, snapshot, migration, and backup handling) on top of these three methods, so a custom driver only needs to implement them.
 
 ## Directory Structure
 
-The filesystem driver uses this structure:
+The filesystem writer uses this estate layout:
 
 ```
 migrations/
-├── 0000_initial.sql              # Up migrations
-├── 0001_add-users.sql
-├── 0002_add-posts.sql
-└── meta/
-    ├── _journal.json             # Migration index
-    ├── _snapshot.json            # Current schema
-    ├── _down/                    # Down migrations
-    │   ├── 0000_initial.sql
-    │   ├── 0001_add-users.sql
-    │   └── 0002_add-posts.sql
-    ├── _backup/                  # Backups before modification
-    └── _archive/                 # Archived migrations
+├── estate.json
+├── snapshots/
+│   └── <snapshot-hash>.json
+├── sql/
+│   └── <sql-hash>.sql
+└── states/
+    └── <state-id>.json
 ```
 
-## Custom Storage Drivers
-
-To implement a custom storage driver, extend `MigrationStorageDriver`:
+Use a writer with `createMigrationClient`:
 
 ```ts
-import { MigrationStorageDriver } from "viborm/migrations";
-
-class S3StorageDriver extends MigrationStorageDriver {
-  constructor(
-    private bucket: string,
-    private prefix: string = "migrations"
-  ) {
-    super("s3");
-  }
-
-  async get(path: string): Promise<string | null> {
-    const key = `${this.prefix}/${path}`;
-    try {
-      const response = await s3.getObject({ Bucket: this.bucket, Key: key });
-      return response.Body?.toString("utf-8") ?? null;
-    } catch (e) {
-      if (e.name === "NoSuchKey") return null;
-      throw e;
-    }
-  }
-
-  async put(path: string, content: string): Promise<void> {
-    const key = `${this.prefix}/${path}`;
-    await s3.putObject({
-      Bucket: this.bucket,
-      Key: key,
-      Body: content,
-      ContentType: "text/plain",
-    });
-  }
-
-  async delete(path: string): Promise<void> {
-    const key = `${this.prefix}/${path}`;
-    try {
-      await s3.deleteObject({ Bucket: this.bucket, Key: key });
-    } catch (e) {
-      if (e.name !== "NoSuchKey") throw e;
-    }
-  }
-}
-```
-
-Use your custom driver:
-
-```ts
-const storage = new S3StorageDriver("my-bucket", "migrations");
+import { createFsStorageWriter, createMigrationClient } from "viborm/migrations";
 
 const migrations = createMigrationClient(client, {
-  storageDriver: storage,
+  storage: createFsStorageWriter("./migrations"),
 });
 ```
 
@@ -119,7 +61,7 @@ const migrations = createMigrationClient(client, {
 <CardGroup>
   <Card
     title="Filesystem Storage"
-    description="Store migrations on local filesystem"
+    description="Store an estate on the local filesystem"
     href="/docs/migration/storage/filesystem"
   />
   <Card

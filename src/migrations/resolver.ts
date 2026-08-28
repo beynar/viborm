@@ -22,7 +22,7 @@ import type {
   Resolver,
   SchemaSnapshot,
 } from "./types";
-import { readEnumResolutionDecision } from "./types";
+import { createAmbiguousChange, readEnumResolutionDecision } from "./types";
 import { sortOperations } from "./utils";
 
 export function validateResolveResult(
@@ -291,6 +291,52 @@ function applyResolutionEffect(
     };
   }
   return snapshot;
+}
+
+export function ambiguousToResolveChange(
+  change: AmbiguousChange
+): ResolveChange {
+  if (change.type === "ambiguousColumn") {
+    return createAmbiguousChange({
+      operation: "renameColumn",
+      table: change.tableName,
+      column: change.addedColumn.name,
+      oldName: change.droppedColumn.name,
+      newName: change.addedColumn.name,
+      oldType: change.droppedColumn.type,
+      newType: change.addedColumn.type,
+      description: `Column "${change.droppedColumn.name}" → "${change.addedColumn.name}" in table "${change.tableName}" (rename or add+drop?)`,
+    });
+  }
+  return createAmbiguousChange({
+    operation: "renameTable",
+    table: change.addedTable,
+    oldName: change.droppedTable,
+    newName: change.addedTable,
+    description: `Table "${change.droppedTable}" → "${change.addedTable}" (rename or add+drop?)`,
+  });
+}
+
+export function callbackAsResolver(callback: ResolveCallback): Resolver {
+  return async (changes) => {
+    const resolutions = new Map<AmbiguousChange, ChangeResolution>();
+    for (const change of changes) {
+      const result = await callback(ambiguousToResolveChange(change));
+      if (result === "rename") {
+        resolutions.set(change, { type: "rename" });
+        continue;
+      }
+      if (result === "addAndDrop") {
+        resolutions.set(change, { type: "addAndDrop" });
+        continue;
+      }
+      throw new MigrationError(
+        "Generate requires rename or addAndDrop for each ambiguous change",
+        VibORMErrorCode.MIGRATION_DESTRUCTIVE_REJECTED
+      );
+    }
+    return resolutions;
+  };
 }
 
 // =============================================================================

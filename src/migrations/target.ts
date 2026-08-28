@@ -113,7 +113,7 @@ export function readsCommandNamespace<T extends object>(
 /**
  * The two estate facts a bound migration driver carries, derived together.
  *
- * `target` is the DURABLE estate the journal and generated artifacts claim;
+ * `target` is the DURABLE estate generated artifacts claim;
  * `namespace` is the LIVE execution destination. They coincide for PostgreSQL
  * and deliberately differ for MySQL, whose artifacts are database-relative, so
  * both have to be published — but both come from ONE read of the adapter.
@@ -171,7 +171,7 @@ export function resolveMigrationEstate(driver: AnyDriver): MigrationEstate {
  * The live namespace is a SECOND argument because the two facts are separate
  * for MySQL: its durable target is namespace-free by design (§3.1), so the
  * database a command actually touches rides beside it on the bound view. A
- * caller that has it passes it; a caller describing a stored journal target —
+ * caller that has it passes it; a caller describing a stored estate target —
  * which carries no database name and must not appear to — does not.
  *
  * Naming it matters wherever the description is what a person consents to: the
@@ -190,4 +190,31 @@ export function formatMigrationTarget(
   return namespace === undefined
     ? target.dialect
     : `${target.dialect} database "${namespace}"`;
+}
+
+/**
+ * A stored estate is bound to one durable target. PostgreSQL artifacts are
+ * schema-qualified, so `alpha` cannot generate or apply as `beta`. MySQL and
+ * SQLite compare dialect only.
+ */
+export function assertEstateTargetMatches(
+  stored: MigrationTarget,
+  live: MigrationTarget
+): void {
+  if (stored.dialect !== live.dialect) {
+    throw new MigrationError(
+      "Estate target dialect does not match this client",
+      VibORMErrorCode.MIGRATION_DIALECT_MISMATCH
+    );
+  }
+  if (
+    stored.dialect === "postgresql" &&
+    live.dialect === "postgresql" &&
+    stored.namespace !== live.namespace
+  ) {
+    throw new MigrationError(
+      "Estate target namespace does not match this client",
+      VibORMErrorCode.MIGRATION_DIALECT_MISMATCH
+    );
+  }
 }

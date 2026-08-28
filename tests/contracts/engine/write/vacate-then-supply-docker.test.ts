@@ -1,13 +1,14 @@
 import { createClient } from "@client/client";
 import { MySQL2Driver } from "@drivers/mysql2";
 import { PgDriver } from "@drivers/pg";
-import { push } from "@migrations";
+
 import { afterAll, describe } from "vitest";
 import {
   registerVacateThenSupplyBehavior,
   vacateThenSupplySchema,
 } from "@tests/contracts/engine/write/vacate-then-supply-behavior";
 
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 /**
  * E6.5 on the live servers.
  *
@@ -43,7 +44,7 @@ function suite(
         for (const table of ["e65_badges", "e65_stations"]) {
           await shared.$executeRawUnsafe(`DROP TABLE IF EXISTS ${table}`);
         }
-        await push(shared, { force: true });
+        await syncLiveSchema(shared);
       }
       return shared;
     },

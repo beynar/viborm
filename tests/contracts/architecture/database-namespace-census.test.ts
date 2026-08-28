@@ -83,20 +83,14 @@ const NO_MIGRATION_CONTEXT_EXPORTS: string[] = [];
  * §3.5: live migration execution runs on ONE pinned producer, and §12.13
  * forbids a parallel driver path. Every site named here executes on whatever
  * producer its caller hands it, which under a locked command is the pinned
- * session — including `context.ts`'s MySQL sequential-artifact arm, which must
- * not go through generic batch dispatch. `src/cli/commands/push.ts` and
- * `src/migrations/push/reset.ts` are absent because neither owns a drop program
- * of its own: the CLI holds confirmation and presentation, and `reset.ts`
- * reaches the one reset owner.
+ * session. CLI commands are absent because they hold confirmation and
+ * presentation only. Live clear belongs to `live-reset.ts`. Dispatch belongs
+ * to `execute-dispatch.ts`. Marker and ledger I/O belong to `control.ts`.
  */
 const ADMITTED_LIVE_EXECUTION_OWNERS = [
-  "src/migrations/context.ts executeRaw 3",
-  "src/migrations/context.ts queryExecutorFactory 2",
+  "src/migrations/control.ts executeRaw 8",
+  "src/migrations/execute-dispatch.ts executeRaw 2",
   "src/migrations/foreign-keys.ts executeRaw 3",
-  // §6.2's one live-namespace reset owner. Its statements run bare because
-  // the committed-boundary bookkeeping lives with the CALLER's sequential
-  // program (§6.3's one reporter in pinned-session.ts) — the clear is only
-  // half of the program on both MySQL callers.
   "src/migrations/live-reset.ts executeRaw 4",
   "src/migrations/live-reset.ts queryExecutorFactory 1",
   // §3.5's pinned-session owner: target selection, the command-view catalog
@@ -111,7 +105,10 @@ const ADMITTED_LIVE_EXECUTION_OWNERS = [
   // The MySQL sequential arm executes beside the transactional arm (§3.5:
   // no manufactured atomicity), so the executor carries both spellings.
   "src/migrations/push/executor.ts executeRaw 3",
+  "src/migrations/push-fingerprint.ts executeRaw 2",
+  "src/migrations/push-plan.ts executeRaw 1",
   "src/migrations/push/planner.ts executeRaw 2",
+  "src/migrations/reset-v1.ts executeRaw 1",
   "src/migrations/utils.ts executeRaw 1",
 ];
 

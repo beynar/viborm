@@ -5,9 +5,10 @@ import {
   type VibORMConfig,
 } from "@client/client";
 import type { AnyDriver } from "@drivers";
-import { push } from "@migrations";
+
 import { s } from "@schema";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 const cursorSchema = {
   cursorItem: s
@@ -137,7 +138,7 @@ export function runCursorPaginationBehavior({
         schema: cursorSchema,
         driver: createDriver(),
       });
-      await push(client, { force: true });
+      await syncLiveSchema(client);
       await client.cursorItem.createMany({ data: rows });
     });
 
@@ -255,7 +256,7 @@ export function runCursorPaginationBehavior({
         schema: membershipSchema,
         driver: createDriver(),
       });
-      await push(membershipClient, { force: true });
+      await syncLiveSchema(membershipClient);
       try {
         await membershipClient.membership.createMany({
           data: [

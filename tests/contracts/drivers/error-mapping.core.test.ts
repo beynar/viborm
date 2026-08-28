@@ -28,10 +28,11 @@ import {
 } from "@errors";
 import { instrumentation } from "@instrumentation/extension";
 import type { LogEvent } from "@instrumentation/types";
-import { push } from "@migrations";
+
 import { s } from "@schema";
 import { getFieldSqlName, getModelSqlName } from "@schema/hydration";
 import { createOfficialTestExecutionContext } from "@tests/unit/instrumentation/_official-context";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 const REDACTED_ERROR_CONTENT_PATTERN =
   /secret-password-value|SELECT id FROM users/;
@@ -75,7 +76,7 @@ describe("driver error mapping", () => {
         },
       })
     );
-    await push(client, { force: true });
+    await syncLiveSchema(client);
 
     await client.user.create({
       data: {
@@ -1109,7 +1110,7 @@ describe("Prisma-style catch on live errors", () => {
   test("P2002 unique constraint", async () => {
     const driver = new PGliteDriver({ client: new PGlite() });
     const client = createClient({ schema, driver });
-    await push(client, { force: true });
+    await syncLiveSchema(client);
 
     await client.user.create({ data: { id: "u1", email: "dup@example.com" } });
     const caught = await client.user
@@ -1125,7 +1126,7 @@ describe("Prisma-style catch on live errors", () => {
   test("P2025 record required but not found", async () => {
     const driver = new PGliteDriver({ client: new PGlite() });
     const client = createClient({ schema, driver });
-    await push(client, { force: true });
+    await syncLiveSchema(client);
 
     const caught = await client.user
       .findUniqueOrThrow({ where: { id: "missing" } })
@@ -1157,9 +1158,9 @@ describe("Prisma-style catch on live errors", () => {
   test("P2000 value too long for the column type", async () => {
     const driver = new PGliteDriver({ client: new PGlite() });
     const client = createClient({ schema, driver });
-    await push(client, { force: true });
+    await syncLiveSchema(client);
 
-    // push() emits TEXT for s.string(); narrow the column so the database actually enforces a
+    // syncLiveSchema() emits TEXT for s.string(); narrow the column so the database actually enforces a
     // length and raises SQLSTATE 22001 on the write path.
     const table = getModelSqlName(user);
     const column = getFieldSqlName(user, "email");

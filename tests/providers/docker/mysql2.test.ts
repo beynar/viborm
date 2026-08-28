@@ -12,14 +12,8 @@ import { COUNT_RESULT_KEY } from "@adapters/shared/result-parsing";
 import { createClient } from "@client/client";
 import { MySQL2Driver } from "@drivers/mysql2";
 import { instrumentation } from "@instrumentation/extension";
-import {
-  apply,
-  introspect,
-  type MigrationEntry,
-  MigrationStorageDriver,
-  push,
-  status,
-} from "@migrations";
+import { createMigrationClient, MemoryEstateStorage } from "@migrations";
+import { introspect } from "@migrations/push";
 import {
   EMPTY_ROW_RESULT_KEY,
   getAggregateResultKey,
@@ -99,6 +93,7 @@ import { runUpdateNestedUpsertBehavior } from "@tests/contracts/engine/write/upd
 import { runUpsertFamilyBehavior } from "@tests/contracts/engine/write/upsert-family-behavior";
 import { MySQL2BatchForcedDriver } from "@tests/fixtures/drivers/batch-forced-mysql2";
 import type { Pool as MySQLPool } from "mysql2/promise";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 const TEST_CONNECTION_STRING = process.env.MYSQL_TEST_CONNECTION_STRING;
 const describeIf = TEST_CONNECTION_STRING ? describe : describe.skip;
@@ -109,7 +104,7 @@ const describeIf = TEST_CONNECTION_STRING ? describe : describe.skip;
  * live migration work requires (plan §5.3): it asserts that nothing between the
  * client and the server reinterprets a qualified `database.table`. It is true
  * here by construction — a docker `mysql:8` reached directly on 3307 is not
- * behind VTGate or a rewriting proxy — and stating it is what admits `push()`.
+ * behind VTGate or a rewriting proxy — and stating it is what admits `syncLiveSchema()`.
  */
 function createMySQL2Driver(): MySQL2Driver {
   return new MySQL2Driver({
@@ -119,7 +114,7 @@ function createMySQL2Driver(): MySQL2Driver {
 }
 
 /**
- * An indexed string column on a table `push()` creates, so the collation is
+ * An indexed string column on a table `syncLiveSchema()` creates, so the collation is
  * `utf8mb4_0900_bin` — the one every viborm table lives in. Plan §10.2.
  */
 const planProbe = s
@@ -141,7 +136,7 @@ describeIf("MySQL2 Driver", () => {
   // pushing an empty schema diffs to dropTable for every existing table.
   beforeEach(async () => {
     const client = createClient({ schema: {}, driver: createMySQL2Driver() });
-    await push(client, { force: true });
+    await syncLiveSchema(client);
     await client.$disconnect();
   });
 
@@ -198,7 +193,7 @@ describeIf("MySQL2 Driver", () => {
       driver: createMySQL2Driver(),
     });
     try {
-      await push(client, { force: true });
+      await syncLiveSchema(client);
 
       await client.category.create({
         data: { id: "root", name: "Root", parentId: null },
@@ -756,7 +751,7 @@ describeIf("MySQL2 Driver", () => {
    *
    * MySQL's prefix predicate is two conjuncts: a collation-native `LIKE` that
    * the index can range on, and a `BINARY` comparison that carries the
-   * case-sensitivity contract. On a table `push()` created the second looks
+   * case-sensitivity contract. On a table `syncLiveSchema()` created the second looks
    * redundant — viborm's DDL declares `COLLATE=utf8mb4_0900_bin`
    * (`src/migrations/drivers/mysql/index.ts:298`), so `LIKE` is already
    * byte-exact there and the conjunct changes no answer.
@@ -844,7 +839,7 @@ describeIf("MySQL2 Driver", () => {
    * planner ranges on, and the `BINARY` one that decides the answer — and the
    * first is implied by the second, so it adds no row and removes none.
    *
-   * The claims split the same way 7.3's do. On the tables `push()` creates
+   * The claims split the same way 7.3's do. On the tables `syncLiveSchema()` creates
    * (`COLLATE=utf8mb4_0900_bin`) both conjuncts say the same thing, so the
    * contract is witnessed where it can be broken: MySQL's own default
    * `utf8mb4_0900_ai_ci`, built here by hand. The plan is witnessed where a
@@ -942,7 +937,7 @@ describeIf("MySQL2 Driver", () => {
   /**
    * The measurement §10.2 turned on, re-taken here so it cannot rot — and taken
    * on the statement the CLIENT emitted, not on a spelling copied into the
-   * test. The table is one `push()` created, so the collation is the one every
+   * test. The table is one `syncLiveSchema()` created, so the collation is the one every
    * viborm table lives in.
    */
   describe("exact equality keeps the index it used to lose", () => {
@@ -977,7 +972,7 @@ describeIf("MySQL2 Driver", () => {
         })
       ) as never;
       const c = client as unknown as Record<string, any>;
-      await push(client as never, { force: true });
+      await syncLiveSchema(client as never);
       await c.planProbe.deleteMany({});
       await c.planProbe.createMany({
         data: Array.from({ length: ROWS }, (_, i) => ({
@@ -1038,7 +1033,7 @@ describeIf("MySQL2 Driver", () => {
    * The contract half, on the predicate the CLIENT emitted rather than on a
    * spelling copied into the test.
    *
-   * `push()` only ever writes `utf8mb4_0900_bin`, where the two conjuncts say
+   * `syncLiveSchema()` only ever writes `utf8mb4_0900_bin`, where the two conjuncts say
    * the same thing — so the column is pushed and then ALTERed to MySQL's own
    * default `utf8mb4_0900_ai_ci`, which is what a table viborm did not create
    * looks like. Without this, dropping the `BINARY` conjunct from the adapter
@@ -1060,7 +1055,7 @@ describeIf("MySQL2 Driver", () => {
         driver: createMySQL2Driver(),
       }) as never;
       const c = client as unknown as Record<string, any>;
-      await push(client as never, { force: true });
+      await syncLiveSchema(client as never);
       await (client as PlanProbeClient).$executeRawUnsafe(
         "ALTER TABLE l102_plan_probes MODIFY name VARCHAR(191) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL"
       );
@@ -1129,73 +1124,11 @@ const note = s
   .map("ns_notes");
 const noteSchema = { note };
 
-/** In-memory migration storage: this leg is about the database, not the disk. */
-class MemoryStorage extends MigrationStorageDriver {
-  private readonly files = new Map<string, string>();
+const applied = s.model({ id: s.string().id() }).map("ns_applied");
+const appliedSchema = { applied };
 
-  constructor() {
-    super("memory");
-  }
-
-  get(path: string): Promise<string | null> {
-    return Promise.resolve(this.files.get(path) ?? null);
-  }
-
-  put(path: string, content: string): Promise<void> {
-    this.files.set(path, content);
-    return Promise.resolve();
-  }
-
-  delete(path: string): Promise<void> {
-    this.files.delete(path);
-    return Promise.resolve();
-  }
-}
-
-/**
- * The applied estate, carrying NO DDL of its own.
- *
- * A generated MySQL artifact is database-relative by design (§13), so its
- * statements would execute wherever the connection points — that selection is
- * the pinned migration session's job and does not exist yet. What this entry
- * isolates is the half that IS landed: the tracking statements VibORM itself
- * builds, every one of which qualifies the target.
- */
-const TRACKING_ENTRY: MigrationEntry = {
-  idx: 0,
-  version: "20260827000000",
-  name: "ns_tracking",
-  when: 1,
-  checksum: "checksum-ns-tracking",
-  mode: "manual",
-  rollback: { kind: "manual" },
-};
-
-const TRACKING_MIGRATION =
-  "-- Deliberately empty: this estate exists to be TRACKED, not to emit DDL.\n";
-
-/**
- * A DATABASE-RELATIVE artifact, exactly as MySQL generation emits one (§13).
- *
- * It carries no qualifier, so executing it verbatim on a connection whose
- * default database is `beta` lands the table in `beta`. §5.3's "validated
- * target selection for relative artifact execution" is what makes it land in
- * the configured `alpha` instead, and the pinned session is where that
- * selection happens — on the one connection that runs the artifact, immediately
- * before it.
- */
-const RELATIVE_ENTRY: MigrationEntry = {
-  idx: 1,
-  version: "20260827000001",
-  name: "ns_relative_ddl",
-  when: 2,
-  checksum: "checksum-ns-relative",
-  mode: "manual",
-  rollback: { kind: "manual" },
-};
-
-const RELATIVE_MIGRATION =
-  "CREATE TABLE `ns_relative` (`id` VARCHAR(64) NOT NULL PRIMARY KEY);\n";
+const CONTROL_STATE = "_viborm_migration_state";
+const CONTROL_LOG = "_viborm_migration_log";
 
 /** The caller-owned pool whose OWN default database is `beta`. */
 let betaPool: MySQLPool | null = null;
@@ -1261,16 +1194,16 @@ describeIf("MySQL namespace containment", () => {
     return names;
   }
 
-  /** The migration names one database's tracking ledger holds. */
-  async function trackedNamesIn(database: string): Promise<string[]> {
-    let names: string[] = [];
+  /** How many V1 ledger events one database's control log holds. */
+  async function controlEventCount(database: string): Promise<number> {
+    let count = 0;
     await withAdmin(async (admin) => {
-      const rows = await admin.$queryRawUnsafe<{ name: string }>(
-        `SELECT name FROM \`${database}\`.\`_viborm_migrations\` ORDER BY name`
+      const rows = await admin.$queryRawUnsafe<{ n: number | string }>(
+        `SELECT COUNT(*) AS n FROM \`${database}\`.\`${CONTROL_LOG}\``
       );
-      names = rows.map((row) => row.name);
+      count = Number(rows[0]?.n ?? 0);
     });
-    return names;
+    return count;
   }
 
   /**
@@ -1324,7 +1257,7 @@ describeIf("MySQL namespace containment", () => {
     // These clients are NOT disconnected: `MySQL2Driver.closeClient` ends
     // whatever pool it holds, including a supplied one, so the fixture that
     // created the pool owns its lifetime and closes it once in `afterAll`.
-    await push(client, { force: true });
+    await syncLiveSchema(client);
     await client.note.create({ data: { id: "n1", title: "alpha only" } });
     const found = await client.note.findMany({});
     expect(found.map((row: { id: string }) => row.id)).toEqual(["n1"]);
@@ -1343,80 +1276,77 @@ describeIf("MySQL namespace containment", () => {
     expect(names).toContain("ns_notes");
     expect(names).not.toContain("ns_sentinel");
 
-    const second = await push(client, { force: true });
+    const second = await syncLiveSchema(client);
     expect(second.operations).toEqual([]);
   });
 
-  test("applies into the TARGET's tracking table, over a connection pointing elsewhere", async () => {
-    const storage = new MemoryStorage();
-    await storage.writeJournal({
-      version: "3",
-      target: { dialect: "mysql" },
-      entries: [TRACKING_ENTRY, RELATIVE_ENTRY],
-    });
-    await storage.writeMigration(TRACKING_ENTRY, TRACKING_MIGRATION);
-    await storage.writeMigration(RELATIVE_ENTRY, RELATIVE_MIGRATION);
-
+  test("applies into the TARGET's control tables, over a connection pointing elsewhere", async () => {
+    const storage = new MemoryEstateStorage();
     const client = createClient({
-      schema: noteSchema,
+      schema: appliedSchema,
       driver: crossTargetDriver(),
     });
+    const migrations = createMigrationClient(client, { storage });
+    await migrations.generate({ name: "init" });
 
-    // A DECOY tracking table in the database the CONNECTION defaults to. Every
-    // tracking statement `apply` runs — the CREATE, the applied-state SELECT,
-    // the INSERT — was unqualified at baseline; any one that still forgot its
-    // qualifier would find this table and succeed silently. With the decoy
-    // present, "alpha holds the ledger and beta's stays empty" is a claim only
-    // correctly qualified statements can satisfy.
+    // A DECOY control pair in the database the CONNECTION defaults to. Every
+    // control statement `apply` runs — the CREATE, the marker SELECT, the
+    // ledger INSERT — must name the target. With the decoy present, "alpha
+    // holds the ledger and beta's stays empty" is a claim only correctly
+    // qualified statements can satisfy.
     await withAdmin(async (admin) => {
       await admin.$executeRawUnsafe(
-        `CREATE TABLE \`${BETA_DB}\`.\`_viborm_migrations\` (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(255) NOT NULL UNIQUE, checksum VARCHAR(64) NOT NULL, applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)`
+        `CREATE TABLE \`${BETA_DB}\`.\`${CONTROL_STATE}\` (singleton INTEGER PRIMARY KEY CHECK (singleton = 1), payload TEXT NOT NULL)`
+      );
+      await admin.$executeRawUnsafe(
+        `CREATE TABLE \`${BETA_DB}\`.\`${CONTROL_LOG}\` (event_id TEXT PRIMARY KEY, attempt_id TEXT NOT NULL, kind TEXT NOT NULL, payload TEXT NOT NULL)`
       );
     });
 
     try {
-      // Alpha has no tracking table yet, so the read-only reader has to report
+      // Alpha has no control tables yet, so the read-only reader has to report
       // "nothing applied" — the one live exercise of MySQL's missing-table
-      // translation (errno 1146 / SQLSTATE 42S02). Before the translation read
-      // the channels VibORM actually preserves, this surfaced the raw failure.
-      expect(await tableNamesIn(ALPHA_DB)).not.toContain("_viborm_migrations");
-      const before = await status(client, { storageDriver: storage });
-      expect(before.map((row) => row.applied)).toEqual([false, false]);
+      // translation (errno 1146 / SQLSTATE 42S02).
+      expect(await tableNamesIn(ALPHA_DB)).not.toContain(CONTROL_STATE);
+      const before = await migrations.status();
+      expect(before.control).toBe("absent");
+      expect(before.pending.length).toBeGreaterThan(0);
 
-      const result = await apply(client, { storageDriver: storage });
-      expect(result.applied.map((entry) => entry.name)).toEqual([
-        TRACKING_ENTRY.name,
-        RELATIVE_ENTRY.name,
-      ]);
+      const result = await migrations.apply();
+      expect(result.outcome).toBe("applied");
 
       // The ledger was created and written in the TARGET…
-      expect(await tableNamesIn(ALPHA_DB)).toContain("_viborm_migrations");
-      expect((await trackedNamesIn(ALPHA_DB)).sort()).toEqual(
-        [TRACKING_ENTRY.name, RELATIVE_ENTRY.name].sort()
-      );
-      // …and so did the RELATIVE artifact's own DDL, which names no database at
-      // all: the pinned session selected `alpha` before executing it (§5.3).
-      expect(await tableNamesIn(ALPHA_DB)).toContain("ns_relative");
+      expect(await tableNamesIn(ALPHA_DB)).toContain(CONTROL_STATE);
+      expect(await tableNamesIn(ALPHA_DB)).toContain(CONTROL_LOG);
+      expect(await controlEventCount(ALPHA_DB)).toBeGreaterThan(0);
+      // …and so did the generated artifact's own DDL, which names no database
+      // at all: the pinned session selected `alpha` before executing it (§5.3).
+      expect(await tableNamesIn(ALPHA_DB)).toContain("ns_applied");
       // …and the connection's own database gained nothing but the decoy, which
-      // is still empty: no tracking statement and no artifact statement landed
+      // is still empty: no control statement and no artifact statement landed
       // there.
       expect(await tableNamesIn(BETA_DB)).toEqual([
-        "_viborm_migrations",
+        CONTROL_LOG,
+        CONTROL_STATE,
         "ns_sentinel",
       ]);
-      expect(await trackedNamesIn(BETA_DB)).toEqual([]);
+      expect(await controlEventCount(BETA_DB)).toBe(0);
 
       // …and the same reader now reads it back from alpha, not from the decoy.
-      const after = await status(client, { storageDriver: storage });
-      expect(after.map((row) => row.applied)).toEqual([true, true]);
+      const after = await migrations.status();
+      expect(after.control).toBe("present");
+      expect(after.pending).toEqual([]);
     } finally {
       await withAdmin(async (admin) => {
         for (const database of [ALPHA_DB, BETA_DB]) {
           await admin.$executeRawUnsafe(
-            `DROP TABLE IF EXISTS \`${database}\`.\`_viborm_migrations\``
+            `DROP TABLE IF EXISTS \`${database}\`.\`${CONTROL_STATE}\``
           );
           await admin.$executeRawUnsafe(
-            `DROP TABLE IF EXISTS \`${database}\`.\`ns_relative\``
+            `DROP TABLE IF EXISTS \`${database}\`.\`${CONTROL_LOG}\``
+          );
+          await admin.$executeRawUnsafe(
+            `DROP TABLE IF EXISTS \`${database}\`.\`ns_applied\``
           );
         }
       });
@@ -1430,7 +1360,7 @@ describeIf("MySQL namespace containment", () => {
       schema: noteSchema,
       driver: crossTargetDriver("viborm_ns_absent"),
     });
-    await expect(push(client, { force: true })).rejects.toMatchObject({
+    await expect(syncLiveSchema(client)).rejects.toMatchObject({
       code: "V11009",
     });
 
@@ -1446,7 +1376,7 @@ describeIf("MySQL namespace containment", () => {
         migrationNamespaceAttestation: "non-redirecting",
       }),
     });
-    await expect(push(client, { force: true })).rejects.toMatchObject({
+    await expect(syncLiveSchema(client)).rejects.toMatchObject({
       code: "V11009",
     });
 
@@ -1489,7 +1419,7 @@ describeIf("MySQL namespace containment", () => {
       schema: noteSchema,
       driver: crossTargetDriver(BETA_DB),
     });
-    await push(second, { force: true });
+    await syncLiveSchema(second);
     await second.note.create({ data: { id: "b1", title: "beta copy" } });
     expect(
       (await second.note.findMany({})).map((row: { id: string }) => row.id)

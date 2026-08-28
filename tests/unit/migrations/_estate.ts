@@ -12,8 +12,12 @@ import { Driver } from "@drivers/driver";
 import type { PinnedSessionReservation } from "@drivers/shared";
 import type { Dialect, QueryResult } from "@drivers/types";
 import type { DDLContext } from "@migrations/drivers";
-import { MigrationStorageDriver } from "@migrations/storage";
+import type { Sha256 } from "@migrations/identity";
+import type { PublishResult } from "@migrations/storage/contract";
+import { MemoryEstateStorage } from "@migrations/storage/memory";
 import type { SchemaSnapshot } from "@migrations/types";
+
+const EXISTS_PROBE = /EXISTS/i;
 
 /**
  * The ONE way suites build a `DDLContext`.
@@ -167,8 +171,15 @@ export class RecordingDriver extends Driver<{ tag: "client" }, { tag: "tx" }> {
     this.statements.push(sql);
     this.producers.push(client);
     const simulated = this.simulateLockAnswer(sql);
-    const answer =
+    let answer =
       simulated === undefined ? this.respond(sql, params) : simulated;
+    if (!(answer instanceof Error) && answer.length === 0) {
+      const catalog = controlCatalogAnswer(sql, params, {
+        state: false,
+        log: false,
+      });
+      if (catalog) answer = catalog;
+    }
     if (answer instanceof Error) {
       return Promise.reject(answer);
     }
@@ -237,6 +248,31 @@ export function mysqlEstateDriver(options: {
   );
 }
 
+/**
+ * Answer a control-table catalog EXISTS probe.
+ * Table names are parameters, not SQL text.
+ */
+export function controlCatalogAnswer(
+  sql: string,
+  params: unknown[],
+  presence: { readonly state: boolean; readonly log: boolean }
+): unknown[] | undefined {
+  if (!EXISTS_PROBE.test(sql)) return undefined;
+  if (
+    !(
+      sql.includes("pg_class") ||
+      sql.includes("information_schema.tables") ||
+      sql.includes("sqlite_master")
+    )
+  ) {
+    return undefined;
+  }
+  const name = String(params.at(-1) ?? "");
+  if (name.endsWith("_state")) return [{ exists: presence.state ? 1 : 0 }];
+  if (name.endsWith("_log")) return [{ exists: presence.log ? 1 : 0 }];
+  return [{ exists: 0 }];
+}
+
 /** A SQLite recording driver. SQLite estates have no namespace at all. */
 export function sqliteEstateDriver(): RecordingDriver {
   return new RecordingDriver(
@@ -269,29 +305,42 @@ export function d1EstateDriver(): RecordingDriver {
   );
 }
 
-/** In-memory migration storage that records every read and write. */
-export class MemoryStorage extends MigrationStorageDriver {
-  readonly files = new Map<string, string>();
+/** In-memory estate storage that records every semantic read and write. */
+export class MemoryStorage extends MemoryEstateStorage {
   readonly reads: string[] = [];
   readonly writes: string[] = [];
 
-  constructor() {
-    super("memory");
+  override async readEstate(): Promise<Uint8Array | null> {
+    this.reads.push("estate");
+    return super.readEstate();
   }
 
-  get(path: string): Promise<string | null> {
-    this.reads.push(path);
-    return Promise.resolve(this.files.get(path) ?? null);
+  override async publishEstate(bytes: Uint8Array): Promise<PublishResult> {
+    this.writes.push("estate");
+    return super.publishEstate(bytes);
   }
 
-  put(path: string, content: string): Promise<void> {
-    this.writes.push(path);
-    this.files.set(path, content);
-    return Promise.resolve();
+  override async publishSnapshot(
+    hash: Sha256,
+    bytes: Uint8Array
+  ): Promise<PublishResult> {
+    this.writes.push(`snapshots/${hash}`);
+    return super.publishSnapshot(hash, bytes);
   }
 
-  delete(path: string): Promise<void> {
-    this.files.delete(path);
-    return Promise.resolve();
+  override async publishSql(
+    hash: Sha256,
+    bytes: Uint8Array
+  ): Promise<PublishResult> {
+    this.writes.push(`sql/${hash}`);
+    return super.publishSql(hash, bytes);
+  }
+
+  override async publishState(
+    id: Sha256,
+    bytes: Uint8Array
+  ): Promise<PublishResult> {
+    this.writes.push(`states/${id}`);
+    return super.publishState(id, bytes);
   }
 }

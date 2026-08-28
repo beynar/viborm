@@ -1,9 +1,10 @@
 import { createClient } from "@client/client";
 import type { AnyDriver } from "@drivers";
-import { push } from "@migrations";
+
 import { s } from "@schema";
 import { defineContract } from "@tests/contracts/contract";
 import { describe, expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 const compoundJunctionProviderSchema = (() => {
   const author = s
@@ -55,7 +56,7 @@ export function runCompoundJunctionBehavior({
       });
 
       try {
-        await push(client, { force: true });
+        await syncLiveSchema(client);
         await client.author.create({
           data: {
             tenantId: "tenant-a",
@@ -101,7 +102,7 @@ export function runCompoundJunctionBehavior({
 
         // A second push must introspect the ordered composite PK/FK groups and
         // find the schema stable instead of recreating or truncating a side.
-        const secondPush = await push(client, { force: true });
+        const secondPush = await syncLiveSchema(client);
         expect(secondPush.operations).toEqual([]);
         await expect(
           client.author.findUnique({

@@ -5,13 +5,14 @@ import {
   type VibORMConfig,
 } from "@client/client";
 import type { AnyDriver } from "@drivers";
-import { push } from "@migrations";
+
 import { s } from "@schema";
 import { Decimal } from "@src/index";
 import { defineContract } from "@tests/contracts/contract";
 import type { InputJsonValue } from "@validation";
 import { canonicalizeDecimal } from "@validation/primitives/decimal-codec";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 /**
  * The shared decimal domain for this suite: SQLite-legal
@@ -92,7 +93,7 @@ export function runScalarRoundtripBehavior({
 
     beforeEach(async () => {
       client = createClient({ schema, driver: createDriver() });
-      await push(client, { force: true });
+      await syncLiveSchema(client);
     });
 
     afterEach(async () => {
@@ -495,7 +496,7 @@ export function runFullScalarRoundtripBehavior({
 
     beforeEach(async () => {
       client = createClient({ schema: fullSchema, driver: createDriver() });
-      await push(client, { force: true });
+      await syncLiveSchema(client);
     });
 
     afterEach(async () => {

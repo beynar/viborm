@@ -11,7 +11,7 @@
 const enumRequired = s.enum(["ACTIVE", "INACTIVE", "PENDING"]);
 
 import { createClient as PGliteCreateClient } from "@drivers/pglite";
-import { push } from "@migrations";
+
 import { AnyNull, DbNull, JsonNull, s } from "@schema";
 import { canonicalizeDecimal } from "@validation/primitives/decimal-codec";
 import Decimal from "decimal.js";
@@ -205,7 +205,7 @@ beforeAll(async () => {
   const { PGlite } = await import("@electric-sql/pglite");
   const pglite = new PGlite();
   client = await PGliteCreateClient({ schema, client: pglite });
-  await push(client, { force: true });
+  await syncLiveSchema(client);
 });
 
 afterAll(async () => {
@@ -738,6 +738,7 @@ describe("All Scalar Types Integration Test", () => {
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { parse, v } from "@validation";
 import { z } from "zod/v4";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 // Helper to assert schema validation passes
 const assertValid = <T>(

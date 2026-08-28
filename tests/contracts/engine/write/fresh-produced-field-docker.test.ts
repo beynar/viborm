@@ -1,7 +1,7 @@
 import { createClient } from "@client/client";
 import { MySQL2Driver } from "@drivers/mysql2";
 import { PgDriver } from "@drivers/pg";
-import { push } from "@migrations";
+
 import {
   producedFieldSchema,
   registerProducedFieldBehavior,
@@ -9,6 +9,7 @@ import {
   twoSequenceSchema,
 } from "@tests/contracts/engine/write/fresh-produced-field-behavior";
 import { afterAll, describe } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 /**
  * Package F on the live servers, and MySQL is the leg that matters: mysql2 has no
@@ -34,7 +35,7 @@ import { afterAll, describe } from "vitest";
 const PG = process.env.PG_TEST_CONNECTION_STRING;
 const MYSQL = process.env.MYSQL_TEST_CONNECTION_STRING;
 
-// Children before parents, so a re-run never asks `push(force)` to re-shape an index a
+// Children before parents, so a re-run never asks `syncLiveSchema(force)` to re-shape an index a
 // live foreign key still needs.
 const PRODUCED_TABLES = [
   "pkgf_crates",
@@ -65,7 +66,7 @@ function connector(
         for (const table of tables) {
           await shared.$executeRawUnsafe(`DROP TABLE IF EXISTS ${table}`);
         }
-        await push(shared, { force: true });
+        await syncLiveSchema(shared);
       }
       return shared;
     },

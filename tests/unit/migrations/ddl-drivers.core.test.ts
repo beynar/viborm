@@ -19,6 +19,10 @@ import {
 } from "@tests/unit/migrations/_estate";
 import { describe, expect, it } from "vitest";
 
+const SQLITE_INLINE_TABLE_PK = /PRIMARY KEY \("id"\)/;
+const MYSQL_TEXT_COLUMN_DEFAULT = /`content` TEXT[^)]*DEFAULT/;
+const MYSQL_BLOB_COLUMN_DEFAULT = /`data` BLOB[^)]*DEFAULT/;
+
 /** The bounded, database-scoped MySQL lock name (section 3.5), by shape. */
 const MYSQL_ACQUIRE_LOCK_SHAPE =
   /^SELECT GET_LOCK\('viborm_migration_billing_[0-9a-f]{8}', 30\) AS acquired$/;
@@ -30,9 +34,6 @@ const BATCH_ONLY_SUBSTRATE = /one native batch/;
 const IMPLICIT_DDL_COMMIT = /commits each DDL statement/;
 const TARGET_DOMAIN = /precision 10, scale 4/;
 const SEPARATE_RENAME = /rename.*separate/i;
-const SQLITE_INLINE_PRIMARY_KEY = /PRIMARY KEY \("id"\)/;
-const MYSQL_TEXT_DEFAULT = /`content` TEXT[^)]*DEFAULT/;
-const MYSQL_BLOB_DEFAULT = /`data` BLOB[^)]*DEFAULT/;
 
 // =============================================================================
 // SQLITE3 DRIVER TESTS
@@ -116,7 +117,7 @@ describe("SQLite3 DDL Generation", () => {
 
       expect(ddl).toContain('"id" INTEGER PRIMARY KEY AUTOINCREMENT');
       // Should not have separate table-level PRIMARY KEY clause for single INTEGER autoincrement PK
-      expect(ddl).not.toMatch(SQLITE_INLINE_PRIMARY_KEY);
+      expect(ddl).not.toMatch(SQLITE_INLINE_TABLE_PK);
     });
 
     it("should generate CREATE TABLE with default value", () => {
@@ -758,35 +759,6 @@ describe("SQLite3 DDL Generation", () => {
     });
   });
 
-  describe("migration tracking", () => {
-    it("should generate CREATE TABLE for tracking table", () => {
-      const ddl =
-        sqlite3MigrationDriver.generateCreateTrackingTable("_migrations");
-
-      expect(ddl).toContain('CREATE TABLE IF NOT EXISTS "_migrations"');
-      expect(ddl).toContain("INTEGER PRIMARY KEY AUTOINCREMENT");
-      expect(ddl).toContain("TEXT NOT NULL UNIQUE");
-    });
-
-    it("should generate INSERT for migration", () => {
-      const { sql, paramCount } =
-        sqlite3MigrationDriver.generateInsertMigration("_migrations");
-
-      expect(sql).toBe(
-        'INSERT INTO "_migrations" (name, checksum) VALUES (?, ?)'
-      );
-      expect(paramCount).toBe(2);
-    });
-
-    it("should generate DELETE for migration", () => {
-      const { sql, paramCount } =
-        sqlite3MigrationDriver.generateDeleteMigration("_migrations");
-
-      expect(sql).toBe('DELETE FROM "_migrations" WHERE name = ?');
-      expect(paramCount).toBe(1);
-    });
-  });
-
   describe("locking", () => {
     it("should return null for acquire lock (file-based)", () => {
       expect(sqlite3MigrationDriver.generateAcquireLock(12_345)).toBeNull();
@@ -1336,7 +1308,7 @@ describe("MySQL DDL Generation", () => {
 
       expect(ddl).toContain("`content` TEXT");
       // Should not have DEFAULT for the column itself (but table has DEFAULT CHARSET)
-      expect(ddl).not.toMatch(MYSQL_TEXT_DEFAULT);
+      expect(ddl).not.toMatch(MYSQL_TEXT_COLUMN_DEFAULT);
     });
 
     it("should NOT include DEFAULT for BLOB columns", () => {
@@ -1357,7 +1329,7 @@ describe("MySQL DDL Generation", () => {
 
       expect(ddl).toContain("`data` BLOB");
       // Should not have DEFAULT for the column itself (but table has DEFAULT CHARSET)
-      expect(ddl).not.toMatch(MYSQL_BLOB_DEFAULT);
+      expect(ddl).not.toMatch(MYSQL_BLOB_COLUMN_DEFAULT);
     });
   });
 
@@ -1895,36 +1867,6 @@ describe("MySQL DDL Generation", () => {
       ]);
 
       expect(result).toBe("ENUM('it''s active', 'normal')");
-    });
-  });
-
-  describe("migration tracking", () => {
-    it("should generate CREATE TABLE for tracking table", () => {
-      const ddl =
-        mysqlMigrationDriver.generateCreateTrackingTable("_migrations");
-
-      expect(ddl).toContain("CREATE TABLE IF NOT EXISTS `_migrations`");
-      expect(ddl).toContain("INT AUTO_INCREMENT PRIMARY KEY");
-      expect(ddl).toContain("VARCHAR(255) NOT NULL UNIQUE");
-      expect(ddl).toContain("ENGINE=InnoDB");
-    });
-
-    it("should generate INSERT for migration", () => {
-      const { sql, paramCount } =
-        mysqlMigrationDriver.generateInsertMigration("_migrations");
-
-      expect(sql).toBe(
-        "INSERT INTO `_migrations` (name, checksum) VALUES (?, ?)"
-      );
-      expect(paramCount).toBe(2);
-    });
-
-    it("should generate DELETE for migration", () => {
-      const { sql, paramCount } =
-        mysqlMigrationDriver.generateDeleteMigration("_migrations");
-
-      expect(sql).toBe("DELETE FROM `_migrations` WHERE name = ?");
-      expect(paramCount).toBe(1);
     });
   });
 
@@ -2982,36 +2924,6 @@ describe("PostgreSQL DDL Generation", () => {
       );
 
       expect(result).toBe("users_status_enum");
-    });
-  });
-
-  describe("migration tracking", () => {
-    it("should generate CREATE TABLE for tracking table", () => {
-      const ddl =
-        postgresMigrationDriver.generateCreateTrackingTable("_migrations");
-
-      expect(ddl).toContain('CREATE TABLE IF NOT EXISTS "_migrations"');
-      expect(ddl).toContain("SERIAL PRIMARY KEY");
-      expect(ddl).toContain("VARCHAR(255) NOT NULL UNIQUE");
-      expect(ddl).toContain("TIMESTAMP WITH TIME ZONE");
-    });
-
-    it("should generate INSERT for migration with $1, $2 placeholders", () => {
-      const { sql, paramCount } =
-        postgresMigrationDriver.generateInsertMigration("_migrations");
-
-      expect(sql).toBe(
-        'INSERT INTO "_migrations" (name, checksum) VALUES ($1, $2)'
-      );
-      expect(paramCount).toBe(2);
-    });
-
-    it("should generate DELETE for migration with $1 placeholder", () => {
-      const { sql, paramCount } =
-        postgresMigrationDriver.generateDeleteMigration("_migrations");
-
-      expect(sql).toBe('DELETE FROM "_migrations" WHERE name = $1');
-      expect(paramCount).toBe(1);
     });
   });
 

@@ -1,12 +1,13 @@
 import { createClient } from "@client/client";
 import { MySQL2Driver } from "@drivers/mysql2";
 import { PgDriver } from "@drivers/pg";
-import { push } from "@migrations";
+
 import {
   registerSharedPkUpdateRootBehavior,
   sharedPkUpdateRootSchema,
 } from "@tests/contracts/engine/write/shared-pk-update-root-behavior";
 import { afterAll, describe } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 /**
  * Package E on the live servers, where the foreign keys are real.
@@ -39,7 +40,7 @@ function suite(
         schema: sharedPkUpdateRootSchema,
         driver: makeDriver(),
       }) as any;
-      // Children before parents, so a re-run never asks `push(force)` to re-shape an
+      // Children before parents, so a re-run never asks `syncLiveSchema(force)` to re-shape an
       // index a live foreign key still needs.
       for (const table of [
         "e1u_chits",
@@ -52,7 +53,7 @@ function suite(
       ]) {
         await shared.$executeRawUnsafe(`DROP TABLE IF EXISTS ${table}`);
       }
-      await push(shared, { force: true });
+      await syncLiveSchema(shared);
     }
     return shared;
   };

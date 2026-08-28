@@ -2,10 +2,8 @@
  * Live-capability admission
  *
  * ONE decision admits a migration command to live database state. Direct
- * `push()`, every high-level migration command, and the internal
- * `MigrationContext` reach it here; no command reinterprets either fact for
- * itself, and there is no public route around it because the context class is
- * not exported from `viborm/migrations`.
+ * `push()` and every high-level migration command reach it here; no command
+ * reinterprets either fact for itself.
  */
 
 import { MigrationError, VibORMErrorCode } from "../errors";
@@ -16,13 +14,12 @@ import { formatMigrationTarget, readNamespaceAttestation } from "./target";
  * What a command asks of live state.
  *
  * - `effectful` — the command can write, or promises a concurrency-stable
- *   decision read from live state (effectful apply/down/reset/squash/push, and
- *   the live dry down/reset/squash decisions the CLI confirms against).
- * - `read-only` — a point-in-time read that changes nothing (status, pending,
+ *   decision read from live state (apply/down/reset/verify/push, and the live
+ *   dry down/reset decisions the CLI confirms against).
+ * - `read-only` — a point-in-time read that changes nothing (status, log,
  *   push dry-run introspection).
  *
- * Offline and storage-only work — generate, preview, apply dry-run, the
- * documented absent-journal returns, and raw `migrations.storage` — never
+ * Offline and storage-only work — generate, check, apply dry-run — never
  * reaches this owner at all.
  */
 export type MigrationLiveRequirement = "effectful" | "read-only";
@@ -49,6 +46,11 @@ export function admitLiveMigrationCapability(
 
   if (target.dialect === "postgresql") {
     admitPinnedSessionCapability(migrationDriver, requirement, command);
+    return;
+  }
+
+  if (target.dialect === "sqlite") {
+    admitSqliteFamilyCapability(migrationDriver, requirement, command);
     return;
   }
 
@@ -102,13 +104,52 @@ export function admitLiveMigrationCapability(
  * work nor released after it. Every path that mutates, or that makes a
  * concurrency-stable decision from live state, is therefore refused HERE:
  * before the connection, before storage writes, and before any other provider
- * work. Its qualified runtime, read-only introspection, status/pending, push
+ * work. Its qualified runtime, read-only introspection, status/log, push
  * dry-run, and every offline path stay available.
  *
  * The answer is the driver's own `_canPinSession()` — the presence of its
  * pinned-session hook — so nothing declares a capability it does not implement,
  * and a custom PostgreSQL driver is judged by the same fact as a stock one.
  */
+function admitSqliteFamilyCapability(
+  migrationDriver: BoundMigrationDriver,
+  requirement: MigrationLiveRequirement,
+  command: string
+): void {
+  if (requirement !== "effectful") {
+    return;
+  }
+  const driverName = migrationDriver.executionDriver.driverName;
+  if (driverName === "d1" || driverName === "d1-http") {
+    throw new MigrationError(
+      `${command} cannot claim effectful V1 migration support on "${driverName}": table recreation, foreign-key handling, native-batch atomicity, and marker CAS are not proven together. ` +
+        "Generation, check, and read-only status remain available.",
+      VibORMErrorCode.DRIVER_NOT_SUPPORTED,
+      {
+        meta: {
+          driver: driverName,
+          command,
+          target: formatMigrationTarget(migrationDriver.target),
+        },
+      }
+    );
+  }
+  if (driverName === "libsql") {
+    throw new MigrationError(
+      `${command} cannot claim V1 constraint alteration on libsql: existing rows are not prevalidated and table reconstruction is not proven. ` +
+        "Generation, check, and read-only status remain available.",
+      VibORMErrorCode.DRIVER_NOT_SUPPORTED,
+      {
+        meta: {
+          driver: driverName,
+          command,
+          target: formatMigrationTarget(migrationDriver.target),
+        },
+      }
+    );
+  }
+}
+
 function admitPinnedSessionCapability(
   migrationDriver: BoundMigrationDriver,
   requirement: MigrationLiveRequirement,
@@ -122,7 +163,7 @@ function admitPinnedSessionCapability(
   }
   throw new MigrationError(
     `${command} needs one physical database session it can hold a migration lock on, and the driver "${migrationDriver.executionDriver.driverName}" has no interactive session to reserve. ` +
-      "Effectful and concurrency-stable live migration work is refused: a session-scoped lock taken over a stateless transport would be acquired by one request and released by another, so it would protect nothing. Runtime queries, introspection, status, pending, push dry-run and every offline command remain available.",
+      "Effectful and concurrency-stable live migration work is refused: a session-scoped lock taken over a stateless transport would be acquired by one request and released by another, so it would protect nothing. Runtime queries, introspection, status, log, push dry-run and every offline command remain available.",
     VibORMErrorCode.DRIVER_NOT_SUPPORTED,
     {
       meta: {

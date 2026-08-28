@@ -30,8 +30,9 @@ import {
   type VibORMConfig,
 } from "@client/client";
 import type { AnyDriver } from "@drivers";
-import { push } from "@migrations";
+
 import { s } from "@schema";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { afterEach, describe, expect, test } from "vitest";
 
 // --- Schema 1: a plain to-many, with a mapped FK column ----------------------
@@ -247,19 +248,20 @@ export function runFkIndexBehavior({
      */
     async function replacementAndDropPositions(next: AnySchema) {
       const c = restage(next);
-      const planned = await push(c as never, { force: true });
+      const planned = await syncLiveSchema(c as never);
 
       return {
-        dropAt: planned.operations.findIndex((op) => op.type === "dropIndex"),
+        dropAt: planned.operations.findIndex((op) => op.label === "dropIndex"),
         replacementAt: planned.operations.findIndex(
-          (op) => op.type === "createIndex" || op.type === "addUniqueConstraint"
+          (op) =>
+            op.label === "createIndex" || op.label === "addUniqueConstraint"
         ),
       };
     }
 
     test("push creates an index over the manyToOne FK column", async () => {
       const c = make(fkIndexSchema);
-      await push(c as never, { force: true });
+      await syncLiveSchema(c as never);
 
       expect(await indexNames(c, dialect, "fk_idx_posts")).toContain(
         "fk_idx_posts_author_id_idx"
@@ -272,13 +274,13 @@ export function runFkIndexBehavior({
 
     test("re-pushing the schema is not an index change", async () => {
       const c = make(fkIndexSchema);
-      await push(c as never, { force: true });
+      await syncLiveSchema(c as never);
 
-      const second = await push(c as never, { force: true });
+      const second = await syncLiveSchema(c as never);
 
       expect(
         second.operations.filter(
-          (op) => op.type === "createIndex" || op.type === "dropIndex"
+          (op) => op.label === "createIndex" || op.label === "dropIndex"
         )
       ).toEqual([]);
       expect(await indexNames(c, dialect, "fk_idx_posts")).toContain(
@@ -302,10 +304,10 @@ export function runFkIndexBehavior({
     // catalog gives for free and what shape identity gives SQLite.
     test("re-pushing the schema is not a foreign-key change", async () => {
       const c = make(fkIndexSchema);
-      await push(c as never, { force: true });
+      await syncLiveSchema(c as never);
 
-      const second = await push(c as never, { force: true });
-      const third = await push(c as never, { force: true });
+      const second = await syncLiveSchema(c as never);
+      const third = await syncLiveSchema(c as never);
 
       expect(second.operations).toEqual([]);
       expect(third.operations).toEqual([]);
@@ -313,7 +315,7 @@ export function runFkIndexBehavior({
 
     test("a declared .index() on the FK column is not duplicated", async () => {
       const c = make(declaredIndexSchema);
-      await push(c as never, { force: true });
+      await syncLiveSchema(c as never);
 
       // MySQL/InnoDB adds its own index for the FK constraint, named after the
       // constraint; the indexes viborm declares are the `_idx` ones.
@@ -328,10 +330,10 @@ export function runFkIndexBehavior({
       // is a hard 1553 abort, because this declared index is the one InnoDB
       // bound the FK to (the automatic FK index defers to it). The second push
       // must be a no-op, not merely survivable.
-      const second = await push(c as never, { force: true });
+      const second = await syncLiveSchema(c as never);
       expect(
         second.operations.filter(
-          (op) => op.type === "createIndex" || op.type === "dropIndex"
+          (op) => op.label === "createIndex" || op.label === "dropIndex"
         )
       ).toEqual([]);
     });
@@ -344,7 +346,7 @@ export function runFkIndexBehavior({
     // documented way to widen the coverage.
     test("a wider declared index over the FK columns replaces it in one push", async () => {
       const c = make(wideStage1Schema);
-      await push(c as never, { force: true });
+      await syncLiveSchema(c as never);
       expect(await indexNames(c, dialect, "fk_idx_wide_posts")).toContain(
         "fk_idx_wide_posts_authorId_idx"
       );
@@ -359,7 +361,7 @@ export function runFkIndexBehavior({
 
     test("a compound unique over the FK columns replaces it in one push", async () => {
       const c = make(wideStage1Schema);
-      await push(c as never, { force: true });
+      await syncLiveSchema(c as never);
 
       const { dropAt, replacementAt } = await replacementAndDropPositions(
         wideStage2UniqueSchema
@@ -411,7 +413,7 @@ export function runFkIndexUpgradeBehavior({
         driver,
       }) as never;
       const c = client as FkIndexClient;
-      await push(c as never, { force: true });
+      await syncLiveSchema(c as never);
 
       // Reduce the database to the pre-phase state: same tables, same
       // constraint, no FK index.
@@ -420,9 +422,9 @@ export function runFkIndexUpgradeBehavior({
         "fk_idx_posts_author_id_idx"
       );
 
-      const upgrade = await push(c as never, { force: true });
+      const upgrade = await syncLiveSchema(c as never);
       expect(
-        upgrade.operations.filter((op) => op.type === "createIndex")
+        upgrade.operations.filter((op) => op.label === "createIndex")
       ).toHaveLength(1);
       expect(await indexNames(c, dialect, "fk_idx_posts")).toContain(
         "fk_idx_posts_author_id_idx"
@@ -430,10 +432,10 @@ export function runFkIndexUpgradeBehavior({
 
       // Converged: the next push is not an index change, and the index is still
       // there afterwards — the FK churn SQLite plans forever must not eat it.
-      const settled = await push(c as never, { force: true });
+      const settled = await syncLiveSchema(c as never);
       expect(
         settled.operations.filter(
-          (op) => op.type === "createIndex" || op.type === "dropIndex"
+          (op) => op.label === "createIndex" || op.label === "dropIndex"
         )
       ).toEqual([]);
       expect(await indexNames(c, dialect, "fk_idx_posts")).toContain(
@@ -490,7 +492,7 @@ export function runFkIndexPlanBehavior({
         })
       ) as never;
       const c = client as FkIndexClient as unknown as Record<string, any>;
-      await push(client as never, { force: true });
+      await syncLiveSchema(client as never);
 
       await c.planUser.createMany({
         data: Array.from({ length: USER_COUNT }, (_, i) => ({

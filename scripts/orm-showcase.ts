@@ -14,7 +14,8 @@ import {
 } from "@opentelemetry/sdk-trace-node";
 import { createClient } from "../src/drivers/pglite";
 import { instrumentation } from "../src/instrumentation/extension";
-import { push } from "../src/migrations";
+
+import { push as applyPush } from "../src/migrations";
 import { s } from "../src/schema";
 
 const user = s
@@ -111,7 +112,7 @@ async function main(): Promise<void> {
   );
 
   try {
-    await push(orm, { force: true });
+    await applyPush(orm);
     await tracerProvider.forceFlush();
     spanExporter.reset();
     isShowcaseRunning = true;

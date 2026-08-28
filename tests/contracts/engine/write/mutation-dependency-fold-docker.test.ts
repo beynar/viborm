@@ -2,11 +2,12 @@ import { createClient } from "@client/client";
 import type { BatchQuery, QueryExecutionContext, QueryResult } from "@drivers";
 import { PgDriver } from "@drivers/pg";
 import { UniqueConstraintError } from "@errors";
-import { push } from "@migrations";
+
 import { hydrateSchemaNames, s } from "@schema";
 import { PgBatchForcedDriver } from "@tests/fixtures/drivers/batch-forced-pg";
 import type { Pool, PoolClient } from "pg";
 import { afterAll, describe, expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 /**
  * PACKAGE M on a live PostgreSQL server.
@@ -130,7 +131,7 @@ class RecordingBatchPgDriver extends PgBatchForcedDriver {
   }
 }
 
-// Children before parents, so a re-run never asks `push(force)` to re-shape an
+// Children before parents, so a re-run never asks `syncLiveSchema(force)` to re-shape an
 // index a live foreign key still needs.
 const TABLES = [
   "pmd_labels",
@@ -150,7 +151,7 @@ async function connect(): Promise<any> {
     for (const table of TABLES) {
       await shared.$executeRawUnsafe(`DROP TABLE IF EXISTS ${table}`);
     }
-    await push(shared, { force: true });
+    await syncLiveSchema(shared);
   }
   return shared;
 }

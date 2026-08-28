@@ -33,8 +33,11 @@ const schema = (() => {
 })();
 
 const db = new PGlite();
-const client = createClient({ schema, driver: new PGliteDriver({ client: db }) });
-await push(client as never, { force: true });
+const client = createClient({
+  schema,
+  driver: new PGliteDriver({ client: db }),
+});
+await push(client as never);
 await (client as any).node.create({ data: { id: "r0", name: "r0" } });
 await (client as any).node.create({
   data: { id: "c1", name: "c1", parentId: "r0" },

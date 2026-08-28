@@ -5,9 +5,10 @@ import {
   type VibORMConfig,
 } from "@client/client";
 import type { AnyDriver } from "@drivers";
-import { push } from "@migrations";
+
 import { s } from "@schema";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 /**
  * Set membership on binary columns (`in` / `notIn`).
@@ -64,7 +65,7 @@ export function runBlobFilterBehavior({
 
     beforeEach(async () => {
       client = createClient({ schema, driver: createDriver() });
-      await push(client, { force: true });
+      await syncLiveSchema(client);
       await client.blobRow.createMany({
         data: [
           { id: "alpha", payload: ALPHA, optionalPayload: ALPHA },

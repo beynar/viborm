@@ -46,12 +46,10 @@ interface VibORMConfig {
 
   /** Migration configuration */
   migrations?: {
-    /** Directory for migration files (default: "./migrations") */
+    /** Estate directory (default: "./migrations") */
     dir?: string;
-    /** Name of the migrations tracking table (default: "_viborm_migrations") */
-    tableName?: string;
-    /** Storage driver for migration files */
-    storageDriver?: MigrationStorageDriver;
+    /** Estate storage writer. Defaults to filesystem storage at `dir`. */
+    storage?: MigrationStorageWriter;
   };
 }
 ```
@@ -59,14 +57,11 @@ interface VibORMConfig {
 | Option | Type | Required | Default | Description |
 |--------|------|----------|---------|-------------|
 | `client` | `VibORMClient` | Yes | - | VibORM client instance |
-| `migrations.dir` | `string` | No | `"./migrations"` | Directory for migration files |
-| `migrations.tableName` | `string` | No | `"_viborm_migrations"` | Name of the migrations tracking table |
-| `migrations.storageDriver` | `MigrationStorageDriver` | No | Filesystem | Storage driver for migration files |
+| `migrations.dir` | `string` | No | `"./migrations"` | Estate directory |
+| `migrations.storage` | `MigrationStorageWriter` | No | Filesystem writer at `dir` | Estate storage writer |
 
 :::info[CLI Override]
-All migration options can be overridden via CLI flags:
-- `--dir` overrides `migrations.dir`
-- `--table-name` overrides `migrations.tableName`
+`--dir` overrides `migrations.dir`.
 :::
 
 ## Database Drivers
@@ -79,27 +74,20 @@ By default, VibORM uses filesystem storage for migration files. You can configur
 
 ```ts title="viborm.config.ts"
 import { defineConfig } from "viborm/config";
-import { createFsStorageDriver } from "viborm/migrations/storage/fs";
+import { createFsStorageWriter } from "viborm/migrations";
 import { client } from "./src/db";
 
 export default defineConfig({
   client,
   migrations: {
-    // Explicit filesystem storage
-    storageDriver: createFsStorageDriver("./migrations"),
-    // Or just use dir (creates filesystem storage automatically)
-    // dir: "./migrations",
-    tableName: "_viborm_migrations",
+    storage: createFsStorageWriter("./migrations"),
   },
 });
 ```
 
-:::info[Storage Driver Priority]
-The CLI resolves storage in this order:
-1. `--dir` CLI flag (creates filesystem storage)
-2. `migrations.storageDriver` from config
-3. `migrations.dir` from config (creates filesystem storage)
-4. Default: `./migrations` with filesystem storage
+:::info[Storage Priority]
+If `migrations.storage` is set, the CLI uses it. Otherwise it creates a
+filesystem writer at `--dir`, then `migrations.dir`, then `./migrations`.
 :::
 
 ## Schema Export

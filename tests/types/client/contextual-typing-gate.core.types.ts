@@ -50,10 +50,9 @@ import {
   PGliteDriver,
   createClient as pgliteCreateClient,
 } from "@drivers/pglite";
-import { down } from "@migrations/apply/down";
 import { createMigrationClient } from "@migrations/client";
-import { push } from "@migrations/push";
-import { createFsStorageDriver } from "@migrations/storage/fs";
+import { push as applyPush } from "@src/migrations";
+import { createFsStorageWriter } from "@migrations/storage/fs";
 import { s } from "@schema";
 import { cache } from "@src/cache/exports";
 // Deliberately the published entry point, not `@schema/field-ref`: the alias
@@ -1334,12 +1333,12 @@ describe("an OPERATOR typo beside a correct operator is the pinned negative", ()
 
 const nonFreshPushOptions = { dryRun: true, dryRnu: true };
 const nonFreshDownOptions = {
-  storageDriver: createFsStorageDriver("./migrations"),
   steps: 1,
   steeps: 1,
 };
 
 describe("$transaction and push option bags are keyed", () => {
+  const migrations = createMigrationClient(client);
   const _keyed = () =>
     client.$transaction(async () => 1, {
       isolationLevel: "Serializable",
@@ -1363,17 +1362,26 @@ describe("$transaction and push option bags are keyed", () => {
     // @ts-expect-error - the sequential form takes isolationLevel only
     client.$transaction([client.book.findMany()], { timeout: 1 });
 
-  const _pushOptionTypo = () =>
+  const _applyPushOptionTypo = () =>
     // @ts-expect-error - "dryRnu" is not a push option
-    push(client, { dryRun: true, dryRnu: true });
+    applyPush(client, { dryRun: true, dryRnu: true });
 
   /**
-   * push is the migration entry point where an ignored key destroys data, so it
-   * refuses structurally rather than by excess-property checking — a bag held in
-   * a variable is refused too.
+   * applyPush / createMigrationClient().push are the migration entry points
+   * where an ignored key destroys data, so ExactPushOptions refuses
+   * structurally — a bag held in a variable is refused too.
    */
-  // @ts-expect-error - "dryRnu" is not a push option, fresh literal or not
-  const _pushOptionTypoNonFresh = () => push(client, nonFreshPushOptions);
+  const _applyPushOptionTypoNonFresh = () =>
+    // @ts-expect-error - "dryRnu" is not a push option, fresh literal or not
+    applyPush(client, nonFreshPushOptions);
+
+  const _clientPushOptionTypo = () =>
+    // @ts-expect-error - "dryRnu" is not a push option
+    migrations.push({ dryRun: true, dryRnu: true });
+
+  const _clientPushOptionTypoNonFresh = () =>
+    // @ts-expect-error - "dryRnu" is not a push option, fresh literal or not
+    migrations.push(nonFreshPushOptions);
 
   test("the probes above compile (assertions live in @ts-expect-error)", () => {
     expectTypeOf(_keyed).toBeFunction();
@@ -1381,57 +1389,75 @@ describe("$transaction and push option bags are keyed", () => {
     expectTypeOf(_txOptionTypoBesideReal).toBeFunction();
     expectTypeOf(_txIsolationValueTypo).toBeFunction();
     expectTypeOf(_batchTxOptionTypo).toBeFunction();
-    expectTypeOf(_pushOptionTypo).toBeFunction();
-    expectTypeOf(_pushOptionTypoNonFresh).toBeFunction();
+    expectTypeOf(_applyPushOptionTypo).toBeFunction();
+    expectTypeOf(_applyPushOptionTypoNonFresh).toBeFunction();
+    expectTypeOf(_clientPushOptionTypo).toBeFunction();
+    expectTypeOf(_clientPushOptionTypoNonFresh).toBeFunction();
   });
 });
 
 /**
- * The file-based migration commands — `down`, `reset`, `apply`, `squash`,
- * `generate`, `preview`, `createMigrationClient` — take a plain options
- * interface. A FRESH literal is refused by excess-property
- * checking (probed below); a bag held in a variable is NOT, and is pinned as
- * such.
+ * Estate commands — `down`, `reset`, `apply`, `generate`,
+ * `createMigrationClient` — take a plain options interface. A FRESH literal is
+ * refused by excess-property checking (probed below); a bag held in a variable
+ * is NOT, and is pinned as such.
  *
  * They were left on excess-property checking deliberately, and the reason is
  * consequence, not difficulty: each of these reads its options and reports what
- * it did, so a dropped `steps` shows up in the result the caller prints. `push`
- * is different — `dryRun` dropped means the DDL RAN — so `push` alone was made
- * structural. Closing the rest is a mechanical repeat of `ExactPushOptions`,
- * one generic per function, if the maintainer wants the uniformity.
+ * it did, so a dropped `steps` shows up in the result the caller prints.
+ * `applyPush` / `createMigrationClient().push` are different — `dryRun` dropped
+ * means the DDL RAN — so those two surfaces use ExactPushOptions.
  */
-describe("file-based migration options are fresh-literal keyed only", () => {
+describe("estate migration options are fresh-literal keyed only", () => {
+  const migrations = createMigrationClient(client, {
+    storage: createFsStorageWriter("./m"),
+  });
   const _freshTypo = () =>
     // @ts-expect-error - "steeps" is not a down option
-    down(client, { storageDriver: createFsStorageDriver("./m"), steeps: 1 });
+    migrations.down({ steps: 1, steeps: 1 });
 
   // "steeps" is NOT a compile error here — the bag is not a fresh literal.
-  const _nonFreshTypoCompiles = () => down(client, nonFreshDownOptions);
+  const _nonFreshTypoCompiles = () => migrations.down(nonFreshDownOptions);
+
+  const _applyNumericGone = () =>
+    // @ts-expect-error - apply targets a state selector, not a numeric index
+    migrations.apply({ to: 5 });
+
+  const _applyNamed = () => migrations.apply({ to: { name: "add-users" } });
 
   test("the fresh probe is the assertion, the non-fresh one is the pin", () => {
     expectTypeOf(_freshTypo).toBeFunction();
     expectTypeOf(_nonFreshTypoCompiles).toBeFunction();
+    expectTypeOf(_applyNumericGone).toBeFunction();
+    expectTypeOf(_applyNamed).toBeFunction();
   });
 });
 
 /**
- * `down()` is the ONLY rollback verb on the migration client. The
- * tracking-only `rollback()` — which removed tracking rows while leaving the
- * schema live, bypassing any manual or irreversible policy — is gone from the
- * surface, not renamed.
+ * `down()` is the ONLY rollback verb on the migration client. Journal-era
+ * `rollback()`, `squash()`, `pending()`, and `journal()` are gone, not renamed.
  */
-describe("migrations.rollback does not exist", () => {
+describe("journal-era migration verbs do not exist", () => {
   const migrations = createMigrationClient(client, {
-    storageDriver: createFsStorageDriver("./m"),
+    storage: createFsStorageWriter("./m"),
   });
 
   // @ts-expect-error - rollback() was deleted; use down()
   const _rollbackGone = () => migrations.rollback({ count: 1 });
+  // @ts-expect-error - squash() has no V1 replacement
+  const _squashGone = () => migrations.squash({ from: 0, to: 1 });
+  // @ts-expect-error - pending() is gone; use status().pending
+  const _pendingGone = () => migrations.pending();
+  // @ts-expect-error - journal() is gone
+  const _journalGone = () => migrations.journal();
 
   const _downSurvives = () => migrations.down({ steps: 1 });
 
-  test("the deleted verb is the assertion, down() is the pin", () => {
+  test("the deleted verbs are the assertion, down() is the pin", () => {
     expectTypeOf(_rollbackGone).toBeFunction();
+    expectTypeOf(_squashGone).toBeFunction();
+    expectTypeOf(_pendingGone).toBeFunction();
+    expectTypeOf(_journalGone).toBeFunction();
     expectTypeOf(_downSurvives).toBeFunction();
   });
 });

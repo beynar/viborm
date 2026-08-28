@@ -73,7 +73,7 @@ const post = s
   .map("posts");
 const vibormDriver = new SQLite3Driver({ dataDir: ":memory:" });
 const viborm = createClient({ schema: { user, post }, driver: vibormDriver });
-await push(viborm, { force: true });
+await push(viborm);
 await seed((sql, params) => vibormDriver._executeRaw(sql, params));
 
 // ---------- drizzle ----------

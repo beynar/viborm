@@ -8,9 +8,10 @@ import {
   NestedWriteError,
   UniqueConstraintError,
 } from "@errors";
-import { push } from "@migrations";
+
 import { nestedWriteBehaviorSchema } from "@tests/fixtures/nested-write-behavior-schema";
 import { describe, expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 /**
  * M8 gate (DESIGN.md §11 M8, §7.4). The write-race retry is unified above
@@ -144,7 +145,7 @@ async function setupDb(): Promise<PGlite> {
     schema: nestedWriteBehaviorSchema,
     driver: new PGliteDriver({ client: db }),
   });
-  await push(setupClient, { force: true });
+  await syncLiveSchema(setupClient);
   return db;
 }
 

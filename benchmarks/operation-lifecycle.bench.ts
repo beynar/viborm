@@ -42,14 +42,14 @@ const sqliteClient = createClient({
   schema: sqliteUserPostSchema,
   driver: sqliteDriver,
 });
-await push(sqliteClient, { force: true });
+await push(sqliteClient);
 
 const nonReturningDriver = new NonReturningPGliteDriver();
 const nonReturningClient = createClient({
   schema: sqliteUserPostSchema,
   driver: nonReturningDriver,
 });
-await push(nonReturningClient, { force: true });
+await push(nonReturningClient);
 
 await sqliteClient.user.create({
   data: {

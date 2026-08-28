@@ -2,7 +2,7 @@ import { createClient } from "@client/client";
 import type { QueryExecutionContext, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
-import { push } from "@migrations";
+
 import { createOperationExecutionContext } from "@query-engine/execution-context";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import type { Model } from "@schema/model";
@@ -12,6 +12,7 @@ import { CreateOperation } from "@src/query-engine/write-engine/CreateOperation"
 import { OperationExecutor } from "@src/query-engine/write-engine/OperationExecutor";
 import { UpdateOperation } from "@src/query-engine/write-engine/UpdateOperation";
 import { producedIdentitySchema } from "@tests/contracts/engine/write/produced-identity-depth-behavior";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 /**
  * N4-U2 / N4-U4 — the PROVENANCE instrument for a PRODUCED identity.
@@ -119,7 +120,7 @@ describe("N4-U2 / N4-U4 produced-identity provenance (corrupt the INSERT's retur
       schema: producedIdentitySchema,
       driver: new PGliteDriver({ client: db }),
     });
-    await push(stateClient, { force: true });
+    await syncLiveSchema(stateClient);
     await stateClient.org.create({ data: { id: 2, slug: "target-org" } });
     // A live decoy squad the corrupted key can legally point at — so a wrong-provenance
     // grandchild is a silent WRONG ROW, not a constraint error.
@@ -173,7 +174,7 @@ describe("N4-U2 / N4-U4 produced-identity provenance (corrupt the INSERT's retur
       schema: producedIdentitySchema,
       driver: new PGliteDriver({ client: db }),
     });
-    await push(stateClient, { force: true });
+    await syncLiveSchema(stateClient);
     // The live decoy the corrupted key points at.
     const decoy = await stateClient.account.create({
       data: { email: "decoy@x", handle: "decoy", name: "decoy" },
@@ -220,7 +221,7 @@ describe("N4-U2 / N4-U4 produced-identity provenance (corrupt the INSERT's retur
       schema: producedIdentitySchema,
       driver: new PGliteDriver({ client: db }),
     });
-    await push(stateClient, { force: true });
+    await syncLiveSchema(stateClient);
     await stateClient.org.create({ data: { id: 2, slug: "target-org" } });
 
     // `undefined` is not a live key and not a droppable column: the produced value is

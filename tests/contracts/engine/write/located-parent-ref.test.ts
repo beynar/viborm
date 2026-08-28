@@ -3,13 +3,14 @@ import { createClient } from "@client/client";
 import type { BatchQuery, QueryExecutionContext, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
-import { push } from "@migrations";
+
 import { describe, expect, test } from "vitest";
 import {
   locatedParentRefSchema,
   runLocatedParentRefBehavior,
 } from "@tests/contracts/engine/write/located-parent-ref-behavior";
 
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 /**
  * Records every statement the operation sends, in order. The hook is the PROTECTED
  * `execute`/`executeRaw` seam rather than `_execute`, because a transaction runs its
@@ -176,7 +177,7 @@ async function runOracleArm(
 ): Promise<ArmOutcome> {
   const db = new PGlite();
   const stateClient = makeClient(new PGliteDriver({ client: db }));
-  await push(stateClient, { force: true });
+  await syncLiveSchema(stateClient);
   await scenario.seed(stateClient);
   const opClient =
     substrate === "tx"
@@ -337,7 +338,7 @@ describe("located-parent Ref compiles the same plan as the pinned spelling", () 
         const db = new PGlite();
         const driver = new RecordingPGliteDriver({ client: db });
         const client = makeClient(driver);
-        await push(client, { force: true });
+        await syncLiveSchema(client);
         await seed(client);
 
         const payload = (noteId: number) =>
@@ -469,7 +470,7 @@ describe("the batch root address, statement by statement", () => {
     const driver = new RecordingBatchOnlyPGliteDriver({ client: db });
     const client = makeClient(driver);
     try {
-      await push(client, { force: true });
+      await syncLiveSchema(client);
       await seed(client);
 
       driver.recording = true;
@@ -504,7 +505,7 @@ describe("the batch root address, statement by statement", () => {
     const driver = new RecordingBatchOnlyPGliteDriver({ client: db });
     const client = makeClient(driver);
     try {
-      await push(client, { force: true });
+      await syncLiveSchema(client);
       await seed(client);
 
       driver.recording = true;
@@ -544,7 +545,7 @@ describe("located-parent Ref staleness injection", () => {
   const setupDb = async () => {
     const db = new PGlite();
     const stateClient = makeClient(new PGliteDriver({ client: db }));
-    await push(stateClient, { force: true });
+    await syncLiveSchema(stateClient);
     await seed(stateClient);
     return { db, stateClient };
   };
@@ -615,7 +616,7 @@ describe("located-parent Ref staleness injection", () => {
     async () => {
       const db = new PGlite();
       const stateClient = makeClient(new PGliteDriver({ client: db }));
-      await push(stateClient, { force: true });
+      await syncLiveSchema(stateClient);
       await stateClient.owner.create({
         data: { tenantId: "t1", slot: "a", handle: "h-t1-a" },
       });

@@ -1,7 +1,7 @@
 import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite } from "@electric-sql/pglite";
-import { push } from "@migrations";
+
 import {
   type CorrelatedForeignKeyMember,
   type ForeignKeyMember,
@@ -14,10 +14,11 @@ import {
 } from "@tests/contracts/engine/write/compound-relation-adoption-behavior";
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { describe, expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 async function setup(driver: PGliteDriver) {
   const client = createClient({ schema: compoundAdoptSchema, driver }) as any;
-  await push(client, { force: true });
+  await syncLiveSchema(client);
   return client;
 }
 

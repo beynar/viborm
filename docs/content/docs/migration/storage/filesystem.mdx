@@ -1,164 +1,66 @@
 ---
 title: Filesystem Storage
-description: Store migrations as files on the local filesystem (default storage driver)
+description: Store a Migration V1 estate on the local filesystem
 icon: folder-open
 ---
 
 ## Quick Start
 
 ```ts
-import { createMigrationClient } from "viborm/migrations";
-import { createFsStorageDriver } from "viborm/migrations/storage/fs";
-
-const storage = createFsStorageDriver("./migrations");
+import { createFsStorageWriter, createMigrationClient } from "viborm/migrations";
 
 const migrations = createMigrationClient(client, {
-  storageDriver: storage,
+  storage: createFsStorageWriter("./migrations"),
 });
 ```
 
-:::info[Tree-Shaking]
-The filesystem storage driver is imported separately from `viborm/migrations/storage/fs` to enable tree-shaking. This allows edge environments (like Cloudflare Workers) to use `push()` without bundling `node:fs`.
-:::
+`createFsStorageWriter` is the public filesystem owner. There is no
+`createFsStorageDriver` and no path-level `get` / `put` / `delete`.
 
 ## Configuration
 
 ```ts
-const storage = createFsStorageDriver(baseDir);
+const storage = createFsStorageWriter(baseDir);
 ```
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `baseDir` | `string` | Base directory for migration files |
-
-The `baseDir` should be an absolute path or relative to the current working directory.
+| `baseDir` | `string` | Estate root. Absolute, or relative to the current working directory. |
 
 ## Directory Structure
 
 ```
-migrations/                    # baseDir
-├── 0000_initial.sql          # First migration
-├── 0001_add-users.sql        # Second migration
-├── 0002_add-posts.sql        # Third migration
-└── meta/                     # Metadata directory
-    ├── _journal.json         # Migration index
-    ├── _snapshot.json        # Current schema snapshot
-    ├── _down/                # Down migrations
-    │   ├── 0000_initial.sql
-    │   ├── 0001_add-users.sql
-    │   └── 0002_add-posts.sql
-    ├── _backup/              # Backups before modification
-    └── _archive/             # Archived (squashed) migrations
+migrations/
+├── estate.json
+├── snapshots/
+│   └── <snapshot-hash>.json
+├── sql/
+│   └── <sql-hash>.sql
+└── states/
+    └── <state-id>.json
 ```
 
-## File Formats
-
-### Migration Files
-
-SQL files with statements separated by semicolons:
-
-```sql
--- 0001_add-users.sql
-
-CREATE TABLE "users" (
-  "id" serial PRIMARY KEY,
-  "email" text NOT NULL UNIQUE,
-  "name" text,
-  "created_at" timestamp DEFAULT NOW()
-);
-
-CREATE INDEX "users_email_idx" ON "users" ("email");
-```
-
-### Journal File
-
-JSON file tracking all migrations:
-
-```json
-{
-  "version": "1",
-  "dialect": "postgresql",
-  "entries": [
-    {
-      "idx": 0,
-      "version": "20240115120000",
-      "name": "initial",
-      "when": 1705320000000,
-      "checksum": "sha256:abc123..."
-    },
-    {
-      "idx": 1,
-      "version": "20240116140000",
-      "name": "add-users",
-      "when": 1705413600000,
-      "checksum": "sha256:def456..."
-    }
-  ]
-}
-```
-
-### Snapshot File
-
-JSON representation of the current schema:
-
-```json
-{
-  "tables": [
-    {
-      "name": "users",
-      "columns": [
-        { "name": "id", "type": "serial", "nullable": false },
-        { "name": "email", "type": "text", "nullable": false }
-      ],
-      "primaryKey": { "columns": ["id"] },
-      "indexes": [],
-      "foreignKeys": [],
-      "uniqueConstraints": []
-    }
-  ],
-  "enums": []
-}
-```
+Publication is write-temp, fsync, rehash, then a no-replace hard link. A
+filename that looks like a digest is not proof until the parser recomputes the
+hash.
 
 ## Version Control
 
-Migration files are designed to be committed to git:
+Estate artifacts are designed to be committed to git:
 
 ```bash
-# .gitignore - don't ignore migrations!
-# migrations/  # DO NOT ADD THIS
-
-# Commit migrations
 git add migrations/
-git commit -m "Add user table migration"
+git commit -m "Add user table state"
 ```
 
 For the generate/apply/status workflow, see [Migrate](/docs/migration/migrate).
-
-## Error Handling
-
-The filesystem driver handles common scenarios:
-
-- **Missing directory**: Creates directories automatically on `put()`
-- **Missing file**: Returns `null` on `get()`, no-op on `delete()`
-- **Permission errors**: Throws standard Node.js errors
-
-```ts
-try {
-  await migrations.apply();
-} catch (error) {
-  if (error.code === "EACCES") {
-    console.error("Permission denied - check file permissions");
-  }
-}
-```
 
 ## Next Steps
 
 <CardGroup>
   <Card
-    title="Storage Drivers"
-    description="Learn about other storage options"
+    title="Storage"
+    description="Semantic estate readers and writers"
     href="/docs/migration/storage"
   />
   <Card

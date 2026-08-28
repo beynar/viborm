@@ -1,13 +1,14 @@
 import { createClient } from "@client/client";
 import { MySQL2Driver } from "@drivers/mysql2";
 import { PgDriver } from "@drivers/pg";
-import { push } from "@migrations";
+
 import { afterAll, describe } from "vitest";
 import {
   adoptOwnedFkSchema,
   registerAdoptOwnedFkBehavior,
 } from "@tests/contracts/engine/write/adopt-owned-fk-agreement-behavior";
 
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 /**
  * E5-U2 on the live servers. The agreement decision is made at construction, so what the
  * live legs add is the WRITE it lets through: the reparent must land the parent's own
@@ -57,7 +58,7 @@ function suite(
         for (const table of TABLES) {
           await shared.$executeRawUnsafe(`DROP TABLE IF EXISTS ${table}`);
         }
-        await push(shared, { force: true });
+        await syncLiveSchema(shared);
       }
       return shared;
     },

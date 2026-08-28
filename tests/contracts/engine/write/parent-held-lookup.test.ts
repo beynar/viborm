@@ -2,7 +2,7 @@ import type { BatchQuery, QueryExecutionContext, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { NestedWriteError } from "@errors";
-import { push } from "@migrations";
+
 import {
   makeLookupClient,
   runBeforeRootSubtreeBehavior,
@@ -15,6 +15,7 @@ import {
 import { batchIsAtomicUnit } from "@tests/fixtures/atomic-unit-batch";
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { describe, expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 runParentHeldLookupBehavior({
   name: "PGlite transaction",
@@ -142,7 +143,7 @@ describe("E1 U1 — the lookup fold's provenance", () => {
     async () => {
       const db = new PGlite();
       const stateClient = makeLookupClient(new PGliteDriver({ client: db }));
-      await push(stateClient, { force: true });
+      await syncLiveSchema(stateClient);
       await seedLookupBed(stateClient);
 
       // Author 1 is a real, live row, so a wrong provenance is a silent WRONG ROW
@@ -174,7 +175,7 @@ describe("E1 U1 — the lookup fold's provenance", () => {
     async () => {
       const db = new PGlite();
       const stateClient = makeLookupClient(new PGliteDriver({ client: db }));
-      await push(stateClient, { force: true });
+      await syncLiveSchema(stateClient);
       await seedLookupBed(stateClient);
 
       // The probe row now crosses the complete typed result boundary before the
@@ -254,7 +255,7 @@ describe("E1 U1 — the guard→UPDATE vanish window", () => {
     async () => {
       const db = new PGlite();
       const stateClient = makeLookupClient(new PGliteDriver({ client: db }));
-      await push(stateClient, { force: true });
+      await syncLiveSchema(stateClient);
       await seedLookupBed(stateClient);
 
       const injector = makeLookupClient(new PGliteDriver({ client: db }));
@@ -369,7 +370,7 @@ describe("E1 U3 — the subtree root's produced identity", () => {
     async () => {
       const db = new PGlite();
       const stateClient = makeLookupClient(new PGliteDriver({ client: db }));
-      await push(stateClient, { force: true });
+      await syncLiveSchema(stateClient);
       await seedLookupBed(stateClient);
       await seedProducedIdentityDecoy(stateClient);
       const decoy = await stateClient.magazine.findFirst({
@@ -423,7 +424,7 @@ describe("E1 U4 — the delegated upsert arm's staleness window", () => {
     async () => {
       const db = new PGlite();
       const stateClient = makeLookupClient(new PGliteDriver({ client: db }));
-      await push(stateClient, { force: true });
+      await syncLiveSchema(stateClient);
       await seedLookupBed(stateClient);
 
       const injector = makeLookupClient(new PGliteDriver({ client: db }));
@@ -484,7 +485,7 @@ describe("E1 U6 — the non-PK edge's captured identity", () => {
     async () => {
       const db = new PGlite();
       const stateClient = makeLookupClient(new PGliteDriver({ client: db }));
-      await push(stateClient, { force: true });
+      await syncLiveSchema(stateClient);
       await seedLookupBed(stateClient);
       await stateClient.holder.update({
         where: { id: 1 },
@@ -534,7 +535,7 @@ describe("E1 U3 — the produced identity by substrate", () => {
     async () => {
       const db = new PGlite();
       const client = makeLookupClient(new PGliteDriver({ client: db }));
-      await push(client, { force: true });
+      await syncLiveSchema(client);
       await seedLookupBed(client);
       await seedProducedIdentityDecoy(client);
 
@@ -562,7 +563,7 @@ describe("E1 U3 — the produced identity by substrate", () => {
     async () => {
       const db = new PGlite();
       const stateClient = makeLookupClient(new PGliteDriver({ client: db }));
-      await push(stateClient, { force: true });
+      await syncLiveSchema(stateClient);
       await seedLookupBed(stateClient);
       await seedProducedIdentityDecoy(stateClient);
 

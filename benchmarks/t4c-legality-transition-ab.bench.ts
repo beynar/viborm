@@ -48,7 +48,7 @@ const COUNT = 200;
 const makeClient = async () => {
   const driver = new SQLite3Driver({ dataDir: ":memory:" });
   const client = createClient({ schema, driver });
-  await push(client, { force: true });
+  await push(client);
   // Each parent owns one child, so the transition upsert takes its update branch.
   for (let i = 0; i < COUNT; i += 1) {
     await (client as any).parent.create({ data: { id: i, name: `p${i}` } });

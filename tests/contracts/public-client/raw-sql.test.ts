@@ -23,7 +23,7 @@ import type { RawOperation } from "@client/raw";
 import type { AnyDriver } from "@drivers";
 import { PendingOperationError, VibORMErrorCode } from "@errors";
 import { instrumentation } from "@instrumentation/extension";
-import { push } from "@migrations";
+
 import { s } from "@schema";
 import { empty, join, raw, sql } from "@sql";
 import {
@@ -33,6 +33,7 @@ import {
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
 import { captureLogs } from "@tests/unit/instrumentation/_capture";
 import { afterEach, describe, expect, expectTypeOf, test, vi } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 // Lowercase single-word identifiers need no dialect-specific quoting.
 const item = s
@@ -110,7 +111,7 @@ for (const { name, createDriver } of DIALECTS) {
     const setup = async () => {
       const { client, probe } = createProbedClient(createDriver);
       disconnect = () => client.$disconnect();
-      await push(client, { force: true });
+      await syncLiveSchema(client);
       await seed(client);
       probe.events.length = 0;
       return { client, probe };
@@ -380,7 +381,7 @@ for (const { name, createDriver } of DIALECTS) {
       test("the notice is silent when the warning channel is off", async () => {
         const client = createClient({ schema, driver: createDriver() });
         disconnect = () => client.$disconnect();
-        await push(client, { force: true });
+        await syncLiveSchema(client);
 
         await expect(
           client.$executeRaw("UPDATE raw_sql_items SET qty = 0")
@@ -476,7 +477,7 @@ describe("raw SQL in a native array transaction", () => {
     const driver = new BatchOnlyPGliteDriver();
     const client = createClient({ schema, driver });
     try {
-      await push(client, { force: true });
+      await syncLiveSchema(client);
       await seed(client);
       const executeBatch = vi.spyOn(driver, "_executeBatch");
 
@@ -511,7 +512,7 @@ describe("raw SQL in a native array transaction", () => {
     const driver = new BatchOnlyPGliteDriver();
     const client = createClient({ schema, driver });
     try {
-      await push(client, { force: true });
+      await syncLiveSchema(client);
       await seed(client);
       const rawOperation = client.$executeRaw`
         UPDATE raw_sql_items SET qty = ${9} WHERE id = ${"i1"}
@@ -541,7 +542,7 @@ describe("raw SQL in a native array transaction", () => {
     const driver = new BatchOnlyPGliteDriver();
     const client = createClient({ schema, driver });
     try {
-      await push(client, { force: true });
+      await syncLiveSchema(client);
       await seed(client);
       const executeBatch = vi.spyOn(driver, "_executeBatch");
 
@@ -563,7 +564,7 @@ describe("raw SQL in a native array transaction", () => {
     const driver = new BatchOnlyPGliteDriver();
     const client = createClient({ schema, driver });
     try {
-      await push(client, { force: true });
+      await syncLiveSchema(client);
       await seed(client);
 
       await expect(
@@ -593,7 +594,7 @@ describe("raw SQL in a native array transaction", () => {
     const client = createClient({ schema, driver });
     const foreign = createClient({ schema, driver: foreignDriver });
     try {
-      await push(client, { force: true });
+      await syncLiveSchema(client);
       const executeBatch = vi.spyOn(driver, "_executeBatch");
       const foreignOperation = foreign.$queryRaw`SELECT 1`;
 

@@ -1,8 +1,9 @@
 import { createClient } from "@client/client";
 import type { AnyDriver } from "@drivers";
-import { push } from "@migrations";
+
 import { s } from "@schema";
 import { afterAll, describe, expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 /**
  * E6.9 — `createMany` with a `select` AND `skipDuplicates`, on a driver with no
@@ -102,7 +103,7 @@ export function runSkipSelectCaptureBehavior(options: {
               );
             }
           }
-          await push(client, { force: true });
+          await syncLiveSchema(client);
           shared = client;
         }
         await shared.widget.deleteMany({});

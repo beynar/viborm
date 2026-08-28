@@ -1,8 +1,9 @@
 import { createClient, type VibORMClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
-import { push } from "@migrations";
+
 import { beforeAll, describe, expect, test } from "vitest";
 import { windowUserPostSchema } from "@tests/fixtures/user-post-schema";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 /**
  * Arbitrarily nested `not` (Prisma parity).
@@ -42,7 +43,7 @@ describe("nested not filters", () => {
 
   beforeAll(async () => {
     client = createClient({ schema, driver: new PGliteDriver() });
-    await push(client, { force: true });
+    await syncLiveSchema(client);
     await client.user.createMany({
       data: [
         { id: "alpha", name: "alpha one", email: "a@example.com", age: 20 },

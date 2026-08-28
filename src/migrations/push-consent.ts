@@ -1,0 +1,253 @@
+/**
+ * Hostile admission for push options and inert consent.
+ *
+ * Consent is not authority. A forged or stale value can only refuse
+ * execution. Apply replans under the lock and compares this closed shape.
+ */
+
+import { MigrationError, VibORMErrorCode } from "../errors";
+import { isRecord } from "../validation/value-guards";
+import { canonicalizeJsonText } from "./canonical-json";
+import { isSha256, type Sha256 } from "./identity";
+import { freezeDeep } from "./push-fingerprint";
+import type { ResolveCallback } from "./types";
+import type {
+  PushConsent,
+  PushOptionsV1,
+  PushResolution,
+  PushTargetIdentity,
+} from "./v1-types";
+
+interface ConsentedPlan {
+  readonly mode: PushConsent["mode"];
+  readonly validation: PushConsent["validation"];
+  readonly target: PushTargetIdentity;
+  readonly sourceFingerprint: Sha256;
+  readonly planHash: Sha256;
+  readonly resolutions: readonly PushResolution[];
+}
+
+export interface ParsedPlanningOptions {
+  readonly forceReset: boolean;
+  readonly skipValidation: boolean;
+  readonly resolve: ResolveCallback | undefined;
+  readonly dryRun: boolean;
+}
+
+export function parsePlanningOptions(
+  value: unknown,
+  dryRun: boolean
+): ParsedPlanningOptions {
+  const record = exactRecord(
+    value,
+    ["dryRun", "forceReset", "resolve", "skipValidation"],
+    "push options"
+  );
+  if (record.dryRun !== undefined && typeof record.dryRun !== "boolean") {
+    invalidOptions("push options.dryRun must be boolean");
+  }
+  if (
+    record.forceReset !== undefined &&
+    typeof record.forceReset !== "boolean"
+  ) {
+    invalidOptions("push options.forceReset must be boolean");
+  }
+  if (
+    record.skipValidation !== undefined &&
+    typeof record.skipValidation !== "boolean"
+  ) {
+    invalidOptions("push options.skipValidation must be boolean");
+  }
+  const candidate = record.resolve;
+  if (candidate !== undefined && typeof candidate !== "function") {
+    invalidOptions("push options.resolve must be a function");
+  }
+  const resolve: ResolveCallback | undefined =
+    typeof candidate === "function"
+      ? (change) => Reflect.apply(candidate, undefined, [change])
+      : undefined;
+  return {
+    dryRun: dryRun || record.dryRun === true,
+    forceReset: record.forceReset === true,
+    skipValidation: record.skipValidation === true,
+    resolve,
+  };
+}
+
+export function parseConsent(value: unknown): PushConsent {
+  const record = exactRecord(
+    value,
+    ["format", "mode", "planHash", "resolutions", "target", "validation"],
+    "push consent",
+    consentMismatch
+  );
+  if (record.format !== "1") consentMismatch("consent.format must be 1");
+  if (record.mode !== "diff" && record.mode !== "force-reset") {
+    consentMismatch("consent.mode is invalid");
+  }
+  if (record.validation !== "full" && record.validation !== "structural-only") {
+    consentMismatch("consent.validation is invalid");
+  }
+  if (!isSha256(record.planHash)) {
+    consentMismatch("consent.planHash is invalid");
+  }
+  if (!Array.isArray(record.resolutions)) {
+    consentMismatch("consent.resolutions must be an array");
+  }
+  const resolutions = record.resolutions.map((resolution, index) => {
+    const item = exactRecord(
+      resolution,
+      ["decision", "id"],
+      `consent.resolutions[${index}]`,
+      consentMismatch
+    );
+    if (typeof item.id !== "string" || typeof item.decision !== "string") {
+      consentMismatch(`consent.resolutions[${index}] is invalid`);
+    }
+    return { id: item.id, decision: item.decision };
+  });
+  return freezeDeep({
+    format: "1",
+    target: parseTarget(record.target),
+    planHash: record.planHash,
+    mode: record.mode,
+    validation: record.validation,
+    resolutions,
+  });
+}
+
+export function assertAcceptedPlan(
+  accepted: ConsentedPlan,
+  locked: ConsentedPlan
+): void {
+  if (
+    accepted.sourceFingerprint !== locked.sourceFingerprint ||
+    accepted.planHash !== locked.planHash
+  ) {
+    throw new MigrationError(
+      "The live push plan changed before the locked replan",
+      VibORMErrorCode.MIGRATION_CONSENT_MISMATCH,
+      {
+        meta: {
+          expectedChecksum: accepted.planHash,
+          actualChecksum: locked.planHash,
+          planHash: locked.planHash,
+          expectedFingerprint: accepted.sourceFingerprint,
+          actualFingerprint: locked.sourceFingerprint,
+        },
+      }
+    );
+  }
+}
+
+export function assertConsent(consent: PushConsent, plan: ConsentedPlan): void {
+  const targetMatches =
+    canonicalizeJsonText(consent.target) === canonicalizeJsonText(plan.target);
+  const resolutionsMatch =
+    canonicalizeJsonText(consent.resolutions) ===
+    canonicalizeJsonText(plan.resolutions);
+  if (
+    consent.mode !== plan.mode ||
+    consent.validation !== plan.validation ||
+    !targetMatches ||
+    !resolutionsMatch ||
+    consent.planHash !== plan.planHash
+  ) {
+    throw new MigrationError(
+      "Push consent does not match the locked live plan",
+      VibORMErrorCode.MIGRATION_CONSENT_MISMATCH,
+      {
+        meta: {
+          expectedChecksum: consent.planHash,
+          actualChecksum: plan.planHash,
+          planHash: plan.planHash,
+          fingerprint: plan.sourceFingerprint,
+        },
+      }
+    );
+  }
+}
+
+export function hasConsent(
+  options: PushOptionsV1
+): options is Extract<PushOptionsV1, { readonly consent: PushConsent }> {
+  return isRecord(options) && "consent" in options;
+}
+
+function parseTarget(value: unknown): PushTargetIdentity {
+  if (!isRecord(value)) consentMismatch("consent.target must be an object");
+  if (value.dialect === "postgresql") {
+    const record = exactRecord(
+      value,
+      ["bindingId", "database", "dialect", "namespace"],
+      "consent.target",
+      consentMismatch
+    );
+    return {
+      dialect: "postgresql",
+      database: requiredString(record.database, "consent.target.database"),
+      namespace: requiredString(record.namespace, "consent.target.namespace"),
+      bindingId: requiredString(record.bindingId, "consent.target.bindingId"),
+    };
+  }
+  if (value.dialect === "mysql") {
+    const record = exactRecord(
+      value,
+      ["bindingId", "database", "dialect"],
+      "consent.target",
+      consentMismatch
+    );
+    return {
+      dialect: "mysql",
+      database: requiredString(record.database, "consent.target.database"),
+      bindingId: requiredString(record.bindingId, "consent.target.bindingId"),
+    };
+  }
+  if (value.dialect === "sqlite") {
+    const record = exactRecord(
+      value,
+      ["bindingId", "dialect", "location"],
+      "consent.target",
+      consentMismatch
+    );
+    if (record.location !== null && typeof record.location !== "string") {
+      consentMismatch("consent.target.location must be string or null");
+    }
+    return {
+      dialect: "sqlite",
+      location: record.location,
+      bindingId: requiredString(record.bindingId, "consent.target.bindingId"),
+    };
+  }
+  consentMismatch("consent.target.dialect is invalid");
+}
+
+function exactRecord(
+  value: unknown,
+  allowed: readonly string[],
+  label: string,
+  refuse: (message: string) => never = invalidOptions
+): Record<string, unknown> {
+  if (!isRecord(value)) refuse(`${label} must be an object`);
+  for (const key of Object.keys(value)) {
+    if (!allowed.includes(key)) {
+      refuse(`${label} contains unknown key ${key}`);
+    }
+  }
+  return value;
+}
+
+function requiredString(value: unknown, label: string): string {
+  if (typeof value !== "string" || value.length === 0) {
+    consentMismatch(`${label} must be a non-empty string`);
+  }
+  return value;
+}
+
+function invalidOptions(message: string): never {
+  throw new MigrationError(message, VibORMErrorCode.INVALID_INPUT);
+}
+
+function consentMismatch(message: string): never {
+  throw new MigrationError(message, VibORMErrorCode.MIGRATION_CONSENT_MISMATCH);
+}

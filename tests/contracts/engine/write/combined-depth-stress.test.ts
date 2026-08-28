@@ -1,11 +1,12 @@
 import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite } from "@electric-sql/pglite";
-import { push } from "@migrations";
+
 import { s } from "@schema";
 import { observeClientOperations } from "@tests/contracts/engine/write/operation-observer";
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { describe, expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 /**
  * X1b COMBINED DEPTH STRESS — all four lifted mechanisms in ONE tree at >= 6 levels.
@@ -81,7 +82,7 @@ async function runObserved(
 ): Promise<{ state: unknown; engines: Set<"direct" | "production"> }> {
   const db = new PGlite();
   const base = makeClient(db);
-  await push(base as never, { force: true });
+  await syncLiveSchema(base as never);
   await seed(base);
   const driver =
     substrate === "tx"

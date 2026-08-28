@@ -4,7 +4,7 @@ import { PGliteDriver } from "@drivers/pglite";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import type { PGlite, Transaction } from "@electric-sql/pglite";
 import { UniqueConstraintError } from "@errors";
-import { push } from "@migrations";
+
 import { hydrateSchemaNames, s } from "@schema";
 import type { Model } from "@schema/model";
 import { sql } from "@sql";
@@ -20,6 +20,7 @@ import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import { prepareSchema, scopeFor } from "@tests/fixtures/query-scope";
 import type Database from "better-sqlite3";
 import { describe, expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 /**
  * PACKAGE M (plan §4.5 / §6 M2–M4) — **the PostgreSQL write-dependency fold, and
@@ -929,7 +930,7 @@ describe("M4 — injecting one reason at a time makes the fold decline", () => {
     const driver = new BatchOnlyReturningSQLiteDriver();
     const client = createClient({ schema: sqliteScalarSchema, driver });
     try {
-      await push(client, { force: true });
+      await syncLiveSchema(client);
       expect(driver.adapter.capabilities.supportsReturning).toBe(true);
       expect(driver.adapter.capabilities.supportsCteWithMutations).toBe(false);
       driver.batchCalls = 0;

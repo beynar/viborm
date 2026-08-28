@@ -4,7 +4,7 @@ import { MySQL2Driver } from "@drivers/mysql2";
 import { PGliteDriver } from "@drivers/pglite";
 import type { PGlite, Transaction } from "@electric-sql/pglite";
 import { NotFoundError, VibORMErrorCode } from "@errors";
-import { push } from "@migrations";
+
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames, s } from "@schema";
 import type { OperationStep } from "@src/query-engine/write-engine/OperationFragment";
@@ -13,6 +13,7 @@ import { constructRoutedOperation } from "@src/query-engine/write-engine/routing
 import { fragmentAtom } from "@tests/fixtures/routed-fragment-atom";
 import { createSchemaRegistry } from "@validation";
 import { beforeAll, describe, expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 /**
  * PHASE 3 — the delete fold (query-performance-plan).
@@ -112,7 +113,7 @@ class BatchOnlyRecordingDriver extends RecordingPGliteDriver {
 
 async function boot(driver: RecordingPGliteDriver) {
   const client = createClient({ schema, driver });
-  await push(client, { force: true });
+  await syncLiveSchema(client);
   for (const id of [1, 2, 3, 4, 5]) {
     await client.account.create({
       data: { id, email: `a${id}@x`, label: `L${id}` },

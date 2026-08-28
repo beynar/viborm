@@ -11,6 +11,7 @@ import {
   describeDecimalDomain,
   migrationDecimalStorageKind,
 } from "./decimal";
+import { normalizeDefault, normalizeType } from "./push-fingerprint";
 import type {
   AmbiguousChange,
   ColumnDef,
@@ -159,45 +160,6 @@ function columnsCanBeRenamed(a: ColumnDef, b: ColumnDef): boolean {
     aDecimalKind !== undefined &&
     aDecimalKind === migrationDecimalStorageKind(b)
   );
-}
-
-function normalizeType(type: string): string {
-  // Normalize type names for comparison
-  const normalized = type.toLowerCase().replace(/\s+/g, " ").trim();
-
-  // Handle common aliases
-  const aliases: Record<string, string> = {
-    int4: "integer",
-    int8: "bigint",
-    int2: "smallint",
-    float4: "real",
-    float8: "double precision",
-    bool: "boolean",
-    timestamptz: "timestamp with time zone",
-    timetz: "time with time zone",
-  };
-
-  return aliases[normalized] || normalized;
-}
-
-function normalizeDefault(defaultVal: string | undefined): string | undefined {
-  if (defaultVal === undefined) return undefined;
-
-  // Normalize common default expressions
-  const normalized = defaultVal.trim().toLowerCase();
-
-  // SQL DEFAULT NULL and an omitted default have the same behavior. MySQL's
-  // catalog cannot distinguish them, so the snapshot differ must use the one
-  // semantic spelling or every nullable column would churn after introspection.
-  if (normalized === "null") return undefined;
-
-  // Handle boolean values
-  if (normalized === "true" || normalized === "'t'" || normalized === "1")
-    return "true";
-  if (normalized === "false" || normalized === "'f'" || normalized === "0")
-    return "false";
-
-  return defaultVal;
 }
 
 function normalizeIndexType(type: IndexDef["type"]): string {

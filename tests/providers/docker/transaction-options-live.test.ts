@@ -13,9 +13,10 @@
 import { createClient } from "@client/client";
 import { MySQL2Driver } from "@drivers/mysql2";
 import { PgDriver } from "@drivers/pg";
-import { push } from "@migrations";
+
 import { s } from "@schema";
 import { describe, expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 const PG_CONNECTION_STRING = process.env.PG_TEST_CONNECTION_STRING;
 const MYSQL_CONNECTION_STRING = process.env.MYSQL_TEST_CONNECTION_STRING;
@@ -36,7 +37,7 @@ describeIfPg("PostgreSQL honors Serializable for real", () => {
   test("two concurrent Serializable transactions produce a mapped V5004", async () => {
     const driver = new PgDriver({ databaseUrl: PG_CONNECTION_STRING });
     const client = createClient({ schema: counterSchema, driver });
-    await push(client, { force: true });
+    await syncLiveSchema(client);
     await client.$queryRaw('DELETE FROM "tx_option_counters"');
     await client.counter.create({ data: { id: "a", total: 0 } });
     await client.counter.create({ data: { id: "b", total: 0 } });
@@ -81,7 +82,7 @@ describeIfPg("PostgreSQL honors Serializable for real", () => {
   test("the same pair commits without a conflict under ReadCommitted", async () => {
     const driver = new PgDriver({ databaseUrl: PG_CONNECTION_STRING });
     const client = createClient({ schema: counterSchema, driver });
-    await push(client, { force: true });
+    await syncLiveSchema(client);
     await client.$queryRaw('DELETE FROM "tx_option_counters"');
     await client.counter.create({ data: { id: "a", total: 0 } });
     await client.counter.create({ data: { id: "b", total: 0 } });

@@ -3,9 +3,10 @@ import {
   createClient as createSQLite3Client,
   SQLite3Driver,
 } from "@drivers/sqlite3";
-import { push } from "@migrations";
+
 import { sqliteUserPostSchema } from "@tests/fixtures/user-post-schema";
 import type { ProviderFixture } from "@tests/contracts/contract";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 export function createInMemorySQLite3Driver(): SQLite3Driver {
   return new SQLite3Driver({
@@ -26,7 +27,7 @@ export async function setupSQLite3UserPostDatabase(driver: SQLite3Driver) {
     driver,
   });
 
-  await push(tempClient, { force: true });
+  await syncLiveSchema(tempClient);
   await driver._executeRaw(`DELETE FROM "posts"`);
   await driver._executeRaw(`DELETE FROM "users"`);
 }

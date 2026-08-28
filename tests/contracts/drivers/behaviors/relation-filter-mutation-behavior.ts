@@ -6,9 +6,10 @@ import {
 } from "@client/client";
 import type { AnyDriver } from "@drivers";
 import { NotFoundError, UniqueConstraintError } from "@errors";
-import { push } from "@migrations";
+
 import { s } from "@schema";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 const user = s
   .model({
@@ -81,7 +82,7 @@ export function runRelationFilterMutationBehavior({
 
     beforeEach(async () => {
       client = createClient({ schema, driver: createDriver() });
-      await push(client, { force: true });
+      await syncLiveSchema(client);
 
       await client.user.create({
         data: {

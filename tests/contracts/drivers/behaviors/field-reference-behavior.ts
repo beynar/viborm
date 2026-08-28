@@ -1,9 +1,9 @@
 import { createClient } from "@client/client";
 import type { AnyDriver } from "@drivers";
-import { push } from "@migrations";
 import { createModelFieldRefs } from "@schema/field-ref";
 import { defineContract } from "@tests/contracts/contract";
 import { fieldRefSchema } from "@tests/fixtures/field-ref-schema";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import type { OperandCtx } from "@validation/primitives/operand";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
@@ -76,7 +76,7 @@ export function runFieldReferenceBehavior({
 
     beforeEach(async () => {
       client = createFieldRefClient(createDriver());
-      await push(client, { force: true });
+      await syncLiveSchema(client);
       await client.user.createMany({
         data: [
           { id: "u1", name: "alice", nickname: "alice" },

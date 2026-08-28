@@ -17,7 +17,7 @@ import { sqliteUserPostSchema } from "../tests/fixtures/user-post-schema";
 
 const driver = new SQLite3Driver({ dataDir: ":memory:" });
 const client = createClient({ schema: sqliteUserPostSchema, driver });
-await push(client, { force: true });
+await push(client);
 
 const USERS = 100;
 const POSTS = 1000;

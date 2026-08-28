@@ -3,7 +3,7 @@ import { createClient } from "@client/client";
 import type { AnyDriver, BatchQuery, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
-import { push } from "@migrations";
+
 import { createOperationExecutionContext } from "@query-engine/execution-context";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { createSchemaRegistry } from "@validation";
@@ -20,6 +20,7 @@ import {
 import { UpdateOperation } from "@src/query-engine/write-engine/UpdateOperation";
 import { batchIsAtomicUnit } from "@tests/fixtures/atomic-unit-batch";
 import { producedIdentitySchema } from "@tests/contracts/engine/write/produced-identity-depth-behavior";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 /** Runs one mutation on the same database just before the atomic batch commits — the
  *  concurrent-writer injection every other pin falsification in this estate uses. */
@@ -195,7 +196,7 @@ describe("N4-U2 — the adopt arm's missing-premise pin after the move", () => {
       schema: producedIdentitySchema,
       driver: new PGliteDriver({ client: db }),
     });
-    await push(base, { force: true });
+    await syncLiveSchema(base);
     await base.org.create({ data: { id: 2, slug: "target-org" } });
 
     const driver = new BeforeBatchPGliteDriver(

@@ -2,12 +2,13 @@ import { createClient, type VibORMClient } from "@client/client";
 import type { Schema } from "@client/types";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite } from "@electric-sql/pglite";
-import { push } from "@migrations";
+
 import { s } from "@schema";
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { manyToManySchema } from "@tests/fixtures/many-to-many-schema";
 import { nestedWriteBehaviorSchema } from "@tests/fixtures/nested-write-behavior-schema";
 import { describe, expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 // A schema exercising a foreign key that references a NON-primary-key unique
 // column of the parent. Updating that referenced column mid-operation while a
@@ -429,7 +430,7 @@ async function runScenario<TSchema extends Schema>(
     schema: group.schema,
     driver: new PGliteDriver({ client: db }),
   });
-  await push(setupClient, { force: true });
+  await syncLiveSchema(setupClient);
 
   const client = createClient({
     schema: group.schema,

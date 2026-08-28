@@ -33,7 +33,7 @@ const migrations = createMigrationClient(client);
 
 const result = await migrations.push();
 
-if (result.applied) {
+if (result.outcome === "applied") {
   console.log(`Applied ${result.operations.length} changes`);
 }
 ```
@@ -56,10 +56,10 @@ npx viborm push --dry-run
 const result = await migrations.push({ dryRun: true });
 
 console.log("Would apply:");
-for (const sql of result.sql) {
-  console.log(sql);
+for (const statement of result.statements) {
+  console.log(statement.sql);
 }
-// result.applied === false
+// result.outcome === "planned" | "noop"
 ```
   </Tab>
 </Tabs>
@@ -73,12 +73,6 @@ When push detects **destructive changes** (dropping tables/columns), **ambiguous
 ```bash
 # CLI prompts interactively for each change
 npx viborm push
-
-# Auto-accept all changes without prompting
-npx viborm push --force
-
-# Always ask for approval before executing SQL statements
-npx viborm push --strict
 ```
   </Tab>
   <Tab title="Migration Client">
@@ -203,63 +197,6 @@ const addDropResolver = async (change) => {
 const rejectAllResolver = async (change) => change.reject();
 ```
 
-## Force Mode
-
-Skip all resolution prompts and auto-accept everything:
-
-- **Destructive changes**: Proceeds (accepts data loss)
-- **Ambiguous changes**: Treats as add+drop (not rename, accepts data loss)
-- **Enum value removals**: Sets all to NULL
-
-<Tabs>
-  <Tab title="CLI">
-```bash
-npx viborm push --force
-```
-  </Tab>
-  <Tab title="Migration Client">
-```ts
-await migrations.push({ force: true });
-```
-  </Tab>
-</Tabs>
-
-:::warning[Data Loss]
-Force mode accepts all data loss. Use only when you're certain you don't need the data.
-:::
-
-### Combining Force with Resolver
-
-You can use both `force: true` and a `resolve` callback together. The resolver takes precedence - if it returns a result, that's used. If it returns `undefined` (doesn't handle the change), force mode kicks in automatically.
-
-This is useful for protecting specific tables or columns while auto-accepting everything else:
-
-```ts
-await migrations.push({
-  force: true,
-  resolve: async (change) => {
-    // Protect the users table from being dropped
-    if (change.type === "destructive" && change.table === "users") {
-      return change.reject();
-    }
-
-    // Protect specific renames from being treated as add+drop
-    if (change.type === "ambiguous" && change.table === "accounts") {
-      return change.rename();
-    }
-
-    // Return undefined to let force handle everything else
-  },
-});
-```
-
-| `force` | `resolve` | Behavior |
-|---------|-----------|----------|
-| `false` | `undefined` | Throw error if unresolved changes |
-| `true` | `undefined` | Auto-accept all changes |
-| `false` | provided | Resolver must handle all changes |
-| `true` | provided | Resolver handles what it returns, force handles the rest |
-
 ## Force Reset
 
 Reset the database before pushing (drops all tables and pushes fresh schema):
@@ -283,8 +220,8 @@ await migrations.push({ forceReset: true });
 Force reset drops all tables and data. Use with extreme caution and never in production.
 :::
 
-:::info[Storage-Aware]
-When a storage driver is configured, `forceReset` also clears the migration journal to keep it in sync. Without a storage driver, it only drops tables.
+:::info[History-free]
+`forceReset` never reads or writes the migration estate. A non-empty force-reset against a migration marker is refused.
 :::
 
 ## CLI Options
@@ -292,9 +229,7 @@ When a storage driver is configured, `forceReset` also clears the migration jour
 | Option | Description |
 |--------|-------------|
 | `--dry-run` | Preview SQL without executing |
-| `--force` | Skip all resolution prompts |
-| `--force-reset` | Drop all tables before pushing |
-| `--strict` | Always ask for approval before executing SQL statements |
+| `--force-reset` | Plan a rebuild from empty; requires exact preview consent |
 | `--verbose` | Print all SQL statements prior to execution |
 | `--config <path>` | Path to config file |
 
@@ -302,37 +237,50 @@ When a storage driver is configured, `forceReset` also clears the migration jour
 
 ```ts
 interface PushOptions {
-  force?: boolean;
   forceReset?: boolean;
   dryRun?: boolean;
   skipValidation?: boolean;
   resolve?: ResolveCallback;
+  consent?: PushConsent;
 }
 ```
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `force` | `boolean` | `false` | Auto-accept all changes. Can be combined with `resolve` to auto-accept unhandled changes. |
-| `forceReset` | `boolean` | `false` | Drop all tables before pushing |
+| `forceReset` | `boolean` | `false` | Drop managed tables, then rebuild from empty. Requires exact preview consent. |
 | `dryRun` | `boolean` | `false` | Preview SQL without executing |
 | `skipValidation` | `boolean` | `false` | Skip schema validation before pushing. Validation catches definition errors that would otherwise corrupt data silently — only skip it when deliberately pushing a shape the validator flags. |
-| `resolve` | `ResolveCallback` | - | Callback for resolving changes. Return `undefined` to let `force` handle it. |
+| `resolve` | `ResolveCallback` | - | Callback for resolving destructive or ambiguous changes. |
+| `consent` | `PushConsent` | - | Exact preview consent required for destructive or force-reset work. |
 
 ## API Result
 
 ```ts
-interface PushResult {
-  operations: DiffOperation[];
-  applied: boolean;
-  sql: string[];
+interface PushPreview {
+  outcome: "planned" | "noop";
+  target: PushTargetIdentity;
+  planHash: string;
+  destructive: boolean;
+  operations: readonly PushOperation[];
+  statements: readonly PushStatementPreview[];
+  consent: PushConsent;
+}
+
+interface PushApplyResult {
+  outcome: "applied" | "noop";
+  target: PushTargetIdentity;
+  planHash: string;
+  operations: readonly PushOperation[];
+  statements: readonly PushStatementPreview[];
 }
 ```
 
 | Property | Type | Description |
 |----------|------|-------------|
-| `operations` | `DiffOperation[]` | All operations that were applied |
-| `applied` | `boolean` | Whether changes were actually applied |
-| `sql` | `string[]` | Generated SQL statements |
+| `outcome` | `"planned" \| "noop" \| "applied"` | Whether the plan would change the database, or did |
+| `operations` | `PushOperation[]` | Review labels for the accepted plan |
+| `statements` | `PushStatementPreview[]` | Structured SQL plus typed parameters |
+| `consent` | `PushConsent` | Inert preview token; required to apply a destructive plan |
 
 ## Enum Value Removal
 

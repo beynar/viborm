@@ -2,7 +2,7 @@ import { createClient } from "@client/client";
 import type { BatchQuery, QueryResult } from "@drivers";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { TransactionError } from "@errors";
-import { push } from "@migrations";
+
 import { hydrateSchemaNames, s } from "@schema";
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import {
@@ -14,6 +14,7 @@ import {
   test,
 } from "vitest";
 
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 const continuationRaceSchema = (() => {
   const account = s
     .model({
@@ -81,7 +82,7 @@ describe("generated-output continuation premise", () => {
   const client = clientFor(driver);
 
   beforeAll(async () => {
-    await push(client, { force: true });
+    await syncLiveSchema(client);
     driver.adapter.capabilities.supportsCteWithMutations = false;
   });
 

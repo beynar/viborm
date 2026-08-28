@@ -20,7 +20,7 @@
 
 import type { OperationResult } from "@client/types";
 import { createClient as PGliteCreateClient } from "@drivers/pglite";
-import { push } from "@migrations";
+
 import { s } from "@schema";
 import Decimal from "decimal.js";
 import {
@@ -32,6 +32,7 @@ import {
   test,
 } from "vitest";
 
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 const ledger = s
   .model({
     id: s.string().id(),
@@ -156,7 +157,7 @@ let client: Awaited<
 beforeAll(async () => {
   const { PGlite } = await import("@electric-sql/pglite");
   client = await PGliteCreateClient({ schema, client: new PGlite() });
-  await push(client, { force: true });
+  await syncLiveSchema(client);
   await client.ledger.createMany({
     data: [
       {

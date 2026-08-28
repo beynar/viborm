@@ -19,7 +19,7 @@ import { sqliteUserPostSchema } from "../tests/fixtures/user-post-schema";
 
 const driver = new SQLite3Driver({ dataDir: ":memory:" });
 const client = createClient({ schema: sqliteUserPostSchema, driver });
-await push(client, { force: true });
+await push(client);
 
 // A stable pool of users/posts for connect/set/update targets.
 for (let i = 0; i < 50; i++) {
@@ -106,7 +106,12 @@ describe("nested: nested to-many upsert", () => {
         posts: {
           upsert: {
             where: { id: "seed_post_3" },
-            create: { id: "seed_post_3", title: "x", published: false, views: 0 },
+            create: {
+              id: "seed_post_3",
+              title: "x",
+              published: false,
+              views: 0,
+            },
             update: { views: { increment: 1 } },
           },
         },
@@ -123,7 +128,12 @@ describe("nested: connectOrCreate (existing branch)", () => {
         posts: {
           connectOrCreate: {
             where: { id: "seed_post_4" },
-            create: { id: "seed_post_4", title: "y", published: false, views: 0 },
+            create: {
+              id: "seed_post_4",
+              title: "y",
+              published: false,
+              views: 0,
+            },
           },
         },
       },

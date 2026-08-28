@@ -13,6 +13,7 @@
 import { PGlite } from "@electric-sql/pglite";
 import { createClient } from "../src/client/client";
 import { PGliteDriver } from "../src/drivers/pglite";
+import { push as applyPush, previewPush } from "../src/migrations";
 import { createMigrationClient } from "../src/migrations/client";
 import { lenientResolver } from "../src/migrations/resolver";
 import { s } from "../src/schema";
@@ -67,10 +68,15 @@ const postV2 = s.model({
 // DEMO FUNCTIONS
 // =============================================================================
 
+function banner(title: string): void {
+  const bar = "=".repeat(60);
+  console.log(`\n${bar}`);
+  console.log(title);
+  console.log(`${bar}\n`);
+}
+
 async function demo1_basicPush() {
-  console.log("\n" + "=".repeat(60));
-  console.log("DEMO 1: Basic Push (Initial Schema)");
-  console.log("=".repeat(60) + "\n");
+  banner("DEMO 1: Basic Push (Initial Schema)");
 
   const db = new PGlite();
   const driver = new PGliteDriver({ client: db });
@@ -86,23 +92,21 @@ async function demo1_basicPush() {
 
   console.log("Operations:");
   for (const op of result.operations) {
-    console.log(`  - ${op.type}: ${JSON.stringify(op).slice(0, 80)}...`);
+    console.log(`  - [${op.risk}] ${op.label} (${op.id})`);
   }
 
   console.log("\nSQL statements:");
-  for (const sql of result.sql) {
-    console.log(`  ${sql};`);
+  for (const statement of result.statements) {
+    console.log(`  ${statement.sql}`);
   }
 
-  console.log(`\nApplied: ${result.applied}`);
+  console.log(`\nOutcome: ${result.outcome}`);
 
   await driver.disconnect();
 }
 
 async function demo2_forceMode() {
-  console.log("\n" + "=".repeat(60));
-  console.log("DEMO 2: Force Mode (Auto-accept all changes)");
-  console.log("=".repeat(60) + "\n");
+  banner("DEMO 2: Force Mode (Auto-accept all changes)");
 
   const db = new PGlite();
   const driver = new PGliteDriver({ client: db });
@@ -112,38 +116,27 @@ async function demo2_forceMode() {
     driver,
     schema: { user: userV1, post: postV1 },
   });
-  await createMigrationClient(clientV1).push({ force: true });
+  await applyPush(clientV1);
   console.log("V1 schema pushed.\n");
 
-  // Now push V2 with force mode
+  // Now preview V2 without generic force
   const clientV2 = createClient({
     driver,
     schema: { user: userV2, post: postV2 },
   });
-  const migrations = createMigrationClient(clientV2);
 
-  const result = await migrations.push({ force: true, dryRun: true });
+  const result = await previewPush(clientV2);
 
-  console.log("Operations with force=true:");
+  console.log("Operations from previewPush:");
   for (const op of result.operations) {
-    if (op.type === "alterEnum") {
-      console.log(`  - ${op.type}: ${op.enumName}`);
-      if (op.addValues?.length)
-        console.log(`      add: ${op.addValues.join(", ")}`);
-      if (op.removeValues?.length)
-        console.log(`      remove: ${op.removeValues.join(", ")}`);
-    } else {
-      console.log(`  - ${op.type}`);
-    }
+    console.log(`  - [${op.risk}] ${op.label} (${op.id})`);
   }
 
   await driver.disconnect();
 }
 
 async function demo3_forceWithResolver() {
-  console.log("\n" + "=".repeat(60));
-  console.log("DEMO 3: Force + Resolve (Protect specific changes)");
-  console.log("=".repeat(60) + "\n");
+  banner("DEMO 3: Force + Resolve (Protect specific changes)");
 
   const db = new PGlite();
   const driver = new PGliteDriver({ client: db });
@@ -153,21 +146,18 @@ async function demo3_forceWithResolver() {
     driver,
     schema: { user: userV1, post: postV1 },
   });
-  await createMigrationClient(clientV1).push({ force: true });
+  await applyPush(clientV1);
   console.log("V1 schema pushed.\n");
 
-  // Push V2 with force + resolver
+  // Preview V2 with a resolver (no generic force)
   const clientV2 = createClient({
     driver,
     schema: { user: userV2, post: postV2 },
   });
-  const migrations = createMigrationClient(clientV2);
 
-  console.log("Pushing V2 with force=true + resolver...\n");
+  console.log("Previewing V2 with a resolver...\n");
 
-  const result = await migrations.push({
-    force: true,
-    dryRun: true,
+  const result = await previewPush(clientV2, {
     resolve: async (change) => {
       console.log(`Resolver called for: ${change.type}`);
       console.log(`  Description: ${change.description}\n`);
@@ -182,24 +172,21 @@ async function demo3_forceWithResolver() {
         return change.useNull();
       }
 
-      // Let force handle everything else
-      console.log("  -> Letting force handle this\n");
+      console.log("  -> Leaving this change for the planner\n");
       return undefined;
     },
   });
 
   console.log("Final operations:");
   for (const op of result.operations) {
-    console.log(`  - ${op.type}`);
+    console.log(`  - [${op.risk}] ${op.label}`);
   }
 
   await driver.disconnect();
 }
 
 async function demo4_enumResolution() {
-  console.log("\n" + "=".repeat(60));
-  console.log("DEMO 4: Per-Column Enum Value Resolution");
-  console.log("=".repeat(60) + "\n");
+  banner("DEMO 4: Per-Column Enum Value Resolution");
 
   const db = new PGlite();
   const driver = new PGliteDriver({ client: db });
@@ -209,7 +196,7 @@ async function demo4_enumResolution() {
     driver,
     schema: { user: userV1, post: postV1 },
   });
-  await createMigrationClient(clientV1).push({ force: true });
+  await applyPush(clientV1);
   console.log("V1 schema pushed.\n");
 
   // Push V2 with custom enum resolution
@@ -249,9 +236,9 @@ async function demo4_enumResolution() {
   });
 
   console.log("SQL for enum changes:");
-  for (const sql of result.sql) {
-    if (sql.includes("Status") || sql.includes("UPDATE")) {
-      console.log(`  ${sql};`);
+  for (const statement of result.statements) {
+    if (statement.sql.includes("Status") || statement.sql.includes("UPDATE")) {
+      console.log(`  ${statement.sql}`);
     }
   }
 
@@ -259,9 +246,7 @@ async function demo4_enumResolution() {
 }
 
 async function demo5_builtInResolvers() {
-  console.log("\n" + "=".repeat(60));
-  console.log("DEMO 5: Built-in Resolvers");
-  console.log("=".repeat(60) + "\n");
+  banner("DEMO 5: Built-in Resolvers");
 
   const db = new PGlite();
   const driver = new PGliteDriver({ client: db });
@@ -271,7 +256,7 @@ async function demo5_builtInResolvers() {
     driver,
     schema: { user: userV1, post: postV1 },
   });
-  await createMigrationClient(clientV1).push({ force: true });
+  await applyPush(clientV1);
   console.log("V1 schema pushed.\n");
 
   // Push V2 with lenientResolver
@@ -292,15 +277,7 @@ async function demo5_builtInResolvers() {
 
   console.log("Operations:");
   for (const op of result.operations) {
-    if (op.type === "renameColumn") {
-      console.log(
-        `  - renameColumn: ${op.from} -> ${op.to} in ${op.tableName}`
-      );
-    } else if (op.type === "alterEnum") {
-      console.log(`  - alterEnum: ${op.enumName}`);
-    } else {
-      console.log(`  - ${op.type}`);
-    }
+    console.log(`  - [${op.risk}] ${op.label} (${op.id})`);
   }
 
   await driver.disconnect();
@@ -321,9 +298,7 @@ async function main() {
     await demo4_enumResolution();
     await demo5_builtInResolvers();
 
-    console.log("\n" + "=".repeat(60));
-    console.log("All demos completed successfully!");
-    console.log("=".repeat(60) + "\n");
+    banner("All demos completed successfully!");
   } catch (error) {
     console.error("Error:", error);
     process.exit(1);

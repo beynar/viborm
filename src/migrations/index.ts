@@ -1,143 +1,56 @@
 /**
- * VibORM Migrations
+ * VibORM Migrations V1 public surface.
  *
- * Database schema migration utilities for VibORM.
+ * No journal, squash, path-level storage, raw differ, or MigrationContext.
  */
 
-// Errors
 export { isMigrationError, MigrationError } from "../errors";
-export type { DownOptions, DownResult } from "./apply/down";
-// Apply - Down
-export { down } from "./apply/down";
-// Apply
-export {
-  type ApplyFullOptions,
-  type ApplyResult,
-  apply,
-  pending,
-  status,
-} from "./apply/index";
+export { applyV1 as apply } from "./apply-v1";
+export type { CheckFinding, CheckResult } from "./check";
+export { checkEstate } from "./check";
 export type { MigrationClientOptions, Migrations } from "./client";
-// Client
 export { createMigrationClient } from "./client";
-// `MigrationContext` and `MigrationContextOptions` are deliberately NOT
-// exported. The context is the internal command-composition owner: its raw,
-// lock, tracking and statement methods would be a public route around the one
-// estate gate and the one live-capability admission decision. No compatibility
-// export remains; the concrete public command-option types inline their fields.
-// Differ
+export { generateV1 as generate } from "./generate-v1";
 export {
-  diff,
-  getDestructiveOperationDescriptions,
-  hasDestructiveOperations,
-} from "./differ";
-// Generate
-export { generate, preview } from "./generate";
-// Push
-export type { MigrationClient, PushOptions } from "./push";
-export {
-  formatOperation,
-  formatOperations,
-  generateDDL,
-  introspect,
-  push,
-} from "./push";
-export type { ResetOptions, ResetResult } from "./reset";
-// Reset
-export { reset } from "./reset";
-// Resolver
-export {
-  // Unified resolvers (for destructive, ambiguous, and enum changes)
-  addDropResolver,
-  // Legacy resolvers (for ambiguous changes only)
-  alwaysAddDropResolver,
-  alwaysRenameResolver,
-  applyResolutions,
-  createPredefinedResolver,
-  createResolver,
-  createUnifiedResolver,
-  formatAmbiguousChange,
-  formatAmbiguousChanges,
-  lenientResolver,
-  rejectAllResolver,
-  resolveAmbiguousChanges,
-  strictResolver,
-} from "./resolver";
-// Serializer
-export type { SerializeOptions } from "./serializer";
-export { getColumnName, getTableName, serializeModels } from "./serializer";
-export type { SquashOptions, SquashResult } from "./squash";
-// Squash
-export { squash } from "./squash";
-// Storage (base only - import fs driver from "viborm/migrations/storage/fs")
-export { MigrationStorageDriver } from "./storage";
-// Types
+  baselineV1 as baseline,
+  downV1 as down,
+  logV1 as log,
+  resetV1 as reset,
+  resolveV1 as resolve,
+  statusV1 as status,
+  verifyV1 as verify,
+} from "./operators";
+export { previewPush, pushV1 as push } from "./push-v1";
+export { createStorageConformanceSuite } from "./storage/conformance";
 export type {
-  AmbiguousChange,
-  AmbiguousChangeRequest,
-  AmbiguousChangeResolution,
-  AmbiguousColumnChange,
-  AmbiguousResolveChange,
-  AmbiguousTableChange,
-  AppliedMigration,
-  ApplyOptions,
-  ChangeResolution,
-  ColumnDef,
-  DestructiveResolveChange,
-  Dialect,
-  DiffOperation,
-  DiffResult,
-  EnumDef,
-  EnumValueRemoval,
-  EnumValueRemovalChange,
-  EnumValueRemovalRequest,
-  EnumValueRemovalResolution,
-  EnumValueResolution,
-  EnumValueResolver,
-  ForeignKeyDef,
-  GenerateOptions,
-  GenerateResult,
-  IndexDef,
-  MigrationEntry,
-  MigrationJournal,
-  MigrationStatus,
-  MigrationTarget,
-  PolymorphicSnapshotStorage,
-  PolymorphicToManySnapshot,
-  PolymorphicToManySnapshotMember,
-  PolymorphicToOneSnapshot,
-  PolymorphicToOneSnapshotMember,
-  PolymorphicToOneStorageRegistryEntry,
-  PrimaryKeyDef,
-  PushResult,
-  ReferentialAction,
-  ResolutionRequest,
-  ResolutionRequestType,
-  ResolutionResult,
-  ResolveCallback,
-  ResolveChange,
-  ResolveResult,
-  Resolver,
-  SchemaSnapshot,
-  TableDef,
-  UnifiedResolver,
-  UniqueConstraintDef,
-} from "./types";
-// Type helpers
+  MigrationStorageReader,
+  MigrationStorageWriter,
+  PublishResult,
+} from "./storage/contract";
+export { createFsStorageWriter } from "./storage/fs-estate";
+export { MemoryEstateStorage } from "./storage/memory";
+export type { ObjectStoreConditionalPut } from "./storage/object-store";
 export {
-  createAmbiguousChange,
-  createAmbiguousChangeRequest,
-  createDestructiveChange,
-  createEnumValueRemovalChange,
-  createEnumValueRemovalRequest,
-} from "./types";
-// Utils
-export {
-  DEFAULT_MIGRATIONS_DIR,
-  DEFAULT_TABLE_NAME,
-  extractForwardReferenceForeignKeys,
-  formatMigrationFilename,
-  generateMigrationName,
-  normalizeDialect,
-  sortOperations,
-} from "./utils";
+  MemoryConditionalObjectStore,
+  ObjectStoreEstateStorage,
+  refuseWorkersKvWritable,
+} from "./storage/object-store";
+export type { MigrationTarget, SchemaSnapshot } from "./types";
+export type {
+  ApplyV1Options as ApplyOptions,
+  BaselineOptions,
+  DownV1Options as DownOptions,
+  ExactPushOptions,
+  GenerateV1Options as GenerateOptions,
+  ManualMigrationInput,
+  ManualTransitionInput,
+  MigrationEstateDescriptorV1,
+  MigrationStateManifestV1,
+  PushApplyResult,
+  PushConsent,
+  PushOptionsV1 as PushOptions,
+  PushPreview,
+  ResetV1Options as ResetOptions,
+  ResolveV1Options as ResolveOptions,
+  StateSelector,
+} from "./v1-types";

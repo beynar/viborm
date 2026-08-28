@@ -1,26 +1,22 @@
 /**
- * Public migration estate types.
- *
- * `MigrationTarget` and the version-3 `MigrationJournal` are exported because
- * the public storage driver and journal accessors name them. The internal
- * context and its options type are not exported at all.
+ * Public V1 estate types. The journal is gone.
  */
 
 import type {
-  MigrationEntry,
-  MigrationJournal,
+  MigrationEstateDescriptorV1,
+  MigrationStateManifestV1,
   MigrationTarget,
+  StateSelector,
 } from "@src/migrations";
 
-// The migration context is internal: exporting it would be a public route
-// around the one estate gate and the one live-capability admission decision.
-// Its options type is internal too — the concrete public command-option types
-// inline their fields rather than extending it. Written as type queries so the
-// absence survives import organization.
 // @ts-expect-error - `MigrationContext` is not exported from viborm/migrations
 export type _NoContext = import("@src/migrations").MigrationContext;
-// @ts-expect-error - `MigrationContextOptions` is not exported either
+// @ts-expect-error - `MigrationJournal` is not exported
+export type _NoJournal = import("@src/migrations").MigrationJournal;
+// @ts-expect-error - `MigrationContextOptions` is not exported
 export type _NoOptions = import("@src/migrations").MigrationContextOptions;
+// @ts-expect-error - `MigrationEntry` is not exported
+export type _NoEntry = import("@src/migrations").MigrationEntry;
 
 type Expect<Value extends true> = Value;
 type Equal<Left, Right> =
@@ -30,9 +26,6 @@ type Equal<Left, Right> =
     ? true
     : false;
 
-// The target is a discriminated union with exactly three arms; PostgreSQL is
-// the only one carrying a namespace, because it is the only dialect whose
-// generated artifacts contain it.
 type _postgresArm = Expect<
   Equal<
     Extract<MigrationTarget, { dialect: "postgresql" }>,
@@ -52,66 +45,49 @@ type _sqliteArm = Expect<
   >
 >;
 
-// The journal version is the literal "3": there is no legacy reader, so no
-// other version is expressible.
-type _journalVersion = Expect<Equal<MigrationJournal["version"], "3">>;
-type _journalTarget = Expect<
-  Equal<MigrationJournal["target"], MigrationTarget>
+type _estateFormat = Expect<Equal<MigrationEstateDescriptorV1["format"], "1">>;
+type _estateHashAlg = Expect<
+  Equal<MigrationEstateDescriptorV1["hash"], "sha256">
 >;
-type _journalEntries = Expect<
-  Equal<MigrationJournal["entries"], readonly MigrationEntry[]>
+type _stateFormat = Expect<Equal<MigrationStateManifestV1["format"], "1">>;
+
+type _selectorId = Expect<
+  Equal<Extract<StateSelector, { id: string }>["id"], string>
+>;
+type _selectorPrefix = Expect<
+  Equal<Extract<StateSelector, { prefix: string }>["prefix"], string>
+>;
+type _selectorName = Expect<
+  Equal<Extract<StateSelector, { name: string }>["name"], string>
 >;
 
-declare const entry: MigrationEntry;
-
-export const postgresEstate: MigrationJournal = {
-  version: "3",
+export const postgresEstate: MigrationEstateDescriptorV1 = {
+  format: "1",
+  hash: "sha256",
   target: { dialect: "postgresql", namespace: "billing" },
-  entries: [entry],
 };
 
-export const mysqlEstate: MigrationJournal = {
-  version: "3",
+export const mysqlEstate: MigrationEstateDescriptorV1 = {
+  format: "1",
+  hash: "sha256",
   target: { dialect: "mysql" },
-  entries: [],
 };
 
-// A version-2 journal is not a journal.
-export const staleVersion: MigrationJournal = {
-  // @ts-expect-error - version "2" is refused, not upgraded
-  version: "2",
+export const staleFormat: MigrationEstateDescriptorV1 = {
+  // @ts-expect-error - only format "1" is V1
+  format: "3",
+  hash: "sha256",
   target: { dialect: "sqlite" },
-  entries: [],
 };
 
-// The retired top-level dialect is not an alias for the target.
-export const aliasedEstate: MigrationJournal = {
-  version: "3",
-  target: { dialect: "sqlite" },
-  // @ts-expect-error - a journal states its estate exactly once
-  dialect: "sqlite",
-  entries: [],
-};
-
-// A PostgreSQL estate cannot omit its schema.
-export const schemalessPostgres: MigrationJournal = {
-  version: "3",
-  // @ts-expect-error - the PostgreSQL arm requires its namespace
-  target: { dialect: "postgresql" },
-  entries: [],
-};
-
-// A MySQL estate cannot carry one: portability is the contract.
-export const namespacedMysql: MigrationJournal = {
-  version: "3",
+export const namespacedMysql: MigrationEstateDescriptorV1 = {
+  format: "1",
+  hash: "sha256",
   // @ts-expect-error - the MySQL arm is exactly { dialect }
   target: { dialect: "mysql", namespace: "app_prod" },
-  entries: [],
 };
 
-// A held journal's entries cannot be mutated in place.
-declare const heldJournal: MigrationJournal;
-// @ts-expect-error - entries are readonly
-heldJournal.entries.push(entry);
-// @ts-expect-error - the target is readonly
-heldJournal.target = { dialect: "sqlite" };
+export const selectorByName: StateSelector = { name: "add-users" };
+export const selectorByPrefix: StateSelector = { prefix: "a1b2c3d4" };
+// @ts-expect-error - numeric indexes are not state selectors
+export const selectorByIndex: StateSelector = { index: 0 };

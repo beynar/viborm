@@ -1,6 +1,6 @@
 ---
 title: L12 - Migrations
-description: Synchronize your TypeScript schema with the database through diffing and DDL generation
+description: Authenticated estate graph and history-free push — one differ, one compiler, dialect SQL in the bound migration driver
 icon: git-branch
 ---
 
@@ -18,17 +18,27 @@ const user = s.model({
 });
 ```
 
-The migrations layer detects this change and generates:
+The migrations layer serializes that schema, diffs it, and compiles dialect SQL. File history and live sync share that path. They do not share storage.
 
-```sql
-ALTER TABLE "user" ADD COLUMN "name" VARCHAR NULL;
-```
+## Domain Model
+
+| Term | Meaning |
+|------|---------|
+| **Estate** | One storage root: immutable target descriptor, snapshots, SQL blobs, state manifests. |
+| **Snapshot** | Canonical description of the VibORM-managed schema. |
+| **SQL blob** | Plain review SQL. Production slices authenticated byte ranges from it. |
+| **State** | One graph node. Identity is the manifest hash, not a filename or index. |
+| **Marker** | Database row for the last confirmed state and arrival path. |
+| **Ledger** | Append-only attempt and outcome evidence. Not reconstructed from the marker. |
+| **Push plan** | Ephemeral live program. Never inserted into the estate. |
+
+Two declared facts at generation time: the desired snapshot and the parent transitions. Pairing, apply order, and “latest file” are not stored.
 
 ## How It Works
 
-### 1. Schema Snapshot
+### 1. Schema snapshot
 
-First, the current TypeScript schema is serialized into a database-agnostic snapshot:
+The current TypeScript schema is serialized with the exact resolved relation index:
 
 ```typescript
 {
@@ -42,25 +52,20 @@ First, the current TypeScript schema is serialized into a database-agnostic snap
     }],
     indexes: [...],
     foreignKeys: [...]
-  }]
+  }],
+  enums: []
 }
 ```
 
-### 2. The Comparison Baseline
+### 2. Comparison baseline
 
-`viborm push` reads the current database state through the driver:
+`push` introspects the live target through the bound migration driver.
 
-```sql
-SELECT column_name, data_type, is_nullable 
-FROM information_schema.columns 
-WHERE table_name = 'user';
-```
-
-`viborm migrate generate` instead compares against the snapshot stored with the previous migration — no live database needed.
+`migrate generate` compares against the selected parent state's snapshot. No live database is required. The first state uses the virtual empty root.
 
 ### 3. Diffing
 
-The differ compares snapshots and produces operations:
+The one differ emits operations. The one resolver settles destructive and ambiguous changes.
 
 ```typescript
 [
@@ -69,17 +74,47 @@ The differ compares snapshots and produces operations:
 ]
 ```
 
-### 4. DDL Generation
+### 4. Compilation
 
-Each operation becomes database-specific DDL via the migration driver:
+`compile.ts` turns resolved operations or complete manual `Sql` values into ordered operations, checks, typed parameters, and one SQL blob. Dialect text, probes, and transactional classification stay on the bound `MigrationDriver`. Query-engine SQL is not used here.
 
-```typescript
-migrationDriver.generateDDL(operation)  // → ALTER TABLE ... ADD COLUMN ...
+Production never reparses display SQL and never splits on `;` or comments. One manual `Sql` value is one opaque provider dispatch.
+
+## Estate on Disk
+
 ```
+migrations/
+├── estate.json
+├── snapshots/<snapshot-hash>.json
+├── sql/<sql-hash>.sql
+└── states/<state-id>.json
+```
+
+There is no journal, no numbered `0001_*.sql`, no latest snapshot, and no `$migrations` table. Control tables are `_viborm_migration_state` (marker) and `_viborm_migration_log` (ledger).
+
+A state becomes visible only after snapshot and SQL bytes are durable and the manifest is published through an atomic no-replace write.
+
+## Public Surface
+
+`createMigrationClient` is the one composition root. `createFsStorageWriter` is the filesystem estate factory.
+
+```text
+generate
+check / list / show / graph
+status / verify / log
+apply / down / baseline / resolve / reset
+push
+```
+
+`apply({ to })` targets a full state id, unambiguous prefix, or unambiguous name. Numeric indexes have no meaning.
+
+`push` never receives estate storage and never writes the marker. A non-empty push against a valid marker is refused.
+
+Removed and not aliased: `MigrationContext`, `journal()`, `pending()`, `squash()`, `parseStatements`, `createFsStorageDriver`, path-level `get`/`put`/`delete`.
 
 ## Operation Types
 
-The full `DiffOperation` union (see `src/migrations/types.ts`):
+The `DiffOperation` union (see `src/migrations/types.ts`):
 
 | Operation | Description |
 |-----------|-------------|
@@ -104,68 +139,49 @@ The full `DiffOperation` union (see `src/migrations/types.ts`):
 
 ## Ambiguous Changes
 
-Some changes can't be automatically resolved:
+Some diffs cannot be decided from names alone:
 
 ```typescript
 // Did you rename "name" to "fullName"?
 // Or delete "name" and create "fullName"?
 ```
 
-The CLI prompts for clarification:
-
-```
-? Column "name" was removed and "fullName" was added.
-  ○ Rename "name" to "fullName" (preserves data)
-  ○ Drop "name" and create "fullName" (loses data)
-```
+Generation and push take a `resolve` callback. The CLI prompts during generate when a structural rename is ambiguous. Those decisions are closed into the published state or into push consent. They are not replayed from a journal.
 
 ## Push vs Migrate
 
-VibORM offers two approaches:
-
 ### `viborm push`
 
-Direct sync - applies changes immediately:
+History-free live sync. Preview is inert. Effectful apply requires the consent from that preview for destructive or force-reset work. Dry-run has zero database and storage effects. Push never writes estate storage or the marker.
 
-```bash
-viborm push
-# Compares schema → database
-# Shows diff
-# Applies changes
-```
-
-Best for: Development, prototyping
+Best for: local development, disposable databases.
 
 ### `viborm migrate`
 
-Generate SQL migration files for review, then apply them:
+Authenticated state graph. Generate publishes immutable artifacts. Apply executes authenticated slices and advances the marker. `down` follows the recorded arrival path. Rollback restores managed schema shape; it does not restore discarded data.
 
-```bash
-viborm migrate generate
-# Diffs schema against the last snapshot
-# Writes an up/down migration to the migrations directory
+Best for: production, review, branches that must converge.
 
-viborm migrate apply
-# Executes pending migrations (tracked in a migrations table)
+See `src/cli/commands/migrate.ts` and `viborm/migrations` (`createMigrationClient`, `createFsStorageWriter`, `previewPush`).
 
-viborm migrate down
-# Rolls back applied migrations using the generated down SQL
+## Provider Limits
 
-viborm migrate status
-# Shows applied vs pending migrations
-```
+Effectful work is admitted only when lock and marker CAS are proven.
 
-Four subcommands. There is deliberately no tracking-only "drop": removing a
-tracking row while its schema changes stay live bypasses the rollback policy
-each migration commits to.
+| Provider | Effectful migrate / push |
+|----------|--------------------------|
+| PGlite, `pg`, postgres.js, Bun SQL | Effectful when lock/CAS is proven. Transactional when every statement permits it. |
+| SQLite3, Bun SQLite | Effectful when lock/CAS is proven. |
+| MySQL2 | Stepwise. DDL implicitly commits; nominal transactions do not roll back. |
+| Neon HTTP, PlanetScale | Read-only / offline for effectful work. Generation, check, status, and push dry-run remain. |
+| D1, D1 HTTP, LibSQL | Effectful refused until proven. |
 
-Best for: Production, team workflows
-
-See `src/cli/commands/migrate.ts` for the CLI and `viborm/migrations` for the programmatic API (`generate`, `apply`, `down`, `status`, `push`, `reset`, `squash`, ...). `down()` is the only rollback verb.
+No provider inherits a guarantee from its dialect name.
 
 ## Connection to Other Layers
 
 - **L2 (Scalars)**: Scalar state determines column definitions
-- **L4 (Relations)**: Relations determine foreign key constraints
-- **L7 (Adapters)**: Adapters generate database-specific DDL
-- **L8 (Drivers)**: Drivers execute DDL and introspect schema
+- **L4 (Relations)**: The resolved relation index determines foreign keys and junctions
+- **L5 (Schema validation)**: Definition-time topology; migrations do not rescan inverses
+- **L7 (Adapters)**: Not the DDL owner. Dialect migration SQL lives on `MigrationDriver`
+- **L8 (Drivers)**: Connection, pinned session, execution. Neon HTTP and PlanetScale have no effectful lock

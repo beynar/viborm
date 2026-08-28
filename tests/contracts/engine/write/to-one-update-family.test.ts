@@ -2,7 +2,7 @@ import { createClient } from "@client/client";
 import type { AnyDriver, BatchQuery, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
-import { push } from "@migrations";
+
 import { createOperationExecutionContext } from "@query-engine/execution-context";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { s } from "@schema";
@@ -25,6 +25,7 @@ import {
 import { nestedWriteBehaviorSchema } from "@tests/fixtures/nested-write-behavior-schema";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 // Two parent-held to-one relations on one record, BOTH referencing `account` — the
 // sibling-coupling witness. Under an UPDATE root the coverage ledger does NOT apply
@@ -620,7 +621,7 @@ describe("write boundary to-one update family: T2 pin falsifications", () => {
       schema: opf,
       driver: new PGliteDriver({ client: db }),
     });
-    await push(base as never, { force: true } as never);
+    await syncLiveSchema(base as never);
     await (base as any).user.create({ data: { name: "owner" } }); // id=1
     await (base as any).post.create({
       data: { id: 6, title: "t", slug: "s6" },
@@ -669,7 +670,7 @@ describe("write boundary to-one update family: T2 pin falsifications", () => {
       schema: nb,
       driver: new PGliteDriver({ client: db }),
     });
-    await push(base as never, { force: true } as never);
+    await syncLiveSchema(base as never);
     await (base as any).profile.create({
       data: { id: "pr1", bio: "b", userId: null },
     });
@@ -724,7 +725,7 @@ describe("write boundary to-one update family: T2 pin falsifications", () => {
       schema: nb,
       driver: new PGliteDriver({ client: db }),
     });
-    await push(base as never, { force: true } as never);
+    await syncLiveSchema(base as never);
     await (base as any).user.create({ data: { id: "u1", name: "a" } });
     await (base as any).user.create({ data: { id: "u2", name: "b" } });
     await (base as any).profile.create({
@@ -770,7 +771,7 @@ describe("write boundary to-one update family: T2 pin falsifications", () => {
       schema: nb,
       driver: new PGliteDriver({ client: db }),
     });
-    await push(base as never, { force: true } as never);
+    await syncLiveSchema(base as never);
     await (base as any).user.create({ data: { id: "u1", name: "a" } });
     await (base as any).user.create({ data: { id: "u2", name: "b" } });
     await (base as any).profile.create({

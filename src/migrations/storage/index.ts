@@ -1,29 +1,17 @@
 /**
- * Migration Storage
- *
- * Abstracts file storage for migrations.
- *
- * For tree-shaking, import storage drivers directly:
- * ```typescript
- * import { createFsStorageDriver } from "viborm/migrations/storage/fs";
- * ```
+ * Semantic migration storage. Path-level get/put/delete is not public.
  */
 
-// Driver base class and helpers (no node:fs dependency)
+export type {
+  MigrationStorageReader,
+  MigrationStorageWriter,
+  PublishResult,
+} from "./contract";
+export { isMigrationStorageWriter } from "./contract";
+export { createFsStorageWriter, FsEstateStorage } from "./fs-estate";
+export { MemoryEstateStorage } from "./memory";
 export {
-  addJournalEntry,
-  calculateChecksum,
-  createEmptyJournal,
-  createEmptySnapshot,
-  createMigrationEntry,
-  formatMigrationFilename,
-  formatMigrationPath,
-  generateVersion,
-  getNextMigrationIndex,
-  MigrationStorageDriver,
-  toKebabCase,
-} from "./driver";
-
-// NOTE: Concrete drivers are NOT re-exported here to allow tree-shaking.
-// Import them directly:
-//   import { createFsStorageDriver } from "viborm/migrations/storage/fs";
+  MemoryConditionalObjectStore,
+  ObjectStoreEstateStorage,
+  refuseWorkersKvWritable,
+} from "./object-store";

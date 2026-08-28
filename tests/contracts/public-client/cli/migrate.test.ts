@@ -1,100 +1,57 @@
 /**
- * INTEGRATION tests for `viborm migrate` and its four subcommands
- * (generate / apply / down / status), plus an absence pin for the deleted
- * `drop`: untracking an applied migration while its schema stays live bypasses
- * the rollback policy each journal entry now persists, so `down` is the only
- * rollback verb.
+ * INTEGRATION tests for `viborm migrate` against the V1 estate CLI.
  *
- * Everything runs for real: a temp project with a real `viborm.config.ts`
- * (in-memory PGlite client + real schema), the real migration engine, the real
- * fs storage driver writing `.sql` files into a temp `./migrations` dir. Only
- * `@clack/prompts` and `process.exit` are stubbed by `_harness.ts`.
+ * Subcommands print JSON. Generation publishes `estate.json`, content-addressed
+ * snapshots/SQL, and state manifests — not numbered files and not a journal.
  *
- * DB state is asserted for real two ways:
- *   - by re-running CLI commands whose output is a function of DB state
- *     (`status` flips pending<->applied; `down` only sees applied migrations), and
- *   - by importing the SAME config module the CLI imports (Node caches it, so the
- *     PGlite client instance is shared) and querying information_schema directly.
- *
- * WHY A FILE-BACKED PGlite (not the harness default `{}` in-memory):
- * every CLI command connects then disconnects, and PGlite's `close()` DESTROYS
- * an in-memory database. So in-memory DB state (including the migration tracking
- * table) does NOT survive across two CLI invocations — a `status` after an
- * `apply` would see a fresh empty DB. A real deployment points at a persistent
- * DB, so we mirror that: `writePersistentConfig` gives the client a `dataDir`
- * under the temp project. State then survives disconnect, exactly as in prod.
+ * A file-backed PGlite is required: every command disconnects, and an
+ * in-memory PGlite is destroyed on close. The V1 migrate CLI discovers
+ * `viborm.config.ts` from cwd; it has no `--config` flag.
  */
 
-import { readdirSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { isSha256 } from "@src/migrations/identity";
+import { isRecord } from "@src/validation/value-guards";
 import {
-  CANCEL,
   invokeCLI,
   makeTempProject,
-  queueAnswers,
   type TempProject,
   writeConfigFixture,
 } from "@tests/contracts/public-client/cli/_harness";
+import type { Command } from "commander";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-interface PersistentConfigOptions {
-  schemaBody?: string;
-  migrationsBlock?: string;
-  configName?: string;
-}
+const NUMBERED_SQL = /^\d+_.*\.sql$/;
+const ESTATE = /estate/i;
+const NAMED_ZERO_OR_MISSING = /named 0|not found/i;
+const UNKNOWN_OPTION_FORCE = /unknown option|force/;
+const ROLL_BACK_OR_NOTHING = /roll back|nothing/i;
 
-/**
- * Write a `viborm.config.ts` whose PGlite client uses a persistent on-disk
- * dataDir under the temp project (so DB state survives connect/disconnect).
- * Returns the absolute config path. Thin wrapper over the shared harness's
- * `writeConfigFixture` with a per-config-name dataDir (each config filename gets
- * its own DB, since a config module is import-cached and can't be re-read after
- * a schema change).
- */
 function writePersistentConfig(
   project: TempProject,
-  options: PersistentConfigOptions = {}
+  schemaBody?: string,
+  migrationsBlock?: string
 ): string {
-  const {
-    schemaBody,
-    migrationsBlock,
-    configName = "viborm.config.ts",
-  } = options;
   return writeConfigFixture(project, {
-    configName,
     schemaBody,
     migrationsBlock,
-    dataDir: join(project.dir, `pgdata-${configName}`),
+    dataDir: join(project.dir, "pgdata"),
   });
 }
 
-// ---------------------------------------------------------------------------
-// helpers
-// ---------------------------------------------------------------------------
-
-/**
- * The harness rebuilds a fresh `program` per invocation but re-adds the SAME
- * module-singleton `migrateCommand` (and its subcommands) imported from src.
- * Commander stores parsed option values ON the Command instance and does NOT
- * clear un-defaulted options between parses, so an option set in one invocation
- * (e.g. `--name`) leaks into the next parse of that same subcommand. Production
- * parses once per process so never hits this; multi-invocation tests do.
- *
- * `resetCommands()` clears that leaked per-Command state (restoring registered
- * defaults) so every `cli()` call parses from a clean slate. It touches ONLY
- * commander's own bookkeeping — the config module / PGlite DB stays cached, so
- * DB state still persists across invocations within a test.
- */
-// biome-ignore lint/suspicious/noExplicitAny: reaching into commander internals
-function resetCommand(cmd: any): void {
+function resetCommand(cmd: Command): void {
   for (const child of cmd.commands) {
     resetCommand(child);
   }
-  for (const key of Object.keys(cmd._optionValues)) {
-    delete cmd._optionValues[key];
+  const values = Reflect.get(cmd, "_optionValues");
+  if (isRecord(values)) {
+    for (const key of Object.keys(values)) {
+      delete values[key];
+    }
   }
-  cmd._optionValueSources = {};
+  Reflect.set(cmd, "_optionValueSources", {});
   for (const opt of cmd.options) {
     if (opt.defaultValue !== undefined) {
       cmd.setOptionValueWithSource(
@@ -107,64 +64,51 @@ function resetCommand(cmd: any): void {
 }
 
 async function resetCommands(): Promise<void> {
-  const { migrateCommand } = await import("@src/cli/commands/migrate");
-  resetCommand(migrateCommand);
+  const mod = await import("@src/cli/commands/migrate");
+  const command =
+    "migrateCommand" in mod && mod.migrateCommand
+      ? mod.migrateCommand
+      : mod.createMigrateCommand();
+  resetCommand(command);
 }
 
-/** Reset leaked commander option state, then invoke the CLI via the harness. */
 async function cli(argv: string[], cwd: string) {
   await resetCommands();
   return invokeCLI(argv, { cwd });
 }
 
-/**
- * Set up a project with TWO migrations both applied:
- *   idx 0 -> `user` table, idx 1 -> `post` table.
- * Returns the config path to use for subsequent commands (the second config,
- * whose DB holds the tracking rows). Uses two config filenames because the first
- * config module is cached and can't be re-read after a schema change.
- */
-async function setupTwoAppliedMigrations(
-  project: TempProject
-): Promise<string> {
-  writePersistentConfig(project, {
-    schemaBody: `
-      const user = s.model({ id: s.string().id(), email: s.string() });
-      const schema = { user };
-    `,
-  });
-  await cli(
-    ["migrate", "generate", "--config", project.configPath],
-    project.dir
-  );
-
-  const cfg2 = writePersistentConfig(project, {
-    configName: "viborm2.config.ts",
-    schemaBody: `
-      const user = s.model({ id: s.string().id(), email: s.string() });
-      const post = s.model({ id: s.string().id(), title: s.string() });
-      const schema = { user, post };
-    `,
-  });
-  await cli(["migrate", "generate", "--config", cfg2], project.dir);
-  await cli(["migrate", "apply", "--force", "--config", cfg2], project.dir);
-  return cfg2;
-}
-
-/** List the *.sql migration files in a dir (empty array if the dir is absent). */
-function migrationFiles(dir: string): string[] {
-  try {
-    return readdirSync(dir).filter((f) => f.endsWith(".sql"));
-  } catch {
-    return [];
+function readJson(result: { stdout: string; output: string }): unknown {
+  const text = result.stdout.trim() || result.output.trim();
+  const objectStart = text.indexOf("{");
+  const arrayStart = text.indexOf("[");
+  const start =
+    objectStart >= 0 && (arrayStart < 0 || objectStart < arrayStart)
+      ? objectStart
+      : arrayStart;
+  if (start < 0) {
+    throw new Error(`Expected JSON in CLI output:\n${text}`);
   }
+  return JSON.parse(text.slice(start));
 }
 
-/**
- * Import the client from the temp config module (same instance the CLI used,
- * thanks to Node's module cache) and query whether a table exists in PGlite.
- * Reconnects if the CLI left the driver disconnected.
- */
+function estateLayout(dir: string) {
+  const list = (subdirectory: string, suffix: string): string[] => {
+    const path = join(dir, subdirectory);
+    if (!existsSync(path)) return [];
+    return readdirSync(path).filter((name) => name.endsWith(suffix));
+  };
+  return {
+    estate: existsSync(join(dir, "estate.json")),
+    states: list("states", ".json"),
+    snapshots: list("snapshots", ".json"),
+    sql: list("sql", ".sql"),
+    numbered: existsSync(dir)
+      ? readdirSync(dir).filter((name) => NUMBERED_SQL.test(name))
+      : [],
+    journal: existsSync(join(dir, "meta", "_journal.json")),
+  };
+}
+
 async function tableExists(
   configPath: string,
   table: string
@@ -181,836 +125,399 @@ async function tableExists(
   return Array.isArray(rows) && rows.length > 0;
 }
 
-/** First migration filename: `0000_<name>.sql`. */
-const FIRST_MIGRATION_FILE = /^0000_.*\.sql$/;
+async function generatePublished(
+  project: TempProject,
+  extra: string[] = []
+): Promise<{ stateId: string; name: string }> {
+  const result = await cli(["migrate", "generate", ...extra], project.dir);
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper owns the generate contract
+  expect(result.thrown).toBeUndefined();
+  const body = readJson(result) as {
+    outcome: string;
+    stateId: string | null;
+    name: string | null;
+  };
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper owns the generate contract
+  expect(body.outcome).toBe("published");
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper owns the generate contract
+  expect(isSha256(body.stateId)).toBe(true);
+  return { stateId: body.stateId!, name: body.name ?? "" };
+}
 
 describe("migrate", () => {
   let project: TempProject;
 
   beforeEach(() => {
     project = makeTempProject();
-    queueAnswers([]);
   });
 
   afterEach(() => {
     project.cleanup();
   });
 
-  // =========================================================================
-  // migrate (parent)
-  // =========================================================================
-
   describe("parent command", () => {
-    it("with no subcommand prints help listing the four subcommands and exits 1", async () => {
+    it("with no subcommand lists the V1 verbs and exits 1", async () => {
       const result = await cli(["migrate"], project.dir);
-
-      // Commander emits the usage/help text (a real side effect) and, under
-      // exitOverride with no dispatched subcommand, exits with code 1.
-      for (const name of ["generate", "apply", "down", "status"]) {
+      for (const name of [
+        "generate",
+        "check",
+        "list",
+        "show",
+        "graph",
+        "status",
+        "verify",
+        "log",
+        "apply",
+        "down",
+        "baseline",
+        "resolve",
+        "reset",
+      ]) {
         expect(result.output).toContain(name);
       }
+      expect(result.output).not.toContain("squash");
       expect(result.exitCode).toBe(1);
     });
   });
-
-  // =========================================================================
-  // migrate generate
-  // =========================================================================
 
   describe("generate", () => {
-    it("writes a migration file into the default ./migrations dir", async () => {
+    it("publishes estate.json, a snapshot, a SQL blob, and a state manifest", async () => {
       writePersistentConfig(project);
+      const published = await generatePublished(project);
+      const layout = estateLayout(project.migrationsDir);
+      expect(layout.estate).toBe(true);
+      expect(layout.states).toHaveLength(1);
+      expect(layout.states[0]).toBe(`${published.stateId}.json`);
+      expect(layout.snapshots).toHaveLength(1);
+      expect(layout.sql).toHaveLength(1);
+      expect(layout.numbered).toHaveLength(0);
+      expect(layout.journal).toBe(false);
+    });
 
+    it("--dry-run previews SQL and writes no estate", async () => {
+      writePersistentConfig(project);
       const result = await cli(
-        ["migrate", "generate", "--config", project.configPath],
+        ["migrate", "generate", "--dry-run"],
         project.dir
       );
-
       expect(result.thrown).toBeUndefined();
-      expect(result.exitCode).toBeNull();
-      expect(result.output).toContain("Created migration:");
-
-      const files = migrationFiles(project.migrationsDir);
-      expect(files).toHaveLength(1);
-      expect(files[0]).toMatch(FIRST_MIGRATION_FILE);
+      const body = readJson(result) as { outcome: string; sql: string };
+      expect(body.outcome).toBe("preview");
+      expect(body.sql.toUpperCase()).toContain("CREATE TABLE");
+      expect(estateLayout(project.migrationsDir).estate).toBe(false);
+      expect(estateLayout(project.migrationsDir).states).toHaveLength(0);
     });
 
-    it("--dry-run previews SQL but writes NO file", async () => {
+    it("--dir writes into a custom estate root", async () => {
       writePersistentConfig(project);
-
-      const result = await cli(
-        ["migrate", "generate", "--dry-run", "--config", project.configPath],
-        project.dir
-      );
-
-      expect(result.exitCode).toBeNull();
-      expect(result.output).toContain("Would create:");
-      expect(migrationFiles(project.migrationsDir)).toHaveLength(0);
+      await generatePublished(project, ["--dir", "custom-mig"]);
+      expect(estateLayout(`${project.dir}/custom-mig`).estate).toBe(true);
+      expect(estateLayout(project.migrationsDir).estate).toBe(false);
     });
 
-    it("--out writes into a custom dir (CLI option beats default)", async () => {
+    it("config migrations.dir is used when no --dir is given", async () => {
+      writePersistentConfig(
+        project,
+        undefined,
+        `migrations: { dir: "./cfg-mig" }`
+      );
+      await generatePublished(project);
+      expect(estateLayout(`${project.dir}/cfg-mig`).estate).toBe(true);
+    });
+
+    it("--name is stored as state metadata, not a numbered filename", async () => {
       writePersistentConfig(project);
-
-      const result = await cli(
-        [
-          "migrate",
-          "generate",
-          "--out",
-          "custom-mig",
-          "--config",
-          project.configPath,
-        ],
-        project.dir
-      );
-
-      expect(result.exitCode).toBeNull();
-      expect(migrationFiles(`${project.dir}/custom-mig`)).toHaveLength(1);
-      // default dir untouched
-      expect(migrationFiles(project.migrationsDir)).toHaveLength(0);
+      const published = await generatePublished(project, [
+        "--name",
+        "hello-world",
+      ]);
+      expect(published.name).toBe("hello-world");
+      expect(estateLayout(project.migrationsDir).numbered).toHaveLength(0);
     });
 
-    it("config migrations.dir is used when no --out is given", async () => {
-      writePersistentConfig(project, {
-        migrationsBlock: `migrations: { dir: "./cfg-mig" }`,
-      });
-
-      const result = await cli(
-        ["migrate", "generate", "--config", project.configPath],
-        project.dir
-      );
-
-      expect(result.exitCode).toBeNull();
-      expect(migrationFiles(`${project.dir}/cfg-mig`)).toHaveLength(1);
-    });
-
-    it("--name puts the name into the migration filename", async () => {
+    it("a second generate is a noop and publishes no new state", async () => {
       writePersistentConfig(project);
-
-      const result = await cli(
-        [
-          "migrate",
-          "generate",
-          "--name",
-          "hello-world",
-          "--config",
-          project.configPath,
-        ],
-        project.dir
-      );
-
-      expect(result.exitCode).toBeNull();
-      const files = migrationFiles(project.migrationsDir);
-      expect(files[0]).toBe("0000_hello-world.sql");
+      await generatePublished(project);
+      const second = await cli(["migrate", "generate"], project.dir);
+      const body = readJson(second) as { outcome: string };
+      expect(body.outcome).toBe("noop");
+      expect(estateLayout(project.migrationsDir).states).toHaveLength(1);
     });
 
-    it("reports 'No schema changes detected.' on a second generate", async () => {
-      writePersistentConfig(project);
-
-      await cli(
-        ["migrate", "generate", "--config", project.configPath],
-        project.dir
+    it("missing config surfaces an error", async () => {
+      const result = await cli(["migrate", "generate"], project.dir);
+      expect(result.thrown ?? result.exitCode).toBeTruthy();
+      expect(result.output).toContain(
+        "Could not find VibORM configuration file"
       );
-      const second = await cli(
-        ["migrate", "generate", "--config", project.configPath],
-        project.dir
-      );
-
-      expect(second.exitCode).toBeNull();
-      expect(second.output).toContain("No schema changes detected.");
-      // still exactly one file (the second run wrote nothing new)
-      expect(migrationFiles(project.migrationsDir)).toHaveLength(1);
-    });
-
-    it("gen alias resolves to the same command", async () => {
-      writePersistentConfig(project);
-
-      const result = await cli(
-        ["migrate", "gen", "--config", project.configPath],
-        project.dir
-      );
-
-      expect(result.exitCode).toBeNull();
-      expect(result.output).toContain("Created migration:");
-      expect(migrationFiles(project.migrationsDir)).toHaveLength(1);
-    });
-
-    it("bad config surfaces an error and exits 1", async () => {
-      // No config written -> loadConfig cannot find it.
-      const result = await cli(
-        ["migrate", "generate", "--config", `${project.dir}/nope.config.ts`],
-        project.dir
-      );
-
-      expect(result.exitCode).toBe(1);
-      expect(result.output.toLowerCase()).toContain("error");
     });
   });
-
-  // =========================================================================
-  // migrate apply
-  // =========================================================================
 
   describe("apply", () => {
-    it("no pending migrations: notes 'No pending migrations to apply.'", async () => {
+    it("without an estate refuses before effects", async () => {
       writePersistentConfig(project);
-      // no generate -> journal empty -> nothing pending
-
-      const result = await cli(
-        ["migrate", "apply", "--config", project.configPath],
-        project.dir
-      );
-
-      expect(result.exitCode).toBeNull();
-      expect(result.output).toContain("No pending migrations to apply.");
-      expect(result.output).toContain("Done in");
+      const result = await cli(["migrate", "apply"], project.dir);
+      expect(result.thrown ?? result.exitCode).toBeTruthy();
+      expect(`${result.thrown ?? ""}${result.output}`).toMatch(ESTATE);
+      expect(await tableExists(project.configPath, "user")).toBe(false);
     });
 
-    it("confirm=true applies pending migrations: table created + tracking updated", async () => {
+    it("applies the unique leaf: table created and marker advanced", async () => {
       writePersistentConfig(project);
-      await cli(
-        ["migrate", "generate", "--config", project.configPath],
-        project.dir
-      );
+      await generatePublished(project);
 
-      queueAnswers([true]); // confirm apply
-      const result = await cli(
-        ["migrate", "apply", "--config", project.configPath],
-        project.dir
-      );
-
-      expect(result.exitCode).toBeNull();
-      expect(result.output).toContain("Applied 1 migration(s)");
-      expect(result.output).toContain("✓");
-
-      // real DB: the user table now exists
+      const result = await cli(["migrate", "apply"], project.dir);
+      expect(result.thrown).toBeUndefined();
+      const body = readJson(result) as { outcome: string; path: string[] };
+      expect(body.outcome).toBe("applied");
+      expect(body.path).toHaveLength(1);
       expect(await tableExists(project.configPath, "user")).toBe(true);
 
-      // tracking updated: status now reports it applied
-      const status = await cli(
-        ["migrate", "status", "--config", project.configPath],
-        project.dir
-      );
-      expect(status.output).toContain("Applied: 1, Pending: 0");
+      const statusBody = readJson(
+        await cli(["migrate", "status"], project.dir)
+      ) as {
+        control: string;
+        pending: string[];
+        unfinished: boolean;
+      };
+      expect(statusBody.control).toBe("present");
+      expect(statusBody.pending).toEqual([]);
+      expect(statusBody.unfinished).toBe(false);
     });
 
-    it("--dry-run lists pending and applies nothing (status stays pending)", async () => {
+    it("--dry-run previews and applies nothing", async () => {
       writePersistentConfig(project);
-      await cli(
-        ["migrate", "generate", "--config", project.configPath],
-        project.dir
-      );
+      await generatePublished(project);
 
-      const result = await cli(
-        ["migrate", "apply", "--dry-run", "--config", project.configPath],
-        project.dir
-      );
+      const result = await cli(["migrate", "apply", "--dry-run"], project.dir);
+      expect(result.thrown).toBeUndefined();
+      const body = readJson(result) as { outcome: string; path: string[] };
+      expect(body.outcome).toBe("preview");
+      expect(body.path).toHaveLength(1);
+      expect(await tableExists(project.configPath, "user")).toBe(false);
 
-      expect(result.exitCode).toBeNull();
-      expect(result.output).toContain("Would apply 1 migration(s)");
-
-      const status = await cli(
-        ["migrate", "status", "--config", project.configPath],
-        project.dir
-      );
-      expect(status.output).toContain("Applied: 0, Pending: 1");
+      const statusBody = readJson(
+        await cli(["migrate", "status"], project.dir)
+      ) as {
+        control: string;
+        pending: string[];
+      };
+      expect(statusBody.control).toBe("absent");
+      expect(statusBody.pending).toHaveLength(1);
     });
 
-    it("--force skips confirm and applies directly (no answer queued)", async () => {
+    it("--to <name> applies the named state", async () => {
       writePersistentConfig(project);
-      await cli(
-        ["migrate", "generate", "--config", project.configPath],
-        project.dir
-      );
+      const published = await generatePublished(project, [
+        "--name",
+        "users-only",
+      ]);
 
       const result = await cli(
-        ["migrate", "apply", "--force", "--config", project.configPath],
+        ["migrate", "apply", "--to", published.name],
         project.dir
       );
-
-      expect(result.exitCode).toBeNull();
-      expect(result.output).toContain("Applied 1 migration(s)");
+      expect(result.thrown).toBeUndefined();
+      const body = readJson(result) as { outcome: string; path: string[] };
+      expect(body.outcome).toBe("applied");
+      expect(body.path).toEqual([published.stateId]);
       expect(await tableExists(project.configPath, "user")).toBe(true);
     });
 
-    it("confirm=false cancels and applies nothing", async () => {
+    it("numeric --to is a name, not an index, and refuses when unmatched", async () => {
       writePersistentConfig(project);
-      await cli(
-        ["migrate", "generate", "--config", project.configPath],
-        project.dir
-      );
+      await generatePublished(project);
 
-      queueAnswers([false]); // decline
-      const result = await cli(
-        ["migrate", "apply", "--config", project.configPath],
-        project.dir
+      const result = await cli(["migrate", "apply", "--to", "0"], project.dir);
+      expect(result.thrown ?? result.exitCode).toBeTruthy();
+      expect(`${result.thrown ?? ""}${result.output}`).toMatch(
+        NAMED_ZERO_OR_MISSING
       );
-
-      // "Operation cancelled." is emitted and nothing was applied — the reliable,
-      // user-visible contract.
-      expect(result.output).toContain("Operation cancelled.");
-
-      const status = await cli(
-        ["migrate", "status", "--config", project.configPath],
-        project.dir
-      );
-      expect(status.output).toContain("Applied: 0, Pending: 1");
+      expect(await tableExists(project.configPath, "user")).toBe(false);
     });
 
-    it("cancel (Ctrl-C) applies nothing", async () => {
+    it("--dir apply reads the custom estate root", async () => {
       writePersistentConfig(project);
-      await cli(
-        ["migrate", "generate", "--config", project.configPath],
-        project.dir
-      );
+      await generatePublished(project, ["--dir", "alt-mig"]);
 
-      queueAnswers([CANCEL]);
-      const result = await cli(
-        ["migrate", "apply", "--config", project.configPath],
-        project.dir
-      );
-
-      expect(result.output).toContain("Operation cancelled.");
-
-      const status = await cli(
-        ["migrate", "status", "--config", project.configPath],
-        project.dir
-      );
-      expect(status.output).toContain("Applied: 0, Pending: 1");
-    });
-
-    it("user-cancel exits 0", async () => {
-      writePersistentConfig(project);
-      await cli(
-        ["migrate", "generate", "--config", project.configPath],
-        project.dir
-      );
-
-      queueAnswers([false]);
-      const result = await cli(
-        ["migrate", "apply", "--config", project.configPath],
-        project.dir
-      );
-
-      expect(result.exitCode).toBe(0);
-    });
-
-    it("--to <index> bounds which migrations apply", async () => {
-      // Two models so we can generate two migrations (idx 0 and 1).
-      writePersistentConfig(project, {
-        schemaBody: `
-          const user = s.model({ id: s.string().id(), email: s.string() });
-          const schema = { user };
-        `,
-      });
-      await cli(
-        ["migrate", "generate", "--config", project.configPath],
-        project.dir
-      );
-
-      // Add a second model. The first config module is cached (re-importing it
-      // won't see a rewritten file), so use a fresh config filename whose schema
-      // adds `post`; its generate reads the on-disk snapshot from the first and
-      // emits migration idx 1. Apply/status below all use this second config so
-      // tracking lives in one DB.
-      const cfg2 = writePersistentConfig(project, {
-        configName: "viborm2.config.ts",
-        schemaBody: `
-          const user = s.model({ id: s.string().id(), email: s.string() });
-          const post = s.model({ id: s.string().id(), title: s.string() });
-          const schema = { user, post };
-        `,
-      });
-      await cli(["migrate", "generate", "--config", cfg2], project.dir);
-
-      expect(
-        migrationFiles(project.migrationsDir).length
-      ).toBeGreaterThanOrEqual(2);
-
-      // Apply only up to index 0.
-      const result = await cli(
-        ["migrate", "apply", "--to", "0", "--force", "--config", cfg2],
-        project.dir
-      );
-
-      expect(result.exitCode).toBeNull();
-      expect(result.output).toContain("Applied 1 migration(s)");
-
-      // Only migration 0 applied -> user exists, post does not.
-      expect(await tableExists(cfg2, "user")).toBe(true);
-      expect(await tableExists(cfg2, "post")).toBe(false);
-
-      const status = await cli(
-        ["migrate", "status", "--config", cfg2],
-        project.dir
-      );
-      expect(status.output).toContain("Applied: 1, Pending: 1");
-    });
-
-    it("up alias resolves", async () => {
-      writePersistentConfig(project);
-      await cli(
-        ["migrate", "generate", "--config", project.configPath],
-        project.dir
-      );
+      const missing = await cli(["migrate", "apply"], project.dir);
+      expect(missing.thrown ?? missing.exitCode).toBeTruthy();
 
       const result = await cli(
-        ["migrate", "up", "--force", "--config", project.configPath],
+        ["migrate", "apply", "--dir", "alt-mig"],
         project.dir
       );
-
-      expect(result.exitCode).toBeNull();
-      expect(result.output).toContain("Applied 1 migration(s)");
-    });
-
-    it("--dir override applies migrations from a custom directory", async () => {
-      writePersistentConfig(project);
-      await cli(
-        [
-          "migrate",
-          "generate",
-          "--out",
-          "alt-mig",
-          "--config",
-          project.configPath,
-        ],
-        project.dir
-      );
-
-      // default ./migrations has no journal -> nothing pending
-      const def = await cli(
-        ["migrate", "apply", "--config", project.configPath],
-        project.dir
-      );
-      expect(def.output).toContain("No pending migrations to apply.");
-
-      // --dir alt-mig sees + applies the generated migration
-      const result = await cli(
-        [
-          "migrate",
-          "apply",
-          "--dir",
-          "alt-mig",
-          "--force",
-          "--config",
-          project.configPath,
-        ],
-        project.dir
-      );
-      expect(result.output).toContain("Applied 1 migration(s)");
+      const body = readJson(result) as { outcome: string };
+      expect(body.outcome).toBe("applied");
       expect(await tableExists(project.configPath, "user")).toBe(true);
     });
 
-    it("--table-name override tracks in a custom table (status honors it too)", async () => {
+    it("--force is not an apply option", async () => {
       writePersistentConfig(project);
-      await cli(
-        ["migrate", "generate", "--config", project.configPath],
-        project.dir
-      );
+      await generatePublished(project);
 
-      await cli(
-        [
-          "migrate",
-          "apply",
-          "--table-name",
-          "custom_migrations",
-          "--force",
-          "--config",
-          project.configPath,
-        ],
-        project.dir
-      );
-
-      // status with the SAME custom table sees it applied
-      const custom = await cli(
-        [
-          "migrate",
-          "status",
-          "--table-name",
-          "custom_migrations",
-          "--config",
-          project.configPath,
-        ],
-        project.dir
-      );
-      expect(custom.output).toContain("Applied: 1, Pending: 0");
-
-      // status with the DEFAULT table sees nothing applied (different tracking table)
-      const def = await cli(
-        ["migrate", "status", "--config", project.configPath],
-        project.dir
-      );
-      expect(def.output).toContain("Applied: 0, Pending: 1");
-    });
-
-    it("bad config exits 1", async () => {
-      const result = await cli(
-        ["migrate", "apply", "--config", `${project.dir}/nope.config.ts`],
-        project.dir
-      );
-      expect(result.exitCode).toBe(1);
+      const result = await cli(["migrate", "apply", "--force"], project.dir);
+      expect(result.thrown ?? result.exitCode).toBeTruthy();
+      expect(result.output.toLowerCase()).toMatch(UNKNOWN_OPTION_FORCE);
     });
   });
 
-  // =========================================================================
-  // migrate status
-  // =========================================================================
-
-  describe("status", () => {
-    it("with a generated-but-unapplied migration shows pending count", async () => {
+  describe("status / check / list / graph", () => {
+    it("status after generate reports an absent control plane and a pending root", async () => {
       writePersistentConfig(project);
-      await cli(
-        ["migrate", "generate", "--config", project.configPath],
-        project.dir
-      );
+      const published = await generatePublished(project);
 
-      const result = await cli(
-        ["migrate", "status", "--config", project.configPath],
-        project.dir
-      );
-
-      expect(result.exitCode).toBeNull();
-      expect(result.output).toContain("(pending)");
-      expect(result.output).toContain("Applied: 0, Pending: 1");
+      const body = readJson(await cli(["migrate", "status"], project.dir)) as {
+        control: string;
+        marker: null;
+        pending: string[];
+        unfinished: boolean;
+      };
+      expect(body.control).toBe("absent");
+      expect(body.marker).toBeNull();
+      expect(body.pending).toEqual([published.stateId]);
+      expect(body.unfinished).toBe(false);
     });
 
-    it("with an applied migration shows the ✓ applied line", async () => {
+    it("check, list, and graph read the estate without touching the database", async () => {
       writePersistentConfig(project);
-      await cli(
-        ["migrate", "generate", "--config", project.configPath],
-        project.dir
-      );
-      await cli(
-        ["migrate", "apply", "--force", "--config", project.configPath],
-        project.dir
-      );
+      const published = await generatePublished(project);
 
-      const result = await cli(
-        ["migrate", "status", "--config", project.configPath],
-        project.dir
-      );
+      const check = readJson(await cli(["migrate", "check"], project.dir)) as {
+        ok: boolean;
+      };
+      expect(check.ok).toBe(true);
 
-      expect(result.exitCode).toBeNull();
-      expect(result.output).toContain("✓");
-      expect(result.output).toContain("(applied");
-      expect(result.output).toContain("Applied: 1, Pending: 0");
-    });
+      const list = readJson(await cli(["migrate", "list"], project.dir)) as {
+        stateId: string;
+        name: string;
+      }[];
+      expect(list).toEqual([
+        expect.objectContaining({ stateId: published.stateId }),
+      ]);
 
-    it("--dir override reads the custom migrations dir", async () => {
-      writePersistentConfig(project);
-      await cli(
-        [
-          "migrate",
-          "generate",
-          "--out",
-          "alt-mig",
-          "--config",
-          project.configPath,
-        ],
-        project.dir
-      );
+      const graph = readJson(await cli(["migrate", "graph"], project.dir)) as {
+        roots: string[];
+        leaves: string[];
+      };
+      expect(graph.roots).toEqual([published.stateId]);
+      expect(graph.leaves).toEqual([published.stateId]);
 
-      // default dir: no journal -> no migrations
-      const def = await cli(
-        ["migrate", "status", "--config", project.configPath],
-        project.dir
-      );
-      expect(def.output).toContain("No migrations found.");
-
-      // --dir alt-mig: sees the generated migration
-      const alt = await cli(
-        [
-          "migrate",
-          "status",
-          "--dir",
-          "alt-mig",
-          "--config",
-          project.configPath,
-        ],
-        project.dir
-      );
-      expect(alt.output).toContain("Applied: 0, Pending: 1");
-    });
-
-    it("bad config exits 1", async () => {
-      const result = await cli(
-        ["migrate", "status", "--config", `${project.dir}/nope.config.ts`],
-        project.dir
-      );
-      expect(result.exitCode).toBe(1);
+      const shown = readJson(
+        await cli(["migrate", "show", published.name], project.dir)
+      ) as { stateId: string; name: string };
+      expect(shown.stateId).toBe(published.stateId);
     });
   });
-
-  // =========================================================================
-  // migrate down
-  // =========================================================================
 
   describe("down", () => {
-    it("no applied migrations: notes 'No applied migrations to roll back.'", async () => {
+    it("with no marker refuses and drops nothing", async () => {
       writePersistentConfig(project);
-      await cli(
-        ["migrate", "generate", "--config", project.configPath],
-        project.dir
-      );
-      // generated but never applied
+      await generatePublished(project);
 
-      const result = await cli(
-        ["migrate", "down", "--config", project.configPath],
-        project.dir
+      const result = await cli(["migrate", "down"], project.dir);
+      expect(result.thrown ?? result.exitCode).toBeTruthy();
+      expect(`${result.thrown ?? ""}${result.output}`).toMatch(
+        ROLL_BACK_OR_NOTHING
       );
-
-      expect(result.exitCode).toBeNull();
-      expect(result.output).toContain("No applied migrations to roll back.");
     });
 
-    it("confirm=true rolls back: table dropped + status back to pending", async () => {
+    it("rolls back the arrival edge: table dropped and status pending again", async () => {
       writePersistentConfig(project);
-      await cli(
-        ["migrate", "generate", "--config", project.configPath],
-        project.dir
-      );
-      await cli(
-        ["migrate", "apply", "--force", "--config", project.configPath],
-        project.dir
-      );
+      await generatePublished(project);
+      await cli(["migrate", "apply"], project.dir);
       expect(await tableExists(project.configPath, "user")).toBe(true);
 
-      queueAnswers([true]); // confirm (initialValue is false here)
-      const result = await cli(
-        ["migrate", "down", "--config", project.configPath],
-        project.dir
-      );
-
-      expect(result.exitCode).toBeNull();
-      expect(result.output).toContain("Rolled back 1 migration(s)");
-      expect(result.output).toContain("↓");
-
-      // real DB: down SQL dropped the user table
+      const result = await cli(["migrate", "down"], project.dir);
+      expect(result.thrown).toBeUndefined();
+      const body = readJson(result) as { path: string[]; preview: boolean };
+      expect(body.preview).toBe(false);
+      expect(body.path).toHaveLength(1);
       expect(await tableExists(project.configPath, "user")).toBe(false);
 
-      // tracking reverted -> status shows pending again
-      const status = await cli(
-        ["migrate", "status", "--config", project.configPath],
-        project.dir
-      );
-      expect(status.output).toContain("Applied: 0, Pending: 1");
+      const status = readJson(
+        await cli(["migrate", "status"], project.dir)
+      ) as {
+        pending: string[];
+      };
+      expect(status.pending).toHaveLength(1);
     });
 
-    it("--dry-run lists roll-backs but executes nothing", async () => {
+    it("--dry-run lists the rollback and executes nothing", async () => {
       writePersistentConfig(project);
-      await cli(
-        ["migrate", "generate", "--config", project.configPath],
-        project.dir
-      );
-      await cli(
-        ["migrate", "apply", "--force", "--config", project.configPath],
-        project.dir
-      );
+      await generatePublished(project);
+      await cli(["migrate", "apply"], project.dir);
 
-      const result = await cli(
-        ["migrate", "down", "--dry-run", "--config", project.configPath],
-        project.dir
-      );
-
-      expect(result.exitCode).toBeNull();
-      expect(result.output).toContain("Would roll back 1 migration(s)");
-      // still applied: nothing executed
-      expect(await tableExists(project.configPath, "user")).toBe(true);
-      const status = await cli(
-        ["migrate", "status", "--config", project.configPath],
-        project.dir
-      );
-      expect(status.output).toContain("Applied: 1, Pending: 0");
-    });
-
-    it("--force skips confirm and rolls back directly", async () => {
-      writePersistentConfig(project);
-      await cli(
-        ["migrate", "generate", "--config", project.configPath],
-        project.dir
-      );
-      await cli(
-        ["migrate", "apply", "--force", "--config", project.configPath],
-        project.dir
-      );
-
-      const result = await cli(
-        ["migrate", "down", "--force", "--config", project.configPath],
-        project.dir
-      );
-
-      expect(result.exitCode).toBeNull();
-      expect(result.output).toContain("Rolled back 1 migration(s)");
-      expect(await tableExists(project.configPath, "user")).toBe(false);
-    });
-
-    it("confirm=false cancels and rolls back nothing", async () => {
-      writePersistentConfig(project);
-      await cli(
-        ["migrate", "generate", "--config", project.configPath],
-        project.dir
-      );
-      await cli(
-        ["migrate", "apply", "--force", "--config", project.configPath],
-        project.dir
-      );
-
-      queueAnswers([false]);
-      const result = await cli(
-        ["migrate", "down", "--config", project.configPath],
-        project.dir
-      );
-
-      // Cancel message emitted and the table survives (nothing rolled back).
-      expect(result.exitCode).toBe(0);
-      expect(result.output).toContain("Operation cancelled.");
+      const result = await cli(["migrate", "down", "--dry-run"], project.dir);
+      const body = readJson(result) as { path: string[]; preview: boolean };
+      expect(body.preview).toBe(true);
+      expect(body.path).toHaveLength(1);
       expect(await tableExists(project.configPath, "user")).toBe(true);
     });
 
-    it("--steps 1 rolls back only the most recent of two migrations", async () => {
-      const cfg2 = await setupTwoAppliedMigrations(project);
-      expect(await tableExists(cfg2, "user")).toBe(true);
-      expect(await tableExists(cfg2, "post")).toBe(true);
+    it("--to <name> of the current marker is a no-op rollback", async () => {
+      writePersistentConfig(project);
+      const published = await generatePublished(project, [
+        "--name",
+        "users-only",
+      ]);
+      await cli(["migrate", "apply"], project.dir);
 
       const result = await cli(
-        ["migrate", "down", "--steps", "1", "--force", "--config", cfg2],
+        ["migrate", "down", "--to", published.name],
         project.dir
       );
-
-      expect(result.exitCode).toBeNull();
-      expect(result.output).toContain("Rolled back 1 migration(s)");
-      // only idx 1 (post) reverted; user survives
-      expect(await tableExists(cfg2, "post")).toBe(false);
-      expect(await tableExists(cfg2, "user")).toBe(true);
-
-      const status = await cli(
-        ["migrate", "status", "--config", cfg2],
-        project.dir
-      );
-      expect(status.output).toContain("Applied: 1, Pending: 1");
-    });
-
-    it("--to <numeric index> rolls back migrations above that index", async () => {
-      const cfg2 = await setupTwoAppliedMigrations(project);
-
-      // Roll back to index 0 => everything with idx > 0 (i.e. post) is reverted.
-      const result = await cli(
-        ["migrate", "down", "--to", "0", "--force", "--config", cfg2],
-        project.dir
-      );
-
-      expect(result.exitCode).toBeNull();
-      expect(result.output).toContain("Rolled back 1 migration(s)");
-      expect(await tableExists(cfg2, "post")).toBe(false);
-      expect(await tableExists(cfg2, "user")).toBe(true);
-    });
-
-    it("--to <non-numeric name> that matches no migration errors and exits 1", async () => {
-      // The /^\d+$/ branch passes the raw string through to `down`, which
-      // rejects a name matching no applied migration (down.ts throws, the action
-      // logs `Migration "<name>" not found` and process.exit(1)). This is an
-      // error path, NOT a silent no-op — assert the real error + exit code.
-      const cfg2 = await setupTwoAppliedMigrations(project);
-
-      const result = await cli(
-        [
-          "migrate",
-          "down",
-          "--to",
-          "does-not-exist",
-          "--force",
-          "--config",
-          cfg2,
-        ],
-        project.dir
-      );
-
-      expect(result.exitCode).toBe(1);
-      expect(result.output).toContain('Migration "does-not-exist" not found');
-      // Nothing rolled back: both tables survive the failed command.
-      expect(await tableExists(cfg2, "user")).toBe(true);
-      expect(await tableExists(cfg2, "post")).toBe(true);
-    });
-
-    it("bad config exits 1", async () => {
-      const result = await cli(
-        ["migrate", "down", "--config", `${project.dir}/nope.config.ts`],
-        project.dir
-      );
-      expect(result.exitCode).toBe(1);
+      expect(result.thrown).toBeUndefined();
+      const body = readJson(result) as { path: string[]; preview: boolean };
+      expect(body.path).toEqual([]);
+      expect(await tableExists(project.configPath, "user")).toBe(true);
     });
   });
 
-  // =========================================================================
-  // migrate drop is GONE
-  // =========================================================================
-
-  describe("drop", () => {
-    /**
-     * `drop` untracked applied migrations while leaving their schema changes
-     * live — precisely the bypass a persisted rollback policy exists to close,
-     * behind nothing but a confirmation prompt. It was deleted rather than
-     * renamed: `migrate down` executes the down artifact and untracks together.
-     */
-    it("is not a subcommand: `migrate drop` fails and changes no tracking", async () => {
+  describe("removed journal verbs", () => {
+    it("drop, squash, journal, and pending are not subcommands", async () => {
       writePersistentConfig(project);
-      await cli(
-        ["migrate", "generate", "--config", project.configPath],
-        project.dir
-      );
-      await cli(
-        ["migrate", "apply", "--force", "--config", project.configPath],
-        project.dir
-      );
+      await generatePublished(project);
+      await cli(["migrate", "apply"], project.dir);
 
-      const result = await cli(
-        ["migrate", "drop", "--force", "--config", project.configPath],
-        project.dir
-      );
+      for (const verb of ["drop", "squash", "journal", "pending"]) {
+        const result = await cli(["migrate", verb], project.dir);
+        expect(result.exitCode ?? 1).not.toBe(0);
+        expect(result.output.toLowerCase()).not.toContain("from tracking");
+      }
 
-      expect(result.exitCode).not.toBeNull();
-      expect(result.exitCode).not.toBe(0);
-      expect(result.output).not.toContain("from tracking");
-
-      // The applied migration is still applied, and its table is still there.
       expect(await tableExists(project.configPath, "user")).toBe(true);
-      const status = await cli(
-        ["migrate", "status", "--config", project.configPath],
-        project.dir
-      );
-      expect(status.output).toContain("Applied: 1, Pending: 0");
+      const status = readJson(
+        await cli(["migrate", "status"], project.dir)
+      ) as {
+        control: string;
+        pending: string[];
+      };
+      expect(status.control).toBe("present");
+      expect(status.pending).toEqual([]);
     });
   });
 
-  // =========================================================================
-  // full round-trip
-  // =========================================================================
-
-  describe("generate -> apply -> down round-trip", () => {
-    it("creates, applies (table up), then rolls back (table gone)", async () => {
+  describe("generate -> apply -> down", () => {
+    it("publishes a state, applies it, then rolls the arrival path back", async () => {
       writePersistentConfig(project);
+      const generated = await generatePublished(project);
+      expect(estateLayout(project.migrationsDir).states).toHaveLength(1);
 
-      // generate
-      const gen = await cli(
-        ["migrate", "generate", "--config", project.configPath],
-        project.dir
-      );
-      expect(gen.output).toContain("Created migration:");
-      expect(migrationFiles(project.migrationsDir)).toHaveLength(1);
-
-      // apply
-      const apply = await cli(
-        ["migrate", "apply", "--force", "--config", project.configPath],
-        project.dir
-      );
-      expect(apply.output).toContain("Applied 1 migration(s)");
+      const apply = readJson(await cli(["migrate", "apply"], project.dir)) as {
+        outcome: string;
+        path: string[];
+      };
+      expect(apply.outcome).toBe("applied");
+      expect(apply.path).toEqual([generated.stateId]);
       expect(await tableExists(project.configPath, "user")).toBe(true);
 
-      // down
-      const down = await cli(
-        ["migrate", "down", "--force", "--config", project.configPath],
-        project.dir
-      );
-      expect(down.output).toContain("Rolled back 1 migration(s)");
+      const down = readJson(await cli(["migrate", "down"], project.dir)) as {
+        path: string[];
+        preview: boolean;
+      };
+      expect(down.preview).toBe(false);
+      expect(down.path).toEqual([generated.stateId]);
       expect(await tableExists(project.configPath, "user")).toBe(false);
     });
   });

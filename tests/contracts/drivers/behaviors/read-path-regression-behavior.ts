@@ -4,11 +4,12 @@ import {
   type VibORMConfig,
 } from "@client/client";
 import type { AnyDriver } from "@drivers";
-import { push } from "@migrations";
+
 import { s } from "@schema";
 import { sql } from "@sql";
 import { defineContract } from "@tests/contracts/contract";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 /**
  * §9.4 moved this verdict EARLIER. An unnamed slot facing two competing
@@ -185,7 +186,7 @@ export function runReadPathRegressionBehavior({
 
       beforeEach(async () => {
         client = createClient({ schema, driver: createDriver() });
-        await push(client, { force: true });
+        await syncLiveSchema(client);
 
         await client.user.create({ data: { id: "u1", name: "Alice" } });
         await client.user.create({ data: { id: "u2", name: "Bob" } });
@@ -340,7 +341,7 @@ export function runReadPathRegressionBehavior({
           schema: emptyProjectionSchema,
           driver: createDriver(),
         });
-        await push(client, { force: true });
+        await syncLiveSchema(client);
         await client.parent.createMany({
           data: [{ id: "parent-1" }, { id: "parent-2" }],
         });
@@ -408,7 +409,7 @@ export function runReadPathRegressionBehavior({
 
       beforeEach(async () => {
         client = createClient({ schema: m2mSchema, driver: createDriver() });
-        await push(client, { force: true });
+        await syncLiveSchema(client);
 
         await client.post.create({ data: { id: "p1", title: "Tagged" } });
         await client.post.create({ data: { id: "p2", title: "Untagged" } });

@@ -26,7 +26,6 @@
  */
 
 import { createClient } from "@client/client";
-import { push } from "@migrations";
 import { s } from "@schema";
 import { mysqlMigrationDriver } from "@src/migrations/drivers/mysql";
 import type { DiffOperation } from "@src/migrations/types";
@@ -35,6 +34,10 @@ import { createInMemoryPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
 import { ddlContext } from "@tests/unit/migrations/_estate";
 import { describe, expect, it } from "vitest";
+import { syncLiveSchema } from "../../fixtures/sync-schema";
+
+const MOVED_SHARED_IDX = /moved_shared_idx/;
+const MOVED_B = /moved_b/;
 
 function dropIndex(tableName: string, indexName: string): DiffOperation {
   return { type: "dropIndex", tableName, indexName };
@@ -266,18 +269,21 @@ describe("live push — an index name that moves to another table", () => {
       const before = createClient({ schema: beforeMove as never, driver });
       const after = createClient({ schema: afterMove as never, driver });
       try {
-        await push(before as never, { force: true });
-        const planned = await push(after as never, { force: true });
+        await syncLiveSchema(before as never);
+        const planned = await syncLiveSchema(after as never);
 
-        expect(
-          planned.operations.map((op) =>
-            op.type === "dropIndex"
-              ? `dropIndex:${op.tableName}`
-              : op.type === "createIndex"
-                ? `createIndex:${op.tableName}`
-                : op.type
-          )
-        ).toEqual(["dropIndex:moved_a", "createIndex:moved_b"]);
+        expect(planned.operations.map((op) => op.label)).toEqual([
+          "dropIndex",
+          "createIndex",
+        ]);
+        const sql = planned.statements
+          .map((statement) => statement.sql)
+          .join("\n");
+        // DROP INDEX is schema-scoped on Postgres and SQLite, so the source
+        // table name is not restated. The freed name and the destination table
+        // are the facts the SQL must show.
+        expect(sql).toMatch(MOVED_SHARED_IDX);
+        expect(sql).toMatch(MOVED_B);
       } finally {
         // ONE disconnect, because there is one driver: both clients wrap the same
         // `createDriver()` handle, so closing it through `after` closes it for

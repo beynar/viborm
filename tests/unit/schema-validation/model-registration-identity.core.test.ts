@@ -2,11 +2,9 @@ import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { createClient } from "@client/client";
 import { Driver } from "@drivers";
+import { generate, MemoryEstateStorage } from "@migrations";
 import { postgresMigrationDriver } from "@src/migrations/drivers/postgres";
-import { generate } from "@src/migrations/generate";
-import { push } from "@src/migrations/push";
 import { serializeModels } from "@src/migrations/serializer";
-import { MigrationStorageDriver } from "@src/migrations/storage";
 import { type AnyModel, s } from "@src/schema";
 import { hydrateSchemaNames } from "@src/schema/hydration";
 import { getSchemas } from "@src/schema/schemas";
@@ -16,6 +14,7 @@ import {
   validateSchema,
 } from "@src/schema/validation";
 import { createSchemaRegistry } from "@src/validation";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { describe, expect, it } from "vitest";
 
 /**
@@ -63,29 +62,17 @@ class DefinitionDriver extends Driver<null, null> {
   }
 }
 
-class EffectTrackingStorage extends MigrationStorageDriver {
-  readonly files = new Map<string, string>();
+class EffectTrackingStorage extends MemoryEstateStorage {
   readonly accesses: string[] = [];
 
-  constructor() {
-    super("registration-identity");
+  override async readEstate() {
+    this.accesses.push("readEstate");
+    return super.readEstate();
   }
 
-  get(path: string): Promise<string | null> {
-    this.accesses.push(`get:${path}`);
-    return Promise.resolve(this.files.get(path) ?? null);
-  }
-
-  put(path: string, content: string): Promise<void> {
-    this.accesses.push(`put:${path}`);
-    this.files.set(path, content);
-    return Promise.resolve();
-  }
-
-  delete(path: string): Promise<void> {
-    this.accesses.push(`delete:${path}`);
-    this.files.delete(path);
-    return Promise.resolve();
+  override async publishEstate(bytes: Uint8Array) {
+    this.accesses.push("publishEstate");
+    return super.publishEstate(bytes);
   }
 }
 
@@ -197,10 +184,10 @@ describe("every effect-capable boundary refuses the rebind", () => {
     };
 
     await expect(
-      generate(client, { name: "rebind", storageDriver: storage })
+      generate(client, storage, { name: "rebind" })
     ).rejects.toThrow(REFUSAL);
     expect(storage.accesses).toEqual([]);
-    expect(storage.files.size).toBe(0);
+    expect(await storage.listStates()).toEqual([]);
     expect(shared["~"].names.ts).toBe("alpha");
     expect(shared["~"].names.sql).toBe("alpha");
   });
@@ -213,8 +200,8 @@ describe("every effect-capable boundary refuses the rebind", () => {
       $schema: { beta: shared },
     };
 
-    await expect(push(client)).rejects.toThrow(REFUSAL);
-    await expect(push(client, { skipValidation: true })).rejects.toThrow(
+    await expect(syncLiveSchema(client)).rejects.toThrow(REFUSAL);
+    await expect(syncLiveSchema(client, { skipValidation: true })).rejects.toThrow(
       REFUSAL
     );
     expect(shared["~"].names.sql).toBe("alpha");

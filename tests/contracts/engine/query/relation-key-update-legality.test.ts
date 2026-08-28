@@ -3,10 +3,11 @@ import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
 import type { BatchQuery, QueryResult } from "@drivers/types";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
-import { push } from "@migrations";
+
 import { s } from "@schema";
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { describe, expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 const AUTHOR_ID_RELATION_KEY_ERROR = /relation key field 'authorId'/;
 // M12: the general owned-foreign-key refusal, which precedes this file's rule wherever
@@ -276,7 +277,7 @@ async function runScenario(
       : new BatchOnlyPGliteDriver({ client: database });
   const client = createLegalityClient(driver);
   try {
-    await push(client, { force: true });
+    await syncLiveSchema(client);
     await scenario.seed(client);
     let error: Outcome["error"];
     try {
@@ -712,7 +713,7 @@ describe("relation-key update legality", () => {
     );
     const client = createLegalityClient(driver);
     try {
-      await push(client, { force: true });
+      await syncLiveSchema(client);
       await client.setNullParent.create({ data: { id: 1, name: "Parent" } });
       driver.arm();
 

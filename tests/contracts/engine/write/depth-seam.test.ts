@@ -1,7 +1,7 @@
 import type { BatchQuery, QueryExecutionContext, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
-import { push } from "@migrations";
+
 import type { WriteStep } from "@src/query-engine/write-engine/OperationFragment";
 import { UpdateOperation } from "@src/query-engine/write-engine/UpdateOperation";
 import {
@@ -14,6 +14,7 @@ import {
 } from "@tests/contracts/engine/write/depth-seam-behavior";
 import { batchIsAtomicUnit } from "@tests/fixtures/atomic-unit-batch";
 import { describe, expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 /**
  * N4-U1's PROVENANCE instrument, one level below the one N1 built.
@@ -249,7 +250,7 @@ describe("N4-U1 located-target provenance (staleness injection at depth)", () =>
   const setupDb = async () => {
     const db = new PGlite();
     const stateClient = makeSeamClient(new PGliteDriver({ client: db }));
-    await push(stateClient, { force: true });
+    await syncLiveSchema(stateClient);
     await seedProjects(stateClient);
     return { db, stateClient };
   };
@@ -477,7 +478,7 @@ describe("N4-U1 split-witness: the unique moves between planning and the batch",
       const db = new PGlite();
       const stateClient = makeSeamClient(new PGliteDriver({ client: db }));
       try {
-        await push(stateClient, { force: true });
+        await syncLiveSchema(stateClient);
         await seedProjects(stateClient);
         const update = makeSeamRunner(
           new MoveUniqueBeforeBatchDriver({ client: db }, MOVE_PROJECT_CODE)
@@ -502,7 +503,7 @@ describe("N4-U1 split-witness: the unique moves between planning and the batch",
       const db = new PGlite();
       const stateClient = makeSeamClient(new PGliteDriver({ client: db }));
       try {
-        await push(stateClient, { force: true });
+        await syncLiveSchema(stateClient);
         await seedProjects(stateClient);
         const update = makeSeamRunner(
           new MoveUniqueBeforeBatchDriver({ client: db }, MOVE_PROJECT_CODE)
@@ -545,7 +546,7 @@ describe("N4-U1 split-witness: the unique moves between planning and the batch",
       const db = new PGlite();
       const stateClient = makeSeamClient(new PGliteDriver({ client: db }));
       try {
-        await push(stateClient, { force: true });
+        await syncLiveSchema(stateClient);
         await seedProjects(stateClient);
         const update = makeSeamRunner(
           new MoveUniqueBeforeBatchDriver({ client: db }, MOVE_PROJECT_CODE)
@@ -583,7 +584,7 @@ describe("N4-U1 split-witness: the unique moves between planning and the batch",
       const db = new PGlite();
       const stateClient = makeSeamClient(new PGliteDriver({ client: db }));
       try {
-        await push(stateClient, { force: true });
+        await syncLiveSchema(stateClient);
         await seedProjects(stateClient);
         await stateClient.project.create({
           data: { id: 30, code: "P-SIBLING", title: "same", workspaceId: 2 },
@@ -634,7 +635,7 @@ describe("N4-U1 split-witness: the unique moves between planning and the batch",
       const db = new PGlite();
       const stateClient = makeSeamClient(new PGliteDriver({ client: db }));
       try {
-        await push(stateClient, { force: true });
+        await syncLiveSchema(stateClient);
         await seedProjects(stateClient);
         // The other half of what the arm's decision read. The unique does not move here —
         // the located row is handed to ANOTHER parent — so the captured-key pin alone is
@@ -681,7 +682,7 @@ describe("N4-U1 split-witness: the unique moves between planning and the batch",
       const db = new PGlite();
       const stateClient = makeSeamClient(new PGliteDriver({ client: db }));
       try {
-        await push(stateClient, { force: true });
+        await syncLiveSchema(stateClient);
         await seedProjects(stateClient);
         // The half of the found premise only this instrument can see.
         //
@@ -739,7 +740,7 @@ describe("N4-U1 split-witness: the unique moves between planning and the batch",
       const db = new PGlite();
       const stateClient = makeSeamClient(new PGliteDriver({ client: db }));
       try {
-        await push(stateClient, { force: true });
+        await syncLiveSchema(stateClient);
         await stateClient.photo.create({
           data: { id: 10, slug: "decoy", caption: "c" },
         });

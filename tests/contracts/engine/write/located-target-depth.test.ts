@@ -2,12 +2,13 @@ import { createClient } from "@client/client";
 import type { BatchQuery, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
-import { push } from "@migrations";
+
 import { s } from "@schema";
 import { observeClientOperations } from "@tests/contracts/engine/write/operation-observer";
 import { batchIsAtomicUnit } from "@tests/fixtures/atomic-unit-batch";
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { describe, expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 // A concurrent writer fires once, just before the atomic batch commits.
 class BeforeBatchDriver extends BatchOnlyPGliteDriver {
@@ -56,7 +57,7 @@ async function runObserved(
 ): Promise<{ state: unknown; engines: Set<"direct" | "production"> }> {
   const db = new PGlite();
   const base = makeClient(schema, db);
-  await push(base as never, { force: true });
+  await syncLiveSchema(base as never);
   await seed(base);
   const driver =
     substrate === "tx"
@@ -221,7 +222,7 @@ describe("X1c — parent-held to-one under a located update target at level 3 (g
   test("cross-parent selector at depth rejects with the located-target not-found", async () => {
     const db = new PGlite();
     const base = makeClient(chainSchema, db);
-    await push(base as never, { force: true });
+    await syncLiveSchema(base as never);
     await seed(base);
     const observed = observeClientOperations({
       schema: chainSchema as never,
@@ -263,7 +264,7 @@ describe("X1c — parent-held to-one under a located update target at level 3 (g
   test("batch: a concurrent delete of the located target fails the batch closed", async () => {
     const db = new PGlite();
     const base = makeClient(chainSchema, db);
-    await push(base as never, { force: true });
+    await syncLiveSchema(base as never);
     await seed(base);
     const driver = new BeforeBatchDriver(
       async () => {
@@ -409,7 +410,7 @@ describe("X1c — D4 at depth: a located target's non-PK-referenced child UPDATE
 // (targetNeedsFullUpdate); that mechanism is witnessed — and falsification-proven
 // load-bearing — by the dedicated level-3 parent-held and D4 describes above.
 // (When this test was written, a parent-held fold on a located target in THIS
-// 8-model graph tripped the forward-declaration `push()` 42P01 documented in the
+// 8-model graph tripped the forward-declaration `syncLiveSchema()` 42P01 documented in the
 // file header — a MIGRATION DDL-ordering bug, since fixed in `src/migrations/`,
 // not a query-boundary / terminal-read bug. This combined tree is left as-is,
 // exercising the scalar+child-held located path rather than the fold.)

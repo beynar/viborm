@@ -73,7 +73,7 @@ const post = s
   .map("posts");
 const vibormDriver = new PGliteDriver();
 const viborm = createClient({ schema: { user, post }, driver: vibormDriver });
-await push(viborm, { force: true });
+await push(viborm);
 await seedAsync((sql, params) => vibormDriver._executeRaw(sql, params));
 
 // ---------- drizzle (PGlite) ----------

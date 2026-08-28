@@ -2,10 +2,11 @@ import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite } from "@electric-sql/pglite";
 import { ValidationError } from "@errors";
-import { push } from "@migrations";
+
 import { s } from "@schema";
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { describe, expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 /**
  * A fields-less `toOne` is child-held topology: the target's physical
@@ -145,7 +146,7 @@ const schema = { desk, tag, pin, bay, slot, author, book };
 
 async function setup(driver: PGliteDriver) {
   const client = createClient({ schema, driver });
-  await push(client, { force: true });
+  await syncLiveSchema(client);
   return client;
 }
 

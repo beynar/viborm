@@ -9,7 +9,7 @@
 import { VibORM } from "@client/client";
 import { createClient as PgCreateClient, PgDriver } from "@drivers/pg";
 import { UniqueConstraintError } from "@errors";
-import { push } from "@migrations";
+
 import { s } from "@schema";
 import { batchPrimaryKeyDataflowContract } from "@tests/contracts/drivers/behaviors/batch-primary-key-dataflow-behavior";
 import { blobFilterContract } from "@tests/contracts/drivers/behaviors/blob-filter-behavior";
@@ -76,6 +76,7 @@ import {
   PgRacePlantingBatchDriver,
 } from "@tests/fixtures/drivers/batch-forced-pg";
 
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 // =============================================================================
 // SCHEMA DEFINITION
 // =============================================================================
@@ -107,16 +108,16 @@ const post = s
 const schema = { user, post };
 
 // =============================================================================
-// HELPER: Setup database using push() migration
+// HELPER: Setup database using syncLiveSchema() migration
 // =============================================================================
 
 async function setupDatabase(driver: PgDriver) {
-  // Create a temporary client to use push() for migrations
+  // Create a temporary client to use syncLiveSchema() for migrations
   const tempClient = VibORM.create({
     schema,
     driver,
   });
-  await push(tempClient, { force: true });
+  await syncLiveSchema(tempClient);
 
   // Clean up any existing data
   await driver._executeRaw(`DELETE FROM "pg_test_posts"`);
@@ -150,7 +151,7 @@ describeIf("pg Driver", () => {
       schema: {},
       databaseUrl: TEST_CONNECTION_STRING,
     });
-    await push(cleanupClient, { force: true });
+    await syncLiveSchema(cleanupClient);
     await cleanupClient.$disconnect();
   });
 
@@ -388,7 +389,7 @@ describeIf("pg Driver", () => {
       });
 
       // Push schema to create tables
-      await push(client, { force: true });
+      await syncLiveSchema(client);
 
       // Create user
       const newUser = await client.user.create({
@@ -456,7 +457,7 @@ describeIf("pg Driver", () => {
       });
 
       // Push schema to create tables
-      await push(client, { force: true });
+      await syncLiveSchema(client);
 
       // Successful transaction
       await client.$transaction(async (tx) => {
@@ -493,7 +494,7 @@ describeIf("pg Driver", () => {
         databaseUrl: TEST_CONNECTION_STRING,
       });
 
-      await push(client, { force: true });
+      await syncLiveSchema(client);
 
       let callbackCalled = false;
       await expect(

@@ -23,6 +23,7 @@ import {
 import { readTestTransactionOperation } from "@tests/fixtures/transaction-operation";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 /**
  * PACKAGE J — the record-series route for root `createMany`, on PGlite.
@@ -320,7 +321,7 @@ describe("J2 — select keeps its typed refusal while default batch routes", () 
       driver: new PGliteDriver({ client: database }),
     }) as any;
     const { push } = await import("@migrations");
-    await push(setup, { force: true });
+    await syncLiveSchema(setup);
     const batchOnly = createClient({
       schema: createManySeriesSchema,
       driver: new BatchOnlyPGliteDriver({ client: database }),
@@ -352,7 +353,7 @@ describe("J2 — select keeps its typed refusal while default batch routes", () 
       driver: new PGliteDriver({ client: database }),
     }) as any;
     const { push } = await import("@migrations");
-    await push(setup, { force: true });
+    await syncLiveSchema(setup);
     await setup.seal.create({ data: { id: 3, label: "target" } });
     const batchOnly = createClient({
       schema: createManySeriesSchema,
@@ -441,7 +442,7 @@ describe("child-held relation-bearing skip on default batch execution", () => {
       driver: new PGliteDriver({ client: database }),
     }) as any;
     const { push } = await import("@migrations");
-    await push(setup, { force: true });
+    await syncLiveSchema(setup);
     await setup.author.create({ data: { id: 1, name: "owner" } });
     await setup.tag.create({ data: { id: 1, name: "t" } });
     await setup.post.create({
@@ -588,7 +589,7 @@ describe("J3/J4 — the statement list the series actually issues", () => {
       driver,
     }) as any;
     const { push } = await import("@migrations");
-    await push(client, { force: true });
+    await syncLiveSchema(client);
     driver.statements.length = 0;
 
     await expect(client.post.createMany({ data: [] })).resolves.toEqual({
@@ -612,7 +613,7 @@ describe("J3/J4 — the statement list the series actually issues", () => {
       driver: new PGliteDriver({ client: database }),
     }) as any;
     const { push } = await import("@migrations");
-    await push(setup, { force: true });
+    await syncLiveSchema(setup);
     const batchOnly = createClient({
       schema: createManySeriesSchema,
       driver: new BatchOnlyPGliteDriver({ client: database }),
@@ -631,7 +632,7 @@ describe("J3/J4 — the statement list the series actually issues", () => {
       driver,
     }) as any;
     const { push } = await import("@migrations");
-    await push(client, { force: true });
+    await syncLiveSchema(client);
     driver.statements.length = 0;
 
     await client.post.createMany({
@@ -667,7 +668,7 @@ describe("J3/J4 — the statement list the series actually issues", () => {
       driver,
     }) as any;
     const { push } = await import("@migrations");
-    await push(client, { force: true });
+    await syncLiveSchema(client);
     driver.statements.length = 0;
 
     await client.post.createMany({
@@ -723,7 +724,7 @@ describe("J — a raceable member failure retries the whole series", () => {
       driver,
     }) as any;
     const { push } = await import("@migrations");
-    await push(client, { force: true });
+    await syncLiveSchema(client);
     driver.statements.length = 0;
 
     const result = await client.post.createMany({

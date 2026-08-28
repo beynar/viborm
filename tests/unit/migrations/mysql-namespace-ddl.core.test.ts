@@ -5,11 +5,12 @@
  * place: a `"live"` statement names `` `database`.`table` ``, an `"artifact"`
  * statement names the table relative, and a driver with no database renders the
  * relative form for both. These suites pin all three answers for every position
- * §5.1 lists, plus the tracking/inventory statements that only ever run live.
+ * §5.1 lists, plus the control/inventory statements that only ever run live.
  */
 
 import { getMigrationDriver } from "@migrations/drivers";
 import type { DiffOperation, SchemaSnapshot } from "@migrations/types";
+import { createControlTableSQL } from "@src/migrations/control";
 import { mysqlMigrationDriver } from "@src/migrations/drivers/mysql";
 import { describe, expect, it } from "vitest";
 import { ddlContext, ddlContextFor, mysqlEstateDriver } from "./_estate";
@@ -304,22 +305,17 @@ describe("unbound MySQL output is byte-identical in both destinations", () => {
   });
 });
 
-describe("MySQL tracking and inventory statements are live-only", () => {
-  it("qualifies the tracking table in create, select, insert, delete, clear", () => {
-    expect(BILLING.generateCreateTrackingTable("_viborm_migrations")).toContain(
-      "CREATE TABLE IF NOT EXISTS `billing`.`_viborm_migrations` ("
+describe("MySQL control and inventory statements are live-only", () => {
+  it("qualifies the control tables in create and clear", () => {
+    const sql = createControlTableSQL(BILLING, "_viborm_migration");
+    expect(sql.state).toContain(
+      "CREATE TABLE IF NOT EXISTS `billing`.`_viborm_migration_state`"
     );
-    expect(BILLING.generateSelectAppliedMigrations("_viborm_migrations")).toBe(
-      "SELECT name, checksum, applied_at FROM `billing`.`_viborm_migrations` ORDER BY id ASC"
+    expect(sql.log).toContain(
+      "CREATE TABLE IF NOT EXISTS `billing`.`_viborm_migration_log`"
     );
-    expect(BILLING.generateInsertMigration("_viborm_migrations").sql).toBe(
-      "INSERT INTO `billing`.`_viborm_migrations` (name, checksum) VALUES (?, ?)"
-    );
-    expect(BILLING.generateDeleteMigration("_viborm_migrations").sql).toBe(
-      "DELETE FROM `billing`.`_viborm_migrations` WHERE name = ?"
-    );
-    expect(BILLING.generateClearMigrations("_viborm_migrations")).toBe(
-      "DELETE FROM `billing`.`_viborm_migrations`"
+    expect(BILLING.generateClearMigrations("_viborm_migration_state")).toBe(
+      "DELETE FROM `billing`.`_viborm_migration_state`"
     );
   });
 
@@ -370,20 +366,8 @@ describe("MySQL tracking and inventory statements are live-only", () => {
   });
 
   it("leaves every one of them bare on an unbound driver", () => {
-    expect(UNBOUND.generateCreateTrackingTable("_viborm_migrations")).toContain(
-      "CREATE TABLE IF NOT EXISTS `_viborm_migrations` ("
-    );
-    expect(UNBOUND.generateSelectAppliedMigrations("_viborm_migrations")).toBe(
-      "SELECT name, checksum, applied_at FROM `_viborm_migrations` ORDER BY id ASC"
-    );
-    expect(UNBOUND.generateInsertMigration("_viborm_migrations").sql).toBe(
-      "INSERT INTO `_viborm_migrations` (name, checksum) VALUES (?, ?)"
-    );
-    expect(UNBOUND.generateDeleteMigration("_viborm_migrations").sql).toBe(
-      "DELETE FROM `_viborm_migrations` WHERE name = ?"
-    );
-    expect(UNBOUND.generateClearMigrations("_viborm_migrations")).toBe(
-      "DELETE FROM `_viborm_migrations`"
+    expect(UNBOUND.generateClearMigrations("_viborm_migration_state")).toBe(
+      "DELETE FROM `_viborm_migration_state`"
     );
     expect(UNBOUND.generateDropTableSQL("users")).toBe(
       "DROP TABLE IF EXISTS `users`"

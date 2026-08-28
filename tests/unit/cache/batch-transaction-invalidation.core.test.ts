@@ -19,9 +19,10 @@ import { cache as cacheExtension } from "@cache/extension";
 import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite } from "@electric-sql/pglite";
-import { push } from "@migrations";
+
 import { s } from "@schema";
 import { describe, expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 const user = s
   .model({
@@ -41,7 +42,7 @@ async function boot(mode: Mode) {
     schema,
     driver: new PGliteDriver({ client: db }),
   });
-  await push(setupClient, { force: true });
+  await syncLiveSchema(setupClient);
 
   const cache = new MemoryCache();
   const background: Promise<unknown>[] = [];

@@ -4,7 +4,7 @@ import {
   PGliteDriver,
 } from "@drivers/pglite";
 import { PGlite } from "@electric-sql/pglite";
-import { push } from "@migrations";
+
 import { s } from "@schema";
 import { runBatchPrimaryKeyDataflowBehavior } from "@tests/contracts/drivers/behaviors/batch-primary-key-dataflow-behavior";
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
@@ -17,6 +17,7 @@ import {
   test,
 } from "vitest";
 
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 const user = s.model({
   id: s.string().id(),
   name: s.string(),
@@ -90,7 +91,7 @@ let client: Awaited<
 
 beforeAll(async () => {
   client = PGliteCreateClient({ schema: safetySchema });
-  await push(client, { force: true });
+  await syncLiveSchema(client);
 });
 
 afterAll(async () => {
@@ -1766,7 +1767,7 @@ describe("Nested Mutation Routing", () => {
     });
 
     try {
-      await push(setupClient, { force: true });
+      await syncLiveSchema(setupClient);
       await setupClient.user.create({
         data: { id: "user-1", name: "Alice" },
       });
@@ -1806,7 +1807,7 @@ describe("Nested Mutation Routing", () => {
     });
 
     try {
-      await push(setupClient, { force: true });
+      await syncLiveSchema(setupClient);
       await setupClient.user.create({
         data: { id: "user-1", name: "Alice" },
       });
@@ -1844,7 +1845,7 @@ describe("Nested Mutation Routing", () => {
     });
 
     try {
-      await push(setupClient, { force: true });
+      await syncLiveSchema(setupClient);
 
       await batchOnlyClient.user.upsert({
         where: { id: "user-1" },
@@ -1878,7 +1879,7 @@ describe("Nested Mutation Routing", () => {
     });
 
     try {
-      await push(setupClient, { force: true });
+      await syncLiveSchema(setupClient);
       await setupClient.user.create({
         data: {
           id: "user-1",
@@ -1927,7 +1928,7 @@ describe("Nested Mutation Routing", () => {
     });
 
     try {
-      await push(setupClient, { force: true });
+      await syncLiveSchema(setupClient);
       await setupClient.user.create({
         data: { id: "user-1", name: "Alice" },
       });

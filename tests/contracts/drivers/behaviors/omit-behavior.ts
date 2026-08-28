@@ -6,10 +6,11 @@ import {
 import { defaultOmit } from "@client/default-omit-extension";
 import type { AnyDriver } from "@drivers";
 import { ValidationError } from "@errors";
-import { push } from "@migrations";
+
 import { s } from "@schema";
 import { defineContract } from "@tests/contracts/contract";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 const account = s
   .model({
@@ -124,7 +125,7 @@ export function runOmitBehavior({
     beforeEach(async () => {
       driver = createDriver();
       client = createClient({ schema, driver });
-      await push(client, { force: true });
+      await syncLiveSchema(client);
       await seed(client);
     });
 

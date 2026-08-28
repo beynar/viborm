@@ -302,3 +302,42 @@ were established before omission. Model omit remains schema truth; query omit
 remains call-owned projection. Omit is not authorization, and VibORM does not
 yet expose an RBAC helper: complete policy still needs graph-wide semantic
 model, membership, field-use, raw, and statement authority.
+
+## Migration V1 language
+
+**Estate**:
+One storage root holding an immutable target descriptor, content-addressed
+schema snapshots, SQL blobs, and committed state manifests. It is not a journal
+and has no mutable head.
+_Avoid_: Migration directory when the authenticated graph is meant
+
+**Snapshot**:
+One canonical description of the VibORM-managed schema at a state. Equal
+snapshots do not prove equal migration state.
+_Avoid_: Latest schema file, live catalog dump
+
+**SQL blob**:
+Plain review SQL that contains every check, forward dispatch, and rollback
+dispatch for a state. Production executes authenticated UTF-8 slices, not
+reparsed text.
+_Avoid_: Numbered up/down files, delimiter-split script
+
+**State**:
+One graph node identified by its canonical manifest hash. A name is metadata
+only. A merge state holds one complete transition from each parent.
+_Avoid_: Migration index, journal entry, filename order
+
+**Marker**:
+The database's last confirmed state, arrival path, snapshot, estate, path hash,
+and revision. Compare-and-swap is the only write.
+_Avoid_: Tracking table, applied-migrations list
+
+**Ledger**:
+Append-only database evidence of attempts, confirmed steps, outcomes, baselines,
+and reset progress. It is not derived from the marker.
+_Avoid_: Journal, apply history reconstructed from files
+
+**Push plan**:
+An ephemeral, baseline-specific live program. Consent is bound to its hash.
+Push never writes estate storage or the marker.
+_Avoid_: Generated migration, estate transition

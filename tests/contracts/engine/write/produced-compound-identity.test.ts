@@ -2,7 +2,7 @@ import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite } from "@electric-sql/pglite";
 import { UniqueConstraintError } from "@errors";
-import { push } from "@migrations";
+
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames, s } from "@schema";
 import type { Model } from "@schema/model";
@@ -17,6 +17,7 @@ import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { createSchemaRegistry } from "@validation";
 import v from "@validation/primitives/v";
 import { expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 const substrates = [
   {
@@ -33,7 +34,7 @@ for (const substrate of substrates) {
         schema: producedCompoundSchema,
         driver: substrate.make(),
       }) as any;
-      await push(shared, { force: true });
+      await syncLiveSchema(shared);
     }
     return shared;
   });
@@ -209,7 +210,7 @@ test("an indivisible shared batch returns produced compound identity atomically"
     schema: producedCompoundSchema,
     driver: new BatchOnlyPGliteDriver({ client: new PGlite() }),
   }) as any;
-  await push(client, { force: true });
+  await syncLiveSchema(client);
   try {
     const [created] = await client.$transaction([
       client.ticket.upsert({
@@ -252,7 +253,7 @@ test("an untaken relation-bearing plural create is inert on an atomic batch", as
     schema: pinSchema,
     driver: new BatchOnlyPGliteDriver({ client: database }),
   });
-  await push(client, { force: true });
+  await syncLiveSchema(client);
   try {
     await client.parent.create({ data: { id: "parent" } });
     await client.child.createMany({
@@ -310,7 +311,7 @@ test("the two-generated-member table is valid PostgreSQL DDL and returns its exa
     schema: pinSchema,
     driver: new PGliteDriver({ client: new PGlite() }),
   });
-  await push(client, { force: true });
+  await syncLiveSchema(client);
   try {
     const rootCreated = await client.twin.create({
       data: { label: "root-create" },
@@ -352,7 +353,7 @@ test("a different create key cannot borrow the missing where's race pin", async 
     schema: pinSchema,
     driver: new PGliteDriver({ client: new PGlite() }),
   });
-  await push(client, { force: true });
+  await syncLiveSchema(client);
   try {
     await client.twin.create({ data: { a: 77, b: 88, label: "occupied" } });
     const rejection = await client.twin

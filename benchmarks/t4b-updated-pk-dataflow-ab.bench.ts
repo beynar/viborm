@@ -53,7 +53,7 @@ const schema = (() => {
 const makeClient = async () => {
   const driver = new SQLite3Driver({ dataDir: ":memory:" });
   const client = createClient({ schema, driver });
-  await push(client, { force: true });
+  await push(client);
   // A pool of childless parents; each iteration consumes one (transition needs a
   // parent whose old id no child yet references — a NO-ACTION FK cannot cascade).
   for (let i = 0; i < POOL; i += 1) {

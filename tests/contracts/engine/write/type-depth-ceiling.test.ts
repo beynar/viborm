@@ -1,11 +1,12 @@
 import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite } from "@electric-sql/pglite";
-import { push } from "@migrations";
+
 import { s } from "@schema";
 import { observeClientOperations } from "@tests/contracts/engine/write/operation-observer";
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { describe, expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 /**
  * X1b — the TS ceiling is the COMPILER's, not the boundary's.
@@ -118,7 +119,7 @@ describe("X1b — the boundary executes beyond the TS literal-inference ceiling"
     test(`${substrate}: a ${DEPTH}-level rich create chain folds and persists, native Observed`, async () => {
       const db = new PGlite();
       const base = makeClient(db);
-      await push(base as never, { force: true });
+      await syncLiveSchema(base as never);
       await seed(base);
       const driver =
         substrate === "batch"

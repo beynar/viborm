@@ -2,7 +2,7 @@ import { createClient } from "@client/client";
 import type { AnyDriver, BatchQuery, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
-import { push } from "@migrations";
+
 import { createOperationExecutionContext } from "@query-engine/execution-context";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { s } from "@schema";
@@ -25,6 +25,7 @@ import {
 import { nestedWriteBehaviorSchema } from "@tests/fixtures/nested-write-behavior-schema";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 // Two parent-held to-one relations on one record, BOTH referencing `account` —
 // the crossRelationTargetSchema of nested-write-conformance, the sibling-coupling
@@ -454,7 +455,7 @@ describe("write boundary to-one create family: T1 pin falsifications", () => {
       schema: opf,
       driver: new PGliteDriver({ client: db }),
     });
-    await push(base as never, { force: true } as never);
+    await syncLiveSchema(base as never);
     await (base as any).user.create({ data: { name: "owner" } }); // id=1
 
     const driver = new BeforeBatchDriver(
@@ -499,7 +500,7 @@ describe("write boundary to-one create family: T1 pin falsifications", () => {
       schema: nb,
       driver: new PGliteDriver({ client: db }),
     });
-    await push(base as never, { force: true } as never);
+    await syncLiveSchema(base as never);
 
     const driver = new BeforeBatchDriver(
       async () => {

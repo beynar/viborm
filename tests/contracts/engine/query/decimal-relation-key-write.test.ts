@@ -51,7 +51,7 @@ import { type Dialect, Driver } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import { PGlite } from "@electric-sql/pglite";
-import { push } from "@migrations";
+
 import { buildScalarSqlValue } from "@query-engine/builders/values-builder";
 import { createQueryScope } from "@query-engine/context";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
@@ -61,6 +61,7 @@ import { referenceSql } from "@src/query-engine/write-engine/fragment-builders";
 import { createSchemaRegistry } from "@validation";
 import Decimal from "decimal.js";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 /**
  * The declared domain of this file's key pair. SQLite-legal on purpose
@@ -153,7 +154,7 @@ describe.each(
 
   beforeAll(async () => {
     client = live.create();
-    await push(client as never, { force: true });
+    await syncLiveSchema(client as never);
   });
 
   afterAll(async () => {

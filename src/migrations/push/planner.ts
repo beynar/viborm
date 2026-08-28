@@ -12,6 +12,7 @@ import {
 } from "../differ";
 import type { BoundMigrationDriver, MigrationDriver } from "../drivers";
 import { getMigrationDriver } from "../drivers";
+import { emptyManagedSnapshot } from "../empty-snapshot";
 import { applyNativeRename } from "../native-rename";
 import {
   alwaysAddDropResolver,
@@ -19,7 +20,6 @@ import {
   validateResolveResult,
 } from "../resolver";
 import { serializeResolvedModels } from "../serializer";
-import { createEmptySnapshot } from "../storage/driver";
 import {
   type AmbiguousChange,
   type AmbiguousResolveChange,
@@ -33,11 +33,7 @@ import {
   type Resolver,
   type SchemaSnapshot,
 } from "../types";
-import {
-  extractForwardReferenceForeignKeys,
-  materializeDroppedTableForeignKeys,
-  sortOperations,
-} from "../utils";
+import { prepareSchemaProgram, sortOperations } from "../utils";
 import {
   applyForceEnumResolutions,
   applyResolvedEnumMappings,
@@ -60,7 +56,7 @@ export interface MigrationClient {
 }
 
 export interface PushOptions {
-  /** Skip confirmations for destructive and ambiguous changes */
+  /** Planner-only auto-resolution; public V1 push does not expose this key. */
   force?: boolean;
   /**
    * Skip schema validation before pushing. Validation catches definition
@@ -72,9 +68,8 @@ export interface PushOptions {
   /** Preview SQL without executing */
   dryRun?: boolean;
   /**
-   * Drop all tables and enums before pushing schema.
-   * If a storage driver is configured, also clears migration tracking.
-   * Use with extreme caution - all data will be lost.
+   * Rebuild from the empty snapshot. Public V1 requires preview consent before
+   * executing the resulting force-reset plan.
    */
   forceReset?: boolean;
   /**
@@ -220,7 +215,7 @@ export async function planRebuildFromEmpty(
     migrationDriver,
     relations
   );
-  const current = createEmptySnapshot();
+  const current = emptyManagedSnapshot();
   const diffOptions: DiffOptions = {
     matchConstraintsByShape:
       !migrationDriver.capabilities.introspectionReadsConstraintNames,
@@ -235,7 +230,7 @@ export async function planRebuildFromEmpty(
   );
 
   return {
-    operations: extractForwardReferenceForeignKeys(operations, migrationDriver),
+    operations: prepareSchemaProgram(operations, current, migrationDriver),
     currentSchema: current,
   };
 }
@@ -276,20 +271,8 @@ export async function planPush(
     diffOptions
   );
 
-  // Lift forward-reference FKs out of CREATE TABLE so every referenced table
-  // exists before its constraint is added (Postgres/MySQL). No-op on
-  // SQLite/LibSQL, which keep FKs inline and resolve forward refs lazily.
-  const orderedOperations = extractForwardReferenceForeignKeys(
-    operations,
-    migrationDriver
-  );
-
   return {
-    operations: materializeDroppedTableForeignKeys(
-      orderedOperations,
-      current,
-      migrationDriver
-    ),
+    operations: prepareSchemaProgram(operations, current, migrationDriver),
     currentSchema: current,
   };
 }

@@ -1,5 +1,5 @@
 /**
- * PostgreSQL DDL, tracking and introspection, bound to one schema.
+ * PostgreSQL DDL, control tables, and introspection, bound to one schema.
  *
  * Qualification is the containment mechanism: nothing sets `search_path`, so a
  * statement reaches this estate's objects only because it names the estate's
@@ -21,11 +21,13 @@ import { citext } from "@electric-sql/pglite/contrib/citext";
 import { vector } from "@electric-sql/pglite/vector";
 import { MigrationError, VibORMErrorCode } from "@errors";
 import { getMigrationDriver } from "@migrations/drivers";
-import { introspect as introspectClient, push } from "@migrations/push";
+import { introspect as introspectClient } from "@migrations/push";
 import { PG, s } from "@schema";
+import { createControlTableSQL } from "@src/migrations/control";
 import { postgresMigrationDriver } from "@src/migrations/drivers/postgres";
 import type { DiffOperation, SchemaSnapshot } from "@src/migrations/types";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { syncLiveSchema } from "../../fixtures/sync-schema";
 import { ddlContext, pgEstateDriver, RecordingDriver } from "./_estate";
 
 /** Refusal texts these controls pin, hoisted so no matcher builds one per call. */
@@ -381,22 +383,17 @@ describe("a column type is qualified only when it names a managed enum", () => {
 // TRACKING AND INVENTORY
 // =============================================================================
 
-describe("tracking and inventory statements name the estate", () => {
-  it("qualifies every tracking statement", () => {
-    expect(billing.generateCreateTrackingTable("_viborm_migrations")).toContain(
-      'CREATE TABLE IF NOT EXISTS "billing"."_viborm_migrations"'
+describe("control and inventory statements name the estate", () => {
+  it("qualifies every control-table statement", () => {
+    const sql = createControlTableSQL(billing, "_viborm_migration");
+    expect(sql.state).toContain(
+      'CREATE TABLE IF NOT EXISTS "billing"."_viborm_migration_state"'
     );
-    expect(billing.generateSelectAppliedMigrations("_viborm_migrations")).toBe(
-      'SELECT name, checksum, applied_at FROM "billing"."_viborm_migrations" ORDER BY id ASC'
+    expect(sql.log).toContain(
+      'CREATE TABLE IF NOT EXISTS "billing"."_viborm_migration_log"'
     );
-    expect(billing.generateInsertMigration("_viborm_migrations").sql).toBe(
-      'INSERT INTO "billing"."_viborm_migrations" (name, checksum) VALUES ($1, $2)'
-    );
-    expect(billing.generateDeleteMigration("_viborm_migrations").sql).toBe(
-      'DELETE FROM "billing"."_viborm_migrations" WHERE name = $1'
-    );
-    expect(billing.generateClearMigrations("_viborm_migrations")).toBe(
-      'DELETE FROM "billing"."_viborm_migrations"'
+    expect(billing.generateClearMigrations("_viborm_migration_state")).toBe(
+      'DELETE FROM "billing"."_viborm_migration_state"'
     );
   });
 
@@ -538,13 +535,13 @@ type CatalogQuery =
 function classifyCatalogQuery(sql: string): CatalogQuery {
   if (sql.includes("SELECT 1 AS present")) return "proof";
   if (sql.includes("format_type")) return "columns";
-  if (sql.includes("pg_catalog.pg_constraint con")) {
+  if (sql.includes("(owner_ns.nspname = $1) <> (referenced_ns.nspname = $1)")) {
     return "crossSchemaForeignKeys";
   }
   if (sql.includes("FROM pg_index ix")) return "indexes";
   if (sql.includes("JOIN pg_enum e")) return "enums";
   if (sql.includes("'PRIMARY KEY'")) return "primaryKeys";
-  if (sql.includes("'FOREIGN KEY'")) return "foreignKeys";
+  if (sql.includes("con.contype = 'f'")) return "foreignKeys";
   if (sql.includes("'UNIQUE'")) return "uniques";
   if (sql.includes("information_schema.tables")) return "tables";
   return "unknown";
@@ -967,7 +964,7 @@ async function pushInto(namespace: string) {
     schema: tenantSchema,
     driver: new PGliteDriver({ client: database, namespace }),
   });
-  return await push(client, { force: true });
+  return await syncLiveSchema(client);
 }
 
 describe("a custom schema converges on PostgreSQL", () => {
@@ -1101,7 +1098,7 @@ describe("an extension type converges inside a custom schema", () => {
       }),
     });
 
-    const first = await push(client, { force: true });
+    const first = await syncLiveSchema(client);
     expect(first.operations.length).toBeGreaterThan(0);
 
     // The typmod survives the catalog round-trip. Reduced to `udt_name` it
@@ -1111,7 +1108,7 @@ describe("an extension type converges inside a custom schema", () => {
       "vector(3)"
     );
 
-    const second = await push(client, { force: true });
+    const second = await syncLiveSchema(client);
     expect(second.operations).toEqual([]);
   });
 
@@ -1182,7 +1179,7 @@ describe("an extension type no capability admits converges in a custom schema", 
       }),
     });
 
-    const first = await push(client, { force: true });
+    const first = await syncLiveSchema(client);
     expect(first.operations.length).toBeGreaterThan(0);
 
     const snapshot = await introspectClient(client);
@@ -1192,7 +1189,75 @@ describe("an extension type no capability admits converges in a custom schema", 
 
     // The whole point: the read-back spelling equals the desired spelling, so
     // the estate converges instead of refusing forever after its first push.
-    const second = await push(client, { force: true });
+    const second = await syncLiveSchema(client);
+    expect(second.operations).toEqual([]);
+  });
+});
+
+describe("a unique-index foreign-key target stays visible", () => {
+  const host = s
+    .model({
+      id: s.int().id(),
+      code: s.string(),
+      pets: s.toMany(() => pet),
+    })
+    .map("ns_hosts")
+    .index(["code"], { unique: true });
+  const pet = s
+    .model({
+      id: s.int().id(),
+      hostCode: s.string(),
+      host: s
+        .toOne(() => host)
+        .fields("hostCode")
+        .references("code")
+        .onUpdate("cascade"),
+    })
+    .map("ns_pets");
+  const schema = { host, pet };
+  let uniqueIndexDatabase: PGlite;
+
+  beforeAll(async () => {
+    uniqueIndexDatabase = new PGlite();
+    const client = createClient({
+      schema,
+      driver: new PGliteDriver({ client: uniqueIndexDatabase }),
+    });
+    await syncLiveSchema(client);
+  });
+
+  afterAll(async () => {
+    await uniqueIndexDatabase?.close();
+  });
+
+  it("reads the unique index and the foreign key that targets it", async () => {
+    const client = createClient({
+      schema,
+      driver: new PGliteDriver({ client: uniqueIndexDatabase }),
+    });
+    const snapshot = await introspectClient(client);
+    const hosts = snapshot.tables.find((table) => table.name === "ns_hosts");
+    const pets = snapshot.tables.find((table) => table.name === "ns_pets");
+
+    expect(hosts?.indexes).toEqual([
+      expect.objectContaining({
+        name: "ns_hosts_code_idx",
+        columns: ["code"],
+        unique: true,
+      }),
+    ]);
+    expect(hosts?.uniqueConstraints).toEqual([]);
+    expect(pets?.foreignKeys).toEqual([
+      expect.objectContaining({
+        name: "ns_pets_hostCode_fkey",
+        columns: ["hostCode"],
+        referencedTable: "ns_hosts",
+        referencedColumns: ["code"],
+        onUpdate: "cascade",
+      }),
+    ]);
+
+    const second = await syncLiveSchema(client);
     expect(second.operations).toEqual([]);
   });
 });
