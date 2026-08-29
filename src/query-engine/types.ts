@@ -9,6 +9,7 @@ import type { QueryExecutionContext } from "@drivers/driver";
 import type { QueryResult } from "@drivers/types";
 import type { Model } from "@schema/model";
 import type { RelationCardinality } from "@schema/relation";
+import type { Scalar } from "@schema/scalars";
 import type {
   ResolvedRelationIndex,
   ResolvedSlot,
@@ -33,24 +34,11 @@ export { Sql } from "@sql";
 // BATCH EXECUTION TYPES
 // ============================================================
 
-/**
- * Raw result from database execution
- * - For regular queries: array of rows
- * - For batch operations (createMany, etc.): object with rowCount
- */
-export type RawQueryResult = unknown[] | { rowCount: number };
-
 /** Raw rows/count produced by one mutation result-emulation scope. */
 export interface MutationQueryResult {
   rows: Record<string, unknown>[];
   rowCount: number;
 }
-
-/**
- * Result parser function type
- * Transforms raw database result into typed application objects
- */
-export type ResultParser<T> = (raw: RawQueryResult) => T;
 
 /**
  * Prepared query ready for batch execution
@@ -63,14 +51,6 @@ export interface PreparedQuery {
   /** Immutable attribution captured when the ORM operation was created. */
   context: QueryExecutionContext;
 }
-
-/**
- * @deprecated `PendingOperation` now owns this lifecycle directly. This
- * type-only alias remains through the next published compatibility release;
- * no metadata object is created at runtime.
- */
-export type QueryMetadata<T> =
-  import("./pending-operation").PendingOperation<T>;
 
 /**
  * One logical operation expanded into driver-level batch queries.
@@ -149,10 +129,15 @@ export function isBatchOperation(op: Operation): op is BatchOperation {
 /**
  * Model registry for accessing related models
  */
+export type OperationSchemaRegistry = Pick<
+  SchemaRegistryLookup,
+  "getModelSchemas" | "validate"
+>;
+
 export interface ModelRegistry {
   get(name: string): Model<any> | undefined;
   getByTableName(tableName: string): Model<any> | undefined;
-  readonly schemas: SchemaRegistryLookup;
+  readonly schemas: OperationSchemaRegistry;
   /** The one resolved topology index this client was composed over. */
   readonly relations: ResolvedRelationIndex;
 }
@@ -208,6 +193,8 @@ export interface ExpectedResultShape {
   /** Raw statement carrier declared by the compiled operation result. */
   carrier: "rows" | "count" | "existence";
   rawKeys: readonly string[];
+  /** Scalar whose selected `_distance` expression produced the private column. */
+  readonly distanceScalar?: Scalar;
   relations: ReadonlyMap<string, ExpectedRelationResultShape>;
   polymorphic: ReadonlyMap<string, ExpectedPolymorphicResultShape>;
   aggregates: ReadonlyMap<string, ExpectedAggregateResultShape>;

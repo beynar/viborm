@@ -30,6 +30,14 @@ import {
   type RelationRef,
 } from "../types";
 import { decimalDescriptorOf, decimalDescriptorOfState } from "./decimal-field";
+import {
+  buildPointDistancePredicate,
+  type DistanceField,
+} from "./distance-builder";
+import {
+  buildGeoPointEquality,
+  buildGeoPointWithin,
+} from "./geo-point-builder";
 import { buildJsonFilter } from "./json-filter-builder";
 import { buildPolymorphicCollectionFilterSql } from "./polymorphic-collection-filter-builder";
 import { buildPolymorphicFilterSql } from "./polymorphic-read-builder";
@@ -53,6 +61,15 @@ export function buildWhere(
   where: Record<string, unknown> | undefined,
   alias: string
 ): Sql | undefined {
+  return buildWhereAtPolarity(ctx, where, alias, true);
+}
+
+function buildWhereAtPolarity(
+  ctx: QueryScope,
+  where: Record<string, unknown> | undefined,
+  alias: string,
+  positivePolarity: boolean
+): Sql | undefined {
   if (!where) {
     return undefined;
   }
@@ -73,7 +90,7 @@ export function buildWhere(
 
     // Handle logical operators
     if (key === "AND") {
-      const andCondition = buildLogicalAnd(ctx, value, alias);
+      const andCondition = buildLogicalAnd(ctx, value, alias, positivePolarity);
       if (andCondition) {
         conditions.push(andCondition);
       }
@@ -81,7 +98,7 @@ export function buildWhere(
     }
 
     if (key === "OR") {
-      const orCondition = buildLogicalOr(ctx, value, alias);
+      const orCondition = buildLogicalOr(ctx, value, alias, positivePolarity);
       if (orCondition) {
         conditions.push(orCondition);
       }
@@ -89,7 +106,7 @@ export function buildWhere(
     }
 
     if (key === "NOT") {
-      const notCondition = buildLogicalNot(ctx, value, alias);
+      const notCondition = buildLogicalNot(ctx, value, alias, positivePolarity);
       if (notCondition) {
         conditions.push(notCondition);
       }
@@ -98,7 +115,13 @@ export function buildWhere(
 
     // Handle scalar filters
     if (isScalarField(ctx.model, key)) {
-      const scalarCondition = buildScalarFilter(ctx, key, value, alias);
+      const scalarCondition = buildScalarFilter(
+        ctx,
+        key,
+        value,
+        alias,
+        positivePolarity
+      );
       if (scalarCondition) {
         conditions.push(scalarCondition);
       }
@@ -116,7 +139,8 @@ export function buildWhere(
         ctx,
         relationRef,
         value as Record<string, unknown>,
-        alias
+        alias,
+        positivePolarity
       );
       if (relationCondition) {
         conditions.push(relationCondition);
@@ -142,14 +166,16 @@ export function buildWhere(
               ctx,
               relation,
               value,
-              alias
+              alias,
+              positivePolarity
             )
           : buildPolymorphicCollectionFilterSql(
               buildNestedWhere,
               ctx,
               relation,
               value,
-              alias
+              alias,
+              positivePolarity
             )
       );
       continue;
@@ -165,15 +191,19 @@ export function buildWhere(
   return ctx.adapter.operators.and(...conditions);
 }
 
-const buildNestedWhere: BuildNestedWhere = (ctx, where) =>
-  buildWhere(ctx, where, ctx.rootAlias);
+const buildNestedWhere: BuildNestedWhere = (
+  ctx,
+  where,
+  positivePolarity = true
+) => buildWhereAtPolarity(ctx, where, ctx.rootAlias, positivePolarity);
 
 /** Build a relation predicate while preserving the public advanced API. */
 export function buildRelationFilter(
   ctx: QueryScope,
   relationRef: RelationRef,
   filter: Record<string, unknown>,
-  parentAlias: string
+  parentAlias: string,
+  positivePolarity = true
 ): Sql | undefined {
   const parentScope =
     parentAlias === ctx.rootAlias
@@ -183,7 +213,8 @@ export function buildRelationFilter(
     buildNestedWhere,
     parentScope,
     relationRef,
-    filter
+    filter,
+    positivePolarity
   );
 }
 
@@ -193,13 +224,19 @@ export function buildRelationFilter(
 function buildLogicalAnd(
   ctx: QueryScope,
   value: unknown,
-  alias: string
+  alias: string,
+  positivePolarity: boolean
 ): Sql | undefined {
   const items = Array.isArray(value) ? value : [value];
   const conditions: Sql[] = [];
 
   for (const item of items) {
-    const condition = buildWhere(ctx, item as Record<string, unknown>, alias);
+    const condition = buildWhereAtPolarity(
+      ctx,
+      item as Record<string, unknown>,
+      alias,
+      positivePolarity
+    );
     if (condition) {
       conditions.push(condition);
     }
@@ -217,7 +254,8 @@ function buildLogicalAnd(
 function buildLogicalOr(
   ctx: QueryScope,
   value: unknown,
-  alias: string
+  alias: string,
+  positivePolarity: boolean
 ): Sql | undefined {
   if (!Array.isArray(value)) {
     throw new QueryEngineError("Logical OR requires an array value.");
@@ -226,7 +264,12 @@ function buildLogicalOr(
   const conditions: Sql[] = [];
 
   for (const item of value) {
-    const condition = buildWhere(ctx, item as Record<string, unknown>, alias);
+    const condition = buildWhereAtPolarity(
+      ctx,
+      item as Record<string, unknown>,
+      alias,
+      positivePolarity
+    );
     if (condition) {
       conditions.push(condition);
     }
@@ -244,7 +287,8 @@ function buildLogicalOr(
 function buildLogicalNot(
   ctx: QueryScope,
   value: unknown,
-  alias: string
+  alias: string,
+  positivePolarity: boolean
 ): Sql | undefined {
   // Prisma semantics: NOT: [c1, c2] negates each item and ANDs the
   // negations (NOT c1 AND NOT c2 — "all conditions must return false"),
@@ -254,7 +298,12 @@ function buildLogicalNot(
   const negations: Sql[] = [];
 
   for (const item of items) {
-    const condition = buildWhere(ctx, item as Record<string, unknown>, alias);
+    const condition = buildWhereAtPolarity(
+      ctx,
+      item as Record<string, unknown>,
+      alias,
+      !positivePolarity
+    );
     if (condition) {
       negations.push(ctx.adapter.operators.not(condition));
     }
@@ -281,7 +330,8 @@ function buildScalarFilter(
   ctx: QueryScope,
   fieldName: string,
   value: unknown,
-  alias: string
+  alias: string,
+  positivePolarity: boolean
 ): Sql | undefined {
   const scalarState = getScalarState(ctx, fieldName);
 
@@ -325,7 +375,8 @@ function buildScalarFilter(
       op,
       opValue,
       alias,
-      mode
+      mode,
+      positivePolarity
     );
     if (condition) {
       conditions.push(condition);
@@ -467,7 +518,8 @@ function buildFilterOperation(
   operation: string,
   value: unknown,
   alias: string,
-  mode: FilterMode = "default"
+  mode: FilterMode = "default",
+  positivePolarity = true
 ): Sql {
   const { adapter } = ctx;
   const lit = (v: unknown) => {
@@ -592,6 +644,9 @@ function buildFilterOperation(
       if (value === null) {
         return adapter.operators.isNull(column);
       }
+      if (scalarState.type === "point") {
+        return buildGeoPointEquality(ctx, column, value);
+      }
       // Whole-list and JSON document operands need the dialect's storage
       // format: a plain param compares as a string scalar on MySQL and is
       // unbindable on SQLite. `lit` is the one owner of that lowering, so a
@@ -645,7 +700,8 @@ function buildFilterOperation(
           column,
           value as Record<string, unknown>,
           alias,
-          mode
+          mode,
+          !positivePolarity
         );
         return adapter.operators.not(nested);
       }
@@ -653,6 +709,21 @@ function buildFilterOperation(
         return insensitiveNeq(value);
       }
       return adapter.operators.neq(...exactComparison(value));
+
+    case "distance":
+      return buildPointDistancePredicate(
+        ctx,
+        column,
+        value,
+        {
+          name: fieldName,
+          scalarState,
+        } satisfies DistanceField,
+        positivePolarity
+      );
+
+    case "within":
+      return buildGeoPointWithin(ctx, column, value);
 
     // Comparison. A decimal orders exactly on every dialect: PostgreSQL and
     // MySQL compare their native exact type, SQLite compares the stored
@@ -811,7 +882,8 @@ function buildScalarFilterObject(
   column: Sql,
   filter: Record<string, unknown>,
   alias: string,
-  mode: FilterMode = "default"
+  mode: FilterMode = "default",
+  positivePolarity = true
 ): Sql {
   const scalarState = getScalarState(ctx, fieldName);
   const conditions: Sql[] = [];
@@ -835,7 +907,8 @@ function buildScalarFilterObject(
       op,
       value,
       alias,
-      nestedMode
+      nestedMode,
+      positivePolarity
     );
     if (condition) {
       conditions.push(condition);

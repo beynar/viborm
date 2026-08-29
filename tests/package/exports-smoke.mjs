@@ -289,6 +289,10 @@ const rootRuntimeFile = resolve(
   repositoryRoot,
   packageJson.exports["."].import
 );
+const schemaRuntimeFile = resolve(
+  repositoryRoot,
+  packageJson.exports["./schema"].import
+);
 const clientRuntimeFile = resolve(
   repositoryRoot,
   packageJson.exports["./client"].import
@@ -296,6 +300,7 @@ const clientRuntimeFile = resolve(
 typeConsumerImports.push(
   `import type { DatabaseAdapter as PackagedDatabaseAdapter } from ${JSON.stringify(adaptersRuntimeFile)};`,
   `import { Decimal as PackagedDecimal } from ${JSON.stringify(rootRuntimeFile)};`,
+  `import type { GeoPoint as SchemaGeoPoint } from ${JSON.stringify(schemaRuntimeFile)};`,
   `import type { ClientExtension as RootClientExtension, ExtendedClient as RootExtendedClient, VibORMClient as RootVibORMClient } from ${JSON.stringify(rootRuntimeFile)};`,
   `import type { ClientExtension as ClientSubpathExtension, ExtendedClient as ClientSubpathExtendedClient, OperationPayloadSchema as ClientOperationPayloadSchema, ValidatedOperationPayload as ClientValidatedOperationPayload } from ${JSON.stringify(clientRuntimeFile)};`,
   `import type { ObservationCompletion as RootObservationCompletion, ObservationUnit as RootObservationUnit, ObserveHandler as RootObserveHandler, StatementContext as RootStatementContext, StatementHandler as RootStatementHandler } from ${JSON.stringify(rootRuntimeFile)};`,
@@ -303,6 +308,7 @@ typeConsumerImports.push(
   'const rootExtension: RootClientExtension = { name: "root-type-smoke" };',
   'const clientExtension: ClientSubpathExtension = { name: "client-type-smoke" };',
   'const packagedDecimalValue: PackagedDecimal = new PackagedDecimal("1.2");',
+  "const packagedGeoPoint: SchemaGeoPoint = { longitude: 2, latitude: 48 };",
   "type ExtensionSmokeConfig = { schema: Record<never, never>; driver: never };",
   "declare const extensionSmokeBase: RootVibORMClient<ExtensionSmokeConfig>;",
   'const extensionSmokeDefinition = { name: "package-type-smoke", client: () => ({ $packageTypeSmoke: () => 1 as const }) } as const;',
@@ -321,6 +327,7 @@ typeConsumerImports.push(
   "void rootExtension;",
   "void clientExtension;",
   "void packagedDecimalValue;",
+  "void packagedGeoPoint;",
   "rootExtendedClientSmoke.$packageTypeSmoke();",
   "clientSubpathExtendedClientSmoke.$packageTypeSmoke();",
   "void clientOperationPayloadSchemaSmoke;",

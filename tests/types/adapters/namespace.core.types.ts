@@ -16,6 +16,8 @@ import {
   sqliteAdapter,
 } from "@src/adapters";
 
+type GeoPointSql = NonNullable<DatabaseAdapter["geoPoint"]>;
+
 type Equal<Left, Right> =
   (<Value>() => Value extends Left ? 1 : 2) extends <
     Value,
@@ -40,6 +42,12 @@ type _noDatabaseSchema = Expect<
 type _noKeyspace = Expect<
   Equal<"keyspace" extends keyof DatabaseAdapter ? true : false, false>
 >;
+type _noQueryParts = Expect<
+  Equal<"assemble" extends keyof DatabaseAdapter ? true : false, false>
+>;
+type _noBatchReferences = Expect<
+  Equal<"batchRefs" extends keyof DatabaseAdapter ? true : false, false>
+>;
 
 // PostgreSQL always has one; MySQL may not; SQLite declares none.
 type _postgresNarrowsToString = Expect<
@@ -59,11 +67,12 @@ const _mysqlIsNotAlwaysBound: string = mysqlAdapter.namespace;
 // @ts-expect-error - SQLite adapters have no namespace to read
 const _sqliteHasNothingToRead = sqliteAdapter.namespace;
 
-// The public constructors take one optional primitive and no options bag.
+// PostgreSQL's second primitive settles its optional PostGIS protocol.
 const _constructors = () => [
   new PostgresAdapter(),
   new PostgresAdapter("alpha"),
   new PostgresAdapter(undefined),
+  new PostgresAdapter("alpha", true),
   new MySQLAdapter(),
   new MySQLAdapter("alpha"),
   new MySQLAdapter(undefined),
@@ -73,16 +82,15 @@ const _refusedConstructorInputs = () => [
   new PostgresAdapter(3),
   // @ts-expect-error - there is no adapter options bag
   new MySQLAdapter({ namespace: "alpha" }),
+  // @ts-expect-error - PostGIS is an exact boolean, not an options bag
+  new PostgresAdapter("alpha", { postgis: true }),
   // @ts-expect-error - SQLite adapters take no namespace
   new SQLiteAdapter("alpha"),
 ];
 
-// The capability record's new optional flag.
-type _geospatialCapabilityIsOptional = Expect<
-  Equal<
-    DatabaseAdapter["capabilities"]["supportsGeospatial"],
-    boolean | undefined
-  >
+// Protocol presence, not a parallel support flag, proves the physical tier.
+type _geoPointProtocolIsOptional = Expect<
+  Equal<DatabaseAdapter["geoPoint"], GeoPointSql | undefined>
 >;
 
 export {

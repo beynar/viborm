@@ -13,10 +13,7 @@ import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 const schema = windowUserPostSchema;
 
-type WindowClientConfig = VibORMConfig & {
-  schema: typeof schema;
-  driver: AnyDriver;
-};
+type WindowClientConfig = VibORMConfig<typeof schema>;
 
 type WindowClient = VibORMClient<WindowClientConfig>;
 

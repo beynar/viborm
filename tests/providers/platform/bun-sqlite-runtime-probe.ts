@@ -13,6 +13,8 @@
  * test asserts on.
  */
 
+import { MemoryCache } from "@cache/drivers/memory";
+import { cache } from "@cache/extension";
 import { createClient } from "@client/client";
 import { BunSQLiteDriver } from "@drivers/bun-sqlite";
 import { ForeignKeyError } from "@errors";
@@ -53,6 +55,54 @@ const reading = s
   })
   .map("bun_sqlite_runtime_readings");
 
+const geoPlace = s
+  .model({
+    id: s.string().id(),
+    location: s.point(),
+    optionalLocation: s.point().nullable(),
+  })
+  .map("bun_sqlite_runtime_geo_places");
+const geoRoute = s
+  .model({
+    id: s.string().id(),
+    location: s.point(),
+    stops: s.toMany(() => geoStop),
+  })
+  .map("bun_sqlite_runtime_geo_routes");
+const geoStop = s
+  .model({
+    id: s.string().id(),
+    routeId: s.string(),
+    location: s.point(),
+    route: s
+      .toOne(() => geoRoute)
+      .fields("routeId")
+      .references("id"),
+  })
+  .map("bun_sqlite_runtime_geo_stops");
+const geoArticle = s
+  .model({
+    id: s.string().id(),
+    location: s.point(),
+    markers: s.toMany(() => geoMarker).name("bunGeoTarget"),
+  })
+  .map("bun_sqlite_runtime_geo_articles");
+const geoVideo = s
+  .model({
+    id: s.string().id(),
+    location: s.point(),
+    markers: s.toMany(() => geoMarker).name("bunGeoTarget"),
+  })
+  .map("bun_sqlite_runtime_geo_videos");
+const geoMarker = s
+  .model({
+    id: s.string().id(),
+    target: s
+      .toOne({ article: () => geoArticle, video: () => geoVideo })
+      .name("bunGeoTarget"),
+  })
+  .map("bun_sqlite_runtime_geo_markers");
+
 // The value the shared scalar round-trip suite pins on sqlite3 and libsql:
 // one past Number.MAX_SAFE_INTEGER, so it rounds down to 9007199254740992 the
 // moment it travels as a JS number.
@@ -66,7 +116,17 @@ function assert(condition: boolean, message: string): void {
 }
 
 const client = createClient({
-  schema: { decimalEvidence, measurement, reading },
+  schema: {
+    decimalEvidence,
+    geoArticle,
+    geoMarker,
+    geoPlace,
+    geoRoute,
+    geoStop,
+    geoVideo,
+    measurement,
+    reading,
+  },
   driver: new BunSQLiteDriver({ dataDir: ":memory:" }),
 });
 
@@ -322,6 +382,139 @@ assert(
   physicalDecimals[0]?.amountStorage === "integer" &&
     physicalDecimals[0]?.amountsStorage === "text",
   `physical storage classes gave ${physicalDecimals[0]?.amountStorage}/${physicalDecimals[0]?.amountsStorage}, expected integer/text`
+);
+
+// 13. GeoPoint uses the same logical value across direct, relation, variant,
+// transaction, cache, extension, and raw boundaries on the real Bun runtime.
+const PARIS = { longitude: 2.3522, latitude: 48.8566 } as const;
+const LONDON = { longitude: -0.1276, latitude: 51.5072 } as const;
+const createdPoint = await client.geoPlace.create({
+  data: { id: "paris", location: PARIS, optionalLocation: null },
+});
+assert(
+  createdPoint.location.longitude === PARIS.longitude &&
+    createdPoint.location.latitude === PARIS.latitude,
+  `GeoPoint create returned ${JSON.stringify(createdPoint.location)}`
+);
+await client.geoPlace.createMany({
+  data: [
+    { id: "london", location: LONDON },
+    { id: "east", location: { longitude: 175, latitude: 0 } },
+    { id: "west", location: { longitude: -175, latitude: 0 } },
+  ],
+});
+const equalPoint = await client.geoPlace.findMany({
+  where: { location: { equals: PARIS } },
+  select: { id: true },
+});
+assert(
+  equalPoint.length === 1 && equalPoint[0]?.id === "paris",
+  `GeoPoint equality gave ${equalPoint.map((row) => row.id)}`
+);
+const crossingPoints = await client.geoPlace.findMany({
+  where: {
+    location: {
+      within: {
+        bounds: { south: -10, west: 170, north: 10, east: -170 },
+      },
+    },
+  },
+  select: { id: true },
+  orderBy: { id: "asc" },
+});
+assert(
+  crossingPoints.map((row) => row.id).join(",") === "east,west",
+  `GeoPoint crossing bounds gave ${crossingPoints.map((row) => row.id)}`
+);
+const callbackPoint = await client.$transaction(async (tx) => {
+  await tx.geoPlace.update({
+    where: { id: "paris" },
+    data: { location: { set: LONDON } },
+  });
+  return tx.geoPlace.findUniqueOrThrow({ where: { id: "paris" } });
+});
+assert(
+  callbackPoint.location.longitude === LONDON.longitude,
+  "GeoPoint callback transaction lost the logical value"
+);
+const [batchPoint] = await client.$transaction([
+  client.geoPlace.findMany({
+    where: { location: { equals: LONDON } },
+    select: { id: true },
+    orderBy: { id: "asc" },
+  }),
+]);
+assert(
+  batchPoint.map((row) => row.id).join(",") === "london,paris",
+  `GeoPoint array transaction gave ${batchPoint.map((row) => row.id)}`
+);
+const relationPoint = await client.geoRoute.create({
+  data: {
+    id: "route",
+    location: PARIS,
+    stops: { create: { id: "stop", location: LONDON } },
+  },
+  include: { stops: true },
+});
+assert(
+  relationPoint.stops[0]?.location.longitude === LONDON.longitude,
+  "GeoPoint nested relation lost the logical value"
+);
+const variantPoint = await client.geoMarker.create({
+  data: {
+    id: "marker",
+    target: {
+      create: {
+        type: "article",
+        data: { id: "article", location: PARIS },
+      },
+    },
+  },
+  include: { target: true },
+});
+assert(
+  variantPoint.target.type === "article" &&
+    variantPoint.target.data.location.longitude === PARIS.longitude,
+  "GeoPoint variant relation lost the logical value"
+);
+const cachedPointClient = client.$extends(cache({ driver: new MemoryCache() }));
+const cachedPoint = await cachedPointClient.$withCache().geoPlace.findMany({
+  where: { id: "london" },
+});
+Reflect.set(cachedPoint[0]?.location ?? {}, "longitude", 99);
+const freshCachedPoint = await cachedPointClient
+  .$withCache()
+  .geoPlace.findMany({
+    where: { id: "london" },
+  });
+assert(
+  freshCachedPoint[0]?.location.longitude === LONDON.longitude,
+  "GeoPoint cache returned a mutated logical value"
+);
+let pointRequestCalls = 0;
+const extendedPointClient = client.$extends({
+  name: "bun-geopoint",
+  request: {
+    geoPlace: {
+      findMany() {
+        pointRequestCalls += 1;
+        return { where: { location: { equals: LONDON } } };
+      },
+    },
+  },
+});
+await extendedPointClient.geoPlace.findMany({ select: { id: true } });
+assert(pointRequestCalls === 1, "GeoPoint request extension did not run once");
+const taggedPoint = await client.$queryRaw<{ location: string }>`
+  SELECT location FROM bun_sqlite_runtime_geo_places WHERE id = ${"london"}
+`;
+const unsafePoint = await client.$queryRawUnsafe<{ location: string }>(
+  "SELECT location FROM bun_sqlite_runtime_geo_places WHERE id = 'london'"
+);
+assert(
+  taggedPoint[0]?.location === unsafePoint[0]?.location &&
+    typeof taggedPoint[0]?.location === "string",
+  "GeoPoint raw boundaries did not retain physical JSON text"
 );
 
 console.log("fixed-decimal evidence passed");

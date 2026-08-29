@@ -1,8 +1,5 @@
-// Database Adapter Interface
-export * from "./database-adapter";
+export type { DatabaseAdapter } from "./database-adapter";
 export { MySQLAdapter, mysqlAdapter } from "./databases/mysql/mysql-adapter";
-
-// Database-specific Adapters
 export {
   PostgresAdapter,
   postgresAdapter,
@@ -11,5 +8,3 @@ export {
   SQLiteAdapter,
   sqliteAdapter,
 } from "./databases/sqlite/sqlite-adapter";
-// Error Types
-export * from "./types";

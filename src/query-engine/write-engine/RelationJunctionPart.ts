@@ -1,4 +1,5 @@
 // biome-ignore-all lint/style/useFilenamingConvention: RelationJunctionPart is the architecture name.
+import { getAdapterInternals } from "@adapters/adapter-internals";
 import { NestedWriteError, QueryEngineError } from "@errors";
 import type { Sql } from "@sql";
 import { isRecord } from "@validation/value-guards";
@@ -1967,7 +1968,8 @@ export class RelationJunctionPart implements JunctionCompilePart {
     const capturesByReturning =
       this.context.engine.adapter.capabilities.supportsReturning &&
       (this.context.txMode ||
-        !this.context.engine.adapter.batchRefs.storeLastInsertId);
+        !getAdapterInternals(this.context.engine.adapter).batchRefs
+          .storeLastInsertId);
     // The adapter owns SQL duplicate skipping; MySQL uses the executor's recoverable
     // unique-conflict effect.
     const recoverUnique =

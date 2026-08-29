@@ -18,6 +18,8 @@ export interface MySQLColumn {
   CHARACTER_MAXIMUM_LENGTH: number | null;
   NUMERIC_PRECISION: number | null;
   NUMERIC_SCALE: number | null;
+  /** SRID restriction for a spatial column; null for unrestricted/non-spatial. */
+  SRS_ID?: number | string | bigint | null;
   EXTRA: string; // Contains "auto_increment" if applicable
   /**
    * The column's comment, read for the deterministic decimal-list marker.

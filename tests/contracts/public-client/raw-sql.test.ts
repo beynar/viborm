@@ -12,8 +12,7 @@
  *  - raw inside an interactive transaction sees the transaction's own
  *    uncommitted writes and disappears with a rollback.
  *  - `join` / `empty` / `raw` compose the way Prisma's do.
- *  - the deprecated `(string, params?)` form still runs and announces itself
- *    once per method on the `warning` channel.
+ *  - safe methods reject string compatibility calls before provider execution.
  *  - raw calls are lazy, promise-compatible transaction operations.
  *  - raw and model operations share one atomic array transaction in order.
  */
@@ -31,9 +30,9 @@ import {
   createInMemoryPGliteDriver,
 } from "@tests/fixtures/drivers/pglite";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { captureLogs } from "@tests/unit/instrumentation/_capture";
 import { afterEach, describe, expect, expectTypeOf, test, vi } from "vitest";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 // Lowercase single-word identifiers need no dialect-specific quoting.
 const item = s
@@ -81,10 +80,6 @@ function lastStatement(probe: Probe) {
   const last = queries.at(-1);
   if (!last) throw new Error("no query was logged");
   return { sql: last.sql ?? "", params: last.params ?? [] };
-}
-
-function warnings(probe: Probe) {
-  return probe.events.filter((event) => event.level === "warning");
 }
 
 type ProbedClient = ReturnType<typeof createProbedClient>["client"];
@@ -341,76 +336,37 @@ for (const { name, createDriver } of DIALECTS) {
       });
     });
 
-    describe("deprecated string form", () => {
-      test("still runs, and announces itself once per method", async () => {
+    describe("safe string refusal", () => {
+      test("rejects query and execute strings before provider execution", async () => {
         const { client, probe } = await setup();
-        const placeholder =
-          client.$driver.dialect === "postgresql" ? "$1" : "?";
-
-        const first = await client.$queryRaw<{ id: string }>(
-          `SELECT id FROM raw_sql_items WHERE label = ${placeholder}`,
-          ["Beta"]
-        );
-        expect(first).toEqual([{ id: "i2" }]);
-
-        const second = await client.$queryRaw<{ id: string }>(
-          `SELECT id FROM raw_sql_items WHERE label = ${placeholder}`,
-          ["Gamma"]
-        );
-        expect(second).toEqual([{ id: "i3" }]);
-
-        const queryWarnings = warnings(probe);
-        expect(queryWarnings).toHaveLength(1);
-        expect(queryWarnings[0]).toMatchObject({
-          level: "warning",
-          model: "$raw",
-          operation: "$queryRaw",
+        const query = Reflect.apply(client.$queryRaw, client, [
+          "SELECT id FROM raw_sql_items",
+          ["compatibility"],
+        ]);
+        const execute = Reflect.apply(client.$executeRaw, client, [
+          "UPDATE raw_sql_items SET qty = 0",
+        ]);
+        await expect(query).rejects.toMatchObject({
+          code: VibORMErrorCode.INVALID_INPUT,
         });
-        expect(
-          String(
-            (queryWarnings[0]?.meta as { deprecation?: string })?.deprecation
-          )
-        ).toContain("$queryRawUnsafe");
-
-        // A different method gets its own single notice.
-        await client.$executeRaw("UPDATE raw_sql_items SET qty = qty + 1");
-        expect(warnings(probe)).toHaveLength(2);
-        expect(warnings(probe)[1]).toMatchObject({ operation: "$executeRaw" });
-      });
-
-      test("the notice is silent when the warning channel is off", async () => {
-        const client = createClient({ schema, driver: createDriver() });
-        disconnect = () => client.$disconnect();
-        await syncLiveSchema(client);
-
-        await expect(
-          client.$executeRaw("UPDATE raw_sql_items SET qty = 0")
-        ).resolves.toBe(0);
+        await expect(execute).rejects.toMatchObject({
+          code: VibORMErrorCode.INVALID_INPUT,
+        });
+        expect(probe.events).toEqual([]);
       });
     });
 
     describe("lazy transaction operations", () => {
-      test("construction performs no query or legacy warning", async () => {
+      test("construction performs no query", async () => {
         const { client, probe } = await setup();
 
         const tagged = client.$queryRaw`SELECT 1`;
-        const legacy = client.$queryRaw("SELECT 1");
         await Promise.resolve();
 
         expect(probe.events).toEqual([]);
 
         await tagged;
-        await legacy;
-        expect(warnings(probe)).toHaveLength(1);
-      });
-
-      test("an abandoned legacy operation never warns", async () => {
-        const { client, probe } = await setup();
-
-        client.$executeRaw("UPDATE raw_sql_items SET qty = 0");
-        await Promise.resolve();
-
-        expect(warnings(probe)).toEqual([]);
+        expect(lastStatement(probe).sql).toContain("SELECT 1");
       });
 
       test("keeps the complete Promise surface and one execution", async () => {
@@ -627,6 +583,16 @@ describe("raw SQL types", () => {
     expectTypeOf(client.$executeRawUnsafe("SELECT 1")).toEqualTypeOf<
       RawOperation<number>
     >();
+
+    const retiredCompatibilityCalls = () => {
+      // @ts-expect-error - safe raw accepts only a tag or an Sql fragment
+      client.$queryRaw("SELECT 1");
+      // @ts-expect-error - the retired string-plus-parameter-array shape is absent
+      client.$queryRaw("SELECT ?", [1]);
+      // @ts-expect-error - safe execute raw has no string compatibility form
+      client.$executeRaw("UPDATE item SET id = 1");
+    };
+    expectTypeOf(retiredCompatibilityCalls).toEqualTypeOf<() => void>();
 
     const queryPromise: Promise<{ id: string }[]> = client.$queryRaw<{
       id: string;

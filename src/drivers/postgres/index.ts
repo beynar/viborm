@@ -27,7 +27,7 @@ import {
   type VibORMClient,
 } from "@client/client";
 import type { Schema } from "@client/types";
-import { unsupportedGeospatial, unsupportedVector } from "@errors";
+import { unsupportedVector } from "@errors";
 import postgres, {
   type Options as PostgresOptionsType,
   type Sql as PostgresSql,
@@ -143,11 +143,9 @@ export class PostgresDriver extends Driver<
       this.client = this.suppliedClient;
     }
 
-    const adapter = new PostgresAdapter(namespace);
+    const adapter = new PostgresAdapter(namespace, options.postgis === true);
     adapter.capabilities.supportsVector = options.pgvector === true;
-    adapter.capabilities.supportsGeospatial = options.postgis === true;
     if (!options.pgvector) adapter.vector = unsupportedVector;
-    if (!options.postgis) adapter.geospatial = unsupportedGeospatial;
     defineImmutableDriverFact(this, "adapter", adapter);
   }
 

@@ -3,12 +3,14 @@ import { cache as cacheExtension } from "@cache/extension";
 import { VibORM } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite } from "@electric-sql/pglite";
+import { CacheConfigurationError } from "@errors";
 import { instrumentation } from "@instrumentation/extension";
 
 import { s } from "@schema";
+import { ClockedMemoryCache } from "@tests/fixtures/clocked-memory-cache";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { createTestClock } from "@tests/fixtures/test-clock";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 // Test schema
 const user = s.model({
@@ -46,7 +48,7 @@ beforeEach(async () => {
 });
 
 function createCachedClient(
-  cacheDriver: MemoryCache,
+  cacheDriver: MemoryCache | ClockedMemoryCache,
   waitUntil?: (promise: Promise<unknown>) => void
 ) {
   return VibORM.create({ schema, driver }).$extends(
@@ -77,9 +79,12 @@ function cachedClient() {
   let finishedRevalidations = 0;
   const waiting: Array<{ target: number; resolve: () => void }> = [];
 
-  const client = createCachedClient(new MemoryCache({ clock }), (promise) => {
-    background.push(promise);
-  }).$extends(
+  const client = createCachedClient(
+    new ClockedMemoryCache(clock),
+    (promise) => {
+      background.push(promise);
+    }
+  ).$extends(
     instrumentation({
       logging: {
         cache: (event) => {
@@ -116,6 +121,30 @@ function cachedClient() {
 }
 
 describe("Cache", () => {
+  it("keeps the memory driver constructor option-free", () => {
+    let reads = 0;
+    const hostile = new Proxy(
+      {},
+      {
+        get() {
+          reads += 1;
+          throw new Error("must not read retired options");
+        },
+      }
+    );
+
+    expect(() => Reflect.construct(MemoryCache, [hostile])).toThrow(
+      CacheConfigurationError
+    );
+    expect(reads).toBe(0);
+
+    const retiredClockOption = () => {
+      // @ts-expect-error - the public MemoryCache clock seam was removed
+      new MemoryCache({ clock: createTestClock() });
+    };
+    expect(retiredClockOption).toBeTypeOf("function");
+  });
+
   describe("$withCache basic operations", () => {
     it("caches findMany results", async () => {
       const cache = new MemoryCache();

@@ -42,15 +42,6 @@ export interface QueryResult<T = Record<string, unknown>> {
   insertId?: number | bigint;
 }
 
-/**
- * Log function signature
- */
-export type LogFunction = (
-  query: string,
-  params: unknown[],
-  duration: number
-) => void;
-
 // =============================================================================
 // BATCH EXECUTION TYPES
 // =============================================================================

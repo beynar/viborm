@@ -1,5 +1,5 @@
 import { type Sql, sql } from "@sql";
-import type { QueryParts } from "../database-adapter";
+import type { QueryParts } from "../adapter-query-parts";
 
 interface SelectAssemblyOptions {
   forUpdate: "append" | "omit";

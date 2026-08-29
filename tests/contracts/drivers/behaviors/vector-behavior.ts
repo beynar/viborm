@@ -33,10 +33,7 @@ const schema = (() => {
   return { collection, doc };
 })();
 
-type VectorClientConfig = VibORMConfig & {
-  schema: typeof schema;
-  driver: AnyDriver;
-};
+type VectorClientConfig = VibORMConfig<typeof schema>;
 
 type VectorClient = VibORMClient<VectorClientConfig>;
 

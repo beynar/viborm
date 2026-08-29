@@ -19,7 +19,7 @@ import {
   type PGliteOptions,
   type Transaction,
 } from "@electric-sql/pglite";
-import { unsupportedGeospatial, unsupportedVector } from "@errors";
+import { unsupportedVector } from "@errors";
 import {
   activateConsumableResultProducer,
   deactivateConsumableResultProducer,
@@ -94,11 +94,9 @@ export class PGliteDriver extends Driver<PGlite, Transaction> {
       this.client = this.suppliedClient;
     }
 
-    const adapter = new PostgresAdapter(namespace);
+    const adapter = new PostgresAdapter(namespace, options.postgis === true);
     adapter.capabilities.supportsVector = options.pgvector === true;
-    adapter.capabilities.supportsGeospatial = options.postgis === true;
     if (!options.pgvector) adapter.vector = unsupportedVector;
-    if (!options.postgis) adapter.geospatial = unsupportedGeospatial;
     defineImmutableDriverFact(this, "adapter", adapter);
     this.canonicalAdapterParseResult = adapter.result.parseResult;
     if (PGliteDriver.isConsumableCandidate(this)) {

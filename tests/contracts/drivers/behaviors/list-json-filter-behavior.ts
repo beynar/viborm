@@ -22,10 +22,7 @@ const entry = s
 
 const schema = { entry };
 
-type ListJsonClientConfig = VibORMConfig & {
-  schema: typeof schema;
-  driver: AnyDriver;
-};
+type ListJsonClientConfig = VibORMConfig<typeof schema>;
 
 type ListJsonClient = VibORMClient<ListJsonClientConfig>;
 

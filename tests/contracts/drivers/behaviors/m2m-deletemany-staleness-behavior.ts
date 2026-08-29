@@ -36,10 +36,7 @@ import { syncLiveSchema } from "@tests/fixtures/sync-schema";
  *    already read committed membership at plan time.
  */
 
-type StalenessClientConfig = VibORMConfig & {
-  schema: typeof schema;
-  driver: AnyDriver;
-};
+type StalenessClientConfig = VibORMConfig<typeof schema>;
 
 type StalenessClient = VibORMClient<StalenessClientConfig>;
 

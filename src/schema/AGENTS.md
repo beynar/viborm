@@ -160,6 +160,15 @@ Use `pnpm test:coverage:schema-validation` for the memory-capped L5 report. It
 gates statements, branches, functions, and lines at 100% and writes
 `coverage/schema-validation/index.html`.
 
+### Rule 7: GeoPoint Roles Are Fixed at Definition Time
+
+L5 is the one owner for GeoPoint key, foreign-key, and index roles. A portable
+spatial index is exactly one non-null GeoPoint with `type: "spatial"` and no
+`unique` or partial predicate. GeoPoint cannot be an ID, unique member,
+ordinary/compound index member, or relation identity. Schema JSON must preserve
+the complete decoded index declaration so these same rules see hostile input;
+it must not weaken the declaration before validation.
+
 ### Runtime schema metadata
 
 `field-ref.ts` projects a model's scalar keys into a lazy, immutable reference

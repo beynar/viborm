@@ -7,16 +7,16 @@
 
 import { ValidationError } from "@errors";
 import type { Model } from "@schema/model";
-import { parse, type SchemaRegistryLookup, type VibSchema } from "@validation";
+import { parse, type VibSchema } from "@validation";
 import { readValidationFailureCause } from "@validation/parse-failure";
 import { assertPortablePrimaryKeyUpdateInput } from "./operations/mutation-identity";
-import type { Operation } from "./types";
+import type { Operation, OperationSchemaRegistry } from "./types";
 
 /**
  * Get the appropriate schema for an operation
  */
 function getOperationSchema(
-  schemaRegistry: SchemaRegistryLookup,
+  schemaRegistry: OperationSchemaRegistry,
   model: Model<any>,
   operation: Operation
 ): VibSchema | undefined {
@@ -75,7 +75,7 @@ function getOperationSchema(
  * @throws ValidationError if validation fails
  */
 export function validate<T>(
-  schemaRegistry: SchemaRegistryLookup,
+  schemaRegistry: OperationSchemaRegistry,
   model: Model<any>,
   operation: Operation,
   input: unknown

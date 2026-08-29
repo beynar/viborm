@@ -4,6 +4,10 @@
  * Builds the rowset that count/aggregate consume when pagination is present.
  */
 
+import {
+  assembleAdapterSelect,
+  type QueryParts,
+} from "@adapters/adapter-internals";
 import { type Sql, sql } from "@sql";
 import { buildOrderByParts } from "../builders/orderby-builder";
 import { buildWhere } from "../builders/where-builder";
@@ -48,7 +52,7 @@ export function buildAggregateInputWindow(
         joins: [],
       }
     : buildOrderByParts(ctx, pagination.orderBy, rootAlias);
-  const innerParts: Parameters<typeof adapter.assemble.select>[0] = {
+  const innerParts: QueryParts = {
     columns: buildInputColumns(ctx, fieldNames, rootAlias),
     from: adapter.identifiers.table(tableName, rootAlias),
   };
@@ -67,7 +71,7 @@ export function buildAggregateInputWindow(
 
   return {
     from: adapter.subqueries.correlate(
-      adapter.assemble.select(innerParts),
+      assembleAdapterSelect(adapter, innerParts),
       inputAlias
     ),
     alias: inputAlias,

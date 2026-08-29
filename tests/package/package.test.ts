@@ -12,6 +12,10 @@ const scripts = [
     "imports every runtime export and resolves every type entry",
     "./exports-smoke.mjs",
   ],
+  [
+    "matches the reviewed packed public surface golden",
+    "./public-surface-golden-smoke.mjs",
+  ],
   ["preserves packaged error names", "./error-names-smoke.mjs"],
   ["works without the optional OpenTelemetry peer", "./otel-absent-smoke.mjs"],
   [

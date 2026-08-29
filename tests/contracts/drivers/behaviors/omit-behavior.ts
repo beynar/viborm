@@ -48,10 +48,7 @@ const vaulted = s
 
 const schema = { account, note, vaulted };
 
-type OmitClientConfig = VibORMConfig & {
-  schema: typeof schema;
-  driver: AnyDriver;
-};
+type OmitClientConfig = VibORMConfig<typeof schema>;
 type OmitClient = VibORMClient<OmitClientConfig>;
 
 export interface OmitBehaviorOptions {

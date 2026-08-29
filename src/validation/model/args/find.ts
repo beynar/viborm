@@ -1,5 +1,5 @@
 import type { AnyModel } from "@schema/model";
-import type { StringKeyOf } from "@schema/model/helper";
+import type { NonPointScalarKeys } from "@schema/model/helper";
 import v, { type V } from "../../primitives/v";
 import type { CoreSchemas } from "../core";
 import type { ScalarSchemas } from "../index";
@@ -29,13 +29,13 @@ type ModelStateOf<M extends AnyModel> = M["~"]["state"];
  * Prisma allows the shorthand on both `findMany` and `findFirst`.
  */
 type DistinctSchema<M extends AnyModel> = V.SingleOrArray<
-  V.Enum<StringKeyOf<ModelStateOf<M>["scalars"]>[]>
+  V.Enum<NonPointScalarKeys<ModelStateOf<M>["scalars"]>[]>
 >;
 
 const getDistinctSchema = <M extends AnyModel>(model: M): DistinctSchema<M> => {
-  const fieldNames = Object.keys(model["~"].state.scalars) as StringKeyOf<
-    ModelStateOf<M>["scalars"]
-  >[];
+  const fieldNames = Object.keys(model["~"].state.scalars).filter(
+    (field) => model["~"].state.scalars[field]!["~"].state.type !== "point"
+  ) as NonPointScalarKeys<ModelStateOf<M>["scalars"]>[];
   return v.singleOrArray(v.enum(fieldNames)) as DistinctSchema<M>;
 };
 

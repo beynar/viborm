@@ -46,6 +46,7 @@ import {
 } from "@instrumentation/spans";
 import { s } from "@schema";
 import { instrumentation } from "@src/instrumentation/exports";
+import { ClockedMemoryCache } from "@tests/fixtures/clocked-memory-cache";
 import { createTestClock } from "@tests/fixtures/test-clock";
 import {
   type OtelRecorder,
@@ -273,7 +274,7 @@ describe.each(CASES)("$title", ({ driver: makeDriver, namespace }) => {
     const client = createClient({ schema, driver })
       .$extends(
         cacheExtension({
-          driver: new MemoryCache({ clock }),
+          driver: new ClockedMemoryCache(clock),
           waitUntil: (promise) => {
             background.push(promise);
           },

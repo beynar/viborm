@@ -6,8 +6,8 @@
 // value: hostile JavaScript that binds a cache scope and then rewrites the
 // qualifier before the statement runs fails at the assignment instead.
 //
-// The whole adapter is deliberately NOT frozen — drivers still replace the
-// `vector` and `geospatial` members after construction.
+// The whole adapter is deliberately NOT frozen — the existing vector test seam
+// remains mutable. GeoPoint is installed separately as another immutable fact.
 
 import { type NamespaceDialect, normalizeNamespace } from "@schema/identifier";
 

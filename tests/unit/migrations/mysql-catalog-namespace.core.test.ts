@@ -8,6 +8,7 @@
  * before a snapshot exists, in either direction.
  */
 
+import { diff } from "@migrations/differ";
 import { getMigrationDriver } from "@migrations/drivers";
 import { postgresMigrationDriver } from "@migrations/drivers/postgres";
 import { readsCommandNamespace } from "@migrations/target";
@@ -18,6 +19,7 @@ import {
 import { mysqlMigrationDriver } from "@src/migrations/drivers/mysql";
 import { evaluateCheck } from "@src/migrations/execute-dispatch";
 import { composeSqlBlob } from "@src/migrations/sql-blob";
+import type { SchemaSnapshot } from "@src/migrations/types";
 import { encodeDispatchIdentity } from "@src/migrations/v1-parse";
 import { describe, expect, it } from "vitest";
 import { mysqlEstateDriver } from "./_estate";
@@ -422,6 +424,62 @@ it("refuses a MySQL catalog DECIMAL outside the complete operation domain", asyn
       type: "invalid-catalog-decimal-domain",
     },
   });
+});
+
+it.each([
+  ["an unrestricted POINT", null, "POINT"],
+  ["a POINT with the wrong SRID", 3857, "POINT SRID 3857"],
+])("preserves %s so the differ repairs it", async (_case, srid, physicalType) => {
+  const locationColumn = {
+    ...orgIdColumn,
+    TABLE_NAME: "places",
+    COLUMN_NAME: "location",
+    DATA_TYPE: "point",
+    COLUMN_TYPE: "point",
+    SRS_ID: srid,
+    NUMERIC_PRECISION: null,
+    NUMERIC_SCALE: null,
+    COLUMN_COMMENT: "",
+  };
+  const server = catalogReader((sql) => {
+    if (sql.includes("information_schema.SCHEMATA")) {
+      return schemata("billing");
+    }
+    if (sql.includes("information_schema.TABLES")) {
+      return [{ TABLE_NAME: "places" }];
+    }
+    if (sql.includes("information_schema.COLUMNS")) return [locationColumn];
+    return [];
+  });
+  const current = await BILLING.introspect(server.read);
+  const desired: SchemaSnapshot = {
+    tables: [
+      {
+        name: "places",
+        columns: [
+          {
+            name: "location",
+            type: "POINT SRID 4326",
+            nullable: false,
+            autoIncrement: false,
+          },
+        ],
+        indexes: [],
+        foreignKeys: [],
+        uniqueConstraints: [],
+      },
+    ],
+  };
+
+  expect(current.tables[0]?.columns[0]?.type).toBe(physicalType);
+  expect((await diff(current, desired)).operations).toEqual([
+    expect.objectContaining({
+      type: "alterColumn",
+      columnName: "location",
+      from: expect.objectContaining({ type: physicalType }),
+      to: expect.objectContaining({ type: "POINT SRID 4326" }),
+    }),
+  ]);
 });
 
 /**

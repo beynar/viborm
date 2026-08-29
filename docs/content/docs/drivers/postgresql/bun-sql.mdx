@@ -100,6 +100,13 @@ Bun SQL can reserve a session, so it supports the full migration verb set
 against the selected schema. Raw SQL is never rewritten and keeps ordinary
 `search_path` semantics — see [Namespaces](/docs/drivers/namespaces).
 
+## GeoPoint
+
+Bun SQL exposes the PostgreSQL GeoPoint vocabulary with `postgis: true`, but it
+enters the full tier only after a real Bun/PostGIS provider contract proves the
+functions, rows, and migrations. The Node test estate cannot qualify Bun's
+runtime. See [GeoPoint provider tiers](/docs/schema/scalars/point#provider-tiers).
+
 ## Transactions
 
 Bun SQL supports full transactions with savepoints for nested transactions — see [Transactions](/docs/client/transactions).

@@ -5,6 +5,10 @@
  * Supports _count, _avg, _sum, _min, _max aggregations.
  */
 
+import {
+  assembleAdapterSelect,
+  type QueryParts,
+} from "@adapters/adapter-internals";
 import { type Sql, sql } from "@sql";
 import {
   buildAggregateColumn,
@@ -54,12 +58,12 @@ export function buildAggregate(ctx: QueryScope, args: AggregateArgs): Sql {
   }
 
   // Assemble query
-  const parts: Parameters<typeof adapter.assemble.select>[0] = {
+  const parts: QueryParts = {
     columns: sql.join(columns, ", "),
     from: input.from,
   };
 
-  return adapter.assemble.select(parts);
+  return assembleAdapterSelect(adapter, parts);
 }
 
 function getAggregateFieldNames(args: AggregateArgs): string[] {

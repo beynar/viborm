@@ -20,9 +20,8 @@ icon: columns
 | `s.json()`      | `unknown` (or inferred via `.schema()`) | Structured data                |
 | `s.blob()`      | `Uint8Array`                        | Binary data                        |
 | `s.enum([...])` | Union of the values                 | Fixed value sets                   |
+| `s.point()`     | `{ longitude, latitude }`           | Geographic points                  |
 | `s.vector()`    | `number[]`                          | Embeddings (PostgreSQL pgvector)   |
-
-An `s.point()` scalar also exists but is experimental and not documented yet.
 
 Database column types for each scalar — defaults and per-database overrides — live on [Native Types](/docs/schema/native-types).
 
@@ -66,6 +65,7 @@ Not every modifier exists on every scalar:
 | `json`     | —       | —           | —          | ✓           | —                       |
 | `blob`     | —       | —           | —          | —           | —                       |
 | `enum`     | —       | —           | ✓          | —           | `.name()`               |
+| `point`    | —       | —           | —          | —           | bounds, polygon and distance query language |
 | `vector`   | —       | —           | —          | —           | `.dimension()`          |
 
 `.nullable()`, `.default()`, and `.map()` are available on every scalar. The scalar pages below only document their scalar-specific methods.
@@ -86,5 +86,6 @@ use key positions normally.
   <Card title="JSON" href="/docs/schema/scalars/json" />
   <Card title="Blob" href="/docs/schema/scalars/blob" />
   <Card title="Enum" href="/docs/schema/scalars/enum" />
+  <Card title="GeoPoint" href="/docs/schema/scalars/point" />
   <Card title="Vector" href="/docs/schema/scalars/vector" />
 </CardGroup>

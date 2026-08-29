@@ -6,8 +6,8 @@ import { FeatureNotSupportedError } from "@errors";
 import { buildMutationProjectionFold } from "@query-engine/operations/mutation-projection-fold";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import {
+  DISTANCE_RESULT_KEY,
   RELATION_COUNTS_RESULT_KEY,
-  VECTOR_DISTANCE_RESULT_KEY,
 } from "@query-engine/result-aliases";
 import {
   projectionReadsMutatedModel,
@@ -269,7 +269,7 @@ describe("Vector distance orderBy SQL generation", () => {
     );
 
     expect(query.toStatement("$n")).toContain(
-      'SELECT VECTOR_DISTANCE AS "0viborm_vector_distance"'
+      'SELECT VECTOR_DISTANCE AS "0viborm_distance"'
     );
     expect(literalValues).toEqual([1, 2, 3]);
     expect(l2Column?.toStatement("$n")).toBe('"t0"."embedding"');
@@ -297,7 +297,7 @@ describe("Vector distance orderBy SQL generation", () => {
     );
 
     expect(query.toStatement("$n")).toContain(
-      '"t0"."embedding" <=> $1::vector AS "0viborm_vector_distance"'
+      '"t0"."embedding" <=> $1::vector AS "0viborm_distance"'
     );
     expect(query.values).toEqual(["[1,2,3]"]);
   });
@@ -374,9 +374,7 @@ describe("Vector distance orderBy SQL generation", () => {
           },
         },
       })
-    ).toThrow(
-      "Vector distance select supports only one _distance field per select."
-    );
+    ).toThrow("Distance select supports only one _distance field per select.");
   });
 
   test("combines distance orderBy with selected distance score", () => {
@@ -409,7 +407,7 @@ describe("Vector distance orderBy SQL generation", () => {
 
     const statement = query.toStatement("$n");
     expect(statement).toContain(
-      '"t0"."embedding" <-> $1::vector AS "0viborm_vector_distance"'
+      '"t0"."embedding" <-> $1::vector AS "0viborm_distance"'
     );
     expect(statement).toContain('ORDER BY "t0"."embedding" <-> $2::vector ASC');
     expect(query.values).toEqual(["[1,0,0]", "[1,0,0]"]);
@@ -662,7 +660,7 @@ describe("computed projections across the selection owners", () => {
     // column, so neither carrier joined it and no column was dropped either.
     expect(statement).toContain('RETURNING "id", "name", "centroid")');
     // The distance rides the outer SELECT as an expression over the CTE row…
-    expect(statement).toContain(`::vector AS "${VECTOR_DISTANCE_RESULT_KEY}"`);
+    expect(statement).toContain(`::vector AS "${DISTANCE_RESULT_KEY}"`);
     // …and the count as a correlated read of the CHILD table, which is why it
     // cannot be a column of the mutated one.
     expect(statement).toContain(`AS "${RELATION_COUNTS_RESULT_KEY}"`);
@@ -722,6 +720,6 @@ describe("computed projections across the selection owners", () => {
     expect(compiled.steps.map((step) => step.kind)).toEqual(["write"]);
     const statement = stepSql(compiled.steps[0]!);
     expect(statement).toContain("DELETE FROM");
-    expect(statement).toContain(`AS "${VECTOR_DISTANCE_RESULT_KEY}"`);
+    expect(statement).toContain(`AS "${DISTANCE_RESULT_KEY}"`);
   });
 });

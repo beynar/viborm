@@ -132,6 +132,31 @@ results[0]?._distance; // number | undefined
 Vector distance sorting requires a pgvector-enabled PostgreSQL driver, for example `new PgDriver({ pgvector: true })`. Other drivers throw `FeatureNotSupportedError`, and the `to` vector length must match the scalar dimension.
 :::
 
+## GeoPoint Distance Sorting
+
+Full-tier GeoPoint providers order by spherical meters with the same computed
+`_distance` output:
+
+```ts
+const paris = { longitude: 2.3522, latitude: 48.8566 };
+
+const nearest = await client.place.findMany({
+  select: {
+    id: true,
+    location: { _distance: { to: paris } },
+  },
+  orderBy: {
+    location: { _distance: { to: paris, sort: "asc" } },
+  },
+  take: 10,
+});
+```
+
+`"asc"` is nearest-first and `"desc"` is farthest-first. Null points sort last
+in both directions. PostgreSQL requires proven PostGIS; MySQL2 is full tier;
+SQLite-family providers refuse distance compilation. See
+[GeoPoint](/docs/schema/scalars/point#select-and-order-by-distance).
+
 ## Relation Sorting
 
 Sort by a scalar field of a to-one relation:

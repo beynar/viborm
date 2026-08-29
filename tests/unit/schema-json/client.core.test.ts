@@ -174,6 +174,55 @@ describe("parseSchema({ validate: true })", () => {
   });
 });
 
+describe("GeoPoint index interpretation", () => {
+  const pointIndexDocument = (index: {
+    fields: string[];
+    type: "spatial";
+    unique?: boolean;
+  }) => ({
+    version: 1,
+    models: {
+      place: {
+        fields: {
+          id: { type: "string" as const, id: true },
+          name: { type: "string" as const },
+          location: { type: "point" as const },
+        },
+        indexes: [index],
+      },
+    },
+  });
+
+  it("preserves a valid spatial declaration", () => {
+    expect(() =>
+      parseSchema(
+        pointIndexDocument({ fields: ["location"], type: "spatial" }),
+        { validate: true }
+      )
+    ).not.toThrow();
+  });
+
+  it.each([
+    { fields: ["location", "name"], type: "spatial" as const },
+    { fields: ["location"], type: "spatial" as const, unique: true },
+    { fields: ["location"], type: "spatial" as const, unique: false },
+  ])("preserves and refuses the invalid declaration %#", (index) => {
+    let thrown: unknown;
+    try {
+      parseSchema(pointIndexDocument(index), { validate: true });
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(SchemaValidationError);
+    expect(
+      thrown instanceof SchemaValidationError
+        ? thrown.issues.map((issue) => issue.code)
+        : []
+    ).toContain("I005");
+  });
+});
+
 describe("attachFieldSchemas", () => {
   it("applies a validator through the real `.schema()` builder", () => {
     const schema = attachFieldSchemas(parseSchema(BLOG), {

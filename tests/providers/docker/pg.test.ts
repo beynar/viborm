@@ -21,6 +21,9 @@ import { decimalExactnessContract } from "@tests/contracts/drivers/behaviors/dec
 import { fieldReferenceContract } from "@tests/contracts/drivers/behaviors/field-reference-behavior";
 import { fkIndexContract } from "@tests/contracts/drivers/behaviors/fk-index-behavior";
 import { forwardFkOrderingContract } from "@tests/contracts/drivers/behaviors/forward-fk-ordering-behavior";
+import { geoPointContract } from "@tests/contracts/drivers/behaviors/geopoint-behavior";
+import { geoPointMigrationLifecycleContract } from "@tests/contracts/drivers/behaviors/geopoint-migration-lifecycle-behavior";
+import { geoPointPostgresIndexContract } from "@tests/contracts/drivers/behaviors/geopoint-postgres-index-behavior";
 import {
   mappedIndexContract,
   partialIndexPredicateChurnContract,
@@ -77,6 +80,7 @@ import {
 } from "@tests/fixtures/drivers/batch-forced-pg";
 
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+
 // =============================================================================
 // SCHEMA DEFINITION
 // =============================================================================
@@ -150,9 +154,31 @@ describeIf("pg Driver", () => {
     const cleanupClient = PgCreateClient({
       schema: {},
       databaseUrl: TEST_CONNECTION_STRING,
+      postgis: true,
     });
     await syncLiveSchema(cleanupClient);
     await cleanupClient.$disconnect();
+  });
+
+  geoPointContract.register({
+    driverName: "pg",
+    createDriver: () =>
+      new PgDriver({ databaseUrl: TEST_CONNECTION_STRING, postgis: true }),
+    tier: "full",
+    rawSelectSql:
+      'SELECT "location" FROM "geopoint_behavior_places" WHERE "id" = \'raw\'',
+  });
+  geoPointMigrationLifecycleContract.register({
+    driverName: "pg",
+    createDriver: () =>
+      new PgDriver({ databaseUrl: TEST_CONNECTION_STRING, postgis: true }),
+    physicalType: "geography(Point,4326)",
+    physicalIndexType: "gist",
+  });
+  geoPointPostgresIndexContract.register({
+    driverName: "pg",
+    createDriver: () =>
+      new PgDriver({ databaseUrl: TEST_CONNECTION_STRING, postgis: true }),
   });
 
   describe("Driver Creation", () => {

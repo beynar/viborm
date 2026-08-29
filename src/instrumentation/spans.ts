@@ -12,28 +12,10 @@
 export const SPAN_OPERATION = "viborm.operation";
 
 /**
- * Span name for input validation
- * Created during schema validation of operation arguments
- */
-export const SPAN_VALIDATE = "viborm.validate";
-
-/**
- * Span name for SQL building
- * Created during query construction
- */
-export const SPAN_BUILD = "viborm.build";
-
-/**
  * Span name for query execution
  * Created for the actual database round-trip
  */
 export const SPAN_EXECUTE = "viborm.execute";
-
-/**
- * Span name for result parsing
- * Created during result hydration
- */
-export const SPAN_PARSE = "viborm.parse";
 
 /**
  * Span name for transactions
@@ -61,10 +43,7 @@ export const SPAN_RECORD_SERIES_SEGMENT = "viborm.write.record_series.segment";
  */
 export type VibORMSpanName =
   | typeof SPAN_OPERATION
-  | typeof SPAN_VALIDATE
-  | typeof SPAN_BUILD
   | typeof SPAN_EXECUTE
-  | typeof SPAN_PARSE
   | typeof SPAN_TRANSACTION
   | typeof SPAN_CONNECT
   | typeof SPAN_DISCONNECT
@@ -179,9 +158,6 @@ export const SPAN_CACHE_INVALIDATE = "viborm.cache.invalidate";
 
 /** Cache driver name (memory, cloudflare-kv, redis, etc.) */
 export const ATTR_CACHE_DRIVER = "cache.driver";
-
-/** Cache key */
-export const ATTR_CACHE_KEY = "cache.key";
 
 /** Cache operation result (hit, miss, stale) */
 export const ATTR_CACHE_RESULT = "cache.result";

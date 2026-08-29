@@ -1,4 +1,4 @@
-import { unsupportedGeospatial, unsupportedVector } from "@errors";
+import { unsupportedVector } from "@errors";
 import { type Sql, sql } from "@sql";
 import {
   type DecimalDescriptor,
@@ -6,8 +6,14 @@ import {
 } from "@validation/primitives/decimal-codec";
 import { createIdentifierQuoter } from "../../../sql/identifiers";
 import type { ArithmeticTarget } from "../../adapter-core-types";
+import { installAdapterInternals } from "../../adapter-internals";
+import type { QueryParts } from "../../adapter-query-parts";
 import type { AdapterResultParser } from "../../adapter-result-parser";
-import type { DatabaseAdapter, QueryParts } from "../../database-adapter";
+import {
+  type DatabaseAdapter,
+  type GeoPointSql,
+  installGeoPointSql,
+} from "../../database-adapter";
 import { createOnConflictBatchRefs } from "../../shared/batch-refs";
 import {
   type ExactIntegerArithmetic,
@@ -15,6 +21,7 @@ import {
   scaleFactorSql,
   signedNumerator,
 } from "../../shared/decimal-arithmetic";
+import { createGeoPointCoordinatePredicates } from "../../shared/geo-point";
 import {
   assembleDistinctOnEmulation,
   assembleSelectQuery,
@@ -216,6 +223,14 @@ const jsonArrayConcat = (left: Sql, right: Sql): Sql =>
  * - Boolean stored as 0/1 integers
  */
 export class SQLiteAdapter implements DatabaseAdapter {
+  constructor() {
+    installGeoPointSql(this, this.geoPoint);
+    installAdapterInternals(this, {
+      batchRefs: this.#batchRefs,
+      select: this.#assemble.select,
+    });
+  }
+
   // ============================================================
   // RAW
   // ============================================================
@@ -619,7 +634,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
   // SQLite has no bare OFFSET; LIMIT -1 means "no limit"
   noLimitValue = sql.raw`-1`;
 
-  assemble = {
+  readonly #assemble = {
     select: (parts: QueryParts): Sql => {
       // SQLite doesn't support DISTINCT ON natively
       // Simulate using ROW_NUMBER() OVER (PARTITION BY ... ORDER BY ...)
@@ -734,7 +749,6 @@ export class SQLiteAdapter implements DatabaseAdapter {
     supportsFullOuterJoin: false,
     supportsLateralJoins: false, // SQLite does not support LATERAL joins
     supportsVector: false,
-    supportsGeospatial: false,
     supportsUpsertWhere: true, // SQLite supports WHERE in ON CONFLICT (3.24+)
     supportsTargetedUpsert: true, // ON CONFLICT (cols) arbitrates on those cols
     supportsMutationTargetInSubquery: true,
@@ -745,7 +759,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
 
   lastInsertId = (): Sql => sql.raw`last_insert_rowid()`;
 
-  batchRefs = createOnConflictBatchRefs({
+  readonly #batchRefs = createOnConflictBatchRefs({
     table: sql.raw`"__viborm_batch_refs"`,
     batchIdColumn: sql.raw`"batch_id"`,
     keyColumn: sql.raw`"ref_key"`,
@@ -762,10 +776,26 @@ export class SQLiteAdapter implements DatabaseAdapter {
   vector = unsupportedVector;
 
   // ============================================================
-  // GEOSPATIAL (not natively supported in SQLite)
+  // GEOPOINT (canonical JSON text transport)
   // ============================================================
 
-  geospatial = unsupportedGeospatial;
+  readonly geoPoint: GeoPointSql = (() => {
+    const longitude = (point: Sql): Sql =>
+      this.json.numberAtPath(point, ["longitude"]);
+    const latitude = (point: Sql): Sql =>
+      this.json.numberAtPath(point, ["latitude"]);
+    return {
+      value: (pointLongitude, pointLatitude) =>
+        sql`json_object('longitude', ${pointLongitude}, 'latitude', ${pointLatitude})`,
+      longitude,
+      latitude,
+      ...createGeoPointCoordinatePredicates(
+        longitude,
+        latitude,
+        this.operators
+      ),
+    };
+  })();
 
   // RESULT PARSING
   // SQLite-specific parsing is handled by the driver (SQLite3Driver.result)

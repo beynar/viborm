@@ -168,17 +168,24 @@ export class SchemaValidator {
 
 /** Validate a schema object directly */
 export function validateSchema(
-  models: Record<string, Model<any>>,
-  rules?: ValidationRule[]
+  models: Record<string, Model<any>>
 ): ValidationResult {
-  return new SchemaValidator().registerAll(models).validate(rules);
+  return new SchemaValidator().registerAll(models).validate();
 }
 
 /**
  * Validate or throw — the structural gate plus the advisory rules, resolved
- * exactly once, returning the one trusted index for this caller's lifecycle.
+ * exactly once. The resolved index is an internal execution capability, not a
+ * public validation result.
  */
 export function validateSchemaOrThrow(
+  models: Record<string, Model<any>>
+): void {
+  validateResolvedSchemaOrThrow(models);
+}
+
+/** Internal validation boundary that also publishes the trusted topology. */
+export function validateResolvedSchemaOrThrow(
   models: Record<string, Model<any>>,
   rules?: ValidationRule[]
 ): ResolvedRelationIndex {
@@ -219,7 +226,7 @@ export function resolveSchemaOrThrow(
 export function validateClientSchemaOrThrow(
   models: Record<string, Model<any>>
 ): ResolvedRelationIndex {
-  return validateSchemaOrThrow(models, []);
+  return validateResolvedSchemaOrThrow(models, []);
 }
 
 function publish(validator: SchemaValidator): ResolvedRelationIndex {

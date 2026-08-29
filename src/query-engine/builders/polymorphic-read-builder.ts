@@ -13,7 +13,8 @@ import { selectVariantRow } from "./polymorphic-relation";
 
 export type BuildPolymorphicNestedWhere = (
   scope: QueryScope,
-  where: Record<string, unknown>
+  where: Record<string, unknown>,
+  positivePolarity?: boolean
 ) => Sql | undefined;
 
 /** Build a direct polymorphic projection as one portable correlated CASE expression. */
@@ -108,7 +109,8 @@ export function buildPolymorphicFilterSql(
   scope: QueryScope,
   relation: VariantRowCarrierSlot,
   filter: unknown,
-  parentAlias: string
+  parentAlias: string,
+  positivePolarity = true
 ): Sql {
   const { adapter } = scope;
   const typeColumn = adapter.identifiers.column(
@@ -156,7 +158,11 @@ export function buildPolymorphicFilterSql(
     getColumnName(edge.member.targetModel, edge.member.referencedField)
   );
   const correlation = adapter.operators.eq(targetColumn, idColumn);
-  const nestedWhere = buildNestedWhere(targetScope, nested);
+  const nestedWhere = buildNestedWhere(
+    targetScope,
+    nested,
+    Object.hasOwn(record, "is") ? positivePolarity : !positivePolarity
+  );
   const predicate = nestedWhere
     ? adapter.operators.and(correlation, nestedWhere)
     : correlation;

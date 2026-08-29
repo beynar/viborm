@@ -1,14 +1,15 @@
 import {
   isSchemaValidationError,
   SchemaValidationError,
-  SchemaValidator,
-  type ValidationRule,
-  validateSchema,
   validateSchemaOrThrow,
 } from "@src/index";
 import { s } from "@src/schema";
 import { thrownAsError } from "@src/schema/validation/error";
-import { resolveSchemaOrThrow } from "@src/schema/validation/validator";
+import type { ValidationRule } from "@src/schema/validation/types";
+import {
+  resolveSchemaOrThrow,
+  SchemaValidator,
+} from "@src/schema/validation/validator";
 import { describe, expect, it } from "vitest";
 
 /**
@@ -226,7 +227,9 @@ describe("SchemaValidator boundaries", () => {
       ];
     };
 
-    expect(validateSchema({ user }, [contextRule])).toEqual({
+    expect(
+      new SchemaValidator().registerAll({ user }).validate([contextRule])
+    ).toEqual({
       valid: true,
       errors: [],
       warnings: [
@@ -247,7 +250,9 @@ describe("SchemaValidator boundaries", () => {
       throw cause;
     };
 
-    expect(() => validateSchema({ user }, [namedFailure])).toThrowError(
+    expect(() =>
+      new SchemaValidator().registerAll({ user }).validate([namedFailure])
+    ).toThrowError(
       expect.objectContaining({
         code: "V4002",
         originalCause: expect.objectContaining({
@@ -267,7 +272,7 @@ describe("SchemaValidator boundaries", () => {
     const user = s.model({ id: s.string().id() });
 
     expect(() =>
-      validateSchema({ user }, [
+      new SchemaValidator().registerAll({ user }).validate([
         () => {
           // biome-ignore lint/style/useThrowOnlyError: this boundary must normalize hostile non-Error throws
           throw "external string failure";

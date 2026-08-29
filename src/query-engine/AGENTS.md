@@ -31,6 +31,21 @@ every selected decimal or decimal aggregate leaf becomes a fresh public
 have one logical surface but provider-specific physical carriers, so list
 membership and count semantics also stay behind the adapter boundary.
 
+## GeoPoint semantics
+
+Point builders consume already-normalized `GeoPoint`/`GeoArea` values. They
+decide equality, bounds/polygon membership, distance comparisons, value
+transport, and `_distance` select/order structure, then delegate every physical
+spelling to `adapter.geoPoint`. They never rerun the codecs or inspect rendered
+SQL.
+
+The generalized distance path is shared with vector projection/result aliases.
+A nullable point yields nullable distance and null sorts last in both
+directions. Positive upper distance filters may add the GeoArea owner's
+conservative bounds under positive polarity only; recursive scalar/relation
+negation must keep that polarity exact. SQLite polygon/distance/select/order
+refusals occur during compilation before cache lookup or provider execution.
+
 ## Result parsing
 
 `result/ResultParser.ts` owns middleware chains and compiled row parsers for one
@@ -68,6 +83,10 @@ carrier parser is the single JSON decode owner: when it creates a graph with
 `JSON.parse`, it completes structural validation of the fixed or variant carrier
 and its full row set before any mutation, then may decode safe same-key nested
 rows in place through the existing nested row parser.
+
+`ExpectedResultShape` is also the one runtime source for public TypeScript
+result rendering. A selected computed `_distance` retains its source scalar in
+that shape; consumers must not infer nullability by rescanning the request.
 
 ## Write architecture
 
@@ -712,10 +731,10 @@ the existing guard; it does not add a statement or round trip.
 | `result/ResultParser.ts` | result-boundary middleware chains, compiled row-container policy, and nested row-parser reuse |
 | `result/polymorphic-result-parser.ts` | strict discriminator dispatch and orphan semantics |
 
-Keep the type-only `QueryMetadata` compatibility export, adapter `batchRefs`,
-and `JunctionStatements`. `QueryMetadata` is not a runtime boundary. Do not
-add a generic mutation DSL, payload walker, branch-step IR, locator, strategy,
-lifecycle hook, or shared utility landfill.
+Keep the internal adapter batch-reference lowering and `JunctionStatements` as
+their existing owners. Do not export either through a public adapter or query
+metadata carrier. Do not add a generic mutation DSL, payload walker,
+branch-step IR, locator, strategy, lifecycle hook, or shared utility landfill.
 
 ## Extension execution boundary
 

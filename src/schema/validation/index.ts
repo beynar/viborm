@@ -18,6 +18,7 @@ export { resolvedEdges, resolveSchemaRelations } from "./relation-resolution";
 export {
   allRules,
   compoundConstraintsNonEmpty,
+  geoPointRolesArePortable,
   indexFieldsExist,
   indexNameUnique,
   modelHasFields,

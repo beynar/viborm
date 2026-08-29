@@ -115,9 +115,17 @@ function compileRowCodec(
     switch (column.kind) {
       case "empty":
         break;
-      case "vectorDistance":
-        addResultField(fields, "_distance", numberCodec());
+      case "distance": {
+        const scalar = column.scalar?.["~"].state;
+        addResultField(
+          fields,
+          "_distance",
+          scalar?.type === "point" && scalar.nullable === true
+            ? nullableCodec(numberCodec())
+            : numberCodec()
+        );
         break;
+      }
       case "scalar":
         addResultField(fields, column.key, compileScalarCodec(column.scalar));
         break;

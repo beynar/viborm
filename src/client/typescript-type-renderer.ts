@@ -159,8 +159,8 @@ function scalarType(scalar: Scalar): TypeNode {
       break;
     case "point":
       value = objectOf([
-        { name: "x", type: atom("number") },
-        { name: "y", type: atom("number") },
+        { name: "longitude", type: atom("number") },
+        { name: "latitude", type: atom("number") },
       ]);
       break;
     case "enum":
@@ -269,10 +269,14 @@ function rowType(model: AnyModel, shape: ExpectedResultShape): TypeNode {
     switch (column.kind) {
       case "empty":
         break;
-      case "vectorDistance":
+      case "distance":
         fields.push({
           name: "_distance",
-          type: atom("number"),
+          type:
+            column.scalar?.["~"].state.type === "point" &&
+            column.scalar["~"].state.nullable
+              ? unionOf(atom("number"), NULL_TYPE)
+              : atom("number"),
         });
         break;
       case "scalar":

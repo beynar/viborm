@@ -38,19 +38,19 @@ const ISO_TIME_PATTERN = /^\d{2}:\d{2}:\d{2}$/;
 const USER_PREFIX_PATTERN = /^usr-/;
 
 const MAP_CASES = [
-  ["string", () => string(nativeType)],
-  ["int", () => int(nativeType)],
-  ["number", () => number(nativeType)],
-  ["boolean", () => boolean(nativeType)],
-  ["datetime", () => dateTime(nativeType)],
-  ["date", () => date(nativeType)],
-  ["time", () => time(nativeType)],
-  ["bigint", () => bigInt(nativeType)],
-  ["json", () => json(nativeType)],
-  ["blob", () => blob(nativeType)],
-  ["vector", () => vector(nativeType)],
-  ["point", () => point(nativeType)],
-  ["enum", () => enumScalar(["A", "B"], nativeType)],
+  ["string", () => string(nativeType), nativeType],
+  ["int", () => int(nativeType), nativeType],
+  ["number", () => number(nativeType), nativeType],
+  ["boolean", () => boolean(nativeType), nativeType],
+  ["datetime", () => dateTime(nativeType), nativeType],
+  ["date", () => date(nativeType), nativeType],
+  ["time", () => time(nativeType), nativeType],
+  ["bigint", () => bigInt(nativeType), nativeType],
+  ["json", () => json(nativeType), nativeType],
+  ["blob", () => blob(nativeType), nativeType],
+  ["vector", () => vector(nativeType), nativeType],
+  ["point", () => point(), undefined],
+  ["enum", () => enumScalar(["A", "B"], nativeType), nativeType],
 ] as const;
 
 const ID_CASES = [
@@ -175,14 +175,15 @@ const SCHEMA_CASES = [
 describe("scalar modifier contracts", () => {
   it.each(
     MAP_CASES
-  )("maps %s immutably and preserves its native type", (_name, create) => {
+  )("maps %s immutably without changing its physical type declaration", (_name, create, expectedNativeType) => {
     const before = create();
     const after = before.map("stored_value");
 
     expect(after).not.toBe(before);
     expect(before["~"].state.columnName).toBeUndefined();
     expect(after["~"].state.columnName).toBe("stored_value");
-    expect(after["~"].nativeType).toBe(nativeType);
+    expect(before["~"].nativeType).toBe(expectedNativeType);
+    expect(after["~"].nativeType).toBe(expectedNativeType);
   });
 
   it.each(

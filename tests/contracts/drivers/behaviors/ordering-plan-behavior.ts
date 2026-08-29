@@ -54,9 +54,7 @@ const orderRow = s
 
 const orderPlanSchema = { orderRow };
 
-type OrderPlanClient = VibORMClient<
-  VibORMConfig & { schema: typeof orderPlanSchema; driver: AnyDriver }
->;
+type OrderPlanClient = VibORMClient<VibORMConfig<typeof orderPlanSchema>>;
 
 const ROW_COUNT = 4000;
 /** Rows per distinct `bucket` value, so the tie-breaker decides boundaries. */

@@ -112,14 +112,12 @@ export function isRelationField(
  */
 export type ScalarFieldDocument =
   | ValueFieldDocument
+  | PointFieldDocument
   | DecimalFieldDocument
   | EnumFieldDocument;
 
-interface ScalarFieldModifiers {
+interface SharedScalarFieldModifiers {
   nullable?: boolean;
-  array?: boolean;
-  id?: boolean;
-  unique?: boolean;
   /** `.map(columnName)`. */
   column?: string;
   /**
@@ -133,6 +131,12 @@ interface ScalarFieldModifiers {
    * database default through `native`.
    */
   default?: JsonValue;
+}
+
+interface ScalarFieldModifiers extends SharedScalarFieldModifiers {
+  array?: boolean;
+  id?: boolean;
+  unique?: boolean;
   generate?: GenerateDocument;
   /** `.dimension(n)`. */
   dimension?: number;
@@ -154,7 +158,22 @@ interface NativeScalarFieldModifiers extends ScalarFieldModifiers {
 }
 
 export interface ValueFieldDocument extends NativeScalarFieldModifiers {
-  type: Exclude<ScalarType, "decimal" | "enum">;
+  type: Exclude<ScalarType, "decimal" | "enum" | "point">;
+  enum?: never;
+}
+
+/** GeoPoint's fixed geography language has no key, list, or native modifiers. */
+export interface PointFieldDocument extends SharedScalarFieldModifiers {
+  type: "point";
+  array?: never;
+  id?: never;
+  unique?: never;
+  native?: never;
+  generate?: never;
+  dimension?: never;
+  withoutTimezone?: never;
+  precision?: never;
+  scale?: never;
   enum?: never;
 }
 

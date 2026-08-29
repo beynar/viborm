@@ -14,7 +14,8 @@ import {
   getNameFromKeys,
   type ModelShape,
   type NameFromKeys,
-  type NonDecimalListScalarKeys,
+  type NonNullablePointScalarKeys,
+  type PortableKeyScalarKeys,
   type RelationMap,
   type ScalarMap,
   type StringKeyOf,
@@ -95,6 +96,17 @@ export interface IndexOptions {
   type?: IndexType;
   where?: string; // For partial indexes (PostgreSQL)
 }
+
+type OrdinaryIndexOptions = Omit<IndexOptions, "type"> & {
+  type?: Exclude<IndexType, "spatial">;
+};
+
+type GeoPointSpatialIndexOptions = {
+  name?: string;
+  type: "spatial";
+  unique?: never;
+  where?: never;
+};
 
 export interface IndexDefinition<
   Keys extends string[] = string[],
@@ -326,25 +338,38 @@ export class Model<State extends ModelState> {
   }
 
   index<
-    const Keys extends NonDecimalListScalarKeys<State["scalars"]>[],
-    O extends IndexOptions = IndexOptions,
+    const Keys extends PortableKeyScalarKeys<State["scalars"]>[],
+    O extends OrdinaryIndexOptions = OrdinaryIndexOptions,
   >(
     fields: Keys,
-    options: ExactOptions<O, IndexOptions> = {} as ExactOptions<O, IndexOptions>
-  ) {
+    options?: ExactOptions<O, OrdinaryIndexOptions>
+  ): Model<
+    UpdateState<
+      State,
+      { indexes: UpdateIndexDefinition<State, { fields: Keys; options: O }> }
+    >
+  >;
+  index<
+    const Key extends NonNullablePointScalarKeys<State["scalars"]>,
+    const O extends GeoPointSpatialIndexOptions,
+  >(
+    fields: [Key],
+    options: ExactOptions<O, GeoPointSpatialIndexOptions>
+  ): Model<
+    UpdateState<
+      State,
+      { indexes: UpdateIndexDefinition<State, { fields: [Key]; options: O }> }
+    >
+  >;
+  index(fields: string[], options: IndexOptions = {}): Model<any> {
     return new Model({
       ...this.state,
       indexes: mergeIndexDefinitions(this.state, { fields, options }),
-    }) as unknown as Model<
-      UpdateState<
-        State,
-        { indexes: UpdateIndexDefinition<State, { fields; options }> }
-      >
-    >;
+    });
   }
 
   id<
-    const Keys extends NonDecimalListScalarKeys<State["scalars"]>[],
+    const Keys extends PortableKeyScalarKeys<State["scalars"]>[],
     const O extends CompoundKeyOptions = Record<never, never>,
   >(fields: Keys, options?: ExactOptions<O, CompoundKeyOptions>) {
     const name = getNameFromKeys(options?.name, fields);
@@ -372,7 +397,7 @@ export class Model<State extends ModelState> {
   }
 
   unique<
-    const Keys extends NonDecimalListScalarKeys<State["scalars"]>[],
+    const Keys extends PortableKeyScalarKeys<State["scalars"]>[],
     const O extends CompoundKeyOptions = Record<never, never>,
   >(fields: Keys, options?: ExactOptions<O, CompoundKeyOptions>) {
     const name = getNameFromKeys(options?.name, fields);

@@ -5,6 +5,7 @@
  * Uses QueryEngine.build() to generate SQL without executing.
  */
 
+import { getAdapterInternals } from "@adapters/adapter-internals";
 import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
@@ -1972,28 +1973,38 @@ describe("batch ref adapter SQL", () => {
     const batchId = "batch-a";
 
     expect(
-      adapter.batchRefs
-        .setup(batchId)
+      getAdapterInternals(adapter)
+        .batchRefs.setup(batchId)
         .map((statement) => statement.toStatement("$n"))
     ).toEqual([
       'CREATE TEMP TABLE IF NOT EXISTS "__viborm_batch_refs" ("batch_id" TEXT NOT NULL, "ref_key" TEXT NOT NULL, "ref_value" TEXT, PRIMARY KEY ("batch_id", "ref_key")) ON COMMIT DROP',
     ]);
-    expect(adapter.batchRefs.clear(batchId).toStatement("$n")).toBe(
-      'DELETE FROM "__viborm_batch_refs" WHERE "batch_id" = $1'
-    );
-    expect(adapter.batchRefs.clear(batchId).values).toEqual([batchId]);
-    expect(adapter.batchRefs.storeLastInsertId).toBeUndefined();
     expect(
-      adapter.batchRefs.store(batchId, "answer", sql`40 + 2`).toStatement("$n")
+      getAdapterInternals(adapter).batchRefs.clear(batchId).toStatement("$n")
+    ).toBe('DELETE FROM "__viborm_batch_refs" WHERE "batch_id" = $1');
+    expect(
+      getAdapterInternals(adapter).batchRefs.clear(batchId).values
+    ).toEqual([batchId]);
+    expect(
+      getAdapterInternals(adapter).batchRefs.storeLastInsertId
+    ).toBeUndefined();
+    expect(
+      getAdapterInternals(adapter)
+        .batchRefs.store(batchId, "answer", sql`40 + 2`)
+        .toStatement("$n")
     ).toBe(
       'INSERT INTO "__viborm_batch_refs" ("batch_id", "ref_key", "ref_value") VALUES ($1, $2, CAST((40 + 2) AS TEXT)) ON CONFLICT ("batch_id", "ref_key") DO UPDATE SET "ref_value" = EXCLUDED."ref_value"'
     );
-    expect(adapter.batchRefs.read(batchId, "answer").toStatement("$n")).toBe(
+    expect(
+      getAdapterInternals(adapter)
+        .batchRefs.read(batchId, "answer")
+        .toStatement("$n")
+    ).toBe(
       '(SELECT "ref_value" FROM "__viborm_batch_refs" WHERE "batch_id" = $1 AND "ref_key" = $2 LIMIT 1)'
     );
-    expect(adapter.batchRefs.cleanup(batchId).toStatement("$n")).toBe(
-      'DELETE FROM "__viborm_batch_refs" WHERE "batch_id" = $1'
-    );
+    expect(
+      getAdapterInternals(adapter).batchRefs.cleanup(batchId).toStatement("$n")
+    ).toBe('DELETE FROM "__viborm_batch_refs" WHERE "batch_id" = $1');
   });
 
   test("SQLite adapter owns batch ref storage SQL", () => {
@@ -2001,37 +2012,47 @@ describe("batch ref adapter SQL", () => {
     const batchId = "batch-a";
 
     expect(
-      adapter.batchRefs
-        .setup(batchId)
+      getAdapterInternals(adapter)
+        .batchRefs.setup(batchId)
         .map((statement) => statement.toStatement())
     ).toEqual([
       'CREATE TEMP TABLE IF NOT EXISTS "__viborm_batch_refs" ("batch_id" TEXT NOT NULL, "ref_key" TEXT NOT NULL, "ref_value" TEXT, PRIMARY KEY ("batch_id", "ref_key"))',
     ]);
-    expect(adapter.batchRefs.clear(batchId).toStatement()).toBe(
-      'DELETE FROM "__viborm_batch_refs" WHERE "batch_id" = ?'
-    );
-    expect(adapter.batchRefs.clear(batchId).values).toEqual([batchId]);
-    const storeLastInsertId = adapter.batchRefs.storeLastInsertId;
+    expect(
+      getAdapterInternals(adapter).batchRefs.clear(batchId).toStatement()
+    ).toBe('DELETE FROM "__viborm_batch_refs" WHERE "batch_id" = ?');
+    expect(
+      getAdapterInternals(adapter).batchRefs.clear(batchId).values
+    ).toEqual([batchId]);
+    const storeLastInsertId =
+      getAdapterInternals(adapter).batchRefs.storeLastInsertId;
     expect(storeLastInsertId).toBeDefined();
     expect(storeLastInsertId?.(batchId, "user_id").toStatement()).toBe(
       'INSERT INTO "__viborm_batch_refs" ("batch_id", "ref_key", "ref_value") VALUES (?, ?, CAST((last_insert_rowid()) AS TEXT)) ON CONFLICT ("batch_id", "ref_key") DO UPDATE SET "ref_value" = EXCLUDED."ref_value"'
     );
     expect(
-      adapter.batchRefs.store(batchId, "answer", sql`40 + 2`).toStatement()
+      getAdapterInternals(adapter)
+        .batchRefs.store(batchId, "answer", sql`40 + 2`)
+        .toStatement()
     ).toBe(
       'INSERT INTO "__viborm_batch_refs" ("batch_id", "ref_key", "ref_value") VALUES (?, ?, CAST((40 + 2) AS TEXT)) ON CONFLICT ("batch_id", "ref_key") DO UPDATE SET "ref_value" = EXCLUDED."ref_value"'
     );
-    expect(adapter.batchRefs.read(batchId, "answer").toStatement()).toBe(
+    expect(
+      getAdapterInternals(adapter)
+        .batchRefs.read(batchId, "answer")
+        .toStatement()
+    ).toBe(
       '(SELECT "ref_value" FROM "__viborm_batch_refs" WHERE "batch_id" = ? AND "ref_key" = ? LIMIT 1)'
     );
-    expect(adapter.batchRefs.cleanup(batchId).toStatement()).toBe(
-      'DELETE FROM "__viborm_batch_refs" WHERE "batch_id" = ?'
-    );
+    expect(
+      getAdapterInternals(adapter).batchRefs.cleanup(batchId).toStatement()
+    ).toBe('DELETE FROM "__viborm_batch_refs" WHERE "batch_id" = ?');
   });
 
   test("MySQL retains exact statement-local generated identity storage", () => {
     const adapter = new MySQLAdapter();
-    const storeLastInsertId = adapter.batchRefs.storeLastInsertId;
+    const storeLastInsertId =
+      getAdapterInternals(adapter).batchRefs.storeLastInsertId;
     expect(storeLastInsertId).toBeDefined();
     expect(storeLastInsertId?.("batch-a", "user_id").toStatement()).toBe(
       "INSERT INTO `__viborm_batch_refs` (`batch_id`, `ref_key`, `ref_value`) VALUES (?, ?, CAST((LAST_INSERT_ID()) AS CHAR)) ON DUPLICATE KEY UPDATE `ref_value` = VALUES(`ref_value`)"

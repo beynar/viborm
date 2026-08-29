@@ -1,9 +1,9 @@
 import { SpanKind, SpanStatusCode } from "@opentelemetry/api";
 import type { ReadableSpan } from "@opentelemetry/sdk-trace-node";
 import {
+  SPAN_CONNECT,
   SPAN_EXECUTE,
   SPAN_OPERATION,
-  SPAN_VALIDATE,
 } from "@src/instrumentation/spans";
 import {
   createTracerWrapper,
@@ -17,7 +17,7 @@ import {
 } from "@tests/unit/instrumentation/_capture";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-const VALIDATE_PATTERN = /validate/;
+const CONNECT_PATTERN = /connect/;
 
 // ---------------------------------------------------------------------------
 // OTel PRESENT path — real @opentelemetry/api + in-memory recorder
@@ -107,16 +107,14 @@ describe("createTracerWrapper (OTel present)", () => {
       () => undefined
     );
     await noSql.startActiveSpan(
-      { name: SPAN_VALIDATE, sql: { query: "SELECT 1" } },
+      { name: SPAN_CONNECT, sql: { query: "SELECT 1" } },
       () => undefined
     );
 
     expect(findLast(SPAN_EXECUTE)?.attributes["db.query.text"]).toBe(
       "SELECT 1"
     );
-    expect(
-      findLast(SPAN_VALIDATE)?.attributes["db.query.text"]
-    ).toBeUndefined();
+    expect(findLast(SPAN_CONNECT)?.attributes["db.query.text"]).toBeUndefined();
   });
 
   it("includeParams true emits per-index params (raw string, JSON non-string); default false emits none", async () => {
@@ -135,7 +133,7 @@ describe("createTracerWrapper (OTel present)", () => {
     );
     await noParams.startActiveSpan(
       {
-        name: SPAN_VALIDATE,
+        name: SPAN_CONNECT,
         sql: { query: "SELECT $1", params: ["bob"] },
       },
       () => undefined
@@ -147,7 +145,7 @@ describe("createTracerWrapper (OTel present)", () => {
       JSON.stringify({ id: 5, sql: "business-value" })
     );
 
-    const noAttrs = findLast(SPAN_VALIDATE)?.attributes;
+    const noAttrs = findLast(SPAN_CONNECT)?.attributes;
     expect(noAttrs?.["db.query.parameter.0"]).toBeUndefined();
   });
 
@@ -331,58 +329,58 @@ describe("createTracerWrapper (OTel present)", () => {
   });
 
   it("ignoreSpanTypes string match: callback runs but no span recorded", async () => {
-    const tracer = createTracerWrapper({ ignoreSpanTypes: [SPAN_VALIDATE] });
-    const before = countOf(SPAN_VALIDATE);
+    const tracer = createTracerWrapper({ ignoreSpanTypes: [SPAN_CONNECT] });
+    const before = countOf(SPAN_CONNECT);
 
     const result = await tracer.startActiveSpan(
-      { name: SPAN_VALIDATE },
+      { name: SPAN_CONNECT },
       () => "ran"
     );
 
     expect(result).toBe("ran");
-    expect(countOf(SPAN_VALIDATE)).toBe(before);
-    expect(shouldTraceSpan(tracer, SPAN_VALIDATE)).toBe(false);
+    expect(countOf(SPAN_CONNECT)).toBe(before);
+    expect(shouldTraceSpan(tracer, SPAN_CONNECT)).toBe(false);
     expect(shouldTraceSpan(tracer, SPAN_EXECUTE)).toBe(true);
   });
 
   it("snapshots ignore patterns when the tracer is created", async () => {
-    const ignoreSpanTypes = [SPAN_VALIDATE];
+    const ignoreSpanTypes = [SPAN_CONNECT];
     const tracer = createTracerWrapper({ ignoreSpanTypes });
-    const validateBefore = countOf(SPAN_VALIDATE);
+    const connectBefore = countOf(SPAN_CONNECT);
     const operationBefore = countOf(SPAN_OPERATION);
 
     ignoreSpanTypes[0] = SPAN_OPERATION;
-    await tracer.startActiveSpan({ name: SPAN_VALIDATE }, () => undefined);
+    await tracer.startActiveSpan({ name: SPAN_CONNECT }, () => undefined);
     await tracer.startActiveSpan({ name: SPAN_OPERATION }, () => undefined);
 
-    expect(countOf(SPAN_VALIDATE)).toBe(validateBefore);
+    expect(countOf(SPAN_CONNECT)).toBe(connectBefore);
     expect(countOf(SPAN_OPERATION)).toBe(operationBefore + 1);
   });
 
   it("ignoreSpanTypes RegExp: matching name skipped, non-matching recorded", async () => {
     const tracer = createTracerWrapper({
-      ignoreSpanTypes: [VALIDATE_PATTERN],
+      ignoreSpanTypes: [CONNECT_PATTERN],
     });
-    const skipBefore = countOf(SPAN_VALIDATE);
+    const skipBefore = countOf(SPAN_CONNECT);
     const keepBefore = countOf(SPAN_OPERATION);
 
-    await tracer.startActiveSpan({ name: SPAN_VALIDATE }, () => undefined);
+    await tracer.startActiveSpan({ name: SPAN_CONNECT }, () => undefined);
     await tracer.startActiveSpan({ name: SPAN_OPERATION }, () => undefined);
 
-    expect(countOf(SPAN_VALIDATE)).toBe(skipBefore);
+    expect(countOf(SPAN_CONNECT)).toBe(skipBefore);
     expect(countOf(SPAN_OPERATION)).toBe(keepBefore + 1);
   });
 
   it("applies global ignore patterns consistently across repeated calls", async () => {
     const tracer = createTracerWrapper({
-      ignoreSpanTypes: [/^viborm\.validate$/g],
+      ignoreSpanTypes: [/^viborm\.connect$/g],
     });
-    const before = countOf(SPAN_VALIDATE);
+    const before = countOf(SPAN_CONNECT);
 
-    await tracer.startActiveSpan({ name: SPAN_VALIDATE }, () => undefined);
-    await tracer.startActiveSpan({ name: SPAN_VALIDATE }, () => undefined);
+    await tracer.startActiveSpan({ name: SPAN_CONNECT }, () => undefined);
+    await tracer.startActiveSpan({ name: SPAN_CONNECT }, () => undefined);
 
-    expect(countOf(SPAN_VALIDATE)).toBe(before);
+    expect(countOf(SPAN_CONNECT)).toBe(before);
   });
 
   it("startActiveSpanSync (OTel loaded) records a span, returns value, sets OK", async () => {
@@ -418,17 +416,17 @@ describe("createTracerWrapper (OTel present)", () => {
   });
 
   it("startActiveSpanSync respects ignoreSpanTypes (skipped name → callback runs, no span)", async () => {
-    const tracer = createTracerWrapper({ ignoreSpanTypes: [SPAN_VALIDATE] });
+    const tracer = createTracerWrapper({ ignoreSpanTypes: [SPAN_CONNECT] });
     await primeTracer(tracer);
-    const before = countOf(SPAN_VALIDATE);
+    const before = countOf(SPAN_CONNECT);
 
     const result = tracer.startActiveSpanSync(
-      { name: SPAN_VALIDATE },
+      { name: SPAN_CONNECT },
       () => "ran"
     );
 
     expect(result).toBe("ran");
-    expect(countOf(SPAN_VALIDATE)).toBe(before);
+    expect(countOf(SPAN_CONNECT)).toBe(before);
   });
 
   it("startActiveSpanSync before any async span primed OTel falls through to plain fn()", () => {

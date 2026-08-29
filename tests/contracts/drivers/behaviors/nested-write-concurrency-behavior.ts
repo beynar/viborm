@@ -43,10 +43,7 @@ import { syncLiveSchema } from "@tests/fixtures/sync-schema";
  *     collection and therefore no target-side UNIQUE to arbitrate on.
  */
 
-type ConcurrencyClientConfig = VibORMConfig & {
-  schema: typeof schema;
-  driver: AnyDriver;
-};
+type ConcurrencyClientConfig = VibORMConfig<typeof schema>;
 
 type ConcurrencyClient = VibORMClient<ConcurrencyClientConfig>;
 
@@ -334,10 +331,7 @@ const singularSlotSchema = (() => {
   return { book, shelf };
 })();
 
-type SlotClientConfig = VibORMConfig & {
-  schema: typeof singularSlotSchema;
-  driver: AnyDriver;
-};
+type SlotClientConfig = VibORMConfig<typeof singularSlotSchema>;
 
 type SlotClient = VibORMClient<SlotClientConfig>;
 

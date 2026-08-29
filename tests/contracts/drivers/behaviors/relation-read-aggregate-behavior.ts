@@ -52,10 +52,7 @@ const archive = s
 
 const schema = { user, post, archive };
 
-type RelationReadAggregateClientConfig = VibORMConfig & {
-  schema: typeof schema;
-  driver: AnyDriver;
-};
+type RelationReadAggregateClientConfig = VibORMConfig<typeof schema>;
 
 type RelationReadAggregateClient =
   VibORMClient<RelationReadAggregateClientConfig>;

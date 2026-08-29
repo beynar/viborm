@@ -1,6 +1,7 @@
 // Scalar Exports
 // Re-exports all scalar types and utilities
 
+export type { GeoPoint } from "@validation/primitives/geo-point-codec";
 // Scalar type (union of all scalar classes) and type guard
 export type { AnyScalar, Scalar } from "./base";
 export { BigIntScalar, bigInt } from "./bigint/scalar";

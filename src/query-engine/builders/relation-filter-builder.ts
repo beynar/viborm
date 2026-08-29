@@ -22,7 +22,8 @@ import { buildRelationTraversal } from "./relation-traversal";
 
 export type BuildNestedWhere = (
   ctx: QueryScope,
-  where: Record<string, unknown> | undefined
+  where: Record<string, unknown> | undefined,
+  positivePolarity?: boolean
 ) => Sql | undefined;
 
 /**
@@ -37,7 +38,8 @@ export function buildRelationFilterSql(
   buildNestedWhere: BuildNestedWhere,
   ctx: QueryScope,
   relationRef: RelationRef,
-  filter: Record<string, unknown>
+  filter: Record<string, unknown>,
+  positivePolarity = true
 ): Sql | undefined {
   const subqueries = new RelationFilterSubqueries(buildNestedWhere);
   // Schema validation normalizes { author: null } to { author: { is: null } }
@@ -58,7 +60,8 @@ export function buildRelationFilterSql(
           subqueries,
           ctx,
           relationRef,
-          requireFilterObject(relationRef, "some", filter.some)
+          requireFilterObject(relationRef, "some", filter.some),
+          positivePolarity
         )
       );
     }
@@ -68,7 +71,8 @@ export function buildRelationFilterSql(
         subqueries,
         ctx,
         relationRef,
-        requireFilterObject(relationRef, "every", filter.every)
+        requireFilterObject(relationRef, "every", filter.every),
+        positivePolarity
       );
       if (condition) {
         conditions.push(condition);
@@ -81,7 +85,8 @@ export function buildRelationFilterSql(
           subqueries,
           ctx,
           relationRef,
-          requireFilterObject(relationRef, "none", filter.none)
+          requireFilterObject(relationRef, "none", filter.none),
+          !positivePolarity
         )
       );
     }
@@ -110,7 +115,8 @@ export function buildRelationFilterSql(
           subqueries,
           ctx,
           relationRef,
-          requireFilterObject(relationRef, "is", isValue)
+          requireFilterObject(relationRef, "is", isValue),
+          positivePolarity
         )
       );
     }
@@ -126,7 +132,8 @@ export function buildRelationFilterSql(
           subqueries,
           ctx,
           relationRef,
-          requireFilterObject(relationRef, "isNot", isNotValue)
+          requireFilterObject(relationRef, "isNot", isNotValue),
+          !positivePolarity
         )
       );
     }
@@ -161,9 +168,16 @@ function buildSomeFilter(
   subqueries: RelationFilterSubqueries,
   ctx: QueryScope,
   relationRef: RelationRef,
-  innerWhere: Record<string, unknown> | undefined
+  innerWhere: Record<string, unknown> | undefined,
+  positivePolarity: boolean
 ): Sql {
-  const subquery = subqueries.build(ctx, relationRef, innerWhere, false);
+  const subquery = subqueries.build(
+    ctx,
+    relationRef,
+    innerWhere,
+    false,
+    positivePolarity
+  );
   return ctx.adapter.filters.some(subquery);
 }
 
@@ -175,9 +189,16 @@ function buildEveryFilter(
   subqueries: RelationFilterSubqueries,
   ctx: QueryScope,
   relationRef: RelationRef,
-  innerWhere: Record<string, unknown> | undefined
+  innerWhere: Record<string, unknown> | undefined,
+  positivePolarity: boolean
 ): Sql | undefined {
-  const subquery = subqueries.build(ctx, relationRef, innerWhere, true);
+  const subquery = subqueries.build(
+    ctx,
+    relationRef,
+    innerWhere,
+    true,
+    positivePolarity
+  );
   if (!subquery) {
     return undefined;
   }
@@ -191,9 +212,16 @@ function buildNoneFilter(
   subqueries: RelationFilterSubqueries,
   ctx: QueryScope,
   relationRef: RelationRef,
-  innerWhere: Record<string, unknown> | undefined
+  innerWhere: Record<string, unknown> | undefined,
+  positivePolarity: boolean
 ): Sql {
-  const subquery = subqueries.build(ctx, relationRef, innerWhere, false);
+  const subquery = subqueries.build(
+    ctx,
+    relationRef,
+    innerWhere,
+    false,
+    positivePolarity
+  );
   return ctx.adapter.filters.none(subquery);
 }
 
@@ -204,9 +232,16 @@ function buildIsFilter(
   subqueries: RelationFilterSubqueries,
   ctx: QueryScope,
   relationRef: RelationRef,
-  innerWhere: Record<string, unknown>
+  innerWhere: Record<string, unknown>,
+  positivePolarity: boolean
 ): Sql {
-  const subquery = subqueries.build(ctx, relationRef, innerWhere, false);
+  const subquery = subqueries.build(
+    ctx,
+    relationRef,
+    innerWhere,
+    false,
+    positivePolarity
+  );
   return ctx.adapter.filters.is(subquery);
 }
 
@@ -217,9 +252,16 @@ function buildIsNotFilter(
   subqueries: RelationFilterSubqueries,
   ctx: QueryScope,
   relationRef: RelationRef,
-  innerWhere: Record<string, unknown>
+  innerWhere: Record<string, unknown>,
+  positivePolarity: boolean
 ): Sql {
-  const subquery = subqueries.build(ctx, relationRef, innerWhere, false);
+  const subquery = subqueries.build(
+    ctx,
+    relationRef,
+    innerWhere,
+    false,
+    positivePolarity
+  );
   return ctx.adapter.filters.isNot(subquery);
 }
 
@@ -271,7 +313,7 @@ function buildIsNullFilter(
   }
 
   // Fallback: NOT EXISTS subquery
-  const subquery = subqueries.build(ctx, relationRef, undefined, false);
+  const subquery = subqueries.build(ctx, relationRef, undefined, false, true);
   return ctx.adapter.operators.notExists(subquery);
 }
 
@@ -294,7 +336,7 @@ function buildIsNotNullFilter(
   }
 
   // Fallback: EXISTS subquery
-  const subquery = subqueries.build(ctx, relationRef, undefined, false);
+  const subquery = subqueries.build(ctx, relationRef, undefined, false, true);
   return ctx.adapter.operators.exists(subquery);
 }
 
@@ -317,19 +359,22 @@ class RelationFilterSubqueries {
     ctx: QueryScope,
     relationRef: RelationRef,
     innerWhere: Record<string, unknown> | undefined,
-    negateInner: false
+    negateInner: false,
+    positivePolarity: boolean
   ): Sql;
   build(
     ctx: QueryScope,
     relationRef: RelationRef,
     innerWhere: Record<string, unknown> | undefined,
-    negateInner: true
+    negateInner: true,
+    positivePolarity: boolean
   ): Sql | undefined;
   build(
     ctx: QueryScope,
     relationRef: RelationRef,
     innerWhere: Record<string, unknown> | undefined,
-    negateInner: boolean
+    negateInner: boolean,
+    positivePolarity: boolean
   ): Sql | undefined {
     const { adapter } = ctx;
 
@@ -344,7 +389,11 @@ class RelationFilterSubqueries {
       relationRef.targetModel,
       traversal.targetAlias
     );
-    let innerCondition = this.buildNestedWhere(childCtx, innerWhere);
+    let innerCondition = this.buildNestedWhere(
+      childCtx,
+      innerWhere,
+      positivePolarity
+    );
 
     // Negate inner condition for "every" filter
     if (negateInner) {

@@ -547,10 +547,10 @@ backend after routing rules.
 - A custom MySQL adapter may remain unbound for runtime use, but effectful live
   migration commands refuse unless the execution driver supplies both an exact
   namespace and the explicit attestation.
-- The adapter capability record gains optional `supportsGeospatial`. Stock
-  adapters set it explicitly and absence means unsupported; paired with
-  `supportsVector` it lets migration introspection distinguish enabled PostGIS
-  types from unknown external UDTs.
+- GeoPoint support is the presence of the adapter's settled `geoPoint` SQL
+  protocol. There is no generic geospatial capability flag. PostgreSQL drivers
+  install that protocol only for an explicit `postgis: true`; migrations then
+  prove the exact PostGIS types and functions on the pinned live session.
 
 ## Release notes: what changes for an existing project
 

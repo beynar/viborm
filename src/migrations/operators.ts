@@ -33,6 +33,7 @@ import {
   loadMigrationGraph,
   type MigrationGraph,
   parentTransition,
+  requireStateSnapshot,
   resolveStateSelector,
   selectRoute,
 } from "./graph";
@@ -134,6 +135,11 @@ export async function verifyV1(
           VibORMErrorCode.MIGRATION_NOT_FOUND
         );
       }
+      const markedSnapshot = requireStateSnapshot(graph, marker.stateId);
+      await command.preflightSchemaRequirements(
+        [markedSnapshot],
+        (sql, params) => pinned._executeRaw(sql, params)
+      );
       await assertNoDrift(pinned, command, graph, marker);
       return { ok: true };
     }
@@ -213,14 +219,14 @@ export async function baselineV1(
           );
         }
       }
-      const live = await introspectManaged(pinned, command);
-      const expected = graph.snapshots.get(
-        graph.states.get(target)!.snapshotHash
+      const expected = requireStateSnapshot(graph, target);
+      await command.preflightSchemaRequirements([expected], (sql, params) =>
+        pinned._executeRaw(sql, params)
       );
+      const live = await introspectManaged(pinned, command);
       if (
-        !expected ||
         (await fingerprintLive(live, command, pinned)) !==
-          (await fingerprintLive(expected, command, pinned))
+        (await fingerprintLive(expected, command, pinned))
       ) {
         throw new MigrationError(
           "baseline requires exact live equality with the target snapshot",
@@ -350,6 +356,10 @@ export async function downV1(
             pinned.supportsTransactions,
             rollbackAttempt
           );
+          await command.preflightSchemaRequirements(
+            [requireStateSnapshot(graph, item.nextState)],
+            (sql, params) => pinned._executeRaw(sql, params)
+          );
           const close = (producer: Parameters<typeof appendLedger>[0]) =>
             closeCompletedRollback(
               producer,
@@ -379,6 +389,10 @@ export async function downV1(
           pinned.supportsTransactions,
           rollbackAttempt
         );
+        await command.preflightSchemaRequirements(
+          [requireStateSnapshot(graph, item.nextState)],
+          (sql, params) => pinned._executeRaw(sql, params)
+        );
         const close = (producer: Parameters<typeof appendLedger>[0]) =>
           closeCompletedRollback(
             producer,
@@ -398,9 +412,6 @@ export async function downV1(
       }
       const removed = rollbackSlice(graph, marker, request);
       if (removed.length === 0) return { path: [], preview: false };
-      if (!rollbackAttempt) {
-        await assertNoDrift(pinned, command, graph, marker);
-      }
       const reverse = [...removed].reverse();
       for (const edge of reverse) {
         assertReversibleEdge(graph, edge);
@@ -408,6 +419,16 @@ export async function downV1(
       const prepared = reverse.map((edge) =>
         prepareRollbackEdge(graph, command, pinned.supportsTransactions, edge)
       );
+      const rollbackSnapshots = prepared.map((item) =>
+        requireStateSnapshot(graph, item.nextState)
+      );
+      await command.preflightSchemaRequirements(
+        [requireStateSnapshot(graph, marker.stateId), ...rollbackSnapshots],
+        (sql, params) => pinned._executeRaw(sql, params)
+      );
+      if (!rollbackAttempt) {
+        await assertNoDrift(pinned, command, graph, marker);
+      }
       if (rollbackAttempt) {
         const resumed = prepareRollbackAttempt(
           graph,
@@ -546,14 +567,14 @@ export async function resolveV1(
         );
       }
       const transition = parentTransition(graph, from, to);
+      const destSnapshot = requireStateSnapshot(graph, to);
+      const originSnapshot = requireStateSnapshot(graph, from);
+      await command.preflightSchemaRequirements(
+        [originSnapshot, destSnapshot],
+        (sql, params) => pinned._executeRaw(sql, params)
+      );
       const live = await introspectManaged(pinned, command);
-      const destSnapshot = graph.snapshots.get(state.snapshotHash);
-      const originSnapshot =
-        from === null
-          ? emptyManagedSnapshot()
-          : graph.snapshots.get(graph.states.get(from)!.snapshotHash);
       const destHolds =
-        destSnapshot !== undefined &&
         (await fingerprintLive(live, command, pinned)) ===
           (await fingerprintLive(destSnapshot, command, pinned)) &&
         (await evaluateAllChecks(
@@ -563,7 +584,6 @@ export async function resolveV1(
           command.namespace
         ));
       const originHolds =
-        originSnapshot !== undefined &&
         (await fingerprintLive(live, command, pinned)) ===
           (await fingerprintLive(originSnapshot, command, pinned)) &&
         (await evaluateAllChecks(

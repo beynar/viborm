@@ -6,6 +6,7 @@
  * propagate through it to every read builder). Write consumer: JunctionStatements.
  */
 
+import { assembleAdapterSelect } from "@adapters/adapter-internals";
 import { type Sql, sql } from "@sql";
 import { createChildScope, getColumnName, getTableName } from "../context";
 import { NestedWriteError, QueryEngineError, type QueryScope } from "../types";
@@ -285,7 +286,7 @@ export function buildJunctionInsertWhenTargetExists(
         getColumnName(target.model, member.referencedField)
       )
     );
-    select = adapter.assemble.select({
+    select = assembleAdapterSelect(adapter, {
       columns: sql.join([...parentValues, ...selectedTargetValues], ", "),
       from: adapter.identifiers.table(targetTable),
       where: buildJunctionReferencedValuesMatch(
@@ -342,7 +343,7 @@ function buildJunctionInsertSelectWithoutExactMembership(
       membershipAlias
     )
   );
-  return adapter.assemble.select({
+  return assembleAdapterSelect(adapter, {
     columns: sql.join([...parentValues, ...selectedTargetValues], ", "),
     from: adapter.identifiers.table(targetTable, targetAlias),
     joins: [
@@ -601,7 +602,7 @@ export function buildJunctionMembership(
       )
     )
   );
-  const exists = adapter.assemble.select({
+  const exists = assembleAdapterSelect(adapter, {
     columns: adapter.literals.value(1),
     from: junctionTable,
     where: adapter.operators.and(sourceMatch, targetMatch),

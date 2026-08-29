@@ -18,9 +18,9 @@ import {
   variantCarrier,
 } from "../context";
 import {
+  DISTANCE_RESULT_KEY,
   EMPTY_ROW_RESULT_KEY,
   RELATION_COUNTS_RESULT_KEY,
-  VECTOR_DISTANCE_RESULT_KEY,
 } from "../result-aliases";
 import {
   isVariantRowCarrier,
@@ -28,7 +28,7 @@ import {
   type QueryScope,
   type RelationRef,
 } from "../types";
-import { projectScalarForTransport } from "./decimal-field";
+import { buildDistanceExpression } from "./distance-builder";
 import {
   type BuildIncludeOptions,
   type BuildNestedSelection,
@@ -43,7 +43,7 @@ import {
   buildPolymorphicRelationCount,
   buildRelationCount,
 } from "./relation-count-builder";
-import { buildVectorDistanceExpression } from "./vector-distance-builder";
+import { projectScalarForTransport } from "./scalar-transport";
 
 /**
  * Options for buildSelect
@@ -102,9 +102,7 @@ const buildLateralSelection: BuildNestedSelection = (ctx, select, include) => {
   };
 };
 
-const isVectorDistanceSelect = (
-  value: unknown
-): value is { _distance: unknown } => {
+const isDistanceSelect = (value: unknown): value is { _distance: unknown } => {
   return isRecord(value) && Object.hasOwn(value, "_distance");
 };
 
@@ -246,9 +244,10 @@ function buildSelectPairs(
         const scalar = scalars[fieldName];
         const columnName = getColumnName(ctx.model, fieldName);
         const column = ctx.adapter.identifiers.column(alias, columnName);
+        const scalarType = scalar?.["~"].state.type;
         pairs.push([
           fieldName,
-          scalar?.["~"].state.type === "decimal"
+          scalarType === "decimal" || scalarType === "point"
             ? projectScalarForTransport(ctx.adapter, scalar, column)
             : column,
         ]);
@@ -256,18 +255,18 @@ function buildSelectPairs(
       }
 
       const value = select[fieldName];
-      if (isVectorDistanceSelect(value)) {
+      if (isDistanceSelect(value)) {
         if (hasDistanceSelect) {
           throw new QueryEngineError(
-            "Vector distance select supports only one _distance field per select."
+            "Distance select supports only one _distance field per select."
           );
         }
         hasDistanceSelect = true;
         const columnName = getColumnName(ctx.model, fieldName);
         const column = ctx.adapter.identifiers.column(alias, columnName);
         pairs.push([
-          VECTOR_DISTANCE_RESULT_KEY,
-          buildVectorDistanceExpression(
+          DISTANCE_RESULT_KEY,
+          buildDistanceExpression(
             ctx,
             column,
             value._distance,
@@ -311,7 +310,7 @@ function buildSelectPairs(
     }
     if (hasDistanceSelect && hasDistanceOutputField) {
       throw new QueryEngineError(
-        "A vector distance result cannot be selected together with a model field named '_distance'."
+        "A distance result cannot be selected together with a model field named '_distance'."
       );
     }
   } else {
@@ -321,9 +320,10 @@ function buildSelectPairs(
       const scalar = scalars[fieldName];
       const columnName = getColumnName(ctx.model, fieldName);
       const column = ctx.adapter.identifiers.column(alias, columnName);
+      const scalarType = scalar?.["~"].state.type;
       pairs.push([
         fieldName,
-        scalar?.["~"].state.type === "decimal"
+        scalarType === "decimal" || scalarType === "point"
           ? projectScalarForTransport(ctx.adapter, scalar, column)
           : column,
       ]);

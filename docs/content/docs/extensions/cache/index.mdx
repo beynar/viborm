@@ -53,9 +53,8 @@ do not collide.
 
 Official invalidation accepts relative keys and prefixes such as `user:*`.
 Strings beginning with `viborm:` are refused before backend effects; only the
-authenticated extension rail can address its private namespace. The public
-`generateCacheKey` helpers describe the legacy storage-key format and are not
-an escape into the official namespace.
+authenticated extension rail can address its private namespace. Cache-key
+construction is private; no public helper can address the official namespace.
 
 ## Detached values
 
@@ -70,6 +69,11 @@ Decimal prototypes or JSON numbers. Every scalar and list member is rebuilt as
 a fresh `Decimal` on every hit. Compare those values with `.eq()` rather than
 object identity; a caller mutation or Decimal.js configuration change cannot
 poison a later hit or change cache identity.
+
+GeoPoint values are snapshotted through the one coordinate codec. Every cache
+hit returns a fresh `{ longitude, latitude }` object, including nested and
+variant relation graphs. A selected `_distance` remains a number (or null for a
+nullable point); provider-owned row claims never enter cache storage.
 
 Malformed stored snapshots fail at the cache boundary. VibORM does not route
 them back through the provider result parser or rerun custom JSON validation.

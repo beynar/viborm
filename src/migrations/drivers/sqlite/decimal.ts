@@ -16,10 +16,11 @@ import {
 } from "../../decimal";
 import type { ColumnDef } from "../../types";
 import {
-  isSqliteBareIdentifierCharacter,
-  readSqliteIdentifier,
-  skipSqlNonStructuralRegion,
-} from "./sql-lexing";
+  type SqliteConstraintClause,
+  type SqliteTableDefinition,
+  sqliteConstraintClauses,
+  sqliteTableDefinitions,
+} from "./column-constraints";
 
 /**
  * The reserved SQLite constraint name for one decimal column.
@@ -89,8 +90,8 @@ export function readSqliteDecimalConstraint(
   if (!tableSql.includes(RESERVED_CONSTRAINT_PREFIX)) return undefined;
 
   let found: DecimalDescriptor | undefined;
-  for (const definition of tableDefinitions(tableSql)) {
-    for (const clause of constraintClauses(definition.text)) {
+  for (const definition of sqliteTableDefinitions(tableSql)) {
+    for (const clause of sqliteConstraintClauses(definition.text)) {
       if (!clause.name.startsWith(RESERVED_CONSTRAINT_PREFIX)) continue;
       // This reader is invoked once for every PRAGMA column. A reserved
       // column constraint is adjudicated when its own physical column is in
@@ -143,28 +144,6 @@ export function readSqliteDecimalConstraint(
 }
 
 /** One top-level entry of a `CREATE TABLE`'s parenthesized definition list. */
-interface TableDefinition {
-  readonly text: string;
-  /** The column this entry defines, or `undefined` for a table constraint. */
-  readonly columnName: string | undefined;
-}
-
-/** A `CONSTRAINT <name>` at the top level of one definition. */
-interface ConstraintClause {
-  readonly name: string;
-  /** Where the `CONSTRAINT` keyword starts inside the definition text. */
-  readonly offset: number;
-}
-
-/** Keywords that open a TABLE constraint rather than a column definition. */
-const TABLE_CONSTRAINT_KEYWORDS = new Set([
-  "CONSTRAINT",
-  "PRIMARY",
-  "UNIQUE",
-  "CHECK",
-  "FOREIGN",
-]);
-
 /**
  * The reserved constraint this clause carries, or `undefined` when the clause
  * is one this module could not have written.
@@ -175,8 +154,8 @@ const TABLE_CONSTRAINT_KEYWORDS = new Set([
  * two numbers; and the whole clause re-renders byte for byte.
  */
 function ownedDescriptor(
-  definition: TableDefinition,
-  clause: ConstraintClause,
+  definition: SqliteTableDefinition,
+  clause: SqliteConstraintClause,
   physicalColumn: Pick<ColumnDef, "name" | "type" | "nullable">,
   escapeIdentifier: (name: string) => string
 ): DecimalDescriptor | undefined {
@@ -223,9 +202,9 @@ export function sqliteColumnDefinitionCarriesDecimalDescriptor(
   columnName: string
 ): boolean {
   const prefix = `${RESERVED_CONSTRAINT_PREFIX}${columnName}_`;
-  for (const definition of tableDefinitions(tableSql)) {
+  for (const definition of sqliteTableDefinitions(tableSql)) {
     if (definition.columnName !== columnName) continue;
-    for (const clause of constraintClauses(definition.text)) {
+    for (const clause of sqliteConstraintClauses(definition.text)) {
       if (!clause.name.startsWith(prefix)) continue;
       const match = RESERVED_CONSTRAINT_TAIL.exec(
         clause.name.slice(prefix.length)
@@ -239,113 +218,6 @@ export function sqliteColumnDefinitionCarriesDecimalDescriptor(
     }
   }
   return false;
-}
-
-/**
- * Every top-level entry of the definition list, with the column each one
- * defines.
- *
- * The list is what sits between the parenthesis that follows the table name and
- * its match, split on the commas at that depth — quoted identifiers and string
- * literals skipped, because both can contain a comma, a parenthesis, or the
- * word `CONSTRAINT`.
- */
-function tableDefinitions(sql: string): TableDefinition[] {
-  let open = -1;
-  let scan = 0;
-  while (scan < sql.length) {
-    const skipped = skipSqlNonStructuralRegion(sql, scan);
-    if (skipped !== scan) {
-      scan = skipped;
-      continue;
-    }
-    if (sql[scan] === "(") {
-      open = scan;
-      break;
-    }
-    scan++;
-  }
-  if (open === -1) return [];
-
-  const definitions: TableDefinition[] = [];
-  let depth = 1;
-  let start = open + 1;
-  let cursor = start;
-  while (cursor < sql.length) {
-    const skipped = skipSqlNonStructuralRegion(sql, cursor);
-    if (skipped !== cursor) {
-      cursor = skipped;
-      continue;
-    }
-    const char = sql[cursor];
-    if (char === "(") depth++;
-    else if (char === ")") {
-      depth--;
-      if (depth === 0) break;
-    } else if (char === "," && depth === 1) {
-      definitions.push(describeDefinition(sql.slice(start, cursor)));
-      start = cursor + 1;
-    }
-    cursor++;
-  }
-  definitions.push(describeDefinition(sql.slice(start, cursor)));
-  return definitions;
-}
-
-function describeDefinition(raw: string): TableDefinition {
-  const text = raw.trim();
-  const first = readSqliteIdentifier(text, 0);
-  if (first === undefined) return { text, columnName: undefined };
-  // A quoted first token is always a column name, even when it spells a
-  // keyword: `"CHECK CONSTRAINT" INTEGER` is a legal column.
-  if (first.quoted) return { text, columnName: first.value };
-  return {
-    text,
-    columnName: TABLE_CONSTRAINT_KEYWORDS.has(first.value.toUpperCase())
-      ? undefined
-      : first.value,
-  };
-}
-
-/**
- * Every `CONSTRAINT <name>` at depth 0 of one definition.
- *
- * Whole tokens only: reading `CONSTRAINT` out of the middle of a longer word
- * would find one where none was written.
- */
-function constraintClauses(definition: string): ConstraintClause[] {
-  const clauses: ConstraintClause[] = [];
-  let depth = 0;
-  let cursor = 0;
-  while (cursor < definition.length) {
-    const skipped = skipSqlNonStructuralRegion(definition, cursor);
-    if (skipped !== cursor) {
-      cursor = skipped;
-      continue;
-    }
-    const char = definition[cursor] ?? "";
-    if (isSqliteBareIdentifierCharacter(char)) {
-      const word = readSqliteIdentifier(definition, cursor);
-      if (word === undefined) {
-        cursor++;
-        continue;
-      }
-      if (depth === 0 && word.value.toUpperCase() === "CONSTRAINT") {
-        const name = readSqliteIdentifier(definition, word.end);
-        if (name) {
-          clauses.push({ name: name.value, offset: cursor });
-          cursor = name.end;
-          continue;
-        }
-      }
-      cursor = word.end;
-      continue;
-    }
-    if (char === "(") depth++;
-    else if (char === ")") depth--;
-    cursor++;
-  }
-  return clauses;
 }
 
 /** `10^precision - 1`: the widest coefficient the domain can hold. */

@@ -10,18 +10,6 @@ export interface DatabaseAdapterCapabilities {
   supportsLateralJoins: boolean;
   /** Whether this driver instance supports vector operations. */
   supportsVector: boolean;
-  /**
-   * Whether this driver instance supports geospatial types and operations
-   * (PostGIS on PostgreSQL). Absence means unsupported, so a custom adapter
-   * written before this flag existed keeps its meaning.
-   *
-   * Migration introspection reads it beside {@link supportsVector} to tell an
-   * enabled extension type from an unknown external UDT. SQL building keeps
-   * reading the `geospatial` member the driver replaces with a throwing stub —
-   * that replacement is the fail-closed path, this flag is the question
-   * introspection asks without comparing function objects.
-   */
-  supportsGeospatial?: boolean;
   /** Whether database supports target/set WHERE clauses in upsert. */
   supportsUpsertWhere: boolean;
   /**

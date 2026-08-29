@@ -24,6 +24,7 @@
  * violation, and an inner join would drop it.
  */
 
+import { assembleAdapterSelect } from "@adapters/adapter-internals";
 import { type Sql, sql } from "@sql";
 import { getColumnName, getTableName } from "../context";
 import { QueryEngineError, type QueryScope } from "../types";
@@ -113,7 +114,7 @@ export function buildPolymorphicMemberIntegrityParts(
 ): PolymorphicMemberIntegrityParts {
   const { adapter } = ctx;
   const membershipCount = adapter.subqueries.scalar(
-    adapter.assemble.select({
+    assembleAdapterSelect(adapter, {
       columns: adapter.aggregates.count(),
       from: adapter.identifiers.table(membership.table, junctionAlias),
       where: correlationCondition,
@@ -121,7 +122,7 @@ export function buildPolymorphicMemberIntegrityParts(
   );
 
   const orphanCount = adapter.subqueries.scalar(
-    adapter.assemble.select({
+    assembleAdapterSelect(adapter, {
       columns: adapter.aggregates.count(),
       from: buildPolymorphicMemberOuterFrom(
         ctx,

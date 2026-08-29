@@ -70,6 +70,13 @@ const client = createClient({
 
 LibSQL supports full transactions with savepoints for nested transactions — see [Transactions](/docs/client/transactions).
 
+## GeoPoint storage tier
+
+LibSQL uses the checked SQLite GeoPoint JSON carrier. Typed CRUD, equality,
+inclusive bounds, nullability, transactions, relations, and cache are
+qualified. Polygon, distance, `_distance`, and spatial indexes are refused
+before provider execution. See [GeoPoint](/docs/schema/scalars/point).
+
 ## Limitations
 
 - SQLite dialect - no `LATERAL` joins, limited `FULL OUTER JOIN`

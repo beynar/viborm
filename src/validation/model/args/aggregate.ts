@@ -3,7 +3,9 @@
 import type { AnyModel } from "@schema/model";
 import type {
   DecimalListScalarKeys,
+  NonPointScalarKeys,
   NumericScalarKeys,
+  PointScalarKeys,
   ScalarKeys,
 } from "@schema/model/helper";
 import type { ScalarState } from "@schema/scalars/common";
@@ -40,7 +42,7 @@ import {
  * - _min, _max: scalar columns, never list containers
  */
 type OptionalBoolean = V.Boolean<{ optional: true }>;
-type ListAggregateRefusalSchema = VibSchema<never, never>;
+type AggregateValueRefusalSchema = VibSchema<never, never>;
 
 const SUMMABLE_SCALAR_TYPES = ["int", "number", "decimal", "bigint"];
 
@@ -67,14 +69,10 @@ const isSummableScalar = (state: ScalarState): boolean =>
  */
 type ModelStateOf<M extends AnyModel> = M["~"]["state"];
 
-type AggregateScalarKeys<M extends AnyModel> = {
-  [K in keyof ModelStateOf<M>["scalars"]]: ModelStateOf<M>["scalars"][K] extends {
-    "~": { state: { array: true } };
-  }
-    ? never
-    : K;
-}[keyof ModelStateOf<M>["scalars"]] &
-  string;
+type AggregateScalarKeys<M extends AnyModel> = Exclude<
+  NonPointScalarKeys<ModelStateOf<M>["scalars"]>,
+  ListScalarKeys<M>
+>;
 
 export type CountScalarKeys<M extends AnyModel> =
   | "_all"
@@ -82,11 +80,18 @@ export type CountScalarKeys<M extends AnyModel> =
 
 type ListAggregateEntries<M extends AnyModel> = V.FromKeys<
   ListScalarKeys<M>[],
-  ListAggregateRefusalSchema
+  AggregateValueRefusalSchema
+>["entries"];
+
+type PointAggregateEntries<M extends AnyModel> = V.FromKeys<
+  PointScalarKeys<ModelStateOf<M>["scalars"]>[],
+  AggregateValueRefusalSchema
 >["entries"];
 
 type AggregateValueSchema<M extends AnyModel, K extends string> = V.Object<
-  V.FromKeys<K[], OptionalBoolean>["entries"] & ListAggregateEntries<M>
+  V.FromKeys<K[], OptionalBoolean>["entries"] &
+    ListAggregateEntries<M> &
+    PointAggregateEntries<M>
 >;
 
 /**
@@ -113,6 +118,7 @@ export const getAggregateScalarSchemas = <M extends AnyModel>(
   const numericKeys: string[] = [];
   const minMaxKeys: string[] = [];
   const listKeys: string[] = [];
+  const pointKeys: string[] = [];
 
   for (const name of Object.keys(state.scalars)) {
     const scalar = state.scalars[name]!;
@@ -126,10 +132,14 @@ export const getAggregateScalarSchemas = <M extends AnyModel>(
     }
 
     // Value aggregates never compare list containers.
-    if (scalar["~"].state.array !== true) {
+    if (
+      scalar["~"].state.array !== true &&
+      scalar["~"].state.type !== "point"
+    ) {
       minMaxKeys.push(name);
     }
     if (scalar["~"].state.array === true) listKeys.push(name);
+    if (scalar["~"].state.type === "point") pointKeys.push(name);
   }
 
   const booleanOptional = v.boolean({ optional: true });
@@ -140,24 +150,35 @@ export const getAggregateScalarSchemas = <M extends AnyModel>(
         `A list cannot be projected by '${aggregate}'; only '_count' is supported.`
       )
     );
+  const pointProjection = (aggregate: "_avg" | "_sum" | "_min" | "_max") =>
+    v.fromKeys(
+      pointKeys,
+      v.refused(
+        `A GeoPoint cannot be projected by '${aggregate}'; use a distance projection or '_count'.`
+      )
+    );
 
   return {
     count: v.fromKeys(countKeys, booleanOptional),
     avg: v.object({
       ...v.fromKeys(numericKeys, booleanOptional).entries,
       ...projection("_avg").entries,
+      ...pointProjection("_avg").entries,
     }),
     sum: v.object({
       ...v.fromKeys(numericKeys, booleanOptional).entries,
       ...projection("_sum").entries,
+      ...pointProjection("_sum").entries,
     }),
     min: v.object({
       ...v.fromKeys(minMaxKeys, booleanOptional).entries,
       ...projection("_min").entries,
+      ...pointProjection("_min").entries,
     }),
     max: v.object({
       ...v.fromKeys(minMaxKeys, booleanOptional).entries,
       ...projection("_max").entries,
+      ...pointProjection("_max").entries,
     }),
   } as AggregateScalarSchemas<M>;
 };
@@ -367,10 +388,10 @@ export type HavingAggregateScalarSchema<
 type ListHavingAggregateScalarSchema = V.Object<
   {
     _count: NumericFilterOps;
-    _avg: ListAggregateRefusalSchema;
-    _sum: ListAggregateRefusalSchema;
-    _min: ListAggregateRefusalSchema;
-    _max: ListAggregateRefusalSchema;
+    _avg: AggregateValueRefusalSchema;
+    _sum: AggregateValueRefusalSchema;
+    _min: AggregateValueRefusalSchema;
+    _max: AggregateValueRefusalSchema;
   },
   { optional: true }
 >;
@@ -442,10 +463,13 @@ export type HavingSchemaEntries<
   M extends AnyModel,
   F extends ScalarFilterBundle,
 > = {
-  [K in keyof ScalarFilterEntries<F>]: ScalarFilterEntries<F>[K] extends infer S extends
-    V.Schema
-    ? HavingScalarSchema<M, K, S>
-    : never;
+  [K in keyof ScalarFilterEntries<F>]: K extends PointScalarKeys<
+    ModelStateOf<M>["scalars"]
+  >
+    ? AggregateValueRefusalSchema
+    : ScalarFilterEntries<F>[K] extends infer S extends V.Schema
+      ? HavingScalarSchema<M, K, S>
+      : never;
 };
 
 /**
@@ -631,6 +655,10 @@ export function getHavingSchema(
     // column of one row — and a fragment is out for the same reason, so re-close
     // the reused schema here instead of inheriting the operand by accident.
     const state = model["~"].state.scalars[name]?.["~"].state;
+    if (state?.type === "point") {
+      entries[name] = v.refused("A GeoPoint cannot be used in 'having'.");
+      continue;
+    }
     entries[name] =
       state?.array === true
         ? listHavingSchema(schemas.filter)
@@ -677,7 +705,9 @@ export function getHavingSchema(
 type OrderDirectionSchema = V.Enum<["asc", "desc"]>;
 
 type GroupAggregateOrderSchema<M extends AnyModel, K extends string> = V.Object<
-  V.FromKeys<K[], OrderDirectionSchema>["entries"] & ListAggregateEntries<M>
+  V.FromKeys<K[], OrderDirectionSchema>["entries"] &
+    ListAggregateEntries<M> &
+    PointAggregateEntries<M>
 >;
 
 export type GroupByOrderBySchema<M extends AnyModel> = V.Object<
@@ -712,12 +742,15 @@ export const getGroupByOrderBySchema = <M extends AnyModel>(
   const listKeys: string[] = [];
   const numericKeys: string[] = [];
   const aggregateKeys: string[] = [];
+  const pointKeys: string[] = [];
 
   for (const name of Object.keys(state.scalars)) {
     const scalar = state.scalars[name]!;
     allScalarKeys.push(name);
     if (scalar["~"].state.array === true) listKeys.push(name);
-    if (isOrderableScalarState(scalar["~"].state)) {
+    if (scalar["~"].state.type === "point") {
+      pointKeys.push(name);
+    } else if (isOrderableScalarState(scalar["~"].state)) {
       scalarKeys.push(name);
     } else {
       decimalListKeys.push(name);
@@ -725,7 +758,10 @@ export const getGroupByOrderBySchema = <M extends AnyModel>(
     if (isSummableScalar(scalar["~"].state)) {
       numericKeys.push(name);
     }
-    if (scalar["~"].state.array !== true) {
+    if (
+      scalar["~"].state.array !== true &&
+      scalar["~"].state.type !== "point"
+    ) {
       aggregateKeys.push(name);
     }
   }
@@ -740,6 +776,12 @@ export const getGroupByOrderBySchema = <M extends AnyModel>(
         listKeys,
         v.refused(
           `A list cannot be ordered by '${aggregate}'; only '_count' is supported.`
+        )
+      ).entries,
+      ...v.fromKeys(
+        pointKeys,
+        v.refused(
+          `A GeoPoint cannot be ordered by '${aggregate}'; use '_distance' or '_count'.`
         )
       ).entries,
     });
@@ -762,7 +804,7 @@ export const getGroupByOrderBySchema = <M extends AnyModel>(
 /**
  * GroupBy args: { by, where?, having?, orderBy?, take?, skip?, _count?, _avg?, _sum?, _min?, _max? }
  */
-type GroupByScalarKeys<M extends AnyModel> = ScalarKeys<
+type GroupByScalarKeys<M extends AnyModel> = NonPointScalarKeys<
   ModelStateOf<M>["scalars"]
 >;
 
@@ -801,9 +843,9 @@ export const getGroupByArgs = <M extends AnyModel, F extends ScalarSchemas<M>>(
 ): GroupByArgs<M, F> => {
   const state = model["~"].state;
   // Build "by" schema - array of scalar names or single scalar
-  const scalarKeys = Object.keys(state.scalars) as ScalarKeys<
-    ModelStateOf<M>["scalars"]
-  >[];
+  const scalarKeys = Object.keys(state.scalars).filter(
+    (field) => state.scalars[field]!["~"].state.type !== "point"
+  ) as GroupByScalarKeys<M>[];
 
   // Use enum for scalar names for proper type inference
   const scalarSchema = v.enum(scalarKeys);

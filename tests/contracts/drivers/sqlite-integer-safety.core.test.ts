@@ -208,10 +208,6 @@ describe("Bun SQLite integer safety", () => {
           driver
         ),
         prepareOperation(
-          client.$queryRaw<{ views: number }>(`SELECT "views"`, []),
-          driver
-        ),
-        prepareOperation(
           client.$queryRaw<{ views: bigint }>`SELECT "views"`,
           driver
         ),
@@ -219,7 +215,6 @@ describe("Bun SQLite integer safety", () => {
 
       expect(batch.map((result) => result.rows[0]?.views)).toEqual([
         EXACT,
-        ROUNDED,
         ROUNDED,
         EXACT,
       ]);
@@ -286,7 +281,7 @@ describe("SQLite3 integer safety (the contract bun-sqlite matches)", () => {
     }
   });
 
-  test("fallback batches preserve typed, unsafe, legacy, and typed ordering", async () => {
+  test("fallback batches preserve typed and unsafe ordering", async () => {
     const driver = new SQLite3Driver({ dataDir: ":memory:" });
     const client = createClient({ schema: { measurement }, driver });
 
@@ -325,13 +320,6 @@ describe("SQLite3 integer safety (the contract bun-sqlite matches)", () => {
           driver
         ),
         prepareOperation(
-          client.$queryRaw<{ views: number }>(
-            `SELECT "views" FROM "measurements"`,
-            []
-          ),
-          driver
-        ),
-        prepareOperation(
           client.$queryRaw<{
             views: bigint;
           }>`SELECT "views" FROM "measurements"`,
@@ -341,7 +329,6 @@ describe("SQLite3 integer safety (the contract bun-sqlite matches)", () => {
 
       expect(batch.map((result) => result.rows[0]?.views)).toEqual([
         EXACT,
-        ROUNDED,
         ROUNDED,
         EXACT,
       ]);
@@ -377,13 +364,6 @@ describe("LibSQL integer-mode control", () => {
           driver
         ),
         prepareOperation(
-          client.$queryRaw<{ views: bigint }>(
-            `SELECT "views" FROM "measurements"`,
-            []
-          ),
-          driver
-        ),
-        prepareOperation(
           client.$queryRaw<{
             views: bigint;
           }>`SELECT "views" FROM "measurements"`,
@@ -392,7 +372,6 @@ describe("LibSQL integer-mode control", () => {
       ]);
 
       expect(batch.map((result) => result.rows[0]?.views)).toEqual([
-        EXACT,
         EXACT,
         EXACT,
         EXACT,

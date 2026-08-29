@@ -51,10 +51,7 @@ const employee = s
 
 const schema = { user, post, employee };
 
-type RelationFilterMutationClientConfig = VibORMConfig & {
-  schema: typeof schema;
-  driver: AnyDriver;
-};
+type RelationFilterMutationClientConfig = VibORMConfig<typeof schema>;
 
 type RelationFilterMutationClient =
   VibORMClient<RelationFilterMutationClientConfig>;

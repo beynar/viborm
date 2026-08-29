@@ -183,8 +183,11 @@ export function renderOperationResultType(
   hydrateSchemaNames(schema);
   const index = resolveSchemaOrThrow(schema);
   const registry = createResolvedSchemaRegistry(schema, index);
-  const validated =
-    registry.validate(validatedModelName, schemaOperation, payload ?? {}) ?? {};
+  const validated = registry.validate(
+    validatedModelName,
+    schemaOperation,
+    payload ?? {}
+  );
   const model = schema[validatedModelName];
   if (!model) {
     throw new ValidationError({ kind: "registry", model: validatedModelName }, [

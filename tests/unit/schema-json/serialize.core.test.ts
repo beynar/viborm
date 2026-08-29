@@ -46,6 +46,44 @@ const overrideDay = () => "2020-01-02";
 const overrideClock = () => "03:04:05";
 
 describe("refusal witnesses", () => {
+  it("names every impossible GeoPoint declaration in hostile scalar state", () => {
+    const corruptedPoint = (
+      state: Record<string, unknown>,
+      withNative = false
+    ) => {
+      const point = s.point();
+      return new Proxy(point, {
+        get(target, property, receiver) {
+          if (property !== "~") return Reflect.get(target, property, receiver);
+          const metadata = {
+            state: { ...target["~"].state, ...state },
+          };
+          return withNative
+            ? { ...metadata, nativeType: { db: "pg", type: "point" } }
+            : metadata;
+        },
+      });
+    };
+    const place = s.model({
+      id: s.string().id(),
+      nativePoint: corruptedPoint({}, true),
+      arrayPoint: corruptedPoint({ array: true }),
+      idPoint: corruptedPoint({ isId: true }),
+      uniquePoint: corruptedPoint({ isUnique: true }),
+      dimensionPoint: corruptedPoint({ dimension: 2 }),
+      generatedPoint: corruptedPoint({ autoGenerate: { kind: "uuid" } }),
+    });
+
+    expect(issues(refusal({ place }))).toEqual([
+      "[J009] /models/place/fields/nativePoint/native",
+      "[J009] /models/place/fields/arrayPoint/array",
+      "[J009] /models/place/fields/idPoint/id",
+      "[J009] /models/place/fields/uniquePoint/unique",
+      "[J009] /models/place/fields/dimensionPoint/dimension",
+      "[J009] /models/place/fields/generatedPoint/generate",
+    ]);
+  });
+
   it("names a hostile fixed-decimal native override", () => {
     const amount = s.decimal({ precision: 10, scale: 2 });
     const ledger = s.model({ id: s.string().id(), amount });

@@ -125,9 +125,7 @@ export function runForwardFkOrderingBehavior({
   fkNamesRoundTrip = true,
 }: ForwardFkOrderingBehaviorOptions) {
   describe(`${driverName} forward-ref FK push ordering`, () => {
-    let client:
-      | VibORMClient<VibORMConfig & { schema: AnySchema; driver: AnyDriver }>
-      | undefined;
+    let client: VibORMClient<VibORMConfig<AnySchema>> | undefined;
 
     afterEach(async () => {
       if (client) {

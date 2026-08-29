@@ -6,6 +6,7 @@
  * every equality prefix and strict-after branch.
  */
 
+import { assembleAdapterSelect } from "@adapters/adapter-internals";
 import { type Sql, sql } from "@sql";
 import { scalarValueLiteral } from "../builders/values-builder";
 import type { WhereUniqueEntry } from "../builders/where-unique-builder";
@@ -60,7 +61,7 @@ export function buildCursorCondition(
       scalarValueLiteral(ctx, fieldName, value)
     )
   );
-  const cursorSelect = adapter.assemble.select({
+  const cursorSelect = assembleAdapterSelect(adapter, {
     columns: sql.join(cursorColumns, ", "),
     from: adapter.identifiers.table(getTableName(ctx.model), sourceAlias),
     where: adapter.operators.and(...cursorWhere),
@@ -75,7 +76,7 @@ export function buildCursorCondition(
     direction: key.direction,
     nulls: key.nulls,
   }));
-  const comparisonSelect = adapter.assemble.select({
+  const comparisonSelect = assembleAdapterSelect(adapter, {
     columns: adapter.literals.true(),
     from: adapter.subqueries.correlate(cursorSelect, cursorAlias),
     where: buildLexicographicPredicate(ctx, comparisons),
@@ -132,7 +133,7 @@ function buildRowValueCursorCondition(
 
   const { adapter } = ctx;
   const sourceAlias = ctx.nextAlias();
-  const cursorSelect = adapter.assemble.select({
+  const cursorSelect = assembleAdapterSelect(adapter, {
     columns: sql.join(
       order.map((key) =>
         adapter.identifiers.column(

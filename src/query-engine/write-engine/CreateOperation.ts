@@ -1,4 +1,5 @@
 // biome-ignore-all lint/style/useFilenamingConvention: CreateOperation is the architecture name.
+import { getAdapterInternals } from "@adapters/adapter-internals";
 import { NestedWriteError, QueryEngineError } from "@errors";
 import type { Model } from "@schema/model";
 import { isSql, type Sql } from "@sql";
@@ -3724,7 +3725,7 @@ export class CreateOperation {
     const generatedField = legacyGeneratedField(databaseAssigned);
     return (
       this.mode === "transaction" ||
-      !this.engine.adapter.batchRefs.storeLastInsertId ||
+      !getAdapterInternals(this.engine.adapter).batchRefs.storeLastInsertId ||
       field !== generatedField
     );
   }

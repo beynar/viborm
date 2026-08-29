@@ -108,6 +108,15 @@ const rows = await client.$queryRaw<{ id: string }>(fragment);
 Passing a fragment **and** extra values is refused — the fragment already
 carries its parameters, so there is nowhere for the extras to go.
 
+Safe methods accept only the tagged-template call or one `Sql` fragment. A
+plain string is deliberately an Unsafe-method call; no string compatibility
+overload remains.
+
+Raw rows keep provider physical values. In particular, a model GeoPoint is a
+PostGIS geography on PostgreSQL, a geometry on MySQL, and canonical JSON text
+on SQLite. Use a typed model operation when you need the public
+`{ longitude, latitude }` value.
+
 ## Raw SQL in a transaction
 
 Raw methods are lazy. Calling one captures the statement and parameters; no

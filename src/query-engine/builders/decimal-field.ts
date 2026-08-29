@@ -14,11 +14,9 @@
  * capability question is now a descriptor question.
  */
 
-import type { DatabaseAdapter } from "@adapters/database-adapter";
 import type { Model } from "@schema/model";
 import type { Scalar } from "@schema/scalars/base";
 import type { ScalarState } from "@schema/scalars/common";
-import type { Sql } from "@sql";
 import type { DecimalDescriptor } from "@validation/primitives/decimal-codec";
 
 /**
@@ -67,31 +65,6 @@ export function decimalListDescriptorOfState(
 ): DecimalDescriptor | undefined {
   if (state?.type !== "decimal" || state.array !== true) return undefined;
   return state.decimal;
-}
-
-/**
- * Preserve one flat scalar projection until its descriptor-aware decoder sees it.
- *
- * A decimal scalar crosses as text because a provider may otherwise materialize
- * its exact value as a rounded JavaScript number. A decimal list keeps its
- * container and projects each member as text through the adapter. Every other
- * scalar keeps the provider's ordinary representation.
- *
- * This applies equally to public model fields and private relation-storage
- * columns: physical visibility does not change the scalar's transport domain.
- */
-export function projectScalarForTransport(
-  adapter: DatabaseAdapter,
-  scalar: Scalar | undefined,
-  expression: Sql
-): Sql {
-  const state = scalar?.["~"].state;
-  if (decimalListDescriptorOfState(state)) {
-    return adapter.arrays.decimalProjection(expression);
-  }
-  return decimalDescriptorOfState(state)
-    ? adapter.expressions.cast(expression, "text")
-    : expression;
 }
 
 /**

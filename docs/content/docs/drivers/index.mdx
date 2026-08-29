@@ -62,6 +62,22 @@ Drivers marked "Unsupported" reject instead of running non-atomically. See
 per driver.
 :::
 
+## GeoPoint tiers
+
+| Driver | Tier |
+| --- | --- |
+| pg, postgres.js | Full only with `postgis: true` and a real PostGIS install |
+| MySQL2 | Full |
+| SQLite3, LibSQL, D1, Bun SQLite | CRUD, equality, inclusive bounds, nullability, cache |
+| PlanetScale | Preview until hosted DDL/function/migration qualification |
+| Neon HTTP | Conditional on a proven PostGIS target; not qualified by the local estate |
+| PGlite | Conditional on a real PostGIS payload; the tested package did not provide one |
+| Bun SQL | Conditional; no real Bun/PostGIS contract was executed for this release |
+
+Full tier adds polygon membership, meter distance filtering, `_distance`
+selection/order, and spatial indexes. See [GeoPoint](/docs/schema/scalars/point)
+for exact operations, physical columns, and migration requirements.
+
 ## Closing the Connection
 
 `await client.$disconnect()` closes the client's driver. Where the platform has

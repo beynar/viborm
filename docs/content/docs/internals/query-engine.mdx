@@ -521,8 +521,9 @@ Use `prepare()` or await the returned `PendingOperation` for general operations.
 ## Compatibility
 
 `PendingOperation` is the deferred-operation class exported from the package
-root and `viborm/client`. `QueryMetadata<T>` remains a deprecated type-only alias
-during its compatibility window; no runtime metadata object exists.
+root and `viborm/client`. The operation program and its metadata remain private;
+there is no `QueryMetadata`, public result parser, or `viborm/query-engine`
+entry point.
 
 ## Architecture gates
 

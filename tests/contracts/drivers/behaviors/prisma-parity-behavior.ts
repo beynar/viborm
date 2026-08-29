@@ -26,10 +26,7 @@ const schema = { ...windowUserPostSchema, roleAccount };
 const EMPTY_SELECT_REFUSAL = /needs at least one truthy value/;
 const UNGROUPED_COLUMN_REFUSAL = /must be included in 'by'/;
 
-type ParityClientConfig = VibORMConfig & {
-  schema: typeof schema;
-  driver: AnyDriver;
-};
+type ParityClientConfig = VibORMConfig<typeof schema>;
 
 type ParityClient = VibORMClient<ParityClientConfig>;
 

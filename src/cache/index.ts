@@ -4,7 +4,6 @@
 
 export type { WaitUntilFn } from "./cache-contract";
 export {
-  type AnyCacheDriver,
   CacheDriver,
   type CacheEntry,
   type CacheExecutionOptions,

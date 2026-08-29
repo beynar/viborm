@@ -25,10 +25,9 @@ export type {
   QueryExecutionContext,
 } from "./driver";
 // Base driver for custom implementations
-export { Driver, TransactionBoundDriver } from "./driver";
+export { Driver } from "./driver";
 export type {
   BatchQuery,
   Dialect,
-  LogFunction,
   QueryResult,
 } from "./types";

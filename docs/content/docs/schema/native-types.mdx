@@ -158,10 +158,9 @@ create a second provider-specific precision or representation. See
 | `MYSQL.BLOB.BINARY(n)` / `VARBINARY(n)` | `BINARY(n)` / `VARBINARY(n)` |
 | `SQLITE.BLOB.BLOB` | `BLOB` |
 
-## Point (PostgreSQL only)
+## GeoPoint has no native override
 
-| Constant | Column type |
-| --- | --- |
-| `PG.POINT.POINT` | `point` |
-| `PG.POINT.GEOMETRY_POINT` | `geometry(Point)` (PostGIS) |
-| `PG.POINT.GEOGRAPHY_POINT` | `geography(Point)` (PostGIS) |
+`s.point()` is one fixed EPSG:4326 language. It has no native-type argument and
+there is no `PG.POINT` namespace. Migrations select the portable physical form:
+PostGIS `geography(Point,4326)`, MySQL `POINT SRID 4326`, or the checked SQLite
+JSON carrier. See [GeoPoint](/docs/schema/scalars/point).

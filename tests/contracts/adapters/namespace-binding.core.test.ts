@@ -28,8 +28,7 @@ import { NeonHTTPDriver } from "@drivers/neon-http";
 import { PgDriver } from "@drivers/pg";
 import { PGliteDriver } from "@drivers/pglite";
 import { PostgresDriver } from "@drivers/postgres";
-import { ClientInitializationError, FeatureNotSupportedError } from "@errors";
-import { sql } from "@sql";
+import { ClientInitializationError } from "@errors";
 import { describe, expect, test } from "vitest";
 
 describe("PostgreSQL adapter namespace", () => {
@@ -183,11 +182,11 @@ describe("the installed namespace cannot be replaced", () => {
   });
 });
 
-describe("geospatial capability", () => {
-  test("stock adapters declare it explicitly", () => {
-    expect(new PostgresAdapter().capabilities.supportsGeospatial).toBe(false);
-    expect(new MySQLAdapter().capabilities.supportsGeospatial).toBe(false);
-    expect(new SQLiteAdapter().capabilities.supportsGeospatial).toBe(false);
+describe("GeoPoint protocol", () => {
+  test("stock adapters expose only the physical tier they implement", () => {
+    expect(new PostgresAdapter().geoPoint).toBeUndefined();
+    expect(new MySQLAdapter().geoPoint).toBeDefined();
+    expect(new SQLiteAdapter().geoPoint).toBeDefined();
   });
 
   test.each([
@@ -196,25 +195,17 @@ describe("geospatial capability", () => {
     ["pglite", PGliteDriver],
     ["neon-http", NeonHTTPDriver],
     ["bun-sql", BunSQLDriver],
-  ])("%s reports geospatial support only when postgis is enabled", (_name, Driver) => {
-    expect(
-      new Driver({ postgis: true }).adapter.capabilities.supportsGeospatial
-    ).toBe(true);
-    expect(new Driver().adapter.capabilities.supportsGeospatial).toBe(false);
-    expect(
-      new Driver({ postgis: false }).adapter.capabilities.supportsGeospatial
-    ).toBe(false);
+  ])("%s installs GeoPoint SQL only when postgis is enabled", (_name, Driver) => {
+    expect(new Driver({ postgis: true }).adapter.geoPoint).toBeDefined();
+    expect(new Driver().adapter.geoPoint).toBeUndefined();
+    expect(new Driver({ postgis: false }).adapter.geoPoint).toBeUndefined();
   });
 
-  test("the flag agrees with the replaced geospatial member", () => {
+  test("protocol presence is the one PostgreSQL proof", () => {
     const off = new PgDriver({ postgis: false }).adapter;
-    expect(off.capabilities.supportsGeospatial).toBe(false);
-    expect(() => off.geospatial.point(sql`1`, sql`2`)).toThrow(
-      FeatureNotSupportedError
-    );
+    expect(off.geoPoint).toBeUndefined();
 
     const on = new PgDriver({ postgis: true }).adapter;
-    expect(on.capabilities.supportsGeospatial).toBe(true);
-    expect(() => on.geospatial.point(sql`1`, sql`2`)).not.toThrow();
+    expect(on.geoPoint).toBeDefined();
   });
 });

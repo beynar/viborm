@@ -1026,8 +1026,3 @@ export function invalidateOfficialCache(
     scope
   );
 }
-
-/**
- * Type alias for any cache driver
- */
-export type AnyCacheDriver = CacheDriver;

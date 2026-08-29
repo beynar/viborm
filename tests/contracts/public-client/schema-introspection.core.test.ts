@@ -232,8 +232,8 @@ describe("schema operation introspection", () => {
     expect(renderSchemaType({ waypoint })).toBe(`type VibORMSchema = {
   waypoint: {
     location: {
-      x: number;
-      y: number;
+      longitude: number;
+      latitude: number;
     };
   };
 };`);

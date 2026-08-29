@@ -13,9 +13,6 @@
  * `$queryRaw*` answers the ROWS (`T[]`); `$executeRaw*` answers the AFFECTED
  * COUNT (`number`) — Prisma's split, not a `QueryResult` envelope.
  *
- * The plain-string first argument on `$queryRaw`/`$executeRaw` is the
- * deprecated pre-tagged-template shape. It still runs, unchanged, for one
- * release, and announces itself once per method on the `warning` log channel.
  */
 
 import type { AnyDriver, QueryExecutionContext, QueryResult } from "@drivers";
@@ -34,7 +31,6 @@ import {
   retainWriteOutcomeFailure,
   type WriteOutcomeNotifications,
 } from "@extensions/query";
-import type { InstrumentationContext } from "@instrumentation";
 import {
   createOperationExecutionContext,
   createRawOperationInstrumentationFacts,
@@ -99,12 +95,6 @@ export interface RawSurface {
     ...values: unknown[]
   ): RawOperation<T[]>;
   /**
-   * @deprecated Pass a tagged template (values are bound) or call
-   * `$queryRawUnsafe(sql, ...params)` for a hand-written statement. The string
-   * form is removed in the next release.
-   */
-  $queryRaw<T = unknown>(query: string, params?: unknown[]): RawOperation<T[]>;
-  /**
    * Run a hand-written SELECT string with positional parameters. The statement
    * text is used verbatim — never build it from user input.
    */
@@ -118,43 +108,21 @@ export interface RawSurface {
    */
   $executeRaw(query: RawQueryInput, ...values: unknown[]): RawOperation<number>;
   /**
-   * @deprecated Pass a tagged template (values are bound) or call
-   * `$executeRawUnsafe(sql, ...params)` for a hand-written statement. The
-   * string form is removed in the next release.
-   */
-  $executeRaw(query: string, params?: unknown[]): RawOperation<number>;
-  /**
    * Run a hand-written statement string with positional parameters. The
    * statement text is used verbatim — never build it from user input.
    */
   $executeRawUnsafe(query: string, ...values: unknown[]): RawOperation<number>;
 }
 
-/** Emitted once per method, the first time the legacy string form is used. */
-export type LegacyRawWarner = (method: RawMethodName) => void;
-
 export interface RawSurfaceOptions {
   /** The engine owns both the target driver and transaction-operation scope. */
   engine: QueryEngine;
-  warnLegacyString: LegacyRawWarner;
 }
 
 function isTemplateStringsArray(value: unknown): value is TemplateStringsArray {
   // A tagged template hands its callee the cooked strings array carrying a
   // `raw` sibling array — the one shape a plain string or Sql never has.
   return Array.isArray(value) && Array.isArray(Reflect.get(value, "raw"));
-}
-
-/**
- * The deprecated `(sql, params?)` shape passed its parameters as ONE array.
- * That spelling is preserved exactly: a single array argument is the parameter
- * list, anything else is read positionally.
- */
-function legacyParams(values: readonly unknown[]): unknown[] {
-  if (values.length === 0) return [];
-  const [first] = values;
-  if (values.length === 1 && Array.isArray(first)) return [...first];
-  return [...values];
 }
 
 function invalidRawQueryError(method: RawMethodName): QueryError {
@@ -177,34 +145,10 @@ function fragmentWithValuesError(method: RawMethodName): QueryError {
   );
 }
 
-/**
- * Build the once-per-method deprecation notice sink for one client.
- *
- * Nothing is emitted unless the `warning` log channel is configured — this is
- * an observation, and it never alters what the query does.
- */
-export function createLegacyRawWarner(
-  instrumentation: InstrumentationContext | undefined
-): LegacyRawWarner {
-  const announced = new Set<RawMethodName>();
-  return (method) => {
-    if (announced.has(method)) return;
-    announced.add(method);
-    instrumentation?.logger?.warn({
-      timestamp: new Date(),
-      model: "$raw",
-      operation: method,
-      meta: {
-        deprecation: `${method}(sql: string, params?) is deprecated and is removed in the next release. Use ${method}\`...\` so values are bound, or ${method}Unsafe(sql, ...params) to keep a hand-written statement.`,
-      },
-    });
-  };
-}
-
 type CapturedRawQuery =
   | {
       readonly family: "safe";
-      readonly query: RawQueryInput | string;
+      readonly query: RawQueryInput;
       readonly values: readonly unknown[];
     }
   | {
@@ -239,8 +183,7 @@ type CreateDeferredRawOperation = <T>(
   engine: QueryEngine,
   method: RawMethodName,
   captured: CapturedRawQuery,
-  parse: (raw: QueryResult<RawRow<T>>) => T,
-  warnLegacyString: LegacyRawWarner
+  parse: (raw: QueryResult<RawRow<T>>) => T
 ) => DeferredRawOperation<T>;
 
 let createDeferredRawOperation: CreateDeferredRawOperation;
@@ -260,7 +203,6 @@ class DeferredRawOperation<T>
   readonly #method: RawMethodName;
   readonly #captured: CapturedRawQuery;
   readonly #parse: (raw: QueryResult<RawRow<T>>) => T;
-  readonly #warnLegacyString: LegacyRawWarner;
   #resolved: ResolvedRawQuery | undefined;
   #observationCommitCertainty: "committed" | "may-have-committed" | undefined;
 
@@ -269,16 +211,14 @@ class DeferredRawOperation<T>
       engine: QueryEngine,
       method: RawMethodName,
       captured: CapturedRawQuery,
-      parse: (raw: QueryResult<RawRow<T>>) => T,
-      warnLegacyString: LegacyRawWarner
+      parse: (raw: QueryResult<RawRow<T>>) => T
     ) =>
       new DeferredRawOperation<T>(
         rawOperationConstruction,
         engine,
         method,
         captured,
-        parse,
-        warnLegacyString
+        parse
       );
     rawTransactionOwner = Object.freeze({
       clientId: (operation) => operation.#engine.clientId,
@@ -407,8 +347,7 @@ class DeferredRawOperation<T>
     engine: QueryEngine,
     method: RawMethodName,
     captured: CapturedRawQuery,
-    parse: (raw: QueryResult<RawRow<T>>) => T,
-    warnLegacyString: LegacyRawWarner
+    parse: (raw: QueryResult<RawRow<T>>) => T
   ) {
     if (construction !== rawOperationConstruction) {
       throw new InvalidTransactionInputError();
@@ -417,7 +356,6 @@ class DeferredRawOperation<T>
     this.#method = method;
     this.#captured = captured;
     this.#parse = parse;
-    this.#warnLegacyString = warnLegacyString;
     this.#execution = new PendingExecution<T>("$raw", method);
     this.#context = createOperationExecutionContext(
       "$raw",
@@ -452,15 +390,6 @@ class DeferredRawOperation<T>
     if (isSql(query)) {
       if (values.length > 0) throw fragmentWithValuesError(this.#method);
       this.#resolved = { kind: "fragment", query };
-      return this.#resolved;
-    }
-    if (typeof query === "string") {
-      this.#warnLegacyString(this.#method);
-      this.#resolved = {
-        kind: "verbatim",
-        sql: query,
-        params: legacyParams(values),
-      };
       return this.#resolved;
     }
     throw invalidRawQueryError(this.#method);
@@ -648,26 +577,21 @@ class DeferredRawOperation<T>
  * checks and execution.
  */
 export function createRawSurface(options: RawSurfaceOptions): RawSurface {
-  const { engine, warnLegacyString } = options;
+  const { engine } = options;
 
   function $queryRaw<T = unknown>(
     query: RawQueryInput,
     ...values: unknown[]
   ): RawOperation<T[]>;
   function $queryRaw<T = unknown>(
-    query: string,
-    params?: unknown[]
-  ): RawOperation<T[]>;
-  function $queryRaw<T = unknown>(
-    query: RawQueryInput | string,
+    query: RawQueryInput,
     ...values: unknown[]
   ): RawOperation<T[]> {
     return createDeferredRawOperation<T[]>(
       engine,
       "$queryRaw",
       { family: "safe", query, values: captureValues(values) },
-      (raw) => raw.rows,
-      warnLegacyString
+      (raw) => raw.rows
     );
   }
 
@@ -679,8 +603,7 @@ export function createRawSurface(options: RawSurfaceOptions): RawSurface {
       engine,
       "$queryRawUnsafe",
       { family: "unsafe", query, values: captureValues(values) },
-      (raw) => raw.rows,
-      warnLegacyString
+      (raw) => raw.rows
     );
   }
 
@@ -688,17 +611,15 @@ export function createRawSurface(options: RawSurfaceOptions): RawSurface {
     query: RawQueryInput,
     ...values: unknown[]
   ): RawOperation<number>;
-  function $executeRaw(query: string, params?: unknown[]): RawOperation<number>;
   function $executeRaw(
-    query: RawQueryInput | string,
+    query: RawQueryInput,
     ...values: unknown[]
   ): RawOperation<number> {
     return createDeferredRawOperation<number>(
       engine,
       "$executeRaw",
       { family: "safe", query, values: captureValues(values) },
-      (raw) => raw.rowCount,
-      warnLegacyString
+      (raw) => raw.rowCount
     );
   }
 
@@ -710,8 +631,7 @@ export function createRawSurface(options: RawSurfaceOptions): RawSurface {
       engine,
       "$executeRawUnsafe",
       { family: "unsafe", query, values: captureValues(values) },
-      (raw) => raw.rowCount,
-      warnLegacyString
+      (raw) => raw.rowCount
     );
   }
 

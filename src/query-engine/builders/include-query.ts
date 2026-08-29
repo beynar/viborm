@@ -1,4 +1,8 @@
-import type { DatabaseAdapter, QueryParts } from "@adapters/database-adapter";
+import {
+  assembleAdapterSelect,
+  type QueryParts,
+} from "@adapters/adapter-internals";
+import type { DatabaseAdapter } from "@adapters/database-adapter";
 import type { Sql } from "@sql";
 
 /** Include options type for inline destructuring */
@@ -83,5 +87,5 @@ export function assembleInnerQuery(
     }
   }
 
-  return adapter.assemble.select(query);
+  return assembleAdapterSelect(adapter, query);
 }

@@ -1,4 +1,5 @@
 // biome-ignore-all lint/style/useFilenamingConvention: PolymorphicCollectionPart is the architecture name.
+import { getAdapterInternals } from "@adapters/adapter-internals";
 import { UnsupportedOperationError } from "@errors";
 import { bindPolymorphicCollectionMember } from "../builders/polymorphic-collection-mutation";
 import type {
@@ -231,7 +232,8 @@ function assertClearIsIndivisible(
   if (!firstClear) return;
   const segments = generatedOutputSegments(
     { steps, outputs: {} },
-    input.engine.adapter.batchRefs.storeLastInsertId !== undefined
+    getAdapterInternals(input.engine.adapter).batchRefs.storeLastInsertId !==
+      undefined
   );
   if (!segments) return;
   const firstClearIndex = steps.indexOf(firstClear);

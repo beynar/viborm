@@ -121,10 +121,7 @@ const folder = s
 
 const schema = { collar, pet, person, member, org, doc, folder };
 
-type EnvelopeClientConfig = VibORMConfig & {
-  schema: typeof schema;
-  driver: AnyDriver;
-};
+type EnvelopeClientConfig = VibORMConfig<typeof schema>;
 
 type EnvelopeClient = VibORMClient<EnvelopeClientConfig>;
 

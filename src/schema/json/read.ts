@@ -731,13 +731,17 @@ function readScalarField(
   }
   const dimension = member(node, "dimension", path, issues);
   if (dimension !== undefined) {
-    const size = asNumber(
-      dimension,
-      pointer(path, "dimension"),
-      issues,
-      "`dimension`"
-    );
-    if (size !== undefined) field.dimension = size;
+    if (type === "point") {
+      refusePointModifier("dimension", path, issues);
+    } else {
+      const size = asNumber(
+        dimension,
+        pointer(path, "dimension"),
+        issues,
+        "`dimension`"
+      );
+      if (size !== undefined) field.dimension = size;
+    }
   }
   if (type !== "decimal") {
     refuseDecimalDomainBound(node, "precision", path, issues);
@@ -745,7 +749,9 @@ function readScalarField(
   }
   const native = member(node, "native", path, issues);
   if (native !== undefined) {
-    if (field.type === "decimal") {
+    if (field.type === "point") {
+      refusePointModifier("native", path, issues);
+    } else if (field.type === "decimal") {
       addIssue(
         issues,
         pointer(path, "native"),
@@ -763,12 +769,16 @@ function readScalarField(
   }
   const generate = member(node, "generate", path, issues);
   if (generate !== undefined) {
-    const declaration = readGenerateNode(
-      generate,
-      pointer(path, "generate"),
-      issues
-    );
-    if (declaration !== undefined) field.generate = declaration;
+    if (type === "point") {
+      refusePointModifier("generate", path, issues);
+    } else {
+      const declaration = readGenerateNode(
+        generate,
+        pointer(path, "generate"),
+        issues
+      );
+      if (declaration !== undefined) field.generate = declaration;
+    }
   }
   const defaultValue = member(node, "default", path, issues);
   if (defaultValue !== undefined) {
@@ -880,8 +890,30 @@ function readFlag(
 ): void {
   const raw = member(node, key, path, issues);
   if (raw === undefined) return;
+  if (field.type === "point" && key !== "nullable") {
+    refusePointModifier(key, path, issues);
+    return;
+  }
   const flag = asBoolean(raw, pointer(path, key), issues, `\`${key}\``);
-  if (flag !== undefined) field[key] = flag;
+  if (flag === undefined) return;
+  if (key === "nullable") {
+    field.nullable = flag;
+    return;
+  }
+  if (field.type !== "point") field[key] = flag;
+}
+
+function refusePointModifier(
+  key: string,
+  path: string,
+  issues: DocumentIssues
+): void {
+  addIssue(
+    issues,
+    pointer(path, key),
+    "J007",
+    `A 'point' field has no '${key}' modifier`
+  );
 }
 
 function readNativeNode(

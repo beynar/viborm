@@ -343,8 +343,8 @@ whose members are ordinary `CreateOperation` / `UpdateOperation` instances —
 envelope, construct ordinary record operations, and shape the public bulk result.
 They contain no relation-kind switches and are not record compilers. See ATOM §17
 for why the semantics require it. `JunctionStatements` remains the junction SQL
-owner. Keep adapter `batchRefs` and the type-only `QueryMetadata` compatibility
-export; the latter is not a runtime boundary.
+owner, and the adapter's batch-reference lowering remains an internal protocol.
+No public query metadata represents either one.
 
 Nested scalar-only `createMany` and `updateMany` stay with their set-shaped
 owners. Relation-bearing nested `createMany` builds ordinary fresh-record Parts;

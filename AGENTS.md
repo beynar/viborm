@@ -281,6 +281,29 @@ strings. Raw SQL stays physical and receives no descriptor-aware scaling.
 retired language shapes across shipped source. Behavior tests own exact
 provider answers; the census owns the absence of a second language.
 
+### Rule 9: One GeoPoint language
+
+`s.point()` and `v.point()` share the one exact `{ longitude, latitude }`
+value vocabulary owned by `src/validation/primitives/geo-values.ts`. The
+import-free leaf also owns the query-only `GeoBounds`, `GeoPolygon`, and
+`GeoArea` shapes. `geo-point-codec.ts` alone interprets point values, while
+`geo-area-codec.ts` alone interprets bounds and polygon topology. Do not
+add `x`/`y`, `lat`/`lng`, GeoJSON, configurable SRID, native point overrides,
+ORM point arrays, generic geometry operations, or a second validator.
+
+`DatabaseAdapter.geoPoint` is the sole physical SQL protocol. Construction
+snapshots it as one frozen, non-writable fact; optional polygon/distance member
+presence proves the tier. Query code decides equality, bounds, polygon,
+distance, and projection structure; the adapter alone spells provider SQL.
+PostgreSQL uses fixed EPSG:4326 PostGIS, MySQL uses fixed SRID 4326, and SQLite
+uses the checked canonical JSON carrier. Raw SQL remains physical.
+
+Migration drivers alone own the three physical types, legal spatial indexes,
+introspection, and PostGIS preflight. PostgreSQL never installs PostGIS. Full
+provider claims require executed provider evidence; PlanetScale stays preview
+until its hosted DDL/function/migration contract is proven. The shipped-source
+GeoPoint census owns absence of retired and duplicate languages.
+
 ---
 
 ## Type Flow (High-Level)

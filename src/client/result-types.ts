@@ -19,6 +19,7 @@ import type { Scalar, ScalarState } from "@schema/scalars";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { Prettify } from "@validation";
 import type { EnumValues } from "@validation/primitives/enum";
+import type { GeoPoint } from "@validation/primitives/geo-point-codec";
 import type Decimal from "decimal.js";
 
 // =============================================================================
@@ -51,7 +52,7 @@ type ScalarResultTypeMap = {
   json: unknown;
   blob: Uint8Array;
   vector: number[];
-  point: { x: number; y: number };
+  point: GeoPoint;
   enum: string;
 };
 
@@ -802,7 +803,7 @@ export type InferSelectResult<
       InferRelationCountSelection<S, Selection>,
     Omission
   > &
-    InferVectorDistanceSelection<S, Selection, Omission>
+    InferDistanceSelection<S, Selection, Omission>
 >;
 
 /**
@@ -857,38 +858,65 @@ type VectorScalarFieldKeys<S extends ModelState> = {
     : never;
 }[keyof S["shape"]];
 
-type SelectedVectorDistanceKeys<S extends ModelState, Selection> = {
-  [K in keyof Selection & VectorScalarFieldKeys<S>]: Selection[K] extends {
+type PointScalarFieldKeys<S extends ModelState> = {
+  [K in keyof S["shape"]]: S["shape"][K] extends Scalar
+    ? [ExtractScalarState<S["shape"][K]>] extends [ScalarState<"point">]
+      ? K
+      : never
+    : never;
+}[keyof S["shape"]];
+
+type NullablePointScalarFieldKeys<S extends ModelState> = {
+  [K in PointScalarFieldKeys<S>]: S["shape"][K] extends Scalar
+    ? ExtractScalarState<S["shape"][K]>["nullable"] extends true
+      ? K
+      : never
+    : never;
+}[PointScalarFieldKeys<S>];
+
+type DistanceScalarFieldKeys<S extends ModelState> =
+  | VectorScalarFieldKeys<S>
+  | PointScalarFieldKeys<S>;
+
+type SelectedDistanceKeys<S extends ModelState, Selection> = {
+  [K in keyof Selection & DistanceScalarFieldKeys<S>]: Selection[K] extends {
     _distance: unknown;
   }
     ? K
     : never;
-}[keyof Selection & VectorScalarFieldKeys<S>];
+}[keyof Selection & DistanceScalarFieldKeys<S>];
 
-type SelectedVectorDistanceSources<S extends ModelState, Selection> = {
-  [K in SelectedVectorDistanceKeys<S, Selection>]: true;
+type SelectedDistanceSources<S extends ModelState, Selection> = {
+  [K in SelectedDistanceKeys<S, Selection>]: true;
 };
 
-type RemainingVectorDistanceSources<
+type RemainingDistanceSources<
   S extends ModelState,
   Selection,
   Omission,
-> = ApplyOmit<SelectedVectorDistanceSources<S, Selection>, Omission>;
+> = ApplyOmit<SelectedDistanceSources<S, Selection>, Omission>;
 
 type RequiredKeys<T> = {
   [K in keyof T]-?: Record<never, never> extends Pick<T, K> ? never : K;
 }[keyof T];
 
-type InferVectorDistanceSelection<
+type DistanceValueForSources<S extends ModelState, Sources> = Extract<
+  keyof Sources,
+  NullablePointScalarFieldKeys<S>
+> extends never
+  ? number
+  : number | null;
+
+type InferDistanceSelection<
   S extends ModelState,
   Selection,
   Omission = undefined,
-  Remaining = RemainingVectorDistanceSources<S, Selection, Omission>,
+  Remaining = RemainingDistanceSources<S, Selection, Omission>,
 > = [keyof Remaining] extends [never]
   ? Record<never, never>
   : [RequiredKeys<Remaining>] extends [never]
-    ? { _distance?: number }
-    : { _distance: number };
+    ? { _distance?: DistanceValueForSources<S, Remaining> }
+    : { _distance: DistanceValueForSources<S, Remaining> };
 
 /**
  * To-many (list) relation keys — the exact set Prisma's `_count: true`

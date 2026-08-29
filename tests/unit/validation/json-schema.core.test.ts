@@ -590,10 +590,10 @@ describe("JSON Schema conversion", () => {
       expect(jsonSchema).toMatchObject({
         type: "object",
         properties: {
-          x: { type: "number" },
-          y: { type: "number" },
+          longitude: { type: "number", minimum: -180, maximum: 180 },
+          latitude: { type: "number", minimum: -90, maximum: 90 },
         },
-        required: ["x", "y"],
+        required: ["longitude", "latitude"],
         additionalProperties: false,
       });
     });

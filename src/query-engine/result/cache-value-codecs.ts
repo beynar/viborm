@@ -6,6 +6,7 @@ import {
   decodeWidenedSum,
   toDecimal,
 } from "@validation/primitives/decimal-codec";
+import { validateGeoPoint } from "@validation/primitives/geo-point-codec";
 import { materializeJsonValue, snapshotJsonValue } from "./cache-json-codec";
 import {
   decodeSnapshotCount,
@@ -467,12 +468,24 @@ function bytesCodec(): ValueCodec {
 }
 
 function pointCodec(): ValueCodec {
-  return recordCodec(
+  const coordinates = recordCodec(
     new Map<string, ValueCodec>([
-      ["x", numberCodec()],
-      ["y", numberCodec()],
+      ["longitude", numberCodec()],
+      ["latitude", numberCodec()],
     ])
   );
+  return {
+    snapshot(value, active) {
+      const point = validateGeoPoint(value);
+      return point.issues
+        ? failCacheSnapshot()
+        : coordinates.snapshot(point.value, active);
+    },
+    materialize(snapshot, active) {
+      const point = validateGeoPoint(coordinates.materialize(snapshot, active));
+      return point.issues ? failCacheSnapshot() : point.value;
+    },
+  };
 }
 
 function primitiveCodec(

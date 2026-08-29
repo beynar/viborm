@@ -9,11 +9,11 @@
 import type { AnyDriver } from "../drivers/driver";
 import { MigrationError, VibORMErrorCode } from "../errors";
 import { hydrateSchemaNames } from "../schema/hydration";
+import type { ResolvedRelationIndex } from "../schema/validation/relation-resolution";
 import {
   resolveSchemaOrThrow,
-  validateSchemaOrThrow,
-} from "../schema/validation";
-import type { ResolvedRelationIndex } from "../schema/validation/relation-resolution";
+  validateResolvedSchemaOrThrow,
+} from "../schema/validation/validator";
 import { admitLiveMigrationCapability } from "./admission";
 import { canonicalizeJson } from "./canonical-json";
 import {
@@ -499,7 +499,7 @@ function prepareSchema(
   hydrateSchemaNames(client.$schema);
   const relations = skipValidation
     ? resolveSchemaOrThrow(client.$schema)
-    : validateSchemaOrThrow(client.$schema);
+    : validateResolvedSchemaOrThrow(client.$schema);
   const driver = getPushMigrationDriver(client);
   assertMigrationDecimalDomainsFitProvider(client.$schema, driver.dialect);
   return { relations, driver };

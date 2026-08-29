@@ -79,6 +79,15 @@ option or a hidden second client — it is two drivers you construct.
 Raw SQL is never rewritten and keeps ordinary `search_path` semantics — see
 [Namespaces](/docs/drivers/namespaces).
 
+## GeoPoint
+
+Neon HTTP can use the PostgreSQL GeoPoint SQL only when the target database has
+real PostGIS and the driver is constructed with `postgis: true`. Hosted
+GeoPoint DDL/function/migration convergence was not executed for this release,
+so Neon is conditional rather than qualified by the pg/postgres.js evidence.
+Use a session-capable pg or postgres.js driver for the required migration
+preflight. See [GeoPoint](/docs/schema/scalars/point).
+
 ## Serverless Usage
 
 Neon HTTP is optimized for serverless/edge environments:

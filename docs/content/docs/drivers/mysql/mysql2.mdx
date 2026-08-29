@@ -166,6 +166,15 @@ and tracking SQL stay explicitly qualified.
 Unqualified raw SQL remains caller-owned and follows the connection's default
 database — see [Namespaces](/docs/drivers/namespaces).
 
+## GeoPoint
+
+MySQL2 is the reference full-tier MySQL provider for `s.point()`. It stores
+`POINT SRID 4326`, binds longitude before latitude with an explicit axis-order
+option, supports inclusive polygons and fixed-radius meter distance, and emits
+one-field non-null `SPATIAL INDEX` declarations. The live contract covers
+round trips, antimeridian polygons and holes, distance, index plans, and
+migration convergence. See [GeoPoint](/docs/schema/scalars/point).
+
 ## Transactions
 
 MySQL2 supports full transactions with savepoints for nested transactions — see [Transactions](/docs/client/transactions).

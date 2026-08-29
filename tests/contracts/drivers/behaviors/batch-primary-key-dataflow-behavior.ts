@@ -11,10 +11,7 @@ import { batchPrimaryKeyDataflowSchema as schema } from "@tests/fixtures/batch-p
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
-type BatchPrimaryKeyDataflowConfig = VibORMConfig & {
-  schema: typeof schema;
-  driver: AnyDriver;
-};
+type BatchPrimaryKeyDataflowConfig = VibORMConfig<typeof schema>;
 
 type BatchPrimaryKeyDataflowClient =
   VibORMClient<BatchPrimaryKeyDataflowConfig>;

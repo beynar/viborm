@@ -459,6 +459,90 @@ export function decimalListsAreNotKeyMembers(
   return errors;
 }
 
+/**
+ * I005: GeoPoint has one portable physical index role and no key role.
+ *
+ * The scalar class has no `.id()`/`.unique()` methods and the typed model
+ * surface excludes compound keys and ordinary indexes. This definition gate
+ * owns hostile JavaScript and decoded schema values that bypass those types.
+ */
+export function geoPointRolesArePortable(
+  _s: Schema,
+  name: string,
+  model: Model<any>
+): SchemaValidationIssue[] {
+  const state = model["~"].state;
+  const isPoint = (field: string): boolean =>
+    state.scalars[field]?.["~"].state.type === "point";
+  const issues: SchemaValidationIssue[] = [];
+
+  for (const [field, scalar] of getScalars(model)) {
+    const scalarState = scalar["~"].state;
+    if (
+      scalarState.type === "point" &&
+      (scalarState.isId || scalarState.isUnique)
+    ) {
+      issues.push({
+        code: "I005",
+        message: `GeoPoint '${field}' in '${name}' cannot be an ID or unique field`,
+        severity: "error",
+        model: name,
+        field,
+      });
+    }
+  }
+
+  for (const field of getCompoundIdFields(model)) {
+    if (!isPoint(field)) continue;
+    issues.push({
+      code: "I005",
+      message: `GeoPoint '${field}' in '${name}' cannot be a compound ID member`,
+      severity: "error",
+      model: name,
+      field,
+    });
+  }
+  for (const constraint of getCompoundUniques(model)) {
+    for (const field of constraint.fields) {
+      if (!isPoint(field)) continue;
+      issues.push({
+        code: "I005",
+        message: `GeoPoint '${field}' in '${name}' cannot be a member of unique '${constraint.name}'`,
+        severity: "error",
+        model: name,
+        field,
+      });
+    }
+  }
+
+  for (const index of state.indexes) {
+    const pointFields = index.fields.filter(isPoint);
+    const point =
+      pointFields.length === 1
+        ? state.scalars[pointFields[0]!]?.["~"].state
+        : undefined;
+    const valid =
+      index.fields.length === 1 &&
+      pointFields.length === 1 &&
+      point?.nullable === false &&
+      index.options.type === "spatial" &&
+      index.options.unique === undefined &&
+      index.options.where === undefined;
+    if (valid) continue;
+    if (pointFields.length === 0 && index.options.type !== "spatial") continue;
+    const field = pointFields[0] ?? index.fields[0];
+    issues.push({
+      code: "I005",
+      message: `A spatial index in '${name}' must contain exactly one non-null GeoPoint and cannot be unique or partial`,
+      severity: "error",
+      model: name,
+      ...(field ? { field } : {}),
+    });
+  }
+
+  return issues;
+}
+
 export const modelRules = [
   // Model-level checks (don't iterate fields)
   modelHasFields,
@@ -473,4 +557,5 @@ export const modelRules = [
   // Compound key checks
   compoundConstraintsNonEmpty,
   decimalListsAreNotKeyMembers,
+  geoPointRolesArePortable,
 ];

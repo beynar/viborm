@@ -13,10 +13,7 @@ import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 const UPDATED_NAME_PATTERN = /^updated-/;
 
-type UpsertAtomicityClientConfig = VibORMConfig & {
-  schema: typeof schema;
-  driver: AnyDriver;
-};
+type UpsertAtomicityClientConfig = VibORMConfig<typeof schema>;
 
 type UpsertAtomicityClient = VibORMClient<UpsertAtomicityClientConfig>;
 

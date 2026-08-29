@@ -343,14 +343,12 @@ describe("strict scalar result contracts", () => {
     expect(parseField("vector3", "[1,-2.5,3]")).toEqual([1, -2.5, 3]);
     expect(parseField("vectorAny", [])).toEqual([]);
     expect(parseField("vectorAny", [1, 2, 3, 4])).toEqual([1, 2, 3, 4]);
-    expect(parseField("pointValue", { x: 1, y: -2 })).toEqual({
-      x: 1,
-      y: -2,
-    });
-    expect(parseField("pointValue", "(-1.25,2e+3)")).toEqual({
-      x: -1.25,
-      y: 2000,
-    });
+    expect(parseField("pointValue", { longitude: -180, latitude: -0 })).toEqual(
+      {
+        longitude: 180,
+        latitude: 0,
+      }
+    );
     expect(parseField("customJson", { kind: "allowed", score: 7 })).toEqual({
       kind: "allowed",
       score: 7,
@@ -393,13 +391,16 @@ describe("strict scalar result contracts", () => {
 
   test.each([
     ["primitive", 1],
-    ["missing coordinate", { x: 1 }],
-    ["extra key", { x: 1, y: 2, z: 3 }],
-    ["numeric string coordinate", { x: "1", y: 2 }],
-    ["infinite coordinate", { x: Number.POSITIVE_INFINITY, y: 2 }],
-    ["spaced text", "(1, 2)"],
-    ["outer whitespace", " (1,2)"],
-    ["non-finite text", "(NaN,2)"],
+    ["retired coordinate names", { x: 1, y: 2 }],
+    ["missing coordinate", { longitude: 1 }],
+    ["extra key", { longitude: 1, latitude: 2, altitude: 3 }],
+    ["numeric string coordinate", { longitude: "1", latitude: 2 }],
+    [
+      "infinite coordinate",
+      { longitude: Number.POSITIVE_INFINITY, latitude: 2 },
+    ],
+    ["PostgreSQL point text", "(1,2)"],
+    ["GeoJSON point", { type: "Point", coordinates: [1, 2] }],
     ["required null", null],
   ])("rejects malformed point output: %s", (_label, value) => {
     const error = captureParserError(() => parseField("pointValue", value));

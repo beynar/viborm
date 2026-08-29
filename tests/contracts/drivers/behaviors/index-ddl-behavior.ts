@@ -231,9 +231,7 @@ type AnySchema =
   | typeof churnDeclaredSchema
   | typeof churnUnparseableSchema;
 
-type IndexDdlClient = VibORMClient<
-  VibORMConfig & { schema: AnySchema; driver: AnyDriver }
->;
+type IndexDdlClient = VibORMClient<VibORMConfig<AnySchema>>;
 
 /** The columns the database itself reports for `indexName`, in index order. */
 async function indexColumns(

@@ -39,6 +39,25 @@ export interface MigrationGraph {
   readonly emptySnapshotHash: Sha256;
 }
 
+/** Resolve one authenticated graph state to its already-parsed snapshot. */
+export function requireStateSnapshot(
+  graph: MigrationGraph,
+  stateId: Sha256 | null
+): SchemaSnapshot {
+  const snapshotHash =
+    stateId === null
+      ? graph.emptySnapshotHash
+      : graph.states.get(stateId)?.snapshotHash;
+  const snapshot = snapshotHash ? graph.snapshots.get(snapshotHash) : undefined;
+  if (!snapshot) {
+    throw new MigrationError(
+      "A selected state is missing its authenticated snapshot",
+      VibORMErrorCode.MIGRATION_CORRUPTION
+    );
+  }
+  return snapshot;
+}
+
 export async function loadMigrationGraph(
   storage: MigrationStorageReader
 ): Promise<MigrationGraph> {

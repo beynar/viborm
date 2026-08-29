@@ -1,4 +1,3 @@
-import { defineContract } from "@tests/contracts/contract";
 import {
   createClient,
   type VibORMClient,
@@ -6,11 +5,11 @@ import {
 } from "@client/client";
 import type { AnyDriver } from "@drivers";
 import { NotFoundError } from "@errors";
-
 import { s } from "@schema";
 import { sql } from "@sql";
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { defineContract } from "@tests/contracts/contract";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
 // All identifiers are lowercase single words so the raw SQL strings need no
 // dialect-specific quoting (double quotes vs backticks).
@@ -24,10 +23,7 @@ const item = s
 
 const schema = { item };
 
-type ClientRawClientConfig = VibORMConfig & {
-  schema: typeof schema;
-  driver: AnyDriver;
-};
+type ClientRawClientConfig = VibORMConfig<typeof schema>;
 
 type ClientRawClient = VibORMClient<ClientRawClientConfig>;
 
@@ -90,8 +86,8 @@ export function runClientRawBehavior({
         // intMode "bigint". Postgres and MySQL hand back JS numbers. Either way
         // nothing here normalizes: the ORM's typed read path converts int
         // fields, $queryRaw deliberately does not. Normalize before comparing.
-        // (Only $queryRawUnsafe and the legacy string form take _executeRaw,
-        // which deliberately stays off the safe-integer opt-in.)
+        // `$queryRawUnsafe` takes `_executeRaw`, which deliberately stays off
+        // the safe-integer opt-in.
         expect(rows.map((r) => ({ ...r, qty: Number(r.qty) }))).toEqual([
           { id: "i2", label: "Beta", qty: 5 },
           { id: "i3", label: "Gamma", qty: 9 },

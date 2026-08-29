@@ -23,6 +23,10 @@ import type {
 } from "../base";
 import { SQLite3MigrationDriver } from "../sqlite";
 import { sqliteDecimalCheck } from "../sqlite/decimal";
+import {
+  SQLITE_GEO_POINT_TYPE,
+  sqliteGeoPointCheck,
+} from "../sqlite/geo-point";
 import type { MigrationCapabilities } from "../types";
 
 export class LibSQLMigrationDriver extends SQLite3MigrationDriver {
@@ -123,6 +127,12 @@ export class LibSQLMigrationDriver extends SQLite3MigrationDriver {
 
     if (column.default !== undefined) {
       parts.push(`DEFAULT ${column.default}`);
+    }
+
+    if (column.type.toUpperCase() === SQLITE_GEO_POINT_TYPE) {
+      parts.push(
+        sqliteGeoPointCheck(column, (name) => this.escapeIdentifier(name))
+      );
     }
 
     // The reserved decimal CHECK travels with the rewritten declaration.

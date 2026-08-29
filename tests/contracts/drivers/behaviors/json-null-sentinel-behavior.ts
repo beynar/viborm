@@ -29,10 +29,7 @@ const PATH_WITH_DB_NULL = /cannot combine 'path' with the DbNull sentinel/;
 const PATH_WITH_JSON_NULL = /cannot combine 'path' with the JsonNull sentinel/;
 const INERT_MODE = /mode: 'insensitive'/;
 
-type SentinelClientConfig = VibORMConfig & {
-  schema: typeof schema;
-  driver: AnyDriver;
-};
+type SentinelClientConfig = VibORMConfig<typeof schema>;
 
 type SentinelClient = VibORMClient<SentinelClientConfig>;
 

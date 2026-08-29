@@ -1,15 +1,22 @@
-import { unsupportedGeospatial, unsupportedVector } from "@errors";
+import { unsupportedVector } from "@errors";
 import { type Sql, sql } from "@sql";
 import {
   type DecimalDescriptor,
   decimalColumnType,
   encodePhysicalDecimal,
 } from "@validation/primitives/decimal-codec";
+import { GEO_POINT_EARTH_RADIUS_METERS } from "@validation/primitives/geo-area-codec";
 import { createIdentifierQuoter } from "../../../sql/identifiers";
 import type { ArithmeticTarget } from "../../adapter-core-types";
+import { installAdapterInternals } from "../../adapter-internals";
 import { installAdapterNamespace } from "../../adapter-namespace";
+import type { QueryParts } from "../../adapter-query-parts";
 import type { AdapterResultParser } from "../../adapter-result-parser";
-import type { DatabaseAdapter, QueryParts } from "../../database-adapter";
+import {
+  type DatabaseAdapter,
+  type GeoPointSql,
+  installGeoPointSql,
+} from "../../database-adapter";
 import { createMySqlBatchRefs } from "../../shared/batch-refs";
 import {
   type ExactIntegerArithmetic,
@@ -18,6 +25,11 @@ import {
   scaleUnitSql,
   signedNumerator,
 } from "../../shared/decimal-arithmetic";
+import {
+  createGeoPointCoordinatePredicates,
+  geoBoundsIndexPolygons,
+  geoPolygonJson,
+} from "../../shared/geo-point";
 import {
   normalizeCountResult,
   parseIntegerBoolean,
@@ -399,6 +411,11 @@ export class MySQLAdapter implements DatabaseAdapter {
     // Reads the installed value, so it cannot be a field initializer: those run
     // before the constructor body.
     this.identifiers = createIdentifiers(quoteIdent, this.namespace);
+    installGeoPointSql(this, this.geoPoint);
+    installAdapterInternals(this, {
+      batchRefs: this.#batchRefs,
+      select: this.#assemble.select,
+    });
   }
 
   // ============================================================
@@ -781,7 +798,7 @@ export class MySQLAdapter implements DatabaseAdapter {
   // MySQL has no bare OFFSET; per the manual, use an all-ones LIMIT sentinel
   noLimitValue = sql.raw`18446744073709551615`;
 
-  assemble = {
+  readonly #assemble = {
     select: (rawParts: QueryParts): Sql => {
       // Inline integer LIMIT/OFFSET (see clauses above for why)
       const parts: QueryParts = {
@@ -902,7 +919,6 @@ export class MySQLAdapter implements DatabaseAdapter {
     supportsFullOuterJoin: false,
     supportsLateralJoins: true, // MySQL 8.0.14+
     supportsVector: false,
-    supportsGeospatial: false,
     supportsUpsertWhere: false, // ON DUPLICATE KEY UPDATE doesn't support WHERE clauses
     // ON DUPLICATE KEY UPDATE carries no conflict target and fires on ANY unique
     // collision — see the `onConflict` note above. A targeted upsert cannot be
@@ -921,7 +937,7 @@ export class MySQLAdapter implements DatabaseAdapter {
 
   lastInsertId = (): Sql => sql.raw`LAST_INSERT_ID()`;
 
-  batchRefs = createMySqlBatchRefs({
+  readonly #batchRefs = createMySqlBatchRefs({
     table: sql.raw`\`__viborm_batch_refs\``,
     batchIdColumn: sql.raw`\`batch_id\``,
     keyColumn: sql.raw`\`ref_key\``,
@@ -939,10 +955,44 @@ export class MySQLAdapter implements DatabaseAdapter {
   vector = unsupportedVector;
 
   // ============================================================
-  // GEOSPATIAL (not natively supported in MySQL adapter)
+  // GEOPOINT (MySQL geographic POINT SRID 4326)
   // ============================================================
 
-  geospatial = unsupportedGeospatial;
+  readonly geoPoint: GeoPointSql = (() => {
+    const longitude = (point: Sql): Sql => sql`ST_Longitude(${point})`;
+    const latitude = (point: Sql): Sql => sql`ST_Latitude(${point})`;
+    return {
+      // EPSG:4326 is latitude-longitude in MySQL's SRS catalog. The explicit
+      // WKT option makes the two bound coordinates longitude-latitude instead.
+      value: (pointLongitude, pointLatitude) =>
+        sql`ST_GeomFromText(CONCAT('POINT(', ${pointLongitude}, ' ', ${pointLatitude}, ')'), 4326, 'axis-order=long-lat')`,
+      longitude,
+      latitude,
+      ...createGeoPointCoordinatePredicates(
+        longitude,
+        latitude,
+        this.operators,
+        (point, bounds) => {
+          const polygons = geoBoundsIndexPolygons(bounds);
+          if (polygons.length === 0) return;
+          return this.operators.or(
+            ...polygons.map(
+              (polygon) =>
+                sql`MBRIntersects(${point}, ST_GeomFromGeoJSON(${polygon}, 1, 4326))`
+            )
+          );
+        }
+      ),
+      withinPolygon: (point, polygon) => {
+        const geography = sql`ST_GeomFromGeoJSON(${geoPolygonJson(
+          polygon
+        )}, 1, 4326)`;
+        return sql`ST_Intersects(${geography}, ${point})`;
+      },
+      distance: (left, right) =>
+        sql`ST_Distance_Sphere(${left}, ${right}, ${GEO_POINT_EARTH_RADIUS_METERS})`,
+    };
+  })();
 
   // ============================================================
   // RESULT PARSING

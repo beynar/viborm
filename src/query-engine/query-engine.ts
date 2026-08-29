@@ -9,7 +9,6 @@ import type { Model } from "@schema/model";
 import type { ResolvedRelationIndex } from "@schema/validation/relation-resolution";
 import { resolveSchemaOrThrow } from "@schema/validation/validator";
 import type { Sql } from "@sql";
-import type { SchemaRegistryLookup } from "@validation";
 import {
   createPendingOperation,
   type PendingOperation,
@@ -19,6 +18,7 @@ import {
 import {
   type ModelRegistry,
   type Operation,
+  type OperationSchemaRegistry,
   type PrepareOptions,
   QueryEngineError,
 } from "./types";
@@ -94,7 +94,7 @@ export class QueryEngine {
     );
   }
 
-  get schemaRegistry(): SchemaRegistryLookup {
+  get schemaRegistry(): OperationSchemaRegistry {
     return this.registry.schemas;
   }
 
@@ -202,7 +202,7 @@ export class QueryEngine {
  */
 export function createModelRegistry(
   models: Record<string, Model<any>>,
-  schemaRegistry: SchemaRegistryLookup,
+  schemaRegistry: OperationSchemaRegistry,
   relations: ResolvedRelationIndex = resolveSchemaOrThrow(models)
 ): ModelRegistry {
   const byName = new Map<string, Model<any>>();

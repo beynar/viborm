@@ -1,0 +1,303 @@
+---
+title: GeoPoint
+description: Portable longitude/latitude storage, area filters, and distance queries
+icon: map-pin
+---
+
+`s.point()` stores one geographic point in EPSG:4326. Its public value has one
+exact shape:
+
+```ts
+import { s, type GeoPoint } from "viborm";
+
+const paris: GeoPoint = {
+  longitude: 2.3522,
+  latitude: 48.8566,
+};
+
+const place = s.model({
+  id: s.string().id(),
+  name: s.string(),
+  location: s.point(),
+  entrance: s.point().nullable(),
+});
+```
+
+There are no `x`/`y`, `lat`/`lng`, GeoJSON, configurable SRID, or native-type
+forms. Longitude is in `[-180, 180]`, latitude is in `[-90, 90]`, and both must
+be finite numbers. VibORM canonicalizes longitude `-180` to `180` and both
+negative zeros to `0`.
+
+## Declaration and writes
+
+```ts
+s.point()
+  .nullable()
+  .default({ longitude: 2.3522, latitude: 48.8566 })
+  .map("location");
+```
+
+Literal and function defaults are application defaults. VibORM validates them,
+but migrations do not invent a database default expression for an object.
+
+Point values work in ordinary and nested create/update operations, bulk writes,
+returning projections, relations, variant relations, transactions, cache hits,
+and extensions:
+
+```ts
+await db.place.create({
+  data: { id: "paris", name: "Paris", location: paris },
+});
+
+await db.place.update({
+  where: { id: "paris" },
+  data: { location: { set: { longitude: 2.35, latitude: 48.86 } } },
+});
+```
+
+`s.point()` has no `.array()`, `.id()`, `.unique()`, or `.schema()` modifier.
+It cannot be a foreign-key member, compound key, ordinary index member,
+`distinct`, `groupBy`, field-reference operand, or numeric/min/max aggregate.
+Use `_count` to count present point values.
+
+## Equality
+
+The shorthand and `equals` compare canonical longitude and latitude exactly:
+
+```ts
+await db.place.findMany({
+  where: { location: paris },
+});
+
+await db.place.findMany({
+  where: { location: { equals: paris } },
+});
+```
+
+This is coordinate equality, not an approximate-distance test. Physical
+longitude `-180` inserted through raw SQL compares equal to logical longitude
+`180`.
+
+## Bounds
+
+`within.bounds` is an inclusive viewport rectangle:
+
+```ts
+import type { GeoArea, GeoBounds } from "viborm";
+
+const viewport: GeoBounds = {
+  south: 48.8,
+  west: 2.2,
+  north: 48.92,
+  east: 2.48,
+};
+
+const area: GeoArea = { bounds: viewport };
+
+const places = await db.place.findMany({
+  where: { location: { within: area } },
+});
+```
+
+All four boundaries match. `south` must not exceed `north`. `west > east`
+means that the rectangle crosses the antimeridian; VibORM compiles the two
+longitude arms for you. `{ west: -180, east: 180 }` covers the whole longitude
+range.
+
+Bounds work on every qualified GeoPoint provider tier. PostgreSQL and MySQL can
+add a conservative spatial-index predicate before the exact coordinate test.
+SQLite-family providers use the exact coordinate test without claiming a
+spatial index.
+
+## Polygons and holes
+
+Full-tier providers accept a simple polygon with optional holes:
+
+```ts
+import type { GeoPolygon } from "viborm";
+
+const district: GeoPolygon = {
+  outer: [
+    { longitude: 2.2, latitude: 48.8 },
+    { longitude: 2.5, latitude: 48.8 },
+    { longitude: 2.5, latitude: 49.0 },
+    { longitude: 2.2, latitude: 49.0 },
+  ],
+  holes: [[
+    { longitude: 2.3, latitude: 48.85 },
+    { longitude: 2.4, latitude: 48.85 },
+    { longitude: 2.4, latitude: 48.9 },
+    { longitude: 2.3, latitude: 48.9 },
+  ]],
+};
+
+const places = await db.place.findMany({
+  where: { location: { within: { polygon: district } } },
+});
+```
+
+Rings are open: do not repeat the first vertex at the end. VibORM validates and
+closes them once. Input winding does not matter. Membership includes the outer
+boundary and every hole boundary; a point strictly inside a hole does not
+match.
+
+Each ring needs at least three distinct vertices. VibORM refuses repeated
+edges, self-intersections, zero-area rings, touching or overlapping holes, an
+exactly 180-degree edge, either pole, and a polygon covering half the globe or
+more. Use ordinary `OR` for disjoint polygons.
+
+SQLite-family providers refuse polygon compilation before cache lookup or
+provider execution.
+
+PostgreSQL uses PostGIS `ST_Intersects` for the inclusive point/polygon test.
+This intentionally replaces the design draft's `ST_Covers` spelling: live
+PostGIS evidence showed `ST_Intersects` includes outer and hole boundaries for
+canonical antimeridian polygons while retaining the GiST plan. MySQL uses the
+same inclusive relationship name over its SRID 4326 values.
+
+## Distance filters
+
+Distance is in meters. A filter requires `to` and at least one finite,
+non-negative `lt`, `lte`, `gt`, or `gte` comparison:
+
+```ts
+// At most 5 km from Paris.
+await db.place.findMany({
+  where: {
+    location: {
+      distance: { to: paris, lte: 5_000 },
+    },
+  },
+});
+
+// From 5 km through 10 km, inclusive.
+await db.place.findMany({
+  where: {
+    location: {
+      distance: { to: paris, gte: 5_000, lte: 10_000 },
+    },
+  },
+});
+```
+
+Sibling comparisons are joined with `AND`. There is no distance `equals`;
+point equality already owns exact coordinates. Use recursive `not` for inverse
+forms:
+
+```ts
+{ location: { not: { within: { bounds: viewport } } } }
+{ location: { not: { distance: { to: paris, lte: 5_000 } } } }
+```
+
+There are no `near`, `far`, `outside`, `between`, `intersects`, `contains`,
+`crosses`, `overlaps`, `touches`, or `covers` aliases.
+
+V1 distance uses a fixed spherical radius of `6_371_008.8` meters on every
+full-tier provider. It is intended for proximity search, not surveying,
+routing, altitude, or bit-identical floating-point answers across engines.
+
+PostgreSQL uses a clamped Haversine expression over PostGIS coordinates and a
+bound copy of that radius. This is deliberate: supported older PostGIS releases
+do not expose the planned three-argument `ST_DistanceSphere`, and a live
+PostGIS 3.4 proof showed that a zero-flattening `ST_DistanceSpheroid` returns an
+invalid infinite result. MySQL uses `ST_Distance_Sphere` with the same explicit
+radius.
+
+## Select and order by distance
+
+The same `_distance` projection returns meters and can order the query:
+
+```ts
+const nearest = await db.place.findMany({
+  select: {
+    id: true,
+    location: { _distance: { to: paris } },
+  },
+  orderBy: {
+    location: { _distance: { to: paris, sort: "asc" } },
+  },
+  take: 20,
+});
+
+nearest[0]?._distance; // number | undefined
+```
+
+`"asc"` means nearest first; `"desc"` means farthest first. A null point yields
+`number | null`, and null distance sorts last in both directions. One result
+projection can expose only one `_distance` value, including across vector and
+GeoPoint fields.
+
+An upper-bounded positive distance filter can use the spatial index as a
+conservative prefilter before the exact distance expression. Lower-only and
+negated filters, and distance ordering without an upper filter, scan their full
+candidate set.
+
+## Spatial indexes
+
+Use the existing index language:
+
+```ts
+const place = s
+  .model({
+    id: s.string().id(),
+    location: s.point(),
+  })
+  .index(["location"], { type: "spatial" });
+```
+
+A spatial index must contain exactly one non-null GeoPoint and cannot carry
+`unique` or `where`. PostgreSQL creates GiST; MySQL creates `SPATIAL INDEX`.
+SQLite-family migrations refuse this declaration before effects.
+
+## Provider tiers
+
+| Provider | Physical column | GeoPoint tier |
+| --- | --- | --- |
+| `pg`, postgres.js with `postgis: true` and proven PostGIS | `geography(Point,4326)` | Full: bounds, polygon, distance, `_distance`, GiST |
+| MySQL2 8 | `POINT SRID 4326` | Full: bounds, polygon, distance, `_distance`, SPATIAL INDEX |
+| SQLite3, LibSQL, D1, Bun SQLite | checked `VIBORM_GEO_TEXT` JSON | CRUD, equality, bounds, nullability, cache |
+| PlanetScale | MySQL spelling | Preview: SQL/SDK bind contract proven; hosted DDL, functions, and migration convergence not qualified |
+| Neon HTTP | PostgreSQL spelling | Full only when the target has proven PostGIS; no hosted qualification was run for this release |
+| PGlite | PostgreSQL spelling | Full only with a real PostGIS payload; the tested package build did not provide one |
+| Bun SQL | PostgreSQL spelling | Full only after a real Bun/PostGIS provider contract; not qualified by the Node test estate |
+| PostgreSQL without PostGIS | none | Point schema refused at client construction; migrations refuse separately |
+
+For PostgreSQL, `postgis: true` is an explicit driver assertion. VibORM never
+installs the extension. Live migration work also proves the exact
+extension-owned geography type and function signatures before its first
+effect. See the matching driver page and [Migrations](#migrations).
+
+## Migrations
+
+The physical forms are fixed; `s.point()` takes no native type:
+
+- PostgreSQL: `geography(Point,4326)` and GiST;
+- MySQL: `POINT SRID 4326` and `SPATIAL INDEX`;
+- SQLite family: `VIBORM_GEO_TEXT` plus the exact canonical JSON `CHECK`.
+
+Introspection checks subtype, SRID, nullability, and spatial-index role. A
+generic JSON column, built-in PostgreSQL `point`, PostGIS `geometry`, or a point
+with another SRID is drift, not an alternate spelling. Offline PostgreSQL
+artifacts record the PostGIS requirement but never emit `CREATE EXTENSION`.
+
+## Raw SQL
+
+Typed model operations always return `{ longitude, latitude }`. Raw SQL keeps
+the provider's physical value:
+
+- PostgreSQL raw results are PostGIS geography/geometry representations;
+- MySQL raw results are geometry values;
+- SQLite raw results are canonical JSON text.
+
+Tagged `$queryRaw` remains parameterized and typed at the driver boundary, but
+it does not apply model-field GeoPoint decoding. `$queryRawUnsafe` is unchanged
+and fully caller-owned.
+
+## Related pages
+
+- [Filtering](/docs/client/filtering)
+- [Sorting](/docs/client/sorting)
+- [Native types](/docs/schema/native-types)
+- [Schema JSON](/docs/schema/json)
+- [Migrations](/docs/migration)
+- [Caching](/docs/extensions/cache)

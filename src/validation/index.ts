@@ -34,6 +34,12 @@ export type { BaseBlobSchema } from "./primitives/blob";
 export type { BaseBooleanSchema } from "./primitives/boolean";
 export type { BaseEnumSchema } from "./primitives/enum";
 export type {
+  GeoArea,
+  GeoBounds,
+  GeoPolygon,
+} from "./primitives/geo-area-codec";
+export type { GeoPoint } from "./primitives/geo-point-codec";
+export type {
   BaseIsoDateSchema,
   BaseIsoTimeSchema,
   BaseIsoTimestampSchema,

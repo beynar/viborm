@@ -1,6 +1,5 @@
-// Point Scalar
-// Standalone scalar class with State generic pattern
-
+import { ValidationError } from "@errors";
+import { validateSchema } from "@validation/primitives/helpers";
 import v from "@validation/primitives/v";
 import {
   createDefaultState,
@@ -8,16 +7,13 @@ import {
   type ScalarState,
   updateState,
 } from "../common";
-import type { NativeType } from "../native-types";
 
 const pointBase = v.point();
 
 export class PointScalar<State extends ScalarState<"point">> {
   private readonly state: State;
-  private readonly _nativeType?: NativeType | undefined;
-  constructor(state: State, _nativeType?: NativeType) {
+  constructor(state: State) {
     this.state = state;
-    this._nativeType = _nativeType;
   }
 
   nullable() {
@@ -32,8 +28,7 @@ export class PointScalar<State extends ScalarState<"point">> {
         }>({
           nullable: true,
         }),
-      }),
-      this._nativeType
+      })
     );
   }
 
@@ -41,24 +36,48 @@ export class PointScalar<State extends ScalarState<"point">> {
     return new PointScalar(
       updateState(this, {
         hasDefault: true,
-        default: value,
+        default: normalizePointDefault(value, this.state.base),
         optional: true,
-      }),
-      this._nativeType
+      })
     );
   }
 
   map(columnName: string) {
-    return new PointScalar(updateState(this, { columnName }), this._nativeType);
+    return new PointScalar(updateState(this, { columnName }));
   }
 
-  get ["~"]() {
-    return {
-      state: this.state,
-      nativeType: this._nativeType,
-    };
+  get ["~"](): { state: State; nativeType?: undefined } {
+    return { state: this.state };
   }
 }
 
-export const point = (nativeType?: NativeType) =>
-  new PointScalar(createDefaultState("point", pointBase), nativeType);
+function normalizePointDefault(value: unknown, schema: StateSchema): unknown {
+  if (typeof value === "function") return value;
+  const result = validateSchema(schema, value);
+  if (!result.issues) return result.value;
+  throw new ValidationError(
+    { kind: "schema-builder", builder: "s.point", path: "default" },
+    result.issues.map((issue) => ({
+      path: issue.path?.join(".") ?? "default",
+      message: issue.message,
+    }))
+  );
+}
+
+type StateSchema = ScalarState<"point">["base"];
+
+/** The one public GeoPoint scalar factory; EPSG:4326 is not configurable. */
+export function point(...args: []) {
+  if (args.length !== 0) {
+    throw new ValidationError(
+      { kind: "schema-builder", builder: "s.point", path: "arguments" },
+      [
+        {
+          path: "arguments",
+          message: "s.point() takes no native type or options",
+        },
+      ]
+    );
+  }
+  return new PointScalar(createDefaultState("point", pointBase));
+}

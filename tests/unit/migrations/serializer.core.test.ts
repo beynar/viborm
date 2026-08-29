@@ -822,7 +822,7 @@ describe("foreign-key index for to-many relations", () => {
       {
         name: "post_authorId_idx",
         columns: ["authorId"],
-        unique: undefined,
+        unique: false,
         type: undefined,
         where: undefined,
       },
@@ -856,7 +856,7 @@ describe("foreign-key index for to-many relations", () => {
       {
         name: "post_authorId_idx",
         columns: ["author_id"],
-        unique: undefined,
+        unique: false,
         type: undefined,
         where: undefined,
       },
@@ -1012,7 +1012,7 @@ describe("foreign-key index for to-many relations", () => {
       {
         name: "post_authorId_idx",
         columns: ["authorId"],
-        unique: undefined,
+        unique: false,
         type: undefined,
         where: "published = true",
       },

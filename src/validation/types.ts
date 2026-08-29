@@ -255,11 +255,16 @@ export type SchemaRegistryOperation = keyof ArgsSchemas<
   ScalarSchemas<AnyModel>
 >;
 
-export interface SchemaRegistryLookup {
+export interface SchemaRegistryLookup<
+  S extends Record<string, AnyModel> = Record<string, AnyModel>,
+> {
+  readonly proxy: {
+    [K in keyof S]: ModelSchemas<S[K]>;
+  };
   getModelSchemas(model: AnyModel): ModelSchemas<AnyModel>;
   validate(
     modelName: string,
     operation: SchemaRegistryOperation,
     payload: unknown
-  ): unknown;
+  ): Record<string, unknown>;
 }

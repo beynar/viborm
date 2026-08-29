@@ -1285,9 +1285,9 @@ pnpm test
 Run PostgreSQL and MySQL parity suites when Docker is available. If they are not
 run, report that fact; do not treat a skipped suite as passing.
 
-The retained runtime boundaries are adapter `batchRefs`,
-`JunctionStatements`, fragment types, mutation programs, bound relations,
-field-bound FK sources, the two record compilers, specialized bulk Parts, and
-explicit branch pins. `QueryMetadata` remains only as a deprecated type-only
-compatibility alias. Everything else can be simplified when evidence shows a
-smaller truthful owner.
+The retained runtime boundaries are the adapter's private batch-reference
+lowering, `JunctionStatements`, fragment types, mutation programs, bound
+relations, field-bound FK sources, the two record compilers, specialized bulk
+Parts, and explicit branch pins. No public query-metadata carrier represents
+that program. Everything else can be simplified when evidence shows a smaller
+truthful owner.

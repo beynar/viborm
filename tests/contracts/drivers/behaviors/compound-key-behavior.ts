@@ -10,10 +10,7 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { compoundKeyBehaviorSchema as schema } from "@tests/fixtures/compound-key-behavior-schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
-type CompoundKeyClientConfig = VibORMConfig & {
-  schema: typeof schema;
-  driver: AnyDriver;
-};
+type CompoundKeyClientConfig = VibORMConfig<typeof schema>;
 
 type CompoundKeyClient = VibORMClient<CompoundKeyClientConfig>;
 

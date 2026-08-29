@@ -1,5 +1,5 @@
 import { type Sql, sql } from "@sql";
-import type { BatchReferenceSqlAdapter } from "../database-adapter";
+import type { BatchReferenceSqlAdapter } from "../adapter-core-types";
 
 interface OnConflictBatchRefsConfig {
   table: Sql;

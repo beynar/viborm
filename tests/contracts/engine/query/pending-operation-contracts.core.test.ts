@@ -17,7 +17,6 @@ import {
   type PrepareWriteOutcomeRegistration,
 } from "@query-engine/pending-operation";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
-import type { QueryMetadata } from "@query-engine/types";
 import { hydrateSchemaNames, s } from "@schema";
 import { PendingOperation as RootPendingOperation } from "@src/index";
 import {
@@ -25,7 +24,7 @@ import {
   type TestTransactionOperationView,
 } from "@tests/fixtures/transaction-operation";
 import { createSchemaRegistry } from "@validation";
-import { describe, expect, expectTypeOf, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 const VALID_UPDATE_ARGS = {
   where: { id: "user-1" },
@@ -451,8 +450,5 @@ describe("PendingOperation frozen public contract", () => {
   it("keeps PendingOperation as the root and client runtime export", () => {
     expect(RootPendingOperation).toBe(PendingOperation);
     expect(ClientPendingOperation).toBe(PendingOperation);
-    expectTypeOf<QueryMetadata<number>>().toEqualTypeOf<
-      PendingOperation<number>
-    >();
   });
 });

@@ -155,6 +155,23 @@ default-validation path.
 multi-key, unknown, inherited, and explicit-undefined operation bags fail here.
 The query engine trusts that decision and must not add a second precedence guard.
 
+### GeoPoint and GeoArea boundaries
+
+`primitives/geo-values.ts` is the import-free owner of the exact `GeoPoint`,
+`GeoBounds`, `GeoPolygon`, and `GeoArea` value vocabulary. The point and area
+codecs import and re-export those same symbols; do not redeclare their record
+shapes at a consumer boundary. `geo-point-codec.ts` alone owns hostile-safe
+point interpretation, canonical meridians/zero, provider decode, cache
+materialization, and JSON Schema coordinate facts. `geo-area-codec.ts` alone
+owns bounds and canonical simple-polygon interpretation, including holes and
+conservative distance-cap bounds.
+
+Point operation schemas expose only exact equality, recursive `not`,
+`within: GeoArea`, numeric distance comparisons, and `_distance`. They consume
+the codec outputs once; query builders do not revalidate them. Keep
+`v.point({ array: true })` as validation composition only—there is no ORM point
+list or generic geometry language.
+
 ### Nested Relation Data Projection
 
 A nested payload never writes into the target model's own `core.create` /

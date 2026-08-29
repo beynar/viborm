@@ -186,9 +186,7 @@ type AnySchema =
   | typeof wideStage2UniqueSchema
   | typeof planSchema;
 
-type FkIndexClient = VibORMClient<
-  VibORMConfig & { schema: AnySchema; driver: AnyDriver }
->;
+type FkIndexClient = VibORMClient<VibORMConfig<AnySchema>>;
 
 /** Every index the database itself reports for `table`. */
 async function indexNames(

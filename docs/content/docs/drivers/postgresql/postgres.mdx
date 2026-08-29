@@ -75,6 +75,21 @@ const client = createClient({
 });
 ```
 
+### With GeoPoint
+
+```typescript
+const client = createClient({
+  databaseUrl: process.env.DATABASE_URL,
+  postgis: true,
+  schema,
+});
+```
+
+The target must already contain PostGIS; VibORM never installs it. Without the
+option, a point schema is refused at client construction. postgres.js is
+qualified for the full [GeoPoint](/docs/schema/scalars/point) tier, including
+live polygon, fixed-radius distance, GiST planning, and migration preflight.
+
 ## Namespace
 
 `namespace` selects the PostgreSQL schema holding this driver's tables,

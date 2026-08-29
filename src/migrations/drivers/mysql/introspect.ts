@@ -62,6 +62,7 @@ SELECT
   CHARACTER_MAXIMUM_LENGTH,
   NUMERIC_PRECISION,
   NUMERIC_SCALE,
+  SRS_ID,
   EXTRA,
   COLUMN_COMMENT
 FROM information_schema.COLUMNS
@@ -208,6 +209,11 @@ function mapReferentialAction(rule: string): ReferentialAction {
 }
 
 function formatColumnType(col: MySQLColumn): string {
+  if (col.DATA_TYPE.toLowerCase() === "point") {
+    const srid = readSrid(col);
+    return srid === undefined ? "POINT" : `POINT SRID ${srid}`;
+  }
+
   // For ENUM types, return the full COLUMN_TYPE which includes values
   if (col.DATA_TYPE === "enum") {
     return col.COLUMN_TYPE; // e.g., "enum('active','inactive')"
@@ -242,6 +248,26 @@ function formatColumnType(col: MySQLColumn): string {
   }
 
   return col.DATA_TYPE.toUpperCase();
+}
+
+function readSrid(col: MySQLColumn): number | undefined {
+  if (col.SRS_ID === null || col.SRS_ID === undefined) return undefined;
+  const value = Number(col.SRS_ID);
+  if (Number.isSafeInteger(value) && value >= 0 && value <= 4_294_967_295) {
+    return value;
+  }
+  throw new MigrationError(
+    `MySQL reported an invalid SRID for column "${col.TABLE_NAME}"."${col.COLUMN_NAME}". Migration introspection is refused rather than publishing an unprovable spatial type.`,
+    VibORMErrorCode.MIGRATION_INVALID_STATE,
+    {
+      meta: {
+        dialect: "mysql",
+        table: col.TABLE_NAME,
+        column: col.COLUMN_NAME,
+        type: "invalid-catalog-srid",
+      },
+    }
+  );
 }
 
 function isAutoIncrement(extra: string): boolean {

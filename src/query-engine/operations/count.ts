@@ -5,6 +5,7 @@
  * Returns the number of records matching the criteria.
  */
 
+import { assembleAdapterSelect } from "@adapters/adapter-internals";
 import { COUNT_RESULT_KEY } from "@adapters/shared/result-parsing";
 import { type Sql, sql } from "@sql";
 import { getColumnName } from "../context";
@@ -36,12 +37,12 @@ export function buildCount(ctx: QueryScope, args: CountArgs): Sql {
   );
 
   // Assemble query parts
-  const parts: Parameters<typeof adapter.assemble.select>[0] = {
+  const parts = {
     columns: buildCountColumns(ctx, args.select, input.alias),
     from: input.from,
   };
 
-  return adapter.assemble.select(parts);
+  return assembleAdapterSelect(adapter, parts);
 }
 
 function getCountFieldNames(select?: Record<string, boolean>): string[] {

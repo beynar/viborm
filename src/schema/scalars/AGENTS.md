@@ -135,6 +135,14 @@ state value and is trusted downstream; a later `.schema()` or arity change
 revalidates it once against the newly declared field. Function defaults retain
 their closure and validate once per invocation.
 
+### Rule 7: GeoPoint Has One Fixed Declaration
+
+`s.point()` takes no argument and exposes only `.nullable()`, `.default()`, and
+`.map()`. Its scalar state carries the one `v.point()` value schema; it has no
+native type, array, ID, unique, custom-schema, or configurable-SRID mode.
+Definition validation owns compound key, foreign-key, and spatial-index roles.
+All value normalization stays in the validation GeoPoint codec, not the scalar.
+
 ---
 
 ## Anti-Patterns

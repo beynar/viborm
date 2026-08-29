@@ -27,7 +27,7 @@ import type { MigrationStorageWriter, PublishResult } from "./contract";
 
 const ESTATE_NAME = "estate.json";
 
-export class FsEstateStorage implements MigrationStorageWriter {
+class FsEstateStorage implements MigrationStorageWriter {
   readonly baseDir: string;
 
   constructor(baseDir: string) {
@@ -98,7 +98,7 @@ export class FsEstateStorage implements MigrationStorageWriter {
   }
 }
 
-export function createFsStorageWriter(baseDir: string): FsEstateStorage {
+export function createFsStorageWriter(baseDir: string): MigrationStorageWriter {
   return new FsEstateStorage(baseDir);
 }
 

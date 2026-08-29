@@ -103,6 +103,15 @@ Raw SQL is never rewritten and keeps ordinary `search_path` semantics — see
 - **Browser**: PostgreSQL in the browser via WASM
 - **Edge**: Serverless functions with embedded database
 
+## GeoPoint
+
+PGlite enters the full GeoPoint tier only when its concrete build provides a
+real PostGIS payload and the driver is constructed with `postgis: true`. The
+package exercised for this release did not provide that payload, so PGlite is
+not used as GeoPoint qualification evidence. The option alone is an assertion,
+not an extension installer or proof. See [GeoPoint provider
+tiers](/docs/schema/scalars/point#provider-tiers).
+
 ## Transactions
 
 PGlite supports full transactions with savepoints for nested transactions — see [Transactions](/docs/client/transactions).
