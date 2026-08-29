@@ -39,7 +39,6 @@ import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { createClient } from "@client/client";
 import { type Dialect, Driver } from "@drivers";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { push } from "@migrations";
 import { bindRelation } from "@query-engine/builders/relation-data-builder";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { s } from "@schema";
@@ -65,6 +64,7 @@ import {
   targetProjectionSelect,
 } from "@src/query-engine/write-engine/target-projection";
 import { UpdateOperation } from "@src/query-engine/write-engine/UpdateOperation";
+import { syncLiveSchema as push } from "@tests/fixtures/sync-schema";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
 

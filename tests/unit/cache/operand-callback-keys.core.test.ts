@@ -5,11 +5,12 @@ import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite } from "@electric-sql/pglite";
 import { CacheInvalidKeyError } from "@errors";
-import { push } from "@migrations";
+
 import { sql } from "@sql";
 import { fieldRefSchema } from "@tests/fixtures/field-ref-schema";
 import type { OperandCtx } from "@validation/primitives/operand";
 import { beforeAll, beforeEach, describe, expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 /**
  * Cache keys and operand callbacks (W8-A Unit 3).
@@ -31,7 +32,7 @@ let driver: PGliteDriver;
 beforeAll(async () => {
   pglite = new PGlite();
   driver = new PGliteDriver({ client: pglite });
-  await push(createClient({ schema, driver }), { force: true });
+  await syncLiveSchema(createClient({ schema, driver }));
 });
 
 beforeEach(async () => {

@@ -1,13 +1,14 @@
 import { createClient } from "@client/client";
 import { MySQL2Driver } from "@drivers/mysql2";
 import { PgDriver } from "@drivers/pg";
-import { push } from "@migrations";
+
 import { afterAll, describe } from "vitest";
 import {
   registerSqlOperandWallBehavior,
   sqlOperandWallSchema,
 } from "@tests/contracts/engine/write/sql-operand-boundary-behavior";
 
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 /**
  * E6.6 on the live servers.
  *
@@ -45,7 +46,7 @@ function suite(
         for (const table of ["e66_tags", "e66_slots", "e66_counters"]) {
           await shared.$executeRawUnsafe(`DROP TABLE IF EXISTS ${table}`);
         }
-        await push(shared, { force: true });
+        await syncLiveSchema(shared);
       }
       return shared;
     },

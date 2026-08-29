@@ -1,682 +1,545 @@
-# Migrations - Schema Sync & Migration Files
+# L12 Migrations — Migration V1
 
 **Location:** `src/migrations/`
-**Layer:** L12 - Migrations (see [root AGENTS.md](../../AGENTS.md))
+**Canonical design:** [`docs/architecture/migration-v1-plan.md`](../../docs/architecture/migration-v1-plan.md)
 
-## Purpose
+## 30-second summary
 
-Provides two approaches for syncing TypeScript schema to the database:
-
-1. **Push** - Direct sync for development (no migration files)
-2. **Migrate** - File-based migrations for production (versioned SQL files)
-
----
-
-## Entry Points
-
-| File | Purpose |
-|------|---------|
-| `push/` | Direct push workflow (serialize → diff → execute) |
-| `client.ts` | `createMigrationClient()` programmatic API |
-| `generate/index.ts` | Generate migration files |
-| `apply/index.ts` | Apply migrations, status, pending |
-| `apply/down.ts` | The ONLY rollback verb (executes down artifacts under the lock) |
-| `context.ts` | Shared context (locking, tracking, execution) |
-| `serializer.ts` | Model → SchemaSnapshot |
-| `differ.ts` | Compare snapshots, detect changes |
-| `resolver.ts` | Ambiguous/destructive change resolution |
-| `types.ts` | SchemaSnapshot, DiffOperation, MigrationEntry types |
-| `generate/polymorphic-history.ts` | Non-SQL history for stable polymorphic members |
-| `generate/manual-artifact.ts` | Validates `GenerateOptions.manualMigration` (all five refusals) |
-| `statement-safety.ts` | The ONE artifact classifier — refuses DIRECT boundary controls, and is not a sandbox (Rule 6c) |
-
-### Subdirectories
-
-| Directory | Purpose |
-|-----------|---------|
-| `drivers/` | Migration-specific drivers (DDL generation, introspection) |
-| `storage/` | Storage drivers for migration files (filesystem, etc.) |
-| `generate/` | Migration file generation and formatting |
-| `apply/` | Apply, status, pending, down operations |
-| `push/` | Push workflow internals (planner, executor, format, enum-removals) |
-
----
-
-## Two Workflows
-
-### Push (Development)
-
-Direct sync - no migration files:
-
-```
-Models → serialize() → SchemaSnapshot
-                              ↓
-Database → introspect() → SchemaSnapshot
-                              ↓
-                          differ()
-                              ↓
-                      DiffOperations
-                              ↓
-                    User resolves ambiguities
-                              ↓
-                    migrationDriver.generateDDL()
-                              ↓
-                    driver.execute()
-```
-
-### Migrate (Production)
-
-File-based migrations with journal:
-
-```
-Models → serialize() → SchemaSnapshot
-                              ↓
-Previous snapshot → diff() → DiffOperations
-                              ↓
-                    migrationDriver.generateDDL()
-                              ↓
-                    Write to SQL file + Update journal
-                              ↓
-Later: apply() reads files → execute in transaction
-```
-
----
-
-## Core Concepts
-
-### SchemaSnapshot (Database-Agnostic)
-
-```typescript
-interface SchemaSnapshot {
-  tables: TableDef[];
-  enums?: EnumDef[];  // PostgreSQL only
-  polymorphicStorage?: PolymorphicSnapshotStorage[]; // generated-file metadata
-}
-
-interface TableDef {
-  name: string;
-  columns: ColumnDef[];
-  primaryKey?: PrimaryKeyDef;
-  indexes: IndexDef[];
-  foreignKeys: ForeignKeyDef[];
-  uniqueConstraints: UniqueConstraintDef[];
-}
-```
-
-`polymorphicStorage` is descriptive generated-file history. It is not a table
-or DDL operation, and the structural differ ignores it.
-
-It is a `kind`-tagged union, one arm per slot cardinality, and both arms are
-LOGICAL ONLY — no physical fact is duplicated into either:
-
-```typescript
-type PolymorphicSnapshotStorage =
-  | PolymorphicToOneSnapshot   // kind: "toOne"
-  | PolymorphicToManySnapshot; // kind: "toMany"
-```
-
-A `toOne` arm carries `{ ownerTable, relation, storageRef, members }`, each
-member `{ publicType, storedType, targetTable }`. `storageRef` is the join key
-into the owner table's `relationStorage` registry — the physical type-column name
-at serialization time, opaque to every reader and normalized through accepted
-rename operations before history joins.
-
-A `toMany` arm carries `{ ownerTable, relation, members }`, each member
-`{ publicType, storedType, targetTable, memberJunctionTable, inverseCardinality }`.
-It needs no `storageRef`: each member names its junction table directly, and the
-structural differ owns that table's shape — columns, primary key, reverse index,
-both foreign keys, and the singular member's unique constraint — entirely.
-
-### Migration Estate Target
-
-One discriminated value names the estate a history was generated for:
-
-```typescript
-type MigrationTarget =
-  | { readonly dialect: "postgresql"; readonly namespace: string }
-  | { readonly dialect: "mysql" }
-  | { readonly dialect: "sqlite" };
-```
-
-PostgreSQL carries its schema because generated artifacts are schema-qualified.
-MySQL is dialect-only ON PURPOSE — artifacts are database-relative, so one
-estate deploys to `app_dev`, `app_test` and `app_prod` — and the LIVE MySQL
-destination comes from the adapter's namespace at the live boundary, never from
-the journal and never from `DATABASE()`.
-
-`resolveMigrationEstate(driver)` is the only producer of BOTH facts — the
-durable target and the live namespace — from ONE read of `adapter.namespace`.
-It is reached through `getMigrationDriver(driver)`, which returns a frozen
-adapter-bound view of the registered stateless singleton and must never read
-that fact a second time: an accessor-backed custom adapter could answer
-differently, and the view would then name one estate and render another. A
-PostgreSQL adapter that declares no namespace is refused there: it must not
-silently acquire `"public"`.
-
-One internal `MigrationContext.readEstateJournal()` is the SINGLE
-exact-estate-target gate. A dialect difference is `MIGRATION_DIALECT_MISMATCH`;
-a PostgreSQL schema difference is `MIGRATION_INVALID_STATE`. Every high-level
-verb and every named migration-client accessor passes through it BEFORE it
-reads a snapshot or artifact, creates or queries tracking, writes storage, or
-executes SQL. `migrations.storage` stays the deliberately unbound low-level
-escape.
-
-PostgreSQL qualifies in BOTH destinations — a PG estate is schema-bound in the
-artifact and live alike, so `destination` is legitimately unread by its renderers
-and artifact ≡ live is witnessed. MySQL qualifies only at `destination === "live"`;
-its artifacts stay database-relative, and an UNBOUND MySQL driver renders bare for
-both destinations (which is what keeps §12.21 true) while its catalog reads refuse
-rather than falling back to `DATABASE()`. Managed PostgreSQL enum types are derived
-from what this estate manages, replacing the old `_enum`-suffix guess, and the
-enum-cast strip is keyed on the column's catalog-proven `udt_schema`/`udt_name`.
-
-### Migration Journal
-
-Tracks migration history in `meta/_journal.json`:
-
-```typescript
-interface MigrationJournal {
-  readonly version: "3";   // "2" → "3" when the top-level dialect became the target
-  readonly target: MigrationTarget;
-  readonly entries: readonly MigrationEntry[];
-}
-
-interface MigrationEntry {
-  idx: number;                 // Sequential index
-  version: string;             // Timestamp version
-  name: string;                // kebab-case name
-  when: number;                // Unix timestamp
-  checksum: string;            // SHA256 of SQL content
-  mode: "generated" | "manual";        // How the up artifact was produced
-  rollback:                            // The policy this entry commits to
-    | { kind: "automatic" }
-    | { kind: "manual" }
-    | { kind: "irreversible"; reason: string };
-}
-```
-
-`mode` and `rollback` are REQUIRED. An entry with no policy would have to be
-given a default, and the only available default (`automatic`) is exactly the
-bypass the policy exists to close.
-
-`readJournal()` is the SINGLE STRUCTURAL journal parser — `apply`, `down`,
-`squash`, `reset`, `status` and the client accessors all reach the journal
-through the context gate, which reaches it through here — so the format is
-validated once: a journal whose `version` is not `"3"`, whose `target` is
-missing, malformed, unknown, or carrying fields its arm does not define, one
-that still carries a top-level `dialect` beside the target, or any entry missing
-`mode`, missing `rollback`, carrying an unknown rollback kind, or declaring
-`irreversible` with a blank `reason`, is refused with `V11009`. There is no
-legacy reader and no journal migrator; regenerate the estate instead. After that
-guard `entry.rollback` is total and no downstream verb re-checks it. Whether a
-readable journal is THIS client's estate is a different question with a
-different owner — the context gate.
-
-### Applied State Is Read-Only
-
-`MigrationContext.readAppliedMigrations()` is the one applied-state reader and
-it NEVER creates the tracking table. It obtains this command's driver view
-first — which is where the configured namespace is proven, and where MySQL's
-server spelling is answered — and renders through it, then establishes an absent
-tracking table either positively — SQLite's one exact `sqlite_schema` lookup on
-the configured name — or through the dialect's exact missing-table translation.
-That view has ONE owner, `resolveCommandDriver` in `pinned-session.ts`: a locked
-command gets it when its producer is reserved, and a read-only command
-(`status()`, `pending()`, dry push) asks the same owner without taking a lock. Every other failure surfaces: there is no
-catch-all that reports permissions or transport failures as an empty estate.
-`ensureTrackingTable()` is a WRITE and lives only inside an admitted effectful
-owner.
-
-**What checksum verification proves.** Only that the journal entry and the
-tracking row agree (`apply/index.ts`, `apply/down.ts`). The written file embeds
-the checksum it would have to hash to, so artifact bytes are never re-verified
-against the journal. Do not describe checksums as artifact integrity.
-
-### Storage Drivers
-
-Abstract storage for migration files. Concrete implementations:
-
-- `FsStorageDriver` - Filesystem (default)
-- Custom drivers possible (S3, database, etc.)
-
-```typescript
-abstract class MigrationStorageDriver {
-  abstract get(path: string): Promise<string | null>;
-  abstract put(path: string, content: string): Promise<void>;
-  abstract delete(path: string): Promise<void>;
-
-  // High-level operations (implemented by base class)
-  readJournal(): Promise<MigrationJournal | null>;
-  writeJournal(journal: MigrationJournal): Promise<void>;
-  readSnapshot(): Promise<SchemaSnapshot | null>;
-  writeSnapshot(snapshot: SchemaSnapshot): Promise<void>;
-  readMigration(entry: MigrationEntry): Promise<string | null>;
-  writeMigration(entry: MigrationEntry, content: string): Promise<void>;
-}
-```
-
-### Migration Drivers
-
-Separate from database drivers. Handle DDL generation and introspection:
-
-```typescript
-abstract class MigrationDriver {
-  // `ctx.destination` is REQUIRED ("artifact" | "live") and reaches EVERY
-  // renderer arm through the one dispatcher. There is no default and no mode.
-  abstract generateDDL(operation: DiffOperation, ctx: DDLContext): string;
-  // The namespace travels as an argument, so no ambient connection state can
-  // pick the estate.
-  abstract introspect(
-    executeRaw: <T>(sql: string, params?: unknown[]) => Promise<{ rows: T[] }>
-  ): Promise<SchemaSnapshot>;
-  abstract generateCreateTrackingTable(tableName: string): string;
-  // ... more methods
-}
-```
-
----
-
-## Programmatic API
-
-```typescript
-import { createMigrationClient } from "viborm/migrations";
-import { createFsStorageDriver } from "viborm/migrations/storage/fs";
-
-const migrations = createMigrationClient(client, {
-  storageDriver: createFsStorageDriver("./migrations"),
-  tableName: "_viborm_migrations",
-});
-
-// Generate a migration
-await migrations.generate({ name: "add-users" });
-
-// Apply pending migrations
-await migrations.apply();
-
-// Get status
-const statuses = await migrations.status();
-
-// Push (no files) - works without storageDriver
-await migrations.push();
-```
-
----
-
-## CLI Commands
-
-```bash
-# Push (direct sync, no files)
-viborm push
-viborm push --dry-run
-viborm push --accept-data-loss
-
-# Migrate (file-based)
-viborm migrate generate --name add-users
-viborm migrate apply
-viborm migrate down --steps 1
-viborm migrate status
-```
-
-Four subcommands, and `down` is the only rollback. There is deliberately no
-`drop`: untracking an applied migration while its schema changes stay live is
-the bypass a persisted rollback policy exists to close.
-
----
-
-## Core Rules
-
-### Rule 1: Separation of Concerns
-
-- **Serializer** - Pure function: models → snapshot
-- **Differ** - Pure function: snapshots → operations
-- **MigrationDriver** - DDL generation (dialect-specific)
-- **StorageDriver** - File I/O (filesystem, S3, etc.)
-
-### Rule 2: Explicit Ambiguity Resolution
-
-When column/table dropped AND added, always ask user. Never assume rename.
-
-### Rule 3: Checksum Verification
-
-Migrations are checksummed. Modifying an applied migration is an error.
-
-### Rule 4: Atomicity Is The Dialect's
-
-Each migration is applied in a transaction on every dialect that has one to
-open, and a failure rolls that migration back. MySQL commits DDL implicitly, so
-no transaction is opened there and none is faked: the entry runs as one
-SEQUENTIAL PROGRAM on the pinned producer, and a failure reports the last
-statement that completed, states that nothing was rolled back, and makes no
-claim about the statement that failed. One owner answers for every such program
-— apply, ordinary push, the force-reset rebuild, down and the reset replay —
-and it is `runSequentialProgram` in `pinned-session.ts`.
-
-SQLite table recreation reads the introspected pre-batch snapshot through one
-schema-level replay owner. That replay first evolves the effective table set
-through same-batch creates, drops, and renames, then applies local table changes
-and the schema-wide inbound-FK effects of native table or column renames. Both
-`SQLite3MigrationDriver.getCurrentTable` and the D1 relation census consume that
-same effective set. A later recreation must rebuild the definition SQLite holds
-at that point in the batch, not restore a stale reference from the snapshot or
-miss a relation created earlier in the program.
-
-`native-rename.ts` is the ONE snapshot owner for the schema-wide effect of a
-native table or column rename: table/column identity, primary-key/index/unique
-columns, partial-index predicate column references, local and self foreign-key
-columns, and inbound foreign-key targets. Its predicate rewrite is lexical: it
-preserves quoted values, escape strings, dollar-quoted bodies, comments,
-function names, casts, and collations. SQLite replay, iterative ambiguity
-resolution, and generated-down inversion all consume it. An accepted rename
-updates a working source snapshot and reruns the ordinary differ with its
-original options until no ambiguity remains; never add a renamed-table inner
-differ or append post-rename operations to a pre-rename diff.
-
-A resolve callback authorizes only the kind of change the planner supplied.
-The planner passes that caller-known kind to the one result validator; callback
-mutations of the public change object's discriminant never select another
-authorization language. Enum mappings and use-null decisions are authoritative
-only when made through that exact change object's methods. Their private state,
-not the callback-visible `_mappings` or `_useNullDefault` presentation fields,
-is what validation, planning, and the CLI dry-run recorder consume.
-
-### Rule 5: Journal is Source of Truth
-
-The journal tracks which migrations exist. The database tracks which are applied.
-
-### Rule 6: Polymorphic Storage Is Relation-Owned, And Its History Is Refused Or Owned
-
-A to-one polymorphic field serializes two private columns and one composite
-index from its validated storage descriptor:
+Migration V1 is one authenticated state graph plus one separate, history-free
+live synchronization path.
 
 ```text
-<relation>_type
-<relation>_id
-<mappedOwnerTable>_<relation>_poly_idx  ON (type, id)
+immutable estate descriptor
+  + content-addressed schema snapshots
+  + content-addressed plain-SQL blobs
+  + immutable state manifests and parent transitions
+  + database current-state marker
+  + append-only database ledger
 ```
 
-Required relations make both columns non-null; optional relations make both
-nullable. The composite index is non-unique for a plural inverse (`s.toMany`)
-and unique for a singular one (`s.toOne`).
+A state is a graph node, not a numbered file. Each state authenticates its
+target snapshot and one complete transition from every parent. Branches can
+diverge and converge without renaming files or inventing lexical order. Human
+names are metadata only.
 
-A collection polymorphic field instead serializes ONE MEMBER JUNCTION TABLE PER
-VARIANT, emitted by `serializeMemberJunction` from the same
-`PolymorphicJunctionMember.junction` topology the engine binds — never
-reconstructed from naming conventions. Each member table carries a composite
-primary key over both complete sides in canonical order, one non-unique index
-over the complete SECOND side (emitted unconditionally so every member table
-shares one template shape), two `cascade`/`cascade` foreign keys, and — when that
-member's `inverseCardinality` is `"one"` — a `UNIQUE` over the complete TARGET
-side. The unique side is the target group itself, never the reverse index
-flipped and never a primary-key prefix, because when the target sorts
-canonical-first neither of those makes the target columns unique. Referential
-actions on a member junction are fixed, so member junctions never consult the
-ordinary pair's actions and no synthetic ordinary relation state exists
-anywhere.
+Production never evaluates migration TypeScript and never reparses display SQL.
+It executes only authenticated UTF-8 slices from an authenticated SQL blob,
+with the exact closed typed-parameter tuples authenticated by each dispatch ID.
 
-Changing inverse cardinality is therefore an ordinary structural diff — an index
-or unique-constraint flip on a to-one slot, an added or dropped unique
-constraint on the one affected member table for a collection. Existing duplicate
-rows make the restricting direction fail
-transactionally at the database; VibORM does not synthesize deduplication DML.
-The private columns never enter public scalar state, and no cross-target FK or
-CHECK constraint is emitted for row-held storage. A variant-bound plural inverse
-is a member VIEW and is excluded from the serializer's ordinary junction walk;
-the half-pair such a view could otherwise leave behind is now unconstructible
-rather than refused, because one resolved slot carries exactly one edge — a slot
-bound to a carrier member is not also an ordinary junction endpoint.
+`push` is not history. It plans from the live schema, replans under the target
+lock, executes the accepted in-memory program, and proves the destination. It
+never reads or writes estate storage and never changes the marker or ledger.
 
-`generate/polymorphic-history.ts` is the SOLE comparator after accepted
-structural renames, and classification is total. A public rename with stable
-storage and target metadata is metadata-only. A stored-value change, member
-removal, retarget, unexplained junction move, or cardinality flip is
-**data-bearing**, and generation refuses it outright (`V11010`) — there is no
-acknowledgement API and no resolver escape.
+## Domain model
 
-The one input that lifts that refusal is a complete caller-owned artifact:
+Use these terms exactly:
 
-```typescript
-await migrations.generate({
-  name: "subject-to-many",
-  manualMigration: {
-    up: [/* create destination, copy membership, remove source */],
-    rollback: { kind: "manual", sql: [/* ... */] },
-    // or: { kind: "irreversible", reason: "…" }
-  },
-});
+| Term | Meaning |
+| --- | --- |
+| **Estate** | One storage root containing an immutable target descriptor, snapshots, SQL blobs, and committed state manifests. |
+| **Schema snapshot** | One strict canonical description of the VibORM-managed logical and physical schema. |
+| **SQL blob** | Plain review SQL containing every referenced check, forward dispatch, postcheck, and rollback dispatch. |
+| **State** | One exact point in history, identified by its canonical manifest rather than its name or position. |
+| **Transition** | One parent-specific forward program and rollback policy leading into a state. |
+| **State manifest** | The one committed record for a target state, its snapshot, metadata, destination checks, and all incoming transitions. |
+| **Marker** | The database's last confirmed state, authenticated arrival path, snapshot, estate, path hash, and revision. |
+| **Ledger** | Append-only database evidence for attempts, confirmed steps, outcomes, baselines, recovery, and reset progress. |
+| **Push plan** | An ephemeral baseline-specific live transition. It is never inserted into the estate. |
+
+Schema identity and state identity are intentionally distinct. A data-only
+transition can produce a new state while retaining the same schema snapshot.
+Equal snapshots therefore never prove equal migration state.
+
+The marker and ledger answer different questions:
+
+- the marker says which state and arrival path are last confirmed;
+- the ledger says what was attempted and what happened;
+- an unfinished ledger attempt means the live database may be between states
+  and blocks ordinary work;
+- neither representation is reconstructed from the other.
+
+## Estate format
+
+```text
+migrations/
+├── estate.json
+├── snapshots/
+│   └── <snapshot-hash>.json
+├── sql/
+│   └── <sql-hash>.sql
+└── states/
+    └── <state-id>.json
 ```
 
-Supplying it puts the WHOLE migration in manual mode — caller-elected and
-unconditional, whether or not a data-bearing transition exists. Generation emits
-only those statements and never appends generated DDL around them, while still
-computing the complete diff and snapshot for reporting and history. It is a
-suppression INPUT to classification, never an output of it, and it does not
-suppress snapshot-coherence or stale-format refusals: those mean the snapshot
-itself is wrong, not that a transition needs executing.
+`estate.json` is created once and is immutable. It contains format `"1"`, hash
+algorithm `"sha256"`, and the exact `MigrationTarget`. PostgreSQL estates are
+schema-bound; MySQL artifacts remain database-relative; SQLite retains its
+dialect target. There is no mutable head or state list.
 
-`generate/manual-artifact.ts` owns every artifact refusal (all `V11010`): an
-`up` that parses empty, a `manual` rollback whose `sql` parses empty, a blank
-`irreversible` reason, and a missing `name`. "Parses empty" is
-`parseStatements(addStatementBreakpoints(...))` — the same parser `apply()` and
-`down()` read artifacts back with, so comment-only and whitespace-only artifacts
-are empty everywhere, by one definition.
+Snapshots, SQL blobs, and state manifests are immutable content-addressed
+objects. Snapshot and manifest JSON is canonical RFC 8785 UTF-8 without a BOM.
+A state becomes visible only when its manifest is conditionally created after
+all referenced snapshot and SQL bytes are durable.
 
-An irreversible migration still gets a comment-only down artifact written, which
-is safe only because `down()` dispatches on the persisted policy strictly BEFORE
-it opens any artifact — while the same comment-only bytes under an `automatic`
-or `manual` policy are fatal.
+The virtual `null` origin maps to the canonical empty managed snapshot. It is
+not a stored state and cannot be redefined.
 
-`push()` compares live structure only: introspected text columns cannot recover
-discriminator history, so push cannot detect a stored-value rename, removal, or
-retarget. Push users must migrate data before changing those mappings.
+## Identity and trust boundaries
 
-### Rule 6b: Rollback Reads Everything Under The Lock — On One Pinned Session
+### Hash rule
 
-`down()` and `squash()` do all of it inside `ctx.withLockedSession`: read the
-journal, read applied state, recompute the group, verify checksums, refuse on
-policy, validate every artifact, and only then execute. The dry-run return comes
-AFTER the whole preflight, because the CLI confirms against the dry run and a
-preview that cannot report a refusal is not a preview.
+`identity.ts` is the one hash owner. Every digest is:
 
-State that honestly: the in-lock recomputation closes the window between the
-caller's request and lock acquisition by recomputing, not by trusting the lock.
-The lock is now CONNECTION-PINNED — `withLockedSession` reserves ONE physical
-session, and the acquisition, every authoritative read, every statement and the
-release all run on it — and both the acquisition and the release are PROVEN from
-the provider's own answer, an unproven one destroying that session rather than
-returning it to a pool holding a lock nobody owns. `apply()` takes the same lock
-and commits once per entry inside it, rereading the authoritative journal and
-tracking state before each entry. What stays weak is SQLite and libSQL: they
-reserve nothing, take no lock, and report success, so on those substrates the
-in-lock recomputation is still the ONLY defence.
-
-### Rule 6c: The Artifact Classifier Refuses Direct Controls, And Is Not A Sandbox
-
-`statement-safety.ts` is the ONE lexical classifier, and it runs before any
-artifact effect. It refuses DIRECT boundary control at the head of a statement,
-read in each dialect's own comment and string grammar: PostgreSQL transaction
-control and every `pg_advisory_*` call, quoted or schema-qualified; MySQL
-transaction/XA control, `SET autocommit`, table lock/unlock, and every named-lock
-function. `PREPARE TRANSACTION` is refused as a two-word PHRASE, because
-`PREPARE plan AS ...` leads with the same word and controls nothing.
-
-It is **not a sandbox**, and no source comment, doc, or error message may say
-otherwise. A dollar-quoted body is DATA to the scan — it has to be, or every
-ordinary `CREATE FUNCTION` is refused — and the same bytes are a statement to the
-server, so `DO $$ BEGIN PERFORM pg_advisory_unlock_all(); END $$` frees the
-migration lock mid-command, and a safe-named function or dynamic SQL is the same
-escape by another route.
-`tests/unit/migrations/pinned-migration-session.core.test.ts` runs that exact
-artifact through `apply()` on a real PostgreSQL and pins the lock gone.
-
-Manual migration SQL is therefore trusted last-mile authority. Do NOT answer a
-procedural escape with another spelling in the scanner: the enumeration does not
-close, and each addition costs valid author SQL. The deliberate case is answered
-after the fact by the release PROOF on the pinned session (Rule 6b), which fails
-the command and discards the session when the lock it acquired is no longer
-held. Add a spelling only for a DIRECT statement the scanner already reads and
-misclassifies.
-
-### Rule 7: Junction Sides Are Complete Stored References
-
-The relation layer resolves each many-to-many side into one ordered group of
-junction columns paired with the endpoint row-key fields. The serializer uses
-those groups unchanged for columns, the combined junction primary key, the
-reverse-side index, and both foreign keys. Never project a compound side to its
-first member or rederive positional names in migration code.
-
-The serializer consumes those resolved physical names unchanged. Ordinary
-defaults use schema object keys, not JavaScript variable names or mapped table
-names; a complete `.through().source().target()` declaration pins the table and
-both tokens. Variant-member defaults use the mapped owner table as the table
-prefix and the owner schema key as the owner token; an exact `.through(...)`
-entry pins `table`, `source`, and `target`.
-
----
-
-## Anti-Patterns
-
-| Anti-Pattern | Why It's Bad | Do This Instead |
-|--------------|--------------|-----------------|
-| Assuming rename | Data loss if actually drop+add | Ask user via resolver |
-| Modifying applied migrations | Checksum mismatch error | Create new migration |
-| Skipping storage driver | Can't use file-based operations | Use `createFsStorageDriver()` |
-| Hardcoded dialect SQL | Breaks other databases | Use `migrationDriver.generateDDL()` |
-| Silent destructive ops | Unexpected data loss | Require confirmation |
-| Treating polymorphic metadata as DDL | Duplicates structural ownership | Keep history in `generate/polymorphic-history.ts` |
-| Expecting push to infer discriminator history | Live text columns contain no public-member history | Use generated snapshots and explicit data migration |
-| Untracking an applied migration to "undo" it | Leaves the schema live and bypasses manual/irreversible policy | `migrations.down()` — it executes the artifact and untracks together |
-| Writing an empty or comment-only down artifact | Rollback would advance tracking past SQL that never ran | Declare `{ kind: "irreversible", reason }` |
-| A second journal reader or SQL parser | Two definitions of "current format" or "non-empty" cannot agree | `storage.readJournal()` and `parseStatements()` are the only ones |
-| Adding a classifier spelling to stop procedural SQL | The scanner reads a dollar-quoted body as data and the server runs it, so the enumeration never closes while valid author SQL starts failing | Keep the honest contract (Rule 6c); the release proof answers the deliberate case |
-
----
-
-## Fixed-decimal migration contract
-
-Schema snapshots carry the one decimal descriptor `{ precision, scale }`; they
-do not record a native/fixed mode or a client result preference.
-`src/migrations/decimal.ts` owns the shared descriptor-transition questions,
-storage classification, MySQL list marker, and native-provider fit predicates.
-`src/migrations/drivers/sqlite/decimal.ts` owns only SQLite's reserved CHECK
-carrier and exact table-rebuild conversion expressions; do not move those
-dialect decisions back into the shared module or duplicate the value codec
-there. Migration drivers derive `NUMERIC(p,s)` for PostgreSQL, `DECIMAL(p,s)`
-for MySQL, and a checked scaled `INTEGER` for SQLite. Decimal lists derive
-`NUMERIC(p,s)[]` on PostgreSQL and coefficient-string JSON containers on MySQL
-and SQLite.
-Literal non-null decimal-list defaults are retained in DDL through the same
-field codec as writes: PostgreSQL emits a quoted native array whose members are
-padded to scale, MySQL emits a parenthesized quoted coefficient-string JSON
-container, and SQLite/libSQL/D1 emit the quoted container. Provider
-introspection normalizes only those exact owned spellings so a second push
-converges. Function defaults stay application-only. PostgreSQL and SQLite keep
-`default(null)` as SQL `NULL`; MySQL omits it because its catalog cannot
-distinguish `DEFAULT NULL` from no default and the two are equivalent on a
-nullable column. Generic array/object defaults remain suppressed.
-
-The migration planner owns the bounded conversion policy. A MySQL scalar
-conversion brackets `MODIFY COLUMN` with one reversible reserved `CHECK`. The
-locked command plans interrupted-proof cleanup once before its first sequential
-effect, authenticates the reserved name, column, and predicate before returning
-any `DROP`, and records that `DROP` through the same last-completed-statement
-boundary. A malformed, colliding, or multiple reserved proof refuses before
-effects. Every effectful MySQL migration command proves MySQL 8.0.16-or-later
-and a strict mode once at pinned-session admission. The proof is command-wide:
-provider-authored DDL and manual artifacts cannot be classified safely by
-decimal effect. A MySQL decimal-list conversion admits only same-scale precision
-widening. It leaves member strings unchanged but still brackets the marker
-`MODIFY COLUMN` with `ADD CHECK` and `DROP CHECK`; narrowing and every change
-that rewrites members are refused before effects. A generated widening therefore
-records the existing irreversible rollback policy instead of emitting an unsafe
-narrowing down artifact. Hosted
-PlanetScale remains introspection-only and
-refuses effectful DDL. D1 accepts ordinary fixed-decimal schema work but its
-decimal-specific render-time gate refuses relation-bearing descriptor changes,
-decimal adoption, and decimal-column renames. It does not classify an unrelated
-column, constraint, key, or enum rebuild merely because that table also carries
-a decimal.
-A generated SQLite3/libSQL artifact applied later on D1 reaches the same narrow
-policy through the per-entry artifact-read boundary. Initially pending entries
-are admitted during `apply()` preflight, before the tracking table; an entry
-first seen on a post-commit journal reread crosses the same owner before that
-entry's artifact or tracking row. The exact generated fixed-decimal
-reconstruction sequence identifies its rebuilt table, same-artifact native
-table renames replay the live identity forward, and the shared SQLite relation
-census checks that state for inbound or outbound foreign keys. Manual artifacts,
-relation-free decimal rebuilds, and unrelated SQLite reconstructions keep their
-existing admission. Do not replace these local policies with an adapter-wide
-decimal capability flag or a broad runtime refusal.
-
----
-
-## Adding New Migration Operation
-
-1. **Add to DiffOperation union** (`types.ts`)
-
-2. **Detect in differ** (`differ.ts`):
-   ```typescript
-   if (needsMyOperation(current, desired)) {
-     operations.push({ type: "myOperation", ... });
-   }
-   ```
-
-3. **Generate DDL in migration drivers** (`drivers/postgres/index.ts`, `drivers/sqlite/index.ts`):
-   ```typescript
-   case "myOperation":
-     return `ALTER TABLE ...`;
-   ```
-
-4. **Test across all databases**
-
----
-
-## File Structure
-
-```
-src/migrations/
-├── index.ts           # Public exports
-├── client.ts          # createMigrationClient() API
-├── push/              # Direct push workflow (planner, executor, format, enum-removals)
-├── context.ts         # MigrationContext (shared state)
-├── serializer.ts      # Model → SchemaSnapshot
-├── differ.ts          # Snapshot comparison
-├── resolver.ts        # Ambiguous change resolution
-├── types.ts           # Type definitions
-├── utils.ts           # Utilities
-├── reset.ts           # Database reset
-├── squash.ts          # Squash migrations
-├── drivers/
-│   ├── index.ts       # Driver registry
-│   ├── base.ts        # MigrationDriver base class
-│   ├── types.ts       # Driver types
-│   ├── postgres/      # PostgreSQL driver
-│   ├── mysql/         # MySQL driver
-│   ├── sqlite/        # SQLite driver + exact generated-artifact admission
-│   └── libsql/        # LibSQL/Turso driver
-├── storage/
-│   ├── index.ts       # Storage exports
-│   ├── driver.ts      # MigrationStorageDriver base
-│   └── drivers/
-│       └── fs.ts      # Filesystem storage
-├── generate/
-│   ├── index.ts       # generate(), preview()
-│   ├── polymorphic-history.ts # Stable member-history comparison
-│   ├── manual-artifact.ts # manualMigration parsing + refusals
-│   ├── file-writer.ts # Migration file formatting + the ONE SQL parser
-│   ├── journal.ts     # Migrations-directory layout helpers only
-│   └── snapshot.ts    # Snapshot operations
-└── apply/
-    ├── index.ts       # apply(), status(), pending()
-    └── down.ts        # Down migrations (the only rollback verb)
+```text
+frozen ASCII domain label + 0x00 + exact authenticated bytes
 ```
 
----
+The result is lowercase 64-hex SHA-256. Estate, snapshot, SQL, dispatch,
+transition, state, path, push-plan, reset-plan, and ledger-event identities
+use distinct frozen domains. No locale, insertion order, display formatter, line-ending
+conversion, or self-referential checksum participates.
 
-## Related Layers
+The authenticated chain is:
 
-| Layer | Relationship |
-|-------|--------------|
-| **Schema** | Provides models to serialize |
-| **Drivers** | Provides database connection |
-| **Adapters** | Query-time SQL (not used for migrations) |
-| **CLI** | User interface for migration commands |
+1. estate hash over exact canonical `estate.json` bytes;
+2. snapshot hash over exact canonical snapshot bytes;
+3. SQL hash over exact SQL blob bytes;
+4. dispatch ID over SQL hash, UTF-8 byte offset, byte length, and canonical
+   typed parameters;
+5. transition hash over the complete parent transition without its own hash;
+6. state ID over the complete state manifest without its own ID.
+
+Every read revalidates the chain. A filename is not proof merely because it
+looks like a digest.
+
+Stored snapshot identity (`encodeSnapshot` / `hashSnapshot`) is those exact
+canonical bytes. Live physical comparison uses `fingerprintLive` in
+`push-fingerprint.ts`. That path is the dialect canonicalization owner: it
+projects partial-index predicates through the live database, drops constraint
+names when `introspectionReadsConstraintNames` is false, keeps PostgreSQL
+primary-key names (an omitted name is `{table}_pkey`, the catalog default),
+normalizes types and
+defaults, and excludes logical-only history such as `polymorphicStorage`.
+Apply, baseline, verify, down, resolve, reset, and push compare live schema
+through that function. Do not compare an introspected snapshot with
+`encodeSnapshot`. A SQL `DEFAULT NULL` and an omitted default are the same
+physical fact. Catalog aliases (`int4[]` / `integer[]`, `NOW()` / `now()`)
+are the same physical fact; `normalizeType` and `normalizeDefault` in
+`push-fingerprint.ts` are the one owner, including the differ. SQLite
+primary-key columns are not nullable even when `PRAGMA table_info` reports
+`notnull = 0`. SQLite `autoIncrement` is the `AUTOINCREMENT` keyword, not
+every `INTEGER PRIMARY KEY`. SQLite enum types keep the `CHECK (... IN ...)`
+suffix the driver writes; introspection reconstructs it from table SQL because
+`PRAGMA table_info` returns only `TEXT`. Transactional wrap uses the live producer's
+`supportsTransactions`; a dialect that can be transactional still executes
+sequentially when that producer cannot open a callback transaction. Catalog
+probes bind the resolved namespace and never fall back to `'public'` or
+`DATABASE()`. A generated statement with no bound namespace emits no probe
+(offline MySQL generate); it does not invent a default. PostgreSQL
+introspection reads foreign keys from `pg_constraint`
+and keeps a unique index that an FK targets as an index — `information_schema`
+drops that pair (`unique_constraint_name` is null; `conindid` also names the
+referenced unique index).
+
+### Closed parsing
+
+Hostile estate and control bytes become trusted V1 values only through the
+parse modules: `v1-parse-snapshot.ts`, `v1-parse-dispatch.ts`,
+`v1-parse-control.ts`, and `v1-parse.ts` for estate, state, and transition
+records. `v1-parse.ts` re-exports the sibling owners so callers keep one
+import path. The boundary rejects unknown versions, unknown keys, malformed
+nested values, non-canonical JSON, invalid order, duplicate parents, and
+identity mismatches. Do not cast `JSON.parse()` output to a snapshot,
+manifest, marker, or ledger event.
+
+`canonical-json.ts` alone produces and checks canonical JSON bytes.
+`v1-types.ts` defines the closed persisted and operation-input shapes; it does
+not admit open `unknown` payload bags. `public-view.ts` is the sole projection
+from a trusted graph to frozen, non-executable `list`, `show`, and `graph`
+metadata.
+
+### Exact SQL framing
+
+`sql-blob.ts` owns SQL framing. A dispatch references one SQL blob by hash plus
+a UTF-8 byte offset and length. Before the first effect, the complete range
+table is checked for matching blob hashes, valid bounds, order, non-overlap,
+and exact `\n\n` display gaps. The complete blob is fatal-decoded as UTF-8
+before any slice is executed, so a later check cannot fail after stepwise
+effects. Execution slices those exact bytes.
+
+Generated DDL already has provider statement boundaries. One manual `Sql` value
+is one opaque provider dispatch, even if its text contains internal semicolons.
+PostgreSQL dollar-quoted bodies, MySQL routines, and SQLite triggers therefore
+do not create fake progress boundaries. MySQL `DELIMITER` is refused because it
+is a client command.
+
+Typed parameters are canonical tagged values. `compile.ts` encodes them once;
+application decodes those tags through the same SQL boundary. Production does
+not derive values from display text.
+
+## One graph
+
+`graph.ts` loads one immutable `MigrationGraph` from committed state manifests.
+For one command, every graph-aware operation consumes that same instance. No
+consumer rescans storage, orders by filename, or discovers parents independently.
+
+The graph owner validates:
+
+- the estate target and every referenced artifact and hash;
+- one manifest per state ID and one transition per parent;
+- present parents, snapshots, and SQL blobs;
+- roots only from the virtual `null` origin;
+- no dangling edge, duplicate edge, cycle, or unreachable history;
+- valid leaves, selectors, and real adjacent edges;
+- SQL ranges before any dispatch can become executable.
+
+A normal state has one parent. A convergence state has one complete transition
+from each parent:
+
+```text
+      B
+     / \
+A ──    ──> D
+     \ /
+      C
+```
+
+A database at B executes only B-to-D; a database at C executes only C-to-D.
+The system never guesses that every missing branch should run.
+
+The default target is the unique leaf. Multiple leaves require an explicit
+target. State selectors use a full ID, unambiguous prefix, or unambiguous name.
+Multiple routes require an explicit `via`; no timestamp, filename, equal
+snapshot, or destructive-cost heuristic breaks the tie. `down` follows the
+marker's actual arrival path and cannot cross a baseline boundary.
+
+## Storage
+
+`storage/contract.ts` owns the semantic storage contract:
+
+- readers expose estate, state, snapshot, and SQL inventories and raw-byte
+  reads;
+- writers conditionally publish immutable estate, snapshot, SQL, and state
+  bytes;
+- reads and inventories are strongly consistent;
+- identical bytes at an existing identity are idempotent;
+- different bytes at an existing identity are corruption.
+
+Parsers, not storage drivers, turn bytes into trusted domain values. An
+unreferenced blob can be reported by `check`, but can never become executable
+merely because an inventory listed it.
+
+`storage/fs-estate.ts` owns filesystem publication:
+
+```text
+unique sibling temp
+  → write and fsync
+  → fresh-read verification
+  → hard-link no-replace publication
+  → exact-byte verification on EEXIST
+  → temp unlink
+  → parent-directory fsync
+```
+
+Check-then-rename is not an atomic no-replace publication. A filesystem that
+cannot provide the required primitive is not a writable V1 estate.
+`storage/memory.ts` is the in-memory implementation.
+`storage/conformance.ts` is the reusable contract proof for writable drivers.
+
+Eventually consistent, last-writer-wins storage is not directly writable under
+this contract. It requires an external single-writer/conditional-publication
+owner; the migration layer does not weaken its guarantees.
+
+## Compilation and generation
+
+There is one schema serializer (`serializer.ts`), one structural differ
+(`differ.ts`), and one ambiguity/destructive resolver (`resolver.ts`). Migration
+V1 reuses them. It does not fork schema comparison for estates or for `push`.
+
+`compile.ts` is the one transition compiler. It turns resolved
+`DiffOperation` values or complete manual `Sql` fragments into ordered
+operations, checks, exact dispatches, rollback policy, typed parameters, and one
+authenticated SQL blob. Dialect SQL, probes, and transactional classification
+remain the bound `MigrationDriver`'s responsibility.
+
+`generate-v1.ts` owns candidate construction and publication:
+
+1. hydrate and validate the schema, retaining the exact resolved relation index;
+2. load and validate one graph;
+3. serialize the desired snapshot;
+4. resolve the selected parent or all leaves to converge branches;
+5. use the existing differ and resolver for each parent, then
+   `prepareSchemaProgram` so generate and push compile the same operation order;
+6. compile every parent-specific transition completely;
+7. compute all hashes and return the complete candidate for `dryRun`;
+8. otherwise publish snapshot and SQL bytes first, then publish the state
+   manifest as the sole visibility boundary.
+
+Manual work enters only through `GenerateOptions.manualMigration`. It supplies
+complete parent transitions and destination checks before generation. The
+estate stores final SQL and closed manifests, not a durable TypeScript migration
+language. A state is wholly generated or wholly manual; custom text is not
+spliced into generated operations.
+
+## Live control and execution
+
+`control.ts` owns the two target-qualified control tables:
+
+```text
+_viborm_migration_state  — one current marker row
+_viborm_migration_log    — append-only ledger events
+```
+
+It also owns their validated naming, qualification, marker compare-and-swap,
+and ledger append boundary; every row is delegated to `v1-parse.ts` for the
+sole strict admission. An attempt is unfinished only when a start event has
+no terminal event for the same attempt id — membership, not row or
+timestamp order. Started and applied often share one millisecond, so a
+sort by `startedAt` then `eventId` can put the closer first. Read-only
+commands never bootstrap missing control tables or translate arbitrary
+provider failures into an empty history. Bootstrap creates the state table
+before the log table. An empty state-only table is therefore the one recognized
+interrupted-bootstrap shape only after the dialect introspector and the native
+CHECK catalog prove its exact definition and the attachment probe proves that
+no trigger, rule, policy, or row-security behavior can alter recovery. This
+state remains distinct from total absence. Only the bootstrap owner may drop
+and recreate it; push and every other command refuse it. A colliding or
+malformed empty table, a state table with a marker, or a log-only shape remains
+corrupt partial history. `readControlState` is the one reader: it authenticates
+a present pair once before returning marker and ledger truth. Transactional
+apply, baseline, and reset perform a required bootstrap inside their first real
+effect/publication transaction, so a failed first migration cannot leave new
+control tables behind. Stepwise providers retain the recoverable bootstrap
+protocol.
+
+`apply-v1.ts` owns forward application. Before effects it authenticates the
+complete selected graph, path, state manifests, snapshots, SQL blobs, ranges,
+dispatches, and parameters. Under one pinned target lock it then:
+
+1. admits the concrete provider and proves the exact target;
+2. reads marker and unfinished ledger state;
+3. selects from the actual marker;
+4. proves the live schema matches the marker's authenticated snapshot;
+5. executes only authenticated SQL slices with typed parameters;
+6. proves operation postconditions and the final target fingerprint;
+7. compare-and-swaps the marker and appends ledger evidence;
+8. releases the lock on the same physical producer.
+
+Transactional providers keep effects, final proof, marker, and success evidence
+inside the real transaction when the complete transition permits it. Stepwise
+providers record durable progress and honest `partial` or
+`may-have-committed` outcomes. An ambiguous opaque dispatch blocks later work;
+the system never claims rollback merely because code opened a nominal
+transaction.
+
+`operators.ts` owns the operator workflows. `status`, `verify`, and `log` are
+read-only. `baseline` requires exact live equality and a provable structural
+root path; it publishes the marker and `baselined` event in one transaction
+when the producer can. `down` preflights every reverse program, appends
+`started` before the first rollback dispatch, records step progress, and uses
+the same transaction wrap as apply. An unfinished rollback can only be resumed
+by `down()`. `resolve` accepts only outcomes established by origin/destination
+proof; generated structural opacity may complete from a fingerprint, while
+manual opaque work still needs state checks. `reset` preloads and authenticates
+the complete clear-and-replay program before the first drop, classifies every
+replay transition before clearing, and executes contiguous transactional replay
+groups in real transactions without letting one stepwise edge flatten the whole
+path. Resume accepts only an exact contiguous confirmed-dispatch prefix. It
+never replays a committed opaque dispatch, and an announced stepwise opaque
+dispatch without committed evidence is an ambiguous outcome. If the marker
+already names the target after a crashed CAS, reset closes the exact sole reset
+attempt only when the marker revision and arrival path prove that reset's CAS
+advanced. An unchanged same-target source marker is not success and still runs
+clear-and-replay.
+
+## Shared live infrastructure — no second engine
+
+Migration V1 extends the established migration infrastructure:
+
+| Invariant | Existing owner reused by every V1 path |
+| --- | --- |
+| Exact durable estate target and namespace binding | `target.ts` |
+| Command-local namespace spelling | `resolveCommandDriver` in `pinned-session.ts` |
+| Artifact-relative versus live-qualified SQL | the dialect `MigrationDriver`, selected by required `DDLContext.destination` |
+| Concrete-provider capability admission | `admission.ts` |
+| One pinned producer, target selection, lock, and unlock proof | `pinned-session.ts` |
+| Dependency-safe contained namespace clear | `live-reset.ts` |
+| Model graph to snapshot | `serializer.ts` with the exact resolved relation index |
+| Structural difference | `differ.ts` |
+| Rename/destructive resolution | `resolver.ts` |
+| Dialect DDL, probes, and atomicity facts | the bound `MigrationDriver` |
+
+Do not wrap these owners in a V1-specific namespace engine, qualifier, lock,
+resetter, admission registry, differ, resolver, or executor. Lock, marker CAS,
+and artifact authentication protect different failure modes; none replaces
+another.
+
+## `push` is history-free
+
+`push-v1.ts` owns V1 push identity, inert consent, marker interlock, and final
+result shape. `push/index.ts` remains the dialect-aware live planning/execution
+path. It is deliberately history-free and **must never receive or read estate
+storage**.
+
+The push flow is:
+
+1. validate and serialize the desired schema;
+2. introspect the exact live target and use the one differ/resolver;
+3. compile one immutable internal baseline-specific program and hash every fact
+   that can affect execution;
+4. return an effect-free `dryRun` result and inert consent when requested;
+5. reacquire the target lock, re-introspect, and reproduce the program;
+6. require exact consent for destructive or force-reset work;
+7. execute only that locked in-memory program;
+8. re-introspect and prove live equals `fingerprintLive` of the desired
+   snapshot after effects. Plan-time `desiredFingerprint` is a consent
+   digest; it is not the attest target, because partial-index predicates
+   cannot be canonicalized against tables that do not exist yet.
+
+Consent is not authority and the preview is not an executable public plan. A
+forged or stale value can only cause refusal. Resolution callbacks run outside
+the lock; their normalized decisions are closed into consent and checked
+against the locked replan.
+
+Push may inspect the database control plane only to prevent history from being
+made false. A non-empty push against a valid migration marker is refused. A
+no-op is allowed only after the marker, unfinished-attempt state, desired
+snapshot, live fingerprint, and empty authoritative diff all agree. This does
+not verify estate storage; `verify` owns that operation.
+
+Force-reset is a plan kind, not generic authorization. `dryRun` has zero
+database and storage effects. The complete empty-to-target program and
+dependency-safe clear are compiled before anything is dropped.
+
+## Single owners
+
+| Invariant or action | One owner |
+| --- | --- |
+| Domain-separated SHA-256 identity | `identity.ts` |
+| Live physical fingerprint | `push-fingerprint.ts` `fingerprintLive` |
+| Operation execution order | `utils.ts` `sortOperations` |
+| Generated schema compile order | `utils.ts` `prepareSchemaProgram` |
+| RFC 8785 canonical JSON bytes | `canonical-json.ts` |
+| Closed V1 persisted and operation-input shapes | `v1-types.ts` |
+| Frozen non-executable graph views | `public-view.ts` |
+| Hostile artifact, marker, and ledger admission; derived hashes | `v1-parse.ts` |
+| SQL blob framing, range validation, and exact slicing | `sql-blob.ts` |
+| Semantic estate storage promises | `storage/contract.ts` |
+| Atomic filesystem publication | `storage/fs-estate.ts` |
+| In-memory estate behavior | `storage/memory.ts` |
+| Writable-storage acceptance proof | `storage/conformance.ts` |
+| Graph construction, selector resolution, and route selection | `graph.ts` |
+| Structured operation, dispatch, rollback, and parameter compilation | `compile.ts` |
+| Candidate generation and manifest-last publication | `generate-v1.ts` |
+| Marker, ledger, control naming, qualification, and CAS | `control.ts` |
+| Live transaction wrap predicate | `pinned-session.ts` `mayWrapTransaction` |
+| Authenticated forward execution | `apply-v1.ts` |
+| Offline estate integrity findings | `check.ts` |
+| Status, verification, history display, rollback, baseline, recovery, and history-aware reset | `operators.ts` |
+| Push consent identity and history interlock | `push-v1.ts` |
+| History-free dialect-aware live planning/execution | `push/index.ts` |
+| Capability-sensitive migration client composition | `client.ts` |
+| Package export boundary | `index.ts` |
+
+If a new check cannot be assigned to exactly one row, fix the ownership before
+adding it. Consumers use trusted projections; they do not re-derive the fact.
+
+## Public operation surface
+
+The migration client exposes only these operation nouns:
+
+```text
+generate
+check
+list
+show
+graph
+status
+verify
+log
+apply
+down
+baseline
+resolve
+reset
+push
+```
+
+`client.ts` is the one execution composition root. `index.ts` exports no direct
+operation functions. Without storage the client exposes only `push` and `log`;
+a `MigrationStorageReader` adds inspection and stored-history operations; a
+`MigrationStorageWriter` also adds `generate` and `reset`. The runtime object
+omits operations its inspected storage cannot perform, and the static type
+never promises an operation outside the storage capability the caller supplied.
+`apply` targets a full state ID, unambiguous prefix, or unambiguous name;
+numeric positions have no meaning. `dryRun` is an option on the relevant
+operation, not a second execution API. Resolver functions and storage
+constructors are utilities, not alternate execution roots.
+
+## Forbidden architecture
+
+The following concepts are removed and must not return under aliases:
+
+- a **journal**, mutable global manifest, mutable head, or timestamp order;
+- **squash** or inferred history compaction;
+- a public or internal orchestration class named **`MigrationContext`**;
+- path-level storage **`get` / `put` / `delete`**;
+- **`parseStatements`**, breakpoint/comment parsing, or any SQL parser service;
+- **`split(";\n")` as execution framing** or any delimiter-derived boundary;
+- one **latest snapshot** used as history;
+- **numeric apply indexes** or filename order;
+- a **migration manager**;
+- an **event bus**;
+- a **second differ** or resolver;
+- a **public execution plan** or caller-executable operation program;
+- a second migration executor, provider wrapper, generic storage transaction,
+  or control-plane registry.
+
+In particular, do not “temporarily” read legacy files to ease a transition.
+VibORM is unreleased: V1 has no compatibility reader, alias, repair path, or
+journal migrator.
+
+## Navigation
+
+| I want to… | Start here | Also inspect |
+| --- | --- | --- |
+| Change a hash domain or identity rule | `identity.ts` | `v1-parse.ts`, golden identity vectors |
+| Change canonical JSON behavior | `canonical-json.ts` | `v1-parse.ts` |
+| Change a V1 persisted shape | `v1-types.ts` | `v1-parse.ts`, `identity.ts` |
+| Change strict artifact/control parsing | `v1-parse.ts` | `v1-types.ts`, `canonical-json.ts` |
+| Change SQL range framing or slicing | `sql-blob.ts` | `compile.ts`, `apply-v1.ts` |
+| Add a storage implementation | `storage/contract.ts` | `storage/conformance.ts`; copy neither parser nor graph logic |
+| Change filesystem durability | `storage/fs-estate.ts` | `storage/contract.ts`, `storage/conformance.ts` |
+| Change graph validity, selectors, or route ambiguity | `graph.ts` | `v1-parse.ts` |
+| Change snapshot serialization | `serializer.ts` | schema relation resolution and bound migration drivers |
+| Change structural diff behavior | `differ.ts` | `resolver.ts`; do not add an estate-specific differ |
+| Change dialect statements, probes, or atomicity | the dialect `MigrationDriver` | `compile.ts`, `DDLContext.destination` |
+| Change generated/manual transition compilation | `compile.ts` | `sql-blob.ts`, `v1-types.ts` |
+| Change state generation or publication order | `generate-v1.ts` | `graph.ts`, storage contract |
+| Change marker, ledger, control tables, or CAS | `control.ts` | `v1-parse.ts`, `pinned-session.ts` |
+| Change forward application | `apply-v1.ts` | `graph.ts`, `control.ts`, `compile.ts` |
+| Change offline integrity reporting | `check.ts` | `graph.ts`, storage inventories |
+| Change rollback, baseline, recovery, or reset workflow | `operators.ts` | `control.ts`, `live-reset.ts`, `apply-v1.ts` |
+| Change push consent or migration-marker coexistence | `push-v1.ts` | `control.ts`, `identity.ts` |
+| Change live push planning | `push/index.ts` | `push/planner.ts`, `differ.ts`; never estate storage |
+| Change target admission, qualification, locking, or clear behavior | `admission.ts`, `target.ts`, `pinned-session.ts`, or `live-reset.ts` respectively | bound migration drivers |
+| Change the programmatic operation surface | `client.ts` | `index.ts`, `public-view.ts`; keep the noun list and capability partition exact |
+
+## Non-negotiable review questions
+
+Before accepting an L12 change, answer all of these:
+
+1. Which single owner now answers the changed invariant?
+2. Are the exact bytes and typed parameters production executes authenticated?
+3. Can every artifact and the full selected path fail before the first effect?
+4. Does branch convergence use one explicit transition per parent?
+5. Are marker truth and ledger evidence still separate?
+6. Does the command use the existing target, qualification, admission, lock,
+   reset, serializer, differ, resolver, compiler, and driver owners?
+7. Is a stepwise failure reported without pretending it rolled back?
+8. Does `push` remain fully independent of estate storage and history mutation?
+9. Did any forbidden concept or unofficial public noun reappear?
+
+The design goal is not the largest migration framework. It is the smallest one
+whose estate bytes, graph, database state, execution, and operator claims cannot
+contradict each other.

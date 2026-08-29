@@ -1,7 +1,7 @@
 import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite } from "@electric-sql/pglite";
-import { push } from "@migrations";
+
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { CreateOperation } from "@src/query-engine/write-engine/CreateOperation";
 import type { StatementStep } from "@src/query-engine/write-engine/OperationFragment";
@@ -12,6 +12,7 @@ import {
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 const substrates = [
   {
@@ -32,7 +33,7 @@ for (const substrate of substrates) {
         schema: adoptOwnedFkSchema,
         driver: substrate.make(),
       }) as any;
-      await push(shared, { force: true });
+      await syncLiveSchema(shared);
     }
     return shared;
   });

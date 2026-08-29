@@ -11,7 +11,7 @@
  *
  * `PRAGMA foreign_keys` is documented by SQLite as a NO-OP inside a
  * transaction, and all three places that execute generated DDL run the batch
- * inside one — `push/executor.ts`, `apply/index.ts` and `apply/down.ts`.
+ * inside one — `execute-dispatch.ts` and the SQLite recreation path.
  * MEASURED on better-sqlite3 at `5e5bc60`, recreating a populated table a
  * single child row pointed at:
  *

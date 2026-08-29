@@ -3,9 +3,10 @@ import { PGliteDriver } from "@drivers/pglite";
 import type { BatchQuery, QueryResult } from "@drivers/types";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { NestedWriteError, UniqueConstraintError } from "@errors";
-import { push } from "@migrations";
+
 import { describe, expect, test } from "vitest";
 import { nestedWriteBehaviorSchema } from "@tests/fixtures/nested-write-behavior-schema";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 /**
  * M7 gate (§11 M7, §7.3): one error surface. When a planned-mode atomic batch
@@ -58,7 +59,7 @@ async function setupDb(): Promise<PGlite> {
     schema: nestedWriteBehaviorSchema,
     driver: new PGliteDriver({ client: db }),
   });
-  await push(setupClient, { force: true });
+  await syncLiveSchema(setupClient);
   return db;
 }
 

@@ -5,12 +5,13 @@ import {
 } from "@client/client";
 import type { AnyDriver } from "@drivers";
 import { UniqueConstraintError } from "@errors";
-import { push } from "@migrations";
+
 import { s } from "@schema";
 import { sql } from "@sql";
 import { defineContract } from "@tests/contracts/contract";
 import { upsertAtomicitySchema as schema } from "@tests/fixtures/upsert-atomicity-schema";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 /**
  * M8 concurrent suite (§11 M8, §7.4, D7). The write-race retry is unified above
@@ -109,7 +110,7 @@ function runUpsertRaces({
       ]) {
         await driver._executeRaw(`DROP TABLE IF EXISTS ${table}`);
       }
-      await push(client, { force: true });
+      await syncLiveSchema(client);
     }
 
     function boot(driver: AnyDriver): ConcurrencyClient {
@@ -401,7 +402,7 @@ function runSingularSlotTransferRaces({
       for (const table of SLOT_TABLES) {
         await driver._executeRaw(`DROP TABLE IF EXISTS ${table}`);
       }
-      await push(client, { force: true });
+      await syncLiveSchema(client);
     });
 
     afterEach(async () => {

@@ -128,7 +128,7 @@ export const schema = { user, post };
 ```typescript
 // db.ts
 import { createClient } from "viborm/pglite";
-import { push } from "viborm/migrations";
+import { createMigrationClient } from "viborm/migrations";
 import { schema } from "./schema";
 
 export const orm = createClient({
@@ -136,8 +136,9 @@ export const orm = createClient({
   dataDir: ".pglite", // Persists to filesystem (omit for in-memory)
 });
 
-// Push schema to database (creates tables)
-await push(orm, schema);
+// History-free live sync. Push never writes estate storage or the marker.
+const migrations = createMigrationClient(orm);
+await migrations.push();
 ```
 
 ### 4. Query
@@ -456,7 +457,7 @@ src/
 │
 ├── instrumentation/   L11 Tracing, structured logging, diagnostics
 │
-└── migrations/        L12 Schema diffing, push, migration files, DDL
+└── migrations/        L12 Authenticated estate, history-free push, DDL
 ```
 
 ### Key Architecture Rules
@@ -592,7 +593,7 @@ Most tests run against PGlite (in-memory PostgreSQL). Driver tests in `tests/dri
 - Supported nested writes (`create`, `createMany`, `connect`, `connectOrCreate`, `disconnect`, `delete`, `set`, `update`, `updateMany`, `upsert`, `deleteMany`) across callback-transaction and atomic-batch paths
 - Select/include with typed results
 - All scalar types (string, int, number, boolean, dateTime, json, enum, etc.)
-- PostgreSQL, MySQL, and SQLite adapters, including `push` migrations for all three
+- PostgreSQL, MySQL, and SQLite adapters, including authenticated estate migrations and history-free `push` where the provider lock/CAS is proven
 - Query caching with TTL and SWR
 - Transactions (callback and batch modes), with Prisma's `{ isolationLevel, timeout, maxWait }` options honored or refused per driver — never ignored
 - OpenTelemetry instrumentation

@@ -52,6 +52,48 @@ function int(value: SqliteInt): number {
 
 /** The predicate half of a stored `CREATE INDEX … WHERE …`, if there is one. */
 const TRAILING_WHERE = /^WHERE\s+([\s\S]+)$/i;
+const AUTOINCREMENT = /\bAUTOINCREMENT\b/i;
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * The CHECK the SQLite driver embeds in an enum column type.
+ *
+ * `PRAGMA table_info` reports only `TEXT`. The values live in
+ * `sqlite_master.sql` as `CHECK("col" IN ('a', 'b'))`, which is the same
+ * spelling `getEnumColumnType` writes into the desired snapshot. Reconstruct
+ * that suffix so fingerprint and differ see one type.
+ */
+function sqliteEnumCheckSuffix(
+  tableSql: string | null,
+  columnName: string
+): string | undefined {
+  if (!tableSql) return;
+  const quoted = escapeIdentifier(columnName);
+  const match = tableSql.match(
+    new RegExp(
+      `CHECK\\(\\s*${escapeRegExp(quoted)}\\s+IN\\s*\\((\\s*(?:'(?:[^']|'')*'\\s*,\\s*)*'(?:[^']|'')*'\\s*)\\)\\s*\\)`,
+      "i"
+    )
+  );
+  const list = match?.[1];
+  if (!list) return;
+  const values: string[] = [];
+  const literals = /'((?:[^']|'')*)'/g;
+  let literal = literals.exec(list);
+  while (literal) {
+    const value = literal[1];
+    if (value !== undefined) values.push(value.replace(/''/g, "'"));
+    literal = literals.exec(list);
+  }
+  if (values.length === 0) return;
+  const escaped = values
+    .map((value) => `'${value.replace(/'/g, "''")}'`)
+    .join(", ");
+  return ` CHECK(${quoted} IN (${escaped}))`;
+}
 
 /**
  * Reads the predicate of a partial index back out of the text SQLite stored.
@@ -149,6 +191,8 @@ export async function introspect(
     const columnsResult = await executeRaw<SqliteColumn>(
       `PRAGMA table_info(${escapeIdentifier(tableName)})`
     );
+    const tableSql = tableRow.sql;
+    const hasAutoincrement = AUTOINCREMENT.test(tableSql ?? "");
 
     // Get indexes
     const indexesResult = await executeRaw<SqliteIndex>(
@@ -180,20 +224,20 @@ export async function introspect(
     for (const col of columnsResult.rows) {
       const pk = int(col.pk);
       const type = col.type || "TEXT";
-      const nullable = int(col.notnull) === 0;
+      const nullable = int(col.notnull) === 0 && pk === 0;
       columns.push({
         name: col.name,
-        type,
+        type: `${type}${sqliteEnumCheckSuffix(tableSql, col.name) ?? ""}`,
         nullable,
         default: col.dflt_value ?? undefined,
-        autoIncrement: pk === 1 && col.type.toUpperCase() === "INTEGER",
+        autoIncrement: pk === 1 && hasAutoincrement,
         // The declared domain, recovered from the reserved CHECK constraint
         // the driver wrote. Nothing else on this dialect carries it: the type
         // is `INTEGER` (or `TEXT`) at every precision and scale, and the
         // pragma reports no constraints at all — so a side that could not
         // recover it would read as a change on every push, forever.
         decimal: readSqliteDecimalConstraint(
-          tableRow.sql,
+          tableSql,
           // The descriptor proof consumes the exact declared type PRAGMA
           // reported. The generic snapshot fallback above may call an untyped
           // column TEXT, but that normalization cannot turn BLOB affinity into

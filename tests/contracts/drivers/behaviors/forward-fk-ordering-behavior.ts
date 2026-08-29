@@ -2,7 +2,7 @@ import { defineContract } from "@tests/contracts/contract";
 /**
  * Forward-reference foreign-key push ordering — live driver behavior.
  *
- * The regression witness for the push() forward-FK DDL-ordering bug: a schema
+ * The regression witness for the syncLiveSchema() forward-FK DDL-ordering bug: a schema
  * that declares a child model (holding a `manyToOne` FK) BEFORE its parent used
  * to emit the FK constraint before the referenced table's CREATE TABLE ran,
  * aborting the whole transactional push (Postgres 42P01, MySQL analogous) with
@@ -21,8 +21,9 @@ import {
   type VibORMConfig,
 } from "@client/client";
 import type { AnyDriver } from "@drivers";
-import { push } from "@migrations";
+
 import { s } from "@schema";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { afterEach, describe, expect, test } from "vitest";
 
 // --- Case 1: simple forward reference (child declared before parent) ---------
@@ -147,7 +148,7 @@ export function runForwardFkOrderingBehavior({
       const c = make(simpleSchema);
 
       // Would 42P01 before the fix (FK on fwd_fk_posts precedes CREATE users).
-      await push(client as never, { force: true });
+      await syncLiveSchema(client as never);
 
       await c.fwdUser.create({ data: { id: "u1", name: "Ann" } });
       await c.fwdPost.create({
@@ -164,7 +165,7 @@ export function runForwardFkOrderingBehavior({
 
     test("multi-model forward chain: push + create through the chain", async () => {
       const c = make(chainSchema);
-      await push(client as never, { force: true });
+      await syncLiveSchema(client as never);
 
       await c.chainC.create({ data: { id: "c1" } });
       await c.chainB.create({ data: { id: "b1", cId: "c1" } });
@@ -179,7 +180,7 @@ export function runForwardFkOrderingBehavior({
 
     test("self reference: push + parent/child round-trip", async () => {
       const c = make(selfRefSchema);
-      await push(client as never, { force: true });
+      await syncLiveSchema(client as never);
 
       await c.treeNode.create({ data: { id: "root", label: "root" } });
       await c.treeNode.create({
@@ -195,20 +196,20 @@ export function runForwardFkOrderingBehavior({
 
     test("idempotency: re-pushing a forward-ref schema does not recreate tables", async () => {
       const c = make(simpleSchema);
-      await push(client as never, { force: true });
+      await syncLiveSchema(client as never);
 
-      const second = await push(client as never, { force: true });
+      const second = await syncLiveSchema(client as never);
 
       // The forward-ref fix must never make a re-push recreate tables.
       expect(
-        second.operations.filter((o) => o.type === "createTable")
+        second.operations.filter((o) => o.label === "createTable")
       ).toHaveLength(0);
 
       if (fkNamesRoundTrip) {
         // Postgres/MySQL round-trip FK names: re-push is a full no-op, so no
         // duplicate ADD CONSTRAINT is emitted.
         expect(second.operations).toHaveLength(0);
-        expect(second.sql).toHaveLength(0);
+        expect(second.statements).toHaveLength(0);
       }
 
       // Whatever the re-push emitted, the schema still works end to end.

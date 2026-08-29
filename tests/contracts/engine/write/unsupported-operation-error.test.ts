@@ -7,12 +7,13 @@ import {
   VibORMError,
   VibORMErrorCode,
 } from "@errors";
-import { push } from "@migrations";
+
 import { UnsupportedOperationError as RootExport } from "@src/index";
 import { UnsupportedOperationError as EngineReexport } from "@src/query-engine/write-engine/shared";
 import { operationFragmentSchema } from "@tests/contracts/engine/write/create-nested-upsert-behavior";
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { describe, expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 /**
  * A deliberate execution boundary must not look like an engine crash. A batch-only
@@ -56,7 +57,7 @@ describe("UnsupportedOperationError public surface", () => {
       schema: operationFragmentSchema,
       driver: new PGliteDriver({ client: database }),
     });
-    await push(state, { force: true });
+    await syncLiveSchema(state);
     const client = createClient({
       schema: operationFragmentSchema,
       driver: new BatchOnlyPGliteDriver({ client: database }),

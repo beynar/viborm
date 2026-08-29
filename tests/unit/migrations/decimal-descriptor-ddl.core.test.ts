@@ -17,7 +17,6 @@
  */
 
 import { createClient } from "@client/client";
-import { push } from "@migrations";
 import { s } from "@schema";
 import type { MigrationDriver } from "@src/migrations/drivers";
 import { mysqlMigrationDriver } from "@src/migrations/drivers/mysql";
@@ -27,6 +26,7 @@ import { getSQLiteType } from "@src/migrations/drivers/type-mapping";
 import { serializeModels } from "@src/migrations/serializer";
 import type { ColumnDef, SchemaSnapshot } from "@src/migrations/types";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
+import { syncLiveSchema as push } from "@tests/fixtures/sync-schema";
 import { describe, expect, test } from "vitest";
 import { ddlContextFor } from "./_estate";
 

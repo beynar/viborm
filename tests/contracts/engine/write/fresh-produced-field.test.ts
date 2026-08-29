@@ -4,7 +4,7 @@ import { MySQL2Driver } from "@drivers/mysql2";
 import { PGliteDriver } from "@drivers/pglite";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import { PGlite } from "@electric-sql/pglite";
-import { push } from "@migrations";
+
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames, s } from "@schema";
 import type { Model } from "@schema/model";
@@ -20,6 +20,7 @@ import {
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 /**
  * PACKAGE F — the structural half. The behavior module owns "the child holds the value
@@ -84,7 +85,7 @@ function pushed(schema: Record<string, unknown>): () => Promise<any> {
         schema,
         driver: substrates[0].make(),
       } as any) as any;
-      await push(shared, { force: true });
+      await syncLiveSchema(shared);
     }
     return shared;
   };
@@ -414,7 +415,7 @@ describe("F4 — the substrate row of the value-state table", () => {
       driver: new PGliteDriver({ client: database }),
     });
     try {
-      await push(setup, { force: true });
+      await syncLiveSchema(setup);
       const batch = createClient({
         schema: singleSequenceSchema,
         driver: new BatchOnlyPGliteDriver({ client: database }),

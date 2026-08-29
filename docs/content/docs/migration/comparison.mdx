@@ -1,0 +1,197 @@
+---
+title: Compared with Prisma and Drizzle
+description: How VibORM V1 differs in migration history, artifact integrity, recovery, push, and programmatic use
+icon: scale
+---
+
+This is a systems comparison, not a claim that one tool is best for every
+team. The versions matter: the research cutoff is **August 27, 2026**, covering
+Prisma 7.10.0 GA, Prisma 8.0.0-rc.8, and Drizzle 1.0.0-rc.4. Prisma 8 and
+Drizzle V1 were release candidates at that cutoff. VibORM V1 is unreleased and
+has less production history than either project.
+
+The comparison uses the tagged
+[Prisma 8.0.0-rc.8 source](https://github.com/prisma/orm/releases/tag/v8.0.0-rc.8),
+the [Prisma 7.10.0 release](https://github.com/prisma/orm/releases/tag/7.10.0),
+and the tagged
+[Drizzle 1.0.0-rc.4 source](https://github.com/drizzle-team/drizzle-orm/releases/tag/v1.0.0-rc.4),
+not an assumed future final release.
+
+## The Short Version
+
+- **Prisma 7** uses familiar linear SQL migration directories and a mature
+  production workflow. Its production deploy path does not compare the live
+  schema with the expected schema before applying.
+- **Prisma 8 RC** is the closest architectural comparison to VibORM: migrations
+  form a state graph, executable operations are authenticated, and a marker and
+  ledger separate current state from audit history.
+- **Drizzle V1 RC** keeps transparent SQL and a small runtime migrator. Its
+  generation snapshots form a graph, while stock apply selects SQL migrations
+  by their directory names.
+- **VibORM V1** keeps reviewed SQL, but closes it into an authenticated state
+  graph. It verifies the complete path and exact SQL ranges before effects,
+  refuses production drift, and records provider-honest partial progress.
+
+## System Model
+
+| Concern | VibORM V1 | Prisma 7.10 | Prisma 8.0 RC | Drizzle 1.0 RC |
+| --- | --- | --- | --- | --- |
+| Disk unit | Immutable estate descriptor, content-addressed snapshots and SQL blobs, state manifests | Timestamp directory containing `migration.sql` | TypeScript intent, strict manifest, compiled operations, content-addressed snapshots | Timestamp directory containing SQL and a snapshot |
+| History | State graph; every state contains one complete transition from each parent | Linear ordered migration directories | State graph from an exact origin to an exact destination | Snapshot graph for generation; lexicographic SQL list for apply |
+| Production executes | Authenticated byte ranges from the reviewed SQL blob, with authenticated typed parameters | `migration.sql` | Compiled `ops.json`, not migration TypeScript | SQL split at generated breakpoint comments |
+| Current-state record | One compare-and-swapped marker | Rows in `_prisma_migrations` | Contract marker | Applied migration names in `__drizzle_migrations` |
+| Audit record | Separate append-only ledger | `_prisma_migrations` also carries execution history | Separate append-only ledger | One row per applied migration directory |
+| Branch handling | Explicit graph target and route; no filename or timestamp tie-break | Team reconciles a linear history | Explicit graph paths and targets | Snapshot-parent and commutativity checks; SQL apply remains name ordered |
+| Maturity | Unreleased | GA | Release candidate at cutoff | Release candidate at cutoff; its stable line uses an older design |
+
+Prisma's current graph model is described in its
+[migration graph](https://docs.prisma.io/docs/orm/migrations/the-migration-graph)
+and [migration model](https://docs.prisma.io/docs/orm/migrations/how-migrations-work)
+documentation. Drizzle documents its
+[`generate`](https://orm.drizzle.team/docs/drizzle-kit-generate),
+[`check`](https://orm.drizzle.team/docs/drizzle-kit-check), and
+[`migrate`](https://orm.drizzle.team/docs/drizzle-kit-migrate) phases
+separately.
+
+## Integrity and Failure Handling
+
+| Question | VibORM V1 | Prisma | Drizzle V1 RC |
+| --- | --- | --- | --- |
+| Can production run different bytes from those reviewed? | Every state, SQL blob, byte range, dispatch, and typed parameter is reauthenticated before execution. | Prisma 7 stores applied checksums. Prisma 8 authenticates the compiled operation package. | A SQL hash is stored, but the inspected RC pending-selection path selects unapplied work by directory name rather than reauthenticating that hash. |
+| Can a partial generation become visible? | Referenced blobs publish first; one immutable state manifest publishes last through conditional no-replace storage. | Prisma 7 does not document one directory-wide atomic publication boundary. Prisma 8 uses atomic publication for its snapshot store, but not one documented commit for the complete migration package. | The inspected generator writes the snapshot before the SQL file, so interruption can leave generation and execution seeing different sets. |
+| Is production drift refused before apply? | Yes. VibORM compares the live managed schema with the marker's authenticated origin snapshot, then proves the destination after execution. | Prisma 7 detects drift during the development shadow-database workflow; `migrate deploy` does not perform that production drift check. Prisma 8 adds marker checks and explicit `db verify` modes. | `check` validates snapshot history. The inspected stock migrate path has no equivalent live-schema verification step. |
+| What prevents concurrent runners? | A target-specific lock held by one pinned physical session, plus marker compare-and-swap. | Prisma 7 uses provider advisory locking. Prisma 8 PostgreSQL combines a transaction advisory lock with marker CAS; this comparison does not generalize that proof to every Prisma 8 target. | No dedicated migration lock appears in the inspected stock PostgreSQL, MySQL, or SQLite RC paths. Transactional providers may still serialize through their database transaction behavior. |
+| What happens on non-transactional DDL? | The provider's real boundary is reported. MySQL records each confirmed dispatch and leaves an explicit unfinished attempt after partial or ambiguous completion. | Behavior depends on dialect and migration SQL. Prisma 7 does not wrap every migration in one transaction by default. | The MySQL migrator opens a transaction, but MySQL DDL can implicitly commit, so the whole batch is not rollbackable. |
+
+The Prisma 7 distinction between development drift detection and production
+deployment is documented in its
+[development and production workflow](https://docs.prisma.io/docs/orm/v7/prisma-migrate/workflows/development-and-production).
+Prisma 8 documents its [`db verify`](https://docs.prisma.io/docs/cli/db-verify)
+workflow. MySQL's limitation is a database fact, not an ORM preference:
+[DDL statements can implicitly commit](https://dev.mysql.com/doc/refman/8.4/en/implicit-commit.html).
+
+VibORM's extra checks are not redundant copies of one rule. Artifact hashes
+prove what may execute; the target lock coordinates normal runners; marker CAS
+catches a lost coordination race; live fingerprints prove the database still
+matches the recorded state.
+
+## Push Is a Separate Contract
+
+All three systems distinguish direct schema synchronization from migration
+history:
+
+| | VibORM `push` | Prisma | Drizzle `push` |
+| --- | --- | --- | --- |
+| Creates history | No | No | No |
+| Review mode | Structured dry preview with SQL, typed parameters, risks, target, and plan hash | Prisma 7 previews and requires an explicit data-loss option; Prisma 8 `db update` adds a typed consent and verification flow | `--explain` and structured missing-hint responses |
+| Destructive authority | Consent is bound to the exact target, plan, validation mode, and resolver decisions | Prisma 7 uses a general data-loss acceptance option; Prisma 8 uses target-specific consent | `--force` or explicit structured hints |
+| Before effect | Replan under the target lock; exact-match the consent | Version-dependent | PostgreSQL and MySQL RC handlers execute generated statements individually |
+| After effect | Re-introspect and require the desired managed fingerprint | Version-dependent verification behavior | No equivalent command-wide final fingerprint proof in the inspected handlers |
+
+See Prisma 7's [`db push`](https://docs.prisma.io/docs/cli/v7/db/push),
+Prisma 8's [`db update`](https://docs.prisma.io/docs/cli/db-update), and
+Drizzle's [`push`](https://orm.drizzle.team/docs/drizzle-kit-push) documentation.
+In VibORM, the consent value is inert: it is evidence of what was reviewed, not
+a public executable plan.
+
+## What Developers Actually Write
+
+The defensive model is mostly paid for by the migration engine. The ordinary
+workflow remains small:
+
+```ts
+const migrations = createMigrationClient(client, {
+  storage: createFsStorageWriter("./migrations"),
+});
+
+await migrations.generate({ name: "add-users" });
+await migrations.apply();
+```
+
+The strictness becomes visible only when a real decision exists:
+
+- multiple graph leaves require an explicit target;
+- multiple routes require `via` rather than an invented order;
+- stepwise manual work requires origin and destination checks;
+- destructive push requires preview consent;
+- an unsupported provider refuses an effectful guarantee it cannot prove;
+- an unfinished partial migration requires `resolve` or the owning retry path.
+
+That is more ceremony than a timestamp-ordered SQL folder during branch
+conflicts or recovery. It buys an exact answer to “what will run, against which
+state, and what happened if it stopped?” The happy path does not expose hashes,
+locks, marker updates, or ledger writes.
+
+## Programmatic Use and AI Agents
+
+`createMigrationClient` exposes the same nouns as the CLI. Storage capability
+narrows the surface: a storage-free client has `push` and database `log`; a
+reader adds inspection and application; a writer also adds generation and
+reset.
+
+Useful automation properties include:
+
+- stable `--json` command output;
+- semantic state selectors by full id, unambiguous prefix, or name;
+- `check`, `status`, `verify`, and `log` as separate evidence sources;
+- effect-free dry runs;
+- exact push consent that becomes stale when the live plan changes;
+- explicit `partial` and `may-have-committed` outcomes instead of invented
+  rollback claims.
+
+These properties are particularly useful for an AI agent: it can inspect a
+closed plan, request approval, and retry only through the state the database
+proves. It does not need to infer order from filenames or parse human terminal
+text.
+
+:::warning[Integrity Is Not a Sandbox]
+VibORM protects against stale plans, races, damaged artifacts, unsupported
+provider guarantees, and accidental edits. It does not sandbox trusted manual
+SQL or an agent that holds unrestricted database credentials. Use database
+roles, isolated deployment credentials, backups, and human approval according
+to the blast radius.
+:::
+
+## What This Comparison Does Not Claim
+
+- VibORM's stronger stated invariants do not replace operational maturity,
+  backups, monitoring, or zero-downtime expand/contract deployments.
+- A transaction does not make MySQL DDL rollbackable.
+- Branch graphs do not prove arbitrary handwritten SQL commutes.
+- Provider support is admitted per concrete transport. Sharing a SQL dialect
+  name is not enough.
+- Prisma 8 and Drizzle V1 were prereleases at the research cutoff; their final
+  contracts can change.
+
+## Evidence Notes
+
+The implementation-level claims above come from these pinned first-party
+sources:
+
+- Prisma 8's
+  [package I/O](https://github.com/prisma/orm/blob/v8.0.0-rc.8/packages/1-framework/3-tooling/migration/src/io.ts#L23-L64),
+  [migration hashing](https://github.com/prisma/orm/blob/v8.0.0-rc.8/packages/1-framework/3-tooling/migration/src/hash.ts#L20-L83),
+  [snapshot publication](https://github.com/prisma/orm/blob/v8.0.0-rc.8/packages/1-framework/3-tooling/migration/src/contract-snapshot-store.ts#L35-L95),
+  and [PostgreSQL runner](https://github.com/prisma/orm/blob/v8.0.0-rc.8/packages/3-targets/3-targets/postgres/src/core/migrations/runner.ts#L70-L213).
+- Drizzle RC's
+  [generation publication order](https://github.com/drizzle-team/drizzle-orm/blob/v1.0.0-rc.4/drizzle-kit/src/cli/commands/generate-common.ts#L52-L94),
+  [pending selection](https://github.com/drizzle-team/drizzle-orm/blob/v1.0.0-rc.4/drizzle-orm/src/migrator.utils.ts#L14-L24),
+  [PostgreSQL migrator](https://github.com/drizzle-team/drizzle-orm/blob/v1.0.0-rc.4/drizzle-orm/src/pg-core/async/session.ts#L277-L347),
+  and [MySQL migrator](https://github.com/drizzle-team/drizzle-orm/blob/v1.0.0-rc.4/drizzle-orm/src/mysql-core/async/session.ts#L268-L348).
+
+The provider-specific conclusions are deliberately narrow. A fact proven for
+Prisma 8's PostgreSQL runner or Drizzle's stock core migrator is not presented
+as a guarantee for every connector or hosted wrapper.
+
+<CardGroup>
+  <Card
+    title="Migrate"
+    description="Use the authenticated estate workflow"
+    href="/docs/migration/migrate"
+  />
+  <Card
+    title="Push"
+    description="Use history-free live synchronization"
+    href="/docs/migration/push"
+  />
+</CardGroup>

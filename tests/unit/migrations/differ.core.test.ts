@@ -318,6 +318,36 @@ describe("diff", () => {
       );
     });
 
+    it("treats catalog array aliases as the same column type", async () => {
+      const current = makeSnapshot([
+        makeTable("users", [makeColumn("ids", "int4[]")]),
+      ]);
+      const desired = makeSnapshot([
+        makeTable("users", [makeColumn("ids", "integer[]")]),
+      ]);
+
+      const result = await diff(current, desired);
+
+      expect(result.operations).toHaveLength(0);
+    });
+
+    it("treats NOW() and now() as the same default", async () => {
+      const current = makeSnapshot([
+        makeTable("users", [
+          makeColumn("createdAt", "timestamptz", { default: "now()" }),
+        ]),
+      ]);
+      const desired = makeSnapshot([
+        makeTable("users", [
+          makeColumn("createdAt", "timestamptz", { default: "NOW()" }),
+        ]),
+      ]);
+
+      const result = await diff(current, desired);
+
+      expect(result.operations).toHaveLength(0);
+    });
+
     it("should detect nullable changes", async () => {
       const current = makeSnapshot([
         makeTable("users", [makeColumn("email", "text", { nullable: false })]),

@@ -4,10 +4,11 @@ import { PGliteDriver } from "@drivers/pglite";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import type { PGlite, Transaction } from "@electric-sql/pglite";
 import { NotFoundError, UniqueConstraintError } from "@errors";
-import { push } from "@migrations";
+
 import { hydrateSchemaNames, s } from "@schema";
 import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import { beforeAll, describe, expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 /**
  * PHASE 8.1 — the terminal read, folded into the mutating statement
@@ -802,7 +803,7 @@ describe("Phase 8.1 — what the fold must not change", () => {
       schema,
       driver: new SQLite3Driver({ dataDir: ":memory:" }),
     });
-    await push(sqliteClient, { force: true });
+    await syncLiveSchema(sqliteClient);
     for (const id of [1, 2, 3]) {
       await sqliteClient.account.create({
         data: { id, email: `a${id}@x`, label: `L${id}` },

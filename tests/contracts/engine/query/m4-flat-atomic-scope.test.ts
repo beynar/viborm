@@ -3,11 +3,12 @@ import { Driver } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
 import type { BatchQuery, QueryResult } from "@drivers/types";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
-import { push } from "@migrations";
+
 import { describe, expect, test, vi } from "vitest";
 import { batchIsAtomicUnit } from "@tests/fixtures/atomic-unit-batch";
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { nestedWriteBehaviorSchema } from "@tests/fixtures/nested-write-behavior-schema";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 /**
  * M4 gate (DESIGN.md §11 M4): the interpreter's recursion threads ONE emit/scope
@@ -73,7 +74,7 @@ async function setupDb(): Promise<PGlite> {
     schema: nestedWriteBehaviorSchema,
     driver: new PGliteDriver({ client: db }),
   });
-  await push(setupClient, { force: true });
+  await syncLiveSchema(setupClient);
   return db;
 }
 

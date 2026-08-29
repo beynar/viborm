@@ -8,9 +8,10 @@
  */
 
 import { createClient as PGliteCreateClient } from "@drivers/pglite";
-import { push } from "@migrations";
+
 import { s } from "@schema";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 const User = s
   .model({
@@ -50,7 +51,7 @@ beforeAll(async () => {
   client = await PGliteCreateClient({ schema, client: new PGlite() });
   // skipValidation: FK008 flags the deliberately-missing .unique() above;
   // this suite exists to prove the serializer emits the constraint anyway.
-  await push(client, { force: true, skipValidation: true });
+  await syncLiveSchema(client, { skipValidation: true });
 });
 
 afterAll(async () => {

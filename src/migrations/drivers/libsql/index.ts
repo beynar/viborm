@@ -70,7 +70,7 @@ export class LibSQLMigrationDriver extends SQLite3MigrationDriver {
     // falsifier ("LibSQL cannot take a native ALTER route that skips
     // conversion").
     if (decimalConversionRequired(op.from, op.to)) {
-      return super.generateAlterColumn(op, context);
+      return this.compileAlterColumnByRecreation(op, context).join(";\n");
     }
 
     const { tableName, columnName, to } = op;
@@ -82,6 +82,16 @@ export class LibSQLMigrationDriver extends SQLite3MigrationDriver {
 
     // LibSQL syntax: ALTER TABLE t ALTER COLUMN old_name TO new_def
     return `ALTER TABLE ${table} ALTER COLUMN ${col} TO ${colDef}`;
+  }
+
+  override compileAlterColumn(
+    op: AlterColumnOperation,
+    context: DDLContext
+  ): readonly string[] {
+    if (decimalConversionRequired(op.from, op.to)) {
+      return this.compileAlterColumnByRecreation(op, context);
+    }
+    return super.compileAlterColumn(op, context);
   }
 
   // ===========================================================================

@@ -8,7 +8,7 @@
  */
 
 import { createClient as PGliteCreateClient } from "@drivers/pglite";
-import { push } from "@migrations";
+
 import { s } from "@schema";
 import { sql } from "@sql";
 import {
@@ -20,6 +20,7 @@ import {
   test,
 } from "vitest";
 
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 // =============================================================================
 // TEST SCHEMA
 // =============================================================================
@@ -94,7 +95,7 @@ beforeAll(async () => {
   const pglite = new PGlite();
   client = await PGliteCreateClient({ schema, client: pglite });
   // Migration now automatically creates junction tables for many-to-many relations
-  await push(client, { force: true });
+  await syncLiveSchema(client);
 });
 
 afterAll(async () => {

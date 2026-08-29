@@ -7,7 +7,7 @@ import { createClient } from "@client/client";
 import type { BatchQuery, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
-import { push } from "@migrations";
+
 import {
   createModelRegistry,
   QueryEngine,
@@ -17,6 +17,7 @@ import { describe, expect, test } from "vitest";
 import { UpdateOperation } from "@src/query-engine/write-engine/UpdateOperation";
 import { manyToManySchema } from "@tests/fixtures/many-to-many-schema";
 import { observeClientOperations } from "@tests/contracts/engine/write/operation-observer";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 type RoutedModel = Record<string, (args: Record<string, unknown>) => unknown>;
 
@@ -623,7 +624,7 @@ async function runSelfRefArm(
 ) {
   const db = new PGlite();
   const client = makeClient(db);
-  await push(client, { force: true });
+  await syncLiveSchema(client);
   await selfRefSeed(client);
   let operations: { boundary: "direct" | "production" }[] = [];
   if (kind === "direct") {

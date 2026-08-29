@@ -5,10 +5,11 @@ import type { AnyDriver } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
 import { sqliteResultParser } from "@drivers/shared";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { push } from "@migrations";
+
 import { ReadOperation } from "@query-engine/write-engine/ReadOperation";
 import { s } from "@schema";
 import { afterEach, describe, expect, test, vi } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 const schema = {
   entry: s.model({
@@ -22,7 +23,7 @@ const RECORDED_AT = "2026-08-24T10:00:00.000Z";
 
 async function seed(driver: AnyDriver): Promise<void> {
   const client = createClient({ schema, driver });
-  await push(client, { force: true });
+  await syncLiveSchema(client);
   await client.entry.create({
     data: { id: "entry-1", enabled: true, recordedAt: RECORDED_AT },
   });

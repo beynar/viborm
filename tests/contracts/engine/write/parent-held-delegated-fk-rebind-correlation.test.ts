@@ -3,9 +3,10 @@ import { createClient } from "@client/client";
 import type { BatchQuery, QueryExecutionContext, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
-import { push } from "@migrations";
+
 import { s } from "@schema";
 import { describe, expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 /**
  * M1 — a literal FK rebind beside a DELEGATED parent-held to-one update correlates on
@@ -234,7 +235,7 @@ describe("M1 — delegated parent-held update beside a literal FK rebind", () =>
       test(`${substrate.name}, ${spelling.name}: the delegated write lands on the FINAL target`, async () => {
         const db = new PGlite();
         const stateClient = makeClient(new PGliteDriver({ client: db }));
-        await push(stateClient, { force: true });
+        await syncLiveSchema(stateClient);
         await seed(stateClient);
         const opClient = makeClient(substrate.createDriver(db));
         try {
@@ -263,7 +264,7 @@ describe("M1 — delegated parent-held update beside a literal FK rebind", () =>
     for (const arm of ["delegated", "in-place"] as const) {
       const db = new PGlite();
       const client = makeClient(new PGliteDriver({ client: db }));
-      await push(client, { force: true });
+      await syncLiveSchema(client);
       await seed(client);
       try {
         await (client as AnyClient).user.update(
@@ -287,7 +288,7 @@ describe("M1 — delegated parent-held update beside a literal FK rebind", () =>
   test("PROVENANCE (no rebind): the delegated correlation reads the LOCATED row", async () => {
     const db = new PGlite();
     const stateClient = makeClient(new PGliteDriver({ client: db }));
-    await push(stateClient, { force: true });
+    await syncLiveSchema(stateClient);
     await seed(stateClient);
     // No `profileId` write in this payload, so no override: the correlation must read
     // the located user row. Corrupting that row's published `profileId` to `pC` must
@@ -324,7 +325,7 @@ describe("M1 — delegated parent-held update beside a literal FK rebind", () =>
   test("PROVENANCE (rebind): the override wins over the located row", async () => {
     const db = new PGlite();
     const stateClient = makeClient(new PGliteDriver({ client: db }));
-    await push(stateClient, { force: true });
+    await syncLiveSchema(stateClient);
     await seed(stateClient);
     // Same corruption, now with the rebind present. The override's provenance is the
     // PAYLOAD, so the located row's `profileId` — corrupt or not — must not be consulted
@@ -352,7 +353,7 @@ describe("M1 — delegated parent-held update beside a literal FK rebind", () =>
   test("the batch presence guard pins the FINAL value", async () => {
     const db = new PGlite();
     const stateClient = makeClient(new PGliteDriver({ client: db }));
-    await push(stateClient, { force: true });
+    await syncLiveSchema(stateClient);
     await seed(stateClient);
     const driver = new RecordingBatchPGliteDriver({ client: db });
     const opClient = makeClient(driver);

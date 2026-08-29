@@ -2,9 +2,10 @@ import { createClient } from "@client/client";
 import { BunSQLiteDriver } from "@drivers/bun-sqlite";
 import { D1Driver } from "@drivers/d1";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { push } from "@migrations";
+
 import { s } from "@schema";
 import { describe, expect, test, vi } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 type BunSQLiteOptions = NonNullable<
   ConstructorParameters<typeof BunSQLiteDriver>[0]
@@ -490,7 +491,7 @@ describe("SQLite3 public returning_events regression", () => {
     });
 
     try {
-      await push(client, { force: true });
+      await syncLiveSchema(client);
       const created = await client.event.create({
         data: { note: "returning is ordinary data" },
       });

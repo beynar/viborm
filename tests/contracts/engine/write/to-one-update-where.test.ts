@@ -4,7 +4,7 @@ import type { BatchQuery, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { NestedWriteError } from "@errors";
-import { push } from "@migrations";
+
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { createSchemaRegistry } from "@validation";
 import { expect, test } from "vitest";
@@ -19,6 +19,7 @@ import {
   toOneUpdateWhereSchema,
 } from "@tests/contracts/engine/write/to-one-update-where-behavior";
 
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 // The whole surface on PGlite, both substrates. The driver matrix legs run the
 // same module from tests/drivers/*.test.ts.
 runToOneUpdateWhereBehavior({
@@ -201,7 +202,7 @@ for (const { relation } of DIRECTIONS) {
       schema: toOneUpdateWhereSchema,
       driver: new PGliteDriver({ client: db }),
     });
-    await push(seed, { force: true });
+    await syncLiveSchema(seed);
     await seed.profile.create({
       data: { id: 1, bio: "bio-0", active: true },
     });

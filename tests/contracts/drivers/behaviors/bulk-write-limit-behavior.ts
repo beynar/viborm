@@ -6,9 +6,10 @@ import {
 } from "@client/client";
 import type { AnyDriver } from "@drivers";
 import { ValidationError } from "@errors";
-import { push } from "@migrations";
+
 import { s } from "@schema";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 const crate = s
   .model({
@@ -92,7 +93,7 @@ export function runBulkWriteLimitBehavior({
     beforeEach(async () => {
       const driver = createDriver();
       client = createClient({ schema, driver });
-      await push(client, { force: true });
+      await syncLiveSchema(client);
     });
 
     afterEach(async () => {

@@ -1,9 +1,10 @@
 import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite } from "@electric-sql/pglite";
-import { push } from "@migrations";
+
 import { sharedPkUpdateRootSchema } from "@tests/contracts/engine/write/shared-pk-update-root-behavior";
 import { describe, expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 /**
  * PACKAGE H, the PACKAGE E PRECONDITION — **a supplier beside a modify, on the edge
@@ -56,7 +57,7 @@ describe("Package H — shared-primary-key supplier + modify", () => {
     note?: boolean;
   } = {}): Promise<any> {
     const db = client();
-    await push(db, { force: true });
+    await syncLiveSchema(db);
     await db.account.createMany({
       data: [
         { id: "a1", email: "a1@x", name: "one" },

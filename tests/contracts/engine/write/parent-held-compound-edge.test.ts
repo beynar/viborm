@@ -3,7 +3,7 @@ import { createClient } from "@client/client";
 import type { BatchQuery, QueryExecutionContext, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
-import { push } from "@migrations";
+
 import { describe, expect, test } from "vitest";
 import {
   parentHeldCompoundEdgeSchema,
@@ -11,6 +11,7 @@ import {
   resetParentHeldCompoundEdge,
 } from "@tests/contracts/engine/write/parent-held-compound-edge-behavior";
 
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 /**
  * Rewrites ONE column of the rows the station LOCATE read returns, after the database
  * answered and before the engine consumes it. Armed once, and only for a read of the
@@ -78,7 +79,7 @@ async function setup(driver: PGliteDriver) {
     schema: parentHeldCompoundEdgeSchema,
     driver,
   }) as any;
-  await push(client, { force: true });
+  await syncLiveSchema(client);
   return client;
 }
 

@@ -1,12 +1,13 @@
 import { createClient } from "@client/client";
 import { MySQL2Driver } from "@drivers/mysql2";
 import { PgDriver } from "@drivers/pg";
-import { push } from "@migrations";
+
 import {
   compoundAdoptSchema,
   registerCompoundAdoptBehavior,
 } from "@tests/contracts/engine/write/compound-relation-adoption-behavior";
 import { afterAll, describe } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 /**
  * E4-U2 on the live servers.
@@ -30,7 +31,7 @@ function suite(
   makeDriver: () => any,
   enabled: string | undefined
 ): void {
-  // ONE push per suite. A second `push(force)` over this schema raises MySQL 1553
+  // ONE push per suite. A second `syncLiveSchema(force)` over this schema raises MySQL 1553
   // ("cannot drop an index a foreign key needs") on the nullable-component pair, which
   // is a DDL-ordering fact about the migration path and not about the write engine — so
   // the suite drops its own tables, migrates once, and each test resets by DELETE.
@@ -53,7 +54,7 @@ function suite(
         ]) {
           await shared.$executeRawUnsafe(`DROP TABLE IF EXISTS ${table}`);
         }
-        await push(shared, { force: true });
+        await syncLiveSchema(shared);
       }
       return shared;
     },

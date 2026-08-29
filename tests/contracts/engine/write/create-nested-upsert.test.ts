@@ -11,7 +11,7 @@ import { getExecutionInstrumentation } from "@drivers/execution-context";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { NestedWriteError, QueryError, UniqueConstraintError } from "@errors";
-import { push } from "@migrations";
+
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { appendResolvedExtension } from "@src/extensions/chain";
 import { instrumentation } from "@src/instrumentation/exports";
@@ -33,6 +33,7 @@ import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { publishedOutputs } from "@tests/fixtures/planning-published";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 class BatchCountingPGliteDriver extends BatchOnlyPGliteDriver {
   batchCalls = 0;
@@ -564,7 +565,7 @@ describe("write engine linear operation fragments", () => {
       });
       const driver = new FailingResultPGliteDriver({ client: db });
       try {
-        await push(setup, { force: true });
+        await syncLiveSchema(setup);
 
         await expect(
           createOperationExecutor(driver).executeCreate(
@@ -593,7 +594,7 @@ describe("write engine linear operation fragments", () => {
       });
       const driver = new BatchCountingPGliteDriver({ client: db });
       try {
-        await push(setup, { force: true });
+        await syncLiveSchema(setup);
         await setup.post.create({
           data: {
             id: 2,
@@ -637,7 +638,7 @@ describe("write engine linear operation fragments", () => {
         driver: new PGliteDriver({ client: db }),
       });
       try {
-        await push(setup, { force: true });
+        await syncLiveSchema(setup);
         await setup.post.create({
           data: {
             id: 1,
@@ -717,7 +718,7 @@ describe("write engine linear operation fragments", () => {
         driver: new PGliteDriver({ client: db }),
       });
       try {
-        await push(setup, { force: true });
+        await syncLiveSchema(setup);
 
         // The racePin the missing-branch create carries (the child primary key).
         const missing = createOperation(new BatchProbeDriver()).compile({

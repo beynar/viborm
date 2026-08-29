@@ -1,6 +1,6 @@
 import { createClient } from "@src/client/client";
 import { PlanetScaleDriver } from "@src/drivers/planetscale";
-import { introspect } from "@src/migrations";
+import { introspect } from "@src/migrations/push";
 import { s } from "@src/schema";
 import Decimal from "decimal.js";
 

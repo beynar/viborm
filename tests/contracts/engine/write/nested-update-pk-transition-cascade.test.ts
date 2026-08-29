@@ -1,10 +1,11 @@
 import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite } from "@electric-sql/pglite";
-import { push } from "@migrations";
+
 import { s } from "@schema";
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { describe, expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 /**
  * T3b1 fixer round 1, finding #1 — the PK-transition cascade boundary, post-P6 (the
@@ -171,7 +172,7 @@ describe("nested update PK-transition cascade boundary (finding #1)", () => {
       timeout: 30_000,
     }, async () => {
       const { client } = freshClient(substrate);
-      await push(client as any, { force: true });
+      await syncLiveSchema(client as any);
       await seed(client);
 
       // No child carries the target's key 1, so the occupied guard passes and the
@@ -192,7 +193,7 @@ describe("nested update PK-transition cascade boundary (finding #1)", () => {
       timeout: 30_000,
     }, async () => {
       const { client } = freshClient(substrate);
-      await push(client as any, { force: true });
+      await syncLiveSchema(client as any);
       await seed(client);
       // Give the transition target a child of its own: the NO-ACTION referential
       // action would strand it, so the depth occupied guard rejects — V1's verbatim
@@ -224,7 +225,7 @@ describe("nested update PK-transition cascade boundary (finding #1)", () => {
         timeout: 30_000,
       }, async () => {
         const { client } = freshClient(substrate);
-        await push(client as any, { force: true });
+        await syncLiveSchema(client as any);
         await seed(client);
         // The SAME occupant as the arm above — the difference is only the operand.
         await (client as any).node.create({
@@ -267,7 +268,7 @@ describe("nested update PK-transition cascade boundary (finding #1)", () => {
       timeout: 30_000,
     }, async () => {
       const { client } = freshClient(substrate);
-      await push(client as any, { force: true });
+      await syncLiveSchema(client as any);
       await seed(client);
       // **RETARGETED BY E2-U3 (authorized test change).** This arm asserted the
       // refusal, on the reasoning that "neither ordering serves both edges": the
@@ -301,7 +302,7 @@ describe("nested update PK-transition cascade boundary (finding #1)", () => {
       timeout: 30_000,
     }, async () => {
       const { client } = freshClient(substrate);
-      await push(client as any, { force: true });
+      await syncLiveSchema(client as any);
       await seed(client);
       await (client as any).node.update(op(M2M_EDGE));
       const state = await snapshot(client);
@@ -322,7 +323,7 @@ describe("nested update PK-transition cascade boundary (finding #1)", () => {
       timeout: 30_000,
     }, async () => {
       const { client } = freshClient(substrate);
-      await push(client as any, { force: true });
+      await syncLiveSchema(client as any);
       await seed(client);
 
       // RETARGETED BY PACKAGE D2. This was "the merge's one refusal": N4-U1's
@@ -362,7 +363,7 @@ describe("nested update PK-transition cascade boundary (finding #1)", () => {
       timeout: 30_000,
     }, async () => {
       const { client } = freshClient(substrate);
-      await push(client as any, { force: true });
+      await syncLiveSchema(client as any);
       await seed(client);
 
       // Drop the `id` from the SET and the intersection dissolves: N4-U1's planned

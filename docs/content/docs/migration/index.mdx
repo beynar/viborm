@@ -6,19 +6,21 @@ icon: database
 
 VibORM provides two approaches for managing database schema changes:
 
-- **Push** - Direct schema synchronization, ideal for development
-- **Migrate** - File-based migrations with version control, ideal for production
+- **Push** — history-free live schema synchronization, ideal for development
+- **Migrate** — an authenticated, version-controlled estate, intended for production
 
-Both approaches work by comparing your VibORM schema definitions against the current database state and generating the necessary DDL to synchronize them.
+Push compares your VibORM models with the live database. Migrate compares the
+desired schema snapshot with an authenticated parent state, publishes that
+transition, and separately verifies the live database when it applies it.
 
 ## Choose Your Approach
 
 | | Push | Migrate |
 |--|------|---------|
 | **Use case** | Development, prototyping | Production, team collaboration |
-| **Version control** | No migration files | Yes, SQL files committed to git |
+| **Version control** | No history artifacts | Yes, state manifests, snapshots, and reviewed SQL blobs committed to Git |
 | **Rollback** | Manual | `down()` executes the stored down artifact, honouring each migration's persisted rollback policy |
-| **CI/CD** | Not recommended | Fully supported |
+| **Production CI/CD** | Not recommended | Fully supported |
 
 ## CLI vs API
 
@@ -32,7 +34,7 @@ The CLI is the recommended way to manage migrations during development:
 # Push schema directly to database
 npx viborm push
 
-# Generate a new migration file
+# Publish a new migration state
 npx viborm migrate generate --name add-users
 
 # Apply pending migrations
@@ -47,45 +49,55 @@ npx viborm migrate status
 For programmatic control (scripts, CI/CD, custom tooling), use the migration client:
 
 ```ts title="src/db/migrations.ts"
-import { createMigrationClient } from "viborm/migrations";
-import { createFsStorageDriver } from "viborm/migrations/storage/fs";
+import { createFsStorageWriter, createMigrationClient } from "viborm/migrations";
 import { client } from "./client";
 
 const migrations = createMigrationClient(client, {
-  storageDriver: createFsStorageDriver("./migrations"),
+  storage: createFsStorageWriter("./migrations"),
 });
 
-// File-based migration operations (require storage driver)
 await migrations.generate({ name: "add-users" });
 await migrations.apply();
 await migrations.status();
 
-// Push works with or without storage driver
-await migrations.push({
+const preview = await migrations.push({
+  dryRun: true,
   resolve: async (change) => {
-    // Handle destructive or ambiguous changes
     if (change.type === "destructive") {
-      return "proceed"; // or "reject"
+      return change.proceed();
     }
-    return "rename"; // or "addAndDrop" or "reject"
+    if (change.type === "ambiguous") {
+      return change.rename();
+    }
+    if (change.isNullable) {
+      return change.useNull();
+    }
+    return change.reject();
   },
 });
+
+await migrations.push({ consent: preview.consent });
 ```
 
-:::info[Storage Driver Required]
-File-based operations (`generate`, `apply`, `status`, `down`, `reset`, `squash`) require a storage driver. The `push()` method works without a storage driver since it doesn't use migration files.
+:::info[Storage Required]
+`generate` and `reset` require a storage writer. `check`, `list`, `show`,
+`graph`, `status`, `verify`, `apply`, `down`, `baseline`, and `resolve` require
+a storage reader. `log` reads the database ledger and `push` is history-free,
+so neither reads estate storage.
 :::
 
-### Migration Client Options
+### Capability-Typed Clients
 
-```ts
-interface MigrationClientOptions {
-  /** Storage driver for migration files (required for file-based operations) */
-  storageDriver?: MigrationStorageDriver;
-  /** Migration tracking table name (default: _viborm_migrations) */
-  tableName?: string;
-}
-```
+The returned client exposes only operations that its storage can support:
+
+| Construction | Surface |
+| --- | --- |
+| `createMigrationClient(client)` | `push`, `log` |
+| `createMigrationClient(client, { storage: reader })` | Adds estate inspection and application operations |
+| `createMigrationClient(client, { storage: writer })` | Also adds `generate` and `reset` |
+
+This keeps a storage-less deployment script from compiling a call that can
+only fail with “storage required” at runtime.
 
 ## How It Works
 
@@ -101,21 +113,21 @@ Both push and migrate follow the same core process:
 1. **Serialize** your VibORM models into a schema snapshot
 2. **Compare** against the current database state (push) or previous snapshot (migrate)
 3. **Generate** database-specific DDL using the appropriate migration driver
-4. **Execute** the DDL (push) or write to a migration file (migrate)
+4. **Execute** the DDL (push) or publish authenticated estate artifacts (migrate)
 
 ## Atomicity
 
 Migration atomicity is a DDL-specific guarantee and is not implied by support
-for client transactions. VibORM uses a real transaction or atomic batch where
-the database can honor it. D1 binding and Neon apply paths reject when that
-substrate is absent; MySQL-family DDL is the documented limited exception
-because its statements implicitly commit:
+for client transactions. VibORM admits effectful work only when the concrete
+provider proves its lock, marker compare-and-swap, and execution boundary.
+MySQL DDL is the documented stepwise exception because each statement commits:
 
 | Driver | `push` | `migrate apply` |
 |--------|--------|-----------------|
-| **PostgreSQL, SQLite family** | Transaction (all-or-nothing) | Transaction (all-or-nothing) |
-| **MySQL, PlanetScale** | Limited — DDL statements implicitly commit, so a failed run can leave earlier statements applied | Same limitation |
-| **D1 bindings, Neon HTTP** | Atomic batch | Rejects — requires callback transactions, which these drivers don't support |
+| **PGlite, pg, postgres.js, Bun SQL** | Transaction when every statement permits it | Same guarantee |
+| **SQLite3, Bun SQLite** | One writer boundary; transactional where supported | Same guarantee |
+| **MySQL2** | Stepwise — a failed run can leave earlier statements applied | Same limitation, with durable progress evidence |
+| **Neon HTTP, PlanetScale, D1, D1 HTTP, libSQL** | Effectful work refused; dry-run and read-only paths remain | Effectful work refused until the provider boundary is proven |
 
 On the atomic paths, a successful migration applies every statement and a
 failed one applies none. The portable API exposes no transaction isolation
@@ -131,12 +143,17 @@ options.
   />
   <Card
     title="Migrate"
-    description="File-based migrations for production"
+    description="Authenticated migration history for production"
     href="/docs/migration/migrate"
   />
   <Card
+    title="Compared with Prisma and Drizzle"
+    description="How the history, integrity, recovery, and push models differ"
+    href="/docs/migration/comparison"
+  />
+  <Card
     title="Storage Drivers"
-    description="Where migration files are stored"
+    description="Where migration estate artifacts are stored"
     href="/docs/migration/storage"
   />
   <Card

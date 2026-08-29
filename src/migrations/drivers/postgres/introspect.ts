@@ -148,6 +148,13 @@ WHERE tc.table_schema = $1
 ORDER BY tc.table_name, kcu.ordinal_position;
 `;
 
+/**
+ * Standalone indexes. `conindid` names the index a UNIQUE or PRIMARY KEY
+ * constraint owns — those stay in `uniqueConstraints` / `primaryKey`. A
+ * foreign key also points `conindid` at the unique index it targets, so the
+ * join must not treat that as ownership or a unique-index FK target vanishes
+ * from both lists.
+ */
 const INDEXES_QUERY = `
 SELECT
   t.relname AS table_name,
@@ -163,7 +170,9 @@ JOIN pg_class i ON i.oid = ix.indexrelid
 JOIN pg_am am ON am.oid = i.relam
 JOIN pg_namespace n ON n.oid = t.relnamespace
 JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY(ix.indkey)
-LEFT JOIN pg_constraint c ON c.conindid = ix.indexrelid
+LEFT JOIN pg_constraint c
+  ON c.conindid = ix.indexrelid
+ AND c.contype IN ('u', 'p')
 WHERE n.nspname = $1
   AND NOT ix.indisprimary
   AND c.oid IS NULL
@@ -174,37 +183,54 @@ ORDER BY t.relname, i.relname, array_position(ix.indkey, a.attnum);
 /**
  * Foreign keys OWNED by the selected schema.
  *
- * The referenced side is constrained to the same schema, which is what makes
- * this query's `referencedTable` a bare estate-relative name. A constraint that
- * leaves the schema is not silently dropped from the snapshot by that
- * restriction — `CROSS_SCHEMA_FOREIGN_KEYS_QUERY` inventories both directions
- * and refuses the whole run before this snapshot is published.
+ * Read from `pg_constraint`, not `information_schema.referential_constraints`.
+ * A foreign key may target a unique INDEX rather than a unique constraint;
+ * that catalog view then leaves `unique_constraint_name` null and the join
+ * drops the constraint. `pg_constraint.confrelid`/`confkey` still name the
+ * referenced columns. Both sides stay in this schema so `referencedTable` is
+ * a bare estate-relative name. A constraint that leaves the schema is not
+ * silently dropped — `CROSS_SCHEMA_FOREIGN_KEYS_QUERY` inventories both
+ * directions and refuses the whole run before this snapshot is published.
  */
 const FOREIGN_KEYS_QUERY = `
 SELECT
-  tc.table_name,
-  tc.constraint_name,
-  kcu.column_name,
-  referenced_kcu.table_name AS foreign_table_name,
-  referenced_kcu.column_name AS foreign_column_name,
-  rc.delete_rule,
-  rc.update_rule,
-  kcu.ordinal_position
-FROM information_schema.table_constraints tc
-JOIN information_schema.key_column_usage kcu
-  ON tc.constraint_name = kcu.constraint_name
-  AND tc.table_schema = kcu.table_schema
-  AND tc.table_name = kcu.table_name
-JOIN information_schema.referential_constraints rc
-  ON rc.constraint_name = tc.constraint_name
-  AND rc.constraint_schema = tc.table_schema
-JOIN information_schema.key_column_usage referenced_kcu
-  ON referenced_kcu.constraint_name = rc.unique_constraint_name
-  AND referenced_kcu.constraint_schema = rc.unique_constraint_schema
-  AND referenced_kcu.ordinal_position = kcu.position_in_unique_constraint
-WHERE tc.table_schema = $1
-  AND tc.constraint_type = 'FOREIGN KEY'
-ORDER BY tc.table_name, tc.constraint_name, kcu.ordinal_position;
+  owner.relname AS table_name,
+  con.conname AS constraint_name,
+  local_att.attname AS column_name,
+  referenced.relname AS foreign_table_name,
+  referenced_att.attname AS foreign_column_name,
+  CASE con.confdeltype
+    WHEN 'c' THEN 'CASCADE'
+    WHEN 'n' THEN 'SET NULL'
+    WHEN 'r' THEN 'RESTRICT'
+    WHEN 'd' THEN 'SET DEFAULT'
+    ELSE 'NO ACTION'
+  END AS delete_rule,
+  CASE con.confupdtype
+    WHEN 'c' THEN 'CASCADE'
+    WHEN 'n' THEN 'SET NULL'
+    WHEN 'r' THEN 'RESTRICT'
+    WHEN 'd' THEN 'SET DEFAULT'
+    ELSE 'NO ACTION'
+  END AS update_rule,
+  local.ordinality AS ordinal_position
+FROM pg_catalog.pg_constraint con
+JOIN pg_catalog.pg_class owner ON owner.oid = con.conrelid
+JOIN pg_catalog.pg_namespace owner_ns ON owner_ns.oid = owner.relnamespace
+JOIN pg_catalog.pg_class referenced ON referenced.oid = con.confrelid
+JOIN pg_catalog.pg_namespace referenced_ns ON referenced_ns.oid = referenced.relnamespace
+JOIN LATERAL unnest(con.conkey) WITH ORDINALITY AS local(attnum, ordinality) ON TRUE
+JOIN LATERAL unnest(con.confkey) WITH ORDINALITY AS referenced_col(attnum, ordinality)
+  ON referenced_col.ordinality = local.ordinality
+JOIN pg_catalog.pg_attribute local_att
+  ON local_att.attrelid = owner.oid AND local_att.attnum = local.attnum
+JOIN pg_catalog.pg_attribute referenced_att
+  ON referenced_att.attrelid = referenced.oid
+  AND referenced_att.attnum = referenced_col.attnum
+WHERE con.contype = 'f'
+  AND owner_ns.nspname = $1
+  AND referenced_ns.nspname = $1
+ORDER BY owner.relname, con.conname, local.ordinality;
 `;
 
 /**

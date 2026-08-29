@@ -11,6 +11,13 @@ The feature is complete only when the same declared decimal domain supports
 exact storage, comparison, ordering, aggregation, and atomic arithmetic on
 PostgreSQL, MySQL, PlanetScale, and every SQLite-family provider.
 
+**Migration V1 supersession — 2026-08-29.** Runtime decimal support and offline
+dialect generation remain as designed. The later Migration V1 provider matrix
+now refuses effectful libSQL, D1, D1 HTTP, and PlanetScale migration commands
+until each concrete provider proves its complete lock, marker-CAS,
+table-recreation, and foreign-key boundary. The older live-migration targets
+below remain design history, not current provider claims.
+
 ## Summary
 
 VibORM has one public decimal scalar:

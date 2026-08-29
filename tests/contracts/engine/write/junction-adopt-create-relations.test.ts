@@ -1,6 +1,6 @@
 import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
-import { push } from "@migrations";
+
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames, s } from "@schema";
 import type {
@@ -11,6 +11,7 @@ import { UpdateOperation } from "@src/query-engine/write-engine/UpdateOperation"
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 /**
  * E2-U2 — **relations inside a many-to-many `connectOrCreate` create arm.**
@@ -206,7 +207,7 @@ async function seed(client: Client): Promise<void> {
 
 async function setup(driver: PGliteDriver) {
   const client = makeClient(driver);
-  await push(client, { force: true });
+  await syncLiveSchema(client);
   await seed(client);
   return client;
 }

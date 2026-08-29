@@ -2,7 +2,7 @@ import { createClient } from "@client/client";
 import type { QueryExecutionContext, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
 import type { PGlite, Transaction } from "@electric-sql/pglite";
-import { push } from "@migrations";
+
 import { createOperationExecutionContext } from "@query-engine/execution-context";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import type { Model } from "@schema/model";
@@ -15,6 +15,7 @@ import {
   runPostTransitionAdoptBehavior,
 } from "@tests/contracts/engine/write/post-transition-adopt-behavior";
 
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 /** Records every statement and its parameters, in order. The hook is the PROTECTED
  *  `execute`/`executeRaw` seam, because a transaction runs its statements through a
  *  transaction-bound driver that delegates back to exactly these two methods. */
@@ -76,7 +77,7 @@ test("the root UPDATE precedes the adopt write, which binds the post-transition 
   const driver = new RecordingPGliteDriver();
   const client = createClient({ schema: postTransitionAdoptSchema, driver });
   try {
-    await push(client, { force: true });
+    await syncLiveSchema(client);
     await client.list.create({ data: { id: 1, name: "target" } });
     await client.item.create({
       data: { id: 20, label: "free", listId: null },
@@ -117,7 +118,7 @@ test("no transition means no reordering: the adopt write keeps its pre-N5 place"
   const driver = new RecordingPGliteDriver();
   const client = createClient({ schema: postTransitionAdoptSchema, driver });
   try {
-    await push(client, { force: true });
+    await syncLiveSchema(client);
     await client.list.create({ data: { id: 1, name: "target" } });
     await client.item.create({
       data: { id: 20, label: "free", listId: null },

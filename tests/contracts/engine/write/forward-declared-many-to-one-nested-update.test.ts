@@ -1,10 +1,11 @@
 import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite } from "@electric-sql/pglite";
-import { push } from "@migrations";
+
 import { s } from "@schema";
 import { expect, test } from "vitest";
 import { observeClientOperations } from "@tests/contracts/engine/write/operation-observer";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 test("nested update resolves a manyToOne target declared later", async () => {
   const team = s
@@ -44,7 +45,7 @@ test("nested update resolves a manyToOne target declared later", async () => {
   const baseClient = createClient({ schema, driver });
 
   try {
-    await push(baseClient, { force: true });
+    await syncLiveSchema(baseClient);
     await baseClient.team.create({ data: { id: "t1", name: "t1" } });
     await baseClient.member.create({
       data: { id: "m1", name: "m1", teamId: "t1" },

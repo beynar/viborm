@@ -5,9 +5,10 @@ import {
   type VibORMConfig,
 } from "@client/client";
 import type { AnyDriver } from "@drivers";
-import { push } from "@migrations";
+
 import { s } from "@schema";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 const MUTUALLY_EXCLUSIVE = /mutually exclusive/i;
 
@@ -70,7 +71,7 @@ export function runOptionalRelationParityBehavior({
         schema,
         driver: createDriver(),
       });
-      await push(client, { force: true });
+      await syncLiveSchema(client);
     });
 
     afterEach(async () => {

@@ -85,10 +85,6 @@ import {
   mysqlSelectTargetStatement,
 } from "./pinned-session";
 
-/** MySQL's "table doesn't exist" identity, on both channels it travels by. */
-const MISSING_TABLE_ERRNO = 1146;
-const MISSING_TABLE_SQLSTATE = "42S02";
-
 /**
  * `GET_LOCK`'s wait bound. A migration command that cannot take the lock within
  * this window reports `MIGRATION_LOCK_FAILED` instead of waiting forever;
@@ -102,22 +98,6 @@ function isMySQLExactIntegerType(type: string): boolean {
   const base = type.trim().toUpperCase().split(BASE_TYPE_PATTERN, 1)[0];
   return base === "INT" || base === "INTEGER" || base === "BIGINT";
 }
-
-/**
- * An error's safe-metadata bag, as untyped data.
- *
- * The bag is read reflectively for the same reason the estate resolver reads
- * `adapter.namespace` that way: it is optional runtime evidence, and reading it
- * as data keeps this driver from claiming any thrown value already carries it.
- */
-function readErrorMeta(error: unknown): object {
-  const meta: unknown =
-    typeof error === "object" && error !== null
-      ? Reflect.get(error, "meta")
-      : undefined;
-  return typeof meta === "object" && meta !== null ? meta : {};
-}
-
 export class MySQLMigrationDriver
   extends MigrationDriver
   implements CommandNamespaceResolver
@@ -457,6 +437,13 @@ export class MySQLMigrationDriver
   // ===========================================================================
 
   generateCreateTable(op: CreateTableOperation, context: DDLContext): string {
+    return this.compileCreateTable(op, context).join(";\n");
+  }
+
+  override compileCreateTable(
+    op: CreateTableOperation,
+    context: DDLContext
+  ): readonly string[] {
     const { table } = op;
     const columnDefs = table.columns.map((col) =>
       this.generateColumnDef(col, context)
@@ -514,7 +501,7 @@ export class MySQLMigrationDriver
       );
     }
 
-    return statements.join(";\n");
+    return this.filterStatements(statements);
   }
 
   generateDropTable(op: DropTableOperation, context: DDLContext): string {
@@ -550,6 +537,20 @@ export class MySQLMigrationDriver
   }
 
   generateAlterColumn(op: AlterColumnOperation, context: DDLContext): string {
+    return this.alterColumnStatements(op, context).join(";\n");
+  }
+
+  override compileAlterColumn(
+    op: AlterColumnOperation,
+    context: DDLContext
+  ): readonly string[] {
+    return this.filterStatements(this.alterColumnStatements(op, context));
+  }
+
+  private alterColumnStatements(
+    op: AlterColumnOperation,
+    context: DDLContext
+  ): string[] {
     const { tableName, columnName, to } = op;
     const table = this.tableRef(tableName, context.destination);
 
@@ -564,8 +565,8 @@ export class MySQLMigrationDriver
 
     const bracket = this.decimalConversionBracket(op, table, context);
     return bracket === null
-      ? alter
-      : [bracket.validate, alter, bracket.release].join(";\n");
+      ? [alter]
+      : [bracket.validate, alter, bracket.release];
   }
 
   /**
@@ -909,15 +910,26 @@ export class MySQLMigrationDriver
   }
 
   generateAlterEnum(op: AlterEnumOperation, context: DDLContext): string {
+    return this.compileAlterEnum(op, context).join(";\n");
+  }
+
+  override compileAlterEnum(
+    op: AlterEnumOperation,
+    context: DDLContext
+  ): readonly string[] {
     // To alter an enum in MySQL, we need to MODIFY COLUMN for each dependent column
     const { enumName, newValues, dependentColumns } = op;
 
     if (!newValues || newValues.length === 0) {
-      return `-- MySQL: no new values provided for enum "${enumName}"`;
+      return this.filterStatements([
+        `-- MySQL: no new values provided for enum "${enumName}"`,
+      ]);
     }
 
     if (!dependentColumns || dependentColumns.length === 0) {
-      return `-- MySQL: no dependent columns found for enum "${enumName}"`;
+      return this.filterStatements([
+        `-- MySQL: no dependent columns found for enum "${enumName}"`,
+      ]);
     }
 
     const statements: string[] = [];
@@ -955,7 +967,7 @@ export class MySQLMigrationDriver
       );
     }
 
-    return statements.join(";\n");
+    return this.filterStatements(statements);
   }
 
   /**
@@ -1004,47 +1016,12 @@ export class MySQLMigrationDriver
     return statements;
   }
 
-  // ===========================================================================
-  // MIGRATION TRACKING TABLE
-  // ===========================================================================
-
-  /**
-   * MySQL reports a missing table as error 1146, SQLSTATE `42S02`.
-   *
-   * Both spellings are read because that is where the identity actually
-   * survives VibORM's error normalization. A live mysql2 failure normalizes to
-   * `meta = { providerErrno: 1146, providerSqlState: "42S02" }` and carries NO
-   * `providerCode`: mysql2's own `code` is `ER_NO_SUCH_TABLE`, which is not on
-   * the safe-metadata code allowlist and is dropped
-   * (`src/errors/diagnostic-safety.ts`). The base class's shared
-   * `describeProviderFailure` publishes only `providerCode`, so it cannot see
-   * either fact — hence the local read.
-   *
-   * Neither channel subsumes the other: `providerErrno` requires a numeric
-   * `errno` on the provider error, while `providerSqlState` also has a
-   * message-extraction fallback (`src/drivers/driver-error-context.ts`), so a
-   * transport carrying only one of the two still resolves.
-   *
-   * As on PostgreSQL, exactness comes from the STATEMENT rather than the
-   * message: VibORM's error normalization redacts provider text, so the table
-   * name never survives, and this is asked only about the failure of the
-   * applied-state SELECT — one statement, one table, database existence already
-   * proven. A missing database is therefore never mistaken for an empty estate.
-   */
-  override isMissingTrackingTable(error: unknown, _tableName: string): boolean {
-    const meta = readErrorMeta(error);
-    return (
-      Reflect.get(meta, "providerErrno") === MISSING_TABLE_ERRNO ||
-      Reflect.get(meta, "providerSqlState") === MISSING_TABLE_SQLSTATE
-    );
-  }
-
   /**
    * Proves the configured database exists (§5.2).
    *
    * The proof IS the resolution ({@link resolveCommandNamespace}), and no
    * migration command reaches this arm: the shared owner asks a dialect that
-   * answers a spelling for that spelling instead, so `status()`, `pending()`
+   * answers a spelling for that spelling instead, so `status()`, `log()`
    * and a dry push all keep the answer rather than discarding it here. The
    * override remains because the base class's proof is part of the dialect
    * contract and its default answers "nothing to prove", which is false for a
@@ -1078,47 +1055,6 @@ export class MySQLMigrationDriver
    */
   async resolveCommandNamespace(read: CatalogRead): Promise<string> {
     return await resolveCatalogNamespace(read, this.namespace);
-  }
-
-  // Tracking and inventory statements exist only to touch live state — there is
-  // no artifact form of a tracking write or a reset inventory — so each one
-  // carries the bound namespace unconditionally (§5.1).
-
-  generateCreateTrackingTable(tableName: string): string {
-    const table = this.tableRef(tableName, "live");
-    return `CREATE TABLE IF NOT EXISTS ${table} (
-  id INT AUTO_INCREMENT PRIMARY KEY,
-  name VARCHAR(255) NOT NULL UNIQUE,
-  checksum VARCHAR(64) NOT NULL,
-  applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin`;
-  }
-
-  override generateSelectAppliedMigrations(tableName: string): string {
-    const table = this.tableRef(tableName, "live");
-    return `SELECT name, checksum, applied_at FROM ${table} ORDER BY id ASC`;
-  }
-
-  generateInsertMigration(tableName: string): {
-    sql: string;
-    paramCount: number;
-  } {
-    const table = this.tableRef(tableName, "live");
-    return {
-      sql: `INSERT INTO ${table} (name, checksum) VALUES (?, ?)`,
-      paramCount: 2,
-    };
-  }
-
-  generateDeleteMigration(tableName: string): {
-    sql: string;
-    paramCount: number;
-  } {
-    const table = this.tableRef(tableName, "live");
-    return {
-      sql: `DELETE FROM ${table} WHERE name = ?`,
-      paramCount: 1,
-    };
   }
 
   override generateClearMigrations(tableName: string): string {

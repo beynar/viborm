@@ -5,9 +5,10 @@ import {
   type VibORMConfig,
 } from "@client/client";
 import type { AnyDriver } from "@drivers";
-import { push } from "@migrations";
+
 import { s } from "@schema";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 // =============================================================================
 // Schema: users with posts, nullable author FK so isNot can pin null-FK rows
@@ -88,7 +89,7 @@ export function runRelationReadAggregateBehavior({
 
     beforeEach(async () => {
       client = createClient({ schema, driver: createDriver() });
-      await push(client, { force: true });
+      await syncLiveSchema(client);
 
       await client.user.createMany({
         data: [

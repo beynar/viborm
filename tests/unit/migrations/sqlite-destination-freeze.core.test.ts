@@ -231,21 +231,9 @@ describe("SQLite ignores the DDL destination", () => {
       });
     }
 
-    it(`${name} keeps its tracking and inventory statements destination-free`, () => {
-      expect(
-        driver.generateCreateTrackingTable("_viborm_migrations")
-      ).toContain('"_viborm_migrations"');
-      expect(driver.generateSelectAppliedMigrations("_viborm_migrations")).toBe(
-        'SELECT name, checksum, applied_at FROM "_viborm_migrations" ORDER BY id ASC'
-      );
-      expect(driver.generateInsertMigration("_viborm_migrations").sql).toBe(
-        'INSERT INTO "_viborm_migrations" (name, checksum) VALUES (?, ?)'
-      );
-      expect(driver.generateDeleteMigration("_viborm_migrations").sql).toBe(
-        'DELETE FROM "_viborm_migrations" WHERE name = ?'
-      );
-      expect(driver.generateClearMigrations("_viborm_migrations")).toBe(
-        'DELETE FROM "_viborm_migrations"'
+    it(`${name} keeps its control and inventory statements destination-free`, () => {
+      expect(driver.generateClearMigrations("_viborm_migration_state")).toBe(
+        'DELETE FROM "_viborm_migration_state"'
       );
       expect(driver.generateDropTableSQL("users")).toBe(
         'DROP TABLE IF EXISTS "users"'
@@ -253,11 +241,7 @@ describe("SQLite ignores the DDL destination", () => {
       expect(driver.generateInventoryTables().sql).not.toContain('"."');
     });
 
-    it(`${name} proves an absent tracking table positively and never a namespace`, async () => {
-      const probe = driver.generateTrackingTableProbe("_viborm_migrations");
-      expect(probe?.sql).toContain("sqlite_schema");
-      expect(probe?.params).toEqual(["_viborm_migrations"]);
-
+    it(`${name} proves no namespace and never invents one`, async () => {
       // The base no-op stands: SQLite has no namespace to prove, so nothing is
       // executed and nothing is refused.
       const calls: string[] = [];

@@ -6,10 +6,11 @@ import {
 } from "@client/client";
 import type { AnyDriver } from "@drivers";
 import { NotFoundError } from "@errors";
-import { push } from "@migrations";
+
 import { s } from "@schema";
 import { sql } from "@sql";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 // All identifiers are lowercase single words so the raw SQL strings need no
 // dialect-specific quoting (double quotes vs backticks).
@@ -59,7 +60,7 @@ export function runClientRawBehavior({
       placeholder =
         driver.dialect === "postgresql" ? (i) => `$${i}` : () => "?";
       client = createClient({ schema, driver });
-      await push(client, { force: true });
+      await syncLiveSchema(client);
 
       await client.item.createMany({
         data: [

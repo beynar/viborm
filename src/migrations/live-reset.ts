@@ -34,10 +34,10 @@ import { createQueryExecutor } from "./utils";
  *
  * - `preserve` — migration `reset()`: the table's STRUCTURE survives and only
  *   its rows are cleared, because the same command is about to replay the
- *   journal and restore them.
+ *   estate and restore them.
  * - `drop` — force-reset push: the table is an ordinary managed object of the
- *   selected namespace and goes with the rest. Push never reads or writes a
- *   migration journal, so it makes no history claim about the rows it removes.
+ *   selected namespace and goes with the rest. Push never reads or writes
+ *   estate history, so it makes no history claim about the rows it removes.
  */
 export type TrackingTablePolicy = "preserve" | "drop";
 
@@ -52,6 +52,8 @@ export interface LiveNamespaceResetPolicy {
    * ordinary table here and receives no tracking-history claim.
    */
   readonly trackingTableName: string;
+  /** Additional tables whose structure must survive the clear. */
+  readonly preserveTables?: readonly string[];
 }
 
 export interface LiveNamespaceResetResult {
@@ -194,10 +196,11 @@ export async function planLiveNamespaceReset(
     );
   }
 
-  const droppable =
-    policy.trackingTable === "drop"
-      ? tables
-      : tables.filter((name) => name !== policy.trackingTableName);
+  const preserved = new Set<string>(policy.preserveTables ?? []);
+  if (policy.trackingTable === "preserve") {
+    preserved.add(policy.trackingTableName);
+  }
+  const droppable = tables.filter((name) => !preserved.has(name));
 
   const dropTables: PlannedTableDrop[] = [];
   for (const table of dependencySafeOrder(droppable, snapshot)) {

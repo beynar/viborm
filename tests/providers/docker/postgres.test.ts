@@ -11,7 +11,7 @@ import {
   createClient as PostgresCreateClient,
   PostgresDriver,
 } from "@drivers/postgres";
-import { push } from "@migrations";
+
 import { s } from "@schema";
 import { blobFilterContract } from "@tests/contracts/drivers/behaviors/blob-filter-behavior";
 import { bulkWriteLimitContract } from "@tests/contracts/drivers/behaviors/bulk-write-limit-behavior";
@@ -29,6 +29,7 @@ import {
   scalarRoundtripContract,
 } from "@tests/contracts/drivers/behaviors/scalar-roundtrip-behavior";
 import { vectorContract } from "@tests/contracts/drivers/behaviors/vector-behavior";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 // =============================================================================
 // SCHEMA DEFINITION
@@ -61,16 +62,16 @@ const post = s
 const schema = { user, post };
 
 // =============================================================================
-// HELPER: Setup database using push() migration
+// HELPER: Setup database using syncLiveSchema() migration
 // =============================================================================
 
 async function setupDatabase(driver: PostgresDriver) {
-  // Create a temporary client to use push() for migrations
+  // Create a temporary client to use syncLiveSchema() for migrations
   const tempClient = createClient({
     schema,
     driver,
   });
-  await push(tempClient, { force: true });
+  await syncLiveSchema(tempClient);
 
   // Clean up any existing data
   await driver._executeRaw(`DELETE FROM "postgresjs_test_posts"`);
@@ -103,7 +104,7 @@ describeIf("postgres.js Driver", () => {
       schema: {},
       databaseUrl: TEST_CONNECTION_STRING,
     });
-    await push(cleanupClient, { force: true });
+    await syncLiveSchema(cleanupClient);
     await cleanupClient.$disconnect();
   });
 
@@ -313,7 +314,7 @@ describeIf("postgres.js Driver", () => {
       });
 
       // Push schema to create tables
-      await push(client, { force: true });
+      await syncLiveSchema(client);
 
       // Create user
       const newUser = await client.user.create({
@@ -381,7 +382,7 @@ describeIf("postgres.js Driver", () => {
       });
 
       // Push schema to create tables
-      await push(client, { force: true });
+      await syncLiveSchema(client);
 
       // Successful transaction
       await client.$transaction(async (tx) => {

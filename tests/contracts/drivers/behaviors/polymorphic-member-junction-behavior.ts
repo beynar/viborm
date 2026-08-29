@@ -1,9 +1,25 @@
 import { createClient } from "@client/client";
 import type { AnyDriver } from "@drivers";
-import { push } from "@migrations";
+
 import { s } from "@schema";
 import { defineContract } from "@tests/contracts/contract";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { describe, expect, test } from "vitest";
+
+const CREATE_TABLE_NAME =
+  /CREATE TABLE\s+(?:IF NOT EXISTS\s+)?(?:(?:"[^"]+"|`[^`]+`|\w+)\.)?(?:"([^"]+)"|`([^`]+)`|(\w+))/i;
+
+function createdTableNames(
+  statements: readonly { readonly sql: string }[]
+): string[] {
+  const names: string[] = [];
+  for (const statement of statements) {
+    const match = statement.sql.match(CREATE_TABLE_NAME);
+    const name = match?.[1] ?? match?.[2] ?? match?.[3];
+    if (name && !name.startsWith("__new_")) names.push(name);
+  }
+  return names;
+}
 
 /**
  * B3 PROVIDER CONTRACT — a polymorphic collection's MEMBER JUNCTION TABLES
@@ -127,14 +143,8 @@ export function runPolymorphicMemberJunctionBehavior({
       };
 
       try {
-        const first = await push(client, { force: true });
-        expect(
-          new Set(
-            first.operations
-              .filter((operation) => operation.type === "createTable")
-              .map((operation) => operation.table.name)
-          )
-        ).toEqual(
+        const first = await syncLiveSchema(client);
+        expect(new Set(createdTableNames(first.statements))).toEqual(
           new Set([
             "provider_pmj_books",
             "provider_pmj_videos",
@@ -213,7 +223,7 @@ export function runPolymorphicMemberJunctionBehavior({
         // unique side and find all of it stable. Any spelling the database
         // reports differently from what the serializer emits shows up here as a
         // non-empty operation list.
-        const secondPush = await push(client, { force: true });
+        const secondPush = await syncLiveSchema(client);
         expect(secondPush.operations).toEqual([]);
         // ...and the surviving membership row is untouched by the second push.
         expect(await countMembers(VIDEO_MEMBER_TABLE)).toBe(1);

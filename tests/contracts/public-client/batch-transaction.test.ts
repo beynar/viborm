@@ -15,7 +15,7 @@ import { SQLite3Driver } from "@drivers/sqlite3";
 import type { BatchQuery, QueryResult } from "@drivers/types";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { TransactionError, VibORMErrorCode } from "@errors";
-import { push } from "@migrations";
+
 import {
   isPendingOperation,
   PendingOperation,
@@ -37,6 +37,7 @@ import {
   vi,
 } from "vitest";
 
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 // =============================================================================
 // TEST SCHEMA
 // =============================================================================
@@ -163,8 +164,8 @@ beforeAll(async () => {
   const driver = new PGliteDriver({ client: db });
   client = createClient({ schema, driver });
 
-  // Use push() to create tables via the migration engine
-  await push(client, { force: true });
+  // Use syncLiveSchema() to create tables via the migration engine
+  await syncLiveSchema(client);
 });
 
 afterAll(async () => {
@@ -527,7 +528,7 @@ describe("$transaction with array (batch mode)", () => {
     });
 
     try {
-      await push(setupClient, { force: true });
+      await syncLiveSchema(setupClient);
       await setupClient.user.create({
         data: { id: "1", name: "Nested", email: "nested@test.com" },
       });
@@ -570,7 +571,7 @@ describe("$transaction with array (batch mode)", () => {
     });
 
     try {
-      await push(setupClient, { force: true });
+      await syncLiveSchema(setupClient);
       await setupClient.user.create({
         data: { id: "1", name: "Before", email: "partition@test.com" },
       });
@@ -654,7 +655,7 @@ describe("$transaction with array (batch mode)", () => {
       });
 
       try {
-        await push(setupClient, { force: true });
+        await syncLiveSchema(setupClient);
 
         await expect(
           withTransactions(batchOnlyClient).$transaction([
@@ -786,7 +787,7 @@ describe("$transaction([...]) with statement-free operations", () => {
       schema,
       driver: new PGliteDriver({ client: batchDb }),
     });
-    await push(setupClient, { force: true });
+    await syncLiveSchema(setupClient);
     return createClient({
       schema,
       driver: new BatchOnlyPGliteDriver({ client: batchDb }),
@@ -966,7 +967,7 @@ describe("$transaction([...]) guard attribution after rollback", () => {
       schema,
       driver: new PGliteDriver({ client: batchDb }),
     });
-    await push(setupClient, { force: true });
+    await syncLiveSchema(setupClient);
     await setupClient.user.create({
       data: { id: "b", name: "Bea", email: "bea@test.com" },
     });
@@ -1149,7 +1150,7 @@ describe("$transaction([...]) attribution of a failure no guard caused", () => {
       schema: counterSchema,
       driver: new PGliteDriver({ client: batchDb }),
     });
-    await push(setupClient, { force: true });
+    await syncLiveSchema(setupClient);
     await setupClient.counter.create({ data: { id: "a", n: 10, label: "A" } });
     await setupClient.counter.create({ data: { id: "b", n: 20, label: "B" } });
     return {
@@ -1274,7 +1275,7 @@ describe("$transaction([...]) attribution on the SQLite dialect", () => {
       schema: docSchema,
       driver: new BatchOnlySQLite3Driver({ dataDir: ":memory:" }),
     });
-    await push(batchOnly, { force: true });
+    await syncLiveSchema(batchOnly);
     await batchOnly.doc.create({
       data: { id: "b", label: "Bea", payload: { a: 1 } },
     });

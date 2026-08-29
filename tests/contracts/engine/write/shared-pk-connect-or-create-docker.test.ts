@@ -1,13 +1,14 @@
 import { createClient } from "@client/client";
 import { MySQL2Driver } from "@drivers/mysql2";
 import { PgDriver } from "@drivers/pg";
-import { push } from "@migrations";
+
 import { afterAll, describe } from "vitest";
 import {
   registerSharedPkConnectOrCreateBehavior,
   sharedPkConnectOrCreateSchema,
 } from "@tests/contracts/engine/write/shared-pk-connect-or-create-behavior";
 
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 /**
  * E6.3 on the live servers.
  *
@@ -40,12 +41,12 @@ function suite(
         schema: sharedPkConnectOrCreateSchema,
         driver: makeDriver(),
       }) as any;
-      // Children before parents, so a re-run never asks `push(force)` to re-shape an
+      // Children before parents, so a re-run never asks `syncLiveSchema(force)` to re-shape an
       // index a live foreign key still needs.
       for (const table of ["e63_profiles", "e63_users"]) {
         await shared.$executeRawUnsafe(`DROP TABLE IF EXISTS ${table}`);
       }
-      await push(shared, { force: true });
+      await syncLiveSchema(shared);
     }
     return shared;
   };

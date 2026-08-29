@@ -2,11 +2,12 @@ import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { createClient } from "@client/client";
 import { Driver } from "@drivers";
-import { generate } from "@src/migrations/generate";
-import { push } from "@src/migrations/push";
+import { MemoryEstateStorage } from "@migrations";
+import { generateV1 as generate } from "@migrations/generate-v1";
 import { s } from "@src/schema";
 import { getSchemas } from "@src/schema/schemas";
 import { validateSchema } from "@src/schema/validation";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { describe, expect, it } from "vitest";
 
 /**
@@ -127,20 +128,20 @@ describe.each([
   });
 
   it("fails migration generate before a snapshot is read", async () => {
-    await expect(generate(migrationClient(build()))).rejects.toThrow(
-      "Schema validation failed"
-    );
+    await expect(
+      generate(migrationClient(build()), new MemoryEstateStorage())
+    ).rejects.toThrow("Schema validation failed");
   });
 
   it("fails push", async () => {
-    await expect(push(migrationClient(build()))).rejects.toThrow(
+    await expect(syncLiveSchema(migrationClient(build()))).rejects.toThrow(
       "Schema validation failed"
     );
   });
 
   it("fails push({ skipValidation: true }) — advice is skippable, the gate is not", async () => {
     await expect(
-      push(migrationClient(build()), { skipValidation: true })
+      syncLiveSchema(migrationClient(build()), { skipValidation: true })
     ).rejects.toThrow("Schema validation failed");
   });
 });

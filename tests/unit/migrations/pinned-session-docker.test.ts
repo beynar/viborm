@@ -22,10 +22,10 @@ import { getMigrationDriver } from "@migrations/drivers";
 import { mysqlMigrationLockName } from "@migrations/drivers/mysql/pinned-session";
 import { inventoryLiveNamespace } from "@migrations/live-reset";
 import { withLockedMigrationProducer } from "@migrations/pinned-session";
-import { push } from "@migrations/push";
 import { s } from "@schema";
 import { createPool } from "mysql2/promise";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { syncLiveSchema } from "../../fixtures/sync-schema";
 
 const PG_CONNECTION = process.env.PG_TEST_CONNECTION_STRING;
 const MYSQL_CONNECTION = process.env.MYSQL_TEST_CONNECTION_STRING;
@@ -176,13 +176,13 @@ describeIfPg("the pinned PostgreSQL session on a real server", () => {
   });
 
   it("contains a force-reset inside one estate over a shared server", async () => {
-    await push(estateClient(ALPHA), { force: true });
-    await push(estateClient(BETA), { force: true });
+    await syncLiveSchema(estateClient(ALPHA));
+    await syncLiveSchema(estateClient(BETA));
     await admin._executeRaw(
       `INSERT INTO "${BETA}"."pin_notes" ("id", "body") VALUES ('sentinel', 'keep')`
     );
 
-    await push(estateClient(ALPHA), { force: true, forceReset: true });
+    await syncLiveSchema(estateClient(ALPHA), { forceReset: true });
 
     const alphaRows = await admin._executeRaw<{ count: string }>(
       `SELECT count(*) AS count FROM "${ALPHA}"."pin_notes"`
@@ -201,9 +201,7 @@ describeIfPg("the pinned PostgreSQL session on a real server", () => {
       `ALTER TABLE "${BETA}"."pin_notes" ADD COLUMN "alpha_id" TEXT REFERENCES "${ALPHA}"."pin_notes"("id")`
     );
     try {
-      await expect(
-        push(estateClient(ALPHA), { force: true })
-      ).rejects.toMatchObject({
+      await expect(syncLiveSchema(estateClient(ALPHA))).rejects.toMatchObject({
         code: VibORMErrorCode.FEATURE_NOT_SUPPORTED,
       });
     } finally {
@@ -324,13 +322,13 @@ describeIfMysql("the pinned MySQL session on a real server", () => {
   });
 
   it("contains an attested reset inside its own database", async () => {
-    await push(estateClient(ALPHA), { force: true });
-    await push(estateClient(BETA), { force: true });
+    await syncLiveSchema(estateClient(ALPHA));
+    await syncLiveSchema(estateClient(BETA));
     await admin._executeRaw(
       `INSERT INTO \`${BETA}\`.\`pin_notes\` (\`id\`, \`body\`) VALUES ('sentinel', 'keep')`
     );
 
-    await push(estateClient(ALPHA), { force: true, forceReset: true });
+    await syncLiveSchema(estateClient(ALPHA), { forceReset: true });
 
     const alphaRows = await admin._executeRaw<{ count: number }>(
       `SELECT COUNT(*) AS count FROM \`${ALPHA}\`.\`pin_notes\``
@@ -403,7 +401,7 @@ describeIfMysql("the pinned MySQL session on a real server", () => {
     try {
       const client = createClient({ schema: estateSchema, driver: unattested });
       await expect(
-        push(client, { force: true, forceReset: true })
+        syncLiveSchema(client, { forceReset: true })
       ).rejects.toMatchObject({ code: VibORMErrorCode.DRIVER_NOT_SUPPORTED });
 
       // N6: MySQL reset used to be a no-op, so this command silently succeeded

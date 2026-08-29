@@ -10,14 +10,14 @@
  */
 import { createClient } from "@client/client";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { push } from "@migrations";
+import { pushV1 as push } from "@migrations/push-v1";
 import { readTransactionOperation } from "@query-engine/transaction-operation";
 import { afterAll, bench, describe } from "vitest";
 import { sqliteUserPostSchema } from "../tests/fixtures/user-post-schema";
 
 const driver = new SQLite3Driver({ dataDir: ":memory:" });
 const client = createClient({ schema: sqliteUserPostSchema, driver });
-await push(client, { force: true });
+await push(client);
 
 const USERS = 100;
 const POSTS = 1000;

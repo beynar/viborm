@@ -13,9 +13,10 @@
 import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite } from "@electric-sql/pglite";
-import { push } from "@migrations";
+
 import { s } from "@schema";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 const user = s
   .model({
@@ -64,7 +65,7 @@ const ids = (rows: readonly { id: string }[]): string[] =>
 
 beforeAll(async () => {
   client = createShorthandClient();
-  await push(client, { force: true });
+  await syncLiveSchema(client);
 
   await client.user.createMany({
     data: [

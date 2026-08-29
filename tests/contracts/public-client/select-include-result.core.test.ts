@@ -5,7 +5,7 @@
 
 import type { OperationResult } from "@client/types";
 import { createClient as PGliteCreateClient } from "@drivers/pglite";
-import { push } from "@migrations";
+
 import {
   afterAll,
   beforeAll,
@@ -21,6 +21,7 @@ import {
   createStandardUserPostUsers,
 } from "@tests/fixtures/user-post-seed";
 import type { testUser } from "@tests/fixtures/schema.js";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 // Test types directly using OperationResult
 type UserModel = typeof testUser;
@@ -320,7 +321,7 @@ describe("nested write mutation result shaping", () => {
 
   beforeAll(async () => {
     client = PGliteCreateClient({ schema: clientUserPostSchema });
-    await push(client, { force: true });
+    await syncLiveSchema(client);
   });
 
   afterAll(async () => {

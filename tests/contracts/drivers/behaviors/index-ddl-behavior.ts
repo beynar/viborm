@@ -35,8 +35,9 @@ import {
 } from "@client/client";
 import type { AnyDriver } from "@drivers";
 import { UniqueConstraintError } from "@errors";
-import { push } from "@migrations";
+import { createMigrationClient } from "@migrations";
 import { s } from "@schema";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { afterEach, describe, expect, test } from "vitest";
 
 // --- Schema 1: a declared index over mapped columns --------------------------
@@ -332,7 +333,7 @@ export function runMappedIndexBehavior({
     // is half the witness.
     test("push creates the index over the mapped column names", async () => {
       const c = make(mappedIndexSchema);
-      await push(c as never, { force: true });
+      await syncLiveSchema(c as never);
 
       expect(
         await indexColumns(c, dialect, "idx_map_posts_author_pub")
@@ -341,13 +342,13 @@ export function runMappedIndexBehavior({
 
     test("re-pushing the schema is not an index change", async () => {
       const c = make(mappedIndexSchema);
-      await push(c as never, { force: true });
+      await syncLiveSchema(c as never);
 
-      const second = await push(c as never, { force: true });
+      const second = await syncLiveSchema(c as never);
 
       expect(
         second.operations.filter(
-          (op) => op.type === "createIndex" || op.type === "dropIndex"
+          (op) => op.label === "createIndex" || op.label === "dropIndex"
         )
       ).toEqual([]);
       expect(
@@ -359,7 +360,7 @@ export function runMappedIndexBehavior({
     // same resolved names, so the FK column is indexed once, not twice.
     test("the declared index leaves the FK index nothing to add", async () => {
       const c = make(mappedIndexSchema);
-      await push(c as never, { force: true });
+      await syncLiveSchema(c as never);
 
       expect(
         await indexColumns(c, dialect, "idx_map_posts_author_id_idx")
@@ -404,7 +405,7 @@ export function runPartialIndexBehavior({
     // the published ones.
     test("push writes the predicate into the index", async () => {
       const c = make(partialIndexSchema);
-      await push(c as never, { force: true });
+      await syncLiveSchema(c as never);
 
       expect(await storedSql(c)).toContain("WHERE published = 1");
 
@@ -426,13 +427,13 @@ export function runPartialIndexBehavior({
     // index on every push, forever.
     test("a second push is not an index change", async () => {
       const c = make(partialIndexSchema);
-      await push(c as never, { force: true });
+      await syncLiveSchema(c as never);
 
-      const second = await push(c as never, { force: true });
+      const second = await syncLiveSchema(c as never);
 
       expect(
         second.operations.filter(
-          (op) => op.type === "createIndex" || op.type === "dropIndex"
+          (op) => op.label === "createIndex" || op.label === "dropIndex"
         )
       ).toEqual([]);
       // The table carries a foreign key, so SQLite rebuilt it during that push
@@ -466,7 +467,7 @@ export function runPartialIndexRefusalBehavior({
         driver: createDriver(),
       }) as never;
 
-      await expect(push(client as never, { force: true })).rejects.toThrow(
+      await expect(syncLiveSchema(client as never)).rejects.toThrow(
         REFUSAL_MESSAGE
       );
     });
@@ -513,9 +514,9 @@ export function runPartialIndexPredicateChurnBehavior({
       return rows[0]?.predicate ?? null;
     }
 
-    function indexOps(operations: readonly { type: string }[]) {
+    function indexOps(operations: readonly { label: string }[]) {
       return operations.filter(
-        (op) => op.type === "createIndex" || op.type === "dropIndex"
+        (op) => op.label === "createIndex" || op.label === "dropIndex"
       );
     }
 
@@ -524,13 +525,13 @@ export function runPartialIndexPredicateChurnBehavior({
     // and every one after it, forever.
     test("re-pushing the same declaration is not an index change", async () => {
       const c = make(churnDeclaredSchema);
-      await push(c as never, { force: true });
+      await syncLiveSchema(c as never);
 
       // The gap this closes, stated rather than assumed: what the catalog
       // gives back is NOT what the schema declared.
       expect(await storedPredicate(c)).toBe("(published = true)");
 
-      const second = await push(c as never, { force: true });
+      const second = await syncLiveSchema(c as never);
 
       expect(indexOps(second.operations)).toEqual([]);
       expect(await storedPredicate(c)).toBe("(published = true)");
@@ -540,10 +541,10 @@ export function runPartialIndexPredicateChurnBehavior({
     // by any normalization; two DIFFERENT texts for one predicate can only be
     // settled by the database, which is what the canonicalization asks.
     test("the same predicate in another spelling is not an index change", async () => {
-      await push(make(churnDeclaredSchema) as never, { force: true });
+      await syncLiveSchema(make(churnDeclaredSchema) as never);
 
       const respelled = make(churnRespelledSchema);
-      const second = await push(respelled as never, { force: true });
+      const second = await syncLiveSchema(respelled as never);
 
       expect(indexOps(second.operations)).toEqual([]);
       expect(await storedPredicate(respelled)).toBe("(published = true)");
@@ -552,12 +553,12 @@ export function runPartialIndexPredicateChurnBehavior({
     // And the guard the canonicalization must not swallow: a predicate that
     // really changed is still a drop and a create.
     test("a real predicate change is still an index change", async () => {
-      await push(make(churnDeclaredSchema) as never, { force: true });
+      await syncLiveSchema(make(churnDeclaredSchema) as never);
 
       const changed = make(churnChangedSchema);
-      const second = await push(changed as never, { force: true });
+      const second = await syncLiveSchema(changed as never);
 
-      expect(indexOps(second.operations).map((op) => op.type)).toEqual([
+      expect(indexOps(second.operations).map((op) => op.label)).toEqual([
         "dropIndex",
         "createIndex",
       ]);
@@ -574,15 +575,14 @@ export function runPartialIndexPredicateChurnBehavior({
     // the drop/create stands. Both halves of the catch's promise are here: the
     // push does not fail, and nothing was claimed equal.
     test("a canonicalization that fails answers nothing, and the change stands", async () => {
-      await push(make(churnDeclaredSchema) as never, { force: true });
+      await syncLiveSchema(make(churnDeclaredSchema) as never);
 
       const unparseable = make(churnUnparseableSchema);
-      const second = await push(unparseable as never, {
+      const second = await createMigrationClient(unparseable as never).push({
         dryRun: true,
-        force: true,
       });
 
-      expect(indexOps(second.operations).map((op) => op.type)).toEqual([
+      expect(indexOps(second.operations).map((op) => op.label)).toEqual([
         "dropIndex",
         "createIndex",
       ]);
@@ -621,7 +621,7 @@ export function runPartialIndexCoverageBehavior({
     // index for the rows the predicate excludes.
     test("the foreign-key column keeps a whole-column index", async () => {
       const c = make(coverIndexSchema);
-      await push(c as never, { force: true });
+      await syncLiveSchema(c as never);
 
       // The declared index is still exactly what the schema asked for.
       expect(
@@ -657,19 +657,20 @@ export function runPartialIndexCoverageBehavior({
     // in `runPartialIndexPredicateChurnBehavior`.
     test("a second push does not touch the foreign-key index", async () => {
       const c = make(coverIndexSchema);
-      await push(c as never, { force: true });
+      await syncLiveSchema(c as never);
 
-      const second = await push(c as never, { force: true });
+      const second = await syncLiveSchema(c as never);
 
       expect(
         second.operations.filter(
-          (op) =>
-            (op.type === "createIndex" &&
-              op.index.name === "idx_cov_posts_authorId_fkey_idx") ||
-            (op.type === "dropIndex" &&
-              op.indexName === "idx_cov_posts_authorId_fkey_idx")
+          (op) => op.label === "createIndex" || op.label === "dropIndex"
         )
       ).toEqual([]);
+      expect(
+        second.statements.some((statement) =>
+          statement.sql.includes("idx_cov_posts_authorId_fkey_idx")
+        )
+      ).toBe(false);
       expect(
         await indexColumns(c, dialect, "idx_cov_posts_authorId_fkey_idx")
       ).toEqual(["authorId"]);
@@ -682,7 +683,7 @@ export function runPartialIndexCoverageBehavior({
     // schema calls 1:1 holds two children on one parent.
     test("two rows the predicate excludes cannot share the 1:1 key", async () => {
       const c = make(coverUniqueSchema);
-      await push(c as never, { force: true });
+      await syncLiveSchema(c as never);
 
       const owner = c as never as {
         coverOwner: { create: (a: unknown) => Promise<unknown> };

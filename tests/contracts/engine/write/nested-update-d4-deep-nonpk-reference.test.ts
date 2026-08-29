@@ -3,9 +3,10 @@ import { createClient } from "@client/client";
 import type { BatchQuery, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
-import { push } from "@migrations";
+
 import { s } from "@schema";
 import { describe, expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 /**
  * N1-U1 — the D4-deep non-PK reference, absorbed from the former T3b-2
@@ -127,7 +128,7 @@ describe("nested update D4-deep non-PK reference (located-parent Ref at depth 2)
             ? new PGliteDriver({ client: db })
             : new BatchOnlyPGliteDriver({ client: db });
         const client = makeClient(driver);
-        await push(client as any, { force: true });
+        await syncLiveSchema(client as any);
         await seed(client);
 
         await (client as any).company.update(OP);

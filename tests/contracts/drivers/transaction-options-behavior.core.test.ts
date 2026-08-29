@@ -15,13 +15,14 @@ import { createClient } from "@client/client";
 import { MySQL2Driver } from "@drivers/mysql2";
 import { PGliteDriver } from "@drivers/pglite";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { push } from "@migrations";
+
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import {
   clientUserPostSchema,
   sqliteUserPostSchema,
 } from "@tests/fixtures/user-post-schema";
 
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 const ISOLATION_SQL = /SET TRANSACTION ISOLATION LEVEL/i;
 const SELECT_SQL = /select/i;
 const ANY_LEVEL_SQL =
@@ -51,7 +52,7 @@ describe("isolationLevel: post-begin placement (PostgreSQL family)", () => {
   test("PGlite emits the level as the first statement inside the transaction", async () => {
     const driver = new PGliteDriver();
     const client = createClient({ schema: clientUserPostSchema, driver });
-    await push(client, { force: true });
+    await syncLiveSchema(client);
 
     const statements = recordStatements(driver);
     await client.$transaction(
@@ -85,7 +86,7 @@ describe("isolationLevel: post-begin placement (PostgreSQL family)", () => {
   ] as const)("PGlite accepts %s and spells it in SQL", async (level) => {
     const driver = new PGliteDriver();
     const client = createClient({ schema: clientUserPostSchema, driver });
-    await push(client, { force: true });
+    await syncLiveSchema(client);
 
     const statements = recordStatements(driver);
     await client.$transaction(async () => undefined, { isolationLevel: level });
@@ -102,7 +103,7 @@ describe("isolationLevel: post-begin placement (PostgreSQL family)", () => {
   test("PGlite emits no isolation statement when no level is asked for", async () => {
     const driver = new PGliteDriver();
     const client = createClient({ schema: clientUserPostSchema, driver });
-    await push(client, { force: true });
+    await syncLiveSchema(client);
 
     const statements = recordStatements(driver);
     await client.$transaction(async (tx) => {
@@ -231,7 +232,7 @@ describe("isolationLevel: serializable-only (SQLite family)", () => {
 
   test("Serializable is honored by construction, with no statement emitted", async () => {
     const client = createClient({ schema: sqliteUserPostSchema, driver });
-    await push(client, { force: true });
+    await syncLiveSchema(client);
 
     const statements = recordStatements(driver);
     await client.$transaction(
@@ -253,7 +254,7 @@ describe("isolationLevel: serializable-only (SQLite family)", () => {
     "RepeatableRead",
   ] as const)("%s is refused rather than silently upgraded", async (level) => {
     const client = createClient({ schema: sqliteUserPostSchema, driver });
-    await push(client, { force: true });
+    await syncLiveSchema(client);
     const callback = vi.fn(async () => undefined);
 
     await expect(
@@ -271,7 +272,7 @@ describe("timeout: expiry rolls back and leaves the connection usable", () => {
   test("an over-running callback is rolled back with V5002 and writes nothing", async () => {
     const driver = new PGliteDriver();
     const client = createClient({ schema: clientUserPostSchema, driver });
-    await push(client, { force: true });
+    await syncLiveSchema(client);
 
     // The body blocks until this test releases it, so "the callback outran its
     // timeout" is a fact rather than a race between two durations.
@@ -320,7 +321,7 @@ describe("timeout: expiry rolls back and leaves the connection usable", () => {
   test("a callback that finishes inside its timeout commits normally", async () => {
     const driver = new PGliteDriver();
     const client = createClient({ schema: clientUserPostSchema, driver });
-    await push(client, { force: true });
+    await syncLiveSchema(client);
 
     await client.$transaction(
       async (tx) => {
@@ -342,7 +343,7 @@ describe("maxWait: the serialized queue wait is bounded", () => {
   test("a transaction that outwaits maxWait never opens", async () => {
     const driver = new SQLite3Driver({ dataDir: ":memory:" });
     const client = createClient({ schema: sqliteUserPostSchema, driver });
-    await push(client, { force: true });
+    await syncLiveSchema(client);
 
     let releaseHolder: (() => void) | undefined;
     const held = new Promise<void>((release) => {
@@ -371,7 +372,7 @@ describe("maxWait: the serialized queue wait is bounded", () => {
   test("a transaction that gets its slot in time runs normally", async () => {
     const driver = new SQLite3Driver({ dataDir: ":memory:" });
     const client = createClient({ schema: sqliteUserPostSchema, driver });
-    await push(client, { force: true });
+    await syncLiveSchema(client);
 
     await client.$transaction(
       async (tx) => {
@@ -411,7 +412,7 @@ describe("nested $transaction: the savepoint option contract", () => {
   test("a nested isolationLevel is refused, naming the savepoint reason", async () => {
     const driver = new PGliteDriver();
     const client = createClient({ schema: clientUserPostSchema, driver });
-    await push(client, { force: true });
+    await syncLiveSchema(client);
 
     await client.$transaction(async (tx) => {
       const nested = vi.fn(async () => undefined);
@@ -432,7 +433,7 @@ describe("nested $transaction: the savepoint option contract", () => {
   test("a nested maxWait is refused: there is no slot to wait for", async () => {
     const driver = new PGliteDriver();
     const client = createClient({ schema: clientUserPostSchema, driver });
-    await push(client, { force: true });
+    await syncLiveSchema(client);
 
     await client.$transaction(async (tx) => {
       await expect(
@@ -445,7 +446,7 @@ describe("nested $transaction: the savepoint option contract", () => {
   test("a nested timeout is honored and rolls back to the savepoint", async () => {
     const driver = new PGliteDriver();
     const client = createClient({ schema: clientUserPostSchema, driver });
-    await push(client, { force: true });
+    await syncLiveSchema(client);
 
     let releaseNested: (() => void) | undefined;
     const nestedHeld = new Promise<void>((resolve) => {
@@ -493,7 +494,7 @@ describe("the array form carries isolationLevel into its transaction", () => {
   test("PGlite applies the level to the transaction the batch runs inside", async () => {
     const driver = new PGliteDriver();
     const client = createClient({ schema: clientUserPostSchema, driver });
-    await push(client, { force: true });
+    await syncLiveSchema(client);
 
     const statements = recordStatements(driver);
     await client.$transaction([client.user.findMany(), client.user.count()], {
@@ -509,7 +510,7 @@ describe("the array form carries isolationLevel into its transaction", () => {
   test("an empty array still refuses an option the driver could not honor", async () => {
     const driver = new SQLite3Driver({ dataDir: ":memory:" });
     const client = createClient({ schema: sqliteUserPostSchema, driver });
-    await push(client, { force: true });
+    await syncLiveSchema(client);
 
     // The empty-array fast path returns before any driver call. It must still
     // refuse, or the option would have been accepted and ignored.

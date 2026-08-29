@@ -5,9 +5,10 @@ import {
   type VibORMConfig,
 } from "@client/client";
 import type { AnyDriver } from "@drivers";
-import { push } from "@migrations";
+
 import { s } from "@schema";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 /**
  * PHASE 7.2 — the multi-row `INSERT … RETURNING` fold (query-performance-plan,
@@ -116,7 +117,7 @@ export function runCreateManyReturnFoldBehavior(options: {
       const driver = options.createDriver();
       recorder = recordStatements(driver);
       client = createClient({ schema, driver });
-      await push(client, { force: true });
+      await syncLiveSchema(client);
       await client.foldRow.deleteMany({});
       await client.foldAutoRow.deleteMany({});
     });

@@ -3,10 +3,11 @@ import { createClient } from "@client/client";
 import type { BatchQuery, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
-import { push } from "@migrations";
+
 import { s } from "@schema";
 import { describe, expect, test } from "vitest";
 import { observeClientOperations } from "@tests/contracts/engine/write/operation-observer";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 /**
  * X1 — THE DEPTH LIFT. A nested `create` under a LOCATED target may now carry its
@@ -63,7 +64,7 @@ async function runObserved(
 ): Promise<{ state: unknown; engines: Set<"direct" | "production"> }> {
   const db = new PGlite();
   const base = makeClient(db);
-  await push(base as never, { force: true });
+  await syncLiveSchema(base as never);
   await seed(base);
   const driver =
     substrate === "tx"

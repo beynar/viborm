@@ -1,67 +1,146 @@
 ---
 title: Migrate
-description: File-based migrations with version control for production — each migration stored as a SQL file committable to git
+description: Authenticated state-graph migrations — review exact SQL, publish immutable estate states, and apply them with a marker and ledger
 icon: git-branch
 ---
 
 ## When to Use Migrate
 
-- **Production deployments** - Versioned, repeatable schema changes
-- **Team collaboration** - Migration files in version control
-- **CI/CD pipelines** - Automated migration deployment
-- **Rollback support** - Down migrations for reverting changes
+- **Production deployments** — the SQL you review is the SQL production executes
+- **Team collaboration** — Git branches can diverge and merge without renaming files
+- **CI/CD pipelines** — `check`, `status`, and `apply` have stable `--json` output
+- **Recoverable apply** — interrupted work has one detectable state, not a guessed final status
+
+`push` is a separate, history-free live sync. It never writes estate storage or the current-state marker. Use [Push](/docs/migration/push) for local prototyping; use migrate when the change must be history.
+
+## What an Estate Is
+
+One migration **state** is one graph node. It records a target schema **snapshot** and one authenticated transition from each parent. A linear state has one parent. A branch merge has one complete transition from every parent into the same target. Human names are labels only — they never decide order.
+
+```
+immutable estate descriptor
+        +
+content-addressed schema snapshots and SQL blobs
+        +
+immutable migration-state manifests
+        +
+database current-state marker
+        +
+append-only execution ledger
+```
+
+Production never evaluates migration TypeScript. It slices authenticated UTF-8 ranges from an authenticated SQL blob and binds the exact typed parameters sealed in each dispatch.
 
 ## Workflow Overview
 
 ```
-1. Make changes to your VibORM models
-2. Generate a migration file
-3. Review the generated SQL
-4. Apply the migration to database
+1. Change your VibORM models
+2. Generate a new estate state (review the SQL blob)
+3. Apply that state to the database
+4. status / verify / log explain the marker and ledger
 ```
 
-## Generate Migrations
+## Composition Root
 
-Generate a new migration by comparing your current models against the previous snapshot:
+One migration client binds the database client to one optional estate storage.
+There is no `$migrations` helper, migration manager, or
+`createFsStorageDriver`.
 
 <Tabs>
   <Tab title="CLI">
 ```bash
-# Generate a migration with auto-generated name
-npx viborm migrate generate
-
-# Generate with a custom name
-npx viborm migrate generate --name add-users-table
-
-# Preview without creating files
-npx viborm migrate generate --dry-run
+# Default estate directory is ./migrations
+npx viborm migrate generate --name add-users
+npx viborm migrate apply
+npx viborm migrate status --json
 ```
   </Tab>
   <Tab title="Migration Client">
 ```ts
-import { createMigrationClient } from "viborm/migrations";
-import { createFsStorageDriver } from "viborm/migrations/storage/fs";
+import { createMigrationClient, createFsStorageWriter } from "viborm/migrations";
 import { client } from "./client";
 
 const migrations = createMigrationClient(client, {
-  storageDriver: createFsStorageDriver("./migrations"),
+  storage: createFsStorageWriter("./migrations"),
 });
 
-// Generate with custom name
+const generated = await migrations.generate({ name: "add-users" });
+if (generated.outcome === "published") {
+  console.log(generated.stateId, generated.sql);
+}
+
+await migrations.apply();
+```
+  </Tab>
+</Tabs>
+
+`createMigrationClient` is the only execution composition root. Its methods
+reflect the supplied storage capability:
+
+| Client construction | Available operations |
+| --- | --- |
+| No storage | `push`, `log` |
+| `MigrationStorageReader` | The above plus `check`, `list`, `show`, `graph`, `status`, `verify`, `apply`, `down`, `baseline`, `resolve` |
+| `MigrationStorageWriter` | Every operation, including `generate` and `reset` |
+
+`log` reads the target database's append-only ledger. `push` is history-free.
+Neither operation reads estate storage.
+
+Every `viborm migrate` subcommand accepts `-d, --dir <dir>` and `--json`.
+There is no migration-wide `--verbose` or `--force` flag. The operation
+sections below list the remaining command-specific flags.
+
+### Named Client and Result Types
+
+The capability surfaces and operation results are exported for scripts and
+tooling that keep their types in a central module:
+
+```ts
+import type {
+  ApplyResult,
+  GenerateResult,
+  GraphResult,
+  LiveMigrations,
+  LogResult,
+  ReadableMigrations,
+  StatusResult,
+  WritableMigrations,
+} from "viborm/migrations";
+```
+
+Every operation has a named result: `GenerateResult`, `CheckResult`,
+`ListResult`, `ShowResult`, `GraphResult`, `StatusResult`, `VerifyResult`,
+`LogResult`, `ApplyResult`, `DownResult`, `BaselineResult`, `ResolveResult`,
+`ResetResult`, `PushPreview`, and `PushApplyResult`.
+
+## Generate a State
+
+Generate compares the current models to the selected parent snapshot and publishes one new state. The first generate uses the virtual empty root. Later generates use the unique leaf, or every leaf when you are converging branches.
+
+<Tabs>
+  <Tab title="CLI">
+```bash
+npx viborm migrate generate
+npx viborm migrate generate --name add-users-table
+npx viborm migrate generate --from empty
+npx viborm migrate generate --dry-run --json
+```
+  </Tab>
+  <Tab title="Migration Client">
+```ts
 const result = await migrations.generate({
   name: "add-users-table",
 });
 
-if (result.entry) {
-  console.log(result.message); // e.g. "Generated migration 0003_add-users-table"
-  console.log(`Operations: ${result.operations.length}`);
-  console.log(`Files written: ${result.written}`);
-} else {
-  console.log("No changes detected");
+if (result.outcome === "published") {
+  console.log(result.stateId);
+  console.log(result.sql);
+} else if (result.outcome === "noop") {
+  console.log("Schema already matches the selected parent");
 }
 
-// Preview without creating files
-const preview = await migrations.preview();
+const preview = await migrations.generate({ dryRun: true });
+// preview.outcome === "preview" — nothing is published
 ```
   </Tab>
 </Tabs>
@@ -70,128 +149,206 @@ const preview = await migrations.preview();
 
 | Option | CLI | API | Description |
 |--------|-----|-----|-------------|
-| Name | `--name <name>` | `name: string` | Custom migration name |
-| Output directory | `--out <dir>` | `dir: string` | Output directory (default: `./migrations`) |
-| Dry run | `--dry-run` | `dryRun: boolean` | Preview without creating files |
-| Resolver | - | `resolver: Resolver` | Handle ambiguous changes |
-| Enum resolver | - | `enumValueResolver: EnumValueResolver` | Handle enum value removals |
-| Manual artifact | - | `manualMigration: { up, rollback }` | Caller-owned SQL for the whole migration (no CLI flag) |
+| Name | `--name <name>` | `name: string` | Human label. Metadata only; identity is the state hash. |
+| Parent | `--from <stateId\|empty>` | `from: Sha256 \| null` | Full parent state id, or `null` / `empty` for the virtual root. |
+| Estate directory | `--dir <dir>` | storage factory path | Estate root (default `./migrations`). |
+| Dry run | `--dry-run` | `dryRun: boolean` | Return the complete candidate without publishing. |
+| Resolver | — | `resolve` | Handle ambiguous structural changes. |
+| Manual artifact | — | `manualMigration` | Caller-owned transitions. No CLI flag. |
 
-### Manual Migrations
+`--from empty` and `from: null` mean the virtual empty root. A second virtual-root transition is refused. Numeric file indexes do not exist.
 
-Some transitions move data, not just structure — a polymorphic relation
-changing cardinality, or a stored discriminator being rewritten. VibORM refuses
-to invent that data movement. You supply the whole migration instead:
+### Manual Transitions
+
+Some work moves data, not just structure. VibORM refuses to invent that movement. You supply complete parent transitions before generation. The estate stores the final SQL and closed manifest — not a durable TypeScript migration language.
 
 ```ts
+import { sql } from "viborm";
+
+const currentStateId = (
+  await migrations.show({ name: "legacy-subject" })
+).stateId;
+
 await migrations.generate({
   name: "subject-to-many",
   manualMigration: {
-    // The complete ordered up artifact: structural DDL and data DML.
-    up: [
-      `CREATE TABLE "content_subject_post" (...);`,
-      `INSERT INTO "content_subject_post" ("contentId", "postId")
-         SELECT "id", "subject_id" FROM "content" WHERE "subject_type" = 'content.post.v1';`,
-      `DROP INDEX "content_subject_poly_idx";`,
-      `ALTER TABLE "content" DROP COLUMN "subject_type";`,
-      `ALTER TABLE "content" DROP COLUMN "subject_id";`,
+    transitions: [
+      {
+        from: currentStateId,
+        execution: "stepwise",
+        originChecks: [
+          {
+            kind: "trusted-read",
+            query: sql`SELECT NOT EXISTS (
+              SELECT 1 FROM "content"
+              WHERE "subject_type" <> 'content.post.v1'
+            )`,
+            equals: true,
+          },
+        ],
+        up: [
+          sql`CREATE TABLE "content_subject_post" (
+                "contentId" text NOT NULL,
+                "postId" text NOT NULL,
+                PRIMARY KEY ("contentId", "postId")
+              );`,
+          sql`INSERT INTO "content_subject_post" ("contentId", "postId")
+                SELECT "id", "subject_id" FROM "content"
+                WHERE "subject_type" = 'content.post.v1';`,
+        ],
+        rollback: {
+          kind: "manual",
+          execution: "stepwise",
+          sql: [sql`DROP TABLE "content_subject_post";`],
+        },
+      },
     ],
-    rollback: { kind: "manual", sql: [/* ... */] },
-    // or, when the transition genuinely cannot be undone:
-    // rollback: { kind: "irreversible", reason: "discarded memberships are unrecoverable" },
+    destinationChecks: [
+      {
+        kind: "trusted-read",
+        query: sql`SELECT NOT EXISTS (
+          SELECT 1 FROM "content" AS c
+          WHERE c."subject_type" = 'content.post.v1'
+            AND NOT EXISTS (
+              SELECT 1 FROM "content_subject_post" AS j
+              WHERE j."contentId" = c."id"
+                AND j."postId" = c."subject_id"
+            )
+        )`,
+        equals: true,
+      },
+    ],
   },
 });
 ```
 
-Rules, each of which is a refusal rather than a warning:
+This example uses PostgreSQL quoting. Adapt the SQL and physical scalar types
+to the target dialect. Each check must return exactly one row and one
+boolean-like column. An origin check proves the pre-transition fact; a
+destination check proves the post-transition fact.
 
-- Supplying `manualMigration` puts the **whole** migration in manual mode,
-  whether or not a data-bearing transition exists. Only your statements are
-  emitted; no generated DDL is appended around them. The complete diff and the
-  snapshot are still computed, so history, reporting and dry runs stay honest.
-- `up` must parse to at least one statement. Empty, whitespace-only and
-  comment-only artifacts are all empty.
-- `rollback` is `{ kind: "manual", sql }` or `{ kind: "irreversible", reason }`.
-  There is no `automatic` arm: automatic means "VibORM inverted the operations it
-  emitted", and manual mode emits none.
-- A `manual` rollback's `sql` must parse to at least one statement. If there is
-  nothing to run, say `irreversible` and give a reason — a blank reason is
-  refused too.
-- Manual mode requires an explicit `name`.
+Rules, each a refusal rather than a warning:
 
-The policy is persisted on the journal entry (`mode`, `rollback`), so
-`down()` can honour it later, and `squash()` refuses to compose it.
+- A state is wholly generated or wholly manual. Custom text is not spliced into generated DDL.
+- Each `up` value is one opaque provider dispatch — VibORM does not split it on semicolons.
+- `rollback` is `{ kind: "manual", execution, sql }` or `{ kind: "irreversible", reason }`. There is no `automatic` input arm.
+- Stepwise manual work without complete origin and destination checks is refused before dispatch.
+- A requested `transactional` boundary on a provider that cannot honor it is refused before effects.
+- A blank irreversible reason is refused.
 
-## Check Migration Status
+A data-only transition can create a new state while keeping the same schema snapshot. Equal snapshots never prove equal migration state.
 
-View which migrations have been applied:
+## Inspect the Graph
+
+These commands do not apply SQL. `check` is offline. `list`, `show`, and `graph` read the estate.
 
 <Tabs>
   <Tab title="CLI">
 ```bash
-# Show migration status
-npx viborm migrate status
-```
-
-Output:
-```
-Migration Status:
-  [x] 0000_initial.sql (applied 2024-01-15)
-  [x] 0001_add-users.sql (applied 2024-01-16)
-  [ ] 0002_add-posts.sql (pending)
+npx viborm migrate check --json
+npx viborm migrate list --json
+npx viborm migrate show add-users --json
+npx viborm migrate graph --json
 ```
   </Tab>
   <Tab title="Migration Client">
 ```ts
-const statuses = await migrations.status();
-
-for (const status of statuses) {
-  const state = status.appliedAt ? "applied" : "pending";
-  const date = status.appliedAt?.toLocaleDateString() ?? "";
-  console.log(`${status.entry.name}: ${state} ${date}`);
+const check = await migrations.check();
+if (!check.ok) {
+  for (const finding of check.findings) {
+    console.error(finding.code, finding.message);
+  }
 }
 
-// Get only pending migrations
-const pending = await migrations.pending();
-console.log(`${pending.length} migrations pending`);
+for (const state of await migrations.list()) {
+  console.log(state.stateId, state.name);
+}
+
+const shown = await migrations.show({ name: "add-users" });
+console.log(shown.snapshotHash, shown.sqlHash);
+console.log(shown.root, shown.leaf);
+console.log(shown.incoming, shown.outgoing);
+
+const graph = await migrations.graph();
+console.log(graph.estateHash, graph.target);
+console.log(graph.roots, graph.leaves);
+console.log(graph.states, graph.edges);
 ```
   </Tab>
 </Tabs>
 
-### Status Options
+`show` and `apply({ to })` accept a full state id, an unambiguous prefix, or an unambiguous name. Ambiguous names or prefixes refuse. Numeric indexes are not selectors.
 
-| Option | CLI | API | Description |
-|--------|-----|-----|-------------|
-| Directory | `--dir <dir>` | - | Migrations directory (default: `./migrations`) |
-| Table name | `--table-name <name>` | `tableName: string` | Migrations tracking table name |
+`list` is the compact state-id/name view. `show` adds the snapshot and SQL
+identities, root/leaf flags, and incoming/outgoing edge metadata. `graph`
+returns the estate target, every state, and every edge. Edge metadata exposes
+the parent and child ids, transition hash, requested execution boundary,
+operation and step counts, origins, risks, and rollback kind. These are frozen
+descriptions, not executable plans or mutable manifest objects.
 
-## Apply Migrations
+## Status, Verify, and Log
 
-Apply pending migrations to the database:
+`status`, `verify`, and `log` are read-only. They never create control tables and never translate a provider failure into “no migrations applied.”
 
 <Tabs>
   <Tab title="CLI">
 ```bash
-# Apply all pending migrations
-npx viborm migrate apply
-
-# Apply up to a specific migration index
-npx viborm migrate apply --to 5
-
-# Preview without applying
-npx viborm migrate apply --dry-run
+npx viborm migrate status --json
+npx viborm migrate verify --json
+npx viborm migrate log --limit 20 --json
 ```
   </Tab>
   <Tab title="Migration Client">
 ```ts
-// Apply all pending
-const result = await migrations.apply();
-console.log(`Applied ${result.applied.length} migrations`);
+const status = await migrations.status();
+// status.control === "absent" | "present"
+// status.marker — last confirmed state, or null
+// status.pending — unique-leaf path from the marker, when one leaf exists
+// status.unfinished — an attempt is still open on the ledger
 
-// Apply up to a specific migration index
-await migrations.apply({ to: 5 });
+const verify = await migrations.verify();
+const events = await migrations.log();
+```
+  </Tab>
+</Tabs>
 
-// Preview without applying
+| Command | Lock | What it answers |
+|---------|------|-----------------|
+| `status` | no | Marker, pending path to the unique leaf, unfinished attempts. |
+| `verify` | yes | Live managed schema matches the marker's authenticated snapshot. |
+| `log` | no | Authenticated database-ledger events, sorted by start time and event id. It does not inspect estate artifacts. |
+
+CLI `log --limit <n>` keeps the last `n` events after that stable ordering. The
+programmatic `log()` call returns the complete ledger so callers can slice or
+filter it themselves.
+
+There is no `pending()` method. Pending work is a field on `status()`.
+`log()` requires an existing, authentic control-table pair. When it is absent,
+`log()` throws `MIGRATION_NOT_FOUND`; it does not return an empty successful
+log.
+
+## Apply
+
+Apply authenticates the selected path, refuses live drift, executes exact SQL slices, then compare-and-swaps the marker. The default target is the unique leaf. Multiple leaves require `--to` / `{ to }`. Multiple routes require `--via` / `{ via }`.
+
+<Tabs>
+  <Tab title="CLI">
+```bash
+npx viborm migrate apply
+npx viborm migrate apply --to add-users
+npx viborm migrate apply --to a1b2c3d4
+npx viborm migrate apply --via <stateId> --to <stateId>
+npx viborm migrate apply --dry-run --json
+```
+  </Tab>
+  <Tab title="Migration Client">
+```ts
+const applied = await migrations.apply();
+console.log(applied.outcome, applied.path);
+
+await migrations.apply({ to: { name: "add-users" } });
+await migrations.apply({ to: { prefix: "a1b2c3d4" } });
+await migrations.apply({ to: { id: fullStateId } });
 await migrations.apply({ dryRun: true });
 ```
   </Tab>
@@ -201,318 +358,245 @@ await migrations.apply({ dryRun: true });
 
 | Option | CLI | API | Description |
 |--------|-----|-----|-------------|
-| To | `--to <index>` | `to: number` | Apply up to this migration index |
-| Directory | `--dir <dir>` | - | Migrations directory (default: `./migrations`) |
-| Table name | `--table-name <name>` | `tableName: string` | Migrations tracking table name |
-| Dry run | `--dry-run` | `dryRun: boolean` | Preview without applying |
-| Force | `--force` | - | Skip confirmation prompts |
+| Target | `--to <selector>` | `to: StateSelector` | Full id, unambiguous prefix, or unambiguous name. |
+| Via | `--via <stateId...>` | `via: Sha256[]` | Force a path through these full state ids. |
+| Estate directory | `--dir <dir>` | storage factory path | Estate root. |
+| Dry run | `--dry-run` | `dryRun: boolean` | Plan without executing. Zero database effects. |
 
-## Roll Back Migrations
+There is no `--force`, no numeric `--to 5`, and no tracking-table name flag. Control tables are `_viborm_migration_state` and `_viborm_migration_log`.
 
-Every migration carries a rollback policy, decided when it is generated and
-stored in the journal:
+If the marker is absent, ordinary apply requires the managed target to be empty apart from control objects. Adopting an existing schema is `baseline`, not an implicit first apply.
 
-| `rollback.kind` | Meaning | `down()` behaviour |
-|---|---|---|
-| `automatic` | VibORM inverted the operations it emitted | Executes `meta/_down/<file>.sql` |
-| `manual` | You supplied the rollback SQL | Executes `meta/_down/<file>.sql` |
-| `irreversible` | You declared it cannot be undone | Refuses, quoting your reason |
+## Roll Back
 
-Generated migrations are `automatic`; their down artifact lives in
-`meta/_down/`. Destructive operations (dropped tables or columns, and the
-inverse of a created table) are annotated with warnings in the down file — the
-structure is restored, but not the data.
+`down` follows the marker's actual arrival path. It cannot invent a parent this database never used, and it cannot cross a baseline boundary.
 
-`down()` rolls back a GROUP, and it validates the whole group before it touches
-anything:
+Rollback does **not** restore discarded data. Generated destructive changes restore managed schema shape only.
 
-- Every input is read under the migration lock, so a concurrent change between
-  your call and the rollback is observed rather than executed from stale state.
-- If any entry in the group is `irreversible`, the whole group is refused and
-  nothing runs — including the perfectly reversible migrations beside it.
-- If any entry's down artifact is missing, empty, or comments only, the whole
-  group is refused. A rollback never removes a tracking row while leaving the
-  schema live.
-- Dry runs report those refusals too, because the CLI confirms against the dry
-  run.
+| Stored rollback | Meaning |
+|-----------------|---------|
+| `schema` | Invert the generated operations. Structure returns; rows created after the forward migration may be gone. |
+| `manual` | Author-owned reverse dispatches and checks. |
+| `irreversible` | No reverse transition. `down` refuses and quotes the reason. |
 
 <Tabs>
   <Tab title="CLI">
 ```bash
-# Roll back the last migration
 npx viborm migrate down
-
-# Roll back the last 3 migrations
-npx viborm migrate down --steps 3
-
-# Roll back to a specific migration (by name or index)
+npx viborm migrate down --steps 1
 npx viborm migrate down --to add-users
-
-# Preview without executing
-npx viborm migrate down --dry-run
+npx viborm migrate down --dry-run --json
 ```
   </Tab>
   <Tab title="Migration Client">
 ```ts
-// Roll back the last migration
-const result = await migrations.down({ steps: 1 });
-console.log(`Rolled back: ${result.rolledBack.length} migrations`);
-
-// Roll back to a specific point
-await migrations.down({ to: "add-users" });
-
-// Preview
+await migrations.down({ steps: 1 });
+await migrations.down({ to: { name: "add-users" } });
 await migrations.down({ steps: 1, dryRun: true });
 ```
   </Tab>
 </Tabs>
 
-### Down Options
+`down` is the only rollback verb. There is no tracking-only `rollback()`, `drop`, or `pending()` untrack. Removing a marker row while the schema stays live is not a supported operation.
 
-| Option | CLI | API | Description |
-|--------|-----|-----|-------------|
-| Steps | `--steps <n>` | `steps: number` | Number of migrations to roll back |
-| To | `--to <migration>` | `to: string \| number` | Roll back to this migration (exclusive) |
-| Directory | `--dir <dir>` | - | Migrations directory (default: `./migrations`) |
-| Table name | `--table-name <name>` | `tableName: string` | Migrations tracking table name |
-| Dry run | `--dry-run` | `dryRun: boolean` | Preview without executing |
-| Force | `--force` | - | Skip confirmation prompts |
+## Baseline an Existing Database
 
-## No Tracking-Only Rollback
+`baseline({ to })` adopts a live database that already matches an estate state. It executes no migration SQL.
 
-There is deliberately no `migrate drop` and no `migrations.rollback()`.
-Removing tracking rows while the schema changes stay live bypasses every
-`manual` and `irreversible` policy, and a confirmation prompt is not a
-safeguard for that. `migrations.down()` executes the down artifact and removes
-the tracking row in one transaction — it is the only rollback verb.
+Under the target lock it requires:
 
-## Reset Database (API only)
+- no existing marker or ledger history
+- exact live physical equality with that state's snapshot
+- a complete structural root path to that state
+- no manual, opaque, or data-only transition on that path
 
-`reset()` drops all tables and enums, clears the migration tracking table, and re-applies every migration from the journal. There is no CLI equivalent:
-
+<Tabs>
+  <Tab title="CLI">
+```bash
+npx viborm migrate baseline --to add-users --json
+```
+  </Tab>
+  <Tab title="Migration Client">
 ```ts
-await migrations.reset();
+await migrations.baseline({ to: { name: "add-users" } });
+```
+  </Tab>
+</Tabs>
+
+The marker records a baseline path boundary so later `down` cannot invent an arrival parent.
+
+## Recover an Unfinished Attempt
+
+An unfinished ledger attempt means the live schema may be between states. Ordinary apply and down refuse until you recover.
+
+`resolve` is not checksum repair. It changes the marker only when live proof permits:
+
+| Outcome | CLI | Required proof |
+|---------|-----|----------------|
+| Complete | `--complete` | Remaining postchecks, destination checks, and the target fingerprint hold. |
+| Rolled back | `--rolled-back` | Origin checks and the origin fingerprint hold. |
+| Retry | `--retry` | Resume from the first step whose postcheck is false and precheck is true. |
+
+```bash
+npx viborm migrate resolve --complete --json
+npx viborm migrate resolve --rolled-back --json
+npx viborm migrate resolve --retry --json
 ```
 
-:::warning[Destructive Operation]
-`reset()` drops ALL tables and data, then re-applies all migrations from scratch. Use with extreme caution and never in production.
+Equal physical fingerprints are not proof for a data-only or opaque transition. If that transition omitted the checks that distinguish its two states, `resolve` refuses.
+
+## Reset
+
+`reset` preloads and authenticates the complete clear-and-replay program before the first drop. It keeps the estate, both control tables, every ledger event, and the old marker until final success.
+
+<Tabs>
+  <Tab title="CLI">
+```bash
+npx viborm migrate reset --confirm --dry-run --json
+npx viborm migrate reset --confirm --to add-users
+```
+  </Tab>
+  <Tab title="Migration Client">
+```ts
+await migrations.reset({ dryRun: true });
+await migrations.reset({ to: { name: "add-users" } });
+```
+  </Tab>
+</Tabs>
+
+:::warning[Destructive]
+Reset drops managed objects, then replays authenticated states. CLI reset requires `--confirm`. Dry-run compiles the plan and writes nothing.
 :::
 
-## Squash Migrations
+There is no squash or compaction command. A future compaction feature would be an explicitly authored, fully checked direct transition — never inferred from a final snapshot.
 
-Combine multiple migrations into one:
+## Push Does Not Create History
 
 ```ts
-// List migrations to review
-const entries = await migrations.list();
-console.log(entries.map(e => `${e.idx}: ${e.name}`));
-
-// Squash development migrations
-const result = await migrations.squash({
-  from: 0,
-  to: 5,
-  name: "initial-schema",
-  cleanup: true, // Delete original files
-});
-
-console.log(`Squashed into: ${result.entry.name}`);
-console.log(`Composed down statements: ${result.downSql.length}`);
+const live = createMigrationClient(client);
+const preview = await live.push({ dryRun: true });
+await live.push({ consent: preview.consent });
 ```
 
-Squash composes artifacts, so it refuses anything it cannot compose truthfully.
-Every refusal happens before any file, journal, snapshot or tracking row is
-written:
+`push` plans from the live catalog, replans under the target lock, and executes the accepted in-memory program. It never reads or writes estate storage and never changes the marker or ledger.
 
-- **Automatic sources only.** A `manual` or `irreversible` migration is not
-  reproduced by concatenating SQL.
-- **Uniform applied state.** The range must be entirely applied or entirely
-  pending; a mixed range has no truthful tracking outcome.
-- **Suffix only.** The range must run to the latest migration. Squashing a
-  prefix would re-index later entries without renaming their artifacts.
-- **Every source must have a non-empty down artifact.** The composed down
-  reverses the sources in reverse order, so a squashed migration stays as
-  reversible as the migrations it replaced.
+A non-empty push against a valid migration marker is refused. A no-op is allowed only when the marker, unfinished-attempt state, desired snapshot, live fingerprint, and empty diff all agree. That is not `verify`.
 
-Writes go artifacts-first, tracking-last. Neither order is atomic — blob storage
-has no transaction and the database transaction cannot span it — but this one
-leaves the estate re-squashable if it fails, instead of leaving the database
-claiming a migration whose file does not exist.
+See [Push](/docs/migration/push) for consent, force-reset, and dry-run.
 
-### Squash Options
-
-| Option | Type | Description |
-|--------|------|-------------|
-| `from` | `number` | Starting migration index |
-| `to` | `number` | Ending migration index (inclusive; must be the latest) |
-| `name` | `string` | Name for the squashed migration |
-| `cleanup` | `boolean` | Delete original migration files |
-| `dryRun` | `boolean` | Preview without squashing |
-
-## Migration File Structure
+## Estate Layout
 
 ```
 migrations/
-├── 0000_initial.sql
-├── 0001_add-users.sql
-├── 0002_add-posts.sql
-└── meta/
-    ├── _journal.json
-    ├── _snapshot.json
-    └── _down/
-        ├── 0000_initial.sql
-        ├── 0001_add-users.sql
-        └── 0002_add-posts.sql
+├── estate.json
+├── snapshots/
+│   └── <snapshot-hash>.json
+├── sql/
+│   └── <sql-hash>.sql
+└── states/
+    └── <state-id>.json
 ```
 
-### Up Migration
+`estate.json` is created once and is immutable: format `"1"`, hash `"sha256"`, and the exact `MigrationTarget`. PostgreSQL estates are schema-bound. MySQL artifacts stay database-relative. SQLite keeps its dialect target.
 
-The main SQL file contains the forward migration:
+Snapshots, SQL blobs, and state manifests are content-addressed. A state becomes visible only after its snapshot and SQL bytes are durable and the manifest is published through an atomic no-replace boundary. Filenames that look like hashes are not proof — every read recomputes the chain.
 
-```sql title="migrations/0001_add-users.sql"
-CREATE TABLE "users" (
-  "id" serial PRIMARY KEY,
-  "email" text NOT NULL,
-  "created_at" timestamp DEFAULT NOW()
-);
+There are no numbered `0001_*.sql` files, no `meta/_journal.json`, no latest snapshot, and no `meta/_down/` tree. Forward SQL, rollback SQL, and checks live in one SQL blob; the state manifest points at exact byte ranges.
 
-CREATE UNIQUE INDEX "users_email_idx" ON "users" ("email");
-```
+### Storage Requirements
 
-### Down Migration
+- Reads and inventories are strongly consistent.
+- Publishing the same bytes at an existing identity is idempotent.
+- Different bytes at an existing identity are corruption.
+- The filesystem writer uses write-temp → fsync → hard-link no-replace. Check-then-rename is not a V1 publication.
+- Eventually-consistent or last-writer-wins stores (including Workers KV) are not writable estate backends. Object stores need conditional writes and strong listing.
 
-The down file contains the rollback SQL:
+## Provider Limits
 
-```sql title="migrations/meta/_down/0001_add-users.sql"
-DROP INDEX "users_email_idx";
-DROP TABLE "users";
-```
+No provider inherits a guarantee from its dialect name. Effectful work requires a proven lock, marker compare-and-swap, and execution boundary.
 
-### Journal
+| Provider | Effectful migrate / push | Notes |
+|----------|--------------------------|--------|
+| PGlite, `pg`, postgres.js, Bun SQL | Yes, when lock/CAS is proven | Transactional when every statement permits it. |
+| SQLite3, Bun SQLite | Yes, when lock/CAS is proven | One writer boundary; `BEGIN IMMEDIATE` where the family allows it. |
+| MySQL2 | Stepwise | DDL implicitly commits. Nominal transactions do not create rollback. Progress is recorded per dispatch. |
+| Neon HTTP | Read-only / offline | No interactive session to hold a lock. Generation, check, status, log, and push dry-run stay available. Effectful apply/down/reset/verify/push refuse. |
+| PlanetScale | Read-only / offline | VTGate routing does not prove containment. Same offline/read-only split. |
+| D1, D1 HTTP | Effectful refused until proven | Table recreation, foreign keys, native-batch atomicity, and marker CAS are not proven together. |
+| LibSQL | Effectful refused until proven | Existing-row constraint validation and safe table reconstruction are not proven. |
 
-Tracks migration metadata:
+`CREATE INDEX CONCURRENTLY` and other forbidden-in-transaction PostgreSQL operations are classified stepwise or refused before effect.
 
-```json title="migrations/meta/_journal.json"
-{
-  "version": "2",
-  "dialect": "postgresql",
-  "entries": [
-    {
-      "idx": 0,
-      "version": "20240115120000",
-      "name": "initial",
-      "when": 1705320000000,
-      "checksum": "sha256:abc123...",
-      "mode": "generated",
-      "rollback": { "kind": "automatic" }
-    },
-    {
-      "idx": 1,
-      "version": "20240115130000",
-      "name": "collapse-memberships",
-      "when": 1705323600000,
-      "checksum": "sha256:def456...",
-      "mode": "manual",
-      "rollback": {
-        "kind": "irreversible",
-        "reason": "the discarded membership rows cannot be reconstructed"
-      }
-    }
-  ]
-}
-```
+Interrupted stepwise work is explainable from the ledger. The tool never reports rollback that the provider could not perform.
 
-`mode` and `rollback` are required on every entry. A journal from an older
-format, or an entry without a policy, is refused rather than upgraded —
-regenerate the migration estate instead.
+## Expand / Contract Deployments
 
-An irreversible migration still gets a down file, as a readable record:
+A migration tool does not provide zero-downtime deploys by itself. Use expand/contract:
 
-```sql title="migrations/meta/_down/0001_collapse-memberships.sql"
--- Down migration for: collapse-memberships
--- IRREVERSIBLE: the discarded membership rows cannot be reconstructed
-```
+1. **Expand** — add the new column, table, or index. Deploy application code that writes both shapes and reads the old one.
+2. **Migrate data** — backfill with a manual transition that carries origin and destination checks.
+3. **Contract** — deploy readers that only use the new shape, then generate a second state that drops the old objects.
 
-It can never be mistaken for a rollback script: `down()` checks the persisted
-policy before it opens any artifact.
+Do not squash those states. Each published state stays in the graph so every environment can apply the exact transition it needs.
 
-### Snapshot
+## Error Families
 
-Stores the schema state after migrations:
+Automation should switch on stable families, not message text. CLI `--json` is a view of the same result. Exit codes derive from these families:
 
-```json title="migrations/meta/_snapshot.json"
-{
-  "tables": [...],
-  "enums": [...]
-}
-```
-
-## Reading Migration Data
-
-Access migration data programmatically:
+| Family | Typical meaning |
+|--------|-----------------|
+| Invalid estate / artifact | Hostile, truncated, or non-canonical bytes. |
+| Ambiguous graph or path | Multiple leaves, names, prefixes, or routes. |
+| Live drift | Managed schema does not match the marker snapshot. |
+| Lock timeout | Another runner holds the target lock. |
+| Marker conflict | Compare-and-swap lost. |
+| Unfinished attempt | Ledger has an open attempt. |
+| Consent required / mismatch | Push plan changed or destructive work lacks that preview's consent. |
+| Unsupported provider | Effectful work is not admitted on this driver. |
+| Partial effect | Stepwise progress is confirmed; later steps did not run. |
+| Ambiguous commit | An opaque dispatch may have committed. |
 
 ```ts
-// List all migrations
-const entries = await migrations.list();
-
-// Get full journal
-const journal = await migrations.journal();
-
-// Get schema snapshot
-const snapshot = await migrations.snapshot();
-
-// Read migration SQL content
-const sql = await migrations.read(entries[0]);
-```
-
-## Error Handling
-
-```ts
-import { MigrationError, isMigrationError } from "viborm/migrations";
+import { isMigrationError } from "viborm/migrations";
 
 try {
   await migrations.apply();
 } catch (error) {
   if (isMigrationError(error)) {
-    console.error(`Migration error: ${error.code}`);
-    console.error(error.message);
+    console.error(error.code, error.message);
   }
 }
 ```
 
-| Error Code | Description |
-|------------|-------------|
-| `MIGRATION_STORAGE_REQUIRED` | Operation requires a storage driver but none was provided |
-| `MIGRATION_CHECKSUM_MISMATCH` | Migration file was modified after being applied |
-| `MIGRATION_NOT_FOUND` | Referenced migration doesn't exist |
-| `MIGRATION_ALREADY_APPLIED` | Migration was already applied |
-
-## CI/CD Integration
-
-Example GitHub Actions workflow:
+## CI/CD
 
 ```yaml title=".github/workflows/migrate.yml"
-- name: Apply migrations
-  run: npx viborm migrate apply
+- name: Check estate
+  run: npx viborm migrate check --json
+
+- name: Apply
+  run: npx viborm migrate apply --json
   env:
     DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+- name: Verify
+  run: npx viborm migrate verify --json
 ```
 
-For programmatic deployments:
-
 ```ts title="scripts/deploy.ts"
-import { createMigrationClient } from "viborm/migrations";
-import { createFsStorageDriver } from "viborm/migrations/storage/fs";
+import { createMigrationClient, createFsStorageWriter } from "viborm/migrations";
 import { client } from "./db/client";
 
 const migrations = createMigrationClient(client, {
-  storageDriver: createFsStorageDriver("./migrations"),
+  storage: createFsStorageWriter("./migrations"),
 });
 
-const pending = await migrations.pending();
-if (pending.length > 0) {
-  console.log(`Applying ${pending.length} migrations...`);
+const status = await migrations.status();
+if (status.unfinished) {
+  throw new Error("Resolve the unfinished attempt before apply");
+}
+if (status.pending.length > 0) {
   await migrations.apply();
-  console.log("Done!");
 }
 ```
 
@@ -521,17 +605,22 @@ if (pending.length > 0) {
 <CardGroup>
   <Card
     title="Push"
-    description="Direct schema sync for development"
+    description="History-free live schema sync"
     href="/docs/migration/push"
   />
   <Card
-    title="Storage Drivers"
-    description="Custom migration storage backends"
+    title="Storage"
+    description="Estate reader and writer contracts"
     href="/docs/migration/storage"
   />
   <Card
     title="Migration Drivers"
-    description="Database-specific DDL generation"
+    description="Dialect DDL, probes, and atomicity"
     href="/docs/migration/drivers"
+  />
+  <Card
+    title="Compared with Prisma and Drizzle"
+    description="History, integrity, recovery, and workflow differences"
+    href="/docs/migration/comparison"
   />
 </CardGroup>

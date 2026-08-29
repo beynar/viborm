@@ -4,11 +4,12 @@ import {
   type VibORMConfig,
 } from "@client/client";
 import type { AnyDriver } from "@drivers";
-import { push } from "@migrations";
+
 import { s } from "@schema";
 import { defineContract } from "@tests/contracts/contract";
 import { manyToManySchema as schema } from "@tests/fixtures/many-to-many-schema";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 type ManyToManyClientConfig = VibORMConfig & {
   schema: typeof schema;
@@ -39,7 +40,7 @@ export function runManyToManyBehavior({
 
     beforeEach(async () => {
       client = createClient({ schema, driver: createDriver() });
-      await push(client, { force: true });
+      await syncLiveSchema(client);
 
       const c = requireClient(client);
       await c.post.create({ data: { id: "p1", title: "Post 1" } });

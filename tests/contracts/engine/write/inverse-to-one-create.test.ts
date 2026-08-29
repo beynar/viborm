@@ -3,7 +3,7 @@ import type { QueryExecutionContext, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
 import type { PGlite, Transaction } from "@electric-sql/pglite";
 import { UniqueConstraintError, ValidationError } from "@errors";
-import { push } from "@migrations";
+
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import type { Model } from "@schema/model";
 import { createSchemaRegistry } from "@validation";
@@ -14,6 +14,7 @@ import {
   runInverseToOneCreateBehavior,
 } from "@tests/contracts/engine/write/inverse-to-one-create-behavior";
 
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 /**
  * Records every statement, in order. The hook is the PROTECTED `execute`/`executeRaw`
  * seam rather than `_execute`, because a transaction runs its statements through a
@@ -75,7 +76,7 @@ test("an occupied slot is decided by the constraint alone, and is not retried", 
   const driver = new RecordingPGliteDriver();
   const client = makeClient(driver);
   try {
-    await push(client, { force: true });
+    await syncLiveSchema(client);
     await client.account.create({
       data: { id: 1, email: "a@x", code: "A", label: "l" },
     });

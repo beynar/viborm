@@ -2,10 +2,11 @@ import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
 import type { BatchQuery, QueryResult } from "@drivers/types";
 import type { PGlite, Transaction } from "@electric-sql/pglite";
-import { push } from "@migrations";
+
 import { s } from "@schema";
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { afterEach, describe, expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 const parent = s
   .model({
@@ -103,7 +104,7 @@ describe("bulk insert row shapes", () => {
   test("nested createMany preserves generated values and conflict input order", async () => {
     const client = createClient({ schema, driver: new PGliteDriver() });
     clients.push(client);
-    await push(client, { force: true });
+    await syncLiveSchema(client);
 
     const createdParent = await client.parent.create({
       data: {
@@ -136,7 +137,7 @@ describe("bulk insert row shapes", () => {
   test("nested grouped insert failure rolls back the parent and every group", async () => {
     const client = createClient({ schema, driver: new PGliteDriver() });
     clients.push(client);
-    await push(client, { force: true });
+    await syncLiveSchema(client);
 
     await expect(
       client.parent.create({
@@ -162,7 +163,7 @@ describe("bulk insert row shapes", () => {
   test("nested default-only create uses the adapter default-row primitive", async () => {
     const client = createClient({ schema, driver: new PGliteDriver() });
     clients.push(client);
-    await push(client, { force: true });
+    await syncLiveSchema(client);
 
     await client.defaultParent.create({
       data: { id: "parent", child: { create: {} } },
@@ -180,7 +181,7 @@ describe("bulk insert row shapes", () => {
   test("nested explicit zero rejects before the parent is written", async () => {
     const client = createClient({ schema, driver: new PGliteDriver() });
     clients.push(client);
-    await push(client, { force: true });
+    await syncLiveSchema(client);
 
     await expect(
       client.parent.create({
@@ -201,7 +202,7 @@ describe("bulk insert row shapes", () => {
     const driver = new BatchSizePGliteDriver();
     const client = createClient({ schema, driver });
     clients.push(client);
-    await push(client, { force: true });
+    await syncLiveSchema(client);
     driver.batchSizes.length = 0;
 
     const [created] = await client.$transaction([
@@ -228,7 +229,7 @@ describe("bulk insert row shapes", () => {
     const driver = new BatchSizePGliteDriver();
     const client = createClient({ schema, driver });
     clients.push(client);
-    await push(client, { force: true });
+    await syncLiveSchema(client);
     defaultFactoryCalls = 0;
 
     const [result] = await client.$transaction([
@@ -247,7 +248,7 @@ describe("bulk insert row shapes", () => {
     const driver = new BatchSizePGliteDriver();
     const client = createClient({ schema, driver });
     clients.push(client);
-    await push(client, { force: true });
+    await syncLiveSchema(client);
 
     await expect(
       client.$transaction([client.batchRow.createMany({ data: [] })])
@@ -259,7 +260,7 @@ describe("bulk insert row shapes", () => {
     const driver = new BatchSizePGliteDriver();
     const client = createClient({ schema, driver });
     clients.push(client);
-    await push(client, { force: true });
+    await syncLiveSchema(client);
 
     await expect(
       client.$transaction([
@@ -279,7 +280,7 @@ describe("bulk insert row shapes", () => {
     const driver = new NoAtomicPGliteDriver();
     const client = createClient({ schema, driver });
     clients.push(client);
-    await push(client, { force: true });
+    await syncLiveSchema(client);
     driver.disableAtomicExecution();
 
     await expect(
@@ -305,7 +306,7 @@ describe("bulk insert row shapes", () => {
     const driver = new NoAtomicPGliteDriver();
     const client = createClient({ schema, driver });
     clients.push(client);
-    await push(client, { force: true });
+    await syncLiveSchema(client);
     driver.disableAtomicExecution();
 
     // One shape, one statement, no substrate required.

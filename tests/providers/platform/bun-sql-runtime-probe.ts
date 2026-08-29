@@ -8,9 +8,9 @@
 
 import { createClient } from "@client/client";
 import { BunSQLDriver } from "@drivers/bun-sql";
-import { push } from "@migrations";
 import { s } from "@schema";
 import { Decimal } from "@src/index";
+import { syncLiveSchema as push } from "@tests/fixtures/sync-schema";
 
 const databaseUrl = process.env.PG_TEST_CONNECTION_STRING;
 if (!databaseUrl) {

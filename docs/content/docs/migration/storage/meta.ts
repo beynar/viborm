@@ -1,10 +1,7 @@
 import { defineMeta } from "blume";
 
 export default defineMeta({
-  title: "Migration storage",
+  title: "Storage",
   icon: "hard-drive",
-  pages: [
-    "index",
-    "filesystem"
-  ],
+  pages: ["index", "filesystem"],
 });

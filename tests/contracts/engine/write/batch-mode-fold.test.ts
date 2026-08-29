@@ -2,10 +2,11 @@ import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite } from "@electric-sql/pglite";
 import { NotFoundError, VibORMErrorCode } from "@errors";
-import { push } from "@migrations";
+
 import { updateFamilySchema } from "@tests/contracts/engine/write/update-family-behavior";
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { describe, expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 async function boot(batchOnly: boolean) {
   const db = new PGlite();
@@ -13,7 +14,7 @@ async function boot(batchOnly: boolean) {
     ? new BatchOnlyPGliteDriver({ client: db })
     : new PGliteDriver({ client: db });
   const client = createClient({ schema: updateFamilySchema, driver });
-  await push(client, { force: true });
+  await syncLiveSchema(client);
   await client.user.create({ data: { id: 1, email: "root@x", count: 1 } });
   await client.post.create({
     data: { id: 1, title: "t", slug: "s", userId: 1 },

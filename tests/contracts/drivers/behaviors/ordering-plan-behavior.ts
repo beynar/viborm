@@ -23,9 +23,10 @@ import {
   type VibORMConfig,
 } from "@client/client";
 import type { AnyDriver } from "@drivers";
-import { push } from "@migrations";
+
 import { s } from "@schema";
 import { afterEach, describe, expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 // Three sort columns over one row set, so a comparison between them isolates
 // exactly one variable:
@@ -115,7 +116,7 @@ export function runOrderingPlanBehavior({
       ) as never;
 
       const c = client as OrderPlanClient as unknown as Record<string, any>;
-      await push(client as never, { force: true });
+      await syncLiveSchema(client as never);
       await c.orderRow.createMany({
         data: Array.from({ length: ROW_COUNT }, (_, i) => {
           const bucket = Math.floor(i / GROUP_SIZE);

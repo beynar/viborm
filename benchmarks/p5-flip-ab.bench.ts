@@ -14,7 +14,7 @@
  */
 import { createClient } from "@client/client";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { push } from "@migrations";
+import { pushV1 as push } from "@migrations/push-v1";
 import { s } from "@schema";
 import { bench, describe } from "vitest";
 import { sqliteUserPostSchema } from "../tests/fixtures/user-post-schema";
@@ -25,7 +25,7 @@ const makeClient = async () => {
     schema: sqliteUserPostSchema,
     driver,
   });
-  await push(client, { force: true });
+  await push(client);
   for (let i = 0; i < 200; i++) {
     await driver._executeRaw(
       'INSERT INTO "users" ("id", "name", "email", "age") VALUES (?, ?, ?, ?)',
@@ -200,7 +200,7 @@ const makeMembershipClient = async () => {
     schema: membershipSchema,
     driver,
   });
-  await push(client, { force: true });
+  await push(client);
   // Root 1 → child 2 → friend 3 (child 2 connected to friend 3).
   await client.node.create({ data: { id: 1, label: "root" } });
   await client.node.create({ data: { id: 3, label: "friend" } });

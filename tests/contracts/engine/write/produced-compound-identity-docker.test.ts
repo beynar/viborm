@@ -1,13 +1,14 @@
 import { createClient } from "@client/client";
 import { MySQL2Driver } from "@drivers/mysql2";
 import { PgDriver } from "@drivers/pg";
-import { push } from "@migrations";
+
 import { afterAll, describe } from "vitest";
 import {
   producedCompoundSchema,
   registerProducedCompoundBehavior,
 } from "@tests/contracts/engine/write/produced-compound-identity-behavior";
 
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 /**
  * E6.2 on the live servers.
  *
@@ -43,7 +44,7 @@ function suite(
           driver: makeDriver(),
         }) as any;
         await shared.$executeRawUnsafe("DROP TABLE IF EXISTS e62_tickets");
-        await push(shared, { force: true });
+        await syncLiveSchema(shared);
       }
       return shared;
     },

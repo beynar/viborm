@@ -4,10 +4,10 @@ import {
   type VibORMConfig,
 } from "@client/client";
 import type { AnyDriver } from "@drivers";
-import { push } from "@migrations";
 import { s } from "@schema";
 import { Decimal } from "@src/index";
 import { defineContract } from "@tests/contracts/contract";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { canonicalizeDecimal } from "@validation/primitives/decimal-codec";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
@@ -157,7 +157,7 @@ export function runDecimalExactnessBehavior({
 
     beforeEach(async () => {
       client = createClient({ schema, driver: createDriver() });
-      await push(client, { force: true });
+      await syncLiveSchema(client);
     });
 
     afterEach(async () => {

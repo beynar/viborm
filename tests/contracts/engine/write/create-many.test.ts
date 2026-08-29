@@ -7,13 +7,14 @@ import { createClient } from "@client/client";
 import type { BatchQuery, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
-import { push } from "@migrations";
+
 import { describe, expect, test } from "vitest";
 import {
   createManySchema,
   runCreateManyBehavior,
 } from "@tests/contracts/engine/write/create-many-behavior";
 import { observeClientOperations } from "@tests/contracts/engine/write/operation-observer";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 runCreateManyBehavior({
   name: "PGlite transaction",
@@ -178,7 +179,7 @@ describe("write boundary createMany routing", () => {
   test("createMany operations to Observed and empty data is a count-0 no-op", async () => {
     const db = new PGlite();
     const client = makeClient(db);
-    await push(client, { force: true });
+    await syncLiveSchema(client);
 
     const observed = observeClientOperations({
       schema: createManySchema,

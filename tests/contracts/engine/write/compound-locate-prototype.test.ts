@@ -1,7 +1,7 @@
 import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite } from "@electric-sql/pglite";
-import { push } from "@migrations";
+
 import { createOperationExecutionContext } from "@query-engine/execution-context";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { s } from "@schema";
@@ -16,6 +16,7 @@ import { planningKey } from "@src/query-engine/write-engine/Part";
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 /**
  * E6.4 unit 0 — the hand-built prototype the plan's rule demands before any code in
@@ -121,7 +122,7 @@ function compoundLocateOperation(
 }
 
 async function seed(client: any) {
-  await push(client, { force: true });
+  await syncLiveSchema(client);
   await client.account.create({ data: { id: "a1", label: "L" } });
   // The target row.
   await client.membership.create({

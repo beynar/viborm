@@ -420,12 +420,6 @@ export interface EnumValueRemovalChange {
 
   /** Reject this change and abort the operation */
   reject(): "reject";
-
-  /** Internal: stores the mapping result */
-  _mappings?: Record<string, string | null>;
-
-  /** Internal: flag indicating to use null as default */
-  _useNullDefault?: boolean;
 }
 
 /**
@@ -572,12 +566,10 @@ export function createEnumValueRemovalChange(props: {
       }
       Object.freeze(mappings);
       recordEnumResolutionDecision(change, { kind: "mapValues", mappings });
-      change._mappings = mappings;
       return "enumMapped";
     },
     useNull: () => {
       recordEnumResolutionDecision(change, { kind: "useNull" });
-      change._useNullDefault = true;
       return "enumMapped";
     },
     reject: () => "reject",
@@ -706,23 +698,6 @@ export function createEnumValueRemovalRequest(
   return { id, type: "enum_value_removal", removal };
 }
 
-// =============================================================================
-// PUSH RESULT
-// =============================================================================
-
-export interface PushResult {
-  /** All operations that were applied (or would be applied in dry-run) */
-  operations: DiffOperation[];
-  /** Whether the operations were actually applied to the database */
-  applied: boolean;
-  /** Generated SQL statements */
-  sql: string[];
-}
-
-// =============================================================================
-// MIGRATION JOURNAL (tracks generated migrations)
-// =============================================================================
-
 export type Dialect = "postgresql" | "sqlite" | "mysql";
 
 /**
@@ -742,162 +717,3 @@ export type MigrationTarget =
   | { readonly dialect: "postgresql"; readonly namespace: string }
   | { readonly dialect: "mysql" }
   | { readonly dialect: "sqlite" };
-
-/**
- * Version-3 journal. The independent top-level `dialect` field is gone: the
- * estate target replaces it, and a journal carrying both representations is
- * refused rather than reconciled.
- */
-export interface MigrationJournal {
-  /** Journal format version. Exactly `"3"`; there is no legacy reader. */
-  readonly version: "3";
-  /** The estate this history was generated for. */
-  readonly target: MigrationTarget;
-  /** List of migration entries */
-  readonly entries: readonly MigrationEntry[];
-}
-
-/** How a migration's up artifact was produced. */
-export type MigrationMode = "generated" | "manual";
-
-/**
- * The rollback policy a migration entry commits to, persisted in the journal.
- *
- * `manual` carries no `sql`: manual rollback SQL is written to the ordinary
- * down artifact, never duplicated in the journal. `irreversible` keeps its
- * `reason` because no artifact holds it and `down()` quotes it when refusing.
- */
-export type MigrationRollback =
-  | { kind: "automatic" }
-  | { kind: "manual" }
-  | { kind: "irreversible"; reason: string };
-
-export interface MigrationEntry {
-  /** Sequential index (0, 1, 2...) */
-  idx: number;
-  /** Timestamp version (e.g., "20240118143052") */
-  version: string;
-  /** Migration name (e.g., "add_users_table") */
-  name: string;
-  /** Unix timestamp when generated */
-  when: number;
-  /** SHA256 hash of SQL content for integrity verification */
-  checksum: string;
-  /** How the up artifact was produced. */
-  mode: MigrationMode;
-  /** Rollback policy this entry commits to. */
-  rollback: MigrationRollback;
-  /** Optional tag for grouping migrations */
-  tag?: string;
-}
-
-// =============================================================================
-// GENERATE OPTIONS & RESULT
-// =============================================================================
-
-export interface GenerateOptions {
-  /** Custom migration name (will be kebab-cased) */
-  name?: string;
-  /** Output directory for migrations (default: ./migrations). Ignored if storageDriver is provided. */
-  dir?: string;
-  /** Custom storage driver. If not provided, uses filesystem driver with `dir`. */
-  storageDriver?: import("./storage/driver").MigrationStorageDriver;
-  /** Resolver for ambiguous changes */
-  resolver?: Resolver;
-  /** Resolver for enum value removals */
-  enumValueResolver?: EnumValueResolver;
-  /** Don't write files, just return what would be generated */
-  dryRun?: boolean;
-  /**
-   * Complete caller-owned migration artifact. Supplying this puts the WHOLE
-   * migration in manual mode: generation emits only these statements and never
-   * appends generated structural SQL around them.
-   *
-   * There is deliberately no `automatic` rollback arm here: `automatic` means
-   * "generation inverted the operations it emitted", and manual mode emits no
-   * generated operations. A caller who wants automatic inversion must not pass
-   * `manualMigration`.
-   */
-  manualMigration?: {
-    /** Complete ordered up artifact: structural DDL and data DML. */
-    readonly up: readonly string[];
-    readonly rollback:
-      | { kind: "manual"; sql: readonly string[] }
-      | { kind: "irreversible"; reason: string };
-  };
-}
-
-export interface GenerateResult {
-  /** Generated migration entry (null if no changes) */
-  entry: MigrationEntry | null;
-  /** Generated SQL statements */
-  sql: string[];
-  /** Combined SQL content with statement breakpoints */
-  content: string;
-  /** Operations included in migration */
-  operations: DiffOperation[];
-  /** Generated down (rollback) SQL statements */
-  downSql: string[];
-  /** Warnings about lossy or non-invertible operations in the down migration */
-  downWarnings: string[];
-  /**
-   * How this migration's up artifact was produced. Reported at the top level
-   * because `entry` is null in the no-changes return, so callers cannot read
-   * the policy off the entry uniformly.
-   */
-  mode: MigrationMode;
-  /** Rollback policy the generated entry commits to. */
-  rollback: MigrationRollback;
-  /** Whether files were written */
-  written: boolean;
-  /** Message describing the result */
-  message: string;
-}
-
-// =============================================================================
-// APPLY OPTIONS & RESULT
-// =============================================================================
-
-export interface ApplyOptions {
-  /** Apply up to this migration index (inclusive) */
-  to?: number;
-  /** Don't apply, just return what would be applied */
-  dryRun?: boolean;
-}
-
-/**
- * Result of applying migrations.
- * Throws MigrationError on failure instead of returning error object.
- */
-export interface ApplyResult {
-  /** Migrations that were applied */
-  applied: MigrationEntry[];
-  /** Migrations that are still pending */
-  pending: MigrationEntry[];
-}
-
-// =============================================================================
-// MIGRATION STATUS
-// =============================================================================
-
-export interface MigrationStatus {
-  /** Migration entry from journal */
-  entry: MigrationEntry;
-  /** Whether this migration has been applied */
-  applied: boolean;
-  /** When the migration was applied (if applied) */
-  appliedAt?: Date;
-}
-
-// =============================================================================
-// APPLIED MIGRATION (from database tracking table)
-// =============================================================================
-
-export interface AppliedMigration {
-  /** Migration name (matches MigrationEntry.name) */
-  name: string;
-  /** Checksum at time of application */
-  checksum: string;
-  /** When the migration was applied */
-  appliedAt: Date;
-}

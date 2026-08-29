@@ -1,13 +1,14 @@
 import { createClient } from "@client/client";
 import { MySQL2Driver } from "@drivers/mysql2";
 import { PgDriver } from "@drivers/pg";
-import { push } from "@migrations";
+
 import { afterAll, describe } from "vitest";
 import {
   destinationCastSchema,
   registerDestinationCastBehavior,
 } from "@tests/contracts/engine/write/destination-cast-behavior";
 
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 /**
  * U-E6.0 on the live servers — the two that answered, in their own words, the two
  * halves of the defect:
@@ -43,7 +44,7 @@ function suite(
           schema: destinationCastSchema,
           driver: makeDriver(),
         }) as any;
-        // Children before parents, so a re-run never asks `push(force)` to re-shape an
+        // Children before parents, so a re-run never asks `syncLiveSchema(force)` to re-shape an
         // index a live foreign key still needs.
         for (const table of [
           "e60_entries",
@@ -55,7 +56,7 @@ function suite(
         ]) {
           await shared.$executeRawUnsafe(`DROP TABLE IF EXISTS ${table}`);
         }
-        await push(shared, { force: true });
+        await syncLiveSchema(shared);
       }
       return shared;
     },

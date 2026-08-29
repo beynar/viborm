@@ -370,6 +370,151 @@ export abstract class MigrationDriver {
     context: DDLContext
   ): string;
 
+  // ===========================================================================
+  // DDL COMPILATION
+  // ===========================================================================
+
+  protected filterStatements(
+    statements: readonly (string | null | undefined)[]
+  ): string[] {
+    return statements.filter(
+      (statement): statement is string =>
+        statement !== null &&
+        statement !== undefined &&
+        statement.trim().length > 0
+    );
+  }
+
+  compileCreateTable(
+    op: CreateTableOperation,
+    context: DDLContext
+  ): readonly string[] {
+    return this.filterStatements([this.generateCreateTable(op, context)]);
+  }
+
+  compileDropTable(
+    op: DropTableOperation,
+    context: DDLContext
+  ): readonly string[] {
+    return this.filterStatements([this.generateDropTable(op, context)]);
+  }
+
+  compileRenameTable(
+    op: RenameTableOperation,
+    context: DDLContext
+  ): readonly string[] {
+    return this.filterStatements([this.generateRenameTable(op, context)]);
+  }
+
+  compileAddColumn(
+    op: AddColumnOperation,
+    context: DDLContext
+  ): readonly string[] {
+    return this.filterStatements([this.generateAddColumn(op, context)]);
+  }
+
+  compileDropColumn(
+    op: DropColumnOperation,
+    context: DDLContext
+  ): readonly string[] {
+    return this.filterStatements([this.generateDropColumn(op, context)]);
+  }
+
+  compileRenameColumn(
+    op: RenameColumnOperation,
+    context: DDLContext
+  ): readonly string[] {
+    return this.filterStatements([this.generateRenameColumn(op, context)]);
+  }
+
+  compileAlterColumn(
+    op: AlterColumnOperation,
+    context: DDLContext
+  ): readonly string[] {
+    return this.filterStatements([this.generateAlterColumn(op, context)]);
+  }
+
+  compileCreateIndex(
+    op: CreateIndexOperation,
+    context: DDLContext
+  ): readonly string[] {
+    return this.filterStatements([this.generateCreateIndex(op, context)]);
+  }
+
+  compileDropIndex(
+    op: DropIndexOperation,
+    context: DDLContext
+  ): readonly string[] {
+    return this.filterStatements([this.generateDropIndex(op, context)]);
+  }
+
+  compileAddForeignKey(
+    op: AddForeignKeyOperation,
+    context: DDLContext
+  ): readonly string[] {
+    return this.filterStatements([this.generateAddForeignKey(op, context)]);
+  }
+
+  compileDropForeignKey(
+    op: DropForeignKeyOperation,
+    context: DDLContext
+  ): readonly string[] {
+    return this.filterStatements([this.generateDropForeignKey(op, context)]);
+  }
+
+  compileAddUniqueConstraint(
+    op: AddUniqueConstraintOperation,
+    context: DDLContext
+  ): readonly string[] {
+    return this.filterStatements([
+      this.generateAddUniqueConstraint(op, context),
+    ]);
+  }
+
+  compileDropUniqueConstraint(
+    op: DropUniqueConstraintOperation,
+    context: DDLContext
+  ): readonly string[] {
+    return this.filterStatements([
+      this.generateDropUniqueConstraint(op, context),
+    ]);
+  }
+
+  compileAddPrimaryKey(
+    op: AddPrimaryKeyOperation,
+    context: DDLContext
+  ): readonly string[] {
+    return this.filterStatements([this.generateAddPrimaryKey(op, context)]);
+  }
+
+  compileDropPrimaryKey(
+    op: DropPrimaryKeyOperation,
+    context: DDLContext
+  ): readonly string[] {
+    return this.filterStatements([this.generateDropPrimaryKey(op, context)]);
+  }
+
+  compileCreateEnum(
+    op: CreateEnumOperation,
+    context: DDLContext
+  ): readonly string[] {
+    return this.filterStatements([this.generateCreateEnum(op, context)]);
+  }
+
+  compileDropEnum(
+    op: DropEnumOperation,
+    context: DDLContext
+  ): readonly string[] {
+    return this.filterStatements([this.generateDropEnum(op, context)]);
+  }
+
+  compileAlterEnum(
+    op: AlterEnumOperation,
+    context: DDLContext
+  ): readonly string[] {
+    return this.filterStatements([this.generateAlterEnum(op, context)]);
+  }
+
   /**
    * Resolves the replacement for a removed enum value on a specific column.
    * Precedence: per-column mapping (columnValueReplacements, keyed
@@ -675,28 +820,8 @@ export abstract class MigrationDriver {
   }
 
   // ===========================================================================
-  // MIGRATION TRACKING TABLE
+  // LIVE CONTROL AND NAMESPACE
   // ===========================================================================
-
-  /**
-   * Generates DDL for creating the migration tracking table.
-   * Override for database-specific syntax.
-   *
-   * @param tableName - The tracking table name (already validated)
-   * @returns SQL DDL statement
-   */
-  abstract generateCreateTrackingTable(tableName: string): string;
-
-  /**
-   * Generates SQL for selecting applied migrations.
-   *
-   * @param tableName - The tracking table name
-   * @returns SQL SELECT statement
-   */
-  generateSelectAppliedMigrations(tableName: string): string {
-    const table = this.escapeIdentifier(tableName);
-    return `SELECT name, checksum, applied_at FROM ${table} ORDER BY id ASC`;
-  }
 
   /**
    * Proves the configured namespace exists before an empty inventory or an
@@ -716,86 +841,9 @@ export abstract class MigrationDriver {
   }
 
   /**
-   * A POSITIVE, read-only probe for the exact configured tracking table, or
-   * null when this dialect proves absence by translating its failure instead.
+   * Clears every row in a preserved control table during live reset.
    *
-   * SQLite is the positive case: one exact `sqlite_schema` lookup distinguishes
-   * an absent tracking table from every other failure, because SQLite has no
-   * error code that means "this exact table is missing" and no namespace proof
-   * to lean on. PostgreSQL and MySQL return null and translate their exact
-   * missing-table failure (see `isMissingTrackingTable`) AFTER their namespace
-   * proof.
-   */
-  generateTrackingTableProbe(
-    _tableName: string
-  ): { sql: string; params: unknown[] } | null {
-    return null;
-  }
-
-  /**
-   * Whether a failed applied-state SELECT means exactly "the configured
-   * tracking table does not exist", and therefore that zero migrations are
-   * applied.
-   *
-   * Default: false. Nothing is translated, so permissions, transport, dialect
-   * and every other failure surfaces instead of being reported as an empty
-   * estate — the plausible-success catch-all this replaces reported all three
-   * as "no migrations applied".
-   */
-  isMissingTrackingTable(_error: unknown, _tableName: string): boolean {
-    return false;
-  }
-
-  /**
-   * The provider's own failure code, read off a normalized driver error.
-   *
-   * `meta.providerCode` is the normalized SQLSTATE/errno and is the ONLY
-   * provider detail that survives: VibORM redacts provider message text when it
-   * normalizes an error, so a translation cannot read the failing object's name
-   * out of the error and must get its exactness from the statement it asked
-   * about. The property is reached reflectively because an error is data.
-   */
-  protected describeProviderFailure(error: unknown): {
-    readonly code: string | undefined;
-  } {
-    const meta: unknown =
-      typeof error === "object" && error !== null
-        ? Reflect.get(error, "meta")
-        : undefined;
-    const code: unknown =
-      typeof meta === "object" && meta !== null
-        ? Reflect.get(meta, "providerCode")
-        : undefined;
-    return { code: typeof code === "string" ? code : undefined };
-  }
-
-  /**
-   * Generates SQL for inserting a migration record.
-   *
-   * @param tableName - The tracking table name
-   * @returns SQL INSERT statement with placeholders
-   */
-  abstract generateInsertMigration(tableName: string): {
-    sql: string;
-    paramCount: number;
-  };
-
-  /**
-   * Generates SQL for deleting a migration record.
-   *
-   * @param tableName - The tracking table name
-   * @returns SQL DELETE statement with placeholders
-   */
-  abstract generateDeleteMigration(tableName: string): {
-    sql: string;
-    paramCount: number;
-  };
-
-  /**
-   * Generates SQL for clearing all migration records.
-   * Used by reset command.
-   *
-   * @param tableName - The tracking table name
+   * @param tableName - The control table name
    * @returns SQL DELETE statement
    */
   generateClearMigrations(tableName: string): string {
@@ -924,62 +972,61 @@ export abstract class MigrationDriver {
   // ===========================================================================
 
   /**
-   * Generates DDL for a diff operation.
-   * Dispatches to the appropriate generate* method.
-   *
-   * The context reaches EVERY arm. Eight renderers used to be dispatched
-   * without one, which made the artifact/live destination unknowable exactly
-   * where tables, columns and indexes are named — the positions that must be
-   * qualified.
-   *
-   * @param operation - The diff operation
-   * @param context - Required DDL context: destination, plus schema info for
-   *   operations that need it (e.g. SQLite table recreation)
-   * @returns SQL DDL statement(s)
+   * The one owner of provider statement boundaries for generated DDL.
    */
-  generateDDL(operation: DiffOperation, context: DDLContext): string {
+  compileStatements(
+    operation: DiffOperation,
+    context: DDLContext
+  ): readonly string[] {
     switch (operation.type) {
       case "createTable":
-        return this.generateCreateTable(operation, context);
+        return this.compileCreateTable(operation, context);
       case "dropTable":
-        return this.generateDropTable(operation, context);
+        return this.compileDropTable(operation, context);
       case "renameTable":
-        return this.generateRenameTable(operation, context);
+        return this.compileRenameTable(operation, context);
       case "addColumn":
-        return this.generateAddColumn(operation, context);
+        return this.compileAddColumn(operation, context);
       case "dropColumn":
-        return this.generateDropColumn(operation, context);
+        return this.compileDropColumn(operation, context);
       case "renameColumn":
-        return this.generateRenameColumn(operation, context);
+        return this.compileRenameColumn(operation, context);
       case "alterColumn":
-        return this.generateAlterColumn(operation, context);
+        return this.compileAlterColumn(operation, context);
       case "createIndex":
-        return this.generateCreateIndex(operation, context);
+        return this.compileCreateIndex(operation, context);
       case "dropIndex":
-        return this.generateDropIndex(operation, context);
+        return this.compileDropIndex(operation, context);
       case "addForeignKey":
-        return this.generateAddForeignKey(operation, context);
+        return this.compileAddForeignKey(operation, context);
       case "dropForeignKey":
-        return this.generateDropForeignKey(operation, context);
+        return this.compileDropForeignKey(operation, context);
       case "addUniqueConstraint":
-        return this.generateAddUniqueConstraint(operation, context);
+        return this.compileAddUniqueConstraint(operation, context);
       case "dropUniqueConstraint":
-        return this.generateDropUniqueConstraint(operation, context);
+        return this.compileDropUniqueConstraint(operation, context);
       case "addPrimaryKey":
-        return this.generateAddPrimaryKey(operation, context);
+        return this.compileAddPrimaryKey(operation, context);
       case "dropPrimaryKey":
-        return this.generateDropPrimaryKey(operation, context);
+        return this.compileDropPrimaryKey(operation, context);
       case "createEnum":
-        return this.generateCreateEnum(operation, context);
+        return this.compileCreateEnum(operation, context);
       case "dropEnum":
-        return this.generateDropEnum(operation, context);
+        return this.compileDropEnum(operation, context);
       case "alterEnum":
-        return this.generateAlterEnum(operation, context);
+        return this.compileAlterEnum(operation, context);
       default:
         throw new MigrationError(
           `Unknown operation type: ${(operation as any).type}`,
           VibORMErrorCode.INTERNAL_ERROR
         );
     }
+  }
+
+  /**
+   * Generates display DDL for a diff operation.
+   */
+  generateDDL(operation: DiffOperation, context: DDLContext): string {
+    return this.compileStatements(operation, context).join(";\n");
   }
 }

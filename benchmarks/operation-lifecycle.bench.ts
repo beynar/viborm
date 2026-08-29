@@ -12,7 +12,7 @@ import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { push } from "@migrations";
+import { pushV1 as push } from "@migrations/push-v1";
 import { readTransactionOperation } from "@query-engine/transaction-operation";
 import { type Sql, sql } from "@sql";
 import { bench, describe } from "vitest";
@@ -42,14 +42,14 @@ const sqliteClient = createClient({
   schema: sqliteUserPostSchema,
   driver: sqliteDriver,
 });
-await push(sqliteClient, { force: true });
+await push(sqliteClient);
 
 const nonReturningDriver = new NonReturningPGliteDriver();
 const nonReturningClient = createClient({
   schema: sqliteUserPostSchema,
   driver: nonReturningDriver,
 });
-await push(nonReturningClient, { force: true });
+await push(nonReturningClient);
 
 await sqliteClient.user.create({
   data: {

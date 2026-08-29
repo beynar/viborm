@@ -18,7 +18,7 @@
 
 import type { OperationResult } from "@client/types";
 import { createClient as PGliteCreateClient } from "@drivers/pglite";
-import { push } from "@migrations";
+
 import { s } from "@schema";
 import {
   afterAll,
@@ -29,6 +29,7 @@ import {
   test,
 } from "vitest";
 
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 const post = s
   .model({
     id: s.string().id(),
@@ -208,7 +209,7 @@ let client: Awaited<
 beforeAll(async () => {
   const { PGlite } = await import("@electric-sql/pglite");
   client = await PGliteCreateClient({ schema, client: new PGlite() });
-  await push(client, { force: true });
+  await syncLiveSchema(client);
 });
 
 afterAll(async () => {

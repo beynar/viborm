@@ -16,8 +16,8 @@
 import { createClient } from "@client/client";
 import { BunSQLiteDriver } from "@drivers/bun-sqlite";
 import { ForeignKeyError } from "@errors";
-import { push } from "@migrations";
 import { s } from "@schema";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import Decimal from "decimal.js";
 
 const DECIMAL_DOMAIN = { precision: 16, scale: 2 };
@@ -70,7 +70,7 @@ const client = createClient({
   driver: new BunSQLiteDriver({ dataDir: ":memory:" }),
 });
 
-await push(client, { force: true });
+await syncLiveSchema(client);
 await client.measurement.create({
   data: {
     id: "m-1",

@@ -10,8 +10,7 @@
 
 import { MigrationError, VibORMErrorCode } from "@errors";
 import { sqlite3MigrationDriver } from "@migrations/drivers/sqlite";
-import { generate } from "@migrations/generate";
-import { push } from "@migrations/push";
+import { generateV1 as generate } from "@migrations/generate-v1";
 import {
   serializeModels,
   serializeResolvedModels,
@@ -20,6 +19,7 @@ import { s } from "@schema";
 import { hydrateSchemaNames } from "@schema/hydration";
 import { resolveSchemaOrThrow } from "@schema/validation";
 import { SchemaValidationError } from "@schema/validation/error";
+import { syncLiveSchema as push } from "@tests/fixtures/sync-schema";
 import { describe, expect, test } from "vitest";
 import {
   MemoryStorage,
@@ -139,8 +139,7 @@ describe("public decimal provider-limit composition roots", () => {
   ] as const)("generate refuses %s before every storage or provider observation", async (_name, dryRun) => {
     const driver = sqliteEstateDriver();
     const storage = new MemoryStorage();
-    const error = await generate(clientFor(wideSchema(), driver), {
-      storageDriver: storage,
+    const error = await generate(clientFor(wideSchema(), driver), storage, {
       name: "wide",
       dryRun,
     }).catch((failure: unknown) => failure);
@@ -159,8 +158,7 @@ describe("public decimal provider-limit composition roots", () => {
     const { schema, shared } = duplicateWideSchema();
     const driver = sqliteEstateDriver();
     const storage = new MemoryStorage();
-    const error = await generate(clientFor(schema, driver), {
-      storageDriver: storage,
+    const error = await generate(clientFor(schema, driver), storage, {
       name: "duplicate-wide",
     }).catch((failure: unknown) => failure);
 
@@ -179,12 +177,11 @@ describe("public decimal provider-limit composition roots", () => {
   test("generate keeps a valid control and reaches storage without provider I/O", async () => {
     const driver = sqliteEstateDriver();
     const storage = new MemoryStorage();
-    const result = await generate(clientFor(validSchema(), driver), {
-      storageDriver: storage,
+    const result = await generate(clientFor(validSchema(), driver), storage, {
       name: "valid",
     });
 
-    expect(result.written).toBe(true);
+    expect(result.outcome).toBe("published");
     expect(storage.reads.length).toBeGreaterThan(0);
     expect(storage.writes.length).toBeGreaterThan(0);
     expect(driver.statements).toEqual([]);

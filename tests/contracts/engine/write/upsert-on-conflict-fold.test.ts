@@ -9,7 +9,7 @@ import type { BatchQuery, QueryExecutionContext, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import type { PGlite, Transaction } from "@electric-sql/pglite";
-import { push } from "@migrations";
+
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames, s } from "@schema";
 import { sql } from "@sql";
@@ -19,6 +19,7 @@ import Database from "better-sqlite3";
 import { beforeAll, describe, expect, test } from "vitest";
 import { UpsertOperation } from "@src/query-engine/write-engine/UpsertOperation";
 import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 /**
  * PHASE 7 / Decision 7.1 — the scalar-upsert ON CONFLICT door (query-performance-plan).
@@ -645,7 +646,7 @@ describe("the ON CONFLICT fold — the accepted divergences", () => {
       const driver = new RaceRecordingSQLiteDriver({ dataDir: file });
       if (!folded) closeTheDoor(driver);
       const client = createClient({ schema, driver });
-      await push(client, { force: true });
+      await syncLiveSchema(client);
 
       const competitor = new Database(file);
       driver.onWindow = () => {
@@ -887,7 +888,7 @@ describe("the ON CONFLICT fold — what stays on the probe path", () => {
     // substrate, so the conjunct is not pinned to one dialect's error code.
     const driver = new SQLite3Driver({ dataDir: ":memory:" });
     const client = createClient({ schema, driver });
-    await push(client, { force: true });
+    await syncLiveSchema(client);
     await client.account.create({
       data: { id: 1, email: "a1@x", handle: "h1", label: "L1", score: 10 },
     });

@@ -1,9 +1,10 @@
 import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite } from "@electric-sql/pglite";
-import { push } from "@migrations";
+
 import { s } from "@schema";
 import { describe, expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 /**
  * X1 semantic-stability witnesses. THE DEPTH LIFT lifts DEPTH-ONLY refusals; a
@@ -42,7 +43,7 @@ function makeClient(schema: any, db: PGlite) {
 async function withClient(schema: any, fn: (c: any) => Promise<void>) {
   const db = new PGlite();
   const client = makeClient(schema, db);
-  await push(client, { force: true });
+  await syncLiveSchema(client);
   await fn(client);
   await client.$disconnect();
 }

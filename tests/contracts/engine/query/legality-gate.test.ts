@@ -3,9 +3,10 @@ import type { Driver } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
 import type { BatchQuery, QueryResult } from "@drivers/types";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
-import { push } from "@migrations";
+
 import { nestedWriteBehaviorSchema } from "@tests/fixtures/nested-write-behavior-schema";
 import { describe, expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 /**
  * M2 uniform legality gate (§11 M2 / §6.3).
@@ -83,7 +84,7 @@ async function setupDb(): Promise<PGlite> {
     schema: nestedWriteBehaviorSchema,
     driver: new PGliteDriver({ client: db }),
   });
-  await push(setupClient, { force: true });
+  await syncLiveSchema(setupClient);
   return db;
 }
 

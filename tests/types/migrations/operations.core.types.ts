@@ -1,166 +1,30 @@
+import { sql } from "@sql";
 import {
-  createAmbiguousChange,
-  createDestructiveChange,
-  createEnumValueRemovalChange,
-  type DiffOperation,
+  type ApplyOptions,
+  type ApplyResult,
+  type BaselineResult,
+  type CheckResult,
+  createFsStorageWriter,
+  createMigrationClient,
+  type DownResult,
   type GenerateOptions,
-  type PolymorphicSnapshotStorage,
-  type PolymorphicToManySnapshot,
-  type PolymorphicToOneSnapshot,
-  type SerializeOptions,
-  serializeModels,
-  sortOperations,
-  type TableDef,
+  type GenerateResult,
+  type GraphResult,
+  type ListResult,
+  type LogResult,
+  type MigrationStorageReader,
+  type PushApplyResult,
+  type PushOptions,
+  type PushPreview,
+  type ResetResult,
+  type ResolveResult,
+  type ShowResult,
+  type StatusResult,
+  type VerifyResult,
 } from "@src/migrations";
-import { postgresMigrationDriver } from "@src/migrations/drivers/postgres";
-import { s } from "@src/schema";
 
-type Expect<Value extends true> = Value;
-type Equal<Left, Right> =
-  (<Value>() => Value extends Left ? 1 : 2) extends <
-    Value,
-  >() => Value extends Right ? 1 : 2
-    ? true
-    : false;
+declare const client: Parameters<typeof createMigrationClient>[0];
 
-declare const operation: DiffOperation;
-
-const orderedOperations: DiffOperation[] = sortOperations([operation]);
-
-type _sortKeepsOperationTyping = Expect<
-  Equal<typeof orderedOperations, DiffOperation[]>
->;
-
-const destructiveDecision = createDestructiveChange({
-  operation: "dropColumn",
-  table: "ledger",
-  column: "amount",
-  description: "drop amount",
-});
-const ambiguousDecision = createAmbiguousChange({
-  operation: "renameColumn",
-  table: "ledger",
-  oldName: "amount",
-  newName: "total",
-  description: "rename amount to total",
-});
-const enumDecision = createEnumValueRemovalChange({
-  enumName: "ledger_status",
-  tableName: "ledger",
-  columnName: "status",
-  isNullable: false,
-  removedValues: ["retired"],
-  availableValues: ["active"],
-  description: "remove retired",
-});
-
-type _resolutionMethodsKeepTheirExactDecision = Expect<
-  Equal<
-    [
-      ReturnType<typeof destructiveDecision.proceed>,
-      ReturnType<typeof destructiveDecision.reject>,
-      ReturnType<typeof ambiguousDecision.rename>,
-      ReturnType<typeof ambiguousDecision.addAndDrop>,
-      ReturnType<typeof enumDecision.mapValues>,
-      ReturnType<typeof enumDecision.useNull>,
-      ReturnType<typeof enumDecision.reject>,
-    ],
-    [
-      "proceed",
-      "reject",
-      "rename",
-      "addAndDrop",
-      "enumMapped",
-      "enumMapped",
-      "reject",
-    ]
-  >
->;
-
-// The snapshot metadata union dispatches by `kind`.
-type _unionDispatchesToOne = Expect<
-  Equal<
-    Extract<PolymorphicSnapshotStorage, { kind: "toOne" }>,
-    PolymorphicToOneSnapshot
-  >
->;
-type _unionDispatchesToMany = Expect<
-  Equal<
-    Extract<PolymorphicSnapshotStorage, { kind: "toMany" }>,
-    PolymorphicToManySnapshot
-  >
->;
-
-// A toOne entry is logical-only: it carries the opaque storageRef join key and
-// members without physical column names.
-const toOneStorage = {
-  ownerTable: "comments",
-  relation: "subject",
-  kind: "toOne",
-  storageRef: "subject_type",
-  members: [
-    {
-      publicType: "post",
-      storedType: "content.post.v1",
-      targetTable: "posts",
-    },
-  ],
-} satisfies PolymorphicToOneSnapshot;
-
-type _toOneCarriesTheOpaqueStorageRef = Expect<
-  Equal<(typeof toOneStorage)["storageRef"], string>
->;
-
-const toManyStorage = {
-  ownerTable: "comments",
-  relation: "items",
-  kind: "toMany",
-  members: [
-    {
-      publicType: "post",
-      storedType: "items.post.v1",
-      targetTable: "posts",
-      memberJunctionTable: "comments_items_post",
-      inverseCardinality: "many",
-    },
-  ],
-} satisfies PolymorphicToManySnapshot;
-
-type _toManyMembersNameTheirJunction = Expect<
-  Equal<
-    (typeof toManyStorage)["members"][number]["memberJunctionTable"],
-    string
-  >
->;
-
-// The owner TableDef carries the physical-storage registry as an annotation,
-// keyed by storage ref.
-const annotatedTable = {
-  name: "comments",
-  columns: [],
-  indexes: [],
-  foreignKeys: [],
-  uniqueConstraints: [],
-  relationStorage: {
-    subject_type: {
-      kind: "polymorphicToOne",
-      typeColumn: "subject_type",
-      idColumn: "subject_id",
-      index: "comments_subject_poly_idx",
-    },
-  },
-} satisfies TableDef;
-
-type _registryRidesTheTableDef = Expect<
-  Equal<
-    (typeof annotatedTable)["relationStorage"]["subject_type"]["kind"],
-    "polymorphicToOne"
-  >
->;
-
-// The acknowledgement resolver API is fully deleted. The ONE seam that lifts a
-// data-bearing refusal is the manual-migration artifact, and it is now live:
-// a complete `up` plus an honest rollback policy, nothing else.
 const generateOptions: GenerateOptions = {
   // @ts-expect-error -- polymorphicMemberResolver no longer exists
   polymorphicMemberResolver: () => "acknowledged",
@@ -171,65 +35,172 @@ type _deletedResolverStaysRefused = typeof generateOptions;
 const manualWithSql: GenerateOptions = {
   name: "move-subject-storage",
   manualMigration: {
-    up: ['ALTER TABLE "content" ADD COLUMN "subject_type_v2" text;'],
-    rollback: {
-      kind: "manual",
-      sql: ['ALTER TABLE "content" DROP COLUMN "subject_type_v2";'],
-    },
+    transitions: [
+      {
+        from: null,
+        execution: "stepwise",
+        up: [sql`ALTER TABLE content ADD COLUMN subject_type_v2 text`],
+        rollback: {
+          kind: "manual",
+          execution: "stepwise",
+          sql: [sql`ALTER TABLE content DROP COLUMN subject_type_v2`],
+        },
+      },
+    ],
   },
 };
 
 const manualIrreversible: GenerateOptions = {
   name: "collapse-memberships",
   manualMigration: {
-    up: ["DELETE FROM content_subject_post WHERE 1 = 1;"],
-    rollback: {
-      kind: "irreversible",
-      reason: "the discarded membership rows cannot be reconstructed",
-    },
+    transitions: [
+      {
+        from: null,
+        execution: "transactional",
+        up: [sql`DELETE FROM content_subject_post`],
+        rollback: {
+          kind: "irreversible",
+          reason: "the discarded membership rows cannot be reconstructed",
+        },
+      },
+    ],
   },
 };
 
-// `automatic` means "generation inverted the operations it emitted". Manual
-// mode emits no generated operations, so the input union has no automatic arm
-// — a caller who wants inversion must not pass an artifact at all.
 const manualCannotClaimAutomatic: GenerateOptions = {
   name: "wishful",
   manualMigration: {
-    up: ["SELECT 1;"],
-    // @ts-expect-error -- there is no `automatic` input rollback arm
-    rollback: { kind: "automatic" },
+    transitions: [
+      {
+        from: null,
+        execution: "stepwise",
+        up: [sql`SELECT 1`],
+        rollback: {
+          // @ts-expect-error -- there is no `automatic` input rollback arm
+          kind: "automatic",
+        },
+      },
+    ],
   },
-};
-
-// The persisted `manual` arm carries no `sql` (the artifact holds it); the
-// input arm requires it.
-const manualRequiresItsSql: GenerateOptions = {
-  name: "incomplete",
-  // @ts-expect-error -- a manual rollback must supply its sql
-  manualMigration: { up: ["SELECT 1;"], rollback: { kind: "manual" } },
 };
 
 type _manualSeamIsLive = [
   typeof manualWithSql,
   typeof manualIrreversible,
   typeof manualCannotClaimAutomatic,
-  typeof manualRequiresItsSql,
 ];
 
-const publicSerializerSchema = {
-  user: s.model({ id: s.string().id() }),
+const applyByName: ApplyOptions = { to: { name: "add-users" } };
+const applyByPrefix: ApplyOptions = { to: { prefix: "a1b2c3d4" } };
+const applyByIndex: ApplyOptions = {
+  // @ts-expect-error -- apply targets a state selector, not a numeric index
+  to: 5,
 };
-serializeModels(publicSerializerSchema, {
-  migrationDriver: postgresMigrationDriver,
+
+type _applySelectors = [
+  typeof applyByName,
+  typeof applyByPrefix,
+  typeof applyByIndex,
+];
+
+const pushDryRun: PushOptions = { dryRun: true };
+const pushForceGone: PushOptions = {
+  dryRun: true,
+  // @ts-expect-error -- generic force authorization is not a V1 push option
+  force: true,
+};
+
+type _pushOptions = [typeof pushDryRun, typeof pushForceGone];
+
+const migrations = createMigrationClient(client, {
+  storage: createFsStorageWriter("./migrations"),
 });
 
-const publicSerializeOptions: SerializeOptions = {
-  migrationDriver: postgresMigrationDriver,
-  // @ts-expect-error -- resolved topology is not a public serializer option
-  relations: new Map(),
+declare const reader: MigrationStorageReader;
+
+const liveMigrations = createMigrationClient(client);
+liveMigrations.push({ dryRun: true });
+liveMigrations.log();
+// @ts-expect-error -- estate operations are absent without storage
+liveMigrations.apply();
+// @ts-expect-error -- a supplied options object must carry storage
+createMigrationClient(client, {});
+
+const readableMigrations = createMigrationClient(client, { storage: reader });
+readableMigrations.apply();
+readableMigrations.graph();
+// @ts-expect-error -- generation requires a storage writer
+readableMigrations.generate();
+// @ts-expect-error -- reset requires a storage writer
+readableMigrations.reset();
+
+const _publicResultTypes = async () => {
+  const generated: GenerateResult = await migrations.generate();
+  const checked: CheckResult = await migrations.check();
+  const listed: ListResult = await migrations.list();
+  const shown: ShowResult = await migrations.show({ name: "init" });
+  const graph: GraphResult = await migrations.graph();
+  const status: StatusResult = await migrations.status();
+  const verified: VerifyResult = await migrations.verify();
+  const log: LogResult = await migrations.log();
+  const applied: ApplyResult = await migrations.apply();
+  const down: DownResult = await migrations.down();
+  const baseline: BaselineResult = await migrations.baseline({
+    to: { name: "init" },
+  });
+  const resolved: ResolveResult = await migrations.resolve({
+    outcome: "retry",
+  });
+  const reset: ResetResult = await migrations.reset();
+  const preview: PushPreview = await migrations.push({ dryRun: true });
+  const pushed: PushApplyResult = await migrations.push();
+  return {
+    generated,
+    checked,
+    listed,
+    shown,
+    graph,
+    status,
+    verified,
+    log,
+    applied,
+    down,
+    baseline,
+    resolved,
+    reset,
+    preview,
+    pushed,
+  };
 };
 
-type _publicSerializeOptionsRemainTyped = Expect<
-  Equal<typeof publicSerializeOptions, SerializeOptions>
->;
+const _storageDriverBesideReal = () =>
+  // @ts-expect-error -- the composition root takes `storage`, not `storageDriver`
+  createMigrationClient(client, {
+    storage: createFsStorageWriter("./migrations"),
+    storageDriver: createFsStorageWriter("./migrations"),
+  });
+
+const heldMigrationClientOptions = {
+  storage: createFsStorageWriter("./migrations"),
+  storageDriver: createFsStorageWriter("./migrations"),
+};
+
+const _nonFreshStorageDriverBesideReal = () =>
+  // @ts-expect-error -- held option bags reject unknown keys structurally too
+  createMigrationClient(client, heldMigrationClientOptions);
+
+// @ts-expect-error -- squash is not a V1 operation
+const _noSquash = () => migrations.squash({ from: 0, to: 1 });
+// @ts-expect-error -- pending() is not a V1 operation; use status().pending
+const _noPending = () => migrations.pending();
+// @ts-expect-error -- journal() is not a V1 operation
+const _noJournal = () => migrations.journal();
+
+type _removedVerbs = [
+  typeof _publicResultTypes,
+  typeof _storageDriverBesideReal,
+  typeof _nonFreshStorageDriverBesideReal,
+  typeof _noSquash,
+  typeof _noPending,
+  typeof _noJournal,
+];

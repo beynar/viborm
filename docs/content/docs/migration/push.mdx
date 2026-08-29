@@ -1,18 +1,19 @@
 ---
 title: Push
-description: Synchronize your schema directly to the database without migration files — compares models against database state and applies changes
+description: Synchronize models directly with the live database without creating migration history
 icon: zap
 ---
 
 ## When to Use Push
 
-- **Development environment** - Rapid iteration without migration files
+- **Development environment** - Rapid iteration without migration history
 - **Prototyping** - Quick schema experiments
 - **CI test databases** - Fresh schema for each test run
 - **Non-versioned workflows** - When you don't need migration history
 
 :::warning[Not for Production]
-Push doesn't create migration files, so changes aren't versioned. Use [file-based migrations](/docs/migration/migrate) for production deployments.
+Push does not publish an authenticated estate state, so changes are not
+versioned. Use [Migrate](/docs/migration/migrate) for production deployments.
 :::
 
 ## Basic Usage
@@ -33,7 +34,7 @@ const migrations = createMigrationClient(client);
 
 const result = await migrations.push();
 
-if (result.applied) {
+if (result.outcome === "applied") {
   console.log(`Applied ${result.operations.length} changes`);
 }
 ```
@@ -56,10 +57,10 @@ npx viborm push --dry-run
 const result = await migrations.push({ dryRun: true });
 
 console.log("Would apply:");
-for (const sql of result.sql) {
-  console.log(sql);
+for (const statement of result.statements) {
+  console.log(statement.sql);
 }
-// result.applied === false
+// result.outcome === "planned" | "noop"
 ```
   </Tab>
 </Tabs>
@@ -73,17 +74,12 @@ When push detects **destructive changes** (dropping tables/columns), **ambiguous
 ```bash
 # CLI prompts interactively for each change
 npx viborm push
-
-# Auto-accept all changes without prompting
-npx viborm push --force
-
-# Always ask for approval before executing SQL statements
-npx viborm push --strict
 ```
   </Tab>
   <Tab title="Migration Client">
 ```ts
-const result = await migrations.push({
+const preview = await migrations.push({
+  dryRun: true,
   resolve: async (change) => {
     console.log(change.description);
 
@@ -106,6 +102,9 @@ const result = await migrations.push({
     }
   },
 });
+
+// The callback's decisions are closed into this exact preview.
+await migrations.push({ consent: preview.consent });
 ```
   </Tab>
 </Tabs>
@@ -167,98 +166,40 @@ Enum value removals are resolved per-column, allowing different mappings for dif
 
 ### Built-in Resolvers
 
-```ts
-import { lenientResolver, addDropResolver, rejectAllResolver } from "viborm/migrations";
-
-// Accept destructive, rename ambiguous, map enums to NULL
-await migrations.push({ resolve: lenientResolver });
-
-// Accept destructive, add+drop for ambiguous, map enums to NULL
-await migrations.push({ resolve: addDropResolver });
-
-// Reject all changes (useful for CI)
-await migrations.push({ resolve: rejectAllResolver });
-```
-
-The built-in resolvers handle all change types:
+The public package exports three reusable policies. Use them during preview;
+destructive decisions still require the preview's exact consent before any
+effect:
 
 ```ts
-// lenientResolver implementation
-const lenientResolver = async (change) => {
-  if (change.type === "destructive") return change.proceed();
-  if (change.type === "ambiguous") return change.rename();
-  // enumValueRemoval: set all to null
-  return change.useNull();
-};
+import {
+  lenientResolver,
+  rejectAllResolver,
+} from "viborm/migrations";
 
-// addDropResolver implementation
-const addDropResolver = async (change) => {
-  if (change.type === "destructive") return change.proceed();
-  if (change.type === "ambiguous") return change.addAndDrop();
-  // enumValueRemoval: set all to null
-  return change.useNull();
-};
-
-// rejectAllResolver implementation
-const rejectAllResolver = async (change) => change.reject();
-```
-
-## Force Mode
-
-Skip all resolution prompts and auto-accept everything:
-
-- **Destructive changes**: Proceeds (accepts data loss)
-- **Ambiguous changes**: Treats as add+drop (not rename, accepts data loss)
-- **Enum value removals**: Sets all to NULL
-
-<Tabs>
-  <Tab title="CLI">
-```bash
-npx viborm push --force
-```
-  </Tab>
-  <Tab title="Migration Client">
-```ts
-await migrations.push({ force: true });
-```
-  </Tab>
-</Tabs>
-
-:::warning[Data Loss]
-Force mode accepts all data loss. Use only when you're certain you don't need the data.
-:::
-
-### Combining Force with Resolver
-
-You can use both `force: true` and a `resolve` callback together. The resolver takes precedence - if it returns a result, that's used. If it returns `undefined` (doesn't handle the change), force mode kicks in automatically.
-
-This is useful for protecting specific tables or columns while auto-accepting everything else:
-
-```ts
-await migrations.push({
-  force: true,
-  resolve: async (change) => {
-    // Protect the users table from being dropped
-    if (change.type === "destructive" && change.table === "users") {
-      return change.reject();
-    }
-
-    // Protect specific renames from being treated as add+drop
-    if (change.type === "ambiguous" && change.table === "accounts") {
-      return change.rename();
-    }
-
-    // Return undefined to let force handle everything else
-  },
+const preview = await migrations.push({
+  dryRun: true,
+  resolve: lenientResolver,
 });
+
+await migrations.push({ consent: preview.consent });
+
+// In CI, this policy refuses as soon as a decision is required.
+const ciPushOptions = {
+  dryRun: true,
+  resolve: rejectAllResolver,
+} as const;
 ```
 
-| `force` | `resolve` | Behavior |
-|---------|-----------|----------|
-| `false` | `undefined` | Throw error if unresolved changes |
-| `true` | `undefined` | Auto-accept all changes |
-| `false` | provided | Resolver must handle all changes |
-| `true` | provided | Resolver handles what it returns, force handles the rest |
+| Resolver | Destructive | Ambiguous | Removed enum values |
+| --- | --- | --- | --- |
+| `rejectAllResolver` | Reject | Reject | Reject |
+| `lenientResolver` | Proceed | Rename | Set to `NULL` |
+| `addDropResolver` | Proceed | Add and drop | Set to `NULL` |
+
+The last two policies are intentionally data-destructive. Their enum policy is
+valid only when every affected column is nullable; otherwise the migration is
+refused. Prefer an explicit callback when the mapping depends on the column or
+the old value.
 
 ## Force Reset
 
@@ -273,8 +214,13 @@ npx viborm push --force-reset
   </Tab>
   <Tab title="Migration Client">
 ```ts
-// forceReset drops all tables, then pushes fresh schema
-await migrations.push({ forceReset: true });
+const preview = await migrations.push({
+  dryRun: true,
+  forceReset: true,
+});
+
+// Review preview.target, preview.operations, and preview.statements first.
+await migrations.push({ consent: preview.consent });
 ```
   </Tab>
 </Tabs>
@@ -283,8 +229,8 @@ await migrations.push({ forceReset: true });
 Force reset drops all tables and data. Use with extreme caution and never in production.
 :::
 
-:::info[Storage-Aware]
-When a storage driver is configured, `forceReset` also clears the migration journal to keep it in sync. Without a storage driver, it only drops tables.
+:::info[History-free]
+`forceReset` never reads or writes the migration estate. A non-empty force-reset against a migration marker is refused.
 :::
 
 ## CLI Options
@@ -292,54 +238,94 @@ When a storage driver is configured, `forceReset` also clears the migration jour
 | Option | Description |
 |--------|-------------|
 | `--dry-run` | Preview SQL without executing |
-| `--force` | Skip all resolution prompts |
-| `--force-reset` | Drop all tables before pushing |
-| `--strict` | Always ask for approval before executing SQL statements |
-| `--verbose` | Print all SQL statements prior to execution |
+| `--force-reset` | Plan a rebuild from empty; requires exact preview consent |
+| `-y`, `--yes` | Apply the displayed preview without an interactive prompt |
+| `--json` | Print machine-readable preview or result JSON; applying a non-empty plan also requires `--yes` |
 | `--config <path>` | Path to config file |
 
 ## API Options
 
+Planning and consent are intentionally different calls. A consent call cannot
+also change `forceReset`, validation, or resolution decisions:
+
 ```ts
-interface PushOptions {
-  force?: boolean;
+interface PushPlanningOptions {
   forceReset?: boolean;
-  dryRun?: boolean;
   skipValidation?: boolean;
   resolve?: ResolveCallback;
 }
+
+type PushOptions =
+  | (PushPlanningOptions & { dryRun: true })
+  | (PushPlanningOptions & {
+      dryRun?: false;
+      consent?: never;
+    })
+  | {
+      consent: PushConsent;
+      dryRun?: false;
+    };
 ```
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `force` | `boolean` | `false` | Auto-accept all changes. Can be combined with `resolve` to auto-accept unhandled changes. |
-| `forceReset` | `boolean` | `false` | Drop all tables before pushing |
+| `forceReset` | `boolean` | `false` | Drop managed tables, then rebuild from empty. Requires exact preview consent. |
 | `dryRun` | `boolean` | `false` | Preview SQL without executing |
 | `skipValidation` | `boolean` | `false` | Skip schema validation before pushing. Validation catches definition errors that would otherwise corrupt data silently — only skip it when deliberately pushing a shape the validator flags. |
-| `resolve` | `ResolveCallback` | - | Callback for resolving changes. Return `undefined` to let `force` handle it. |
+| `resolve` | `ResolveCallback` | - | Callback for resolving destructive or ambiguous changes. |
+| `consent` | `PushConsent` | - | The only option in the apply-after-preview arm. Required for destructive and force-reset work. |
+
+A safe non-destructive plan may execute directly. A destructive or force-reset
+plan always requires a dry preview followed by its exact consent. The second
+call reacquires the target lock, replans from the live catalog, and refuses if
+the target or plan changed.
 
 ## API Result
 
 ```ts
-interface PushResult {
-  operations: DiffOperation[];
-  applied: boolean;
-  sql: string[];
+interface PushPreview {
+  outcome: "planned" | "noop";
+  target: PushTargetIdentity;
+  planHash: string;
+  schemaHash: string;
+  fingerprint: string;
+  destructive: boolean;
+  operations: readonly PushOperation[];
+  statements: readonly PushStatementPreview[];
+  consent: PushConsent;
+}
+
+interface PushApplyResult {
+  outcome: "applied" | "noop";
+  target: PushTargetIdentity;
+  planHash: string;
+  operations: readonly PushOperation[];
+  statements: readonly PushStatementPreview[];
+  attestation: {
+    pathHash: string;
+    planHash: string;
+    schemaHash: string;
+    fingerprint: string;
+  };
 }
 ```
 
 | Property | Type | Description |
 |----------|------|-------------|
-| `operations` | `DiffOperation[]` | All operations that were applied |
-| `applied` | `boolean` | Whether changes were actually applied |
-| `sql` | `string[]` | Generated SQL statements |
+| `outcome` | `"planned" \| "noop" \| "applied"` | Whether the plan would change the database, or did |
+| `operations` | `PushOperation[]` | Review labels for the accepted plan |
+| `statements` | `PushStatementPreview[]` | Structured SQL plus typed parameters |
+| `schemaHash`, `fingerprint` | `string` | Desired-schema identity and preview-time live fingerprint |
+| `consent` | `PushConsent` | Inert preview token; required to apply a destructive or force-reset plan |
+| `attestation` | `PushAttestation` | Apply-time path, plan, schema, and final live-fingerprint proof |
 
 ## Enum Value Removal
 
 When removing enum values, you must specify what to do with existing data. Each column using the enum is resolved separately, allowing different mappings per column:
 
 ```ts
-const result = await migrations.push({
+const preview = await migrations.push({
+  dryRun: true,
   resolve: async (change) => {
     if (change.type === "enumValueRemoval") {
       // Each call is for a specific column
@@ -364,6 +350,8 @@ const result = await migrations.push({
     if (change.type === "ambiguous") return change.rename();
   },
 });
+
+await migrations.push({ consent: preview.consent });
 ```
 
 See the [ResolveChange interface](#resolvechange-interface) above for the full `EnumValueRemovalChange` contract.
@@ -373,8 +361,13 @@ See the [ResolveChange interface](#resolvechange-interface) above for the full `
 <CardGroup>
   <Card
     title="Migrate"
-    description="File-based migrations for production"
+    description="Authenticated migration history for production"
     href="/docs/migration/migrate"
+  />
+  <Card
+    title="Compared with Prisma and Drizzle"
+    description="How push and migration history differ"
+    href="/docs/migration/comparison"
   />
   <Card
     title="Migration Drivers"

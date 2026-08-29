@@ -3,7 +3,7 @@ import type { BatchQuery, QueryExecutionContext, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import { QueryError, UnsupportedOperationError } from "@errors";
-import { push } from "@migrations";
+
 import { buildCreateManyPlan } from "@query-engine/operations/create";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames, s } from "@schema";
@@ -16,6 +16,7 @@ import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import { createSchemaRegistry } from "@validation";
 import type Database from "better-sqlite3";
 import { describe, expect, test, vi } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 const entry = s
   .model({
@@ -386,7 +387,7 @@ describe("createMany bind-budget chunking", () => {
     const oversizedChildren = Array.from({ length: 32_767 }, () => ({}));
 
     try {
-      await push(client, { force: true });
+      await syncLiveSchema(client);
       expect(driver.maxBindParametersPerStatement).toBeUndefined();
 
       const failure = await client.parent

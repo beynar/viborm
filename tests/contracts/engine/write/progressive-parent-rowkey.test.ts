@@ -2,11 +2,12 @@ import { createClient } from "@client/client";
 import type { BatchQuery, QueryExecutionContext, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
-import { push } from "@migrations";
+
 import { s } from "@schema";
 import type { CommittedBatchNotification } from "@src/drivers/types";
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { describe, expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 /**
  * RESIDUAL PACKAGE H, unit H1 — the complete parent row key at a nested
@@ -201,7 +202,7 @@ describe("H1 — the complete parent row key at a progressive nested series", ()
         schema: rowKeySchema,
         driver: new PGliteDriver({ client: database }),
       }) as any;
-      await push(client, { force: true });
+      await syncLiveSchema(client);
     }
     return client;
   };
@@ -408,7 +409,7 @@ describe("H1 — the complete parent row key at a progressive nested series", ()
       schema: rowKeySchema,
       driver: plainDriver,
     }) as any;
-    await push(plain, { force: true });
+    await syncLiveSchema(plain);
     await seed(plain);
 
     await expect(
@@ -431,7 +432,7 @@ describe("H1 — the complete parent row key at a progressive nested series", ()
       schema: rowKeySchema,
       driver: recorder,
     }) as any;
-    await push(interactive, { force: true });
+    await syncLiveSchema(interactive);
     await seed(interactive);
     recorder.statements = [];
 
@@ -545,7 +546,7 @@ describe("H1 — each placement guards its exact progressive premise", () => {
     if (!client) {
       driver = new ProgressivePGliteDriver({ client: new PGlite() });
       client = createClient({ schema: junctionRowKeySchema, driver }) as any;
-      await push(client, { force: true });
+      await syncLiveSchema(client);
       await client.hub.create({
         data: { id: "h-row-key", code: "H1", label: "hub" },
       });

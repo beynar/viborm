@@ -3,9 +3,10 @@ import { PGliteDriver } from "@drivers/pglite";
 import type { BatchQuery, QueryResult } from "@drivers/types";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { TransactionError } from "@errors";
-import { push } from "@migrations";
+
 import { describe, expect, test, vi } from "vitest";
 import { nestedWriteBehaviorSchema } from "@tests/fixtures/nested-write-behavior-schema";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 class BothCapabilitiesDriver extends PGliteDriver {
   override readonly supportsTransactions = true;
@@ -51,7 +52,7 @@ async function setupDb(): Promise<PGlite> {
     schema: nestedWriteBehaviorSchema,
     driver: new PGliteDriver({ client: db }),
   });
-  await push(client, { force: true });
+  await syncLiveSchema(client);
   return db;
 }
 

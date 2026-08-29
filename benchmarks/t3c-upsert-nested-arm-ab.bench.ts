@@ -12,7 +12,7 @@
  */
 import { createClient } from "@client/client";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { push } from "@migrations";
+import { pushV1 as push } from "@migrations/push-v1";
 import { s } from "@schema";
 import { bench, describe } from "vitest";
 
@@ -41,7 +41,7 @@ const schema = (() => {
 const makeClient = async () => {
   const driver = new SQLite3Driver({ dataDir: ":memory:" });
   const client = createClient({ schema, driver });
-  await push(client, { force: true });
+  await push(client);
   // 200 users, each owning one post — the upsert's row EXISTS, so the relation-bearing
   // update arm is taken and folds the nested post update.
   for (let i = 0; i < 200; i += 1) {

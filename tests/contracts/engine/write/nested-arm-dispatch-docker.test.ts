@@ -1,12 +1,13 @@
 import { createClient } from "@client/client";
 import { MySQL2Driver } from "@drivers/mysql2";
 import { PgDriver } from "@drivers/pg";
-import { push } from "@migrations";
+
 import {
   armDispatchSchema,
   armUpdate,
 } from "@tests/contracts/engine/write/nested-arm-dispatch-behavior";
 import { describe, expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 /**
  * E3 on the live servers. Two things need a real driver rather than PGlite:
@@ -37,7 +38,7 @@ function suite(name: string, makeDriver: () => any, enabled: boolean): void {
         schema: armDispatchSchema,
         driver: makeDriver(),
       }) as any;
-      await push(client, { force: true });
+      await syncLiveSchema(client);
       await client.note.deleteMany({});
       await client.team.deleteMany({});
       await client.tag.deleteMany({});

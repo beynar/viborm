@@ -7,8 +7,9 @@
 
 import { createClient } from "@client/client";
 import { MySQL2Driver } from "@drivers/mysql2";
-import { introspect, push } from "@migrations";
+import { introspect } from "@migrations/push";
 import { s } from "@schema";
+import { syncLiveSchema as push } from "@tests/fixtures/sync-schema";
 import { describe, expect, it } from "vitest";
 
 const CONNECTION = process.env.MYSQL_TEST_CONNECTION_STRING;

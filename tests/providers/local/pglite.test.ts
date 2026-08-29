@@ -2,7 +2,7 @@ import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
 import type { QueryResult } from "@drivers/types";
 import type { PGlite, Transaction } from "@electric-sql/pglite";
-import { push } from "@migrations";
+
 import { batchPrimaryKeyDataflowContract } from "@tests/contracts/drivers/behaviors/batch-primary-key-dataflow-behavior";
 import { batchRefSmokeContract } from "@tests/contracts/drivers/behaviors/batch-ref-smoke-behavior";
 import { blobFilterContract } from "@tests/contracts/drivers/behaviors/blob-filter-behavior";
@@ -59,6 +59,7 @@ import {
 import { upsertAtomicitySchema } from "@tests/fixtures/upsert-atomicity-schema";
 import { windowUserPostSchema } from "@tests/fixtures/user-post-schema";
 import { seedWindowUserPosts } from "@tests/fixtures/user-post-seed";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 function createBatchOnlyPGliteDriver(): PGliteDriver {
   return new BatchOnlyPGliteDriver();
@@ -305,7 +306,7 @@ describe("PGlite Driver", () => {
 
     beforeEach(async () => {
       client = createTestClient();
-      await push(client, { force: true });
+      await syncLiveSchema(client);
       await seedWindowUserPosts(client);
     });
 
@@ -414,7 +415,7 @@ describe("PGlite Driver", () => {
     beforeEach(async () => {
       driver = new RaceInjectingPGliteDriver();
       client = createRaceClient();
-      await push(client, { force: true });
+      await syncLiveSchema(client);
     });
 
     afterEach(async () => {

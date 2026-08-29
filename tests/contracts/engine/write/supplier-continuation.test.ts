@@ -3,7 +3,7 @@ import type { BatchQuery, QueryExecutionContext, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { UnsupportedOperationError } from "@errors";
-import { push } from "@migrations";
+
 import { s } from "@schema";
 import type { CommittedBatchNotification } from "@src/drivers/types";
 import {
@@ -14,6 +14,7 @@ import {
 } from "@tests/contracts/engine/write/supplier-continuation-behavior";
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { describe, expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 const SEGMENT_REFUSAL =
   /cannot execute this record series as committed segments/;
@@ -30,7 +31,7 @@ registerSupplierContinuationBehavior("PGlite transaction", async () => {
       schema: supplierContinuationSchema,
       driver: new PGliteDriver({ client: new PGlite() }),
     }) as any;
-    await push(transactionClient, { force: true });
+    await syncLiveSchema(transactionClient);
   }
   return transactionClient;
 });
@@ -41,7 +42,7 @@ registerSupplierContinuationRefusals("PGlite transaction", async () => {
       schema: supplierContinuationSchema,
       driver: new PGliteDriver({ client: new PGlite() }),
     }) as any;
-    await push(transactionClient, { force: true });
+    await syncLiveSchema(transactionClient);
   }
   return transactionClient;
 });
@@ -55,7 +56,7 @@ const openBatch = async () => {
       schema: supplierContinuationSchema,
       driver: batchDriver,
     }) as any;
-    await push(batchClient, { force: true });
+    await syncLiveSchema(batchClient);
   }
   return batchClient;
 };
@@ -147,7 +148,7 @@ describe("E4 — the composed continuation on ordered committed segments", () =>
         schema: supplierContinuationSchema,
         driver: progressive,
       }) as any;
-      await push(progressiveClient, { force: true });
+      await syncLiveSchema(progressiveClient);
     }
     return progressiveClient;
   };
@@ -228,7 +229,7 @@ describe("E4 — the composed continuation on ordered committed segments", () =>
       schema: supplierContinuationSchema,
       driver: cramped,
     }) as any;
-    await push(client, { force: true });
+    await syncLiveSchema(client);
     await resetSupplierContinuation(client);
     cramped.batches = [];
     // One bound value is below what the composition's own statements need. Apply
@@ -299,7 +300,7 @@ describe("E4 — supplier continuation keeps the write-side membership premise",
       schema: nonPkSupplierSchema,
       driver: new PGliteDriver({ client: database }),
     }) as any;
-    await push(client, { force: true });
+    await syncLiveSchema(client);
     await concurrent.station.create({ data: { id: "p1", code: "A" } });
     await concurrent.station.create({ data: { id: "p2", code: "B" } });
     await concurrent.badge.create({

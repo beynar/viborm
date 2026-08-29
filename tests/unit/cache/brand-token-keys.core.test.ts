@@ -4,11 +4,12 @@ import { generateCacheKey } from "@cache/key";
 import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite } from "@electric-sql/pglite";
-import { push } from "@migrations";
+
 import { AnyNull, DbNull, JsonNull, s } from "@schema";
 import { FIELD_REF_BRAND } from "@schema/field-ref";
 import { sql } from "@sql";
 import { beforeAll, beforeEach, describe, expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 /**
  * A cache key must separate a BRANDED TOKEN from a user document that merely
@@ -231,7 +232,7 @@ const seed = async () => {
 beforeAll(async () => {
   pglite = new PGlite();
   driver = new PGliteDriver({ client: pglite });
-  await push(createClient({ schema, driver }), { force: true });
+  await syncLiveSchema(createClient({ schema, driver }));
 });
 
 beforeEach(async () => {

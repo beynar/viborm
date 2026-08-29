@@ -5,9 +5,10 @@ import {
   type VibORMConfig,
 } from "@client/client";
 import type { AnyDriver } from "@drivers";
-import { push } from "@migrations";
+
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { manyToManySchema as schema } from "@tests/fixtures/many-to-many-schema";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 /**
  * M9 filtered-M2M-deleteMany staleness gate (§11 M9, §9, §5.5 Rule 3, §1.2 A6).
@@ -78,7 +79,7 @@ export function runM2mDeleteManyStalenessBehavior({
       ]) {
         await driver._executeRaw(`DROP TABLE IF EXISTS ${table}`);
       }
-      await push(client, { force: true });
+      await syncLiveSchema(client);
     }
 
     function boot(driver: AnyDriver): StalenessClient {

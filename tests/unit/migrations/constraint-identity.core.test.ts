@@ -38,9 +38,7 @@
  */
 
 import { createClient } from "@client/client";
-import { push } from "@migrations";
 import { s } from "@schema";
-import { describe, expect, it } from "vitest";
 import { diff } from "@src/migrations/differ";
 import type {
   DiffOperation,
@@ -49,6 +47,8 @@ import type {
   TableDef,
 } from "@src/migrations/types";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
+import { describe, expect, it } from "vitest";
+import { syncLiveSchema } from "../../fixtures/sync-schema";
 
 // --- The differ, both identities -------------------------------------------
 
@@ -319,9 +319,9 @@ describe("SQLite push of an unchanged schema", () => {
     // Push #1 creates. Pushes #2 and #3 must plan NOTHING: before the fix #2
     // planned dropForeignKey + dropUniqueConstraint + addUniqueConstraint +
     // addForeignKey, and the unique drop aborted the whole push.
-    const planned: DiffOperation[][] = [];
+    const planned: Array<readonly { readonly label: string }[]> = [];
     for (let round = 0; round < 3; round++) {
-      const result = await push(client, { force: true });
+      const result = await syncLiveSchema(client);
       planned.push(result.operations);
     }
 

@@ -11,13 +11,14 @@ import type { BatchQuery, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { ValidationError } from "@errors";
-import { push } from "@migrations";
+
 import { describe, expect, test } from "vitest";
 import {
   bulkWriteSchema,
   runBulkWriteBehavior,
 } from "@tests/contracts/engine/write/bulk-write-behavior";
 import { observeClientOperations } from "@tests/contracts/engine/write/operation-observer";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 // The bulk-write stragglers on PGlite, both substrates.
 runBulkWriteBehavior({
@@ -295,7 +296,7 @@ describe("the removed *AndReturn method names (runtime)", () => {
     test(`${removed} fails with a clear unknown-operation error`, async () => {
       const db = new PGlite();
       const client = makeClient(db);
-      await push(client, { force: true });
+      await syncLiveSchema(client);
       try {
         const untyped = client as unknown as Record<string, RoutedModel>;
         // The proxy still hands back a function — that is exactly why the error
@@ -367,7 +368,7 @@ describe("a validation error names the operation the caller spelled", () => {
       test(`${family} — ${arm}`, async () => {
         const db = new PGlite();
         const client = makeClient(db);
-        await push(client, { force: true });
+        await syncLiveSchema(client);
         try {
           const untyped = client as unknown as Record<string, RoutedModel>;
           let thrown: unknown;
@@ -410,7 +411,7 @@ describe("an explicitly-absent select takes the count arm (runtime)", () => {
   test("all three bulk families agree on select: undefined", async () => {
     const db = new PGlite();
     const client = makeClient(db);
-    await push(client, { force: true });
+    await syncLiveSchema(client);
     try {
       const created = await client.gadget.createMany({
         data: [
@@ -447,7 +448,7 @@ describe("an explicitly-absent select takes the count arm (runtime)", () => {
   test("a present select still returns rows on all three", async () => {
     const db = new PGlite();
     const client = makeClient(db);
-    await push(client, { force: true });
+    await syncLiveSchema(client);
     try {
       // The control: the discriminant is the VALUE, so the same key spelled
       // with a real select must still take the row arm.
@@ -478,7 +479,7 @@ describe("an explicitly-absent select takes the count arm (runtime)", () => {
   test("a malformed select still rejects rather than falling back to count", async () => {
     const db = new PGlite();
     const client = makeClient(db);
-    await push(client, { force: true });
+    await syncLiveSchema(client);
     try {
       // Fail closed: "undefined is absent" must not become "anything falsy is
       // absent", and a garbage select must not silently degrade to `{ count }`.

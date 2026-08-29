@@ -1,9 +1,10 @@
 import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite } from "@electric-sql/pglite";
-import { push } from "@migrations";
+
 import { hydrateSchemaNames, s } from "@schema";
 import { beforeAll, describe, expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 /**
  * E5-U3 — **the upsert ENVELOPE moves to the parse boundary.**
@@ -42,7 +43,7 @@ beforeAll(async () => {
     schema: envelopeModelSchema,
     driver: new PGliteDriver({ client: new PGlite() }),
   }) as any;
-  await push(client, { force: true });
+  await syncLiveSchema(client);
 }, 120_000);
 
 /** The class change these witnesses record: `UnsupportedOperationError` (V8003, no

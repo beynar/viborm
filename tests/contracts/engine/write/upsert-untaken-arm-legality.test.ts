@@ -1,9 +1,10 @@
 import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite } from "@electric-sql/pglite";
-import { push } from "@migrations";
+
 import { hydrateSchemaNames, s } from "@schema";
 import { beforeAll, describe, expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 /**
  * E5-U4 — **the `deferArmLegality` contract, after the envelope moved (E5-U3).**
@@ -92,7 +93,7 @@ beforeAll(async () => {
     schema: untakenArmSchema,
     driver: new PGliteDriver({ client: new PGlite() }),
   }) as any;
-  await push(client, { force: true });
+  await syncLiveSchema(client);
 }, 120_000);
 
 describe("E5-U4 the untaken arm's legality stays deferred", () => {

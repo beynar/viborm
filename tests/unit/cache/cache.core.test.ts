@@ -4,10 +4,11 @@ import { VibORM } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite } from "@electric-sql/pglite";
 import { instrumentation } from "@instrumentation/extension";
-import { push } from "@migrations";
+
 import { s } from "@schema";
 import { createTestClock } from "@tests/fixtures/test-clock";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 // Test schema
 const user = s.model({
@@ -33,9 +34,9 @@ beforeAll(async () => {
   pglite = new PGlite();
   driver = new PGliteDriver({ client: pglite });
 
-  // Use push() to create tables via the migration engine
+  // Use syncLiveSchema() to create tables via the migration engine
   const tempClient = VibORM.create({ schema, driver });
-  await push(tempClient, { force: true });
+  await syncLiveSchema(tempClient);
 });
 
 beforeEach(async () => {

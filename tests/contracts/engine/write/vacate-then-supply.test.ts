@@ -1,7 +1,7 @@
 import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite } from "@electric-sql/pglite";
-import { push } from "@migrations";
+
 import { s } from "@schema";
 import {
   registerVacateThenSupplyBehavior,
@@ -10,6 +10,7 @@ import {
 } from "@tests/contracts/engine/write/vacate-then-supply-behavior";
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { describe, expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 const substrates = [
   {
@@ -30,7 +31,7 @@ for (const substrate of substrates) {
         schema: vacateThenSupplySchema,
         driver: substrate.make(new PGlite()),
       }) as any;
-      await push(shared, { force: true });
+      await syncLiveSchema(shared);
     }
     return shared;
   });
@@ -78,7 +79,7 @@ describe("E6.5 the enumeration of every update-root to-one pair", () => {
       schema: vacateThenSupplySchema,
       driver: new PGliteDriver({ client: new PGlite() }),
     }) as any;
-    await push(client, { force: true });
+    await syncLiveSchema(client);
 
     const names = Object.keys(PAIR_ARMS);
     const verdicts: Record<string, string> = {};
@@ -150,7 +151,7 @@ describe("E6.5 the enumeration of every update-root to-one pair", () => {
       schema: vacateThenSupplySchema,
       driver: new PGliteDriver({ client: new PGlite() }),
     }) as any;
-    await push(client, { force: true });
+    await syncLiveSchema(client);
 
     const verdicts: Record<string, string> = {};
     for (const vacate of ["disconnect", "delete"]) {
@@ -242,7 +243,7 @@ describe("Package H — the composed modify declares every field its probe reads
       schema: vacateThenSupplySchema,
       driver: new PGliteDriver({ client: new PGlite() }),
     }) as any;
-    await push(client, { force: true });
+    await syncLiveSchema(client);
     await resetVacateThenSupply(client);
 
     // The composed modify locates by the SUPPLIER's selector — but the wrapper's `where`
@@ -289,7 +290,7 @@ describe("Package H — the parent-held direction composes the replacement", () 
       schema: parentHeldSchema,
       driver: new PGliteDriver({ client: new PGlite() }),
     }) as any;
-    await push(client, { force: true });
+    await syncLiveSchema(client);
     await client.depot.create({ data: { id: "d1", note: "incumbent" } });
     await client.depot.create({ data: { id: "d-alt", note: "decoy" } });
     await client.station.create({

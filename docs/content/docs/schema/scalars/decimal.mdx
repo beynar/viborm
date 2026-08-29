@@ -241,7 +241,7 @@ exactly, and decrease scale only when every discarded digit is zero. Scalar and
 list conversions preserve order and duplicates and never round existing data.
 Failed conversions preserve the last provider-guaranteed estate.
 
-There are three deliberate provider boundaries:
+Live descriptor changes follow the Migration V1 provider-admission matrix:
 
 - MySQL list metadata lives in an exact VibORM column-comment marker. A
   same-scale precision widening leaves every member string unchanged, but still
@@ -253,23 +253,12 @@ There are three deliberate provider boundaries:
 - PlanetScale has no admitted VibORM effectful-DDL route. Marker creation and
   alter survival are proved on the MySQL dialect substrate; a hosted
   PlanetScale connection can introspect the marker when credentials exist.
-- D1 can create decimal schemas and run ordinary decimal operations. A
-  relation-bearing descriptor change, decimal adoption, or decimal-column
-  rename is refused before effects until the foreign-key-safe rebuild is proven
-  on its one-native-batch substrate.
-
-Migration artifacts are target-specific. The decimal-specific D1 check runs
-while a descriptor change, adoption, or decimal-column rename is rendered. It
-does not classify unrelated reconstructions. `apply()` also admits every
-generated SQLite3/libSQL artifact at its per-entry read boundary on D1: it
-recognizes VibORM's exact generated fixed-decimal rebuild, replays any native
-table rename earlier in that artifact, reads the live SQLite relation graph,
-and refuses an inbound- or outbound-FK table before that entry runs. Initially
-pending entries are checked before the tracking table is created; an entry
-first published after another migration commits is checked before its own SQL
-or tracking row. Relation-free decimal rebuilds, unrelated generated SQLite
-reconstructions, and caller-authored manual artifacts do not cross that
-decimal-specific gate.
+- D1 and D1 HTTP support ordinary decimal reads and writes, and libSQL supports
+  the same SQLite coefficient representation. Migration V1 keeps their offline
+  generation and read-only inspection paths, but refuses every effectful
+  `push` or migration command before SQL until each provider proves the complete
+  lock, marker-CAS, table-recreation, and foreign-key boundary. Use the
+  provider's deployment migration system for live schema changes meanwhile.
 
 ## Raw SQL is physical
 

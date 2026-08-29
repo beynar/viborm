@@ -1,5 +1,5 @@
 import { createClient as PGliteCreateClient } from "@drivers/pglite";
-import { push } from "@migrations";
+
 import { s } from "@schema";
 import {
   afterAll,
@@ -10,6 +10,7 @@ import {
   test,
 } from "vitest";
 
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 const user = s.model({
   id: s.string().id(),
   name: s.string(),
@@ -39,7 +40,7 @@ let client: Awaited<
 
 beforeAll(async () => {
   client = PGliteCreateClient({ schema });
-  await push(client, { force: true });
+  await syncLiveSchema(client);
 });
 
 afterAll(async () => {

@@ -3,12 +3,13 @@ import { createClient } from "@client/client";
 import type { BatchQuery, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
-import { push } from "@migrations";
+
 import {
   registerSqlOperandWallBehavior,
   sqlOperandWallSchema,
 } from "@tests/contracts/engine/write/sql-operand-boundary-behavior";
 
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 const substrates = [
   {
     name: "transaction",
@@ -28,7 +29,7 @@ for (const substrate of substrates) {
         schema: sqlOperandWallSchema,
         driver: substrate.make(new PGlite()),
       }) as any;
-      await push(shared, { force: true });
+      await syncLiveSchema(shared);
     }
     return shared;
   });

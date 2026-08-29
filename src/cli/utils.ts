@@ -17,7 +17,7 @@ import type {
 } from "../client/client";
 import type { AnyDriver } from "../drivers/driver";
 import { isVibORMError } from "../errors";
-import type { MigrationStorageDriver } from "../migrations/storage/driver";
+import type { MigrationStorageWriter } from "../migrations/storage/contract";
 import type { AnyModel } from "../schema/model";
 import { validateSchemaOrThrow } from "../schema/validation";
 
@@ -29,24 +29,21 @@ import { validateSchemaOrThrow } from "../schema/validation";
  * Migration configuration options.
  */
 export interface MigrationConfig {
-  /** Directory for migration files (default: "./migrations") */
+  /** Estate directory (default: "./migrations") */
   dir?: string;
-  /** Name of the migrations tracking table (default: "_viborm_migrations") */
-  tableName?: string;
   /**
-   * Storage driver for migration files.
-   * If not provided, uses filesystem storage with the `dir` option.
+   * Estate storage writer. Defaults to filesystem storage at `dir`.
    *
    * @example
    * ```ts
-   * import { createFsStorageDriver } from "viborm/migrations/storage/fs";
+   * import { createFsStorageWriter } from "viborm/migrations";
    *
    * migrations: {
-   *   storageDriver: createFsStorageDriver("./migrations"),
+   *   storage: createFsStorageWriter("./migrations"),
    * }
    * ```
    */
-  storageDriver?: MigrationStorageDriver;
+  storage?: MigrationStorageWriter;
 }
 
 /**
@@ -115,6 +112,12 @@ function findFile(cwd: string, candidates: string[]): string | null {
  * The config file should export a default configuration object with:
  * - client: VibORM client instance created with createClient()
  */
+export function failCli(error: unknown): never {
+  const message = error instanceof Error ? error.message : String(error);
+  process.stderr.write(`${message}\n`);
+  process.exit(1);
+}
+
 export async function loadConfig(
   options: LoadConfigOptions = {}
 ): Promise<LoadedConfig> {

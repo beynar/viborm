@@ -10,7 +10,7 @@
  */
 import { createClient } from "@client/client";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { push } from "@migrations";
+import { pushV1 as push } from "@migrations/push-v1";
 import { readTransactionOperation } from "@query-engine/transaction-operation";
 import { s } from "@schema";
 import Database from "better-sqlite3";
@@ -73,7 +73,7 @@ const post = s
   .map("posts");
 const vibormDriver = new SQLite3Driver({ dataDir: ":memory:" });
 const viborm = createClient({ schema: { user, post }, driver: vibormDriver });
-await push(viborm, { force: true });
+await push(viborm);
 await seed((sql, params) => vibormDriver._executeRaw(sql, params));
 
 // ---------- drizzle ----------

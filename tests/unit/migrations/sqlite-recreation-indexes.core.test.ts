@@ -54,9 +54,7 @@
  */
 
 import { createClient } from "@client/client";
-import { push } from "@migrations";
 import { s } from "@schema";
-import { describe, expect, it } from "vitest";
 import { sqlite3MigrationDriver } from "@src/migrations/drivers/sqlite";
 import { generateDDLStatements } from "@src/migrations/push/executor";
 import type {
@@ -66,6 +64,8 @@ import type {
 } from "@src/migrations/types";
 import { sortOperations } from "@src/migrations/utils";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
+import { describe, expect, it } from "vitest";
+import { syncLiveSchema } from "../../fixtures/sync-schema";
 
 /** The shape of a to-many child table, with whatever indexes it already has. */
 function postsSnapshot(indexes: IndexDef[]): SchemaSnapshot {
@@ -415,7 +415,7 @@ describe("SQLite foreign keys across repeated pushes", () => {
 
     const counts: number[] = [];
     for (let round = 0; round < 3; round++) {
-      await push(client, { force: true });
+      await syncLiveSchema(client);
       const read = (await driver._executeRaw(
         "PRAGMA foreign_key_list(recreation_posts)"
       )) as unknown as { rows?: unknown[] };

@@ -236,10 +236,11 @@ function formatDuration(microseconds: number): string {
 import { cache, MemoryCache } from "@cache";
 import { PGlite } from "@electric-sql/pglite";
 import { instrumentation } from "@instrumentation/extension";
-import { push } from "@migrations/push";
+
 import { VibORM } from "./src/client/client";
 import { PGliteDriver } from "./src/drivers/pglite";
 import { s } from "./src/schema";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 const user = s.model({
   id: s.string().id(),
@@ -268,7 +269,7 @@ async function main() {
     );
 
   const clientInstantEnd = performance.now();
-  await push(client);
+  await syncLiveSchema(client);
   console.log(
     `Client creation took ${clientInstantEnd - clientInstantStart}ms`
   );

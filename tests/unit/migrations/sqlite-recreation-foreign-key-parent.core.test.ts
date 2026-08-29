@@ -37,15 +37,19 @@
  */
 
 import { createClient } from "@client/client";
-import { apply, down, generate, push } from "@migrations";
-import { MigrationStorageDriver } from "@migrations/storage";
+import { VibORMErrorCode } from "@errors";
+import { applyV1 as apply } from "@migrations/apply-v1";
+import { generateV1 as generate } from "@migrations/generate-v1";
+import { downV1 as down } from "@migrations/operators";
 import { s } from "@schema";
-import { describe, expect, it } from "vitest";
 import type { AnyDriver } from "@src/drivers/driver";
 import type { SQLite3Driver } from "@src/drivers/sqlite3";
 import { liftForeignKeyPragmas } from "@src/migrations/foreign-keys";
 import { createInMemoryLibSQLDriver } from "@tests/fixtures/drivers/libsql";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
+import { describe, expect, it } from "vitest";
+import { syncLiveSchema } from "../../fixtures/sync-schema";
+import { MemoryStorage } from "./_estate";
 
 type RawDriver = { _executeRaw: SQLite3Driver["_executeRaw"] };
 
@@ -123,17 +127,16 @@ describe("recreating a SQLite table a foreign key points at", () => {
       const plain = buildSchema(action, { unique: false, widen: false });
       const uniqued = buildSchema(action, { unique: true, widen: false });
 
-      await push(createClient({ schema: plain as never, driver }) as never, {
-        force: true,
-      });
+      await syncLiveSchema(
+        createClient({ schema: plain as never, driver }) as never
+      );
       await seed(driver);
 
       const planned = (
-        await push(
-          createClient({ schema: uniqued as never, driver }) as never,
-          { force: true }
+        await syncLiveSchema(
+          createClient({ schema: uniqued as never, driver }) as never
         )
-      ).operations.map((op) => op.type);
+      ).operations.map((op) => op.label);
       expect(planned).toEqual(["addUniqueConstraint"]);
 
       // The constraint landed inline, so SQLite reads it back as a constraint.
@@ -170,16 +173,16 @@ describe("recreating a SQLite table a foreign key points at", () => {
     const narrow = buildSchema("noAction", { unique: false, widen: false });
     const wide = buildSchema("noAction", { unique: false, widen: true });
 
-    await push(createClient({ schema: narrow as never, driver }) as never, {
-      force: true,
-    });
+    await syncLiveSchema(
+      createClient({ schema: narrow as never, driver }) as never
+    );
     await seed(driver);
 
     const planned = (
-      await push(createClient({ schema: wide as never, driver }) as never, {
-        force: true,
-      })
-    ).operations.map((op) => op.type);
+      await syncLiveSchema(
+        createClient({ schema: wide as never, driver }) as never
+      )
+    ).operations.map((op) => op.label);
     expect(planned).toEqual(["alterColumn"]);
 
     expect(await rows(driver, `SELECT "id", "width" FROM "fk_parent"`)).toEqual(
@@ -195,16 +198,16 @@ describe("recreating a SQLite table a foreign key points at", () => {
     const uniqued = buildSchema("noAction", { unique: true, widen: false });
     const plain = buildSchema("noAction", { unique: false, widen: false });
 
-    await push(createClient({ schema: uniqued as never, driver }) as never, {
-      force: true,
-    });
+    await syncLiveSchema(
+      createClient({ schema: uniqued as never, driver }) as never
+    );
     await seed(driver);
 
     const planned = (
-      await push(createClient({ schema: plain as never, driver }) as never, {
-        force: true,
-      })
-    ).operations.map((op) => op.type);
+      await syncLiveSchema(
+        createClient({ schema: plain as never, driver }) as never
+      )
+    ).operations.map((op) => op.label);
     expect(planned).toEqual(["dropUniqueConstraint"]);
 
     expect(await createTableSql(driver, "fk_parent")).not.toContain("UNIQUE");
@@ -217,9 +220,9 @@ describe("recreating a SQLite table a foreign key points at", () => {
     const driver = createInMemorySQLite3Driver();
     const plain = buildSchema("noAction", { unique: false, widen: false });
 
-    await push(createClient({ schema: plain as never, driver }) as never, {
-      force: true,
-    });
+    await syncLiveSchema(
+      createClient({ schema: plain as never, driver }) as never
+    );
 
     await expect(
       driver._executeRaw(
@@ -245,9 +248,9 @@ describe("a lifted batch that would commit against a broken reference", () => {
     const plain = buildSchema("noAction", { unique: false, widen: false });
     const uniqued = buildSchema("noAction", { unique: true, widen: false });
 
-    await push(createClient({ schema: plain as never, driver }) as never, {
-      force: true,
-    });
+    await syncLiveSchema(
+      createClient({ schema: plain as never, driver }) as never
+    );
     await seed(driver);
 
     // An orphan only reachable with enforcement off — the state a `dropTable`
@@ -259,9 +262,9 @@ describe("a lifted batch that would commit against a broken reference", () => {
     await driver._executeRaw("PRAGMA foreign_keys=ON;");
 
     await expect(
-      push(createClient({ schema: uniqued as never, driver }) as never, {
-        force: true,
-      })
+      syncLiveSchema(
+        createClient({ schema: uniqued as never, driver }) as never
+      )
     ).rejects.toThrow(MATCH_BROKEN_REFERENCE_REFUSAL);
 
     // Rolled back: no constraint, and enforcement is back on.
@@ -319,32 +322,10 @@ describe("which batches get lifted", () => {
 });
 
 /**
- * A migration file records the same recreation `push` executes, and `apply`
+ * A generated state records the same recreation `push` executes, and `apply`
  * runs it through the same kind of transaction, so the bracket has to reach
  * both seams. This is the `migrate` half.
  */
-class MemoryStorage extends MigrationStorageDriver {
-  private readonly files = new Map<string, string>();
-
-  constructor() {
-    super("memory");
-  }
-
-  get(path: string): Promise<string | null> {
-    return Promise.resolve(this.files.get(path) ?? null);
-  }
-
-  put(path: string, content: string): Promise<void> {
-    this.files.set(path, content);
-    return Promise.resolve();
-  }
-
-  delete(path: string): Promise<void> {
-    this.files.delete(path);
-    return Promise.resolve();
-  }
-}
-
 describe("applying a generated migration that recreates a referenced parent", () => {
   it("keeps the children, under the referential action that loses them silently", async () => {
     const storage = new MemoryStorage();
@@ -353,19 +334,16 @@ describe("applying a generated migration that recreates a referenced parent", ()
     const uniqued = buildSchema("cascade", { unique: true, widen: false });
 
     const v1 = createClient({ schema: plain as never, driver }) as never;
-    await generate(v1, { storageDriver: storage, name: "init" });
-    await apply(v1, { storageDriver: storage });
+    await generate(v1, storage, { name: "init" });
+    await apply(v1, storage);
     await seed(driver);
 
     const v2 = createClient({ schema: uniqued as never, driver }) as never;
-    const generated = await generate(v2, {
-      storageDriver: storage,
-      name: "unique",
-    });
+    const generated = await generate(v2, storage, { name: "unique" });
     // The file really does carry the pragma the transaction would swallow.
-    expect(generated.sql.join("\n")).toContain("PRAGMA foreign_keys=OFF");
+    expect(generated.sql).toContain("PRAGMA foreign_keys=OFF");
 
-    await apply(v2, { storageDriver: storage });
+    await apply(v2, storage);
 
     expect(await rows(driver, `SELECT "id", "parentId" FROM "fk_kid"`)).toEqual(
       [{ id: "k1", parentId: "p1" }]
@@ -376,7 +354,7 @@ describe("applying a generated migration that recreates a referenced parent", ()
 
     // The rollback undoes a recreation with a recreation, inside one
     // transaction of its own — the same bracket, at a third seam.
-    await down(v2, { storageDriver: storage, steps: 1 });
+    await down(v2, storage, { steps: 1 });
 
     expect(await createTableSql(driver, "fk_parent")).not.toContain("UNIQUE");
     expect(await rows(driver, `SELECT "id", "parentId" FROM "fk_kid"`)).toEqual(
@@ -385,26 +363,15 @@ describe("applying a generated migration that recreates a referenced parent", ()
   });
 });
 
-describe("LibSQL recreates a referenced parent the same way", () => {
-  it("adds a unique constraint under onDelete cascade without losing the children", async () => {
+describe("LibSQL refuses effectful live sync", () => {
+  it("refuses DRIVER_NOT_SUPPORTED instead of recreating a referenced parent", async () => {
     const driver = createInMemoryLibSQLDriver();
     const plain = buildSchema("cascade", { unique: false, widen: false });
-    const uniqued = buildSchema("cascade", { unique: true, widen: false });
 
-    await push(createClient({ schema: plain as never, driver }) as never, {
-      force: true,
+    await expect(
+      syncLiveSchema(createClient({ schema: plain as never, driver }) as never)
+    ).rejects.toMatchObject({
+      code: VibORMErrorCode.DRIVER_NOT_SUPPORTED,
     });
-    await seed(driver);
-
-    await push(createClient({ schema: uniqued as never, driver }) as never, {
-      force: true,
-    });
-
-    expect(await rows(driver, `SELECT "id", "parentId" FROM "fk_kid"`)).toEqual(
-      [{ id: "k1", parentId: "p1" }]
-    );
-    expect(await createTableSql(driver, "fk_parent")).toContain(
-      'CONSTRAINT "fk_parent_a_b_key" UNIQUE ("a", "b")'
-    );
   });
 });

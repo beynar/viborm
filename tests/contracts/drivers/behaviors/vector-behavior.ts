@@ -5,9 +5,10 @@ import {
   type VibORMConfig,
 } from "@client/client";
 import type { AnyDriver } from "@drivers";
-import { push } from "@migrations";
+
 import { s } from "@schema";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 const schema = (() => {
   const collection = s
@@ -60,7 +61,7 @@ export function runVectorBehavior({
       driver = createDriver();
       await driver._executeRaw("CREATE EXTENSION IF NOT EXISTS vector");
       client = createClient({ schema, driver });
-      await push(client, { force: true });
+      await syncLiveSchema(client);
       await driver._executeRaw('DELETE FROM "vector_behavior_docs"');
       await driver._executeRaw('DELETE FROM "vector_behavior_collections"');
       await seedVectorDocs(driver);

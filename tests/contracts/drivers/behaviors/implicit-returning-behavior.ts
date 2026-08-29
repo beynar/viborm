@@ -6,10 +6,11 @@ import {
 } from "@client/client";
 import type { AnyDriver } from "@drivers";
 import { ForeignKeyError } from "@errors";
-import { push } from "@migrations";
+
 import { s } from "@schema";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import z from "zod/v4";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 const gadget = s
   .model({
@@ -128,7 +129,7 @@ export function runImplicitReturningBehavior({
     beforeEach(async () => {
       const driver = createDriver();
       client = createClient({ schema, driver });
-      await push(client, { force: true });
+      await syncLiveSchema(client);
     });
 
     afterEach(async () => {

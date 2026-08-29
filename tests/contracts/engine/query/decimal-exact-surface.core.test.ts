@@ -35,8 +35,8 @@ import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import { PGlite } from "@electric-sql/pglite";
-import { push } from "@migrations";
 import { s } from "@schema";
+import { syncLiveSchema as push } from "@tests/fixtures/sync-schema";
 import { canonicalizeDecimal } from "@validation/primitives/decimal-codec";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 

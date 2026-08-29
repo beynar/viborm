@@ -17,9 +17,11 @@ import { createClient } from "@client/client";
 import { PgDriver } from "@drivers/pg";
 import { MigrationError, VibORMErrorCode } from "@errors";
 import { getMigrationDriver } from "@migrations/drivers";
-import { introspect as introspectClient, push } from "@migrations/push";
+import { introspect as introspectClient } from "@migrations/push";
 import { PG, s } from "@schema";
+import { createControlTableSQL } from "@src/migrations/control";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { syncLiveSchema } from "../../fixtures/sync-schema";
 
 const CONNECTION_STRING = process.env.PG_TEST_CONNECTION_STRING;
 const describeIfDocker = CONNECTION_STRING ? describe : describe.skip;
@@ -73,13 +75,13 @@ describeIfDocker("PostgreSQL estate containment (docker)", () => {
   it("pushes into its own schema and converges on the second push", async () => {
     const client = clientFor(ESTATE_SCHEMA);
     try {
-      const first = await push(client, { force: true });
+      const first = await syncLiveSchema(client);
       expect(first.operations.length).toBeGreaterThan(0);
 
       // Second push is empty: the enum default (`'active'::schema.enum`) and
       // the deparsed partial-index predicate both canonicalize against THIS
       // schema, and the canonicalizer's scratch view names it too.
-      const second = await push(client, { force: true });
+      const second = await syncLiveSchema(client);
       expect(second.operations).toEqual([]);
 
       const decoy = await admin._executeRaw<{ column_name: string }>(
@@ -91,28 +93,22 @@ describeIfDocker("PostgreSQL estate containment (docker)", () => {
     }
   });
 
-  it("tracks migrations in its own schema, on a pooled connection", async () => {
+  it("creates control tables in its own schema, on a pooled connection", async () => {
     const client = clientFor(ESTATE_SCHEMA);
     try {
       const migrationDriver = getMigrationDriver(client.$driver);
-      // A pool hands out a different connection per statement, so a tracking
+      // A pool hands out a different connection per statement, so a control
       // table reached through an ambient `search_path` is a coin flip. Every
       // statement below names the schema.
-      await client.$driver._executeRaw(
-        migrationDriver.generateCreateTrackingTable("_viborm_migrations")
-      );
-      const insert =
-        migrationDriver.generateInsertMigration("_viborm_migrations");
-      await client.$driver._executeRaw(insert.sql, ["init", "checksum"]);
-      const applied = await client.$driver._executeRaw<{ name: string }>(
-        migrationDriver.generateSelectAppliedMigrations("_viborm_migrations")
-      );
-      expect(applied.rows.map((row) => row.name)).toEqual(["init"]);
+      const sql = createControlTableSQL(migrationDriver, "_viborm_migration");
+      await client.$driver._executeRaw(sql.state);
+      await client.$driver._executeRaw(sql.log);
 
       const located = await admin._executeRaw<{ table_schema: string }>(
-        "SELECT table_schema FROM information_schema.tables WHERE table_name = '_viborm_migrations'"
+        "SELECT table_schema FROM information_schema.tables WHERE table_name IN ('_viborm_migration_state', '_viborm_migration_log') ORDER BY table_name"
       );
       expect(located.rows.map((row) => row.table_schema)).toEqual([
+        ESTATE_SCHEMA,
         ESTATE_SCHEMA,
       ]);
     } finally {
@@ -224,7 +220,7 @@ describeIfDocker("PostgreSQL extension types (docker)", () => {
       }),
     });
     try {
-      const first = await push(client, { force: true });
+      const first = await syncLiveSchema(client);
       expect(first.operations.length).toBeGreaterThan(0);
 
       // The server stored the extension's type; the read-back spells it the
@@ -244,7 +240,7 @@ describeIfDocker("PostgreSQL extension types (docker)", () => {
         contact?.columns.find((column) => column.name === "email")?.type
       ).toBe("citext");
 
-      const second = await push(client, { force: true });
+      const second = await syncLiveSchema(client);
       expect(second.operations).toEqual([]);
     } finally {
       await client.$disconnect();

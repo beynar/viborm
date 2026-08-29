@@ -1,9 +1,10 @@
 import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite } from "@electric-sql/pglite";
-import { push } from "@migrations";
+
 import { s } from "@schema";
 import { describe, expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 const rowLocalSkipSchema = (() => {
   const collection = s
@@ -59,7 +60,7 @@ describe("residual F1 — junction skip disposition is row-local and ordered", (
       schema: rowLocalSkipSchema,
       driver: new PGliteDriver({ client: new PGlite() }),
     });
-    await push(client, { force: true });
+    await syncLiveSchema(client);
     await client.entry.create({
       data: {
         id: 1,
@@ -136,7 +137,7 @@ describe("residual F1 — junction skip disposition is row-local and ordered", (
       schema: rowLocalSkipSchema,
       driver: new PGliteDriver({ client: new PGlite() }),
     });
-    await push(client, { force: true });
+    await syncLiveSchema(client);
     await client.entry.create({
       data: {
         id: 1,
@@ -193,7 +194,7 @@ describe("residual F1 — junction skip disposition is row-local and ordered", (
       schema: rowLocalSkipSchema,
       driver: new PGliteDriver({ client: new PGlite() }),
     });
-    await push(client, { force: true });
+    await syncLiveSchema(client);
     await client.entry.create({
       data: {
         slug: "B-slug",
@@ -248,7 +249,7 @@ describe("residual F1 — junction skip disposition is row-local and ordered", (
       schema: rowLocalSkipSchema,
       driver: new PGliteDriver({ client: new PGlite() }),
     });
-    await push(client, { force: true });
+    await syncLiveSchema(client);
     await client.$executeRawUnsafe(
       'CREATE TABLE "f1_order" ("n" SERIAL PRIMARY KEY, "label" TEXT NOT NULL)'
     );
@@ -304,7 +305,7 @@ describe("residual F1 — junction skip disposition is row-local and ordered", (
       schema: rowLocalSkipSchema,
       driver: new PGliteDriver({ client: new PGlite() }),
     });
-    await push(client, { force: true });
+    await syncLiveSchema(client);
     await client.collection.create({ data: { id: "c1" } });
 
     await client.collection.update({
@@ -349,7 +350,7 @@ describe("residual F1 — junction skip disposition is row-local and ordered", (
       schema: rowLocalSkipSchema,
       driver: new PGliteDriver({ client: new PGlite() }),
     });
-    await push(client, { force: true });
+    await syncLiveSchema(client);
     await client.collection.create({ data: { id: "c1" } });
 
     await client.collection.update({
@@ -392,7 +393,7 @@ describe("residual F1 — junction skip disposition is row-local and ordered", (
       schema: rowLocalSkipSchema,
       driver: new PGliteDriver({ client: new PGlite() }),
     });
-    await push(client, { force: true });
+    await syncLiveSchema(client);
     await client.collection.create({ data: { id: "c1" } });
 
     await client.collection.update({
@@ -462,7 +463,7 @@ describe("residual F1 — unnameable indexes dominate an adoptable selector", ()
       schema: mixedIndexSkipSchema,
       driver: new PGliteDriver({ client: new PGlite() }),
     });
-    await push(client, { force: true });
+    await syncLiveSchema(client);
     await client.entry.create({
       data: { slug: "existing", token: "TAKEN", label: "EXISTING" },
     });
@@ -499,7 +500,7 @@ describe("residual F1 — unnameable indexes dominate an adoptable selector", ()
       schema: mixedIndexSkipSchema,
       driver: new PGliteDriver({ client: new PGlite() }),
     });
-    await push(client, { force: true });
+    await syncLiveSchema(client);
     await client.entry.create({
       data: { id: 1, slug: "existing", token: "TAKEN", label: "EXISTING" },
     });

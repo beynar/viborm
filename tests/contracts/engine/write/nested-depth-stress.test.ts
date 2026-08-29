@@ -1,9 +1,10 @@
 import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite } from "@electric-sql/pglite";
-import { push } from "@migrations";
+
 import { s } from "@schema";
 import { describe, expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 /**
  * X1 depth STRESS — the engine's construction-time recursion has no depth
@@ -68,7 +69,7 @@ describe("X1 depth stress — unbounded nested create / update chains", () => {
     test(`nested create chain of ${depth} levels executes`, async () => {
       const db = new PGlite();
       const client = makeClient(db);
-      await push(client, { force: true });
+      await syncLiveSchema(client);
       await seedChain(client, depth);
       const count = await client.node.count();
       await client.$disconnect();
@@ -78,7 +79,7 @@ describe("X1 depth stress — unbounded nested create / update chains", () => {
     test(`nested update chain of ${depth} levels executes`, async () => {
       const db = new PGlite();
       const client = makeClient(db);
-      await push(client, { force: true });
+      await syncLiveSchema(client);
       await seedChain(client, depth);
       await client.node.update({
         where: { id: "c0" },
@@ -99,7 +100,7 @@ describe("X1 depth stress — unbounded nested create / update chains", () => {
   test("mixed update→…→create chain of 6 levels grafts a fresh subtree at the bottom (X1)", async () => {
     const db = new PGlite();
     const client = makeClient(db);
-    await push(client, { force: true });
+    await syncLiveSchema(client);
     await seedChain(client, 5); // c0..c5 exist
     // Walk update c1→c4, then create a fresh 3-deep chain under c4.
     function walk(level = 1): any {

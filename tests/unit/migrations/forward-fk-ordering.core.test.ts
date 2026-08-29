@@ -21,8 +21,8 @@
  */
 
 import { createClient } from "@client/client";
-import { apply, generate } from "@migrations";
-import { MigrationStorageDriver } from "@migrations/storage";
+import { applyV1 as apply } from "@migrations/apply-v1";
+import { generateV1 as generate } from "@migrations/generate-v1";
 import { s } from "@schema";
 import type { MigrationDriver } from "@src/migrations/drivers";
 import { libsqlMigrationDriver } from "@src/migrations/drivers/libsql";
@@ -32,7 +32,7 @@ import { sqlite3MigrationDriver } from "@src/migrations/drivers/sqlite";
 import type { DiffOperation, ForeignKeyDef } from "@src/migrations/types";
 import { extractForwardReferenceForeignKeys } from "@src/migrations/utils";
 import { createInMemoryPGliteDriver } from "@tests/fixtures/drivers/pglite";
-import { ddlContextFor } from "@tests/unit/migrations/_estate";
+import { ddlContextFor, MemoryStorage } from "@tests/unit/migrations/_estate";
 import { describe, expect, it } from "vitest";
 
 const CREATE_TABLE_RE = /CREATE TABLE/i;
@@ -266,26 +266,8 @@ describe("emitted DDL ordering (forward-ref schema)", () => {
 });
 
 // The generated-migration-file path shares the differ with push(); it must
-// order the same way. This exercises generate() end to end (up SQL + down SQL
-// + apply) on a forward-ref schema.
-class MemoryStorageDriver extends MigrationStorageDriver {
-  private readonly files = new Map<string, string>();
-  constructor() {
-    super("memory");
-  }
-  get(path: string): Promise<string | null> {
-    return Promise.resolve(this.files.get(path) ?? null);
-  }
-  put(path: string, content: string): Promise<void> {
-    this.files.set(path, content);
-    return Promise.resolve();
-  }
-  delete(path: string): Promise<void> {
-    this.files.delete(path);
-    return Promise.resolve();
-  }
-}
-
+// order the same way. This exercises generate() end to end (SQL + apply) on a
+// forward-ref schema.
 describe("generate() migration file — forward-ref ordering", () => {
   const forwardRefSchema = (() => {
     const post = s.model({
@@ -306,34 +288,26 @@ describe("generate() migration file — forward-ref ordering", () => {
   })();
 
   it("emits every CREATE TABLE before any ADD ... FOREIGN KEY, and applies", async () => {
-    const storage = new MemoryStorageDriver();
+    const storage = new MemoryStorage();
     const client = createClient({
       schema: forwardRefSchema as never,
       driver: createInMemoryPGliteDriver(),
     });
 
-    const gen = await generate(client as never, {
-      storageDriver: storage,
-      name: "init",
-    });
+    const gen = await generate(client as never, storage, { name: "init" });
 
-    expect(gen.entry).not.toBeNull();
-    const upSql = gen.sql;
-
-    const lastCreate = upSql.reduce(
-      (idx, stmt, i) => (CREATE_TABLE_RE.test(stmt) ? i : idx),
-      -1
-    );
-    const firstAlterFk = upSql.findIndex((stmt) => ALTER_ADD_FK_RE.test(stmt));
+    expect(gen.outcome).toBe("published");
+    expect(gen.stateId).not.toBeNull();
+    const lastCreate = gen.sql.lastIndexOf("CREATE TABLE");
+    const firstAlterFk = gen.sql.search(ALTER_ADD_FK_RE);
     expect(lastCreate).toBeGreaterThanOrEqual(0);
     expect(firstAlterFk).toBeGreaterThanOrEqual(0);
     expect(lastCreate).toBeLessThan(firstAlterFk);
-    // Down migration drops the tables (rollback exists).
-    expect(gen.downSql.join("\n")).toContain("DROP TABLE");
 
     // The generated migration applies cleanly and round-trips.
-    const applied = await apply(client as never, { storageDriver: storage });
-    expect(applied.applied).toHaveLength(1);
+    const applied = await apply(client as never, storage);
+    expect(applied.outcome).toBe("applied");
+    expect(applied.path).toHaveLength(1);
 
     const c = client as never as Record<string, any>;
     await c.user.create({ data: { id: "u1", name: "Ann" } });

@@ -7,7 +7,7 @@
 
 import { createClient as PGliteCreateClient } from "@drivers/pglite";
 import { NotFoundError, ValidationError } from "@errors";
-import { push } from "@migrations";
+
 import { s } from "@schema";
 import { sql } from "@sql";
 import { clientUserPostSchema } from "@tests/fixtures/user-post-schema";
@@ -24,6 +24,7 @@ import {
   test,
 } from "vitest";
 
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 // =============================================================================
 // TEST SCHEMA
 // =============================================================================
@@ -53,7 +54,7 @@ let client: Awaited<
 
 beforeAll(async () => {
   client = PGliteCreateClient({ schema });
-  await push(client, { force: true });
+  await syncLiveSchema(client);
 });
 
 afterAll(async () => {

@@ -26,7 +26,6 @@ import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
 import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite } from "@electric-sql/pglite";
-import { push } from "@migrations";
 import { s } from "@schema";
 import {
   mysqlDecimalListMarker,
@@ -34,6 +33,7 @@ import {
 } from "@src/migrations/decimal";
 import { mysqlMigrationDriver } from "@src/migrations/drivers/mysql";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
+import { syncLiveSchema as push } from "@tests/fixtures/sync-schema";
 import { ddlContext } from "@tests/unit/migrations/_estate";
 import {
   canonicalizeDecimal,

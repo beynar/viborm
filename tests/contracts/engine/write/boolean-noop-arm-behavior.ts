@@ -1,6 +1,6 @@
 import { createClient } from "@client/client";
 import type { AnyDriver } from "@drivers";
-import { push } from "@migrations";
+
 import { createOperationExecutionContext } from "@query-engine/execution-context";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames, s } from "@schema";
@@ -8,6 +8,7 @@ import { createSchemaRegistry } from "@validation";
 import { afterAll, describe, expect, test } from "vitest";
 import { OperationExecutor } from "@src/query-engine/write-engine/OperationExecutor";
 import { UpdateOperation } from "@src/query-engine/write-engine/UpdateOperation";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 /**
  * N7-U-B — **the arms that ask for nothing.**
@@ -201,7 +202,7 @@ export function runBooleanNoOpArmBehavior(options: {
         .findMany({ take: 1 })
         .then(() => true)
         .catch(() => false);
-      if (!present) await push(client, { force: true });
+      if (!present) await syncLiveSchema(client);
       suffix += 1;
       const ids = {
         holder: suffix * 100 + 1,

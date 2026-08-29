@@ -3,9 +3,10 @@ import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
 import type { BatchQuery, QueryResult } from "@drivers/types";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
-import { push } from "@migrations";
+
 import { s } from "@schema";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 class StaleMembershipBatchDriver extends BatchOnlyPGliteDriver {
   private isArmed = false;
@@ -87,13 +88,13 @@ describe("planned m2m delete parent-PK dataflow", () => {
     const database = new PGlite();
     const driver = new StaleMembershipBatchDriver(database, plant);
     client = createClient({ schema, driver });
-    await push(client, { force: true });
+    await syncLiveSchema(client);
     return driver;
   }
 
   beforeEach(async () => {
     client = createDataflowClient();
-    await push(client, { force: true });
+    await syncLiveSchema(client);
   });
 
   afterEach(async () => {

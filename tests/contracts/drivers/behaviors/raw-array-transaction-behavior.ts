@@ -1,9 +1,10 @@
 import { createClient } from "@client/client";
 import type { AnyDriver } from "@drivers";
-import { push } from "@migrations";
+
 import { s } from "@schema";
 import { defineContract } from "@tests/contracts/contract";
 import { describe, expect, test } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 const item = s
   .model({
@@ -35,7 +36,7 @@ export function runRawArrayTransactionBehavior({
     test("execute in declared order and return each public result", async () => {
       const client = createClient({ schema, driver: createDriver() });
       try {
-        await push(client, { force: true });
+        await syncLiveSchema(client);
         await client.item.create({
           data: { id: "ordered", label: "before", qty: 1 },
         });
@@ -68,7 +69,7 @@ export function runRawArrayTransactionBehavior({
     test("a later raw failure rolls model and raw writes back", async () => {
       const client = createClient({ schema, driver: createDriver() });
       try {
-        await push(client, { force: true });
+        await syncLiveSchema(client);
         await client.item.createMany({
           data: [
             { id: "model-write", label: "model", qty: 1 },
