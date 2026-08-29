@@ -260,11 +260,16 @@ The two spellings are told apart structurally: an object with a `data` key
   ```
 
   Only that one shape is affected. A non-object payload (`update: { data: 5 }`,
-  a `Date`, a `Decimal`, a `JsonNull` sentinel) is unambiguous and stays bare
-  data, and a payload that doesn't mention `data` at all was never in question.
-  The same applies to a field named `where`: reach it through the envelope's
-  `data`.
+  a `Date`, a fixed-decimal `Decimal`, a `JsonNull` sentinel) is unambiguous and
+  stays bare data, and a payload that doesn't mention `data` at all was never in
+  question. The same applies to a field named `where`: reach it through the
+  envelope's `data`.
 :::
+
+A fixed-decimal field takes a bare `Decimal | string | number` or an object with
+exactly one of `set`, `increment`, `decrement`, `multiply`, or `divide`. Nested
+writes use the same schema: an empty or multi-operation decimal bag is refused
+before the relation write starts.
 
 A to-many nested update targets a specific related row. The `where` must identify a row that belongs to the parent you're updating — targeting another record's row is rejected:
 

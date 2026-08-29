@@ -1,632 +1,974 @@
-# Exact Fixed Decimal Plan
+# Definitive Exact Decimal Plan
 
-**Date:** 2026-08-17
+## Status
 
-**Status:** Working V1 direction. The public contract and physical
-representations are settled; provider-specific migration mechanics are
-intentionally not decision-complete yet.
+Implementation-ready V1 design. This document replaces the earlier split
+between unconstrained and fixed decimals. VibORM is unreleased, so the final
+public contract lands directly without aliases, transitional readers, or a
+string/number result compatibility mode.
 
-**Starting branch:** `by-relation-bearing-bulk`
+The feature is complete only when the same declared decimal domain supports
+exact storage, comparison, ordering, aggregation, and atomic arithmetic on
+PostgreSQL, MySQL, PlanetScale, and every SQLite-family provider.
 
-**Starting commit:** `2b1cb0d0`
+## Summary
 
-**Scope:** This document owns the fixed-decimal public domain, scalar and list
-storage, exact query behavior, site 24, and schema evolution. It is independent
-from the mutation/transaction work in
-[Five Refusal-Site Lifts](five-capability-lift-plan.md).
+VibORM has one public decimal scalar:
 
-## 1. Outcome
-
-Define one exact fixed-decimal capability across every shipped provider:
-
-1. a declared fixed decimal has one public string domain with explicit
-   precision, scale, and half-even rounding;
-2. SQLite scalar fields store and calculate an exact scaled integer rather than
-   using `REAL` or NUMERIC affinity;
-3. fixed-decimal lists are part of V1 and support the complete existing scalar-
-   list surface;
-4. ordering, filtering, aggregates, and scalar arithmetic are exact or receive
-   one precise pre-I/O boundary;
-5. schema changes are intended to convert automatically when the conversion is
-   exact and fail loudly when a value cannot fit; and
-6. site 24 stops blanket-refusing fixed scalar fields on SQLite.
-
-VibORM is unreleased. This plan therefore defines the only V1 representation.
-It does not ship dual readers, legacy snapshot compatibility, deprecation
-periods, or manual old-format choreography. Existing development snapshots and
-fixtures move directly to the final representation.
-
-That does not make manual shadow-column choreography part of the product. A
-future change from unconstrained to fixed decimal, fixed to unconstrained, or
-one fixed descriptor to another is intended to use an exact, automatic
-lossless-or-error migration. The precise PostgreSQL, MySQL, PlanetScale, and D1
-protocols remain implementation work, not a compatibility requirement for the
-unreleased storage format.
-
-Unconstrained `s.decimal()` remains a distinct exact domain. On SQLite it uses
-canonical text and still refuses numeric ordering and arithmetic. Fixed decimal
-is opt-in because finite range and fractional scale are real semantics, not a
-storage optimization.
-
-### 1.1 Settled now; deferred on purpose
-
-Settled for V1:
-
-- SQLite fixed scalars use scaled integers, never floating point;
-- fixed-decimal arrays ship in V1 on every applicable provider;
-- both array modifier orders describe the same public domain;
-- typed values and results remain canonical decimal strings; and
-- there is no legacy snapshot reader, dual storage format, or user-authored
-  compatibility migration.
-
-Deferred until implementation reaches the relevant provider boundary:
-
-- the exact PostgreSQL/MySQL descriptor-change SQL and interruption semantics;
-- D1 foreign-key-safe table reconstruction;
-- the adapter metadata proof for MySQL/PlanetScale fixed arrays; and
-- final normalization of nullable-list containment edge cases.
-
-Those deferred mechanics do not remove arrays from V1, permit floating-point
-storage, or reintroduce backward-compatibility machinery.
-
-## 2. Domain and public API
-
-The canonical terms live in [CONTEXT.md](../../CONTEXT.md):
-
-- a **fixed decimal** is an exact decimal domain with declared precision,
-  scale, and rounding;
-- an **unscaled decimal value** is its signed integer coefficient,
-  `logical value × 10^scale`;
-- a **fixed decimal list** is an ordered list whose non-null elements all share
-  one fixed descriptor.
-
-The scalar spelling is:
-
-~~~ts
-const amount = s.decimal().fixed({
+```ts
+const amount = s.decimal({
   precision: 10,
   scale: 5,
-  rounding: "halfEven",
 });
-~~~
+```
 
-The list spellings are equivalent:
+It means one exact fixed-decimal domain:
 
-~~~ts
-const a = s.decimal().fixed({
-  precision: 20,
-  scale: 4,
-  rounding: "halfEven",
-}).array();
+- `precision` is the maximum total digit count;
+- `scale` is the maximum fractional digit count;
+- values are multiples of `10^-scale`;
+- inputs that do not fit are rejected rather than silently rounded;
+- multiplication, division, and average round unavoidable fractional results
+  with round-half-to-even; and
+- public values are immutable Decimal.js value objects.
 
-const b = s.decimal().array().fixed({
-  precision: 20,
-  scale: 4,
-  rounding: "halfEven",
+One canonical plain-decimal string remains the private logical representation
+for validation, SQL binding, identity, cache serialization, diagnostics, and
+migrations. It is an implementation value, not a second public result mode.
+
+The physical representation is provider-specific but the logical domain is
+not:
+
+| Provider family | Physical scalar |
+| --- | --- |
+| PostgreSQL | `NUMERIC(precision, scale)` |
+| MySQL / PlanetScale | `DECIMAL(precision, scale)` |
+| SQLite3 / Bun SQLite / libSQL / D1 | signed `INTEGER` coefficient scaled by `10^scale` |
+
+For `precision: 10`, `scale: 5`, public value `new Decimal("12.34")` is stored
+as:
+
+- PostgreSQL/MySQL: the native exact decimal value `12.34000`;
+- SQLite: integer coefficient `1234000`.
+
+Every typed read returns a `Decimal` whose exact value is 12.34. No typed path
+returns a JavaScript number, a public transport string, or the SQLite
+coefficient.
+
+VibORM takes a direct runtime dependency on `decimal.js` and re-exports its
+`Decimal` constructor. This buys the application an exact value type and
+ordinary `.plus()`, `.minus()`, `.times()`, `.div()`, comparison, and explicit
+`.toNumber()` methods. It does **not** delegate database semantics to
+Decimal.js: the field descriptor and codec still own precision, scale,
+overflow, SQL rounding, and physical representation. Decimal.js configuration
+affects only arithmetic the application performs on returned values; VibORM's
+own SQL and codecs never consult that mutable configuration.
+
+## 1. One decimal concept
+
+### 1.1 Necessary truth
+
+Portable exact decimal arithmetic requires the field's precision and scale.
+PostgreSQL and MySQL can store those facts in native types. SQLite cannot:
+`DECIMAL(10,5)` is only a NUMERIC-affinity spelling, and SQLite ignores the
+numbers in the declared type. Fractional values may be converted to IEEE-754
+binary64.
+
+Therefore a scale cannot be inferred from SQLite storage, a value, a driver, or
+an operation. It must be declared once in the model and carried as immutable
+scalar state.
+
+The descriptor is the one source of truth for:
+
+- input validation;
+- physical DDL;
+- literal encoding;
+- result decoding;
+- comparison and aggregate lowering;
+- arithmetic rounding and overflow;
+- list-member encoding; and
+- migration compatibility.
+
+No adapter, driver, result parser, or migration component stores an independent
+precision or scale decision.
+
+### 1.2 Concepts removed
+
+The implementation deletes these existing or planned alternatives:
+
+- zero-argument `s.decimal()`;
+- `s.decimal(nativeType)` and decimal native-type overrides;
+- `.fixed(...)` as a second decimal mode;
+- unconstrained PostgreSQL `NUMERIC` as the default;
+- default MySQL `DECIMAL(65,30)` unrelated to model state;
+- SQLite canonical-TEXT decimal storage;
+- the adapter-wide `supportsExactDecimal` capability;
+- SQLite decimal-ordering/arithmetic refusal ladders;
+- the transitional `createClient({ decimal: "number" })` option;
+- `decimalDecode: "string" | "number"` threading;
+- a public canonical-string result mode;
+- a second ORM-owned decimal class or wrapper around Decimal.js; and
+- any compatibility alias or old-storage reader.
+
+There is no separate “fixed decimal” factory. “Fixed decimal” remains the
+precise domain term; `s.decimal({ precision, scale })` is its only public
+spelling.
+
+## 2. Public contract
+
+### 2.1 Factory and descriptor
+
+```ts
+import { Decimal, s } from "viborm";
+
+s.decimal({ precision: 10, scale: 5 });
+s.decimal({ precision: 10, scale: 5 }).nullable();
+s.decimal({ precision: 10, scale: 5 }).default(new Decimal("0"));
+s.decimal({ precision: 10, scale: 5 }).array();
+```
+
+The descriptor object is hostile input at runtime. Read each property once,
+normalize failures through the schema-definition validation boundary, and
+freeze the trusted descriptor.
+
+Rules:
+
+- `precision` is an integer greater than zero;
+- `scale` is an integer in `0..precision`;
+- unknown, accessor-failing, symbol, inherited-only, or explicit-`undefined`
+  properties fail at the definition boundary;
+- no rounding option is exposed while only one rounding rule exists;
+- V1 rounding is always round-half-to-even;
+- `.nullable()`, `.default()`, `.array()`, `.schema()`, `.map()`, `.id()`, and
+  `.unique()` preserve the exact descriptor; and
+- fixed-decimal lists cannot be IDs, unique fields, index members, foreign-key
+  members, or relation identity members.
+
+Scalar decimals may participate in IDs, unique constraints, indexes, foreign
+keys, and relation storage. Arithmetic updates to a decimal identity retain the
+existing primary-key arithmetic refusals; this plan does not make moving a key
+through multiply or divide portable.
+
+### 2.2 Inputs and outputs
+
+Scalar input is:
+
+```ts
+type DecimalInput = Decimal | string | number;
+```
+
+Scalar output is:
+
+```ts
+type DecimalOutput = Decimal;
+```
+
+List input and output are:
+
+```ts
+type DecimalListInput = readonly DecimalInput[];
+type DecimalListOutput = Decimal[];
+```
+
+Strings use the existing exact decimal grammar: optional sign, digits, and at
+most one decimal point. Exponent notation, whitespace, `NaN`, and infinity are
+refused.
+
+Numbers are a convenience only. VibORM canonicalizes `String(number)` and then
+applies the same precision/scale validation. It never claims to recover digits
+already lost in binary floating point. For example, `0.1 + 0.2` becomes
+`"0.30000000000000004"`; a scale-2 field refuses it instead of rounding it to
+`"0.3"`.
+
+An input `Decimal` may come from the constructor exported by VibORM or a
+Decimal.js clone. `Decimal.isDecimal()` identifies the candidate but is not a
+trust token: VibORM copies it with the exported constructor, renders the copy
+once in exact non-exponential form with Decimal.js's public API, canonicalizes
+that text, and validates the complete descriptor. It never retains a
+caller-owned instance or trusts candidate internals directly. Access,
+construction, or rendering failures are normalized at the existing validation
+boundary. A Decimal created from exponent notation is valid when its exact
+expanded value fits; a raw exponent string remains outside the string grammar.
+
+Canonical private text removes a leading plus, insignificant leading/trailing
+zeros, a trailing decimal point, and negative zero:
+
+```text
+"+001.2300" -> "1.23"
+"-0.000"    -> "0"
+```
+
+Scale is a domain limit, not display formatting. The returned Decimal represents
+1.2 rather than preserving the input spelling `1.20000`. Decimal.js formatting
+methods control application presentation; they never define storage or cache
+identity.
+
+Non-zero digits beyond `scale`, or an unscaled coefficient with more than
+`precision` digits, fail validation. Database assignment is never asked to
+perform implicit input rounding.
+
+### 2.3 Custom schemas and defaults
+
+A custom `.schema()` observes a `Decimal`, not private canonical text. It may
+refine or brand that value, or return another genuine finite `Decimal`; the
+decimal descriptor validates its exact numeric value last, so a custom schema
+cannot escape precision or scale or change the public value family. A custom
+schema that returns a string, number, arbitrary decimal-like object, NaN, or
+infinity fails at that boundary.
+
+Defaults use the same field codec as ordinary writes. A default is serialized
+to the provider's physical representation during DDL generation and retained as
+the canonical logical value in model metadata.
+
+### 2.4 Decimal value boundary
+
+VibORM re-exports the package's one `Decimal` constructor and its instance type
+from the root entry point:
+
+```ts
+import { Decimal } from "viborm";
+
+const total = row.subtotal.plus(row.tax);
+
+await db.invoice.update({
+  where: { id },
+  data: { total },
 });
-~~~
+```
 
-### 2.1 Descriptor rules
+Do not add `VibDecimal`, a wrapper, a field-bound Decimal subclass, a decimal
+manager, or a second constructor. Decimal.js remains the value owner; the
+field-aware codec remains the database-domain owner.
 
-- `precision` is a positive integer.
-- `scale` is an integer in `0..precision`.
-- V1 requires `rounding: "halfEven"`; there is no provider-default rounding.
-- Scalar provider limits are checked when the schema is bound:
-  - PostgreSQL: `precision <= 1000` under VibORM's `scale <= precision` rule;
-  - MySQL/PlanetScale: `precision <= 65`, `scale <= 30`; multiply/divide also
-    require `precision + scale <= 65`;
-  - SQLite family: `precision <= 18` and `precision + scale <= 18` for the full
-    scalar arithmetic contract.
-- Lists perform no decimal arithmetic. Their portable V1 descriptor limit is
-  PostgreSQL's `precision <= 1000`; JSON backends store coefficient digits and
-  do not inherit SQLite int64 or MySQL scalar DECIMAL limits.
+The boundary rules are exact:
 
-### 2.2 Values and nulls
+- every selected scalar or list member gets a fresh Decimal instance;
+- cache stores, migration snapshots, operation identity maps, relation keys,
+  cursor material, and diagnostic values use canonical private strings and
+  reconstruct public Decimal instances at the result boundary;
+- `Decimal#toJSON()` provides a string for ordinary application JSON, but core
+  correctness never depends on JSON round-tripping a Decimal prototype;
+- equality in application code uses Decimal.js comparison methods such as
+  `.eq()`, not JavaScript object identity;
+- `.toNumber()` is the explicit lossy escape hatch; and
+- Decimal.js precision and rounding configuration governs only application
+  arithmetic. Database `multiply`, `divide`, and `_avg` keep the descriptor's
+  provider-independent half-even contract.
 
-- Scalar input remains `string | number`; trusted/public output is a canonical
-  decimal string.
-- List input is `(string | number)[]`; trusted/public output is `string[]`.
-- A number names only the binary number the caller already supplied. VibORM
-  canonicalizes that value but never pretends to recover lost precision.
-- Non-zero fractional digits beyond `scale`, or more than `precision` unscaled
-  digits, fail validation. Insignificant trailing zeros are accepted.
-- `.nullable()` makes the scalar or the whole list nullable. List elements are
-  never nullable in V1.
-- The half-even rule applies when scalar multiply, divide, or average creates
-  extra fractional digits. List V1 has no operation that rounds an element.
+## 3. Provider representation and legality
 
-### 2.3 Modifier and escape-hatch rules
+### 3.1 Provider limits
 
-`DecimalScalar` carries the immutable descriptor through `.nullable()`,
-`.array()`, `.default()`, `.map()`, and `.schema()`. Both modifier orders above
-produce the same runtime validator and public type. A custom schema runs on the
-logical canonical value, then the fixed invariant validates its output last.
+The descriptor is syntactically valid at model construction. The selected
+adapter validates its physical capability once when the schema is bound and
+before provider I/O.
 
-Fixed decimal cannot combine with a native-type override. The descriptor owns
-validation, DDL, transport, and arithmetic; a native type string cannot replace
-those semantics. The legacy client option that decodes decimals as JavaScript
-numbers is also incompatible with every fixed scalar or list and refuses at
-client/schema construction.
+| Provider | Complete V1 scalar limit |
+| --- | --- |
+| PostgreSQL | `precision <= 1000`, `scale <= precision` |
+| MySQL / PlanetScale | `precision <= 65`, `scale <= 30` |
+| SQLite family | `precision <= 18` and `precision + scale <= 18` |
 
-Fixed lists are values, not identities. V1 refuses them as direct or compound
-IDs/uniques, portable indexes, local or referenced FK members, and polymorphic
-identity members. Provider-specific raw indexes remain an explicit migration
-escape, not a portable schema promise.
+The SQLite `precision + scale` bound is required by the V1 one-statement
+multiply/divide implementation. It ensures every mathematically in-range
+rounded result can be computed without overflowing an intermediate signed
+int64. VibORM does not accept a broader SQLite field and later surprise the
+caller with missing arithmetic operations.
 
-## 3. Why SQLite `DECIMAL(10,5)` is not exact decimal storage
+A schema valid for PostgreSQL but outside another provider's limits remains a
+valid model graph; binding it to the incapable provider fails once with a
+definition error naming the field, descriptor, provider, and limit.
 
-SQLite does not enforce precision or scale from a declared decimal type.
-`DECIMAL(10,5)` has NUMERIC affinity, which converts decimal-looking text to an
-INTEGER or binary64 `REAL` whenever SQLite considers the conversion numeric.
+### 3.2 PostgreSQL
 
-The relevant local probe is:
+- DDL uses `NUMERIC(p,s)`.
+- Typed literals bind canonical strings and cast them to the same `NUMERIC(p,s)`
+  domain when the expression lacks column context.
+- Inputs already fit, so PostgreSQL never owns assignment rounding.
+- Result values are captured as exact text, canonicalized once, and materialized
+  as Decimal only at the public result boundary.
+- Native arithmetic is used only where its result scale is already exact;
+  multiply, divide, and average use VibORM's explicit half-even expression.
 
-~~~sql
-CREATE TABLE d(a DECIMAL(10,5), b DECIMAL(10,5), t TEXT);
-INSERT INTO d VALUES('0.1', '0.2', '0.1');
-SELECT typeof(a), typeof(a + b), quote(a + b), (a + b) = 0.3,
-       typeof(t), quote(t)
-FROM d;
-~~~
+PostgreSQL supports a much wider unconstrained `NUMERIC`, but exposing it as the
+portable scalar would reintroduce a second domain that SQLite cannot order or
+calculate exactly. Users who need database-specific arbitrary numeric SQL use
+raw SQL or a future explicitly provider-owned scalar, not `s.decimal()`.
 
-Observed with the workspace SQLite CLI:
+### 3.3 MySQL and PlanetScale
 
-~~~text
-real|real|3.000000000000000445e-01|0|text|'0.1'
-~~~
+- DDL uses `DECIMAL(p,s)`.
+- Typed literals bind canonical strings and cast them to `DECIMAL(p,s)`.
+- Strict exact-value behavior is required; a mode that converts overflow or
+  truncation to warnings is refused for effectful decimal operations.
+- Results stay strings through mysql2/PlanetScale normalization and become
+  Decimal only in the compiled result parser.
+- VibORM implements half-even explicitly because provider rounding must not
+  define the public contract.
 
-Both inputs fit `(10,5)`, yet arithmetic used binary64 and exact equality with
-`0.3` failed. The TEXT value retained its exact spelling.
+Bare `DECIMAL` is never emitted: MySQL interprets it as scale zero with default
+precision 10.
 
-Official evidence:
-
-- [SQLite type affinity](https://www.sqlite.org/datatype3.html) classifies
-  `DECIMAL(10,5)` as NUMERIC and ignores the numeric arguments in type names.
-- [SQLite floating-point behavior](https://www.sqlite.org/floatingpoint.html)
-  documents binary64 approximation and the optional text-based decimal
-  extension.
-- [SQLite STRICT tables](https://www.sqlite.org/stricttables.html) do not admit
-  `DECIMAL` as a strict type name.
-
-**Decision:** unconstrained decimal stays canonical TEXT. A fixed scalar uses a
-scaled INTEGER. A fixed list uses an exact list container described below.
-Neither path uses `DECIMAL(...)`, NUMERIC affinity, `REAL`, or Float plus
-Decimal.js repair.
-
-Decimal.js remains an optional application tool for constructing or explicitly
-quantizing input. It is not an engine dependency and cannot repair a value the
-database already rounded.
-
-## 4. Scalar storage and transport
+### 3.4 SQLite family
 
 For scale `s`:
 
-~~~text
-coefficient = exact logical decimal × 10^s
-~~~
+```text
+coefficient = logical decimal × 10^s
+logical decimal = coefficient × 10^-s
+```
 
-| Provider family | Scalar storage | Complete scalar limit |
-|---|---|---|
-| PostgreSQL | `NUMERIC(p,s)` | `p <= 1000` |
-| MySQL / PlanetScale | `DECIMAL(p,s)` | `p <= 65`, `s <= 30`; multiply/divide also need `p + s <= 65` |
-| SQLite family | scaled signed `INTEGER` | `p <= 18` and `p + s <= 18` |
+The field codec performs both conversions with digit strings and `bigint`.
+JavaScript multiplication or division on `number` is forbidden.
 
-The one field codec owns logical-string to coefficient conversion and the
-reverse. It uses decimal digits and `bigint`, never JavaScript multiplication or
-division on a `number`.
+DDL uses `INTEGER` plus one deterministic VibORM-owned check constraint that:
 
-SQLite-family typed binds use one driver-independent route: canonical integer
-TEXT plus `CAST(? AS INTEGER)`. Reads, projections, RETURNING, generated
-outputs, relation keys, and aggregates cast coefficients to TEXT before a
-driver can turn an int64 into a JavaScript number. This works on SQLite3, Bun
-SQLite, libSQL, and D1 without a driver-name branch or BigInt binding.
+- permits `NULL` only for a nullable field;
+- requires `typeof(column) = 'integer'`; and
+- requires the coefficient to fit `-(10^p - 1)..(10^p - 1)`.
 
-A deterministic SQLite owned constraint records the fixed descriptor and
-requires `typeof(column) = 'integer'` plus the coefficient range, allowing NULL
-only for a nullable field. If an expression would promote to REAL or exceed the
-domain, the write fails rather than storing an approximation.
+Typed binds send canonical coefficient digits through the provider-independent
+integer binding route. Typed projections, `RETURNING`, aggregates, nested
+relation carriers, and generated outputs cast coefficients to text before a
+driver can round an int64 into a JavaScript number.
 
-PostgreSQL and MySQL bind canonical logical strings into their declared native
-exact type. Their result paths still return canonical strings; a driver may not
-replace the public contract with a number.
+SQLite never uses `DECIMAL(...)`, NUMERIC affinity, `REAL`, `total()`, or a
+post-read Decimal.js object as a repair for imprecise physical storage. The
+Decimal is constructed only after exact coefficient decoding succeeds.
 
-Raw SQL is physical. SQLite raw reads/writes see an unscaled integer;
-PostgreSQL/MySQL see native decimal. Raw access does not receive model
-rescaling. A SQLite raw read above JavaScript's safe integer range must cast the
-coefficient to TEXT, and a raw write must bind exact coefficient digits.
+### 3.5 Raw SQL
 
-## 5. Fixed-decimal lists in V1
+Raw SQL remains physical:
 
-### 5.1 Physical representation
+- PostgreSQL/MySQL expose native decimal values through their normal raw-driver
+  contract;
+- SQLite raw reads see the unscaled integer coefficient; and
+- SQLite raw writes must provide a valid coefficient.
 
-| Provider family | Fixed-list storage |
-|---|---|
-| PostgreSQL | native `NUMERIC(p,s)[]` |
+Raw SQL does not receive model-aware scaling. Documentation must show casting a
+SQLite coefficient to text when it may exceed JavaScript's safe integer range.
+Raw-query results are not implicitly wrapped in Decimal because raw SQL has no
+trusted field descriptor.
+
+## 4. One decimal codec
+
+### 4.1 Descriptor and trusted value
+
+Add one immutable decimal descriptor to scalar state:
+
+```ts
+interface DecimalDescriptor {
+  readonly precision: number;
+  readonly scale: number;
+}
+```
+
+Do not copy it into query scopes, result shapes, drivers, or operation
+programs. Consumers reach it through the resolved scalar field they already
+own.
+
+One field-aware decimal codec owns:
+
+- canonical logical validation;
+- exact extraction from accepted Decimal inputs;
+- logical string to unscaled coefficient conversion;
+- coefficient to canonical logical string conversion;
+- provider scalar and list binding;
+- provider scalar and list decoding;
+- public Decimal construction;
+- cache Decimal-to-string and string-to-Decimal conversion;
+- widened aggregate decoding; and
+- migration value conversion.
+
+The codec may compile field-specific closures once. Do not introduce a codec
+manager, transport strategy, decimal context bag, or driver wrapper.
+
+### 4.2 Result trust boundary
+
+The compiled result parser invokes the field codec exactly once per selected
+decimal value. It accepts only the exact physical representation promised by
+the active adapter:
+
+- native decimal text on PostgreSQL/MySQL;
+- signed integer text for SQLite scalar coefficients;
+- the provider-specific list representation below.
+
+Malformed provider values fail through the existing result-parsing error
+boundary. A valid physical value becomes one fresh Decimal at the final typed
+boundary. It never falls back to `Number`, plausible zero, an unvalidated
+string, or a caller/provider-owned Decimal instance.
+
+Consumable-row reuse remains valid: same-key scalar decoding may replace the
+physical value with the fresh Decimal in an owned row; borrowed rows continue
+through the copy path. The parser does not construct an intermediate Decimal
+before it knows whether the row copies or reuses.
+
+## 5. Exact query and update language
+
+### 5.1 Filters and ordering
+
+All providers support the existing scalar decimal filter surface exactly:
+
+- shorthand/`equals`, `not`, `in`, and `notIn`;
+- `lt`, `lte`, `gt`, and `gte`;
+- `orderBy`, nested ordering, cursor tie-breakers, and pagination;
+- `distinct` and `groupBy({ by: [...] })`; and
+- compatible decimal field references.
+
+SQLite compares stored coefficients as integers. PostgreSQL/MySQL compare their
+native exact values. Field references are valid only when both fields have the
+same precision and scale; scalar kind alone is insufficient.
+
+Decimal objects never become reference-identity keys. Cursors, deduplication,
+relation stitching, identity maps, cache keys, and write-engine agreement use
+the descriptor codec's canonical private string, so two distinct Decimal
+instances representing the same value are the same logical key.
+
+Generic typed `Sql` operands remain refused for decimal predicates because a
+fragment carries no trusted precision or scale. Raw SQL remains the escape.
+
+### 5.2 Update object
+
+The current update schema accidentally models one partial object containing all
+numeric operations. It therefore admits `{}` and multiple keys, while the
+builder silently chooses the first recognized key. That is not the V1 contract.
+
+Decimal updates become an exact union:
+
+```ts
+type DecimalUpdate =
+  | DecimalInput
+  | { set: DecimalInput }
+  | { increment: DecimalInput }
+  | { decrement: DecimalInput }
+  | { multiply: DecimalInput }
+  | { divide: DecimalInput };
+```
+
+For nullable fields, only the shorthand/set arms also accept `null`.
+
+Exactly one operation is required. Empty objects, multiple operation keys,
+unknown keys, inherited keys, and explicit `undefined` fail during operation
+validation. There is no precedence ladder in the query engine.
+
+Semantics:
+
+- shorthand and `set` replace the value after exact descriptor validation;
+- `increment` and `decrement` perform exact addition/subtraction;
+- `multiply` and `divide` quantize the result to the field scale with
+  round-half-to-even;
+- division by canonical zero fails before I/O;
+- a result outside the field precision fails atomically; and
+- all arithmetic is one SQL assignment, never application read-modify-write.
+
+The exact-one representation also applies to decimal-list update operations:
+
+```ts
+type DecimalListUpdate =
+  | DecimalListInput
+  | { set: DecimalListInput }
+  | { push: DecimalInput | DecimalListInput }
+  | { unshift: DecimalInput | DecimalListInput };
+```
+
+Only the whole-list shorthand/set arms accept `null` for a nullable list.
+
+### 5.3 Rounding and overflow
+
+V1 uses round-half-to-even only when an operation creates digits beyond scale:
+
+- scalar multiply;
+- scalar divide; and
+- decimal average.
+
+Create, set, filters, increment, and decrement never round input. Excess input
+scale is a validation error.
+
+For SQLite coefficient `x`, operand coefficient `y`, and `F = 10^scale`:
+
+```text
+multiply = halfEven((x * y) / F)
+divide   = halfEven((x * F) / y)
+```
+
+The adapter uses guarded integer `CASE` expressions. Unsafe intermediate or
+out-of-domain results route to a deterministic constraint-breaking coefficient
+without evaluating an overflowing arm. Quotient/remainder and parity determine
+half-even rounding; no path casts through REAL.
+
+PostgreSQL and MySQL use the same coefficient-space rule so provider-default
+rounding cannot diverge. MySQL expressions avoid an intermediate wider than its
+65-digit exact domain and require proven strict failure behavior.
+
+### 5.4 Aggregates
+
+All providers support:
+
+- `_min` and `_max` in the field domain;
+- `_sum` as a scale-preserving, precision-widened Decimal;
+- `_avg` rounded half-even to the field scale;
+- aggregate ordering and `having`; and
+- direct, grouped, nested, and relation-count-adjacent result shapes.
+
+SQLite `_sum` uses integer `SUM` and transports the coefficient as text. Native
+integer overflow surfaces as an exact database error; it never falls back to
+REAL. `_avg` is derived from exact sum and `COUNT(column)`, preserves `NULL` for
+empty/all-null input, and applies the shared quotient/remainder rounder.
+
+Aggregate result decoding is field-aware. `_sum` is not incorrectly rejected
+for exceeding the field's storage precision, while it must retain the field's
+scale. `_min`, `_max`, `_sum`, and `_avg` return Decimal or `null`; only their
+private transport values are canonical strings.
+
+## 6. Decimal lists in V1
+
+Decimal arrays are not deferred.
+
+### 6.1 Physical representation
+
+| Provider family | Decimal-list storage |
+| --- | --- |
+| PostgreSQL | `NUMERIC(p,s)[]` |
 | MySQL / PlanetScale | JSON array of canonical coefficient strings |
 | SQLite family | TEXT containing a canonical JSON array of coefficient strings |
 
-At scale 2, public `['1.2', '-0.03']` is physically
-`['120', '-3']` on JSON-backed providers. JSON numbers are forbidden: D1 and
-JavaScript JSON parsing would round an integer token above `2^53`. PostgreSQL
-binds canonical logical strings into the typed numeric array and stringifies
-each exact element before any JSON/nested-result construction. It never exposes
-`to_json(numeric[])` numeric tokens or parses PostgreSQL array text as a whole.
+At scale 2, logical `['1.2', '-0.03']` is represented as coefficient strings
+`['120', '-3']` on JSON-backed providers. JSON numeric tokens are forbidden
+because JavaScript and D1 can round integers above `2^53`.
 
-The SQLite column constraint records the descriptor and verifies TEXT,
-`json_valid`, and a top-level array. SQLite CHECK cannot use the `json_each`
-subquery needed to validate every member. Typed writes and reads therefore own
-member grammar/range. An invalid raw JSON write is an explicit physical escape
-and the next typed read fails loudly; the plan does not claim database-level
-member enforcement without introducing triggers.
+Typed reads materialize those members as:
 
-### 5.2 One field-aware list codec
+```ts
+[new Decimal("1.2"), new Decimal("-0.03")];
+```
 
-Add one field-aware whole-list binder and one element binder ahead of the
-generic array branch in `values-builder.ts`. They resolve the fixed descriptor,
-validate every logical element, and delegate the provider's physical list
-spelling to the adapter.
+The JSON strings are private storage and cache transport, not the public list
+result type.
 
-Every path uses them:
+PostgreSQL must capture each exact native array element as text before relation
+JSON construction. It must not route native decimal arrays through JSON numeric
+tokens or whole-array JavaScript number parsing.
 
-- create, createMany, upsert, set, default, and whole-list equality;
-- `has`, `hasEvery`, and `hasSome` candidates;
+### 6.2 Descriptor metadata
+
+- PostgreSQL carries precision/scale in the array element typmod and
+  introspection uses `pg_catalog.format_type`.
+- SQLite stores a deterministic reserved constraint name/body containing the
+  descriptor and verifies TEXT plus a valid top-level JSON array.
+- MySQL/PlanetScale use one deterministic VibORM-owned column-comment marker
+  for JSON decimal lists. Introspection recognizes only the exact marker.
+
+The PlanetScale implementation must prove through its deterministic fixture and
+hosted leg that the marker survives create/introspect/alter cycles. If that
+evidence fails, implementation stops for a design revision; it must not ship an
+untracked descriptor or silently omit arrays.
+
+### 6.3 List behavior
+
+The existing list surface remains:
+
+- whole-list equality and nested/shorthand `not`;
+- `has`, `hasEvery`, `hasSome`, and `isEmpty`;
+- whole-list shorthand/set;
 - push/unshift of one, many, or zero elements; and
-- RETURNING, direct reads, nested relation JSON, and bulk-return result parsing.
-
-Refactor adapter push/unshift to consume the already-built physical list
-fragment instead of raw `unknown[]`. Otherwise those operations bypass the
-field descriptor.
-
-This is not optional cleanup. Current generic decimal-list writes serialize
-logical decimal strings, while the scalar `has` path lowers through a decimal
-number candidate on MySQL. Those different JSON kinds cannot match. One field-
-aware codec removes that second representation truth.
-
-JSON-backed reads accept only a dense array of canonical signed coefficient
-strings (`0` or `-?[1-9]\d*`) within precision. JSON numbers, `+1`, `01`, `-0`,
-NULL elements, sparse/wrong top-level values, malformed JSON, and overflow are
-malformed provider data. The fixed-list result parser rescales each coefficient
-before the generic decimal parser; treating physical `'120'` as logical `'120'`
-would be wrong at scale 2.
-
-### 5.3 Public list behavior
-
-V1 supports the existing decimal-list surface:
-
-- equality, nested/shorthand `not`, `has`, `hasEvery`, `hasSome`, and `isEmpty`;
-- set/shorthand whole-list assignment; and
-- push/unshift of one or many values, including the existing empty no-op and
-  nullable-list coalescing behavior.
-
-Whole-list equality preserves order and multiplicity. Containment preserves
-set-membership semantics. The exact cross-provider NULL and empty-candidate
-truth is an intentionally deferred API detail; it must be decided once at the
-operation-schema/adapter boundary before implementation, not inherited
-accidentally from provider behavior. `distinct` and
-`groupBy({ by: [...] })` may use fixed lists only as canonical whole values.
-`_count.field` counts non-null list columns, not elements.
-
-V1 does not invent numeric list semantics. List `lt/lte/gt/gte`, whole-list
-`orderBy`/cursor identity, `_min/_max/_sum/_avg`, aggregate ordering/HAVING on
-those aggregates, and increment/decrement/multiply/divide are absent from both
-the public and runtime operation schemas. The current aggregate/order builders
-must exclude list states rather than sorting JSON or admitting `_sum` by scalar
-kind alone.
-
-Raw SQL sees PostgreSQL numeric arrays or JSON coefficient strings. A raw JSON
-write must use canonical minified coefficient-string JSON. Typed reads remain
-fail-closed if raw data violates the descriptor.
-
-## 6. Exact scalar queries, aggregates, and arithmetic
-
-Site 24 becomes field-representation-aware. SQLite's adapter-wide
-`supportsExactDecimal` remains false; an operation is admitted only when the
-addressed field is fixed and the adapter owns the exact lowering.
-
-### 6.1 Validation roles
-
-The fixed codec exposes distinct schemas:
-
-- a nullable-aware value schema for create/set/equality;
-- a non-null literal schema and list form for ordered/IN operands;
-- a non-null scalar arithmetic operand schema, with division rejecting
-  canonical zero before I/O; and
-- field- and operator-aware aggregate HAVING schemas.
-
-For `_min`, `_max`, and `_avg`, HAVING equals/not accepts NULL or an exact fixed
-literal; ordered/list operands are non-null. `_sum` uses the same operator split
-with a scale-constrained, precision-widened literal whose coefficient fits the
-provider aggregate domain. `_count` remains numeric.
-
-Field references are accepted only between resolved fields with the same fixed
-descriptor. The where-builder checks both scalar states because the current
-FieldRef payload carries only the scalar kind. Generic `Sql` has no scale
-descriptor, so V1 refuses it in a typed fixed predicate. Arithmetic operands
-remain literals; this plan does not invent assignment field-reference or Sql
-semantics.
-
-### 6.2 Exact surface
-
-- equality, inequality, IN, uniqueness, and relation keys compare exact stored
-  coefficients;
-- `lt/lte/gt/gte`, orderBy, cursors, min, and max use exact numeric order;
-- increment/decrement use exact scaled integer or native decimal add/subtract;
-- SQLite sum uses integer SUM, surfaces integer overflow, transports the wider
-  coefficient as TEXT, and uses a scale-aware aggregate decoder rather than the
-  field precision validator;
-- average uses exact SUM/COUNT(column), preserves NULL for empty/all-null
-  groups, and rounds half-even through quotient/remainder; and
-- direct average, group projection, HAVING average, and aggregate order reuse
-  the same field-aware expression.
-
-### 6.3 Guarded half-even multiply and divide
-
-For SQLite coefficient `x`, operand coefficient `y`, `F = 10^scale`, and
-`M = 10^precision - 1`:
-
-- multiply computes half-even `round((x * y) / F)`;
-- divide computes half-even `round((x * F) / y)`.
-
-The `precision + scale <= 18` rule keeps `M * F` and `x * F` inside signed
-int64. Multiplication still guards the raw product:
-
-~~~text
-B = scale === 0 ? M : M * F + F / 2 - 1
-safe = y === 0 || abs(x) <= floor(B / abs(y))
-~~~
-
-A lazy CASE evaluates `x * y` only in the safe arm. The rejecting arm writes
-the int64-safe out-of-domain sentinel `M + 1`, which the target range constraint
-rejects. Every expression begins `WHEN x IS NULL THEN NULL`; the validated
-operand cannot turn a stored NULL into a failure sentinel.
-
-Rounding uses integer quotient/remainder. SQLite compares
-`2 * abs(remainder)` to `abs(divisor)`; its descriptor bound keeps the doubled
-remainder in range. Average compares against `floor(count / 2)` plus parity so
-it never doubles a theoretical int64 count.
-
-PostgreSQL and MySQL implement the same explicit coefficient-space half-even
-rule rather than inheriting provider ROUND behavior. MySQL:
-
-- extracts coefficients from canonical DECIMAL text instead of multiplying by
-  `F` when that could exceed expression precision;
-- uses the same lazy B-bound guard before `x * y`;
-- never doubles a potentially 65-digit remainder; it compares divisor-half and
-  parity instead; and
-- requires verified strict SQL mode so overflow errors instead of warning and
-  truncating.
-
-No exact scalar path uses REAL, `total()`, JavaScript arithmetic, provider-
-default rounding, Decimal.js repair, an extra read, or a progressive write.
-
-## 7. Schema-evolution direction without legacy machinery
-
-This section records the intended lossless-or-error architecture. It is not a
-claim that every provider-specific conversion and atomicity protocol below is
-already settled. SQLite has the most concrete existing owner; PostgreSQL,
-MySQL/PlanetScale, and D1 require implementation-time proof before this section
-becomes an execution specification.
-
-### 7.1 One physical descriptor
-
-Extend `ColumnDef` with the decimal representation metadata required by the
-active dialect. SQLite owns this complete V1 union:
-
-~~~ts
-type SQLiteDecimalStorage =
-  | { kind: "text" }
-  | { kind: "scaledInteger"; precision: number; scale: number }
-  | { kind: "textArray" }
-  | { kind: "scaledIntegerArray"; precision: number; scale: number };
-~~~
-
-There is no legacy snapshot form or compatibility reader. Serializer, differ,
-DDL, introspection, defaults, and table recreation all consume this descriptor.
-The differ compares it even when the SQL type remains INTEGER→INTEGER or
-TEXT→TEXT.
-
-PostgreSQL introspection uses `pg_catalog.format_type(atttypid, atttypmod)` so
-`NUMERIC(p,s)[]` retains its element typmod; `information_schema.data_type =
-'ARRAY'` alone loses it. MySQL scalar p/s comes from DECIMAL metadata.
-`COLUMN_COMMENT` is the current candidate for a fixed-JSON-list marker, but
-hosted PlanetScale preservation must be proven before that representation is
-accepted. This revision does not choose an unproven fallback metadata system.
-
-SQLite serialization emits deterministic VibORM-owned constraint metadata and
-introspection recognizes only the exact reserved name/body pair from
-`sqlite_schema.sql`. Scalar fixed constraints enforce integer/range. List
-constraints enforce TEXT plus valid top-level JSON; they do not falsely claim
-per-element validation.
-
-Defaults use the same codec as runtime writes. Existing list defaults remain
-application defaults; this plan does not add a new database-array-default
-contract.
-
-### 7.2 SQLite decode-to-logical-to-encode migration direction
-
-`SQLite3MigrationDriver.generateTableRecreation` is the existing owner. Extend
-its copy map from `{ source, target }` to `{ source, target, selectExpression }`.
-For a decimal representation change, one driver-owned expression performs:
-
-~~~text
-source physical storage
-  → canonical logical decimal text
-  → target physical storage
-~~~
-
-It uses string operations and guarded integer casts only. It never uses REAL,
-NUMERIC affinity, `+ 0`, floating SQL, or a JavaScript number.
-
-- Text decodes through the canonical decimal grammar.
-- A fixed scalar decodes with `CAST(coefficient AS TEXT)`, sign handling,
-  zero-padding, decimal-point placement, and trailing-zero removal.
-- A target fixed scalar validates digit count and scale before guarded
-  `CAST(... AS INTEGER)`.
-- A list walks `json_each`, applies the same element codec, preserves `key`
-  order and duplicates, then rebuilds with `json_group_array` of strings.
-
-Do not add a separate fit preflight. The copy expression and target constraint
-are the single guard. Scalar failure can use a constraint-breaking value. List
-conversion needs a whole-column validity branch because a malformed member
-inside an otherwise valid JSON array would not violate the top-level CHECK.
-The exact SQL shape is deferred to implementation, but it must fail the
-transaction rather than produce a partially converted value.
-
-The intended automatic rules are:
-
-| Change | V1 behavior |
-|---|---|
-| Unconstrained → fixed | Convert automatically when every value fits target precision/scale |
-| Fixed → unconstrained | Convert automatically and exactly |
-| Scale increase | Convert automatically when the target precision fits |
-| Scale decrease | Convert only when no non-zero fractional digit is discarded |
-| Precision widening | Convert automatically |
-| Precision narrowing | Convert automatically when every value fits |
-| Fixed/unfixed list or list descriptor change | Apply the same rule to every ordered element |
-| Malformed storage, excess scale, or overflow | Atomic migration data error; schema and data unchanged |
-
-Scale changes pass through canonical logical text. They do not multiply or
-divide a possibly overflowing coefficient.
-
-The destructive-operation classifier treats a checked decimal conversion as a
-normal exact transformation, not as a destructive-resolution prompt. Nullable
-narrowing remains the existing destructive decision. Generated down migrations
-swap source and target and use the same reverse codec; they can correctly fail
-if newer data no longer fits the old descriptor.
-
-LibSQL delegates every decimal representation transition to the SQLite rebuild
-path. Its native ALTER route neither transforms nor validates the old rows.
-
-### 7.3 D1 table-recreation prerequisite
-
-Fresh D1 schemas and ordinary fixed scalar/list operations do not need a table
-rebuild and are part of V1. A representation change on a relation-bearing D1
-table exposes a broader existing migration defect: D1 runs migrations in an
-implicit transaction, so `foreign_keys=OFF` cannot be lifted outside it;
-`defer_foreign_keys` delays checks but does not suppress CASCADE, and SQLite
-RESTRICT remains immediate.
-
-The decimal codec cannot solve that substrate problem. Before claiming D1
-schema-evolution completion, land a D1 FK-safe table-reconstruction package
-with real remote evidence for populated NO ACTION, CASCADE, SET NULL, RESTRICT,
-cyclic, self, mapped, compound, and inbound/outbound FK graphs. Until that
-package passes, a D1 decimal representation change that requires table
-recreation refuses before effects with this exact substrate reason. It never
-falls back to manual copy or runs the known unsafe DROP-table sequence.
-
-Cloudflare documents D1's implicit-transaction and deferral behavior in
-[D1 foreign keys](https://developers.cloudflare.com/d1/sql-api/foreign-keys/)
-and [D1 PRAGMA statements](https://developers.cloudflare.com/d1/sql-api/sql-statements/#pragma-defer_foreign_keys-onoff).
-
-## 8. Mandatory falsifiers
-
-### 8.1 Public domain and validation
-
-- Both `.fixed(...).array()` and `.array().fixed(...)` have identical public
-  types, runtime validation, descriptor, DDL, and result.
-- Scalar/list minimum, maximum, negative, zero, scale-zero, trailing-zero, and
-  values beyond JavaScript safe integer round-trip as canonical strings.
-- Nullable whole lists work; NULL elements fail.
-- A custom schema cannot escape fixed validation.
-- Native override, number-decoding client, invalid descriptor, incompatible
-  field reference, generic typed Sql, and list identity/relation/index use fail
-  before I/O.
-
-### 8.2 Scalar exactness
-
-- Numeric order differs from lexical order and stays correct in direct,
-  relation, cursor, group, HAVING, and aggregate-order paths.
-- Ordered/IN literals reject excess scale. HAVING exact strings above `2^53`
-  work; widened SUM thresholds may exceed field precision but not scale or the
-  provider aggregate domain.
-- SUM wider than field precision decodes. AVG uses COUNT(column), not COUNT(*),
-  and empty/all-null groups remain NULL. `having._avg.equals: null` and
-  `having._sum.equals: null` work.
-- Increment/decrement and positive/negative half-even multiply/divide match
-  PostgreSQL/MySQL. Pin B and B+1, int64-naive-product overflow, divide-by-zero,
-  rounded carry, NULL storage, and strict-MySQL failure.
-- Every successful/rejecting scalar arithmetic path remains one statement in
-  interactive and capability-false atomic-batch modes.
-
-### 8.3 List exactness
-
-- Coefficients above `2^53` and 65 digits cross PostgreSQL arrays,
-  mysql2/PlanetScale JSON, SQLite3, Bun SQLite, libSQL, and D1 without any JSON
-  numeric token or JavaScript-number intermediate.
-- At scale 2, public `'1.2'` is physical `'120'`; `has: '1.2'` matches while
-  `has: '120'` names logical 120 and does not. This catches a forgotten element
-  codec.
-- Equality order/multiplicity, nested not, has, duplicate hasEvery, hasSome,
-  empty candidates, NULL columns, isEmpty, set, one/many/empty push/unshift, and
-  push on NULL have exact provider parity.
-- Direct reads, RETURNING, createMany-and-return, nested relation JSON, and
-  bulk results rescale every element.
-- `_count` works. Numeric aggregates, whole-list order/cursor, and arithmetic
-  are absent/refused at their schema owner.
-- Hostile physical JSON—number token, logical decimal instead of coefficient,
-  leading zero/sign, NULL element, overflow, scalar/object, sparse/malformed
-  value—fails loudly.
-- Raw controls observe each documented physical form while model reads return
-  canonical strings.
-
-### 8.4 Migration and introspection
-
-- Fresh scalar/list DDL, owned metadata, defaults, and second-push idempotence
-  are pinned on PostgreSQL, MySQL, SQLite, and libSQL.
-- PostgreSQL array element typmod and MySQL list marker round-trip; hosted
-  PlanetScale proves marker persistence.
-- Every row in the conversion table above has a successful exact case and a
-  failing case with unchanged schema/data. Arrays preserve order/duplicates.
-- Down migration uses the reverse codec and fails safely when data no longer
-  fits.
-- LibSQL cannot select its native ALTER route for a decimal representation
-  change.
-- Real D1 proves fresh fixed scalar/list behavior. Relation-bearing rebuild
-  cases stay exact refusals until the FK-safe reconstruction prerequisite is
-  independently green; a workerd-only empty-table test is not sufficient.
-
-## 9. Provider and final gates
-
-Required evidence:
-
-| Surface | Providers |
-|---|---|
-| Scalar/list validation and public typing | core type and validation layers |
-| SQLite exact scalar storage/arithmetic | SQLite3, Bun SQLite, libSQL, D1/workerd |
-| Fixed-list transport/filter/update/result | PostgreSQL/PGlite, MySQL/mysql2/PlanetScale, every SQLite family driver |
-| Native exact parity | Docker PostgreSQL and MySQL |
-| Migration codec | SQLite3, Bun SQLite, libSQL; D1 after its FK prerequisite |
-| Metadata/introspection | PostgreSQL, MySQL/PlanetScale, SQLite/libSQL |
-
-Run the narrow scalar, validation, adapter, query-engine, result-parser, and
-migration suites first. Then run `pnpm test:types`, the applicable provider
-aggregate, live Docker PostgreSQL/MySQL, hosted PlanetScale/D1 legs, focused
-Biome, and `git diff --check`. Passed, skipped, unavailable, and untested
-provider legs remain distinct.
-
-## 10. Implementation exit criteria
-
-This working plan is not design-complete. The capability is complete only when:
-
-1. fixed scalar and list values have one public canonical-string domain and one
-   field-aware codec;
-2. both fixed-list modifier orders and every existing list operation work in
-   V1 across applicable providers;
-3. no typed fixed operand, coefficient, array element, aggregate, or result
-   crosses REAL or JavaScript `number`;
-4. every admitted scalar order/aggregate/arithmetic spelling is exact and every
-   retained boundary is absent at the operation schema or has one precise
-   pre-I/O owner;
-5. each provider's exact schema transformations and failure/atomicity contract
-   are proven, use one guarded conversion owner, and never require
-   user-authored shadow-column choreography;
-6. fresh D1 support is green and relation-bearing D1 reconstruction is proven
-   safe before it is admitted;
-7. unconstrained decimal keeps its exact canonical-text contract; and
-8. site 24 no longer blanket-refuses fixed scalar fields.
-
-Likely owners: decimal scalar state and validators, field-aware value/list
-binders, scalar and list result parsing, decimal portability, aggregate and
-set builders, PostgreSQL/MySQL/SQLite adapters, schema legality, migration
-snapshot/serializer/differ/introspection/table recreation, D1 migration
-execution, public docs, and provider contracts.
+- nullable whole-list behavior.
+
+Elements are never nullable. Whole-list equality preserves order and
+multiplicity; containment uses set-membership semantics. Empty candidate and
+nullable-column truth tables are defined once in the operation schema and
+adapter contract and pinned identically on every provider.
+
+Lists do not invent numeric list semantics. They expose no `lt/lte/gt/gte`,
+whole-list numeric ordering/cursor identity, numeric aggregate, or arithmetic
+update. `_count.field` counts non-null lists, not elements.
+
+One field-aware list codec owns create, createMany, upsert, defaults, set,
+equality, containment candidates, push/unshift, direct results, returning
+results, nested relation carriers, and bulk results. Generic array serialization
+must not get a second chance to interpret decimal elements.
+
+## 7. Schema evolution
+
+### 7.1 No pre-release compatibility estate
+
+The implementation replaces the current decimal representation directly:
+
+- no old zero-argument factory;
+- no TEXT-decimal dual reader;
+- no `REAL` reader;
+- no `DECIMAL(65,30)` fallback;
+- no compatibility snapshot parser; and
+- no generated migration whose sole purpose is upgrading unpublished data.
+
+Existing development databases may be recreated. This is distinct from future
+changes between two valid published decimal descriptors, which V1 supports
+below.
+
+### 7.2 One physical descriptor
+
+Migration `ColumnDef` stores one logical decimal descriptor plus the active
+physical representation. Serializer, snapshot, differ, DDL, introspection,
+defaults, and table reconstruction consume it. The differ compares the
+descriptor even when the SQL storage class stays `INTEGER`, `TEXT`, or `JSON`.
+
+There is no parallel decimal metadata map on `Model`, adapter, or migration
+driver.
+
+### 7.3 Descriptor changes
+
+V1 automatically applies exact changes and fails before irreversible effects
+when existing values cannot fit:
+
+| Change | Behavior |
+| --- | --- |
+| Precision widening | exact automatic conversion |
+| Precision narrowing | convert only when every value fits |
+| Scale increase | exact automatic conversion when target precision fits |
+| Scale decrease | convert only when discarded fractional digits are all zero |
+| Scalar/list descriptor change | apply the same rule to every value/member |
+| Malformed storage or overflow | fail; preserve old schema and data |
+
+No descriptor change rounds existing data. The arithmetic rounding rule does
+not authorize a schema migration to change stored values.
+
+### 7.4 Provider execution
+
+PostgreSQL:
+
+- acquire the migration owner's table lock inside the existing transaction;
+- validate every scalar/array member against the target descriptor;
+- alter to `NUMERIC(p,s)` or `NUMERIC(p,s)[]` only after validation; and
+- roll back validation, DDL, and metadata together on failure.
+
+MySQL/PlanetScale:
+
+- use the migration program's exact admitted provider capability;
+- validate every value/member on the pinned producer while writes are excluded;
+- preserve strict-mode proof through conversion;
+- perform the provider's documented DDL boundary without claiming rollback
+  across an implicit commit; and
+- report the last proven commit boundary if an admitted MySQL conversion fails.
+
+PlanetScale descriptor changes run only through a migration capability it
+actually supports. They never gain effectful DDL merely because the runtime
+adapter can encode decimals.
+
+SQLite3, Bun SQLite, and libSQL:
+
+- extend the existing table-recreation copy map with one decimal conversion
+  expression;
+- decode physical coefficient text to canonical logical digits, validate the
+  target descriptor, then encode the target coefficient;
+- use string operations and guarded integer casts only;
+- convert list members through `json_each` while preserving order and
+  multiplicity; and
+- keep the rebuild atomic.
+
+D1:
+
+- fresh decimal scalar/list schemas and ordinary operations are mandatory;
+- descriptor changes use the same logical conversion contract;
+- relation-bearing table reconstruction must first prove the existing D1
+  foreign-key-safe rebuild requirement across NO ACTION, CASCADE, SET NULL,
+  RESTRICT, cyclic, self, mapped, compound, inbound, and outbound relations;
+- until that proof is green, a D1 descriptor change requiring reconstruction
+  fails before effects with the exact substrate reason; and
+- no unsafe drop/recreate fallback or manual shadow-column instruction is
+  shipped.
+
+Down migrations reverse the descriptor conversion and may correctly fail when
+newer data no longer fits the old domain.
+
+## 8. Implementation program
+
+### Unit A — Public domain and exact-one update schemas
+
+- Add `decimal.js` as a direct runtime dependency and export its `Decimal`
+  constructor/type from `viborm`.
+- Replace the decimal factory with the required descriptor object.
+- Carry the immutable descriptor through every modifier.
+- Build Decimal/string/number input schemas and Decimal scalar/list result
+  schemas from it.
+- Replace decimal scalar and list operation bags with exact-one unions.
+- Make `.schema()` refine the Decimal value family and reject transforms to a
+  different representation.
+- Remove native overrides and string/number result configuration.
+- Add public type and hostile-definition falsifiers.
+
+Done when invalid decimal states and ambiguous updates are unrepresentable
+through both TypeScript and runtime validation.
+
+### Unit B — One codec and provider storage
+
+- Add the one field-aware logical/coefficient codec.
+- Emit `NUMERIC(p,s)`, `DECIMAL(p,s)`, or checked scaled `INTEGER`.
+- Bind and decode every scalar path without a JavaScript number.
+- Construct one fresh public Decimal only at each final typed result leaf.
+- Encode Decimal to canonical text at cache/identity boundaries and reconstruct
+  it without prototype-dependent structured cloning.
+- Make defaults use the same codec.
+- Preserve consumable-row and borrowed-row ownership rules.
+
+Done when create/read/update/returning values round-trip exactly on PostgreSQL,
+MySQL, and every SQLite provider.
+
+### Unit C — Queries, aggregates, and arithmetic
+
+- Make every decimal predicate/order path descriptor-aware.
+- Remove the adapter-wide refusal capability and all refusal call sites.
+- Implement exact SQLite coefficient operations.
+- Implement shared half-even multiply/divide/average semantics.
+- Decode widened sums and field-scale averages exactly.
+- Preserve primary-key arithmetic boundaries.
+
+Done when every existing public decimal scalar operation answers exactly on all
+providers and no old SQLite refusal path remains.
+
+### Unit D — Decimal lists
+
+- Implement PostgreSQL native arrays and JSON coefficient-string containers.
+- Add the MySQL/PlanetScale metadata marker and provider proof.
+- Route every list write/filter/update/result through the field codec.
+- Exclude numeric list operations at their schema owner.
+- Add hostile physical-container tests.
+
+Done when the complete existing decimal-list surface has provider parity and no
+element can cross JSON as a number.
+
+### Unit E — Migration descriptors and exact conversion
+
+- Extend serialization, snapshots, differ, DDL, and introspection.
+- Implement exact precision/scale changes on each provider.
+- Prove failure and atomicity/commit-boundary behavior.
+- Complete the D1 reconstruction prerequisite before admitting its rebuild.
+- Prove second-push convergence.
+
+Done when every descriptor transition has a successful exact witness and a
+failing witness that preserves the last guaranteed estate.
+
+### Unit F — Semantic deletion and documentation
+
+- Delete decimal TEXT storage, refusal helpers, compatibility decoding, native
+  overrides, stale tests, and duplicate comments.
+- Update scalar, Decimal value, application arithmetic, cache, JSON, migration,
+  provider, and raw-SQL guidance.
+- Update applicable `AGENTS.md` files with the single descriptor/codec owner.
+- Add a source census preventing a second decimal mode, float transport,
+  public string/number result mode, ORM-owned Decimal wrapper, partial operation
+  bag, or adapter-wide refusal.
+
+Done when the final system is explained as one descriptor, one codec, and one
+public Decimal value domain.
+
+### Unit G — Provider and performance acceptance
+
+- Run every focused and aggregate gate below sequentially.
+- Compare the exact pre-feature baseline and candidate in fresh worktrees.
+- Attribute the Decimal-construction allocation/CPU cost separately from codec,
+  row-copy, and provider transport costs.
+- Remove provider-specific workarounds that duplicate the codec.
+
+Done when all supported provider surfaces are exact and the ordinary
+non-decimal operation pipeline is unchanged, with no intermediate Decimal
+construction beyond the one public value materialization per result leaf.
+
+## 9. Focused falsifiers
+
+### 9.1 Definition and public types
+
+- Missing, empty, fractional, negative, excessive, explicit-`undefined`,
+  inherited, accessor-throwing, and unknown descriptor properties fail through
+  the definition boundary.
+- Fresh and held option objects reject misspellings beside real keys.
+- Zero-argument, native-argument, `.fixed()`, rounding-option, and
+  client-number-decoding spellings fail publicly and at hostile runtime calls.
+- Every modifier preserves descriptor identity and output typing.
+- Scalar output is `Decimal`; list output is `Decimal[]`; nullable forms are
+  exact. The constructor exported from `viborm` constructs accepted inputs and
+  matches result instances.
+- A custom schema receives Decimal and cannot return string, number, NaN,
+  infinity, or an arbitrary decimal-like object.
+- Inputs from the exported constructor and a Decimal.js clone work; malformed
+  or forged Decimal candidates cannot bypass canonical grammar, finiteness,
+  precision, or scale validation.
+- Distinct result instances for the same value compare equal with `.eq()` but
+  are never relied on through `===`.
+- Scale zero, maximum values, negative zero, leading/trailing zeros, values
+  beyond `2^53`, a genuine Decimal input, and a `number` carrying `0.1 + 0.2`
+  have discriminating tests.
+
+### 9.2 Storage and results
+
+- Fresh DDL is exactly `NUMERIC(p,s)`, `DECIMAL(p,s)`, or checked `INTEGER`.
+- SQLite physically stores the expected coefficient and refuses TEXT/REAL,
+  overflow, and malformed raw values.
+- Direct, prepared, transaction, fallback/native batch, returning, nested
+  relation, aggregate, and extension-observed typed results expose Decimal.
+- Cache memory/KV stores encode canonical strings, every hit reconstructs fresh
+  Decimal instances, and caller mutation cannot poison later hits.
+- No exact value crosses provider middleware, relation JSON, cache snapshots,
+  identity maps, cursor material, or generated-output transport as a JavaScript
+  number or Decimal object; Decimal is materialized only at the typed result
+  boundary.
+- Public/manual result parsing remains hostile-input safe and never mutates
+  borrowed input.
+- Decimal.js constructor configuration changes cannot alter SQL, physical
+  encoding, cache identity, migrations, database rounding, or result
+  validation.
+
+### 9.3 Filters and updates
+
+- Numeric and lexical order disagree in fixtures; all scalar comparison,
+  ordering, cursor, pagination, nested, and group spellings return numeric
+  order on SQLite.
+- Field references with equal descriptors work; unequal descriptors and generic
+  typed SQL fail before I/O.
+- Shorthand/set/increment/decrement/multiply/divide each work alone.
+- `{}`, multiple keys, unknown keys, inherited keys, and explicit `undefined`
+  fail before SQL; no precedence behavior survives.
+- Positive/negative half-even ties, rounded carries, division by zero,
+  intermediate-overflow candidates, target overflow, nullable storage, and
+  strict-MySQL failures are pinned.
+- Successful and rejected arithmetic remains one atomic statement in direct,
+  nested, updateMany, series, and batch execution.
+
+### 9.4 Aggregates
+
+- `_min`, `_max`, `_sum`, `_avg`, grouped projection, aggregate ordering, and
+  HAVING have exact provider parity.
+- Sum can exceed field precision while retaining scale and returns Decimal.
+- SQLite sum overflow is an error, never a REAL answer.
+- Average uses `COUNT(column)`, preserves NULL for empty/all-null input, and
+  rounds exact positive/negative ties half-even.
+
+### 9.5 Lists
+
+- Both ordinary and nullable lists round-trip coefficients above `2^53` and
+  provider-native decimal limits without JSON numeric tokens.
+- Every typed member is a fresh Decimal and no storage/cache JSON container is
+  exposed as the typed result.
+- At scale 2, logical `"1.2"` is physical `"120"`; `has: "1.2"` matches while
+  `has: "120"` means logical 120.
+- Equality order/multiplicity, nested not, containment, empty candidates,
+  isEmpty, set, push/unshift one/many/empty, and NULL behavior match everywhere.
+- Direct, returning, bulk, nested, cache, and relation-carrier results rescale
+  every member.
+- Numeric list filters, ordering, aggregates, identity use, and arithmetic are
+  absent at type and runtime schema boundaries.
+- Number tokens, leading-zero coefficients, `+1`, `-0`, NULL members, malformed
+  JSON, wrong top-level values, overflow, and descriptor-marker mismatch fail
+  loudly.
+
+### 9.6 Migrations
+
+- Every descriptor transition has exact success and refusal cases.
+- Scale reduction never rounds existing values.
+- Failed conversion preserves schema/data according to the provider's declared
+  transaction or commit-boundary contract.
+- Arrays preserve order and duplicates.
+- PostgreSQL array typmods, MySQL/PlanetScale markers, and SQLite reserved
+  constraints introspect exactly.
+- LibSQL cannot take a native ALTER route that skips conversion.
+- D1 relation-bearing rebuilds have real remote FK evidence before admission.
+- Generated down migrations reverse the codec and fail safely when data no
+  longer fits.
+- Second push is empty on every admitted provider.
+
+## 10. Sequential validation gates
+
+Run large commands sequentially because the workspace lock forbids overlap.
+
+1. Focused decimal definition, validation, operation-schema, codec, query,
+   aggregate, list, result-parser, and migration tests.
+2. `pnpm test:layer:scalars`
+3. `pnpm test:layer:validation`
+4. `pnpm test:layer:query-engine`
+5. `pnpm test:layer:adapters`
+6. `pnpm test:layer:drivers`
+7. `pnpm test:layer:migrations`
+8. `pnpm test:layer:client`
+9. Relevant cache, instrumentation, relation, and write-engine suites.
+10. Relevant scalar, validation, schema, query-engine, and write-engine coverage
+    gates.
+11. `pnpm test:types`, with no TS2589 or TS2590 and before/after diagnostics.
+12. Repository-pinned Biome on every touched TypeScript file.
+13. `git diff --check`.
+14. `pnpm --dir docs validate`.
+15. `pnpm package:build` and `pnpm test:package`.
+16. SQLite3, Bun SQLite, libSQL, and D1 contracts.
+17. PGlite, `pg`, postgres.js, and Neon contracts.
+18. MySQL2 and PlanetScale contracts, including strict-mode and metadata proof.
+19. `pnpm test:core`.
+20. `pnpm test:all`.
+21. `pnpm test:providers`, with hosted skips reported honestly.
+22. Architecture census and detector falsifiers.
+23. Five alternating fresh-process operation-pipeline runs for a scalar control,
+    one-decimal row, 1,000-decimal rows, decimal arithmetic, decimal aggregate,
+    and decimal-list workloads on SQLite3 and PGlite; add MySQL2 when the Docker
+    substrate is available.
+24. Package-export and Worker-runtime probes proving `Decimal` has one public
+    constructor identity and does not pull a Node-only runtime into D1/Workers.
+
+Acceptance requires:
+
+- no regression in non-decimal SQL, results, or operation behavior;
+- no per-operation decimal handler scan;
+- one field-compiled conversion step and one Decimal construction per selected
+  decimal value, with no intermediate Decimal arithmetic in the ORM;
+- no non-decimal allocation or framework-CPU regression greater than 3% and
+  `2×MAD`;
+- a measured decimal-heavy allocation, retained-heap, CPU, and package-size
+  report that separates the intentional public Decimal value cost from
+  avoidable transport, copying, or codec overhead;
+- no decimal-path regression beyond the measured Decimal constructor/value
+  floor by more than 10% or `2×MAD`;
+- unchanged unextended-client and non-decimal consumable-row fast paths; and
+- exact provider behavior, not cross-ORM benchmark ratios, deciding retention.
+
+## 11. Completion criteria
+
+The decimal is nailed only when all statements are true:
+
+1. `s.decimal({ precision, scale })` is the sole public decimal factory.
+2. Precision and scale are immutable scalar state and have no second owner.
+3. Round-half-to-even is the one V1 derived-result rule and is not exposed as a
+   one-value configuration concept.
+4. Public scalar/list results are fresh Decimal.js values; no public
+   string/number result mode or ORM-owned Decimal wrapper exists.
+5. PostgreSQL uses `NUMERIC(p,s)`, MySQL uses `DECIMAL(p,s)`, and SQLite uses a
+   checked scaled integer.
+6. `DECIMAL(...)` affinity, REAL, and canonical TEXT are absent from SQLite
+   scalar decimal storage and arithmetic.
+7. One field-aware codec owns every logical/physical scalar and list crossing,
+   canonical private text, and final Decimal materialization.
+8. Every typed decimal scalar filter, order, aggregate, and arithmetic operation
+   answers exactly on every provider that admits the descriptor.
+9. Decimal updates require exactly one operation and the query engine contains
+   no precedence ladder for them.
+10. Multiplication, division, and average have provider-independent half-even
+    behavior; input validation never silently rounds.
+11. Overflow and division by zero fail before effects when knowable and remain
+    atomic database errors otherwise.
+12. Decimal arrays ship in V1 with their complete existing list surface.
+13. No JSON-backed coefficient is ever represented as a JSON number, and no
+    cache or transport boundary relies on cloning a Decimal prototype.
+14. Aggregate sums widen safely and averages have one scale/nullability rule.
+15. Descriptor changes are automatic when exact and refuse without changing
+    values when not exact.
+16. Fresh and migrated schemas converge on a second push.
+17. D1 reconstruction is admitted only after its relation-bearing FK safety is
+    proven.
+18. Raw SQL exposes the documented physical representation and receives no
+    hidden scaling.
+19. Current refusal helpers, compatibility options, native override, duplicate
+    codecs, and obsolete documentation are deleted in the same program.
+20. `decimal.js` is the one direct value-object dependency and `viborm` exports
+    its one Decimal constructor/type; application arithmetic configuration
+    cannot alter ORM/database semantics.
+21. All focused, type, layer, coverage, package, provider, core, and aggregate
+    gates pass with honest hosted-provider reporting.
+22. The operation pipeline satisfies the measured allocation/CPU gate.
+
+After implementation, record the durable descriptor/codec ownership in the
+applicable `AGENTS.md` files and replace this plan's status with its measured
+completion report. Do not preserve old and final decimal mechanisms together.

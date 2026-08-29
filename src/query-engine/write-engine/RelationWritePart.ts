@@ -66,6 +66,7 @@ import {
   requiredForeignKeyFields,
 } from "./relation-nullability";
 import type { StepScope } from "./StepScope";
+import { parseCapturedRowKeys, parseCapturedRows } from "./series-result-read";
 import {
   isRecord,
   pinnedTargetValues,
@@ -426,16 +427,13 @@ export class RelationWritePart implements Part {
     known: PlanningKnown,
     createSubtree: Part
   ): readonly OperationStep[] {
-    const rows = this.probeRows(known);
-    if (rows.length === 0) {
+    const [captured] = parseCapturedRowKeys(
+      this.config.engine,
+      this.config.childScope.model,
+      this.probeRows(known).slice(0, 1)
+    );
+    if (captured === undefined) {
       return createSubtree.compile(scope, known);
-    }
-    const first = rows[0];
-    if (!(first && typeof first === "object")) {
-      throw new NestedWriteError(
-        `query-engine-v2 upsert probe for relation '${this.relationName}' captured no row shape.`,
-        this.relationName
-      );
     }
     // The branch read remains necessary for the missing create arm, but an empty
     // selected update has no compiler and therefore no found-arm effect to pin.
@@ -445,11 +443,7 @@ export class RelationWritePart implements Part {
       steps.push(
         presenceGuard(
           this.guardId,
-          this.correlatedProbeStatement(
-            known,
-            false,
-            first as Record<string, unknown>
-          ),
+          this.correlatedProbeStatement(known, false, captured),
           nestedWriteFailure(
             upsertPremiseChanged(this.relationName),
             this.relationName,
@@ -729,7 +723,7 @@ export class RelationWritePart implements Part {
   private correlatedProbeStatement(
     known: PlanningKnown | undefined,
     useRef: boolean,
-    capturedRow?: Record<string, unknown>
+    capturedRow?: Readonly<Record<string, unknown>>
   ): Sql {
     const projection = this.targetProjection;
     const selectedColumns = targetProjectionColumns(
@@ -753,11 +747,23 @@ export class RelationWritePart implements Part {
             known ?? {},
             this.operationKind
           );
+    // The probe publishes physical private columns beside the public target
+    // projection. Decode the exact declared set before the guard re-binds it:
+    // SQLite's decimal private id is a coefficient, not a logical decimal.
     const capturedRows = known?.[planningKey(this.probeId, "rows")];
-    const captured =
+    const rawCaptured =
       Array.isArray(capturedRows) && isRecord(capturedRows[0])
         ? capturedRows[0]
         : undefined;
+    const captured = rawCaptured
+      ? parseCapturedRows(
+          this.config.engine,
+          this.config.childScope.model,
+          [rawCaptured],
+          targetProjectionSelect(projection),
+          projection.columns
+        )[0]
+      : undefined;
     const capturedColumns = captured
       ? capturedTargetColumnPredicate(
           this.config.childScope,
@@ -893,10 +899,16 @@ export class RelationWritePart implements Part {
     return parsed;
   }
 
-  /** The row the correlated probe captured — the one source of every row-key
+  /** The row KEY the correlated probe captured — the one source of every row-key
    * member this arm addresses. An absent row uses the relation family's
-   * target-not-found failure. */
-  private capturedRow(known: PlanningKnown): Record<string, unknown> {
+   * target-not-found failure.
+   *
+   * The probe publishes its rows exactly as the provider spelled them, and this
+   * key is re-addressed through the ordinary where builder, which lowers a
+   * LOGICAL value. {@link parseCapturedRowKeys} is what makes those the same
+   * value on every provider; the row-shape refusal is the parser's, which owns
+   * that invariant for every decoded row in the engine. */
+  private capturedRow(known: PlanningKnown): Readonly<Record<string, unknown>> {
     const rows = known[planningKey(this.probeId, "rows")];
     if (!Array.isArray(rows)) {
       throw new NestedWriteError(
@@ -904,7 +916,12 @@ export class RelationWritePart implements Part {
         this.relationName
       );
     }
-    if (rows.length === 0) {
+    const [captured] = parseCapturedRowKeys(
+      this.config.engine,
+      this.config.childScope.model,
+      rows.slice(0, 1)
+    );
+    if (captured === undefined) {
       throw new NestedWriteError(
         relationTargetNotFound(
           this.config.membership.relation.relationRef,
@@ -913,14 +930,7 @@ export class RelationWritePart implements Part {
         this.relationName
       );
     }
-    const first = rows[0];
-    if (!(first && typeof first === "object")) {
-      throw new NestedWriteError(
-        `query-engine-v2 ${this.operationKind} probe for relation '${this.relationName}' captured no row shape.`,
-        this.relationName
-      );
-    }
-    return first as Record<string, unknown>;
+    return captured;
   }
 
   /** A targeted arm with a record compiler publishes that compiler's projection;
@@ -1005,7 +1015,7 @@ interface SetTarget {
 function capturedTargetSetWhere(
   scope: QueryScope,
   projection: TargetProjection,
-  captured: readonly Record<string, unknown>[]
+  captured: readonly Readonly<Record<string, unknown>>[]
 ): Record<string, unknown> {
   if (projection.identityFields.length === 1) {
     const single = projection.identityFields[0]!;
@@ -1307,10 +1317,12 @@ export class RelationSetPart implements Part {
     return membership.length === 1 ? membership[0]! : { AND: membership };
   }
 
+  /** One target's captured row KEY — decoded, because the reparent write and its
+   *  split-witness guard both re-address it (see {@link parseCapturedRowKeys}). */
   private capturedTargetRow(
     target: SetTarget,
     known: PlanningKnown
-  ): Record<string, unknown> {
+  ): Readonly<Record<string, unknown>> {
     const rows = known[planningKey(target.existId, "rows")];
     if (!Array.isArray(rows)) {
       throw new NestedWriteError(
@@ -1318,7 +1330,12 @@ export class RelationSetPart implements Part {
         this.relationName
       );
     }
-    if (rows.length === 0) {
+    const [captured] = parseCapturedRowKeys(
+      this.config.engine,
+      this.config.childScope.model,
+      rows.slice(0, 1)
+    );
+    if (captured === undefined) {
       throw new NestedWriteError(
         relationTargetNotFound(
           this.config.membership.relation.relationRef,
@@ -1327,14 +1344,7 @@ export class RelationSetPart implements Part {
         this.relationName
       );
     }
-    const first = rows[0];
-    if (!(first && typeof first === "object")) {
-      throw new NestedWriteError(
-        `query-engine-v2 set for relation '${this.relationName}' captured no target row shape.`,
-        this.relationName
-      );
-    }
-    return first as Record<string, unknown>;
+    return captured;
   }
 
   private uniqueEqualityFilters(

@@ -24,6 +24,7 @@ import type {
 
 export const DEFAULT_MIGRATIONS_DIR = "./migrations";
 export const DEFAULT_TABLE_NAME = "_viborm_migrations";
+const MIGRATION_TABLE_NAME_PATTERN = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 
 // =============================================================================
 // DIALECT UTILITIES
@@ -85,7 +86,7 @@ export function validateMigrationsDir(dir: string): string {
  * Only allows alphanumeric characters and underscores.
  */
 export function validateTableName(tableName: string): string {
-  if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(tableName)) {
+  if (!MIGRATION_TABLE_NAME_PATTERN.test(tableName)) {
     throw new MigrationError(
       `Invalid migration table name: "${tableName}". ` +
         "Only alphanumeric characters and underscores are allowed.",
@@ -103,21 +104,18 @@ export function validateTableName(tableName: string): string {
 /**
  * Type for executing SQL queries and returning rows.
  */
-export type QueryExecutor = (
+export type QueryExecutor = <T = unknown>(
   sql: string,
   params?: unknown[]
-) => Promise<unknown[]>;
+) => Promise<T[]>;
 
 /**
  * Creates a query executor from a driver.
  * Extracts rows from the QueryResult.
  */
 export function createQueryExecutor(driver: AnyDriver): QueryExecutor {
-  return async (sql: string, params?: unknown[]) => {
-    const result = await driver._executeRaw<Record<string, unknown>>(
-      sql,
-      params
-    );
+  return async <T = unknown>(sql: string, params?: unknown[]) => {
+    const result = await driver._executeRaw<T>(sql, params);
     return result.rows;
   };
 }
@@ -139,10 +137,10 @@ const OPERATION_PRIORITY: Record<DiffOperation["type"], number> = {
   dropColumn: 6,
   dropTable: 7,
   createTable: 8,
-  addColumn: 9,
-  alterColumn: 10,
-  renameTable: 11,
-  renameColumn: 12,
+  renameTable: 9,
+  addColumn: 10,
+  renameColumn: 11,
+  alterColumn: 12,
   addPrimaryKey: 13,
   addUniqueConstraint: 14,
   createIndex: 15,
@@ -211,10 +209,11 @@ function supersededIndexDrops(operations: DiffOperation[]): Set<DiffOperation> {
  * 3. Drop indexes, constraints, columns
  * 4. Drop tables
  * 5. Create tables
- * 6. Add columns, constraints
- * 7. Create indexes
- * 8. Drop the indexes those creates supersede (see `supersededIndexDrops`)
- * 9. Add foreign keys (after tables/columns exist)
+ * 6. Establish table and column renames before operations using the new names
+ * 7. Add or alter columns and constraints
+ * 8. Create indexes
+ * 9. Drop the indexes those creates supersede (see `supersededIndexDrops`)
+ * 10. Add foreign keys (after tables/columns exist)
  */
 export function sortOperations(operations: DiffOperation[]): DiffOperation[] {
   const superseded = supersededIndexDrops(operations);
@@ -222,7 +221,26 @@ export function sortOperations(operations: DiffOperation[]): DiffOperation[] {
     superseded.has(op)
       ? SUPERSEDED_INDEX_DROP_PRIORITY
       : OPERATION_PRIORITY[op.type];
-  return [...operations].sort((a, b) => priorityOf(a) - priorityOf(b));
+  return [...operations].sort((a, b) => {
+    if (a.type === "renameTable" && operationTargetsTable(b, a.to)) {
+      return -1;
+    }
+    if (b.type === "renameTable" && operationTargetsTable(a, b.to)) {
+      return 1;
+    }
+    return priorityOf(a) - priorityOf(b);
+  });
+}
+
+/** A table operation that must address the post-rename identity. */
+function operationTargetsTable(
+  operation: DiffOperation,
+  tableName: string
+): boolean {
+  if (operation.type === "createTable") {
+    return operation.table.name === tableName;
+  }
+  return "tableName" in operation && operation.tableName === tableName;
 }
 
 /**

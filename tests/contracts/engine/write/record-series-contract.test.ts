@@ -567,7 +567,6 @@ function executorFor(
     ),
     undefined,
     undefined,
-    "string",
     extensionChain
   );
   return new OperationExecutor(

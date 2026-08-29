@@ -5,17 +5,80 @@
  * Provides utilities for converting user resolutions into concrete operations.
  */
 
+import { MigrationError, VibORMErrorCode } from "../errors";
+import { type DiffOptions, diff } from "./differ";
+import { applyNativeRename } from "./native-rename";
 import type {
   AmbiguousChange,
+  AmbiguousResolveChange,
   ChangeResolution,
+  DestructiveResolveChange,
   DiffOperation,
   DiffResult,
+  EnumValueRemovalChange,
   ResolveCallback,
   ResolveChange,
+  ResolveResult,
   Resolver,
   SchemaSnapshot,
 } from "./types";
+import { readEnumResolutionDecision } from "./types";
 import { sortOperations } from "./utils";
+
+export function validateResolveResult(
+  expected: "ambiguous",
+  change: AmbiguousResolveChange,
+  result: unknown
+): "rename" | "addAndDrop" | "reject" | undefined;
+export function validateResolveResult(
+  expected: "destructive",
+  change: DestructiveResolveChange,
+  result: unknown
+): "proceed" | "reject" | undefined;
+export function validateResolveResult(
+  expected: "enumValueRemoval",
+  change: EnumValueRemovalChange,
+  result: unknown
+): "enumMapped" | "reject" | undefined;
+export function validateResolveResult(
+  expected: ResolveChange["type"],
+  change: ResolveChange,
+  result: unknown
+): ResolveResult | undefined {
+  if (result === undefined) return undefined;
+
+  if (result === "reject") return result;
+  if (
+    expected === "ambiguous" &&
+    (result === "rename" || result === "addAndDrop")
+  ) {
+    return result;
+  }
+  if (expected === "destructive" && result === "proceed") {
+    return result;
+  }
+  if (expected === "enumValueRemoval" && result === "enumMapped") {
+    const decision = readEnumResolutionDecision(change);
+    if (decision !== undefined && decision.kind !== "mixed") return result;
+  }
+
+  const received =
+    typeof result === "string"
+      ? `"${result}"`
+      : result === null
+        ? "null"
+        : typeof result;
+  throw new MigrationError(
+    `The resolve callback returned an invalid resolution result ${received} for a ${expected} change. ` +
+      "Return one of the methods on the exact change object that was supplied; a result for another change kind cannot authorize this migration.",
+    VibORMErrorCode.MIGRATION_INVALID_STATE,
+    {
+      meta: {
+        type: "invalid-resolution-result",
+      },
+    }
+  );
+}
 
 // =============================================================================
 // RESOLUTION APPLICATION
@@ -50,16 +113,7 @@ export function applyResolutions(
       } else if (change.type === "ambiguousTable") {
         operations.push(
           { type: "dropTable", tableName: change.droppedTable },
-          {
-            type: "createTable",
-            table: {
-              name: change.addedTable,
-              columns: [],
-              indexes: [],
-              foreignKeys: [],
-              uniqueConstraints: [],
-            },
-          }
+          { type: "createTable", table: change.addedTableDef }
         );
       }
       continue;
@@ -73,20 +127,6 @@ export function applyResolutions(
           from: change.droppedColumn.name,
           to: change.addedColumn.name,
         });
-
-        // If the column properties differ (other than name), also alter it
-        if (
-          change.droppedColumn.nullable !== change.addedColumn.nullable ||
-          change.droppedColumn.default !== change.addedColumn.default
-        ) {
-          operations.push({
-            type: "alterColumn",
-            tableName: change.tableName,
-            columnName: change.addedColumn.name,
-            from: { ...change.droppedColumn, name: change.addedColumn.name },
-            to: change.addedColumn,
-          });
-        }
       } else {
         // addAndDrop
         operations.push(
@@ -110,9 +150,11 @@ export function applyResolutions(
           to: change.addedTable,
         });
       } else {
-        // addAndDrop - the actual table definition will need to come from the desired schema
-        operations.push({ type: "dropTable", tableName: change.droppedTable });
-        // Note: The createTable operation should be added by the caller with full table definition
+        // addAndDrop
+        operations.push(
+          { type: "dropTable", tableName: change.droppedTable },
+          { type: "createTable", table: change.addedTableDef }
+        );
       }
     }
   }
@@ -121,49 +163,134 @@ export function applyResolutions(
 }
 
 /**
- * Resolves ambiguous changes and returns the final operations list.
- * Handles both rename and addAndDrop resolutions, including adding
- * createTable operations for table renames resolved as addAndDrop.
+ * Resolves every ambiguity exposed by accepted changes.
  *
- * @param diffResult - The result from the differ containing operations and ambiguous changes
- * @param desiredSnapshot - The desired schema snapshot (used for table definitions)
- * @param resolver - The resolver function to use for ambiguous changes
- * @returns Sorted list of final operations
+ * Each decision is applied to a working source snapshot, then the ordinary
+ * differ runs again with the original options. Native renames therefore expose
+ * nested ambiguities and descriptor alterations through the same owner that
+ * found the outer change; no local table differ or pre-rename operation list is
+ * retained.
  */
 export async function resolveAmbiguousChanges(
-  diffResult: DiffResult,
+  initialDiffResult: DiffResult,
+  currentSnapshot: SchemaSnapshot,
   desiredSnapshot: SchemaSnapshot,
-  resolver: Resolver
+  resolver: Resolver,
+  options: DiffOptions = {}
 ): Promise<DiffOperation[]> {
-  const finalOperations = [...diffResult.operations];
-
-  if (diffResult.ambiguousChanges.length === 0) {
-    return finalOperations;
-  }
-
-  const resolutions = await resolver(diffResult.ambiguousChanges);
-  const resolvedOps = applyResolutions(
-    diffResult.ambiguousChanges,
-    resolutions
+  let workingSnapshot = currentSnapshot;
+  let diffResult = initialDiffResult;
+  const resolutionOperations: DiffOperation[] = [];
+  const resolvedAmbiguities = new Set<string>();
+  const liveTableNames = new Map(
+    currentSnapshot.tables.map((table) => [table.name, table.name])
   );
-  finalOperations.push(...resolvedOps);
 
-  // For table renames resolved as addAndDrop, add the createTable
-  for (const change of diffResult.ambiguousChanges) {
-    if (change.type === "ambiguousTable") {
-      const resolution = resolutions.get(change);
-      if (resolution?.type === "addAndDrop") {
-        const newTable = desiredSnapshot.tables.find(
-          (t) => t.name === change.addedTable
+  while (diffResult.ambiguousChanges.length > 0) {
+    const resolutions = await resolver(diffResult.ambiguousChanges);
+
+    for (const change of diffResult.ambiguousChanges) {
+      const key = ambiguityKey(change);
+      if (resolvedAmbiguities.has(key)) {
+        throw new MigrationError(
+          `Ambiguous migration change did not converge after resolution: ${key}`,
+          VibORMErrorCode.INTERNAL_ERROR
         );
-        if (newTable) {
-          finalOperations.push({ type: "createTable", table: newTable });
+      }
+      resolvedAmbiguities.add(key);
+
+      const resolution = resolutions.get(change) ?? { type: "addAndDrop" };
+      const operations = applyResolutions(
+        [change],
+        new Map([[change, resolution]])
+      );
+      resolutionOperations.push(...operations);
+
+      for (const operation of operations) {
+        workingSnapshot = applyResolutionEffect(workingSnapshot, operation);
+        if (operation.type === "renameTable") {
+          const liveName = liveTableNames.get(operation.from) ?? operation.from;
+          liveTableNames.delete(operation.from);
+          liveTableNames.set(operation.to, liveName);
+        } else if (operation.type === "dropTable") {
+          liveTableNames.delete(operation.tableName);
         }
       }
     }
+
+    diffResult = await diff(
+      workingSnapshot,
+      desiredSnapshot,
+      optionsForWorkingSnapshot(options, liveTableNames)
+    );
   }
 
-  return sortOperations(finalOperations);
+  return sortOperations([...resolutionOperations, ...diffResult.operations]);
+}
+
+function ambiguityKey(change: AmbiguousChange): string {
+  return change.type === "ambiguousTable"
+    ? `table:${change.droppedTable}\u0000${change.addedTable}`
+    : `column:${change.tableName}\u0000${change.droppedColumn.name}\u0000${change.addedColumn.name}`;
+}
+
+function optionsForWorkingSnapshot(
+  options: DiffOptions,
+  liveTableNames: ReadonlyMap<string, string>
+): DiffOptions {
+  const canonicalize = options.canonicalizeIndexPredicate;
+  if (!canonicalize) return options;
+  return {
+    ...options,
+    canonicalizeIndexPredicate: (tableName, predicates) =>
+      canonicalize(liveTableNames.get(tableName) ?? tableName, predicates),
+  };
+}
+
+function applyResolutionEffect(
+  snapshot: SchemaSnapshot,
+  operation: DiffOperation
+): SchemaSnapshot {
+  if (operation.type === "renameTable" || operation.type === "renameColumn") {
+    return applyNativeRename(snapshot, operation);
+  }
+  if (operation.type === "dropTable") {
+    return {
+      ...snapshot,
+      tables: snapshot.tables.filter(
+        (table) => table.name !== operation.tableName
+      ),
+    };
+  }
+  if (operation.type === "createTable") {
+    return { ...snapshot, tables: [...snapshot.tables, operation.table] };
+  }
+  if (operation.type === "dropColumn") {
+    return {
+      ...snapshot,
+      tables: snapshot.tables.map((table) =>
+        table.name === operation.tableName
+          ? {
+              ...table,
+              columns: table.columns.filter(
+                (column) => column.name !== operation.columnName
+              ),
+            }
+          : table
+      ),
+    };
+  }
+  if (operation.type === "addColumn") {
+    return {
+      ...snapshot,
+      tables: snapshot.tables.map((table) =>
+        table.name === operation.tableName
+          ? { ...table, columns: [...table.columns, operation.column] }
+          : table
+      ),
+    };
+  }
+  return snapshot;
 }
 
 // =============================================================================

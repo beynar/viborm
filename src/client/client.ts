@@ -77,6 +77,7 @@ import type { ResolvedRelationIndex } from "@schema/validation/relation-resoluti
 import { validateClientSchemaOrThrow } from "@schema/validation/validator";
 import { createResolvedSchemaRegistry } from "@validation/builder";
 import { executeArrayTransaction } from "./array-transaction";
+import { assertDecimalDomainsFitProvider } from "./decimal-provider-limits";
 import {
   getOfficialDefaultOmitChainCapability,
   type OfficialDefaultOmitExtension,
@@ -172,20 +173,6 @@ function isRawMethodName(prop: string | symbol): prop is keyof RawSurface {
 export interface VibORMConfig<S extends Schema = Schema> {
   schema: S;
   driver: AnyDriver;
-  /**
-   * **Transitional escape hatch — removed in the release after this one.**
-   *
-   * `"number"` restores the pre-W6 decimal decode, where a decimal read comes
-   * back as a JS `number`. It is RUNTIME ONLY: the static types still say
-   * `string`, so a client with this set is deliberately type-incoherent and
-   * your editor will keep telling you so.
-   *
-   * It exists for one thing — unblocking a deploy that cannot migrate every
-   * decimal read at once. It is not a supported mode. A `number` is a double
-   * and cannot hold what a `numeric` / `DECIMAL(65,30)` column holds, which is
-   * the entire reason decimals became strings.
-   */
-  decimal?: "string" | "number";
 }
 
 export interface DriverConfig<S extends Schema = Schema>
@@ -515,13 +502,7 @@ export class VibORM<C extends VibORMConfig> {
       schemaRegistry,
       relations
     );
-    this.engine = new QueryEngine(
-      config.driver,
-      registry,
-      undefined,
-      undefined,
-      config.decimal ?? "string"
-    );
+    this.engine = new QueryEngine(config.driver, registry);
   }
 
   /**
@@ -1256,6 +1237,11 @@ export class VibORM<C extends VibORMConfig> {
     // unchanged so their own code survives.
     const orm = assertConstructed(() => {
       hydrateSchemaNames(config.schema);
+      // The selected adapter's physical capability, asked once here and before
+      // any provider I/O (plan §3.1). A decimal domain no dialect could store is
+      // a definition error, and the caller learns it at the line that bound the
+      // schema rather than at the first UPDATE that could not compute inside it.
+      assertDecimalDomainsFitProvider(config.schema, config.driver.dialect);
       // ONE resolution for the whole client lifecycle: the gate's index goes
       // straight into the constructor, so the registry and query scopes are
       // composed over the same object (§11.4.10).
@@ -1342,9 +1328,7 @@ export const createClientFromDriverConfig = <
 ): VibORMClient<{
   schema: C["schema"];
   driver: D;
-  decimal: C["decimal"];
 }> => {
   const schema = config.schema;
-  const decimal = config.decimal;
-  return VibORM.create({ schema, driver, decimal });
+  return VibORM.create({ schema, driver });
 };

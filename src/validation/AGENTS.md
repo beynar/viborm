@@ -113,6 +113,44 @@ and releases each factory after that variant resolves. General lazy records and
 `v.lazy`/`v.lazyRef` also release a successful factory while retaining the
 resolved value.
 
+### Fixed-Decimal Value and Operation Boundary
+
+`primitives/decimal-codec.ts` owns both the one structural `DecimalDescriptor`
+shape and the one field-aware decimal codec. It owns the accepted
+`Decimal | string | number` input grammar, configuration-independent Decimal
+snapshot/render, exact one-constructor materialization, canonical private text, descriptor validation,
+logical/coefficient conversion, provider scalar/list encode/decode, widened
+sum decode, and fresh public Decimal construction. Import it by direct path;
+do not add a barrel cycle, another structural descriptor, or a second
+cache/query/migration codec.
+
+Its provider-domain table applies uniformly to scalar and list fields:
+PostgreSQL admits precision through 1000; MySQL admits `precision <= 65`,
+`scale <= 30`, and `precision + scale <= 65`; SQLite-family providers admit
+`precision <= 18` and `precision + scale <= 18`. The client binding boundary
+reads this table before provider I/O; no dialect invents a wider local domain.
+
+`v.decimal()` emits canonical private text because operation identity, row keys,
+cursors, and cache keys need value equality. A custom schema observes a
+`Decimal`; the codec snapshots its complete, bounded, finite observable
+numerical representation, then the descriptor validates that snapshot last.
+Decimal.js provides no unforgeable constructor-history witness, so this boundary
+does not claim historical provenance. Public result materialization happens
+later at the typed result leaf.
+
+A literal decimal default crosses that complete field codec once at declaration
+and is retained as trusted canonical output. The decimal create schema applies
+that output through the existing optional wrapper; a list uses an internal
+trusted factory that returns a fresh container. Operation validation and L5
+schema validation do not re-enter the custom schema. A function default remains
+untrusted and crosses the complete codec once after each invocation. Explicit
+writes cross it once as ordinary input. Other scalar defaults retain the generic
+default-validation path.
+
+`scalars/decimal.ts` owns the exact-one scalar and list update unions. Empty,
+multi-key, unknown, inherited, and explicit-undefined operation bags fail here.
+The query engine trusts that decision and must not add a second precedence guard.
+
 ### Nested Relation Data Projection
 
 A nested payload never writes into the target model's own `core.create` /

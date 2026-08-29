@@ -9,7 +9,7 @@ import type { Sql } from "@sql";
 import { getColumnName } from "../context";
 import { getAggregateResultKey } from "../result-aliases";
 import type { QueryScope } from "../types";
-import { assertExactDecimalOperation } from "./decimal-portability";
+import { decimalDescriptorOf } from "./decimal-field";
 
 /**
  * Aggregate function types
@@ -106,13 +106,20 @@ export function buildAggregateColumn(
 
   const scalars = ctx.model["~"].state.scalars;
   const pairs: [string, Sql][] = entries.map(([field]) => {
-    // Every aggregate over a decimal — min/max included, since they are an
-    // ordering — needs an exact decimal type to be exact. Refused where there
-    // is none rather than computed through a double.
-    assertExactDecimalOperation(ctx, field, `_${aggType}`);
     // Resolve field name to actual column name (handles .map() overrides)
     const columnName = getColumnName(ctx.model, field);
-    let expr = aggFn(adapter.identifiers.column(alias, columnName));
+    const column = adapter.identifiers.column(alias, columnName);
+    const decimal = decimalDescriptorOf(ctx.model, field);
+    // `_avg` of a decimal is the only aggregate whose SQL differs: it is
+    // derived from the exact SUM and COUNT(column) and quantized to the
+    // field's scale, because `AVG()` is a double on SQLite and picks its own
+    // result scale elsewhere. `_sum` deliberately keeps plain `SUM` — its
+    // answer may exceed the field's precision, which is a widened decode
+    // question and not a SQL one — and `_min`/`_max` stay in the field domain.
+    let expr =
+      decimal && aggType === "avg"
+        ? adapter.aggregates.decimalAvg(column, decimal)
+        : aggFn(column);
     // BigInt/Decimal aggregates lose precision as JSON numbers — cast to
     // TEXT like select-builder does; the result parser converts back
     const scalarType = scalars[field]?.["~"].state.type;

@@ -25,7 +25,7 @@ s.string().minLength(3).maxLength(100); // String-specific validations
 ```typescript
 s.int().id().positive().max(100); // Returns NumberScalar<...>
 s.number().nullable().list(); // Returns NumberScalar<...>
-s.decimal().min(0).max(999.99); // Number-specific validations
+s.decimal({ precision: 5, scale: 2 }); // Returns DecimalScalar<...>
 ```
 
 ### 3. BooleanScalar ✅

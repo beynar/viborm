@@ -6,6 +6,12 @@
  */
 
 import { PG, SQLITE } from "@schema/scalars/native-types";
+import {
+  type DecimalDescriptor,
+  decimalColumnType,
+} from "@validation/primitives/decimal-codec";
+import { MigrationError, VibORMErrorCode } from "../../errors";
+import { SQLITE_DECIMAL_LIST_TYPE } from "../decimal";
 
 // =============================================================================
 // TYPE MAPPING CONSTANTS
@@ -19,7 +25,6 @@ export const PG_TYPE_DEFAULTS = {
   string: PG.STRING.TEXT.type,
   int: PG.INT.INTEGER.type,
   number: PG.FLOAT.DOUBLE_PRECISION.type,
-  decimal: "numeric", // PG.DECIMAL.NUMERIC() returns a function, use literal
   boolean: PG.BOOLEAN.BOOLEAN.type,
   datetime: "timestamp",
   datetimetz: "timestamptz",
@@ -42,12 +47,6 @@ export const SQLITE_TYPE_DEFAULTS = {
   string: SQLITE.STRING.TEXT.type,
   int: SQLITE.INT.INTEGER.type,
   number: SQLITE.FLOAT.REAL.type,
-  // TEXT, not REAL: SQLite has no exact decimal type, and REAL (or anything
-  // with NUMERIC affinity) rounds a fractional value into a double as it is
-  // stored. TEXT keeps the canonical spelling byte-exact at any precision. The
-  // operations text cannot answer exactly are refused, not approximated —
-  // see adapter capability `supportsExactDecimal`.
-  decimal: SQLITE.DECIMAL.TEXT.type,
   boolean: SQLITE.BOOLEAN.INTEGER.type,
   datetime: SQLITE.DATETIME.TEXT.type,
   date: SQLITE.DATETIME.TEXT.type,
@@ -69,7 +68,6 @@ export const MYSQL_TYPE_DEFAULTS = {
   string: "TEXT",
   int: "INT",
   number: "DOUBLE",
-  decimal: "DECIMAL(65,30)", // bare DECIMAL means DECIMAL(10,0), silently truncating fractions; match Prisma's default
   boolean: "TINYINT(1)", // MySQL uses TINYINT(1) for boolean
   datetime: "DATETIME(3)", // Use DATETIME(3) to preserve JavaScript Date millisecond precision
   datetimetz: "DATETIME(3)", // MySQL DATETIME can store with timezone via application
@@ -88,27 +86,37 @@ export const MYSQL_TYPE_DEFAULTS = {
 // TYPE MAPPING FUNCTIONS
 // =============================================================================
 
-export type VibORMScalarType =
-  | "string"
-  | "int"
-  | "number"
-  | "decimal"
-  | "boolean"
-  | "datetime"
-  | "date"
-  | "time"
-  | "bigint"
-  | "json"
-  | "blob"
-  | "vector"
-  | "point"
-  | "enum";
-
 export interface ScalarTypeContext {
   type: string;
   array?: boolean;
   withTimezone?: boolean;
   dimension?: number | undefined;
+  /**
+   * The declared fixed-decimal domain, for a `decimal` scalar. Every decimal
+   * type on every dialect is DERIVED from it — there is no unconstrained
+   * `numeric`, no `DECIMAL(65,30)`, and no TEXT decimal to fall back to.
+   */
+  decimal?: DecimalDescriptor | undefined;
+}
+
+/**
+ * The declared domain of a decimal context.
+ *
+ * A decimal column with no descriptor has no physical type at all: the numbers
+ * cannot be inferred from storage, a value, a driver, or an operation (plan
+ * §1.1), so the alternative to refusing is inventing a second precision — which
+ * is exactly the `DECIMAL(65,30)` this program deletes. The public decimal
+ * factory cannot produce such a state; a hand-built or externally-deserialized
+ * scalar state can, and this is where it stops.
+ */
+function requireDecimalDomain(context: ScalarTypeContext): DecimalDescriptor {
+  if (context.decimal) return context.decimal;
+  throw new MigrationError(
+    "A decimal column has no declared precision and scale. " +
+      "The fixed-decimal domain is declared once, on the scalar, and every physical type is derived from it.",
+    VibORMErrorCode.INVALID_INPUT,
+    { meta: { scalarType: "decimal" } }
+  );
 }
 
 /**
@@ -128,7 +136,10 @@ export function getPostgresType(context: ScalarTypeContext): string {
       baseType = PG_TYPE_DEFAULTS.number;
       break;
     case "decimal":
-      baseType = PG_TYPE_DEFAULTS.decimal;
+      // `NUMERIC(p,s)`, and `NUMERIC(p,s)[]` through the array suffix below:
+      // PostgreSQL carries the domain in the element typmod, which is the one
+      // place introspection can read it back from.
+      baseType = decimalColumnType("pg", requireDecimalDomain(context));
       break;
     case "boolean":
       baseType = PG_TYPE_DEFAULTS.boolean;
@@ -179,9 +190,14 @@ export function getPostgresType(context: ScalarTypeContext): string {
  * SQLite doesn't support native arrays - they are stored as JSON.
  */
 export function getSQLiteType(context: ScalarTypeContext): string {
-  // SQLite doesn't support native arrays - use JSON
+  // SQLite doesn't support native arrays - use JSON.
+  //
+  // A decimal list is the one exception, and it is TEXT rather than JSON for a
+  // physical reason: its reserved CHECK asserts `typeof = 'text'`, and the
+  // literal type `JSON` has NUMERIC affinity under SQLite's rules, which would
+  // convert a numeric-looking container on the way in.
   if (context.array) {
-    return "JSON";
+    return context.type === "decimal" ? SQLITE_DECIMAL_LIST_TYPE : "JSON";
   }
 
   switch (context.type) {
@@ -198,10 +214,13 @@ export function getSQLiteType(context: ScalarTypeContext): string {
       return SQLITE_TYPE_DEFAULTS.int;
     case "number":
       return SQLITE_TYPE_DEFAULTS.number;
-    // NOT the number default: a decimal column is TEXT on SQLite so the
-    // exact spelling survives. REAL rounds it into a double on the way in.
+    // The signed INTEGER coefficient scaled by 10^scale. SQLite has no exact
+    // decimal type at all — `DECIMAL(10,5)` is a NUMERIC-affinity spelling
+    // whose numbers it ignores, and REAL rounds a fractional value into a
+    // double as it is stored — so the exact value lives in an integer and the
+    // declared precision is made real by the reserved CHECK the driver adds.
     case "decimal":
-      return SQLITE_TYPE_DEFAULTS.decimal;
+      return decimalColumnType("sqlite", requireDecimalDomain(context));
     case "datetime":
     case "date":
     case "time":
@@ -230,8 +249,12 @@ export function getMySQLType(context: ScalarTypeContext): string {
       return MYSQL_TYPE_DEFAULTS.int;
     case "number":
       return MYSQL_TYPE_DEFAULTS.number;
+    // Never bare `DECIMAL`: MySQL reads that as `DECIMAL(10,0)` and silently
+    // truncates every fraction. A decimal LIST is caught by the array arm
+    // above, where it is JSON like every other MySQL list and carries its
+    // domain in the column-comment marker instead.
     case "decimal":
-      return MYSQL_TYPE_DEFAULTS.decimal;
+      return decimalColumnType("mysql", requireDecimalDomain(context));
     case "boolean":
       return MYSQL_TYPE_DEFAULTS.boolean;
     case "datetime":

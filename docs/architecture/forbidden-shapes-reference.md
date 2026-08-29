@@ -81,6 +81,12 @@ those 15, plus `relation-key-legality.ts` ×1 and `builders/decimal-portability.
 `src/client/raw.ts` outside it. The query-engine count — the scope §O4's grep names —
 is **17**.
 
+*(Exact fixed-decimal update.)* `builders/decimal-portability.ts` is **deleted**, so
+the whole-`src` count above is **18** and the query-engine one **16**. It was the only
+site whose premise a representation change could falsify, and one did: a decimal on
+SQLite is now the unscaled integer coefficient, which orders, aggregates and computes
+exactly. See §12 cluster 12.
+
 Sites are positions, not shapes, and the mapping between the two is what that census
 test's narrative owns — including the sites that are deliberately not shapes in
 this document, each named where it belongs below. **§12 gives every one of the 19 its
@@ -807,7 +813,7 @@ and is kept because a coordinate that vanishes teaches nothing.
 |---|---|---|---|---|---|
 | 22 | `relation-key-legality.ts:162` | `assertSelectedUpdateManyDataIsScalar` (`:155`), junction arm | **MSI** | `:173` / `:167` (both arms) | Twin of 9. |
 | 23 | `relation-key-legality.ts:166` | the same function, ordinary arm | **MSI** | **RETIRED → 22** | Twin of 10. |
-| 24 | `builders/decimal-portability.ts:56` | `assertExactDecimalOperation` (`:48`) | **PSI** | `:56` / `:48` | §7.5. SQLite has no exact decimal type; the message already names the workaround. |
+| 24 | former `builders/decimal-portability.ts:56` | `assertExactDecimalOperation` (`:48`) | — | RETIRED | §7.5's premise is false: SQLite stores a decimal as its unscaled integer coefficient, so ordering, aggregating and arithmetic are exact there. File, capability and all sixteen call sites deleted (8 files: aggregate-utils 1, orderby-builder 1, relation-orderby-builder 1, set-builder 4, where-builder 4, cursor-order 2, groupby 2, groupby-having 1); the refusal enumeration is inverted into `decimal-exact-surface.core.test.ts`. |
 
 ### The 2 `src` sites outside the query engine
 
@@ -841,7 +847,7 @@ carried in `guard-ownership-ledger.md` and
 | 9 | a compound child edge into a junction | 1 (17) | **0 as a census site** — CONVERTED; the invariant is still engine-owned by `getRequiredSinglePrimaryKeyField` and still refused before any I/O |
 | 10 | depth on an upsert's update arm | 1 (13) | 1 (13) |
 | 11 | publication on a batch substrate | 1 (19) | 1 (19) |
-| 12 | decimal portability | 1 (24) | 1 (24) |
+| 12 | decimal portability | 1 (24) | 0 (24 RETIRED) |
 
 By scope, as §O4 asks: write-engine **15 sites / 10 invariants** · query-engine
 **17 / 12** · whole `src` **19 / 14**. Engine-owned refusal invariants: **13**,

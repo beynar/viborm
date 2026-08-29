@@ -21,7 +21,7 @@ icon: server
 | `int()` | `INT` |
 | `bigint()` | `BIGINT` |
 | `number()` | `DOUBLE` |
-| `decimal()` | `DECIMAL(65,30)` |
+| `decimal({ precision, scale })` | `DECIMAL(precision,scale)` |
 | `boolean()` | `TINYINT(1)` |
 | `datetime()` | `DATETIME(3)` |
 | `date()` | `DATE` |
@@ -32,6 +32,56 @@ icon: server
 | Array scalars | `JSON` |
 
 `DATETIME(3)` and `TIME(3)` preserve JavaScript `Date` millisecond precision.
+Decimal-list JSON contains canonical coefficient **strings**, never JSON
+numbers, and carries one exact VibORM column-comment marker so introspection can
+recover the element precision and scale.
+
+## Exact decimal requirements
+
+Every effectful MySQL migration command proves MySQL 8.0.16 or later and a
+strict SQL mode on its pinned session before its first effect. Earlier releases
+parse `CHECK` syntax but do not enforce the named constraints that prove a
+decimal conversion before `MODIFY COLUMN`. The accepted modes are
+`STRICT_TRANS_TABLES` and `STRICT_ALL_TABLES`.
+
+The V1 provider domain is uniform for scalar and list fields: `precision <= 65`,
+`scale <= 30`, and `precision + scale <= 65`. A descriptor with precision 65
+and scale 30 is therefore outside the admitted API even though MySQL can spell
+`DECIMAL(65,30)` in another context.
+
+The proof is command-wide, not a decimal-statement classifier. Migration work
+can include provider-authored DDL and manual artifacts whose value effects
+cannot be classified safely before execution. One admission proof therefore
+protects the complete command without adding a per-statement mode query.
+Ordinary typed writes do not add a session-admission query. Arithmetic remains
+fail-loud on non-strict sessions because its `UPDATE` checks the exact
+intermediate and final domains before assignment. Configure strict mode for raw
+SQL and other out-of-band writes.
+
+A scalar descriptor conversion uses a reversible three-statement proof bracket:
+add one reserved named `CHECK`, run `MODIFY COLUMN`, then drop the proof. Each
+completed DDL statement is an implicit commit boundary. An interruption can
+therefore leave at most one reserved proof behind.
+
+The next locked migration command authenticates that proof's reserved name,
+column, and exact predicate before its first effect. A foreign collision,
+malformed proof, or multiple reserved proofs is refused before any `DROP`. The
+authenticated cleanup is planned once per command, runs in the first sequential
+program, and is recorded through the same last-completed-statement boundary as
+the conversion statements. A later failure reports the last statement that
+completed, including the recovery `DROP` when it completed.
+
+A decimal list can widen precision without rewriting its member strings when
+its scale does not change. The migration still adds a validating `CHECK`, runs
+`MODIFY COLUMN` to replace the descriptor marker, then drops the check. A list
+change that must rewrite JSON members is refused before effects: MySQL DDL
+implicitly commits, and a column `CHECK` cannot validate every member of a JSON
+array before that boundary.
+
+PlanetScale has no admitted effectful migration route. Decimal-list marker
+create/introspect/alter survival is therefore proved on the MySQL dialect
+substrate; a hosted PlanetScale connection can only provide the available
+introspection leg.
 
 ## Portable String Collation
 

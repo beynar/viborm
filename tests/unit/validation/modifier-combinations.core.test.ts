@@ -43,6 +43,72 @@ describe("scalar modifier combinations", () => {
     expect(parse(nullableArray, ["value"])).toEqual({ value: ["value"] });
   });
 
+  test("passes defaults through the composed validator exactly once", () => {
+    const external = {
+      "~standard": {
+        version: 1 as const,
+        vendor: "external",
+        validate: vi.fn((value: unknown) => ({
+          value: String(value).toUpperCase(),
+        })),
+      },
+    } satisfies StandardSchemaV1<string, string>;
+    const transform = vi.fn((value: string) => `${value}!`);
+    const scalar = v.string({
+      default: () => "fallback",
+      schema: external,
+      transform,
+    });
+    const invalidScalar = v.string({ default: 1 as never });
+    const invalidArray = v.string({
+      array: true,
+      default: ["accepted", 1] as never,
+    });
+
+    expect(parse(scalar, undefined)).toEqual({ value: "FALLBACK!" });
+    expect(external["~standard"].validate).toHaveBeenCalledTimes(1);
+    expect(transform).toHaveBeenCalledTimes(1);
+    expect(parse(invalidScalar, undefined)).toEqual({
+      issues: [{ message: "Expected string" }],
+    });
+    expect(parse(invalidArray, undefined)).toEqual({
+      issues: [{ message: "Expected string", path: [1] }],
+    });
+  });
+
+  test("contains a throwing default factory as a validation issue", () => {
+    let calls = 0;
+    const schema = v.string({
+      default: () => {
+        calls += 1;
+        throw new Error("default exploded");
+      },
+    });
+
+    expect(parse(schema, undefined)).toEqual({
+      issues: [{ message: "Default failed: default exploded" }],
+    });
+    expect(calls).toBe(1);
+  });
+
+  test("contains a thrown value that cannot be rendered", () => {
+    const unrenderable = {
+      [Symbol.toPrimitive]() {
+        throw new Error("render trap");
+      },
+    };
+    const schema = v.string({
+      default: () => {
+        throw unrenderable;
+      },
+    });
+
+    expect(() => parse(schema, undefined)).not.toThrow();
+    expect(parse(schema, undefined)).toEqual({
+      issues: [{ message: "Default failed: unrenderable thrown value" }],
+    });
+  });
+
   test("contains external schema and transform failures as issues", () => {
     const external: StandardSchemaV1<string, string> = {
       "~standard": {

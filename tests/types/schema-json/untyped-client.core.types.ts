@@ -89,6 +89,52 @@ const _floatFieldIsNotADocument = (): SchemaDocument => ({
     },
   },
 });
+
+const _decimalNeedsItsDomain = (): SchemaDocument => ({
+  version: 1,
+  models: {
+    reading: {
+      fields: {
+        // @ts-expect-error - a decimal document declares both domain bounds
+        value: { type: "decimal" },
+      },
+    },
+  },
+});
+
+const _decimalHasNoNativeOverride = (): SchemaDocument => ({
+  version: 1,
+  models: {
+    reading: {
+      fields: {
+        value: {
+          type: "decimal",
+          precision: 10,
+          scale: 2,
+          // @ts-expect-error - fixed-decimal storage is derived from its domain
+          native: { db: "pg", type: "text" },
+        },
+      },
+    },
+  },
+});
+
+const _nonDecimalHasNoDecimalDomain = (): SchemaDocument => ({
+  version: 1,
+  models: {
+    reading: {
+      fields: {
+        value: {
+          type: "string",
+          // @ts-expect-error - precision belongs only to decimal
+          precision: 10,
+          // @ts-expect-error - scale belongs only to decimal
+          scale: 2,
+        },
+      },
+    },
+  },
+});
 const _attached: Schema = attachFieldSchemas(parsed, {});
 
 // Both entry points take the same options bag, and both answer the same type

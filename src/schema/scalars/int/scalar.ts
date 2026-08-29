@@ -29,9 +29,11 @@ export class IntScalar<State extends ScalarState<"int">> {
         base: v.integer<{
           nullable: true;
           array: State["array"];
+          schema: State["schema"];
         }>({
           nullable: true,
           array: this.state.array,
+          schema: this.state.schema,
         }),
       }),
       this._nativeType

@@ -156,8 +156,7 @@ export class ReadOperation {
     const parsed = new ResultParser(
       this.engine,
       this.model,
-      this.engine.driver,
-      this.engine.decimalDecode
+      this.engine.driver
     ).parse<T>(
       this.base as Operation,
       rows,
@@ -168,12 +167,7 @@ export class ReadOperation {
   }
 
   createResultParser(): ResultParser {
-    return new ResultParser(
-      this.engine,
-      this.model,
-      this.engine.driver,
-      this.engine.decimalDecode
-    );
+    return new ResultParser(this.engine, this.model, this.engine.driver);
   }
 
   createExpectedResultShape(): ExpectedResultShape | undefined {
@@ -191,8 +185,7 @@ export class ReadOperation {
       this.model,
       this.base as Operation,
       this.requestedOperation,
-      shape,
-      this.engine.decimalDecode
+      shape
     );
     return this.cacheResultCodec;
   }

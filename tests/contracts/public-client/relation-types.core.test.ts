@@ -9,6 +9,7 @@ import type { BatchPayload } from "@client/exports";
 import { createClient as PGliteCreateClient } from "@drivers/pglite";
 import { push } from "@migrations";
 import { DbNull, s } from "@schema";
+import Decimal from "decimal.js";
 import {
   afterAll,
   beforeAll,
@@ -24,6 +25,10 @@ import { z } from "zod/v4";
 // =============================================================================
 
 // Parent model with all scalar types
+
+/** SQLite-legal on purpose (`precision + scale <= 18`). */
+const MONEY = { precision: 16, scale: 2 } as const;
+
 const parentModel = s.model({
   id: s.string().id(),
 
@@ -36,7 +41,7 @@ const parentModel = s.model({
   intRequired: s.int(),
   intNullable: s.int().nullable(),
   numberRequired: s.number(),
-  decimalRequired: s.decimal(),
+  decimalRequired: s.decimal(MONEY),
 
   // Boolean scalars
   booleanRequired: s.boolean(),
@@ -134,7 +139,7 @@ describe("Relation Types Integration Test", () => {
         stringArray: string[];
         intRequired: number;
         numberRequired: number;
-        decimalRequired: number;
+        decimalRequired: Decimal;
         booleanRequired: boolean;
         bigintRequired: bigint;
         datetimeRequired: Date;
@@ -242,7 +247,7 @@ describe("Relation Types Integration Test", () => {
         stringArray: string[];
         intRequired: number;
         numberRequired: number;
-        decimalRequired: number;
+        decimalRequired: Decimal;
         booleanRequired: boolean;
         bigintRequired: bigint;
         datetimeRequired: Date;
@@ -303,7 +308,7 @@ describe("Relation Types Integration Test", () => {
         stringArray: string[];
         intRequired: number;
         numberRequired: number;
-        decimalRequired: number;
+        decimalRequired: Decimal;
         booleanRequired: boolean;
         bigintRequired: bigint;
         datetimeRequired: Date;
@@ -466,8 +471,6 @@ describe("Relation Types Integration Test", () => {
       include: { parent: true },
     });
 
-    const t = childWithParent?.parent.status;
-
     expect(childWithParent).not.toBeNull();
     if (!childWithParent) throw new Error("Child not found");
 
@@ -490,11 +493,11 @@ describe("Relation Types Integration Test", () => {
     expect(parent.intNullable).toBeNull();
     expect(typeof parent.numberRequired).toBe("number");
     expect(parent.numberRequired).toBeCloseTo(3.14);
-    // W6-U1: a decimal comes back as its exact canonical string, through a
-    // relation as much as at the top level. `toBeCloseTo` was the tell that the
-    // old value was approximate — an exact one can be compared exactly.
-    expect(typeof parent.decimalRequired).toBe("string");
-    expect(parent.decimalRequired).toBe("99.99");
+    // A decimal comes back as a `Decimal`, through a relation as much as at
+    // the top level. `toBeCloseTo` was the tell that the old value was
+    // approximate — an exact one is compared exactly.
+    expect(parent.decimalRequired).toBeInstanceOf(Decimal);
+    expect(parent.decimalRequired.eq("99.99")).toBe(true);
 
     // Boolean types
     expect(typeof parent.booleanRequired).toBe("boolean");
@@ -541,10 +544,10 @@ describe("Relation Types Integration Test", () => {
       number | null
     >();
     expectTypeOf(childWithParent.parent.numberRequired).toEqualTypeOf<number>();
-    // W6-U1: decimals read as exact strings, through relations too
+    // Decimals read as `Decimal`, through relations too
     expectTypeOf(
       childWithParent.parent.decimalRequired
-    ).toEqualTypeOf<string>();
+    ).toEqualTypeOf<Decimal>();
     expectTypeOf(
       childWithParent.parent.booleanRequired
     ).toEqualTypeOf<boolean>();

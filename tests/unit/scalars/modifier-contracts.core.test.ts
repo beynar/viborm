@@ -15,11 +15,23 @@ import {
   vector,
 } from "@schema/scalars";
 import { isGeneratorDefault } from "@schema/scalars/common";
+import type { StandardSchemaOf } from "@standard-schema/spec";
 import { parse } from "@validation";
 import v from "@validation/primitives/v";
+import type Decimal from "decimal.js";
 import { describe, expect, it } from "vitest";
 
 const nativeType = { db: "pg", type: "contract_type" } as const;
+const DOMAIN = { precision: 10, scale: 2 } as const;
+
+/** A Standard Schema over the decimal VALUE that accepts every Decimal. */
+const identityDecimalSchema = (): StandardSchemaOf<Decimal> => ({
+  "~standard": {
+    version: 1,
+    vendor: "modifier-contracts",
+    validate: (value: unknown) => ({ value: value as Decimal }),
+  },
+});
 const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const ISO_TIMESTAMP_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 const ISO_TIME_PATTERN = /^\d{2}:\d{2}:\d{2}$/;
@@ -29,7 +41,6 @@ const MAP_CASES = [
   ["string", () => string(nativeType)],
   ["int", () => int(nativeType)],
   ["number", () => number(nativeType)],
-  ["decimal", () => decimal(nativeType)],
   ["boolean", () => boolean(nativeType)],
   ["datetime", () => dateTime(nativeType)],
   ["date", () => date(nativeType)],
@@ -46,7 +57,7 @@ const ID_CASES = [
   ["string", () => string(), () => string().id()],
   ["int", () => int(), () => int().id()],
   ["number", () => number(), () => number().id()],
-  ["decimal", () => decimal(), () => decimal().id()],
+  ["decimal", () => decimal(DOMAIN), () => decimal(DOMAIN).id()],
   ["datetime", () => dateTime(), () => dateTime().id()],
   ["date", () => date(), () => date().id()],
   ["time", () => time(), () => time().id()],
@@ -57,7 +68,7 @@ const UNIQUE_CASES = [
   ["string", () => string(), () => string().unique()],
   ["int", () => int(), () => int().unique()],
   ["number", () => number(), () => number().unique()],
-  ["decimal", () => decimal(), () => decimal().unique()],
+  ["decimal", () => decimal(DOMAIN), () => decimal(DOMAIN).unique()],
   ["datetime", () => dateTime(), () => dateTime().unique()],
   ["date", () => date(), () => date().unique()],
   ["time", () => time(), () => time().unique()],
@@ -92,8 +103,10 @@ const SCHEMA_CASES = [
   [
     "decimal",
     () => {
-      const before = decimal();
-      const schema = v.string();
+      const before = decimal(DOMAIN);
+      // A decimal's custom schema observes the exact VALUE, so it is a schema
+      // over `Decimal` rather than over the canonical text.
+      const schema = identityDecimalSchema();
       return { before, after: before.schema(schema), schema, value: "4.2" };
     },
   ],
@@ -205,6 +218,30 @@ describe("scalar modifier contracts", () => {
     expect(parse(after["~"].state.base, value).issues).toBeUndefined();
   });
 
+  it("keeps an int custom schema active after nullable() rebuilds the base", () => {
+    let runs = 0;
+    const schema: StandardSchemaOf<number> = {
+      "~standard": {
+        version: 1,
+        vendor: "modifier-contracts",
+        validate: (value: unknown) => {
+          runs += 1;
+          return typeof value === "number"
+            ? { value }
+            : { issues: [{ message: "expected number" }] };
+        },
+      },
+    };
+
+    const nullableInt = int().schema(schema).nullable();
+
+    expect(nullableInt["~"].state.schema).toBe(schema);
+    expect(parse(nullableInt["~"].state.base, 42).issues).toBeUndefined();
+    expect(runs).toBe(1);
+    expect(parse(nullableInt["~"].state.base, null).issues).toBeUndefined();
+    expect(runs).toBe(1);
+  });
+
   it.each([
     ["int", () => int().increment()],
     ["bigint", () => bigInt().increment()],
@@ -314,8 +351,10 @@ describe("scalar modifier contracts", () => {
     [
       "decimal",
       () => {
-        const before = decimal();
-        return { before, after: before.default("4.2"), value: "4.2" };
+        const before = decimal(DOMAIN);
+        // Normalized through the field codec at DEFINITION time: what the state
+        // retains is the canonical logical value, not the caller's spelling.
+        return { before, after: before.default("4.20"), value: "4.2" };
       },
     ],
   ] as const)("stores an explicit %s default without mutating its source", (_name, createCase) => {

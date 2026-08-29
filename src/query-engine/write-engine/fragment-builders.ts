@@ -1,6 +1,7 @@
 import type { Model } from "@schema/model";
 import type { Scalar } from "@schema/scalars/base";
 import { isSql, type Sql } from "@sql";
+import { decimalDescriptorOfScalar } from "../builders/decimal-field";
 import {
   decimalLiteral,
   getScalarCastTypeForScalar,
@@ -30,12 +31,12 @@ import {
  * A CONCRETE DECIMAL takes the exact-decimal literal instead — the same
  * `decimalLiteral` every other decimal write uses, canonicalization included.
  * Nothing else will do: a decimal relation key is compared against a parent
- * column that was written canonically, so `9.50` reaching here as a cast
- * parameter matches nothing on SQLite (canonical TEXT storage), and the cast
- * alone cannot fix a spelling. Writing an FK any other way than its referenced
- * column is how the two ends of one relation came to disagree inside a single
- * statement pair — silently on drivers with foreign keys off, as a spurious
- * `ForeignKeyError` on drivers with them on.
+ * column that was written through the same field codec, so `9.50` reaching here
+ * as an unscaled parameter matches nothing on SQLite (coefficient storage), and
+ * a generic cast cannot supply the missing scale. Writing an FK any other way
+ * than its referenced column is how the two ends of one relation came to
+ * disagree inside a single statement pair — silently on drivers with foreign
+ * keys off, as a spurious `ForeignKeyError` on drivers with them on.
  *
  * A CONCRETE DATETIME takes the adapter's `dateTime` literal, for the same
  * reason and with the same measurement behind it. MySQL's `DATETIME` rejects
@@ -58,9 +59,9 @@ import {
  * `Ref` this function cannot spell yet — is covered.
  *
  * A `Ref` or a pre-built `Sql` cannot be canonicalized here (its value does not
- * exist yet), so it keeps the cast path — which for a decimal is the
- * EXACT-decimal cast (`getScalarCastType` -> `"decimal"`), not the number
- * `"numeric"` one, and for a temporal is no cast at all.
+ * exist yet), so a decimal is cast through the referenced field's exact
+ * descriptor rather than through the approximate `numeric` cast map. A
+ * deferred temporal value remains uncast.
  */
 export function referenceSql(
   engine: QueryEngine,
@@ -83,17 +84,25 @@ export function referenceScalarSql(
   field: string,
   value: unknown
 ): Sql {
+  const decimal = decimalDescriptorOfScalar(scalar);
+  if (decimal !== undefined) {
+    if (isConcreteFkValue(value)) {
+      // The DOMAIN travels with the value: on SQLite it is what turns the
+      // logical key into the coefficient the referenced column stores.
+      return decimalLiteral(engine.adapter, field, value, decimal);
+    }
+    return engine.adapter.expressions.decimalCast(
+      engine.adapter.literals.value(value),
+      decimal
+    );
+  }
   const cast = getScalarCastTypeForScalar(scalar);
-  if (isConcreteFkValue(value)) {
-    if (cast === "decimal") {
-      return decimalLiteral(engine.adapter, field, value);
-    }
-    if (
-      getScalarTypeForScalar(scalar) === "datetime" &&
-      typeof value === "string"
-    ) {
-      return engine.adapter.literals.dateTime(value);
-    }
+  if (
+    isConcreteFkValue(value) &&
+    getScalarTypeForScalar(scalar) === "datetime" &&
+    typeof value === "string"
+  ) {
+    return engine.adapter.literals.dateTime(value);
   }
   const sqlValue = engine.adapter.literals.value(value);
   return cast ? engine.adapter.expressions.cast(sqlValue, cast) : sqlValue;

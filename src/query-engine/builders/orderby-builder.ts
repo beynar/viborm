@@ -17,7 +17,6 @@ import {
   QueryEngineError,
   type QueryScope,
 } from "../types";
-import { assertExactDecimalOperation } from "./decimal-portability";
 import {
   buildPolymorphicRelationOrders,
   buildRelationOrders,
@@ -100,12 +99,6 @@ function buildOrderByInternal(
         }
         throw new QueryEngineError(`Unknown orderBy field '${field}'.`);
       }
-
-      // Ordering a decimal is exact only where the dialect has an exact decimal
-      // type. On SQLite the column holds canonical TEXT, whose byte order is
-      // NOT numeric order ("9" sorts after "10"), and the cast that would fix
-      // that goes through a double — so the sort is refused, not approximated.
-      assertExactDecimalOperation(ctx, field, "orderBy");
 
       // Resolve field name to actual column name (handles .map() overrides)
       const columnName = getColumnName(ctx.model, field);

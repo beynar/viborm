@@ -61,6 +61,7 @@ export type {
 } from "./types";
 
 import type { StandardSchemaV1 } from "@standard-schema/spec";
+import { validationFailureFromThrown } from "./parse-failure";
 import type { ParseResult, ValidationFailure } from "./types";
 import { isFunction, isRecord } from "./value-guards";
 
@@ -72,6 +73,10 @@ const asyncValidationFailure: ValidationFailure = {
   issues: [{ message: "Async validation is not supported" }],
 };
 
+const malformedValidationFailure: ValidationFailure = {
+  issues: [{ message: "Schema returned a malformed validation result" }],
+};
+
 export function parse<const S extends StandardSchemaV1>(
   schema: S,
   value: unknown
@@ -80,9 +85,20 @@ export function parse(
   schema: StandardSchemaV1,
   value: unknown
 ): StandardSchemaV1.Result<unknown> {
-  const result = schema["~standard"].validate(value);
-  if (isPromiseLike(result)) {
-    return asyncValidationFailure;
+  try {
+    const result = schema["~standard"].validate(value);
+    if (isPromiseLike(result)) {
+      return asyncValidationFailure;
+    }
+    if (!isRecord(result)) return malformedValidationFailure;
+
+    const issues = Reflect.get(result, "issues");
+    if (issues !== undefined) {
+      return Array.isArray(issues) ? { issues } : malformedValidationFailure;
+    }
+    if (!("value" in result)) return malformedValidationFailure;
+    return { value: Reflect.get(result, "value") };
+  } catch (cause) {
+    return validationFailureFromThrown(cause);
   }
-  return result;
 }

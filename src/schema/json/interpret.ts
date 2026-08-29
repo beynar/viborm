@@ -22,8 +22,14 @@ import type { Getter } from "@schema/relation/types";
 import { enumScalar } from "@schema/scalars";
 import type { Scalar } from "@schema/scalars/base";
 import type { ScalarType } from "@schema/scalars/common";
+import {
+  buildDecimalScalar,
+  DecimalScalar,
+  withValidatedDecimalDefault,
+} from "@schema/scalars/decimal/scalar";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { JsonValue } from "@validation/primitives/json";
+import { toError } from "../../errors/diagnostic-safety";
 import { decodeDefault } from "./default-codec";
 import type {
   EnumDocument,
@@ -45,7 +51,6 @@ import {
   pointer,
   refuseDocument,
   refuseFromBuilder,
-  toError,
 } from "./issues";
 
 /**
@@ -263,6 +268,14 @@ function createScalar(
   schema: SchemaDocument,
   path: string
 ): Scalar {
+  if (document.type === "decimal") {
+    // The domain is the factory's ARGUMENT, not a modifier, because a decimal
+    // has no state without it. The two numbers are handed over exactly as the
+    // node carries them — `s.decimal` owns whether they name a domain, and
+    // `call` turns its refusal into this node's issue.
+    const { precision, scale } = document;
+    return call(path, () => buildDecimalScalar({ precision, scale }));
+  }
   if (document.type !== "enum") {
     const factory = SCALAR_FACTORIES[document.type];
     return call(path, () => factory(document.native));
@@ -398,6 +411,9 @@ function applyDefault(
       `A '${document.type}' default must be a value of the field's own domain: ${verdict.issues.map((issue) => issue.message).join("; ")}`
     );
     throw refuseDocument(issues);
+  }
+  if (scalar instanceof DecimalScalar) {
+    return withValidatedDecimalDefault(scalar, verdict.value);
   }
   return modify(scalar, "default", [value], document.type, defaultPath);
 }

@@ -8,7 +8,6 @@
 import { getModelKeyCatalog } from "@schema/model";
 import { type Sql, sql } from "@sql";
 import { isRecord } from "@validation/value-guards";
-import { assertExactDecimalOperation } from "../builders/decimal-portability";
 import type { WhereUniqueEntry } from "../builders/where-unique-builder";
 import {
   getColumnName,
@@ -164,12 +163,6 @@ function parseRequestedScalarOrder(
         return undefined;
       }
 
-      // This path replaces the ordinary order-by builder whenever a window is present (`take`,
-      // `skip` with `take`, `cursor`, and every `findFirst`), so the decimal
-      // gate that lives in the orderby-builder has to be repeated here or the
-      // ordinary paginated spelling escapes it entirely.
-      assertExactDecimalOperation(ctx, field, "orderBy");
-
       seen.add(field);
       normalized.push({
         field,
@@ -239,16 +232,6 @@ function appendTieBreakers(
         `Cursor tie-break field '${field}' must be a scalar field.`
       );
     }
-
-    // A tie-breaker is part of the emitted total order and of the cursor's row
-    // comparison, so a decimal one decides page boundaries just as much as the
-    // requested keys do — and it is added whether or not the caller named it.
-    // The strongest case for refusing it is portability rather than stability:
-    // `findMany({ take: 1 })` on a decimal-keyed model returns the numerically
-    // smallest row on Postgres and the lexicographically smallest one here,
-    // which is a different row for the same query. Different answers, so a
-    // refusal.
-    assertExactDecimalOperation(ctx, field, "orderBy tie-break");
 
     orderedFields.add(field);
     order.push({

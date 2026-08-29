@@ -1,19 +1,38 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import {
+  assertEvidenceProgramCommits,
   CROSS_PROVIDER_BASELINE_COMMIT,
+  defaultMeasurementIterations,
   EXTENSION_ARMS,
+  FIXED_DECIMAL_BASELINE_COMMIT,
   PROVIDERS,
+  resolveEvidenceProgram,
   WORKLOADS,
 } from "./operation-pipeline-catalog.mjs";
 import {
+  findProtocolOverlayImplementationPaths,
   PROTOCOL_PATHS,
   protocolSha256,
 } from "./operation-pipeline-protocol.mjs";
+import { providerRows } from "./operation-pipeline-provider-fixtures.mjs";
 import {
+  constructAndRetainFixedDecimalFloor,
+  constructFixedDecimalFloorValues,
+  consumeAndRetainFixedDecimalResult,
+  retainsFixedDecimalResult,
+} from "./operation-pipeline-provider-workloads.mjs";
+import {
+  aggregateCandidateTarget,
   aggregateTarget,
+  catalogRegressionCeilings,
+  checkoutOrder,
   diagnosticMeasurementCounts,
+  evaluateFixedDecimalCandidateGate,
   evaluateKeepGate,
+  isExactFixedDecimalLockDelta,
   isPerOperationMetric,
   measuredFields,
   parseDeclaredBudgets,
@@ -24,8 +43,36 @@ const DID_NOT_IMPROVE_PATTERN = /did not improve by more than 2×MAD/;
 const NO_TARGET_PATTERN = /No target, ceiling, or budget metric contract/;
 const REPLICATE_CHECKSUM_DRIFT_PATTERN =
   /sqlite3\/scalar-find-unique\/full\/cpu changed semantic checksum across replicates/;
+const MODE_CHECKSUM_DRIFT_PATTERN =
+  /sqlite3\/scalar-find-unique\/full\/baseline changed semantic checksum across modes/;
 const D1_MIXED_SCALAR_PATTERN = /d1\/provider-mixed-scalar-20/;
 const DIAGNOSTIC_MODE_PATTERN = /Diagnostic mode/;
+const INVALID_BUDGET_CONTRACT_PATTERN =
+  /Invalid --budget .* expected provider\/workload\/stage\/mode\/metric\/\(absolute\|percent\)\/non-negative-maximum/;
+const DUPLICATE_BUDGET_PATTERN = /Duplicate --budget metric contract/;
+const ALLOCATION_ROW_BUDGET_PATTERN =
+  /Budget metric allocatedBytesPerRow is not a per-operation metric measured in alloc mode/;
+const ALLOCATION_CPU_BUDGET_PATTERN =
+  /Budget metric cpuMicrosecondsPerOperation is not a per-operation metric measured in alloc mode/;
+const INVALID_BUDGET_PATTERN = /Invalid --budget/;
+const ABSOLUTE_BUDGET_PATTERN =
+  /exceeded its absolute 100 allowed-overhead budget/;
+const WALL_REGRESSION_PATTERN =
+  /wallMicrosecondsPerOperation regressed beyond 2×MAD/;
+const ROW_SCALING_PATTERN = /added row-scaled overhead/;
+const FULL_CPU_EVIDENCE_PATTERN = /missing corresponding full\/cpu evidence/;
+const PERCENT_BUDGET_PATTERN = /exceeded its percent 8 allowed-overhead budget/;
+const FIVE_PERCENT_CEILING_PATTERN = /exceeded its 5% ceiling/;
+const FIXED_DECIMAL_CEILING_PATTERN = /3% ceiling or 2×MAD/;
+const MIXED_EVIDENCE_PROGRAM_PATTERN = /mixes evidence programs/;
+const MISSING_FIXED_DECIMAL_EVIDENCE_PATTERN = /missing fixed-decimal evidence/;
+const FIXED_DECIMAL_BASELINE_PATTERN =
+  /requires baseline 1d796d4e01841becfbb2f6805668ef11d270aa0e/;
+const CANDIDATE_PROTOCOL_COMMIT_PATTERN =
+  /must run from candidate protocol commit/;
+const COMPARE_SCRIPT = fileURLToPath(
+  new URL("./operation-pipeline-compare.mjs", import.meta.url)
+);
 
 const workload = "scalar-find-unique";
 const targets = [
@@ -135,7 +182,7 @@ test("allowed-overhead budget parsing refuses malformed, duplicate, and non-oper
         ],
         budgetWorkloads
       ),
-    /Invalid --budget .* expected provider\/workload\/stage\/mode\/metric\/\(absolute\|percent\)\/non-negative-maximum/
+    INVALID_BUDGET_CONTRACT_PATTERN
   );
   assert.throws(
     () =>
@@ -146,7 +193,7 @@ test("allowed-overhead budget parsing refuses malformed, duplicate, and non-oper
         ],
         budgetWorkloads
       ),
-    /Duplicate --budget metric contract/
+    DUPLICATE_BUDGET_PATTERN
   );
   assert.throws(
     () =>
@@ -156,7 +203,7 @@ test("allowed-overhead budget parsing refuses malformed, duplicate, and non-oper
         ],
         budgetWorkloads
       ),
-    /Budget metric allocatedBytesPerRow is not a per-operation metric measured in alloc mode/
+    ALLOCATION_ROW_BUDGET_PATTERN
   );
   assert.throws(
     () =>
@@ -166,7 +213,7 @@ test("allowed-overhead budget parsing refuses malformed, duplicate, and non-oper
         ],
         budgetWorkloads
       ),
-    /Budget metric cpuMicrosecondsPerOperation is not a per-operation metric measured in alloc mode/
+    ALLOCATION_CPU_BUDGET_PATTERN
   );
   assert.throws(
     () =>
@@ -176,7 +223,7 @@ test("allowed-overhead budget parsing refuses malformed, duplicate, and non-oper
         ],
         budgetWorkloads
       ),
-    /Invalid --budget/
+    INVALID_BUDGET_PATTERN
   );
 });
 
@@ -241,15 +288,9 @@ test("a passed absolute budget covers its operation and derived row metrics only
 
   assert.equal(evaluate(100).eligible, true);
   assert.equal(evaluate(101).eligible, false);
-  assert.match(
-    evaluate(101).reasons.join("\n"),
-    /exceeded its absolute 100 allowed-overhead budget/
-  );
+  assert.match(evaluate(101).reasons.join("\n"), ABSOLUTE_BUDGET_PATTERN);
   assert.equal(evaluate(100, true).eligible, false);
-  assert.match(
-    evaluate(100, true).reasons.join("\n"),
-    /wallMicrosecondsPerOperation regressed beyond 2×MAD/
-  );
+  assert.match(evaluate(100, true).reasons.join("\n"), WALL_REGRESSION_PATTERN);
 });
 
 test("an absolute budget cannot suppress the independent row-scaling proof", () => {
@@ -338,7 +379,7 @@ test("an absolute budget cannot suppress the independent row-scaling proof", () 
   });
 
   assert.equal(gate.eligible, false);
-  assert.match(gate.reasons.join("\n"), /added row-scaled overhead/);
+  assert.match(gate.reasons.join("\n"), ROW_SCALING_PATTERN);
   assert.equal(
     gate.reasons.some((reason) => reason.includes("regressed beyond 2×MAD")),
     false
@@ -349,9 +390,7 @@ test("an absolute budget still requires full allocation and CPU evidence", () =>
   const gate = evaluateKeepGate({
     smoke: false,
     hasOverrides: false,
-    targets: [
-      { provider: "sqlite3", workload, stage: "full", mode: "alloc" },
-    ],
+    targets: [{ provider: "sqlite3", workload, stage: "full", mode: "alloc" }],
     declaredTargets: [],
     declaredBudgets: [
       {
@@ -381,10 +420,7 @@ test("an absolute budget still requires full allocation and CPU evidence", () =>
     ],
   });
   assert.equal(gate.eligible, false);
-  assert.match(
-    gate.reasons.join("\n"),
-    /missing corresponding full\/cpu evidence/
-  );
+  assert.match(gate.reasons.join("\n"), FULL_CPU_EVIDENCE_PATTERN);
 });
 
 test("a percentage budget covers significant overhead only within its cap", () => {
@@ -440,15 +476,9 @@ test("a percentage budget covers significant overhead only within its cap", () =
 
   assert.equal(evaluate(8).eligible, true);
   assert.equal(evaluate(8.01).eligible, false);
-  assert.match(
-    evaluate(8.01).reasons.join("\n"),
-    /exceeded its percent 8 allowed-overhead budget/
-  );
+  assert.match(evaluate(8.01).reasons.join("\n"), PERCENT_BUDGET_PATTERN);
   assert.equal(evaluate(null).eligible, false);
-  assert.match(
-    evaluate(null).reasons.join("\n"),
-    /exceeded its percent 8 allowed-overhead budget/
-  );
+  assert.match(evaluate(null).reasons.join("\n"), PERCENT_BUDGET_PATTERN);
 });
 
 test("a strict ceiling can reject a metric whose allowed-overhead budget passes", () => {
@@ -506,7 +536,7 @@ test("a strict ceiling can reject a metric whose allowed-overhead budget passes"
   });
 
   assert.equal(gate.eligible, false);
-  assert.match(gate.reasons.join("\n"), /exceeded its 5% ceiling/);
+  assert.match(gate.reasons.join("\n"), FIVE_PERCENT_CEILING_PATTERN);
 });
 
 test("row scaling accepts only the shared per-operation metric surface", () => {
@@ -523,18 +553,27 @@ test("row scaling accepts only the shared per-operation metric surface", () => {
 });
 
 test("diagnostic mode uses reduced row-scaled counts and can never authorize a keep", () => {
-  assert.deepEqual(diagnosticMeasurementCounts(1, "alloc"), {
-    iterations: 1000,
-    warmupIterations: 200,
-  });
-  assert.deepEqual(diagnosticMeasurementCounts(100, "cpu"), {
-    iterations: 200,
-    warmupIterations: 40,
-  });
-  assert.deepEqual(diagnosticMeasurementCounts(1000, "retained"), {
-    iterations: 10,
-    warmupIterations: 10,
-  });
+  assert.deepEqual(
+    diagnosticMeasurementCounts({ rowsPerOperation: 1 }, "alloc"),
+    {
+      iterations: 1000,
+      warmupIterations: 200,
+    }
+  );
+  assert.deepEqual(
+    diagnosticMeasurementCounts({ rowsPerOperation: 100 }, "cpu"),
+    {
+      iterations: 200,
+      warmupIterations: 40,
+    }
+  );
+  assert.deepEqual(
+    diagnosticMeasurementCounts({ rowsPerOperation: 1000 }, "retained"),
+    {
+      iterations: 10,
+      warmupIterations: 10,
+    }
+  );
 
   const gate = evaluateKeepGate({
     smoke: false,
@@ -546,6 +585,36 @@ test("diagnostic mode uses reduced row-scaled counts and can never authorize a k
   });
   assert.equal(gate.eligible, false);
   assert.match(gate.reasons.join("\n"), DIAGNOSTIC_MODE_PATTERN);
+});
+
+test("fixed-decimal retained diagnostics use equal operation counts", () => {
+  const one = WORKLOADS["provider-fixed-decimal-row-1"];
+  const thousand = WORKLOADS["provider-fixed-decimal-row-1000"];
+  assert.deepEqual(diagnosticMeasurementCounts(one, "retained"), {
+    iterations: 10,
+    warmupIterations: 10,
+  });
+  assert.deepEqual(diagnosticMeasurementCounts(thousand, "retained"), {
+    iterations: 10,
+    warmupIterations: 10,
+  });
+  assert.deepEqual(
+    diagnosticMeasurementCounts({ rowsPerOperation: 1 }, "retained"),
+    {
+      iterations: 100,
+      warmupIterations: 20,
+    }
+  );
+});
+
+test("fixed-decimal retained arms compare cardinalities after equal operation counts", () => {
+  const one = WORKLOADS["provider-fixed-decimal-row-1"];
+  const thousand = WORKLOADS["provider-fixed-decimal-row-1000"];
+  assert.equal(defaultMeasurementIterations(one, "retained", false), 20);
+  assert.equal(defaultMeasurementIterations(thousand, "retained", false), 20);
+  assert.equal(defaultMeasurementIterations(one, "alloc", false), 5000);
+  assert.equal(defaultMeasurementIterations(thousand, "alloc", false), 100);
+  assert.equal(defaultMeasurementIterations(one, "retained", true), 2);
 });
 
 test("a ceiling contract requires both its percentage and 2×MAD bounds", () => {
@@ -716,6 +785,36 @@ test("the shared lock implementation contributes bytes to the protocol SHA", () 
   assert.notEqual(changed, baseline);
 });
 
+test("protocol overlays classify package build configuration as implementation", () => {
+  assert.equal(PROTOCOL_PATHS.includes("tsdown.config.ts"), false);
+  assert.deepEqual(
+    findProtocolOverlayImplementationPaths([
+      "benchmarks/operation-pipeline-catalog.mjs",
+      "tsdown.config.ts",
+    ]),
+    ["tsdown.config.ts"]
+  );
+});
+
+test("package build configuration differences do not change protocol identity", () => {
+  const sharedContents = Object.fromEntries(
+    PROTOCOL_PATHS.map((path) => [path, Buffer.from(`fixture:${path}`)])
+  );
+  const baselineContents = {
+    ...sharedContents,
+    "tsdown.config.ts": Buffer.from("baseline build configuration"),
+  };
+  const candidateContents = {
+    ...sharedContents,
+    "tsdown.config.ts": Buffer.from("candidate build configuration"),
+  };
+
+  assert.equal(
+    protocolSha256((path) => baselineContents[path]),
+    protocolSha256((path) => candidateContents[path])
+  );
+});
+
 test("pairwise checksum agreement cannot hide drift across replicates", () => {
   const samples = [
     { checkout: "baseline", replicate: 0, checksum: 10 },
@@ -736,6 +835,31 @@ test("pairwise checksum agreement cannot hide drift across replicates", () => {
   assert.throws(
     () => verifyCrossStageSemantics(samples),
     REPLICATE_CHECKSUM_DRIFT_PATTERN
+  );
+});
+
+test("pairwise checksum agreement cannot hide drift across modes", () => {
+  const samples = ["alloc", "cpu", "retained"].flatMap((mode) =>
+    ["baseline", "candidate"].map((checkout) => ({
+      checkout,
+      workload,
+      stage: "full",
+      mode,
+      output: {
+        iterations: mode === "retained" ? 10 : 100,
+        semanticDigest: "same-complete-result",
+        measurement: { checksum: mode === "retained" ? 100 : 1000 },
+      },
+    }))
+  );
+
+  assert.doesNotThrow(() => verifyCrossStageSemantics(samples));
+  for (const sample of samples) {
+    if (sample.mode === "retained") sample.output.measurement.checksum = 200;
+  }
+  assert.throws(
+    () => verifyCrossStageSemantics(samples),
+    MODE_CHECKSUM_DRIFT_PATTERN
   );
 });
 
@@ -816,6 +940,10 @@ test("the cross-provider catalog pins every Unit 2 provider and stage", () => {
       WORKLOADS[`provider-mixed-scalar-${rows}`].rowsPerOperation,
       rows
     );
+    assert.equal(
+      WORKLOADS[`provider-mixed-scalar-${rows}`].comparison,
+      "candidate-only"
+    );
   }
   for (const workloadName of [
     "provider-wide-scalar-100",
@@ -836,6 +964,798 @@ test("the cross-provider catalog pins every Unit 2 provider and stage", () => {
     "fallback-batch",
     "native-batch",
   ]);
+});
+
+test("provider decimal fixtures retain logical and SQLite coefficient values", () => {
+  const [row] = providerRows(1);
+  assert.equal(row.amount, "1.125");
+  assert.equal(row.amountCoefficient, 1125);
+});
+
+test("fixed-decimal evidence admits only the pinned decimal.js lockfile delta", () => {
+  const baseline =
+    "dependencies:\n      commander: present\npackages:\nsnapshots:\n";
+  assert.equal(isExactFixedDecimalLockDelta(baseline, baseline), false);
+  const candidate = baseline
+    .replace(
+      "      commander: present\n",
+      "      commander: present\n      decimal.js:\n        specifier: 10.6.0\n        version: 10.6.0\n"
+    )
+    .replace(
+      "packages:\n",
+      "packages:\n\n  decimal.js@10.6.0:\n    resolution: {integrity: sha512-YpgQiITW3JXGntzdUmyUR1V812Hn8T1YVXhCu+wO3OpS4eU9l4YdD3qjyiKdV6mvV29zapkMeD390UVEf2lkUg==}\n"
+    )
+    .replace("snapshots:\n", "snapshots:\n\n  decimal.js@10.6.0: {}\n");
+  assert.equal(isExactFixedDecimalLockDelta(baseline, candidate), true);
+  assert.equal(
+    isExactFixedDecimalLockDelta(
+      baseline,
+      candidate.replace("version: 10.6.0", "version: 10.6.1")
+    ),
+    false
+  );
+  assert.equal(
+    isExactFixedDecimalLockDelta(baseline, `${candidate}other: changed\n`),
+    false
+  );
+});
+
+test("fixed-decimal evidence separates the scalar A/B control from candidate-only decimal work", () => {
+  const providers = ["sqlite3", "pglite", "mysql2"];
+  const scalarControl = WORKLOADS["provider-fixed-decimal-scalar-control"];
+  assert.equal(scalarControl.comparison, "baseline-candidate");
+  assert.equal(scalarControl.regressionCeilingPercent, 3);
+  assert.deepEqual(scalarControl.providers, providers);
+
+  for (const [name, rows] of [
+    ["provider-fixed-decimal-row-1", 1],
+    ["provider-fixed-decimal-row-1000", 1000],
+    ["provider-fixed-decimal-arithmetic", 1],
+    ["provider-fixed-decimal-aggregate", 1],
+    ["provider-fixed-decimal-list", 1],
+  ]) {
+    const definition = WORKLOADS[name];
+    assert.equal(definition.comparison, "candidate-only");
+    assert.equal(definition.rowsPerOperation, rows);
+    assert.deepEqual(definition.providers, providers);
+    assert.ok(definition.stages.includes("full"));
+  }
+  for (const rows of [1, 1000]) {
+    assert.equal(
+      WORKLOADS[`provider-fixed-decimal-text-row-${rows}`].comparison,
+      "candidate-only"
+    );
+    assert.deepEqual(WORKLOADS[`provider-fixed-decimal-floor-${rows}`].stages, [
+      "decimal-construct",
+    ]);
+    assert.deepEqual(
+      WORKLOADS[`provider-fixed-decimal-row-${rows}`].fixedDecimalAttribution,
+      {
+        textControlWorkload: `provider-fixed-decimal-text-row-${rows}`,
+        constructorFloorWorkload: `provider-fixed-decimal-floor-${rows}`,
+      }
+    );
+  }
+});
+
+test("provider evidence programs select one exact baseline and refuse mixed programs", () => {
+  assert.equal(
+    FIXED_DECIMAL_BASELINE_COMMIT,
+    "1d796d4e01841becfbb2f6805668ef11d270aa0e"
+  );
+  assert.deepEqual(
+    resolveEvidenceProgram(["provider-wide-scalar-100"], WORKLOADS),
+    {
+      name: "provider-transport",
+      baselineCommit: CROSS_PROVIDER_BASELINE_COMMIT,
+      lockfileComparison: "identical",
+      requiredProviders: [],
+    }
+  );
+  assert.deepEqual(
+    resolveEvidenceProgram(
+      ["provider-fixed-decimal-scalar-control"],
+      WORKLOADS
+    ),
+    {
+      name: "fixed-decimal",
+      baselineCommit: FIXED_DECIMAL_BASELINE_COMMIT,
+      lockfileComparison: "fixed-decimal-dependency-only",
+      requiredProviders: ["sqlite3", "pglite"],
+    }
+  );
+  assert.throws(
+    () =>
+      resolveEvidenceProgram(
+        ["provider-wide-scalar-100", "provider-fixed-decimal-scalar-control"],
+        WORKLOADS
+      ),
+    MIXED_EVIDENCE_PROGRAM_PATTERN
+  );
+  assert.throws(
+    () => resolveEvidenceProgram(undefined, WORKLOADS),
+    MIXED_EVIDENCE_PROGRAM_PATTERN
+  );
+});
+
+test("fixed-decimal protocol overlays retain the exact source baseline", () => {
+  const fixedProgram = resolveEvidenceProgram(
+    ["provider-fixed-decimal-scalar-control"],
+    WORKLOADS
+  );
+  assert.doesNotThrow(() =>
+    assertEvidenceProgramCommits(fixedProgram, {
+      baselineCommit: FIXED_DECIMAL_BASELINE_COMMIT,
+      candidateCommit: "candidate",
+      coordinatorCommit: "candidate",
+    })
+  );
+  assert.throws(
+    () =>
+      assertEvidenceProgramCommits(fixedProgram, {
+        baselineCommit: CROSS_PROVIDER_BASELINE_COMMIT,
+        candidateCommit: "candidate",
+        coordinatorCommit: "candidate",
+      }),
+    FIXED_DECIMAL_BASELINE_PATTERN
+  );
+  assert.throws(
+    () =>
+      assertEvidenceProgramCommits(fixedProgram, {
+        baselineCommit: "protocol-overlay-head",
+        candidateCommit: "candidate",
+        coordinatorCommit: "candidate",
+      }),
+    FIXED_DECIMAL_BASELINE_PATTERN
+  );
+  assert.throws(
+    () =>
+      assertEvidenceProgramCommits(fixedProgram, {
+        baselineCommit: FIXED_DECIMAL_BASELINE_COMMIT,
+        candidateCommit: "candidate",
+        coordinatorCommit: "stale-protocol",
+      }),
+    CANDIDATE_PROTOCOL_COMMIT_PATTERN
+  );
+});
+
+function summary(median, mad = 1) {
+  return { median, mad, min: median - mad, max: median + mad };
+}
+
+function candidateMetricSet(mode, value, rowsPerOperation) {
+  if (mode === "alloc") {
+    return {
+      allocatedBytesPerOperation: summary(value),
+      allocatedBytesPerRow: summary(value / rowsPerOperation),
+    };
+  }
+  if (mode === "cpu") {
+    return {
+      cpuMicrosecondsPerOperation: summary(value),
+      wallMicrosecondsPerOperation: summary(value),
+    };
+  }
+  return {
+    retainedBytesPerOperation: summary(0),
+    retainedBytesPerRow: summary(0),
+    releasedBytesPerOperation: summary(value),
+    releasedBytesPerRow: summary(value / rowsPerOperation),
+    peakRssBytes: summary(100_000),
+    peakRssGrowthBytes: summary(10_000),
+  };
+}
+
+function completeFixedDecimalMeasurements(provider = "sqlite3") {
+  const measurements = [];
+  for (const [workloadName, definition] of Object.entries(WORKLOADS)) {
+    if (definition.evidenceProgram !== "fixed-decimal") continue;
+    const stage =
+      definition.providerShape.kind === "fixed-decimal-floor"
+        ? "decimal-construct"
+        : "full";
+    for (const mode of ["alloc", "cpu", "retained"]) {
+      const rows = definition.rowsPerOperation;
+      const isFloor = definition.providerShape.kind === "fixed-decimal-floor";
+      const isText = definition.providerShape.kind === "fixed-decimal-text-row";
+      const base = isFloor
+        ? 10 * rows
+        : isText
+          ? 100 * rows
+          : mode === "retained"
+            ? 110 * rows
+            : 120 * rows;
+      measurements.push({
+        provider,
+        workload: workloadName,
+        stage,
+        mode,
+        ...(definition.comparison === "baseline-candidate"
+          ? {
+              byCheckout: {
+                baseline: { metrics: candidateMetricSet(mode, base, rows) },
+                candidate: { metrics: candidateMetricSet(mode, base, rows) },
+              },
+            }
+          : { metrics: candidateMetricSet(mode, base, rows) }),
+      });
+      if (
+        mode !== "retained" &&
+        (definition.providerShape.kind === "fixed-decimal-row" ||
+          definition.providerShape.kind === "fixed-decimal-text-row")
+      ) {
+        const providerBase = isText ? 50 * rows : 60 * rows;
+        measurements.push({
+          provider,
+          workload: workloadName,
+          stage: "provider-execute",
+          mode,
+          metrics: candidateMetricSet(mode, providerBase, rows),
+        });
+      }
+    }
+  }
+  return measurements;
+}
+
+test("fixed-decimal candidate evidence gates attribution and row scaling without synthetic baselines", () => {
+  const measurements = completeFixedDecimalMeasurements();
+  const gate = evaluateFixedDecimalCandidateGate({
+    providers: ["sqlite3"],
+    measurements,
+    workloads: WORKLOADS,
+  });
+  assert.equal(gate.eligible, true);
+  assert.equal(gate.attribution.length, 14);
+  assert.equal(gate.rowScaling.length, 7);
+  assert.ok(
+    gate.attribution.every(
+      (metric) =>
+        metric.baseline === undefined && metric.syntheticBaseline === undefined
+    )
+  );
+  const retained = gate.attribution.find(
+    (metric) =>
+      metric.cardinality === 1 && metric.metric === "retainedBytesPerOperation"
+  );
+  assert.equal(retained.tenPercentLimit, null);
+  assert.equal(retained.percentageApplied, false);
+  assert.equal(retained.formula, "decimal - text-control - constructor-floor");
+  assert.equal(retained.providerDelta, undefined);
+  const released = gate.attribution.find(
+    (metric) =>
+      metric.cardinality === 1 && metric.metric === "releasedBytesPerOperation"
+  );
+  assert.equal(
+    released.formula,
+    "decimal - text-control - constructor-floor"
+  );
+  assert.equal(released.providerDelta, undefined);
+  assert.ok(
+    gate.attribution.some((metric) => metric.metric === "peakRssBytes")
+  );
+  assert.ok(
+    gate.attribution.some((metric) => metric.metric === "peakRssGrowthBytes")
+  );
+  const allocation = gate.attribution.find(
+    (metric) =>
+      metric.cardinality === 1 &&
+      metric.metric === "allocatedBytesPerOperation"
+  );
+  assert.equal(
+    allocation.formula,
+    "decimal-full - text-full - (decimal-provider-execute - text-provider-execute) - constructor-floor"
+  );
+  assert.deepEqual(allocation.providerDelta, {
+    stage: "provider-execute",
+    decimal: summary(60),
+    textControl: summary(50),
+    median: 10,
+    twoMadThreshold: 4,
+  });
+
+  const pathological = completeFixedDecimalMeasurements();
+  const decimalThousandAllocation = pathological.find(
+    (measurement) =>
+      measurement.workload === "provider-fixed-decimal-row-1000" &&
+      measurement.stage === "full" &&
+      measurement.mode === "alloc"
+  );
+  decimalThousandAllocation.metrics.allocatedBytesPerOperation = summary(
+    140 * 1000,
+    1000
+  );
+  assert.equal(
+    evaluateFixedDecimalCandidateGate({
+      providers: ["sqlite3"],
+      measurements: pathological,
+      workloads: WORKLOADS,
+    }).eligible,
+    false
+  );
+
+  const zeroFloor = completeFixedDecimalMeasurements();
+  for (const rows of [1, 1000]) {
+    const floor = zeroFloor.find(
+      (measurement) =>
+        measurement.workload === `provider-fixed-decimal-floor-${rows}` &&
+        measurement.mode === "alloc"
+    );
+    floor.metrics.allocatedBytesPerOperation = summary(0);
+    floor.metrics.allocatedBytesPerRow = summary(0);
+    const decimal = zeroFloor.find(
+      (measurement) =>
+        measurement.workload === `provider-fixed-decimal-row-${rows}` &&
+        measurement.stage === "full" &&
+        measurement.mode === "alloc"
+    );
+    decimal.metrics.allocatedBytesPerOperation = summary(100 * rows);
+    decimal.metrics.allocatedBytesPerRow = summary(100);
+  }
+  const zeroFloorGate = evaluateFixedDecimalCandidateGate({
+    providers: ["sqlite3"],
+    measurements: zeroFloor,
+    workloads: WORKLOADS,
+  });
+  assert.equal(zeroFloorGate.eligible, true);
+  assert.equal(
+    zeroFloorGate.attribution.find(
+      (metric) =>
+        metric.cardinality === 1 &&
+        metric.metric === "allocatedBytesPerOperation"
+    ).percentageApplied,
+    false
+  );
+  assert.equal(
+    zeroFloorGate.rowScaling.find(
+      (metric) => metric.metric === "allocatedBytesPerOperation"
+    ).percentageApplied,
+    false
+  );
+
+  const missingFloor = measurements.filter(
+    (measurement) =>
+      !(
+        measurement.workload === "provider-fixed-decimal-floor-1000" &&
+        measurement.mode === "alloc"
+      )
+  );
+  const incomplete = evaluateFixedDecimalCandidateGate({
+    providers: ["sqlite3"],
+    measurements: missingFloor,
+    workloads: WORKLOADS,
+  });
+  assert.equal(incomplete.eligible, false);
+  assert.match(
+    incomplete.reasons.join("\n"),
+    MISSING_FIXED_DECIMAL_EVIDENCE_PATTERN
+  );
+
+  const missingProviderDelta = measurements.filter(
+    (measurement) =>
+      !(
+        measurement.workload === "provider-fixed-decimal-row-1000" &&
+        measurement.stage === "provider-execute" &&
+        measurement.mode === "cpu"
+      )
+  );
+  const missingProviderGate = evaluateFixedDecimalCandidateGate({
+    providers: ["sqlite3"],
+    measurements: missingProviderDelta,
+    workloads: WORKLOADS,
+  });
+  assert.equal(missingProviderGate.eligible, false);
+  assert.match(
+    missingProviderGate.reasons.join("\n"),
+    /provider-fixed-decimal-row-1000\/provider-execute\/cpu is missing fixed-decimal evidence/
+  );
+
+  const scalarOnly = measurements.filter(
+    (measurement) =>
+      measurement.workload === "provider-fixed-decimal-scalar-control"
+  );
+  assert.equal(
+    evaluateFixedDecimalCandidateGate({
+      providers: ["sqlite3"],
+      measurements: scalarOnly,
+      workloads: WORKLOADS,
+    }).eligible,
+    false
+  );
+});
+
+test("fixed-decimal retained attribution is signed but acceptance is one-sided", () => {
+  const measurements = completeFixedDecimalMeasurements();
+  const decimalThousandRetained = measurements.find(
+    (measurement) =>
+      measurement.workload === "provider-fixed-decimal-row-1000" &&
+      measurement.stage === "full" &&
+      measurement.mode === "retained"
+  );
+  decimalThousandRetained.metrics.retainedBytesPerOperation = summary(
+    -1_000_000,
+    0
+  );
+
+  const gate = evaluateFixedDecimalCandidateGate({
+    providers: ["sqlite3"],
+    measurements,
+    workloads: WORKLOADS,
+  });
+  const retainedAttribution = gate.attribution.find(
+    (entry) =>
+      entry.cardinality === 1000 && entry.metric === "retainedBytesPerOperation"
+  );
+  const retainedScaling = gate.rowScaling.find(
+    (entry) => entry.metric === "retainedBytesPerOperation"
+  );
+  assert.equal(gate.eligible, true);
+  assert.equal(retainedAttribution.excessMedian, -1_000_000);
+  assert.equal(retainedAttribution.passedNoise, true);
+  assert.equal(retainedScaling.scaledExcess, -1_000_000);
+  assert.equal(retainedScaling.passedNoise, true);
+
+  decimalThousandRetained.metrics.retainedBytesPerOperation = summary(
+    1_000_000,
+    0
+  );
+  const regression = evaluateFixedDecimalCandidateGate({
+    providers: ["sqlite3"],
+    measurements,
+    workloads: WORKLOADS,
+  });
+  assert.equal(regression.eligible, false);
+  assert.equal(
+    regression.attribution.find(
+      (entry) =>
+        entry.cardinality === 1000 &&
+        entry.metric === "retainedBytesPerOperation"
+    ).passedNoise,
+    false
+  );
+});
+
+test("fixed-decimal retained seams keep the consumed graph and result Decimal family", () => {
+  const textRows = [{ id: "record_1", amount: "1.125" }];
+  const retainedGraphs = [];
+  const textChecksum = consumeAndRetainFixedDecimalResult(
+    textRows,
+    { kind: "fixed-decimal-text-row" },
+    undefined,
+    (value) => retainedGraphs.push(value)
+  );
+  assert.equal(textChecksum, 11);
+  assert.equal(retainedGraphs[0], textRows);
+
+  class ResultDecimal {
+    constructor(value) {
+      this.value = Number(value);
+    }
+
+    toNumber() {
+      return this.value;
+    }
+  }
+
+  const floorSink = new Array(2);
+  const floorValues = constructFixedDecimalFloorValues(
+    ["1.125", "2.125"],
+    ResultDecimal,
+    floorSink
+  );
+  assert.equal(floorValues, floorSink);
+  assert.equal(floorValues.length, 2);
+  assert.ok(floorValues.every((value) => value instanceof ResultDecimal));
+  assert.deepEqual(
+    floorValues.map((value) => value.toNumber()),
+    [1.125, 2.125]
+  );
+
+  const decimalRows = [{ id: "record_1", amount: new ResultDecimal("1.125") }];
+  const decimalChecksum = consumeAndRetainFixedDecimalResult(
+    decimalRows,
+    { kind: "fixed-decimal-row" },
+    ResultDecimal,
+    (value) => retainedGraphs.push(value)
+  );
+  assert.equal(decimalChecksum, 3.25);
+  assert.equal(retainedGraphs[1], decimalRows);
+
+  const arithmeticRow = {
+    id: "record_1",
+    amount: new ResultDecimal("1.125"),
+  };
+  const aggregateResult = {
+    _min: { amount: new ResultDecimal("1.125") },
+    _max: { amount: new ResultDecimal("2.125") },
+    _sum: { amount: new ResultDecimal("3.25") },
+    _avg: { amount: new ResultDecimal("1.625") },
+  };
+  const listRows = [
+    {
+      id: "record_1",
+      amounts: [
+        new ResultDecimal("1.125"),
+        new ResultDecimal("2.125"),
+        new ResultDecimal("-0.375"),
+      ],
+    },
+  ];
+  for (const [providerShape, publicResult, expectedChecksum] of [
+    [{ kind: "fixed-decimal-arithmetic" }, arithmeticRow, 115.125],
+    [
+      { kind: "fixed-decimal-aggregate", sourceRows: 2 },
+      aggregateResult,
+      8.125,
+    ],
+    [{ kind: "fixed-decimal-list" }, listRows, 3.875],
+  ]) {
+    const retained = [];
+    const checksum = consumeAndRetainFixedDecimalResult(
+      publicResult,
+      providerShape,
+      ResultDecimal,
+      (value) => retained.push(value)
+    );
+    assert.equal(checksum, expectedChecksum);
+    assert.equal(retained[0], publicResult);
+    assert.equal(retainsFixedDecimalResult(providerShape), true);
+  }
+
+  assert.equal(retainsFixedDecimalResult({ kind: "mixed-scalar" }), false);
+
+  const retainedDecimals = [];
+  const floorChecksum = constructAndRetainFixedDecimalFloor(
+    ["1.125", "2.125"],
+    ResultDecimal,
+    (value) => retainedDecimals.push(value)
+  );
+  assert.equal(floorChecksum, 5.25);
+  assert.equal(retainedDecimals.length, 2);
+  assert.ok(retainedDecimals.every((value) => value instanceof ResultDecimal));
+});
+
+test("fixed-decimal RSS noise belongs to the selected larger control", () => {
+  const measurements = completeFixedDecimalMeasurements();
+  const findRetained = (workloadName) =>
+    measurements.find(
+      (measurement) =>
+        measurement.workload === workloadName &&
+        measurement.stage ===
+          (workloadName.includes("floor") ? "decimal-construct" : "full") &&
+        measurement.mode === "retained"
+    );
+  findRetained("provider-fixed-decimal-text-row-1").metrics.peakRssBytes =
+    summary(200, 1);
+  findRetained("provider-fixed-decimal-floor-1").metrics.peakRssBytes = summary(
+    100,
+    100
+  );
+  findRetained("provider-fixed-decimal-row-1").metrics.peakRssBytes = summary(
+    203,
+    0
+  );
+
+  const gate = evaluateFixedDecimalCandidateGate({
+    providers: ["sqlite3"],
+    measurements,
+    workloads: WORKLOADS,
+  });
+  const rss = gate.attribution.find(
+    (entry) => entry.cardinality === 1 && entry.metric === "peakRssBytes"
+  );
+  assert.equal(rss.excessMedian, 3);
+  assert.equal(rss.twoMadThreshold, 2);
+  assert.equal(rss.passedNoise, false);
+});
+
+test("fixed-decimal row scaling includes non-additive RSS levels and growth", () => {
+  const measurements = completeFixedDecimalMeasurements();
+  for (const rows of [1, 1000]) {
+    for (const workload of [
+      `provider-fixed-decimal-text-row-${rows}`,
+      `provider-fixed-decimal-floor-${rows}`,
+    ]) {
+      const control = measurements.find(
+        (measurement) =>
+          measurement.workload === workload && measurement.mode === "retained"
+      );
+      control.metrics.peakRssBytes = summary(200_000, 0);
+      control.metrics.peakRssGrowthBytes = summary(20_000, 0);
+    }
+    const decimal = measurements.find(
+      (measurement) =>
+        measurement.workload === `provider-fixed-decimal-row-${rows}` &&
+        measurement.stage === "full" &&
+        measurement.mode === "retained"
+    );
+    decimal.metrics.peakRssBytes = summary(rows === 1 ? 100_000 : 200_000, 0);
+    decimal.metrics.peakRssGrowthBytes = summary(
+      rows === 1 ? 10_000 : 20_000,
+      0
+    );
+  }
+
+  const gate = evaluateFixedDecimalCandidateGate({
+    providers: ["sqlite3"],
+    measurements,
+    workloads: WORKLOADS,
+  });
+  const rssScaling = gate.rowScaling.find(
+    (entry) => entry.metric === "peakRssBytes"
+  );
+  const rssGrowthScaling = gate.rowScaling.find(
+    (entry) => entry.metric === "peakRssGrowthBytes"
+  );
+  assert.equal(gate.eligible, false);
+  assert.equal(rssScaling.scaledExcess, 100_000);
+  assert.equal(rssScaling.tenPercentLimit, null);
+  assert.equal(rssScaling.passed, false);
+  assert.equal(rssGrowthScaling.scaledExcess, 10_000);
+  assert.equal(rssGrowthScaling.tenPercentLimit, null);
+  assert.equal(rssGrowthScaling.passed, false);
+});
+
+test("candidate-only targets never schedule or synthesize a baseline comparison", () => {
+  assert.deepEqual(checkoutOrder("candidate-only", 0), ["candidate"]);
+  assert.deepEqual(checkoutOrder("candidate-only", 4), ["candidate"]);
+  assert.deepEqual(checkoutOrder("baseline-candidate", 0), [
+    "baseline",
+    "candidate",
+  ]);
+  assert.deepEqual(checkoutOrder("baseline-candidate", 1), [
+    "candidate",
+    "baseline",
+  ]);
+
+  const target = {
+    provider: "sqlite3",
+    workload: "provider-fixed-decimal-row-1",
+    stage: "full",
+    mode: "alloc",
+  };
+  const samples = Array.from({ length: 5 }, (_, replicate) => ({
+    ...target,
+    checkout: "candidate",
+    replicate,
+    output: {
+      semanticDigest: "fixed-decimal-value",
+      witness: { statementCount: 1 },
+      measurement: {
+        checksum: 7,
+        allocatedBytesPerOperation: 100 + replicate,
+        allocatedBytesPerRow: 100 + replicate,
+      },
+    },
+  }));
+  const measurement = aggregateCandidateTarget(target, samples);
+  assert.equal(measurement.checkout, "candidate");
+  assert.equal(measurement.metrics.allocatedBytesPerOperation.median, 102);
+  assert.equal(Object.hasOwn(measurement, "deltas"), false);
+  assert.equal(Object.hasOwn(measurement, "baseline"), false);
+});
+
+test("the coordinator rotates linked fixed-decimal attribution arms by replicate", () => {
+  const schedule = JSON.parse(
+    execFileSync(process.execPath, [COMPARE_SCRIPT, "--schedule-self-check"], {
+      encoding: "utf8",
+    })
+  );
+  const scalar = schedule.filter(
+    (run) =>
+      run.workload === "provider-fixed-decimal-scalar-control" &&
+      run.stage === "full" &&
+      run.mode === "alloc"
+  );
+  assert.equal(scalar.length, 10);
+  for (let replicate = 0; replicate < 5; replicate++) {
+    assert.deepEqual(
+      scalar
+        .filter((run) => run.replicate === replicate)
+        .map((run) => run.checkout),
+      replicate % 2 === 0
+        ? ["baseline", "candidate"]
+        : ["candidate", "baseline"]
+    );
+  }
+
+  const attribution = schedule.filter(
+    (run) =>
+      run.workload !== "provider-fixed-decimal-scalar-control" &&
+      run.mode === "alloc"
+  );
+  assert.equal(attribution.length, 50);
+  let previousOrder;
+  for (let replicate = 0; replicate < 5; replicate++) {
+    const cohort = attribution.filter((run) => run.replicate === replicate);
+    assert.equal(cohort.length, 10);
+    assert.ok(cohort.every((run) => run.checkout === "candidate"));
+    const order = cohort.map((run) => `${run.workload}/${run.stage}`);
+    assert.equal(new Set(order).size, 10);
+    if (previousOrder !== undefined) {
+      assert.deepEqual(order, [...previousOrder.slice(1), previousOrder[0]]);
+    }
+    previousOrder = order;
+  }
+
+  const retainedAttribution = schedule.filter(
+    (run) =>
+      run.workload !== "provider-fixed-decimal-scalar-control" &&
+      run.mode === "retained"
+  );
+  assert.equal(retainedAttribution.length, 30);
+  assert.ok(
+    retainedAttribution.every((run) => run.stage !== "provider-execute")
+  );
+});
+
+test("the fixed-decimal scalar control always carries the 3 percent and 2×MAD ceilings", () => {
+  const targets = [
+    {
+      provider: "sqlite3",
+      workload: "provider-fixed-decimal-scalar-control",
+      stage: "full",
+      mode: "alloc",
+    },
+    {
+      provider: "sqlite3",
+      workload: "provider-fixed-decimal-scalar-control",
+      stage: "full",
+      mode: "cpu",
+    },
+  ];
+  assert.deepEqual(catalogRegressionCeilings(targets, WORKLOADS), [
+    {
+      provider: "sqlite3",
+      workload: "provider-fixed-decimal-scalar-control",
+      stage: "full",
+      mode: "alloc",
+      metric: "allocatedBytesPerOperation",
+      maximumPercent: 3,
+      source: "catalog",
+    },
+    {
+      provider: "sqlite3",
+      workload: "provider-fixed-decimal-scalar-control",
+      stage: "full",
+      mode: "cpu",
+      metric: "cpuMicrosecondsPerOperation",
+      maximumPercent: 3,
+      source: "catalog",
+    },
+  ]);
+
+  const gate = evaluateKeepGate({
+    smoke: false,
+    hasOverrides: false,
+    targets,
+    declaredTargets: [],
+    declaredCeilings: catalogRegressionCeilings(targets, WORKLOADS),
+    comparisons: [
+      {
+        ...targets[0],
+        deltas: {
+          allocatedBytesPerOperation: {
+            percent: 2,
+            significantImprovement: false,
+            significantRegression: true,
+          },
+        },
+      },
+      {
+        ...targets[1],
+        deltas: {
+          cpuMicrosecondsPerOperation: {
+            percent: 2,
+            significantImprovement: false,
+            significantRegression: false,
+          },
+        },
+      },
+    ],
+  });
+  assert.equal(gate.eligible, false);
+  assert.match(gate.reasons.join("\n"), FIXED_DECIMAL_CEILING_PATTERN);
 });
 
 test("retained mode reports retained, released, and peak process memory", () => {

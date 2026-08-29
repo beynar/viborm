@@ -10,6 +10,7 @@
 // Arity is not checked here: `.references(...)` accepts only an equal-arity
 // tuple, so an unequal pair cannot be constructed.
 
+import { sameDecimalDescriptor } from "@validation/primitives/decimal-codec";
 import { getModelKeyCatalog, isTotalIndex, type Model } from "../../model";
 import type { ForeignKeyDeclaration } from "../../relation";
 import type { ResolvedStoredReference } from "../relation-resolution";
@@ -58,6 +59,19 @@ export function checkStoredReference(
       });
       continue;
     }
+    if (isDecimalList(local)) {
+      legal = false;
+      issues.push({
+        code: "FK010",
+        message: `FK '${foreignField}' in '${relationName}' is a fixed-decimal list, which cannot be a foreign-key member`,
+        severity: "error",
+        model: modelName,
+        relation: relationName,
+        field: foreignField,
+        repair: `Store the reference in a scalar decimal (or another scalar type) on '${modelName}'`,
+      });
+      continue;
+    }
     if (local["~"].state.nullable) nullableForeignFields.push(foreignField);
     const referencedField = references[position]!;
     const remote = targetScalars[referencedField];
@@ -74,17 +88,35 @@ export function checkStoredReference(
       });
       continue;
     }
-    const localType = local["~"].state.type;
-    const remoteType = remote["~"].state.type;
-    if (localType !== remoteType) {
+    const localState = local["~"].state;
+    const remoteState = remote["~"].state;
+    const localType = localState.type;
+    const remoteType = remoteState.type;
+    const localDecimal = localState.decimal;
+    const remoteDecimal = remoteState.decimal;
+    const decimalDomainMismatch =
+      localType === "decimal" &&
+      remoteType === "decimal" &&
+      !sameDecimalDescriptor(localDecimal, remoteDecimal);
+    if (localType !== remoteType || decimalDomainMismatch) {
       legal = false;
+      const localDescription =
+        localType === "decimal" && localDecimal
+          ? `decimal(${localDecimal.precision},${localDecimal.scale})`
+          : localType;
+      const remoteDescription =
+        remoteType === "decimal" && remoteDecimal
+          ? `decimal(${remoteDecimal.precision},${remoteDecimal.scale})`
+          : remoteType;
       issues.push({
         code: "FK003",
-        message: `Type mismatch: '${foreignField}' (${localType}) → '${referencedField}' (${remoteType}) in ${targetName}`,
+        message: `Type mismatch: '${foreignField}' (${localDescription}) → '${referencedField}' (${remoteDescription}) in ${targetName}`,
         severity: "error",
         model: modelName,
         relation: relationName,
-        repair: `Give '${foreignField}' the same scalar type as '${targetName}.${referencedField}'`,
+        repair: decimalDomainMismatch
+          ? `Give '${foreignField}' the same decimal precision and scale as '${targetName}.${referencedField}'`
+          : `Give '${foreignField}' the same scalar type as '${targetName}.${referencedField}'`,
       });
     }
   }
@@ -144,6 +176,23 @@ export function checkStoredReference(
     issues,
     nullableForeignFields,
   };
+}
+
+/**
+ * A fixed-decimal LIST, which plan 2.1 excludes from every key position.
+ *
+ * Only the LOCAL member is asked here, and that is the whole exclusion for a
+ * stored reference: the REFERENCED tuple has to be a key the target can be
+ * addressed by (FK005), and a decimal list can be no part of one — the scalar
+ * builder refuses `.id()` and `.unique()` on it and I004 refuses it inside a
+ * compound key or a unique index. So the referenced side is already closed, by
+ * the owners of the positions it would have to occupy.
+ */
+function isDecimalList(
+  scalar: Model<any>["~"]["state"]["scalars"][string]
+): boolean {
+  const state = scalar["~"].state;
+  return state.type === "decimal" && state.array === true;
 }
 
 /**

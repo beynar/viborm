@@ -44,6 +44,7 @@ export interface OptionalSchema<
   readonly type: "optional";
   readonly wrapped: TWrapped;
   readonly default: TDefault;
+  readonly acceptsUndefined: true;
 }
 
 // Compute output type based on default

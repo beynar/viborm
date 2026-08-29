@@ -1,7 +1,6 @@
 /** Cross-provider workloads assembled through the public operation seam. */
 
 import {
-  benchmarkOperation,
   preparedWitness,
   rawCarrierConsumer,
 } from "./operation-pipeline-harness.mjs";
@@ -19,6 +18,7 @@ const wideSelection = Object.freeze(
     ])
   )
 );
+const FIXED_DECIMAL_LIST_EXPECTED = Object.freeze(["1.125", "2.125", "-0.375"]);
 
 function makeOperation(client, providerShape) {
   if (providerShape.kind === "wide-scalar") {
@@ -70,22 +70,77 @@ function makeOperation(client, providerShape) {
       select: { id: true, score: true },
     });
   }
+  if (providerShape.kind === "fixed-decimal-arithmetic") {
+    return client.record.update({
+      where: { id: "provider_record_00000" },
+      data: { amount: { multiply: "1" } },
+      select: { id: true, amount: true },
+    });
+  }
+  if (providerShape.kind === "fixed-decimal-aggregate") {
+    return client.record.aggregate({
+      _min: { amount: true },
+      _max: { amount: true },
+      _sum: { amount: true },
+      _avg: { amount: true },
+    });
+  }
+  if (providerShape.kind === "fixed-decimal-list") {
+    return client.record.findMany({
+      select: { id: true, amounts: true },
+      orderBy: { id: "asc" },
+      take: providerShape.rows,
+    });
+  }
+  if (providerShape.kind === "fixed-decimal-row") {
+    return client.record.findMany({
+      select: { id: true, amount: true },
+      orderBy: { id: "asc" },
+      take: providerShape.rows,
+    });
+  }
+  if (providerShape.kind === "fixed-decimal-floor") {
+    return client.record.findMany({
+      select: { amount: true },
+      take: 1,
+    });
+  }
+  if (providerShape.kind === "fixed-decimal-text-row") {
+    return client.record.findMany({
+      select: { id: true, amount: true },
+      orderBy: { id: "asc" },
+      take: providerShape.rows,
+    });
+  }
   const selection =
     providerShape.kind === "identity" || providerShape.kind === "execution"
       ? { id: true }
-      : {
-          id: true,
-          label: true,
-          score: true,
-          enabled: true,
-          big: true,
-          amount: true,
-          recordedAt: true,
-          status: true,
-          metadata: true,
-          optionalText: true,
-          payload: true,
-        };
+      : providerShape.kind === "fixed-decimal-scalar-control"
+        ? {
+            id: true,
+            label: true,
+            score: true,
+            enabled: true,
+            big: true,
+            recordedAt: true,
+            status: true,
+            metadata: true,
+            optionalText: true,
+            payload: true,
+          }
+        : {
+            id: true,
+            label: true,
+            score: true,
+            enabled: true,
+            big: true,
+            amount: true,
+            recordedAt: true,
+            status: true,
+            metadata: true,
+            optionalText: true,
+            payload: true,
+          };
   return client.record.findMany({
     select: selection,
     orderBy: { score: "asc" },
@@ -119,7 +174,37 @@ function consumeRaw(raw, providerShape) {
   return raw.rows.length + id.charCodeAt(0);
 }
 
-function consumeParsed(value, providerShape) {
+function decimalValue(value, Decimal, expected, verifyExact) {
+  if (
+    typeof Decimal !== "function" ||
+    !(value instanceof Decimal) ||
+    (verifyExact && expected !== undefined && !value.eq(expected))
+  ) {
+    throw new Error(
+      expected === undefined
+        ? "Expected a public Decimal value"
+        : `Expected public Decimal value ${expected}`
+    );
+  }
+  return value;
+}
+
+function aggregateCoefficient(rowCount) {
+  const count = BigInt(rowCount);
+  return ((count * (count + 1n)) / 2n) * 1000n + count * 125n;
+}
+
+function coefficientText(coefficient, scale = 3) {
+  const negative = coefficient < 0n;
+  const digits = (negative ? -coefficient : coefficient)
+    .toString()
+    .padStart(scale + 1, "0");
+  const integer = digits.slice(0, -scale);
+  const fraction = digits.slice(-scale);
+  return `${negative ? "-" : ""}${integer}.${fraction}`;
+}
+
+function consumeParsed(value, providerShape, Decimal, verifyExact = false) {
   if (providerShape.kind === "count") {
     if (typeof value !== "number") throw new Error("Expected a public count");
     return value;
@@ -138,15 +223,100 @@ function consumeParsed(value, providerShape) {
     }
     return value.id.charCodeAt(0) + value.score;
   }
+  if (providerShape.kind === "fixed-decimal-arithmetic") {
+    if (typeof value?.id !== "string") {
+      throw new Error("Expected one decimal arithmetic row");
+    }
+    const amount = decimalValue(value.amount, Decimal, "1.125", verifyExact);
+    return value.id.charCodeAt(0) + amount.toNumber();
+  }
+  if (providerShape.kind === "fixed-decimal-aggregate") {
+    const rowCount = providerShape.sourceRows;
+    const minimum = decimalValue(
+      value?._min?.amount,
+      Decimal,
+      "1.125",
+      verifyExact
+    );
+    const maximum = decimalValue(
+      value?._max?.amount,
+      Decimal,
+      verifyExact ? `${rowCount}.125` : undefined,
+      verifyExact
+    );
+    const sum = decimalValue(
+      value?._sum?.amount,
+      Decimal,
+      verifyExact ? coefficientText(aggregateCoefficient(rowCount)) : undefined,
+      verifyExact
+    );
+    const average = decimalValue(
+      value?._avg?.amount,
+      Decimal,
+      verifyExact
+        ? coefficientText(aggregateCoefficient(rowCount) / BigInt(rowCount))
+        : undefined,
+      verifyExact
+    );
+    return (
+      minimum.toNumber() +
+      maximum.toNumber() +
+      sum.toNumber() +
+      average.toNumber()
+    );
+  }
   const rows = value;
   const first = rows[0];
   if (!first) return 0;
+  if (providerShape.kind === "fixed-decimal-row") {
+    const last = rows.at(-1);
+    if (!last) throw new Error("Expected the final decimal row");
+    const firstAmount = decimalValue(first.amount, Decimal);
+    const lastAmount = decimalValue(last.amount, Decimal);
+    if (verifyExact) {
+      for (let index = 0; index < rows.length; index++) {
+        decimalValue(rows[index].amount, Decimal, `${index + 1}.125`, true);
+      }
+    }
+    return rows.length + firstAmount.toNumber() + lastAmount.toNumber();
+  }
+  if (providerShape.kind === "fixed-decimal-text-row") {
+    const last = rows.at(-1);
+    if (typeof first.amount !== "string" || typeof last?.amount !== "string") {
+      throw new Error("Expected exact text control values");
+    }
+    if (verifyExact) {
+      for (let index = 0; index < rows.length; index++) {
+        if (rows[index].amount !== `${index + 1}.125`) {
+          throw new Error(`Expected exact text control value ${index + 1}.125`);
+        }
+      }
+    }
+    return rows.length + first.amount.length + last.amount.length;
+  }
+  if (providerShape.kind === "fixed-decimal-list") {
+    if (!Array.isArray(first.amounts) || first.amounts.length !== 3) {
+      throw new Error("Expected one public fixed-decimal list");
+    }
+    let checksum = rows.length;
+    for (let index = 0; index < FIXED_DECIMAL_LIST_EXPECTED.length; index++) {
+      checksum += decimalValue(
+        first.amounts[index],
+        Decimal,
+        FIXED_DECIMAL_LIST_EXPECTED[index],
+        verifyExact
+      ).toNumber();
+    }
+    return checksum;
+  }
   if (providerShape.kind === "mixed-scalar") {
     if (
       typeof first.enabled !== "boolean" ||
       typeof first.score !== "number" ||
       typeof first.big !== "bigint" ||
-      typeof first.amount !== "string" ||
+      typeof Decimal !== "function" ||
+      !(first.amount instanceof Decimal) ||
+      (verifyExact && !first.amount.eq("1.125")) ||
       !(first.recordedAt instanceof Date) ||
       !["active", "inactive"].includes(first.status) ||
       first.metadata === null ||
@@ -157,6 +327,25 @@ function consumeParsed(value, providerShape) {
       !(first.payload instanceof Uint8Array)
     ) {
       throw new Error("Expected all mixed scalar result types");
+    }
+    return rows.length + first.score + Number(first.big % 97n);
+  }
+  if (providerShape.kind === "fixed-decimal-scalar-control") {
+    if (
+      typeof first.enabled !== "boolean" ||
+      typeof first.score !== "number" ||
+      typeof first.big !== "bigint" ||
+      !(first.recordedAt instanceof Date) ||
+      !["active", "inactive"].includes(first.status) ||
+      first.metadata === null ||
+      typeof first.metadata !== "object" ||
+      !(
+        first.optionalText === null || typeof first.optionalText === "string"
+      ) ||
+      !(first.payload instanceof Uint8Array) ||
+      Object.hasOwn(first, "amount")
+    ) {
+      throw new Error("Expected the non-decimal scalar control result types");
     }
     return rows.length + first.score + Number(first.big % 97n);
   }
@@ -189,6 +378,61 @@ function consumeParsed(value, providerShape) {
   }
   if (typeof first.id !== "string") throw new Error("Expected a public id");
   return rows.length + first.id.charCodeAt(0);
+}
+
+/** Retain the exact public graph whose semantic checksum the timed arm consumes. */
+export function consumeAndRetainFixedDecimalResult(
+  value,
+  providerShape,
+  Decimal,
+  retain
+) {
+  const checksum = consumeParsed(value, providerShape, Decimal);
+  retain(value);
+  return checksum;
+}
+
+/** Build and retain the actual ORM-result Decimal family used by the floor. */
+export function constructAndRetainFixedDecimalFloor(
+  canonicalValues,
+  ResultDecimal,
+  retain
+) {
+  let first;
+  let last;
+  for (const canonicalValue of canonicalValues) {
+    const value = new ResultDecimal(canonicalValue);
+    retain(value);
+    first ??= value;
+    last = value;
+  }
+  if (!(first && last)) throw new Error("Expected Decimal floor values");
+  return canonicalValues.length + first.toNumber() + last.toNumber();
+}
+
+/** Keep every timed constructor result live through the floor checksum. */
+export function constructFixedDecimalFloorValues(
+  canonicalValues,
+  ResultDecimal,
+  values
+) {
+  if (values.length !== canonicalValues.length) {
+    throw new Error("Decimal floor sink does not match its value count");
+  }
+  for (let index = 0; index < canonicalValues.length; index++) {
+    values[index] = new ResultDecimal(canonicalValues[index]);
+  }
+  return values;
+}
+
+export function retainsFixedDecimalResult(providerShape) {
+  return (
+    providerShape.kind === "fixed-decimal-row" ||
+    providerShape.kind === "fixed-decimal-text-row" ||
+    providerShape.kind === "fixed-decimal-arithmetic" ||
+    providerShape.kind === "fixed-decimal-aggregate" ||
+    providerShape.kind === "fixed-decimal-list"
+  );
 }
 
 function publicOnlyWitness(providerName, workloadName, providerShape) {
@@ -305,8 +549,109 @@ export async function createProviderWorkloadHarness(
   }
   fixture.responseBytes?.activate?.();
 
+  if (providerShape.kind === "fixed-decimal-floor") {
+    const materialized = decimalValue(
+      (await makeOperation(fixture.client, providerShape))[0]?.amount,
+      fixture.Decimal,
+      "1.125",
+      true
+    );
+    const comparedMaterialized = decimalValue(
+      (await makeOperation(semanticFixture.client, providerShape))[0]?.amount,
+      semanticFixture.Decimal,
+      "1.125",
+      true
+    );
+    const ResultDecimal = Reflect.get(materialized, "constructor");
+    const ComparedResultDecimal = Reflect.get(
+      comparedMaterialized,
+      "constructor"
+    );
+    if (
+      typeof ResultDecimal !== "function" ||
+      typeof ComparedResultDecimal !== "function"
+    ) {
+      throw new Error("Expected a constructible ORM result Decimal");
+    }
+    const canonicalValues = Object.freeze(
+      Array.from(
+        { length: providerShape.rows },
+        (_, index) => `${index + 1}.125`
+      )
+    );
+    const expectedValues = canonicalValues.map(
+      (value) => new ResultDecimal(value)
+    );
+    const comparedValues = canonicalValues.map(
+      (value) => new ComparedResultDecimal(value)
+    );
+    const exactDigest = assertSemanticDigest(
+      `${providerName} ORM result Decimal constructor floor`,
+      expectedValues,
+      comparedValues
+    );
+    for (let index = 0; index < canonicalValues.length; index++) {
+      if (
+        !(
+          expectedValues[index] instanceof fixture.Decimal &&
+          expectedValues[index].eq(canonicalValues[index])
+        )
+      ) {
+        throw new Error("Expected an exact public Decimal constructor value");
+      }
+    }
+    const constructedValues = new Array(canonicalValues.length);
+    const construct = () => {
+      const values = constructFixedDecimalFloorValues(
+        canonicalValues,
+        ResultDecimal,
+        constructedValues
+      );
+      const first = values[0];
+      const last = values.at(-1);
+      if (!(first && last)) throw new Error("Expected Decimal floor values");
+      return canonicalValues.length + first.toNumber() + last.toNumber();
+    };
+    fixture.responseBytes?.reset();
+    return {
+      fixture,
+      semanticFixture,
+      harness: {
+        witness: publicOnlyWitness(providerName, workloadName, {
+          ...providerShape,
+          seam: "orm-result-decimal-construction",
+        }),
+        semanticDigest: exactDigest,
+        responseBytes: fixture.responseBytes,
+        "decimal-construct": construct,
+        fixedDecimalRetained: (retain) =>
+          constructAndRetainFixedDecimalFloor(
+            canonicalValues,
+            ResultDecimal,
+            retain
+          ),
+      },
+    };
+  }
+
+  const fixedDecimalRetained =
+    stage === "full" && retainsFixedDecimalResult(providerShape)
+      ? async (retain) => {
+          const value = await makeOperation(fixture.client, providerShape);
+          return consumeAndRetainFixedDecimalResult(
+            value,
+            providerShape,
+            fixture.Decimal,
+            retain
+          );
+        }
+      : undefined;
+
   const preparedOperation = makeOperation(fixture.client, providerShape);
-  const preparedCapability = benchmarkOperation(preparedOperation);
+  const preparedCapability = fixture.readBenchmarkOperation(preparedOperation);
+  if (!preparedCapability) {
+    throw new Error("Expected a target-checkout VibORM benchmark operation");
+  }
   const prepared = preparedCapability.prepare();
   const statement = preparedOperation.buildStatement();
   const fullSemantic = await makeOperation(
@@ -328,6 +673,8 @@ export async function createProviderWorkloadHarness(
       fixtureSemantic,
       fullSemantic
     );
+    consumeParsed(fixtureSemantic, providerShape, fixture.Decimal, true);
+    consumeParsed(fullSemantic, providerShape, semanticFixture.Decimal, true);
     fixture.responseBytes?.reset();
     return {
       fixture,
@@ -336,10 +683,12 @@ export async function createProviderWorkloadHarness(
         witness: publicOnlyWitness(providerName, workloadName, providerShape),
         semanticDigest,
         responseBytes: fixture.responseBytes,
+        ...(fixedDecimalRetained === undefined ? {} : { fixedDecimalRetained }),
         full: async () =>
           consumeParsed(
             await makeOperation(fixture.client, providerShape),
-            providerShape
+            providerShape,
+            fixture.Decimal
           ),
       },
     };
@@ -357,8 +706,8 @@ export async function createProviderWorkloadHarness(
     )
   );
   const parsedFixture = preparedCapability.parseResult(rawFixture);
-  consumeParsed(parsedFixture, providerShape);
-  consumeParsed(fullSemantic, providerShape);
+  consumeParsed(parsedFixture, providerShape, fixture.Decimal, true);
+  consumeParsed(fullSemantic, providerShape, semanticFixture.Decimal, true);
   const semanticDigest = assertSemanticDigest(
     `${providerName} provider parse versus public operation`,
     parsedFixture,
@@ -388,6 +737,7 @@ export async function createProviderWorkloadHarness(
     }),
     semanticDigest,
     responseBytes: fixture.responseBytes,
+    ...(fixedDecimalRetained === undefined ? {} : { fixedDecimalRetained }),
     "provider-execute": async () =>
       consumeRaw(
         await fixture.driver.execute(
@@ -404,7 +754,11 @@ export async function createProviderWorkloadHarness(
         providerShape
       ),
     "unowned-parse": () =>
-      consumeParsed(preparedCapability.parseResult(rawFixture), providerShape),
+      consumeParsed(
+        preparedCapability.parseResult(rawFixture),
+        providerShape,
+        fixture.Decimal
+      ),
     "provider-parse": async () => {
       const raw = await fixture.driver.execute(
         providerClient,
@@ -412,12 +766,17 @@ export async function createProviderWorkloadHarness(
         prepared.params ?? [],
         { operation: "findMany" }
       );
-      return consumeParsed(preparedCapability.parseResult(raw), providerShape);
+      return consumeParsed(
+        preparedCapability.parseResult(raw),
+        providerShape,
+        fixture.Decimal
+      );
     },
     full: async () =>
       consumeParsed(
         await makeOperation(fixture.client, providerShape),
-        providerShape
+        providerShape,
+        fixture.Decimal
       ),
   };
   return { fixture, semanticFixture, harness };

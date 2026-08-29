@@ -24,7 +24,8 @@ export {
 export { DateScalar, date } from "./datetime/date-scalar";
 export { DateTimeScalar, dateTime } from "./datetime/scalar";
 export { TimeScalar, time } from "./datetime/time-scalar";
-export { DecimalScalar, decimal } from "./decimal/scalar";
+export type { DecimalScalar } from "./decimal/scalar";
+export { decimal } from "./decimal/scalar";
 export { EnumScalar, enumScalar } from "./enum/scalar";
 export { IntScalar, int } from "./int/scalar";
 export { JsonScalar, json } from "./json/scalar";

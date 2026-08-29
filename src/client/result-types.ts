@@ -19,6 +19,7 @@ import type { Scalar, ScalarState } from "@schema/scalars";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { Prettify } from "@validation";
 import type { EnumValues } from "@validation/primitives/enum";
+import type Decimal from "decimal.js";
 
 // =============================================================================
 // SCALAR OUTPUT TYPE MAPPING
@@ -37,9 +38,11 @@ type ScalarResultTypeMap = {
   string: string;
   int: number;
   number: number;
-  // A decimal reads back as its exact canonical spelling. A JS number could not
-  // carry the value a `numeric` / `DECIMAL(65,30)` column actually holds.
-  decimal: string;
+  // A decimal reads back as a fresh `Decimal` — the one exact value type, built
+  // once per selected value at this boundary. A JS number could not carry what a
+  // `NUMERIC(p,s)` column holds, and a string would make every comparison and
+  // every sum the application's problem.
+  decimal: Decimal;
   boolean: boolean;
   datetime: Date; // Database results are Date objects, not ISO strings
   date: Date;
@@ -995,7 +998,7 @@ type ScalarKeys<T extends ModelShape> = {
  */
 type InferScalarBase<F> = F extends Scalar ? InferScalarOutput<F> : never;
 
-/** True when the scalar is a decimal, whose aggregates stay exact strings. */
+/** True when the scalar is a decimal, whose aggregates stay exact Decimals. */
 type IsDecimalScalar<F> =
   ExtractScalarState<F> extends { type: "decimal" } ? true : false;
 
@@ -1007,9 +1010,11 @@ type IsDecimalScalar<F> =
  * `result-aggregate-parser.ts` marks `_sum` / `_min` / `_max` as `typed` and
  * decodes them through the FIELD'S OWN scalar decoder, so those three come back
  * spelled exactly like the column — `_sum` of an `s.bigInt()` is a `bigint`,
- * `_sum` of an `s.decimal()` is an exact string. Only `_avg` takes the
- * widen-to-number path, and even it stays a string for a decimal, because an
- * average of decimals is still a decimal the database computed exactly.
+ * `_sum` of an `s.decimal({ precision, scale })` is an exact `Decimal`
+ * (widened in precision, but still the field's scale). Only `_avg` takes the
+ * widen-to-number path, and even it stays a `Decimal` for a decimal, because an
+ * average of decimals is still a decimal — quantized to the field scale with
+ * round-half-to-even.
  *
  * `_sum` used to be typed `number` for everything but a decimal, which made
  * `agg._sum.big * 2` type-check and then throw "Cannot mix BigInt and other
@@ -1028,7 +1033,7 @@ export type AggregateResultType<T extends ModelShape, Args> = Prettify<{
       ? Args[K] extends object
         ? {
             // Decoded through the field's own scalar: bigint -> bigint,
-            // decimal -> string, int/number -> number.
+            // decimal -> Decimal, int/number -> number.
             [F in keyof Args[K]]:
               | (F extends ScalarKeys<T> ? InferScalarBase<T[F]> : number)
               | null;
@@ -1042,7 +1047,7 @@ export type AggregateResultType<T extends ModelShape, Args> = Prettify<{
               [F in keyof Args[K]]:
                 | (F extends ScalarKeys<T>
                     ? IsDecimalScalar<T[F]> extends true
-                      ? string
+                      ? Decimal
                       : number
                     : number)
                 | null;

@@ -1,5 +1,12 @@
 # Final-Review Findings — Fix Plan
 
+> **Historical fixed-decimal contract.** This completed review plan records the
+> retired string-result and SQLite-refusal implementation. The current contract
+> is `s.decimal({ precision, scale })`, fresh public `Decimal` values, and exact
+> checked-coefficient SQLite operations; see
+> [the definitive fixed-decimal plan](fixed-decimal-plan.md). The historical
+> findings and execution record below remain unchanged.
+
 **Input:** the 13 confirmed findings (2 major, 11 minor) of the last adversarial branch review (2026-07-28, run `wf_ca509287-c6e`), plus one unsound pre-existing bonus the verifier surfaced. Evidence with verbatim repros: the review task output; each unit below cites its finding.
 
 **Parallelism rule:** units are grouped into lanes by *file collision* — every lane owns a disjoint file set, so all five lanes run concurrently in worktrees. Merge order resolves the two known overlap points (noted below).

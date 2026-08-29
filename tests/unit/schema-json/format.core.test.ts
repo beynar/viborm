@@ -20,7 +20,7 @@ import {
   type SchemaDocument,
   serializeSchema,
 } from "@schema/json";
-import { SCALAR_FACTORIES } from "@schema/json/factories";
+import { SCALAR_FACTORIES, SCALAR_TYPE_NAMES } from "@schema/json/factories";
 import { describe, expect, it } from "vitest";
 
 function completeSurface(): Schema {
@@ -52,7 +52,7 @@ function completeSurface(): Schema {
       local: s.dateTime().withoutTimezone(),
       day: s.date().now(),
       clock: s.time().withoutTimezone(),
-      price: s.decimal().default("1.5"),
+      price: s.decimal({ precision: 10, scale: 2 }).default("1.50"),
       meta: s.json().default({ a: [1, null, true] }),
       blank: s.json().default(null),
       bytes: s.blob().default(new Uint8Array([1, 2, 3])),
@@ -142,7 +142,7 @@ const COMPLETE_SURFACE: SchemaDocument = {
         local: { type: "datetime", withoutTimezone: true },
         day: { type: "date", generate: { kind: "now" } },
         clock: { type: "time", withoutTimezone: true },
-        price: { type: "decimal", default: "1.5" },
+        price: { type: "decimal", precision: 10, scale: 2, default: "1.5" },
         meta: { type: "json", default: { a: [1, null, true] } },
         blank: { type: "json", default: null },
         bytes: { type: "blob", default: { $bytes: "AQID" } },
@@ -344,6 +344,116 @@ describe("format", () => {
     for (const [type, factory] of Object.entries(SCALAR_FACTORIES)) {
       expect(factory()["~"].state.type).toBe(type);
     }
+    // `decimal` and `enum` are deliberately absent from that record: their
+    // factories take an argument their own node carries, so each has its own
+    // construction site. `type` still has to be declarable.
+    expect(SCALAR_FACTORIES).not.toHaveProperty("decimal");
+    expect(SCALAR_TYPE_NAMES.has("decimal")).toBe(true);
+    expect(SCALAR_TYPE_NAMES.has("enum")).toBe(true);
+  });
+
+  /**
+   * The declared domain is the decimal's whole state: without it the field has
+   * no validation, no DDL, no encoding and no comparison, so a node missing it
+   * is not a declaration this format has. The refusal is the BUILDER's own,
+   * carried out through the document boundary rather than restated here.
+   */
+  it("refuses a decimal node that declares no domain", () => {
+    const node = (extra: Record<string, unknown>) => ({
+      version: 1,
+      models: {
+        m: {
+          fields: {
+            id: { type: "string", id: true },
+            amount: { type: "decimal", ...extra },
+          },
+        },
+      },
+    });
+    expect(() => parseSchema(node({ precision: 10, scale: 2 }))).not.toThrow();
+    expect(() => parseSchema(node({}))).toThrow();
+    expect(() => parseSchema(node({ precision: 10 }))).toThrow();
+    expect(() => parseSchema(node({ precision: 10, scale: 20 }))).toThrow();
+    expect(() => parseSchema(node({ precision: 10, scale: 1.5 }))).toThrow();
+    expect(() => parseSchema(node({ precision: 10, scale: "2" }))).toThrow();
+  });
+
+  it("refuses scalar-arm declarations that would otherwise be discarded", () => {
+    const node = (field: Record<string, unknown>) => ({
+      version: 1,
+      models: {
+        m: {
+          fields: {
+            id: { type: "string", id: true },
+            value: field,
+          },
+        },
+      },
+    });
+
+    // Each declaration used to parse successfully and disappear from the
+    // canonical document. Accepted schema data may never mean “ignore me”.
+    expect(() =>
+      parseSchema(node({ type: "string", precision: 10, scale: 2 }))
+    ).toThrow();
+    expect(() =>
+      parseSchema(
+        node({
+          type: "decimal",
+          precision: 10,
+          scale: 2,
+          native: { db: "pg", type: "text" },
+        })
+      )
+    ).toThrow();
+  });
+
+  it("round-trips a decimal domain and its canonical default", () => {
+    const document = {
+      version: 1,
+      models: {
+        m: {
+          fields: {
+            id: { type: "string", id: true },
+            amount: {
+              type: "decimal",
+              precision: 12,
+              scale: 4,
+              array: true,
+              default: ["1.5", "2"],
+            },
+          },
+        },
+      },
+    };
+    expect(
+      serializeSchema(parseSchema(document)).models.m?.fields.amount
+    ).toEqual(document.models.m.fields.amount);
+    // A non-canonical default normalizes to the one logical spelling.
+    const loose = serializeSchema(
+      parseSchema({
+        version: 1,
+        models: {
+          m: {
+            fields: {
+              id: { type: "string", id: true },
+              amount: {
+                type: "decimal",
+                precision: 12,
+                scale: 4,
+                default: "1.5000",
+              },
+            },
+          },
+        },
+      })
+    );
+    expect(loose.models.m?.fields.amount).toEqual({
+      type: "decimal",
+      precision: 12,
+      scale: 4,
+      default: "1.5",
+    });
   });
 
   it("produces a fresh object graph on every parse", () => {

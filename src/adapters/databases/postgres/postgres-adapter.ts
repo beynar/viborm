@@ -1,8 +1,20 @@
 import { type Sql, sql } from "@sql";
+import {
+  type DecimalDescriptor,
+  decimalColumnType,
+  encodePhysicalDecimal,
+} from "@validation/primitives/decimal-codec";
 import { createIdentifierQuoter } from "../../../sql/identifiers";
+import type { ArithmeticTarget } from "../../adapter-core-types";
 import { installAdapterNamespace } from "../../adapter-namespace";
 import type { DatabaseAdapter, QueryParts } from "../../database-adapter";
 import { createOnConflictBatchRefs } from "../../shared/batch-refs";
+import {
+  type ExactIntegerArithmetic,
+  logicalDecimalAverage,
+  logicalDecimalDivide,
+  logicalDecimalMultiply,
+} from "../../shared/decimal-arithmetic";
 import { convertBigIntToNumber } from "../../shared/result-parsing";
 import {
   assembleDistinctOnEmulation,
@@ -15,6 +27,7 @@ import {
   createComparisonOperators,
   createCoreJoins,
   createCteBuilders,
+  createDecimalSumOperandPrecision,
   createDirectionOrderBy,
   createExistenceOperators,
   createIdentifiers,
@@ -37,6 +50,17 @@ import {
 } from "../../shared/standard-sql";
 
 const quoteIdent = createIdentifierQuoter('"');
+
+/**
+ * `div`/`mod` rather than `/` and a hand-rolled remainder: both are exact on
+ * `numeric` for any operand, including a fractional divisor, and `div`
+ * truncates toward zero — which is what the half-even rule's quotient means.
+ * `/` on numerics picks its own result scale and would round the last digit.
+ */
+const POSTGRES_INTEGERS: ExactIntegerArithmetic = {
+  quotient: (n: Sql, d: Sql): Sql => sql`div(${n}, ${d})`,
+  remainder: (n: Sql, d: Sql): Sql => sql`mod(${n}, ${d})`,
+};
 
 /**
  * PostgreSQL Database Adapter
@@ -99,11 +123,14 @@ export class PostgresAdapter implements DatabaseAdapter {
     // 'hello' is not valid JSON input, '"hello"' is.
     json: (v: unknown): Sql => sql`${JSON.stringify(v)}`,
 
-    // `numeric` is exact and unconstrained, so the cast is all it takes. PG
-    // would usually infer `numeric` from the column context anyway; saying it
-    // makes the comparison independent of what the surrounding expression does
-    // to the operand's inferred type.
-    decimal: (canonical: string): Sql => sql`CAST(${canonical} AS NUMERIC)`,
+    // Cast into the operand's own `NUMERIC(p,s)` domain, the same type the DDL
+    // emits for the field. PostgreSQL would usually infer `numeric` from the
+    // column context anyway; saying it makes the comparison independent of what
+    // the surrounding expression does to the operand's inferred type, and
+    // naming the precision keeps the operand and the column one domain rather
+    // than two that happen to agree.
+    decimal: (canonical: string, descriptor: DecimalDescriptor): Sql =>
+      sql`CAST(${encodePhysicalDecimal(canonical, descriptor, "text")} AS ${sql.raw(decimalColumnType("pg", descriptor))})`,
   };
 
   // ============================================================
@@ -201,14 +228,15 @@ export class PostgresAdapter implements DatabaseAdapter {
     greatest: (...exprs: Sql[]): Sql => sql`GREATEST(${sql.join(exprs, ", ")})`,
     least: (...exprs: Sql[]): Sql => sql`LEAST(${sql.join(exprs, ", ")})`,
 
+    decimalCast: (expr: Sql, descriptor: DecimalDescriptor): Sql =>
+      sql`CAST(${expr} AS ${sql.raw(decimalColumnType("pg", descriptor))})`,
+
     // PostgreSQL type mappings
     cast: createCastExpression({
       text: "TEXT",
       integer: "INTEGER",
       boolean: "BOOLEAN",
       numeric: "NUMERIC",
-      // Same type `literals.decimal` casts into: exact and unconstrained.
-      decimal: "NUMERIC",
     }),
 
     blobToHex: (expr: Sql): Sql => sql`encode(${expr}, 'hex')`,
@@ -218,7 +246,17 @@ export class PostgresAdapter implements DatabaseAdapter {
   // AGGREGATES
   // ============================================================
 
-  aggregates = createAggregateFunctions();
+  aggregates = {
+    ...createAggregateFunctions(),
+
+    decimalAvg: (column: Sql, descriptor: DecimalDescriptor): Sql =>
+      logicalDecimalAverage(POSTGRES_INTEGERS, column, descriptor),
+
+    // `sum(numeric)` is itself unbounded on PostgreSQL; 1000 is the widest
+    // `NUMERIC(p,s)` an operand can be CAST into to meet it, which is the
+    // domain a comparison against that sum is actually limited by.
+    decimalSumOperandPrecision: createDecimalSumOperandPrecision(1000),
+  };
 
   // ============================================================
   // JSON
@@ -304,6 +342,11 @@ export class PostgresAdapter implements DatabaseAdapter {
     isEmpty: (column: Sql): Sql =>
       sql`(cardinality(${column}) = 0 OR ${column} IS NULL)`,
 
+    // `numeric[]::text[]` casts every ELEMENT. `numeric[]::text` would produce
+    // one string holding PostgreSQL's array literal, and `to_json(numeric[])`
+    // JSON numbers — the two spellings a decimal list cannot survive.
+    decimalProjection: (column: Sql): Sql => sql`CAST(${column} AS TEXT[])`,
+
     length: (column: Sql): Sql => sql`cardinality(${column})`,
 
     get: (column: Sql, index: Sql): Sql => sql`${column}[${index}]`,
@@ -343,6 +386,19 @@ export class PostgresAdapter implements DatabaseAdapter {
 
   set = {
     ...createNumericSetOperations(),
+
+    // A decimal target rounds the product/quotient back to the field's scale
+    // half-to-even; every other numeric column keeps PostgreSQL's own
+    // arithmetic, whose integer division already truncates toward zero.
+    multiply: (column: Sql, by: Sql, target?: ArithmeticTarget): Sql =>
+      target?.decimal
+        ? logicalDecimalMultiply(POSTGRES_INTEGERS, column, by, target.decimal)
+        : sql`${column} = ${column} * ${by}`,
+
+    divide: (column: Sql, by: Sql, target?: ArithmeticTarget): Sql =>
+      target?.decimal
+        ? logicalDecimalDivide(POSTGRES_INTEGERS, column, by, target.decimal)
+        : sql`${column} = ${column} / ${by}`,
 
     // array_cat (not ||) so the untyped array param resolves unambiguously
     // to the column's array type; COALESCE keeps NULL columns appendable.
@@ -456,7 +512,6 @@ export class PostgresAdapter implements DatabaseAdapter {
     supportsTargetedUpsert: true, // ON CONFLICT (cols) arbitrates on those cols
     supportsMutationTargetInSubquery: true,
     supportsMutationRowLimit: false, // PostgreSQL has no UPDATE/DELETE ... LIMIT
-    supportsExactDecimal: true, // `numeric`: exact, unconstrained precision
   };
 
   lastInsertId = (): Sql => sql.raw`lastval()`;

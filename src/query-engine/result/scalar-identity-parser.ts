@@ -29,8 +29,13 @@ const numberGuard: IdentityGuard = (value) =>
  *
  * Only `string`, `boolean`, `int` and `number` are eligible. List, enum, json,
  * vector, point, blob, date, time, datetime, bigint and decimal fields always
- * coerce (decimal/bigint arrive as strings, dates as Date/strings, enums need a
+ * coerce (a bigint arrives as a string, dates as Date/strings, enums need a
  * membership check) and return `undefined` — the full parser owns them.
+ *
+ * A DECIMAL is excluded for a stronger reason than coercion: no provider value
+ * is ever its public form. Every selected decimal materializes a fresh
+ * `Decimal` from the codec's canonical text, so there is no raw value the full
+ * parser would return unchanged and nothing for a guard to shortcut.
  */
 export function identityGuardFor(scalar: Scalar): IdentityGuard | undefined {
   const state = scalar["~"].state;

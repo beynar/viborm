@@ -5,6 +5,12 @@
  * detecting ambiguous changes that require user input.
  */
 
+import { sameDecimalDescriptor } from "@validation/primitives/decimal-codec";
+import {
+  decimalChangeNarrows,
+  describeDecimalDomain,
+  migrationDecimalStorageKind,
+} from "./decimal";
 import type {
   AmbiguousChange,
   ColumnDef,
@@ -126,18 +132,38 @@ async function canonicalizeChangedPredicates(
 // HELPER FUNCTIONS
 // =============================================================================
 
-function columnsEqual(a: ColumnDef, b: ColumnDef): boolean {
+function columnPropertiesEqual(a: ColumnDef, b: ColumnDef): boolean {
   return (
-    a.name === b.name &&
     normalizeType(a.type) === normalizeType(b.type) &&
     a.nullable === b.nullable &&
-    normalizeDefault(a.default) === normalizeDefault(b.default)
+    normalizeDefault(a.default) === normalizeDefault(b.default) &&
+    // The declared domain is compared beside the physical type, not instead of
+    // it, because the two carry different amounts of the fact per dialect: a
+    // PostgreSQL `numeric(10,5)` spells its whole domain in the type, while a
+    // SQLite decimal is `INTEGER` (or `TEXT` for a list) at every precision and
+    // scale there is. Left out, a SQLite descriptor change plans NOTHING —
+    // the type is byte-identical on both sides — and the column silently keeps
+    // storing coefficients at the old scale.
+    sameDecimalDescriptor(a.decimal, b.decimal)
+  );
+}
+
+function columnsEqual(a: ColumnDef, b: ColumnDef): boolean {
+  return a.name === b.name && columnPropertiesEqual(a, b);
+}
+
+function columnsCanBeRenamed(a: ColumnDef, b: ColumnDef): boolean {
+  if (normalizeType(a.type) === normalizeType(b.type)) return true;
+  const aDecimalKind = migrationDecimalStorageKind(a);
+  return (
+    aDecimalKind !== undefined &&
+    aDecimalKind === migrationDecimalStorageKind(b)
   );
 }
 
 function normalizeType(type: string): string {
   // Normalize type names for comparison
-  const normalized = type.toLowerCase().trim();
+  const normalized = type.toLowerCase().replace(/\s+/g, " ").trim();
 
   // Handle common aliases
   const aliases: Record<string, string> = {
@@ -160,8 +186,10 @@ function normalizeDefault(defaultVal: string | undefined): string | undefined {
   // Normalize common default expressions
   const normalized = defaultVal.trim().toLowerCase();
 
-  // Handle NULL
-  if (normalized === "null") return "null";
+  // SQL DEFAULT NULL and an omitted default have the same behavior. MySQL's
+  // catalog cannot distinguish them, so the snapshot differ must use the one
+  // semantic spelling or every nullable column would churn after introspection.
+  if (normalized === "null") return undefined;
 
   // Handle boolean values
   if (normalized === "true" || normalized === "'t'" || normalized === "1")
@@ -414,11 +442,7 @@ function diffTable(
     for (const added of addedColumns) {
       if (usedDropped.has(dropped.name) || usedAdded.has(added.name)) continue;
 
-      // Check if types are compatible (could be a rename)
-      const droppedType = normalizeType(dropped.type);
-      const addedType = normalizeType(added.type);
-
-      if (droppedType === addedType) {
+      if (columnsCanBeRenamed(dropped, added)) {
         // This could be a rename - mark as ambiguous
         ambiguousChanges.push({
           type: "ambiguousColumn",
@@ -661,6 +685,8 @@ export async function diff(
           type: "ambiguousTable",
           droppedTable: droppedName,
           addedTable: addedName,
+          droppedTableDef: droppedTable,
+          addedTableDef: addedTable,
         });
         usedDropped.add(droppedName);
         usedAdded.add(addedName);
@@ -797,19 +823,22 @@ export async function diff(
 // DESTRUCTIVE OPERATION CHECKS
 // =============================================================================
 
-/**
- * Checks if any operations are destructive (could cause data loss)
- */
-export function hasDestructiveOperations(operations: DiffOperation[]): boolean {
-  return operations.some(
-    (op) =>
-      op.type === "dropTable" ||
-      op.type === "dropColumn" ||
-      (op.type === "alterColumn" &&
-        // Type changes or making non-nullable are potentially destructive
-        (normalizeType(op.from.type) !== normalizeType(op.to.type) ||
-          (op.from.nullable && !op.to.nullable)))
+/** The one destructive-operation classification used by every consumer. */
+export function isDestructiveOperation(operation: DiffOperation): boolean {
+  if (operation.type === "dropTable" || operation.type === "dropColumn") {
+    return true;
+  }
+  return (
+    operation.type === "alterColumn" &&
+    (normalizeType(operation.from.type) !== normalizeType(operation.to.type) ||
+      (operation.from.nullable && !operation.to.nullable) ||
+      decimalChangeNarrows(operation.from, operation.to))
   );
+}
+
+/** Checks if any operation can cause data loss or refuse existing rows. */
+export function hasDestructiveOperations(operations: DiffOperation[]): boolean {
+  return operations.some(isDestructiveOperation);
 }
 
 /**
@@ -836,6 +865,18 @@ export function getDestructiveOperationDescriptions(
       if (op.from.nullable && !op.to.nullable) {
         descriptions.push(
           `Make "${op.tableName}"."${op.columnName}" NOT NULL (may fail if column contains NULL values)`
+        );
+      }
+      if (
+        op.from.decimal &&
+        op.to.decimal &&
+        decimalChangeNarrows(op.from, op.to)
+      ) {
+        // The numbers go in the SENTENCE: `precision` and `scale` are not
+        // error-metadata keys, so a refusal that put them in `meta` would drop
+        // them silently.
+        descriptions.push(
+          `Narrow the decimal domain of "${op.tableName}"."${op.columnName}" from ${describeDecimalDomain(op.from.decimal)} to ${describeDecimalDomain(op.to.decimal)} (the conversion refuses every value that no longer fits, rather than rounding it)`
         );
       }
     }

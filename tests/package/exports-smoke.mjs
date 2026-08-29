@@ -6,10 +6,13 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
+import { builtinModules } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import Decimal from "decimal.js";
 
+const NODE_PROTOCOL_PATTERN = /^node:/;
 const repositoryRoot = resolve(
   dirname(fileURLToPath(import.meta.url)),
   "../.."
@@ -19,6 +22,14 @@ const packageJson = JSON.parse(
 );
 const typeConsumerImports = [];
 const runtimeExports = new Map();
+const nodeBuiltins = new Set(
+  builtinModules.flatMap((specifier) => [
+    specifier,
+    specifier.replace(NODE_PROTOCOL_PATTERN, ""),
+  ])
+);
+const staticModuleSpecifier =
+  /\b(?:import|export)\s*(?:[^"'`;]*?\bfrom\s*)?["']([^"']+)["']/g;
 
 if (Object.hasOwn(packageJson.exports, "./internal/benchmark-operation")) {
   throw new Error(
@@ -54,6 +65,45 @@ for (const [exportName, target] of Object.entries(packageJson.exports)) {
   exportIndex += 1;
 }
 
+/**
+ * Follow only the relative ESM chunks the package build emitted. External
+ * dependencies stop the walk; a Node builtin may never occur anywhere in the
+ * root/schema/D1 graph that a Worker application loads.
+ */
+function assertWorkerSafeBuiltGraph(exportNames) {
+  const pending = exportNames.map((exportName) => ({
+    exportName,
+    file: resolve(repositoryRoot, packageJson.exports[exportName].import),
+  }));
+  const visited = new Set();
+
+  while (pending.length > 0) {
+    const entry = pending.pop();
+    if (!entry || visited.has(entry.file)) continue;
+    visited.add(entry.file);
+
+    const source = readFileSync(entry.file, "utf8");
+    staticModuleSpecifier.lastIndex = 0;
+    for (const match of source.matchAll(staticModuleSpecifier)) {
+      const specifier = match[1];
+      if (!specifier) continue;
+      if (specifier.startsWith("node:") || nodeBuiltins.has(specifier)) {
+        throw new Error(
+          `Export ${entry.exportName} reaches Node builtin ${specifier} through ${entry.file}`
+        );
+      }
+      if (!specifier.startsWith(".")) continue;
+
+      const dependency = resolve(dirname(entry.file), specifier);
+      if (!dependency.endsWith(".mjs")) continue;
+      accessSync(dependency);
+      pending.push({ exportName: entry.exportName, file: dependency });
+    }
+  }
+}
+
+assertWorkerSafeBuiltGraph([".", "./schema", "./d1"]);
+
 function requireRuntimeFunction(exportName, member) {
   const namespace = runtimeExports.get(exportName);
   if (typeof namespace?.[member] !== "function") {
@@ -71,6 +121,17 @@ function requireRuntimeAbsence(exportName, member) {
 }
 
 requireRuntimeFunction(".", "defineExtension");
+const packagedDecimal = runtimeExports.get(".")?.Decimal;
+if (packagedDecimal !== Decimal) {
+  throw new Error(
+    "Export . must re-export the package-resolved decimal.js constructor by identity"
+  );
+}
+if (!(new packagedDecimal("1.2") instanceof Decimal)) {
+  throw new Error(
+    "Export . must construct values belonging to the package-resolved Decimal family"
+  );
+}
 requireRuntimeAbsence(".", "defaultOmit");
 requireRuntimeAbsence(".", "instrumentation");
 requireRuntimeAbsence(".", "readBenchmarkOperation");
@@ -199,12 +260,14 @@ const clientRuntimeFile = resolve(
 );
 typeConsumerImports.push(
   `import type { DatabaseAdapter as PackagedDatabaseAdapter } from ${JSON.stringify(adaptersRuntimeFile)};`,
+  `import { Decimal as PackagedDecimal } from ${JSON.stringify(rootRuntimeFile)};`,
   `import type { ClientExtension as RootClientExtension, ExtendedClient as RootExtendedClient, VibORMClient as RootVibORMClient } from ${JSON.stringify(rootRuntimeFile)};`,
   `import type { ClientExtension as ClientSubpathExtension, ExtendedClient as ClientSubpathExtendedClient } from ${JSON.stringify(clientRuntimeFile)};`,
   `import type { ObservationCompletion as RootObservationCompletion, ObservationUnit as RootObservationUnit, ObserveHandler as RootObserveHandler, StatementContext as RootStatementContext, StatementHandler as RootStatementHandler } from ${JSON.stringify(rootRuntimeFile)};`,
   `import type { ObservationCompletion as ClientObservationCompletion, ObservationUnit as ClientObservationUnit, ObserveHandler as ClientObserveHandler, StatementContext as ClientStatementContext, StatementHandler as ClientStatementHandler } from ${JSON.stringify(clientRuntimeFile)};`,
   'const rootExtension: RootClientExtension = { name: "root-type-smoke" };',
   'const clientExtension: ClientSubpathExtension = { name: "client-type-smoke" };',
+  'const packagedDecimalValue: PackagedDecimal = new PackagedDecimal("1.2");',
   "type ExtensionSmokeConfig = { schema: Record<never, never>; driver: never };",
   "declare const extensionSmokeBase: RootVibORMClient<ExtensionSmokeConfig>;",
   'const extensionSmokeDefinition = { name: "package-type-smoke", client: () => ({ $packageTypeSmoke: () => 1 as const }) } as const;',
@@ -218,6 +281,7 @@ typeConsumerImports.push(
   "const clientStatement: ClientStatementHandler = (context: ClientStatementContext) => context.statement;",
   "void rootExtension;",
   "void clientExtension;",
+  "void packagedDecimalValue;",
   "rootExtendedClientSmoke.$packageTypeSmoke();",
   "clientSubpathExtendedClientSmoke.$packageTypeSmoke();",
   "void rootObserver;",

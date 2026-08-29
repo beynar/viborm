@@ -1,5 +1,5 @@
 import type { AnyModel } from "@schema/model";
-import type { StringKeyOf } from "@schema/model/helper";
+import type { DecimalListScalarKeys, StringKeyOf } from "@schema/model/helper";
 import { type AnyRelation, isVariantRelationState } from "@schema/relation";
 import type {
   Cardinality,
@@ -8,6 +8,10 @@ import type {
 import type { RelationState } from "@schema/relation/types";
 import type { ScalarState } from "@schema/scalars";
 import {
+  type DecimalListOrderByRefusalSchema,
+  decimalListOrderByRefusalSchema,
+  isDecimalListScalarKey,
+  type OrderableScalarKeys,
   type SortOrderSchema,
   sortOrderSchema,
   type VectorSortOrderSchema,
@@ -21,6 +25,9 @@ import type { SchemaGetter, TargetModel } from "./helpers";
 type ModelStateOf<M extends AnyModel> = M["~"]["state"];
 type ModelScalars<M extends AnyModel> = ModelStateOf<M>["scalars"];
 type ModelScalarKey<M extends AnyModel> = StringKeyOf<ModelScalars<M>>;
+type ModelDecimalListScalarKey<M extends AnyModel> = DecimalListScalarKeys<
+  ModelScalars<M>
+>;
 
 type ScalarStateOf<F> = F extends { "~": { state: infer S } }
   ? S extends ScalarState
@@ -39,7 +46,7 @@ type VectorScalarKey<M extends AnyModel> = {
 }[keyof ModelScalars<M>];
 
 type NonVectorScalarKey<M extends AnyModel> = Exclude<
-  ModelScalarKey<M>,
+  OrderableScalarKeys<M>,
   VectorScalarKey<M>
 >;
 
@@ -47,7 +54,11 @@ type ModelScalarOrderByEntries<M extends AnyModel> = V.FromKeys<
   NonVectorScalarKey<M>[],
   SortOrderSchema
 >["entries"] &
-  V.FromKeys<VectorScalarKey<M>[], VectorSortOrderSchema>["entries"];
+  V.FromKeys<VectorScalarKey<M>[], VectorSortOrderSchema>["entries"] &
+  V.FromKeys<
+    ModelDecimalListScalarKey<M>[],
+    DecimalListOrderByRefusalSchema
+  >["entries"];
 
 type RuntimeRelationMap = Record<string, AnyRelation>;
 
@@ -119,7 +130,7 @@ type ToOneRelationOrderByEntries<
         Rest
       >;
     }
-  : {};
+  : Record<never, never>;
 
 type ToOneModelOrderBySchema<
   M extends AnyModel,
@@ -159,13 +170,19 @@ const getModelScalarOrderByEntries = <M extends AnyModel>(
 ): ModelScalarOrderByEntries<M> => {
   const vectorScalarKeys: VectorScalarKey<M>[] = [];
   const nonVectorScalarKeys: NonVectorScalarKey<M>[] = [];
+  const decimalListScalarKeys: ModelDecimalListScalarKey<M>[] = [];
   const scalarKeys = Object.keys(
     target["~"].state.scalars
   ) as ModelScalarKey<M>[];
 
   for (const fieldName of scalarKeys) {
+    if (isDecimalListScalarKey(target, fieldName)) {
+      decimalListScalarKeys.push(fieldName);
+      continue;
+    }
     const scalar = target["~"].state.scalars[fieldName];
-    if (scalar["~"].state.type === "vector") {
+    const state = scalar["~"].state;
+    if (state.type === "vector") {
       vectorScalarKeys.push(fieldName as VectorScalarKey<M>);
       continue;
     }
@@ -180,10 +197,15 @@ const getModelScalarOrderByEntries = <M extends AnyModel>(
     vectorScalarKeys,
     vectorSortOrderSchema
   );
+  const decimalListEntries = v.fromKeys<
+    ModelDecimalListScalarKey<M>[],
+    DecimalListOrderByRefusalSchema
+  >(decimalListScalarKeys, decimalListOrderByRefusalSchema);
 
   return {
     ...scalarEntries.entries,
     ...vectorEntries.entries,
+    ...decimalListEntries.entries,
   };
 };
 
@@ -262,7 +284,7 @@ export const toOneOrderByFactory = <
  * To-many orderBy: can order by _count aggregate
  * e.g., orderBy: { posts: { _count: 'desc' } }
  */
-export type ToManyOrderBySchema<S extends RelationState> = V.Object<{
+export type ToManyOrderBySchema<_S extends RelationState> = V.Object<{
   _count: V.Enum<["asc", "desc"]>;
 }>;
 export const toManyOrderByFactory = <S extends RelationState>(

@@ -8,6 +8,11 @@
 import type { Scalar, ScalarState } from "@schema/scalars";
 import { MigrationError, VibORMErrorCode } from "../../../errors";
 import { renderQualifiedIdentifier } from "../../../sql/identifiers";
+import {
+  decimalConversionConstraintName,
+  decimalConversionRequired,
+  postgresDecimalFitsCheck,
+} from "../../decimal";
 import type { ColumnDef, SchemaSnapshot } from "../../types";
 import {
   type AddColumnOperation,
@@ -307,6 +312,7 @@ export class PostgresMigrationDriver extends MigrationDriver {
       array: scalarState.array,
       withTimezone: scalarState.withTimezone,
       dimension: scalarState.dimension,
+      decimal: scalarState.decimal,
     });
   }
 
@@ -504,6 +510,41 @@ export class PostgresMigrationDriver extends MigrationDriver {
     const table = this.qualify(tableName);
     const col = this.escapeIdentifier(columnName);
 
+    // A decimal descriptor change is VALIDATED BEFORE the type moves, and the
+    // proof stays live across it. `ALTER TYPE numeric(p,s) USING c::numeric(p,s)`
+    // on its own ROUNDS a value with too many fractional digits — silently
+    // rewriting stored data, which §7.3 forbids outright ("No descriptor change
+    // rounds existing data"). The constraint refuses those rows instead, before
+    // any DDL runs, and because it is only dropped afterwards no concurrent
+    // write can land an unrepresentable value while the conversion is in
+    // flight. The whole sequence is one transaction on PostgreSQL, so a
+    // refusal takes the validation, the DDL and the metadata back together.
+    //
+    // The TARGET domain alone is the whole predicate — `c = c::numeric(p,s)`
+    // says "this value survives the conversion unchanged" without consulting
+    // where it came from. So an unconstrained `numeric` adopted by a declared
+    // descriptor is validated exactly like a descriptor-to-descriptor change;
+    // skipping it there was the one path on which the `USING` cast still
+    // rounded.
+    const conversion = decimalConversionRequired(from, to);
+    if (conversion && to.decimal) {
+      const targetType = this.renderTypeToken(to.type, context);
+      const constraint = this.escapeIdentifier(
+        decimalConversionConstraintName(
+          targetType.endsWith("[]") ? "list" : "scalar",
+          to.decimal
+        )
+      );
+      // The migration owner's table lock, taken inside the transaction the
+      // executor already opened (§7.4): it makes the validation and the type
+      // change one lock acquisition rather than two, so nothing interleaves
+      // between the row the constraint proved and the row the cast reads.
+      statements.push(`LOCK TABLE ${table} IN ACCESS EXCLUSIVE MODE`);
+      statements.push(
+        `ALTER TABLE ${table} ADD CONSTRAINT ${constraint} CHECK (${postgresDecimalFitsCheck(col, targetType)})`
+      );
+    }
+
     if (from.type !== to.type) {
       // The new type is a column type token like any other, so a managed enum
       // is qualified here too — in BOTH positions, since the `USING` cast names
@@ -536,6 +577,13 @@ export class PostgresMigrationDriver extends MigrationDriver {
           `ALTER TABLE ${table} ALTER COLUMN ${col} SET DEFAULT ${to.default}`
         );
       }
+    }
+
+    if (conversion && to.decimal) {
+      const targetType = this.renderTypeToken(to.type, context);
+      statements.push(
+        `ALTER TABLE ${table} DROP CONSTRAINT ${this.escapeIdentifier(decimalConversionConstraintName(targetType.endsWith("[]") ? "list" : "scalar", to.decimal))}`
+      );
     }
 
     return statements.join(";\n");

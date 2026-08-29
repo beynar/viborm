@@ -65,6 +65,12 @@ fresh complete public graph. Arrays, objects, dates, byte arrays, relations,
 JSON, decimals, bigints, aggregates, counts, and grouped results retain their
 documented public values without sharing mutable references between calls.
 
+Fixed decimals are snapshotted as validated canonical private strings, never as
+Decimal prototypes or JSON numbers. Every scalar and list member is rebuilt as
+a fresh `Decimal` on every hit. Compare those values with `.eq()` rather than
+object identity; a caller mutation or Decimal.js configuration change cannot
+poison a later hit or change cache identity.
+
 Malformed stored snapshots fail at the cache boundary. VibORM does not route
 them back through the provider result parser or rerun custom JSON validation.
 Cache-managed reads remain outside consumable-provider-row optimization.

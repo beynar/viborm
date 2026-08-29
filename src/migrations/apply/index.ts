@@ -7,8 +7,11 @@
 
 import { MigrationError, VibORMErrorCode } from "../../errors";
 import { MigrationContext } from "../context";
+import { sqliteTableBearsRelations } from "../drivers/sqlite";
+import { generatedSqliteDecimalRebuilds } from "../drivers/sqlite/artifact-admission";
 import {
   assertForeignKeysIntact,
+  foreignKeyPragmasCannotBeLifted,
   liftForeignKeyPragmas,
   withForeignKeysLifted,
 } from "../foreign-keys";
@@ -143,9 +146,65 @@ async function preflightApply(
   const appliedMigrations = await readValidatedAppliedState(ctx, entries);
   const artifacts = new Map<string, string[]>();
   for (const entry of selectPending(entries, appliedMigrations, to)) {
-    artifacts.set(artifactIdentity(entry), await readArtifact(ctx, entry));
+    const statements = await readArtifact(ctx, entry);
+    artifacts.set(artifactIdentity(entry), statements);
   }
   return { appliedMigrations, artifacts };
+}
+
+/**
+ * Refuse a generated SQLite decimal rebuild transplanted onto D1's batch-only
+ * substrate when a live foreign key touches the rebuilt table.
+ *
+ * The renderer owns the same decision for live DDL. Apply owns this second
+ * entrance because a durable SQLite artifact is already SQL: it is never
+ * rendered again, and its journal intentionally carries no provider marker.
+ */
+async function assertGeneratedSqliteDecimalArtifactAdmitted(
+  ctx: MigrationContext,
+  entry: MigrationEntry,
+  statements: readonly string[]
+): Promise<void> {
+  if (
+    ctx.target.dialect !== "sqlite" ||
+    entry.mode !== "generated" ||
+    !foreignKeyPragmasCannotBeLifted(ctx.driver)
+  ) {
+    return;
+  }
+
+  const rebuilds = generatedSqliteDecimalRebuilds(statements);
+  if (rebuilds.length === 0) return;
+
+  const liveSchema = await ctx.migrationDriver.introspect(
+    async <T>(sql, params) => ({ rows: await ctx.executor<T>(sql, params) })
+  );
+  for (const rebuild of rebuilds) {
+    if (
+      !sqliteTableBearsRelations(
+        rebuild.table,
+        liveSchema.tables,
+        undefined,
+        rebuild.precedingOperations
+      )
+    ) {
+      continue;
+    }
+    throw new MigrationError(
+      `The generated fixed-decimal migration "${entry.name}" rebuilds table "${rebuild.table}", and the driver "${ctx.driver.driverName}" executes migrations as one native batch. ` +
+        "SQLite treats `PRAGMA foreign_keys=OFF` as a no-op inside that batch, so dropping a table with inbound or outbound foreign keys could either fail after earlier effects or silently apply referential actions to its rows. " +
+        "The migration is refused before any statement from it runs, so neither this artifact nor its tracking row changed the estate. Generate this descriptor change for a relation-free table, or apply it through a SQLite driver that can lift the pragma outside its transaction.",
+      VibORMErrorCode.FEATURE_NOT_SUPPORTED,
+      {
+        meta: {
+          driver: ctx.driver.driverName,
+          migrationName: entry.name,
+          table: rebuild.table,
+          feature: "decimal descriptor conversion",
+        },
+      }
+    );
+  }
 }
 
 /**
@@ -310,11 +369,12 @@ async function readValidatedAppliedState(
 /**
  * One entry's artifact, read, parsed and classified.
  *
- * Reads storage and decides about text; it touches the estate not at all, which
- * is why the preflight can call it for every pending entry before the first
- * effect. The loop calls it too, for an entry that appeared in a journal reread
- * AFTER a commit — by then the effects exist, and that read is honestly part of
- * the durable program.
+ * Reads storage, decides about text, and performs the read-only live admission
+ * that generated SQLite decimal artifacts need. The preflight calls it for
+ * every initially pending entry before the first effect. The loop calls the
+ * same boundary only on a cache miss after a journal reread, so a newly
+ * published entry cannot bypass admission and a preflight-cached entry is not
+ * admitted twice.
  */
 async function readArtifact(
   ctx: MigrationContext,
@@ -331,6 +391,7 @@ async function readArtifact(
 
   const statements = parseStatements(content);
   assertArtifactExecutionSafe(statements, ctx.target.dialect, entry.name);
+  await assertGeneratedSqliteDecimalArtifactAdmitted(ctx, entry, statements);
   return statements;
 }
 

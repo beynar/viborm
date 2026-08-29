@@ -380,3 +380,17 @@ export function isError(value: unknown): value is Error {
     return false;
   }
 }
+
+/** Normalize one caught value into an Error without trusting its prototype. */
+export function toError(thrown: unknown): Error {
+  if (isError(thrown)) return thrown;
+  return new Error(describeThrown(thrown), { cause: thrown });
+}
+
+function describeThrown(thrown: unknown): string {
+  try {
+    return String(thrown);
+  } catch {
+    return `a thrown ${typeof thrown} whose own string conversion threw`;
+  }
+}

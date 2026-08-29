@@ -596,7 +596,7 @@ describe("a forged dialect cannot address another dialect's scope", () => {
 });
 
 describe("the snapshot revision partitions old storage", () => {
-  test("an r1-shaped entry is never served to an r2 reader", async () => {
+  test("an r1-shaped entry is never served to an r3 reader", async () => {
     const { alpha, backend, settle } = tenants();
 
     // The exact key the previous revision would have used for a namespace-blind
@@ -616,7 +616,7 @@ describe("the snapshot revision partitions old storage", () => {
     );
 
     expect(firstRead).toEqual(rowsFor("alpha"));
-    expect(liveKey.startsWith("viborm:cache:r2:")).toBe(true);
+    expect(liveKey.startsWith("viborm:cache:r3:")).toBe(true);
     // The r1 entry sits in the same backend and is simply unreachable.
     await expect(
       alpha.$withCache({ ttl: 60_000 }).account.findMany(IDENTICAL_READ)

@@ -1,4 +1,4 @@
-import { defineContract } from "@tests/contracts/contract";
+// biome-ignore-all lint/suspicious/noMisplacedAssertion: Shared assertion helpers are invoked only from registered tests.
 import {
   createClient,
   type VibORMClient,
@@ -7,14 +7,25 @@ import {
 import type { AnyDriver } from "@drivers";
 import { push } from "@migrations";
 import { s } from "@schema";
+import { Decimal } from "@src/index";
+import { defineContract } from "@tests/contracts/contract";
 import type { InputJsonValue } from "@validation";
+import { canonicalizeDecimal } from "@validation/primitives/decimal-codec";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
+
+/**
+ * The shared decimal domain for this suite: SQLite-legal
+ * (`precision + scale <= 18`, plan 3.1) so every driver in the matrix admits
+ * it. Wider domains belong in a PostgreSQL/MySQL-only arm.
+ */
+const MONEY = { precision: 12, scale: 6 } as const;
 
 const measurement = s
   .model({
     id: s.string().id(),
     takenAt: s.dateTime(),
-    amount: s.decimal(),
+    amount: s.decimal(MONEY),
+    amounts: s.decimal(MONEY).array(),
     views: s.bigInt(),
     readings: s.toMany(() => reading),
   })
@@ -25,7 +36,8 @@ const reading = s
     id: s.string().id(),
     measurementId: s.string(),
     recordedAt: s.dateTime(),
-    price: s.decimal(),
+    price: s.decimal(MONEY),
+    prices: s.decimal(MONEY).array(),
     count: s.bigInt(),
     measurement: s
       .toOne(() => measurement)
@@ -49,10 +61,17 @@ export interface ScalarRoundtripBehaviorOptions {
 }
 
 const TAKEN_AT = new Date("2024-01-15T10:30:00.123Z");
-// A decimal is written and read as an exact string (W6-U1). This one is
-// representable as a double too — the values that are NOT are exercised by the
-// exact-decimal suite below.
+// A decimal is written and read as an exact Decimal. This one is representable
+// as a double too — the values that are NOT are exercised by the exact-decimal
+// suite (decimal-exactness-behavior.ts).
 const AMOUNT = "123.456";
+/**
+ * A decimal LIST, whose members cross the wire as unscaled coefficient strings
+ * on the JSON-backed providers and as native array elements on PostgreSQL. The
+ * last member's final fraction digit is one a double cannot hold, and the list
+ * repeats a member so order and multiplicity are observable.
+ */
+const AMOUNTS = ["1.2", "-0.000003", "123.456001", "1.2"];
 // One past Number.MAX_SAFE_INTEGER: silently corrupts if it travels as a JS number
 const VIEWS = 9_007_199_254_740_993n;
 
@@ -85,7 +104,13 @@ export function runScalarRoundtripBehavior({
 
     async function seed(): Promise<void> {
       await requireClient(client).measurement.create({
-        data: { id: "m-1", takenAt: TAKEN_AT, amount: AMOUNT, views: VIEWS },
+        data: {
+          id: "m-1",
+          takenAt: TAKEN_AT,
+          amount: AMOUNT,
+          amounts: AMOUNTS,
+          views: VIEWS,
+        },
       });
     }
 
@@ -135,15 +160,103 @@ export function runScalarRoundtripBehavior({
       expect(row?.takenAt.toISOString()).toBe(updatedAt.toISOString());
     });
 
-    test("decimal reads back as its exact canonical string", async () => {
+    test("decimal reads back as its exact canonical value", async () => {
       await seed();
 
       const row = await requireClient(client).measurement.findUnique({
         where: { id: "m-1" },
       });
+      const again = await requireClient(client).measurement.findUnique({
+        where: { id: "m-1" },
+      });
 
-      expect(typeof row?.amount).toBe("string");
-      expect(row?.amount).toBe(AMOUNT);
+      expect(row?.amount).toBeInstanceOf(Decimal);
+      expect(canonicalizeDecimal(row?.amount)).toBe(AMOUNT);
+      expect(row?.amount).not.toBe(again?.amount);
+    });
+
+    test("a decimal LIST round-trips member by member", async () => {
+      await seed();
+
+      const row = await requireClient(client).measurement.findUnique({
+        where: { id: "m-1" },
+      });
+      const again = await requireClient(client).measurement.findUnique({
+        where: { id: "m-1" },
+      });
+
+      // Order and multiplicity, and every member its own exact value: the
+      // physical container is a JSON array of coefficient strings on two of
+      // three families, and nothing but the codec may spell it.
+      for (const member of row?.amounts ?? []) {
+        expect(member).toBeInstanceOf(Decimal);
+      }
+      expect(row?.amounts.map((member) => canonicalizeDecimal(member))).toEqual(
+        AMOUNTS
+      );
+      for (const [index, member] of (row?.amounts ?? []).entries()) {
+        expect(member).not.toBe(again?.amounts[index]);
+      }
+    });
+
+    test("a decimal LIST filters by containment on its logical members", async () => {
+      await seed();
+
+      const matched = await requireClient(client).measurement.findMany({
+        where: { amounts: { has: "123.456001" } },
+      });
+      const missed = await requireClient(client).measurement.findMany({
+        // One unit in the last place away — the digit a double cannot hold, so
+        // any path that compared through one would match this too.
+        where: { amounts: { has: "123.456002" } },
+      });
+
+      expect(matched.map((row) => row.id)).toEqual(["m-1"]);
+      expect(missed).toEqual([]);
+    });
+
+    test("a decimal LIST compares and updates in its logical vocabulary", async () => {
+      await seed();
+
+      const matched = await requireClient(client).measurement.findMany({
+        where: { amounts: { equals: AMOUNTS } },
+      });
+      const reordered = await requireClient(client).measurement.findMany({
+        where: { amounts: { equals: [...AMOUNTS].reverse() } },
+      });
+      expect(matched.map((row) => row.id)).toEqual(["m-1"]);
+      expect(reordered).toEqual([]);
+
+      await requireClient(client).measurement.update({
+        where: { id: "m-1" },
+        data: { amounts: { push: "0.000001" } },
+      });
+      await requireClient(client).measurement.update({
+        where: { id: "m-1" },
+        data: { amounts: { unshift: "-1" } },
+      });
+
+      const updated = await requireClient(client).measurement.findUnique({
+        where: { id: "m-1" },
+      });
+      expect(
+        updated?.amounts.map((member) => canonicalizeDecimal(member))
+      ).toEqual(["-1", ...AMOUNTS, "0.000001"]);
+    });
+
+    test("a decimal LIST survives a grouped projection", async () => {
+      await seed();
+
+      const groups = await requireClient(client).measurement.groupBy({
+        by: ["amounts"],
+        _count: true,
+      });
+
+      expect(groups).toHaveLength(1);
+      expect(
+        groups[0]?.amounts.map((member) => canonicalizeDecimal(member))
+      ).toEqual(AMOUNTS);
+      expect(groups[0]?._count).toBe(1);
     });
 
     test("bigint beyond Number.MAX_SAFE_INTEGER round-trips exactly", async () => {
@@ -164,11 +277,18 @@ export function runScalarRoundtripBehavior({
           id: "m-1",
           takenAt: TAKEN_AT,
           amount: AMOUNT,
+          amounts: AMOUNTS,
           views: VIEWS,
           readings: {
             createMany: {
               data: [
-                { id: "r-1", recordedAt, price: "0.001", count: VIEWS + 1n },
+                {
+                  id: "r-1",
+                  recordedAt,
+                  price: "0.001",
+                  prices: AMOUNTS,
+                  count: VIEWS + 1n,
+                },
               ],
             },
           },
@@ -179,13 +299,30 @@ export function runScalarRoundtripBehavior({
         where: { id: "m-1" },
         include: { readings: true },
       });
+      const again = await requireClient(client).measurement.findUnique({
+        where: { id: "m-1" },
+        include: { readings: true },
+      });
 
       expect(row?.readings).toHaveLength(1);
       const nested = row?.readings[0];
+      const nestedAgain = again?.readings[0];
       expect(nested?.recordedAt).toBeInstanceOf(Date);
       expect(nested?.recordedAt.toISOString()).toBe(recordedAt.toISOString());
-      expect(typeof nested?.price).toBe("string");
-      expect(nested?.price).toBe("0.001");
+      expect(nested?.price).toBeInstanceOf(Decimal);
+      expect(canonicalizeDecimal(nested?.price)).toBe("0.001");
+      expect(nested?.price).not.toBe(nestedAgain?.price);
+      // Through the relation CARRIER, where a decimal list has to cross a JSON
+      // document without any member becoming a JSON number.
+      for (const member of nested?.prices ?? []) {
+        expect(member).toBeInstanceOf(Decimal);
+      }
+      expect(
+        nested?.prices.map((member) => canonicalizeDecimal(member))
+      ).toEqual(AMOUNTS);
+      for (const [index, member] of (nested?.prices ?? []).entries()) {
+        expect(member).not.toBe(nestedAgain?.prices[index]);
+      }
       expect(typeof nested?.count).toBe("bigint");
       expect(nested?.count).toBe(VIEWS + 1n);
     });
@@ -213,7 +350,7 @@ const fullRecord = s
     text: s.string(),
     count: s.int(),
     ratio: s.number(),
-    price: s.decimal(),
+    price: s.decimal(MONEY),
     views: s.bigInt(),
     active: s.boolean(),
     happenedAt: s.dateTime(),
@@ -234,7 +371,7 @@ const fullItem = s
     text: s.string(),
     count: s.int(),
     ratio: s.number(),
-    price: s.decimal(),
+    price: s.decimal(MONEY),
     views: s.bigInt(),
     active: s.boolean(),
     happenedAt: s.dateTime(),
@@ -281,8 +418,9 @@ const FULL_VALUES: FullValues = {
   text: 'plain text with {"json": true} inside',
   count: 42,
   ratio: 1.5,
-  // A decimal is an exact string: 30 fraction digits, past what a double holds
-  price: "123.456000000000000000000000000001",
+  // A decimal is exact: six fraction digits whose last one a double would lose
+  // once the integer part is this wide.
+  price: "123456.000001",
   // One past Number.MAX_SAFE_INTEGER: corrupts if it travels as a JS number
   views: 9_007_199_254_740_993n,
   active: true,
@@ -311,8 +449,7 @@ function expectFullValues(
   expect(typeof r.ratio).toBe("number");
   expect(r.ratio).toBe(expected.ratio);
 
-  expect(typeof r.price).toBe("string");
-  expect(r.price).toBe(expected.price);
+  expect(canonicalizeDecimal(r.price)).toBe(expected.price);
 
   expect(typeof r.views).toBe("bigint");
   expect(r.views).toBe(expected.views);

@@ -100,11 +100,14 @@ const ADMITTED_LIVE_EXECUTION_OWNERS = [
   "src/migrations/live-reset.ts executeRaw 4",
   "src/migrations/live-reset.ts queryExecutorFactory 1",
   // §3.5's pinned-session owner: target selection, the command-view catalog
-  // read, and the sequential program's recording view — plus one executor
-  // each for the acquisition proof, the release proof, and the pinned
-  // context view.
-  "src/migrations/pinned-session.ts executeRaw 3",
-  "src/migrations/pinned-session.ts queryExecutorFactory 3",
+  // read, and the sequential program's recording view. Exact-decimal migration
+  // recovery adds two sites in THIS SAME owner: its catalog read and execution
+  // of the recovery statements before the caller's program. Query executors
+  // remain here too: strict-mode proof, pinned context, lock acquisition, and
+  // lock release. The manifest counts sites so a new parallel path is red even
+  // when it is added to an already admitted file.
+  "src/migrations/pinned-session.ts executeRaw 5",
+  "src/migrations/pinned-session.ts queryExecutorFactory 4",
   // The MySQL sequential arm executes beside the transactional arm (§3.5:
   // no manufactured atomicity), so the executor carries both spellings.
   "src/migrations/push/executor.ts executeRaw 3",

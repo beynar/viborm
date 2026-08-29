@@ -266,6 +266,79 @@ describe("PostgreSQL DDL Generation", () => {
 
       expect(ddl).toContain("SET DEFAULT 'active'");
     });
+
+    it("validates a decimal conversion before the type moves, and never a bare rounding cast", () => {
+      const op: DiffOperation = {
+        type: "alterColumn",
+        tableName: "ledger",
+        columnName: "amount",
+        from: {
+          name: "amount",
+          type: "numeric(10,4)",
+          nullable: false,
+          decimal: { precision: 10, scale: 4 },
+        },
+        to: {
+          name: "amount",
+          type: "NUMERIC(10,2)",
+          nullable: false,
+          decimal: { precision: 10, scale: 2 },
+        },
+      };
+
+      // `ALTER ... TYPE numeric(10,2) USING amount::numeric(10,2)` on its own
+      // ROUNDS 123.4560 to 123.46 and reports success, which §7.3 forbids
+      // outright. The constraint refuses those rows first; because it is only
+      // dropped afterwards, no concurrent write can land one while the
+      // conversion is in flight. All four statements are one PostgreSQL
+      // transaction, so a refusal takes the whole thing back.
+      expect(generateDDL(op).split(";\n")).toEqual([
+        'LOCK TABLE "ledger" IN ACCESS EXCLUSIVE MODE',
+        'ALTER TABLE "ledger" ADD CONSTRAINT "viborm_decimal_s_10_2" CHECK ("amount" IS NULL OR ("amount" NOT IN (\'NaN\'::numeric, \'Infinity\'::numeric, \'-Infinity\'::numeric) AND "amount" = "amount"::NUMERIC(10,2)))',
+        'ALTER TABLE "ledger" ALTER COLUMN "amount" TYPE NUMERIC(10,2) USING "amount"::NUMERIC(10,2)',
+        'ALTER TABLE "ledger" DROP CONSTRAINT "viborm_decimal_s_10_2"',
+      ]);
+    });
+
+    it("validates an array's members through the same element cast", () => {
+      const op: DiffOperation = {
+        type: "alterColumn",
+        tableName: "ledger",
+        columnName: "samples",
+        from: {
+          name: "samples",
+          type: "numeric(10,4)[]",
+          nullable: true,
+          decimal: { precision: 10, scale: 4 },
+        },
+        to: {
+          name: "samples",
+          type: "NUMERIC(10,2)[]",
+          nullable: true,
+          decimal: { precision: 10, scale: 2 },
+        },
+      };
+
+      // PostgreSQL compares arrays element-wise by value. The explicit NULL
+      // and non-finite member proofs preserve invariants a cast cannot establish.
+      expect(generateDDL(op)).toContain(
+        'CHECK ("samples" IS NULL OR (array_position("samples", NULL) IS NULL AND array_position("samples", \'NaN\'::numeric) IS NULL AND array_position("samples", \'Infinity\'::numeric) IS NULL AND array_position("samples", \'-Infinity\'::numeric) IS NULL AND "samples" = "samples"::NUMERIC(10,2)[]))'
+      );
+    });
+
+    it("leaves a non-decimal alteration exactly as it was", () => {
+      const op: DiffOperation = {
+        type: "alterColumn",
+        tableName: "users",
+        columnName: "age",
+        from: { name: "age", type: "text", nullable: false },
+        to: { name: "age", type: "integer", nullable: false },
+      };
+
+      expect(generateDDL(op)).toBe(
+        'ALTER TABLE "users" ALTER COLUMN "age" TYPE integer USING "age"::integer'
+      );
+    });
   });
 
   describe("createIndex", () => {

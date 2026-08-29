@@ -438,8 +438,10 @@ export class MigrationContext {
    * command reaches the driver primitive itself.
    */
   sequentialProgram<T>(fn: (ctx: MigrationContext) => Promise<T>): Promise<T> {
-    return runSequentialProgram(this.driver, (recording) =>
-      fn(this.on(recording))
+    return runSequentialProgram(
+      this.driver,
+      this.migrationDriver,
+      (recording) => fn(this.on(recording))
     );
   }
 

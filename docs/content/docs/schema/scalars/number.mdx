@@ -10,17 +10,22 @@ icon: hash
 | ------------- | ---------- | ---------------------- | ---------------------------------------------- |
 | `s.int()`     | `number`   | Whole numbers          | Counts, IDs, quantities                        |
 | `s.number()`  | `number`   | Approximate            | Scientific data, coordinates, ratings          |
-| `s.decimal()` | `string`   | Exact, any precision   | Money, percentages, anything you'd audit — see [Decimal](/docs/schema/scalars/decimal) |
+| `s.decimal({ precision, scale })` | `Decimal` | Exact declared domain | Money, percentages, anything you'd audit — see [Decimal](/docs/schema/scalars/decimal) |
 
 ```ts
 import { s } from "viborm";
 
 s.int(); // Required integer
 s.number().nullable(); // number | null
-s.decimal().default("0"); // With default — a decimal is a string
+s.decimal({ precision: 10, scale: 2 }).default("0"); // Decimal result
 ```
 
-All three support the full [modifier reference](/docs/schema/scalars) (`.nullable()`, `.array()`, `.id()`, `.unique()`, `.default()`, `.schema()`, `.map()`). Column types (`SMALLINT`, `DECIMAL(10,2)`, unsigned variants, ...) are configured via [Native Types](/docs/schema/native-types).
+All three support `.nullable()`, `.default()`, `.schema()`, and `.map()`.
+Scalar decimals can be IDs and unique fields. Decimal lists cannot occupy any
+key, index, or foreign-key position. Integer and approximate-number column types
+can be configured via [Native Types](/docs/schema/native-types); a decimal's
+required descriptor derives `NUMERIC(p,s)`, `DECIMAL(p,s)`, or checked scaled
+`INTEGER` directly.
 
 ## Auto-Increment
 

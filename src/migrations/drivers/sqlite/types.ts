@@ -6,6 +6,16 @@
 
 export interface SqliteTable {
   name: string;
+  /**
+   * The `CREATE TABLE` statement SQLite stored, verbatim.
+   *
+   * Read for the reserved decimal CHECK constraints, which are the only place
+   * a column's declared precision and scale survive on a dialect whose type
+   * name carries neither and whose `PRAGMA table_info` reports no constraint.
+   * `null` for a table with no stored statement (SQLite's own internal ones,
+   * which this query already excludes).
+   */
+  sql: string | null;
 }
 
 /**

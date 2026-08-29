@@ -1,6 +1,7 @@
 // biome-ignore-all lint/style/useFilenamingConvention: Architecture names this compiler child JunctionStatements.
 import { isSql, type Sql, sql } from "@sql";
 import { isRecord } from "@validation/value-guards";
+import { projectScalarForTransport } from "./builders/decimal-field";
 import {
   buildJunctionDeleteCondition,
   buildJunctionInsert,
@@ -236,9 +237,27 @@ export class JunctionStatements {
     const source = junction.membership.source;
     return this.ctx.adapter.assemble.select({
       columns: sql.join(
-        source.members.map((member) =>
-          this.ctx.adapter.identifiers.escape(member.junctionField)
-        ),
+        source.members.map((member) => {
+          // These owner values cross the driver and are then re-bound through
+          // the model scalar. Preserve the same exact transport spelling as a
+          // public projection; a raw SQLite INTEGER can become a rounded number.
+          const column = this.ctx.adapter.identifiers.escape(
+            member.junctionField
+          );
+          const scalar =
+            source.model["~"].state.scalars[member.referencedField];
+          const projected = projectScalarForTransport(
+            this.ctx.adapter,
+            scalar,
+            column
+          );
+          return projected === column
+            ? column
+            : this.ctx.adapter.identifiers.aliased(
+                projected,
+                member.junctionField
+              );
+        }),
         ", "
       ),
       from: this.ctx.adapter.identifiers.table(junction.membership.table),

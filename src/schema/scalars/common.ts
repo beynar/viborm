@@ -3,6 +3,7 @@
 
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { InferInput, VibSchema } from "@validation";
+import type { DecimalDescriptor } from "@validation/primitives/decimal-codec";
 import type { Scalar } from "./base";
 
 // =============================================================================
@@ -132,6 +133,17 @@ export interface ScalarState<T extends ScalarType = ScalarType> {
   columnName: string | undefined;
   base: VibSchema;
   withTimezone?: boolean | undefined;
+  /**
+   * The declared fixed-decimal domain, frozen at `s.decimal({...})`.
+   *
+   * It is the ONE source of truth for input validation, physical DDL, literal
+   * encoding, result decoding, comparison and aggregate lowering, arithmetic
+   * rounding and overflow, list-member encoding, and migration compatibility.
+   * No adapter, driver, result parser, or migration component stores a second
+   * precision or scale decision, and every modifier carries THIS object by
+   * reference rather than rebuilding one.
+   */
+  decimal?: DecimalDescriptor | undefined;
   /** Fixed vector length for pgvector-backed vector scalars. */
   dimension?: number | undefined;
   /** Custom enum type name in the database (set via .name() on enum scalars) */
@@ -192,8 +204,16 @@ export type MaybeArray<
  */
 export type DefaultValue<T> = T | (() => T);
 
+/**
+ * The input accepted by the scalar's current base schema, or a factory for it.
+ *
+ * The base schema already owns the scalar's nullable and array wrappers. Adding
+ * them again here turns a list default into a list of lists at the type level
+ * (`string[][]` for `s.string().array()`), while runtime validation correctly
+ * expects `string[]`. Read the one trusted shape instead of reconstructing it.
+ */
 export type DefaultValueInput<S extends ScalarState> = DefaultValue<
-  MaybeNullable<MaybeArray<InferInput<S["base"]>, S["array"]>, S["nullable"]>
+  InferInput<S["base"]>
 >;
 
 // =============================================================================
@@ -203,11 +223,7 @@ export type DefaultValueInput<S extends ScalarState> = DefaultValue<
 /**
  * Creates a default initial state for a scalar type
  */
-export const createDefaultState = <
-  T extends ScalarType,
-  B extends VibSchema,
-  Values extends string[] = string[],
->(
+export const createDefaultState = <T extends ScalarType, B extends VibSchema>(
   type: T,
   base: B
 ) => ({

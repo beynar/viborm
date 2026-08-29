@@ -721,7 +721,7 @@ describe("object schema", () => {
       ]);
     });
 
-    test("preserves a throwing constraint accessor and invokes it once", () => {
+    test("contains a throwing constraint accessor and invokes it once", () => {
       const refusal = new Error("constraint accessor refused");
       let dependencyReads = 0;
       const accessorSchema = v.object(
@@ -736,7 +736,9 @@ describe("object schema", () => {
         },
       });
 
-      expect(() => parse(accessorSchema, input)).toThrow(refusal);
+      expect(parse(accessorSchema, input)).toEqual({
+        issues: [{ message: "Schema validation failed unexpectedly" }],
+      });
       expect(dependencyReads).toBe(1);
     });
 

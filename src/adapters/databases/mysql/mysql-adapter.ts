@@ -1,9 +1,23 @@
 import { unsupportedGeospatial, unsupportedVector } from "@errors";
 import { type Sql, sql } from "@sql";
+import {
+  type DecimalDescriptor,
+  decimalColumnType,
+  encodePhysicalDecimal,
+} from "@validation/primitives/decimal-codec";
 import { createIdentifierQuoter } from "../../../sql/identifiers";
+import type { ArithmeticTarget } from "../../adapter-core-types";
 import { installAdapterNamespace } from "../../adapter-namespace";
+import type { AdapterResultParser } from "../../adapter-result-parser";
 import type { DatabaseAdapter, QueryParts } from "../../database-adapter";
 import { createMySqlBatchRefs } from "../../shared/batch-refs";
+import {
+  type ExactIntegerArithmetic,
+  halfEvenQuotient,
+  scaleFactorSql,
+  scaleUnitSql,
+  signedNumerator,
+} from "../../shared/decimal-arithmetic";
 import {
   normalizeCountResult,
   parseIntegerBoolean,
@@ -20,6 +34,7 @@ import {
   createComparisonOperators,
   createCoreJoins,
   createCteBuilders,
+  createDecimalSumOperandPrecision,
   createDirectionOrderBy,
   createEmulatedNullsOrderBy,
   createExistenceOperators,
@@ -43,6 +58,276 @@ import {
 } from "../../shared/standard-sql";
 
 const quoteIdent = createIdentifierQuoter("`");
+
+/**
+ * MySQL has `MOD()` but no exact integer-quotient function for decimals: `DIV`
+ * converts both sides to BIGINT (so it overflows and truncates a wide
+ * `DECIMAL`), and `TRUNCATE(n / d, 0)` computes `n / d` to
+ * `div_precision_increment` extra digits and ROUNDS there first, which can turn
+ * a value just below a half into an exact-looking tie.
+ *
+ * `(n - MOD(n, d)) / d` avoids both: the numerator is exactly divisible by `d`,
+ * so the division's true result has no fractional digits and the extra digits
+ * MySQL computes are all zero.
+ */
+const MYSQL_INTEGERS: ExactIntegerArithmetic = {
+  // The CAST is not decoration. MySQL's `/` ALWAYS returns
+  // `div_precision_increment` (four, by default) fractional digits, so an exact
+  // integer quotient arrives typed `DECIMAL(w, 4)` — four digits of the 65-digit
+  // exact domain spent on zeros, and any product taking that value as an operand
+  // would carry them into ITS width. Casting back to the widest exact integer
+  // domain is exact here (the value has no fraction to lose) and is what keeps
+  // every downstream term integer-typed.
+  quotient: (n: Sql, d: Sql): Sql =>
+    sql`CAST((${n} - MOD(${n}, ${d})) / ${d} AS DECIMAL(65,0))`,
+  remainder: (n: Sql, d: Sql): Sql => sql`MOD(${n}, ${d})`,
+};
+
+/**
+ * MySQL's exact decimal domain, in digits — the ceiling every expression below
+ * is written to stay under (plan 5.3: "MySQL expressions avoid an intermediate
+ * wider than its 65-digit exact domain").
+ */
+const MYSQL_EXACT_DIGITS = 65;
+
+const mysqlMaximumCoefficient = (digits: number): Sql =>
+  sql.raw("9".repeat(digits));
+
+const mysqlStrictMode = sql`(FIND_IN_SET('STRICT_TRANS_TABLES', @@SESSION.sql_mode) > 0 OR FIND_IN_SET('STRICT_ALL_TABLES', @@SESSION.sql_mode) > 0)`;
+
+const mysqlArithmeticFailure = sql`JSON_EXTRACT('x', '$')`;
+
+/** `CAST(<expr> AS DECIMAL(precision,scale))`, the width-declaring device. */
+const decimalCast = (expr: Sql, precision: number, scale: number): Sql =>
+  sql`CAST(${expr} AS ${sql.raw(`DECIMAL(${precision},${scale})`)})`;
+
+/**
+ * The signed unscaled COEFFICIENT of a logical `DECIMAL(p,s)` expression, as an
+ * exact integer — WITHOUT ever multiplying the whole value by `10^s`.
+ *
+ * `column * 10^s` is the obvious spelling and it is the unsafe one. MySQL types
+ * a product as `DECIMAL(p1+p2, s1+s2)` capped at `(65, 30)`, so multiplying a
+ * `DECIMAL(65,30)` column by a `DECIMAL(31,0)` factor asks for a 96-digit type,
+ * gets a 65-digit one whose 30 fractional digits leave 35 for an integer that
+ * needs 65 — and MySQL answers ZERO, with no warning and no error (measured on
+ * 8.4: `SELECT CAST(REPEAT('9',50) AS DECIMAL(65,0)) * 0.<29 zeros>1` is
+ * `0.000…0`). Splitting the value first is what keeps every factor small:
+ *
+ *   whole    = TRUNCATE(v, 0)            |whole|    < 10^(p-s), scale 0
+ *   fraction = v - whole                 |fraction| < 1,        scale s
+ *   coefficient = whole * 10^s + fraction * 10^s
+ *
+ * Widths, by construction, for every descriptor MySQL admits (`p <= 65`,
+ * `s <= 30`, `p + s <= 65`): `whole * 10^s` is typed
+ * `DECIMAL(min(p+2,65), 0)` and valued
+ * below `10^p`; `fraction * 10^s` is typed `DECIMAL(2s+2, s)` — at most 62
+ * digits — and valued below `10^s`, so its cast to `DECIMAL(s,0)` is exact.
+ * Neither product's operands sum past the exact domain, so neither can take the
+ * silent arm above.
+ */
+const mysqlCoefficient = (value: Sql, descriptor: DecimalDescriptor): Sql => {
+  const { scale } = descriptor;
+  if (scale === 0) return value;
+  const factor = scaleFactorSql(scale);
+  const whole = sql`TRUNCATE(${value}, 0)`;
+  const fraction = decimalCast(sql`(${value} - ${whole})`, scale + 1, scale);
+  return sql`(${whole} * ${factor} + ${decimalCast(sql`(${fraction} * ${factor})`, scale, 0)})`;
+};
+
+/**
+ * The logical `DECIMAL(p,s)` value of an exact integer COEFFICIENT — the
+ * inverse of {@link mysqlCoefficient}, and unsafe for the same reason in the
+ * same place.
+ *
+ * `coefficient * 10^-s` would multiply a `p`-digit integer by a
+ * `DECIMAL(s+1,s)` literal: `p + s + 1` digits of type for a value that needs
+ * `p`, which is the silent-zero arm again for a wide descriptor. So the
+ * coefficient is split by `10^s` FIRST — an integer part that is already the
+ * answer's integer part, and a remainder below `10^s` that is the only thing
+ * the tiny `10^-s` literal ever multiplies:
+ *
+ *   integer part = (coefficient - MOD(coefficient, 10^s)) / 10^s
+ *   fraction     = MOD(coefficient, 10^s) * 10^-s
+ *
+ * Widths: the division is typed `DECIMAL(w, 4)` over a value below `10^(p-s)`,
+ * and the fractional product's operands sum to `2s + 1` — at most 61 digits.
+ */
+const mysqlLogical = (coefficient: Sql, descriptor: DecimalDescriptor): Sql => {
+  const { scale } = descriptor;
+  if (scale === 0) return coefficient;
+  const factor = scaleFactorSql(scale);
+  const remainder = sql`MOD(${coefficient}, ${factor})`;
+  return sql`((${coefficient} - ${remainder}) / ${factor} + ${decimalCast(remainder, scale, 0)} * ${scaleUnitSql(scale)})`;
+};
+
+/**
+ * Assign one coefficient-space answer without letting a non-strict MySQL
+ * session turn overflow into a clipped value. Strict sessions retain their
+ * native error. A non-strict session reaches the answer only after the caller's
+ * operation-specific precondition proves its intermediate is exact and the
+ * target-domain check proves the final coefficient fits.
+ *
+ * The session-mode arm is deliberately first. `CASE` is the same lazy error
+ * primitive used by this adapter's assertion queries, so a safe or NULL arm
+ * never evaluates the invalid JSON expression that raises the provider error.
+ */
+const mysqlGuardedDecimalAssignment = (
+  column: Sql,
+  coefficient: Sql,
+  descriptor: DecimalDescriptor,
+  intermediateFits: Sql
+): Sql => {
+  const maximum = mysqlMaximumCoefficient(descriptor.precision);
+  const logical = mysqlLogical(coefficient, descriptor);
+  return sql`${column} = CASE WHEN ${mysqlStrictMode} THEN ${logical} WHEN ${column} IS NULL THEN NULL WHEN ${intermediateFits} THEN CASE WHEN ${coefficient} BETWEEN -${maximum} AND ${maximum} THEN ${logical} ELSE ${mysqlArithmeticFailure} END ELSE ${mysqlArithmeticFailure} END`;
+};
+
+const mysqlDecimalIncrement = (
+  column: Sql,
+  by: Sql,
+  descriptor: DecimalDescriptor
+): Sql => {
+  const current = mysqlCoefficient(column, descriptor);
+  const operand = mysqlCoefficient(by, descriptor);
+  const maximum = mysqlMaximumCoefficient(descriptor.precision);
+  const fits = sql`CASE WHEN ${operand} > 0 THEN ${current} <= ${maximum} - ${operand} WHEN ${operand} < 0 THEN ${current} >= -${maximum} - ${operand} ELSE TRUE END`;
+  return mysqlGuardedDecimalAssignment(
+    column,
+    sql`(${current} + ${operand})`,
+    descriptor,
+    fits
+  );
+};
+
+const mysqlDecimalDecrement = (
+  column: Sql,
+  by: Sql,
+  descriptor: DecimalDescriptor
+): Sql => {
+  const current = mysqlCoefficient(column, descriptor);
+  const operand = mysqlCoefficient(by, descriptor);
+  const maximum = mysqlMaximumCoefficient(descriptor.precision);
+  const fits = sql`CASE WHEN ${operand} > 0 THEN ${current} >= -${maximum} + ${operand} WHEN ${operand} < 0 THEN ${current} <= ${maximum} + ${operand} ELSE TRUE END`;
+  return mysqlGuardedDecimalAssignment(
+    column,
+    sql`(${current} - ${operand})`,
+    descriptor,
+    fits
+  );
+};
+
+/**
+ * `column = halfEven(column x by)`, computed on COEFFICIENTS.
+ *
+ * This is plan 5.3's rule verbatim — `multiply = halfEven((x * y) / F)` — and
+ * it is stated on integers because MySQL cannot state it on logical values: the
+ * exact product of two `DECIMAL(p,s)` values carries `2s` fractional digits,
+ * and MySQL caps an expression's scale at 30, ROUNDING anything finer away
+ * before the tie this rule exists to decide is ever visible (measured: `1e-30 *
+ * 1e-30` is `0.000…0` at `DECIMAL(65,30)`, no warning). Coefficients have no
+ * fractional digits at all, so nothing can be rounded away underneath the rule.
+ *
+ * WIDTH, BY CONSTRUCTION. `|x|, |y| < 10^p`, and the answer is in the field's
+ * domain exactly when `|x * y| < 10^(p+s)`, so the product needs at most
+ * `p + s` digits: within the 65-digit exact domain for every descriptor with
+ * `precision + scale <= 65`. The quotient is `< 10^p`, the remainder `< 10^s`,
+ * and the tie test compares `|r|` against `10^s - |r|` — the non-doubling form,
+ * so nothing widens there either.
+ *
+ * Outside that bound the operation is loud on every session. A strict session
+ * reaches MySQL's native overflow error. A non-strict session first proves the
+ * product can be formed inside 65 digits and that the rounded coefficient fits
+ * the field; a failed proof evaluates the adapter's lazy error expression
+ * instead of letting MySQL clip the assignment. Both leave the row unchanged.
+ */
+const mysqlDecimalMultiply = (
+  column: Sql,
+  by: Sql,
+  descriptor: DecimalDescriptor
+): Sql => {
+  const left = mysqlCoefficient(column, descriptor);
+  const right = mysqlCoefficient(by, descriptor);
+  const maximumIntermediate = mysqlMaximumCoefficient(MYSQL_EXACT_DIGITS);
+  const coefficient = halfEvenQuotient(
+    MYSQL_INTEGERS,
+    sql`(${left} * ${right})`,
+    scaleFactorSql(descriptor.scale)
+  );
+  const intermediateFits = sql`CASE WHEN ${right} = 0 THEN TRUE ELSE ABS(${left}) <= ${MYSQL_INTEGERS.quotient(maximumIntermediate, sql`ABS(${right})`)} END`;
+  return mysqlGuardedDecimalAssignment(
+    column,
+    coefficient,
+    descriptor,
+    intermediateFits
+  );
+};
+
+/**
+ * `column = halfEven(column / by)`, computed on COEFFICIENTS — plan 5.3's
+ * `divide = halfEven((x * F) / y)`.
+ *
+ * The divisor is the operand's COEFFICIENT rather than its logical value: an
+ * exact quotient is spelled `(n - MOD(n, d)) / d`, and with a fractional `d`
+ * the numerator `n - MOD(n, d)` is `q * d` — a `p`-digit magnitude carrying `s`
+ * fractional digits, `p + s` digits for a value the integer form states in `p`.
+ * Integers on both sides keep every term at its own width.
+ *
+ * WIDTH, BY CONSTRUCTION: `|x * F| < 10^(p+s)` — inside the exact domain for
+ * every descriptor with `precision + scale <= 65`, and unconditionally, not
+ * only when the answer fits. The quotient is the answer's coefficient
+ * (`< 10^p` when it fits the field), the remainder is below `|y| < 10^p`, and
+ * the tie compares `|r|` against `|y| - |r|`, which is why the doubled form was
+ * dropped: `2|r|` at `p = 65` needs 66.
+ *
+ * `by` is never zero — division by canonical zero is refused before I/O.
+ */
+const mysqlDecimalDivide = (
+  column: Sql,
+  by: Sql,
+  descriptor: DecimalDescriptor
+): Sql => {
+  const divisor = mysqlCoefficient(by, descriptor);
+  const coefficient = halfEvenQuotient(
+    MYSQL_INTEGERS,
+    signedNumerator(
+      sql`(${mysqlCoefficient(column, descriptor)} * ${scaleFactorSql(descriptor.scale)})`,
+      divisor
+    ),
+    sql`ABS(${divisor})`
+  );
+  return mysqlGuardedDecimalAssignment(
+    column,
+    coefficient,
+    descriptor,
+    sql.raw`TRUE`
+  );
+};
+
+/**
+ * The exact decimal average, on coefficients: `SUM` of the column's
+ * coefficients over `COUNT(column)`, quantized half to even.
+ *
+ * Summing the COEFFICIENTS rather than scaling the sum is what removes the last
+ * `x 10^s` from this expression: `SUM(column) * 10^s` multiplies a value MySQL
+ * already types up to 65 digits by a 31-digit factor, which is the silent-zero
+ * arm {@link mysqlCoefficient} exists to avoid. Every row's coefficient is
+ * below `10^p`, so the only way the sum leaves the exact domain is by genuinely
+ * exceeding it, and MySQL raises there.
+ *
+ * `COUNT(column)` counts non-nulls, so an empty or all-null group answers NULL
+ * through the null-strict operators instead of dividing by zero.
+ */
+const mysqlDecimalAverage = (
+  column: Sql,
+  descriptor: DecimalDescriptor
+): Sql => {
+  const coefficient = halfEvenQuotient(
+    MYSQL_INTEGERS,
+    sql`SUM(${mysqlCoefficient(column, descriptor)})`,
+    sql`COUNT(${column})`
+  );
+  return mysqlLogical(coefficient, descriptor);
+};
 const ASCII_UPPERCASE = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 const ASCII_LOWERCASE = "abcdefghijklmnopqrstuvwxyz";
 
@@ -147,11 +432,12 @@ export class MySQLAdapter implements DatabaseAdapter {
     // The cast is load-bearing, not decoration. MySQL's comparison rules say
     // that when one side is a number and the other a string, BOTH are converted
     // to double and compared as floating point — so `amount = '0.1'` against a
-    // DECIMAL(65,30) column would silently answer at float precision on an
-    // otherwise exact column. Casting the operand keeps the whole comparison in
-    // MySQL's exact decimal domain, at the same 65/30 the DDL uses.
-    decimal: (canonical: string): Sql =>
-      sql`CAST(${canonical} AS DECIMAL(65,30))`,
+    // `DECIMAL` column would silently answer at float precision on an otherwise
+    // exact column. Casting the operand into the SAME `DECIMAL(p,s)` the DDL
+    // emits keeps the whole comparison in MySQL's exact decimal domain, and
+    // names one domain for the operand and the column instead of two.
+    decimal: (canonical: string, descriptor: DecimalDescriptor): Sql =>
+      sql`CAST(${encodePhysicalDecimal(canonical, descriptor, "text")} AS ${sql.raw(decimalColumnType("mysql", descriptor))})`,
   };
 
   // ============================================================
@@ -265,16 +551,15 @@ export class MySQLAdapter implements DatabaseAdapter {
     greatest: (...exprs: Sql[]): Sql => sql`GREATEST(${sql.join(exprs, ", ")})`,
     least: (...exprs: Sql[]): Sql => sql`LEAST(${sql.join(exprs, ", ")})`,
 
+    decimalCast: (expr: Sql, descriptor: DecimalDescriptor): Sql =>
+      decimalCast(expr, descriptor.precision, descriptor.scale),
+
     // MySQL type mappings - MySQL doesn't support TEXT in CAST
     cast: createCastExpression({
       text: "CHAR",
       integer: "SIGNED",
       boolean: "UNSIGNED",
       numeric: "DECIMAL",
-      // NOT the bare `DECIMAL` above: bare `DECIMAL` is `DECIMAL(10,0)`, which
-      // rounds every fraction away. The exact-decimal cast carries the same
-      // 65/30 the DDL and `literals.decimal` use.
-      decimal: "DECIMAL(65,30)",
     }),
 
     blobToHex: (expr: Sql): Sql => sql`LOWER(HEX(${expr}))`,
@@ -284,7 +569,17 @@ export class MySQLAdapter implements DatabaseAdapter {
   // AGGREGATES
   // ============================================================
 
-  aggregates = createAggregateFunctions();
+  aggregates = {
+    ...createAggregateFunctions(),
+
+    decimalAvg: (column: Sql, descriptor: DecimalDescriptor): Sql =>
+      mysqlDecimalAverage(column, descriptor),
+
+    // MySQL's widest exact DECIMAL cast operand. SUM itself can return more
+    // than 65 digits; this bound belongs to exact HAVING operand lowering.
+    decimalSumOperandPrecision:
+      createDecimalSumOperandPrecision(MYSQL_EXACT_DIGITS),
+  };
 
   // ============================================================
   // JSON
@@ -379,6 +674,12 @@ export class MySQLAdapter implements DatabaseAdapter {
     isEmpty: (column: Sql): Sql =>
       sql`(JSON_LENGTH(${column}) = 0 OR ${column} IS NULL)`,
 
+    // The container as TEXT, so it reaches the decode as the exact bytes the
+    // codec wrote: uncast, mysql2 parses a JSON column into a JavaScript
+    // document and JSON_OBJECT nests it as a live array, and the coefficient
+    // grammar would then be read off values a JSON parser already interpreted.
+    decimalProjection: (column: Sql): Sql => sql`CAST(${column} AS CHAR)`,
+
     length: (column: Sql): Sql => sql`JSON_LENGTH(${column})`,
 
     get: (column: Sql, index: Sql): Sql =>
@@ -423,12 +724,36 @@ export class MySQLAdapter implements DatabaseAdapter {
   set = {
     ...createNumericSetOperations(),
 
+    increment: (column: Sql, by: Sql, target?: ArithmeticTarget): Sql =>
+      target?.decimal
+        ? mysqlDecimalIncrement(column, by, target.decimal)
+        : sql`${column} = ${column} + ${by}`,
+
+    decrement: (column: Sql, by: Sql, target?: ArithmeticTarget): Sql =>
+      target?.decimal
+        ? mysqlDecimalDecrement(column, by, target.decimal)
+        : sql`${column} = ${column} - ${by}`,
+
+    // A decimal target rounds the product back to the field's scale; every
+    // other numeric column keeps MySQL's native multiplication.
+    multiply: (column: Sql, by: Sql, target?: ArithmeticTarget): Sql =>
+      target?.decimal
+        ? mysqlDecimalMultiply(column, by, target.decimal)
+        : sql`${column} = ${column} * ${by}`,
+
     // MySQL `/` yields DECIMAL and rounds when assigned to an integer column.
     // Truncate explicitly so integer division matches PostgreSQL and SQLite.
-    divide: (column: Sql, by: Sql, columnIsInteger?: boolean): Sql =>
-      columnIsInteger
+    // A decimal target takes neither: `/` would round at
+    // `div_precision_increment` digits, so the exact half-even quotient rule
+    // decides the last digit instead.
+    divide: (column: Sql, by: Sql, target?: ArithmeticTarget): Sql => {
+      if (target?.decimal) {
+        return mysqlDecimalDivide(column, by, target.decimal);
+      }
+      return target?.integer
         ? sql`${column} = TRUNCATE(${column} / ${by}, 0)`
-        : sql`${column} = ${column} / ${by}`,
+        : sql`${column} = ${column} / ${by}`;
+    },
 
     push: (column: Sql, values: unknown[]): Sql =>
       sql`${column} = JSON_MERGE_PRESERVE(COALESCE(${column}, JSON_ARRAY()), CAST(${stringifyJson(values)} AS JSON))`,
@@ -592,7 +917,6 @@ export class MySQLAdapter implements DatabaseAdapter {
     // only portable spelling here: the PK-subquery form would re-read the
     // mutated table and trip the same ERROR 1093 as above.
     supportsMutationRowLimit: true,
-    supportsExactDecimal: true, // `DECIMAL(65,30)`: exact, fixed precision
   };
 
   lastInsertId = (): Sql => sql.raw`LAST_INSERT_ID()`;
@@ -627,7 +951,14 @@ export class MySQLAdapter implements DatabaseAdapter {
   // value is JSON, so the adapter never sniffs ordinary strings.
   // ============================================================
 
-  result = {
+  result: AdapterResultParser = {
+    // A MySQL SCALAR decimal is `DECIMAL(p,s)` and answers with exact text, so
+    // `decimalRepresentation` stays at its default. A decimal LIST is JSON,
+    // which has no exact decimal at all, so its members are stored and returned
+    // as unscaled coefficient strings (plan 6.1). This adapter is the reason
+    // the two are separate declarations.
+    decimalListRepresentation: "coefficient",
+
     parseResult: (
       raw: unknown,
       operation: import("../../../query-engine/types").Operation,

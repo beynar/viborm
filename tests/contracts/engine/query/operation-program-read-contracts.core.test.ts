@@ -120,7 +120,6 @@ describe("read result and lifecycle contracts", () => {
       registry,
       undefined,
       undefined,
-      "string",
       extensionChain
     );
 

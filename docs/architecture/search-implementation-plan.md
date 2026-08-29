@@ -116,7 +116,7 @@ const post = s
     title: s.string(),
     content: s.string(),
     category: s.string(),
-    price: s.decimal(),
+    price: s.decimal({ precision: 12, scale: 2 }),
   })
   .id(["tenantId", "id"])
   .search({
@@ -272,17 +272,19 @@ writes. Both statements are compiled from the same matched-set definition.
 
 ### 3.4 Decimal contract
 
-Do not contradict the existing exact-decimal portability boundary.
+Search reuses the field's declared fixed-decimal domain and the existing
+descriptor-aware codec. It does not introduce a search-specific decimal mode or
+provider capability verdict.
 
-- Decimal equality, inequality, membership filters, and value-count facets are
-  portable.
-- Decimal ordering, range comparison, range facets, `min`, `max`, and `avg`
-  require an adapter with exact decimal comparison/arithmetic.
-- SQLite-family adapters keep the existing exact-decimal refusal unless a
-  separately proven order-preserving representation is implemented.
-- A schema can bind to more than one driver, so these operations remain
-  spellable in the public schema-derived type. Bound operation validation fails
-  loudly before SQL on a driver without exact decimal support.
+- Equality, inequality, membership, ordering, range comparison, range facets,
+  `min`, `max`, and `avg` remain exact on every provider that admits the field's
+  `{ precision, scale }` descriptor.
+- PostgreSQL and MySQL operate on their native fixed-decimal values. SQLite
+  operates on the checked scaled-integer coefficient and uses the same guarded
+  half-even arithmetic as ordinary decimal queries.
+- Search SQL composes through the adapter's exact-decimal vocabulary, and facet
+  results decode through the existing scalar result owner. Do not add a
+  `supportsExactDecimal` flag, a SQLite refusal ladder, or another result codec.
 
 ## 4. Final internal contracts
 
@@ -820,7 +822,8 @@ trip.
 #### S8-U1 — Attribute filters
 
 Compile declared attribute operators from `SearchQuerySource.attributes` with
-binary/equivalent portable semantics. Apply exact-decimal capability rules.
+binary/equivalent portable semantics. Apply the fixed-decimal descriptor and
+codec rules.
 Pin null, enum, bigint, decimal, date/time, and mapped-column behavior.
 
 #### S8-U2 — Rank and attribute ordering
@@ -853,8 +856,9 @@ Compile one provider-portable aggregate statement from the same
 statement per facet. JSON aggregation order is not trusted; final deterministic
 ordering occurs in an owned SQL or parser step.
 
-Decode facet scalars through existing scalar result owners. Preserve decimal
-precision and provider capability refusals.
+Decode facet scalars through existing scalar result owners. Preserve each
+decimal descriptor, exact provider semantics, and the existing half-even
+derived-result rule.
 
 #### S9-U3 — Two-step operation behavior
 

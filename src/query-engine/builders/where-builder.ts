@@ -14,6 +14,7 @@ import {
 } from "@schema/field-ref";
 import type { ScalarState } from "@schema/scalars";
 import { isSql, type Sql, sql } from "@sql";
+import { sameDecimalDescriptor } from "@validation/primitives/decimal-codec";
 import {
   createChildScope,
   getColumnName,
@@ -28,7 +29,7 @@ import {
   type QueryScope,
   type RelationRef,
 } from "../types";
-import { assertExactDecimalOperation } from "./decimal-portability";
+import { decimalDescriptorOf, decimalDescriptorOfState } from "./decimal-field";
 import { buildJsonFilter } from "./json-filter-builder";
 import { buildPolymorphicCollectionFilterSql } from "./polymorphic-collection-filter-builder";
 import { buildPolymorphicFilterSql } from "./polymorphic-read-builder";
@@ -348,7 +349,13 @@ function buildScalarFilter(
  * relation `where` re-scopes to the relation target) that the interned, model-blind
  * filter schemas cannot see. Runs at SQL-build time, before any I/O.
  */
-function fieldRefColumn(ctx: QueryScope, ref: AnyFieldRef, alias: string): Sql {
+function fieldRefColumn(
+  ctx: QueryScope,
+  fieldName: string,
+  scalarState: ScalarState,
+  ref: AnyFieldRef,
+  alias: string
+): Sql {
   const payload = fieldRefPayload(ref);
   const scopeModel = ctx.model["~"].names.ts;
   if (payload.model !== scopeModel) {
@@ -363,9 +370,42 @@ function fieldRefColumn(ctx: QueryScope, ref: AnyFieldRef, alias: string): Sql {
       `Field reference '${formatFieldRef(ref)}' does not name a scalar field of '${scopeModel}'.`
     );
   }
+  assertComparableDecimalDomains(ctx, fieldName, scalarState, payload.field);
   return ctx.adapter.identifiers.column(
     alias,
     getColumnName(ctx.model, payload.field)
+  );
+}
+
+/**
+ * Two decimal columns compare only when they declare the SAME precision and
+ * scale, and the refusal names both fields.
+ *
+ * Scalar kind alone is not enough, and this is the first boundary that can see
+ * more than the kind: the interned filter schemas are model-blind, so
+ * `checkRef` compares `type` and arity and has no model to ask for a
+ * descriptor. Physically the two columns are different numbers on SQLite — a
+ * `scale: 2` coefficient of `120` and a `scale: 4` coefficient of `120` are
+ * `1.20` and `0.0120` — so the comparison would answer one thing there and
+ * another on a dialect that stores logical values. Refused before I/O rather
+ * than answered per provider.
+ */
+function assertComparableDecimalDomains(
+  ctx: QueryScope,
+  fieldName: string,
+  scalarState: ScalarState,
+  referencedField: string
+): void {
+  const own = decimalDescriptorOfState(scalarState);
+  const other = decimalDescriptorOf(ctx.model, referencedField);
+  if (own === undefined || other === undefined) return;
+  if (sameDecimalDescriptor(own, other)) return;
+  const model = ctx.model["~"].names.ts ?? "unknown";
+  throw new QueryEngineError(
+    `Field reference '${referencedField}' cannot be compared with '${fieldName}' on '${model}': ` +
+      `'${fieldName}' is decimal(${own.precision},${own.scale}) and '${referencedField}' is ` +
+      `decimal(${other.precision},${other.scale}). Two decimals compare exactly only when they ` +
+      "declare the same precision and scale."
   );
 }
 
@@ -396,10 +436,14 @@ const fragmentOperand = (fragment: Sql): Sql => sql`(${fragment})`;
  */
 function operandExpression(
   ctx: QueryScope,
+  fieldName: string,
+  scalarState: ScalarState,
   value: unknown,
   alias: string
 ): Sql | undefined {
-  if (isFieldRef(value)) return fieldRefColumn(ctx, value, alias);
+  if (isFieldRef(value)) {
+    return fieldRefColumn(ctx, fieldName, scalarState, value, alias);
+  }
   if (isSql(value)) return fragmentOperand(value);
   return undefined;
 }
@@ -476,7 +520,7 @@ function buildFilterOperation(
   //    as behavior no test could actually witness.
   /** Raw operand — pairs with a bare `column` LHS (ordered comparisons, LIKE-free text predicates). */
   const plainOperand = (v: unknown) =>
-    operandExpression(ctx, v, alias) ?? lit(v);
+    operandExpression(ctx, fieldName, scalarState, v, alias) ?? lit(v);
   /**
    * An enum column compared against ANOTHER COLUMN goes through text on every
    * dialect.
@@ -501,7 +545,7 @@ function buildFilterOperation(
    * are built together because a referenced enum operand changes the LHS too.
    */
   const exactComparison = (v: unknown): [Sql, Sql] => {
-    const expr = operandExpression(ctx, v, alias);
+    const expr = operandExpression(ctx, fieldName, scalarState, v, alias);
     if (!expr) return [exactTextColumn, lit(v)];
     if (!isTextScalar) return [column, expr];
     const asExactText = (e: Sql) =>
@@ -521,12 +565,12 @@ function buildFilterOperation(
    * row's membership.
    */
   const exactEquals = (v: unknown): Sql =>
-    isTextScalar && !operandExpression(ctx, v, alias)
+    isTextScalar && !operandExpression(ctx, fieldName, scalarState, v, alias)
       ? adapter.operators.exactTextEq(column, lit(v))
       : adapter.operators.eq(...exactComparison(v));
   /** Case-folded operand — pairs with `foldedTextColumn`. */
   const foldedOperand = (v: unknown) => {
-    const expr = operandExpression(ctx, v, alias);
+    const expr = operandExpression(ctx, fieldName, scalarState, v, alias);
     if (!expr) return adapter.expressions.asciiCaseFold(lit(v));
     return isTextScalar
       ? adapter.expressions.caseSensitiveText(
@@ -550,9 +594,11 @@ function buildFilterOperation(
       }
       // Whole-list and JSON document operands need the dialect's storage
       // format: a plain param compares as a string scalar on MySQL and is
-      // unbindable on SQLite
+      // unbindable on SQLite. `lit` is the one owner of that lowering, so a
+      // decimal list is compared against the SAME container spelling the write
+      // path stores rather than against the caller's own members.
       if (scalarState.array && Array.isArray(value)) {
-        return adapter.operators.eq(column, adapter.arrays.value(value));
+        return adapter.operators.eq(column, lit(value));
       }
       // JSON columns store serialized JSON for every value shape (primitives
       // included — see buildScalarSqlValue), so compare in the same format
@@ -581,7 +627,7 @@ function buildFilterOperation(
       // which would misread array indices as filter operations. JSON `not`
       // stays on the nested-filter path (its schema nests { equals: ... }).
       if (scalarState.array && Array.isArray(value)) {
-        return adapter.operators.neq(column, adapter.arrays.value(value));
+        return adapter.operators.neq(column, lit(value));
       }
       // A field reference and an SQL fragment are both OBJECTS, so they must be
       // recognized before the nested-filter branch — otherwise their own keys
@@ -608,22 +654,19 @@ function buildFilterOperation(
       }
       return adapter.operators.neq(...exactComparison(value));
 
-    // Comparison. Ordering a decimal needs an exact decimal type to order it
-    // WITH; where there is none the comparison is refused, never approximated.
+    // Comparison. A decimal orders exactly on every dialect: PostgreSQL and
+    // MySQL compare their native exact type, SQLite compares the stored
+    // integer coefficients, and the operand is bound into that same domain.
     case "lt":
-      assertExactDecimalOperation(ctx, fieldName, operation);
       return adapter.operators.lt(column, plainOperand(value));
 
     case "lte":
-      assertExactDecimalOperation(ctx, fieldName, operation);
       return adapter.operators.lte(column, plainOperand(value));
 
     case "gt":
-      assertExactDecimalOperation(ctx, fieldName, operation);
       return adapter.operators.gt(column, plainOperand(value));
 
     case "gte":
-      assertExactDecimalOperation(ctx, fieldName, operation);
       return adapter.operators.gte(column, plainOperand(value));
 
     // Set membership
@@ -725,6 +768,9 @@ function buildFilterOperation(
           `Filter operation '${operation}' for field '${fieldName}' requires an array value.`
         );
       }
+      if (value.length === 0) {
+        return adapter.operators.isNotNull(column);
+      }
       return adapter.arrays.hasEvery(
         column,
         adapter.arrays.literal(value.map(lit))
@@ -735,6 +781,9 @@ function buildFilterOperation(
         throw new QueryEngineError(
           `Filter operation '${operation}' for field '${fieldName}' requires an array value.`
         );
+      }
+      if (value.length === 0) {
+        return adapter.literals.false();
       }
       return adapter.arrays.hasSome(
         column,

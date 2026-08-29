@@ -22,6 +22,7 @@ import type { OperationResult } from "@client/types";
 import { createClient as PGliteCreateClient } from "@drivers/pglite";
 import { push } from "@migrations";
 import { s } from "@schema";
+import Decimal from "decimal.js";
 import {
   afterAll,
   beforeAll,
@@ -38,7 +39,7 @@ const ledger = s
     qty: s.int(),
     ratio: s.number(),
     big: s.bigInt(),
-    amount: s.decimal(),
+    amount: s.decimal({ precision: 40, scale: 30 }),
   })
   .map("aggregate_result_type_ledger");
 
@@ -62,7 +63,7 @@ describe("aggregate() result types follow the field's own decoder", () => {
     expectTypeOf<Result["_sum"]["qty"]>().toEqualTypeOf<number | null>();
     expectTypeOf<Result["_sum"]["ratio"]>().toEqualTypeOf<number | null>();
     expectTypeOf<Result["_sum"]["big"]>().toEqualTypeOf<bigint | null>();
-    expectTypeOf<Result["_sum"]["amount"]>().toEqualTypeOf<string | null>();
+    expectTypeOf<Result["_sum"]["amount"]>().toEqualTypeOf<Decimal | null>();
   });
 
   test("_avg widens to a number — decimal excepted", () => {
@@ -74,7 +75,7 @@ describe("aggregate() result types follow the field's own decoder", () => {
     expectTypeOf<Result["_avg"]["ratio"]>().toEqualTypeOf<number | null>();
     // A bigint AVERAGE really does widen: `_avg` is not `typed` in the parser.
     expectTypeOf<Result["_avg"]["big"]>().toEqualTypeOf<number | null>();
-    expectTypeOf<Result["_avg"]["amount"]>().toEqualTypeOf<string | null>();
+    expectTypeOf<Result["_avg"]["amount"]>().toEqualTypeOf<Decimal | null>();
   });
 
   test("_min is spelled like the column", () => {
@@ -85,7 +86,7 @@ describe("aggregate() result types follow the field's own decoder", () => {
     expectTypeOf<Result["_min"]["qty"]>().toEqualTypeOf<number | null>();
     expectTypeOf<Result["_min"]["ratio"]>().toEqualTypeOf<number | null>();
     expectTypeOf<Result["_min"]["big"]>().toEqualTypeOf<bigint | null>();
-    expectTypeOf<Result["_min"]["amount"]>().toEqualTypeOf<string | null>();
+    expectTypeOf<Result["_min"]["amount"]>().toEqualTypeOf<Decimal | null>();
   });
 
   test("_max is spelled like the column", () => {
@@ -96,7 +97,7 @@ describe("aggregate() result types follow the field's own decoder", () => {
     expectTypeOf<Result["_max"]["qty"]>().toEqualTypeOf<number | null>();
     expectTypeOf<Result["_max"]["ratio"]>().toEqualTypeOf<number | null>();
     expectTypeOf<Result["_max"]["big"]>().toEqualTypeOf<bigint | null>();
-    expectTypeOf<Result["_max"]["amount"]>().toEqualTypeOf<string | null>();
+    expectTypeOf<Result["_max"]["amount"]>().toEqualTypeOf<Decimal | null>();
   });
 
   test("_count stays a plain number for every scalar", () => {
@@ -122,7 +123,7 @@ describe("groupBy() carries the same aggregate spellings", () => {
     expectTypeOf<Row["_sum"]["qty"]>().toEqualTypeOf<number | null>();
     expectTypeOf<Row["_sum"]["ratio"]>().toEqualTypeOf<number | null>();
     expectTypeOf<Row["_sum"]["big"]>().toEqualTypeOf<bigint | null>();
-    expectTypeOf<Row["_sum"]["amount"]>().toEqualTypeOf<string | null>();
+    expectTypeOf<Row["_sum"]["amount"]>().toEqualTypeOf<Decimal | null>();
   });
 
   test("_avg / _min / _max per scalar", () => {
@@ -134,11 +135,11 @@ describe("groupBy() carries the same aggregate spellings", () => {
     }>;
 
     expectTypeOf<Row["_avg"]["big"]>().toEqualTypeOf<number | null>();
-    expectTypeOf<Row["_avg"]["amount"]>().toEqualTypeOf<string | null>();
+    expectTypeOf<Row["_avg"]["amount"]>().toEqualTypeOf<Decimal | null>();
     expectTypeOf<Row["_min"]["big"]>().toEqualTypeOf<bigint | null>();
-    expectTypeOf<Row["_min"]["amount"]>().toEqualTypeOf<string | null>();
+    expectTypeOf<Row["_min"]["amount"]>().toEqualTypeOf<Decimal | null>();
     expectTypeOf<Row["_max"]["big"]>().toEqualTypeOf<bigint | null>();
-    expectTypeOf<Row["_max"]["amount"]>().toEqualTypeOf<string | null>();
+    expectTypeOf<Row["_max"]["amount"]>().toEqualTypeOf<Decimal | null>();
   });
 });
 
@@ -184,7 +185,7 @@ afterAll(async () => {
 });
 
 describe("the runtime agrees with the declaration", () => {
-  test("aggregate: _sum of a bigint IS a bigint, of a decimal IS a string", async () => {
+  test("aggregate: _sum of a bigint IS a bigint, of a decimal IS a Decimal", async () => {
     const agg = await client.ledger.aggregate({
       _sum: { qty: true, ratio: true, big: true, amount: true },
       _avg: { big: true, amount: true },
@@ -195,16 +196,22 @@ describe("the runtime agrees with the declaration", () => {
     // The declaration, restated as a value assignment: this line stops
     // compiling the moment the type widens back to `number | null`.
     const summedBig: bigint | null = agg._sum.big;
-    const summedAmount: string | null = agg._sum.amount;
+    const summedAmount: Decimal | null = agg._sum.amount;
     const averagedBig: number | null = agg._avg.big;
-    const averagedAmount: string | null = agg._avg.amount;
+    const averagedAmount: Decimal | null = agg._avg.amount;
 
     expect(typeof summedBig).toBe("bigint");
     expect(summedBig).toBe(9007199254740995n);
-    expect(typeof summedAmount).toBe("string");
-    expect(summedAmount).toBe("0.300000000000000000000000000001");
+    expect(summedAmount).toBeInstanceOf(Decimal);
+    // The SUM is precision-widened and scale-preserving: neither operand fits a
+    // double, and the answer keeps every one of the field's 30 fraction digits.
+    expect(summedAmount?.eq("0.300000000000000000000000000001")).toBe(true);
     expect(typeof averagedBig).toBe("number");
-    expect(typeof averagedAmount).toBe("string");
+    expect(averagedAmount).toBeInstanceOf(Decimal);
+    // The AVERAGE stays in the field domain: the exact mean of these two rows
+    // needs 31 fraction digits, and the field has 30, so it is quantized to the
+    // field's scale — never widened the way the sum is.
+    expect(averagedAmount?.decimalPlaces()).toBeLessThanOrEqual(30);
 
     expect(typeof agg._sum.qty).toBe("number");
     expect(agg._sum.qty).toBe(5);
@@ -228,11 +235,11 @@ describe("the runtime agrees with the declaration", () => {
     }
 
     const summedBig: bigint | null = group._sum.big;
-    const summedAmount: string | null = group._sum.amount;
+    const summedAmount: Decimal | null = group._sum.amount;
 
     expect(group.bucket).toBe("b1");
     expect(typeof summedBig).toBe("bigint");
     expect(summedBig).toBe(9007199254740995n);
-    expect(typeof summedAmount).toBe("string");
+    expect(summedAmount).toBeInstanceOf(Decimal);
   });
 });

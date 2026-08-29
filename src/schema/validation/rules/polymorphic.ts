@@ -9,6 +9,7 @@
 //
 // The mandatory relation-definition gate is its only caller.
 
+import { sameDecimalDescriptor } from "@validation/primitives/decimal-codec";
 import { isValidSchemaIdentifier } from "../../identifier";
 import { getModelKeyCatalog, type Model } from "../../model";
 import {
@@ -29,7 +30,7 @@ import type {
 } from "../types";
 import { getScalars } from "./model-members";
 
-const PORTABLE_ID_TYPES = new Set(["string", "int", "bigint"]);
+const PORTABLE_ID_TYPES = new Set(["string", "int", "bigint", "decimal"]);
 
 function issue(
   code: string,
@@ -278,12 +279,8 @@ export function checkVariantRowStorage(
   const firstIdentity = identities[0];
   const portable =
     firstIdentity !== undefined &&
-    identities.every(
-      (scalar) =>
-        PORTABLE_ID_TYPES.has(scalar["~"].state.type) &&
-        !scalar["~"].state.array &&
-        scalar["~"].nativeType === undefined &&
-        scalar["~"].state.type === firstIdentity["~"].state.type
+    identities.every((scalar) =>
+      hasCompatibleVariantIdentity(firstIdentity, scalar)
     );
   if (identities.length > 0 && !portable) {
     issues.push(
@@ -292,7 +289,7 @@ export function checkVariantRowStorage(
         `Variant targets in '${modelName}.${relationName}' require one compatible portable primary-key representation`,
         modelName,
         relationName,
-        "Give every variant target the same portable scalar id type (string, int or bigint)"
+        "Give every variant target the same portable scalar id representation: one shared string, int, or bigint type, or decimal IDs with identical precision and scale"
       )
     );
   }
@@ -320,6 +317,30 @@ export function checkVariantRowStorage(
     referencedFields,
     issues,
   };
+}
+
+function hasCompatibleVariantIdentity(
+  first: Scalar,
+  candidate: Scalar
+): boolean {
+  const firstState = first["~"].state;
+  const candidateState = candidate["~"].state;
+  if (
+    !PORTABLE_ID_TYPES.has(candidateState.type) ||
+    candidateState.array === true ||
+    candidate["~"].nativeType !== undefined ||
+    candidateState.type !== firstState.type
+  ) {
+    return false;
+  }
+  if (candidateState.type !== "decimal") return true;
+  const firstDescriptor = firstState.decimal;
+  const candidateDescriptor = candidateState.decimal;
+  return (
+    firstDescriptor !== undefined &&
+    candidateDescriptor !== undefined &&
+    sameDecimalDescriptor(candidateDescriptor, firstDescriptor)
+  );
 }
 
 /** The generated composite index name of one row-held carrier. */

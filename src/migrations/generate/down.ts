@@ -5,6 +5,7 @@
  * The inverse ops are emitted in reverse order of the up ops.
  */
 
+import { applyNativeRename } from "../native-rename";
 import type { DiffOperation, SchemaSnapshot, TableDef } from "../types";
 
 export interface InvertedOperations {
@@ -29,21 +30,28 @@ export function invertOperations(
   const warnings: string[] = [];
   const inverted: DiffOperation[] = [];
 
-  // Follow table renames in this migration when resolving previous defs
-  const renamedFrom = new Map<string, string>();
+  // At the inverse of operation i, every rename that preceded i in the up
+  // program is still active and every rename that followed it has already been
+  // inverted. Keep the previous definitions at each exact prefix so a restored
+  // FK targets the identity that exists at that point — neither always-old nor
+  // always-new is correct.
+  let previousAtOperationIdentity = previousSnapshot;
+  const previousIdentityBefore: SchemaSnapshot[] = [];
   for (const op of operations) {
-    if (op.type === "renameTable") {
-      renamedFrom.set(op.to, op.from);
+    previousIdentityBefore.push(previousAtOperationIdentity);
+    if (op.type === "renameTable" || op.type === "renameColumn") {
+      previousAtOperationIdentity = applyNativeRename(
+        previousAtOperationIdentity,
+        op
+      );
     }
   }
 
-  const findPrevTable = (name: string): TableDef | undefined => {
-    const prevName = renamedFrom.get(name) ?? name;
-    return previousSnapshot.tables.find((t) => t.name === prevName);
-  };
-
   for (let i = operations.length - 1; i >= 0; i--) {
     const op = operations[i]!;
+    const previousAtIdentity = previousIdentityBefore[i] ?? previousSnapshot;
+    const findPrevTable = (name: string): TableDef | undefined =>
+      previousAtIdentity.tables.find((table) => table.name === name);
     const inverse = invertOperation(
       op,
       previousSnapshot,

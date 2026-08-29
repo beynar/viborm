@@ -8,6 +8,7 @@
 import { ValidationError } from "@errors";
 import type { Model } from "@schema/model";
 import { parse, type SchemaRegistryLookup, type VibSchema } from "@validation";
+import { readValidationFailureCause } from "@validation/parse-failure";
 import { assertPortablePrimaryKeyUpdateInput } from "./operations/mutation-identity";
 import type { Operation } from "./types";
 
@@ -98,7 +99,9 @@ export function validate<T>(
       path: issue.path?.map(String).join(".") || "root",
       message: issue.message,
     }));
-    throw new ValidationError(operation, issues);
+    throw new ValidationError(operation, issues, {
+      cause: readValidationFailureCause(result),
+    });
   }
 
   assertPortablePrimaryKeyUpdateInput(model, operation, result.value);

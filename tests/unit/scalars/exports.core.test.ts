@@ -19,11 +19,7 @@ const BARRELS = [
     () => import("@schema/scalars/datetime"),
     ["DateScalar", "DateTimeScalar", "TimeScalar", "date", "dateTime", "time"],
   ],
-  [
-    "decimal",
-    () => import("@schema/scalars/decimal"),
-    ["DecimalScalar", "decimal"],
-  ],
+  ["decimal", () => import("@schema/scalars/decimal"), ["decimal"]],
   ["enum", () => import("@schema/scalars/enum"), ["EnumScalar", "enumScalar"]],
   ["int", () => import("@schema/scalars/int"), ["IntScalar", "int"]],
   ["json", () => import("@schema/scalars/json"), ["JsonScalar", "json"]],
@@ -77,11 +73,10 @@ describe("coverage low value", () => {
     expect(Object.keys(await load()).sort()).toEqual([...expected].sort());
   });
 
-  it("executes the internal base and type-only compatibility modules", async () => {
+  it("executes the internal base module", async () => {
     expect(Object.keys(await import("@schema/scalars/base"))).toEqual([
       "createDefaultState",
     ]);
-    expect(Object.keys(await import("@schema/scalars/types"))).toEqual([]);
   });
 
   it("pins defensive public constructors and their internal state", () => {

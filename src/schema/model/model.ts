@@ -14,6 +14,7 @@ import {
   getNameFromKeys,
   type ModelShape,
   type NameFromKeys,
+  type NonDecimalListScalarKeys,
   type RelationMap,
   type ScalarMap,
   type StringKeyOf,
@@ -325,7 +326,7 @@ export class Model<State extends ModelState> {
   }
 
   index<
-    const Keys extends StringKeyOf<State["scalars"]>[],
+    const Keys extends NonDecimalListScalarKeys<State["scalars"]>[],
     O extends IndexOptions = IndexOptions,
   >(
     fields: Keys,
@@ -343,7 +344,7 @@ export class Model<State extends ModelState> {
   }
 
   id<
-    const Keys extends StringKeyOf<State["scalars"]>[],
+    const Keys extends NonDecimalListScalarKeys<State["scalars"]>[],
     const O extends CompoundKeyOptions = Record<never, never>,
   >(fields: Keys, options?: ExactOptions<O, CompoundKeyOptions>) {
     const name = getNameFromKeys(options?.name, fields);
@@ -371,7 +372,7 @@ export class Model<State extends ModelState> {
   }
 
   unique<
-    const Keys extends StringKeyOf<State["scalars"]>[],
+    const Keys extends NonDecimalListScalarKeys<State["scalars"]>[],
     const O extends CompoundKeyOptions = Record<never, never>,
   >(fields: Keys, options?: ExactOptions<O, CompoundKeyOptions>) {
     const name = getNameFromKeys(options?.name, fields);

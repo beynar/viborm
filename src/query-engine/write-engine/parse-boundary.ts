@@ -1,5 +1,6 @@
 import { ValidationError } from "@errors";
 import { type InferOutput, parse, type VibSchema } from "@validation";
+import { readValidationFailureCause } from "@validation/parse-failure";
 // The two leaves below are imported from their own modules rather than through the `v`
 // namespace: this module is a transitive dependency of the schema builder, and the
 // barrel is what the recorded import cycle runs through.
@@ -47,7 +48,8 @@ export function parseValidated<S extends VibSchema>(
         path:
           [...prefix, ...(issue.path?.map(String) ?? [])].join(".") || "root",
         message: issue.message,
-      }))
+      })),
+      { cause: readValidationFailureCause(result) }
     );
   }
   return result.value as InferOutput<S>;

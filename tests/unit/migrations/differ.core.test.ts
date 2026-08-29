@@ -2,7 +2,15 @@
  * Schema Differ Tests
  */
 
-import { diff, hasDestructiveOperations } from "@src/migrations/differ";
+import {
+  diff,
+  getDestructiveOperationDescriptions,
+  hasDestructiveOperations,
+} from "@src/migrations/differ";
+import {
+  alwaysRenameResolver,
+  resolveAmbiguousChanges,
+} from "@src/migrations/resolver";
 import type {
   ColumnDef,
   SchemaSnapshot,
@@ -110,11 +118,122 @@ describe("diff", () => {
         type: "ambiguousTable",
         droppedTable: "users",
         addedTable: "accounts",
+        droppedTableDef: current.tables[0],
+        addedTableDef: desired.tables[0],
       });
+    });
+
+    it("retains in-table changes when a table rename is accepted", async () => {
+      const current = makeSnapshot([
+        makeTable("ledger", [
+          makeColumn("id", "INTEGER"),
+          makeColumn("amount", "INTEGER", {
+            decimal: { precision: 10, scale: 2 },
+          }),
+          makeColumn("label", "TEXT"),
+          makeColumn("code", "TEXT"),
+          makeColumn("state", "TEXT"),
+          makeColumn("legacy", "TEXT"),
+        ]),
+      ]);
+      const desired = makeSnapshot([
+        makeTable("account", [
+          makeColumn("id", "INTEGER"),
+          makeColumn("amount", "INTEGER", {
+            decimal: { precision: 10, scale: 4 },
+          }),
+          makeColumn("label", "TEXT"),
+          makeColumn("code", "TEXT"),
+          makeColumn("state", "TEXT"),
+          makeColumn("note", "BOOLEAN"),
+        ]),
+      ]);
+      const result = await diff(current, desired);
+
+      expect(
+        await resolveAmbiguousChanges(
+          result,
+          current,
+          desired,
+          alwaysRenameResolver
+        )
+      ).toEqual([
+        { type: "renameTable", from: "ledger", to: "account" },
+        {
+          type: "dropColumn",
+          tableName: "account",
+          columnName: "legacy",
+        },
+        {
+          type: "addColumn",
+          tableName: "account",
+          column: makeColumn("note", "BOOLEAN"),
+        },
+        {
+          type: "alterColumn",
+          tableName: "account",
+          columnName: "amount",
+          from: makeColumn("amount", "INTEGER", {
+            decimal: { precision: 10, scale: 2 },
+          }),
+          to: makeColumn("amount", "INTEGER", {
+            decimal: { precision: 10, scale: 4 },
+          }),
+        },
+      ]);
     });
   });
 
   describe("column operations", () => {
+    it.each([
+      [
+        "PostgreSQL scalar",
+        "NUMERIC(12,2)",
+        "NUMERIC(10,2)",
+        { precision: 12, scale: 2 },
+        { precision: 10, scale: 2 },
+      ],
+      [
+        "PostgreSQL array",
+        "NUMERIC(12,4)[]",
+        "NUMERIC(10,2)[]",
+        { precision: 12, scale: 4 },
+        { precision: 10, scale: 2 },
+      ],
+      [
+        "MySQL scalar",
+        "DECIMAL(12,2)",
+        "DECIMAL(10,2)",
+        { precision: 12, scale: 2 },
+        { precision: 10, scale: 2 },
+      ],
+    ])("keeps a %s rename ambiguous when its descriptor changes", async (_label, fromType, toType, fromDecimal, toDecimal) => {
+      const current = makeSnapshot([
+        makeTable("ledger", [
+          makeColumn("amount", fromType, { decimal: fromDecimal }),
+        ]),
+      ]);
+      const desired = makeSnapshot([
+        makeTable("ledger", [
+          makeColumn("total", toType, { decimal: toDecimal }),
+        ]),
+      ]);
+      const diffResult = await diff(current, desired);
+
+      expect(diffResult.operations).toEqual([]);
+      expect(diffResult.ambiguousChanges).toHaveLength(1);
+      expect(
+        (
+          await resolveAmbiguousChanges(
+            diffResult,
+            current,
+            desired,
+            alwaysRenameResolver
+          )
+        ).map((operation) => operation.type)
+      ).toEqual(["renameColumn", "alterColumn"]);
+    });
+
     it("should detect new columns", async () => {
       const current = makeSnapshot([
         makeTable("users", [makeColumn("id", "integer")]),
@@ -984,5 +1103,124 @@ describe("hasDestructiveOperations", () => {
       },
     ];
     expect(hasDestructiveOperations(ops)).toBe(false);
+  });
+
+  it("classifies a narrowing decimal domain even when the type never moves", () => {
+    // On SQLite both sides read `INTEGER` at every precision and scale, so a
+    // predicate that only compares types sees nothing — and the resolver never
+    // gets to ask about a conversion that refuses rows.
+    const narrow = (
+      from: { precision: number; scale: number },
+      to: { precision: number; scale: number }
+    ) => [
+      {
+        type: "alterColumn" as const,
+        tableName: "ledger",
+        columnName: "amount",
+        from: {
+          name: "amount",
+          type: "INTEGER",
+          nullable: false,
+          decimal: from,
+        },
+        to: { name: "amount", type: "INTEGER", nullable: false, decimal: to },
+      },
+    ];
+
+    // Fewer integer digits.
+    expect(
+      hasDestructiveOperations(
+        narrow({ precision: 12, scale: 2 }, { precision: 10, scale: 2 })
+      )
+    ).toBe(true);
+    // Fewer fractional digits.
+    expect(
+      hasDestructiveOperations(
+        narrow({ precision: 10, scale: 4 }, { precision: 10, scale: 2 })
+      )
+    ).toBe(true);
+    // More fractional digits at the same precision costs an integer digit:
+    // NUMERIC(10,2) holds 99999999.99 and NUMERIC(10,5) does not.
+    expect(
+      hasDestructiveOperations(
+        narrow({ precision: 10, scale: 2 }, { precision: 10, scale: 5 })
+      )
+    ).toBe(true);
+    // Both limits rise: every existing value fits, so nothing is at risk.
+    expect(
+      hasDestructiveOperations(
+        narrow({ precision: 10, scale: 2 }, { precision: 12, scale: 4 })
+      )
+    ).toBe(false);
+  });
+
+  it("describes the narrowing with both domains in the sentence", () => {
+    // `precision` and `scale` are not error-metadata keys, so a refusal that
+    // put them in `meta` would drop them silently.
+    const [description] = getDestructiveOperationDescriptions([
+      {
+        type: "alterColumn",
+        tableName: "ledger",
+        columnName: "amount",
+        from: {
+          name: "amount",
+          type: "INTEGER",
+          nullable: false,
+          decimal: { precision: 10, scale: 4 },
+        },
+        to: {
+          name: "amount",
+          type: "INTEGER",
+          nullable: false,
+          decimal: { precision: 10, scale: 2 },
+        },
+      },
+    ]);
+    expect(description).toContain("precision 10, scale 4");
+    expect(description).toContain("precision 10, scale 2");
+    expect(description).toContain("rather than rounding it");
+  });
+});
+
+describe("the differ compares the declared decimal domain", () => {
+  const ledger = (precision: number, scale: number, type = "INTEGER") =>
+    makeSnapshot([
+      makeTable("ledger", [
+        makeColumn("amount", type, { decimal: { precision, scale } }),
+      ]),
+    ]);
+
+  it("plans an alterColumn when only the domain moved", async () => {
+    // The physical class is byte-identical on both sides. Without the
+    // descriptor comparison NOTHING is planned, and the column silently keeps
+    // storing coefficients at the old scale.
+    const result = await diff(ledger(10, 2), ledger(10, 4));
+    expect(result.operations).toEqual([
+      {
+        type: "alterColumn",
+        tableName: "ledger",
+        columnName: "amount",
+        from: expect.objectContaining({ decimal: { precision: 10, scale: 2 } }),
+        to: expect.objectContaining({ decimal: { precision: 10, scale: 4 } }),
+      },
+    ]);
+  });
+
+  it("plans nothing when the domain is unchanged", async () => {
+    expect((await diff(ledger(10, 2), ledger(10, 2))).operations).toEqual([]);
+    // The JSON-backed list is the same claim on a different storage class.
+    expect(
+      (await diff(ledger(10, 2, "JSON"), ledger(10, 2, "JSON"))).operations
+    ).toEqual([]);
+  });
+
+  it("plans an alterColumn when one side carries no domain at all", async () => {
+    // A snapshot whose introspection could not recover the descriptor is not
+    // "the same column": left equal, the desired side would declare a domain
+    // the estate does not have, forever.
+    const undeclared = makeSnapshot([
+      makeTable("ledger", [makeColumn("amount", "INTEGER")]),
+    ]);
+    expect((await diff(undeclared, ledger(10, 2))).operations).toHaveLength(1);
   });
 });

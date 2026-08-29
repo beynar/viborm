@@ -6,6 +6,11 @@
  */
 
 import type { Scalar, ScalarState } from "@schema/scalars";
+import {
+  type DecimalDialect,
+  decimalDefaultText,
+  decimalListDefaultText,
+} from "@validation/primitives/decimal-codec";
 import type { AnyDriver } from "../../drivers/driver";
 import { MigrationError, VibORMErrorCode } from "../../errors";
 import type {
@@ -211,6 +216,15 @@ export abstract class MigrationDriver {
     predicates: readonly string[],
     executeRaw: <T>(sql: string, params?: unknown[]) => Promise<{ rows: T[] }>
   ): Promise<ReadonlyArray<string | undefined>>;
+
+  /**
+   * Explains why one inverted operation cannot be rendered as an automatic
+   * rollback on this dialect. Generation owns the persisted rollback policy;
+   * the driver owns the physical boundary that makes an inverse unsafe.
+   */
+  getIrreversibleRollbackReason(_operation: DiffOperation): string | undefined {
+    return undefined;
+  }
 
   // ===========================================================================
   // TYPE MAPPING
@@ -496,8 +510,38 @@ export abstract class MigrationDriver {
       return "NULL";
     }
 
+    // A literal decimal-list default is already a trusted list of canonical
+    // logical strings: the field codec normalized it at `.default()`. Render
+    // its provider value through that same codec, then let the migration driver
+    // own quoting and MySQL's required expression parentheses. No generic
+    // array/object default enters this arm.
+    if (scalarState.decimal && scalarState.array && Array.isArray(defaultVal)) {
+      return this.formatDecimalListDefault(
+        decimalListDefaultText(
+          this.decimalDialect(),
+          defaultVal,
+          scalarState.decimal
+        )
+      );
+    }
+
     // Primitive defaults
     if (typeof defaultVal === "string") {
+      // A decimal default is canonical text by the time it reaches here
+      // (`.default()` normalizes at definition time), and canonical text is the
+      // WRONG DDL spelling: it strips trailing zeros, while MySQL reads a
+      // `DECIMAL(p,s)` default back from `information_schema` padded to the
+      // scale. Two renderings, one owner — this is the DDL one, and emitting
+      // the identity one instead would make the differ see a changed default
+      // on every push. It is also unquoted, because a decimal default is a
+      // numeric literal and not a string on any of the three dialects.
+      if (scalarState.decimal) {
+        return decimalDefaultText(
+          this.decimalDialect(),
+          defaultVal,
+          scalarState.decimal
+        );
+      }
       return this.escapeValue(defaultVal);
     }
     if (typeof defaultVal === "number") {
@@ -521,12 +565,33 @@ export abstract class MigrationDriver {
     return undefined;
   }
 
+  /** Quotes one codec-rendered decimal-list value as this dialect's DDL. */
+  protected formatDecimalListDefault(physicalValue: string): string {
+    const literal = this.escapeValue(physicalValue);
+    return this.dialect === "mysql" ? `(${literal})` : literal;
+  }
+
   /**
    * Formats a boolean default value.
    * Override for databases that use different representations (e.g., SQLite uses 1/0).
    */
   protected formatBooleanDefault(value: boolean): string {
     return value ? "true" : "false";
+  }
+
+  /**
+   * This driver's dialect in the codec's vocabulary.
+   *
+   * Two vocabularies exist because they name different things: `Dialect` is the
+   * migration ESTATE's dialect, and `DecimalDialect` is the set of dialects
+   * that spell a fixed decimal differently. They are not extended together, so
+   * the translation is stated once here rather than at each of the codec's
+   * call sites.
+   */
+  protected decimalDialect(): DecimalDialect {
+    if (this.dialect === "postgresql") return "pg";
+    if (this.dialect === "mysql") return "mysql";
+    return "sqlite";
   }
 
   /**

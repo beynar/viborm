@@ -10,9 +10,20 @@ import { type JsonNullKind, jsonNullKindOf } from "@schema/json-null";
 import type { Model } from "@schema/model";
 import type { Scalar } from "@schema/scalars/base";
 import { isSql, type Sql } from "@sql";
-import { canonicalizeDecimal } from "@validation/primitives/decimal";
+import {
+  canonicalizeDecimal,
+  type DecimalDescriptor,
+  encodePhysicalDecimal,
+  encodePhysicalDecimalListMembers,
+} from "@validation/primitives/decimal-codec";
 import { getColumnName } from "../context";
+import { decimalListRepresentationFor } from "../result/decimal-result-decode";
 import { QueryEngineError, type QueryScope } from "../types";
+import {
+  decimalDescriptorOf,
+  decimalDescriptorOfScalar,
+  decimalListDescriptorOfState,
+} from "./decimal-field";
 import { shouldOmitInsertValue } from "./generated-scalar";
 import { planInsertRowShapes } from "./insert-row-shapes";
 import {
@@ -276,7 +287,10 @@ export function buildScalarSqlValueForScalar(
   // List scalars take the whole array in the dialect's storage format
   // (native array on PG, JSON on MySQL/SQLite)
   if (scalarState?.array && Array.isArray(value)) {
-    return ctx.adapter.arrays.value(value);
+    const listDomain = decimalListDescriptorOfState(scalarState);
+    return listDomain
+      ? decimalListValue(ctx.adapter, fieldName, value, listDomain)
+      : ctx.adapter.arrays.value(value);
   }
 
   // JSON scalars always store serialized JSON — primitives included — so every
@@ -291,14 +305,31 @@ export function buildScalarSqlValueForScalar(
   }
 
   if (scalarType === "decimal") {
-    return decimalLiteral(ctx.adapter, fieldName, value);
+    // A single value against a LIST column is a MEMBER — a containment
+    // candidate or one pushed element — and a member is spelled in the
+    // container's vocabulary, not the column's.
+    const listDomain = decimalListDescriptorOfState(scalarState);
+    return listDomain
+      ? decimalListMember(ctx.adapter, fieldName, value, listDomain)
+      : decimalLiteral(
+          ctx.adapter,
+          fieldName,
+          value,
+          decimalDescriptorOfScalar(field)
+        );
   }
 
   return ctx.adapter.literals.value(value);
 }
 
 /**
- * Bind a decimal through the dialect's exact-decimal path.
+ * Bind a decimal through the dialect's exact-decimal path, in the DOMAIN the
+ * destination column declares.
+ *
+ * The domain is not decoration: on SQLite it is what turns the logical value
+ * into the unscaled coefficient the column actually stores, and on PostgreSQL
+ * and MySQL it is the `NUMERIC(p,s)`/`DECIMAL(p,s)` the operand is compared
+ * inside. A binding without it is a binding into the wrong number.
  *
  * The value has already been canonicalized by the decimal schema on the way in;
  * canonicalizing again here is cheap and closes the paths that reach a binding
@@ -317,15 +348,103 @@ export function buildScalarSqlValueForScalar(
 export function decimalLiteral(
   adapter: DatabaseAdapter,
   fieldName: string,
-  value: unknown
+  value: unknown,
+  descriptor: DecimalDescriptor | undefined
 ): Sql {
+  if (descriptor === undefined) {
+    throw new QueryEngineError(
+      `Decimal field '${fieldName}' has no declared precision and scale, so it has no exact value to bind.`
+    );
+  }
   const canonical = canonicalizeDecimal(value);
   if (canonical === undefined) {
     throw new QueryEngineError(
       `Decimal field '${fieldName}' received a value that is not an exact decimal.`
     );
   }
-  return adapter.literals.decimal(canonical);
+  return adapter.literals.decimal(canonical, descriptor);
+}
+
+/**
+ * The canonical logical value of one decimal list MEMBER, or a named refusal.
+ *
+ * Canonicalizing here is the same closing move `decimalLiteral` makes for a
+ * scalar: the list schemas already validated every member against the field's
+ * domain, and the paths that reach a binding without one — a member lowered
+ * from a filter callback, a container rebuilt by a nested write — would
+ * otherwise hand the database a float spelling. Nothing here re-checks the
+ * DOMAIN: that guard has one owner, the field's own list schema.
+ */
+function canonicalDecimalMember(fieldName: string, value: unknown): string {
+  const canonical = canonicalizeDecimal(value);
+  if (canonical === undefined) {
+    throw new QueryEngineError(
+      `Decimal list '${fieldName}' received a member that is not an exact decimal.`
+    );
+  }
+  return canonical;
+}
+
+/**
+ * Spell one decimal list MEMBER in the container's own vocabulary.
+ *
+ * On a JSON-backed dialect the container holds unscaled coefficient STRINGS, so
+ * a containment candidate has to be the same string the container holds — a
+ * `DECIMAL(p,s)` operand or a JSON number would compare a different type
+ * against every member and quietly match nothing. On a native decimal array the
+ * member is the ordinary typed decimal literal, in the element's own domain.
+ */
+export function decimalListMember(
+  adapter: DatabaseAdapter,
+  fieldName: string,
+  value: unknown,
+  descriptor: DecimalDescriptor
+): Sql {
+  const canonical = canonicalDecimalMember(fieldName, value);
+  const representation = decimalListRepresentationFor(adapter);
+  const physical = encodePhysicalDecimal(canonical, descriptor, representation);
+  return representation === "coefficient"
+    ? adapter.literals.value(physical)
+    : adapter.literals.decimal(physical, descriptor);
+}
+
+/**
+ * The MEMBERS of a whole decimal list, in the container's own vocabulary and in
+ * the JavaScript shape the adapter's array serialization expects.
+ *
+ * The adapter still owns how a whole list becomes a parameter — a native array
+ * param, `CAST(? AS JSON)`, a canonical JSON text param — and this owns only
+ * what the members ARE. Handing the generic serializer the caller's own values
+ * is what plan 6.3 forbids: it would write `1.2` into the container that stores
+ * `"120"`, and JSON numbers into the one place a coefficient past 2^53 lives.
+ */
+export function decimalListMembers(
+  adapter: DatabaseAdapter,
+  fieldName: string,
+  values: readonly unknown[],
+  descriptor: DecimalDescriptor
+): string[] {
+  const members = encodePhysicalDecimalListMembers(
+    values,
+    descriptor,
+    decimalListRepresentationFor(adapter)
+  );
+  if (members !== undefined) return members;
+  throw new QueryEngineError(
+    `Decimal list '${fieldName}' received a member that is not an exact decimal.`
+  );
+}
+
+/** A whole decimal list, bound as the dialect's own container. */
+export function decimalListValue(
+  adapter: DatabaseAdapter,
+  fieldName: string,
+  values: readonly unknown[],
+  descriptor: DecimalDescriptor
+): Sql {
+  return adapter.arrays.value(
+    decimalListMembers(adapter, fieldName, values, descriptor)
+  );
 }
 
 /**
@@ -343,9 +462,12 @@ export function scalarValueLiteral(
     return jsonNullWriteValue(ctx, fieldName, sentinel);
   }
   const state = ctx.model["~"].state.scalars[fieldName]?.["~"].state;
+  const listDomain = decimalListDescriptorOfState(state);
   // Whole-list values (e.g. { set: [...] }) use the dialect's storage format
   if (state?.array && Array.isArray(value)) {
-    return ctx.adapter.arrays.value(value);
+    return listDomain
+      ? decimalListValue(ctx.adapter, fieldName, value, listDomain)
+      : ctx.adapter.arrays.value(value);
   }
   if (state?.type === "datetime" && typeof value === "string") {
     return ctx.adapter.literals.dateTime(value);
@@ -355,7 +477,17 @@ export function scalarValueLiteral(
     return ctx.adapter.literals.json(value);
   }
   if (state?.type === "decimal" && value !== null && value !== undefined) {
-    return decimalLiteral(ctx.adapter, fieldName, value);
+    // `has: "1.2"` and one pushed element are MEMBERS of the container, spelled
+    // the way the container spells them; a non-list decimal is the ordinary
+    // typed literal in the column's own domain.
+    return listDomain
+      ? decimalListMember(ctx.adapter, fieldName, value, listDomain)
+      : decimalLiteral(
+          ctx.adapter,
+          fieldName,
+          value,
+          decimalDescriptorOf(ctx.model, fieldName)
+        );
   }
   return ctx.adapter.literals.value(value);
 }
@@ -417,8 +549,6 @@ export function getScalarCastType(
       return "integer";
     case "number":
       return "numeric";
-    case "decimal":
-      return "decimal";
     case "boolean":
       return "boolean";
     case "string":
@@ -437,8 +567,6 @@ export function getScalarCastTypeForScalar(
       return "integer";
     case "number":
       return "numeric";
-    case "decimal":
-      return "decimal";
     case "boolean":
       return "boolean";
     case "string":

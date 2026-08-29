@@ -46,7 +46,7 @@ The key insight: **immutability enables type tracking**. If we mutated the scala
 | `s.int()` | INTEGER | `number` |
 | `s.bigInt()` | BIGINT | `bigint` |
 | `s.number()` | FLOAT/DOUBLE | `number` |
-| `s.decimal()` | DECIMAL | `string` |
+| `s.decimal({ precision, scale })` | `NUMERIC(p,s)` / `DECIMAL(p,s)` / scaled `INTEGER` | `Decimal` |
 | `s.boolean()` | BOOLEAN | `boolean` |
 | `s.dateTime()` | DATETIME/TIMESTAMP | `Date` |
 | `s.date()` | DATE | `string` (ISO date) |
@@ -56,6 +56,12 @@ The key insight: **immutability enables type tracking**. If we mutated the scala
 | `s.blob()` | BLOB/BYTEA | `Uint8Array` |
 | `s.point()` | POINT | `{ x, y }` |
 | `s.vector(dim)` | VECTOR | `number[]` |
+
+The validation codec declares the one structural decimal descriptor shape.
+Each fixed-decimal scalar validates and freezes one instance in scalar state.
+The field-aware codec uses that instance for canonical private text, provider
+scalar/list conversion, and final public `Decimal` construction. Consumers do
+not invent a parallel live descriptor owner.
 
 ## Common Modifiers
 

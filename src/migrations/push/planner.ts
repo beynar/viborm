@@ -3,25 +3,40 @@ import { MigrationError, VibORMErrorCode } from "../../errors";
 import type { AnyModel } from "../../schema/model";
 import type { ResolvedRelationIndex } from "../../schema/validation/relation-resolution";
 import { admitLiveMigrationCapability } from "../admission";
-import { diff, type IndexPredicateCanonicalizer } from "../differ";
+import {
+  type DiffOptions,
+  diff,
+  getDestructiveOperationDescriptions,
+  type IndexPredicateCanonicalizer,
+  isDestructiveOperation,
+} from "../differ";
 import type { BoundMigrationDriver, MigrationDriver } from "../drivers";
 import { getMigrationDriver } from "../drivers";
-import { alwaysAddDropResolver, resolveAmbiguousChanges } from "../resolver";
+import { applyNativeRename } from "../native-rename";
+import {
+  alwaysAddDropResolver,
+  resolveAmbiguousChanges,
+  validateResolveResult,
+} from "../resolver";
 import { serializeResolvedModels } from "../serializer";
 import { createEmptySnapshot } from "../storage/driver";
 import {
   type AmbiguousChange,
+  type AmbiguousResolveChange,
   type ChangeResolution,
   createAmbiguousChange,
   createDestructiveChange,
+  type DestructiveResolveChange,
   type DiffOperation,
+  type DiffResult,
   type ResolveCallback,
-  type ResolveChange,
+  type Resolver,
   type SchemaSnapshot,
 } from "../types";
 import {
   extractForwardReferenceForeignKeys,
   materializeDroppedTableForeignKeys,
+  sortOperations,
 } from "../utils";
 import {
   applyForceEnumResolutions,
@@ -206,15 +221,17 @@ export async function planRebuildFromEmpty(
     relations
   );
   const current = createEmptySnapshot();
-  const diffResult = await diff(current, desired, {
+  const diffOptions: DiffOptions = {
     matchConstraintsByShape:
       !migrationDriver.capabilities.introspectionReadsConstraintNames,
-  });
+  };
+  const diffResult = await diff(current, desired, diffOptions);
   const operations = await resolvePushOperations(
     diffResult,
     desired,
     current,
-    options
+    options,
+    diffOptions
   );
 
   return {
@@ -239,7 +256,7 @@ export async function planPush(
   // Push therefore compares structure only. Stored-value history is owned by
   // file-based generate(), where both serialized snapshots are available.
   const current = await introspectSchema(client.$driver, migrationDriver);
-  const diffResult = await diff(current, desired, {
+  const diffOptions: DiffOptions = {
     canonicalizeIndexPredicate: buildIndexPredicateCanonicalizer(
       client.$driver,
       migrationDriver
@@ -249,12 +266,14 @@ export async function planPush(
     // on it would make every unchanged constraint read as a change.
     matchConstraintsByShape:
       !migrationDriver.capabilities.introspectionReadsConstraintNames,
-  });
+  };
+  const diffResult = await diff(current, desired, diffOptions);
   const operations = await resolvePushOperations(
     diffResult,
     desired,
     current,
-    options
+    options,
+    diffOptions
   );
 
   // Lift forward-reference FKs out of CREATE TABLE so every referenced table
@@ -276,13 +295,11 @@ export async function planPush(
 }
 
 async function resolvePushOperations(
-  diffResult: {
-    operations: DiffOperation[];
-    ambiguousChanges: AmbiguousChange[];
-  },
+  diffResult: DiffResult,
   desired: SchemaSnapshot,
   current: SchemaSnapshot,
-  options: PushOptions
+  options: PushOptions,
+  diffOptions: DiffOptions
 ): Promise<DiffOperation[]> {
   const force = options.force ?? false;
   const allEnumRemovals = detectEnumValueRemovals(
@@ -297,24 +314,25 @@ async function resolvePushOperations(
   );
 
   if (options.resolve) {
-    const resolvedOperations = await resolveWithCallback(
+    return resolveWithCallback(
       diffResult,
+      current,
       desired,
+      diffOptions,
       enumRemovalsNeedingResolution,
+      autoResolvableRemovals,
       options.resolve,
       force
-    );
-    return applyForceEnumResolutions(
-      resolvedOperations,
-      autoResolvableRemovals
     );
   }
 
   if (force) {
     const resolvedOperations = await resolveAmbiguousChanges(
       diffResult,
+      current,
       desired,
-      alwaysAddDropResolver
+      alwaysAddDropResolver,
+      diffOptions
     );
     return applyForceEnumResolutions(resolvedOperations, allEnumRemovals);
   }
@@ -328,110 +346,186 @@ async function resolvePushOperations(
 }
 
 async function resolveWithCallback(
-  diffResult: {
-    operations: DiffOperation[];
-    ambiguousChanges: AmbiguousChange[];
-  },
-  desiredSnapshot: SchemaSnapshot,
+  diffResult: DiffResult,
+  current: SchemaSnapshot,
+  desired: SchemaSnapshot,
+  diffOptions: DiffOptions,
   enumRemovals: EnumRemoval[],
+  autoResolvableRemovals: EnumRemoval[],
   resolve: ResolveCallback,
   force = false
 ): Promise<DiffOperation[]> {
-  const finalOperations: DiffOperation[] = [];
-  const ambiguousResolutions = new Map<AmbiguousChange, ChangeResolution>();
-
-  for (const op of diffResult.operations) {
-    if (!isDestructiveOperation(op) && op.type !== "alterEnum") {
-      finalOperations.push(op);
-    }
-  }
-
-  for (const op of diffResult.operations) {
-    if (isDestructiveOperation(op)) {
-      const change = operationToResolveChange(op);
-      const result = await resolve(change);
+  const admittedAmbiguousDrops = new Set<string>();
+  const ambiguityResolver: Resolver = async (changes) => {
+    const resolutions = new Map<AmbiguousChange, ChangeResolution>();
+    for (const change of changes) {
+      const resolveChange = ambiguousToResolveChange(change);
+      const result = validateResolveResult(
+        "ambiguous",
+        resolveChange,
+        await resolve(resolveChange)
+      );
 
       if (result === "reject") {
         throw new MigrationError(
-          `Change rejected: ${change.description}`,
+          `Change rejected: ${resolveChange.description}`,
           VibORMErrorCode.MIGRATION_DESTRUCTIVE_REJECTED
         );
       }
-
       if (result === undefined) {
         if (force) {
-          finalOperations.push(op);
-        } else {
-          throw new MigrationError(
-            `Unresolved destructive change: ${change.description}\n` +
-              "Return change.proceed() or change.reject() from the resolver, or use force: true.",
-            VibORMErrorCode.MIGRATION_DESTRUCTIVE_REJECTED
-          );
+          resolutions.set(change, { type: "addAndDrop" });
+          admittedAmbiguousDrops.add(ambiguousDropKey(change));
+          continue;
         }
-        continue;
-      }
-
-      if (
-        result === "proceed" ||
-        result === "rename" ||
-        result === "addAndDrop"
-      ) {
-        finalOperations.push(op);
-      }
-    }
-  }
-
-  for (const change of diffResult.ambiguousChanges) {
-    const resolveChange = ambiguousToResolveChange(change);
-    const result = await resolve(resolveChange);
-
-    if (result === "reject") {
-      throw new MigrationError(
-        `Change rejected: ${resolveChange.description}`,
-        VibORMErrorCode.MIGRATION_DESTRUCTIVE_REJECTED
-      );
-    }
-
-    if (result === undefined) {
-      if (force) {
-        ambiguousResolutions.set(change, { type: "addAndDrop" });
-      } else {
         throw new MigrationError(
           `Unresolved ambiguous change: ${resolveChange.description}\n` +
             "Return change.rename() or change.addAndDrop() from the resolver, or use force: true.",
           VibORMErrorCode.MIGRATION_DESTRUCTIVE_REJECTED
         );
       }
-      continue;
+      resolutions.set(change, {
+        type: result === "rename" ? "rename" : "addAndDrop",
+      });
+      if (result !== "rename") {
+        admittedAmbiguousDrops.add(ambiguousDropKey(change));
+      }
     }
+    return resolutions;
+  };
 
-    if (result === "rename") {
-      ambiguousResolutions.set(change, { type: "rename" });
-    } else {
-      ambiguousResolutions.set(change, { type: "addAndDrop" });
-    }
-  }
-
-  const enumColumnMappings = await resolveEnumValueRemovalMappings(
+  const resolvedOperations = await resolveAmbiguousChanges(
+    diffResult,
+    current,
+    desired,
+    ambiguityResolver,
+    diffOptions
+  );
+  const resolvedEnumRemovals = retargetEnumRemovals(
     enumRemovals,
+    current,
+    resolvedOperations
+  );
+  const resolvedAutoRemovals = retargetEnumRemovals(
+    autoResolvableRemovals,
+    current,
+    resolvedOperations
+  );
+  const finalOperations = await resolveDestructiveOperations(
+    resolvedOperations.filter((op) => op.type !== "alterEnum"),
+    resolve,
+    force,
+    admittedAmbiguousDrops
+  );
+  const enumColumnMappings = await resolveEnumValueRemovalMappings(
+    resolvedEnumRemovals,
     resolve,
     force
   );
 
-  if (diffResult.ambiguousChanges.length > 0) {
-    const resolvedOperations = applyAmbiguousResolutions(
-      diffResult.ambiguousChanges,
-      ambiguousResolutions,
-      desiredSnapshot
-    );
-    finalOperations.push(...resolvedOperations);
-  }
-
   finalOperations.push(
-    ...applyResolvedEnumMappings(diffResult.operations, enumColumnMappings)
+    ...applyResolvedEnumMappings(resolvedOperations, enumColumnMappings)
   );
 
-  return sortOperations(finalOperations);
+  return sortOperations(
+    applyForceEnumResolutions(finalOperations, resolvedAutoRemovals)
+  );
+}
+
+function retargetEnumRemovals(
+  removals: EnumRemoval[],
+  current: SchemaSnapshot,
+  operations: DiffOperation[]
+): EnumRemoval[] {
+  let renamedCurrent = current;
+  for (const operation of operations) {
+    if (operation.type === "renameTable" || operation.type === "renameColumn") {
+      renamedCurrent = applyNativeRename(renamedCurrent, operation);
+    }
+  }
+
+  return removals.map((removal) => {
+    const tablePosition = current.tables.findIndex(
+      (table) => table.name === removal.tableName
+    );
+    const currentTable = current.tables[tablePosition];
+    const columnPosition = currentTable?.columns.findIndex(
+      (column) => column.name === removal.columnName
+    );
+    const table = renamedCurrent.tables[tablePosition];
+    const column =
+      columnPosition === undefined ? undefined : table?.columns[columnPosition];
+    if (!(currentTable && table && column)) {
+      throw new MigrationError(
+        `Cannot retarget enum removal for "${removal.tableName}.${removal.columnName}" through the accepted renames.`,
+        VibORMErrorCode.INTERNAL_ERROR
+      );
+    }
+    return { ...removal, tableName: table.name, columnName: column.name };
+  });
+}
+
+async function resolveDestructiveOperations(
+  operations: DiffOperation[],
+  resolve: ResolveCallback,
+  force: boolean,
+  admittedDrops: ReadonlySet<string> = new Set()
+): Promise<DiffOperation[]> {
+  const admitted: DiffOperation[] = [];
+  for (const op of operations) {
+    if (
+      !isDestructiveOperation(op) ||
+      admittedDrops.has(destructiveDropKey(op))
+    ) {
+      admitted.push(op);
+      continue;
+    }
+
+    const change = operationToResolveChange(op);
+    const result = validateResolveResult(
+      "destructive",
+      change,
+      await resolve(change)
+    );
+    if (result === "reject") {
+      throw new MigrationError(
+        `Change rejected: ${change.description}`,
+        VibORMErrorCode.MIGRATION_DESTRUCTIVE_REJECTED
+      );
+    }
+    if (result === undefined) {
+      if (force) {
+        admitted.push(op);
+      } else {
+        throw new MigrationError(
+          `Unresolved destructive change: ${change.description}\n` +
+            "Return change.proceed() or change.reject() from the resolver, or use force: true.",
+          VibORMErrorCode.MIGRATION_DESTRUCTIVE_REJECTED
+        );
+      }
+      continue;
+    }
+    if (result === "proceed") {
+      admitted.push(op);
+    }
+  }
+  return admitted;
+}
+
+function ambiguousDropKey(change: AmbiguousChange): string {
+  return change.type === "ambiguousTable"
+    ? `table\u0000${change.droppedTable}`
+    : `column\u0000${change.tableName}\u0000${change.droppedColumn.name}`;
+}
+
+function destructiveDropKey(operation: DiffOperation): string {
+  if (operation.type === "dropTable") {
+    return `table\u0000${operation.tableName}`;
+  }
+  if (operation.type === "dropColumn") {
+    return `column\u0000${operation.tableName}\u0000${operation.columnName}`;
+  }
+  return "";
 }
 
 function rejectUnresolvedChanges(
@@ -475,24 +569,7 @@ function rejectUnresolvedChanges(
   );
 }
 
-function isDestructiveOperation(op: DiffOperation): boolean {
-  if (op.type === "dropTable" || op.type === "dropColumn") {
-    return true;
-  }
-  if (op.type === "alterColumn") {
-    const typeChanged =
-      normalizeType(op.from.type) !== normalizeType(op.to.type);
-    const madeNonNullable = op.from.nullable && !op.to.nullable;
-    return typeChanged || madeNonNullable;
-  }
-  return false;
-}
-
-function normalizeType(type: string): string {
-  return type.toLowerCase().replace(/\s+/g, " ").trim();
-}
-
-function operationToResolveChange(op: DiffOperation): ResolveChange {
+function operationToResolveChange(op: DiffOperation): DestructiveResolveChange {
   switch (op.type) {
     case "dropTable":
       return createDestructiveChange({
@@ -512,7 +589,15 @@ function operationToResolveChange(op: DiffOperation): ResolveChange {
         operation: "alterColumn",
         table: op.tableName,
         column: op.columnName,
-        description: `Alter column "${op.columnName}" in "${op.tableName}" (${op.from.type} → ${op.to.type})`,
+        // The SAME sentences the differ already writes for this operation, and
+        // not a second summary of it. Rendering `from.type → to.type` here was
+        // silent about the one change whose type does not move: a narrowing
+        // decimal domain on SQLite reads `(INTEGER → INTEGER)`, so the user was
+        // asked to accept a data-refusing change with nothing on screen to say
+        // what it was. Every destructive alterColumn produces at least one
+        // description, because the differ's description and classifier share
+        // the same owner and ask the same three questions.
+        description: getDestructiveOperationDescriptions([op]).join("; "),
       });
     default:
       throw new MigrationError(
@@ -522,7 +607,9 @@ function operationToResolveChange(op: DiffOperation): ResolveChange {
   }
 }
 
-function ambiguousToResolveChange(change: AmbiguousChange): ResolveChange {
+function ambiguousToResolveChange(
+  change: AmbiguousChange
+): AmbiguousResolveChange {
   if (change.type === "ambiguousColumn") {
     return createAmbiguousChange({
       operation: "renameColumn",
@@ -542,102 +629,5 @@ function ambiguousToResolveChange(change: AmbiguousChange): ResolveChange {
     oldName: change.droppedTable,
     newName: change.addedTable,
     description: `Table "${change.droppedTable}" → "${change.addedTable}" (rename or add+drop?)`,
-  });
-}
-
-function applyAmbiguousResolutions(
-  changes: AmbiguousChange[],
-  resolutions: Map<AmbiguousChange, ChangeResolution>,
-  desiredSnapshot: SchemaSnapshot
-): DiffOperation[] {
-  const operations: DiffOperation[] = [];
-
-  for (const change of changes) {
-    const resolution = resolutions.get(change);
-    if (!resolution) continue;
-
-    if (change.type === "ambiguousColumn") {
-      if (resolution.type === "rename") {
-        operations.push({
-          type: "renameColumn",
-          tableName: change.tableName,
-          from: change.droppedColumn.name,
-          to: change.addedColumn.name,
-        });
-
-        if (
-          change.droppedColumn.nullable !== change.addedColumn.nullable ||
-          change.droppedColumn.default !== change.addedColumn.default
-        ) {
-          operations.push({
-            type: "alterColumn",
-            tableName: change.tableName,
-            columnName: change.addedColumn.name,
-            from: { ...change.droppedColumn, name: change.addedColumn.name },
-            to: change.addedColumn,
-          });
-        }
-      } else {
-        operations.push(
-          {
-            type: "dropColumn",
-            tableName: change.tableName,
-            columnName: change.droppedColumn.name,
-          },
-          {
-            type: "addColumn",
-            tableName: change.tableName,
-            column: change.addedColumn,
-          }
-        );
-      }
-    } else if (change.type === "ambiguousTable") {
-      if (resolution.type === "rename") {
-        operations.push({
-          type: "renameTable",
-          from: change.droppedTable,
-          to: change.addedTable,
-        });
-      } else {
-        operations.push({ type: "dropTable", tableName: change.droppedTable });
-        const newTable = desiredSnapshot.tables.find(
-          (table) => table.name === change.addedTable
-        );
-        if (newTable) {
-          operations.push({ type: "createTable", table: newTable });
-        }
-      }
-    }
-  }
-
-  return operations;
-}
-
-function sortOperations(operations: DiffOperation[]): DiffOperation[] {
-  const priority: Record<string, number> = {
-    createEnum: 0,
-    alterEnum: 1,
-    dropForeignKey: 2,
-    dropIndex: 3,
-    dropUniqueConstraint: 4,
-    dropPrimaryKey: 5,
-    dropColumn: 6,
-    dropTable: 7,
-    createTable: 8,
-    renameTable: 9,
-    addColumn: 10,
-    renameColumn: 11,
-    alterColumn: 12,
-    addPrimaryKey: 13,
-    addUniqueConstraint: 14,
-    createIndex: 15,
-    addForeignKey: 16,
-    dropEnum: 17,
-  };
-
-  return [...operations].sort((a, b) => {
-    const firstPriority = priority[a.type] ?? 100;
-    const secondPriority = priority[b.type] ?? 100;
-    return firstPriority - secondPriority;
   });
 }

@@ -3,9 +3,15 @@ import type { DatabaseAdapter } from "@adapters";
 import type { AnyDriver } from "@drivers";
 import { isVibORMError } from "@errors";
 import type { Model } from "@schema/model";
-import { type AnyRelation, slotMayBeEmpty } from "@schema/relation";
+import {
+  type AnyRelation,
+  type PolymorphicStorageColumn,
+  slotMayBeEmpty,
+} from "@schema/relation";
 import type { Scalar } from "@schema/scalars";
 import type { ResolvedRelationIndex } from "@schema/validation/relation-resolution";
+import { toDecimal } from "@validation/primitives/decimal-codec";
+import { isString } from "@validation/value-guards";
 import {
   type ExpectedPolymorphicResultShape,
   type ExpectedResultShape,
@@ -13,6 +19,11 @@ import {
   type Operation,
   type ScopeSource,
 } from "../types";
+import {
+  decimalColumnFor,
+  decodeDecimalValue,
+  materializeDecimalValue,
+} from "./decimal-result-decode";
 import { parsePolymorphicValueDefault } from "./polymorphic-result-parser";
 import { parseRelationValueDefault } from "./relation-result-parser";
 import { parseAggregateResult } from "./result-aggregate-parser";
@@ -25,16 +36,20 @@ import {
 import {
   type CompiledRowParser,
   createRowParser,
-  type ExactFieldCapture,
   parseResultDefault,
+  type RowKeyCapture,
 } from "./result-row-parser";
 import { buildExpectedResultShape } from "./result-shape";
-import { parseFieldValueDefault } from "./scalar-result-parser";
+import {
+  parseFieldValueDefault,
+  parseWidenedSumDefault,
+} from "./scalar-result-parser";
 
 type FieldParser = (
   value: unknown,
   operation: Operation,
-  captureExact?: (value: unknown) => void
+  captureRowKey?: (value: unknown) => void,
+  materializePublic?: boolean
 ) => unknown;
 type RelationParser = (
   value: unknown,
@@ -139,27 +154,25 @@ export class ResultParser {
     CachedRowParser[]
   >();
   private resultChain: ResultParserChain | undefined;
+  private captureResultChain: ResultParserChain | undefined;
 
   /**
-   * TRANSITIONAL. `"number"` re-applies the legacy lossy decode to
-   * decimal fields after the exact parse. See {@link QueryEngine.decimalDecode}.
+   * The widened-SUM chains, kept apart from {@link fieldChains} because a
+   * decimal sum is decoded in a different domain from the column it sums —
+   * scale-preserving, precision-widened. One classification
+   * ({@link classifyAggregateLeaf}) decides which of the two a leaf takes. The
+   * cache itself does not exist until a widened SUM is parsed.
    */
-  readonly decimalDecode: "string" | "number";
+  private widenedSumChains: WeakMap<Scalar, FieldParser> | undefined;
 
   /** The one resolved topology index this parse boundary reads emptiness from. */
   readonly relations: ResolvedRelationIndex;
 
-  constructor(
-    source: ScopeSource,
-    model: Model<any>,
-    driver?: AnyDriver,
-    decimalDecode: "string" | "number" = "string"
-  ) {
+  constructor(source: ScopeSource, model: Model<any>, driver?: AnyDriver) {
     this.adapter = source.adapter;
     this.relations = source.relations;
     this.model = model;
     this.driver = driver;
-    this.decimalDecode = decimalDecode;
   }
 
   static {
@@ -225,10 +238,18 @@ export class ResultParser {
   }
 
   /**
-   * Parse one root row set once while retaining selected scalar values before
-   * the temporary `decimalDecode: "number"` presentation conversion.
+   * Parse one root row set once, retaining the named fields in the private
+   * representation that ADDRESSES SQL beside the public rows.
+   *
+   * The two are not the same value for every scalar. A decimal's public leaf is
+   * a fresh `Decimal`, an object whose equality, ordering and text are all
+   * application-observable; its identity is the codec's canonical private
+   * string. A caller that indexed rows by the public value would compare two
+   * equal decimals with `Object.is` and never match them, and would re-spell
+   * them into a later statement through a rendering an application's
+   * `Decimal.set(...)` can move. So this parses ONCE and keeps both.
    */
-  parseRowsWithExactFields<T>(
+  parseRowsWithRowKeys<T>(
     operation: Operation,
     raw: unknown,
     args: Record<string, unknown>,
@@ -236,7 +257,7 @@ export class ResultParser {
     expectedShape?: ExpectedResultShape
   ): readonly [T, readonly Readonly<Record<string, unknown>>[]] {
     const rows: Record<string, unknown>[] = [];
-    const exactFields: ExactFieldCapture = {
+    const rowKeys: RowKeyCapture = {
       fields: new Set(fields),
       rows,
     };
@@ -245,9 +266,149 @@ export class ResultParser {
       raw,
       args,
       expectedShape,
-      this.createResultChain(exactFields)
+      this.createResultChain(rowKeys)
     );
     return [parsed, rows];
+  }
+
+  /**
+   * Parse one planning row set directly into its private scalar representation.
+   *
+   * This uses the ordinary result and compiled-row boundaries, including driver
+   * and adapter middleware and complete shape validation. Only the last field
+   * step differs: exact decimals stop at canonical text instead of constructing
+   * a public `Decimal` that the planning consumer would immediately discard.
+   */
+  parseCapturedRows(
+    operation: Operation,
+    raw: unknown,
+    args: Record<string, unknown>,
+    expectedShape?: ExpectedResultShape
+  ): readonly Record<string, unknown>[] {
+    return this.parseWithChain<readonly Record<string, unknown>[]>(
+      operation,
+      raw,
+      args,
+      expectedShape,
+      this.getCaptureResultChain()
+    );
+  }
+
+  /**
+   * Project one captured provider row set and decode every value that will
+   * re-enter SQL into its private scalar representation.
+   *
+   * Planning probes can expose private relation-storage columns beside public
+   * model fields. The ordinary result shape does not know those private names,
+   * so the projection must remove them before the compiled public row parser
+   * runs. That projection still belongs inside this boundary: every raw row and
+   * every required source property is validated across the complete set before
+   * any value is read, and hostile property inspection is translated into the
+   * same malformed-result error model as the rest of this parser.
+   */
+  parseCapturedProjection(
+    operation: Operation,
+    raw: unknown,
+    args: Record<string, unknown>,
+    fieldSources: Readonly<Record<string, string>>,
+    internalColumns: readonly PolymorphicStorageColumn[] = []
+  ): readonly Record<string, unknown>[] {
+    let selectedRows: Record<string, unknown>[];
+    let internalRows: Record<string, unknown>[];
+    try {
+      if (!Array.isArray(raw)) {
+        return malformedResult(
+          this,
+          operation,
+          "a captured result must return a row array"
+        );
+      }
+
+      const requiredFields = [
+        ...new Set([
+          ...Object.values(fieldSources),
+          ...internalColumns.map((column) => column.name),
+        ]),
+      ];
+      const rows: Record<string, unknown>[] = [];
+      for (const candidate of raw) {
+        if (!isResultRow(candidate)) {
+          return malformedResult(
+            this,
+            operation,
+            "every returned row must be a non-null object"
+          );
+        }
+        rows.push(candidate);
+      }
+      const sourceRows: Record<string, unknown>[] = [];
+      for (const row of rows) {
+        const sourceRow: Record<string, unknown> = {};
+        for (const field of requiredFields) {
+          const descriptor = Object.getOwnPropertyDescriptor(row, field);
+          if (!descriptor?.enumerable) {
+            return malformedResult(
+              this,
+              operation,
+              "a returned row does not match the requested result columns"
+            );
+          }
+          if (!("value" in descriptor)) {
+            return malformedResult(
+              this,
+              operation,
+              "a captured result column must be a data property"
+            );
+          }
+          sourceRow[field] = descriptor.value;
+        }
+        sourceRows.push(sourceRow);
+      }
+
+      selectedRows = [];
+      internalRows = [];
+      for (const sourceRow of sourceRows) {
+        const selected: Record<string, unknown> = {};
+        for (const [field, source] of Object.entries(fieldSources)) {
+          selected[field] = sourceRow[source];
+        }
+        selectedRows.push(selected);
+
+        const internal: Record<string, unknown> = {};
+        for (const column of internalColumns) {
+          internal[column.name] = sourceRow[column.name];
+        }
+        internalRows.push(internal);
+      }
+    } catch (error) {
+      if (isVibORMError(error)) throw error;
+      return malformedResult(
+        this,
+        operation,
+        "captured provider row inspection failed"
+      );
+    }
+
+    const capturedRows = this.parseCapturedRows(operation, selectedRows, args);
+    return capturedRows.map((row, index) => {
+      const rawInternal = internalRows[index];
+      if (!rawInternal) {
+        return malformedResult(
+          this,
+          operation,
+          "a captured result lost its private-column row"
+        );
+      }
+      const decodedInternal: Record<string, unknown> = {};
+      for (const column of internalColumns) {
+        const value = rawInternal[column.name];
+        decodedInternal[column.name] =
+          value === null && column.nullable
+            ? null
+            : this.parseCapturedField(column.scalar, value, operation);
+      }
+      return { ...decodedInternal, ...row };
+    });
   }
 
   private parseWithChain<T>(
@@ -287,11 +448,40 @@ export class ResultParser {
     return this.resultChain;
   }
 
+  private getCaptureResultChain(): ResultParserChain {
+    this.captureResultChain ??= this.createResultChain(
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      true
+    );
+    return this.captureResultChain;
+  }
+
   private getFieldChain(scalar: Scalar): FieldParser {
     const existing = this.fieldChains.get(scalar);
     if (existing) return existing;
-    const chain = this.createFieldChain(scalar);
+    const chain = this.createFieldChain(scalar, false);
     this.fieldChains.set(scalar, chain);
+    return chain;
+  }
+
+  /** Decode one explicit scalar and return its private captured representation. */
+  parseCapturedField(
+    scalar: Scalar,
+    value: unknown,
+    operation: Operation
+  ): unknown {
+    return this.getFieldChain(scalar)(value, operation, undefined, false);
+  }
+
+  private getWidenedSumChain(scalar: Scalar): FieldParser {
+    const chains = (this.widenedSumChains ??= new WeakMap());
+    const existing = chains.get(scalar);
+    if (existing) return existing;
+    const chain = this.createFieldChain(scalar, true);
+    chains.set(scalar, chain);
     return chain;
   }
 
@@ -359,12 +549,15 @@ export class ResultParser {
     return parse;
   }
 
-  private createRowValueParsers(): RowValueParsers {
+  private createRowValueParsers(captureOnly = false): RowValueParsers {
     const parsers: RowValueParsers = {
       getRowParser: (model, row, operation, shape, keys) =>
         this.getNestedRowParser(model, row, operation, shape, parsers, keys),
-      parseField: (scalar, value, operation, captureExact) =>
-        this.getFieldChain(scalar)(value, operation, captureExact),
+      parseField: captureOnly
+        ? (scalar, value, operation) =>
+            this.getFieldChain(scalar)(value, operation, undefined, false)
+        : (scalar, value, operation, captureRowKey) =>
+            this.getFieldChain(scalar)(value, operation, captureRowKey),
       parseRelation: (source, field, relation, value, operation, shape) =>
         this.getRelationChain(
           source,
@@ -388,31 +581,43 @@ export class ResultParser {
           raw,
           scalars,
           expected,
-          parsers.parseField
+          parsers.parseField,
+          (scalar, value, aggregateOperation) =>
+            this.getWidenedSumChain(scalar)(
+              value,
+              aggregateOperation,
+              undefined,
+              !captureOnly
+            )
         ),
     };
     return parsers;
   }
 
   private createResultChain(
-    exactFields?: ExactFieldCapture,
+    rowKeys?: RowKeyCapture,
     consumableRows?: unknown[],
     compiledRoot?: CompiledRowParser,
-    compiledOperation?: Operation
+    compiledOperation?: Operation,
+    captureOnly = false
   ): ResultParserChain {
-    let parsers = compiledRoot ? undefined : this.createRowValueParsers();
+    let parsers = compiledRoot
+      ? undefined
+      : this.createRowValueParsers(captureOnly);
     const defaultParse: ResultParserChain = compiledRoot
       ? (value, operation, shape) => {
           const activeCompiled =
             operation === compiledOperation ? compiledRoot : undefined;
-          if (!activeCompiled) parsers ??= this.createRowValueParsers();
+          if (!activeCompiled) {
+            parsers ??= this.createRowValueParsers(captureOnly);
+          }
           return parseResultDefault(
             this,
             operation,
             value,
             shape,
             parsers,
-            exactFields,
+            rowKeys,
             activeCompiled && value === consumableRows
               ? consumableRows
               : undefined,
@@ -420,14 +625,7 @@ export class ResultParser {
           );
         }
       : (value, operation, shape) =>
-          parseResultDefault(
-            this,
-            operation,
-            value,
-            shape,
-            parsers,
-            exactFields
-          );
+          parseResultDefault(this, operation, value, shape, parsers, rowKeys);
     const adapterParse = (
       value: unknown,
       operation: Operation,
@@ -528,7 +726,15 @@ export class ResultParser {
       );
   }
 
-  private createFieldChain(scalar: Scalar): FieldParser {
+  /**
+   * Compile one field's decode.
+   *
+   * `widenedSum` selects the OTHER decimal domain: a sum keeps the column's
+   * scale but outgrows its precision, so it is decoded against the scale alone.
+   * Every other leaf — including `_avg`, `_min` and `_max`, which the database
+   * already answered inside the field's domain — takes the field decode.
+   */
+  private createFieldChain(scalar: Scalar, widenedSum: boolean): FieldParser {
     const provider = this.providerName;
     const state = scalar["~"].state;
     const scalarType = state.type;
@@ -539,18 +745,66 @@ export class ResultParser {
     const jsonSchema = scalarType === "json" ? state.schema : undefined;
     const enumValues =
       "enumValues" in scalar ? new Set<string>(scalar.enumValues) : undefined;
-    const defaultParse = (value: unknown, operation: Operation) =>
-      parseFieldValueDefault(
-        value,
-        scalarType,
-        isList,
-        isNullable,
-        enumValues,
-        vectorDimension,
-        jsonSchema,
-        provider,
-        operation
-      );
+    const decimalColumn =
+      widenedSum || scalarType === "decimal"
+        ? decimalColumnFor(scalar, this.adapter)
+        : undefined;
+    const parseDecimalScalar: FieldParser | undefined =
+      !widenedSum && scalarType === "decimal" && !isList
+        ? (value, operation, captureRowKey, materializePublic = true) => {
+            if (value === undefined) {
+              return malformedScalarValue(
+                provider,
+                operation,
+                scalarType,
+                "the value is absent"
+              );
+            }
+            if (value === null) {
+              if (!isNullable) {
+                return malformedScalarValue(
+                  provider,
+                  operation,
+                  scalarType,
+                  "a required scalar is null"
+                );
+              }
+              captureRowKey?.(null);
+              return null;
+            }
+            if (materializePublic && captureRowKey === undefined) {
+              const materialized =
+                decimalColumn === undefined
+                  ? undefined
+                  : materializeDecimalValue(value, decimalColumn);
+              if (materialized !== undefined) return materialized;
+            } else {
+              const canonical =
+                decimalColumn === undefined
+                  ? undefined
+                  : decodeDecimalValue(value, decimalColumn);
+              if (canonical !== undefined) {
+                captureRowKey?.(canonical);
+                return materializePublic ? toDecimal(canonical) : canonical;
+              }
+            }
+            return malformedScalarValue(
+              provider,
+              operation,
+              scalarType,
+              "the value is not an exact decimal in this column's declared domain"
+            );
+          }
+        : undefined;
+
+    // This existing proof means every scalar crosses the adapter unchanged and
+    // no driver field middleware exists. Compile the ordinary decimal directly
+    // to its descriptor-aware codec instead of paying two passthrough
+    // continuations and the generic scalar switch for every returned cell.
+    if (parseDecimalScalar && this.nativeScalarPassthrough) {
+      return parseDecimalScalar;
+    }
+
     let adapterInput: unknown;
     const continueAdapter = (transformed?: unknown) =>
       transformed === undefined ? adapterInput : transformed;
@@ -567,20 +821,121 @@ export class ResultParser {
     };
     const driverParseField = this.driver?.result?.parseField;
 
-    // TRANSITIONAL: the legacy `decimal: "number"` hatch. It runs AFTER
-    // the exact parse, so the lossy step is one clearly-marked conversion at the
-    // very edge rather than a second decode path threaded through the parser.
-    // It is a re-lossification of a value we already have exactly — which is
-    // precisely why it is temporary.
-    const legacyNumberDecimal =
-      scalarType === "decimal" && this.decimalDecode === "number";
-    const applyLegacy = (parsed: unknown): unknown => {
-      if (!legacyNumberDecimal || parsed === null) return parsed;
-      if (isList && Array.isArray(parsed)) return parsed.map(Number);
-      return typeof parsed === "string" ? Number(parsed) : parsed;
-    };
+    if (!widenedSum && scalarType !== "decimal") {
+      const defaultParse = (value: unknown, operation: Operation) =>
+        parseFieldValueDefault(
+          value,
+          scalarType,
+          isList,
+          isNullable,
+          enumValues,
+          vectorDimension,
+          jsonSchema,
+          provider,
+          operation,
+          undefined
+        );
+      return (value, operation, captureRowKey) => {
+        if (value === undefined) {
+          return malformedScalarValue(
+            provider,
+            operation,
+            scalarType,
+            "the value is absent"
+          );
+        }
+        if (value === null) {
+          const parsed = defaultParse(value, operation);
+          captureRowKey?.(parsed);
+          return parsed;
+        }
+        let transformed: unknown;
+        try {
+          transformed = driverParseField
+            ? driverParseField(value, scalarType, adapterDecode)
+            : adapterDecode(value, scalarType);
+        } catch (error) {
+          if (isVibORMError(error)) throw error;
+          return malformedScalarValue(
+            provider,
+            operation,
+            scalarType,
+            "provider scalar decoding failed"
+          );
+        }
+        const parsed = defaultParse(transformed, operation);
+        captureRowKey?.(parsed);
+        return parsed;
+      };
+    }
 
-    return (value, operation, captureExact) => {
+    if (parseDecimalScalar) {
+      return (value, operation, captureRowKey, materializePublic) => {
+        if (value === undefined || value === null) {
+          return parseDecimalScalar(
+            value,
+            operation,
+            captureRowKey,
+            materializePublic
+          );
+        }
+        let transformed: unknown;
+        try {
+          transformed = driverParseField
+            ? driverParseField(value, scalarType, adapterDecode)
+            : adapterDecode(value, scalarType);
+        } catch (error) {
+          if (isVibORMError(error)) throw error;
+          return malformedScalarValue(
+            provider,
+            operation,
+            scalarType,
+            "provider scalar decoding failed"
+          );
+        }
+        return parseDecimalScalar(
+          transformed,
+          operation,
+          captureRowKey,
+          materializePublic
+        );
+      };
+    }
+
+    const defaultParse = widenedSum
+      ? (value: unknown, operation: Operation, materializeDecimal = false) =>
+          parseWidenedSumDefault(
+            value,
+            decimalColumn,
+            scalarType,
+            provider,
+            operation,
+            materializeDecimal
+          )
+      : (value: unknown, operation: Operation, materializeDecimal = false) =>
+          parseFieldValueDefault(
+            value,
+            scalarType,
+            isList,
+            isNullable,
+            enumValues,
+            vectorDimension,
+            jsonSchema,
+            provider,
+            operation,
+            decimalColumn,
+            materializeDecimal
+          );
+
+    // An uncaptured scalar asks the codec to validate and construct its one
+    // public Decimal directly. Capture, list, and private-result paths retain
+    // canonical text and materialize only after the row container is chosen.
+    //
+    // The order below is the whole boundary rule: the row-key capture takes the
+    // canonical private string, the caller takes the Decimal. A capture of the
+    // public value would put an object whose equality is reference identity
+    // into the write engine's row index.
+    return (value, operation, captureRowKey, materializePublic = true) => {
       if (value === undefined) {
         return malformedScalarValue(
           provider,
@@ -591,8 +946,8 @@ export class ResultParser {
       }
       if (value === null) {
         const parsed = defaultParse(value, operation);
-        captureExact?.(parsed);
-        return applyLegacy(parsed);
+        captureRowKey?.(parsed);
+        return materializePublic ? buildDecimalValue(parsed) : parsed;
       }
       let transformed: unknown;
       try {
@@ -608,11 +963,27 @@ export class ResultParser {
           "provider scalar decoding failed"
         );
       }
+      if (materializePublic && captureRowKey === undefined && !isList) {
+        return defaultParse(transformed, operation, true);
+      }
       const parsed = defaultParse(transformed, operation);
-      captureExact?.(parsed);
-      return applyLegacy(parsed);
+      captureRowKey?.(parsed);
+      return materializePublic ? buildDecimalValue(parsed) : parsed;
     };
   }
+}
+
+/**
+ * Construct the public Decimal family of one decoded decimal leaf.
+ *
+ * The decode answers with canonical text, `null` for a nullable column, or an
+ * array of canonical members for a list — nothing else survives it — so the
+ * recursion has exactly those three arms.
+ */
+function buildDecimalValue(parsed: unknown): unknown {
+  if (isString(parsed)) return toDecimal(parsed);
+  if (Array.isArray(parsed)) return parsed.map(buildDecimalValue);
+  return parsed;
 }
 
 /** Advanced result parsing entry backed by one explicit parser owner. */

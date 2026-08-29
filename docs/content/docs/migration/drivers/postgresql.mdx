@@ -23,6 +23,8 @@ icon: server
 | `int()` | `integer` |
 | `bigint()` | `bigint` |
 | `number()` | `double precision` |
+| `decimal({ precision, scale })` | `NUMERIC(precision,scale)` |
+| `decimal({ precision, scale }).array()` | `NUMERIC(precision,scale)[]` |
 | `boolean()` | `boolean` |
 | `datetime()` | `timestamp` |
 | `datetime().withTimezone()` | `timestamptz` |
@@ -30,7 +32,7 @@ icon: server
 | `blob()` | `bytea` |
 | `uuid()` | `uuid` |
 | `enumScalar()` | Native enum type |
-| Array scalars | Native arrays (`text[]`, etc.) |
+| Other array scalars | Native arrays (`text[]`, etc.) |
 
 ## Auto-Increment
 

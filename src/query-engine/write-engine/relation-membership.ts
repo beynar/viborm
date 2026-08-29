@@ -5,6 +5,7 @@ import {
   buildPolymorphicMembershipPredicate,
   getPrimaryKeyFields,
 } from "../builders/correlation-utils";
+import { projectScalarForTransport } from "../builders/decimal-field";
 import type { PolymorphicStorageValue } from "../builders/polymorphic-mutation";
 import {
   type BoundPolymorphicMembership,
@@ -758,7 +759,11 @@ export function membershipProjection(
       binding.relation.membership.storage.idColumn,
     ].map((column) =>
       adapter.identifiers.aliased(
-        adapter.identifiers.column(rootAlias, column.name),
+        projectScalarForTransport(
+          adapter,
+          column.scalar,
+          adapter.identifiers.column(rootAlias, column.name)
+        ),
         column.name
       )
     ),

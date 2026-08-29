@@ -27,8 +27,8 @@ These constraints shaped every architectural decision. When you wonder "why is t
 
 | Layer | Location | Owns | Doesn't Own | Guide |
 |-------|----------|------|-------------|-------|
-| **L1: Validation** | `src/validation/` | v.* primitives, Standard Schema V1, `SchemaRegistry` operation schemas | Scalar logic, domain rules | [validation/AGENTS.md](src/validation/AGENTS.md) |
-| **L2: Scalars** | `src/schema/scalars/`, `src/schema/field-ref.ts`, `src/schema/hydration.ts` | Scalar classes, State generics, base scalar schemas, runtime schema metadata | Operation schemas | [schema/scalars/AGENTS.md](src/schema/scalars/AGENTS.md) |
+| **L1: Validation** | `src/validation/` | v.* primitives, Standard Schema V1, the one fixed-decimal descriptor shape and codec, `SchemaRegistry` operation schemas | Scalar declaration logic | [validation/AGENTS.md](src/validation/AGENTS.md) |
+| **L2: Scalars** | `src/schema/scalars/`, `src/schema/field-ref.ts`, `src/schema/hydration.ts` | Scalar classes, State generics, base scalar schemas, each field's frozen decimal-descriptor instance, runtime schema metadata | Operation schemas or a second decimal representation | [schema/scalars/AGENTS.md](src/schema/scalars/AGENTS.md) |
 | **L3: Operation Schemas** | `src/validation/model/`, `src/validation/relations/` | where, create, update, args schemas | SQL generation | — |
 | **L4: Relations** | `src/schema/relation/` | The two factories, the declaration state, the terminal capability surfaces | Pairing, ownership, query execution | [schema/relation/AGENTS.md](src/schema/relation/AGENTS.md) |
 | **L5: Schema Validation** | `src/schema/validation/` | Definition-time validation; the ONE schema-wide relation topology owner (`relation-resolution.ts`) | Runtime validation | — |
@@ -258,6 +258,28 @@ attribute; there is no client-level namespace accessor.
 
 **See:** [docs/content/docs/drivers/namespaces.mdx](docs/content/docs/drivers/namespaces.mdx),
 [adapters/AGENTS.md](src/adapters/AGENTS.md)
+
+### Rule 8: One fixed-decimal language
+
+`s.decimal({ precision, scale })` is the sole public decimal declaration.
+`src/validation/primitives/decimal-codec.ts` owns the one structural descriptor
+shape and the field-aware codec. Each scalar validates hostile input once and
+freezes one instance of that shape in scalar state as the field's sole
+precision/scale source. The codec owns canonical private text,
+logical/coefficient conversion, provider scalar/list crossings, and final fresh
+`Decimal` construction. Do not add a zero-argument or native decimal mode, a
+client string/number result option, an ORM Decimal wrapper, a partial update
+bag, or an adapter-wide exact-decimal refusal.
+
+PostgreSQL stores `NUMERIC(p,s)`, MySQL stores `DECIMAL(p,s)`, and SQLite stores
+a checked scaled integer coefficient. Decimal lists use native numeric arrays
+on PostgreSQL and coefficient-string JSON containers on MySQL/SQLite. Public
+typed leaves are fresh Decimal.js values; cache and identity remain canonical
+strings. Raw SQL stays physical and receives no descriptor-aware scaling.
+
+`tests/contracts/architecture/decimal-language-census.test.ts` guards the six
+retired language shapes across shipped source. Behavior tests own exact
+provider answers; the census owns the absence of a second language.
 
 ---
 

@@ -10,8 +10,6 @@
  * invokeCLI, and these tests call the module functions directly).
  */
 
-import * as p from "@clack/prompts";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   confirmApplyChanges,
   displayOperations,
@@ -29,20 +27,36 @@ import type {
 } from "@src/migrations/types";
 // Importing the harness installs the hoisted vi.mock("@clack/prompts") and
 // exports the answer-queue controls.
-import { CANCEL, queueAnswers } from "@tests/contracts/public-client/cli/_harness";
+import {
+  CANCEL,
+  queueAnswers,
+} from "@tests/contracts/public-client/cli/_harness";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  type MockInstance,
+  vi,
+} from "vitest";
+
+const p = await import("@clack/prompts");
 
 // ---------------------------------------------------------------------------
 // process.exit capture (module functions call it directly on cancel)
 // ---------------------------------------------------------------------------
 
 class ExitError extends Error {
-  constructor(public code: number) {
+  readonly code: number;
+
+  constructor(code: number) {
     super(`exit(${code})`);
+    this.code = code;
   }
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: process.exit spy type is awkward
-let exitSpy: any;
+let exitSpy: MockInstance<typeof process.exit>;
 
 beforeEach(() => {
   queueAnswers([]);
@@ -299,6 +313,20 @@ const tableChange: AmbiguousChange = {
   type: "ambiguousTable",
   droppedTable: "users_old",
   addedTable: "users_new",
+  droppedTableDef: {
+    name: "users_old",
+    columns: [],
+    indexes: [],
+    foreignKeys: [],
+    uniqueConstraints: [],
+  },
+  addedTableDef: {
+    name: "users_new",
+    columns: [],
+    indexes: [],
+    foreignKeys: [],
+    uniqueConstraints: [],
+  },
 };
 
 const columnChange: AmbiguousChange = {

@@ -104,7 +104,7 @@ order; a producer that sorts keys destroys it.
 
 | Key | Means |
 | --- | --- |
-| `native` | the factory's native-type argument — `{ "db": "pg" \| "mysql" \| "sqlite", "type": "varchar(255)" }`, see [Native types](#native-types) |
+| `native` | the factory's native-type argument — `{ "db": "pg" \| "mysql" \| "sqlite", "type": "varchar(255)" }`, see [Native types](#native-types); absent on `decimal` |
 | `nullable`, `array`, `id`, `unique` | the matching modifier |
 | `column` | `.map(columnName)` |
 | `default` | a literal default — see [Defaults](#defaults) |
@@ -112,6 +112,7 @@ order; a producer that sorts keys destroys it.
 | `enum` | an `enums` reference, or the values inline — `type: "enum"` only |
 | `dimension` | `.dimension(n)` — vectors |
 | `withoutTimezone` | `.withoutTimezone()` — `datetime` and `time` |
+| `precision`, `scale` | the required fixed-decimal descriptor — `type: "decimal"` only |
 
 The key set is the same for every type; whether a given type HAS a modifier is
 decided by the scalar itself. `{ "type": "json", "array": true }` is refused
@@ -149,15 +150,15 @@ closed catalog **per dialect**, and the catalog is the set of values the
 [native type constants](/docs/schema/native-types) themselves produce:
 
 ```text
-pg      text   varchar(191)  numeric(10,2)  double precision  timestamptz  geometry(Point)
-mysql   TEXT   VARCHAR(191)  NUMERIC(10,2)  TINYINT UNSIGNED  BIGINT UNSIGNED
-sqlite  TEXT   INTEGER       REAL           NUMERIC           BLOB
+pg      text   varchar(191)  double precision  timestamptz  geometry(Point)
+mysql   TEXT   VARCHAR(191)  TINYINT UNSIGNED  BIGINT UNSIGNED
+sqlite  TEXT   INTEGER       REAL             BLOB
 ```
 
 A value belongs to the catalog of the `db` it declares and no other: `TEXT` is a
 mysql and sqlite type, and a pg field spells it `text`. A parameterized type is
 admitted at the argument counts its constant publishes, with integer arguments —
-`varchar(191)`, `numeric(10,2)`. Anything else is `J011`, including every
+`varchar(191)`. Anything else is `J011`, including every
 spelling that made this a raw SQL channel: quotes, semicolons, comment markers,
 newlines, and constraint clauses such as `TEXT UNIQUE` or `TEXT REFERENCES
 other(id)`.
@@ -410,12 +411,14 @@ so a bad payload is refused exactly as it would be for a typed client.
 
 ## Dialect neutrality
 
-The document is dialect-neutral exactly as far as the builders are. `native` has
-one slot per scalar, and decimal precision has no other spelling — so a document
-that pins `DECIMAL(10,2)` names one database and cannot name a second.
+The document is dialect-neutral exactly as far as the builders are. A decimal
+node declares `precision` and `scale`, the same descriptor passed to
+`s.decimal({ precision, scale })`; it must not carry `native`. The interpreter
+derives `NUMERIC(p,s)`, `DECIMAL(p,s)`, or checked scaled `INTEGER` when the
+schema binds to a provider.
 
 ## Client configuration is not in the document
 
-`omit` at the client level, `decimal`, cache and extensions are **client**
-configuration, not schema declaration. The document describes the schema; the
-client is still constructed in code.
+`omit` at the client level, cache and extensions are **client** configuration,
+not schema declaration. Decimal precision and scale are schema facts and do
+belong in the document. The client is still constructed in code.

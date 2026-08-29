@@ -22,13 +22,21 @@ icon: file-box
 | `int()` | `INTEGER` |
 | `bigint()` | `INTEGER` |
 | `number()` | `REAL` |
+| `decimal({ precision, scale })` | checked scaled `INTEGER` coefficient |
+| `decimal({ precision, scale }).array()` | `TEXT` containing coefficient-string JSON |
 | `boolean()` | `INTEGER` (1/0) |
 | `datetime()` | `TEXT` (ISO 8601) |
 | `json()` | `JSON` |
 | `blob()` | `BLOB` |
 | `uuid()` | `TEXT` |
 | `enumScalar()` | `TEXT` + CHECK constraint |
-| Array scalars | `JSON` |
+| Other array scalars | `JSON` |
+
+The decimal check requires integer storage and enforces the declared
+coefficient range. Decimal-list members are JSON strings rather than numeric
+tokens, so coefficients above JavaScript's safe-integer range remain exact.
+Typed operations apply the descriptor; raw SQLite reads expose the physical
+coefficient or container.
 
 ## Auto-Increment
 

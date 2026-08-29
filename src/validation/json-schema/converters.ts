@@ -4,6 +4,8 @@
  */
 
 import { ValidationError } from "@errors";
+import type { DecimalSchema } from "../primitives/decimal";
+import type { ExactlyOneSchema } from "../scalars/decimal";
 import type { VibSchema } from "../types";
 import { isFunction, isString } from "../value-guards";
 import type {
@@ -22,6 +24,38 @@ import { createContext, SUPPORTED_TARGETS } from "./types";
  * Wrapper schema types that should be traversed to find inner schemas.
  */
 const WRAPPER_TYPES = new Set(["array", "nullable", "optional", "lazyRef"]);
+const DECIMAL_INPUT_PATTERN = "^[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)$";
+const DECIMAL_OUTPUT_PATTERN =
+  "^(?:0|-?(?:[1-9]\\d*(?:\\.\\d*[1-9])?|0\\.\\d*[1-9]))$";
+
+type ConvertibleExactOneSchema = ExactlyOneSchema<
+  Record<
+    string,
+    VibSchema<unknown, unknown> | (() => VibSchema<unknown, unknown>)
+  >
+>;
+
+type ConvertibleDecimalSchema = DecimalSchema<unknown, unknown> & {
+  readonly options:
+    | (NonNullable<DecimalSchema["options"]> & {
+        readonly array?: boolean | undefined;
+        readonly nullable?: boolean | undefined;
+      })
+    | undefined;
+};
+
+/** Internal schema tags are the discriminants for their complete metadata. */
+function isDecimalSchema(
+  schema: VibSchema<unknown, unknown>
+): schema is ConvertibleDecimalSchema {
+  return schema.type === "decimal";
+}
+
+function isExactOneSchema(
+  schema: VibSchema<unknown, unknown>
+): schema is ConvertibleExactOneSchema {
+  return schema.type === "exact_one";
+}
 
 /**
  * Traverse through wrapper schemas to find the innermost schema.
@@ -98,10 +132,7 @@ function framePointer(
  * @returns The converted JSON Schema
  */
 export function convertSchema(
-  schema: VibSchema<unknown, unknown> & {
-    type: string;
-    [key: string]: unknown;
-  },
+  schema: VibSchema<unknown, unknown>,
   context: ConversionContext,
   skipRef = false
 ): JsonSchema {
@@ -153,16 +184,81 @@ export function convertSchema(
  * wraps it with the cycle bookkeeping every recursive schema depends on.
  */
 function convertSchemaBody(
-  schema: VibSchema<unknown, unknown> & {
-    type: string;
-    [key: string]: unknown;
-  },
+  schema: VibSchema<unknown, unknown>,
   context: ConversionContext
 ): JsonSchema {
   const jsonSchema: JsonSchema = {};
 
+  if (isDecimalSchema(schema)) {
+    // A decimal accepts a `Decimal`, a string, or a number, and validates to
+    // the canonical string. A `Decimal` object has no JSON Schema because a
+    // class instance is not a JSON value; its own `toJSON()` produces the
+    // string arm.
+    //
+    // The DECLARED DOMAIN is NOT expressible here and is stated rather than
+    // silently dropped. `precision` counts the SIGNIFICANT digits of the
+    // unscaled coefficient and `scale` the significant fractional digits, and
+    // both are counted AFTER canonicalization — `"1.500"` fits a scale-2
+    // field because it names 1.5. A `pattern` counting raw digits would
+    // therefore refuse values this schema accepts, which is a worse lie than
+    // an unexpressed bound.
+    const options = schema.options;
+    const domain = options?.decimal;
+    if (domain) {
+      jsonSchema.description = `Exact decimal with at most ${domain.precision} total digits and at most ${domain.scale} fractional digits`;
+    }
+    if (context.direction === "output") {
+      jsonSchema.type = "string";
+      // Output is the codec's ONE canonical spelling, not the broader literal
+      // grammar accepted on input: no leading plus/zero, dangling point,
+      // trailing fractional zero, or signed zero survives validation.
+      jsonSchema.pattern = DECIMAL_OUTPUT_PATTERN;
+    } else {
+      jsonSchema.anyOf = [
+        { type: "string", pattern: DECIMAL_INPUT_PATTERN },
+        { type: "number" },
+      ];
+    }
+
+    // Scalar options compose arity and nullability inside `v.decimal(...)`
+    // rather than through standalone wrapper schemas. Project them here at the
+    // same owner, or a decimal-list/nullable validator and its JSON Schema
+    // describe different value families.
+    const withArity: JsonSchema = options?.array
+      ? { type: "array", items: jsonSchema }
+      : jsonSchema;
+    if (!options?.nullable) return withArity;
+    if (context.target === "openapi-3.0") {
+      return { ...withArity, nullable: true };
+    }
+    return { anyOf: [withArity, { type: "null" }] };
+  }
+
+  if (isExactOneSchema(schema)) {
+    // Decimal updates own one runtime rule: exactly one declared operation.
+    // Each JSON arm carries and requires only its selected property, so a
+    // two-key bag cannot satisfy any arm.
+    const arms: JsonSchema[] = [];
+    for (const [key, entry] of Object.entries(schema.entries)) {
+      const entrySchema = isFunction<() => VibSchema<unknown, unknown>>(entry)
+        ? entry()
+        : entry;
+      // A refused entry exists only to give an untyped runtime caller a useful
+      // explanation. It accepts no value and is not part of the JSON language.
+      if (entrySchema.type === "refused") continue;
+      arms.push({
+        type: "object",
+        properties: { [key]: convertSchema(entrySchema, context) },
+        required: [key],
+        additionalProperties: false,
+      });
+    }
+    jsonSchema.oneOf = arms;
+    return jsonSchema;
+  }
+
   // Get schema type
-  const schemaType = schema.type as string;
+  const schemaType = schema.type;
 
   // Convert based on schema type
   switch (schemaType) {
@@ -186,18 +282,6 @@ function convertSchemaBody(
     case "bigint":
       // BigInt maps to integer in JSON Schema
       jsonSchema.type = "integer";
-      break;
-
-    case "decimal":
-      // A decimal accepts a string or a number and always PRODUCES a string.
-      // The converter is direction-blind (see json-schema/factory.ts), so the
-      // union is described rather than one side of it. `type: "number"` alone
-      // would be the wrong half: it is the lossy spelling, and the exact one is
-      // the string — which is also the only form that survives JSON at all.
-      jsonSchema.anyOf = [
-        { type: "string", pattern: "^[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)$" },
-        { type: "number" },
-      ];
       break;
 
     case "literal": {
@@ -278,17 +362,19 @@ function convertSchemaBody(
         const innerSchema = getInnerSchema(entrySchema);
         const schemaName = innerSchema?.options?.name;
 
-        if (schemaName && isString(schemaName)) {
+        if (
+          schemaName &&
+          isString(schemaName) &&
+          !context.referenceMap.has(innerSchema)
+        ) {
           // Pre-register the inner named object (not the wrapper)
-          if (!context.referenceMap.has(innerSchema)) {
-            context.referenceMap.set(innerSchema, schemaName);
-            // Convert the inner object and add to definitions
-            context.definitions[schemaName] = convertSchema(
-              innerSchema as any,
-              context,
-              true
-            );
-          }
+          context.referenceMap.set(innerSchema, schemaName);
+          // Convert the inner object and add to definitions
+          context.definitions[schemaName] = convertSchema(
+            innerSchema,
+            context,
+            true
+          );
         }
 
         // Now convert the entry normally - if it hits a registered schema, it will emit $ref
@@ -311,7 +397,7 @@ function convertSchemaBody(
 
       // Remove empty required array
       if (jsonSchema.required.length === 0) {
-        delete jsonSchema.required;
+        jsonSchema.required = undefined;
       }
 
       break;
@@ -478,6 +564,15 @@ export function toJsonSchema(
   schema: VibSchema<unknown, unknown>,
   target: JsonSchemaTarget = "draft-07"
 ): JsonSchema {
+  return toJsonSchemaForDirection(schema, target, "input");
+}
+
+/** Internal directional route used by the Standard Schema converter. */
+export function toJsonSchemaForDirection(
+  schema: VibSchema<unknown, unknown>,
+  target: JsonSchemaTarget,
+  direction: "input" | "output"
+): JsonSchema {
   if (!SUPPORTED_TARGETS.includes(target)) {
     throw new ValidationError({ kind: "json-schema", target }, [
       {
@@ -487,7 +582,7 @@ export function toJsonSchema(
     ]);
   }
 
-  const context = createContext(target, schema);
+  const context = createContext(target, schema, direction);
 
   const jsonSchema = convertSchema(schema as any, context);
 

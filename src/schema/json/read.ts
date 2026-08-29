@@ -147,6 +147,8 @@ const SCALAR_FIELD_KEYS = [
   "generate",
   "enum",
   "dimension",
+  "precision",
+  "scale",
   "withoutTimezone",
 ];
 
@@ -737,10 +739,27 @@ function readScalarField(
     );
     if (size !== undefined) field.dimension = size;
   }
+  if (type !== "decimal") {
+    refuseDecimalDomainBound(node, "precision", path, issues);
+    refuseDecimalDomainBound(node, "scale", path, issues);
+  }
   const native = member(node, "native", path, issues);
   if (native !== undefined) {
-    const nativeType = readNativeNode(native, pointer(path, "native"), issues);
-    if (nativeType !== undefined) field.native = nativeType;
+    if (field.type === "decimal") {
+      addIssue(
+        issues,
+        pointer(path, "native"),
+        "J003",
+        "`native` does not belong to a decimal field; its physical type is derived from `precision` and `scale`"
+      );
+    } else {
+      const nativeType = readNativeNode(
+        native,
+        pointer(path, "native"),
+        issues
+      );
+      if (nativeType !== undefined) field.native = nativeType;
+    }
   }
   const generate = member(node, "generate", path, issues);
   if (generate !== undefined) {
@@ -764,9 +783,47 @@ function readScalarField(
 }
 
 /**
- * The one split the format keeps in the type: an enum field states its values,
- * inline or by reference, and no other field may.
+ * One half of a decimal's declared domain. The document carries the two numbers
+ * verbatim. This reader owns their required presence and number representation;
+ * `s.decimal` still owns whether the pair names a domain — integrality, range,
+ * and `scale <= precision` — through the interpreter's construction boundary.
  */
+function readRequiredDomainBound(
+  node: Record<string, unknown>,
+  key: "precision" | "scale",
+  path: string,
+  issues: DocumentIssues
+): number | undefined {
+  const value = member(node, key, path, issues);
+  if (value === undefined) {
+    addIssue(
+      issues,
+      pointer(path, key),
+      "J004",
+      `A decimal field must declare \`${key}\``
+    );
+    return;
+  }
+  const bound = asNumber(value, pointer(path, key), issues, `\`${key}\``);
+  return bound;
+}
+
+/** A fixed-decimal domain has no meaning on any other scalar arm. */
+function refuseDecimalDomainBound(
+  node: Record<string, unknown>,
+  key: "precision" | "scale",
+  path: string,
+  issues: DocumentIssues
+): void {
+  if (member(node, key, path, issues) === undefined) return;
+  addIssue(
+    issues,
+    pointer(path, key),
+    "J003",
+    `\`${key}\` belongs only to a field of type 'decimal'`
+  );
+}
+
 function readScalarArm(
   node: Record<string, unknown>,
   type: ScalarType,
@@ -783,6 +840,17 @@ function readScalarArm(
         "J003",
         "`enum` belongs to a field of type 'enum'"
       );
+    }
+    if (type === "decimal") {
+      const precision = readRequiredDomainBound(
+        node,
+        "precision",
+        path,
+        issues
+      );
+      const scale = readRequiredDomainBound(node, "scale", path, issues);
+      if (precision === undefined || scale === undefined) return;
+      return { type, precision, scale };
     }
     return { type };
   }

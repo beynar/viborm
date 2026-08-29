@@ -56,62 +56,63 @@ const SQLITE = "00730071006c006900740065";
  * or `s:<hex>`. Every body is fixed-width hex and hex never contains the `:`
  * separator, so no component can absorb the one after it.
  *
- * The revision is `r2`: it moved off `r1` because dialect and namespace entered
+ * The revision is `r3`: it moved off `r1` because dialect and namespace entered
  * the derivation, and an `r1` entry made no claim about which schema produced
- * its rows.
+ * its rows; it moved off `r2` when a stored decimal stopped materializing as a
+ * string and started materializing as a `Decimal`.
  */
 const ENCODING_TABLE: ReadonlyArray<
   readonly [OfficialCacheScopeFacts, string]
 > = [
   [
     { dialect: "postgresql", namespace: "public", version: undefined },
-    `viborm:cache:r2:d:${PG}:k:007000750062006c00690063:u`,
+    `viborm:cache:r3:d:${PG}:k:007000750062006c00690063:u`,
   ],
   [
     { dialect: "postgresql", namespace: "public", version: "v1" },
-    `viborm:cache:r2:d:${PG}:k:007000750062006c00690063:s:00760031`,
+    `viborm:cache:r3:d:${PG}:k:007000750062006c00690063:s:00760031`,
   ],
   [
     { dialect: "postgresql", namespace: "public", version: 1 },
-    `viborm:cache:r2:d:${PG}:k:007000750062006c00690063:n:3ff0000000000000`,
+    `viborm:cache:r3:d:${PG}:k:007000750062006c00690063:n:3ff0000000000000`,
   ],
   [
     { dialect: "postgresql", namespace: "public", version: 0 },
-    `viborm:cache:r2:d:${PG}:k:007000750062006c00690063:n:0000000000000000`,
+    `viborm:cache:r3:d:${PG}:k:007000750062006c00690063:n:0000000000000000`,
   ],
   [
     { dialect: "postgresql", namespace: "billing", version: undefined },
-    `viborm:cache:r2:d:${PG}:k:00620069006c006c0069006e0067:u`,
+    `viborm:cache:r3:d:${PG}:k:00620069006c006c0069006e0067:u`,
   ],
   [
     { dialect: "postgresql", namespace: "alpha", version: undefined },
-    `viborm:cache:r2:d:${PG}:k:0061006c007000680061:u`,
+    `viborm:cache:r3:d:${PG}:k:0061006c007000680061:u`,
   ],
   [
     { dialect: "postgresql", namespace: "beta", version: undefined },
-    `viborm:cache:r2:d:${PG}:k:0062006500740061:u`,
+    `viborm:cache:r3:d:${PG}:k:0062006500740061:u`,
   ],
   [
     { dialect: "mysql", namespace: "billing", version: undefined },
-    `viborm:cache:r2:d:${MYSQL}:k:00620069006c006c0069006e0067:u`,
+    `viborm:cache:r3:d:${MYSQL}:k:00620069006c006c0069006e0067:u`,
   ],
   // Unbound MySQL and SQLite: a bare `x`, with no body a string could reach.
   [
     { dialect: "mysql", namespace: undefined, version: undefined },
-    `viborm:cache:r2:d:${MYSQL}:x:u`,
+    `viborm:cache:r3:d:${MYSQL}:x:u`,
   ],
   [
     { dialect: "sqlite", namespace: undefined, version: undefined },
-    `viborm:cache:r2:d:${SQLITE}:x:u`,
+    `viborm:cache:r3:d:${SQLITE}:x:u`,
   ],
   // A database actually NAMED like the absence markers still encodes as known.
   [
     { dialect: "mysql", namespace: "undefined", version: undefined },
-    `viborm:cache:r2:d:${MYSQL}:k:0075006e0064006500660069006e00650064:u`,
+    `viborm:cache:r3:d:${MYSQL}:k:0075006e0064006500660069006e00650064:u`,
   ],
   [
     { dialect: "mysql", namespace: "x", version: undefined },
-    `viborm:cache:r2:d:${MYSQL}:k:0078:u`,
+    `viborm:cache:r3:d:${MYSQL}:k:0078:u`,
   ],
 ];
 
@@ -138,10 +139,10 @@ describe("the encoding table", () => {
     expect(new Set(namespaces).size).toBe(namespaces.length);
   });
 
-  test("carries the r2 revision and never an r1 spelling", () => {
+  test("carries the r3 revision and never an older spelling", () => {
     for (const [facts] of ENCODING_TABLE) {
       const namespace = createOfficialCacheNamespace(facts);
-      expect(namespace.startsWith("viborm:cache:r2:")).toBe(true);
+      expect(namespace.startsWith("viborm:cache:r3:")).toBe(true);
       expect(namespace).not.toContain("viborm:cache:r1");
     }
   });

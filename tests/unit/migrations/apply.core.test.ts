@@ -729,3 +729,135 @@ function runInverseOneUniquenessRollback(
 
 runInverseOneUniquenessRollback("PGlite", createInMemoryPGliteDriver);
 runInverseOneUniquenessRollback("SQLite3", createInMemorySQLite3Driver);
+
+/** The fraction of a logical decimal, padded to a scale. */
+function padToScale(logical: string, scale: number): string {
+  const [whole = "", fraction = ""] = logical.split(".");
+  return scale === 0 ? whole : `${whole}.${fraction.padEnd(scale, "0")}`;
+}
+
+/** Insignificant leading zeros of an unscaled coefficient. */
+const LEADING_ZEROS = /^0+(?=\d)/;
+
+/** The unscaled integer coefficient of a logical decimal at a scale. */
+function coefficientOf(logical: string, scale: number): string {
+  return padToScale(logical, scale).replace(".", "").replace(LEADING_ZEROS, "");
+}
+
+/**
+ * How one provider family spells a decimal in the column — the two halves a
+ * raw fixture needs, because the LOGICAL value is the same everywhere and the
+ * PHYSICAL one is not: PostgreSQL stores the native decimal and SQLite stores
+ * the unscaled integer coefficient.
+ */
+interface PhysicalDecimal {
+  literal(logical: string, scale: number): string;
+  read(logical: string, scale: number): unknown;
+}
+
+const SQLITE_PHYSICAL: PhysicalDecimal = {
+  literal: (logical, scale) => coefficientOf(logical, scale),
+  read: (logical, scale) => Number(coefficientOf(logical, scale)),
+};
+
+const POSTGRES_PHYSICAL: PhysicalDecimal = {
+  literal: (logical, scale) => padToScale(logical, scale),
+  read: (logical, scale) => padToScale(logical, scale),
+};
+
+/**
+ * A generated down migration reverses a decimal descriptor conversion, and
+ * fails safely when the older domain can no longer hold the data.
+ *
+ * The inversion itself is free — `alterColumn` is reversed by swapping `from`
+ * and `to`, and the descriptor rides on those ColumnDefs — so what this proves
+ * is that the swapped operation carries the DOMAIN with it, and that the
+ * rollback is held to the same rule as the roll-forward: it converts when every
+ * value fits and refuses when one does not, rather than rounding.
+ */
+function runDecimalDescriptorRollback(
+  driverName: string,
+  createDriver: () => AnyDriver,
+  physical: PhysicalDecimal
+): void {
+  describe(`decimal descriptor rollback (${driverName})`, () => {
+    const ledgerAt = (scale: number) => ({
+      ledger: s
+        .model({
+          id: s.string().id(),
+          amount: s.decimal({ precision: 10, scale }),
+        })
+        .map("rollback_ledger"),
+    });
+
+    async function amounts(driver: AnyDriver): Promise<unknown[]> {
+      const rows = await driver._executeRaw<{ amount: unknown }>(
+        `SELECT "amount" FROM "rollback_ledger" ORDER BY "id"`
+      );
+      return rows.rows.map((row) =>
+        typeof row.amount === "bigint" ? Number(row.amount) : row.amount
+      );
+    }
+
+    it(
+      "reverses the conversion, and refuses one the old domain cannot hold",
+      { timeout: 30_000 },
+      async () => {
+        const storage = new MemoryStorageDriver();
+        const driver = createDriver();
+
+        const clientV1 = createClient({ schema: ledgerAt(2), driver });
+        await generate(clientV1, { storageDriver: storage, name: "init" });
+        await apply(clientV1, { storageDriver: storage });
+        await driver._executeRaw(
+          `INSERT INTO "rollback_ledger" ("id","amount") VALUES ('a', ${physical.literal("123.45", 2)})`
+        );
+
+        const clientV2 = createClient({ schema: ledgerAt(4), driver });
+        await generate(clientV2, { storageDriver: storage, name: "widen" });
+        await apply(clientV2, { storageDriver: storage });
+        expect(await amounts(driver)).toEqual([physical.read("123.45", 4)]);
+
+        // Every stored value still has zeros in the two digits the older scale
+        // drops, so the rollback is exact.
+        const rolled = await down(clientV2, {
+          storageDriver: storage,
+          steps: 1,
+        });
+        expect(rolled.rolledBack.map((entry) => entry.name)).toEqual(["widen"]);
+        expect(await amounts(driver)).toEqual([physical.read("123.45", 2)]);
+
+        // Roll forward again and write a value only the NEWER domain can hold.
+        await apply(clientV2, { storageDriver: storage });
+        await driver._executeRaw(
+          `INSERT INTO "rollback_ledger" ("id","amount") VALUES ('b', ${physical.literal("123.4567", 4)})`
+        );
+
+        // 123.4567 is not a value at scale 2, and rolling back is not licensed
+        // to round it — so the rollback fails and the estate stays where it was.
+        await expect(
+          down(clientV2, { storageDriver: storage, steps: 1 })
+        ).rejects.toThrow();
+        expect(await amounts(driver)).toEqual([
+          physical.read("123.45", 4),
+          physical.read("123.4567", 4),
+        ]);
+        expect(await trackedNames(clientV2, storage)).toEqual([
+          "init",
+          "widen",
+        ]);
+      }
+    );
+  });
+}
+
+runDecimalDescriptorRollback(
+  "SQLite3",
+  createInMemorySQLite3Driver,
+  SQLITE_PHYSICAL
+);
+runDecimalDescriptorRollback(
+  "PGlite",
+  createInMemoryPGliteDriver,
+  POSTGRES_PHYSICAL
+);

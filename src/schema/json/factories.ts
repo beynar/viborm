@@ -8,8 +8,9 @@
 // `ScalarType` (the state vocabulary) and the `s.*` factory names disagree in
 // two places for historical reasons — `bigint`/`bigInt` and `datetime`/
 // `dateTime` — so ONE record states the correspondence and the type system
-// keeps it exhaustive. `enum` is absent because its factory takes the values
-// its type carries, so it has its own construction site.
+// keeps it exhaustive. `enum` and `decimal` are absent because their factories
+// take an argument their own node carries — an enum its values, a decimal its
+// `{ precision, scale }` domain — so each has its own construction site.
 
 import {
   bigInt,
@@ -17,7 +18,6 @@ import {
   boolean,
   date,
   dateTime,
-  decimal,
   int,
   json,
   number,
@@ -33,13 +33,12 @@ import type { NativeType } from "@schema/scalars/native-types";
 export type ScalarFactory = (native?: NativeType) => Scalar;
 
 export const SCALAR_FACTORIES: Record<
-  Exclude<ScalarType, "enum">,
+  Exclude<ScalarType, "enum" | "decimal">,
   ScalarFactory
 > = {
   string,
   int,
   number,
-  decimal,
   boolean,
   datetime: dateTime,
   date,
@@ -54,6 +53,7 @@ export const SCALAR_FACTORIES: Record<
 /** Every `type` a scalar field node may declare. */
 export const SCALAR_TYPE_NAMES: ReadonlySet<string> = new Set([
   ...Object.keys(SCALAR_FACTORIES),
+  "decimal",
   "enum",
 ]);
 

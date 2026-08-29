@@ -2,6 +2,7 @@ import { QueryEngineError } from "@errors";
 import { isSql } from "@sql";
 import type { JunctionBoundRelation } from "../builders/relation-data-builder";
 import type { JunctionStatements } from "../JunctionStatements";
+import type { QueryEngine } from "../query-engine";
 import { affectedRows, raceableQueryFailure } from "./fragment-builders";
 import { singularMembershipSlotRace } from "./messages";
 import type {
@@ -14,7 +15,7 @@ import type {
 import type { PlanningKnown } from "./Part";
 import { planningKey } from "./Part";
 import type { StepScope } from "./StepScope";
-import { isRecord } from "./shared";
+import { parseCapturedRows } from "./series-result-read";
 
 /** A complete target row key, keyed by the target side's referenced fields. */
 export type JunctionRowValues = Readonly<Record<string, unknown>>;
@@ -71,6 +72,7 @@ export interface JunctionSingularTransfer {
 }
 
 interface TransferInput {
+  readonly engine: QueryEngine;
   readonly scope: StepScope;
   readonly statements: JunctionStatements;
   /** `cardinality` MUST be `"one"`; the plural path never reaches here. */
@@ -137,7 +139,11 @@ export function transferSingularJunctionMembership(
     compile(known, resolution) {
       const captured = capture
         ? classifyCapturedOwner(
-            known[planningKey(capture.step.id, "rows")],
+            decodeCapturedOwners(
+              known[planningKey(capture.step.id, "rows")],
+              input,
+              relationName
+            ),
             input,
             resolution,
             relationName
@@ -168,6 +174,30 @@ export function transferSingularJunctionMembership(
       return [...guards, ...writes];
     },
   };
+}
+
+/** Route physical junction aliases through the model scalar boundary. */
+function decodeCapturedOwners(
+  rows: unknown,
+  input: TransferInput,
+  relationName: string
+): readonly Record<string, unknown>[] {
+  if (!Array.isArray(rows)) {
+    throw new QueryEngineError(
+      `query-engine-v2 internal: the singular junction transfer for relation '${relationName}' did not observe its owner capture.`
+    );
+  }
+  const members = input.junction.membership.source.members;
+  return parseCapturedRows(
+    input.engine,
+    input.junction.membership.source.model,
+    rows,
+    Object.fromEntries(members.map((member) => [member.referencedField, true])),
+    [],
+    Object.fromEntries(
+      members.map((member) => [member.referencedField, member.junctionField])
+    )
+  );
 }
 
 function buildCapture(
@@ -317,51 +347,21 @@ function batchPremises(
  * capture exists to detect it rather than silently pick a winner.
  */
 function classifyCapturedOwner(
-  rows: unknown,
+  rows: readonly Record<string, unknown>[],
   input: TransferInput,
   resolution: JunctionTransferResolution,
   relationName: string
 ): CapturedOwner {
-  if (!Array.isArray(rows)) {
-    throw new QueryEngineError(
-      `query-engine-v2 internal: the singular junction transfer for relation '${relationName}' did not observe its owner capture.`
-    );
-  }
-  if (rows.length === 0) return { kind: "empty" };
-  if (rows.length > 1) {
+  const [owner, ...additionalOwners] = rows;
+  if (!owner) return { kind: "empty" };
+  if (additionalOwners.length > 0) {
     throw new QueryEngineError(
       `Member table '${input.junction.membership.table}' holds more than one owner for a singular polymorphic member of relation '${relationName}'.`
     );
   }
-  const row = rows[0];
-  if (!isRecord(row)) {
-    throw new QueryEngineError(
-      `query-engine-v2 internal: the singular junction transfer for relation '${relationName}' captured a malformed owner row.`
-    );
-  }
-  const owner = capturedOwnerValues(input, row, relationName);
   return sameOwner(owner, input, resolution)
     ? { kind: "exact" }
     : { kind: "other", owner };
-}
-
-/** The capture selects the member table's own SOURCE columns, one per member. */
-function capturedOwnerValues(
-  input: TransferInput,
-  row: Record<string, unknown>,
-  relationName: string
-): Record<string, unknown> {
-  const owner: Record<string, unknown> = {};
-  for (const member of input.junction.membership.source.members) {
-    const value = row[member.junctionField];
-    if (value === undefined) {
-      throw new QueryEngineError(
-        `query-engine-v2 internal: the singular junction transfer for relation '${relationName}' captured no '${member.junctionField}' owner column.`
-      );
-    }
-    owner[member.referencedField] = value;
-  }
-  return owner;
 }
 
 /**

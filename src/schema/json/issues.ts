@@ -9,6 +9,7 @@
 
 import { ValidationError, type ValidationIssue } from "@errors";
 import { declaredKeys, isPlainRecord } from "@schema/relation/terminal";
+import { toError } from "../../errors/diagnostic-safety";
 
 /**
  * Why a document was refused.
@@ -202,30 +203,6 @@ export function renderValue(value: unknown): string {
     return `[${typeof value}]`;
   }
   return String(value);
-}
-
-/**
- * Totality only, in one place. Every refusal this module re-throws IS an
- * `Error` — except what caller code throws: a document accessor, a
- * caller-supplied Standard Schema whose accessor is read at build time. Either
- * may throw a value of any type at all, so the account of what happened is
- * normalized here and never dropped.
- *
- * Describing a non-Error means converting it to text, and `toString` on a
- * caller's object is caller code too: a conversion that throws leaves the type
- * as the only thing that can be said, and the value itself stays the `cause`.
- */
-export function toError(thrown: unknown): Error {
-  if (thrown instanceof Error) return thrown;
-  return new Error(describeThrown(thrown), { cause: thrown });
-}
-
-function describeThrown(thrown: unknown): string {
-  try {
-    return String(thrown);
-  } catch {
-    return `a thrown ${typeof thrown} whose own string conversion threw`;
-  }
 }
 
 /**

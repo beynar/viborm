@@ -77,6 +77,7 @@ import {
   type RecordUpdateCompiler,
 } from "./RecordUpdateCompiler";
 import { StepScope } from "./StepScope";
+import { parseCapturedRowKeys, parseCapturedRows } from "./series-result-read";
 import {
   createDataUniqueWhere,
   getStepModelName,
@@ -92,6 +93,7 @@ import {
   capturedTargetColumnPredicate,
   targetProjectionColumns,
   targetProjectionOutputs,
+  targetProjectionSelect,
 } from "./target-projection";
 
 type ExecutionMode = "transaction" | "batch";
@@ -597,10 +599,18 @@ export class UpsertOperation {
         "query-engine-v2 upsert planning did not expose the locate rows."
       );
     }
-    const arm =
-      locateRows.length === 0
-        ? this.compileCreateArm(known)
-        : this.compileFoundArm(known, locateRows[0] as Record<string, unknown>);
+    const locatedRow = this.updateCompiler
+      ? parseCapturedRows(
+          this.engine,
+          this.model,
+          locateRows,
+          targetProjectionSelect(this.updateCompiler.targetProjection),
+          this.updateCompiler.targetProjection.columns
+        )[0]
+      : parseCapturedRowKeys(this.engine, this.model, locateRows)[0];
+    const arm: ArmResult = locatedRow
+      ? this.compileFoundArm(known, locatedRow)
+      : this.compileCreateArm(known);
     return {
       steps: arm.steps,
       outputs: { result: ref(arm.resultId, "result") },
@@ -616,8 +626,7 @@ export class UpsertOperation {
     return new ResultParser(
       this.engine,
       this.model,
-      this.engine.driver,
-      this.engine.decimalDecode
+      this.engine.driver
     ).parse<T>("upsert", outputs.result, this.resultArgs);
   }
 

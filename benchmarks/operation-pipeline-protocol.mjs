@@ -28,8 +28,13 @@ export const PROTOCOL_PATHS = Object.freeze([
   "benchmarks/relation-read-memory.mjs",
   "benchmarks/relation-read-overhead.bench.ts",
   "scripts/test-run-lock.mjs",
-  "tsdown.config.ts",
 ]);
+
+const PROTOCOL_PATH_SET = new Set(PROTOCOL_PATHS);
+
+export function findProtocolOverlayImplementationPaths(changedPaths) {
+  return changedPaths.filter((path) => !PROTOCOL_PATH_SET.has(path));
+}
 
 export function protocolSha256(readContents) {
   const hash = createHash("sha256");

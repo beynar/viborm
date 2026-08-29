@@ -44,8 +44,9 @@ Keep the callback **pure**. It is called during validation, and a payload may be
 
 | Position | Field reference | SQL fragment |
 |---|---|---|
-| `equals`, `not` | ✅ every non-list scalar, enums included | ✅ |
-| `lt`, `lte`, `gt`, `gte` | ✅ int, number, decimal, bigint, string, datetime, date, time | ✅ |
+| `equals`, `not` | ✅ every non-list scalar, enums included; decimal fields require the same descriptor | ✅ except decimal |
+| `lt`, `lte`, `gt`, `gte` | ✅ int, number, bigint, string, datetime, date, time | ✅ |
+| decimal `lt`, `lte`, `gt`, `gte` | ✅ only when precision and scale both match | ❌ |
 | Bare shorthand `{ views: (ctx) => … }` | ✅ (normalizes to `equals`) | ✅ |
 | `contains`, `startsWith`, `endsWith` | ✅ string — **token only**, see below | ❌ |
 | `in`, `notIn` | ❌ | ❌ |
@@ -60,6 +61,12 @@ bound as a value. JSON is the one worth saying out loud: a JSON operand accepts 
 object, so a reference is a *structurally valid* JSON document there. It is refused
 anyway, in filters and in `create`/`update` data alike, because a JSON `equals`/`array_*`
 operand is compared as a whole document rather than as a column expression.
+
+A decimal field reference also carries its exact domain. Scalar kind alone is
+not enough: comparing `{ precision: 10, scale: 2 }` with `{ precision: 12,
+scale: 4 }` is refused before I/O. A generic SQL fragment is refused in every
+decimal predicate position because it carries no trusted precision or scale;
+raw SQL remains the explicit provider-specific escape.
 
 ## The token behind `ctx.fields`
 

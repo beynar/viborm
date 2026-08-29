@@ -105,23 +105,17 @@ export function isRelationField(
 /**
  * One scalar field: its type plus every chainable modifier as an explicit key.
  *
- * The key set is flat and identical for all fourteen scalar types. Which
- * modifiers a given type actually HAS is not restated here — the scalar class
- * surface is that table, and `interpret.ts` probes it. The one split that IS in
- * the type is `enum`, because an enum field must state its values and no other
- * field may.
+ * Common chainable modifiers stay flat. Factory arguments are discriminated:
+ * ordinary/enum fields may carry `native`, while a decimal must carry
+ * `precision` and `scale` and cannot carry `native`. A document declaration is
+ * never accepted by one arm and then silently ignored by its factory.
  */
-export type ScalarFieldDocument = ValueFieldDocument | EnumFieldDocument;
+export type ScalarFieldDocument =
+  | ValueFieldDocument
+  | DecimalFieldDocument
+  | EnumFieldDocument;
 
 interface ScalarFieldModifiers {
-  /**
-   * The factory's sole argument — `{ db, type }`, already plain data.
-   *
-   * `type` is emitted into DDL verbatim, so a document may carry only a member
-   * of the declared dialect's closed native-type catalog (`J011`), in both
-   * directions. `native-catalog.ts` owns that set.
-   */
-  native?: NativeType;
   nullable?: boolean;
   array?: boolean;
   id?: boolean;
@@ -146,12 +140,34 @@ interface ScalarFieldModifiers {
   withoutTimezone?: boolean;
 }
 
-export interface ValueFieldDocument extends ScalarFieldModifiers {
-  type: Exclude<ScalarType, "enum">;
+interface NativeScalarFieldModifiers extends ScalarFieldModifiers {
+  /**
+   * The factory's sole argument — `{ db, type }`, already plain data.
+   *
+   * `type` is emitted into DDL verbatim, so a document may carry only a member
+   * of the declared dialect's closed native-type catalog (`J011`), in both
+   * directions. `native-catalog.ts` owns that set.
+   */
+  native?: NativeType;
+  precision?: never;
+  scale?: never;
+}
+
+export interface ValueFieldDocument extends NativeScalarFieldModifiers {
+  type: Exclude<ScalarType, "decimal" | "enum">;
   enum?: never;
 }
 
-export interface EnumFieldDocument extends ScalarFieldModifiers {
+/** The one scalar whose factory argument is its portable value domain. */
+export interface DecimalFieldDocument extends ScalarFieldModifiers {
+  type: "decimal";
+  precision: number;
+  scale: number;
+  native?: never;
+  enum?: never;
+}
+
+export interface EnumFieldDocument extends NativeScalarFieldModifiers {
   type: "enum";
   /** An `enums` reference, or the values inline. */
   enum: string | string[];

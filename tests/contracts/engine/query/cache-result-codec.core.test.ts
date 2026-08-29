@@ -22,6 +22,7 @@ import type { JsonValue } from "@validation";
 import { createSchemaRegistry } from "@validation";
 import { validateJson } from "@validation/primitives/json";
 import { isRecord } from "@validation/value-guards";
+import Decimal from "decimal.js";
 import { describe, expect, test } from "vitest";
 
 let jsonValidationCalls = 0;
@@ -42,7 +43,7 @@ const scalarModel = s.model({
   nullableText: s.string().nullable(),
   integer: s.int(),
   ratio: s.number(),
-  decimal: s.decimal(),
+  decimal: s.decimal({ precision: 40, scale: 30 }),
   large: s.bigInt(),
   flag: s.boolean(),
   happenedAt: s.dateTime(),
@@ -103,8 +104,7 @@ function codecFor(
   model: Model<any>,
   operation: Operation,
   args: Record<string, unknown>,
-  requestedOperation: string = operation,
-  decimalDecode: "string" | "number" = "string"
+  requestedOperation: string = operation
 ): CacheResultCodec {
   const shape = buildExpectedResultShape(
     model,
@@ -113,13 +113,7 @@ function codecFor(
     indexFor(model)
   );
   if (!shape) throw new Error("The test read has no expected result shape.");
-  return compileCacheResultCodec(
-    model,
-    operation,
-    requestedOperation,
-    shape,
-    decimalDecode
-  );
+  return compileCacheResultCodec(model, operation, requestedOperation, shape);
 }
 
 function portableSnapshot(snapshot: unknown): unknown {
@@ -153,6 +147,54 @@ function requireRows(value: unknown): unknown[] {
 function requireRecord(value: unknown): Record<string, unknown> {
   if (!isRecord(value)) throw new Error("Expected a result record.");
   return value;
+}
+
+function requireDecimal(value: unknown): Decimal {
+  if (value instanceof Decimal) return value;
+  throw new Error(`Expected a Decimal, received ${typeof value}.`);
+}
+
+/**
+ * How many Decimals `run` CONSTRUCTS through the one exported constructor.
+ *
+ * A constructed value receives its coefficient by ordinary assignment, so one
+ * accessor on the captured Decimal prototype observes each construction. The
+ * setter installs the ordinary own property it replaced, so the counted
+ * instance is byte-identical to an uncounted one.
+ */
+function countDecimalConstructions(run: () => void): number {
+  let count = 0;
+  const previous = Object.getOwnPropertyDescriptor(Decimal.prototype, "d");
+  Object.defineProperty(Decimal.prototype, "d", {
+    configurable: true,
+    set(this: object, value: unknown) {
+      count += 1;
+      Object.defineProperty(this, "d", {
+        value,
+        writable: true,
+        enumerable: true,
+        configurable: true,
+      });
+    },
+  });
+  try {
+    run();
+  } finally {
+    if (previous) Object.defineProperty(Decimal.prototype, "d", previous);
+    else Reflect.deleteProperty(Decimal.prototype, "d");
+  }
+  return count;
+}
+
+/** Overwrite one stored aggregate leaf, as a hostile store would hold it. */
+function setAggregateLeaf(snapshot: unknown, name: string, value: unknown) {
+  for (const entry of requireRows(snapshot)) {
+    const pair = requireRows(entry);
+    if (pair[0] !== name) continue;
+    requireRows(requireRows(pair[1])[0])[1] = value;
+    return;
+  }
+  throw new Error(`Expected the encoded ${name} aggregate.`);
 }
 
 describe("compiled detached cache result codec", () => {
@@ -191,7 +233,7 @@ describe("compiled detached cache result codec", () => {
       text: "Albert",
       nullableText: null,
       integer: -42,
-      decimal: "1234567890.000000000000000001",
+      decimal: new Decimal("1234567890.000000000000000001"),
       large: 9_007_199_254_740_993n,
       flag: true,
       happenedAt: new Date("2026-08-25T10:11:12.345Z"),
@@ -247,20 +289,227 @@ describe("compiled detached cache result codec", () => {
     expect(Object.getPrototypeOf(materializedJson)).toBe(Object.prototype);
   });
 
-  test("uses the requested decimal presentation without losing number edge cases", () => {
-    const codec = codecFor(
-      scalarModel,
-      "findMany",
-      { select: { decimal: true, ratio: true } },
-      "findMany",
-      "number"
+  test("stores a decimal as canonical text and rebuilds a fresh value per hit", () => {
+    const codec = codecFor(scalarModel, "findMany", {
+      select: { decimal: true, ratio: true },
+    });
+    const parsed = [{ decimal: new Decimal("1.20"), ratio: 1.5 }];
+    const snapshot = portableSnapshot(codec.snapshot(parsed));
+
+    // What crosses the KV boundary is TEXT. A `Decimal` reaching a snapshot
+    // would survive in the memory backend by reference and arrive from KV as
+    // `{"s":1,"e":0,"d":[12]}`, which nothing can materialize.
+    expect(JSON.stringify(snapshot)).toContain('"1.2"');
+    expect(JSON.stringify(snapshot)).not.toContain('"d"');
+
+    const first = requireRecord(requireRows(codec.materialize(snapshot))[0]);
+    const second = requireRecord(requireRows(codec.materialize(snapshot))[0]);
+    const firstDecimal = requireDecimal(first.decimal);
+    const secondDecimal = requireDecimal(second.decimal);
+    expect(firstDecimal.eq("1.2")).toBe(true);
+    expect(firstDecimal.eq(secondDecimal)).toBe(true);
+    expect(firstDecimal).not.toBe(secondDecimal);
+    expect(first.ratio).toBe(1.5);
+  });
+
+  test("snapshots from trusted internals, not mutable Decimal renderers", () => {
+    const codec = codecFor(scalarModel, "findMany", {
+      select: { decimal: true },
+    });
+    const toFixedDescriptor = Object.getOwnPropertyDescriptor(
+      Decimal.prototype,
+      "toFixed"
     );
-    const materialized = codec.materialize(
-      portableSnapshot(codec.snapshot([{ decimal: -0, ratio: 1.5 }]))
+    const isNegDescriptor = Object.getOwnPropertyDescriptor(
+      Decimal.prototype,
+      "isNeg"
     );
-    const row = requireRecord(requireRows(materialized)[0]);
-    expect(Object.is(row.decimal, -0)).toBe(true);
-    expect(row.ratio).toBe(1.5);
+    const isZeroDescriptor = Object.getOwnPropertyDescriptor(
+      Decimal.prototype,
+      "isZero"
+    );
+    try {
+      Decimal.prototype.toFixed = () => "2";
+      Decimal.prototype.isNeg = () => true;
+      Decimal.prototype.isZero = () => false;
+      const snapshot = portableSnapshot(
+        codec.snapshot([{ decimal: new Decimal("1.20") }])
+      );
+      expect(JSON.stringify(snapshot)).toContain('"1.2"');
+      expect(JSON.stringify(snapshot)).not.toContain('"2"');
+    } finally {
+      if (toFixedDescriptor) {
+        Object.defineProperty(Decimal.prototype, "toFixed", toFixedDescriptor);
+      }
+      if (isNegDescriptor) {
+        Object.defineProperty(Decimal.prototype, "isNeg", isNegDescriptor);
+      }
+      if (isZeroDescriptor) {
+        Object.defineProperty(Decimal.prototype, "isZero", isZeroDescriptor);
+      }
+    }
+  });
+
+  test("a caller who mutates a materialized decimal cannot poison the next hit", () => {
+    const codec = codecFor(scalarModel, "findMany", {
+      select: { decimal: true },
+    });
+    const snapshot = portableSnapshot(
+      codec.snapshot([{ decimal: new Decimal("7.5") }])
+    );
+    const hit = requireRecord(requireRows(codec.materialize(snapshot))[0]);
+    // decimal.js values are conventionally immutable, not frozen: a caller can
+    // still write the internals of the instance it was handed. The next hit
+    // reads the stored TEXT, so nothing it did survives.
+    Object.assign(requireDecimal(hit.decimal), { d: [9], e: 0 });
+
+    const next = requireRecord(requireRows(codec.materialize(snapshot))[0]);
+    expect(requireDecimal(next.decimal).eq("7.5")).toBe(true);
+  });
+
+  test("refuses a snapshot value that is not the canonical text it wrote", () => {
+    const codec = codecFor(scalarModel, "findMany", {
+      select: { decimal: true },
+    });
+    // A parsed result carries the value object; a string, a number and a
+    // decimal-shaped document are all incoherent results, not values to accept.
+    for (const value of [
+      "1.2",
+      1.2,
+      { s: 1, e: 0, d: [12] },
+      { toStringTag: "[object Decimal]", s: 1, e: 0, d: [12] },
+    ]) {
+      expectBoundary(() => codec.snapshot([{ decimal: value }]), "snapshot");
+    }
+
+    const good = portableSnapshot(
+      codec.snapshot([{ decimal: new Decimal("1.2") }])
+    );
+    for (const stored of ["1.20", "+1.2", 1.2, { s: 1, e: 0, d: [12] }]) {
+      const corrupt = portableSnapshot(good);
+      const entry = requireRows(requireRows(requireRows(corrupt)[0])[0]);
+      entry[1] = stored;
+      expectBoundary(() => codec.materialize(corrupt), "materialize");
+    }
+  });
+
+  test("a value outside the field's domain is refused on the way IN", () => {
+    // The WRITE direction is held to the same domain as the read, and that is
+    // what keeps an incoherent result from becoming a poison pill: a snapshot
+    // that only checked the Decimal family would store the value happily and
+    // then throw on every hit for the rest of the entry's TTL, blaming the
+    // store for what the parsed result carried.
+    const purse = s.model({
+      id: s.string().id(),
+      amount: s.decimal({ precision: 10, scale: 2 }),
+    });
+    prepareSchema({ purse });
+    const codec = codecFor(purse, "findMany", { select: { amount: true } });
+
+    // Excess scale, and excess precision — both are genuine finite Decimals.
+    expectBoundary(
+      () => codec.snapshot([{ amount: new Decimal("1.0000002") }]),
+      "snapshot"
+    );
+    expectBoundary(
+      () => codec.snapshot([{ amount: new Decimal("12345678901.00") }]),
+      "snapshot"
+    );
+    // Falsification: the in-domain neighbour still stores and reads back.
+    const stored = portableSnapshot(
+      codec.snapshot([{ amount: new Decimal("1.02") }])
+    );
+    expect(
+      requireDecimal(
+        requireRecord(requireRows(codec.materialize(stored))[0]).amount
+      ).eq("1.02")
+    ).toBe(true);
+
+    // The widened SUM leaf keeps the field's scale on the way in as well; it is
+    // the PRECISION it is deliberately not held to.
+    const sum = codecFor(purse, "aggregate", { _sum: { amount: true } });
+    expectBoundary(
+      () => sum.snapshot({ _sum: { amount: new Decimal("1.002") } }),
+      "snapshot"
+    );
+    const wide = sum.snapshot({
+      _sum: { amount: new Decimal("999999999999.99") },
+    });
+    expect(
+      requireDecimal(
+        requireRecord(
+          requireRecord(sum.materialize(portableSnapshot(wide)))._sum
+        ).amount
+      ).eq("999999999999.99")
+    ).toBe(true);
+  });
+
+  test("a snapshot renders the engine's own decimal without constructing another", () => {
+    // Plan §8/§10: ONE Decimal construction per selected decimal leaf, end to
+    // end. The value reaching `snapshot` is the instance the result parser just
+    // built. The shared snapshot renderer reads it directly without a second
+    // construction on the cache-write path.
+    const wallet = s.model({
+      id: s.string().id(),
+      amount: s.decimal({ precision: 10, scale: 2 }),
+      fee: s.decimal({ precision: 10, scale: 2 }).nullable(),
+    });
+    prepareSchema({ wallet });
+    const parser = parserFor(new PostgresAdapter(), wallet);
+    const codec = codecFor(wallet, "findMany", {
+      select: { amount: true, fee: true },
+    });
+
+    let rows: unknown;
+    const parsed = countDecimalConstructions(() => {
+      rows = parser.parse<unknown>(
+        "findMany",
+        [
+          { amount: "1.20", fee: "0.30" },
+          { amount: "2.50", fee: null },
+        ],
+        { select: { amount: true, fee: true } }
+      );
+    });
+    // Three decimal leaves across two rows (the fourth is null), one
+    // construction each — the public value, at the leaf.
+    expect(parsed).toBe(3);
+
+    let snapshot: unknown;
+    const written = countDecimalConstructions(() => {
+      snapshot = codec.snapshot(rows);
+    });
+    expect(written).toBe(0);
+
+    // Falsification: the READ direction does construct — one fresh instance per
+    // stored leaf — so a zero above cannot be a spy that counts nothing.
+    let hit: unknown;
+    const read = countDecimalConstructions(() => {
+      hit = codec.materialize(portableSnapshot(snapshot));
+    });
+    expect(read).toBe(3);
+    expect(
+      requireDecimal(requireRecord(requireRows(hit)[0]).amount).eq("1.2")
+    ).toBe(true);
+  });
+
+  test("a stored value outside the field's domain is refused on the way out", () => {
+    // The cache namespace partitions on dialect, schema namespace and snapshot
+    // revision — not on the field's descriptor. An entry written before the
+    // column narrowed is still sitting in the store, and it is refused rather
+    // than served outside the domain every fresh read guarantees.
+    const money = s.model({
+      id: s.string().id(),
+      amount: s.decimal({ precision: 6, scale: 2 }),
+    });
+    prepareSchema({ money });
+    const codec = codecFor(money, "findMany", { select: { amount: true } });
+    const snapshot = portableSnapshot(
+      codec.snapshot([{ amount: new Decimal("1.23") }])
+    );
+    const entry = requireRows(requireRows(requireRows(snapshot)[0])[0]);
+    entry[1] = "1.234";
+    expectBoundary(() => codec.materialize(snapshot), "materialize");
   });
 
   test("round-trips ordinary and tagged singular/collection relations", () => {
@@ -470,16 +719,79 @@ describe("compiled detached cache result codec", () => {
     });
     const aggregateValue = {
       _min: { happenedAt: new Date("2026-01-01T00:00:00.000Z") },
-      _sum: { large: 9_007_199_254_740_993n, decimal: "3.5" },
-      _avg: { ratio: -0, decimal: "1.75" },
+      _sum: { large: 9_007_199_254_740_993n, decimal: new Decimal("3.5") },
+      _avg: { ratio: -0, decimal: new Decimal("1.75") },
       _count: { _all: 2 },
     };
     const aggregateResult = aggregate.materialize(
       portableSnapshot(aggregate.snapshot(aggregateValue))
     );
-    expect(aggregateResult).toEqual(aggregateValue);
     const aggregateRow = requireRecord(aggregateResult);
+    // Decimals compare semantically through `.eq()`. Cache materialization
+    // creates fresh values through the one exported constructor.
+    expect(
+      requireDecimal(requireRecord(aggregateRow._sum).decimal).eq("3.5")
+    ).toBe(true);
+    expect(
+      requireDecimal(requireRecord(aggregateRow._avg).decimal).eq("1.75")
+    ).toBe(true);
+    expect(requireRecord(aggregateRow._sum).large).toBe(9_007_199_254_740_993n);
+    expect(requireRecord(aggregateRow._min).happenedAt).toEqual(
+      new Date("2026-01-01T00:00:00.000Z")
+    );
+    expect(requireRecord(aggregateRow._count)._all).toBe(2);
     expect(Object.is(requireRecord(aggregateRow._avg).ratio, -0)).toBe(true);
+
+    // `_sum` is the one aggregate that leaves the column's domain, and the
+    // cache has to agree with the parser about which leaf does: a cached sum
+    // that materialized through the field codec would be refused for having
+    // more digits than any single row could hold.
+    const ledger = s.model({
+      id: s.string().id(),
+      money: s.decimal({ precision: 6, scale: 2 }),
+    });
+    prepareSchema({ ledger });
+    const sums = codecFor(ledger, "aggregate", {
+      _sum: { money: true },
+      _avg: { money: true },
+    });
+    const widened = new Decimal("12345678.90");
+    const sumResult = requireRecord(
+      sums.materialize(
+        portableSnapshot(
+          sums.snapshot({
+            _sum: { money: widened },
+            _avg: { money: new Decimal("1.25") },
+          })
+        )
+      )
+    );
+    expect(
+      requireDecimal(requireRecord(sumResult._sum).money).eq(widened)
+    ).toBe(true);
+    expect(requireDecimal(requireRecord(sumResult._avg).money).eq("1.25")).toBe(
+      true
+    );
+    // The stored bytes are the hostile side, and the two leaves are held to
+    // two different domains there: an AVERAGE outside the field's precision is
+    // refused, while the same digits are a legitimate sum.
+    const widenedAvg = portableSnapshot(
+      sums.snapshot({
+        _sum: { money: widened },
+        _avg: { money: new Decimal("1.25") },
+      })
+    );
+    setAggregateLeaf(widenedAvg, "_avg", "12345678.9");
+    expectBoundary(() => sums.materialize(widenedAvg), "materialize");
+    // Widening drops the precision bound, never the SCALE.
+    const overScaledSum = portableSnapshot(
+      sums.snapshot({
+        _sum: { money: widened },
+        _avg: { money: new Decimal("1.25") },
+      })
+    );
+    setAggregateLeaf(overScaledSum, "_sum", "1.234");
+    expectBoundary(() => sums.materialize(overScaledSum), "materialize");
 
     const grouped = codecFor(scalarModel, "groupBy", {
       by: "status",

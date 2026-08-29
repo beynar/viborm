@@ -1,7 +1,16 @@
 import type { Sql } from "@sql";
+import {
+  canonicalizeDecimal,
+  type DecimalDescriptor,
+  logicalToCoefficient,
+} from "@validation/primitives/decimal-codec";
 import { isRecord } from "@validation/value-guards";
-import { assertExactDecimalAggregate } from "../builders/decimal-portability";
-import { scalarValueLiteral } from "../builders/values-builder";
+import {
+  decimalDescriptorOf,
+  describeWidenedSumRefusal,
+  widenedSumDomain,
+} from "../builders/decimal-field";
+import { decimalLiteral, scalarValueLiteral } from "../builders/values-builder";
 import { buildWhere } from "../builders/where-builder";
 import { getColumnName } from "../context";
 import { QueryEngineError, type QueryScope } from "../types";
@@ -210,14 +219,9 @@ function buildFieldKeyedHaving(
     const column = adapter.identifiers.column(alias, columnName);
 
     const aggregateValue = value as Record<string, unknown>;
+    const decimal = decimalDescriptorOf(ctx.model, fieldName);
     for (const [aggType, filter] of Object.entries(aggregateValue)) {
       if (filter === undefined) continue;
-
-      // Filtering groups by MIN/MAX/SUM/AVG of a decimal is the same ordered
-      // question `aggregate()` refuses; without this it was answered through
-      // SQLite's storage-class ordering, where a TEXT column compares constant
-      // against any number.
-      assertExactDecimalAggregate(ctx, fieldName, aggType);
 
       // Build the aggregate expression
       let aggExpr: Sql;
@@ -226,7 +230,9 @@ function buildFieldKeyedHaving(
           aggExpr = adapter.aggregates.count(column);
           break;
         case "_avg":
-          aggExpr = adapter.aggregates.avg(column);
+          aggExpr = decimal
+            ? adapter.aggregates.decimalAvg(column, decimal)
+            : adapter.aggregates.avg(column);
           break;
         case "_sum":
           aggExpr = adapter.aggregates.sum(column);
@@ -248,10 +254,15 @@ function buildFieldKeyedHaving(
       // decimal operand bound as a plain string is compared as a double on
       // MySQL, which is exactly what the CAST in `literals.decimal` exists to
       // prevent.
+      //
+      // `_sum` is the one aggregate whose answer may be WIDER than the column,
+      // so its operand binds in the widened domain: same scale (that is what
+      // makes it the same physical kind of number as the summed column), a
+      // precision wide enough to hold the operand itself.
       const operand: HavingOperand =
         aggType === "_count"
           ? (operandValue) => adapter.literals.value(operandValue)
-          : (operandValue) => scalarValueLiteral(ctx, fieldName, operandValue);
+          : buildAggregateOperand(ctx, fieldName, aggType, decimal);
       const filterCondition = buildScalarHaving(ctx, aggExpr, filter, operand);
       if (filterCondition) conditions.push(filterCondition);
     }
@@ -363,4 +374,58 @@ function buildScalarHaving(
   if (conditions.length === 0) return undefined;
   if (conditions.length === 1) return conditions[0];
   return adapter.operators.and(...conditions);
+}
+
+/**
+ * The literal builder for one aggregate's operand.
+ *
+ * Everything but `_sum` compares inside the field's own domain and reuses the
+ * ordinary scalar literal. `_sum` widens the PRECISION it is cast into so a
+ * legitimate sum-sized operand is not truncated by the cast into a single
+ * column's domain; the SCALE is never widened, because the summed column's
+ * physical values all carry the field's scale and an operand at a different one
+ * would be a different number on SQLite.
+ */
+function buildAggregateOperand(
+  ctx: QueryScope,
+  fieldName: string,
+  aggType: string,
+  decimal: DecimalDescriptor | undefined
+): HavingOperand {
+  if (!decimal || aggType !== "_sum") {
+    return (operandValue) => scalarValueLiteral(ctx, fieldName, operandValue);
+  }
+  return (operandValue) => {
+    const coefficient = operandCoefficient(operandValue, decimal);
+    if (coefficient === undefined) {
+      return decimalLiteral(ctx.adapter, fieldName, operandValue, decimal);
+    }
+    const operandPrecision =
+      ctx.adapter.aggregates.decimalSumOperandPrecision(coefficient);
+    if (operandPrecision === undefined) {
+      throw new QueryEngineError(
+        describeWidenedSumRefusal(fieldName, coefficient)
+      );
+    }
+    return decimalLiteral(
+      ctx.adapter,
+      fieldName,
+      operandValue,
+      widenedSumDomain(decimal, operandPrecision)
+    );
+  };
+}
+
+/**
+ * The operand's own unscaled coefficient, or `undefined` when it is not an
+ * exact decimal — in which case the ordinary binder owns the refusal.
+ */
+function operandCoefficient(
+  value: unknown,
+  decimal: DecimalDescriptor
+): string | undefined {
+  const canonical = canonicalizeDecimal(value);
+  return canonical === undefined
+    ? undefined
+    : logicalToCoefficient(canonical, decimal.scale);
 }

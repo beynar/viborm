@@ -42,26 +42,14 @@ export class QueryEngine {
   private readonly operationExecutor: OperationExecutor;
   private readonly cacheOperationExecutor: OperationExecutor;
 
-  /**
-   * TRANSITIONAL (removed next release). `"number"` restores the old
-   * lossy decimal decode at RUNTIME ONLY — the static types still say `string`,
-   * so the hatch is deliberately type-incoherent. It exists to unblock a deploy
-   * that cannot migrate its decimal reads in one step, not to be a mode anyone
-   * should stay on: a `number` cannot hold what a `numeric` column holds, which
-   * is the whole reason this wave happened.
-   */
-  readonly decimalDecode: "string" | "number";
-
   constructor(
     driver: AnyDriver,
     registry: ModelRegistry,
     clientId = Symbol("viborm.client"),
     scopeId = Symbol("viborm.scope"),
-    decimalDecode: "string" | "number" = "string",
     extensionChain?: ResolvedExtensionChain,
     transactionWriteOutcomes?: TransactionWriteOutcomes
   ) {
-    this.decimalDecode = decimalDecode;
     this.driver = driver;
     this.registry = registry;
     if (!registry.schemas) {
@@ -121,9 +109,6 @@ export class QueryEngine {
       this.registry,
       this.clientId,
       Symbol("viborm.scope"),
-      // A transaction-bound engine keeps the client's decode setting; the hatch
-      // is a property of the lineage, not of one scope.
-      this.decimalDecode,
       extensionChain,
       transactionWriteOutcomes
     );

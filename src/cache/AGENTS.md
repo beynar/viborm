@@ -100,6 +100,13 @@ cardinality, dimensions, prototypes, and dense-array structure are validated at
 that boundary. Errors expose no cached values. Custom JSON validation runs on
 the provider result only, not again on a hit.
 
+Decimal snapshot leaves use the scalar's canonical private logical string. A
+cache entry never stores a `Decimal` instance, its constructor state, or a
+JavaScript number. Materialization validates that text against the compiled
+descriptor and creates a fresh public `Decimal` for each result leaf. Decimal
+lists apply the same rule member by member. Keep this logic in the shape-compiled
+cache result codec; do not add a general-purpose Decimal serializer.
+
 ## SWR
 
 A stale hit synchronously gives one complete background promise to the exact

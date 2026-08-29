@@ -5,6 +5,7 @@ import {
   buildPrimaryKeyWhereUnique,
   getPrimaryKeyFields,
 } from "../builders/correlation-utils";
+import { projectScalarForTransport } from "../builders/decimal-field";
 import { buildScalarSqlValueForScalar } from "../builders/values-builder";
 import { buildFindUnique } from "../operations/find-unique";
 import { getPrimaryKeyValuesFromRecord } from "../operations/mutation-identity";
@@ -61,7 +62,11 @@ export function targetProjectionColumns(
   return projection.columns.map((column) => ({
     name: column.name,
     sql: scope.adapter.identifiers.aliased(
-      scope.adapter.identifiers.column(qualifier, column.name),
+      projectScalarForTransport(
+        scope.adapter,
+        column.scalar,
+        scope.adapter.identifiers.column(qualifier, column.name)
+      ),
       column.name
     ),
   }));
@@ -178,6 +183,18 @@ export function capturedTargetWhere(
  * builder would quietly drop from the selector. `model` names the constraint the
  * members nest under and the model the error reports; it is not a second answer
  * to which fields the row key has.
+ *
+ * WHAT THIS FILE ASSUMES OF ITS CALLERS. Every value read here is re-addressed —
+ * into a `whereUnique`, a filter, a junction insert, a row-key token — through
+ * the ordinary where/values builder, which lowers a LOGICAL value. A planning
+ * probe publishes its rows PHYSICALLY, exactly as the provider spelled them, and
+ * the two are not the same text for every scalar: a SQLite decimal column
+ * answers with the unscaled coefficient, so a raw captured `"1000"` at scale 2
+ * re-binds as the logical 1000 — coefficient `"100000"`, a different row. So a
+ * caller reading a captured row must decode it first (`parseCapturedRowKeys` /
+ * `parseSeriesRowKeys` in `series-result-read.ts`), and this file takes the
+ * decoded private representation as given. It cannot check the precondition: a
+ * canonical decimal text and a raw coefficient are both strings.
  */
 export function capturedTargetValues(
   model: Model<any>,
@@ -257,6 +274,12 @@ export function readRowKey(
  * and a string `"1"`, adjacent compound members, or byte/text values with the
  * same printable spelling. A token is only an index hint: callers confirm a
  * match with {@link rowKeysEqual} before accepting it.
+ *
+ * A DECIMAL row key reaches here as the codec's canonical private string, never
+ * as the public `Decimal` — see {@link ResultParser.parseRowsWithRowKeys}. That
+ * is the whole reason this file needs no decimal branch: the value is already
+ * one spelling per value, and rendering a `Decimal` here instead would key on
+ * `toString()`, which an application's own `Decimal.set({ toExpPos })` moves.
  */
 export function rowKeyToken(
   model: Model<any>,
@@ -362,12 +385,21 @@ function rowKeyValuesEqual(left: unknown, right: unknown): boolean {
  * it cannot be moved into the capture without changing which rows a capped capture
  * selects.
  *
- * DETERMINISTIC, NOT DATABASE COLLATION ORDER. Callers decode row-key values
- * through the normal scalar-result boundary before reaching this comparator, so
- * bigint, decimal, and temporal identities have one canonical JS representation
- * across providers. A string still compares by UTF-16 code unit here and by the
+ * DETERMINISTIC, NOT DATABASE COLLATION ORDER. This comparator's two callers
+ * (`UpdateManyRecordSeries`, `NestedSelectedRecordSeries`) decode their rows
+ * through the normal scalar-result boundary first — `parseSeriesRowKeys` — so
+ * the values compared here are the codec's canonical private text and a decimal
+ * identity has one JS representation across providers. That decode is a
+ * PRECONDITION every caller of this file's row-key readers owes, not something
+ * this file can check: see {@link capturedTargetValues}. A string still
+ * compares by UTF-16 code unit here and by the
  * database's collation there; reproducing provider collations in JavaScript would
- * create a second SQL-ordering owner.
+ * create a second SQL-ordering owner. A DECIMAL arrives as that canonical string
+ * and therefore sorts as one — `"10"` before `"9"` — which is total and stable
+ * but is not numeric order. That is the right trade here and only here: this
+ * sort decides the ORDER MEMBERS EXECUTE IN, where determinism is the whole
+ * requirement, and teaching the comparator to read decimals numerically would
+ * put a second decimal-ordering owner beside the codec and the database.
  *
  * Total over every value a row key can carry, in row-key field order:
  * `null`/absent first, then booleans, numbers and bigints numerically (they compare

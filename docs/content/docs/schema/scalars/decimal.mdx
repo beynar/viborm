@@ -1,213 +1,297 @@
 ---
 title: Decimal
-description: Exact decimal scalar — string-backed, never rounded through a float
+description: Exact fixed-decimal values with one portable precision and scale
 icon: sigma
 ---
 
-## Basic Usage
+## Basic usage
 
 ```ts
-import { s } from "viborm";
+import { Decimal, s } from "viborm";
 
-s.decimal(); // Required decimal
-s.decimal().nullable(); // string | null
-s.decimal().default("0"); // With default
+const amount = s.decimal({ precision: 10, scale: 2 });
+const optionalAmount = amount.nullable();
+const amountWithDefault = amount.default(new Decimal("0"));
 ```
 
-A decimal **reads back as a `string`** — the exact canonical spelling of the
-value in the column, at any precision:
+`precision` is the maximum total digit count. `scale` is the maximum
+fractional digit count and must be between zero and `precision`. A value that
+does not fit is rejected; assignment never rounds it to fit.
+
+The descriptor is required because it is the one portable definition of the
+field. PostgreSQL and MySQL record it in the native column type. SQLite cannot
+recover it from a `DECIMAL(...)` declaration, so VibORM stores an integer
+coefficient and uses the same descriptor to scale it.
+
+There is no zero-argument decimal factory, `.fixed()` mode, rounding option, or
+decimal native-type override.
+
+## Inputs and results
+
+Writes accept `Decimal | string | number`. They do not accept `bigint`.
+Selected values are fresh `Decimal` instances:
 
 ```ts
-await db.invoice.create({ data: { total: "1234.56" } });
+await db.invoice.create({
+  data: { total: "1234.56" },
+});
 
 const invoice = await db.invoice.findFirstOrThrow();
-invoice.total; // "1234.56"  (a string, not 1234.56)
+invoice.total.eq("1234.56"); // true
+invoice.total.plus("0.44"); // Decimal(1235)
+invoice.total.toNumber(); // explicit, potentially lossy conversion
 ```
 
-This is not a stylistic choice. `numeric` on Postgres and `DECIMAL(65,30)` on
-MySQL hold values a JavaScript `number` cannot: a `number` is an IEEE-754
-double, good for about 15 significant digits. Handing you a `number` would mean
-handing you a value that quietly disagrees with the database — which is exactly
-what `s.decimal()` exists to prevent. Use [`s.number()`](/docs/schema/scalars/number)
-when approximate is genuinely fine.
-
-:::info
-Prisma solves this the same way underneath: its `Decimal` is a `decimal.js`
-  instance, and `decimal.js` serializes to a string. viborm returns the string
-  itself, so there is no extra type to import and nothing to convert before
-  `JSON.stringify`.
-:::
-
-## Writing
-
-Writes accept a **`string` or a `number`**.
+Strings use plain decimal notation: an optional sign, digits, and at most one
+decimal point. Whitespace, exponent notation, `NaN`, and infinity are refused.
+A `Decimal` constructed from exponent notation is accepted when its expanded
+exact value fits the descriptor.
 
 ```ts
-await db.invoice.create({ data: { total: "1234.56" } }); // exact
-await db.invoice.create({ data: { total: 1234.56 } }); // convenient
+"1234.56"; // accepted for { precision: 10, scale: 2 }
+"+001.20"; // accepted and canonicalized privately to "1.2"
+"1e3"; // rejected as a string
+new Decimal("1e3"); // accepted when 1000 fits
 ```
 
-A **string** must be an exact decimal literal: an optional sign, digits, and at
-most one dot. No exponent, no whitespace, no `NaN` — anything else is a
-validation error rather than a guess.
+A JavaScript number is only a convenience. VibORM validates `String(number)`;
+it cannot recover digits already lost to binary floating point and never
+rounds the number into the field:
 
 ```ts
-"1234.56"; // ok
-"-0.000000000000000000000000000001"; // ok — 30 digits, all of them kept
-"1e3"; // rejected: exponent form is a float spelling
-"1,5"; // rejected
+await db.invoice.create({
+  data: { total: 0.1 + 0.2 },
+});
+// Rejected by a scale-2 field: the value supplied is
+// "0.30000000000000004", not exact 0.30.
 ```
 
-A **number** is accepted for convenience, with one caveat worth internalising:
-a JS number is already a double, so any float error your code made before
-handing it over travels in with it. viborm binds the double's own exact
-spelling rather than inventing a tidier value you never had.
+Keep audited input as a string or `Decimal` end to end.
+
+### Equality in tests
+
+Compare decimal values with `.eq()`, `.cmp()`, or another Decimal.js comparison
+method. Do not use `===`: every selected scalar and list member is a fresh value.
+
+VibORM constructs results with the one `Decimal` constructor exported from
+`viborm`. A returned value therefore satisfies both `instanceof Decimal` and
+`value.constructor === Decimal`. Result construction temporarily isolates only
+the constructor's exponent range, so a narrow application `minE` or `maxE`
+cannot turn a stored exact value into zero or infinity. The previous range is
+restored before the value is returned. Application arithmetic then uses the
+complete current `Decimal` configuration, while built-in field-domain
+validation, SQL, storage, cache identity, migrations, result decoding, and
+database rounding remain configuration-independent.
+
+Use Decimal.js comparison methods for the semantic assertion:
 
 ```ts
-await db.invoice.create({ data: { total: 0.1 + 0.2 } });
-// stored as 0.30000000000000004 — the value you actually passed
+expect(row.total.eq(new Decimal("1.2"))).toBe(true);
+expect(row.total.constructor).toBe(Decimal);
 ```
 
-If the number came from user input or arithmetic, keep it a string end-to-end.
+`Decimal#toJSON()` returns a string for ordinary application JSON. VibORM does
+not depend on JSON or structured cloning to preserve a Decimal prototype.
 
-### One value, one spelling
+## Custom validation
 
-Values are canonicalized on the way in and on the way out, so a number has
-exactly one representation:
+`.schema()` observes a `Decimal`, not the private canonical text. It may refine
+that value or return another complete, bounded, finite Decimal.js numerical
+representation. Decimal.js has no unforgeable constructor-history witness, so
+VibORM validates and snapshots the observable numerical representation instead
+of claiming historical provenance. The field descriptor is validated last, so
+a custom schema cannot return a string, number, tag-only, incomplete, or
+malformed representation, NaN, infinity, or a value outside the field domain.
 
 ```ts
-"1.10"  ->  "1.1"
-"+1.5"  ->  "1.5"
-"007"   ->  "7"
-"-0.00" ->  "0"
+import { Decimal, s } from "viborm";
+import { custom } from "valibot";
+
+const positiveAmount = s
+  .decimal({ precision: 10, scale: 2 })
+  .schema(custom<Decimal>((value) => value.isPositive()));
 ```
 
-`{ total: "1.1" }` and `{ total: "1.10" }` therefore match the same rows.
+A literal `.default(...)` runs this validation and transformation once when the
+field is declared. An ORM create that omits the field reuses that canonical
+output, so it agrees with a database-defaulted raw insert and does not run the
+custom schema again. An explicit write runs the schema once. A function default
+runs it once after each invocation.
 
-## Comparison and arithmetic happen in the database
+## Physical storage and provider limits
 
-No decimal ever passes through JavaScript float math. Filter operands are bound
-into the dialect's exact decimal type (`CAST(? AS NUMERIC)` on Postgres,
-`CAST(? AS DECIMAL(65,30))` on MySQL), and atomic updates run server-side:
+| Provider | Scalar storage | Bind-time descriptor limit for scalars and lists |
+| --- | --- | --- |
+| PostgreSQL | `NUMERIC(precision,scale)` | `precision <= 1000` |
+| MySQL / PlanetScale | `DECIMAL(precision,scale)` | `precision <= 65`, `scale <= 30`, and `precision + scale <= 65` |
+| SQLite3 / Bun SQLite / libSQL / D1 | checked scaled `INTEGER` coefficient | `precision <= 18` and `precision + scale <= 18` |
+
+For `{ precision: 10, scale: 2 }`, logical `12.34` is coefficient `1234` on
+SQLite. The column check requires integer storage and enforces the descriptor's
+range. VibORM does not use SQLite `REAL`, NUMERIC affinity, or decimal text as a
+repair for missing native decimal support.
+
+A descriptor can be valid in a model yet too wide for a selected provider.
+Client construction rejects that binding before provider I/O and names the
+field, descriptor, provider, and limit.
+
+Every effectful MySQL migration command proves MySQL 8.0.16 or later and a
+strict SQL mode (`STRICT_TRANS_TABLES` or `STRICT_ALL_TABLES`) once on its
+pinned session before its first effect. The proof is command-wide because
+provider-authored DDL and manual artifacts cannot be classified safely by their
+decimal effects. Earlier MySQL releases parse but do not enforce the named
+`CHECK` constraints used to prove decimal conversions.
+
+Ordinary typed writes do not add a session-admission query. Arithmetic remains
+fail-loud on non-strict sessions because the same `UPDATE` proves the exact
+intermediate and final domains before assignment; an unsafe result takes an
+error arm and leaves the row unchanged. Configure strict mode for raw SQL and
+other out-of-band writes.
+
+## Filters, ordering, updates, and aggregates
+
+Every supported provider answers decimal equality, ordered comparison,
+ordering, cursors, pagination, distinct, grouping, aggregates, and atomic
+arithmetic exactly. SQLite compares the stored coefficients as integers; it
+does not cast them through `REAL`.
+
+Field references are accepted only when both decimal fields have the same
+precision and scale. A generic typed SQL fragment has no trusted descriptor and
+is therefore refused as a decimal predicate operand; use a field reference or
+raw SQL.
+
+An update is either a bare value or exactly one operation:
 
 ```ts
 await db.account.update({
   where: { id },
-  data: { balance: { increment: "0.2" } }, // exact, in SQL
+  data: { balance: { increment: "0.20" } },
 });
+
+// Also: set, decrement, multiply, divide.
 ```
 
-Starting from `0.1`, that leaves `0.3` — not `0.30000000000000004`.
+Empty operation objects, multiple operation keys, unknown or inherited keys,
+and explicit `undefined` are validation errors. Every operand must fit the
+field descriptor. `multiply`, `divide`, and `_avg` round only the derived result
+with round-half-to-even. Create, set, filters, increment, and decrement never
+round input. Division by zero is rejected before I/O.
 
-Aggregates over decimals come back as exact strings too:
+`_min`, `_max`, and `_avg` stay in the field domain. `_sum` preserves the field
+scale but can exceed its storage precision; all four return `Decimal | null`.
+
+## Decimal lists
 
 ```ts
-const { _sum } = await db.invoice.aggregate({ _sum: { total: true } });
-_sum.total; // "10450.75"  (string)
+const samples = s.decimal({ precision: 16, scale: 2 }).array();
 ```
 
-## SQLite: what is exact and what is refused
+| Provider | List storage |
+| --- | --- |
+| PostgreSQL | `NUMERIC(precision,scale)[]` |
+| MySQL / PlanetScale | JSON array of coefficient strings |
+| SQLite family | `TEXT` containing a JSON array of coefficient strings |
 
-SQLite has **no exact decimal type**. Its `DECIMAL` is a spelling with NUMERIC
-affinity, so any fractional value lands in a double. viborm therefore stores
-decimals in a **`TEXT`** column on SQLite, which keeps storage and reads exact
-at any precision — and **refuses** the operations it could only answer through a
-double, rather than answering them approximately.
+At scale 2, logical `["1.2", "-0.03"]` is stored as
+`["120", "-3"]` on JSON-backed providers. Members are strings, never JSON
+numbers, so D1 and JavaScript cannot round a coefficient above `2^53`.
 
-| Operation                                            | postgres | mysql | sqlite                    |
-| ---------------------------------------------------- | -------- | ----- | ------------------------- |
-| Read / write round-trip                              | exact    | exact | exact                     |
-| `equals`, `not`, `in`, `notIn`                       | exact    | exact | exact                     |
-| `lt` / `lte` / `gt` / `gte`, `orderBy`               | exact    | exact | **`UnsupportedOperationError`** |
-| `_min` / `_max` / `_sum` / `_avg`                    | exact    | exact | **`UnsupportedOperationError`** |
-| `increment` / `decrement` / `multiply` / `divide`    | exact    | exact | **`UnsupportedOperationError`** |
-| `set`, `count`, `distinct`, `groupBy` on the column  | exact    | exact | exact                     |
-
-Equality is exact on SQLite because every value has one canonical spelling, so
-text equality *is* numeric equality. Ordering is not: byte order puts `"10"`
-before `"9"`, and the cast that would fix it goes through a double and starts
-losing digits past ~15 significant figures. A `gt` that silently skips a row is
-worse than an error, so it is an error.
-
-**"`orderBy`" means every spelling of it**, not just the bare one — an ordering
-you cannot get right paginated is not an ordering you can get right at all. So
-the refusal also covers `take` / `skip` / `cursor` windows and `findFirst`
-(which is `take: 1`), ordering through a to-one relation
-(`orderBy: { author: { fee: "asc" } }`), ordering inside a nested read
-(`include: { entries: { orderBy: { amount: "asc" } } }`), `groupBy`'s `orderBy`
-— by a grouped decimal or by `_min`/`_max`/`_sum`/`_avg` of one — and
-`groupBy`'s `having` on those same four aggregates. A decimal **primary key or
-unique key** is refused the moment a window is opened over it too, because
-pagination silently adds it as the tie-breaker that decides page boundaries.
-`_count` is never refused anywhere: counting rows needs no ordering.
-
-If you need ordered decimals on SQLite, the two honest options are
-[`s.number()`](/docs/schema/scalars/number) (approximate, and says so) or scaled
-integers in an [`s.bigInt()`](/docs/schema/scalars/bigint) — cents rather than
-dollars.
-
-## Column types
-
-| | postgres  | mysql             | sqlite |
-| --- | --------- | ----------------- | ------ |
-| Default | `numeric` | `DECIMAL(65,30)` | `TEXT` |
-
-Bare `DECIMAL` on MySQL would mean `DECIMAL(10,0)` and silently truncate every
-fraction, so the default matches Prisma's `DECIMAL(65,30)`. Override any of
-them via [Native Types](/docs/schema/native-types).
-
-:::warning
-**Upgrading an existing SQLite database.** The column type moves `REAL` →
-  `TEXT`, and it is **not silent**: `push`/`diff` report an `alterColumn` naming
-  the column and both types (`from: REAL`, `to: TEXT`). SQLite cannot alter a
-  column type in place, so the change is realized by the standard rebuild —
-  create the new table, copy the rows across, drop, rename. Your data comes with
-  it.
-
-  What the copy **cannot** do is undo the old storage. A value that `REAL`
-  already rounded stays rounded, because those digits were discarded when the
-  row was written, not when it is migrated. If any row carried more than ~15
-  significant digits, re-import it from your source of truth.
-:::
-
-## Migrating from `number` decimals
-
-Reads change from `number` to `string`. In most code that is
-`Number(row.total)` at the display edge, or nothing at all if the value was
-already being formatted. Comparisons in JS (`row.total > 100`) are the ones to
-look for — prefer pushing them into the query, where they are exact anyway.
-
-For a deploy that cannot change every read at once, there is a **transitional**
-client option:
+Literal list defaults are database defaults as well as application defaults:
 
 ```ts
-const db = createClient({
-  schema,
-  driver,
-  decimal: "number", // legacy decode — removed next release
-});
+const samples = s
+  .decimal({ precision: 16, scale: 2 })
+  .array()
+  .default(["1.20", "-3.40"]);
 ```
 
-It restores the old runtime shape **only**. The static types still say `string`,
-so your editor will keep flagging every site, and the precision loss comes back
-with it. Writes and filters stay exact underneath, so the digits remain in the
-database and turning the option off recovers them. Treat it as a migration aid
-with a deadline, not a supported mode.
+An insert that omits `samples`, including raw SQL, receives that list.
+PostgreSQL stores the native default as `{1.20,-3.40}`. MySQL, PlanetScale,
+SQLite, libSQL, and D1 store `["120","-340"]`, with coefficient strings rather
+than JSON numbers. Empty-list defaults work on every provider. A function
+default remains application-only because it has no database expression;
+`default(null)` keeps its existing SQL `NULL` behavior.
 
-## Examples
+Typed reads return `Decimal[]`. Lists support whole-list equality, `not`,
+`has`, `hasEvery`, `hasSome`, `isEmpty`, whole-list `set`, and `push`/`unshift`.
+Operands are logical values: `has: "1.2"` means 1.2, not coefficient 120.
+Whole-list equality preserves order and multiplicity; containment uses member
+semantics.
+
+Decimal lists have no numeric ordering, numeric aggregates, or arithmetic.
+They cannot be IDs, unique fields, index or compound-key members, foreign-key
+members, or relation identity members. `_count.field` counts non-null lists,
+not their elements.
+
+## Cache and application arithmetic
+
+Cache snapshots, operation identity, cursors, and relation keys use canonical
+private strings. Every cache hit reconstructs fresh public `Decimal` instances;
+the cache never clones a Decimal prototype.
+
+Decimal.js configuration can affect custom `.schema()` code and arithmetic your
+application performs on returned values. It cannot change VibORM's built-in
+field-domain validation, SQL, storage, cache identity, migrations, result
+decoding, or half-even database arithmetic.
+
+## Descriptor migrations
+
+VibORM can widen precision, narrow it when all values fit, increase scale
+exactly, and decrease scale only when every discarded digit is zero. Scalar and
+list conversions preserve order and duplicates and never round existing data.
+Failed conversions preserve the last provider-guaranteed estate.
+
+There are three deliberate provider boundaries:
+
+- MySQL list metadata lives in an exact VibORM column-comment marker. A
+  same-scale precision widening leaves every member string unchanged, but still
+  runs `ADD CHECK`, `MODIFY COLUMN` to replace the marker, then `DROP CHECK`.
+  Narrowing and every list conversion that must rewrite members are refused
+  before effects because MySQL DDL implicitly commits and a column `CHECK`
+  cannot quantify over JSON members. A generated widening is marked
+  irreversible instead of emitting that unsafe narrowing as its down artifact.
+- PlanetScale has no admitted VibORM effectful-DDL route. Marker creation and
+  alter survival are proved on the MySQL dialect substrate; a hosted
+  PlanetScale connection can introspect the marker when credentials exist.
+- D1 can create decimal schemas and run ordinary decimal operations. A
+  relation-bearing descriptor change, decimal adoption, or decimal-column
+  rename is refused before effects until the foreign-key-safe rebuild is proven
+  on its one-native-batch substrate.
+
+Migration artifacts are target-specific. The decimal-specific D1 check runs
+while a descriptor change, adoption, or decimal-column rename is rendered. It
+does not classify unrelated reconstructions. `apply()` also admits every
+generated SQLite3/libSQL artifact at its per-entry read boundary on D1: it
+recognizes VibORM's exact generated fixed-decimal rebuild, replays any native
+table rename earlier in that artifact, reads the live SQLite relation graph,
+and refuses an inbound- or outbound-FK table before that entry runs. Initially
+pending entries are checked before the tracking table is created; an entry
+first published after another migration commits is checked before its own SQL
+or tracking row. Relation-free decimal rebuilds, unrelated generated SQLite
+reconstructions, and caller-authored manual artifacts do not cross that
+decimal-specific gate.
+
+## Raw SQL is physical
+
+Typed model operations apply the descriptor. Raw SQL does not:
+
+- PostgreSQL and MySQL expose their native decimal values through the raw
+  driver's normal contract.
+- SQLite raw reads expose the unscaled integer coefficient, and raw writes must
+  provide a valid coefficient.
+- Raw results are not wrapped in `Decimal`, because a raw column has no trusted
+  field descriptor.
+
+When a SQLite coefficient may exceed JavaScript's safe integer range, cast it
+to text in the SQL before the driver sees it:
 
 ```ts
-import { pipe, string, regex } from "valibot";
-
-// Money
-const total = s.decimal().default("0");
-
-// A price that must carry exactly two decimal places
-const price = s.decimal().schema(pipe(string(), regex(/^\d+\.\d{2}$/)));
-
-// Nullable percentage
-const discountRate = s.decimal().nullable();
+const rows = await db.$queryRaw<{ amountCoefficient: string }>`
+  SELECT CAST("amount" AS TEXT) AS "amountCoefficient"
+  FROM "invoice"
+`;
 ```
 
-`.schema()` on a decimal refines the **string** form, since that is what the
-scalar produces.
+To recover the logical value yourself, move the decimal point left by the
+field's scale with digit-string or bigint arithmetic. Do not divide a JavaScript
+number by `10 ** scale`.

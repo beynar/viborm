@@ -1,6 +1,7 @@
 import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
+import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { tryParseJsonString } from "@adapters/shared/result-parsing";
 import type { DriverResultParser } from "@drivers/driver";
 import { SQLite3Driver } from "@drivers/sqlite3";
@@ -10,6 +11,7 @@ import { s } from "@schema";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { parserFor, prepareSchema } from "@tests/fixtures/query-scope";
 import { type JsonValue, v } from "@validation";
+import Decimal from "decimal.js";
 import { describe, expect, test } from "vitest";
 
 const ENUM_ERROR_PATTERN = /enum/i;
@@ -19,6 +21,7 @@ const LIST_ERROR_PATTERN = /list/i;
 const SPARSE_ERROR_PATTERN = /sparse/i;
 const STRING_ERROR_PATTERN = /string/i;
 const ASYNC_SCHEMA_ERROR_PATTERN = /asynchronous.*not supported/i;
+const DECIMAL_ERROR_PATTERN = /decimal/i;
 
 const customJsonSchema = v.object(
   {
@@ -117,7 +120,11 @@ const scalarModel = s.model({
   _distance: s.string(),
   integer: s.int(),
   ratio: s.number(),
-  decimal: s.decimal(),
+  decimal: s.decimal({ precision: 40, scale: 30 }),
+  money: s.decimal({ precision: 10, scale: 2 }),
+  whole: s.decimal({ precision: 18, scale: 0 }),
+  amounts: s.decimal({ precision: 10, scale: 2 }).array(),
+  maybeMoney: s.decimal({ precision: 10, scale: 2 }).nullable(),
   large: s.bigInt(),
   flag: s.boolean(),
   happenedAt: s.dateTime(),
@@ -201,14 +208,6 @@ describe("strict scalar result contracts", () => {
     expect(parseField("flag", 0n)).toBe(false);
     expect(parseField("integer", "-42")).toBe(-42);
     expect(parseField("ratio", "1e2")).toBe(100);
-    // W6-U1: a decimal decodes to its canonical STRING, never a double. The
-    // provider hands it over as text on every dialect; the only work is
-    // agreeing on one spelling.
-    expect(parseField("decimal", "-0.5")).toBe("-0.5");
-    expect(parseField("decimal", "-0.500")).toBe("-0.5");
-    expect(parseField("decimal", "1.000000000000000000000000000001")).toBe(
-      "1.000000000000000000000000000001"
-    );
     expect(parseField("large", "9007199254740993")).toBe(
       9_007_199_254_740_993n
     );
@@ -273,7 +272,7 @@ describe("strict scalar result contracts", () => {
     ["exponent integer", "integer", "1e2", "int"],
     ["non-finite number", "ratio", Number.POSITIVE_INFINITY, "number"],
     ["hex number", "ratio", "0x10", "number"],
-    ["malformed decimal", "decimal", "phase6-private-value", "decimal"],
+    ["malformed decimal", "money", "phase6-private-value", "decimal"],
     ["unsafe bigint number", "large", Number.MAX_SAFE_INTEGER + 1, "bigint"],
     ["fractional bigint", "large", 1.5, "bigint"],
     ["hex bigint", "large", "0x10", "bigint"],
@@ -535,5 +534,146 @@ describe("strict scalar result contracts", () => {
     expect(parseField("_distance", "ordinary scalar text")).toBe(
       "ordinary scalar text"
     );
+  });
+});
+
+/**
+ * The decimal result boundary.
+ *
+ * Every typed decimal read is a FRESH `Decimal` built from the codec's canonical
+ * text — no JS number, no transport string, no provider-owned instance — and the
+ * only physical spellings it accepts are the ones the active adapter promised
+ * for that column: native decimal text where the dialect has an exact decimal
+ * type, and the signed integer coefficient where it does not.
+ */
+function decimalAt(field: string, value: unknown, adapter?: DatabaseAdapter) {
+  const parsed = parseField(field, value, adapter);
+  if (parsed instanceof Decimal) return parsed;
+  throw new Error(`expected a Decimal leaf, received ${typeof parsed}`);
+}
+
+/**
+ * A provider whose decimals arrive as the unscaled integer coefficient.
+ *
+ * Built by DECLARING it on an otherwise text-spelling adapter, so the seam is
+ * pinned on its own: the fact is a promise the adapter makes, not a driver name
+ * the parser recognizes, and an adapter that says nothing reads as text.
+ */
+function coefficientAdapter(): DatabaseAdapter {
+  const adapter: DatabaseAdapter = new PostgresAdapter();
+  adapter.result = { ...adapter.result, decimalRepresentation: "coefficient" };
+  return adapter;
+}
+
+describe("decimal results are fresh exact values", () => {
+  test("native decimal text becomes one Decimal per leaf", () => {
+    expect(decimalAt("money", "-0.50").eq("-0.5")).toBe(true);
+    expect(decimalAt("money", "0.00").eq(0)).toBe(true);
+    expect(decimalAt("whole", "9007199254740993").eq("9007199254740993")).toBe(
+      true
+    );
+    // Past 2^53 in the fraction: a double could not tell this apart from 1.
+    const exact = decimalAt("decimal", "1.000000000000000000000000000001");
+    expect(exact.eq("1.000000000000000000000000000001")).toBe(true);
+    expect(exact.eq(1)).toBe(false);
+  });
+
+  test("equal values are equal by .eq() and never by identity", () => {
+    const left = decimalAt("money", "12.34");
+    const right = decimalAt("money", "12.34");
+    expect(left.eq(right)).toBe(true);
+    expect(left).not.toBe(right);
+  });
+
+  test("a negative zero and a padded zero are the same canonical value", () => {
+    // Canonicalization is what makes text equality a value equality: `-0.00`
+    // and `0` name one number, so a row key built from either is one key.
+    expect(decimalAt("money", "-0.00").isZero()).toBe(true);
+    expect(decimalAt("money", "-0.00").isNegative()).toBe(false);
+    expect(decimalAt("money", "-0").isZero()).toBe(true);
+  });
+
+  test("scale is a domain limit, not a spelling", () => {
+    // `1.0` on a scale-ZERO column is the value 1 — the zero is insignificant
+    // and canonicalization removes it before the domain is checked. Only a
+    // NON-ZERO digit past the scale is outside the column.
+    expect(decimalAt("whole", "1.0").eq(1)).toBe(true);
+    expect(decimalAt("money", "12.3").eq("12.30")).toBe(true);
+  });
+
+  test("list members each materialize", () => {
+    // A native decimal array arrives as one JavaScript member per element (the
+    // measured `numeric(p,s)[]` shape), which is the vocabulary this default
+    // adapter declares for a list. The JSON container is the OTHER vocabulary
+    // and has its own witnesses in `decimal-list-container.core.test.ts`.
+    const parsed = parseField("amounts", ["1.20", "-0.03"]);
+    expect(Array.isArray(parsed)).toBe(true);
+    const members = Array.isArray(parsed) ? parsed : [];
+    expect(members).toHaveLength(2);
+    expect(members.every((member) => member instanceof Decimal)).toBe(true);
+    expect(members[0]).not.toBe(members[1]);
+  });
+
+  test("the shipped adapters declare the vocabulary this parser reads", () => {
+    // The live control for the seam above: SQLite has no exact decimal type, so
+    // it stores the coefficient and says so; PostgreSQL and MySQL return native
+    // decimal text and say nothing, which is the default.
+    const shipped: DatabaseAdapter[] = [
+      new SQLiteAdapter(),
+      new PostgresAdapter(),
+      new MySQLAdapter(),
+    ];
+
+    expect(
+      shipped.map((adapter) => adapter.result.decimalRepresentation)
+    ).toEqual(["coefficient", undefined, undefined]);
+  });
+
+  test("a coefficient provider reads the unscaled integer, and only that", () => {
+    const coefficient = coefficientAdapter();
+    expect(decimalAt("money", "1234", coefficient).eq("12.34")).toBe(true);
+    expect(decimalAt("money", "-3", coefficient).eq("-0.03")).toBe(true);
+    // The SAME text means two different numbers under the two vocabularies,
+    // which is exactly why the fact is declared and never inferred.
+    expect(decimalAt("money", "1234").eq("1234")).toBe(true);
+    // A logical spelling is not a coefficient: no adapter writes it there, and
+    // neither is a coefficient with a leading zero, an explicit sign, or a
+    // negative zero — one integer has exactly one physical spelling.
+    for (const forged of ["12.34", "01234", "+1234", "-0", 1234n, 1234]) {
+      expect(() => parseField("money", forged, coefficient)).toThrow(
+        DECIMAL_ERROR_PATTERN
+      );
+    }
+  });
+
+  test.each([
+    ["a bigint where text was promised", "money", 1234n],
+    ["a JS number", "money", 12.34],
+    ["a provider-owned Decimal", "money", new Decimal("12.34")],
+    ["a leading zero", "money", "012.34"],
+    ["an explicit plus", "money", "+12.34"],
+    ["exponent notation", "money", "1.234e1"],
+    ["a bare point", "money", ".5"],
+    ["a trailing point", "money", "5."],
+    ["excess scale for the column", "money", "12.345"],
+    ["excess precision for the column", "money", "123456789.01"],
+    ["a forged Decimal-shaped object", "money", { s: 1, e: 1, d: [12, 34] }],
+    ["a JSON number as a list member", "amounts", [1.2]],
+    ["a JSON container where a native array was promised", "amounts", "[1.2]"],
+    ["a real fraction on a scale-zero column", "whole", "1.5"],
+  ])("refuses %s", (_label, field, value) => {
+    const error = captureParserError(() => parseField(field, value));
+
+    expect(error.meta).toMatchObject({
+      driver: "query-engine",
+      operation: "findMany",
+      scalarType: "decimal",
+    });
+    expect(error.message).toMatch(DECIMAL_ERROR_PATTERN);
+  });
+
+  test("a nullable decimal keeps null and a required one refuses it", () => {
+    expect(parseField("maybeMoney", null)).toBeNull();
+    expect(() => parseField("money", null)).toThrow(DECIMAL_ERROR_PATTERN);
   });
 });

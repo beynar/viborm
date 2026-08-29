@@ -55,29 +55,6 @@ export const PG = {
     DOUBLE_PRECISION: { db: "pg", type: "double precision" } as const,
   },
 
-  // Decimal types
-  DECIMAL: {
-    DECIMAL: (precision?: number, scale?: number): NativeType => ({
-      db: "pg",
-      type:
-        precision !== undefined
-          ? scale !== undefined
-            ? `decimal(${precision},${scale})`
-            : `decimal(${precision})`
-          : "decimal",
-    }),
-    NUMERIC: (precision?: number, scale?: number): NativeType => ({
-      db: "pg",
-      type:
-        precision !== undefined
-          ? scale !== undefined
-            ? `numeric(${precision},${scale})`
-            : `numeric(${precision})`
-          : "numeric",
-    }),
-    MONEY: { db: "pg", type: "money" } as const,
-  },
-
   // Boolean types
   BOOLEAN: {
     BOOLEAN: { db: "pg", type: "boolean" } as const,
@@ -170,28 +147,6 @@ export const MYSQL = {
     DOUBLE: { db: "mysql", type: "DOUBLE" } as const,
   },
 
-  // Decimal types
-  DECIMAL: {
-    DECIMAL: (precision?: number, scale?: number): NativeType => ({
-      db: "mysql",
-      type:
-        precision !== undefined
-          ? scale !== undefined
-            ? `DECIMAL(${precision},${scale})`
-            : `DECIMAL(${precision})`
-          : "DECIMAL",
-    }),
-    NUMERIC: (precision?: number, scale?: number): NativeType => ({
-      db: "mysql",
-      type:
-        precision !== undefined
-          ? scale !== undefined
-            ? `NUMERIC(${precision},${scale})`
-            : `NUMERIC(${precision})`
-          : "NUMERIC",
-    }),
-  },
-
   // Boolean types (MySQL uses TINYINT(1))
   BOOLEAN: {
     TINYINT: { db: "mysql", type: "TINYINT(1)" } as const,
@@ -258,16 +213,6 @@ export const SQLITE = {
   // Float types
   FLOAT: {
     REAL: { db: "sqlite", type: "REAL" } as const,
-  },
-
-  // Decimal types. TEXT is the default and the only exact one: REAL and
-  // NUMERIC both put the value in an IEEE-754 double the moment it has a
-  // fraction, so they lose digits on the way IN. They stay available for
-  // schemas that deliberately want SQLite's approximate numeric storage.
-  DECIMAL: {
-    TEXT: { db: "sqlite", type: "TEXT" } as const,
-    REAL: { db: "sqlite", type: "REAL" } as const,
-    NUMERIC: { db: "sqlite", type: "NUMERIC" } as const,
   },
 
   // Boolean types (stored as INTEGER 0/1)

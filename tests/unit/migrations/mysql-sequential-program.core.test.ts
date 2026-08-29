@@ -25,8 +25,17 @@
 import type { QueryResult } from "@drivers/types";
 import { QueryError, VibORMErrorCode } from "@errors";
 import { apply, down, push, reset } from "@migrations";
+import {
+  decimalConversionConstraintName,
+  mysqlDecimalFitsCatalogCheck,
+  mysqlDecimalFitsCheck,
+} from "@migrations/decimal";
 import { getMigrationDriver } from "@migrations/drivers";
 import { planLiveNamespaceReset } from "@migrations/live-reset";
+import {
+  runSequentialProgram,
+  withLockedMigrationProducer,
+} from "@migrations/pinned-session";
 import type { MigrationClient } from "@migrations/push";
 import type { MigrationEntry, MigrationJournal } from "@migrations/types";
 import { s } from "@schema";
@@ -92,6 +101,10 @@ interface ServerOptions {
   readonly foreignKeys?: readonly Record<string, unknown>[];
   /** The one statement that fails. */
   readonly fails?: (sql: string) => boolean;
+  /** Interrupted decimal proofs visible at command startup. */
+  readonly decimalConstraints?: readonly Record<string, unknown>[];
+  /** Columns used to authenticate those proofs. */
+  readonly decimalColumns?: readonly Record<string, unknown>[];
 }
 
 /**
@@ -112,8 +125,24 @@ function estateServer(
     applied_at: 1,
   }));
   return (sql: string, params: unknown[]): unknown[] | Error => {
+    // A MySQL pinned migration session PROVES its `sql_mode` before any DDL
+    // (plan 3.3 / `migrations/pinned-session.ts`).
+    if (sql.includes("@@SESSION.sql_mode")) {
+      return [
+        {
+          sql_mode: "STRICT_TRANS_TABLES,NO_ENGINE_SUBSTITUTION",
+          server_version: "8.4.0",
+        },
+      ];
+    }
     if (sql.includes("SCHEMATA")) {
       return [{ SCHEMA_NAME: "alpha" }];
+    }
+    if (sql.includes("CHECK_CONSTRAINTS")) {
+      return [...(options.decimalConstraints ?? [])];
+    }
+    if (sql.includes("information_schema.COLUMNS")) {
+      return [...(options.decimalColumns ?? [])];
     }
     if (options.fails?.(sql)) {
       return new Error("lost connection to the server during query");
@@ -173,6 +202,29 @@ async function storageWith(
   storage.writes.length = 0;
   storage.reads.length = 0;
   return storage;
+}
+
+/** A journal that changes while apply waits for the live migration lock. */
+class SwitchingJournalStorage extends MemoryStorage {
+  private readonly beforeLock: MigrationJournal;
+  private readonly underLock: MigrationJournal;
+  private journalReads = 0;
+
+  constructor(beforeLock: MigrationJournal, underLock: MigrationJournal) {
+    super();
+    this.beforeLock = beforeLock;
+    this.underLock = underLock;
+  }
+
+  override get(path: string): Promise<string | null> {
+    if (path !== "meta/_journal.json") {
+      return super.get(path);
+    }
+    this.reads.push(path);
+    this.journalReads += 1;
+    const journal = this.journalReads === 1 ? this.beforeLock : this.underLock;
+    return Promise.resolve(JSON.stringify(journal));
+  }
 }
 
 /** Two statements in one artifact, so the first can complete and the second fail. */
@@ -257,6 +309,72 @@ function foreignKeyRow(fk: {
 // =============================================================================
 
 describe("MySQL live DDL runs in no transaction at all", () => {
+  it("cleans an authenticated interrupted proof before replaying a generated artifact", async () => {
+    const descriptor = { precision: 10, scale: 2 };
+    const constraint = decimalConversionConstraintName("scalar", descriptor);
+    const column = "`amount`";
+    const driver = mysqlEstate({
+      decimalConstraints: [
+        {
+          TABLE_NAME: "ledger",
+          CONSTRAINT_NAME: constraint,
+          ENFORCED: "YES",
+          CHECK_CLAUSE: mysqlDecimalFitsCatalogCheck(column, "DECIMAL(10,2)"),
+        },
+      ],
+      decimalColumns: [
+        {
+          TABLE_NAME: "ledger",
+          COLUMN_NAME: "amount",
+          DATA_TYPE: "decimal",
+          COLUMN_COMMENT: "",
+        },
+      ],
+    });
+    const artifact = [
+      `ALTER TABLE \`ledger\` ADD CONSTRAINT \`${constraint}\` CHECK (${mysqlDecimalFitsCheck(column, "DECIMAL(10,2)")});`,
+      "--> statement-breakpoint",
+      "ALTER TABLE `ledger` MODIFY COLUMN `amount` DECIMAL(10,2) NOT NULL;",
+      "--> statement-breakpoint",
+      `ALTER TABLE \`ledger\` DROP CHECK \`${constraint}\`;`,
+    ].join("\n");
+    const storage = await storageWith(journalFor("mysql"), { up: artifact });
+
+    const result = await apply(clientFor(driver), { storageDriver: storage });
+
+    expect(result.applied.map((migration) => migration.name)).toEqual(["init"]);
+    const cleanup = driver.statements.indexOf(
+      `ALTER TABLE \`alpha\`.\`ledger\` DROP CHECK \`${constraint}\``
+    );
+    const replay = driver.statements.findIndex(
+      (statement) =>
+        statement.startsWith("ALTER TABLE `ledger` ADD CONSTRAINT") &&
+        statement.includes(constraint)
+    );
+    expect(cleanup).toBeGreaterThanOrEqual(0);
+    expect(replay).toBeGreaterThan(cleanup);
+    expect(transactionMarkersIn(driver)).toEqual([]);
+  });
+
+  it("runs interrupted-proof recovery only once across command program segments", async () => {
+    const driver = mysqlEstate();
+
+    await withLockedMigrationProducer(
+      driver,
+      getMigrationDriver(driver),
+      async (pinned, command) => {
+        await runSequentialProgram(pinned, command, () => Promise.resolve());
+        await runSequentialProgram(pinned, command, () => Promise.resolve());
+      }
+    );
+
+    expect(
+      driver.statements.filter((statement) =>
+        statement.includes("CHECK_CONSTRAINTS")
+      )
+    ).toHaveLength(1);
+  });
+
   it("ordinary push executes sequentially on the pinned producer", async () => {
     const driver = mysqlEstate();
 
@@ -1121,6 +1239,136 @@ describe("an untrusted reset inventory refuses before the first drop", () => {
  * boundary it reached.
  */
 describe("apply's tracking table and the effects after it are one program", () => {
+  it("refuses a mismatched journal before decimal recovery or any effect", async () => {
+    const descriptor = { precision: 10, scale: 2 };
+    const constraint = decimalConversionConstraintName("scalar", descriptor);
+    const driver = mysqlEstate({
+      decimalConstraints: [
+        {
+          TABLE_NAME: "ledger",
+          CONSTRAINT_NAME: constraint,
+          ENFORCED: "YES",
+          CHECK_CLAUSE: mysqlDecimalFitsCatalogCheck(
+            "`amount`",
+            "DECIMAL(10,2)"
+          ),
+        },
+      ],
+      decimalColumns: [
+        {
+          TABLE_NAME: "ledger",
+          COLUMN_NAME: "amount",
+          DATA_TYPE: "decimal",
+          COLUMN_COMMENT: "",
+        },
+      ],
+    });
+    const storage = new SwitchingJournalStorage(
+      journalFor("mysql"),
+      journalFor("postgresql")
+    );
+    await storage.writeMigration(INIT, "CREATE TABLE `a` (id INT);");
+
+    const failure = await apply(clientFor(driver), {
+      storageDriver: storage,
+    }).catch((error: unknown) => error);
+
+    expect(failure).toMatchObject({
+      code: VibORMErrorCode.MIGRATION_DIALECT_MISMATCH,
+    });
+    expect(
+      driver.statements.some((statement) =>
+        statement.includes("CHECK_CONSTRAINTS")
+      )
+    ).toBe(false);
+    expect(mutationsIn(driver)).toEqual([]);
+  });
+
+  it("keeps an interrupted-proof collision as a pre-effect state refusal", async () => {
+    const descriptor = { precision: 10, scale: 2 };
+    const constraint = decimalConversionConstraintName("scalar", descriptor);
+    const driver = mysqlEstate({
+      decimalConstraints: [
+        {
+          TABLE_NAME: "ledger",
+          CONSTRAINT_NAME: constraint,
+          ENFORCED: "YES",
+          CHECK_CLAUSE: mysqlDecimalFitsCatalogCheck(
+            "`amount`",
+            "DECIMAL(9,2)"
+          ),
+        },
+      ],
+      decimalColumns: [
+        {
+          TABLE_NAME: "ledger",
+          COLUMN_NAME: "amount",
+          DATA_TYPE: "decimal",
+          COLUMN_COMMENT: "",
+        },
+      ],
+    });
+    const storage = await storageWith(journalFor("mysql"), {
+      up: "CREATE TABLE `a` (id INT);",
+    });
+
+    const failure = await apply(clientFor(driver), {
+      storageDriver: storage,
+    }).catch((error: unknown) => error);
+
+    expect(failure).toMatchObject({
+      code: VibORMErrorCode.MIGRATION_INVALID_STATE,
+      meta: {
+        type: "decimal-conversion-constraint-collision",
+        constraint,
+      },
+    });
+    expect(messageOf(failure)).not.toContain(PARTIAL_COMMIT);
+    expect(mutationsIn(driver)).toEqual([]);
+  });
+
+  it("reports an uncertain interrupted-proof DROP through the sequential boundary", async () => {
+    const descriptor = { precision: 10, scale: 2 };
+    const constraint = decimalConversionConstraintName("scalar", descriptor);
+    const cleanup = `ALTER TABLE \`alpha\`.\`ledger\` DROP CHECK \`${constraint}\``;
+    const driver = mysqlEstate({
+      decimalConstraints: [
+        {
+          TABLE_NAME: "ledger",
+          CONSTRAINT_NAME: constraint,
+          ENFORCED: "YES",
+          CHECK_CLAUSE: mysqlDecimalFitsCatalogCheck(
+            "`amount`",
+            "DECIMAL(10,2)"
+          ),
+        },
+      ],
+      decimalColumns: [
+        {
+          TABLE_NAME: "ledger",
+          COLUMN_NAME: "amount",
+          DATA_TYPE: "decimal",
+          COLUMN_COMMENT: "",
+        },
+      ],
+      fails: (statement) => statement === cleanup,
+    });
+    const storage = await storageWith(journalFor("mysql"), {
+      up: "CREATE TABLE `a` (id INT);",
+    });
+
+    const failure = await apply(clientFor(driver), {
+      storageDriver: storage,
+    }).catch((error: unknown) => error);
+
+    expect(failure).toMatchObject({ code: VibORMErrorCode.MIGRATION_FAILED });
+    expect(messageOf(failure)).toContain(PARTIAL_COMMIT);
+    expect(messageOf(failure)).toContain(
+      "The last statement that completed was: (none"
+    );
+    expect(driver.statements).toContain(cleanup);
+  });
+
   it("refuses an unreadable applied state BEFORE creating the tracking table", async () => {
     const driver = mysqlEstate({
       fails: (sql) => sql.startsWith("SELECT name, checksum, applied_at"),

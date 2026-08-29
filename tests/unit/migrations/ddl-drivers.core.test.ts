@@ -12,6 +12,7 @@ import { sqlite3MigrationDriver } from "@src/migrations/drivers/sqlite";
 import type { DiffOperation, SchemaSnapshot } from "@src/migrations/types";
 import type { ScalarState, ScalarType } from "@src/schema/scalars/common";
 import {
+  d1EstateDriver,
   ddlContext,
   mysqlEstateDriver,
   pgEstateDriver,
@@ -24,6 +25,14 @@ const MYSQL_ACQUIRE_LOCK_SHAPE =
 const MYSQL_RELEASE_LOCK_SHAPE =
   /^SELECT RELEASE_LOCK\('viborm_migration_billing_[0-9a-f]{8}'\) AS released$/;
 const UNBOUND_LOCK_SCOPE = /not bound to a database/;
+/** The two decimal-conversion refusals, by the fact each one names. */
+const BATCH_ONLY_SUBSTRATE = /one native batch/;
+const IMPLICIT_DDL_COMMIT = /commits each DDL statement/;
+const TARGET_DOMAIN = /precision 10, scale 4/;
+const SEPARATE_RENAME = /rename.*separate/i;
+const SQLITE_INLINE_PRIMARY_KEY = /PRIMARY KEY \("id"\)/;
+const MYSQL_TEXT_DEFAULT = /`content` TEXT[^)]*DEFAULT/;
+const MYSQL_BLOB_DEFAULT = /`data` BLOB[^)]*DEFAULT/;
 
 // =============================================================================
 // SQLITE3 DRIVER TESTS
@@ -107,7 +116,7 @@ describe("SQLite3 DDL Generation", () => {
 
       expect(ddl).toContain('"id" INTEGER PRIMARY KEY AUTOINCREMENT');
       // Should not have separate table-level PRIMARY KEY clause for single INTEGER autoincrement PK
-      expect(ddl).not.toMatch(/PRIMARY KEY \("id"\)/);
+      expect(ddl).not.toMatch(SQLITE_INLINE_PRIMARY_KEY);
     });
 
     it("should generate CREATE TABLE with default value", () => {
@@ -324,6 +333,205 @@ describe("SQLite3 DDL Generation", () => {
       expect(ddl).toContain('DROP TABLE "users"');
       expect(ddl).toContain('ALTER TABLE "__new_users" RENAME TO "users"');
       expect(ddl).toContain("PRAGMA foreign_keys=ON");
+    });
+  });
+
+  describe("alterColumn (decimal conversion)", () => {
+    const decimalSchema = (
+      precision: number,
+      scale: number,
+      type = "INTEGER"
+    ): SchemaSnapshot => ({
+      tables: [
+        {
+          name: "ledger",
+          columns: [
+            { name: "id", type: "INTEGER", nullable: false },
+            {
+              name: "amount",
+              type,
+              nullable: false,
+              decimal: { precision, scale },
+            },
+          ],
+          indexes: [],
+          foreignKeys: [],
+          uniqueConstraints: [],
+        },
+      ],
+    });
+
+    function convert(
+      from: { precision: number; scale: number },
+      to: { precision: number; scale: number },
+      type = "INTEGER"
+    ): string {
+      return generateDDL(
+        {
+          type: "alterColumn",
+          tableName: "ledger",
+          columnName: "amount",
+          from: { name: "amount", type, nullable: false, decimal: from },
+          to: { name: "amount", type, nullable: false, decimal: to },
+        },
+        { currentSchema: decimalSchema(from.precision, from.scale, type) }
+      );
+    }
+
+    it("rescales the coefficient when the scale rises, guarded against int64 overflow", () => {
+      const ddl = convert(
+        { precision: 10, scale: 2 },
+        { precision: 10, scale: 4 }
+      );
+      // The guard is evaluated BEFORE the multiplication: SQLite answers an
+      // int64 overflow with a REAL, which is the representation this whole
+      // type exists to avoid.
+      expect(ddl).toContain(
+        `SELECT "id", CASE WHEN "amount" IS NULL THEN NULL WHEN typeof("amount") = 'integer' AND "amount" BETWEEN -99999999 AND 99999999 THEN "amount" * 100 ELSE 'viborm:decimal-out-of-domain' END FROM "ledger"`
+      );
+    });
+
+    it("requires the dropped digits to be zero when the scale falls", () => {
+      const ddl = convert(
+        { precision: 10, scale: 4 },
+        { precision: 10, scale: 2 }
+      );
+      expect(ddl).toContain(`"amount" % 100 = 0`);
+      expect(ddl).toContain(`THEN "amount" / 100 `);
+    });
+
+    it("copies the value unchanged when only the precision moves", () => {
+      const ddl = convert(
+        { precision: 12, scale: 2 },
+        { precision: 10, scale: 2 }
+      );
+      expect(ddl).toContain(
+        `AND "amount" BETWEEN -9999999999 AND 9999999999 THEN "amount" ELSE`
+      );
+      expect(ddl).not.toContain("% 1 = 0");
+    });
+
+    it("leaves an unchanged descriptor as a bare identifier", () => {
+      const ddl = generateDDL(
+        {
+          type: "alterColumn",
+          tableName: "ledger",
+          columnName: "amount",
+          from: {
+            name: "amount",
+            type: "INTEGER",
+            nullable: false,
+            decimal: { precision: 10, scale: 2 },
+          },
+          to: {
+            name: "amount",
+            type: "INTEGER",
+            nullable: true,
+            decimal: { precision: 10, scale: 2 },
+          },
+        },
+        { currentSchema: decimalSchema(10, 2) }
+      );
+      expect(ddl).toContain('SELECT "id", "amount" FROM "ledger"');
+      expect(ddl).not.toContain("CASE WHEN");
+    });
+
+    it("converts a list member by member, in array order", () => {
+      const ddl = convert(
+        { precision: 10, scale: 2 },
+        { precision: 10, scale: 4 },
+        "TEXT"
+      );
+      // `json_each` reports each member's array position, and the inner
+      // ORDER BY is what carries order and duplicates through the aggregate.
+      expect(ddl).toContain(
+        `FROM json_each("__viborm_source"."amount") AS "m"`
+      );
+      expect(ddl).toContain(`ORDER BY "m"."key"`);
+      expect(ddl).toContain("json_group_array(");
+      // The coefficient grammar, in SQL: `012`, `+1`, `-0`, `1.0` and non-
+      // numeric text all cast to an integer whose text is not the member.
+      expect(ddl).toContain(
+        `CAST(CAST("m"."value" AS INTEGER) AS TEXT) = "m"."value"`
+      );
+      // One bad member routes the WHOLE column, never half of it.
+      expect(ddl).toContain("'viborm:decimal-list-out-of-domain'");
+    });
+
+    it("never splits a conversion across the statement separator", () => {
+      // `push/executor.ts` and `generate/index.ts` both split generated DDL on
+      // ";\n", so a conversion carrying that pair would become two broken
+      // statements.
+      const ddl = convert(
+        { precision: 10, scale: 2 },
+        { precision: 10, scale: 4 },
+        "TEXT"
+      );
+      for (const statement of ddl.split(";\n")) {
+        expect(statement).not.toContain(";");
+      }
+    });
+
+    it("refuses a relation-bearing rebuild on a batch-only substrate", () => {
+      // D1: `PRAGMA foreign_keys=OFF` is a no-op inside a transaction and a
+      // batch has no outside to run it in, so the rebuild would drop a table
+      // whose references are still enforced.
+      const d1 = getMigrationDriver(d1EstateDriver());
+      const related: SchemaSnapshot = {
+        tables: [
+          ...decimalSchema(10, 2).tables,
+          {
+            name: "entries",
+            columns: [{ name: "ledger_id", type: "INTEGER", nullable: false }],
+            indexes: [],
+            foreignKeys: [
+              {
+                name: "entries_ledger_fk",
+                columns: ["ledger_id"],
+                referencedTable: "ledger",
+                referencedColumns: ["id"],
+              },
+            ],
+            uniqueConstraints: [],
+          },
+        ],
+      };
+      const op: DiffOperation = {
+        type: "alterColumn",
+        tableName: "ledger",
+        columnName: "amount",
+        from: {
+          name: "amount",
+          type: "INTEGER",
+          nullable: false,
+          decimal: { precision: 10, scale: 2 },
+        },
+        to: {
+          name: "amount",
+          type: "INTEGER",
+          nullable: false,
+          decimal: { precision: 10, scale: 4 },
+        },
+      };
+
+      expect(() =>
+        d1.generateDDL(op, ddlContext("live", { currentSchema: related }))
+      ).toThrow(BATCH_ONLY_SUBSTRATE);
+
+      // Nothing was rendered, so nothing could have run: the refusal is before
+      // effects, and it names the substrate rather than the feature.
+      expect(() =>
+        d1.generateDDL(op, ddlContext("live", { currentSchema: related }))
+      ).toThrow(TARGET_DOMAIN);
+
+      // A table nothing references has nothing the disabled enforcement could
+      // damage, so ordinary descriptor changes stay available on D1.
+      expect(
+        d1.generateDDL(
+          op,
+          ddlContext("live", { currentSchema: decimalSchema(10, 2) })
+        )
+      ).toContain('CREATE TABLE "__new_ledger"');
     });
   });
 
@@ -685,6 +893,95 @@ describe("LibSQL DDL Generation", () => {
         'ALTER TABLE "users" ALTER COLUMN "status" TO "status" TEXT NOT NULL DEFAULT \'active\''
       );
     });
+
+    it("falls back to table recreation for a decimal descriptor change", () => {
+      // The native ALTER rewrites the DECLARATION and copies nothing, and by
+      // LibSQL's own contract it validates only rows written afterwards — so
+      // every existing coefficient would keep meaning a number at the old
+      // scale. §9.6 states it: LibSQL cannot take a native ALTER route that
+      // skips conversion.
+      const currentSchema: SchemaSnapshot = {
+        tables: [
+          {
+            name: "ledger",
+            columns: [
+              {
+                name: "amount",
+                type: "INTEGER",
+                nullable: false,
+                decimal: { precision: 10, scale: 2 },
+              },
+            ],
+            indexes: [],
+            foreignKeys: [],
+            uniqueConstraints: [],
+          },
+        ],
+      };
+      const ddl = generateDDL(
+        {
+          type: "alterColumn",
+          tableName: "ledger",
+          columnName: "amount",
+          from: {
+            name: "amount",
+            type: "INTEGER",
+            nullable: false,
+            decimal: { precision: 10, scale: 2 },
+          },
+          to: {
+            name: "amount",
+            type: "INTEGER",
+            nullable: false,
+            decimal: { precision: 10, scale: 4 },
+          },
+        },
+        { currentSchema }
+      );
+
+      expect(ddl).not.toContain("ALTER COLUMN");
+      expect(ddl).toContain('CREATE TABLE "__new_ledger"');
+      expect(ddl).toContain(`"amount" * 100`);
+    });
+
+    it("keeps the reserved CHECK when it rewrites a column for a foreign key", () => {
+      // `ALTER COLUMN ... TO` replaces the WHOLE definition, and the reserved
+      // constraint is the only carrier of the declared domain on this dialect.
+      const currentSchema: SchemaSnapshot = {
+        tables: [
+          {
+            name: "entries",
+            columns: [
+              {
+                name: "amount",
+                type: "INTEGER",
+                nullable: false,
+                decimal: { precision: 10, scale: 2 },
+              },
+            ],
+            indexes: [],
+            foreignKeys: [],
+            uniqueConstraints: [],
+          },
+        ],
+      };
+      const ddl = generateDDL(
+        {
+          type: "addForeignKey",
+          tableName: "entries",
+          fk: {
+            name: "entries_amount_fk",
+            columns: ["amount"],
+            referencedTable: "buckets",
+            referencedColumns: ["id"],
+          },
+        },
+        { currentSchema }
+      );
+
+      expect(ddl).toContain('CONSTRAINT "viborm_decimal_amount_10_2" CHECK');
+      expect(ddl).toContain("REFERENCES");
+    });
   });
 
   describe("addForeignKey (single column - native)", () => {
@@ -1039,7 +1336,7 @@ describe("MySQL DDL Generation", () => {
 
       expect(ddl).toContain("`content` TEXT");
       // Should not have DEFAULT for the column itself (but table has DEFAULT CHARSET)
-      expect(ddl).not.toMatch(/`content` TEXT[^)]*DEFAULT/);
+      expect(ddl).not.toMatch(MYSQL_TEXT_DEFAULT);
     });
 
     it("should NOT include DEFAULT for BLOB columns", () => {
@@ -1060,7 +1357,7 @@ describe("MySQL DDL Generation", () => {
 
       expect(ddl).toContain("`data` BLOB");
       // Should not have DEFAULT for the column itself (but table has DEFAULT CHARSET)
-      expect(ddl).not.toMatch(/`data` BLOB[^)]*DEFAULT/);
+      expect(ddl).not.toMatch(MYSQL_BLOB_DEFAULT);
     });
   });
 
@@ -1167,6 +1464,112 @@ describe("MySQL DDL Generation", () => {
       expect(ddl).toBe(
         "ALTER TABLE `users` CHANGE COLUMN `old_name` `new_name` VARCHAR(100)"
       );
+    });
+
+    it("validates a decimal conversion before the column moves, and releases after", () => {
+      const ddl = generateDDL({
+        type: "alterColumn",
+        tableName: "ledger",
+        columnName: "amount",
+        from: {
+          name: "amount",
+          type: "DECIMAL(12,2)",
+          nullable: false,
+          decimal: { precision: 12, scale: 2 },
+        },
+        to: {
+          name: "amount",
+          type: "DECIMAL(10,2)",
+          nullable: false,
+          decimal: { precision: 10, scale: 2 },
+        },
+      });
+
+      // The order is the design: the constraint proves every existing row fits
+      // BEFORE the column moves — MySQL commits each DDL statement, so there is
+      // no boundary to take a bad conversion back — and it is only dropped
+      // AFTER, so no concurrent write can land a value the target would round
+      // while the conversion is in flight. That is "while writes are excluded"
+      // spelled without `LOCK TABLES`, which the artifact classifier refuses.
+      expect(ddl.split(";\n")).toEqual([
+        "ALTER TABLE `ledger` ADD CONSTRAINT `viborm_decimal_s_10_2` CHECK (`amount` IS NULL OR `amount` = CAST(`amount` AS DECIMAL(10,2)))",
+        "ALTER TABLE `ledger` MODIFY COLUMN `amount` DECIMAL(10,2) NOT NULL",
+        "ALTER TABLE `ledger` DROP CHECK `viborm_decimal_s_10_2`",
+      ]);
+      expect(ddl).not.toContain("LOCK TABLES");
+    });
+
+    it("refuses a direct rename-plus-conversion shape before rendering its unauthenticatable bracket", () => {
+      const operation: DiffOperation = {
+        type: "alterColumn",
+        tableName: "ledger",
+        columnName: "amount",
+        from: {
+          name: "amount",
+          type: "DECIMAL(12,2)",
+          nullable: false,
+          decimal: { precision: 12, scale: 2 },
+        },
+        to: {
+          name: "total",
+          type: "DECIMAL(10,2)",
+          nullable: false,
+          decimal: { precision: 10, scale: 2 },
+        },
+      };
+
+      expect(() => generateDDL(operation)).toThrow(SEPARATE_RENAME);
+    });
+
+    it("takes the ordinary MODIFY when a column stops being a decimal", () => {
+      // Losing the decimal nature altogether is a scalar-type change, not a
+      // descriptor change: the destructive predicates already gate it, and
+      // there is no target domain to validate against. Routing it through the
+      // conversion bracket would refuse a change §7.3 never spoke about.
+      const ddl = generateDDL({
+        type: "alterColumn",
+        tableName: "ledger",
+        columnName: "amount",
+        from: {
+          name: "amount",
+          type: "DECIMAL(10,2)",
+          nullable: false,
+          decimal: { precision: 10, scale: 2 },
+        },
+        to: { name: "amount", type: "TEXT", nullable: false },
+      });
+
+      expect(ddl).toBe(
+        "ALTER TABLE `ledger` MODIFY COLUMN `amount` TEXT NOT NULL"
+      );
+    });
+
+    it("refuses a list conversion that would have to rewrite the members", () => {
+      const rescale: DiffOperation = {
+        type: "alterColumn",
+        tableName: "ledger",
+        columnName: "samples",
+        from: {
+          name: "samples",
+          type: "JSON",
+          nullable: false,
+          decimal: { precision: 10, scale: 2 },
+        },
+        to: {
+          name: "samples",
+          type: "JSON",
+          nullable: false,
+          decimal: { precision: 10, scale: 4 },
+        },
+      };
+
+      // The members are unscaled coefficients, so a different scale makes the
+      // same integer name a different number. MySQL has neither a transaction
+      // its DDL takes part in nor a CHECK that can quantify over the members of
+      // a JSON array, so the rewrite could be neither validated first nor
+      // undone after — and it refuses instead of doing it.
+      expect(() => generateDDL(rescale)).toThrow(IMPLICIT_DDL_COMMIT);
+      expect(() => generateDDL(rescale)).toThrow(TARGET_DOMAIN);
     });
   });
 

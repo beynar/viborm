@@ -1,8 +1,15 @@
 import { tryParseJsonString } from "@adapters/shared/result-parsing";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { canonicalizeDecimal } from "@validation/primitives/decimal";
 import type { Operation } from "../types";
 import { QueryEngineError } from "../types";
+import {
+  type DecimalColumn,
+  decodeDecimalListValue,
+  decodeDecimalValue,
+  decodeWidenedSumValue,
+  materializeDecimalValue,
+  materializeWidenedSumValue,
+} from "./decimal-result-decode";
 import { malformedScalarValue } from "./result-parser-contract";
 import { parseBlobValue } from "./scalar-blob-parser";
 import {
@@ -44,7 +51,9 @@ export function parseFieldValueDefault(
   vectorDimension: number | undefined,
   jsonSchema: StandardSchemaV1 | undefined,
   provider: string,
-  operation: Operation
+  operation: Operation,
+  decimalColumn: DecimalColumn | undefined,
+  materializeDecimal = false
 ): unknown {
   if (!isList) {
     return parseTypedValueDefault(
@@ -55,7 +64,9 @@ export function parseFieldValueDefault(
       vectorDimension,
       jsonSchema,
       provider,
-      operation
+      operation,
+      decimalColumn,
+      materializeDecimal
     );
   }
   if (value === null) {
@@ -66,6 +77,24 @@ export function parseFieldValueDefault(
       scalarType,
       "a required list is null"
     );
+  }
+
+  // A decimal list is read as ONE container by the one codec, before the
+  // generic list decode below can look at it. Splitting a container into
+  // members with `JSON.parse` and then decoding each one would put a second
+  // interpreter in front of the codec's grammar — and that interpreter reads a
+  // JSON numeric token as a number, which is the loss plan 6.1 forbids.
+  if (decimalColumn !== undefined) {
+    const members = decodeDecimalListValue(value, decimalColumn);
+    if (members === undefined) {
+      return malformedScalarValue(
+        provider,
+        operation,
+        scalarType,
+        "the value is not an exact decimal list in this column's declared domain"
+      );
+    }
+    return members;
   }
 
   let items: unknown = value;
@@ -102,10 +131,45 @@ export function parseFieldValueDefault(
       vectorDimension,
       jsonSchema,
       provider,
-      operation
+      operation,
+      decimalColumn
     );
   }
   return parsedItems;
+}
+
+/**
+ * Decode one aggregate SUM into canonical private text or its public value.
+ *
+ * A sum is the one leaf that leaves the column's domain: it preserves the
+ * declared scale and outgrows the declared precision, so holding it to the
+ * column would refuse arithmetic the database performed exactly. It is still
+ * held to the promised physical vocabulary, so a provider that answers with a
+ * double is a malformed row rather than a rounded sum.
+ */
+export function parseWidenedSumDefault(
+  value: unknown,
+  decimalColumn: DecimalColumn | undefined,
+  scalarType: string,
+  provider: string,
+  operation: Operation,
+  materializePublic = false
+): unknown {
+  const parsed =
+    decimalColumn === undefined
+      ? undefined
+      : materializePublic
+        ? materializeWidenedSumValue(value, decimalColumn)
+        : decodeWidenedSumValue(value, decimalColumn);
+  if (parsed === undefined) {
+    return malformedScalarValue(
+      provider,
+      operation,
+      scalarType,
+      "the sum is not an exact decimal at this column's scale"
+    );
+  }
+  return parsed;
 }
 
 /**
@@ -119,7 +183,9 @@ function parseTypedValueDefault(
   vectorDimension: number | undefined,
   jsonSchema: StandardSchemaV1 | undefined,
   provider: string,
-  operation: Operation
+  operation: Operation,
+  decimalColumn: DecimalColumn | undefined,
+  materializeDecimal = false
 ): unknown {
   if (value === null) {
     if (isNullable) return null;
@@ -268,22 +334,30 @@ function parseTypedValueDefault(
       return parsed;
     }
 
-    // A decimal NEVER becomes a JS number here. Every provider hands the value
-    // over as text already (PG `numeric`, mysql2 `DECIMAL`, SQLite's TEXT
-    // column, and the `CAST(... AS TEXT)` the JSON select/aggregate paths add),
-    // so the only work is agreeing on one spelling. Routing it through a double
-    // — even briefly — is the precision loss this scalar exists to prevent.
+    // A decimal NEVER becomes a JS number here. Identity and list paths answer
+    // with canonical private text. An ordinary uncaptured public scalar asks
+    // the same codec scan to construct its one public Decimal directly.
+    //
+    // The accepted spelling is the exact physical one the active adapter
+    // promised for THIS column, held to its declared precision and scale: a
+    // decimal that arrives outside either is a column the schema no longer
+    // describes, not a value to widen the field for.
     case "decimal": {
-      const canonical = canonicalizeDecimal(value);
-      if (canonical === undefined) {
+      const parsed =
+        decimalColumn === undefined
+          ? undefined
+          : materializeDecimal
+            ? materializeDecimalValue(value, decimalColumn)
+            : decodeDecimalValue(value, decimalColumn);
+      if (parsed === undefined) {
         return malformedScalarValue(
           provider,
           operation,
           scalarType,
-          "the value is not an exact decimal"
+          "the value is not an exact decimal in this column's declared domain"
         );
       }
-      return canonical;
+      return parsed;
     }
 
     case "boolean": {

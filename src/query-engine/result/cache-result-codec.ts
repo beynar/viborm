@@ -14,6 +14,7 @@ import {
   arrayCodec,
   booleanCodec,
   compileScalarCodec,
+  compileWidenedSumCodec,
   countCodec,
   nullableCodec,
   numberCodec,
@@ -21,7 +22,10 @@ import {
   taggedRelationCodec,
   type ValueCodec,
 } from "./cache-value-codecs";
-import { classifyAggregateLeaf } from "./result-aggregate-leaf";
+import {
+  type AggregateLeaf,
+  classifyAggregateLeaf,
+} from "./result-aggregate-leaf";
 import { classifyResultColumn } from "./result-column";
 
 export interface CacheResultCodec {
@@ -37,15 +41,13 @@ export function compileCacheResultCodec(
   model: Model<any>,
   operation: Operation,
   requestedOperation: string,
-  shape: ExpectedResultShape,
-  decimalDecode: "string" | "number"
+  shape: ExpectedResultShape
 ): CacheResultCodec {
   const compiled = compileRootCodec(
     model,
     operation,
     requestedOperation,
-    shape,
-    decimalDecode
+    shape
   );
   return Object.freeze({
     snapshot(value: unknown): unknown {
@@ -81,8 +83,7 @@ function compileRootCodec(
   model: Model<any>,
   operation: Operation,
   requestedOperation: string,
-  shape: ExpectedResultShape,
-  decimalDecode: "string" | "number"
+  shape: ExpectedResultShape
 ): ValueCodec {
   if (shape.carrier === "existence") return booleanCodec();
   if (shape.carrier === "count") {
@@ -94,7 +95,7 @@ function compileRootCodec(
     return recordCodec(fields);
   }
 
-  const row = compileRowCodec(model, operation, shape, decimalDecode);
+  const row = compileRowCodec(model, operation, shape);
   if (ARRAY_OPERATIONS.has(operation)) return arrayCodec(row);
   if (operation === "findFirst" || operation === "findUnique") {
     return requestedOperation.endsWith("OrThrow") ? row : nullableCodec(row);
@@ -106,8 +107,7 @@ function compileRootCodec(
 function compileRowCodec(
   model: Model<any>,
   operation: Operation,
-  shape: ExpectedResultShape,
-  decimalDecode: "string" | "number"
+  shape: ExpectedResultShape
 ): ValueCodec {
   const fields = new Map<string, ValueCodec>();
   for (const rawKey of shape.rawKeys) {
@@ -119,11 +119,7 @@ function compileRowCodec(
         addResultField(fields, "_distance", numberCodec());
         break;
       case "scalar":
-        addResultField(
-          fields,
-          column.key,
-          compileScalarCodec(column.scalar, decimalDecode)
-        );
+        addResultField(fields, column.key, compileScalarCodec(column.scalar));
         break;
       case "relationCounts": {
         const relations = column.relations;
@@ -138,7 +134,7 @@ function compileRowCodec(
         addResultField(
           fields,
           column.key,
-          compileRelationCodec(column.expected, operation, decimalDecode)
+          compileRelationCodec(column.expected, operation)
         );
         break;
       case "polymorphic":
@@ -146,7 +142,7 @@ function compileRowCodec(
         addResultField(
           fields,
           column.key,
-          compilePolymorphicCodec(column.expected, operation, decimalDecode)
+          compilePolymorphicCodec(column.expected, operation)
         );
         break;
       case "aggregate":
@@ -154,12 +150,7 @@ function compileRowCodec(
         addResultField(
           fields,
           column.name,
-          compileAggregateCodec(
-            model,
-            column.name,
-            column.expected,
-            decimalDecode
-          )
+          compileAggregateCodec(model, column.name, column.expected)
         );
         break;
       case "unknown":
@@ -184,30 +175,23 @@ function addResultField(
 
 function compileRelationCodec(
   relation: ExpectedRelationResultShape,
-  operation: Operation,
-  decimalDecode: "string" | "number"
+  operation: Operation
 ): ValueCodec {
-  const row = compileRowCodec(
-    relation.model,
-    operation,
-    relation.shape,
-    decimalDecode
-  );
+  const row = compileRowCodec(relation.model, operation, relation.shape);
   if (relation.cardinality === "many") return arrayCodec(row);
   return relation.optional ? nullableCodec(row) : row;
 }
 
 function compilePolymorphicCodec(
   relation: ExpectedPolymorphicResultShape,
-  operation: Operation,
-  decimalDecode: "string" | "number"
+  operation: Operation
 ): ValueCodec {
   const variants = new Map<string, ValueCodec>();
   for (const [type, variant] of relation.variants) {
     if (relation.cardinality === "many" && variant.visible !== true) continue;
     variants.set(
       type,
-      compileRowCodec(variant.model, operation, variant.shape, decimalDecode)
+      compileRowCodec(variant.model, operation, variant.shape)
     );
   }
   const tagged = taggedRelationCodec(variants);
@@ -218,8 +202,7 @@ function compilePolymorphicCodec(
 function compileAggregateCodec(
   model: Model<any>,
   name: AggregateResultName,
-  expected: ExpectedAggregateResultShape,
-  decimalDecode: "string" | "number"
+  expected: ExpectedAggregateResultShape
 ): ValueCodec {
   if (name === "_count" && expected.fields === undefined) return countCodec();
   const expectedFields = expected.fields;
@@ -229,15 +212,32 @@ function compileAggregateCodec(
   for (const field of expectedFields) {
     const leaf = classifyAggregateLeaf(name, field, scalars);
     if (leaf.kind === "unknown") return invalidCompiledShape();
-    const value =
-      leaf.kind === "count"
-        ? countCodec()
-        : leaf.kind === "number"
-          ? numberCodec()
-          : compileScalarCodec(leaf.scalar, decimalDecode, false);
+    const value = compileAggregateLeafCodec(leaf);
     fields.set(field, leaf.nullable ? nullableCodec(value) : value);
   }
   return recordCodec(fields);
+}
+
+/**
+ * The detached encoding of one classified aggregate leaf.
+ *
+ * It reads the SAME classification the provider parser reads, which is what
+ * makes a cached aggregate materialize identically to a fresh one — a widened
+ * sum through the widened codec, every other decimal leaf through the field's.
+ */
+function compileAggregateLeafCodec(leaf: AggregateLeaf): ValueCodec {
+  switch (leaf.kind) {
+    case "count":
+      return countCodec();
+    case "number":
+      return numberCodec();
+    case "widenedSum":
+      return compileWidenedSumCodec(leaf.scalar);
+    case "scalar":
+      return compileScalarCodec(leaf.scalar, false);
+    default:
+      return invalidCompiledShape();
+  }
 }
 
 function cacheBoundaryCause(cause: unknown): Error {

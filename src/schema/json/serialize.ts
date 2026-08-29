@@ -38,6 +38,7 @@ import { isGeneratorDefault, type ScalarState } from "@schema/scalars/common";
 import type { JsonValue } from "@validation/primitives/json";
 import type { ObjectSchema } from "@validation/primitives/object";
 import { isFunction } from "@validation/value-guards";
+import { toError } from "../../errors/diagnostic-safety";
 import { encodeDefault } from "./default-codec";
 import type {
   CompoundKeyDocument,
@@ -62,7 +63,6 @@ import {
   pointer,
   refuseDocument,
   throwIfRefused,
-  toError,
 } from "./issues";
 import { isNativeTypeInCatalog, nativeTypeRefusal } from "./native-catalog";
 import type { ExactSchemaJsonOptions, SchemaJsonOptions } from "./validate";
@@ -238,14 +238,27 @@ function serializeScalar(
           type: "enum",
           enum: serializeEnum(scalar, state, enums, path, issues),
         }
-      : { type: state.type };
+      : state.type === "decimal"
+        ? {
+            type: "decimal",
+            precision: state.decimal.precision,
+            scale: state.decimal.scale,
+          }
+        : { type: state.type };
   const native = scalar["~"].nativeType;
   if (native !== undefined) {
     // The catalog owns `native.type` at the parse boundary, where the document
     // is untrusted. Emitting a value that gate would refuse would write a
     // document this parser cannot read back — a round trip that loses a schema —
     // so the same rule refuses it here, by name.
-    if (isNativeTypeInCatalog(native.db, native.type)) {
+    if (document.type === "decimal") {
+      addIssue(
+        issues,
+        pointer(path, "native"),
+        "J009",
+        "A fixed decimal cannot carry a native-type override"
+      );
+    } else if (isNativeTypeInCatalog(native.db, native.type)) {
       // Copy `{ db, type }`: the document is the caller's to edit, and it must
       // not alias the scalar's own native object (mutating one would reach the
       // other's declaration state).

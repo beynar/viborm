@@ -876,7 +876,8 @@ describe("SQLite3 Driver", () => {
   decimalExactnessContract.register({
     driverName: "SQLite3",
     createDriver: createInMemorySQLite3Driver,
-    exactDecimal: false,
+    // SQLite-legal intersection: `precision + scale <= 18` (plan 3.1).
+    descriptor: { precision: 16, scale: 2 },
   });
   likeEscapeContract.register({
     driverName: "SQLite3",

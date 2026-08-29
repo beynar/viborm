@@ -1,4 +1,7 @@
 import {
+  createAmbiguousChange,
+  createDestructiveChange,
+  createEnumValueRemovalChange,
   type DiffOperation,
   type GenerateOptions,
   type PolymorphicSnapshotStorage,
@@ -26,6 +29,52 @@ const orderedOperations: DiffOperation[] = sortOperations([operation]);
 
 type _sortKeepsOperationTyping = Expect<
   Equal<typeof orderedOperations, DiffOperation[]>
+>;
+
+const destructiveDecision = createDestructiveChange({
+  operation: "dropColumn",
+  table: "ledger",
+  column: "amount",
+  description: "drop amount",
+});
+const ambiguousDecision = createAmbiguousChange({
+  operation: "renameColumn",
+  table: "ledger",
+  oldName: "amount",
+  newName: "total",
+  description: "rename amount to total",
+});
+const enumDecision = createEnumValueRemovalChange({
+  enumName: "ledger_status",
+  tableName: "ledger",
+  columnName: "status",
+  isNullable: false,
+  removedValues: ["retired"],
+  availableValues: ["active"],
+  description: "remove retired",
+});
+
+type _resolutionMethodsKeepTheirExactDecision = Expect<
+  Equal<
+    [
+      ReturnType<typeof destructiveDecision.proceed>,
+      ReturnType<typeof destructiveDecision.reject>,
+      ReturnType<typeof ambiguousDecision.rename>,
+      ReturnType<typeof ambiguousDecision.addAndDrop>,
+      ReturnType<typeof enumDecision.mapValues>,
+      ReturnType<typeof enumDecision.useNull>,
+      ReturnType<typeof enumDecision.reject>,
+    ],
+    [
+      "proceed",
+      "reject",
+      "rename",
+      "addAndDrop",
+      "enumMapped",
+      "enumMapped",
+      "reject",
+    ]
+  >
 >;
 
 // The snapshot metadata union dispatches by `kind`.

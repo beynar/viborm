@@ -28,6 +28,7 @@ import {
   type QueryScope,
   type RelationRef,
 } from "../types";
+import { projectScalarForTransport } from "./decimal-field";
 import {
   type BuildIncludeOptions,
   type BuildNestedSelection,
@@ -109,10 +110,11 @@ const isVectorDistanceSelect = (
 
 /**
  * Encode scalar columns that can't ride through JSON as-is:
- * - BigInt/Decimal → TEXT: JSON numbers lose precision past
- *   Number.MAX_SAFE_INTEGER / high-precision decimals
+ * - BigInt → TEXT: JSON numbers lose precision past Number.MAX_SAFE_INTEGER
  * - Blob → hex text: JSON can't hold binary (SQLite's json_object even
  *   throws "JSON cannot hold BLOB values")
+ * Decimal pairs already carry their transport projection from pair construction
+ * so flat and JSON selection use the same exact physical expression.
  * The result parser converts each back to its JS type.
  *
  * @param ctx - Query context
@@ -129,8 +131,8 @@ function castNumericPairsForJson(
     const scalar = scalars[fieldName];
     if (scalar) {
       const scalarType = scalar["~"].state.type;
-      if (scalarType === "bigint" || scalarType === "decimal") {
-        // Cast BigInt/Decimal to TEXT to preserve precision in JSON
+      if (scalarType === "bigint") {
+        // Cast BigInt to TEXT to preserve precision in JSON.
         return [fieldName, ctx.adapter.expressions.cast(expr, "text")];
       }
       if (scalarType === "blob") {
@@ -241,10 +243,14 @@ function buildSelectPairs(
     for (const fieldName of scalarFields) {
       if (select[fieldName] === true) {
         if (fieldName === "_distance") hasDistanceOutputField = true;
+        const scalar = scalars[fieldName];
         const columnName = getColumnName(ctx.model, fieldName);
+        const column = ctx.adapter.identifiers.column(alias, columnName);
         pairs.push([
           fieldName,
-          ctx.adapter.identifiers.column(alias, columnName),
+          scalar?.["~"].state.type === "decimal"
+            ? projectScalarForTransport(ctx.adapter, scalar, column)
+            : column,
         ]);
         continue;
       }
@@ -310,11 +316,16 @@ function buildSelectPairs(
     }
   } else {
     // No select specified - select all scalar fields
+    const scalars = ctx.model["~"].state.scalars;
     for (const fieldName of getDefaultScalarFieldNames(ctx.model)) {
+      const scalar = scalars[fieldName];
       const columnName = getColumnName(ctx.model, fieldName);
+      const column = ctx.adapter.identifiers.column(alias, columnName);
       pairs.push([
         fieldName,
-        ctx.adapter.identifiers.column(alias, columnName),
+        scalar?.["~"].state.type === "decimal"
+          ? projectScalarForTransport(ctx.adapter, scalar, column)
+          : column,
       ]);
     }
   }

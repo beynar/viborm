@@ -300,6 +300,36 @@ const POPULATED: CatalogEstate = {
   indexes: [fkBackingIndexRow],
 };
 
+it("refuses a MySQL catalog DECIMAL outside the complete operation domain", async () => {
+  const decimalColumn = {
+    ...orgIdColumn,
+    COLUMN_NAME: "amount",
+    DATA_TYPE: "decimal",
+    COLUMN_TYPE: "decimal(65,30)",
+    NUMERIC_PRECISION: 65,
+    NUMERIC_SCALE: 30,
+    COLUMN_COMMENT: "",
+  };
+  const server = catalogReader((sql) => {
+    if (sql.includes("information_schema.SCHEMATA")) {
+      return schemata("billing");
+    }
+    if (sql.includes("information_schema.TABLES")) return [usersRow];
+    if (sql.includes("information_schema.COLUMNS")) return [decimalColumn];
+    return [];
+  });
+
+  await expect(BILLING.introspect(server.read)).rejects.toMatchObject({
+    code: "V11009",
+    meta: {
+      dialect: "mysql",
+      table: "users",
+      column: "amount",
+      type: "invalid-catalog-decimal-domain",
+    },
+  });
+});
+
 /**
  * The same target owning NOTHING.
  *

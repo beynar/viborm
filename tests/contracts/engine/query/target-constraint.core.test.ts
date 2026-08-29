@@ -17,7 +17,7 @@ const target = s
     code: s.string().unique(),
     occurredAt: s.dateTime().unique(),
     digest: s.blob(),
-    amount: s.decimal().unique(),
+    amount: s.decimal({ precision: 16, scale: 2 }).unique(),
     generated: s.int().increment().unique(),
     defaulted: s
       .string()

@@ -175,7 +175,13 @@ adapter.aggregates.sum(expr)         // → SUM(expr)
 adapter.aggregates.avg(expr)         // → AVG(expr)
 adapter.aggregates.min(expr)         // → MIN(expr)
 adapter.aggregates.max(expr)         // → MAX(expr)
+adapter.aggregates.decimalAvg(col, d) // → exact SUM/COUNT(col), quantized to
+                                      //   the descriptor's scale half-to-even
 ```
+
+`decimalAvg` is separate from `avg` because `AVG()` is a different function on
+an exact decimal: SQLite computes it in a double and the other two choose the
+result's scale themselves.
 
 ### `json`
 
@@ -279,11 +285,16 @@ UPDATE SET operations.
 adapter.set.assign(col, value)     // → col = value
 adapter.set.increment(col, by)     // → col = col + by
 adapter.set.decrement(col, by)     // → col = col - by
-adapter.set.multiply(col, by)      // → col = col * by
-adapter.set.divide(col, by)        // → col = col / by
+adapter.set.multiply(col, by, t?)  // → col = col * by
+adapter.set.divide(col, by, t?)    // → col = col / by
 adapter.set.push(col, value)       // → col = array_append(col, value) (PG)
                                    // → col = JSON_ARRAY_APPEND(col, '$', value) (MySQL)
 ```
+
+`t` is the `ArithmeticTarget`: `{ integer: true }` forces truncation toward
+zero for an int/bigInt column, and `{ decimal: descriptor }` rounds the product
+or quotient back to the field's scale half-to-even. An absent target is the
+ordinary numeric column every dialect computes natively.
 
 ### `filters`
 

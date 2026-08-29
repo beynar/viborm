@@ -4,6 +4,7 @@ import type {
   ComputeInput,
   ComputeOutput,
   ScalarOptions,
+  ValidationFailure,
   ValidationIssue,
   ValidationResult,
   VibSchema,
@@ -33,6 +34,23 @@ export function ok<T>(value: T): ValidationResult<T> {
   return { value };
 }
 
+/** Copy Standard Schema issues into VibORM's property-key path representation. */
+export function standardSchemaFailure(
+  issues: readonly StandardSchemaV1.Issue[]
+): ValidationFailure {
+  return {
+    issues: issues.map((issue) => {
+      if (issue.path === undefined) return { message: issue.message };
+      return {
+        message: issue.message,
+        path: issue.path.map((segment) =>
+          typeof segment === "object" ? segment.key : segment
+        ),
+      };
+    }),
+  };
+}
+
 // =============================================================================
 // Set Theory Optimized Validators
 // =============================================================================
@@ -54,16 +72,34 @@ export function validateArray<T>(
   value: unknown,
   validate: (v: unknown) => ValidationResult<T>
 ): ValidationResult<T[]> {
-  if (!Array.isArray(value)) {
-    return ARRAY_TYPE_ERROR as ValidationResult<T[]>;
+  try {
+    if (!Array.isArray(value)) {
+      return ARRAY_TYPE_ERROR;
+    }
+  } catch {
+    return fail("Could not inspect array");
   }
 
-  const len = value.length;
+  let len: number;
+  try {
+    len = value.length;
+  } catch {
+    return fail("Could not read array length");
+  }
+  if (!Number.isInteger(len) || len < 0) {
+    return ARRAY_TYPE_ERROR;
+  }
   if (len === 0) return ok([]);
 
   const results = new Array<T>(len);
   for (let i = 0; i < len; i++) {
-    const r = validate(value[i]);
+    let member: unknown;
+    try {
+      member = value[i];
+    } catch {
+      return fail("Could not read array member", [i]);
+    }
+    const r = validate(member);
     if (r.issues) {
       const issue = r.issues[0]!;
       return fail(
@@ -78,82 +114,39 @@ export function validateArray<T>(
   return ok(results);
 }
 
-// =============================================================================
-// 4 Pre-defined wrapper factories (Set Theory Approach)
-// =============================================================================
-// Using bit flags: nullable=2, optional=1. Array validation is composed first.
-// This eliminates runtime option checking during validation
-
 type ValidatorFn<T> = (value: unknown) => ValidationResult<T>;
-type ValidatorFactory = <T>(v: ValidatorFn<T>) => ValidatorFn<any>;
-
-const FACTORIES: ValidatorFactory[] = [
-  // 00: no options - pass through
-  (v) => v,
-
-  // 01: optional only
-  (v) => (val) => (val === undefined ? OK_UNDEFINED : v(val)),
-
-  // 10: nullable only
-  (v) => (val) => (val === null ? OK_NULL : v(val)),
-
-  // 11: nullable + optional (use == null for both!)
-  (v) => (val) => (val == null ? ok(val) : v(val)),
-];
-
-/**
- * Select factory index using bit flags (O(1) lookup).
- */
-function selectFactoryIndex(options: {
-  nullable?: boolean;
-  optional?: boolean;
-}): number {
-  return (options.nullable ? 2 : 0) | (options.optional ? 1 : 0);
-}
 
 // =============================================================================
 // Factories with Default (for optional + default cases)
 // =============================================================================
 
 /**
- * Create validator that returns default when undefined.
- * Default is computed and returned directly inside the optional check.
+ * Resolve a default when undefined, contain a throwing factory, and pass the
+ * resolved value through the already-composed field validator.
  */
 function createOptionalWithDefault<T>(
   validate: ValidatorFn<T>,
-  getDefault: () => T
+  getDefault: () => unknown
 ): ValidatorFn<T> {
-  return (val) => (val === undefined ? ok(getDefault()) : validate(val));
-}
-
-function createNullableOptionalWithDefault<T>(
-  validate: ValidatorFn<T>,
-  getDefault: () => T
-): ValidatorFn<T | null> {
   return (val) => {
-    if (val === undefined) return ok(getDefault());
-    if (val === null) return OK_NULL as ValidationResult<T | null>;
-    return validate(val) as ValidationResult<T | null>;
+    if (val !== undefined) return validate(val);
+    let resolved: unknown;
+    try {
+      resolved = getDefault();
+    } catch (error) {
+      return fail(`Default failed: ${describeDefaultFailure(error)}`);
+    }
+    return validate(resolved);
   };
 }
 
-function createOptionalArrayWithDefault<T>(
-  validate: ValidatorFn<T>,
-  getDefault: () => T[]
-): ValidatorFn<T[]> {
-  return (val) =>
-    val === undefined ? ok(getDefault()) : validateArray(val, validate);
-}
-
-function createNullableOptionalArrayWithDefault<T>(
-  validate: ValidatorFn<T>,
-  getDefault: () => T[]
-): ValidatorFn<T[] | null> {
-  return (val) => {
-    if (val === undefined) return ok(getDefault());
-    if (val === null) return OK_NULL as ValidationResult<T[] | null>;
-    return validateArray(val, validate) as ValidationResult<T[] | null>;
-  };
+/** Render hostile thrown values without letting their coercion escape. */
+function describeDefaultFailure(error: unknown): string {
+  try {
+    return String(error instanceof Error ? error.message : error);
+  } catch {
+    return "unrenderable thrown value";
+  }
 }
 
 // =============================================================================
@@ -221,7 +214,7 @@ export function buildValidator<T, TOut, TSchemaOut = T>(
       if (r.issues) return r;
       const sr = schemaValidate((r as { value: any }).value);
       if ("then" in sr) return fail("Async schemas are not supported");
-      if (sr.issues) return { issues: sr.issues as readonly ValidationIssue[] };
+      if (sr.issues) return standardSchemaFailure(sr.issues);
       return ok((sr as { value: any }).value);
     };
   }
@@ -243,8 +236,20 @@ export function buildValidator<T, TOut, TSchemaOut = T>(
     };
   }
 
-  // Now apply nullable/optional/array/default handling
-  // Default is computed and returned INSIDE the optional check
+  // Compose the complete field validator before the default trigger. A
+  // resolved literal or factory value is an ordinary untrusted field value:
+  // it crosses scalar/custom/transform, member-array, and nullability rules in
+  // exactly the same order as an explicit input.
+
+  if (array) {
+    const itemValidator = validate;
+    validate = (val) => validateArray(val, itemValidator);
+  }
+
+  if (nullable) {
+    const nonNullValidate = validate;
+    validate = (val) => (val === null ? OK_NULL : nonNullValidate(val));
+  }
 
   if (hasDefault) {
     // Compute default getter once
@@ -252,41 +257,15 @@ export function buildValidator<T, TOut, TSchemaOut = T>(
       ? (defaultVal as () => any)
       : () => defaultVal;
 
-    // Apply the appropriate factory with default
-    if (array) {
-      if (nullable) {
-        return createNullableOptionalArrayWithDefault(
-          validate,
-          getDefault
-        ) as ValidatorFn<TOut>;
-      }
-      return createOptionalArrayWithDefault(
-        validate,
-        getDefault
-      ) as ValidatorFn<TOut>;
-    }
-    if (nullable) {
-      return createNullableOptionalWithDefault(
-        validate,
-        getDefault
-      ) as ValidatorFn<TOut>;
-    }
     return createOptionalWithDefault(validate, getDefault) as ValidatorFn<TOut>;
   }
 
-  // No default - use pure 8-way factory
-  if (array) {
-    const itemValidator = validate;
-    validate = (val) => validateArray(val, itemValidator);
-    const wrapperIndex = selectFactoryIndex({ nullable, optional });
-    if (wrapperIndex > 0) {
-      validate = FACTORIES[wrapperIndex]!(validate);
-    }
-  } else {
-    const factoryIndex = selectFactoryIndex(options);
-    if (factoryIndex > 0) {
-      validate = FACTORIES[factoryIndex]!(validate);
-    }
+  // Nullability is already part of the composed validator. Only optionality
+  // remains when no default consumes undefined.
+  if (optional) {
+    const requiredValidate = validate;
+    validate = (val) =>
+      val === undefined ? OK_UNDEFINED : requiredValidate(val);
   }
 
   return validate as ValidatorFn<TOut>;
@@ -308,7 +287,7 @@ export function buildValidator<T, TOut, TSchemaOut = T>(
 export function buildSchema<
   T,
   const Opts extends ScalarOptions<T, any> | undefined,
-  TExtras extends Record<string, unknown> = {},
+  TExtras extends Record<string, unknown> = Record<never, never>,
 >(
   type: string,
   baseValidate: ValidatorFn<T>,
@@ -444,7 +423,7 @@ export function validateSchema<T>(
     return fail("Async schemas are not supported");
   }
   if (result.issues) {
-    return { issues: result.issues as readonly ValidationIssue[] };
+    return standardSchemaFailure(result.issues);
   }
   return ok((result as { value: T }).value);
 }

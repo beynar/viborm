@@ -1,5 +1,9 @@
 # Replace Float With Number
 
+> Historical record: its decimal result-type note describes the retired string
+> implementation. [The fixed-decimal plan](fixed-decimal-plan.md) is the current
+> decimal contract; the number-scalar decisions below remain unchanged.
+
 ## Goal
 
 Replace VibORM's approximate numeric scalar with a JavaScript-native name while

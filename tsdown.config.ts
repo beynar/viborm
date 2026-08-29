@@ -95,6 +95,11 @@ export default defineConfig({
     "@paralleldrive/cuid2",
     "nanoid",
     "ulidx",
+    // Bundling this would inline one Decimal class per entry point, and a
+    // `Decimal` handed back by "viborm" would not be the one "viborm/schema"
+    // builds — `instanceof` fails across entries and there is no single public
+    // constructor identity. `external` is not derived from `dependencies`.
+    "decimal.js",
     // Peer dependencies
     "@electric-sql/pglite",
     "@cloudflare/workers-types",

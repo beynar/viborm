@@ -1,5 +1,9 @@
 # Prisma Parity v2 — Phased Execution Plan
 
+> Historical record: its decimal sections describe the retired string/TEXT
+> implementation. [The fixed-decimal plan](fixed-decimal-plan.md) is the current
+> decimal contract. The historical delivery record below remains unchanged.
+
 **Goal:** close every gap that stops viborm from being a drop-in Prisma Client replacement, without regressing any existing superset. Baseline: `fix/three-defects` + the two in-flight chips (findFirst `take` semantics, enum `columnValueReplacements` DDL). Source of truth for the gap list: [capability-matrix-2026-07.md](capability-matrix-2026-07.md).
 
 **Unit-of-work convention:** every unit is one drive through the established harness — implementer (commit-first) → contract attacker (independent live probes) → theater attacker (falsify-by-mutation, gate-loosening check) → ≤2 fix rounds. One commit (or two) per unit. Full estate + `test:gates` green per unit; Docker MySQL/pg legs at each wave boundary.

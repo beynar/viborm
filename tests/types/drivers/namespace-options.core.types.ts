@@ -540,7 +540,6 @@ describe("generic createClient({ driver }) has no namespace of its own", () => {
     createClient({
       schema,
       driver: new PGliteDriver({ namespace: "alpha" }),
-      decimal: "string",
       // @ts-expect-error - the driver already owns the physical target
       namespace: "alpha",
     });

@@ -1,5 +1,6 @@
 // biome-ignore-all lint/style/useFilenamingConvention: RelationUpsertPart is the architecture name.
 import { NestedWriteError, QueryEngineError } from "@errors";
+import type { PolymorphicStorageColumn } from "@schema/relation";
 import type { Sql } from "@sql";
 import { directPolymorphicMembership } from "../builders/polymorphic-relation";
 import { bindRelation } from "../builders/relation-data-builder";
@@ -63,6 +64,7 @@ import {
   recordHasMembership,
 } from "./relation-membership";
 import type { StepScope } from "./StepScope";
+import { parseCapturedRows } from "./series-result-read";
 import {
   getStepModelName,
   isRecord,
@@ -361,6 +363,25 @@ export class RelationUpsertPart implements Part {
     ];
   }
 
+  /** Private aliases keep the scalar that decodes their physical value. */
+  private probeInternalColumns(): readonly PolymorphicStorageColumn[] {
+    const membership = this.config.membership;
+    const membershipColumns =
+      membership.kind === "polymorphic"
+        ? [
+            membership.relation.membership.storage.typeColumn,
+            membership.relation.membership.storage.idColumn,
+          ]
+        : [];
+    return [
+      ...new Map(
+        [...membershipColumns, ...this.targetProjection.columns].map(
+          (column) => [column.name, column]
+        )
+      ).values(),
+    ];
+  }
+
   /** The address consumers read this part's probe rows from in `known`. */
   probeRowsKey(): string {
     return planningKey(this.probeId, "rows");
@@ -381,14 +402,22 @@ export class RelationUpsertPart implements Part {
   }
 
   compile(scope: StepScope, known: PlanningKnown): readonly OperationStep[] {
-    const rows = known[this.probeRowsKey()];
-    if (!Array.isArray(rows)) {
+    const rawRows = known[this.probeRowsKey()];
+    if (!Array.isArray(rawRows)) {
       throw new NestedWriteError(
         `query-engine-v2 upsert probe for relation '${this.relationName}' did not expose rows.`,
         this.relationName
       );
     }
-    const arm = this.decide(rows, known);
+    const rows = parseCapturedRows(
+      this.config.engine,
+      this.config.childScope.model,
+      rawRows,
+      this.identitySelect(),
+      this.probeInternalColumns()
+    );
+    const capturedKnown = { ...known, [this.probeRowsKey()]: rows };
+    const arm = this.decide(rows, capturedKnown);
     if (arm === "create" && this.duplicateOfEarlier) {
       // First-create-wins: an earlier connectOrCreate item of this relation in the
       // same operation already created this exact target, so this duplicate adopts
@@ -403,7 +432,7 @@ export class RelationUpsertPart implements Part {
       // INSERT makes it, inside this same fragment, under the very selector this
       // arm names. So the selector is not a second provenance here; it is the only
       // identity in existence, and the row it will name is one this operation wrote.
-      return [this.buildUpdateArm(known, this.config.where)];
+      return [this.buildUpdateArm(capturedKnown, this.config.where)];
     }
     if (arm === "create") {
       // Create arm: this child is fresh. Its update-arm children do not run — nested
@@ -413,7 +442,7 @@ export class RelationUpsertPart implements Part {
       // the subtree owns the INSERT (with this part's racePin on its root record), its
       // own identity, and every relation below, under the fresh-parent elision
       // (ATOM “Relation-owner boundary”) that makes any correlation beneath it statically empty.
-      return this.createSubtree.compile(scope, known);
+      return this.createSubtree.compile(scope, capturedKnown);
     }
     // Found: adopt-and-update (global) or update the correlated child. In batch
     // mode the found premise is pinned first by the exists guard, narrowed to the
@@ -429,13 +458,14 @@ export class RelationUpsertPart implements Part {
     // already take the located one (`plannedParentId(probeId)`).
     // Addressing the selector here would let the halves of one nested write land on
     // two different rows.
-    const captured = locatedRow(rows);
+    const captured = rows[0];
     const steps: OperationStep[] = [];
     if (this.foundPin) {
-      steps.push(this.pinLocatedRow(this.foundPin, captured, known));
+      steps.push(this.pinLocatedRow(this.foundPin, captured, capturedKnown));
     }
     if (this.updateCompiler) {
       this.config.updateLegality?.();
+      // The compiler owns this same probe and must decode its provider rows once.
       steps.push(...this.compileRecordUpdate(known));
       return steps;
     }
@@ -452,7 +482,7 @@ export class RelationUpsertPart implements Part {
     // one owner of "read the row key out of this captured record".
     steps.push(
       this.buildUpdateArm(
-        known,
+        capturedKnown,
         capturedTargetWhere(
           this.config.childScope.model,
           this.targetProjection,
@@ -529,13 +559,11 @@ export class RelationUpsertPart implements Part {
             "upsert"
           )
         : { filters: [], predicate: undefined };
-    const rows = known?.[planningKey(this.probeId, "rows")];
-    const captured = Array.isArray(rows) ? locatedRow(rows) : undefined;
-    const capturedColumns = captured
+    const capturedColumns = capturedTarget
       ? capturedTargetColumnPredicate(
           childScope,
           this.targetProjection,
-          captured
+          capturedTarget
         )
       : undefined;
     const predicates = [membership.predicate, capturedColumns].filter(
@@ -579,15 +607,13 @@ export class RelationUpsertPart implements Part {
    * found-uncorrelated row.
    */
   private decide(
-    rows: readonly unknown[],
+    rows: readonly Readonly<Record<string, unknown>>[],
     known: PlanningKnown
   ): "create" | "found" {
     if (rows.length === 0) return "create";
     const config = this.config;
     if (config.correlation === "global-adopt") return "found";
-    if (
-      recordHasMembership(config.membership, locatedRow(rows), known, "upsert")
-    ) {
+    if (recordHasMembership(config.membership, rows[0], known, "upsert")) {
       return "found";
     }
     throw new NestedWriteError(
@@ -668,22 +694,6 @@ export class RelationUpsertPart implements Part {
         : step
     );
   }
-}
-
-/**
- * The row this part's probe located, as a readable record — the ONE place the located
- * row's columns are read from, by both things that need them: the correlation decision
- * (its foreign key) and the identity the found arm writes (its primary key). A result
- * with no readable first row yields `undefined`, and every caller's own path then fails
- * closed on the missing value.
- */
-function locatedRow(
-  rows: readonly unknown[]
-): Record<string, unknown> | undefined {
-  const row = rows[0];
-  return row && typeof row === "object"
-    ? (row as Record<string, unknown>)
-    : undefined;
 }
 
 // ---------------------------------------------------------------------------

@@ -169,7 +169,7 @@ describe("E1 U1 — the lookup fold's provenance", () => {
   );
 
   test(
-    "a probe row whose referenced column reads NULL still stops the write",
+    "a probe row whose required referenced column reads NULL fails typed parsing",
     { timeout: 30_000 },
     async () => {
       const db = new PGlite();
@@ -177,9 +177,9 @@ describe("E1 U1 — the lookup fold's provenance", () => {
       await push(stateClient, { force: true });
       await seedLookupBed(stateClient);
 
-      // The other half of the same seam: the NULL verdict is taken from the probe
-      // row, so corrupting THAT column to null must refuse — the guard and the
-      // fold read different things on purpose, and this names which is which.
+      // The probe row now crosses the complete typed result boundary before the
+      // relation compiler consumes it. Corrupting a required int to null must stop
+      // there; the later relation-specific null diagnostic is unreachable by design.
       const client = makeLookupClient(
         new CorruptConnectProbeDriver(
           { client: db },
@@ -192,7 +192,7 @@ describe("E1 U1 — the lookup fold's provenance", () => {
           data: { author: { connect: { email: "target@x" } } },
         })
       ).rejects.toThrow(
-        "Cannot connect relation 'author': the located target's referenced field 'id' is null."
+        'Driver "pglite" returned a malformed int scalar for operation "findMany": a required scalar is null.'
       );
       await expect(
         stateClient.book.findUnique({ where: { id: 2 } })
