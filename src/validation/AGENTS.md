@@ -113,6 +113,10 @@ and releases each factory after that variant resolves. General lazy records and
 `v.lazy`/`v.lazyRef` also release a successful factory while retaining the
 resolved value.
 
+Each public operation owns its exact args language. In particular, `exist`
+accepts only its optional `where` clause; it must not reuse `count`, whose
+ordering, pagination, cursor, and selection clauses describe a larger query.
+
 ### Fixed-Decimal Value and Operation Boundary
 
 `primitives/decimal-codec.ts` owns both the one structural `DecimalDescriptor`

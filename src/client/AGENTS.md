@@ -35,6 +35,8 @@ This works because:
 | `types.ts` | Operation routing, Payload/Result types | ~230 |
 | `client.ts` | ORM client with recursive proxies | ~700 |
 | `result-types.ts` | InferSelectInclude, result adaptation | ~375 |
+| `schema-introspection.ts` | Public payload validation and TypeScript rendering boundaries | ~150 |
+| `typescript-type-renderer.ts` | Runtime model/result metadata to TypeScript source | ~450 |
 
 ---
 
@@ -111,6 +113,25 @@ await orm.user.findMany({
 An explicit `select` overrides the `defaultOmit()` client default, but a query-level
 `omit` written beside that select still subtracts from it. The same rule applies
 on nested relation nodes and row-returning bulk writes.
+
+### Schema and operation introspection
+
+The package root and `viborm/client` expose three schema-bound utilities:
+
+- `validateOperationPayload(schema, model, operation, payload)` delegates to
+  `SchemaRegistry` and returns the normalized operation-schema output;
+- `renderOperationResultType(schema, model, operation, payload)` validates one
+  concrete payload, then renders the result from `buildExpectedResultShape`;
+- `renderSchemaType(schema)` renders the complete model graph as one recursive
+  `VibORMSchema` declaration.
+
+These are schema-only views. They do not apply request extensions, client-level
+`defaultOmit()`, cache options, driver capability checks, or deferred upsert-arm
+execution. A custom JSON scalar renders as `unknown`: Standard Schema carries
+its output only in a TypeScript generic, which does not exist at runtime. Do not
+replace that honest boundary with JSON Schema or the TypeScript compiler.
+`exist` validates only its optional `where` clause. An empty `count.select`
+keeps the scalar `number` result used by execution.
 
 ---
 

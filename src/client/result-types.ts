@@ -143,8 +143,19 @@ export interface BatchPayload {
  * Result type for count operations
  * Supports select for per-field counts like Prisma: count({ select: { _all: true, name: true } })
  */
-export type CountResultType<Args> = Args extends { select: infer S }
-  ? Prettify<{ [K in keyof S as S[K] extends true ? K : never]: number }>
+type SelectedCountResult<Selection> = Prettify<{
+  [K in keyof Selection as Selection[K] extends true ? K : never]: number;
+}>;
+
+export type CountResultType<
+  Args,
+  Selected = Args extends { select: infer Selection }
+    ? SelectedCountResult<Selection>
+    : never,
+> = Args extends { select: unknown }
+  ? keyof Selected extends never
+    ? number
+    : Selected
   : number;
 
 // =============================================================================

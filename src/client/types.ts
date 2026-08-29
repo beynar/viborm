@@ -16,7 +16,11 @@ import type {
 } from "@schema/relation/static-membership";
 import type { ScalarState } from "@schema/scalars";
 import type { Prettify } from "@validation";
-import type { ModelCoreInput, ModelOperationInput } from "@validation/model";
+import type {
+  ModelArgsSchemas,
+  ModelOperationInput,
+  ModelOperationOutput,
+} from "@validation/model";
 import type { DecimalUpdateOperationKeys } from "@validation/scalars";
 import type { CacheInvalidationOptions } from "../cache/schema";
 import type { VibORMConfig } from "./client";
@@ -131,14 +135,26 @@ export type OperationPayload<
                             : O extends "updateMany"
                               ? ModelOperationInput<M, "updateMany">
                               : O extends "exist"
-                                ? // Optional like the runtime (count
-                                  // schema): exist() with no filter
-                                  // reports whether any row exists.
-                                    | {
-                                        where?: ModelCoreInput<M, "where">;
-                                      }
-                                    | undefined
+                                ? ModelOperationInput<M, "exist">
                                 : never;
+
+type OperationSchemaName<O extends Operations> = O extends "findUniqueOrThrow"
+  ? "findUnique"
+  : O extends "findFirstOrThrow"
+    ? "findFirst"
+    : O;
+
+/** The normalized value produced by an operation payload schema. */
+export type ValidatedOperationPayload<
+  O extends Operations,
+  M extends Model<any>,
+> = Exclude<
+  ModelOperationOutput<
+    M,
+    Extract<OperationSchemaName<O>, keyof ModelArgsSchemas<M>>
+  >,
+  undefined
+>;
 
 /**
  * IMPLICIT RETURNING (maintainer decision D-1: `createManyAndReturn` /

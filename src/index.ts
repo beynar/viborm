@@ -41,6 +41,11 @@ export type {
 export { createClient } from "./client/client.js";
 export type { RawOperation } from "./client/raw.js";
 export {
+  renderOperationResultType,
+  renderSchemaType,
+  validateOperationPayload,
+} from "./client/schema-introspection.js";
+export {
   type ClientExtension,
   defineExtension,
   type ObservationCompletion,

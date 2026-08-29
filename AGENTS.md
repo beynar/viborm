@@ -35,7 +35,7 @@ These constraints shaped every architectural decision. When you wonder "why is t
 | **L6: Query Engine** | `src/query-engine/` | Query structure, logic | **Database SQL** | [query-engine/AGENTS.md](src/query-engine/AGENTS.md) |
 | **L7: Adapters** | `src/adapters/` | **Database-specific SQL** | Query logic | [adapters/AGENTS.md](src/adapters/AGENTS.md) |
 | **L8: Drivers** | `src/drivers/` | Connection, execution | Query building | — |
-| **L9: Client** | `src/client/` | Result types, proxies | Query construction | [client/AGENTS.md](src/client/AGENTS.md) |
+| **L9: Client** | `src/client/` | Result types, proxies, schema/operation introspection | Query construction | [client/AGENTS.md](src/client/AGENTS.md) |
 | **L10: Cache** | `src/cache/` | Query caching, invalidation | Query execution | [cache/AGENTS.md](src/cache/AGENTS.md) |
 | **L11: Instrumentation** | `src/instrumentation/` | Tracing, logging | Query logic | [instrumentation/AGENTS.md](src/instrumentation/AGENTS.md) |
 | **L12: Migrations** | `src/migrations/` | Schema sync, migration files, DDL | Schema definition | [migrations/AGENTS.md](src/migrations/AGENTS.md) |

@@ -21,6 +21,10 @@ type SchemaInput<S> = S extends { " vibInferred": [infer Input, unknown] }
   ? Input
   : never;
 
+type SchemaOutput<S> = S extends { " vibInferred": [unknown, infer Output] }
+  ? Output
+  : never;
+
 export type ModelSchemas<
   M extends AnyModel,
   F extends ScalarSchemas<M> = ScalarSchemas<M>,
@@ -45,6 +49,11 @@ export type ModelOperationInput<
   M extends AnyModel,
   Operation extends keyof ModelArgsSchemas<M>,
 > = SchemaInput<ModelArgsSchemas<M>[Operation]>;
+
+export type ModelOperationOutput<
+  M extends AnyModel,
+  Operation extends keyof ModelArgsSchemas<M>,
+> = SchemaOutput<ModelArgsSchemas<M>[Operation]>;
 
 export type ModelCoreInput<
   M extends AnyModel,

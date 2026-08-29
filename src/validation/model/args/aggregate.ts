@@ -215,6 +215,26 @@ export const getCountArgs = <M extends AnyModel, F extends ScalarSchemas<M>>(
 };
 
 // =============================================================================
+// EXIST ARGS
+// =============================================================================
+
+/** Existence asks only whether any row matches one optional filter. */
+export type ExistArgs<
+  M extends AnyModel,
+  F extends ScalarSchemas<M>,
+> = V.Object<{ where: CoreSchemas<M, F>["where"] }, { optional: true }>;
+
+export const getExistArgs = <M extends AnyModel, F extends ScalarSchemas<M>>(
+  core: CoreSchemas<M, F>
+): ExistArgs<M, F> =>
+  v.object(
+    {
+      where: v.lazyRef(() => core.where),
+    },
+    { optional: true }
+  );
+
+// =============================================================================
 // AGGREGATE ARGS
 // =============================================================================
 

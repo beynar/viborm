@@ -54,7 +54,9 @@ class SchemaRegistry<S extends Record<string, AnyModel>>
       {},
       {
         get: (_target, prop) => {
-          if (!(isString(prop) && prop in schema && schema[prop])) {
+          if (
+            !(isString(prop) && Object.hasOwn(schema, prop) && schema[prop])
+          ) {
             const property = String(prop);
             throw new ValidationError({ kind: "registry", property }, [
               { path: property, message: `${property} does not exist` },
@@ -125,15 +127,29 @@ class SchemaRegistry<S extends Record<string, AnyModel>>
     operation: SchemaRegistryOperation,
     payload: unknown
   ) => {
-    const model = this.schema[modelName];
+    const model = Object.hasOwn(this.schema, modelName)
+      ? this.schema[modelName]
+      : undefined;
     if (!model) {
+      const modelLabel = String(modelName);
       throw new ValidationError(
-        { kind: "operation", operation, model: modelName },
-        [{ path: modelName, message: `${modelName} does not exist` }],
-        { meta: { model: modelName } }
+        { kind: "operation", operation, model: modelLabel },
+        [{ path: modelLabel, message: `${modelLabel} does not exist` }],
+        { meta: { model: modelLabel } }
       );
     }
     const schemas = this.getModelSchemas(model);
+    if (!Object.hasOwn(schemas.args, operation)) {
+      throw new ValidationError(
+        { kind: "registry", model: modelName, property: String(operation) },
+        [
+          {
+            path: "operation",
+            message: `${String(operation)} does not exist`,
+          },
+        ]
+      );
+    }
     try {
       const result = schemas.args[operation]["~standard"].validate(payload);
       if (result.issues) {

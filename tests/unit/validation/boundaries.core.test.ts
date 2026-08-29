@@ -186,7 +186,7 @@ describe("SchemaRegistry", () => {
   test("reports unknown proxy properties as registry validation failures", () => {
     const registry = createSchemaRegistry({ user });
 
-    for (const property of ["missing", Symbol("missing")]) {
+    for (const property of ["missing", "toString", Symbol("missing")]) {
       const error = captureValidationError(() =>
         Reflect.get(registry.proxy, property)
       );
@@ -198,15 +198,57 @@ describe("SchemaRegistry", () => {
   test("reports an unknown model as an operation validation failure", () => {
     const registry = createSchemaRegistry({ user });
 
-    const error = captureValidationError(() => {
-      registry.validate("missing", "findMany", {});
+    for (const modelName of ["missing", "toString"]) {
+      const error = captureValidationError(() => {
+        registry.validate(modelName, "findMany", {});
+      });
+      expect(error.source).toEqual({
+        kind: "operation",
+        operation: "findMany",
+        model: modelName,
+      });
+      expect(error.code).toBe(VibORMErrorCode.VALIDATION_FAILED);
+    }
+
+    const symbolError = captureValidationError(() => {
+      Reflect.apply(registry.validate, undefined, [
+        Symbol("missing"),
+        "findMany",
+        {},
+      ]);
     });
-    expect(error.source).toEqual({
+    expect(symbolError.source).toEqual({
       kind: "operation",
       operation: "findMany",
-      model: "missing",
+      model: "Symbol(missing)",
     });
-    expect(error.code).toBe(VibORMErrorCode.VALIDATION_FAILED);
+  });
+
+  test("reports an unknown operation as a registry validation failure", () => {
+    const registry = createSchemaRegistry({ user });
+
+    const error = captureValidationError(() => {
+      Reflect.apply(registry.validate, undefined, ["user", "missing", {}]);
+    });
+    expect(error.source).toEqual({
+      kind: "registry",
+      model: "user",
+      property: "missing",
+    });
+    expect(error.code).toBe(VibORMErrorCode.INVALID_INPUT);
+
+    const symbolError = captureValidationError(() => {
+      Reflect.apply(registry.validate, undefined, [
+        "user",
+        Symbol("missing"),
+        {},
+      ]);
+    });
+    expect(symbolError.source).toEqual({
+      kind: "registry",
+      model: "user",
+      property: "Symbol(missing)",
+    });
   });
 
   test("returns validated values and preserves nested issue paths", () => {

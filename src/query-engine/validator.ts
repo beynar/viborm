@@ -59,8 +59,7 @@ function getOperationSchema(
     case "groupBy":
       return schemas.args.groupBy;
     case "exist":
-      // exist uses same schema as count but simpler
-      return schemas.args.count;
+      return schemas.args.exist;
     default:
       return undefined;
   }
