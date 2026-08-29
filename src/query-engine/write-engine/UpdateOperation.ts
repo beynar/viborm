@@ -56,6 +56,7 @@ import {
   type RecordUpdateCompiler,
 } from "./RecordUpdateCompiler";
 import { StepScope } from "./StepScope";
+import { parseCapturedRowKeys, parseCapturedRows } from "./series-result-read";
 import {
   getStepModelName,
   isRecord,
@@ -71,6 +72,7 @@ import {
   capturedTargetColumnPredicate,
   targetProjectionColumns,
   targetProjectionOutputs,
+  targetProjectionSelect,
 } from "./target-projection";
 
 type ExecutionMode = "transaction" | "batch";
@@ -99,8 +101,6 @@ export class UpdateOperation {
   private readonly rootGuardId: string;
   private readonly directWrite: WriteStep | undefined;
   private readonly directGuard: GuardStep | undefined;
-  /** Captured bulk members return exact row keys for internal addressing. */
-  private readonly resultDecimalDecode: "string" | "number";
 
   constructor(
     engine: QueryEngine,
@@ -125,7 +125,6 @@ export class UpdateOperation {
     // fragment of one — is everything from `data` down: its own relation parse, its
     // own own-write preflight, its own locate, compiler, transitions and terminal read.
     const captured = options.capturedRoot;
-    this.resultDecimalDecode = captured ? "string" : engine.decimalDecode;
     // The whole envelope owns public validation and error ordering. Relation
     // payloads are then transformed exactly once at their existing relation sites.
     const validatedArgs = captured
@@ -410,14 +409,17 @@ export class UpdateOperation {
         "query-engine-v2 update planning did not expose the locate rows."
       );
     }
-    if (locateRows.length === 0) {
+    const locatedRow = this.compiler
+      ? parseCapturedRows(
+          this.engine,
+          this.model,
+          locateRows,
+          targetProjectionSelect(this.compiler.targetProjection),
+          this.compiler.targetProjection.columns
+        )[0]
+      : parseCapturedRowKeys(this.engine, this.model, locateRows)[0];
+    if (!locatedRow) {
       throw new NotFoundError(getStepModelName(this.model, "record"), "update");
-    }
-    const locatedRow = locateRows[0];
-    if (!isRecord(locatedRow)) {
-      throw new QueryEngineError(
-        "query-engine-v2 update planning exposed an invalid locate row."
-      );
     }
 
     const steps: OperationStep[] = [];
@@ -438,8 +440,7 @@ export class UpdateOperation {
     return new ResultParser(
       this.engine,
       this.model,
-      this.engine.driver,
-      this.resultDecimalDecode
+      this.engine.driver
     ).parse<T>("update", outputs.result, this.resultArgs);
   }
 

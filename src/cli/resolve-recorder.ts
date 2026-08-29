@@ -19,6 +19,7 @@ import type {
   ResolveChange,
   ResolveResult,
 } from "../migrations/types";
+import { readEnumResolutionDecision } from "../migrations/types";
 
 type ResolveOutcome = Awaited<ReturnType<ResolveCallback>>;
 
@@ -82,16 +83,16 @@ function toRecordedDecision(
       return { kind: "rename" };
     case "addAndDrop":
       return { kind: "addAndDrop" };
-    case "enumMapped":
-      if (change.type === "enumValueRemoval") {
-        if (change._mappings) {
-          return { kind: "mapValues", mappings: { ...change._mappings } };
-        }
-        if (change._useNullDefault) {
-          return { kind: "useNull" };
-        }
+    case "enumMapped": {
+      const decision = readEnumResolutionDecision(change);
+      if (decision?.kind === "mapValues") {
+        return { kind: "mapValues", mappings: { ...decision.mappings } };
+      }
+      if (decision?.kind === "useNull") {
+        return { kind: "useNull" };
       }
       return;
+    }
     default:
       // Unhandled (undefined/void): nothing to record — replay stays
       // fail-closed for this change.
@@ -141,10 +142,11 @@ export function createRecordingResolver(
   const decisions = new Map<string, RecordedDecision>();
 
   const resolve: ResolveCallback = async (change) => {
+    const identity = changeIdentity(change);
     const result = await inner(change);
     const decision = toRecordedDecision(change, result);
     if (decision) {
-      decisions.set(changeIdentity(change), decision);
+      decisions.set(identity, decision);
     }
     return result;
   };

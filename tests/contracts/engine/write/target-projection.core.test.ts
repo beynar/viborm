@@ -10,9 +10,11 @@ import {
   readRowKey,
   rowKeysEqual,
   rowKeyToken,
+  sortCapturedRowKeys,
   targetProjectionOutputs,
   targetProjectionRowKeySelect,
 } from "@src/query-engine/write-engine/target-projection";
+import Decimal from "decimal.js";
 import { describe, expect, test } from "vitest";
 
 /**
@@ -55,7 +57,9 @@ const schema = (() => {
     })
     .id(["slot", "tenantId"])
     .map("tp_reordered_pk");
-  const decimalPk = s.model({ id: s.decimal().id() }).map("tp_decimal_pk");
+  const decimalPk = s
+    .model({ id: s.decimal({ precision: 12, scale: 2 }).id() })
+    .map("tp_decimal_pk");
   return { scalarPk, compoundPk, reorderedPk, decimalPk };
 })();
 
@@ -314,5 +318,40 @@ describe("decoded row-key indexing", () => {
     expect(rowKeyToken(decimalPk, { id: "1" })).not.toBe(
       rowKeyToken(scalarPk, { id: "1" })
     );
+  });
+
+  test("a decimal row key is the codec's canonical text, and only that", () => {
+    // Two Decimal instances of one value are NOT one key here — `Object.is`
+    // says so — which is exactly why the parser hands this owner the canonical
+    // private string instead. The canonical form is what makes two spellings of
+    // one number one key, and it is stable under any application-side
+    // `Decimal.set(...)`, which `Decimal#toString()` is not.
+    expect(rowKeysEqual(decimalPk, { id: "1.5" }, { id: "1.5" })).toBe(true);
+    expect(rowKeyToken(decimalPk, { id: "1.5" })).toBe(
+      rowKeyToken(decimalPk, { id: "1.5" })
+    );
+    expect(
+      rowKeysEqual(
+        decimalPk,
+        { id: new Decimal("1.5") },
+        { id: new Decimal("1.5") }
+      )
+    ).toBe(false);
+    expect(rowKeyToken(decimalPk, { id: "1.50" })).not.toBe(
+      rowKeyToken(decimalPk, { id: "1.5" })
+    );
+  });
+
+  test("captured decimal row keys sort deterministically by canonical text", () => {
+    // Total and stable, not numeric: this comparator decides the ORDER MEMBERS
+    // EXECUTE IN, and reading decimals numerically here would put a second
+    // decimal-ordering owner beside the codec and the database.
+    const sorted = sortCapturedRowKeys(
+      ["id"],
+      [{ id: "9" }, { id: "10" }, { id: "9.5" }]
+    );
+
+    expect(sorted).toEqual([{ id: "10" }, { id: "9" }, { id: "9.5" }]);
+    expect(sortCapturedRowKeys(["id"], sorted)).toEqual(sorted);
   });
 });

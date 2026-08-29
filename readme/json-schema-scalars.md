@@ -258,7 +258,7 @@ const productAttributesSchema: StandardSchemaV1<
 const productModel = s.model({
   id: s.string().id().auto.ulid(),
   name: s.string(),
-  price: s.decimal(),
+  price: s.decimal({ precision: 10, scale: 2 }),
 
   // Strongly typed product attributes
   attributes: s.json(productAttributesSchema),

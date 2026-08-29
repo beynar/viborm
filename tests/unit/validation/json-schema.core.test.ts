@@ -1,5 +1,5 @@
-import { s } from "@schema";
 import { ValidationError, VibORMErrorCode } from "@errors";
+import { s } from "@schema";
 import { getSchemas } from "@schema/schemas";
 import v, { toJsonSchema } from "@validation";
 import type { JsonSchema } from "@validation/json-schema";
@@ -8,6 +8,7 @@ import { describe, expect, test } from "vitest";
 
 const DEFS_PREFIX = "#/$defs/";
 const DEFS_POINTER = /^#\/\$defs\//;
+const GENERATED_DEFS_POINTER = /^#\/\$defs\/Recursive\d+$/;
 
 describe("JSON Schema conversion", () => {
   describe("primitive schemas", () => {
@@ -40,6 +41,135 @@ describe("JSON Schema conversion", () => {
       expect(jsonSchema).toMatchObject({
         type: "number",
       });
+    });
+
+    test("decimal input and output expose their distinct JSON value families", () => {
+      const schema = v.decimal({
+        decimal: { precision: 10, scale: 2 },
+      });
+      const converter = schema["~standard"].jsonSchema;
+      const input = converter.input({ target: "draft-07" });
+      const output = converter.output({ target: "draft-07" });
+      const description =
+        "Exact decimal with at most 10 total digits and at most 2 fractional digits";
+      const inputStringValue = {
+        type: "string",
+        pattern: "^[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)$",
+      };
+      const outputStringValue = {
+        type: "string",
+        pattern: "^(?:0|-?(?:[1-9]\\d*(?:\\.\\d*[1-9])?|0\\.\\d*[1-9]))$",
+      };
+
+      expect(input).toMatchObject({
+        description,
+        anyOf: [inputStringValue, { type: "number" }],
+      });
+      expect(toJsonSchema(schema)).toEqual(input);
+      expect(output).toMatchObject({ description, ...outputStringValue });
+      expect(output).not.toHaveProperty("anyOf");
+
+      const outputPattern = Reflect.get(output, "pattern");
+      if (typeof outputPattern !== "string") {
+        throw new Error("decimal output schema has no string pattern");
+      }
+      for (const canonical of ["0", "1", "-1", "0.5", "-0.5", "1.02"]) {
+        expect(new RegExp(outputPattern).test(canonical)).toBe(true);
+      }
+      for (const noncanonical of ["+1", "01", "1.", "1.20", ".5", "-0"]) {
+        expect(new RegExp(outputPattern).test(noncanonical)).toBe(false);
+      }
+    });
+
+    test("decimal scalar options project list arity and nullability", () => {
+      const schema = v.decimal({
+        decimal: { precision: 10, scale: 2 },
+        array: true,
+        nullable: true,
+      });
+      const converter = schema["~standard"].jsonSchema;
+      const input = converter.input({ target: "draft-07" });
+      const output = converter.output({ target: "draft-07" });
+      const openapi = converter.output({ target: "openapi-3.0" });
+
+      expect(input).toMatchObject({
+        anyOf: [
+          {
+            type: "array",
+            items: {
+              anyOf: [{ type: "string" }, { type: "number" }],
+            },
+          },
+          { type: "null" },
+        ],
+      });
+      expect(output).toMatchObject({
+        anyOf: [{ type: "array", items: { type: "string" } }, { type: "null" }],
+      });
+      expect(openapi).toMatchObject({
+        type: "array",
+        nullable: true,
+        items: { type: "string" },
+      });
+    });
+
+    test("an exact-one schema resolves a lazy operation entry", () => {
+      const lazyExactOne = {
+        type: "exact_one",
+        entries: { set: () => v.decimal() },
+        "~standard": v.string()["~standard"],
+      } as unknown as VibSchema & {
+        entries: { set: () => VibSchema };
+      };
+
+      expect(toJsonSchema(lazyExactOne)).toMatchObject({
+        oneOf: [
+          {
+            type: "object",
+            required: ["set"],
+            additionalProperties: false,
+          },
+        ],
+      });
+    });
+
+    test("decimal output direction reaches nested and list leaves", () => {
+      const decimal = v.decimal({
+        decimal: { precision: 10, scale: 2 },
+      });
+      const schema = v.object({
+        amount: decimal,
+        amounts: v.array(decimal),
+      });
+      const converter = schema["~standard"].jsonSchema;
+      const input = converter.input({ target: "draft-07" }) as JsonSchema;
+      const output = converter.output({ target: "draft-07" }) as JsonSchema;
+      const inputDecimal = {
+        description:
+          "Exact decimal with at most 10 total digits and at most 2 fractional digits",
+        anyOf: [
+          {
+            type: "string",
+            pattern: "^[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)$",
+          },
+          { type: "number" },
+        ],
+      };
+      const outputDecimal = {
+        description:
+          "Exact decimal with at most 10 total digits and at most 2 fractional digits",
+        type: "string",
+        pattern: "^(?:0|-?(?:[1-9]\\d*(?:\\.\\d*[1-9])?|0\\.\\d*[1-9]))$",
+      };
+
+      expect(input.properties?.amount).toEqual(inputDecimal);
+      expect((input.properties?.amounts as JsonSchema).items).toEqual(
+        inputDecimal
+      );
+      expect(output.properties?.amount).toEqual(outputDecimal);
+      expect((output.properties?.amounts as JsonSchema).items).toEqual(
+        outputDecimal
+      );
     });
 
     test("boolean schema", () => {
@@ -854,8 +984,8 @@ describe("JSON Schema conversion", () => {
       numList: s.number().array(),
       big: s.bigInt(),
       bigList: s.bigInt().array(),
-      dec: s.decimal(),
-      decList: s.decimal().array(),
+      dec: s.decimal({ precision: 10, scale: 2 }),
+      decList: s.decimal({ precision: 10, scale: 2 }).array(),
       bool: s.boolean(),
       boolList: s.boolean().array(),
       dt: s.dateTime(),
@@ -874,7 +1004,10 @@ describe("JSON Schema conversion", () => {
 
     type FilterSchemas = Record<
       string,
-      { filter: VibSchema<unknown, unknown> }
+      {
+        filter: VibSchema<unknown, unknown>;
+        update: VibSchema<unknown, unknown>;
+      }
     >;
 
     const scalarSchemas = (): FilterSchemas =>
@@ -887,6 +1020,14 @@ describe("JSON Schema conversion", () => {
         throw new Error(`no scalar schemas for field '${field}'`);
       }
       return schemas.filter;
+    };
+
+    const updateOf = (field: string): VibSchema<unknown, unknown> => {
+      const schemas = scalarSchemas()[field];
+      if (!schemas) {
+        throw new Error(`no scalar schemas for field '${field}'`);
+      }
+      return schemas.update;
     };
 
     /** Follows a `#/$defs/x` pointer inside the document that emitted it. */
@@ -954,6 +1095,107 @@ describe("JSON Schema conversion", () => {
       expect(toJsonSchema(filterOf("numList")).anyOf?.[0]).toEqual({
         type: "number",
       });
+    });
+
+    /**
+     * A decimal's JSON-expressible half, and the half that is only SAID.
+     *
+     * The value family is `Decimal | string | number`; a class instance has no
+     * JSON Schema at all, so what the document describes is the string arm (the
+     * exact one, and what `Decimal#toJSON()` produces) beside the lossy number
+     * arm. The DECLARED DOMAIN is not expressible: `precision` and `scale`
+     * count SIGNIFICANT digits, counted after canonicalization, so `"1.500"`
+     * fits a scale-2 field — a `pattern` counting raw digits would refuse
+     * values this schema accepts. It is stated in `description` rather than
+     * silently dropped.
+     */
+    test("a decimal states the domain it cannot express", () => {
+      const document = toJsonSchema(filterOf("dec"));
+      const operand = document.anyOf?.[0] as JsonSchema;
+
+      expect(operand.anyOf).toEqual([
+        { type: "string", pattern: "^[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)$" },
+        { type: "number" },
+      ]);
+      expect(operand.description).toBe(
+        "Exact decimal with at most 10 total digits and at most 2 fractional digits"
+      );
+      const listDocument = toJsonSchema(filterOf("decList"));
+      const listOperand = listDocument.anyOf?.[0] as JsonSchema;
+      expect((listOperand.items as JsonSchema).description).toBe(
+        "Exact decimal with at most 10 total digits and at most 2 fractional digits"
+      );
+
+      // The primitive is also the unconstrained value grammar the codec is
+      // built on. With no declared domain there is nothing to state.
+      const bare = toJsonSchema(v.decimal());
+      expect(bare.description).toBeUndefined();
+      expect(bare.anyOf).toEqual(operand.anyOf);
+
+      // Reach the decimal-only comparison wrapper itself. Its validator closes
+      // generic SQL fragments while `createSchema` owns the Standard Schema
+      // carrier; the attached `wrapped` metadata must still let its own lazy
+      // converter expose the literal decimal language.
+      const directOperand = getSchemas({ kitchenSink }).kitchenSink.scalars.dec
+        .filter.options[1].entries.equals;
+      expect(
+        directOperand["~standard"].jsonSchema.input({ target: "draft-07" })
+      ).toMatchObject({
+        anyOf: operand.anyOf,
+        description: operand.description,
+      });
+    });
+
+    test("decimal exact-one updates emit one required-key arm per operation", () => {
+      const scalar = toJsonSchema(updateOf("dec"));
+      const exactOne = scalar.anyOf?.[1] as JsonSchema;
+      expect(exactOne.oneOf).toHaveLength(5);
+      expect(exactOne.oneOf?.map((arm) => arm.required)).toEqual([
+        ["set"],
+        ["increment"],
+        ["decrement"],
+        ["multiply"],
+        ["divide"],
+      ]);
+      for (const arm of exactOne.oneOf ?? []) {
+        expect(arm.type).toBe("object");
+        expect(arm.additionalProperties).toBe(false);
+        expect(Object.keys(arm.properties ?? {})).toEqual(arm.required);
+      }
+
+      const list = updateOf("decList")["~standard"].jsonSchema.input({
+        target: "draft-07",
+      }) as JsonSchema;
+      expect(
+        (list.anyOf?.[1] as JsonSchema).oneOf?.map((arm) => arm.required)
+      ).toEqual([["set"], ["push"], ["unshift"]]);
+
+      // Exercise the exact-one wrapper's own lazy converter, rather than only
+      // reaching it while a surrounding union walks the schema tree.
+      const directExactOne = getSchemas({ kitchenSink }).kitchenSink.scalars.dec
+        .update.options[1];
+      expect(
+        directExactOne["~standard"].jsonSchema.input({ target: "draft-07" })
+      ).toMatchObject({
+        oneOf: [
+          { required: ["set"] },
+          { required: ["increment"] },
+          { required: ["decrement"] },
+          { required: ["multiply"] },
+          { required: ["divide"] },
+        ],
+      });
+
+      const output = updateOf("dec")["~standard"].jsonSchema.output({
+        target: "draft-07",
+      }) as JsonSchema;
+      expect(output.anyOf?.[0]).toMatchObject({ type: "string" });
+      expect(output.anyOf?.[0]).not.toHaveProperty("anyOf");
+      for (const arm of (output.anyOf?.[1] as JsonSchema).oneOf ?? []) {
+        const [operand] = Object.values(arm.properties ?? {});
+        expect(operand).toMatchObject({ type: "string" });
+        expect(operand).not.toHaveProperty("anyOf");
+      }
     });
 
     /**
@@ -1070,7 +1312,7 @@ describe("JSON Schema conversion", () => {
 
       const jsonSchema = toJsonSchema(outer) as JsonSchema;
       expect((jsonSchema.properties?.inner as JsonSchema).$ref).toMatch(
-        /^#\/\$defs\/Recursive\d+$/
+        GENERATED_DEFS_POINTER
       );
     });
 

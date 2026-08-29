@@ -6,6 +6,11 @@ import process from "node:process";
 import { pathToFileURL } from "node:url";
 import { PROVIDERS } from "./operation-pipeline-catalog.mjs";
 
+const FIXED_DECIMAL_DOMAIN = Object.freeze({ precision: 12, scale: 3 });
+const FIXED_DECIMAL_LIST = Object.freeze(["1.125", "2.125", "-0.375"]);
+const FIXED_DECIMAL_LIST_COEFFICIENTS = Object.freeze(["1125", "2125", "-375"]);
+const WHITESPACE_PATTERN = /\s+/u;
+
 function providerRows(count) {
   return Object.freeze(
     Array.from({ length: count }, (_, index) =>
@@ -16,9 +21,11 @@ function providerRows(count) {
         enabled: index % 2 === 0,
         big: 9_000_000_000n + BigInt(index),
         amount: `${index + 1}.125`,
-        recordedAt: new Date(
-          Date.UTC(2026, 0, 1, 0, 0, index % 60)
-        ),
+        // The SQLite physical value: the unscaled coefficient at scale 3.
+        // SQLite has no exact decimal type, so the column is a checked INTEGER
+        // and the fixture writes what the ORM writes.
+        amountCoefficient: (index + 1) * 1000 + 125,
+        recordedAt: new Date(Date.UTC(2026, 0, 1, 0, 0, index % 60)),
         status: index % 2 === 0 ? "active" : "inactive",
         metadata: Object.freeze({ index, group: index % 5 }),
         optionalText: index % 2 === 0 ? null : `optional_${index}`,
@@ -27,7 +34,6 @@ function providerRows(count) {
     )
   );
 }
-
 
 function builtModule(targetDirectory, fileName) {
   return import(pathToFileURL(join(targetDirectory, "dist", fileName)).href);
@@ -87,14 +93,34 @@ function fakeResultRows(providerName, rows, providerShape) {
     return rows.map((row) => ({ id: row.id }));
   }
   if (providerShape.kind === "mixed-scalar") {
+    return rows.map((row) => {
+      const { amountCoefficient: _, ...logicalRow } = row;
+      return {
+        ...logicalRow,
+        big: row.big.toString(),
+        recordedAt:
+          providerName === "neon-http"
+            ? row.recordedAt
+            : row.recordedAt.toISOString(),
+        metadata: row.metadata,
+      };
+    });
+  }
+  if (providerShape.kind === "fixed-decimal-scalar-control") {
     return rows.map((row) => ({
-      ...row,
+      id: row.id,
+      label: row.label,
+      score: row.score,
+      enabled: row.enabled,
       big: row.big.toString(),
       recordedAt:
         providerName === "neon-http"
           ? row.recordedAt
           : row.recordedAt.toISOString(),
+      status: row.status,
       metadata: row.metadata,
+      optionalText: row.optionalText,
+      payload: row.payload,
     }));
   }
   if (providerShape.kind === "wide-scalar") {
@@ -154,7 +180,10 @@ function planetScaleClient(providerName, rows, providerShape) {
       return client;
     },
     async execute(sql) {
-      const command = String(sql).trimStart().split(/\s+/u)[0]?.toUpperCase();
+      const command = String(sql)
+        .trimStart()
+        .split(WHITESPACE_PATTERN)[0]
+        ?.toUpperCase();
       if (["BEGIN", "COMMIT", "ROLLBACK", "SET"].includes(command)) {
         return { rows: [], rowsAffected: 0, insertId: "0" };
       }
@@ -203,9 +232,7 @@ function neonFetch(counter, rows, providerShape) {
     command: providerShape.kind === "returning" ? "UPDATE" : "SELECT",
     rowCount: selected.length,
     rows: selected.map((row) =>
-      fields.map((field) =>
-        wireValue(row[field.name], field.dataTypeID)
-      )
+      fields.map((field) => wireValue(row[field.name], field.dataTypeID))
     ),
   });
   const bodyBytes = Buffer.byteLength(body);
@@ -403,6 +430,55 @@ function buildSchema(s, providerShape, tables) {
       .map(tables.comment);
     return { schema: { article, clip, comment } };
   }
+  if (providerShape.kind === "fixed-decimal-scalar-control") {
+    const record = s
+      .model({
+        id: s.string().id(),
+        label: s.string(),
+        score: s.int(),
+        enabled: s.boolean(),
+        big: s.bigInt(),
+        recordedAt: s.dateTime(),
+        status: s.enum(["active", "inactive"]),
+        metadata: s.json(),
+        optionalText: s.string().nullable(),
+        payload: s.blob(),
+      })
+      .map(tables.record);
+    return { schema: { record } };
+  }
+  if (providerShape.kind === "fixed-decimal-list") {
+    const record = s
+      .model({
+        id: s.string().id(),
+        amounts: s.decimal(FIXED_DECIMAL_DOMAIN).array(),
+      })
+      .map(tables.record);
+    return { schema: { record } };
+  }
+  if (providerShape.kind === "fixed-decimal-text-row") {
+    const record = s
+      .model({
+        id: s.string().id(),
+        amount: s.string(),
+      })
+      .map(tables.record);
+    return { schema: { record } };
+  }
+  if (
+    providerShape.kind === "fixed-decimal-floor" ||
+    providerShape.kind === "fixed-decimal-row" ||
+    providerShape.kind === "fixed-decimal-arithmetic" ||
+    providerShape.kind === "fixed-decimal-aggregate"
+  ) {
+    const record = s
+      .model({
+        id: s.string().id(),
+        amount: s.decimal(FIXED_DECIMAL_DOMAIN),
+      })
+      .map(tables.record);
+    return { schema: { record } };
+  }
   const record = s
     .model({
       id: s.string().id(),
@@ -410,7 +486,9 @@ function buildSchema(s, providerShape, tables) {
       score: s.int(),
       enabled: s.boolean(),
       big: s.bigInt(),
-      amount: s.decimal(),
+      // Every physical decimal type below is DERIVED from this one domain;
+      // the hand-written DDL in `scalarColumnTypes` must be changed with it.
+      amount: s.decimal({ precision: 12, scale: 3 }),
       recordedAt: s.dateTime(),
       status: s.enum(["active", "inactive"]),
       metadata: s.json(),
@@ -430,9 +508,7 @@ async function insertRows(
 ) {
   const maximumRows = Math.max(
     1,
-    Math.floor(
-      (driver.maxBindParametersPerStatement ?? 999) / columns.length
-    )
+    Math.floor((driver.maxBindParametersPerStatement ?? 999) / columns.length)
   );
   for (let start = 0; start < valuesByRow.length; start += maximumRows) {
     const chunk = valuesByRow.slice(start, start + maximumRows);
@@ -440,9 +516,7 @@ async function insertRows(
     const markers = placeholders(providerName, values.length);
     const tuples = chunk.map((_, rowIndex) => {
       const offset = rowIndex * columns.length;
-      return `(${markers
-        .slice(offset, offset + columns.length)
-        .join(", ")})`;
+      return `(${markers.slice(offset, offset + columns.length).join(", ")})`;
     });
     await driver._executeRaw(
       `INSERT INTO ${quote(providerName, tableName)} (${columns
@@ -460,7 +534,7 @@ function scalarColumnTypes(providerName) {
       id: "TEXT",
       bool: "BOOLEAN",
       big: "BIGINT",
-      decimal: "NUMERIC",
+      decimal: "NUMERIC(12,3)",
       date: "TIMESTAMP",
       json: "JSONB",
       blob: "BYTEA",
@@ -471,7 +545,7 @@ function scalarColumnTypes(providerName) {
       id: "VARCHAR(64)",
       bool: "BOOLEAN",
       big: "BIGINT",
-      decimal: "DECIMAL(30, 6)",
+      decimal: "DECIMAL(12,3)",
       date: "DATETIME(3)",
       json: "JSON",
       blob: "BLOB",
@@ -481,7 +555,10 @@ function scalarColumnTypes(providerName) {
     id: "TEXT",
     bool: "INTEGER",
     big: "INTEGER",
-    decimal: "TEXT",
+    // The signed coefficient, plus the reserved CHECK that makes the declared
+    // precision real on a dialect that ignores the numbers in DECIMAL(12,3).
+    decimal:
+      'INTEGER CONSTRAINT "viborm_decimal_amount_12_3" CHECK (typeof("amount") = \'integer\' AND "amount" BETWEEN -999999999999 AND 999999999999)',
     date: "TEXT",
     json: "TEXT",
     blob: "BLOB",
@@ -511,9 +588,13 @@ async function setupProviderRows(
       `SELECT COUNT(*) AS ${quote(providerName, "count")} FROM ${quote(providerName, tables.wide)}`
     );
     if (Number(existing.rows[0]?.count ?? 0) === 0) {
-      await insertRows(providerName, driver, tables.wide, ["id", ...fields], [
-        ["wide_1", ...Object.values(wideRow(providerShape.fields))],
-      ]);
+      await insertRows(
+        providerName,
+        driver,
+        tables.wide,
+        ["id", ...fields],
+        [["wide_1", ...Object.values(wideRow(providerShape.fields))]]
+      );
     }
     return;
   }
@@ -602,6 +683,127 @@ async function setupProviderRows(
     return;
   }
 
+  if (providerShape.kind === "fixed-decimal-scalar-control") {
+    await driver._executeRaw(
+      `CREATE TABLE IF NOT EXISTS ${quote(providerName, tables.record)} (${quote(providerName, "id")} ${types.id} PRIMARY KEY, ${quote(providerName, "label")} TEXT NOT NULL, ${quote(providerName, "score")} INTEGER NOT NULL, ${quote(providerName, "enabled")} ${types.bool} NOT NULL, ${quote(providerName, "big")} ${types.big} NOT NULL, ${quote(providerName, "recordedAt")} ${types.date} NOT NULL, ${quote(providerName, "status")} TEXT NOT NULL, ${quote(providerName, "metadata")} ${types.json} NOT NULL, ${quote(providerName, "optionalText")} TEXT, ${quote(providerName, "payload")} ${types.blob} NOT NULL)`
+    );
+    const existing = await driver._executeRaw(
+      `SELECT COUNT(*) AS ${quote(providerName, "count")} FROM ${quote(providerName, tables.record)}`
+    );
+    if (Number(existing.rows[0]?.count ?? 0) === 0) {
+      await insertRows(
+        providerName,
+        driver,
+        tables.record,
+        [
+          "id",
+          "label",
+          "score",
+          "enabled",
+          "big",
+          "recordedAt",
+          "status",
+          "metadata",
+          "optionalText",
+          "payload",
+        ],
+        rows.map((row) => [
+          row.id,
+          row.label,
+          row.score,
+          row.enabled,
+          row.big,
+          row.recordedAt.toISOString(),
+          row.status,
+          JSON.stringify(row.metadata),
+          row.optionalText,
+          row.payload,
+        ])
+      );
+    }
+    return;
+  }
+
+  if (providerShape.kind === "fixed-decimal-list") {
+    const listType =
+      dialect(providerName) === "postgresql"
+        ? "NUMERIC(12,3)[]"
+        : dialect(providerName) === "mysql"
+          ? "JSON"
+          : `TEXT CHECK (json_valid(${quote(providerName, "amounts")}) AND json_type(${quote(providerName, "amounts")}) = 'array')`;
+    await driver._executeRaw(
+      `CREATE TABLE IF NOT EXISTS ${quote(providerName, tables.record)} (${quote(providerName, "id")} ${types.id} PRIMARY KEY, ${quote(providerName, "amounts")} ${listType} NOT NULL)`
+    );
+    const existing = await driver._executeRaw(
+      `SELECT COUNT(*) AS ${quote(providerName, "count")} FROM ${quote(providerName, tables.record)}`
+    );
+    if (Number(existing.rows[0]?.count ?? 0) === 0) {
+      const physicalList =
+        dialect(providerName) === "postgresql"
+          ? FIXED_DECIMAL_LIST
+          : JSON.stringify(FIXED_DECIMAL_LIST_COEFFICIENTS);
+      await insertRows(
+        providerName,
+        driver,
+        tables.record,
+        ["id", "amounts"],
+        [["provider_record_00000", physicalList]]
+      );
+    }
+    return;
+  }
+
+  if (providerShape.kind === "fixed-decimal-text-row") {
+    await driver._executeRaw(
+      `CREATE TABLE IF NOT EXISTS ${quote(providerName, tables.record)} (${quote(providerName, "id")} ${types.id} PRIMARY KEY, ${quote(providerName, "amount")} TEXT NOT NULL)`
+    );
+    const existing = await driver._executeRaw(
+      `SELECT COUNT(*) AS ${quote(providerName, "count")} FROM ${quote(providerName, tables.record)}`
+    );
+    if (Number(existing.rows[0]?.count ?? 0) === 0) {
+      await insertRows(
+        providerName,
+        driver,
+        tables.record,
+        ["id", "amount"],
+        rows.map((row) => [row.id, row.amount])
+      );
+    }
+    return;
+  }
+
+  if (
+    providerShape.kind === "fixed-decimal-floor" ||
+    providerShape.kind === "fixed-decimal-row" ||
+    providerShape.kind === "fixed-decimal-arithmetic" ||
+    providerShape.kind === "fixed-decimal-aggregate"
+  ) {
+    await driver._executeRaw(
+      `CREATE TABLE IF NOT EXISTS ${quote(providerName, tables.record)} (${quote(providerName, "id")} ${types.id} PRIMARY KEY, ${quote(providerName, "amount")} ${types.decimal} NOT NULL)`
+    );
+    const existing = await driver._executeRaw(
+      `SELECT COUNT(*) AS ${quote(providerName, "count")} FROM ${quote(providerName, tables.record)}`
+    );
+    if (Number(existing.rows[0]?.count ?? 0) === 0) {
+      await insertRows(
+        providerName,
+        driver,
+        tables.record,
+        ["id", "amount"],
+        (providerShape.kind === "fixed-decimal-floor"
+          ? rows.slice(0, 1)
+          : rows
+        ).map((row) => [
+          row.id,
+          dialect(providerName) === "sqlite"
+            ? row.amountCoefficient
+            : row.amount,
+        ])
+      );
+    }
+    return;
+  }
+
   await driver._executeRaw(
     `CREATE TABLE IF NOT EXISTS ${quote(providerName, tables.record)} (${quote(providerName, "id")} ${types.id} PRIMARY KEY, ${quote(providerName, "label")} TEXT NOT NULL, ${quote(providerName, "score")} INTEGER NOT NULL, ${quote(providerName, "enabled")} ${types.bool} NOT NULL, ${quote(providerName, "big")} ${types.big} NOT NULL, ${quote(providerName, "amount")} ${types.decimal} NOT NULL, ${quote(providerName, "recordedAt")} ${types.date} NOT NULL, ${quote(providerName, "status")} TEXT NOT NULL, ${quote(providerName, "metadata")} ${types.json} NOT NULL, ${quote(providerName, "optionalText")} TEXT, ${quote(providerName, "payload")} ${types.blob} NOT NULL)`
   );
@@ -632,7 +834,9 @@ async function setupProviderRows(
         row.score,
         row.enabled,
         row.big,
-        row.amount,
+        // The decimal's physical spelling is per family: native decimal text on
+        // PostgreSQL and MySQL, the unscaled integer coefficient on SQLite.
+        dialect(providerName) === "sqlite" ? row.amountCoefficient : row.amount,
         row.recordedAt.toISOString(),
         row.status,
         JSON.stringify(row.metadata),
@@ -650,14 +854,15 @@ export async function createProviderFixture(
 ) {
   const skipReason = providerSkipReason(providerName);
   if (skipReason) return { skipReason };
-  const rowCount =
-    providerShape.rows ?? providerShape.sourceRows ?? 1;
+  const rowCount = providerShape.rows ?? providerShape.sourceRows ?? 1;
   const rows = providerRows(rowCount);
   const tables = tableNames(providerShape);
-  const [{ createClient }, { s }] = await Promise.all([
-    builtModule(targetDirectory, "index.mjs"),
-    builtModule(targetDirectory, "schema.mjs"),
-  ]);
+  const [{ createClient, Decimal }, { s }, { readBenchmarkOperation }] =
+    await Promise.all([
+      builtModule(targetDirectory, "index.mjs"),
+      builtModule(targetDirectory, "schema.mjs"),
+      builtModule(targetDirectory, "internal/benchmark-operation.mjs"),
+    ]);
   const { schema } = buildSchema(s, providerShape, tables);
   const created = await createDriver(
     providerName,
@@ -669,7 +874,14 @@ export async function createProviderFixture(
   const responseBytes = created.responseBytes;
   const client = createClient({ schema, driver });
   await setupProviderRows(providerName, driver, providerShape, tables, rows);
-  return { client, driver, responseBytes, tables };
+  return {
+    client,
+    Decimal,
+    driver,
+    readBenchmarkOperation,
+    responseBytes,
+    tables,
+  };
 }
 
 export { providerRows };

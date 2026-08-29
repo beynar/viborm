@@ -10,6 +10,8 @@
  * - Enum handling (capabilities.supportsNativeEnums, getEnumColumnType)
  */
 
+import type { Dialect } from "../drivers/types";
+import { MigrationError, VibORMErrorCode } from "../errors";
 import { hydrateSchemaNames } from "../schema/hydration";
 import {
   type AnyModel,
@@ -20,6 +22,10 @@ import {
 } from "../schema/model";
 import type { RelationSlot } from "../schema/relation";
 import type { Scalar } from "../schema/scalars/base";
+import {
+  describeDecimalProviderLimitRefusal,
+  findDecimalProviderLimitRefusal,
+} from "../schema/scalars/decimal/provider-limits";
 import {
   type ResolvedRelationEdge,
   type ResolvedRelationIndex,
@@ -74,6 +80,19 @@ function mapReferentialAction(
 
 export interface SerializeOptions {
   migrationDriver: MigrationDriver;
+}
+
+/** Translate the shared pure refusal into the migration boundary's error. */
+export function assertMigrationDecimalDomainsFitProvider(
+  models: Record<string, AnyModel>,
+  dialect: Dialect
+): void {
+  const refusal = findDecimalProviderLimitRefusal(models, dialect);
+  if (refusal === undefined) return;
+  throw new MigrationError(
+    describeDecimalProviderLimitRefusal(refusal),
+    VibORMErrorCode.MIGRATION_INVALID_STATE
+  );
 }
 
 /** One model's edges, bucketed at their anchors in declaration order. */
@@ -149,6 +168,10 @@ export function serializeModels(
   options: SerializeOptions
 ): SchemaSnapshot {
   hydrateSchemaNames(models);
+  assertMigrationDecimalDomainsFitProvider(
+    models,
+    options.migrationDriver.dialect
+  );
   return serializeResolvedModels(
     models,
     options.migrationDriver,
@@ -241,6 +264,12 @@ export function serializeResolvedModels(
         nullable: scalarState.nullable,
         default: migrationDriver.getDefaultExpression(scalarState),
         autoIncrement: scalarState.autoGenerate?.kind === "increment",
+        // Carried by REFERENCE off the resolved scalar, never rebuilt: the
+        // frozen descriptor is the one source of truth, and the physical type
+        // above is derived from it. On SQLite that type is `INTEGER` or `TEXT`
+        // whatever the domain is, so without this the differ would see no
+        // change when the domain moved.
+        decimal: scalarState.decimal,
       };
 
       columns.push(columnDef);

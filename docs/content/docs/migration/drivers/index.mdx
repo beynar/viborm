@@ -74,10 +74,16 @@ Each driver maps VibORM scalar types to database-specific types:
 | `int()` | `integer` | `INT` | `INTEGER` |
 | `bigint()` | `bigint` | `BIGINT` | `INTEGER` |
 | `number()` | `double precision` | `DOUBLE` | `REAL` |
+| `decimal({ precision, scale })` | `NUMERIC(p,s)` | `DECIMAL(p,s)` | checked scaled `INTEGER` |
 | `boolean()` | `boolean` | `TINYINT(1)` | `INTEGER` |
 | `datetime()` | `timestamp` | `DATETIME(3)` | `TEXT` |
 | `json()` | `jsonb` | `JSON` | `TEXT` |
 | `blob()` | `bytea` | `BLOB` | `BLOB` |
+
+Fixed-decimal lists use `NUMERIC(p,s)[]` on PostgreSQL and coefficient-string
+containers on MySQL and SQLite. SQLite declares that container as `TEXT`, not
+the generic array `JSON` type. See the [Decimal guide](/docs/schema/scalars/decimal)
+for provider limits, descriptor migrations, and raw-SQL representation.
 
 See individual driver pages for complete type mappings.
 

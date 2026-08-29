@@ -60,10 +60,10 @@ import {
   planningSourceFromFinal,
 } from "./relation-membership";
 import type { StepScope } from "./StepScope";
-import { capturedSelectorWhere, getStepModelName, isRecord } from "./shared";
+import { parseCapturedRowKeys } from "./series-result-read";
+import { capturedSelectorWhere, getStepModelName } from "./shared";
 import {
   buildTargetProjection,
-  capturedTargetValues,
   capturedTargetWhere,
   type TargetProjection,
   targetProjectionRowKeySelect,
@@ -274,6 +274,7 @@ export class RelationJunctionToOnePart implements Part {
       ? { kind: "fresh" }
       : { kind: "values", values: this.variantCorrelation() };
     return transferSingularJunctionMembership({
+      engine: this.context.engine,
       scope,
       statements: this.statements,
       junction: this.context.ownerJunction,
@@ -708,7 +709,7 @@ export class RelationJunctionToOnePart implements Part {
     slot: OwnerProbeSlot,
     known: PlanningKnown,
     operation: "connect"
-  ): Record<string, unknown> {
+  ): Readonly<Record<string, unknown>> {
     const owner = this.probedOwner(slot, known);
     if (owner) return owner;
     throw new NestedWriteError(
@@ -720,35 +721,43 @@ export class RelationJunctionToOnePart implements Part {
   private probedOwner(
     slot: OwnerProbeSlot,
     known: PlanningKnown
-  ): Record<string, unknown> | undefined {
+  ): Readonly<Record<string, unknown>> | undefined {
     return this.firstRowKey(known[planningKey(slot.probeId, "rows")]);
   }
 
   private connectedOwner(
     slot: ConnectedSlot,
     known: PlanningKnown
-  ): Record<string, unknown> | undefined {
+  ): Readonly<Record<string, unknown>> | undefined {
     return this.firstRowKey(known[planningKey(slot.probeId, "rows")]);
   }
 
-  private firstRowKey(rows: unknown): Record<string, unknown> | undefined {
+  /**
+   * The probed owner's complete row KEY, or `undefined` for an empty slot.
+   *
+   * DECODED, not raw. Every member of this key is re-addressed — the owner
+   * delete's `whereUnique`, the membership guard's equality conjuncts, the
+   * junction insert's target value — through the ordinary where/values builder,
+   * which lowers a LOGICAL value, while the probe published the PHYSICAL row.
+   * They are the same text for most scalars and not for a decimal, whose SQLite
+   * column answers with the unscaled coefficient, so re-binding the captured
+   * spelling would address `captured x 10^scale`. {@link parseCapturedRowKeys}
+   * is the one decode, and it owns the malformed-row refusal with it.
+   */
+  private firstRowKey(
+    rows: unknown
+  ): Readonly<Record<string, unknown>> | undefined {
     if (!Array.isArray(rows)) {
       throw new QueryEngineError(
         `query-engine-v2 internal: the singular collection inverse '${this.relationName}' did not observe its owner probe.`
       );
     }
-    const row = rows[0];
-    if (row === undefined) return undefined;
-    if (!isRecord(row)) {
-      throw new QueryEngineError(
-        `query-engine-v2 internal: the singular collection inverse '${this.relationName}' probed a malformed owner row.`
-      );
-    }
-    return capturedTargetValues(
+    const [captured] = parseCapturedRowKeys(
+      this.context.engine,
       this.ownerScope.model,
-      this.ownerProjection,
-      row
+      rows.slice(0, 1)
     );
+    return captured;
   }
 
   /** The variant row key a PLANNING read correlates on (Ref or literal). */

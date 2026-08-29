@@ -1,6 +1,6 @@
 ---
 title: Number Filters
-description: Filter operators for int, number, decimal, and bigInt scalars
+description: Filter operators for integer, approximate-number, fixed-decimal, and bigint scalars
 icon: hash
 ---
 
@@ -18,6 +18,11 @@ icon: hash
 | `gte` | Greater than or equal |
 
 `equals`, `not`, `in`, and `notIn` work the same on every scalar type — see [Filtering](/docs/client/filtering).
+
+Decimal operands accept `Decimal`, string, or number inputs and validate them
+against the field's `{ precision, scale }` descriptor. Comparisons and ordering
+stay exact on SQLite because the stored value is a scaled integer coefficient;
+no decimal path casts through `REAL`.
 
 ## Comparisons
 

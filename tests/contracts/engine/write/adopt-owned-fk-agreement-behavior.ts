@@ -42,6 +42,16 @@ import { describe, expect, test } from "vitest";
  *     as its own WALL), and the `ref` source is what still exercises the
  *     no-value-to-compare arm.
  */
+/**
+ * The shared decimal domain of this fixture's key pair.
+ *
+ * SQLite-legal (`precision + scale <= 18`), because these behaviors register on
+ * every provider, and EQUAL on both sides of the reference: a decimal field
+ * reference is only meaningful between two columns with the same precision and
+ * scale.
+ */
+const MONEY = { precision: 16, scale: 2 } as const;
+
 export const adoptOwnedFkSchema = (() => {
   // The main pair: a spelled STRING parent key (a `literal` source) and a NULLABLE child
   // foreign key, so `null` reaches the engine instead of dying at the parse boundary.
@@ -172,13 +182,13 @@ export const adoptOwnedFkSchema = (() => {
     .map("e5u2_time_rows");
 
   const moneyOwner = s
-    .model({ amount: s.decimal().id(), rows: s.toMany(() => moneyRow) })
+    .model({ amount: s.decimal(MONEY).id(), rows: s.toMany(() => moneyRow) })
     .map("e5u2_money_owners");
   const moneyRow = s
     .model({
       id: s.string().id(),
       slug: s.string().unique(),
-      amt: s.decimal(),
+      amt: s.decimal(MONEY),
       owner: s
         .toOne(() => moneyOwner)
         .fields("amt")

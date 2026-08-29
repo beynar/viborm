@@ -6,7 +6,15 @@
  */
 
 import type { Scalar, ScalarState } from "@schema/scalars";
+import { sameDecimalDescriptor } from "@validation/primitives/decimal-codec";
 import { MigrationError, VibORMErrorCode } from "../../../errors";
+import {
+  decimalConversionRequired,
+  describeDecimalDomain,
+  sqliteDecimalStorageKind,
+} from "../../decimal";
+import { foreignKeyPragmasCannotBeLifted } from "../../foreign-keys";
+import { applyNativeRename } from "../../native-rename";
 import type { ColumnDef, DiffOperation, TableDef } from "../../types";
 import {
   type AddColumnOperation,
@@ -32,10 +40,8 @@ import {
 } from "../base";
 import { getSQLiteType } from "../type-mapping";
 import type { MigrationCapabilities } from "../types";
+import { sqliteDecimalCheck, sqliteDecimalCopyExpression } from "./decimal";
 import { introspect } from "./introspect";
-
-/** Every operation that names the table it acts on. */
-type TableScopedOperation = Extract<DiffOperation, { tableName: string }>;
 
 /**
  * One preceding operation of the batch, applied to the table definition a later
@@ -43,7 +49,10 @@ type TableScopedOperation = Extract<DiffOperation, { tableName: string }>;
  * why the introspected definition alone is not enough, and what each list costs
  * when it is left behind.
  */
-function applyToTable(table: TableDef, op: TableScopedOperation): TableDef {
+function applyToTable(table: TableDef, op: DiffOperation): TableDef {
+  if (!("tableName" in op) || op.tableName !== table.name) {
+    return table;
+  }
   switch (op.type) {
     case "addColumn":
       return { ...table, columns: [...table.columns, op.column] };
@@ -52,13 +61,6 @@ function applyToTable(table: TableDef, op: TableScopedOperation): TableDef {
         ...table,
         columns: table.columns.filter(
           (column) => column.name !== op.columnName
-        ),
-      };
-    case "renameColumn":
-      return {
-        ...table,
-        columns: table.columns.map((column) =>
-          column.name === op.from ? { ...column, name: op.to } : column
         ),
       };
     case "alterColumn":
@@ -99,10 +101,63 @@ function applyToTable(table: TableDef, op: TableScopedOperation): TableDef {
     case "dropPrimaryKey":
       return { ...table, primaryKey: undefined };
     default:
-      // `dropTable` is the only other operation that names a table, and nothing
-      // rebuilds a table the same batch dropped.
+      // `dropTable` is the only remaining operation that names this table, and
+      // nothing rebuilds a table the same batch dropped.
       return table;
   }
+}
+
+/**
+ * The schema-level table set after every preceding operation in the batch.
+ *
+ * Per-table replay cannot see a table created earlier in the same batch, and
+ * retaining a dropped table invents relations the database no longer has.
+ * This owner first evolves membership, then applies each operation's local and
+ * inbound effects to every table that exists at that point.
+ */
+function replaySchemaTables(
+  tables: readonly TableDef[],
+  operations: readonly DiffOperation[]
+): TableDef[] {
+  let replayed = [...tables];
+  for (const operation of operations) {
+    if (operation.type === "createTable") {
+      replayed = [...replayed, operation.table];
+      continue;
+    }
+    if (operation.type === "dropTable") {
+      replayed = replayed.filter((table) => table.name !== operation.tableName);
+      continue;
+    }
+    if (operation.type === "renameTable" || operation.type === "renameColumn") {
+      replayed = applyNativeRename({ tables: replayed }, operation).tables;
+      continue;
+    }
+    replayed = replayed.map((table) => applyToTable(table, operation));
+  }
+  return replayed;
+}
+
+/** Whether a table carries an outbound FK or is the target of an inbound FK. */
+export function sqliteTableBearsRelations(
+  tableName: string,
+  tables: readonly TableDef[],
+  rebuiltTable?: TableDef,
+  precedingOperations: readonly DiffOperation[] = []
+): boolean {
+  if (rebuiltTable && rebuiltTable.foreignKeys.length > 0) return true;
+  const replayed = replaySchemaTables(tables, precedingOperations);
+  for (const table of replayed) {
+    if (table.name === tableName && table.foreignKeys.length > 0) return true;
+    if (
+      table.foreignKeys.some(
+        (foreignKey) => foreignKey.referencedTable === tableName
+      )
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /**
@@ -156,6 +211,7 @@ export class SQLite3MigrationDriver extends MigrationDriver {
     return getSQLiteType({
       type: scalarState.type,
       array: scalarState.array,
+      decimal: scalarState.decimal,
     });
   }
 
@@ -214,6 +270,24 @@ export class SQLite3MigrationDriver extends MigrationDriver {
       parts.push(`DEFAULT ${column.default}`);
     }
 
+    // The reserved decimal CHECK is a DERIVED render of the column's own
+    // descriptor, emitted as a column CONSTRAINT beside the type — never
+    // folded INTO `column.type`. `getEnumColumnType` above does fold its CHECK
+    // into the type, and the measured cost is a full table recreation on every
+    // push forever: `PRAGMA table_info.type` reports only the `type-name`
+    // production, so the desired `TEXT CHECK(...)` never equals the
+    // introspected `TEXT`. A named constraint reads back out of
+    // `sqlite_master.sql` instead, which is where introspection recovers the
+    // descriptor from.
+    const kind = sqliteDecimalStorageKind(column);
+    if (column.decimal && kind) {
+      parts.push(
+        sqliteDecimalCheck(column, column.decimal, kind, (name) =>
+          this.escapeIdentifier(name)
+        )
+      );
+    }
+
     return parts.join(" ");
   }
 
@@ -237,17 +311,29 @@ export class SQLite3MigrationDriver extends MigrationDriver {
    * @param tableName - The table to recreate
    * @param newTable - The new table definition
    * @param currentTable - The current table definition (required for safe column mapping)
-   * @param columnRenames - Optional map of old column name → new column name (for renames)
    */
   protected generateTableRecreation(
     tableName: string,
     newTable: TableDef,
     currentTable: TableDef,
-    context: DDLContext,
-    columnRenames?: Map<string, string>
+    context: DDLContext
   ): string {
     const statements: string[] = [];
     const tempName = `__new_${tableName}`;
+    const currentColumns = new Map(
+      currentTable.columns.map((column) => [column.name, column])
+    );
+    const usesCorrelatedListCopy = newTable.columns.some(
+      (column) =>
+        this.decimalConversionKind(currentColumns.get(column.name), column) ===
+        "list"
+    );
+    // A list conversion opens correlated `json_each` tables whose ten virtual
+    // column names are ordinary legal user column names. Every outer read is
+    // qualified through this one statement-local alias so `"value"`, `"key"`,
+    // and their siblings cannot be captured by the inner table. Ordinary and
+    // scalar-only recreations retain their original unaliased SQL.
+    const sourceAlias = "__viborm_source";
 
     // 1. Disable foreign keys
     statements.push("PRAGMA foreign_keys=OFF");
@@ -259,27 +345,31 @@ export class SQLite3MigrationDriver extends MigrationDriver {
 
     // 3. Copy data - EXPLICIT column mapping by NAME, not position
     // Build a set of current column names for quick lookup
-    const currentColumnNames = new Set(currentTable.columns.map((c) => c.name));
-
-    // For each column in the new table, find the corresponding source column
+    // For each column in the new table, find the corresponding source column.
+    // `source` is an EXPRESSION, not an identifier: a decimal column whose
+    // declared domain moved is converted here, inside the database, on the way
+    // across.
     const copyColumns: Array<{ source: string; target: string }> = [];
 
     for (const col of newTable.columns) {
-      // Check if this column was renamed
-      let sourceName = col.name;
-      if (columnRenames) {
-        // columnRenames maps old name → new name, so we need to reverse lookup
-        for (const [oldName, newName] of columnRenames) {
-          if (newName === col.name) {
-            sourceName = oldName;
-            break;
-          }
-        }
-      }
+      const sourceName = col.name;
 
       // Only copy if source column exists in current table
-      if (currentColumnNames.has(sourceName)) {
-        copyColumns.push({ source: sourceName, target: col.name });
+      const currentColumn = currentColumns.get(sourceName);
+      if (currentColumn !== undefined) {
+        const source = usesCorrelatedListCopy
+          ? `${this.escapeIdentifier(sourceAlias)}.${this.escapeIdentifier(sourceName)}`
+          : this.escapeIdentifier(sourceName);
+        copyColumns.push({
+          source: this.copySourceExpression(
+            tableName,
+            sourceName,
+            currentColumn,
+            col,
+            source
+          ),
+          target: col.name,
+        });
       } else if (!col.nullable && col.default === undefined) {
         // New NOT NULL column without default - INSERT will fail
         throw new MigrationError(
@@ -292,16 +382,17 @@ export class SQLite3MigrationDriver extends MigrationDriver {
     }
 
     if (copyColumns.length > 0) {
-      const selectCols = copyColumns
-        .map((c) => this.escapeIdentifier(c.source))
-        .join(", ");
+      const selectCols = copyColumns.map((c) => c.source).join(", ");
       const insertCols = copyColumns
         .map((c) => this.escapeIdentifier(c.target))
         .join(", ");
 
       statements.push(
         `INSERT INTO ${this.escapeIdentifier(tempName)} (${insertCols}) ` +
-          `SELECT ${selectCols} FROM ${this.escapeIdentifier(tableName)}`
+          `SELECT ${selectCols} FROM ${this.escapeIdentifier(tableName)}` +
+          (usesCorrelatedListCopy
+            ? ` AS ${this.escapeIdentifier(sourceAlias)}`
+            : "")
       );
     }
 
@@ -327,6 +418,162 @@ export class SQLite3MigrationDriver extends MigrationDriver {
     statements.push("PRAGMA foreign_keys=ON");
 
     return statements.join(";\n");
+  }
+
+  /**
+   * What the recreation SELECTs for one column of the rebuilt table.
+   *
+   * Ordinarily the column itself. When the column's declared decimal domain
+   * moved, it is the conversion expression instead: SQLite stores the unscaled
+   * coefficient, so a scale change makes every stored integer mean a different
+   * number until it is rescaled, and the whole conversion runs inside the
+   * database because the rebuild is one `INSERT ... SELECT` this process never
+   * reads a row of.
+   *
+   * A change that moves the STORAGE SHAPE — a scalar becoming a list, or the
+   * other way — gets no conversion and no second guard: the value is copied as
+   * it stands and the target column's own reserved CHECK refuses it, which
+   * aborts the rebuild inside its transaction and leaves the old table exactly
+   * as it was.
+   *
+   * A source column that declares NO domain is the third case, and it is a
+   * conversion too. An `INTEGER` holding logical integers, adopted as
+   * `decimal(p,s)`, has to become a coefficient: copied as it stands, `123`
+   * would silently start reading as 1.23. Only that one adoption is converted.
+   * A TEXT source or a list target has no proven logical scale, and SQLite can
+   * coerce numeric text after the copy, so every other unmarked source refuses
+   * here before the recreation exists.
+   */
+  private copySourceExpression(
+    tableName: string,
+    sourceName: string,
+    currentColumn: ColumnDef | undefined,
+    targetColumn: ColumnDef,
+    source: string
+  ): string {
+    const to = targetColumn.decimal;
+    const targetKind = sqliteDecimalStorageKind(targetColumn);
+    if (to === undefined || targetKind === undefined) return source;
+
+    const from = currentColumn?.decimal;
+    if (from === undefined) {
+      const adopting =
+        targetKind === "scalar" &&
+        currentColumn?.type.toUpperCase() === "INTEGER";
+      if (!adopting) {
+        throw new MigrationError(
+          `The declared change to "${tableName}"."${sourceName}" would adopt unmarked ${currentColumn?.type ?? "unknown"} storage as a fixed-decimal ${targetKind}. ` +
+            "Only a scalar INTEGER has one exact descriptor-free meaning that can be rescaled into the target domain. TEXT and every list container carry no proven member scale, while other SQLite affinities can already have changed the stored value. " +
+            "The change is refused before any statement runs, so the schema and data stay unchanged. Use an explicit migration that validates and rewrites the source values.",
+          VibORMErrorCode.FEATURE_NOT_SUPPORTED,
+          {
+            meta: {
+              table: tableName,
+              column: sourceName,
+              feature: "decimal storage adoption",
+              dialect: "sqlite",
+            },
+          }
+        );
+      }
+      return sqliteDecimalCopyExpression(source, undefined, to, "scalar");
+    }
+    if (sameDecimalDescriptor(from, to)) return source;
+    const conversionKind = this.decimalConversionKind(
+      currentColumn,
+      targetColumn
+    );
+    if (conversionKind === undefined) return source;
+    return sqliteDecimalCopyExpression(source, from, to, conversionKind);
+  }
+
+  /** The shared-storage decimal conversion one copied column requires. */
+  private decimalConversionKind(
+    currentColumn: ColumnDef | undefined,
+    targetColumn: ColumnDef
+  ): "scalar" | "list" | undefined {
+    const from = currentColumn?.decimal;
+    const to = targetColumn.decimal;
+    if (
+      currentColumn === undefined ||
+      from === undefined ||
+      to === undefined ||
+      sameDecimalDescriptor(from, to)
+    ) {
+      return undefined;
+    }
+    const targetKind = sqliteDecimalStorageKind(targetColumn);
+    if (
+      targetKind === undefined ||
+      sqliteDecimalStorageKind(currentColumn) !== targetKind
+    ) {
+      return undefined;
+    }
+    return targetKind;
+  }
+
+  /**
+   * Refuses a decimal conversion the substrate cannot rebuild safely, BEFORE
+   * any statement runs.
+   *
+   * Every SQLite descriptor change is a table recreation, and a recreation
+   * drops and rebuilds the table with foreign-key enforcement disabled. That
+   * disable is only real when `PRAGMA foreign_keys=OFF` runs OUTSIDE the
+   * transaction — SQLite documents it as a no-op inside one — and a batch-only
+   * driver has no outside to run it in. On such a driver the pragma travels
+   * inside the batch and does nothing, so `DROP TABLE` either raises the
+   * constraint or silently fires the referential action on every child row.
+   *
+   * D1 is the shipped case, and plan §7.4 states the prerequisite exactly: a
+   * relation-bearing rebuild is admitted only after the foreign-key-safe
+   * rebuild is proven across the ten relation shapes. Until then this refuses
+   * with the substrate reason rather than shipping an unsafe drop/recreate or
+   * a manual shadow-column instruction.
+   *
+   * Only relation-bearing tables are refused: a table with no reference in
+   * either direction has nothing the disabled enforcement could damage, so
+   * fresh decimal schemas and ordinary descriptor changes stay available.
+   *
+   * The question remains decimal-owned: descriptor changes, adoption into a
+   * decimal domain, and a decimal-column rename all require this reconstruction
+   * and therefore ask this owner. A recreation requested by another column,
+   * constraint, key, or enum does not become a decimal conversion merely
+   * because the same table also contains a decimal. General D1 reconstruction
+   * safety is an existing migration concern outside this decimal boundary.
+   */
+  private assertDecimalReconstructionAdmitted(
+    tableName: string,
+    column: ColumnDef,
+    table: TableDef,
+    context: DDLContext
+  ): void {
+    if (column.decimal === undefined) return;
+    const driver = this.executionDriver;
+    if (!(driver && foreignKeyPragmasCannotBeLifted(driver))) return;
+    if (
+      !sqliteTableBearsRelations(
+        tableName,
+        context.currentSchema?.tables ?? [],
+        table,
+        context.precedingOperations
+      )
+    ) {
+      return;
+    }
+    throw new MigrationError(
+      `Rebuilding "${tableName}"."${column.name}", a fixed-decimal column at ${describeDecimalDomain(column.decimal)}, recreates the whole table, and the driver "${driver.driverName}" executes migrations as one native batch. ` +
+        "SQLite treats `PRAGMA foreign_keys=OFF` as a no-op inside a transaction, and a batch has no outside to run it in, so the rebuild would drop a table that still has enforced references — raising on one referential action and silently deleting or nulling child rows on another. " +
+        "The change is refused before any statement runs, so the schema and its data are exactly as they were. Recreate the table without its references, or run the change on a driver that executes statements individually.",
+      VibORMErrorCode.FEATURE_NOT_SUPPORTED,
+      {
+        meta: {
+          driver: driver.driverName,
+          table: tableName,
+          column: column.name,
+          feature: "decimal descriptor conversion",
+        },
+      }
+    );
   }
 
   /**
@@ -434,29 +681,23 @@ export class SQLite3MigrationDriver extends MigrationDriver {
    *   ahead of `addForeignKey`, so a later recreation would rebuild around the
    *   key that was just replaced.
    *
+   * - INBOUND FOREIGN KEYS. Native SQLite table and column renames rewrite
+   *   references stored in OTHER tables. If one of those tables is recreated
+   *   later in the batch, its pre-batch definition would restore the old table
+   *   or column name unless the same replay carries the rename's remote effect.
+   *
    * These are all the operations that move any of those five out of `TableDef`,
-   * so replaying the preceding ones gives what the database actually holds when
-   * the recreation runs.
+   * plus the two native renames whose effects cross table boundaries. Replaying
+   * them gives what the database actually holds when the recreation runs.
    */
   protected getCurrentTable(
     tableName: string,
     context: DDLContext
   ): TableDef | undefined {
-    const table = context.currentSchema?.tables.find(
-      (t) => t.name === tableName
-    );
-    if (!table) {
-      return undefined;
-    }
-
-    let replayed = table;
-    for (const op of context.precedingOperations ?? []) {
-      if ("tableName" in op && op.tableName === tableName) {
-        replayed = applyToTable(replayed, op);
-      }
-    }
-
-    return replayed;
+    return replaySchemaTables(
+      context.currentSchema?.tables ?? [],
+      context.precedingOperations ?? []
+    ).find((table) => table.name === tableName);
   }
 
   // ===========================================================================
@@ -506,12 +747,62 @@ export class SQLite3MigrationDriver extends MigrationDriver {
     return `ALTER TABLE ${this.escapeIdentifier(op.tableName)} DROP COLUMN ${this.escapeIdentifier(op.columnName)}`;
   }
 
-  generateRenameColumn(
-    op: RenameColumnOperation,
-    _context: DDLContext
-  ): string {
-    // SQLite 3.25.0+ supports RENAME COLUMN
-    return `ALTER TABLE ${this.escapeIdentifier(op.tableName)} RENAME COLUMN ${this.escapeIdentifier(op.from)} TO ${this.escapeIdentifier(op.to)}`;
+  /**
+   * Renames a column — natively first, then through a table recreation when
+   * that column is a decimal.
+   *
+   * The descriptor rides in a CHECK constraint whose NAME contains the column
+   * name, and `ALTER TABLE … RENAME COLUMN` rewrites column REFERENCES inside a
+   * CHECK body but never a constraint NAME. So the native rename leaves the
+   * carrier behind, pointing at a column that no longer exists: introspection
+   * reads the renamed column as carrying no domain, the next push plans an
+   * alteration between a domain and nothing, and the stored coefficient is
+   * copied unchanged under whatever scale the schema now declares — 12345
+   * meaning 123.45 silently becomes 1.2345. It is not even destructive by the
+   * differ's reading, because no domain narrowed, so no prompt fires.
+   *
+   * The native statement has a second job a recreation cannot perform: SQLite
+   * rewrites inbound foreign keys stored in OTHER tables. Only after that
+   * schema-wide propagation does the ordinary recreation replace the stale
+   * carrier name on the already-renamed table. The reconstruction therefore
+   * copies the new column name from a current definition that already contains
+   * the rename; it is not a second rename mechanism.
+   */
+  generateRenameColumn(op: RenameColumnOperation, context: DDLContext): string {
+    const currentTable = this.getCurrentTable(op.tableName, context);
+    const renamed = currentTable?.columns.find(
+      (column) => column.name === op.from
+    );
+    if (currentTable === undefined || renamed?.decimal === undefined) {
+      // SQLite 3.25.0+ supports RENAME COLUMN
+      return `ALTER TABLE ${this.escapeIdentifier(op.tableName)} RENAME COLUMN ${this.escapeIdentifier(op.from)} TO ${this.escapeIdentifier(op.to)}`;
+    }
+
+    const nativeRename =
+      `ALTER TABLE ${this.escapeIdentifier(op.tableName)} ` +
+      `RENAME COLUMN ${this.escapeIdentifier(op.from)} TO ${this.escapeIdentifier(op.to)}`;
+    const renamedTable = applyNativeRename({ tables: [currentTable] }, op)
+      .tables[0];
+    if (renamedTable === undefined) {
+      throw new MigrationError(
+        `Cannot rename column: table "${op.tableName}" disappeared from the current schema.`,
+        VibORMErrorCode.INTERNAL_ERROR,
+        { meta: { table: op.tableName, column: op.from } }
+      );
+    }
+    this.assertDecimalReconstructionAdmitted(
+      op.tableName,
+      renamed,
+      renamedTable,
+      context
+    );
+    const recreation = this.generateTableRecreation(
+      op.tableName,
+      renamedTable,
+      renamedTable,
+      context
+    );
+    return `${nativeRename};\n${recreation}`;
   }
 
   generateAlterColumn(op: AlterColumnOperation, context: DDLContext): string {
@@ -536,6 +827,15 @@ export class SQLite3MigrationDriver extends MigrationDriver {
       ...currentTable,
       columns: newColumns,
     };
+
+    if (decimalConversionRequired(op.from, op.to)) {
+      this.assertDecimalReconstructionAdmitted(
+        op.tableName,
+        op.to,
+        newTable,
+        context
+      );
+    }
 
     return this.generateTableRecreation(
       op.tableName,

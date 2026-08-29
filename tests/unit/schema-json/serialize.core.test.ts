@@ -46,6 +46,27 @@ const overrideDay = () => "2020-01-02";
 const overrideClock = () => "03:04:05";
 
 describe("refusal witnesses", () => {
+  it("names a hostile fixed-decimal native override", () => {
+    const amount = s.decimal({ precision: 10, scale: 2 });
+    const ledger = s.model({ id: s.string().id(), amount });
+    ledger["~"].state.scalars.amount = new Proxy(amount, {
+      get(target, property, receiver) {
+        if (property === "~") {
+          return {
+            state: target["~"].state,
+            nativeType: { db: "postgresql", type: "numeric" },
+          };
+        }
+        return Reflect.get(target, property, receiver);
+      },
+    });
+
+    const error = refusal({ ledger });
+    expect(issues(error)).toEqual([
+      "[J009] /models/ledger/fields/amount/native",
+    ]);
+  });
+
   it("names the field carrying a function default", () => {
     const user = s.model({
       id: s.string().id(),

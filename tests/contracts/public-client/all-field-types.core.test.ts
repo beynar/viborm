@@ -13,6 +13,8 @@ const enumRequired = s.enum(["ACTIVE", "INACTIVE", "PENDING"]);
 import { createClient as PGliteCreateClient } from "@drivers/pglite";
 import { push } from "@migrations";
 import { AnyNull, DbNull, JsonNull, s } from "@schema";
+import { canonicalizeDecimal } from "@validation/primitives/decimal-codec";
+import Decimal from "decimal.js";
 import {
   afterAll,
   beforeAll,
@@ -25,6 +27,10 @@ import {
 // =============================================================================
 // TEST SCHEMA WITH ALL SCALAR TYPES
 // =============================================================================
+
+/** SQLite-legal on purpose (`precision + scale <= 18`), so this fixture stays
+ *  portable if it is ever registered on a second provider. */
+const MONEY = { precision: 16, scale: 2 } as const;
 
 const allFieldsModel = s.model({
   // ============= ID FIELD =============
@@ -69,16 +75,19 @@ const allFieldsModel = s.model({
   numberWithDefault: s.number().default(3.14),
 
   // ============= DECIMAL SCALARS =============
+  // Every fixed decimal declares its domain: at most `precision` total digits
+  // and at most `scale` fractional digits. There is no zero-argument form, because no
+  // provider can supply the two numbers from storage.
   // Required decimal
-  decimalRequired: s.decimal(),
+  decimalRequired: s.decimal(MONEY),
   // Nullable decimal
-  decimalNullable: s.decimal().nullable(),
+  decimalNullable: s.decimal(MONEY).nullable(),
   // Decimal array
-  decimalArray: s.decimal().array(),
+  decimalArray: s.decimal(MONEY).array(),
   // Nullable decimal array
-  decimalArrayNullable: s.decimal().array().nullable(),
+  decimalArrayNullable: s.decimal(MONEY).array().nullable(),
   // Decimal with default
-  decimalWithDefault: s.decimal().default(99.99),
+  decimalWithDefault: s.decimal(MONEY).default("99.99"),
 
   // ============= BIGINT SCALARS =============
   // Required bigint
@@ -383,17 +392,22 @@ describe("All Scalar Types Integration Test", () => {
     // =========================================================================
     // DECIMAL SCALAR VERIFICATIONS
     // =========================================================================
-    // Note: PostgreSQL returns numeric types as strings to preserve precision
-    // The ORM should ideally convert these, but currently returns raw values
-    expect(Number(found.decimalRequired)).toBe(100.5);
+    // A decimal reads back as a `Decimal`, and it is compared with `.eq()`:
+    // `Number(...)` is the conversion this program deletes, and `toEqual`
+    // against an application-built Decimal compares constructor identity too.
+    expect(found.decimalRequired.eq("100.5")).toBe(true);
 
-    expect(Number(found.decimalNullable)).toBe(200.75);
+    expect(found.decimalNullable?.eq("200.75")).toBe(true);
 
-    expect(found.decimalArray.map(Number)).toEqual([10.1, 20.2, 30.3]);
+    expect(
+      found.decimalArray.map((member) => canonicalizeDecimal(member))
+    ).toEqual(["10.1", "20.2", "30.3"]);
 
-    expect(found.decimalArrayNullable?.map(Number)).toEqual([50.5, 60.6]);
+    expect(
+      found.decimalArrayNullable?.map((member) => canonicalizeDecimal(member))
+    ).toEqual(["50.5", "60.6"]);
 
-    expect(Number(found.decimalWithDefault)).toBe(99.99);
+    expect(found.decimalWithDefault.eq("99.99")).toBe(true);
 
     // =========================================================================
     // BIGINT SCALAR VERIFICATIONS
@@ -535,7 +549,7 @@ describe("All Scalar Types Integration Test", () => {
   });
 
   test("handles null values for nullable scalars", async () => {
-    const created = await client.allFieldsModel.create({
+    await client.allFieldsModel.create({
       data: {
         id: "test-record-null",
 
@@ -621,7 +635,7 @@ describe("All Scalar Types Integration Test", () => {
   });
 
   test("handles empty arrays correctly", async () => {
-    const created = await client.allFieldsModel.create({
+    await client.allFieldsModel.create({
       data: {
         id: "test-record-empty-arrays",
 
@@ -806,21 +820,17 @@ describe("Runtime type verification using v validation", () => {
 
     // =========================================================================
     // DECIMAL SCALARS
-    // Note: PostgreSQL returns decimals as strings, so we accept both
+    // The value family is the assertion: a decimal is a `Decimal`, never a
+    // number and never the canonical text it travelled as.
     // =========================================================================
-    assertValid(
-      v.union([v.number(), v.string()]),
-      found.decimalRequired,
-      "decimalRequired"
-    );
-    assertValid(
-      v.union([v.number(), v.string()]),
-      found.decimalNullable,
-      "decimalNullable"
-    );
-    // For arrays, each element can be number or string
-    expect(Array.isArray(found.decimalArray)).toBe(true);
-    expect(Array.isArray(found.decimalArrayNullable)).toBe(true);
+    expect(found.decimalRequired).toBeInstanceOf(Decimal);
+    expect(found.decimalNullable).toBeInstanceOf(Decimal);
+    for (const member of [
+      ...found.decimalArray,
+      ...(found.decimalArrayNullable ?? []),
+    ]) {
+      expect(member).toBeInstanceOf(Decimal);
+    }
 
     // =========================================================================
     // BIGINT SCALARS
@@ -952,18 +962,7 @@ describe("Runtime type verification using v validation", () => {
     );
     expect(found.numberArrayNullable).toBeNull();
 
-    assertValid(
-      v.number({ nullable: true }),
-      found.decimalNullable,
-      "decimalNullable"
-    );
     expect(found.decimalNullable).toBeNull();
-
-    assertValid(
-      v.number({ nullable: true, array: true }),
-      found.decimalArrayNullable,
-      "decimalArrayNullable"
-    );
     expect(found.decimalArrayNullable).toBeNull();
 
     assertValid(
@@ -1175,14 +1174,14 @@ describe("Compile-time type verification", () => {
     // =========================================================================
     // DECIMAL TYPES - Compile-time
     // =========================================================================
-    // W6-U1: a decimal READS as its exact canonical string. A JS number cannot
-    // carry what a `numeric` / `DECIMAL(65,30)` column holds, so the result type
-    // is `string` on every dialect. Writes still accept `string | number`.
-    expectTypeOf(found.decimalRequired).toEqualTypeOf<string>();
-    expectTypeOf(found.decimalNullable).toEqualTypeOf<string | null>();
-    expectTypeOf(found.decimalArray).toEqualTypeOf<string[]>();
-    expectTypeOf(found.decimalArrayNullable).toEqualTypeOf<string[] | null>();
-    expectTypeOf(found.decimalWithDefault).toEqualTypeOf<string>();
+    // A decimal READS as a `Decimal` on every dialect: a JS number cannot carry
+    // what a `NUMERIC(p,s)` column holds, and the canonical text it travels as
+    // is private. Writes still accept `Decimal | string | number`.
+    expectTypeOf(found.decimalRequired).toEqualTypeOf<Decimal>();
+    expectTypeOf(found.decimalNullable).toEqualTypeOf<Decimal | null>();
+    expectTypeOf(found.decimalArray).toEqualTypeOf<Decimal[]>();
+    expectTypeOf(found.decimalArrayNullable).toEqualTypeOf<Decimal[] | null>();
+    expectTypeOf(found.decimalWithDefault).toEqualTypeOf<Decimal>();
 
     // =========================================================================
     // BIGINT TYPES - Compile-time

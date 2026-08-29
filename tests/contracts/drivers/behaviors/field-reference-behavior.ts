@@ -1,11 +1,11 @@
-import { defineContract } from "@tests/contracts/contract";
 import { createClient } from "@client/client";
 import type { AnyDriver } from "@drivers";
 import { push } from "@migrations";
 import { createModelFieldRefs } from "@schema/field-ref";
+import { defineContract } from "@tests/contracts/contract";
+import { fieldRefSchema } from "@tests/fixtures/field-ref-schema";
 import type { OperandCtx } from "@validation/primitives/operand";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
-import { fieldRefSchema } from "@tests/fixtures/field-ref-schema";
 
 const schema = fieldRefSchema;
 
@@ -49,6 +49,8 @@ const JSON_FILTER_REFUSAL =
   /Field reference 'post\.payload' is not supported in a JSON filter operand/;
 const JSON_DATA_REFUSAL =
   /Field reference 'post\.payload' is not supported in JSON write data/;
+const DECIMAL_DOMAIN_REFUSAL =
+  /Field reference 'rate' cannot be compared with 'fee' on 'post': 'fee' is decimal\(12,2\) and 'rate' is decimal\(12,4\)/;
 const ENUM_ORDER_REFUSAL =
   /is not supported on an enum field: PostgreSQL orders enum values by their declaration order/;
 
@@ -83,31 +85,42 @@ export function runFieldReferenceBehavior({
       });
       await client.post.createMany({
         data: [
-          // views > likes
+          // views > likes, and fee > discount
           {
             id: "hot",
             title: "hot",
             slug: "hot-slug",
             views: 100,
             likes: 5,
+            // "9" vs "10": the pair whose numeric and byte orders disagree, so
+            // a reference compared as text answers this row backwards.
+            fee: "10",
+            discount: "9",
+            rate: "10",
             authorId: "u1",
           },
-          // views == likes
+          // views == likes, and fee == discount
           {
             id: "even",
             title: "even",
             slug: "even-slug",
             views: 7,
             likes: 7,
+            fee: "7.25",
+            discount: "7.25",
+            rate: "7.25",
             authorId: "u1",
           },
-          // views < likes
+          // views < likes, and fee < discount
           {
             id: "beloved",
             title: "beloved",
             slug: "beloved-slug",
             views: 2,
             likes: 40,
+            fee: "9",
+            discount: "10",
+            rate: "9",
             authorId: "u2",
           },
           // the only row whose title and slug hold the same text
@@ -445,6 +458,42 @@ export function runFieldReferenceBehavior({
       });
       expect(deleted.count).toBe(1);
       expect(await db().post.count()).toBe(3);
+    });
+
+    test("two decimals of the SAME domain compare exactly", async () => {
+      // The discriminating pair is `fee`/`discount` holding 10 and 9: compared
+      // as text "10" < "9", so a lexical answer returns `beloved` here and
+      // `hot` below. Compared as values — native `NUMERIC` on PostgreSQL,
+      // stored integer coefficients on SQLite — it is the other way round.
+      expect(
+        await postIds({ fee: { gt: (ctx: PostCtx) => ctx.fields.discount } })
+      ).toEqual(["hot"]);
+      expect(
+        await postIds({ fee: { lt: (ctx: PostCtx) => ctx.fields.discount } })
+      ).toEqual(["beloved"]);
+      expect(
+        await postIds({
+          fee: { equals: (ctx: PostCtx) => ctx.fields.discount },
+        })
+      ).toEqual(["even", "matching"]);
+    });
+
+    test("two decimals of DIFFERENT domains are refused before any I/O", async () => {
+      // `rate` holds the same numbers as `fee` on every seeded row, so a
+      // comparison that ran would answer `[]` for `gt` and look perfectly
+      // healthy — the refusal is the only thing that distinguishes a
+      // descriptor-aware engine from one comparing two different numbers.
+      await expect(
+        db().post.findMany({
+          where: { fee: { gt: (ctx: PostCtx) => ctx.fields.rate } } as never,
+        })
+      ).rejects.toThrow(DECIMAL_DOMAIN_REFUSAL);
+
+      await expect(
+        db().post.findMany({
+          where: { fee: (ctx: PostCtx) => ctx.fields.rate } as never,
+        })
+      ).rejects.toThrow(DECIMAL_DOMAIN_REFUSAL);
     });
 
     test("a cross-model reference is refused before any I/O", async () => {

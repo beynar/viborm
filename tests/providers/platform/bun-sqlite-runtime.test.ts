@@ -23,10 +23,11 @@ const probePath = fileURLToPath(
 );
 
 test.runIf(bunVersion.status === 0)(
-  "bun:sqlite round-trips an INTEGER past 2^53 exactly and enforces foreign keys through the driver",
+  "bun:sqlite proves fixed-decimal transport and operations on the real runtime",
   () => {
     const result = spawnSync("bun", ["run", probePath], { encoding: "utf8" });
 
     expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain("fixed-decimal evidence passed");
   }
 );

@@ -435,7 +435,8 @@ describeIf("postgres.js Driver", () => {
     driverName: "postgres.js",
     createDriver: () =>
       new PostgresDriver({ databaseUrl: TEST_CONNECTION_STRING }),
-    exactDecimal: true,
+    // SQLite-legal intersection: `precision + scale <= 18` (plan 3.1).
+    descriptor: { precision: 16, scale: 2 },
   });
 
   // Real postgres.js param serialization for a LIST of bytea bind params

@@ -2,7 +2,7 @@
  * Resolver Tests
  */
 
-import { describe, expect, it } from "vitest";
+import { diff } from "@src/migrations/differ";
 import {
   addDropResolver,
   alwaysAddDropResolver,
@@ -13,17 +13,18 @@ import {
   // Unified resolvers
   lenientResolver,
   rejectAllResolver,
+  resolveAmbiguousChanges,
   strictResolver,
 } from "@src/migrations/resolver";
-import type {
-  AmbiguousChange,
-  ChangeResolution,
-} from "@src/migrations/types";
+import type { AmbiguousChange, ChangeResolution } from "@src/migrations/types";
 import {
   createAmbiguousChange,
   createDestructiveChange,
   createEnumValueRemovalChange,
 } from "@src/migrations/types";
+import { describe, expect, it } from "vitest";
+
+const AMBIGUOUS_CHANGES_DETECTED = /Ambiguous changes detected/;
 
 // =============================================================================
 // HELPERS
@@ -47,10 +48,19 @@ function makeTableChange(
   droppedTable: string,
   addedTable: string
 ): AmbiguousChange {
+  const table = (name: string) => ({
+    name,
+    columns: [],
+    indexes: [],
+    foreignKeys: [],
+    uniqueConstraints: [],
+  });
   return {
     type: "ambiguousTable",
     droppedTable,
     addedTable,
+    droppedTableDef: table(droppedTable),
+    addedTableDef: table(addedTable),
   };
 }
 
@@ -94,6 +104,56 @@ describe("applyResolutions", () => {
         tableName: "users",
         column: { name: "name", type: "text", nullable: false },
       });
+    });
+
+    it("re-diffs a renamed column before planning its descriptor alteration", async () => {
+      const current = {
+        tables: [
+          {
+            name: "ledger",
+            columns: [
+              {
+                name: "amount",
+                type: "INTEGER",
+                nullable: false,
+                decimal: { precision: 10, scale: 2 },
+              },
+            ],
+            indexes: [],
+            foreignKeys: [],
+            uniqueConstraints: [],
+          },
+        ],
+      };
+      const desired = {
+        tables: [
+          {
+            name: "ledger",
+            columns: [
+              {
+                name: "total",
+                type: "INTEGER",
+                nullable: false,
+                decimal: { precision: 10, scale: 4 },
+              },
+            ],
+            indexes: [],
+            foreignKeys: [],
+            uniqueConstraints: [],
+          },
+        ],
+      };
+
+      expect(
+        (
+          await resolveAmbiguousChanges(
+            await diff(current, desired),
+            current,
+            desired,
+            alwaysRenameResolver
+          )
+        ).map((operation) => operation.type)
+      ).toEqual(["renameColumn", "alterColumn"]);
     });
   });
 
@@ -175,7 +235,7 @@ describe("strictResolver", () => {
     const changes = [makeColumnChange("users", "username", "name")];
 
     await expect(strictResolver(changes)).rejects.toThrow(
-      /Ambiguous changes detected/
+      AMBIGUOUS_CHANGES_DETECTED
     );
   });
 

@@ -22,8 +22,16 @@ export const OFFICIAL_CACHE_NAMESPACE_ROOT = `${CACHE_PREFIX}:cache`;
  * dialect entered the derivation below: every r1 entry keyed a scope that made
  * no claim about which schema or database produced the rows, so no r1 entry may
  * ever be served to an r2 reader. The bump is the invalidation.
+ *
+ * It moved r2 → r3 when a decimal became a value object. An r2 entry stored a
+ * decimal's canonical text and MATERIALIZED it as that same string, which is
+ * what an r2 reader's caller was handed; an r3 reader rebuilds a `Decimal` from
+ * the identical bytes. The stored bytes did not change — their MEANING did, and
+ * a reader that served the old bytes under the new contract would hand one
+ * client a string where every other read gives it a value object. Same rule as
+ * before: the bump is the invalidation.
  */
-const OFFICIAL_CACHE_SNAPSHOT_REVISION = "r2";
+const OFFICIAL_CACHE_SNAPSHOT_REVISION = "r3";
 
 /**
  * The facts one official cache scope partitions on.

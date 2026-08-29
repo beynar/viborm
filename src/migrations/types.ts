@@ -1,3 +1,5 @@
+import type { DecimalDescriptor } from "@validation/primitives/decimal-codec";
+
 // =============================================================================
 // SCHEMA SNAPSHOT (database-agnostic representation)
 // =============================================================================
@@ -96,6 +98,28 @@ export interface ColumnDef {
   nullable: boolean;
   default?: string | undefined; // SQL expression for default value
   autoIncrement?: boolean | undefined;
+  /**
+   * The declared fixed-decimal domain this column stores, when it stores one.
+   *
+   * `type` is the ACTIVE PHYSICAL representation and this is the ONE logical
+   * descriptor beside it — the pair every consumer reads (serializer, snapshot,
+   * differ, DDL, introspection, defaults, table reconstruction). They are not
+   * redundant: on PostgreSQL and MySQL the physical type spells the domain, but
+   * on SQLite the class is `INTEGER` (scalar) or `TEXT` (list) whatever the
+   * precision and scale are, so a descriptor change is invisible in `type`
+   * alone and the differ would plan nothing for it.
+   *
+   * Every snapshot producer carries it — the serializer from
+   * `ScalarState["decimal"]`, and each introspection from the fact its dialect
+   * can prove (a PostgreSQL typmod, a MySQL `DECIMAL(p,s)` or column-comment
+   * marker, a SQLite reserved CHECK constraint name) — because a side that
+   * cannot recover it would read as a change on every push, forever.
+   *
+   * There is no parallel decimal metadata map on `Model`, adapter, or
+   * migration driver (plan §7.2): this field is the migration layer's only
+   * copy, and it is a copy of the frozen descriptor the resolved scalar owns.
+   */
+  decimal?: DecimalDescriptor | undefined;
 }
 
 export interface PrimaryKeyDef {
@@ -240,6 +264,8 @@ export type AmbiguousTableChange = {
   type: "ambiguousTable";
   droppedTable: string;
   addedTable: string;
+  droppedTableDef: TableDef;
+  addedTableDef: TableDef;
 };
 
 export type AmbiguousChange = AmbiguousColumnChange | AmbiguousTableChange;
@@ -310,7 +336,7 @@ interface BaseResolveChange {
   description: string;
 
   /** Reject this change and abort the operation */
-  reject(): ResolveResult;
+  reject(): "reject";
 }
 
 /**
@@ -321,7 +347,7 @@ export interface DestructiveResolveChange extends BaseResolveChange {
   type: "destructive";
 
   /** Accept the destructive change (causes data loss) */
-  proceed(): ResolveResult;
+  proceed(): "proceed";
 }
 
 /**
@@ -344,10 +370,10 @@ export interface AmbiguousResolveChange extends BaseResolveChange {
   newType?: string;
 
   /** Treat as a rename (preserves data) */
-  rename(): ResolveResult;
+  rename(): "rename";
 
   /** Treat as separate add + drop (causes data loss) */
-  addAndDrop(): ResolveResult;
+  addAndDrop(): "addAndDrop";
 }
 
 /**
@@ -383,17 +409,17 @@ export interface EnumValueRemovalChange {
    * Map removed values to replacement values.
    * @param replacements - Map of old value → new value (or null for NULL)
    */
-  mapValues(replacements: Record<string, string | null>): ResolveResult;
+  mapValues(replacements: Record<string, string | null>): "enumMapped";
 
   /**
    * Set all removed values to NULL.
    * This is a shorthand for mapValues where all values map to null.
    * Note: Only safe if the column is nullable.
    */
-  useNull(): ResolveResult;
+  useNull(): "enumMapped";
 
   /** Reject this change and abort the operation */
-  reject(): ResolveResult;
+  reject(): "reject";
 
   /** Internal: stores the mapping result */
   _mappings?: Record<string, string | null>;
@@ -413,6 +439,39 @@ export type ResolveChange =
   | DestructiveResolveChange
   | AmbiguousResolveChange
   | EnumValueRemovalChange;
+
+export type EnumResolutionDecision =
+  | {
+      readonly kind: "mapValues";
+      readonly mappings: Record<string, string | null>;
+    }
+  | { readonly kind: "useNull" }
+  | { readonly kind: "mixed" };
+
+const enumResolutionDecisions = new WeakMap<
+  ResolveChange,
+  EnumResolutionDecision
+>();
+
+/** Internal authoritative decision made through an enum change's own methods. */
+export function readEnumResolutionDecision(
+  change: ResolveChange
+): EnumResolutionDecision | undefined {
+  return enumResolutionDecisions.get(change);
+}
+
+function recordEnumResolutionDecision(
+  change: EnumValueRemovalChange,
+  decision: Exclude<EnumResolutionDecision, { readonly kind: "mixed" }>
+): void {
+  const previous = enumResolutionDecisions.get(change);
+  enumResolutionDecisions.set(
+    change,
+    previous !== undefined && previous.kind !== decision.kind
+      ? { kind: "mixed" }
+      : decision
+  );
+}
 
 /**
  * Unified callback for resolving changes that need user input.
@@ -507,10 +566,17 @@ export function createEnumValueRemovalChange(props: {
     type: "enumValueRemoval",
     ...props,
     mapValues: (replacements: Record<string, string | null>) => {
-      change._mappings = replacements;
+      const mappings: Record<string, string | null> = {};
+      for (const [value, replacement] of Object.entries(replacements)) {
+        mappings[value] = replacement;
+      }
+      Object.freeze(mappings);
+      recordEnumResolutionDecision(change, { kind: "mapValues", mappings });
+      change._mappings = mappings;
       return "enumMapped";
     },
     useNull: () => {
+      recordEnumResolutionDecision(change, { kind: "useNull" });
       change._useNullDefault = true;
       return "enumMapped";
     },

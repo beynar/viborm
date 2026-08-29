@@ -10,6 +10,10 @@
  * are validated against all existing rows.
  */
 
+import {
+  decimalConversionRequired,
+  sqliteDecimalStorageKind,
+} from "../../decimal";
 import type { ColumnDef, ReferentialAction } from "../../types";
 import type {
   AddForeignKeyOperation,
@@ -18,6 +22,7 @@ import type {
   DropForeignKeyOperation,
 } from "../base";
 import { SQLite3MigrationDriver } from "../sqlite";
+import { sqliteDecimalCheck } from "../sqlite/decimal";
 import type { MigrationCapabilities } from "../types";
 
 export class LibSQLMigrationDriver extends SQLite3MigrationDriver {
@@ -55,6 +60,19 @@ export class LibSQLMigrationDriver extends SQLite3MigrationDriver {
     op: AlterColumnOperation,
     context: DDLContext
   ): string {
+    // A decimal descriptor change CONVERTS stored values — SQLite holds the
+    // unscaled coefficient, so the same integer means a different number at a
+    // different scale. The native ALTER rewrites the column DECLARATION and
+    // copies nothing, and by LibSQL's own contract (above) it validates only
+    // rows written afterwards, so every existing row would keep its old
+    // coefficient under the new domain and read back wrong. Table recreation
+    // is the only route that carries the values across; §9.6 states it as a
+    // falsifier ("LibSQL cannot take a native ALTER route that skips
+    // conversion").
+    if (decimalConversionRequired(op.from, op.to)) {
+      return super.generateAlterColumn(op, context);
+    }
+
     const { tableName, columnName, to } = op;
     const table = this.escapeIdentifier(tableName);
     const col = this.escapeIdentifier(columnName);
@@ -95,6 +113,21 @@ export class LibSQLMigrationDriver extends SQLite3MigrationDriver {
 
     if (column.default !== undefined) {
       parts.push(`DEFAULT ${column.default}`);
+    }
+
+    // The reserved decimal CHECK travels with the rewritten declaration.
+    // `ALTER COLUMN ... TO` replaces the WHOLE column definition, so a
+    // constraint this rebuild left out would be gone from the stored
+    // `CREATE TABLE` — and with it the only carrier of the column's declared
+    // domain, which introspection would then read as a descriptor change on
+    // every push afterwards.
+    const kind = sqliteDecimalStorageKind(column);
+    if (column.decimal && kind) {
+      parts.push(
+        sqliteDecimalCheck(column, column.decimal, kind, (name) =>
+          this.escapeIdentifier(name)
+        )
+      );
     }
 
     if (fkRef) {

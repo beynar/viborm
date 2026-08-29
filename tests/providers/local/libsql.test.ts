@@ -1,25 +1,6 @@
 import { LibSQLDriver } from "@drivers/libsql";
 import type { BatchQuery, QueryResult } from "@drivers/types";
 import type { Client, Transaction } from "@libsql/client";
-import { createInMemoryLibSQLDriver } from "@tests/fixtures/drivers/libsql";
-import { runBooleanNoOpArmBehavior } from "@tests/contracts/engine/write/boolean-noop-arm-behavior";
-import { runBulkWriteBehavior } from "@tests/contracts/engine/write/bulk-write-behavior";
-import { runCreateManyBehavior } from "@tests/contracts/engine/write/create-many-behavior";
-import { runCreateNestedUpsertBehavior } from "@tests/contracts/engine/write/create-nested-upsert-behavior";
-import { runDepthSeamBehavior } from "@tests/contracts/engine/write/depth-seam-behavior";
-import { runExtendedWhereUniqueBehavior } from "@tests/contracts/engine/write/extended-where-unique-behavior";
-import { runInverseToOneCreateBehavior } from "@tests/contracts/engine/write/inverse-to-one-create-behavior";
-import { runJunctionCreateManyBehavior } from "@tests/contracts/engine/write/junction-create-many-behavior";
-import { runLocatedParentRefBehavior } from "@tests/contracts/engine/write/located-parent-ref-behavior";
-import { runNestedMutationBehavior } from "@tests/contracts/engine/write/nested-mutation-behavior";
-import { runOwnWriteLinearizationBehavior } from "@tests/contracts/engine/write/own-write-linearization-behavior";
-import { runPostTransitionAdoptBehavior } from "@tests/contracts/engine/write/post-transition-adopt-behavior";
-import { runProducedIdentityBehavior } from "@tests/contracts/engine/write/produced-identity-depth-behavior";
-import { runReadBehavior } from "@tests/contracts/engine/write/read-behavior";
-import { runToOneUpdateWhereBehavior } from "@tests/contracts/engine/write/to-one-update-where-behavior";
-import { runUpdateFamilyBehavior } from "@tests/contracts/engine/write/update-family-behavior";
-import { runUpdateNestedUpsertBehavior } from "@tests/contracts/engine/write/update-nested-upsert-behavior";
-import { runUpsertFamilyBehavior } from "@tests/contracts/engine/write/upsert-family-behavior";
 import { batchPrimaryKeyDataflowContract } from "@tests/contracts/drivers/behaviors/batch-primary-key-dataflow-behavior";
 import { blobFilterContract } from "@tests/contracts/drivers/behaviors/blob-filter-behavior";
 import { bulkWriteLimitContract } from "@tests/contracts/drivers/behaviors/bulk-write-limit-behavior";
@@ -63,6 +44,25 @@ import {
   scalarRoundtripContract,
 } from "@tests/contracts/drivers/behaviors/scalar-roundtrip-behavior";
 import { upsertAtomicityContract } from "@tests/contracts/drivers/behaviors/upsert-atomicity-behavior";
+import { runBooleanNoOpArmBehavior } from "@tests/contracts/engine/write/boolean-noop-arm-behavior";
+import { runBulkWriteBehavior } from "@tests/contracts/engine/write/bulk-write-behavior";
+import { runCreateManyBehavior } from "@tests/contracts/engine/write/create-many-behavior";
+import { runCreateNestedUpsertBehavior } from "@tests/contracts/engine/write/create-nested-upsert-behavior";
+import { runDepthSeamBehavior } from "@tests/contracts/engine/write/depth-seam-behavior";
+import { runExtendedWhereUniqueBehavior } from "@tests/contracts/engine/write/extended-where-unique-behavior";
+import { runInverseToOneCreateBehavior } from "@tests/contracts/engine/write/inverse-to-one-create-behavior";
+import { runJunctionCreateManyBehavior } from "@tests/contracts/engine/write/junction-create-many-behavior";
+import { runLocatedParentRefBehavior } from "@tests/contracts/engine/write/located-parent-ref-behavior";
+import { runNestedMutationBehavior } from "@tests/contracts/engine/write/nested-mutation-behavior";
+import { runOwnWriteLinearizationBehavior } from "@tests/contracts/engine/write/own-write-linearization-behavior";
+import { runPostTransitionAdoptBehavior } from "@tests/contracts/engine/write/post-transition-adopt-behavior";
+import { runProducedIdentityBehavior } from "@tests/contracts/engine/write/produced-identity-depth-behavior";
+import { runReadBehavior } from "@tests/contracts/engine/write/read-behavior";
+import { runToOneUpdateWhereBehavior } from "@tests/contracts/engine/write/to-one-update-where-behavior";
+import { runUpdateFamilyBehavior } from "@tests/contracts/engine/write/update-family-behavior";
+import { runUpdateNestedUpsertBehavior } from "@tests/contracts/engine/write/update-nested-upsert-behavior";
+import { runUpsertFamilyBehavior } from "@tests/contracts/engine/write/upsert-family-behavior";
+import { createInMemoryLibSQLDriver } from "@tests/fixtures/drivers/libsql";
 
 class BatchOnlyLibSQLDriver extends LibSQLDriver {
   override readonly supportsTransactions = false;
@@ -250,7 +250,8 @@ describe("LibSQL Driver", () => {
   decimalExactnessContract.register({
     driverName: "LibSQL",
     createDriver: createInMemoryLibSQLDriver,
-    exactDecimal: false,
+    // SQLite-legal intersection: `precision + scale <= 18` (plan 3.1).
+    descriptor: { precision: 16, scale: 2 },
   });
 
   fullScalarRoundtripContract.register({

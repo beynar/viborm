@@ -262,7 +262,8 @@ describe("PGlite Driver", () => {
   decimalExactnessContract.register({
     driverName: "PGlite",
     createDriver: createInMemoryPGliteDriver,
-    exactDecimal: true,
+    // SQLite-legal intersection: `precision + scale <= 18` (plan 3.1).
+    descriptor: { precision: 16, scale: 2 },
   });
   fullScalarRoundtripContract.register({
     driverName: "PGlite",

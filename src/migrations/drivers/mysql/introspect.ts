@@ -5,7 +5,16 @@
  * returning a normalized SchemaSnapshot.
  */
 
+import {
+  type DecimalDescriptor,
+  decimalListDefaultText,
+  decodePhysicalDecimalList,
+} from "@validation/primitives/decimal-codec";
 import { MigrationError, VibORMErrorCode } from "../../../errors";
+import {
+  readMysqlDecimalListMarker,
+  readStoredDecimalDescriptor,
+} from "../../decimal";
 import type {
   ColumnDef,
   EnumDef,
@@ -53,7 +62,8 @@ SELECT
   CHARACTER_MAXIMUM_LENGTH,
   NUMERIC_PRECISION,
   NUMERIC_SCALE,
-  EXTRA
+  EXTRA,
+  COLUMN_COMMENT
 FROM information_schema.COLUMNS
 WHERE TABLE_SCHEMA = ?
 ORDER BY TABLE_NAME, ORDINAL_POSITION
@@ -239,6 +249,76 @@ function isAutoIncrement(extra: string): boolean {
 }
 
 /**
+ * The declared decimal domain of a MySQL column, or `undefined`.
+ *
+ * Two carriers, because MySQL stores the two shapes differently. A scalar is
+ * `DECIMAL(p,s)` and the catalog reports the pair directly. A list is `JSON`,
+ * which carries nothing, so its domain lives in the deterministic column
+ * comment — matched EXACTLY (§6.2): a comment that merely mentions a decimal is
+ * a comment, not a descriptor, and reading one as a descriptor would attach a
+ * domain to a column VibORM never declared one on.
+ */
+function readDecimalDomain(col: MySQLColumn): DecimalDescriptor | undefined {
+  if (col.DATA_TYPE === "decimal" && col.NUMERIC_PRECISION !== null) {
+    const descriptor = readStoredDecimalDescriptor(
+      col.NUMERIC_PRECISION,
+      col.NUMERIC_SCALE ?? 0,
+      "mysql"
+    );
+    if (descriptor !== undefined) return descriptor;
+    throw new MigrationError(
+      `MySQL reported column "${col.TABLE_NAME}"."${col.COLUMN_NAME}" as DECIMAL(${String(col.NUMERIC_PRECISION)},${String(col.NUMERIC_SCALE ?? 0)}), outside VibORM's complete exact-decimal domain for this provider. Migration introspection is refused rather than publishing an invalid descriptor.`,
+      VibORMErrorCode.MIGRATION_INVALID_STATE,
+      {
+        meta: {
+          dialect: "mysql",
+          table: col.TABLE_NAME,
+          column: col.COLUMN_NAME,
+          type: "invalid-catalog-decimal-domain",
+        },
+      }
+    );
+  }
+  if (col.DATA_TYPE !== "json") return undefined;
+  return readMysqlDecimalListMarker(col.COLUMN_COMMENT);
+}
+
+/**
+ * MySQL deparses an expression-backed string default as
+ * `_charset\\'value\\'` in `information_schema.COLUMNS`. Normalize only the
+ * exact decimal-list value this driver emits: the column must carry the exact
+ * marker, the container must decode through its descriptor, and re-encoding it
+ * must reproduce every byte. A generic JSON default or a manually respelled
+ * container remains catalog text and therefore remains different.
+ */
+const MYSQL_STRING_EXPRESSION_DEFAULT = /^_[A-Za-z0-9_]+\\'([\s\S]*)\\'$/;
+
+function cleanDefault(
+  col: MySQLColumn,
+  descriptor: DecimalDescriptor | undefined
+): string | undefined {
+  const columnDefault = col.COLUMN_DEFAULT;
+  if (
+    columnDefault === null ||
+    descriptor === undefined ||
+    col.DATA_TYPE !== "json"
+  ) {
+    return columnDefault ?? undefined;
+  }
+  const match = MYSQL_STRING_EXPRESSION_DEFAULT.exec(columnDefault);
+  const container = match?.[1];
+  if (container === undefined) return columnDefault;
+  const canonicals = decodePhysicalDecimalList(
+    container,
+    descriptor,
+    "coefficient"
+  );
+  if (canonicals === undefined) return columnDefault;
+  const rendered = decimalListDefaultText("mysql", canonicals, descriptor);
+  return rendered === container ? `('${rendered}')` : columnDefault;
+}
+
+/**
  * Refuses every foreign key with one endpoint outside the selected database
  * (§5.2), before the snapshot exists.
  *
@@ -362,12 +442,14 @@ export async function introspect(
         }
       }
 
+      const decimal = readDecimalDomain(col);
       columns.push({
         name: col.COLUMN_NAME,
         type: formatColumnType(col),
         nullable: col.IS_NULLABLE === "YES",
-        default: col.COLUMN_DEFAULT ?? undefined,
+        default: cleanDefault(col, decimal),
         autoIncrement: isAutoIncrement(col.EXTRA),
+        decimal,
       });
     }
 

@@ -10,18 +10,26 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { acquireTestRunLock } from "../scripts/test-run-lock.mjs";
 import {
-  CROSS_PROVIDER_BASELINE_COMMIT,
+  assertEvidenceProgramCommits,
+  defaultMeasurementIterations,
   EXTENSION_ARMS,
+  resolveEvidenceProgram,
+  WORKLOADS,
 } from "./operation-pipeline-catalog.mjs";
 import {
+  findProtocolOverlayImplementationPaths,
   gitCommonDirectory,
-  PROTOCOL_PATHS,
   protocolIdentity,
 } from "./operation-pipeline-protocol.mjs";
 import {
+  aggregateCandidateTarget,
   aggregateTarget,
+  catalogRegressionCeilings,
+  checkoutOrder,
   diagnosticMeasurementCounts,
+  evaluateFixedDecimalCandidateGate,
   evaluateKeepGate,
+  isExactFixedDecimalLockDelta,
   isPerOperationMetric,
   parseDeclaredBudgets,
   targetableFields,
@@ -113,6 +121,11 @@ function parseArguments(argv) {
       index += 1;
       continue;
     }
+    if (argument === "--schedule-self-check") {
+      values.scheduleSelfCheck = true;
+      index += 1;
+      continue;
+    }
     if (
       argument === "--target" ||
       argument === "--ceiling" ||
@@ -186,7 +199,6 @@ function validateCheckout(
         `${label} protocol overlay must be one direct commit above source ${sourceCommit}`
       );
     }
-    const protocolPaths = new Set(PROTOCOL_PATHS);
     const changedPaths = git(directory, [
       "diff",
       "--name-only",
@@ -195,9 +207,8 @@ function validateCheckout(
     ])
       .split("\n")
       .filter(Boolean);
-    const implementationChanges = changedPaths.filter(
-      (path) => !protocolPaths.has(path)
-    );
+    const implementationChanges =
+      findProtocolOverlayImplementationPaths(changedPaths);
     if (implementationChanges.length > 0) {
       throw new Error(
         `${label} protocol overlay changes implementation files:\n${implementationChanges.join("\n")}`
@@ -484,6 +495,149 @@ function bunIsAvailable() {
   }
 }
 
+function fixedDecimalAttributionTargets(workloads) {
+  const targets = new Map();
+  for (const [decimalWorkload, definition] of Object.entries(workloads)) {
+    if (definition.fixedDecimalAttribution === undefined) continue;
+    const { textControlWorkload, constructorFloorWorkload } =
+      definition.fixedDecimalAttribution;
+    for (const [workload, stage, arm] of [
+      [decimalWorkload, "full", "decimal"],
+      [decimalWorkload, "provider-execute", "decimal-provider"],
+      [textControlWorkload, "full", "text"],
+      [textControlWorkload, "provider-execute", "text-provider"],
+      [constructorFloorWorkload, "decimal-construct", "constructor"],
+    ]) {
+      targets.set(JSON.stringify([workload, stage]), {
+        arm,
+        cardinality: definition.rowsPerOperation,
+      });
+    }
+  }
+  return targets;
+}
+
+function rotated(values, offset) {
+  return values.map((_, index) => values[(index + offset) % values.length]);
+}
+
+/**
+ * Preserve ordinary target ordering while interleaving linked candidate-only
+ * attribution arms. Allocation and CPU cohorts contain full and provider legs
+ * for decimal and text plus the constructor floor; retained cohorts omit the
+ * ephemeral provider legs. Each replicate rotates its first cohort member.
+ */
+function measurementSchedule(targets, workloads, replicates) {
+  const attributionTargets = fixedDecimalAttributionTargets(workloads);
+  const ordinaryTargets = [];
+  const attributionCohorts = new Map();
+  for (const target of targets) {
+    const attribution = attributionTargets.get(
+      JSON.stringify([target.workload, target.stage])
+    );
+    if (!attribution) {
+      ordinaryTargets.push(target);
+      continue;
+    }
+    if (workloads[target.workload].comparison !== "candidate-only") {
+      throw new Error(
+        `${target.workload}/${target.stage} is a fixed-decimal attribution arm but is not candidate-only`
+      );
+    }
+    const cohortKey = JSON.stringify([target.provider, target.mode]);
+    const cohort = attributionCohorts.get(cohortKey) ?? [];
+    cohort.push({ target, attribution });
+    attributionCohorts.set(cohortKey, cohort);
+  }
+
+  const schedule = [];
+  for (const target of ordinaryTargets) {
+    for (let replicate = 0; replicate < replicates; replicate++) {
+      for (const checkout of checkoutOrder(
+        workloads[target.workload].comparison,
+        replicate
+      )) {
+        schedule.push({ target, replicate, checkout });
+      }
+    }
+  }
+  const armOrder = {
+    decimal: 0,
+    "decimal-provider": 1,
+    text: 2,
+    "text-provider": 3,
+    constructor: 4,
+  };
+  for (const cohort of attributionCohorts.values()) {
+    cohort.sort(
+      (left, right) =>
+        left.attribution.cardinality - right.attribution.cardinality ||
+        armOrder[left.attribution.arm] - armOrder[right.attribution.arm]
+    );
+    for (let replicate = 0; replicate < replicates; replicate++) {
+      for (const { target } of rotated(cohort, replicate % cohort.length)) {
+        for (const checkout of checkoutOrder(
+          workloads[target.workload].comparison,
+          replicate
+        )) {
+          schedule.push({ target, replicate, checkout });
+        }
+      }
+    }
+  }
+  return schedule;
+}
+
+function scheduleSelfCheck() {
+  const provider = "sqlite3";
+  const targets = [];
+  for (const mode of ["alloc", "retained"]) {
+    targets.push({
+      provider,
+      workload: "provider-fixed-decimal-scalar-control",
+      stage: "full",
+      mode,
+    });
+    for (const [workload, definition] of Object.entries(WORKLOADS)) {
+      if (definition.fixedDecimalAttribution === undefined) continue;
+      targets.push(
+        { provider, workload, stage: "full", mode },
+        {
+          provider,
+          workload: definition.fixedDecimalAttribution.textControlWorkload,
+          stage: "full",
+          mode,
+        },
+        {
+          provider,
+          workload:
+            definition.fixedDecimalAttribution.constructorFloorWorkload,
+          stage: "decimal-construct",
+          mode,
+        }
+      );
+      if (mode !== "retained") {
+        targets.push(
+          { provider, workload, stage: "provider-execute", mode },
+          {
+            provider,
+            workload: definition.fixedDecimalAttribution.textControlWorkload,
+            stage: "provider-execute",
+            mode,
+          }
+        );
+      }
+    }
+  }
+  return measurementSchedule(targets, WORKLOADS, 5).map(
+    ({ target, replicate, checkout }) => ({
+      ...target,
+      replicate,
+      checkout,
+    })
+  );
+}
+
 async function describeCheckout(checkout) {
   const output = await runChild(
     checkout,
@@ -494,10 +648,10 @@ async function describeCheckout(checkout) {
   return JSON.parse(output);
 }
 
-function comparableEnvironment(metadata) {
+function comparableEnvironment(metadata, includeLockfile = true) {
   return {
     clean: metadata.clean,
-    lockSha256: metadata.lockSha256,
+    ...(includeLockfile ? { lockSha256: metadata.lockSha256 } : {}),
     runtime: metadata.runtime,
   };
 }
@@ -510,12 +664,13 @@ function verifyTargetEvidence(
   samplingInterval,
   expectedIterations,
   expectedWarmup,
-  expectedProtocolHash
+  expectedProtocolHash,
+  includeLockfileInEnvironment
 ) {
   const first = targetSamples[0]?.output;
   if (!first) throw new Error(`No evidence exists for ${target.workload}`);
   const expectedEnvironment = JSON.stringify(
-    comparableEnvironment(first.metadata)
+    comparableEnvironment(first.metadata, includeLockfileInEnvironment)
   );
   const expectedWitness = JSON.stringify(first.witness);
   const expectedProtocol = {
@@ -533,7 +688,13 @@ function verifyTargetEvidence(
     const pair = targetSamples.filter(
       (sample) => sample.replicate === replicate
     );
-    if (pair.length !== 2) {
+    const expectedLabels = checkoutOrder(definition.comparison, replicate);
+    if (
+      pair.length !== expectedLabels.length ||
+      expectedLabels.some(
+        (label) => !pair.some((sample) => sample.checkout === label)
+      )
+    ) {
       throw new Error(
         `${target.workload}/${target.stage}/${target.mode} replicate ${replicate + 1} is incomplete`
       );
@@ -578,8 +739,12 @@ function verifyTargetEvidence(
       );
     }
     if (
-      JSON.stringify(comparableEnvironment(sample.output.metadata)) !==
-      expectedEnvironment
+      JSON.stringify(
+        comparableEnvironment(
+          sample.output.metadata,
+          includeLockfileInEnvironment
+        )
+      ) !== expectedEnvironment
     ) {
       throw new Error(
         `${target.workload}/${target.stage}/${target.mode} ran in mismatched environments`
@@ -589,6 +754,10 @@ function verifyTargetEvidence(
 }
 
 const arguments_ = parseArguments(process.argv.slice(2));
+if (arguments_.scheduleSelfCheck === true) {
+  process.stdout.write(`${JSON.stringify(scheduleSelfCheck())}\n`);
+  process.exit(0);
+}
 const workloadFilter = splitFilter(arguments_.workloads);
 const diagnosticOnly = arguments_.diagnostic === true;
 if (diagnosticOnly && arguments_.smoke === true) {
@@ -598,9 +767,13 @@ if (diagnosticOnly && workloadFilter === undefined) {
   usage("--diagnostic requires an explicit --workloads subset");
 }
 const providerFilter = splitFilter(arguments_.providers);
-const isCrossProviderRun =
-  workloadFilter !== undefined &&
-  [...workloadFilter].some((workload) => workload.startsWith("provider-"));
+const selectedWorkloadNames =
+  workloadFilter === undefined ? Object.keys(WORKLOADS) : [...workloadFilter];
+const evidenceProgram = resolveEvidenceProgram(
+  selectedWorkloadNames,
+  WORKLOADS
+);
+const isCrossProviderRun = evidenceProgram !== undefined;
 const iterationOverride = optionalPositiveInteger(
   "iterations",
   arguments_.iterations
@@ -620,11 +793,6 @@ const baseline = validateCheckout(
   baselineArm,
   arguments_["baseline-source-commit"]
 );
-if (isCrossProviderRun && baseline.commit !== CROSS_PROVIDER_BASELINE_COMMIT) {
-  throw new Error(
-    `The cross-provider suite requires baseline ${CROSS_PROVIDER_BASELINE_COMMIT}; received ${baseline.commit}`
-  );
-}
 const candidate = validateCheckout(
   "candidate",
   arguments_["candidate-dir"],
@@ -661,6 +829,13 @@ if (
   );
 }
 const coordinatorCommit = git(COORDINATOR_REPOSITORY, ["rev-parse", "HEAD"]);
+if (evidenceProgram) {
+  assertEvidenceProgramCommits(evidenceProgram, {
+    baselineCommit: baseline.sourceCommit,
+    candidateCommit: candidate.commit,
+    coordinatorCommit,
+  });
+}
 if (
   isCrossProviderRun &&
   git(COORDINATOR_REPOSITORY, ["status", "--porcelain"])
@@ -705,7 +880,20 @@ try {
   const candidateLock = readFileSync(
     join(candidate.directory, "pnpm-lock.yaml")
   );
-  if (!baselineLock.equals(candidateLock)) {
+  const lockfilesEqual = baselineLock.equals(candidateLock);
+  const fixedDecimalLockDelta =
+    evidenceProgram?.name === "fixed-decimal" &&
+    isExactFixedDecimalLockDelta(
+      baselineLock.toString("utf8"),
+      candidateLock.toString("utf8")
+    );
+  if (evidenceProgram?.lockfileComparison === "fixed-decimal-dependency-only") {
+    if (!fixedDecimalLockDelta) {
+      throw new Error(
+        "Fixed-decimal evidence requires exactly the decimal.js@10.6.0 lockfile delta"
+      );
+    }
+  } else if (!lockfilesEqual) {
     throw new Error("Baseline and candidate pnpm lockfiles differ");
   }
 
@@ -734,7 +922,7 @@ try {
   }
   if (stageFilter) {
     const knownStages = new Set(
-      Object.values(baselineDescription.workloads).flatMap(
+      Object.values(candidateDescription.workloads).flatMap(
         (definition) => definition.stages
       )
     );
@@ -746,23 +934,42 @@ try {
     }
   }
 
+  const workloadDefinitions = candidateDescription.workloads;
+  const requiredFixedDecimalTargets =
+    evidenceProgram?.name === "fixed-decimal"
+      ? fixedDecimalAttributionTargets(workloadDefinitions)
+      : new Map();
   const targets = [];
-  for (const [workload, definition] of Object.entries(
-    baselineDescription.workloads
-  )) {
+  for (const [workload, definition] of Object.entries(workloadDefinitions)) {
     if (workloadFilter && !workloadFilter.has(workload)) continue;
     for (const provider of definition.providers ?? ["sqlite3"]) {
       if (providerFilter && !providerFilter.has(provider)) continue;
       for (const stage of definition.stages) {
-        if (stageFilter && !stageFilter.has(stage)) continue;
+        const fixedDecimalAttribution = requiredFixedDecimalTargets.get(
+          JSON.stringify([workload, stage])
+        );
+        if (
+          stageFilter &&
+          !stageFilter.has(stage) &&
+          !requiredFixedDecimalTargets.has(JSON.stringify([workload, stage]))
+        ) {
+          continue;
+        }
         for (const mode of modes) {
+          if (
+            mode === "retained" &&
+            (fixedDecimalAttribution?.arm === "decimal-provider" ||
+              fixedDecimalAttribution?.arm === "text-provider")
+          ) {
+            continue;
+          }
           targets.push({ provider, workload, stage, mode });
         }
       }
     }
   }
   if (workloadFilter) {
-    const known = new Set(Object.keys(baselineDescription.workloads));
+    const known = new Set(Object.keys(workloadDefinitions));
     const unknown = [...workloadFilter].filter((name) => !known.has(name));
     if (unknown.length > 0)
       throw new Error(`Unknown workloads: ${unknown.join(", ")}`);
@@ -779,25 +986,36 @@ try {
     throw new Error("No benchmark targets matched the filters");
   const declaredTargets = parseDeclaredTargets(
     arguments_.targets ?? [],
-    baselineDescription.workloads
+    workloadDefinitions
   );
-  const declaredCeilings = parseDeclaredCeilings(
+  const explicitCeilings = parseDeclaredCeilings(
     arguments_.ceilings ?? [],
-    baselineDescription.workloads
+    workloadDefinitions
   );
   const declaredBudgets = parseDeclaredBudgets(
     arguments_.budgets ?? [],
-    baselineDescription.workloads
+    workloadDefinitions
   );
   const rowScalings = parseRowScalings(
     arguments_.rowScalings ?? [],
-    baselineDescription.workloads
+    workloadDefinitions
   );
+  const declaredCeilings = [
+    ...catalogRegressionCeilings(targets, workloadDefinitions),
+    ...explicitCeilings,
+  ];
   for (const declared of [
     ...declaredTargets,
     ...declaredCeilings,
     ...declaredBudgets,
   ]) {
+    if (
+      workloadDefinitions[declared.workload].comparison === "candidate-only"
+    ) {
+      throw new Error(
+        `${declared.workload} is candidate-only and cannot carry a baseline delta contract`
+      );
+    }
     if (
       !targets.some(
         (target) =>
@@ -813,6 +1031,16 @@ try {
     }
   }
   for (const scaling of rowScalings) {
+    if (
+      [scaling.oneRowWorkload, scaling.manyRowWorkload].some(
+        (workload) =>
+          workloadDefinitions[workload].comparison === "candidate-only"
+      )
+    ) {
+      throw new Error(
+        `${scaling.oneRowWorkload}→${scaling.manyRowWorkload} contains a candidate-only workload and cannot carry a baseline row-scaling contract`
+      );
+    }
     for (const workload of [scaling.oneRowWorkload, scaling.manyRowWorkload]) {
       if (
         !targets.some(
@@ -833,69 +1061,65 @@ try {
   const smoke = arguments_.smoke === true;
   const replicates = smoke ? 1 : diagnosticOnly ? 2 : 5;
   const samples = [];
-  for (const target of targets) {
+  const schedule = measurementSchedule(
+    targets,
+    workloadDefinitions,
+    replicates
+  );
+  for (const { target, replicate, checkout: checkoutLabel } of schedule) {
     const diagnosticCounts = diagnosticOnly
       ? diagnosticMeasurementCounts(
-          baselineDescription.workloads[target.workload].rowsPerOperation,
+          workloadDefinitions[target.workload],
           target.mode
         )
       : undefined;
-    for (let replicate = 0; replicate < replicates; replicate++) {
-      const order =
-        replicate % 2 === 0 ? [baseline, candidate] : [candidate, baseline];
-      for (const checkout of order) {
-        process.stderr.write(
-          `${target.provider}/${target.workload}/${target.stage}/${target.mode} replicate ${
-            replicate + 1
-          }/${replicates}: ${checkout.label}\n`
-        );
-        const requiresBun =
-          baselineDescription.providers?.[target.provider]?.runtime === "bun";
-        const useBun = requiresBun && bunIsAvailable();
-        const worker = isCrossProviderRun
-          ? COORDINATOR_WORKER
-          : checkout.worker;
-        const output = await runChild(
-          checkout,
-          useBun ? [worker] : ["--expose-gc", worker],
-          {
-            VIBORM_BENCH_PROVIDER: target.provider,
-            VIBORM_BENCH_WORKLOAD: target.workload,
-            VIBORM_BENCH_STAGE: target.stage,
-            VIBORM_BENCH_MODE: target.mode,
-            VIBORM_BENCH_EXPECTED_COMMIT: checkout.commit,
-            VIBORM_BENCH_TARGET_DIRECTORY: checkout.directory,
-            VIBORM_BENCH_EXTENSION_ARM: checkout.extensionArm,
-            VIBORM_BENCH_SMOKE: smoke ? "1" : "0",
-            ...(arguments_.iterations || diagnosticCounts
-              ? {
-                  VIBORM_BENCH_ITERATIONS:
-                    arguments_.iterations ??
-                    String(diagnosticCounts.iterations),
-                }
-              : {}),
-            ...(arguments_.warmup || diagnosticCounts
-              ? {
-                  VIBORM_BENCH_WARMUP_ITERATIONS:
-                    arguments_.warmup ??
-                    String(diagnosticCounts.warmupIterations),
-                }
-              : {}),
-          },
-          smoke ? 120_000 : 600_000,
-          useBun ? "bun" : process.execPath
-        );
-        samples.push({
-          ...target,
-          replicate,
-          checkout: checkout.label,
-          output: JSON.parse(output),
-        });
-      }
-    }
+    const checkout = checkoutLabel === "baseline" ? baseline : candidate;
+    process.stderr.write(
+      `${target.provider}/${target.workload}/${target.stage}/${target.mode} replicate ${
+        replicate + 1
+      }/${replicates}: ${checkout.label}\n`
+    );
+    const requiresBun =
+      baselineDescription.providers?.[target.provider]?.runtime === "bun";
+    const useBun = requiresBun && bunIsAvailable();
+    const worker = isCrossProviderRun ? COORDINATOR_WORKER : checkout.worker;
+    const output = await runChild(
+      checkout,
+      useBun ? [worker] : ["--expose-gc", worker],
+      {
+        VIBORM_BENCH_PROVIDER: target.provider,
+        VIBORM_BENCH_WORKLOAD: target.workload,
+        VIBORM_BENCH_STAGE: target.stage,
+        VIBORM_BENCH_MODE: target.mode,
+        VIBORM_BENCH_EXPECTED_COMMIT: checkout.commit,
+        VIBORM_BENCH_TARGET_DIRECTORY: checkout.directory,
+        VIBORM_BENCH_EXTENSION_ARM: checkout.extensionArm,
+        VIBORM_BENCH_SMOKE: smoke ? "1" : "0",
+        ...(arguments_.iterations || diagnosticCounts
+          ? {
+              VIBORM_BENCH_ITERATIONS:
+                arguments_.iterations ?? String(diagnosticCounts.iterations),
+            }
+          : {}),
+        ...(arguments_.warmup || diagnosticCounts
+          ? {
+              VIBORM_BENCH_WARMUP_ITERATIONS:
+                arguments_.warmup ?? String(diagnosticCounts.warmupIterations),
+            }
+          : {}),
+      },
+      smoke ? 120_000 : 600_000,
+      useBun ? "bun" : process.execPath
+    );
+    samples.push({
+      ...target,
+      replicate,
+      checkout: checkout.label,
+      output: JSON.parse(output),
+    });
   }
 
-  const comparisons = targets.map((target) => {
+  const measurements = targets.map((target) => {
     const targetSamples = samples.filter(
       (sample) =>
         sample.provider === target.provider &&
@@ -903,7 +1127,7 @@ try {
         sample.stage === target.stage &&
         sample.mode === target.mode
     );
-    const definition = baselineDescription.workloads[target.workload];
+    const definition = workloadDefinitions[target.workload];
     const statuses = new Set(
       targetSamples.map((sample) => sample.output.status ?? "measured")
     );
@@ -928,14 +1152,13 @@ try {
         workloadShape: definition.providerShape,
       };
     }
-    const scaleDivisor = Math.max(1, definition.rowsPerOperation / 20);
-    const defaultIterations = smoke
-      ? 2
-      : target.mode === "retained"
-        ? Math.max(20, Math.floor(500 / scaleDivisor))
-        : Math.max(50, Math.floor(5000 / scaleDivisor));
+    const defaultIterations = defaultMeasurementIterations(
+      definition,
+      target.mode,
+      smoke
+    );
     const diagnosticCounts = diagnosticOnly
-      ? diagnosticMeasurementCounts(definition.rowsPerOperation, target.mode)
+      ? diagnosticMeasurementCounts(definition, target.mode)
       : undefined;
     const expectedIterations =
       iterationOverride ?? diagnosticCounts?.iterations ?? defaultIterations;
@@ -951,55 +1174,111 @@ try {
       baselineDescription.allocationSamplingInterval,
       expectedIterations,
       expectedWarmup,
-      baselineDescription.protocol.sha256
+      baselineDescription.protocol.sha256,
+      !fixedDecimalLockDelta
     );
-    return aggregateTarget(target, targetSamples);
+    return definition.comparison === "candidate-only"
+      ? aggregateCandidateTarget(target, targetSamples)
+      : aggregateTarget(target, targetSamples);
   });
+  const comparisons = measurements.filter(
+    (measurement) =>
+      workloadDefinitions[measurement.workload].comparison ===
+      "baseline-candidate"
+  );
+  const candidateMeasurements = measurements.filter(
+    (measurement) =>
+      workloadDefinitions[measurement.workload].comparison === "candidate-only"
+  );
   const measuredComparisons = comparisons.filter(
     (comparison) => comparison.status !== "skipped"
   );
   const skippedComparisons = comparisons.filter(
     (comparison) => comparison.status === "skipped"
   );
+  const skippedCandidateMeasurements = candidateMeasurements.filter(
+    (measurement) => measurement.status === "skipped"
+  );
   const measuredSamples = samples.filter(
     (sample) => (sample.output.status ?? "measured") === "measured"
   );
   verifyCrossStageSemantics(measuredSamples);
-  const baselineEnvironment = comparableEnvironment(
-    samples.find((sample) => sample.checkout === "baseline").output.metadata
-  );
-  const candidateEnvironment = comparableEnvironment(
-    samples.find((sample) => sample.checkout === "candidate").output.metadata
-  );
-  const baselineBranch = samples.find(
+  const baselineSample = samples.find(
     (sample) => sample.checkout === "baseline"
-  ).output.metadata.branch;
-  const candidateBranch = samples.find(
+  );
+  const candidateSample = samples.find(
     (sample) => sample.checkout === "candidate"
-  ).output.metadata.branch;
-  const keepGate = evaluateKeepGate({
+  );
+  const baselineEnvironment = baselineSample
+    ? comparableEnvironment(baselineSample.output.metadata)
+    : null;
+  const candidateEnvironment = candidateSample
+    ? comparableEnvironment(candidateSample.output.metadata)
+    : null;
+  const baselineBranch = baselineSample?.output.metadata.branch ?? null;
+  const candidateBranch = candidateSample?.output.metadata.branch ?? null;
+  const comparisonTargets = targets.filter(
+    (target) =>
+      workloadDefinitions[target.workload].comparison === "baseline-candidate"
+  );
+  const ordinaryKeepGate = evaluateKeepGate({
     smoke,
     diagnosticOnly,
     hasOverrides:
       iterationOverride !== undefined || warmupOverride !== undefined,
-    targets,
+    targets: comparisonTargets,
     declaredTargets,
     declaredCeilings,
     declaredBudgets,
     rowScalings,
     comparisons: measuredComparisons,
-    skippedComparisons,
-    workloads: baselineDescription.workloads,
+    skippedComparisons: [
+      ...skippedComparisons,
+      ...skippedCandidateMeasurements,
+    ],
+    workloads: workloadDefinitions,
   });
+  const fixedDecimalProviders =
+    evidenceProgram?.name === "fixed-decimal"
+      ? [
+          ...new Set([
+            ...evidenceProgram.requiredProviders,
+            ...targets.map((target) => target.provider),
+          ]),
+        ]
+      : [];
+  const fixedDecimalCandidateGate =
+    evidenceProgram?.name === "fixed-decimal"
+      ? evaluateFixedDecimalCandidateGate({
+          providers: fixedDecimalProviders,
+          measurements,
+          workloads: workloadDefinitions,
+        })
+      : undefined;
+  const keepGate = fixedDecimalCandidateGate
+    ? {
+        ...ordinaryKeepGate,
+        eligible:
+          ordinaryKeepGate.eligible && fixedDecimalCandidateGate.eligible,
+        reasons: [
+          ...ordinaryKeepGate.reasons,
+          ...fixedDecimalCandidateGate.reasons,
+        ],
+        fixedDecimalCandidate: fixedDecimalCandidateGate,
+      }
+    : ordinaryKeepGate;
   const report = {
     measurementProtocolValid: !(smoke || diagnosticOnly),
     diagnosticOnly,
-    providerCoverageComplete: skippedComparisons.length === 0,
+    providerCoverageComplete:
+      skippedComparisons.length === 0 &&
+      skippedCandidateMeasurements.length === 0,
     keepGate,
     generatedAt: new Date().toISOString(),
     protocol: {
       replicates,
-      alternatingOrder: true,
+      alternatingOrderForComparisons: true,
+      candidateOnlyRunsOneCandidateSamplePerReplicate: true,
       freshProcessPerMeasurement: true,
       sequential: true,
       allocationAndCpuSeparated: true,
@@ -1010,12 +1289,16 @@ try {
         baselineDescription.allocationSamplingInterval,
       protocolIdentity: baselineDescription.protocol,
       protocolOwnerCommit: coordinatorCommit,
+      evidenceProgram: evidenceProgram?.name ?? null,
+      lockfileComparison: fixedDecimalLockDelta
+        ? "fixed-decimal-dependency-only"
+        : "identical",
       declaredTargets,
       declaredCeilings,
       declaredBudgets,
       rowScalings,
       providers: baselineDescription.providers ?? { sqlite3: {} },
-      workloads: baselineDescription.workloads,
+      workloads: workloadDefinitions,
     },
     baseline: {
       directory: baseline.directory,
@@ -1034,6 +1317,7 @@ try {
       environment: candidateEnvironment,
     },
     comparisons,
+    candidateMeasurements,
   };
   const serialized = `${JSON.stringify(report, null, 2)}\n`;
   if (arguments_.output) {

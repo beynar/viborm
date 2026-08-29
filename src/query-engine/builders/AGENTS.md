@@ -34,6 +34,7 @@ adapter methods for dialect syntax and keep values parameterized.
 | `values-builder.ts` | INSERT values and destination scalar conversion |
 | `set-builder.ts` | UPDATE assignments |
 | `where-unique-builder.ts` | unique-selector SQL |
+| `decimal-field.ts` | descriptor lookup and provider-bounded widened-sum domains; no decimal value conversion |
 
 ## Builder contract
 
@@ -206,6 +207,21 @@ recognition belongs to driver error mapping.
 
 Structural `Sql` checks used for composition are permitted. They must not infer
 a dialect capability from tokens.
+
+## Fixed decimals
+
+Builders read the resolved scalar's one descriptor. `values-builder.ts` routes
+every scalar and list operand through the validation codec and adapter-declared
+physical vocabulary; generic array serialization never gets a second chance to
+interpret decimal members. `set-builder.ts` trusts validation's exact-one
+update union. Do not restore an operation precedence ladder or a decimal
+portability refusal.
+
+The adapter declares scalar and list representations independently — MySQL is
+text for a scalar and coefficient-container for a list. Builders ask for those
+facts and never branch on a dialect name. Field-reference comparisons require
+equal precision and scale; a generic typed `Sql` operand remains refused at the
+validation boundary because it carries neither.
 
 ## Correlation and field order
 

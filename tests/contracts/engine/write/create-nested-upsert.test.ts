@@ -181,7 +181,7 @@ class GuardProviderFailureBatchDriver extends BatchProbeDriver {
   // missing-branch notExists guard.
   protected override async execute<T>(): Promise<QueryResult<T>> {
     this.executions += 1;
-    return { rows: [{ id: 1 }] as T[], rowCount: 1 };
+    return { rows: [{ id: 1, userId: null }] as T[], rowCount: 1 };
   }
 
   override _executeBatch<T>(queries: BatchQuery[]): Promise<QueryResult<T>[]> {
@@ -241,7 +241,9 @@ describe("write engine linear operation fragments", () => {
     if (planningStep?.kind !== "read") return;
     expect(driver._prepare(planningStep.statement).sql).toContain("FOR UPDATE");
 
-    const existing = operation.compile({ "post.find.rows": [{ id: 1 }] });
+    const existing = operation.compile({
+      "post.find.rows": [{ id: 1, userId: null }],
+    });
     const missing = operation.compile({ "post.find.rows": [] });
     expect(existing.steps.map((step) => step.id)).toEqual([
       "user.create",
@@ -294,7 +296,9 @@ describe("write engine linear operation fragments", () => {
       "FOR UPDATE"
     );
 
-    const existing = operation.compile({ "post.find.rows": [{ id: 1 }] });
+    const existing = operation.compile({
+      "post.find.rows": [{ id: 1, userId: null }],
+    });
     const missing = operation.compile({ "post.find.rows": [] });
     // Found branch keeps its exists guard; missing branch has NO guard — the
     // child's unique constraint enforces the premise (Pin Rule).
@@ -475,7 +479,6 @@ describe("write engine linear operation fragments", () => {
         ),
         undefined,
         undefined,
-        "string",
         extensionChain
       )
     );
@@ -669,7 +672,9 @@ describe("write engine linear operation fragments", () => {
     const batch = createOperation(new BatchProbeDriver());
 
     // Existing-row premise: pinned by an exists guard, raceable: false.
-    const guard = batch.compile({ "post.find.rows": [{ id: 1 }] }).steps[0];
+    const guard = batch.compile({
+      "post.find.rows": [{ id: 1, userId: null }],
+    }).steps[0];
     expect(guard?.kind).toBe("guard");
     if (guard?.kind !== "guard") return;
     expect(guard.premise.kind).toBe("exists");
@@ -690,7 +695,7 @@ describe("write engine linear operation fragments", () => {
     const tx = createOperation(new TransactionProbeDriver());
     expect(
       tx
-        .compile({ "post.find.rows": [{ id: 1 }] })
+        .compile({ "post.find.rows": [{ id: 1, userId: null }] })
         .steps.every((s) => s.kind !== "guard")
     ).toBe(true);
     expect(

@@ -1,11 +1,20 @@
 import type { Sql } from "@sql";
+import type { DecimalDescriptor } from "@validation/primitives/decimal-codec";
 import type { DatabaseAdapterCapabilities } from "./adapter-capabilities";
-import type { BatchReferenceSqlAdapter, CastType } from "./adapter-core-types";
+import type {
+  ArithmeticTarget,
+  BatchReferenceSqlAdapter,
+  CastType,
+} from "./adapter-core-types";
 import type { QueryParts } from "./adapter-query-parts";
 import type { AdapterResultParser } from "./adapter-result-parser";
 
 export type { DatabaseAdapterCapabilities } from "./adapter-capabilities";
-export type { BatchReferenceSqlAdapter, CastType } from "./adapter-core-types";
+export type {
+  ArithmeticTarget,
+  BatchReferenceSqlAdapter,
+  CastType,
+} from "./adapter-core-types";
 export type {
   DeleteParts,
   InsertParts,
@@ -93,17 +102,25 @@ export interface DatabaseAdapter {
     /** Datetime value from a validated ISO-8601 string (PG/SQLite: as-is, MySQL: naive UTC 'YYYY-MM-DD HH:MM:SS.mmm') */
     dateTime: (iso: string) => Sql;
     /**
-     * Decimal operand from a canonical decimal string.
+     * Decimal operand from a canonical decimal string, in the DOMAIN it is
+     * being compared or assigned against.
      *
      * The value binds as text and the DIALECT decides how to read it, because
-     * the reading is where precision is won or lost. PG and MySQL cast it into
-     * their exact decimal type — MySQL in particular compares a `DECIMAL`
-     * column against an uncast string operand as a *double*, which would make
-     * an exact column compare inexactly with nothing to show for it. SQLite has
-     * no exact decimal type at all and stores the canonical text, so there the
-     * operand stays text and equality is exact by construction.
+     * the reading is where precision is won or lost. PostgreSQL and MySQL cast
+     * it into their exact decimal type — MySQL in particular compares a
+     * `DECIMAL` column against an uncast string operand as a *double*, which
+     * would make an exact column compare inexactly with nothing to show for it.
+     * SQLite has no exact decimal type and stores the unscaled integer
+     * coefficient, so there the operand becomes that same coefficient.
+     *
+     * The descriptor is the operand's domain, which is USUALLY the field's and
+     * deliberately not always: a `having: { _sum: ... }` operand is compared
+     * against a sum that may legitimately be wider than any single row's
+     * column, so the aggregate's caller widens the precision it passes. The
+     * scale is the field's on every path — it is what makes the operand and the
+     * column the same physical kind of number.
      */
-    decimal: (canonical: string) => Sql;
+    decimal: (canonical: string, descriptor: DecimalDescriptor) => Sql;
   };
 
   /**
@@ -222,6 +239,9 @@ export interface DatabaseAdapter {
     /** Force exact text comparison semantics independent of column/database collation. */
     caseSensitiveText: (expr: Sql) => Sql;
 
+    /** Cast a deferred value into one fixed-decimal field's exact domain. */
+    decimalCast: (expr: Sql, descriptor: DecimalDescriptor) => Sql;
+
     // Utility
     coalesce: (...exprs: Sql[]) => Sql;
     /** Reserved — not called by the query engine yet. */
@@ -248,6 +268,32 @@ export interface DatabaseAdapter {
     avg: (expr: Sql) => Sql;
     min: (expr: Sql) => Sql;
     max: (expr: Sql) => Sql;
+    /**
+     * The average of an EXACT decimal column, in the column's own physical
+     * domain and quantized to the field's scale with round-half-to-even.
+     *
+     * Separate from {@link DatabaseAdapter.aggregates.avg} because `AVG()` is a
+     * different function on a decimal: SQLite computes it in a double, and
+     * PostgreSQL/MySQL choose the result's scale themselves. This one is
+     * derived from the exact `SUM` and `COUNT(column)` — so it is NULL for an
+     * empty or all-null group — and rounds by the one shared rule rather than
+     * by a provider default.
+     */
+    decimalAvg: (column: Sql, descriptor: DecimalDescriptor) => Sql;
+
+    /**
+     * The widened precision needed to cast this exact coefficient as a
+     * `having _sum` operand, or `undefined` when the dialect cannot represent
+     * that value exactly.
+     *
+     * `_sum` may exceed one row's precision, but its comparison domain is not
+     * unbounded. PostgreSQL and MySQL admit by their exact decimal precision;
+     * SQLite admits by signed-int64 VALUE, whose valid range contains some but
+     * not all 19-digit coefficients. The adapter owns that provider fact so the
+     * query engine never branches on a dialect or silently binds a saturated
+     * value.
+     */
+    decimalSumOperandPrecision: (coefficient: string) => number | undefined;
   };
 
   /**
@@ -340,6 +386,24 @@ export interface DatabaseAdapter {
     hasSome: (column: Sql, values: Sql) => Sql;
     /** Check if array is empty */
     isEmpty: (column: Sql) => Sql;
+    /**
+     * Project a DECIMAL list column in the physical spelling its decode reads.
+     *
+     * A decimal list is the one list whose members cannot survive the ordinary
+     * projection. On a native-array dialect the members are exact decimals, and
+     * the whole-column TEXT cast every other decimal projection uses yields the
+     * dialect's own array literal (`{1.20,-0.03}`) rather than an array of
+     * members — while embedding the column in a JSON carrier uncast yields JSON
+     * NUMBERS, which round past 2^53. Casting ELEMENT-WISE answers both: the
+     * flat read gets an array of exact text and the carrier gets a JSON array of
+     * strings. On a JSON-backed dialect the container is already an array of
+     * coefficient strings and what this owns is that it arrives as TEXT rather
+     * than as a driver-parsed document.
+     *
+     * One name, one meaning, three dialect spellings — the query engine asks for
+     * a readable decimal list and never for a cast.
+     */
+    decimalProjection: (column: Sql) => Sql;
     /** Get array length. Reserved — not called by the query engine yet. */
     length: (column: Sql) => Sql;
     /** Get element at index. Reserved — not called by the query engine yet. */
@@ -394,21 +458,26 @@ export interface DatabaseAdapter {
     /** Simple assignment: "col" = value */
     assign: (column: Sql, value: Sql) => Sql;
     /** Increment: "col" = "col" + value */
-    increment: (column: Sql, by: Sql) => Sql;
+    increment: (column: Sql, by: Sql, target?: ArithmeticTarget) => Sql;
     /** Decrement: "col" = "col" - value */
-    decrement: (column: Sql, by: Sql) => Sql;
-    /** Multiply: "col" = "col" * value */
-    multiply: (column: Sql, by: Sql) => Sql;
+    decrement: (column: Sql, by: Sql, target?: ArithmeticTarget) => Sql;
+    /**
+     * Multiply: "col" = "col" * value.
+     * A decimal target rounds the product back to its scale (see
+     * {@link ArithmeticTarget}); every other target multiplies natively.
+     */
+    multiply: (column: Sql, by: Sql, target?: ArithmeticTarget) => Sql;
     /**
      * Divide: "col" = "col" / value.
-     * `columnIsInteger` tells the adapter the target column is integer-typed
+     * `target.integer` tells the adapter the target column is integer-typed
      * so it can force integer division where the dialect would otherwise do
      * real division. SQLite binds the operand as REAL, while MySQL `/` returns
      * a decimal quotient even for integer columns; both adapters use the flag
      * to preserve truncation toward zero. PostgreSQL integer division already
-     * has that behavior and ignores the flag.
+     * has that behavior and ignores the flag. A decimal target instead rounds
+     * the quotient to its scale.
      */
-    divide: (column: Sql, by: Sql, columnIsInteger?: boolean) => Sql;
+    divide: (column: Sql, by: Sql, target?: ArithmeticTarget) => Sql;
     /**
      * Array push: append each element of `values` to the list column
      * (PG: array_cat, MySQL: JSON_MERGE_PRESERVE, SQLite: JSON text concat).

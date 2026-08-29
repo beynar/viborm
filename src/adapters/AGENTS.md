@@ -101,6 +101,29 @@ namespace, a compatibility alias (`databaseSchema`, `databaseName`,
 `databaseNamespace`, `pgSchema`, `keyspace`, `searchPath`), or a SQLite
 attachment equivalent. Runtime emits neither `SET search_path` nor `USE`.
 
+### Rule 6: Exact Decimal Is Adapter Vocabulary, Not A Capability Flag
+
+One schema descriptor, `{ precision, scale }`, reaches every dialect. Adapters
+own only its SQL representation and exact operations:
+
+- PostgreSQL uses `NUMERIC(p,s)` and text-decoded `NUMERIC[]` members;
+- MySQL uses `DECIMAL(p,s)` and coefficient-string JSON list members;
+- SQLite uses a checked scaled `INTEGER` and coefficient-string JSON list
+  members.
+
+Scalar and list values remain exact across literals, predicates, ordering,
+arithmetic, aggregates, relation-key comparisons, and result decoding. Never
+coerce a decimal through JavaScript `number`, add an adapter-wide
+`supportsExactDecimal` flag, or expose a public string-result mode. The pinned
+migration owner proves MySQL 8.0.16-or-later and a strict SQL mode once for each
+effectful command. That proof is command-wide because provider-authored DDL and
+manual artifacts cannot be classified safely by decimal effect. Ordinary typed
+writes do not add a session-admission query: arithmetic protects non-strict
+sessions inside the same statement by refusing unsafe intermediate or final
+domains before assignment. Raw SQL deliberately sees the provider
+representation, including SQLite's scaled coefficient, and owns its session
+mode.
+
 ---
 
 ## Database Capability Matrix

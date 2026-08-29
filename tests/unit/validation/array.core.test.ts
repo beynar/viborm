@@ -25,6 +25,33 @@ describe("array wrapper schema", () => {
       expect(parse(schema, undefined).issues).toBeDefined();
     });
 
+    test("contains hostile array shape reads", () => {
+      const optionSchema = v.string({ array: true });
+      const revoked = Proxy.revocable([1], {});
+      revoked.revoke();
+      expect(parse(optionSchema, revoked.proxy).issues?.[0]?.message).toBe(
+        "Could not inspect array"
+      );
+
+      const throwingLength = new Proxy([1], {
+        get(target, property, receiver) {
+          if (property === "length") throw new Error("length trap");
+          return Reflect.get(target, property, receiver);
+        },
+      });
+      expect(parse(optionSchema, throwingLength).issues?.[0]?.message).toBe(
+        "Could not read array length"
+      );
+
+      const invalidLength = new Proxy([1], {
+        get(target, property, receiver) {
+          if (property === "length") return -1;
+          return Reflect.get(target, property, receiver);
+        },
+      });
+      expect(parse(optionSchema, invalidLength).issues).toBeDefined();
+    });
+
     test("rejects invalid items", () => {
       const result = parse(schema, [1, "2", 3]);
       expect(result.issues).toBeDefined();

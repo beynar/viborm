@@ -14,6 +14,7 @@ import { s } from "@src/schema";
 import { string } from "@src/schema/scalars/string/scalar";
 import { parse } from "@src/validation";
 import { getScalarSchemas } from "@src/validation/scalars";
+import Decimal from "decimal.js";
 
 declare module "cloudflare:test" {
   interface ProvidedEnv {
@@ -22,7 +23,21 @@ declare module "cloudflare:test" {
 }
 
 const TABLE = "viborm_d1_driver_core";
+const DECIMAL_TABLE = "viborm_d1_decimal_evidence";
+const DECIMAL_DOMAIN = { precision: 16, scale: 2 };
+const PAST_DOUBLE = "99999999999999.99";
+const PAST_DOUBLE_NEIGHBOUR = "99999999999999.98";
+const PAST_DOUBLE_COEFFICIENT = "9999999999999999";
 const CUID_PATTERN = /^[a-z][0-9a-z]{23}$/;
+
+const decimalEvidence = s
+  .model({
+    id: s.string().id(),
+    amount: s.decimal(DECIMAL_DOMAIN),
+    amounts: s.decimal(DECIMAL_DOMAIN).array(),
+  })
+  .map(DECIMAL_TABLE);
+const decimalEvidenceSchema = { decimalEvidence };
 
 class ProgressiveInvalidationCache extends MemoryCache {
   clearCalls = 0;
@@ -244,8 +259,145 @@ beforeAll(async () => {
      CREATE TABLE IF NOT EXISTS viborm_d1_progressive_posts (id TEXT PRIMARY KEY, title TEXT NOT NULL, authorId TEXT NOT NULL REFERENCES viborm_d1_progressive_authors(id), categoryId TEXT REFERENCES viborm_d1_progressive_categories(id));
      CREATE TABLE IF NOT EXISTS viborm_d1_generated_authors (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE);
      CREATE TABLE IF NOT EXISTS viborm_d1_generated_categories (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE);
-     CREATE TABLE IF NOT EXISTS viborm_d1_generated_posts (id TEXT PRIMARY KEY, title TEXT NOT NULL, authorId INTEGER NOT NULL REFERENCES viborm_d1_generated_authors(id), categoryId TEXT REFERENCES viborm_d1_generated_categories(id))`
+     CREATE TABLE IF NOT EXISTS viborm_d1_generated_posts (id TEXT PRIMARY KEY, title TEXT NOT NULL, authorId INTEGER NOT NULL REFERENCES viborm_d1_generated_authors(id), categoryId TEXT REFERENCES viborm_d1_generated_categories(id));
+     CREATE TABLE IF NOT EXISTS ${DECIMAL_TABLE} (id TEXT PRIMARY KEY, amount INTEGER NOT NULL CONSTRAINT "viborm_decimal_amount_16_2" CHECK (typeof(amount) = 'integer' AND amount BETWEEN -9999999999999999 AND 9999999999999999), amounts TEXT NOT NULL CONSTRAINT "viborm_decimal_amounts_16_2" CHECK (typeof(amounts) = 'text' AND json_valid(amounts) AND json_type(amounts) = 'array'))`
   );
+});
+
+describe("D1 fixed-decimal provider evidence", () => {
+  beforeEach(async () => {
+    await env.DB.prepare(`DELETE FROM ${DECIMAL_TABLE}`).run();
+  });
+
+  it("keeps scalar and list coefficients exact beyond IEEE-754", async () => {
+    const client = createClient({
+      schema: decimalEvidenceSchema,
+      database: env.DB,
+    });
+
+    try {
+      const created = await client.decimalEvidence.create({
+        data: {
+          id: "exact",
+          amount: PAST_DOUBLE,
+          amounts: [PAST_DOUBLE, "-0.03"],
+        },
+      });
+      await client.decimalEvidence.create({
+        data: {
+          id: "neighbour",
+          amount: PAST_DOUBLE_NEIGHBOUR,
+          amounts: [],
+        },
+      });
+
+      expect(created.amount).toBeInstanceOf(Decimal);
+      expect(created.amounts[0]).toBeInstanceOf(Decimal);
+      expect(created.amount.eq(PAST_DOUBLE)).toBe(true);
+      expect(created.amounts.map((amount) => amount.toString())).toEqual([
+        PAST_DOUBLE,
+        "-0.03",
+      ]);
+
+      const exactMatches = await client.decimalEvidence.findMany({
+        where: { amount: { gt: PAST_DOUBLE_NEIGHBOUR } },
+        select: { id: true },
+      });
+      expect(exactMatches).toEqual([{ id: "exact" }]);
+
+      const ordered = await client.decimalEvidence.findMany({
+        orderBy: [{ amount: "asc" }, { id: "asc" }],
+        select: { id: true },
+      });
+      expect(ordered).toEqual([{ id: "neighbour" }, { id: "exact" }]);
+
+      const aggregates = await client.decimalEvidence.aggregate({
+        _min: { amount: true },
+        _max: { amount: true },
+        _sum: { amount: true },
+        _avg: { amount: true },
+      });
+      expect(aggregates._min.amount?.eq(PAST_DOUBLE_NEIGHBOUR)).toBe(true);
+      expect(aggregates._max.amount?.eq(PAST_DOUBLE)).toBe(true);
+      expect(aggregates._sum.amount?.eq("199999999999999.97")).toBe(true);
+      expect(aggregates._avg.amount?.eq(PAST_DOUBLE_NEIGHBOUR)).toBe(true);
+
+      await client.decimalEvidence.create({
+        data: { id: "rounding", amount: "0.05", amounts: [] },
+      });
+      const multiplied = await client.decimalEvidence.update({
+        where: { id: "rounding" },
+        data: { amount: { multiply: "0.5" } },
+      });
+      expect(multiplied.amount.eq("0.02")).toBe(true);
+      await client.decimalEvidence.update({
+        where: { id: "rounding" },
+        data: { amount: { set: "1" } },
+      });
+      const divided = await client.decimalEvidence.update({
+        where: { id: "rounding" },
+        data: { amount: { divide: "8" } },
+      });
+      expect(divided.amount.eq("0.12")).toBe(true);
+
+      const updated = await client.decimalEvidence.update({
+        where: { id: "exact" },
+        data: { amount: { decrement: "0.01" } },
+      });
+      expect(updated.amount.eq(PAST_DOUBLE_NEIGHBOUR)).toBe(true);
+
+      const selected = await client.decimalEvidence.findUniqueOrThrow({
+        where: { id: "exact" },
+      });
+      expect(selected.amount).toBeInstanceOf(Decimal);
+      expect(selected.amounts[0]).toBeInstanceOf(Decimal);
+      expect(selected.amount).not.toBe(updated.amount);
+      expect(selected.amounts[0]).not.toBe(created.amounts[0]);
+
+      const physical = await client.$queryRaw<{
+        amount: string;
+        amounts: string;
+      }>`
+        SELECT CAST(amount AS TEXT) AS amount, amounts
+        FROM viborm_d1_decimal_evidence
+        WHERE id = ${"exact"}
+      `;
+      expect(physical).toEqual([
+        {
+          amount: "9999999999999998",
+          amounts: `["${PAST_DOUBLE_COEFFICIENT}","-3"]`,
+        },
+      ]);
+    } finally {
+      await client.$disconnect();
+    }
+  });
+
+  it("refuses unsafe scalar storage and malformed list members", async () => {
+    const client = createClient({
+      schema: decimalEvidenceSchema,
+      database: env.DB,
+    });
+
+    try {
+      await expect(
+        client.$executeRawUnsafe(
+          `INSERT INTO ${DECIMAL_TABLE} (id, amount, amounts) VALUES ('unsafe-scalar', 1.5, '[]')`
+        )
+      ).rejects.toThrow();
+
+      await client.$executeRawUnsafe(
+        `INSERT INTO ${DECIMAL_TABLE} (id, amount, amounts) VALUES ('unsafe-list', 120, '["120",1]')`
+      );
+      await expect(
+        client.decimalEvidence.findUniqueOrThrow({
+          where: { id: "unsafe-list" },
+        })
+      ).rejects.toThrow();
+    } finally {
+      await client.$disconnect();
+    }
+  });
 });
 
 describe("D1 binding provider", () => {

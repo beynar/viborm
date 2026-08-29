@@ -4,13 +4,25 @@ import {
   VibORMErrorCode,
 } from "@errors";
 import { s } from "@schema";
+import { validate as validateOperation } from "@src/query-engine/validator";
+import { parseValidated } from "@src/query-engine/write-engine/parse-boundary";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { createSchemaRegistry } from "@validation";
+import { createSchemaRegistry, parse } from "@validation";
+import {
+  readValidationFailureCause,
+  validationFailureFromThrown,
+} from "@validation/parse-failure";
 import { describe, expect, test } from "vitest";
 
 const user = s.model({ id: s.string().id(), name: s.string() });
 
 function registryWithExternalString(
+  validate: StandardSchemaV1<string, string>["~standard"]["validate"]
+) {
+  return operationBoundaryWithExternalString(validate).registry;
+}
+
+function operationBoundaryWithExternalString(
   validate: StandardSchemaV1<string, string>["~standard"]["validate"]
 ) {
   const externalSchema: StandardSchemaV1<string, string> = {
@@ -24,7 +36,10 @@ function registryWithExternalString(
     id: s.string().id(),
     name: s.string().schema(externalSchema),
   });
-  return createSchemaRegistry({ user: externalUser });
+  return {
+    model: externalUser,
+    registry: createSchemaRegistry({ user: externalUser }),
+  };
 }
 
 function captureValidationError(run: () => unknown): ValidationError {
@@ -91,6 +106,71 @@ describe("validation failure boundaries", () => {
     expect(error.originalCause?.message).toBe(
       "Underlying error details redacted"
     );
+  });
+
+  test("public parse contains malformed result shapes", () => {
+    const schema = (validate: () => unknown): StandardSchemaV1 => ({
+      "~standard": { version: 1, vendor: "hostile", validate } as never,
+    });
+
+    expect(
+      parse(
+        schema(() => ({ issues: "not-an-array" })),
+        null
+      )
+    ).toEqual({
+      issues: [{ message: "Schema returned a malformed validation result" }],
+    });
+    expect(
+      parse(
+        schema(() => ({})),
+        null
+      )
+    ).toEqual({
+      issues: [{ message: "Schema returned a malformed validation result" }],
+    });
+  });
+
+  test("retains only sanitized parse-failure evidence", () => {
+    const thrownError = validationFailureFromThrown(new Error("secret"));
+    const thrownValue = validationFailureFromThrown("secret");
+
+    expect(readValidationFailureCause(thrownError)).toBeInstanceOf(Error);
+    expect(readValidationFailureCause(thrownValue)).toBeInstanceOf(Error);
+    expect(readValidationFailureCause(null)).toBeUndefined();
+    expect(readValidationFailureCause({})).toBeUndefined();
+
+    const hostile = new Proxy(
+      {},
+      {
+        get() {
+          throw new Error("trap");
+        },
+      }
+    );
+    expect(readValidationFailureCause(hostile)).toBeUndefined();
+  });
+
+  test("operation parse consumers preserve a thrown validator cause", () => {
+    const cause = new Error("private external validator failure");
+    const { model, registry } = operationBoundaryWithExternalString(() => {
+      throw cause;
+    });
+    const input = { data: { id: "user-1", name: "Ada" } };
+    const createSchema = registry.getModelSchemas(model).args.create;
+
+    for (const run of [
+      () => validateOperation(registry, model, "create", input),
+      () => parseValidated(createSchema, input, "create", ""),
+    ]) {
+      const error = captureValidationError(run);
+      expect(error.originalCause).toBeInstanceOf(Error);
+      expect(error.originalCause).not.toBe(cause);
+      expect(error.originalCause?.message).toBe(
+        "Underlying error details redacted"
+      );
+      expect(String(error)).not.toContain("private external validator failure");
+    }
   });
 });
 

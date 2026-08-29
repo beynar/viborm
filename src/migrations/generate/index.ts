@@ -11,7 +11,10 @@ import { MigrationContext } from "../context";
 import { diff } from "../differ";
 import type { MigrationClient } from "../push";
 import { resolveAmbiguousChanges, strictResolver } from "../resolver";
-import { serializeResolvedModels } from "../serializer";
+import {
+  assertMigrationDecimalDomainsFitProvider,
+  serializeResolvedModels,
+} from "../serializer";
 import {
   addJournalEntry,
   createEmptyJournal,
@@ -71,6 +74,7 @@ export async function generate(
   // migration file is a durable artifact: writing one from an unproven topology
   // is the one failure mode a later validation pass cannot undo.
   hydrateSchemaNames(models);
+  assertMigrationDecimalDomainsFitProvider(models, client.$driver.dialect);
   // ONE resolution for this composition root, handed to the serializer by
   // identity — the gate's index IS the serializer's topology input (§10E.6).
   const relations = resolveSchemaOrThrow(models);
@@ -126,6 +130,7 @@ export async function generate(
   // 4. Resolve ambiguous changes
   let finalOperations = await resolveAmbiguousChanges(
     diffResult,
+    previousSnapshot,
     currentSnapshot,
     resolver
   );
@@ -227,7 +232,7 @@ export async function generate(
   const downSql: string[] = [];
   const downWarnings: string[] = [];
   const mode: MigrationMode = manualArtifact ? "manual" : "generated";
-  const rollback: MigrationRollback = manualArtifact
+  let rollback: MigrationRollback = manualArtifact
     ? manualArtifact.rollback
     : { kind: "automatic" };
 
@@ -269,16 +274,25 @@ export async function generate(
       migrationDriver
     );
 
-    for (const [position, op] of inverted.operations.entries()) {
-      const ddl = migrationDriver.generateDDL(op, {
-        destination: "artifact",
-        currentSchema: currentSnapshot,
-        precedingOperations: inverted.operations.slice(0, position),
-      });
-      const statements = ddl.split(";\n").filter((s) => s.trim());
-      for (const stmt of statements) {
-        const trimmed = stmt.trim();
-        downSql.push(trimmed.endsWith(";") ? trimmed : `${trimmed};`);
+    const irreversibleReason = inverted.operations
+      .map((operation) =>
+        migrationDriver.getIrreversibleRollbackReason(operation)
+      )
+      .find((reason) => reason !== undefined);
+    if (irreversibleReason !== undefined) {
+      rollback = { kind: "irreversible", reason: irreversibleReason };
+    } else {
+      for (const [position, op] of inverted.operations.entries()) {
+        const ddl = migrationDriver.generateDDL(op, {
+          destination: "artifact",
+          currentSchema: currentSnapshot,
+          precedingOperations: inverted.operations.slice(0, position),
+        });
+        const statements = ddl.split(";\n").filter((s) => s.trim());
+        for (const stmt of statements) {
+          const trimmed = stmt.trim();
+          downSql.push(trimmed.endsWith(";") ? trimmed : `${trimmed};`);
+        }
       }
     }
     downWarnings.push(...inverted.warnings);

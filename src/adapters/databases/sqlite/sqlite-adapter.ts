@@ -1,8 +1,20 @@
 import { unsupportedGeospatial, unsupportedVector } from "@errors";
 import { type Sql, sql } from "@sql";
+import {
+  type DecimalDescriptor,
+  encodePhysicalDecimal,
+} from "@validation/primitives/decimal-codec";
 import { createIdentifierQuoter } from "../../../sql/identifiers";
+import type { ArithmeticTarget } from "../../adapter-core-types";
+import type { AdapterResultParser } from "../../adapter-result-parser";
 import type { DatabaseAdapter, QueryParts } from "../../database-adapter";
 import { createOnConflictBatchRefs } from "../../shared/batch-refs";
+import {
+  type ExactIntegerArithmetic,
+  halfEvenQuotient,
+  scaleFactorSql,
+  signedNumerator,
+} from "../../shared/decimal-arithmetic";
 import {
   assembleDistinctOnEmulation,
   assembleSelectQuery,
@@ -31,11 +43,104 @@ import {
   createStandardClauses,
   createStandardLiterals,
   createSubqueries,
+  decimalCoefficientPrecision,
   escapeGlobLiteral,
   stringifyJson,
 } from "../../shared/standard-sql";
 
 const quoteIdent = createIdentifierQuoter('"');
+
+/**
+ * Every SQLite decimal expression is signed-int64 integer arithmetic on the
+ * stored unscaled coefficient, so `/` IS truncating integer division and `%`
+ * carries the dividend's sign. Neither is true once an operand becomes REAL or
+ * TEXT, which is why every operand below arrives as an INTEGER column, an
+ * integer literal, or a `CAST(... AS INTEGER)` bind.
+ */
+const SQLITE_INTEGERS: ExactIntegerArithmetic = {
+  quotient: (n: Sql, d: Sql): Sql => sql`(${n} / ${d})`,
+  remainder: (n: Sql, d: Sql): Sql => sql`(${n} % ${d})`,
+};
+
+const SQLITE_INT64_NEGATIVE_MAGNITUDE = "9223372036854775808";
+const SQLITE_INT64_MAX = "9223372036854775807";
+
+/** Admit the exact TEXT-to-INTEGER cast domain, including its 19-digit edges. */
+function sqliteDecimalSumOperandPrecision(
+  coefficient: string
+): number | undefined {
+  const precision = decimalCoefficientPrecision(coefficient);
+  if (precision < 19) return precision;
+  if (precision > 19) return undefined;
+  const isAdmitted = coefficient.startsWith("-")
+    ? coefficient.slice(1) <= SQLITE_INT64_NEGATIVE_MAGNITUDE
+    : coefficient <= SQLITE_INT64_MAX;
+  return isAdmitted ? precision : undefined;
+}
+
+/**
+ * The widest intermediate the guarded arms will evaluate: 10^18.
+ *
+ * SQLite does not raise on an integer multiply that overflows — it converts the
+ * expression to REAL, which is the one representation an exact decimal must
+ * never touch. So the arms are GUARDED: the guard compares magnitudes by
+ * DIVISION (`|x| <= LIMIT / |y|`, exact for integers) instead of computing the
+ * product it is protecting, and a `CASE` evaluates only the branch it selects.
+ *
+ * 10^18 is not arbitrary, and it is not independent. `precision + scale <= 18`
+ * is SQLite's declared field limit (plan 3.1), ENFORCED once when the schema is
+ * bound (`client/decimal-provider-limits.ts`), so every mathematically in-range
+ * result has `|x * y| <= 10^(p+s) <= 10^18`: the guard never rejects an answer
+ * that fits the field, and int64 keeps a factor of nine in reserve for the
+ * `+/- 1` step and the `d - |r|` tie test.
+ *
+ * THE COUPLING IS LOAD-BEARING, in both directions. This constant is flat where
+ * the per-descriptor bound would be `B = scale === 0 ? M : M*F + F/2 - 1`, and
+ * that is only equivalent because no descriptor past `p + s = 18` can reach it:
+ * a product in `(B, 10^18]` is admitted here and then refused by the range
+ * CHECK instead of by the sentinel — the same loud, atomic failure by the other
+ * mechanism. Remove the bind limit and the flat guard stops being a bound on
+ * the FIELD at all, which is exactly what {@link overflowCoefficient} depends
+ * on below.
+ */
+const SQLITE_INTERMEDIATE_LIMIT = sql.raw`1000000000000000000`;
+
+/**
+ * The coefficient an unsafe or out-of-domain arithmetic result becomes: 10^p,
+ * the smallest integer OUTSIDE a `precision: p` field's declared range.
+ *
+ * The DDL's range check refuses it, so the statement fails atomically and
+ * nothing is written — which is the contract for an overflow that is only
+ * knowable mid-statement.
+ *
+ * THE CLAMP DEPENDS ON THE BIND LIMIT, and is only correct because of it. At 19
+ * digits and beyond, `10^p` is a REAL to SQLite's own parser, so the sentinel
+ * would stop being an integer the CHECK can refuse — and `min(p, 18)` would put
+ * it INSIDE the range of a `precision >= 19` column, which is a silently
+ * written wrong value rather than a failure. No such column exists: plan 3.1's
+ * `precision <= 18 && precision + scale <= 18` is proven once at schema bind
+ * (`client/decimal-provider-limits.ts`), before any I/O, so `min(p, 18)` is
+ * `p` for every descriptor that ever reaches here. The clamp is what an
+ * unreachable arm does when it is reached anyway, not a policy — and it is why
+ * the bind limit is load-bearing rather than ergonomic.
+ */
+const overflowCoefficient = (descriptor: DecimalDescriptor): Sql =>
+  sql.raw(`1${"0".repeat(Math.min(descriptor.precision, 18))}`);
+
+/**
+ * `column = <exact coefficient arithmetic>`, or the constraint-breaking
+ * coefficient when the intermediate would leave int64.
+ *
+ * A NULL column is safe by definition and takes the guarded arm, where every
+ * operator is null-strict and the assignment stays NULL.
+ */
+const guardedCoefficientAssignment = (
+  column: Sql,
+  safe: Sql,
+  value: Sql,
+  descriptor: DecimalDescriptor
+): Sql =>
+  sql`${column} = CASE WHEN ${column} IS NULL OR ${safe} THEN ${value} ELSE ${overflowCoefficient(descriptor)} END`;
 
 const JSON_ARRAY_INDEX_SEGMENT = /^\d+$/;
 const JSON_UNADDRESSABLE_LABEL = /["\\]/;
@@ -138,14 +243,17 @@ export class SQLiteAdapter implements DatabaseAdapter {
     // SQLite requires JSON values to be stringified
     json: (v: unknown): Sql => sql`${JSON.stringify(v)}`,
 
-    // SQLite has no exact decimal type, so a decimal lives in a TEXT column as
-    // its canonical spelling and the operand stays text. Casting to NUMERIC or
-    // REAL here would put the comparison through a double — which is exactly
-    // what the TEXT column exists to avoid. Text equality is EXACT numeric
-    // equality precisely because both sides are canonical; the operators that
-    // text cannot answer (ordering, aggregation, arithmetic) are refused
-    // outright rather than answered approximately.
-    decimal: (canonical: string): Sql => sql`${canonical}`,
+    // SQLite has no exact decimal type, so a decimal column stores the UNSCALED
+    // INTEGER COEFFICIENT and an operand becomes that same coefficient. Integer
+    // comparison is then exact numeric comparison, and ordering, aggregation
+    // and arithmetic are exact for the same reason.
+    //
+    // The digits bind as TEXT and `CAST(... AS INTEGER)` reads them, rather than
+    // riding a JavaScript number (which rounds above 2^53) or a bigint (which
+    // D1 will not bind). SQLite's TEXT-to-INTEGER cast is a decimal integer
+    // parse, not a float one.
+    decimal: (canonical: string, descriptor: DecimalDescriptor): Sql =>
+      sql`CAST(${encodePhysicalDecimal(canonical, descriptor, "coefficient")} AS INTEGER)`,
   };
 
   // ============================================================
@@ -239,16 +347,18 @@ export class SQLiteAdapter implements DatabaseAdapter {
     greatest: (...exprs: Sql[]): Sql => sql`MAX(${sql.join(exprs, ", ")})`,
     least: (...exprs: Sql[]): Sql => sql`MIN(${sql.join(exprs, ", ")})`,
 
+    // A deferred SQLite decimal is already a captured coefficient. The
+    // descriptor still travels through the common contract so no caller can
+    // select this physical cast without naming the destination domain.
+    decimalCast: (expr: Sql, _descriptor: DecimalDescriptor): Sql =>
+      sql`CAST(${expr} AS INTEGER)`,
+
     // SQLite type mappings
     cast: createCastExpression({
       text: "TEXT",
       integer: "INTEGER",
       boolean: "INTEGER",
       numeric: "NUMERIC",
-      // TEXT, matching the storage column and `literals.decimal`. `CAST(x AS
-      // NUMERIC)` would put the canonical spelling through a double — the exact
-      // thing the TEXT column exists to avoid.
-      decimal: "TEXT",
     }),
 
     blobToHex: (expr: Sql): Sql => sql`lower(hex(${expr}))`,
@@ -258,7 +368,29 @@ export class SQLiteAdapter implements DatabaseAdapter {
   // AGGREGATES
   // ============================================================
 
-  aggregates = createAggregateFunctions();
+  aggregates = {
+    ...createAggregateFunctions(),
+
+    // The average of a coefficient column IS the half-even integer quotient of
+    // its exact sum by its non-null count: dividing both the sum and the count
+    // of `logical x 10^s` values leaves `average x 10^s`, so no scale factor
+    // appears at all. `COUNT(column)` is zero exactly when `SUM` is NULL, so
+    // the null-strict operators answer NULL for an empty or all-null group and
+    // the zero divisor is never reached with a value.
+    decimalAvg: (column: Sql, _descriptor: DecimalDescriptor): Sql =>
+      halfEvenQuotient(
+        SQLITE_INTEGERS,
+        sql`SUM(${column})`,
+        sql`COUNT(${column})`
+      ),
+
+    // A SQLite decimal aggregate is an int64 `SUM` over coefficients. Exact
+    // operand admission follows the signed range rather than digit count: some
+    // 19-digit values fit, while the next value past either endpoint would make
+    // `CAST(... AS INTEGER)` saturate. SUM results are not capped here; SQLite
+    // raises on actual overflow.
+    decimalSumOperandPrecision: sqliteDecimalSumOperandPrecision,
+  };
 
   // ============================================================
   // JSON (SQLite 3.38+ JSON functions)
@@ -353,6 +485,12 @@ export class SQLiteAdapter implements DatabaseAdapter {
     isEmpty: (column: Sql): Sql =>
       sql`(json_array_length(${column}) = 0 OR ${column} IS NULL)`,
 
+    // The column already stores the container as TEXT (its declared type is
+    // TEXT, not JSON, precisely so the descriptor's CHECK can hold it). The
+    // cast is what stops a JSON carrier from embedding it as a document and a
+    // driver from handing back anything but the stored bytes.
+    decimalProjection: (column: Sql): Sql => sql`CAST(${column} AS TEXT)`,
+
     length: (column: Sql): Sql => sql`json_array_length(${column})`,
 
     get: (column: Sql, index: Sql): Sql =>
@@ -402,15 +540,52 @@ export class SQLiteAdapter implements DatabaseAdapter {
   set = {
     ...createNumericSetOperations(),
 
+    // `x * y / 10^s` in coefficient space, rounded half to even. The guard is
+    // the multiply's own: `x * y` is the only intermediate here that can leave
+    // int64, and it does so exactly when the result cannot fit the field.
+    multiply: (column: Sql, by: Sql, target?: ArithmeticTarget): Sql => {
+      const descriptor = target?.decimal;
+      if (!descriptor) return sql`${column} = ${column} * ${by}`;
+      return guardedCoefficientAssignment(
+        column,
+        sql`${by} = 0 OR ABS(${column}) <= ${SQLITE_INTERMEDIATE_LIMIT} / ABS(${by})`,
+        halfEvenQuotient(
+          SQLITE_INTEGERS,
+          sql`(${column} * ${by})`,
+          scaleFactorSql(descriptor.scale)
+        ),
+        descriptor
+      );
+    },
+
+    // `x * 10^s / y` in coefficient space, rounded half to even; the divisor's
+    // sign moves onto the numerator so the rule always sees a positive divisor.
+    // `y` is never zero — division by canonical zero is refused before I/O.
+    //
     // SQLite drivers bind JS numbers as REAL, so `col / ?` runs real division
     // and would persist a fractional value into an INTEGER column. Casting the
     // divisor to INTEGER makes it native INT/INT division (truncating toward
     // zero, matching Postgres) for integer columns; real columns keep real
     // division since the column itself carries REAL affinity.
-    divide: (column: Sql, by: Sql, columnIsInteger?: boolean): Sql =>
-      columnIsInteger
+    divide: (column: Sql, by: Sql, target?: ArithmeticTarget): Sql => {
+      const descriptor = target?.decimal;
+      if (descriptor) {
+        const factor = scaleFactorSql(descriptor.scale);
+        return guardedCoefficientAssignment(
+          column,
+          sql`ABS(${column}) <= ${SQLITE_INTERMEDIATE_LIMIT} / ${factor}`,
+          halfEvenQuotient(
+            SQLITE_INTEGERS,
+            signedNumerator(sql`(${column} * ${factor})`, by),
+            sql`ABS(${by})`
+          ),
+          descriptor
+        );
+      }
+      return target?.integer
         ? sql`${column} = ${column} / CAST(${by} AS INTEGER)`
-        : sql`${column} = ${column} / ${by}`,
+        : sql`${column} = ${column} / ${by}`;
+    },
 
     push: (column: Sql, values: unknown[]): Sql =>
       sql`${column} = ${jsonArrayConcat(
@@ -566,8 +741,6 @@ export class SQLiteAdapter implements DatabaseAdapter {
     // UPDATE/DELETE ... LIMIT needs SQLITE_ENABLE_UPDATE_DELETE_LIMIT, which is
     // off in the builds this project targets (better-sqlite3, libSQL, D1).
     supportsMutationRowLimit: false,
-    // No exact decimal type exists in SQLite — see the flag's own docs.
-    supportsExactDecimal: false,
   };
 
   lastInsertId = (): Sql => sql.raw`last_insert_rowid()`;
@@ -599,7 +772,18 @@ export class SQLiteAdapter implements DatabaseAdapter {
   // Adapter just passes through to default parsing
   // ============================================================
 
-  result = {
+  result: AdapterResultParser = {
+    // SQLite has no exact decimal type: a decimal column IS its unscaled
+    // integer coefficient, and every projection casts it to text before a
+    // driver turns an int64 into a double. The result boundary cannot tell the
+    // two vocabularies apart by inspection, so the promise is declared here.
+    decimalRepresentation: "coefficient",
+
+    // A decimal LIST is TEXT holding a JSON array of those same coefficients,
+    // stated separately because the two facts are separate: a dialect can spell
+    // its scalar decimals exactly and still have no exact decimal inside JSON.
+    decimalListRepresentation: "coefficient",
+
     parseResult: (
       _raw: unknown,
       _operation: import("../../../query-engine/types").Operation,

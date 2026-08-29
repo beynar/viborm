@@ -15,6 +15,8 @@ import type {
   TableDef,
   UniqueConstraintDef,
 } from "../../types";
+import { readSqliteDecimalConstraint } from "./decimal";
+import { skipSqlNonStructuralRegion } from "./sql-lexing";
 import type {
   SqliteColumn,
   SqliteForeignKey,
@@ -74,30 +76,17 @@ function partialIndexPredicate(sql: string | null): string | undefined {
   let columnListEnd = -1;
 
   while (cursor < sql.length) {
+    // Quoted tokens and comments are skipped through the ONE owner of where a
+    // non-structural SQLite region ends, shared with the reserved decimal-
+    // constraint reader: both read text SQLite stored verbatim, and both are
+    // wrong the same way if its contents are read as syntax.
+    const skipped = skipSqlNonStructuralRegion(sql, cursor);
+    if (skipped !== cursor) {
+      cursor = skipped;
+      continue;
+    }
+
     const char = sql[cursor];
-
-    if (char === "'" || char === '"' || char === "`") {
-      cursor++;
-      while (cursor < sql.length) {
-        if (sql[cursor] === char) {
-          // A doubled quote is an escaped one, not the end of the token.
-          if (sql[cursor + 1] === char) {
-            cursor += 2;
-            continue;
-          }
-          break;
-        }
-        cursor++;
-      }
-      cursor++;
-      continue;
-    }
-
-    if (char === "[") {
-      while (cursor < sql.length && sql[cursor] !== "]") cursor++;
-      cursor++;
-      continue;
-    }
 
     if (char === "(") {
       depth++;
@@ -127,7 +116,6 @@ function mapReferentialAction(rule: string): ReferentialAction {
       return "restrict";
     case "SET DEFAULT":
       return "setDefault";
-    case "NO ACTION":
     default:
       return "noAction";
   }
@@ -140,9 +128,12 @@ function mapReferentialAction(rule: string): ReferentialAction {
 export async function introspect(
   executeRaw: <T>(sql: string, params?: unknown[]) => Promise<{ rows: T[] }>
 ): Promise<SchemaSnapshot> {
-  // Get all tables
+  // Get all tables. `sql` rides along on the query that was already being made
+  // — the reserved decimal constraints are read out of it, and a second live
+  // read for them would be a raw-execution call site the architecture census
+  // pins per file.
   const tablesResult = await executeRaw<SqliteTable>(`
-    SELECT name
+    SELECT name, sql
     FROM sqlite_master
     WHERE type = 'table'
       AND name NOT LIKE 'sqlite_%'
@@ -188,13 +179,28 @@ export async function introspect(
 
     for (const col of columnsResult.rows) {
       const pk = int(col.pk);
+      const type = col.type || "TEXT";
+      const nullable = int(col.notnull) === 0;
       columns.push({
         name: col.name,
-        type: col.type || "TEXT",
-        nullable: int(col.notnull) === 0,
+        type,
+        nullable,
         default: col.dflt_value ?? undefined,
-        autoIncrement:
-          pk === 1 && col.type.toUpperCase() === "INTEGER" ? true : false,
+        autoIncrement: pk === 1 && col.type.toUpperCase() === "INTEGER",
+        // The declared domain, recovered from the reserved CHECK constraint
+        // the driver wrote. Nothing else on this dialect carries it: the type
+        // is `INTEGER` (or `TEXT`) at every precision and scale, and the
+        // pragma reports no constraints at all — so a side that could not
+        // recover it would read as a change on every push, forever.
+        decimal: readSqliteDecimalConstraint(
+          tableRow.sql,
+          // The descriptor proof consumes the exact declared type PRAGMA
+          // reported. The generic snapshot fallback above may call an untyped
+          // column TEXT, but that normalization cannot turn BLOB affinity into
+          // the writer-owned TEXT decimal-list carrier.
+          { name: col.name, type: col.type, nullable },
+          escapeIdentifier
+        ),
       });
 
       if (pk > 0) {

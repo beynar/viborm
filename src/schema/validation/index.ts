@@ -1,21 +1,6 @@
 // Schema Validation Module
 
-export {
-  allRules,
-  compoundFieldsExist,
-  indexFieldsExist,
-  indexNameUnique,
-  modelHasFields,
-  modelMappedNameValid,
-  modelNameNotReserved,
-  modelNameValid,
-  modelRules,
-  noOrphanFkFields,
-  polymorphicRelationWarning,
-  relationRules,
-  validateFieldsSinglePass,
-} from "./rules";
-export { SchemaValidationError, isSchemaValidationError } from "./error";
+export { isSchemaValidationError, SchemaValidationError } from "./error";
 export type {
   RelationResolution,
   ResolvedRelationEdge,
@@ -30,6 +15,21 @@ export type {
   ResolvedVariantRowStorage,
 } from "./relation-resolution";
 export { resolvedEdges, resolveSchemaRelations } from "./relation-resolution";
+export {
+  allRules,
+  compoundConstraintsNonEmpty,
+  indexFieldsExist,
+  indexNameUnique,
+  modelHasFields,
+  modelMappedNameValid,
+  modelNameNotReserved,
+  modelNameValid,
+  modelRules,
+  noOrphanFkFields,
+  polymorphicRelationWarning,
+  relationRules,
+  validateFieldsSinglePass,
+} from "./rules";
 export type {
   Schema,
   SchemaValidationIssue,
@@ -39,8 +39,8 @@ export type {
   ValidationRule,
 } from "./types";
 export {
-  SchemaValidator,
   resolveSchemaOrThrow,
+  SchemaValidator,
   validateClientSchemaOrThrow,
   validateSchema,
   validateSchemaOrThrow,

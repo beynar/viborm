@@ -622,10 +622,21 @@ describe("MySQL admission precedence", () => {
    */
   const respondWithDatabase =
     (namespace: string) =>
-    (sql: string): unknown[] =>
-      sql.includes("information_schema.SCHEMATA")
+    (sql: string): unknown[] => {
+      // A MySQL pinned migration session PROVES its `sql_mode` before any DDL
+      // (plan 3.3 / `migrations/pinned-session.ts`).
+      if (sql.includes("@@SESSION.sql_mode")) {
+        return [
+          {
+            sql_mode: "STRICT_TRANS_TABLES,NO_ENGINE_SUBSTITUTION",
+            server_version: "8.4.0",
+          },
+        ];
+      }
+      return sql.includes("information_schema.SCHEMATA")
         ? [{ SCHEMA_NAME: namespace }]
         : [];
+    };
 
   async function applyWith(driver: RecordingDriver): Promise<unknown> {
     const storage = new MemoryStorage();

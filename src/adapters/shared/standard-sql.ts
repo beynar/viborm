@@ -7,7 +7,7 @@ import type { CastType, DatabaseAdapter } from "../database-adapter";
 
 type StandardLiterals = Pick<
   DatabaseAdapter["literals"],
-  "value" | "null" | "list" | "dateTime" | "decimal"
+  "value" | "null" | "list" | "dateTime"
 >;
 
 type ComparisonOperators = Pick<
@@ -77,9 +77,6 @@ export const createStandardLiterals = (): StandardLiterals => ({
   },
   // PG/SQLite accept ISO-8601 directly
   dateTime: (iso: string): Sql => sql`${iso}`,
-  // Bind the canonical text; each dialect that has an exact decimal type
-  // overrides this to cast into it.
-  decimal: (canonical: string): Sql => sql`${canonical}`,
 });
 
 export const createComparisonOperators = (): ComparisonOperators => ({
@@ -108,7 +105,20 @@ export const createExistenceOperators = (): ExistenceOperators => ({
   notExists: (subquery: Sql): Sql => sql`NOT EXISTS (${subquery})`,
 });
 
-export const createAggregateFunctions = (): DatabaseAdapter["aggregates"] => ({
+type StandardAggregates = Omit<
+  DatabaseAdapter["aggregates"],
+  "decimalAvg" | "decimalSumOperandPrecision"
+>;
+
+/**
+ * The aggregate functions every dialect spells identically. `decimalAvg` is
+ * deliberately absent: an exact decimal average is derived from `SUM` and
+ * `COUNT` in the column's own physical domain, which is the one thing the three
+ * dialects do not agree on, so each adapter states it.
+ * `decimalSumOperandPrecision` is absent because each dialect also owns exact
+ * admission of an operand compared with a widened sum.
+ */
+export const createAggregateFunctions = (): StandardAggregates => ({
   count: (expr?: Sql): Sql => (expr ? sql`COUNT(${expr})` : sql.raw`COUNT(*)`),
   countDistinct: (expr: Sql): Sql => sql`COUNT(DISTINCT ${expr})`,
   sum: (expr: Sql): Sql => sql`SUM(${expr})`,
@@ -116,6 +126,23 @@ export const createAggregateFunctions = (): DatabaseAdapter["aggregates"] => ({
   min: (expr: Sql): Sql => sql`MIN(${expr})`,
   max: (expr: Sql): Sql => sql`MAX(${expr})`,
 });
+
+/** The widened precision carried by one trusted coefficient spelling. */
+export function decimalCoefficientPrecision(coefficient: string): number {
+  return coefficient.startsWith("-")
+    ? coefficient.length - 1
+    : coefficient.length;
+}
+
+/** Exact-decimal aggregate operand admission for precision-bounded dialects. */
+export function createDecimalSumOperandPrecision(
+  maxPrecision: number
+): (coefficient: string) => number | undefined {
+  return (coefficient) => {
+    const precision = decimalCoefficientPrecision(coefficient);
+    return precision <= maxPrecision ? precision : undefined;
+  };
+}
 
 export const createDirectionOrderBy = (): DirectionOrderBy => ({
   asc: (column: Sql): Sql => sql`${column} ASC`,
@@ -152,6 +179,17 @@ export const createStandardClauses = (): DatabaseAdapter["clauses"] => ({
   having: (condition: Sql): Sql => sql`HAVING ${condition}`,
 });
 
+/**
+ * The native arithmetic every dialect shares.
+ *
+ * `increment`/`decrement` are complete here for EVERY scalar including decimal:
+ * addition of two values already in the column's domain — logical decimals on
+ * PostgreSQL/MySQL, unscaled coefficients at the same scale on SQLite — creates
+ * no digit beyond that domain and therefore never rounds.
+ *
+ * `multiply` and `divide` do create such digits, so each adapter overrides them
+ * to route a decimal target through the shared half-even rule.
+ */
 export const createNumericSetOperations = (): NumericSetOperations => ({
   assign: (column: Sql, value: Sql): Sql => sql`${column} = ${value}`,
   increment: (column: Sql, by: Sql): Sql => sql`${column} = ${column} + ${by}`,

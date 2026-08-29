@@ -2,16 +2,17 @@
  * A decimal RELATION KEY is written the same way as the column it references.
  *
  * Every decimal write in the engine goes through the dialect's exact-decimal
- * literal (`literals.decimal`, canonicalized first): PG casts to `NUMERIC`,
- * MySQL to `DECIMAL(65,30)`, and SQLite binds the canonical text its TEXT
- * column stores. One path did not — the relation-correlated foreign key.
+ * literal (`literals.decimal`, canonicalized first) in the FIELD's own declared
+ * domain: PG casts to `NUMERIC(p,s)`, MySQL to `DECIMAL(p,s)`, and SQLite binds
+ * the unscaled coefficient its INTEGER column stores. One path did not — the
+ * relation-correlated foreign key.
  * `referenceSql` lowered an FK value as a plain parameter under
  * `getScalarCastType`, which answered `"numeric"` for a decimal. The result was
  * that the PARENT key and the CHILD foreign key holding the same logical value
  * were bound two different ways inside one statement pair:
  *
- *   sqlite  parent `?` (canonical TEXT)        child `CAST(? AS NUMERIC)` -> REAL
- *   mysql   parent `CAST(? AS DECIMAL(65,30))` child `CAST(? AS DECIMAL)`  -> DECIMAL(10,0)
+ *   sqlite  parent the coefficient          child `CAST(? AS NUMERIC)` -> REAL
+ *   mysql   parent `CAST(? AS DECIMAL(p,s))` child `CAST(? AS DECIMAL)` -> DECIMAL(10,0)
  *
  * Both children are lossy, and lossy in a way the parent is not, so the two
  * ends of one relation stop matching. MySQL's bare `DECIMAL` is `DECIMAL(10,0)`
@@ -30,8 +31,8 @@
  * So this file pins the property in both places it can be pinned:
  *
  *  - LIVE, on the two local dialects, that a decimal relation key round-trips —
- *    PGlite as the exact-decimal control and SQLite3 as the TEXT-storage case
- *    that actually broke. Assertions are on the LINK (the child is reachable
+ *    PGlite with native numeric storage and SQLite3 with a scaled integer
+ *    coefficient. Assertions are on the LINK (the child is reachable
  *    from the parent and its FK reads back exactly), not on the absence of a
  *    throw, because the bun:sqlite witness proves an absent throw means nothing.
  *  - ON THE SQL, for all three dialects including MySQL (which has no local
@@ -58,7 +59,16 @@ import { hydrateSchemaNames, s } from "@schema";
 import { sql } from "@sql";
 import { referenceSql } from "@src/query-engine/write-engine/fragment-builders";
 import { createSchemaRegistry } from "@validation";
+import Decimal from "decimal.js";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
+
+/**
+ * The declared domain of this file's key pair. SQLite-legal on purpose
+ * (`precision + scale <= 18`), because half of the live legs bind there — and
+ * both ends of the reference declare the SAME domain, which is what makes a
+ * decimal relation key comparable at all.
+ */
+const MONEY = { precision: 16, scale: 2 } as const;
 
 /**
  * A decimal PRIMARY KEY with children holding a decimal FK to it. The FK is the
@@ -67,7 +77,7 @@ import { afterAll, beforeAll, describe, expect, test } from "vitest";
  */
 const vault = s
   .model({
-    key: s.decimal().id(),
+    key: s.decimal(MONEY).id(),
     label: s.string(),
     slips: s.toMany(() => slip),
   })
@@ -77,7 +87,7 @@ const slip = s
   .model({
     id: s.string().id(),
     note: s.string(),
-    vaultKey: s.decimal(),
+    vaultKey: s.decimal(MONEY),
     vault: s
       .toOne(() => vault)
       .fields("vaultKey")
@@ -88,10 +98,11 @@ const slip = s
 const schema = { vault, slip };
 
 /**
- * Past double precision by a wide margin: `CAST` through a double returns
- * `1234567890123456800`, so a REAL/NUMERIC round-trip is unmistakable.
+ * Past double precision: the coefficient 9007199254740993 is one more than
+ * 2^53, so a value that goes through a REAL comes back as its neighbour and the
+ * round-trip is unmistakable.
  */
-const BIG30 = "1234567890123456789.123456789012";
+const BIG30 = "90071992547409.93";
 
 /**
  * The value that falsifies "only high-precision decimals are at risk". A double
@@ -99,6 +110,9 @@ const BIG30 = "1234567890123456789.123456789012";
  * fails on MySQL for a reason SQLite's REAL affinity never shows.
  */
 const HALF = "9.5";
+
+/** The widest value of the domain: through a double it becomes 100000000000000. */
+const NEAR_MAX = "99999999999999.99";
 
 /**
  * A NON-CANONICAL spelling of `HALF`. It is the same number, so it must reach
@@ -129,7 +143,7 @@ const createSQLite3Client = () =>
 
 const liveDialects: Live[] = [
   { name: "PGlite (exact decimals)", create: createPGliteClient },
-  { name: "SQLite3 (canonical TEXT)", create: createSQLite3Client },
+  { name: "SQLite3 (integer coefficients)", create: createSQLite3Client },
 ];
 
 describe.each(
@@ -160,11 +174,11 @@ describe.each(
       include: { slips: true },
     });
 
-    expect(found?.key).toBe(BIG30);
+    expect(found?.key.eq(BIG30)).toBe(true);
     expect(found?.slips.map((row) => row.id)).toEqual(["big-a"]);
     // The FK itself, not just the join: a rounded FK that happened to join
     // would still be a corrupted stored value.
-    expect(found?.slips[0]?.vaultKey).toBe(BIG30);
+    expect(found?.slips[0]?.vaultKey.eq(BIG30)).toBe(true);
   });
 
   test("connect links to an existing decimal key", async () => {
@@ -183,7 +197,7 @@ describe.each(
     });
 
     expect(found?.slips.map((row) => row.id)).toEqual(["half-a"]);
-    expect(found?.slips[0]?.vaultKey).toBe(HALF);
+    expect(found?.slips[0]?.vaultKey.eq(HALF)).toBe(true);
   });
 
   test("a non-canonical key spelling reaches the same row", async () => {
@@ -204,14 +218,14 @@ describe.each(
       "half-a",
       "half-b",
     ]);
-    // Stored canonically, not as the caller spelled it.
-    expect(found?.slips[1]?.vaultKey).toBe(HALF);
+    // The same NUMBER, whatever spelling the caller used.
+    expect(found?.slips[1]?.vaultKey.eq(HALF)).toBe(true);
   });
 
   test("nested createMany writes matching FKs for every row", async () => {
     await client.vault.create({
       data: {
-        key: "0.000000000000000000000000000001",
+        key: NEAR_MAX,
         label: "many",
         slips: {
           createMany: {
@@ -225,7 +239,7 @@ describe.each(
     });
 
     const found = await client.vault.findUnique({
-      where: { key: "0.000000000000000000000000000001" },
+      where: { key: NEAR_MAX },
       include: { slips: true },
     });
 
@@ -233,11 +247,7 @@ describe.each(
       "tiny-a",
       "tiny-b",
     ]);
-    expect(
-      found?.slips.every(
-        (row) => row.vaultKey === "0.000000000000000000000000000001"
-      )
-    ).toBe(true);
+    expect(found?.slips.every((row) => row.vaultKey.eq(NEAR_MAX))).toBe(true);
   });
 
   test("connectOrCreate on an absent decimal key creates and links", async () => {
@@ -247,20 +257,20 @@ describe.each(
         note: "a",
         vault: {
           connectOrCreate: {
-            where: { key: "42.125" },
-            create: { key: "42.125", label: "coc" },
+            where: { key: "42.12" },
+            create: { key: "42.12", label: "coc" },
           },
         },
       },
     });
 
     const found = await client.vault.findUnique({
-      where: { key: "42.125" },
+      where: { key: "42.12" },
       include: { slips: true },
     });
 
     expect(found?.slips.map((row) => row.id)).toEqual(["coc-a"]);
-    expect(found?.slips[0]?.vaultKey).toBe("42.125");
+    expect(found?.slips[0]?.vaultKey.eq("42.12")).toBe(true);
   });
 });
 
@@ -307,13 +317,15 @@ const sqlDialects = [
     adapter: () => new PostgresAdapter(),
     /** The corruption spelling this dialect must never produce for a decimal. */
     forbidden: [] as string[],
+    deferredDomain: "NUMERIC(16,2)",
   },
   {
     name: "MySQL",
     dialect: "mysql" as Dialect,
     adapter: () => new MySQLAdapter(),
     // Bare `DECIMAL` is `DECIMAL(10,0)`: every fraction rounded away.
-    forbidden: ["AS DECIMAL)"],
+    forbidden: ["AS DECIMAL)", "DECIMAL(65,30)"],
+    deferredDomain: "DECIMAL(16,2)",
   },
   {
     name: "SQLite",
@@ -321,6 +333,7 @@ const sqlDialects = [
     adapter: () => new SQLiteAdapter(),
     // NUMERIC affinity puts the canonical TEXT spelling through a double.
     forbidden: ["AS NUMERIC)", "AS REAL)"],
+    deferredDomain: "INTEGER",
   },
 ];
 
@@ -354,7 +367,10 @@ describe.each(sqlDialects)("$name decimal FK lowering", (dialectCase) => {
     return rendered(buildScalarSqlValue(scope, vault, "key", value));
   };
 
-  for (const value of [BIG30, HALF, HALF_UNCANONICAL, 9.5, 12n]) {
+  // A `bigint` is deliberately absent: `DecimalInput` is
+  // `Decimal | string | number`, so a bigint operand is refused by the schema
+  // rather than lowered here.
+  for (const value of [BIG30, HALF, HALF_UNCANONICAL, 9.5, new Decimal(12)]) {
     test(`FK lowering of ${String(value)} equals the referenced column's`, () => {
       const engine = engineFor();
       const fk = rendered(referenceSql(engine, slip, "vaultKey", value));
@@ -370,10 +386,18 @@ describe.each(sqlDialects)("$name decimal FK lowering", (dialectCase) => {
     for (const spelling of dialectCase.forbidden) {
       expect(fk.statement).not.toContain(spelling);
     }
-    // Canonicalized before binding, not passed through as the caller spelled it.
-    expect(
-      rendered(referenceSql(engine, slip, "vaultKey", HALF_UNCANONICAL)).values
-    ).toEqual([HALF]);
+    // Canonicalized before binding, not passed through as the caller spelled
+    // it — and bound in the DIALECT's own physical spelling, which is the
+    // referenced column's: the coefficient on SQLite, the logical value
+    // elsewhere. Comparing against the parent's lowering is the claim; a
+    // written-down string would only be one dialect's half of it.
+    const uncanonical = rendered(
+      referenceSql(engine, slip, "vaultKey", HALF_UNCANONICAL)
+    );
+    expect(uncanonical.values).toEqual(
+      referencedColumnLowering(engine, HALF).values
+    );
+    expect(uncanonical.values).not.toContain(HALF_UNCANONICAL);
   });
 
   test("a deferred FK expression takes the EXACT-decimal cast, not the number one", () => {
@@ -389,6 +413,7 @@ describe.each(sqlDialects)("$name decimal FK lowering", (dialectCase) => {
       expect(deferred.statement).not.toContain(spelling);
     }
     expect(deferred.statement).toContain("captured_key");
+    expect(deferred.statement).toContain(dialectCase.deferredDomain);
   });
 
   test("an approximate column keeps the numeric cast — the two are not merged", () => {

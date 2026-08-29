@@ -139,7 +139,10 @@ await ageScalar.validate(25, minValue(0), maxValue(120));
 ### Type-Specific Validation
 
 ```typescript
-// Integer validator (for number/decimal scalars)
+import { Decimal, s } from "viborm";
+import { custom } from "valibot";
+
+// Integer validator (for number scalars)
 const integer = () => (value: number) =>
   Number.isInteger(value) || "Must be an integer";
 
@@ -153,17 +156,13 @@ const odd = () => (value: number) => value % 2 !== 0 || "Must be odd";
 const multipleOf = (multiple: number) => (value: number) =>
   value % multiple === 0 || `Must be a multiple of ${multiple}`;
 
-// Precision validator
-const precision = (maxDecimals: number) => (value: number) => {
-  const decimals = (value.toString().split(".")[1] || "").length;
-  return (
-    decimals <= maxDecimals || `Must have at most ${maxDecimals} decimal places`
+// Decimal precision and scale belong to the field descriptor. Refine the
+// public Decimal value through Standard Schema when the domain needs more.
+const priceScalar = s
+  .decimal({ precision: 6, scale: 2 })
+  .schema(
+    custom<Decimal>((value) => value.isPositive() && value.lte(1000))
   );
-};
-
-// Usage
-const priceScalar = s.decimal();
-await priceScalar.validate(19.99, positive(), precision(2), maxValue(1000));
 ```
 
 ## Date Validators

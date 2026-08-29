@@ -11,7 +11,7 @@ icon: columns
 | `s.string()`    | `string`                            | Text, IDs, emails                  |
 | `s.int()`       | `number`                            | Whole numbers, counts              |
 | `s.number()`    | `number`                            | Approximate decimals               |
-| `s.decimal()`   | `string`                            | Exact decimals, money              |
+| `s.decimal({ precision, scale })` | `Decimal`              | Exact fixed decimals, money        |
 | `s.bigInt()`    | `bigint`                            | Integers beyond `2^53`             |
 | `s.boolean()`   | `boolean`                           | Flags                              |
 | `s.dateTime()`  | `Date`                              | Timestamps                         |
@@ -57,7 +57,7 @@ Not every modifier exists on every scalar:
 | `string`   | ✓       | ✓           | ✓          | ✓           | `.uuid()` `.ulid()` `.nanoid()` `.cuid()` |
 | `int`      | ✓       | ✓           | ✓          | ✓           | `.increment()`          |
 | `number`   | ✓       | ✓           | ✓          | ✓           | —                       |
-| `decimal`  | ✓       | ✓           | ✓          | ✓           | —                       |
+| `decimal`  | ✓ scalar only | ✓ scalar only | ✓       | ✓           | required `{ precision, scale }` |
 | `bigInt`   | ✓       | ✓           | ✓          | ✓           | `.increment()`          |
 | `boolean`  | —       | —           | ✓          | —           | —                       |
 | `dateTime` | ✓       | ✓           | ✓          | ✓           | `.now()` `.updatedAt()` `.withoutTimezone()` |
@@ -70,11 +70,16 @@ Not every modifier exists on every scalar:
 
 `.nullable()`, `.default()`, and `.map()` are available on every scalar. The scalar pages below only document their scalar-specific methods.
 
+A fixed-decimal list cannot be an ID, unique field, index member, compound-key
+member, foreign-key member, or relation identity member. Its scalar form can
+use key positions normally.
+
 ## Pages
 
 <CardGroup>
   <Card title="String" href="/docs/schema/scalars/string" />
   <Card title="Number" href="/docs/schema/scalars/number" />
+  <Card title="Decimal" href="/docs/schema/scalars/decimal" />
   <Card title="Boolean" href="/docs/schema/scalars/boolean" />
   <Card title="DateTime" href="/docs/schema/scalars/datetime" />
   <Card title="BigInt" href="/docs/schema/scalars/bigint" />

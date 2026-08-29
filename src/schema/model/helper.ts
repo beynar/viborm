@@ -55,6 +55,21 @@ export type ScalarKeys<T extends ModelShape> = {
   [K in keyof T]: T[K] extends Scalar ? ToString<K> : never;
 }[keyof T];
 
+/** Fixed-decimal list keys, which have value semantics but no key semantics. */
+export type DecimalListScalarKeys<T extends ModelShape> = {
+  [K in keyof T]: T[K] extends Scalar
+    ? T[K]["~"]["state"] extends { type: "decimal"; array: true }
+      ? ToString<K>
+      : never
+    : never;
+}[keyof T];
+
+/** Scalar keys except fixed-decimal lists, which cannot be physical keys. */
+export type NonDecimalListScalarKeys<T extends ModelShape> = Exclude<
+  ScalarKeys<T>,
+  string extends keyof T ? never : DecimalListScalarKeys<T>
+>;
+
 /** Extract relation keys from ModelState */
 export type RelationKeys<T extends ModelShape> = {
   [K in keyof T]: T[K] extends AnyRelation ? ToString<K> : never;
@@ -84,9 +99,11 @@ export type NumericScalarType = "int" | "number" | "decimal" | "bigint";
 /** Extract keys of numeric scalars from a ModelShape */
 export type NumericScalarKeys<T extends ModelShape> = {
   [K in keyof T]: T[K] extends Scalar
-    ? T[K]["~"]["state"]["type"] extends NumericScalarType
-      ? ToString<K>
-      : never
+    ? T[K]["~"]["state"]["array"] extends true
+      ? never
+      : T[K]["~"]["state"]["type"] extends NumericScalarType
+        ? ToString<K>
+        : never
     : never;
 }[keyof T];
 

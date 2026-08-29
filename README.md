@@ -366,7 +366,7 @@ export default {
 | `string()` | Text scalars | `s.string().unique()` |
 | `int()` | 32-bit integers | `s.int().default(0)` |
 | `number()` | Approximate number | `s.number()` |
-| `decimal()` | High-precision decimals | `s.decimal()` |
+| `decimal({ precision, scale })` | Exact fixed decimals (`Decimal` results) | `s.decimal({ precision: 10, scale: 2 })` |
 | `bigInt()` | 64-bit integers | `s.bigInt()` |
 | `boolean()` | Boolean values | `s.boolean().default(false)` |
 | `dateTime()` | Date and time | `s.dateTime().now()` |

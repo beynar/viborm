@@ -101,6 +101,7 @@ import {
   resolveFinalReferenceRowKey,
 } from "./relation-membership";
 import type { StepScope } from "./StepScope";
+import { parseCapturedRowKeys, parseCapturedRows } from "./series-result-read";
 import {
   capturedSelectorWhere,
   getStepModelName,
@@ -111,7 +112,6 @@ import {
   capturedTargetColumnPredicate,
   capturedTargetFilters,
   capturedTargetSetWhere,
-  capturedTargetValues,
   capturedTargetWhere,
   completeTargetPresenceGuard,
   rowKeysEqual,
@@ -492,6 +492,7 @@ export class RelationJunctionPart implements JunctionCompilePart {
       this.transfers.set(
         writeId,
         transferSingularJunctionMembership({
+          engine: this.context.engine,
           scope,
           statements: this.statements,
           junction: this.context.relation,
@@ -1143,9 +1144,10 @@ export class RelationJunctionPart implements JunctionCompilePart {
       this.transfers.size > 0 ? new Map<string, JunctionRowKey[]>() : undefined;
     for (const slot of slots) {
       const rows = known[planningKey(slot.probeId, "rows")];
-      const found = Array.isArray(rows) && rows.length > 0;
-      if (found) {
-        const capturedPk = this.pkOf(rows[0]);
+      const [capturedPk] = Array.isArray(rows)
+        ? this.capturedRowKeys(rows.slice(0, 1))
+        : [];
+      if (capturedPk !== undefined) {
         if (!this.context.txMode) {
           steps.push(this.adoptFoundGuard(slot, capturedPk));
         }
@@ -1220,8 +1222,11 @@ export class RelationJunctionPart implements JunctionCompilePart {
     // Upsert never deduplicates: every item must update the row its own selector names.
     for (const slot of slots) {
       const memberRows = known[planningKey(slot.membershipProbeId, "rows")];
-      if (Array.isArray(memberRows) && memberRows.length > 0) {
-        let memberPk = this.pkOf(memberRows[0]);
+      const [capturedMember] = Array.isArray(memberRows)
+        ? this.capturedRowKeys(memberRows.slice(0, 1))
+        : [];
+      if (capturedMember !== undefined) {
+        let memberPk = capturedMember;
         const capturedColumns =
           slot.update.kind === "member"
             ? this.capturedCompilerPredicate(
@@ -1244,7 +1249,7 @@ export class RelationJunctionPart implements JunctionCompilePart {
           slot.update.assertLegality();
           const compiler = slot.update.compiler;
           steps.push(...compiler.compile(known));
-          memberPk = this.updatedTargetPk(compiler, memberRows[0]);
+          memberPk = this.updatedTargetPk(compiler, capturedMember);
         }
         this.registerResolvedMembership(
           resolvedTargets,
@@ -1290,7 +1295,10 @@ export class RelationJunctionPart implements JunctionCompilePart {
       this.transfers.size > 0 ? new Map<string, JunctionRowKey[]>() : undefined;
     for (const slot of slots) {
       const globalRows = known[planningKey(slot.globalProbeId, "rows")];
-      if (!(Array.isArray(globalRows) && globalRows.length > 0)) {
+      const [captured] = Array.isArray(globalRows)
+        ? this.capturedRowKeys(globalRows.slice(0, 1))
+        : [];
+      if (captured === undefined) {
         steps.push(
           ...this.upsertCreateArm(
             scope,
@@ -1303,8 +1311,7 @@ export class RelationJunctionPart implements JunctionCompilePart {
         );
         continue;
       }
-      const captured = globalRows[0];
-      const foundPk = this.pkOf(captured);
+      const foundPk = captured;
       const capturedColumns =
         slot.update.kind === "global"
           ? this.capturedCompilerPredicate(
@@ -1361,7 +1368,7 @@ export class RelationJunctionPart implements JunctionCompilePart {
 
   private updatedTargetPk(
     compiler: RecordUpdateCompiler,
-    captured: Record<string, unknown>
+    captured: Readonly<Record<string, unknown>>
   ): JunctionRowKey {
     return Object.fromEntries(
       this.targetProjection.identityFields.map((field) => [
@@ -2267,13 +2274,16 @@ export class RelationJunctionPart implements JunctionCompilePart {
     op: "connect" | "delete" | "set" | "update"
   ): JunctionRowKey {
     const rows = known[planningKey(target.probeId, "rows")];
-    if (!Array.isArray(rows) || rows.length === 0) {
+    const [captured] = Array.isArray(rows)
+      ? this.capturedRowKeys(rows.slice(0, 1))
+      : [];
+    if (captured === undefined) {
       throw new NestedWriteError(
         relationTargetNotFound(this.relationRef, op),
         this.relationName
       );
     }
-    return this.pkOf(rows[0]);
+    return captured;
   }
 
   private capturedCompilerPredicate(
@@ -2282,9 +2292,20 @@ export class RelationJunctionPart implements JunctionCompilePart {
     known: PlanningKnown
   ): Sql | undefined {
     if (compiler.targetReadId !== probeId) return undefined;
+    // The row key and private storage columns share one physical probe row. Its
+    // exact target projection must cross the descriptor codec before either is
+    // re-bound by this progressive guard.
     const rows = known[planningKey(probeId, "rows")];
-    const captured = Array.isArray(rows) ? rows[0] : undefined;
-    if (!isRecord(captured)) return undefined;
+    const rawCaptured = Array.isArray(rows) ? rows[0] : undefined;
+    if (!isRecord(rawCaptured)) return undefined;
+    const captured = parseCapturedRows(
+      this.context.engine,
+      this.childScope.model,
+      [rawCaptured],
+      targetProjectionSelect(compiler.targetProjection),
+      compiler.targetProjection.columns
+    )[0];
+    if (!captured) return undefined;
     return capturedTargetColumnPredicate(
       this.childScope,
       compiler.targetProjection,
@@ -2301,20 +2322,25 @@ export class RelationJunctionPart implements JunctionCompilePart {
         this.relationName
       );
     }
-    return rows.map((row) => this.pkOf(row));
+    return [...this.capturedRowKeys(rows)];
   }
 
-  private pkOf(row: unknown): JunctionRowKey {
-    if (!isRecord(row)) {
-      throw new NestedWriteError(
-        `query-engine-v2 junction membership for relation '${this.relationName}' returned a malformed row.`,
-        this.relationName
-      );
-    }
-    return capturedTargetValues(
+  /**
+   * The captured membership rows as complete row KEYS.
+   *
+   * Every one of these values is re-addressed — a junction insert, a
+   * `whereUnique`, a row-key token — through the ordinary where/values builder,
+   * which lowers a LOGICAL value. A probe publishes the PHYSICAL row instead,
+   * and the two disagree wherever a provider stores a scalar in another
+   * spelling (a SQLite decimal column answers with its unscaled coefficient), so
+   * the decode is what makes the captured member address the row it came from.
+   * {@link parseCapturedRowKeys} owns it, and the row-shape refusal with it.
+   */
+  private capturedRowKeys(rows: readonly unknown[]): readonly JunctionRowKey[] {
+    return parseCapturedRowKeys(
+      this.context.engine,
       this.childScope.model,
-      this.targetProjection,
-      row
+      rows
     );
   }
 

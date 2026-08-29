@@ -64,13 +64,11 @@ export function indexFor(model: AnyModel): ResolvedRelationIndex {
 export function parserFor(
   adapter: DatabaseAdapter,
   model: AnyModel,
-  driver?: AnyDriver,
-  decimalDecode?: "string" | "number"
+  driver?: AnyDriver
 ): ResultParser {
   return new ResultParser(
     { adapter, relations: indexFor(model) },
     model,
-    driver,
-    decimalDecode
+    driver
   );
 }

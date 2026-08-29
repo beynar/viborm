@@ -119,6 +119,30 @@ architecture review §O4 requires above the band, and recorded both here.
 > record the boundaries that must remain; neither changes the live census until
 > implementation lands.
 
+> **EXACT FIXED-DECIMAL UPDATE.** Site 24 is **RETIRED**. SQLite now stores a
+> decimal as its unscaled integer coefficient, so ordering, aggregating and
+> arithmetic over a decimal are EXACT on every supported dialect and there is
+> nothing left to refuse: `builders/decimal-portability.ts`,
+> `AdapterCapabilities.supportsExactDecimal`, and all sixteen call sites are
+> deleted in one unit with the exact SQLite lowering that replaces them
+> (`git grep -c "assertExactDecimal\(Operation\|Aggregate\)(" e59b671a --
+> src/query-engine/` sums to 16 across 8 files: aggregate-utils 1,
+> orderby-builder 1, relation-orderby-builder 1, set-builder 4, where-builder 4,
+> cursor-order 2, groupby 2, groupby-having 1).
+> Cluster 12 is empty. The retired refusal's public-spelling enumeration is now
+> `tests/contracts/engine/query/decimal-exact-surface.core.test.ts`, where every
+> spelling must return the SAME EXACT ANSWER on PGlite and SQLite3.
+>
+> Two typed boundaries introduced by that lowering remain outside this ledger's
+> `UnsupportedOperationError` census. The widened `_sum` HAVING operand past a
+> provider's own aggregate domain uses `describeWidenedSumRefusal` and raises a
+> `QueryEngineError` before I/O from `operations/groupby-having.ts`; SQLite
+> carries 18 coefficient digits and saturates silently past them. Effectful
+> MySQL migrations use `proveExactValueSessionMode` and raise a `MigrationError`
+> before effects when the pinned session is non-strict. Ordinary arithmetic has
+> its own same-statement exactness guard, so migration admission is not what
+> makes runtime arithmetic fail loudly.
+
 > **FIVE-CAPABILITY PACKAGE 1 UPDATE (2026-08-17).** Site 26 is RETIRED. Raw
 > methods now return lazy, promise-compatible transaction operations that share
 > the array coordinator with model operations. Validation, legacy warnings, and
@@ -230,7 +254,6 @@ remaining continuation-premise boundary.
 | 28 | `write-engine/OperationExecutor.ts:2397` / `:2387` | `assertIndivisibleGeneratedOutput` | An indivisible shared batch still needs provider-generated output across internal statements after the compiler tried its exact scalar and mutation-DAG folds. | The executor, before `_executeBatch`; default operations have already taken an exact fold or segmented route, and array operations cannot segment. | `mutation-dependency-fold.test.ts` pins accepted scalar/CTE folds and the retained relation projection over a sibling-mutated table; `extended-where-unique.test.ts` and `produced-compound-identity.test.ts` pin accepted explicit-array scalar outputs. | PSI |
 | 32 | `write-engine/OperationExecutor.ts:2415` / `:2402` | `crossedReferenceContinuationGuards` | SQL crosses a provider-produced value into a later segment, but its publisher supplies no exact row premise to prevent wrong-owner reuse between segments. | Whole-fragment generated-output preflight, where the dependency edge and publisher batch facts meet. | `operation-construction-inventory.test.ts` pins the owner coordinate; continuation shape and identity are falsified in `fragment-validator.core.test.ts`, and live exact-membership races are pinned in `generated-output-continuation-race.test.ts`. | PSI |
 | 22 | `query-engine/relation-key-legality.ts` | `assertSingleTargetMembershipMoveAppliesToRecords` | One named target-row membership or singular member-junction slot is applied to N > 1 roots: the last root would take it from the rest. | Only after capture — no schema can express an N-dependent rule. | `parity-k-update-many.test.ts` · `update-many-relation-series.test.ts` · `polymorphic-collection-write-family.test.ts`. | SC |
-| 24 | `query-engine/builders/decimal-portability.ts:56` / `:48` | `assertExactDecimalOperation` | Ordering, aggregating, or arithmetic over a `decimal` on a dialect with no exact decimal type. | When the adapter is known. | `decimal-refusal-surface.test.ts` (extended-local project). | PSI |
 | 25 | `drivers/shared/transaction-options.ts:144` / `:139` | `refuseTransactionOption` | The driver does not implement the requested transaction option. | The driver capability boundary. | `transaction-options-behavior.core.test.ts` (layer-drivers). | PSI |
 
 **Site 15's position note, measured at this pass.** `parity-f-fresh-field.test.ts`'s
@@ -518,11 +541,11 @@ the current census is **8 / 10 / 11**.
 
 ---
 
-## Cluster 12 — decimal portability (1 site)
+## Cluster 12 — decimal portability (0 sites, RETIRED)
 
 | # | Site | Invariant | First knowable boundary | Unique reachable failure | Falsifier | Bucket | Disposition |
 |---|---|---|---|---|---|---|---|
-| 24 | `builders/decimal-portability.ts:56` · `assertExactDecimalOperation` · `orderBy` / aggregate / arithmetic over a `decimal` field on SQLite | SQLite has no exact decimal type, so ordering, aggregating or doing arithmetic on a decimal would round-trip a 64-bit float and could answer wrongly past ~15 significant digits. | This boundary — it is a dialect capability, resolved when the adapter is known. | Reads, writes, and equality filters stay exact on the same dialect; only the ordered/derived operations refuse. | `decimal-refusal-surface.test.ts:528` ("<op> — REFUSED where they are not"), paired with `:522` proving the same spelling ANSWERS where decimals are exact. | PSI | **keep** — the only site outside the write engine that has both a refusal and an accept witness on the same spelling. |
+| 24 | former `builders/decimal-portability.ts:56` · `assertExactDecimalOperation` | SQLite had no exact decimal type, so ordering, aggregating or doing arithmetic on a decimal would have round-tripped a 64-bit float. | — | — | inverted into `decimal-exact-surface.core.test.ts`, where every spelling that used to be refused must now answer identically on PGlite and SQLite3. | — | **RETIRED — the premise is false.** A decimal column on SQLite is the unscaled integer coefficient of the field's declared `precision`/`scale`, so comparison and ordering are integer comparison, `_min`/`_max`/`_sum` are integer aggregates, and multiply/divide/`_avg` are guarded integer quotient/remainder expressions rounded half-to-even. The capability flag it read (`supportsExactDecimal`) is deleted with it. |
 
 ---
 
@@ -793,7 +816,7 @@ the site must stay where it is.
 | 20 | `CreateOperation.assertSelectedSharedPkValue` | yes — the selected value first exists in `compile(known)` after lookup and before the fresh root INSERT | yes | yes — site 4 is the update root | yes — **corrected by residual I / Phase 2:** the older parity/fresh citations did not pin this create-root sentence; `residual-refusal-falsifiers.test.ts` now pins the public null route and concrete twin | yes | **survives** |
 | 21 | `UpsertOperation.createArmIdentity` | yes — and only when the create arm is TAKEN | yes | yes | yes — `produced-compound-identity.test.ts:111` | **no** — moving it earlier would analyse an untaken arm, which §4.4 forbids | **survives**, and Q5 is the reason it cannot move |
 | 22 | `relation-key-legality.assertSelectedUpdateManyDataIsScalar` (the merged cluster-2 owner) | yes — the enclosing selected record's data, parsed once, before any Part is built | yes | yes — it IS the sibling sites 9, 10 and 23 were | yes — `junction-adopt-create-relations.test.ts:678` and two more | **no** — it is deliberately called by its callers so an untaken upsert arm stays inert | **survives**, and Q5 is why callers own its timing |
-| 24 | `builders/decimal-portability.assertExactDecimalOperation` | yes — a dialect capability, resolved when the adapter is known | yes | yes | yes — `decimal-refusal-surface.test.ts:528`, paired with `:522` proving the same spelling ANSWERS where decimals are exact | yes | **survives** |
+| 24 | former `builders/decimal-portability.assertExactDecimalOperation` | — | — | — | inverted into `decimal-exact-surface.core.test.ts` | — | **RETIRED — exact SQLite coefficient decimals removed the premise** |
 | 25 | `drivers/shared/transaction-options.refuseTransactionOption` | yes — a driver capability | yes | yes | yes — `transaction-options-behavior.core.test.ts:263` and `:422` assert the `UnsupportedOperationError` by name (located at the Package O gate; the O1 row named no falsifier) | yes | **survives** (outside the query engine) |
 | 26 | former `client/raw.rawOperationInBatchError` | — | — | — | `raw-sql.test.ts` now proves the raw operation joins the same atomic array batch | — | **RETIRED — raw SQL is lazy and batchable** |
 
@@ -994,7 +1017,7 @@ Nineteen survivors, nineteen approvals, no rejections.
 | 20 · historical `CreateOperation.ts:3154` · now `assertSelectedSharedPkValue` | yes | A genuinely different trust boundary from site 4. **Residual-I correction:** the old parity/fresh citations pinned sibling decisions, not this create-root sentence. Phase 2 pins the public selected-null route at `compile(known)`, before root insertion, in `residual-refusal-falsifiers.test.ts`. |
 | 21 · `UpsertOperation.ts:1147` · `createArmIdentity` | yes | It fires only when the create arm is TAKEN, so moving it earlier would analyse an untaken arm in violation of §4.4; `produced-compound-identity.test.ts:111` pins the surviving half now that the one-absent-increment case is accepted. |
 | 22 · `relation-key-legality.ts:173` · `assertSelectedUpdateManyDataIsScalar` | yes | The merged cluster-2 owner reads `relationWriteKeys` (every entry of the parsed relation collection, ordinary AND polymorphic), so it is strictly stronger than the two Part-level copies it replaced; three falsifiers verified and its callers own its timing so an untaken upsert arm stays inert. |
-| 24 · `builders/decimal-portability.ts:56` · `assertExactDecimalOperation` | yes | A dialect capability resolvable only once the adapter is known, and the rare survivor with a paired accept witness (`decimal-refusal-surface.test.ts:522` answers the same spelling where `:528` refuses). |
+| 24 · former `builders/decimal-portability.ts:56` · `assertExactDecimalOperation` | retired | The dialect capability it read is gone: SQLite stores the unscaled integer coefficient, so every operation it refused is exact there. Its accept/refuse witness pair became an accept/accept parity pair in `decimal-exact-surface.core.test.ts`. |
 | 25 · `drivers/shared/transaction-options.ts:144` · `refuseTransactionOption` | yes | A driver-capability boundary outside the reviewed engine scope; it constructs-and-returns rather than throwing and is counted honestly in the `src`-wide census. |
 | 26 · former `client/raw.ts:129` · `rawOperationInBatchError` | retired | Raw calls no longer execute eagerly; the lazy operation representation removes the invalid state. |
 

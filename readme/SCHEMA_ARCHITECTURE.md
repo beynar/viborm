@@ -229,7 +229,8 @@ import { s } from "viborm";
 
 // Scalars
 s.string()           // StringScalar
-s.number() / s.int() / s.decimal()
+s.number() / s.int()
+s.decimal({ precision: 10, scale: 2 })
 s.boolean()
 s.bigint()
 s.datetime()

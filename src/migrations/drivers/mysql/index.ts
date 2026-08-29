@@ -8,7 +8,22 @@
 import type { Scalar, ScalarState } from "@schema/scalars";
 import { MigrationError, VibORMErrorCode } from "../../../errors";
 import { renderQualifiedIdentifier } from "../../../sql/identifiers";
-import type { ColumnDef, SchemaSnapshot, TableDef } from "../../types";
+import {
+  decimalConversionConstraintName,
+  decimalConversionRequired,
+  describeDecimalDomain,
+  describeDecimalStorageKind,
+  mysqlDecimalFitsCheck,
+  mysqlDecimalListFitsCheck,
+  mysqlDecimalListMarker,
+  mysqlDecimalStorageKind,
+} from "../../decimal";
+import type {
+  ColumnDef,
+  DiffOperation,
+  SchemaSnapshot,
+  TableDef,
+} from "../../types";
 
 // Regex patterns for spatial type detection
 const SPATIAL_TYPE_PATTERNS = [
@@ -25,6 +40,16 @@ const SPATIAL_TYPE_PATTERNS = [
 // Regex pattern for extracting base type from column type string
 // e.g., "INT UNSIGNED" -> "int", "BIGINT(20)" -> "bigint"
 const BASE_TYPE_PATTERN = /[\s(]/;
+
+function classifyDecimalListDescriptorChange(
+  source: NonNullable<ColumnDef["decimal"]>,
+  target: NonNullable<ColumnDef["decimal"]>
+): "same" | "widening" | "narrowing" | "rescaling" {
+  if (source.scale !== target.scale) return "rescaling";
+  if (source.precision < target.precision) return "widening";
+  if (source.precision > target.precision) return "narrowing";
+  return "same";
+}
 
 import type { CatalogRead, CommandNamespaceResolver } from "../../target";
 import {
@@ -72,6 +97,12 @@ const MISSING_TABLE_SQLSTATE = "42S02";
  */
 const MIGRATION_LOCK_TIMEOUT_SECONDS = 30;
 
+/** Exact integer storage that can be adopted without inventing a source scale. */
+function isMySQLExactIntegerType(type: string): boolean {
+  const base = type.trim().toUpperCase().split(BASE_TYPE_PATTERN, 1)[0];
+  return base === "INT" || base === "INTEGER" || base === "BIGINT";
+}
+
 /**
  * An error's safe-metadata bag, as untyped data.
  *
@@ -103,6 +134,29 @@ export class MySQLMigrationDriver
     // `information_schema` reports the declared `CONSTRAINT_NAME`.
     introspectionReadsConstraintNames: true,
   };
+
+  override getIrreversibleRollbackReason(
+    operation: DiffOperation
+  ): string | undefined {
+    if (operation.type !== "alterColumn") return undefined;
+    const source = operation.from.decimal;
+    const target = operation.to.decimal;
+    if (
+      source === undefined ||
+      target === undefined ||
+      mysqlDecimalStorageKind(operation.from) !== "list" ||
+      mysqlDecimalStorageKind(operation.to) !== "list" ||
+      classifyDecimalListDescriptorChange(source, target) !== "narrowing"
+    ) {
+      return undefined;
+    }
+    return (
+      "MySQL cannot automatically roll back the decimal-list widening of " +
+      `"${operation.tableName}"."${operation.columnName}": the inverse narrows ` +
+      `${describeDecimalDomain(source)} to ${describeDecimalDomain(target)}, and ` +
+      "its implicit DDL commits cannot make the stricter proof, descriptor-marker change, and cleanup indivisible."
+    );
+  }
 
   // ===========================================================================
   // INTROSPECTION
@@ -175,7 +229,19 @@ export class MySQLMigrationDriver
     return getMySQLType({
       type: scalarState.type,
       array: scalarState.array,
+      decimal: scalarState.decimal,
     });
+  }
+
+  override getDefaultExpression(scalarState: ScalarState): string | undefined {
+    // information_schema.COLUMNS reports both an omitted default and an
+    // explicit DEFAULT NULL as catalog NULL. They have the same behavior for a
+    // nullable column, so serialize the one representation MySQL can read back
+    // instead of manufacturing an alterColumn on every later push.
+    if (scalarState.hasDefault && scalarState.default === null) {
+      return undefined;
+    }
+    return super.getDefaultExpression(scalarState);
   }
 
   /**
@@ -343,8 +409,9 @@ export class MySQLMigrationDriver
       parts.push("NOT NULL");
     }
 
-    // DEFAULT clause (skip for auto-increment columns and types that don't support simple DEFAULT)
-    // MySQL doesn't allow DEFAULT values for TEXT/BLOB, JSON, and spatial types
+    // DEFAULT clause (skip for auto-increment columns and types that do not
+    // support a simple default). JSON stays suppressed except for the exact
+    // decimal-list expression the serializer owns below.
     if (column.default !== undefined && !column.autoIncrement) {
       const upperType = column.type.toUpperCase();
       const isTextOrBlob =
@@ -357,13 +424,29 @@ export class MySQLMigrationDriver
         upperType === "MEDIUMBLOB" ||
         upperType === "LONGBLOB";
       const isJson = upperType.includes("JSON");
+      const isDecimalList =
+        column.decimal !== undefined &&
+        mysqlDecimalStorageKind(column) === "list";
       const isSpatial = SPATIAL_TYPE_PATTERNS.some((pattern) =>
         pattern.test(upperType)
       );
 
-      if (!(isTextOrBlob || isJson || isSpatial)) {
+      if (!(isTextOrBlob || (isJson && !isDecimalList) || isSpatial)) {
         parts.push(`DEFAULT ${column.default}`);
       }
+    }
+
+    // The descriptor marker for a JSON-backed decimal LIST. A scalar needs
+    // none — `DECIMAL(p,s)` spells its own domain — but JSON carries nothing,
+    // so the comment is the only place a list's precision and scale survive
+    // (§6.2). It is emitted from `generateColumnDef`, which is also what
+    // `MODIFY COLUMN` renders, because MODIFY rewrites the WHOLE definition:
+    // a comment this method did not re-emit would be dropped by the very
+    // statement that changed the column.
+    if (column.decimal && mysqlDecimalStorageKind(column) === "list") {
+      parts.push(
+        `COMMENT ${this.escapeValue(mysqlDecimalListMarker(column.decimal))}`
+      );
     }
 
     return parts.join(" ");
@@ -473,13 +556,198 @@ export class MySQLMigrationDriver
     // Build the new column definition
     const colDef = this.generateColumnDef(to, context);
 
-    // If column name changed, use CHANGE COLUMN (which handles rename + alter)
-    if (columnName !== to.name) {
-      return `ALTER TABLE ${table} CHANGE COLUMN ${this.escapeIdentifier(columnName)} ${colDef}`;
+    const alter =
+      // If column name changed, use CHANGE COLUMN (which handles rename + alter)
+      columnName === to.name
+        ? `ALTER TABLE ${table} MODIFY COLUMN ${colDef}`
+        : `ALTER TABLE ${table} CHANGE COLUMN ${this.escapeIdentifier(columnName)} ${colDef}`;
+
+    const bracket = this.decimalConversionBracket(op, table, context);
+    return bracket === null
+      ? alter
+      : [bracket.validate, alter, bracket.release].join(";\n");
+  }
+
+  /**
+   * The proof a decimal conversion runs inside, or `null` when the alteration
+   * moves no stored decimal value.
+   *
+   * MySQL commits each DDL statement as it runs, so there is no transaction to
+   * take a bad conversion back — the refusal has to happen BEFORE the column
+   * moves. The CHECK constraint is that proof: adding it fails the ALTER when
+   * any existing row would not survive the target domain, and it does so
+   * whatever `sql_mode` is set to, which a bare `MODIFY COLUMN` does not — in a
+   * non-strict mode MySQL answers an out-of-range or over-scaled conversion
+   * with a warning and a truncated value, silently rewriting stored data.
+   * That mode-independence is the constraint's whole reason to exist beside the
+   * MODIFY that would also refuse in strict mode.
+   *
+   * It is DROPPED only after the alteration, not before it: while it stands, no
+   * concurrent write can land a value the target domain would have to round.
+   * That is how §7.4's "while writes are excluded" is spelled here, because the
+   * obvious spelling — `LOCK TABLES` — is a transaction leader the artifact
+   * classifier refuses, and growing that enumeration is forbidden.
+   */
+  private decimalConversionBracket(
+    op: AlterColumnOperation,
+    table: string,
+    context: DDLContext
+  ): { validate: string; release: string } | null {
+    const { from, to } = op;
+    const source = from.decimal;
+    const target = to.decimal;
+    if (target === undefined) return null;
+    if (!decimalConversionRequired(from, to)) return null;
+    if (op.columnName !== to.name) {
+      throw new MigrationError(
+        `The MySQL decimal conversion for "${op.tableName}"."${op.columnName}" also renames the column to "${to.name}". ` +
+          "Run the rename as a separate migration step before changing the decimal descriptor; an interrupted CHECK proof must keep one stable column identity across MySQL's implicit DDL commits.",
+        VibORMErrorCode.MIGRATION_INVALID_STATE,
+        {
+          meta: {
+            dialect: "mysql",
+            table: op.tableName,
+            column: op.columnName,
+            type: "decimal-conversion-with-rename",
+          },
+        }
+      );
     }
 
-    // Otherwise use MODIFY COLUMN for same-name alterations
-    return `ALTER TABLE ${table} MODIFY COLUMN ${colDef}`;
+    const targetKind = mysqlDecimalStorageKind(to);
+    if (source === undefined) {
+      // An unmarked JSON container has no proven descriptor and therefore no
+      // proven member scale. A scalar INT/BIGINT is different: its exact
+      // logical meaning is an integer at scale zero, and the transient CHECK
+      // can prove that every one survives the target domain unchanged.
+      if (targetKind !== "scalar" || !isMySQLExactIntegerType(from.type)) {
+        this.refuseDecimalAdoption(op, context, targetKind);
+      }
+      return this.decimalScalarConversionBracket(op, table, to.type, target);
+    }
+
+    const sourceKind = mysqlDecimalStorageKind(from);
+    if (targetKind === undefined || sourceKind !== targetKind) {
+      this.refuseDecimalConversion(
+        op,
+        context,
+        `moves it from ${describeDecimalStorageKind(sourceKind)} to ${describeDecimalStorageKind(targetKind)} storage, which`
+      );
+    }
+    if (targetKind === "list") {
+      // The coefficient spelling stays exact only while scale stands still.
+      // Widening then moves no member, but it still needs a live proof that
+      // malformed or out-of-source-domain storage cannot acquire a wider
+      // descriptor marker. Narrowing is deliberately refused: MySQL's
+      // implicit DDL commits cannot make its stricter proof, marker change,
+      // and cleanup one indivisible operation.
+      const change = classifyDecimalListDescriptorChange(source, target);
+      if (change === "rescaling") {
+        this.refuseDecimalConversion(
+          op,
+          context,
+          `moves its JSON list from ${describeDecimalDomain(source)} to ${describeDecimalDomain(target)}, which rescales every member and so`
+        );
+      }
+      if (change === "narrowing") {
+        this.refuseDecimalConversion(
+          op,
+          context,
+          `narrows its JSON list from ${describeDecimalDomain(source)} to ${describeDecimalDomain(target)}, which`
+        );
+      }
+      return this.decimalListConversionBracket(op, table, source);
+    }
+    return this.decimalScalarConversionBracket(op, table, to.type, target);
+  }
+
+  private decimalListConversionBracket(
+    op: AlterColumnOperation,
+    table: string,
+    narrower: NonNullable<ColumnDef["decimal"]>
+  ): { validate: string; release: string } {
+    const constraint = this.escapeIdentifier(
+      decimalConversionConstraintName("list", narrower)
+    );
+    const col = this.escapeIdentifier(op.columnName);
+    return {
+      validate: `ALTER TABLE ${table} ADD CONSTRAINT ${constraint} CHECK (${mysqlDecimalListFitsCheck(col, narrower)})`,
+      release: `ALTER TABLE ${table} DROP CHECK ${constraint}`,
+    };
+  }
+
+  private decimalScalarConversionBracket(
+    op: AlterColumnOperation,
+    table: string,
+    targetType: string,
+    target: NonNullable<ColumnDef["decimal"]>
+  ): { validate: string; release: string } {
+    const constraint = this.escapeIdentifier(
+      decimalConversionConstraintName("scalar", target)
+    );
+    const col = this.escapeIdentifier(op.columnName);
+    return {
+      validate: `ALTER TABLE ${table} ADD CONSTRAINT ${constraint} CHECK (${mysqlDecimalFitsCheck(col, targetType)})`,
+      release: `ALTER TABLE ${table} DROP CHECK ${constraint}`,
+    };
+  }
+
+  /** Refuse an adoption whose source has no exact, descriptor-free meaning. */
+  private refuseDecimalAdoption(
+    op: AlterColumnOperation,
+    context: DDLContext,
+    targetKind: ReturnType<typeof mysqlDecimalStorageKind>
+  ): never {
+    throw new MigrationError(
+      `The declared change to "${op.tableName}"."${op.columnName}" would adopt unmarked ${op.from.type} storage as a fixed-decimal ${describeDecimalStorageKind(targetKind)}. ` +
+        "Only INT and BIGINT have one exact descriptor-free meaning that a transient target-domain CHECK can prove. Approximate, text, native-decimal-without-descriptor, and unmarked JSON storage could already contain rounded values or members at an unknown scale. " +
+        "The change is refused before any statement runs, so MySQL cannot implicitly round or reinterpret the stored data. Use an explicit migration that validates and rewrites the source values.",
+      VibORMErrorCode.FEATURE_NOT_SUPPORTED,
+      {
+        meta: {
+          table: op.tableName,
+          column: op.columnName,
+          feature: "decimal storage adoption",
+          dialect: "mysql",
+          target: context.destination,
+        },
+      }
+    );
+  }
+
+  /**
+   * Refuses a decimal conversion MySQL cannot perform without either rounding
+   * stored values or leaving them half-converted.
+   *
+   * The unsafe case is always a REWRITE of stored bytes: a JSON list whose
+   * members must be rescaled, or a column moving between the scalar and list
+   * shapes. Same-scale precision widening needs only a proof and uses the
+   * normalized-container CHECK above. Narrowing or changing scale cannot make
+   * its stricter proof or member rewrite plus descriptor-marker DDL
+   * indivisible across MySQL's implicit commits. It therefore refuses before
+   * any statement runs; PostgreSQL and the SQLite family convert the same
+   * change inside their atomic provider boundary.
+   */
+  private refuseDecimalConversion(
+    op: AlterColumnOperation,
+    context: DDLContext,
+    reason: string
+  ): never {
+    throw new MigrationError(
+      `The declared change to "${op.tableName}"."${op.columnName}" ${reason} would rewrite every stored value, and MySQL commits each DDL statement implicitly. ` +
+        "There is no boundary that could make the member rewrite and its descriptor-marker change indivisible. " +
+        "The change is refused before any statement runs, so the schema and its data are unchanged. Only same-scale precision widening is applied automatically; narrowing or a scale change needs an explicit migration that validates and moves the values itself.",
+      VibORMErrorCode.FEATURE_NOT_SUPPORTED,
+      {
+        meta: {
+          table: op.tableName,
+          column: op.columnName,
+          feature: "decimal descriptor conversion",
+          dialect: "mysql",
+          target: context.destination,
+        },
+      }
+    );
   }
 
   // ===========================================================================

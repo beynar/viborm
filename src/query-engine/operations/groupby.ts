@@ -11,9 +11,9 @@ import {
   buildCountAggregate,
 } from "../builders/aggregate-utils";
 import {
-  assertExactDecimalAggregate,
-  assertExactDecimalOperation,
-} from "../builders/decimal-portability";
+  decimalDescriptorOf,
+  projectScalarForTransport,
+} from "../builders/decimal-field";
 import { buildSingleOrder } from "../builders/sort-order-builder";
 import { buildWhere } from "../builders/where-builder";
 import { getColumnName, getScalarFieldNames, getTableName } from "../context";
@@ -161,12 +161,18 @@ function buildGroupByColumns(
   const { adapter } = ctx;
   const columns: Sql[] = [];
 
-  // Add grouped fields (resolve field names to column names)
+  // Add grouped fields (resolve field names to column names). The common
+  // projection owner preserves both scalar and list decimal transports.
   for (const field of byFields) {
     const columnName = getColumnName(ctx.model, field);
+    const column = adapter.identifiers.column(alias, columnName);
     columns.push(
       adapter.identifiers.aliased(
-        adapter.identifiers.column(alias, columnName),
+        projectScalarForTransport(
+          adapter,
+          ctx.model["~"].state.scalars[field],
+          column
+        ),
         field
       )
     );
@@ -256,9 +262,6 @@ function buildGroupByOrderBy(
         );
       }
       const columnName = getColumnName(ctx.model, key);
-      // groupBy builds its own ORDER BY rather than reusing the orderby-builder,
-      // so it needs its own copy of the decimal gate.
-      assertExactDecimalOperation(ctx, key, "orderBy");
       const column = adapter.identifiers.column(alias, columnName);
       orders.push(buildSingleOrder(ctx, column, value));
     }
@@ -281,17 +284,19 @@ function buildOrderByAggregate(
   }
 
   const columnName = getColumnName(ctx.model, field);
-  // Ordering by an aggregate is exact only where the aggregate is — the same
-  // rule the aggregate builder applies to SELECTED aggregates, which is why
-  // `aggregate({ _max })` refused while `groupBy({ orderBy: { _max } })` did not.
-  assertExactDecimalAggregate(ctx, field, aggKey);
   const column = adapter.identifiers.column(alias, columnName);
+  // ORDER BY an aggregate must order by the SAME expression the aggregate
+  // projection emits, or the ordered answer and the returned answer disagree.
+  // For a decimal that means the exact half-even average, not `AVG()`.
+  const decimal = decimalDescriptorOf(ctx.model, field);
 
   switch (aggKey) {
     case "_count":
       return adapter.aggregates.count(column);
     case "_avg":
-      return adapter.aggregates.avg(column);
+      return decimal
+        ? adapter.aggregates.decimalAvg(column, decimal)
+        : adapter.aggregates.avg(column);
     case "_sum":
       return adapter.aggregates.sum(column);
     case "_min":

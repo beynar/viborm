@@ -1,11 +1,25 @@
 // Aggregate operation args schema factories
 
 import type { AnyModel } from "@schema/model";
-import type { NumericScalarKeys, ScalarKeys } from "@schema/model/helper";
+import type {
+  DecimalListScalarKeys,
+  NumericScalarKeys,
+  ScalarKeys,
+} from "@schema/model/helper";
+import type { ScalarState } from "@schema/scalars/common";
+import type { DecimalDescriptor } from "@validation/primitives/decimal-codec";
 import { scopeOperands } from "@validation/primitives/operand";
 import v, { type V } from "../../primitives/v";
+import type { InferInput, InferOutput, VibSchema } from "../../types";
 import type { CoreSchemas } from "../core";
-import { type SortOrderSchema, sortOrderSchema } from "../core/orderby";
+import {
+  type DecimalListOrderByRefusalSchema,
+  decimalListOrderByRefusalSchema,
+  isOrderableScalarState,
+  type OrderableScalarKeys,
+  type SortOrderSchema,
+  sortOrderSchema,
+} from "../core/orderby";
 import type { ScalarSchemas } from "../index";
 import {
   type PaginationSkipSchema,
@@ -23,18 +37,57 @@ import {
  * Following Prisma's API:
  * - _count: can be `true` or object with `_all` + all scalar names
  * - _avg, _sum: only numeric scalars (int, number, decimal, bigint)
- * - _min, _max: all comparable types (all scalars)
+ * - _min, _max: scalar columns, never list containers
  */
 type OptionalBoolean = V.Boolean<{ optional: true }>;
+type ListAggregateRefusalSchema = VibSchema<never, never>;
+
+const SUMMABLE_SCALAR_TYPES = ["int", "number", "decimal", "bigint"];
+
+/**
+ * Whether `_sum` and `_avg` mean anything for this scalar.
+ *
+ * Numeric KIND is not enough on its own: a `s.decimal({...}).array()` is a
+ * container — one JSON document per row on every provider that has one at all —
+ * and there is no column-wide addition of documents to ask for. Plan 5.3 names
+ * the shape: "the current aggregate/order builders must exclude list states
+ * rather than sorting JSON or admitting `_sum` by scalar kind alone". Admitting
+ * it by kind is what left a decimal list offering `_sum` with a `v.number()`
+ * operand — the one operand shape this scalar exists to remove.
+ *
+ * `_count` remains available because a count of non-null containers is a row
+ * count like any other. Value aggregates never order or combine list
+ * containers.
+ */
+const isSummableScalar = (state: ScalarState): boolean =>
+  state.array !== true && SUMMABLE_SCALAR_TYPES.includes(state.type);
 
 /**
  * Count keys include "_all" plus all scalar names
  */
 type ModelStateOf<M extends AnyModel> = M["~"]["state"];
 
+type AggregateScalarKeys<M extends AnyModel> = {
+  [K in keyof ModelStateOf<M>["scalars"]]: ModelStateOf<M>["scalars"][K] extends {
+    "~": { state: { array: true } };
+  }
+    ? never
+    : K;
+}[keyof ModelStateOf<M>["scalars"]] &
+  string;
+
 export type CountScalarKeys<M extends AnyModel> =
   | "_all"
   | ScalarKeys<ModelStateOf<M>["scalars"]>;
+
+type ListAggregateEntries<M extends AnyModel> = V.FromKeys<
+  ListScalarKeys<M>[],
+  ListAggregateRefusalSchema
+>["entries"];
+
+type AggregateValueSchema<M extends AnyModel, K extends string> = V.Object<
+  V.FromKeys<K[], OptionalBoolean>["entries"] & ListAggregateEntries<M>
+>;
 
 /**
  * Aggregate scalar schemas with proper typing
@@ -43,19 +96,13 @@ export type AggregateScalarSchemas<M extends AnyModel> = {
   /** Count can include _all and any scalar */
   count: V.FromKeys<CountScalarKeys<M>[], OptionalBoolean>;
   /** Avg only works on numeric scalars */
-  avg: V.FromKeys<
-    NumericScalarKeys<ModelStateOf<M>["scalars"]>[],
-    OptionalBoolean
-  >;
+  avg: AggregateValueSchema<M, NumericScalarKeys<ModelStateOf<M>["scalars"]>>;
   /** Sum only works on numeric scalars */
-  sum: V.FromKeys<
-    NumericScalarKeys<ModelStateOf<M>["scalars"]>[],
-    OptionalBoolean
-  >;
-  /** Min works on all comparable types (all scalars) */
-  min: V.FromKeys<ScalarKeys<ModelStateOf<M>["scalars"]>[], OptionalBoolean>;
-  /** Max works on all comparable types (all scalars) */
-  max: V.FromKeys<ScalarKeys<ModelStateOf<M>["scalars"]>[], OptionalBoolean>;
+  sum: AggregateValueSchema<M, NumericScalarKeys<ModelStateOf<M>["scalars"]>>;
+  /** Min works on scalar columns, not list containers */
+  min: AggregateValueSchema<M, AggregateScalarKeys<M>>;
+  /** Max works on scalar columns, not list containers */
+  max: AggregateValueSchema<M, AggregateScalarKeys<M>>;
 };
 
 export const getAggregateScalarSchemas = <M extends AnyModel>(
@@ -65,31 +112,53 @@ export const getAggregateScalarSchemas = <M extends AnyModel>(
   const countKeys: string[] = ["_all"];
   const numericKeys: string[] = [];
   const minMaxKeys: string[] = [];
+  const listKeys: string[] = [];
 
   for (const name of Object.keys(state.scalars)) {
     const scalar = state.scalars[name]!;
-    const scalarType = scalar["~"].state.type;
 
     // Count can include all scalars
     countKeys.push(name);
 
     // Avg/Sum only for numeric types
-    if (["int", "number", "decimal", "bigint"].includes(scalarType)) {
+    if (isSummableScalar(scalar["~"].state)) {
       numericKeys.push(name);
     }
 
-    // Min/Max for all comparable types
-    minMaxKeys.push(name);
+    // Value aggregates never compare list containers.
+    if (scalar["~"].state.array !== true) {
+      minMaxKeys.push(name);
+    }
+    if (scalar["~"].state.array === true) listKeys.push(name);
   }
 
   const booleanOptional = v.boolean({ optional: true });
+  const projection = (aggregate: "_avg" | "_sum" | "_min" | "_max") =>
+    v.fromKeys(
+      listKeys,
+      v.refused(
+        `A list cannot be projected by '${aggregate}'; only '_count' is supported.`
+      )
+    );
 
   return {
     count: v.fromKeys(countKeys, booleanOptional),
-    avg: v.fromKeys(numericKeys, booleanOptional),
-    sum: v.fromKeys(numericKeys, booleanOptional),
-    min: v.fromKeys(minMaxKeys, booleanOptional),
-    max: v.fromKeys(minMaxKeys, booleanOptional),
+    avg: v.object({
+      ...v.fromKeys(numericKeys, booleanOptional).entries,
+      ...projection("_avg").entries,
+    }),
+    sum: v.object({
+      ...v.fromKeys(numericKeys, booleanOptional).entries,
+      ...projection("_sum").entries,
+    }),
+    min: v.object({
+      ...v.fromKeys(minMaxKeys, booleanOptional).entries,
+      ...projection("_min").entries,
+    }),
+    max: v.object({
+      ...v.fromKeys(minMaxKeys, booleanOptional).entries,
+      ...projection("_max").entries,
+    }),
   } as AggregateScalarSchemas<M>;
 };
 
@@ -214,30 +283,99 @@ export const getAggregateArgs = <
  * - the scalar's regular filter schema (same as WHERE), OR
  * - an aggregate filter object with _count/_avg/_sum/_min/_max.
  */
-type NumericFilterOps = V.Object<
+/**
+ * One aggregate's comparison operators, over whatever operand the aggregate
+ * answers in. `equals`/`not` accept null so aggregates over all-null groups
+ * (e.g. `_min`) can be filtered with IS NULL / IS NOT NULL semantics.
+ */
+type AggregateFilterOps<O extends V.Schema, N extends V.Schema> = V.Object<
   {
-    equals: V.Number<{ nullable: true }>;
-    in: V.Array<V.Number>;
-    notIn: V.Array<V.Number>;
-    gt: V.Number;
-    gte: V.Number;
-    lt: V.Number;
-    lte: V.Number;
-    not: V.Number<{ nullable: true }>;
+    equals: N;
+    in: V.Array<O>;
+    notIn: V.Array<O>;
+    gt: O;
+    gte: O;
+    lt: O;
+    lte: O;
+    not: N;
   },
   { optional: true }
 >;
 
-export type HavingAggregateScalarSchema = V.Object<
+type NumericFilterOps = AggregateFilterOps<
+  V.Number,
+  V.Number<{
+    nullable: true;
+  }>
+>;
+
+/**
+ * A decimal aggregate's operands are DECIMALS, not doubles.
+ *
+ * `having: { amount: { _sum: { gt: x } } }` compares against a value the
+ * database computed exactly; typing `x` as a JavaScript number puts the
+ * comparison back through 53 bits of mantissa, which is the one thing this
+ * scalar exists to avoid. The descriptor each operand is validated against is a
+ * runtime fact (the field's own, widened for `_sum`); at the type level a
+ * decimal operand is the same accepted family everywhere.
+ */
+type DecimalFilterOps = AggregateFilterOps<
+  V.Decimal,
+  V.Decimal<{
+    nullable: true;
+  }>
+>;
+
+/**
+ * `_count` is a ROW COUNT on every scalar — an integer that has nothing to do
+ * with the column's domain — so it keeps the numeric operand while the four
+ * value aggregates take the column's own.
+ */
+export type HavingAggregateScalarSchema<
+  Ops extends V.Schema = NumericFilterOps,
+> = V.Object<
   {
     _count: NumericFilterOps;
-    _avg: NumericFilterOps;
-    _sum: NumericFilterOps;
-    _min: NumericFilterOps;
-    _max: NumericFilterOps;
+    _avg: Ops;
+    _sum: Ops;
+    _min: Ops;
+    _max: Ops;
   },
   { optional: true }
 >;
+
+type ListHavingAggregateScalarSchema = V.Object<
+  {
+    _count: NumericFilterOps;
+    _avg: ListAggregateRefusalSchema;
+    _sum: ListAggregateRefusalSchema;
+    _min: ListAggregateRefusalSchema;
+    _max: ListAggregateRefusalSchema;
+  },
+  { optional: true }
+>;
+
+type ListScalarKeys<M extends AnyModel> = {
+  [K in keyof ModelStateOf<M>["scalars"]]: ModelStateOf<M>["scalars"][K] extends {
+    "~": { state: { array: true } };
+  }
+    ? K
+    : never;
+}[keyof ModelStateOf<M>["scalars"]] &
+  string;
+
+/** The scalar keys of `M` whose declared type is `decimal`. */
+type DecimalScalarKeys<M extends AnyModel> = {
+  [K in keyof ModelStateOf<M>["scalars"]]: ModelStateOf<M>["scalars"][K] extends {
+    "~": { state: { type: "decimal" } };
+  }
+    ? K
+    : never;
+}[keyof ModelStateOf<M>["scalars"]];
+
+type HavingAggregateOf<M extends AnyModel, K> = K extends DecimalScalarKeys<M>
+  ? HavingAggregateScalarSchema<DecimalFilterOps>
+  : HavingAggregateScalarSchema;
 
 type ScalarFilterBundle = {
   scalars: Record<string, { filter: V.Schema }>;
@@ -248,10 +386,46 @@ type ScalarFilterEntries<F extends ScalarFilterBundle> = V.FromObject<
   "filter"
 >["entries"];
 
-export type HavingSchemaEntries<F extends ScalarFilterBundle> = {
-  [K in keyof ScalarFilterEntries<F>]: V.Union<
-    readonly [HavingAggregateScalarSchema, ScalarFilterEntries<F>[K]]
-  >;
+/**
+ * A list has one having object arm. Its shorthand array stays untouched; its
+ * filter-object member receives the aggregate entries directly. A separate
+ * union arm would let a forbidden aggregate key escape beside a real filter
+ * key from the other arm.
+ */
+type WithListHavingAggregates<Value, Aggregates> =
+  Value extends readonly unknown[]
+    ? Value
+    : Value extends object
+      ? Value & Aggregates
+      : Value;
+
+type ListHavingFilterSchema<S extends V.Schema> = VibSchema<
+  WithListHavingAggregates<
+    InferInput<S>,
+    InferInput<ListHavingAggregateScalarSchema>
+  >,
+  WithListHavingAggregates<
+    InferOutput<S>,
+    InferOutput<ListHavingAggregateScalarSchema>
+  >
+>;
+
+type HavingScalarSchema<
+  M extends AnyModel,
+  K,
+  S extends V.Schema,
+> = K extends ListScalarKeys<M>
+  ? ListHavingFilterSchema<S>
+  : V.Union<readonly [HavingAggregateOf<M, K>, S]>;
+
+export type HavingSchemaEntries<
+  M extends AnyModel,
+  F extends ScalarFilterBundle,
+> = {
+  [K in keyof ScalarFilterEntries<F>]: ScalarFilterEntries<F>[K] extends infer S extends
+    V.Schema
+    ? HavingScalarSchema<M, K, S>
+    : never;
 };
 
 /**
@@ -260,55 +434,173 @@ export type HavingSchemaEntries<F extends ScalarFilterBundle> = {
  * takes an array. Thunks defer the self-reference (same recursion device the
  * where schema uses).
  */
-export type HavingLogicalEntries<F extends ScalarFilterBundle> = {
+export type HavingLogicalEntries<
+  M extends AnyModel,
+  F extends ScalarFilterBundle,
+> = {
   AND: () => V.Optional<
-    V.Union<readonly [HavingSchema<F>, V.Array<HavingSchema<F>>]>
+    V.Union<readonly [HavingSchema<M, F>, V.Array<HavingSchema<M, F>>]>
   >;
-  OR: () => V.Optional<V.Array<HavingSchema<F>>>;
+  OR: () => V.Optional<V.Array<HavingSchema<M, F>>>;
   NOT: () => V.Optional<
-    V.Union<readonly [HavingSchema<F>, V.Array<HavingSchema<F>>]>
+    V.Union<readonly [HavingSchema<M, F>, V.Array<HavingSchema<M, F>>]>
   >;
 };
 
-export type HavingSchema<F extends ScalarFilterBundle> = V.Object<
-  HavingLogicalEntries<F> & HavingSchemaEntries<F>,
+export type HavingSchema<
+  M extends AnyModel,
+  F extends ScalarFilterBundle,
+> = V.Object<
+  HavingLogicalEntries<M, F> & HavingSchemaEntries<M, F>,
   { optional: true }
 >;
 
-const numericFilterOps = v.object(
-  {
-    // equals/not accept null so aggregates over all-null groups (e.g. _min)
-    // can be filtered with IS NULL / IS NOT NULL semantics
-    equals: v.number({ nullable: true }),
-    in: v.array(v.number()),
-    notIn: v.array(v.number()),
-    gt: v.number(),
-    gte: v.number(),
-    lt: v.number(),
-    lte: v.number(),
-    not: v.number({ nullable: true }),
-  },
-  { optional: true }
+const buildAggregateFilterOps = (
+  operand: () => V.Schema,
+  nullableOperand: () => V.Schema
+) =>
+  v.object(
+    {
+      // equals/not accept null so aggregates over all-null groups (e.g. _min)
+      // can be filtered with IS NULL / IS NOT NULL semantics
+      equals: nullableOperand(),
+      in: v.array(operand()),
+      notIn: v.array(operand()),
+      gt: operand(),
+      gte: operand(),
+      lt: operand(),
+      lte: operand(),
+      not: nullableOperand(),
+    },
+    { optional: true }
+  );
+
+const numericFilterOps = buildAggregateFilterOps(
+  () => v.number(),
+  () => v.number({ nullable: true })
 );
 
-const havingScalarSchema = v.object(
-  {
+type RuntimeListFilterSchema = V.Union<
+  readonly [V.Schema, V.Object<Record<string, V.Schema>>]
+>;
+
+const isRuntimeListFilterSchema = (
+  schema: V.Schema
+): schema is RuntimeListFilterSchema => {
+  if (schema.type !== "union") return false;
+  const options = Reflect.get(schema, "options");
+  if (!Array.isArray(options) || options.length !== 2) return false;
+  const filter = options[1];
+  return (
+    typeof filter === "object" &&
+    filter !== null &&
+    Reflect.get(filter, "type") === "object"
+  );
+};
+
+const listHavingSchema = (filter: V.Schema): V.Schema => {
+  const refusal = (aggregate: "_avg" | "_sum" | "_min" | "_max") =>
+    v.refused(
+      `A list cannot use '${aggregate}' in having; only '_count' is supported.`
+    );
+  const aggregateEntries = {
     _count: numericFilterOps,
-    _avg: numericFilterOps,
-    _sum: numericFilterOps,
-    _min: numericFilterOps,
-    _max: numericFilterOps,
-  },
-  { optional: true }
-);
+    _avg: refusal("_avg"),
+    _sum: refusal("_sum"),
+    _min: refusal("_min"),
+    _max: refusal("_max"),
+  };
 
-export const getHavingSchema = <
+  if (!isRuntimeListFilterSchema(filter)) {
+    return v.refused(
+      "The list filter schema cannot be used in having because its trusted shape is unavailable."
+    );
+  }
+
+  return v.noOperandExpression(
+    v.union([filter.options[0], filter.options[1].extend(aggregateEntries)]),
+    "'having'"
+  );
+};
+
+/**
+ * The domain a `_sum` operand is VALIDATED in: the field's SCALE and the
+ * definition grammar's widest legal precision.
+ *
+ * A sum of a `precision: 10` column over a million rows is a legitimate answer
+ * sixteen digits wide, so an operand compared against it cannot be held to one
+ * row's precision — that is the plan's "`_sum` is not incorrectly rejected for
+ * exceeding the field's storage precision", asked from the operand side. The
+ * scale is NOT widened: every summed value carries the field's scale, so an
+ * operand at a different one is a different number on a coefficient dialect.
+ *
+ * Provider-independent HERE and provider-bounded at the bind, deliberately:
+ * which provider this model will be bound to is not knowable when its schemas
+ * are built, and the practical ceiling is a provider fact. This descriptor
+ * still obeys the one public descriptor invariant; the tighter domain — and
+ * the refusal for an operand past it — has one owner,
+ * the adapter's aggregate operand admission, reached by the query engine with
+ * the exact coefficient in hand. This states the shape of the operand; that
+ * states what a database can answer about.
+ */
+const sumOperandDomain = (
+  descriptor: DecimalDescriptor
+): DecimalDescriptor => ({
+  precision: Number.MAX_SAFE_INTEGER,
+  scale: descriptor.scale,
+});
+
+/**
+ * The aggregate filter object for ONE scalar, in that scalar's own domain.
+ *
+ * Non-decimal scalars keep the shared numeric operand — an `_avg` of ints is a
+ * fraction and an `_avg` of floats is a float, both of which a JavaScript
+ * number names exactly as well as anything else. A decimal is the case where
+ * the number is a lossy name for the value, so its four value aggregates take
+ * decimal operands built from the field's descriptor.
+ */
+const havingAggregateSchema = (state: ScalarState | undefined) => {
+  const descriptor = state?.type === "decimal" ? state.decimal : undefined;
+  if (!descriptor) {
+    return v.object(
+      {
+        _count: numericFilterOps,
+        _avg: numericFilterOps,
+        _sum: numericFilterOps,
+        _min: numericFilterOps,
+        _max: numericFilterOps,
+      },
+      { optional: true }
+    );
+  }
+  const fieldOps = buildAggregateFilterOps(
+    () => v.decimal({ decimal: descriptor }),
+    () => v.decimal({ decimal: descriptor, nullable: true })
+  );
+  const widened = sumOperandDomain(descriptor);
+  return v.object(
+    {
+      _count: numericFilterOps,
+      _avg: fieldOps,
+      _sum: buildAggregateFilterOps(
+        () => v.decimal({ decimal: widened }),
+        () => v.decimal({ decimal: widened, nullable: true })
+      ),
+      _min: fieldOps,
+      _max: fieldOps,
+    },
+    { optional: true }
+  );
+};
+
+export function getHavingSchema<
   M extends AnyModel,
   F extends ScalarFilterBundle,
->(
-  model: M,
-  scalarSchemas: F
-): HavingSchema<F> => {
+>(model: M, scalarSchemas: F): HavingSchema<M, F>;
+export function getHavingSchema(
+  model: AnyModel,
+  scalarSchemas: ScalarFilterBundle
+): V.Schema {
   const entries: Record<string, V.Schema> = {};
 
   for (const [name, schemas] of Object.entries(scalarSchemas.scalars)) {
@@ -318,10 +610,14 @@ export const getHavingSchema = <
     // having/groupBy — a HAVING operand is an aggregate over a group, not a
     // column of one row — and a fragment is out for the same reason, so re-close
     // the reused schema here instead of inheriting the operand by accident.
-    entries[name] = v.union([
-      havingScalarSchema,
-      v.noOperandExpression(schemas.filter, "'having'"),
-    ]) as V.Schema;
+    const state = model["~"].state.scalars[name]?.["~"].state;
+    entries[name] =
+      state?.array === true
+        ? listHavingSchema(schemas.filter)
+        : v.union([
+            havingAggregateSchema(state),
+            v.noOperandExpression(schemas.filter, "'having'"),
+          ]);
   }
 
   // AND/OR/NOT recurse into the same schema through thunks — `.extend` returns
@@ -331,7 +627,7 @@ export const getHavingSchema = <
   // already builds all three combinators (`groupby-having.ts:17-36`); these
   // entries are what makes them reachable instead of dying on the strict-object
   // "Unknown key: OR".
-  const havingSchema = v
+  const havingSchema: V.Schema = v
     .object(
       {
         AND: () => v.optional(v.union([havingSchema, v.array(havingSchema)])),
@@ -340,14 +636,14 @@ export const getHavingSchema = <
       },
       { optional: true }
     )
-    .extend(entries) as unknown as HavingSchema<F>;
+    .extend(entries);
 
   // Scoped to the model like a `where` is, so an operand CALLBACK resolves here
   // too and is then refused by name ("… is not supported in 'having'") instead
   // of by the generic out-of-scope message. Acceptance is unchanged: what the
   // callback returns is exactly what the closure above rejects.
   return scopeOperands(havingSchema, model);
-};
+}
 
 // =============================================================================
 // GROUP BY ORDER BY
@@ -360,29 +656,28 @@ export const getHavingSchema = <
  */
 type OrderDirectionSchema = V.Enum<["asc", "desc"]>;
 
+type GroupAggregateOrderSchema<M extends AnyModel, K extends string> = V.Object<
+  V.FromKeys<K[], OrderDirectionSchema>["entries"] & ListAggregateEntries<M>
+>;
+
 export type GroupByOrderBySchema<M extends AnyModel> = V.Object<
-  V.FromKeys<
-    ScalarKeys<ModelStateOf<M>["scalars"]>[],
-    SortOrderSchema
-  >["entries"] & {
-    _count: V.FromKeys<CountScalarKeys<M>[], OrderDirectionSchema>;
-    _avg: V.FromKeys<
-      NumericScalarKeys<ModelStateOf<M>["scalars"]>[],
-      OrderDirectionSchema
-    >;
-    _sum: V.FromKeys<
-      NumericScalarKeys<ModelStateOf<M>["scalars"]>[],
-      OrderDirectionSchema
-    >;
-    _min: V.FromKeys<
-      ScalarKeys<ModelStateOf<M>["scalars"]>[],
-      OrderDirectionSchema
-    >;
-    _max: V.FromKeys<
-      ScalarKeys<ModelStateOf<M>["scalars"]>[],
-      OrderDirectionSchema
-    >;
-  }
+  V.FromKeys<OrderableScalarKeys<M>[], SortOrderSchema>["entries"] &
+    V.FromKeys<
+      DecimalListScalarKeys<ModelStateOf<M>["scalars"]>[],
+      DecimalListOrderByRefusalSchema
+    >["entries"] & {
+      _count: V.FromKeys<CountScalarKeys<M>[], OrderDirectionSchema>;
+      _avg: GroupAggregateOrderSchema<
+        M,
+        NumericScalarKeys<ModelStateOf<M>["scalars"]>
+      >;
+      _sum: GroupAggregateOrderSchema<
+        M,
+        NumericScalarKeys<ModelStateOf<M>["scalars"]>
+      >;
+      _min: GroupAggregateOrderSchema<M, AggregateScalarKeys<M>>;
+      _max: GroupAggregateOrderSchema<M, AggregateScalarKeys<M>>;
+    }
 >;
 
 const orderDirection = v.enum(["asc", "desc"]);
@@ -391,26 +686,52 @@ export const getGroupByOrderBySchema = <M extends AnyModel>(
   model: M
 ): GroupByOrderBySchema<M> => {
   const state = model["~"].state;
+  const allScalarKeys: string[] = [];
   const scalarKeys: string[] = [];
+  const decimalListKeys: string[] = [];
+  const listKeys: string[] = [];
   const numericKeys: string[] = [];
+  const aggregateKeys: string[] = [];
 
   for (const name of Object.keys(state.scalars)) {
     const scalar = state.scalars[name]!;
-    scalarKeys.push(name);
-    if (
-      ["int", "number", "decimal", "bigint"].includes(scalar["~"].state.type)
-    ) {
+    allScalarKeys.push(name);
+    if (scalar["~"].state.array === true) listKeys.push(name);
+    if (isOrderableScalarState(scalar["~"].state)) {
+      scalarKeys.push(name);
+    } else {
+      decimalListKeys.push(name);
+    }
+    if (isSummableScalar(scalar["~"].state)) {
       numericKeys.push(name);
+    }
+    if (scalar["~"].state.array !== true) {
+      aggregateKeys.push(name);
     }
   }
 
+  const aggregateOrder = (
+    aggregate: "_avg" | "_sum" | "_min" | "_max",
+    keys: string[]
+  ) =>
+    v.object({
+      ...v.fromKeys(keys, orderDirection).entries,
+      ...v.fromKeys(
+        listKeys,
+        v.refused(
+          `A list cannot be ordered by '${aggregate}'; only '_count' is supported.`
+        )
+      ).entries,
+    });
+
   return v.object({
     ...v.fromKeys(scalarKeys, sortOrderSchema).entries,
-    _count: v.fromKeys(["_all", ...scalarKeys], orderDirection),
-    _avg: v.fromKeys(numericKeys, orderDirection),
-    _sum: v.fromKeys(numericKeys, orderDirection),
-    _min: v.fromKeys(scalarKeys, orderDirection),
-    _max: v.fromKeys(scalarKeys, orderDirection),
+    ...v.fromKeys(decimalListKeys, decimalListOrderByRefusalSchema).entries,
+    _count: v.fromKeys(["_all", ...allScalarKeys], orderDirection),
+    _avg: aggregateOrder("_avg", numericKeys),
+    _sum: aggregateOrder("_sum", numericKeys),
+    _min: aggregateOrder("_min", aggregateKeys),
+    _max: aggregateOrder("_max", aggregateKeys),
   }) as GroupByOrderBySchema<M>;
 };
 
@@ -434,7 +755,7 @@ export type GroupByArgs<
   {
     by: V.Union<readonly [EnumOfScalarMap<M>, V.Array<EnumOfScalarMap<M>>]>;
     where: CoreSchemas<M, F>["where"];
-    having: HavingSchema<F>;
+    having: HavingSchema<M, F>;
     orderBy: V.Union<
       readonly [GroupByOrderBySchema<M>, V.Array<GroupByOrderBySchema<M>>]
     >;

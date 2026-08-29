@@ -115,8 +115,7 @@ export class BulkCountOperation {
     return new ResultParser(
       this.engine,
       this.model,
-      this.engine.driver,
-      this.engine.decimalDecode
+      this.engine.driver
     ).parse<T>(this.kind as Operation, { rowCount: Number(count) }, this.args);
   }
 

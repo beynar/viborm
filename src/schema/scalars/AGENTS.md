@@ -112,6 +112,29 @@ Use `pnpm test:coverage:scalars` for the memory-capped L2 report. It gates
 statements, branches, functions, and lines at 100% and writes
 `coverage/scalars/index.html`.
 
+### Rule 6: Fixed Decimal Has One Descriptor
+
+`s.decimal({ precision, scale })` is the only decimal factory. The structural
+`DecimalDescriptor` shape belongs to
+`src/validation/primitives/decimal-codec.ts`. The scalar validates hostile input
+once, freezes one instance in `ScalarState.decimal`, and every modifier carries
+that same object by reference. That instance is the field's sole precision and
+scale source for validation, DDL, query lowering, results, lists, cache
+identity, and migrations. Do not mint a parallel live descriptor owner or
+restore a native-type or zero-argument decimal mode.
+
+The scalar declares the public shape; `src/validation/primitives/decimal-codec.ts`
+owns value conversion. A decimal list cannot be an ID, unique field, index or
+compound-key member, foreign-key member, or relation identity member. Its
+declaration owns `.id()`/`.unique()` refusal; L5 owns index/compound-key and FK
+positions.
+
+A literal decimal default is validated and normalized through the current full
+field codec at the modifier boundary. That canonical output is the retained
+state value and is trusted downstream; a later `.schema()` or arity change
+revalidates it once against the newly declared field. Function defaults retain
+their closure and validate once per invocation.
+
 ---
 
 ## Anti-Patterns
@@ -159,7 +182,7 @@ Methods that don't return `this` type or new instance. Breaks the fluent API tha
 
 5. **Add to `s` builder** in `src/schema/index.ts`
 
-6. **Add tests** in `tests/scalars/{type}-scalar-schemas.test.ts`
+6. **Add tests** in `tests/unit/scalars/{type}-scalar-schemas.core.test.ts`
 
 ---
 

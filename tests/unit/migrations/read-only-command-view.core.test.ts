@@ -61,8 +61,19 @@ const JOURNAL: MigrationJournal = {
  */
 function alphaServer(): RecordingDriver {
   const driver = mysqlEstateDriver({ namespace: "Alpha", attested: true });
-  driver.respond = (sql: string) =>
-    sql.includes("SCHEMATA") ? [{ SCHEMA_NAME: "alpha" }] : [];
+  driver.respond = (sql: string) => {
+    // A MySQL pinned migration session PROVES its `sql_mode` before any DDL
+    // (plan 3.3 / `migrations/pinned-session.ts`).
+    if (sql.includes("@@SESSION.sql_mode")) {
+      return [
+        {
+          sql_mode: "STRICT_TRANS_TABLES,NO_ENGINE_SUBSTITUTION",
+          server_version: "8.4.0",
+        },
+      ];
+    }
+    return sql.includes("SCHEMATA") ? [{ SCHEMA_NAME: "alpha" }] : [];
+  };
   return driver;
 }
 

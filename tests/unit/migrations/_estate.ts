@@ -246,6 +246,29 @@ export function sqliteEstateDriver(): RecordingDriver {
   );
 }
 
+/**
+ * The D1 substrate: a SQLite driver with no transaction that executes a
+ * migration as ONE native batch.
+ *
+ * The pair matters, not either half. A batch is one round trip, so
+ * `PRAGMA foreign_keys=OFF` has to travel inside it — where SQLite documents it
+ * as a no-op — and there is no outside to lift it to. That is what makes a
+ * relation-bearing table recreation unsafe here, and it is the exact shape
+ * `D1Driver` declares (`supportsTransactions = false`, `supportsBatch = true`).
+ */
+class BatchOnlySqliteDriver extends RecordingDriver {
+  override readonly supportsTransactions = false;
+  override readonly supportsBatch = true;
+}
+
+export function d1EstateDriver(): RecordingDriver {
+  return new BatchOnlySqliteDriver(
+    "sqlite",
+    "d1",
+    adapterBoundTo(new SQLiteAdapter(), undefined)
+  );
+}
+
 /** In-memory migration storage that records every read and write. */
 export class MemoryStorage extends MigrationStorageDriver {
   readonly files = new Map<string, string>();

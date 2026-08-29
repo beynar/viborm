@@ -1,5 +1,11 @@
 import type { Scalar } from "@schema/scalars";
-import { canonicalizeDecimal } from "@validation/primitives/decimal";
+import {
+  canonicalizeMaterializedDecimal,
+  type DecimalDescriptor,
+  decodeFieldScalar,
+  decodeWidenedSum,
+  toDecimal,
+} from "@validation/primitives/decimal-codec";
 import { materializeJsonValue, snapshotJsonValue } from "./cache-json-codec";
 import {
   decodeSnapshotCount,
@@ -22,7 +28,6 @@ export interface ValueCodec {
 
 export function compileScalarCodec(
   scalar: Scalar,
-  decimalDecode: "string" | "number",
   useDeclaredNullability = true
 ): ValueCodec {
   let item: ValueCodec;
@@ -44,8 +49,7 @@ export function compileScalarCodec(
         item = numberCodec();
         break;
       case "decimal":
-        item =
-          decimalDecode === "number" ? numberCodec() : decimalStringCodec();
+        item = decimalCodec(state.decimal);
         break;
       case "boolean":
         item = booleanCodec();
@@ -283,16 +287,67 @@ function integerCodec(): ValueCodec {
   );
 }
 
-function decimalStringCodec(): ValueCodec {
+/**
+ * The cache's two directions across the decimal boundary.
+ *
+ * A snapshot is DETACHED: the memory backend keeps it by reference and the KV
+ * backend puts it through `JSON.stringify`, so a `Decimal` that reached a
+ * snapshot would survive in one store and arrive as `{"s":1,"e":0,"d":[12]}` in
+ * the other. It is therefore stored as canonical text and rebuilt as a FRESH
+ * instance on every hit, which is also what keeps a caller who mutates a
+ * returned value from poisoning the next one.
+ *
+ * BOTH directions are held to the field's domain, for two different reasons.
+ * Reading, because a stored entry outlives the schema that wrote it and nothing
+ * in the cache key says which precision and scale were in force when it was
+ * written. Writing, because a value outside the domain is an incoherent parsed
+ * result — and refusing it at the WRITE is what makes that visible when it
+ * happens, instead of storing an entry every subsequent hit refuses for the rest
+ * of its TTL.
+ */
+function decimalCodec(descriptor: DecimalDescriptor | undefined): ValueCodec {
   return primitiveCodec(
-    (value) =>
-      typeof value === "string" && canonicalizeDecimal(value) === value
-        ? value
-        : failCacheSnapshot(),
-    (snapshot) =>
-      typeof snapshot === "string" && canonicalizeDecimal(snapshot) === snapshot
-        ? snapshot
-        : failCacheSnapshot()
+    (value) => {
+      if (!descriptor) return failCacheSnapshot();
+      return (
+        decodeFieldScalar(canonicalizeMaterializedDecimal(value), descriptor) ??
+        failCacheSnapshot()
+      );
+    },
+    (snapshot) => {
+      if (!descriptor) return failCacheSnapshot();
+      const canonical = decodeFieldScalar(snapshot, descriptor);
+      return canonical !== undefined && canonical === snapshot
+        ? toDecimal(canonical)
+        : failCacheSnapshot();
+    }
+  );
+}
+
+/**
+ * The SUM leaf's cache boundary: the field's scale, deliberately not the
+ * field's precision, so a cached sum materializes exactly like a fresh one. The
+ * write is held to the same scale for the same reason the scalar write is.
+ */
+export function compileWidenedSumCodec(scalar: Scalar): ValueCodec {
+  const descriptor = scalar["~"].state.decimal;
+  return primitiveCodec(
+    (value) => {
+      if (!descriptor) return failCacheSnapshot();
+      return (
+        decodeWidenedSum(
+          canonicalizeMaterializedDecimal(value),
+          descriptor.scale
+        ) ?? failCacheSnapshot()
+      );
+    },
+    (snapshot) => {
+      if (!descriptor) return failCacheSnapshot();
+      const canonical = decodeWidenedSum(snapshot, descriptor.scale);
+      return canonical !== undefined && canonical === snapshot
+        ? toDecimal(canonical)
+        : failCacheSnapshot();
+    }
   );
 }
 

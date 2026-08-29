@@ -19,7 +19,8 @@ export function parseAggregateResult(
   raw: unknown,
   scalars: Record<string, Scalar>,
   expected: ExpectedAggregateResultShape | undefined,
-  parseField: ParseScalarField
+  parseField: ParseScalarField,
+  parseWidenedSum: ParseScalarField
 ): unknown {
   if (raw === undefined) {
     return malformedResult(
@@ -106,6 +107,10 @@ export function parseAggregateResult(
     }
     if (leaf.kind === "count") {
       result[field] = parseCountValue(ctx, operation, fieldValue);
+      continue;
+    }
+    if (leaf.kind === "widenedSum") {
+      result[field] = parseWidenedSum(leaf.scalar, fieldValue, operation);
       continue;
     }
     result[field] =

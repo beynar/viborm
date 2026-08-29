@@ -1,5 +1,6 @@
 // biome-ignore-all lint/style/useFilenamingConvention: RecordUpdateCompiler is the architecture name.
 import { NestedWriteError, QueryEngineError } from "@errors";
+import type { Model } from "@schema/model";
 import type { PolymorphicStorageColumn } from "@schema/relation";
 import { isSql, type Sql } from "@sql";
 import {
@@ -158,6 +159,7 @@ import {
 } from "./relation-membership";
 import { clearableForeignKeyFields } from "./relation-nullability";
 import type { StepScope } from "./StepScope";
+import { parseCapturedRows } from "./series-result-read";
 import {
   capturedSelectorWhere,
   getStepModelName,
@@ -1204,12 +1206,86 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
 
   compile(known: PlanningKnown): readonly OperationStep[] {
     const rows = known[planningKey(this.targetReadId, "rows")];
-    if (!(Array.isArray(rows) && isRecord(rows[0]))) {
+    if (!Array.isArray(rows)) {
       throw new QueryEngineError(
         "query-engine-v2 selected record compiler received no captured target row."
       );
     }
-    return this.compileLocatedRecord(known, rows[0]);
+    const capturedRows = this.parseTargetRows(
+      this.model,
+      this.targetProjection,
+      rows
+    );
+    const locatedRow = capturedRows[0];
+    if (!locatedRow) {
+      throw new QueryEngineError(
+        "query-engine-v2 selected record compiler received no captured target row."
+      );
+    }
+    const capturedKnown = this.decodeAssignmentProbeRows({
+      ...known,
+      [planningKey(this.targetReadId, "rows")]: capturedRows,
+    });
+    return this.compileLocatedRecord(capturedKnown, locatedRow);
+  }
+
+  /**
+   * Decode the probes whose selected values become root assignments.
+   *
+   * Their rows stay in `known` because the existing relation-membership sources
+   * resolve them by step id later. Replacing only those exact outputs makes that
+   * single source publish logical scalar values; target-update probes remain raw
+   * here because their own RecordUpdateCompiler owns their wider projection.
+   */
+  private decodeAssignmentProbeRows(known: PlanningKnown): PlanningKnown {
+    let decoded = known;
+    const decode = (
+      stepId: string,
+      model: Model<any>,
+      fields: readonly string[]
+    ) => {
+      const key = planningKey(stepId, "rows");
+      const rows = decoded[key];
+      if (!Array.isArray(rows)) return;
+      const select = Object.fromEntries(fields.map((field) => [field, true]));
+      decoded = {
+        ...decoded,
+        [key]: parseCapturedRows(this.engine, model, rows, select),
+      };
+    };
+    for (const link of this.toOneLinks) {
+      if (link.connect) {
+        decode(
+          link.connect.probeId,
+          link.relationRef.targetModel,
+          link.referencedFields
+        );
+      }
+    }
+    for (const target of this.parentHeldTargets) {
+      if (target.kind !== "connectOrCreate") continue;
+      const fields =
+        target.lookup.kind === "referencedKey"
+          ? target.lookup.relation.membership.referencedFields
+          : [target.lookup.guardField];
+      decode(target.probeId, target.relationRef.targetModel, fields);
+    }
+    return decoded;
+  }
+
+  /** The target projection is the one declaration of decoded fields and private columns. */
+  private parseTargetRows(
+    model: Model<any>,
+    projection: TargetProjection,
+    rows: readonly unknown[]
+  ): readonly Readonly<Record<string, unknown>>[] {
+    return parseCapturedRows(
+      this.engine,
+      model,
+      rows,
+      targetProjectionSelect(projection),
+      projection.columns
+    );
   }
 
   assertSelectedIncomingParentLegality(): void {
@@ -4366,16 +4442,22 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
             target.edge,
             "update"
           );
-          const rows = known[planningKey(target.probeId, "rows")];
-          const found = Array.isArray(rows) && isRecord(rows[0]);
-          if (!found) {
+          const rawRows = known[planningKey(target.probeId, "rows")];
+          const rows = Array.isArray(rawRows)
+            ? this.parseTargetRows(
+                target.childScope.model,
+                target.compiler.targetProjection,
+                rawRows
+              )
+            : [];
+          const captured = rows[0];
+          if (!captured) {
             throw new NestedWriteError(
               relationTargetNotFound(target.edge.ref, "update"),
               target.edge.ref.name
             );
           }
           if (this.mode === "batch") {
-            const captured = rows[0]!;
             const capturedColumns = capturedTargetColumnPredicate(
               target.childScope,
               target.compiler.targetProjection,
@@ -4448,13 +4530,21 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
             locatedRow,
             target.edge
           );
-          const rows = known[planningKey(target.probeId, "rows")];
-          const found =
-            current.kind === "same" && Array.isArray(rows) && isRecord(rows[0]);
+          const rawRows = known[planningKey(target.probeId, "rows")];
+          const rows =
+            current.kind === "same" && Array.isArray(rawRows)
+              ? this.parseTargetRows(
+                  target.childScope.model,
+                  target.compiler?.targetProjection ??
+                    buildTargetProjection(target.childScope.model),
+                  rawRows
+                )
+              : [];
+          const captured = rows[0];
+          const found = current.kind === "same" && captured !== undefined;
           if (found) {
             if (target.compiler) {
               if (this.mode === "batch") {
-                const captured = rows[0]!;
                 const capturedColumns = capturedTargetColumnPredicate(
                   target.childScope,
                   target.compiler.targetProjection,
@@ -4701,7 +4791,8 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       known,
       target.probeId,
       relationRef,
-      "update"
+      "update",
+      target.targetProjection
     );
     if (this.mode === "batch") {
       guards.push(
@@ -4846,7 +4937,8 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       known,
       target.probeId,
       relationRef,
-      "update"
+      "update",
+      target.targetProjection
     );
     if (this.mode === "batch") {
       guards.push(
@@ -5019,7 +5111,8 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     known: Readonly<Record<string, unknown>>,
     probeId: string,
     relationRef: RelationRef,
-    op: "update"
+    op: "update",
+    projection: TargetProjection
   ): Record<string, unknown> {
     const rows = known[planningKey(probeId, "rows")];
     if (!Array.isArray(rows)) {
@@ -5028,20 +5121,18 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
         relationRef.name
       );
     }
-    if (rows.length === 0) {
+    const captured = this.parseTargetRows(
+      relationRef.targetModel,
+      projection,
+      rows
+    )[0];
+    if (!captured) {
       throw new NestedWriteError(
         relationTargetNotFound(relationRef, op),
         relationRef.name
       );
     }
-    const first = rows[0];
-    if (!(first && typeof first === "object")) {
-      throw new NestedWriteError(
-        `query-engine-v2 update probe for relation '${relationRef.name}' captured no row shape.`,
-        relationRef.name
-      );
-    }
-    return first as Record<string, unknown>;
+    return captured;
   }
 
   private interpretToOneLink(

@@ -43,7 +43,7 @@ export function parseResultDefault(
   raw: unknown,
   shape: ExpectedResultShape | undefined,
   parsers: RowValueParsers | undefined,
-  exactFields?: ExactFieldCapture,
+  rowKeys?: RowKeyCapture,
   consumableRows?: unknown[],
   compiledRoot?: CompiledRowParser
 ): unknown {
@@ -73,7 +73,7 @@ export function parseResultDefault(
       raw,
       shape,
       parsers,
-      exactFields,
+      rowKeys,
       compiledRoot,
       raw === consumableRows
     );
@@ -86,7 +86,7 @@ export function parseResultDefault(
       raw,
       shape,
       parsers,
-      exactFields,
+      rowKeys,
       compiledRoot,
       raw === consumableRows
     );
@@ -98,18 +98,25 @@ export function parseResultDefault(
     raw,
     shape,
     parsers,
-    exactFields,
+    rowKeys,
     compiledRoot,
     raw === consumableRows
   );
 }
 
 /**
- * One top-level result parse may retain selected scalar values before the
- * transitional legacy decimal conversion. Nested relation rows deliberately do
- * not receive this capture: a caller asks for keys of this parser's root model.
+ * The private ROW KEY of each parsed row, captured beside the public rows.
+ *
+ * One top-level parse retains the named fields in the representation that
+ * ADDRESSES SQL rather than the one the caller sees. For most scalars the two
+ * are the same value; for a decimal they are not — the public leaf is a fresh
+ * `Decimal`, whose equality is reference identity and whose text an application
+ * can reconfigure, while the identity is the codec's canonical private string.
+ *
+ * Nested relation rows deliberately do not receive this capture: a caller asks
+ * for keys of this parser's root model.
  */
-export interface ExactFieldCapture {
+export interface RowKeyCapture {
   readonly fields: ReadonlySet<string>;
   readonly rows: Record<string, unknown>[];
 }
@@ -120,7 +127,7 @@ function parseRequiredSingleRow(
   raw: unknown[],
   shape: ExpectedResultShape | undefined,
   parsers: RowValueParsers | undefined,
-  exactFields?: ExactFieldCapture,
+  rowKeys?: RowKeyCapture,
   compiledRoot?: CompiledRowParser,
   useConsumable = false
 ): Record<string, unknown> {
@@ -151,7 +158,7 @@ function parseRequiredSingleRow(
     keys,
     shape,
     parsers,
-    exactFields,
+    rowKeys,
     compiledRoot,
     useConsumable
   );
@@ -163,7 +170,7 @@ function parseRowArray(
   raw: unknown[],
   shape: ExpectedResultShape | undefined,
   parsers: RowValueParsers | undefined,
-  exactFields?: ExactFieldCapture,
+  rowKeys?: RowKeyCapture,
   compiledRoot?: CompiledRowParser,
   useConsumable = false
 ): Record<string, unknown>[] {
@@ -193,7 +200,7 @@ function parseRowArray(
       model,
       shape,
       requireRowValueParsers(ctx, operation, parsers),
-      exactFields
+      rowKeys
     );
   return parseResultRows(rows, rowParser, useConsumable);
 }
@@ -208,7 +215,7 @@ function parseRow(
   keys: readonly string[],
   shape: ExpectedResultShape | undefined,
   parsers: RowValueParsers | undefined,
-  exactFields?: ExactFieldCapture,
+  rowKeys?: RowKeyCapture,
   compiledRoot?: CompiledRowParser,
   useConsumable = false
 ): Record<string, unknown> {
@@ -222,7 +229,7 @@ function parseRow(
       model,
       shape,
       requireRowValueParsers(ctx, operation, parsers),
-      exactFields
+      rowKeys
     );
   return useConsumable && rowParser.containerPolicy !== "copy"
     ? rowParser(row, row)
@@ -269,7 +276,7 @@ export function createRowParser(
   model: Model<any>,
   shape: ExpectedResultShape | undefined,
   parsers: RowValueParsers,
-  exactFields?: ExactFieldCapture
+  rowKeys?: RowKeyCapture
 ): CompiledRowParser {
   const scalars: Record<string, Scalar> = model["~"].state.scalars;
   const relations: Record<string, AnyRelation> = model["~"].state.relations;
@@ -277,7 +284,7 @@ export function createRowParser(
   const steps: ((
     result: Record<string, unknown>,
     value: unknown,
-    exact: Record<string, unknown> | undefined
+    keyRow: Record<string, unknown> | undefined
   ) => void)[] = new Array(len);
   // The identity fast path (only on native-passthrough providers): a per-column
   // guard for plain string/int/number/boolean scalars. `identityGuards` is dense
@@ -319,39 +326,39 @@ export function createRowParser(
 
     if (column.kind === "scalar") {
       const scalar = column.scalar;
-      const captureExact = exactFields?.fields.has(key) === true;
+      const captureRowKey = rowKeys?.fields.has(key) === true;
       const guard = identityEnabled ? identityGuardFor(scalar) : undefined;
       if (guard) {
         identityGuards[i] = guard;
-        steps[i] = (result, value, exact) => {
+        steps[i] = (result, value, keyRow) => {
           // A native value is returned unchanged; anything else (null, wrong
           // type, unsafe int, non-finite number) defers to the full parser.
           if (guard(value)) {
             result[key] = value;
-            if (captureExact && exact) exact[key] = value;
+            if (captureRowKey && keyRow) keyRow[key] = value;
             return;
           }
           result[key] = parsers.parseField(
             scalar,
             value,
             operation,
-            captureExact && exact
+            captureRowKey && keyRow
               ? (parsed) => {
-                  exact[key] = parsed;
+                  keyRow[key] = parsed;
                 }
               : undefined
           );
         };
       } else {
         allIdentity = false;
-        steps[i] = (result, value, exact) => {
+        steps[i] = (result, value, keyRow) => {
           result[key] = parsers.parseField(
             scalar,
             value,
             operation,
-            captureExact && exact
+            captureRowKey && keyRow
               ? (parsed) => {
-                  exact[key] = parsed;
+                  keyRow[key] = parsed;
                 }
               : undefined
           );
@@ -441,13 +448,13 @@ export function createRowParser(
     initialResult?: Record<string, unknown>
   ): Record<string, unknown> => {
     const result: Record<string, unknown> = initialResult ?? {};
-    const exact: Record<string, unknown> | undefined = exactFields
+    const keyRow: Record<string, unknown> | undefined = rowKeys
       ? {}
       : undefined;
     for (let i = 0; i < len; i++) {
-      steps[i]!(result, row[keys[i]!], exact);
+      steps[i]!(result, row[keys[i]!], keyRow);
     }
-    if (exact) exactFields?.rows.push(exact);
+    if (keyRow) rowKeys?.rows.push(keyRow);
     return result;
   };
 
@@ -468,10 +475,10 @@ export function createRowParser(
         return buildRow(row, parserOwnedResult);
       }
     }
-    if (exactFields) {
-      const exact: Record<string, unknown> = {};
-      for (const field of exactFields.fields) exact[field] = row[field];
-      exactFields.rows.push(exact);
+    if (rowKeys) {
+      const keyRow: Record<string, unknown> = {};
+      for (const field of rowKeys.fields) keyRow[field] = row[field];
+      rowKeys.rows.push(keyRow);
     }
     return row;
   }, "identity");

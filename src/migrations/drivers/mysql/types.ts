@@ -19,6 +19,15 @@ export interface MySQLColumn {
   NUMERIC_PRECISION: number | null;
   NUMERIC_SCALE: number | null;
   EXTRA: string; // Contains "auto_increment" if applicable
+  /**
+   * The column's comment, read for the deterministic decimal-list marker.
+   *
+   * `JSON` is the only shape a MySQL decimal list has and it carries no
+   * modifiers, so the marker is where a list's declared precision and scale
+   * live. MySQL reports an empty string, never NULL, for a column with no
+   * comment.
+   */
+  COLUMN_COMMENT: string;
 }
 
 export interface MySQLPrimaryKey {

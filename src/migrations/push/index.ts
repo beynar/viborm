@@ -23,14 +23,13 @@ import {
   runSequentialProgram,
   withLockedMigrationProducer,
 } from "../pinned-session";
+import { assertMigrationDecimalDomainsFitProvider } from "../serializer";
 import { needsEnumAdditionCommitBoundary } from "../statement-safety";
 import type { DiffOperation, PushResult, ResolveCallback } from "../types";
 import { DEFAULT_TABLE_NAME } from "../utils";
 import { executeDDLStatements, generateDDLStatements } from "./executor";
-import { formatOperation, formatOperations } from "./format";
 import {
   getPushMigrationDriver,
-  introspect,
   type MigrationClient,
   type PushOptions,
   planPush,
@@ -39,8 +38,9 @@ import {
 import { planResetDatabase, resetDatabase } from "./reset";
 
 export type { PushResult } from "../types";
+export { formatOperation, formatOperations } from "./format";
 export type { MigrationClient, PushOptions } from "./planner";
-export { formatOperation, formatOperations, introspect };
+export { introspect } from "./planner";
 
 /**
  * The unknown keys of a proposed push options bag.
@@ -100,6 +100,10 @@ async function runPush(
   // is where model-object identity is proved — before an index, a diff or a
   // DDL statement exists.
   hydrateSchemaNames(client.$schema);
+  assertMigrationDecimalDomainsFitProvider(
+    client.$schema,
+    client.$driver.dialect
+  );
   // `skipValidation` drops the ADVICE — the spelling rules a caller may
   // legitimately disagree with. It cannot drop the structural
   // relation-definition gate (plan §7.3): no DDL may be generated from a
@@ -171,7 +175,7 @@ async function runPush(
       // instead of a rollback that did not happen. Every other dialect keeps
       // the real transaction its executor opens.
       await (command.target.dialect === "mysql"
-        ? runSequentialProgram(pinned, (producer) =>
+        ? runSequentialProgram(pinned, command, (producer) =>
             executeDDLStatements(producer, command, sql)
           )
         : executeDDLStatements(pinned, command, sql));
@@ -266,7 +270,7 @@ async function forceResetPush(
       if (command.target.dialect === "postgresql") {
         await pinned.withTransaction(runProgram);
       } else if (command.target.dialect === "mysql") {
-        await runSequentialProgram(pinned, runProgram);
+        await runSequentialProgram(pinned, command, runProgram);
       } else {
         await runProgram(pinned);
       }

@@ -29,6 +29,7 @@ import {
 import { planningKey } from "./Part";
 import { parseValidated } from "./parse-boundary";
 import { StepScope } from "./StepScope";
+import { parseCapturedRowKeys } from "./series-result-read";
 import {
   getStepModelName,
   isRecord,
@@ -273,10 +274,10 @@ export class DeleteOperation {
         "query-engine-v2 delete planning did not expose the locate rows."
       );
     }
-    if (rows.length === 0) {
+    const locatedRow = parseCapturedRowKeys(this.engine, this.model, rows)[0];
+    if (!locatedRow) {
       throw new NotFoundError(getStepModelName(this.model, "record"), "delete");
     }
-    const locatedRow = rows[0] as Record<string, unknown>;
     const parent = createQueryScope(this.engine, this.model);
     const txMode = this.mode === "transaction";
     // Address the row by the PK captured at the (FOR UPDATE) locate rather than
@@ -363,8 +364,7 @@ export class DeleteOperation {
     return new ResultParser(
       this.engine,
       this.model,
-      this.engine.driver,
-      this.engine.decimalDecode
+      this.engine.driver
     ).parse<T>("delete", outputs.result, this.resultArgs);
   }
 

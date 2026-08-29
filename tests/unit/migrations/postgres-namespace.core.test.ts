@@ -651,6 +651,61 @@ describe("introspection is relative to the estate's schema", () => {
     ]);
   });
 
+  it.each([
+    ["scalar negative scale", "numeric", "numeric", 4, -1, "numeric(4,-1)"],
+    [
+      "scalar scale above precision",
+      "numeric",
+      "numeric",
+      2,
+      5,
+      "numeric(2,5)",
+    ],
+    [
+      "array negative scale",
+      "ARRAY",
+      "_numeric",
+      null,
+      null,
+      "numeric(4,-1)[]",
+    ],
+    [
+      "array scale above precision",
+      "ARRAY",
+      "_numeric",
+      null,
+      null,
+      "numeric(2,5)[]",
+    ],
+  ])("refuses a PostgreSQL %s instead of publishing an invalid decimal descriptor", async (_case, dataType, udtName, numericPrecision, numericScale, formattedType) => {
+    const executor = catalogExecutor({
+      tables: [{ table_name: "ledger" }],
+      columns: [
+        {
+          ...BUILT_IN_COLUMN,
+          table_name: "ledger",
+          column_name: "amount",
+          data_type: dataType,
+          udt_name: udtName,
+          column_default: null,
+          numeric_precision: numericPrecision,
+          numeric_scale: numericScale,
+          formatted_type: formattedType,
+        },
+      ],
+    });
+
+    await expect(billing.introspect(executor.execute)).rejects.toMatchObject({
+      code: "V11009",
+      meta: {
+        dialect: "postgresql",
+        table: "ledger",
+        column: "amount",
+        type: "invalid-catalog-decimal-domain",
+      },
+    });
+  });
+
   it("preserves an admitted extension type's modifiers and array structure", async () => {
     const executor = catalogExecutor({
       tables: [{ table_name: "points" }],

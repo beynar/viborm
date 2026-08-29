@@ -15,7 +15,7 @@ VibORM is a **fully type-safe ORM** for TypeScript with a Prisma-like query API 
 | Query syntax | Object-based (`where`, `include`) | SQL-builder | Object-based (`where`, `include`) |
 | Type source | Generated from schema | Inferred from builders | Inferred from schema |
 | Code generation | Required (`prisma generate`) | None | None |
-| Runtime dependencies | WASM query engine | None | None |
+| Runtime query engine | WASM query engine | None | None |
 | Schema definition | `.prisma` files | TypeScript | TypeScript |
 
 ### VibORM Query Example
@@ -435,7 +435,7 @@ For each layer, answer:
 | `src/schema/scalars/` | All scalar type implementations |
 | `src/schema/scalars/base.ts` | `Scalar` union and scalar exports |
 | `src/schema/scalars/string/scalar.ts` | String scalar implementation |
-| `src/schema/scalars/types.ts` | Scalar type definitions, `ScalarState` |
+| `src/schema/scalars/common.ts` | Scalar type definitions, `ScalarState` |
 | `src/schema/relation/` | Relation implementations |
 | `src/schema/relation/relation.ts` | `Relation` class, relation factories |
 | `src/schema/relation/types.ts` | Relation type definitions |

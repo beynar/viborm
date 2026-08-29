@@ -1281,10 +1281,14 @@ describe("native types", () => {
     // census is the proof's subject and a tripwire on it. Growing the trees is
     // expected — re-run this test, read the new counts off its failure, and
     // update them, which is the moment to notice a new value reaching DDL.
-    expect(produced).toHaveLength(115);
+    // 115 -> 99 and 91 -> 77 when the three decimal native-type catalogs were
+    // deleted: a fixed decimal's column type is DERIVED from its declared
+    // precision and scale on every dialect, so there is no native override to
+    // name (`s.decimal` publishes none).
+    expect(produced).toHaveLength(99);
     expect(new Set(produced.map((n) => `${n.db} ${n.type}`))).toHaveProperty(
       "size",
-      91
+      77
     );
 
     for (const native of produced) {

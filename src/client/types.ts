@@ -14,8 +14,10 @@ import type {
   TargetKind,
   VariantEntries,
 } from "@schema/relation/static-membership";
+import type { ScalarState } from "@schema/scalars";
 import type { Prettify } from "@validation";
 import type { ModelCoreInput, ModelOperationInput } from "@validation/model";
+import type { DecimalUpdateOperationKeys } from "@validation/scalars";
 import type { CacheInvalidationOptions } from "../cache/schema";
 import type { VibORMConfig } from "./client";
 import type {
@@ -605,10 +607,12 @@ type NoExtraClauseKeys<Given, Allowed> = Given extends readonly unknown[]
  *    Estate type-check 34s → 45s when the guard landed; adding the other two
  *    spellings cost nothing measurable (same tree, back-to-back runs: 83.3s vs
  *    78.1s user, the difference inside the noise of a loaded machine).
- *  - `data` / `create` / `update` — NOT guarded. A write clause's payload is the
- *    recursive nested-write union, and reaching for its keys expands it: six
- *    estate sites turn `TS2589: Type instantiation is excessively deep`, and the
- *    type-check goes to 172s.
+ *  - `data` / `create` / `update` — NOT generally guarded. A write clause's
+ *    payload is the recursive nested-write union, and reaching for its keys
+ *    expands it: six estate sites turn `TS2589: Type instantiation is
+ *    excessively deep`, and the type-check goes to 172s. The one narrow
+ *    exception is a DIRECT decimal update leaf below: its operation keys come
+ *    from the scalar's exact-one owner and it never walks a relation input.
  *  - `cursor` / `having` / `cache` — NOT guarded. Three more TS2589 sites, on
  *    compound-unique and aggregate payloads.
  *
@@ -724,7 +728,105 @@ type DirectPolymorphicProjectionGuard<
       : unknown
   : unknown;
 
-type NoExtraOperationKeys<Arg, Payload, M extends Model<any>> = Arg &
+type DecimalStateOf<Field> = Field extends {
+  readonly "~": {
+    readonly state: infer State extends ScalarState<"decimal">;
+  };
+}
+  ? State
+  : never;
+
+type DirectDecimalScalarKeys<State extends ModelState> = {
+  [Key in keyof State["scalars"]]: [
+    DecimalStateOf<State["scalars"][Key]>,
+  ] extends [never]
+    ? never
+    : Key;
+}[keyof State["scalars"]];
+
+/**
+ * Refuse only keys the caller spelled BESIDE a real decimal operation.
+ *
+ * The recognized-key condition leaves scalar shorthand values alone and the
+ * array condition keeps a list shorthand's own `.push()` method from looking
+ * like the list-update operation. A broad index signature names no misspelled
+ * key (`Extract<string, "set">` is `never`) and therefore stays under the
+ * operation schema's ordinary structural contract. Keys are collected across
+ * every union arm before ONE refusal record is built, so a legal shorthand,
+ * null, or undefined arm cannot erase a bad operation-object arm.
+ */
+type SpelledDecimalUpdateObjectKeys<
+  Given,
+  OperationKeys extends PropertyKey,
+> = Given extends readonly unknown[]
+  ? never
+  : Given extends object
+    ? string extends keyof Given
+      ? never
+      : [Extract<keyof Given, OperationKeys>] extends [never]
+        ? never
+        : keyof Given
+    : never;
+
+type NoExtraDecimalUpdateLeafKeys<
+  Given,
+  State extends ScalarState<"decimal">,
+  OperationKeys extends PropertyKey = DecimalUpdateOperationKeys<State>,
+> = Record<
+  Exclude<SpelledDecimalUpdateObjectKeys<Given, OperationKeys>, OperationKeys>,
+  never
+>;
+
+type UsedDirectDecimalFields<Given, State extends ModelState> = Extract<
+  SpelledClauseKeys<Given>,
+  DirectDecimalScalarKeys<State>
+>;
+
+/** One direct-field map after union branches have contributed their keys. */
+type DirectDecimalUpdateObjectGuard<
+  Given,
+  M extends Model<any>,
+> = M extends Model<infer State>
+  ? {
+      [Key in UsedDirectDecimalFields<
+        Given,
+        State
+      >]?: NoExtraDecimalUpdateLeafKeys<
+        ValueAt<Given, Key>,
+        DecimalStateOf<State["scalars"][Key]>
+      >;
+    }
+  : unknown;
+
+type DirectDecimalUpdateClauseGuard<
+  Arg,
+  M extends Model<any>,
+  Clause extends "data" | "update",
+> = Clause extends keyof Arg
+  ? {
+      [Key in Clause]?: DirectDecimalUpdateObjectGuard<
+        NonNullable<Arg[Key]>,
+        M
+      >;
+    }
+  : unknown;
+
+type DirectDecimalUpdateGuard<
+  O extends Operations,
+  Arg,
+  M extends Model<any>,
+> = O extends "update" | "updateMany"
+  ? DirectDecimalUpdateClauseGuard<Arg, M, "data">
+  : O extends "upsert"
+    ? DirectDecimalUpdateClauseGuard<Arg, M, "update">
+    : unknown;
+
+type NoExtraOperationKeys<
+  O extends Operations,
+  Arg,
+  Payload,
+  M extends Model<any>,
+> = Arg &
   Record<Exclude<keyof Arg, keyof Payload>, never> &
   ClauseGuard<Arg, Payload, "where"> &
   ClauseGuard<Arg, Payload, "select"> &
@@ -733,7 +835,8 @@ type NoExtraOperationKeys<Arg, Payload, M extends Model<any>> = Arg &
   ClauseGuard<Arg, Payload, "omit"> &
   ClauseGuard<Arg, Payload, "cache"> &
   DirectPolymorphicProjectionGuard<Arg, M, "select"> &
-  DirectPolymorphicProjectionGuard<Arg, M, "include">;
+  DirectPolymorphicProjectionGuard<Arg, M, "include"> &
+  DirectDecimalUpdateGuard<O, Arg, M>;
 
 /**
  * Operation type - returns PendingOperation which implements PromiseLike
@@ -752,6 +855,7 @@ type Operation<
 > = undefined extends ClientPayload
   ? <Arg extends ClientPayload>(
       args?: NoExtraOperationKeys<
+        O,
         Exclude<Arg, undefined>,
         Exclude<ClientPayload, undefined>,
         M
@@ -760,7 +864,7 @@ type Operation<
       OperationResultWithClientDefaults<O, M, Arg, DefaultOmit, ClientDefaults>
     >
   : <Arg extends ClientPayload>(
-      args: NoExtraOperationKeys<Arg, ClientPayload, M>
+      args: NoExtraOperationKeys<O, Arg, ClientPayload, M>
     ) => PendingOperation<
       OperationResultWithClientDefaults<O, M, Arg, DefaultOmit, ClientDefaults>
     >;
@@ -777,6 +881,7 @@ type CachedOperation<
 > = undefined extends Payload
   ? <Arg extends Payload>(
       args?: NoExtraOperationKeys<
+        O,
         Exclude<Arg, undefined>,
         Exclude<Payload, undefined>,
         M
@@ -785,7 +890,7 @@ type CachedOperation<
       OperationResultWithClientDefaults<O, M, Arg, DefaultOmit, ClientDefaults>
     >
   : <Arg extends Payload>(
-      args: NoExtraOperationKeys<Arg, Payload, M>
+      args: NoExtraOperationKeys<O, Arg, Payload, M>
     ) => Promise<
       OperationResultWithClientDefaults<O, M, Arg, DefaultOmit, ClientDefaults>
     >;

@@ -417,7 +417,6 @@ const sharedConfig = {
 const heldRemovedRootCacheConfig = {
   schema,
   driver: new PGliteDriver(),
-  decimal: "string",
   cache: new MemoryCache(),
   cacheVersion: 1,
   waitUntil: (_promise: Promise<unknown>) => undefined,
@@ -426,7 +425,6 @@ const heldRemovedRootCacheConfig = {
 const heldRemovedPGliteCacheConfig = {
   schema,
   dataDir: "memory://",
-  decimal: "string",
   cache: new MemoryCache(),
   cacheVersion: 1,
   waitUntil: (_promise: Promise<unknown>) => undefined,
@@ -435,14 +433,12 @@ const heldRemovedPGliteCacheConfig = {
 const heldRemovedRootOmitConfig = {
   schema,
   driver: new PGliteDriver(),
-  decimal: "string",
   omit: { author: { passwordHash: true } },
 } as const;
 
 const heldRemovedPGliteOmitConfig = {
   schema,
   dataDir: "memory://",
-  decimal: "string",
   omit: { author: { passwordHash: true } },
 } as const;
 
@@ -451,7 +447,6 @@ describe("createClient config refuses a key it does not read", () => {
     createClient({
       schema,
       driver: new PGliteDriver(),
-      decimal: "string",
     });
 
   const _configTypo = () =>
@@ -466,7 +461,6 @@ describe("createClient config refuses a key it does not read", () => {
     createClient({
       schema,
       driver: new PGliteDriver(),
-      decimal: "string",
       // @ts-expect-error - "cacheVerison" is not a config key
       cacheVerison: 1,
     });
@@ -474,19 +468,10 @@ describe("createClient config refuses a key it does not read", () => {
   // @ts-expect-error - "cacheVerison" is not a config key, fresh literal or not
   const _configTypoNonFresh = () => createClient(sharedConfig);
 
-  const _decimalValueTypo = () =>
-    createClient({
-      schema,
-      driver: new PGliteDriver(),
-      // @ts-expect-error - "strng" is not a decimal mode
-      decimal: "strng",
-    });
-
   const _removedCacheConfigFresh = () =>
     createClient({
       schema,
       driver: new PGliteDriver(),
-      decimal: "string",
       // @ts-expect-error - cache configuration belongs to cache({...})
       cache: new MemoryCache(),
       // @ts-expect-error - cache versioning belongs to cache({...})
@@ -503,7 +488,6 @@ describe("createClient config refuses a key it does not read", () => {
     createClient({
       schema,
       driver: new PGliteDriver(),
-      decimal: "string",
       // @ts-expect-error - client defaults belong to defaultOmit<typeof schema>()
       omit: { author: { passwordHash: true } },
     });
@@ -517,7 +501,6 @@ describe("createClient config refuses a key it does not read", () => {
     expectTypeOf(_configTypo).toBeFunction();
     expectTypeOf(_configTypoBesideReal).toBeFunction();
     expectTypeOf(_configTypoNonFresh).toBeFunction();
-    expectTypeOf(_decimalValueTypo).toBeFunction();
     expectTypeOf(_removedCacheConfigFresh).toBeFunction();
     expectTypeOf(_removedCacheConfigHeld).toBeFunction();
     expectTypeOf(_removedOmitConfigFresh).toBeFunction();
@@ -530,7 +513,6 @@ describe("the driver-package createClient refuses removed shared config", () => 
     pgliteCreateClient({
       schema,
       dataDir: "memory://",
-      decimal: "string",
     });
 
   const _driverOptionTypo = () =>
@@ -551,7 +533,6 @@ describe("the driver-package createClient refuses removed shared config", () => 
     pgliteCreateClient({
       schema,
       dataDir: "memory://",
-      decimal: "string",
       // @ts-expect-error - client defaults belong to defaultOmit<typeof schema>()
       omit: { author: { passwordHash: true } },
     });
@@ -572,7 +553,6 @@ describe("the driver-package createClient refuses removed shared config", () => 
     pgliteCreateClient({
       schema,
       dataDir: "memory://",
-      decimal: "string",
       // @ts-expect-error - cache configuration belongs to cache({...})
       cache: new MemoryCache(),
       // @ts-expect-error - cache versioning belongs to cache({...})

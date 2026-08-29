@@ -351,6 +351,34 @@ claim about the statement that failed. One owner answers for every such program
 — apply, ordinary push, the force-reset rebuild, down and the reset replay —
 and it is `runSequentialProgram` in `pinned-session.ts`.
 
+SQLite table recreation reads the introspected pre-batch snapshot through one
+schema-level replay owner. That replay first evolves the effective table set
+through same-batch creates, drops, and renames, then applies local table changes
+and the schema-wide inbound-FK effects of native table or column renames. Both
+`SQLite3MigrationDriver.getCurrentTable` and the D1 relation census consume that
+same effective set. A later recreation must rebuild the definition SQLite holds
+at that point in the batch, not restore a stale reference from the snapshot or
+miss a relation created earlier in the program.
+
+`native-rename.ts` is the ONE snapshot owner for the schema-wide effect of a
+native table or column rename: table/column identity, primary-key/index/unique
+columns, partial-index predicate column references, local and self foreign-key
+columns, and inbound foreign-key targets. Its predicate rewrite is lexical: it
+preserves quoted values, escape strings, dollar-quoted bodies, comments,
+function names, casts, and collations. SQLite replay, iterative ambiguity
+resolution, and generated-down inversion all consume it. An accepted rename
+updates a working source snapshot and reruns the ordinary differ with its
+original options until no ambiguity remains; never add a renamed-table inner
+differ or append post-rename operations to a pre-rename diff.
+
+A resolve callback authorizes only the kind of change the planner supplied.
+The planner passes that caller-known kind to the one result validator; callback
+mutations of the public change object's discriminant never select another
+authorization language. Enum mappings and use-null decisions are authoritative
+only when made through that exact change object's methods. Their private state,
+not the callback-visible `_mappings` or `_useNullDefault` presentation fields,
+is what validation, planning, and the CLI dry-run recorder consume.
+
 ### Rule 5: Journal is Source of Truth
 
 The journal tracks which migrations exist. The database tracks which are applied.
@@ -523,6 +551,64 @@ entry pins `table`, `source`, and `target`.
 
 ---
 
+## Fixed-decimal migration contract
+
+Schema snapshots carry the one decimal descriptor `{ precision, scale }`; they
+do not record a native/fixed mode or a client result preference.
+`src/migrations/decimal.ts` owns the shared descriptor-transition questions,
+storage classification, MySQL list marker, and native-provider fit predicates.
+`src/migrations/drivers/sqlite/decimal.ts` owns only SQLite's reserved CHECK
+carrier and exact table-rebuild conversion expressions; do not move those
+dialect decisions back into the shared module or duplicate the value codec
+there. Migration drivers derive `NUMERIC(p,s)` for PostgreSQL, `DECIMAL(p,s)`
+for MySQL, and a checked scaled `INTEGER` for SQLite. Decimal lists derive
+`NUMERIC(p,s)[]` on PostgreSQL and coefficient-string JSON containers on MySQL
+and SQLite.
+Literal non-null decimal-list defaults are retained in DDL through the same
+field codec as writes: PostgreSQL emits a quoted native array whose members are
+padded to scale, MySQL emits a parenthesized quoted coefficient-string JSON
+container, and SQLite/libSQL/D1 emit the quoted container. Provider
+introspection normalizes only those exact owned spellings so a second push
+converges. Function defaults stay application-only. PostgreSQL and SQLite keep
+`default(null)` as SQL `NULL`; MySQL omits it because its catalog cannot
+distinguish `DEFAULT NULL` from no default and the two are equivalent on a
+nullable column. Generic array/object defaults remain suppressed.
+
+The migration planner owns the bounded conversion policy. A MySQL scalar
+conversion brackets `MODIFY COLUMN` with one reversible reserved `CHECK`. The
+locked command plans interrupted-proof cleanup once before its first sequential
+effect, authenticates the reserved name, column, and predicate before returning
+any `DROP`, and records that `DROP` through the same last-completed-statement
+boundary. A malformed, colliding, or multiple reserved proof refuses before
+effects. Every effectful MySQL migration command proves MySQL 8.0.16-or-later
+and a strict mode once at pinned-session admission. The proof is command-wide:
+provider-authored DDL and manual artifacts cannot be classified safely by
+decimal effect. A MySQL decimal-list conversion admits only same-scale precision
+widening. It leaves member strings unchanged but still brackets the marker
+`MODIFY COLUMN` with `ADD CHECK` and `DROP CHECK`; narrowing and every change
+that rewrites members are refused before effects. A generated widening therefore
+records the existing irreversible rollback policy instead of emitting an unsafe
+narrowing down artifact. Hosted
+PlanetScale remains introspection-only and
+refuses effectful DDL. D1 accepts ordinary fixed-decimal schema work but its
+decimal-specific render-time gate refuses relation-bearing descriptor changes,
+decimal adoption, and decimal-column renames. It does not classify an unrelated
+column, constraint, key, or enum rebuild merely because that table also carries
+a decimal.
+A generated SQLite3/libSQL artifact applied later on D1 reaches the same narrow
+policy through the per-entry artifact-read boundary. Initially pending entries
+are admitted during `apply()` preflight, before the tracking table; an entry
+first seen on a post-commit journal reread crosses the same owner before that
+entry's artifact or tracking row. The exact generated fixed-decimal
+reconstruction sequence identifies its rebuilt table, same-artifact native
+table renames replay the live identity forward, and the shared SQLite relation
+census checks that state for inbound or outbound foreign keys. Manual artifacts,
+relation-free decimal rebuilds, and unrelated SQLite reconstructions keep their
+existing admission. Do not replace these local policies with an adapter-wide
+decimal capability flag or a broad runtime refusal.
+
+---
+
 ## Adding New Migration Operation
 
 1. **Add to DiffOperation union** (`types.ts`)
@@ -565,7 +651,7 @@ src/migrations/
 │   ├── types.ts       # Driver types
 │   ├── postgres/      # PostgreSQL driver
 │   ├── mysql/         # MySQL driver
-│   ├── sqlite/        # SQLite driver
+│   ├── sqlite/        # SQLite driver + exact generated-artifact admission
 │   └── libsql/        # LibSQL/Turso driver
 ├── storage/
 │   ├── index.ts       # Storage exports

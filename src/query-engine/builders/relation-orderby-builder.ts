@@ -18,7 +18,6 @@ import {
   type RelationRef,
   type VariantJunctionCarrierSlot,
 } from "../types";
-import { assertExactDecimalOperation } from "./decimal-portability";
 import {
   buildPolymorphicRelationCount,
   buildRelationCount,
@@ -141,11 +140,6 @@ function buildToOneRelationOrders(
         `Unknown relation orderBy field '${fieldPath}'.`
       );
     }
-
-    // Ordered on the RELATED model's column, so the gate is asked against the
-    // related model's scope — a decimal one hop away sorts by bytes exactly as
-    // wrongly as a local one.
-    assertExactDecimalOperation(targetCtx, field, "orderBy", fieldPath);
 
     const columnName = getColumnName(relationRef.targetModel, field);
     const column = ctx.adapter.identifiers.column(relatedAlias, columnName);

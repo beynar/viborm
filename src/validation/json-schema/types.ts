@@ -147,6 +147,11 @@ export interface ConversionContext {
   refCount: number;
   /** The target version being generated */
   target: JsonSchemaTarget;
+  /**
+   * Which side of a transforming schema is being described. Omission keeps
+   * the historical input projection for callers that build a context.
+   */
+  direction?: "input" | "output";
 }
 
 /**
@@ -155,10 +160,12 @@ export interface ConversionContext {
  * @param target - The target JSON Schema version
  * @param rootSchema - The schema being converted at the document root, so a
  *   cycle back to it can be spelled as the root pointer `#`
+ * @param direction - The input or output side of transforming schemas
  */
 export function createContext(
   target: JsonSchemaTarget,
-  rootSchema?: unknown
+  rootSchema?: unknown,
+  direction: "input" | "output" = "input"
 ): ConversionContext {
   return {
     definitions: {},
@@ -167,5 +174,6 @@ export function createContext(
     rootSchema,
     refCount: 0,
     target,
+    direction,
   };
 }

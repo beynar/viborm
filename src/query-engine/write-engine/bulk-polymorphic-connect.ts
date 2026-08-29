@@ -1,4 +1,5 @@
 import { NestedWriteError, QueryEngineError } from "@errors";
+import type { Model } from "@schema/model";
 import type { PolymorphicStorageValue } from "../builders/polymorphic-mutation";
 import { resolvePolymorphicMutationIntent } from "../builders/polymorphic-mutation";
 import { partitionModelData } from "../builders/relation-mutation-parser";
@@ -23,6 +24,7 @@ import { relationTargetNotFound } from "./messages";
 import type { GuardStep, ReadStep } from "./OperationFragment";
 import { planningKey } from "./Part";
 import type { StepScope } from "./StepScope";
+import { parseCapturedRows } from "./series-result-read";
 import { capturedSelectorWhere, getStepModelName, isRecord } from "./shared";
 
 interface BulkTarget {
@@ -35,6 +37,8 @@ interface BulkTarget {
 }
 
 interface BulkProbe {
+  readonly fields: readonly string[];
+  readonly targetModel: Model<any>;
   readonly targets: readonly BulkTarget[];
   readonly step: ReadStep;
 }
@@ -158,6 +162,8 @@ export function prepareBulkPolymorphicConnects(
       `${getStepModelName(edge.member.targetModel, edge.ref.name)}.find`
     );
     return {
+      fields,
+      targetModel: edge.member.targetModel,
       targets,
       step: {
         id,
@@ -190,12 +196,18 @@ export function prepareBulkPolymorphicConnects(
       );
       const guards: GuardStep[] = [];
       for (const probe of probes) {
-        const rows = known[planningKey(probe.step.id, "rows")];
-        if (!Array.isArray(rows)) {
+        const rawRows = known[planningKey(probe.step.id, "rows")];
+        if (!Array.isArray(rawRows)) {
           throw new QueryEngineError(
             `createMany polymorphic probe '${probe.step.id}' did not expose rows.`
           );
         }
+        const rows = parseCapturedRows(
+          engine,
+          probe.targetModel,
+          rawRows,
+          Object.fromEntries(probe.fields.map((field) => [field, true]))
+        );
         const rowIndexes = new Map<
           string,
           ReadonlyMap<string, Record<string, unknown>>

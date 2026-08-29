@@ -176,9 +176,9 @@ export function parsePolymorphicValueDefault(
  * a type allow-list, filter, cursor, `take` or `LIMIT` must not be able to hide
  * a membership row whose target is gone.
  *
- * Nested rows never reach root exact-field capture: `ExactFieldCapture` is
- * root-only and `getNestedRowParser` builds nested parsers without it, so this
- * branch simply must not thread `exactFields` — and does not receive it.
+ * Nested rows never reach the root row-key capture: `RowKeyCapture` is root-only
+ * and `getNestedRowParser` builds nested parsers without it, so this branch
+ * simply must not thread `rowKeys` — and does not receive it.
  */
 function parseCollectionValue(
   ctx: ResultParser,

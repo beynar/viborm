@@ -1452,3 +1452,51 @@ describe("serializeModels is gate-bound", () => {
     expect(thrown.message).toContain("shared_junction");
   });
 });
+
+// =============================================================================
+// DECIMAL DESCRIPTOR SERIALIZATION
+// =============================================================================
+
+describe("decimal descriptor serialization", () => {
+  it("carries the ONE frozen domain onto every column, by reference", () => {
+    const domain = { precision: 10, scale: 5 };
+    const amount = s.decimal(domain);
+    const Ledger = s.model({
+      id: s.string().id(),
+      amount,
+      optional: amount.nullable(),
+      renamed: amount.map("renamed_column"),
+      seeded: amount.default("12.34"),
+      samples: amount.array(),
+    });
+
+    const schema = { ledger: Ledger };
+    hydrateSchemaNames(schema);
+    const snapshot = serializeModels(schema, {
+      migrationDriver: postgresMigrationDriver,
+    });
+    const columns = new Map(
+      (snapshot.tables[0]?.columns ?? []).map((column) => [column.name, column])
+    );
+
+    // Every modifier preserves the descriptor, and `.map()` moves the COLUMN
+    // NAME without moving the domain.
+    for (const name of ["amount", "optional", "renamed_column", "seeded"]) {
+      expect(columns.get(name)?.decimal).toEqual({ precision: 10, scale: 5 });
+    }
+    expect(columns.get("samples")?.decimal).toEqual({
+      precision: 10,
+      scale: 5,
+    });
+
+    // The SAME object, not a copy: the descriptor is the one frozen fact the
+    // resolved scalar owns, and a migration copy of it would be a second
+    // precision decision the plan forbids.
+    const declared = amount["~"].state.decimal;
+    expect(columns.get("amount")?.decimal).toBe(declared);
+    expect(columns.get("samples")?.decimal).toBe(declared);
+
+    // A scalar with no domain carries none — the key is not written blank.
+    expect(columns.get("id")?.decimal).toBeUndefined();
+  });
+});

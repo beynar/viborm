@@ -1,4 +1,5 @@
 import type { AnyModel } from "@schema/model";
+import type { DecimalListScalarKeys } from "@schema/model/helper";
 import { scopeOperands } from "@validation/primitives/operand";
 import v, { type V } from "../../primitives/v";
 import type { ScalarSchemas } from "../index";
@@ -87,14 +88,26 @@ export const getWhereSchema = <M extends AnyModel, F extends ScalarSchemas<M>>(
  * Build whereUnique schema - unique fields + compound constraints
  * Combines single-field uniques with compound ID and compound uniques
  */
-type WhereUniqueEntries<
+type WhereUniqueIdentityEntries<
   M extends AnyModel,
   F extends ScalarSchemas<M>,
 > = UniqueFilterSchema<M, F>["entries"] &
   CompoundConstraintFilterSchema<M>["entries"];
 
+type DecimalListUniqueRefusalSchema = ReturnType<typeof v.refused>;
+
+type DecimalListWhereUniqueEntries<M extends AnyModel> = V.FromKeys<
+  DecimalListScalarKeys<M["~"]["state"]["scalars"]>[],
+  DecimalListUniqueRefusalSchema
+>["entries"];
+
+type WhereUniqueEntries<
+  M extends AnyModel,
+  F extends ScalarSchemas<M>,
+> = WhereUniqueIdentityEntries<M, F> & DecimalListWhereUniqueEntries<M>;
+
 type WhereUniqueKey<M extends AnyModel, F extends ScalarSchemas<M>> = Extract<
-  keyof WhereUniqueEntries<M, F>,
+  keyof WhereUniqueIdentityEntries<M, F>,
   string
 >;
 
@@ -107,6 +120,26 @@ export type WhereUniqueSchema<
   M extends AnyModel,
   F extends ScalarSchemas<M>,
 > = V.Object<WhereUniqueEntries<M, F>, WhereUniqueOptions<M, F>>;
+
+function getDecimalListWhereUniqueEntries<M extends AnyModel>(
+  model: M
+): V.FromKeys<
+  DecimalListScalarKeys<M["~"]["state"]["scalars"]>[],
+  DecimalListUniqueRefusalSchema
+>;
+function getDecimalListWhereUniqueEntries(model: AnyModel) {
+  const keys: string[] = [];
+  for (const name of Object.keys(model["~"].state.scalars)) {
+    const scalar = model["~"].state.scalars[name];
+    const state = scalar["~"].state;
+    if (state.type === "decimal" && state.array === true) keys.push(name);
+  }
+  return v.fromKeys(
+    keys,
+    v.refused("A decimal list cannot be used as a unique selector or cursor.")
+  );
+}
+
 export const getWhereUniqueSchema = <
   M extends AnyModel,
   F extends ScalarSchemas<M>,
@@ -120,11 +153,16 @@ export const getWhereUniqueSchema = <
   // Add compound constraints (ID + uniques) using the compound filter helpers
   const compoundConstraintFilter = getCompoundConstraintFilter(model);
 
-  const entries: WhereUniqueEntries<M, F> = {
+  const identities: WhereUniqueIdentityEntries<M, F> = {
     ...uniqueFilter.entries,
     ...compoundConstraintFilter.entries,
   };
-  const keys = Object.keys(entries) as WhereUniqueKey<M, F>[];
+  const keys = Object.keys(identities) as WhereUniqueKey<M, F>[];
+  const decimalListRefusals = getDecimalListWhereUniqueEntries(model);
+  const entries: WhereUniqueEntries<M, F> = {
+    ...identities,
+    ...decimalListRefusals.entries,
+  };
 
   return v.object(entries, {
     nonEmpty: true,
@@ -144,8 +182,8 @@ export const getWhereUniqueSchema = <
 type WhereUniqueExtendedEntries<
   M extends AnyModel,
   F extends ScalarSchemas<M>,
-> = Omit<WhereSchema<M, F>["entries"], keyof WhereUniqueEntries<M, F>> &
-  WhereUniqueEntries<M, F>;
+> = Omit<WhereSchema<M, F>["entries"], keyof WhereUniqueIdentityEntries<M, F>> &
+  WhereUniqueIdentityEntries<M, F>;
 
 /**
  * Build the EXTENDED whereUnique schema — Prisma >= 4.5's `AtLeast<…>` shape:
@@ -212,7 +250,7 @@ export const getWhereUniqueExtendedSchema = <
   const compoundConstraintFilter = getCompoundConstraintFilter(model);
   const where = getWhereSchema<M, F>(model, fieldSchemas);
 
-  const discriminators: WhereUniqueEntries<M, F> = {
+  const discriminators: WhereUniqueIdentityEntries<M, F> = {
     ...uniqueFilter.entries,
     ...compoundConstraintFilter.entries,
   };

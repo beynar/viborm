@@ -24,6 +24,18 @@ const CURRENT: SchemaSnapshot = {
         { name: "id", type: "INTEGER", nullable: false },
         { name: "org_id", type: "INTEGER", nullable: false },
         { name: "status", type: "TEXT", nullable: true },
+        {
+          name: "balance",
+          type: "INTEGER",
+          nullable: true,
+          decimal: { precision: 10, scale: 2 },
+        },
+        {
+          name: "samples",
+          type: "TEXT",
+          nullable: true,
+          decimal: { precision: 10, scale: 2 },
+        },
       ],
       primaryKey: { columns: ["id"] },
       indexes: [{ name: "idx_users_org", columns: ["org_id"], unique: false }],
@@ -68,6 +80,48 @@ const OPERATIONS: DiffOperation[] = [
     columnName: "status",
     from: { name: "status", type: "TEXT", nullable: true },
     to: { name: "status", type: "TEXT", nullable: false },
+  },
+  {
+    // A decimal conversion is the one alterColumn that emits a per-column
+    // SELECT expression and a reserved CHECK, so the census has to cover it or
+    // a destination-dependent spelling could hide in either.
+    type: "alterColumn",
+    tableName: "users",
+    columnName: "balance",
+    from: {
+      name: "balance",
+      type: "INTEGER",
+      nullable: true,
+      decimal: { precision: 10, scale: 2 },
+    },
+    to: {
+      name: "balance",
+      type: "INTEGER",
+      nullable: true,
+      decimal: { precision: 10, scale: 4 },
+    },
+  },
+  {
+    // The LIST conversion is the only rendering in the whole dispatcher that
+    // opens a correlated subquery, so it is the only one that qualifies a
+    // column at all — and the census's "no qualification" claim has to be able
+    // to tell that alias apart from a namespace or it is untested exactly
+    // where it matters.
+    type: "alterColumn",
+    tableName: "users",
+    columnName: "samples",
+    from: {
+      name: "samples",
+      type: "TEXT",
+      nullable: true,
+      decimal: { precision: 10, scale: 2 },
+    },
+    to: {
+      name: "samples",
+      type: "TEXT",
+      nullable: true,
+      decimal: { precision: 10, scale: 4 },
+    },
   },
   {
     type: "createIndex",
@@ -145,6 +199,9 @@ const DRIVERS = [
   { name: "libsql", driver: libsqlMigrationDriver },
 ];
 
+/** The name on the left of every `"a"."b"` in a rendering. */
+const QUALIFIER = /"([^"]*)"\."/g;
+
 describe("SQLite ignores the DDL destination", () => {
   it("covers every dispatched operation", () => {
     expect([...new Set(OPERATIONS.map((op) => op.type))].sort()).toEqual(
@@ -161,9 +218,16 @@ describe("SQLite ignores the DDL destination", () => {
           ddlContextFor("artifact", CURRENT)
         );
         expect(live).toBe(artifact);
-        // A SQLite estate has no database to name, so nothing may ever appear
-        // between two quoted identifiers.
-        expect(live).not.toContain('"."');
+        // A SQLite estate has no database to name, so no qualifier may ever be
+        // one. A qualifier that the SAME statement introduced with `AS` is a
+        // correlated alias — the decimal list conversion's `json_each(...) AS
+        // "m"` is the one rendering that has any — and an alias is local to the
+        // statement, which is precisely what a namespace is not. Asserting the
+        // absence of `"."` outright would have forbidden the alias too, so the
+        // one operation that qualifies anything could never have been listed.
+        for (const [, qualifier] of live.matchAll(QUALIFIER)) {
+          expect(live).toContain(`AS "${qualifier}"`);
+        }
       });
     }
 

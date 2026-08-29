@@ -13,7 +13,14 @@ import {
 } from "@src/query-engine/write-engine/series-result-read";
 import { sortCapturedRowKeys } from "@src/query-engine/write-engine/target-projection";
 import { createSchemaRegistry } from "@validation";
+import Decimal from "decimal.js";
 import { describe, expect, test } from "vitest";
+
+/** Read one public decimal leaf as the Decimal the result type promises. */
+function toDecimalValue(value: unknown): Decimal {
+  if (value instanceof Decimal) return value;
+  throw new Error(`expected a public Decimal leaf, received ${typeof value}`);
+}
 
 const schema = (() => {
   const entry = s
@@ -40,7 +47,10 @@ const schema = (() => {
     .model({ id: s.bigInt().id(), label: s.string() })
     .map("series_result_bigint_entries");
   const decimalEntry = s
-    .model({ id: s.decimal().id(), label: s.string() })
+    .model({
+      id: s.decimal({ precision: 20, scale: 1 }).id(),
+      label: s.string(),
+    })
     .map("series_result_decimal_entries");
   return { entry, note, bigintEntry, decimalEntry };
 })();
@@ -105,25 +115,13 @@ class MiddlewareCountingDriver extends CapacityDriver {
   }
 }
 
-function engine(
-  capacity: number | undefined,
-  decimalDecode: "string" | "number" = "string"
-): QueryEngine {
-  return engineFromDriver(new CapacityDriver(capacity), decimalDecode);
+function engine(capacity: number | undefined): QueryEngine {
+  return engineFromDriver(new CapacityDriver(capacity));
 }
 
-function engineFromDriver(
-  driver: PGliteDriver,
-  decimalDecode: "string" | "number" = "string"
-): QueryEngine {
+function engineFromDriver(driver: PGliteDriver): QueryEngine {
   const schemas = createSchemaRegistry(schema);
-  return new QueryEngine(
-    driver,
-    createModelRegistry(schema, schemas),
-    undefined,
-    undefined,
-    decimalDecode
-  );
+  return new QueryEngine(driver, createModelRegistry(schema, schemas));
 }
 
 function input(
@@ -131,8 +129,7 @@ function input(
   expectedRowKeys: readonly Readonly<Record<string, unknown>>[],
   select: Readonly<Record<string, unknown>> = { label: true },
   model: Model<any> = schema.entry,
-  decimalDecode: "string" | "number" = "string",
-  queryEngine: QueryEngine = engine(capacity, decimalDecode)
+  queryEngine: QueryEngine = engine(capacity)
 ): SeriesResultReadInput {
   return {
     engine: queryEngine,
@@ -284,7 +281,11 @@ describe("series result reads", () => {
     }
   });
 
-  test("lossy public decimals are indexed by the exact high-precision row key", () => {
+  test("public decimals materialize while the row key stays the canonical text", () => {
+    // The two values are the SAME double, so a public presentation that went
+    // through a JS number could not tell the members apart. The row key never
+    // does: it is the codec's canonical private string on both sides of the
+    // match, and the public column is a fresh Decimal built only at the leaf.
     const first = "9007199254740992.1";
     const second = "9007199254740992.2";
     expect(Number(first)).toBe(Number(second));
@@ -294,8 +295,7 @@ describe("series result reads", () => {
       20,
       [{ id: first }, { id: second }],
       select,
-      schema.decimalEntry,
-      "number"
+      schema.decimalEntry
     );
     expect(readStatements(buildSeriesResultReads(config))[0]?.values).toEqual([
       first,
@@ -311,9 +311,58 @@ describe("series result reads", () => {
       ])
     );
 
-    expect(parsed).toEqual([
-      { id: Number(first), label: "first" },
-      { id: Number(second), label: "second" },
+    expect(parsed).toHaveLength(2);
+    const [firstRow, secondRow] = parsed;
+    expect(firstRow?.label).toBe("first");
+    expect(secondRow?.label).toBe("second");
+    expect(firstRow?.id).toBeInstanceOf(Decimal);
+    expect(secondRow?.id).toBeInstanceOf(Decimal);
+    expect(toDecimalValue(firstRow?.id).eq(first)).toBe(true);
+    expect(toDecimalValue(secondRow?.id).eq(second)).toBe(true);
+    // Every selected leaf is its OWN instance — never one shared value object.
+    expect(firstRow?.id).not.toBe(secondRow?.id);
+  });
+
+  test("two spellings of one decimal row key resolve to the same member", () => {
+    // The expected key carries the canonical private string and the provider
+    // row the scale-padded native text a `NUMERIC(20,1)` column answers with.
+    // The padding is not part of the identity — the codec reduces both to one
+    // key — so the member matches, and "10" never collides with "9".
+    const select = { id: true, label: true };
+    const config = input(
+      20,
+      [{ id: "10" }, { id: "9" }],
+      select,
+      schema.decimalEntry
+    );
+    const parsed = parseSeriesResultReads(
+      config,
+      parseReadResults(config, [
+        [
+          { id: "9.0", label: "nine" },
+          { id: "10.0", label: "ten" },
+        ],
+      ])
+    );
+
+    expect(parsed.map((row) => row.label)).toEqual(["ten", "nine"]);
+  });
+
+  test("a decimal row key sorts by its canonical text, deterministically", () => {
+    // Canonical text is the row key's ONE representation, so the order is the
+    // comparator's string rank — total and stable, and deliberately not the
+    // numeric order the database would produce.
+    const decoded = parseSeriesRowKeys(
+      engine(20),
+      schema.decimalEntry,
+      "updateManyAndReturn",
+      [{ id: "9.0" }, { id: "10.0" }]
+    ).map((row) => ({ ...row }));
+
+    expect(decoded).toEqual([{ id: "9" }, { id: "10" }]);
+    expect(sortCapturedRowKeys(["id"], decoded)).toEqual([
+      { id: "10" },
+      { id: "9" },
     ]);
   });
 
@@ -363,7 +412,6 @@ describe("series result reads", () => {
       ],
       { label: true, notes: { select: { id: true } } },
       schema.entry,
-      "string",
       queryEngine
     );
     const results = parseReadResults(config, [

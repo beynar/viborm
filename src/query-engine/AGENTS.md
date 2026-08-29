@@ -15,6 +15,22 @@ Every dialect-dependent SQL choice goes through the adapter. Provider error
 recognition belongs to driver error mapping. Do not inspect SQL text in the
 query engine to infer a dialect semantic that the compiler already knows.
 
+## Fixed-decimal semantics
+
+The query engine carries the schema scalar's immutable `{ precision, scale }`
+descriptor. It owns operation structure, never a dialect capability verdict or
+a second decimal mode. Decimal comparisons, ordering, arithmetic updates,
+aggregates, list predicates, and relation-key expressions are composed through
+the adapter's exact-decimal vocabulary. Do not introduce
+`supportsExactDecimal`, a query-engine refusal ladder, or numeric coercion.
+
+Validated decimal leaves enter the engine as canonical private logical text.
+Scalar defaults and nested writes follow the same path. At the result boundary,
+every selected decimal or decimal aggregate leaf becomes a fresh public
+`Decimal`; it is never exposed as a string or JavaScript number. Decimal lists
+have one logical surface but provider-specific physical carriers, so list
+membership and count semantics also stay behind the adapter boundary.
+
 ## Result parsing
 
 `result/ResultParser.ts` owns middleware chains and compiled row parsers for one

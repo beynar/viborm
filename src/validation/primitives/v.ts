@@ -22,7 +22,12 @@ import type { BooleanSchema } from "./boolean";
 import { boolean } from "./boolean";
 import type { DateSchema } from "./date";
 import { date } from "./date";
-import type { DecimalInput, DecimalOutput, DecimalSchema } from "./decimal";
+import type {
+  DecimalComputeInput,
+  DecimalComputeOutput,
+  DecimalOptions,
+  DecimalSchema,
+} from "./decimal";
 import { decimal } from "./decimal";
 import type { EnumSchema } from "./enum";
 import { enum_ } from "./enum";
@@ -228,16 +233,16 @@ export namespace V {
 
   /**
    * Type-level decimal schema. Input and output differ on purpose: a decimal
-   * accepts `string | number` and always reads back as an exact `string`.
+   * accepts `Decimal | string | number` and validates to the canonical private
+   * string every identity owner keys on. The public `Decimal` result is built
+   * once per selected value at the typed result boundary, not here.
    * @example V.Decimal - Required decimal
    * @example V.Decimal<{ nullable: true }> - Nullable decimal
+   * @example V.Decimal<{ decimal: { precision: 10; scale: 2 } }> - A declared domain
    */
   export type Decimal<
-    Opts extends ScalarOptions<DecimalInput, any> | undefined = undefined,
-  > = DecimalSchema<
-    ComputeInput<DecimalInput, Opts>,
-    ComputeOutput<DecimalOutput, Opts>
-  >;
+    Opts extends DecimalOptions<any> | undefined = undefined,
+  > = DecimalSchema<DecimalComputeInput<Opts>, DecimalComputeOutput<Opts>>;
 
   /**
    * Type-level boolean schema.
@@ -357,9 +362,7 @@ export namespace V {
    */
   export type Omit<
     TSchema extends ObjectSchema<any, any>,
-    TKeys extends
-      | readonly (keyof TSchema["entries"])[]
-      | undefined,
+    TKeys extends readonly (keyof TSchema["entries"])[] | undefined,
   > = OmittedObjectSchema<
     TSchema["entries"],
     OmitOptions<TSchema["options"], TKeys>,

@@ -86,7 +86,7 @@ describe("E5-U2 the fold stays the single provenance", () => {
           },
         },
       },
-      { "thing.find.rows": [{ id: "t-found" }] }
+      { "thing.find.rows": [{ id: "t-found", ownerId: null }] }
     );
     const arm = compiled.steps.find(
       (step): step is StatementStep =>
@@ -128,7 +128,7 @@ describe("E5-U2 the fold stays the single provenance", () => {
           },
         },
       }
-    ).compile({ "timeRow.find.rows": [{ id: "d0" }] });
+    ).compile({ "timeRow.find.rows": [{ id: "d0", atRef: at }] });
     const arm = compiled.steps.find(
       (step): step is StatementStep =>
         step.kind === "write" && TIME_UPDATE.test(sqlOf(step))

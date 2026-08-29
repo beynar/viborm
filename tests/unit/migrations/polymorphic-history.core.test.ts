@@ -481,6 +481,7 @@ async function memberRenamePipeline(
   // and strictResolver below throws if that ever stops holding.
   const resolved = await resolveAmbiguousChanges(
     diffResult,
+    previous,
     desired,
     strictResolver
   );

@@ -82,6 +82,9 @@ export default defineWorkspace([
         "tests/**/*.core.test.ts",
         "tests/package/**/*.test.ts",
         "tests/providers/**/*.test.ts",
+        "tests/contracts/engine/query/decimal-wide-arithmetic-docker.test.ts",
+        "tests/unit/migrations/mysql-strict-mode-docker.test.ts",
+        "tests/unit/migrations/decimal-list-defaults-mysql-docker.test.ts",
       ],
     },
   },
@@ -93,7 +96,12 @@ export default defineWorkspace([
     "tests/providers/docker/postgres.test.ts",
     "tests/providers/docker/postgres-pipelining.test.ts",
   ]),
-  providerProject("mysql2", ["tests/providers/docker/mysql2.test.ts"]),
+  providerProject("mysql2", [
+    "tests/providers/docker/mysql2.test.ts",
+    "tests/contracts/engine/query/decimal-wide-arithmetic-docker.test.ts",
+    "tests/unit/migrations/mysql-strict-mode-docker.test.ts",
+    "tests/unit/migrations/decimal-list-defaults-mysql-docker.test.ts",
+  ]),
   providerProject("transaction-options", [
     "tests/providers/docker/transaction-options-live.test.ts",
   ]),

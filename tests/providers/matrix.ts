@@ -71,35 +71,35 @@ export const PROVIDERS = [
     sourceFiles: ["tests/providers/workers/d1.test.ts"],
     availability: "workerd",
     waiverReason:
-      "The local D1 binding sentinel covers transport, normalization, and atomic batch; the shared schema contract needs a D1-specific fixture.",
+      "The workerd fixture runs focused D1-specific provider witnesses, including fixed-decimal scalar/list exactness, but shared schema contracts still need migration-driven fixture setup.",
   },
   {
     id: "neon-http",
     sourceFiles: ["tests/providers/hosted/neon-http.test.ts"],
-    availability: "neon-credentials",
+    availability: "always",
     waiverReason:
-      "The hosted Neon sentinel is read-only and does not mutate the dedicated endpoint for shared contract setup.",
+      "A deterministic SDK/fetch fixture proves the real Neon response decoder and typed fixed-decimal scalar/list materialization; PostgreSQL SQL semantics remain owned by the shared PostgreSQL contracts, while NEON_TEST_DATABASE_URL is only an optional connectivity leg.",
   },
   {
     id: "planetscale",
     sourceFiles: ["tests/providers/hosted/planetscale.test.ts"],
     availability: "planetscale-credentials",
     waiverReason:
-      "The hosted PlanetScale sentinel is read-only and does not mutate the dedicated endpoint for shared contract setup.",
+      "The dedicated PlanetScale decimal leg runs only with URL, explicit namespace, and a pre-provisioned read-only marker fixture; the shared contract remains waived because D8 forbids its effectful VibORM DDL setup.",
   },
   {
     id: "bun-sql",
     sourceFiles: ["tests/providers/platform/bun-sql-runtime.test.ts"],
     availability: "bun",
     waiverReason:
-      "The Bun SQL runtime probe validates the platform boundary only; shared database contracts run on the canonical PostgreSQL fixture.",
+      "The real Bun runtime probe proves fixed-decimal scalar/list transport, filter/order, arithmetic, and aggregates when PG_TEST_CONNECTION_STRING names the PostgreSQL substrate; the shared contract registration remains waived because the standalone probe owns its isolated schema lifecycle.",
   },
   {
     id: "bun-sqlite",
     sourceFiles: ["tests/providers/platform/bun-sqlite-runtime.test.ts"],
     availability: "bun",
     waiverReason:
-      "The Bun SQLite runtime probe validates the platform boundary only; shared database contracts run on the canonical SQLite fixture.",
+      "The real Bun runtime probe proves fixed-decimal scalar/list transport, filter/order, arithmetic, and aggregates; the shared contract registration remains waived because Vitest cannot import bun:sqlite and the standalone probe owns its fixture lifecycle.",
   },
 ] as const satisfies readonly ProviderDefinition[];
 

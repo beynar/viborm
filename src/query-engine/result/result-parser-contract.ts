@@ -26,7 +26,7 @@ export interface RowValueParsers {
     scalar: Scalar,
     value: unknown,
     operation: Operation,
-    captureExact?: (value: unknown) => void
+    captureRowKey?: (value: unknown) => void
   ): unknown;
   /**
    * `(source, field)` is the CONTEXTUAL SLOT identity — the whole identity of a

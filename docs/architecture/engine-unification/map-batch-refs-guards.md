@@ -85,7 +85,13 @@ lowerBatchResolvableValue(adapter, value):
 
 `adapter.batchRefs.read` produces `(SELECT ref_value FROM __viborm_batch_refs WHERE batch_id=? AND ref_key=? LIMIT 1)`. This is a **correlated scalar subquery evaluated at the instant the consuming statement runs** — that is the whole trick: the value is read *from the DB, at commit time, inside the atomic unit*, so it reflects whatever the earlier store statement wrote.
 
-Consumer: `values-builder.ts::buildScalarSqlValue` calls `lowerBatchResolvableValue`, and if the original value was a ref, wraps the resulting subquery in `castBatchRefValue` (a `CAST(... AS <castType>)` derived from the target column's scalar type). **This cast is mandatory**: the temp table stores every value as TEXT (`ref_value TEXT`), so reading it back into an integer/numeric/boolean FK column requires an explicit cast to the column's logical type. `getScalarCastType` maps scalar types to `CastType` (`int/bigint→integer`, `float/decimal→numeric`, `boolean→boolean`, `string/date/datetime/time→text`, else undefined/no-cast).
+Historically, `values-builder.ts::buildScalarSqlValue` lowered a reference and
+cast it through the generic scalar `CastType` table. The unified engine now
+routes captured values through `fragment-builders.ts`: ordinary scalars still
+use their scalar cast, while a decimal uses
+`adapter.expressions.decimalCast(expression, descriptor)`. That distinction is
+load-bearing on SQLite, where the captured value is an unscaled coefficient and
+must return through `INTEGER`, not a logical numeric cast.
 
 ### 1.5 Adapter capability detection
 

@@ -30,7 +30,11 @@ export { type BlobSchemas, buildBlobSchema } from "./blob";
 export { type BooleanSchemas, buildBooleanSchema } from "./boolean";
 export { buildDateSchema, type DateSchemas } from "./date";
 export { buildDateTimeSchema, type DateTimeSchemas } from "./datetime";
-export { buildDecimalSchema, type DecimalSchemas } from "./decimal";
+export {
+  buildDecimalSchema,
+  type DecimalSchemas,
+  type DecimalUpdateOperationKeys,
+} from "./decimal";
 export { buildEnumSchema, type EnumSchemas } from "./enum";
 export { buildIntSchema, type IntSchemas } from "./int";
 export { buildJsonSchema, type JsonSchemas } from "./json";
@@ -84,6 +88,7 @@ export type GetScalarSchemas<
 export const getScalarSchemas = <F extends ScalarState>(
   scalar: F
 ): GetScalarSchemas<F> => {
+  // biome-ignore lint/style/useDefaultSwitchClause: ScalarState.type makes this switch exhaustive.
   switch (scalar.type) {
     case "bigint":
       return buildBigIntSchema(

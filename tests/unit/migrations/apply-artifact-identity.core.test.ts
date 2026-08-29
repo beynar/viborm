@@ -197,6 +197,16 @@ async function interleavedEstate(
   const tracked = new Map<string, string>();
 
   driver.respond = (sql: string, params: unknown[]): unknown[] => {
+    // A MySQL pinned migration session PROVES its `sql_mode` before any DDL
+    // (plan 3.3 / `migrations/pinned-session.ts`).
+    if (sql.includes("@@SESSION.sql_mode")) {
+      return [
+        {
+          sql_mode: "STRICT_TRANS_TABLES,NO_ENGINE_SUBSTITUTION",
+          server_version: "8.4.0",
+        },
+      ];
+    }
     if (sql.includes("pg_namespace")) {
       return [{ present: 1 }];
     }

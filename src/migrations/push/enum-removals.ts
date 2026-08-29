@@ -1,8 +1,10 @@
 import { MigrationError, VibORMErrorCode } from "../../errors";
+import { validateResolveResult } from "../resolver";
 import {
   createEnumValueRemovalChange,
   type DiffOperation,
   type ResolveCallback,
+  readEnumResolutionDecision,
   type SchemaSnapshot,
 } from "../types";
 
@@ -152,7 +154,11 @@ export async function resolveEnumValueRemovalMappings(
         `Map to: ${removal.availableValues.join(", ")} or NULL`,
     });
 
-    const result = await resolve(change);
+    const result = validateResolveResult(
+      "enumValueRemoval",
+      change,
+      await resolve(change)
+    );
 
     if (result === "reject") {
       throw new MigrationError(
@@ -182,14 +188,15 @@ export async function resolveEnumValueRemovalMappings(
     }
 
     if (result === "enumMapped") {
-      if (change._mappings) {
+      const decision = readEnumResolutionDecision(change);
+      if (decision?.kind === "mapValues") {
         setColumnMappings(
           columnMappings,
           removal.enumName,
           columnKey,
-          change._mappings
+          decision.mappings
         );
-      } else if (change._useNullDefault) {
+      } else if (decision?.kind === "useNull") {
         setColumnMappings(
           columnMappings,
           removal.enumName,

@@ -12,7 +12,13 @@
  * its DDL renderer qualifies with.
  */
 
+import {
+  canonicalizeDecimal,
+  type DecimalDescriptor,
+  decimalDefaultText,
+} from "@validation/primitives/decimal-codec";
 import { MigrationError, VibORMErrorCode } from "../../../errors";
+import { readStoredDecimalDescriptor } from "../../decimal";
 import type {
   EnumDef,
   ForeignKeyDef,
@@ -388,7 +394,76 @@ function formatColumnType(
     return `numeric(${col.numeric_precision})`;
   }
 
+  // An ARRAY of numeric is the one type whose modifier `information_schema`
+  // does not report: `data_type` is `ARRAY`, `udt_name` is `_numeric`, and both
+  // `numeric_precision` and `numeric_scale` are NULL — so the arm above is
+  // never reached and the snapshot would say `numeric[]` against a desired
+  // `NUMERIC(10,5)[]`, planning an alterColumn on every push forever.
+  // `format_type` carries the element typmod, which is where PostgreSQL keeps
+  // a decimal LIST's declared domain (§6.2).
+  //
+  // A separate, NARROW arm rather than a widening of the extension-type gate
+  // above: that gate strips a proven extension schema from the formatted type,
+  // and `numeric` is a `pg_catalog` built-in that is never schema-qualified, so
+  // it needs none of those assumptions — and reusing them would change how
+  // `citext` and `vector` read back.
+  if (col.udt_name === NUMERIC_ARRAY_UDT) {
+    return col.formatted_type;
+  }
+
   return snapshotType;
+}
+
+/** `numeric[]`'s `udt_name`; PostgreSQL prefixes an array type with `_`. */
+const NUMERIC_ARRAY_UDT = "_numeric";
+
+/**
+ * The declared decimal domain of a PostgreSQL column, or `undefined`.
+ *
+ * PostgreSQL is the one dialect that needs no reserved carrier: the typmod IS
+ * the descriptor, so it is read from the catalog rather than from anything
+ * VibORM wrote. A scalar reports it through `information_schema`; an array
+ * reports it only inside `format_type`, so the two are recovered from the two
+ * places the server keeps them.
+ *
+ * An unconstrained `numeric` has no typmod and therefore no domain — which is
+ * correct, and is what makes the differ plan the conversion to a declared one.
+ */
+function readDecimalDomain(col: PgColumn): DecimalDescriptor | undefined {
+  if (col.data_type === "numeric" && col.numeric_precision !== null) {
+    return requireDecimalDomain(
+      col,
+      col.numeric_precision,
+      col.numeric_scale ?? 0
+    );
+  }
+  if (col.udt_name !== NUMERIC_ARRAY_UDT) return undefined;
+  const match = NUMERIC_ARRAY_TYPMOD.exec(col.formatted_type);
+  if (!match) return undefined;
+  return requireDecimalDomain(col, match[1], match[2]);
+}
+
+const NUMERIC_ARRAY_TYPMOD = /^numeric\((-?\d+),(-?\d+)\)\[\]$/;
+
+function requireDecimalDomain(
+  col: PgColumn,
+  precision: unknown,
+  scale: unknown
+): DecimalDescriptor {
+  const descriptor = readStoredDecimalDescriptor(precision, scale, "pg");
+  if (descriptor !== undefined) return descriptor;
+  throw new MigrationError(
+    `PostgreSQL reported column "${col.table_name}"."${col.column_name}" as NUMERIC(${String(precision)},${String(scale)}), outside VibORM's fixed-decimal domain. Migration introspection is refused rather than publishing an invalid descriptor.`,
+    VibORMErrorCode.MIGRATION_INVALID_STATE,
+    {
+      meta: {
+        dialect: "postgresql",
+        table: col.table_name,
+        column: col.column_name,
+        type: "invalid-catalog-decimal-domain",
+      },
+    }
+  );
 }
 
 function isAutoIncrement(columnDefault: string | null): boolean {
@@ -473,7 +548,40 @@ function cleanDefault(
     scope,
     managedEnums
   );
-  return withoutEnumCast.replace(TYPE_CAST_REGEX, "").trim();
+  const cleaned = withoutEnumCast.replace(TYPE_CAST_REGEX, "").trim();
+  return renderDecimalDefault(cleaned, readDecimalDomain(col));
+}
+
+/**
+ * Re-renders a decimal column's default through the codec, so both snapshot
+ * sides hold the SAME of the two renderings.
+ *
+ * PostgreSQL deparses a decimal default in two spellings and the difference is
+ * the sign: `DEFAULT 12.34000` comes back as the bare literal, while
+ * `DEFAULT -12.34000` comes back as `'-12.34000'::numeric`, because the minus
+ * is a unary operator over a constant and the folded result is spelled as a
+ * cast literal. (Measured on PGlite 0.3.) Stripping the cast leaves the quotes
+ * behind, so the negative default would never equal the one the serializer
+ * emits and the estate would churn forever.
+ *
+ * Sending it back through `decimalDefaultText` settles both spellings at once:
+ * the quotes are dropped by the grammar and the fraction is padded to the
+ * scale, which is exactly what the serializer emitted. Anything that is not a
+ * decimal literal — a function call, `NULL`, an array literal — is not a value
+ * this rendering describes and passes through untouched.
+ */
+function renderDecimalDefault(
+  cleaned: string,
+  descriptor: DecimalDescriptor | undefined
+): string {
+  if (descriptor === undefined) return cleaned;
+  const unquoted =
+    cleaned.startsWith("'") && cleaned.endsWith("'") && cleaned.length > 1
+      ? cleaned.slice(1, -1)
+      : cleaned;
+  const canonical = canonicalizeDecimal(unquoted);
+  if (canonical === undefined) return cleaned;
+  return decimalDefaultText("pg", canonical, descriptor);
 }
 
 /**
@@ -583,6 +691,7 @@ export async function introspectPostgresSchema(
       nullable: col.is_nullable === "YES",
       default: cleanDefault(col, scope, managedEnums),
       autoIncrement: isAutoIncrement(col.column_default),
+      decimal: readDecimalDomain(col),
     }));
 
     // Build primary key

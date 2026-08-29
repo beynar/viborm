@@ -117,7 +117,6 @@ export {
   BooleanScalar,
   DateScalar,
   DateTimeScalar,
-  DecimalScalar,
   EnumScalar,
   IntScalar,
   JsonScalar,
@@ -142,64 +141,3 @@ export type {
   InferCreateType,
   ScalarState as ScalarStateType,
 } from "./scalars/common";
-
-// =============================================================================
-// FIELD TYPE MAPPING
-// =============================================================================
-
-/**
- * Maps a ScalarType string to its base TypeScript type
- */
-export type ScalarTypeToTS<T extends import("./scalars/common").ScalarType> =
-  T extends "string"
-    ? string
-    : T extends "int" | "number" | "decimal"
-      ? number
-      : T extends "boolean"
-        ? boolean
-        : T extends "datetime" | "date"
-          ? Date
-          : T extends "time"
-            ? string
-            : T extends "bigint"
-              ? bigint
-              : T extends "json"
-                ? unknown
-                : T extends "blob"
-                  ? Uint8Array
-                  : T extends "vector"
-                    ? number[]
-                    : T extends "enum"
-                      ? string
-                      : never;
-
-/**
- * Infers the TypeScript type from a ScalarState
- * Handles nullable and array modifiers
- */
-export type InferType<TState extends import("./scalars/common").ScalarState> =
-  TState["array"] extends true
-    ? TState["nullable"] extends true
-      ? ScalarTypeToTS<TState["type"]>[] | null
-      : ScalarTypeToTS<TState["type"]>[]
-    : TState["nullable"] extends true
-      ? ScalarTypeToTS<TState["type"]> | null
-      : ScalarTypeToTS<TState["type"]>;
-
-/**
- * Infers the input type for create operations (handles defaults)
- */
-export type InferInputType<
-  TState extends import("./scalars/common").ScalarState,
-> = TState["hasDefault"] extends true
-  ? InferType<TState> | undefined
-  : TState["autoGenerate"] extends import("./scalars/common").AutoGenerate
-    ? InferType<TState> | undefined
-    : InferType<TState>;
-
-/**
- * Infers the storage type (same as base type)
- */
-export type InferStorageType<
-  TState extends import("./scalars/common").ScalarState,
-> = InferType<TState>;

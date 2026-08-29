@@ -20,6 +20,7 @@ import {
 } from "@errors";
 import type { WriteOutcomeRegistration } from "@extensions/query";
 import { parse } from "@validation";
+import { readValidationFailureCause } from "@validation/parse-failure";
 import { isError } from "../errors/diagnostic-safety";
 import type { CacheResultCodec } from "./result/cache-result-codec";
 import type { PrepareOptions } from "./types";
@@ -114,7 +115,8 @@ function parseMutationCacheOptions(
     const parsed = parse(cacheInvalidationSchema, cache);
     if (parsed.issues) {
       throw new CacheConfigurationError(
-        `Invalid mutation cache options: ${parsed.issues.map((issue) => issue.message).join(", ")}`
+        `Invalid mutation cache options: ${parsed.issues.map((issue) => issue.message).join(", ")}`,
+        { cause: readValidationFailureCause(parsed) }
       );
     }
     const invalidate =
@@ -223,7 +225,8 @@ export function createCacheExecutionOptions(
   const parsed = parse(withCacheSchema, config);
   if (parsed.issues) {
     throw new CacheConfigurationError(
-      `Invalid cache options: ${parsed.issues.map((issue) => issue.message).join(", ")}`
+      `Invalid cache options: ${parsed.issues.map((issue) => issue.message).join(", ")}`,
+      { cause: readValidationFailureCause(parsed) }
     );
   }
 

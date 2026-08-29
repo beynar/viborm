@@ -35,12 +35,12 @@ const isomorphisms = [
     sqlite: "ISO TEXT",
   },
   {
-    api: "s.decimal()",
+    api: "s.decimal({ precision: 10, scale: 2 })",
     icon: "binary",
-    mysql: "DECIMAL(65,30)",
+    mysql: "DECIMAL(10,2)",
     name: "Exact decimals",
-    postgres: "numeric",
-    sqlite: "TEXT",
+    postgres: "NUMERIC(10,2)",
+    sqlite: "scaled INTEGER",
   },
 ];
 ---

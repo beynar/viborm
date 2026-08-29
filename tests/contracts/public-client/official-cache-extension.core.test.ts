@@ -224,6 +224,28 @@ describe("official cache extension foundation", () => {
     }
   });
 
+  it("retains sanitized validation cause evidence for $withCache options", () => {
+    const cached = baseClient().$extends(cache({ driver: new MemoryCache() }));
+    const cause = new Error("private with-cache option failure");
+    const config = Object.defineProperty({}, "ttl", {
+      enumerable: true,
+      get() {
+        throw cause;
+      },
+    });
+
+    try {
+      Reflect.apply(Reflect.get(cached, "$withCache"), cached, [config]);
+      throw new Error("Expected cache options validation to fail");
+    } catch (error) {
+      expect(error).toBeInstanceOf(CacheConfigurationError);
+      if (!(error instanceof CacheConfigurationError)) throw error;
+      expect(error.originalCause).toBeInstanceOf(Error);
+      expect(error.originalCause).not.toBe(cause);
+      expect(String(error)).not.toContain("private with-cache option failure");
+    }
+  });
+
   it("normalizes a hostile Error thrown while reading factory configuration", () => {
     const hostileFailure = new Proxy(new Error("private-config-failure"), {
       getPrototypeOf() {

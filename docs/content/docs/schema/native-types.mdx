@@ -1,10 +1,11 @@
 ---
 title: Native Types
-description: Override the default database column type of any scalar with database-specific native types
+description: Override most scalar column types with database-specific native types
 icon: database
 ---
 
-Every scalar factory accepts an optional native type as its first argument to override the default column type:
+Most scalar factories accept an optional native type as their first argument to
+override the default column type:
 
 ```ts
 import { s } from "viborm";
@@ -17,6 +18,10 @@ s.json(PG.JSON.JSON);             // json instead of jsonb
 
 A native type only applies when it matches the database you run against (`PG.*` on PostgreSQL, `MYSQL.*` on MySQL, `SQLITE.*` on SQLite); otherwise the default mapping below is used. This keeps schemas portable across databases.
 
+Fixed decimals are the deliberate exception. `s.decimal({ precision, scale })`
+derives its physical type from that one portable descriptor and accepts no
+native-type override.
+
 ## Default Type Mapping
 
 Without a native type override, scalars map to these column types:
@@ -26,7 +31,7 @@ Without a native type override, scalars map to these column types:
 | `s.string()`    | `string`        | `text`               | `TEXT`           | `TEXT`    |
 | `s.int()`       | `number`        | `integer`            | `INT`            | `INTEGER` |
 | `s.number()`    | `number`        | `double precision`   | `DOUBLE`         | `REAL`    |
-| `s.decimal()`   | `string`        | `numeric`            | `DECIMAL(65,30)` | `TEXT`    |
+| `s.decimal({ precision, scale })` | `Decimal` | `NUMERIC(p,s)` | `DECIMAL(p,s)` | checked scaled `INTEGER` |
 | `s.bigInt()`    | `bigint`        | `bigint`             | `BIGINT`         | `INTEGER` |
 | `s.boolean()`   | `boolean`       | `boolean`            | `TINYINT(1)`     | `INTEGER` |
 | `s.dateTime()`  | `Date`          | `timestamptz`        | `DATETIME(3)`    | `TEXT`    |
@@ -86,23 +91,18 @@ Without a native type override, scalars map to these column types:
 
 ## Decimal
 
-| Constant | Column type |
-| --- | --- |
-| `PG.DECIMAL.DECIMAL(p?, s?)` | `decimal(p,s)` |
-| `PG.DECIMAL.NUMERIC(p?, s?)` | `numeric(p,s)` |
-| `PG.DECIMAL.MONEY` | `money` |
-| `MYSQL.DECIMAL.DECIMAL(p?, s?)` | `DECIMAL(p,s)` |
-| `MYSQL.DECIMAL.NUMERIC(p?, s?)` | `NUMERIC(p,s)` |
-| `SQLITE.DECIMAL.TEXT` | `TEXT` (default — the only exact one) |
-| `SQLITE.DECIMAL.REAL` | `REAL` (approximate) |
-| `SQLITE.DECIMAL.NUMERIC` | `NUMERIC` (approximate) |
+Decimal native-type constants do not exist. The required descriptor is the one
+source of truth for validation, DDL, query lowering, results, and migrations:
 
-SQLite has no exact decimal type, so a decimal column is `TEXT` by default: the
-canonical spelling survives byte-exact at any precision, and the operations text
-cannot answer exactly (ordering, `_sum`, `_avg`, …) are
-[refused rather than approximated](/docs/schema/scalars/decimal). `REAL` and
-`NUMERIC` both round a fractional value into an IEEE-754 double on the way in —
-they stay available for schemas that deliberately want that.
+```ts
+s.decimal({ precision: 10, scale: 2 });
+```
+
+It maps to `NUMERIC(10,2)` on PostgreSQL, `DECIMAL(10,2)` on MySQL, and
+a checked scaled `INTEGER` coefficient on SQLite-family providers. This keeps
+one logical decimal domain exact on every database; a native override would
+create a second provider-specific precision or representation. See
+[Decimal](/docs/schema/scalars/decimal).
 
 ## BigInt
 

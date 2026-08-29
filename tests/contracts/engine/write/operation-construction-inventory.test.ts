@@ -550,8 +550,12 @@ describe("write engine route inventory (P6 accounting)", () => {
   // `query-engine/write-engine/*.ts` ONLY. D also deleted a third site, the compound-target
   // fail-closed refusal in `src/query-engine/relation-key-legality.ts` (3 → 2 there), and
   // that deletion moves this number not at all. Package O's §O4 census must pick a scope
-  // and say which; the repo-wide count today is 22 here + 2 in relation-key-legality.ts +
-  // 1 in builders/decimal-portability.ts.
+  // and say which; the repo-wide count today is 22 here + 2 in relation-key-legality.ts.
+  // It USED to be one more: `builders/decimal-portability.ts` refused ordering,
+  // aggregating and arithmetic over a decimal on a dialect with no exact decimal type.
+  // That whole file is gone — SQLite stores the unscaled integer coefficient now, so the
+  // operations it refused have exact answers there — and site 24 is retired rather than
+  // moved (docs/architecture/guard-ownership-ledger.md Cluster 12).
   // WHAT DID NOT MOVE, deliberately: `RelationJunctionPart`'s three sites. A junction side
   // is one column today and (in this row's era) `getManyToManyJoinInfo` resolved it through
   // `getRequiredSinglePrimaryKeyField`, which throws before the Part is constructed — so
@@ -1221,29 +1225,29 @@ describe("write engine route inventory (P6 accounting)", () => {
       [
         13,
         "query-engine/write-engine/RelationUpsertPart.ts",
-        1105,
-        1101,
+        1115,
+        1111,
         "refuseIncomingParentMutation",
       ],
       [
         15,
         "query-engine/write-engine/CreateOperation.ts",
-        3553,
-        3545,
+        3584,
+        3576,
         "requireRecordReferenced",
       ],
       [
         19,
         "query-engine/write-engine/CreateOperation.ts",
-        3657,
-        3639,
+        3688,
+        3670,
         "producedReference",
       ],
       [
         20,
         "query-engine/write-engine/CreateOperation.ts",
-        4028,
-        4017,
+        4059,
+        4048,
         "assertSelectedSharedPkValue",
       ],
       [
@@ -1280,13 +1284,6 @@ describe("write engine route inventory (P6 accounting)", () => {
         148,
         135,
         "assertSingleTargetMembershipMoveAppliesToRecords",
-      ],
-      [
-        24,
-        "query-engine/builders/decimal-portability.ts",
-        56,
-        48,
-        "assertExactDecimalOperation",
       ],
       [
         25,
@@ -1327,7 +1324,7 @@ describe("write engine route inventory (P6 accounting)", () => {
     }
     expect(misses).toEqual([]);
     // The list itself must stay complete, or a site could be dropped to keep it green.
-    expect(CLASSIFIED.length).toBe(12);
+    expect(CLASSIFIED.length).toBe(11);
   });
 });
 
@@ -1561,7 +1558,7 @@ describe("write engine full client operation surface (P6 precondition)", () => {
  *
  * 22  relation-key-legality.ts:110    assertSingleTargetMembershipMoveAppliesToRecords:102  SC  :110 / :102
  * 23  relation-key-legality.ts:166    scalar-only ordinary arm                  MSI  RETIRED (record series)
- * 24  builders/decimal-portability.ts:56  assertExactDecimalOperation:48        PSI  :56 / :48
+ * 24  builders/decimal-portability.ts:56  assertExactDecimalOperation:48        PSI  RETIRED (exact SQLite decimals)
  *
  * THE `src` SITE OUTSIDE THE QUERY ENGINE
  *

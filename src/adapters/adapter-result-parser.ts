@@ -1,4 +1,42 @@
+import type { DecimalPhysicalRepresentation } from "@validation/primitives/decimal-codec";
+
 export interface AdapterResultParser {
+  /**
+   * How this dialect physically spells a decimal on the way back.
+   *
+   * `"coefficient"` means the column stores (and therefore returns) the signed
+   * unscaled integer, cast to text before a driver can round an int64 into a
+   * double — the SQLite family, which has no exact decimal type. Every other
+   * provider returns native exact decimal text, which is the default when this
+   * is unset.
+   *
+   * It is DECLARED and never inferred: at scale 2 the text `"120"` is logical
+   * 120 in one vocabulary and logical 1.2 in the other, so a value cannot be
+   * read without knowing which promise produced it. Declaring it on the adapter
+   * is also what keeps the result parser from asking a dialect question, which
+   * the layering rule forbids.
+   */
+  decimalRepresentation?: DecimalPhysicalRepresentation;
+
+  /**
+   * How this dialect physically spells a decimal LIST on the way back.
+   *
+   * `"coefficient"` means the column holds a JSON array of unscaled coefficient
+   * STRINGS, read back as the container text — JSON has no exact decimal, and a
+   * numeric token would already have been rounded past 2^53 by JavaScript or D1
+   * (plan 6.1). Unset means the column is a native decimal array whose members
+   * arrive as exact decimal text, one JavaScript array member each.
+   *
+   * A SEPARATE declaration from {@link AdapterResultParser.decimalRepresentation}
+   * because the two genuinely differ: MySQL's scalar column is `DECIMAL(p,s)`
+   * and answers with text while its list column is JSON and answers with
+   * coefficients. Deriving one from the other would decode every MySQL list
+   * member at the wrong scale, and the two spellings are indistinguishable by
+   * inspection — at scale 2 the member `"120"` is 120 in one and 1.2 in the
+   * other.
+   */
+  decimalListRepresentation?: DecimalPhysicalRepresentation;
+
   /**
    * When `true`, {@link AdapterResultParser.parseField} performs NO
    * transformation for any scalar type (it is a pure `next()` passthrough) and

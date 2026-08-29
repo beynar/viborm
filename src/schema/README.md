@@ -182,7 +182,7 @@ Scalars represent database columns. Each scalar type has its own class with type
 | `s.string()` | `string` | VARCHAR/TEXT |
 | `s.int()` | `number` | INTEGER |
 | `s.number()` | `number` | FLOAT/REAL |
-| `s.decimal()` | `number` | DECIMAL/NUMERIC |
+| `s.decimal({ precision, scale })` | `Decimal` | Descriptor-derived exact decimal |
 | `s.bigInt()` | `bigint` | BIGINT |
 | `s.boolean()` | `boolean` | BOOLEAN |
 | `s.dateTime()` | `Date` | TIMESTAMP |
@@ -247,12 +247,14 @@ s.json(TYPES.PG.JSON.JSONB)                // Binary JSON
 // MySQL  
 s.string(TYPES.MYSQL.STRING.TEXT)          // TEXT instead of VARCHAR
 s.int(TYPES.MYSQL.INT.TINYINT)             // Smaller integer
-s.decimal(TYPES.MYSQL.DECIMAL.DECIMAL(10, 2))
 
 // SQLite (limited type affinity)
 s.string(TYPES.SQLITE.STRING.TEXT)
 s.number(TYPES.SQLITE.FLOAT.REAL)
 ```
+
+Fixed decimal is the exception: `s.decimal({ precision: 10, scale: 2 })`
+derives its physical type from the descriptor and accepts no native override.
 
 ### Custom Validators
 

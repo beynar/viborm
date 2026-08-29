@@ -133,10 +133,29 @@ async function seed(
   storage.reads.length = 0;
 }
 
+/**
+ * The strict-mode answer every MySQL fixture owes the pinned session.
+ *
+ * `pinned-session.ts` PROVES the session's `sql_mode` before any DDL runs
+ * (plan 3.3: a non-strict MySQL turns an out-of-range DECIMAL into a warning
+ * and stores the clamped value), so a fixture that answers nothing is a server
+ * that reports no strict mode — which the owner correctly refuses. Answering it
+ * in one place keeps the fixtures modelling a real server rather than each
+ * restating the proof.
+ */
+const STRICT_SESSION_MODE = "STRICT_TRANS_TABLES,NO_ENGINE_SUBSTITUTION";
+
+function sessionModeAnswer(sql: string): unknown[] | undefined {
+  return sql.includes("@@SESSION.sql_mode")
+    ? [{ sql_mode: STRICT_SESSION_MODE, server_version: "8.4.0" }]
+    : undefined;
+}
+
 /** Answers the MySQL database proof so an admitted command reaches its point. */
 function respondWithDatabase(namespace: string) {
   return (sql: string) =>
-    sql.includes("SCHEMATA") ? [{ SCHEMA_NAME: namespace }] : [];
+    sessionModeAnswer(sql) ??
+    (sql.includes("SCHEMATA") ? [{ SCHEMA_NAME: namespace }] : []);
 }
 
 /** Answers the PostgreSQL schema proof, for the same reason. */
@@ -157,6 +176,10 @@ function respondWithTracking(namespace: string) {
   const applied: Array<{ name: string; checksum: string; applied_at: number }> =
     [];
   return (sql: string, params: unknown[]) => {
+    const mode = sessionModeAnswer(sql);
+    if (mode) {
+      return mode;
+    }
     if (sql.includes("SCHEMATA")) {
       return [{ SCHEMA_NAME: namespace }];
     }
@@ -201,6 +224,100 @@ function trackingAnswer(
 // =============================================================================
 
 describe("the pinned migration session is one physical producer", () => {
+  it.each([
+    "8.0.15",
+    "10.11.9-MariaDB",
+    undefined,
+  ])("refuses MySQL version %s when enforced CHECK support is not proven", async (serverVersion) => {
+    const driver = mysqlEstateDriver({ namespace: "alpha", attested: true });
+    driver.respond = (statement) =>
+      statement.includes("@@SESSION.sql_mode")
+        ? [
+            {
+              sql_mode: STRICT_SESSION_MODE,
+              server_version: serverVersion,
+            },
+          ]
+        : statement.includes("SCHEMATA")
+          ? [{ SCHEMA_NAME: "alpha" }]
+          : [];
+    const ctx = new MigrationContext(clientFor(driver), {
+      storageDriver: new MemoryStorage(),
+    });
+
+    await expect(
+      ctx.withLockedSession(() => Promise.resolve())
+    ).rejects.toMatchObject({
+      code: VibORMErrorCode.DRIVER_NOT_SUPPORTED,
+      message: expect.stringContaining("8.0.16"),
+      meta: { type: "unenforced-check-constraints" },
+    });
+  });
+
+  it("admits MySQL 8.0.16, the first version that enforces CHECK", async () => {
+    const driver = mysqlEstateDriver({ namespace: "alpha", attested: true });
+    driver.respond = (statement) =>
+      statement.includes("@@SESSION.sql_mode")
+        ? [{ sql_mode: STRICT_SESSION_MODE, server_version: "8.0.16" }]
+        : statement.includes("SCHEMATA")
+          ? [{ SCHEMA_NAME: "alpha" }]
+          : [];
+    const ctx = new MigrationContext(clientFor(driver), {
+      storageDriver: new MemoryStorage(),
+    });
+
+    await expect(
+      ctx.withLockedSession(() => Promise.resolve("ran"))
+    ).resolves.toBe("ran");
+  });
+
+  it("refuses a strict-mode substring before the protected body", async () => {
+    const driver = mysqlEstateDriver({ namespace: "alpha", attested: true });
+    driver.respond = (statement) =>
+      statement.includes("@@SESSION.sql_mode")
+        ? [
+            {
+              sql_mode: "NOT_STRICT_TRANS_TABLES",
+              server_version: "8.4.0",
+            },
+          ]
+        : statement.includes("SCHEMATA")
+          ? [{ SCHEMA_NAME: "alpha" }]
+          : [];
+    const ctx = new MigrationContext(clientFor(driver), {
+      storageDriver: new MemoryStorage(),
+    });
+    const protectedBody = vi.fn(() => Promise.resolve("ran"));
+
+    await expect(ctx.withLockedSession(protectedBody)).rejects.toMatchObject({
+      code: VibORMErrorCode.DRIVER_NOT_SUPPORTED,
+      meta: { type: "non-strict-sql-mode" },
+    });
+    expect(protectedBody).not.toHaveBeenCalled();
+  });
+
+  it("admits a trimmed exact STRICT_ALL_TABLES token", async () => {
+    const driver = mysqlEstateDriver({ namespace: "alpha", attested: true });
+    driver.respond = (statement) =>
+      statement.includes("@@SESSION.sql_mode")
+        ? [
+            {
+              sql_mode: "NO_ENGINE_SUBSTITUTION, STRICT_ALL_TABLES ",
+              server_version: "8.4.0",
+            },
+          ]
+        : statement.includes("SCHEMATA")
+          ? [{ SCHEMA_NAME: "alpha" }]
+          : [];
+    const ctx = new MigrationContext(clientFor(driver), {
+      storageDriver: new MemoryStorage(),
+    });
+
+    await expect(
+      ctx.withLockedSession(() => Promise.resolve("ran"))
+    ).resolves.toBe("ran");
+  });
+
   it("runs the lock, the reads and the unlock on the SAME producer", async () => {
     const driver = pgEstateDriver("alpha");
     driver.respond = respondWithSchema();
@@ -1617,6 +1734,10 @@ describe("a MySQL reset that fails mid-flight reports what it committed", () => 
    */
   function respondForReset(fails: (sql: string) => boolean) {
     return (sql: string): unknown[] | Error => {
+      const mode = sessionModeAnswer(sql);
+      if (mode) {
+        return mode;
+      }
       if (sql.includes("SCHEMATA")) {
         return [{ SCHEMA_NAME: "alpha" }];
       }

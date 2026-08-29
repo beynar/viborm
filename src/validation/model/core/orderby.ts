@@ -1,5 +1,5 @@
 import type { AnyModel } from "@schema/model";
-import type { StringKeyOf } from "@schema/model/helper";
+import type { DecimalListScalarKeys, StringKeyOf } from "@schema/model/helper";
 import type { ScalarState } from "@schema/scalars";
 import v, { type V } from "../../primitives/v";
 import type { VibSchema } from "../../types";
@@ -57,6 +57,14 @@ type ScalarStateOf<F> = F extends { "~": { state: infer S } }
     ? S
     : never
   : never;
+type ModelDecimalListScalarKeys<M extends AnyModel> = Extract<
+  DecimalListScalarKeys<ModelScalars<M>>,
+  ModelScalarKey<M>
+>;
+export type OrderableScalarKeys<M extends AnyModel> = Exclude<
+  ModelScalarKey<M>,
+  ModelDecimalListScalarKeys<M>
+>;
 type VectorScalarKeys<M extends AnyModel> = {
   [K in keyof ModelScalars<M>]: ScalarStateOf<
     ModelScalars<M>[K]
@@ -67,9 +75,27 @@ type VectorScalarKeys<M extends AnyModel> = {
     : never;
 }[keyof ModelScalars<M>];
 type NonVectorScalarKeys<M extends AnyModel> = Exclude<
-  ModelScalarKey<M>,
+  OrderableScalarKeys<M>,
   VectorScalarKeys<M>
 >;
+
+/** A decimal list has equality semantics, but no portable numeric ordering. */
+export const isOrderableScalarState = (state: ScalarState): boolean =>
+  state.type !== "decimal" || state.array !== true;
+
+export const decimalListOrderByRefusalSchema = v.refused(
+  "A decimal list cannot be used for numeric ordering."
+);
+export type DecimalListOrderByRefusalSchema =
+  typeof decimalListOrderByRefusalSchema;
+
+export function isDecimalListScalarKey<M extends AnyModel>(
+  model: M,
+  fieldName: ModelScalarKey<M>
+): fieldName is ModelDecimalListScalarKeys<M> {
+  const state = model["~"].state.scalars[fieldName]["~"].state;
+  return state.type === "decimal" && state.array === true;
+}
 
 /**
  * A polymorphic slot is orderable exactly as far as its cardinality allows: a
@@ -84,6 +110,10 @@ export type OrderBySchema<
 > = V.Object<
   V.FromKeys<NonVectorScalarKeys<M>[], SortOrderSchema>["entries"] &
     V.FromKeys<VectorScalarKeys<M>[], VectorSortOrderSchema>["entries"] &
+    V.FromKeys<
+      ModelDecimalListScalarKeys<M>[],
+      DecimalListOrderByRefusalSchema
+    >["entries"] &
     V.FromObject<F["relations"], "orderBy">["entries"] &
     V.FromObject<F["polymorphic"], "orderBy">["entries"]
 >;
@@ -96,14 +126,20 @@ export const getOrderBySchema = <
 ): OrderBySchema<M, F> => {
   const vectorScalarKeys: VectorScalarKeys<M>[] = [];
   const nonVectorScalarKeys: NonVectorScalarKeys<M>[] = [];
+  const decimalListScalarKeys: ModelDecimalListScalarKeys<M>[] = [];
 
   const scalarKeys = Object.keys(
     model["~"].state.scalars
   ) as ModelScalarKey<M>[];
 
   for (const fieldName of scalarKeys) {
+    if (isDecimalListScalarKey(model, fieldName)) {
+      decimalListScalarKeys.push(fieldName);
+      continue;
+    }
     const scalar = model["~"].state.scalars[fieldName];
-    if (scalar["~"].state.type === "vector") {
+    const state = scalar["~"].state;
+    if (state.type === "vector") {
       vectorScalarKeys.push(fieldName as VectorScalarKeys<M>);
       continue;
     }
@@ -118,6 +154,10 @@ export const getOrderBySchema = <
     VectorScalarKeys<M>[],
     typeof vectorSortOrderSchema
   >(vectorScalarKeys, vectorSortOrderSchema);
+  const decimalListEntries = v.fromKeys<
+    ModelDecimalListScalarKeys<M>[],
+    DecimalListOrderByRefusalSchema
+  >(decimalListScalarKeys, decimalListOrderByRefusalSchema);
 
   const relationEntries = v.fromObject<F["relations"], "orderBy">(
     fieldSchemas.relations,
@@ -131,6 +171,7 @@ export const getOrderBySchema = <
   return v.object({
     ...scalarEntries.entries,
     ...vectorEntries.entries,
+    ...decimalListEntries.entries,
     ...relationEntries.entries,
     ...polymorphicEntries.entries,
   });

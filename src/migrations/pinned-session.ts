@@ -27,6 +27,7 @@ import { withCleanupFailure } from "../drivers/shared/cleanup-failure";
 import { MigrationError, VibORMErrorCode } from "../errors";
 import type { MigrationContext } from "./context";
 import type { BoundMigrationDriver } from "./drivers";
+import { planInterruptedMySQLDecimalRecovery } from "./drivers/mysql/decimal-recovery";
 import { type CatalogRead, readsCommandNamespace } from "./target";
 import { createQueryExecutor } from "./utils";
 
@@ -41,6 +42,23 @@ import { createQueryExecutor } from "./utils";
  * server-wide (`drivers/mysql/pinned-session.ts`).
  */
 const MIGRATION_LOCK_ID = 0x76_69_62_6f_72_6d; // "viborm" in hex, truncated
+const MYSQL_VERSION = /^(\d+)\.(\d+)\.(\d+)/;
+
+const MYSQL_DECIMAL_RECOVERY = Symbol("mysqlDecimalRecovery");
+
+interface MySQLDecimalRecoveryScope {
+  take(producer: AnyDriver): Promise<readonly string[]>;
+}
+
+function isMySQLDecimalRecoveryScope(
+  value: unknown
+): value is MySQLDecimalRecoveryScope {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof Reflect.get(value, "take") === "function"
+  );
+}
 
 /**
  * Runs `body` on ONE reserved producer holding this estate's migration lock.
@@ -84,7 +102,7 @@ export function withLockedMigrationProducer<T>(
         pinned,
         migrationDriver
       );
-      result = await body(pinned, command);
+      result = await body(pinned, scopeMySQLDecimalRecovery(command));
     } catch (error) {
       await releaseAfterFailure(pinned, migrationDriver, control, error);
       throw error;
@@ -153,7 +171,102 @@ async function validateAndSelectMigrationTarget(
 ): Promise<BoundMigrationDriver> {
   const command = await resolveCommandDriver(pinned, migrationDriver);
   await selectMigrationTarget(pinned, command);
+  await proveExactValueSessionMode(pinned, command);
   return command;
+}
+
+/**
+ * MySQL only: PROVES this session fails on an out-of-range value instead of
+ * truncating it (plan 3.3: "Strict exact-value behavior is required; a mode
+ * that converts overflow or truncation to warnings is refused for effectful
+ * decimal operations").
+ *
+ * The requirement is not decorative on a fixed-decimal estate. Outside strict
+ * mode MySQL answers an overflowing `DECIMAL` assignment with a WARNING and
+ * writes the clamped value: measured on 8.4, `UPDATE t SET amount = amount *
+ * 100000` on a `DECIMAL(6,2)` column holding `10.00` stores `9999.99` and
+ * returns success. Migration work may execute provider-authored DDL and manual
+ * artifacts outside the ORM adapter's guarded decimal assignments, so its one
+ * pinned producer must prove that an out-of-range exact value is an error.
+ * Ordinary ORM increment, decrement, multiply, and divide carry their own
+ * same-statement non-strict refusal; this proof owns the migration boundary.
+ *
+ * ONE proof, HERE: once per pinned migration session, on the producer that runs
+ * the DDL, before any statement it protects. Not per operation — a hot-path
+ * check would ask the same server the same question on every write, and the
+ * session it would be asking about is the one this owner already reserved.
+ * PostgreSQL and SQLite have no equivalent mode to prove: neither has a setting
+ * that turns an out-of-range numeric into a truncation.
+ */
+async function proveExactValueSessionMode(
+  pinned: AnyDriver,
+  migrationDriver: BoundMigrationDriver
+): Promise<void> {
+  if (migrationDriver.target.dialect !== "mysql") {
+    return;
+  }
+  const rows = await createQueryExecutor(pinned)(
+    "SELECT @@SESSION.sql_mode AS sql_mode, VERSION() AS server_version"
+  );
+  const row = rows[0];
+  const mode: unknown =
+    typeof row === "object" && row !== null
+      ? Reflect.get(row, "sql_mode")
+      : undefined;
+  const declared = typeof mode === "string" ? mode : "";
+  const serverVersion: unknown =
+    typeof row === "object" && row !== null
+      ? Reflect.get(row, "server_version")
+      : undefined;
+  const renderedVersion =
+    typeof serverVersion === "string" ? serverVersion : "<unreported>";
+  if (!supportsEnforcedMySQLChecks(renderedVersion)) {
+    throw new MigrationError(
+      `This MySQL migration session reports version "${renderedVersion}". Fixed-decimal conversions require MySQL 8.0.16 or later, where CHECK constraints are enforced; the command is refused before any migration effect.`,
+      VibORMErrorCode.DRIVER_NOT_SUPPORTED,
+      {
+        meta: {
+          dialect: "mysql",
+          type: "unenforced-check-constraints",
+          target: describeEstate(migrationDriver),
+        },
+      }
+    );
+  }
+  const hasStrictMode = declared.split(",").some((mode) => {
+    const token = mode.trim();
+    return token === "STRICT_TRANS_TABLES" || token === "STRICT_ALL_TABLES";
+  });
+  if (hasStrictMode) {
+    return;
+  }
+  throw new MigrationError(
+    `This MySQL session runs in sql_mode "${declared}", which has neither STRICT_TRANS_TABLES nor STRICT_ALL_TABLES. ` +
+      "Effectful migration work is refused: without a strict mode MySQL answers an out-of-range DECIMAL with a warning and stores the clamped value, so an exact fixed-decimal column would silently stop holding what it was given. Enable a strict mode on the server or on this connection and run the command again.",
+    VibORMErrorCode.DRIVER_NOT_SUPPORTED,
+    {
+      meta: {
+        dialect: "mysql",
+        type: "non-strict-sql-mode",
+        target: describeEstate(migrationDriver),
+      },
+    }
+  );
+}
+
+/** MySQL began enforcing CHECK constraints in 8.0.16. */
+function supportsEnforcedMySQLChecks(version: string): boolean {
+  if (version.toLowerCase().includes("mariadb")) {
+    return false;
+  }
+  const match = MYSQL_VERSION.exec(version);
+  if (match === null) {
+    return false;
+  }
+  const major = Number(match[1]);
+  const minor = Number(match[2]);
+  const patch = Number(match[3]);
+  return major > 8 || (major === 8 && (minor > 0 || patch >= 16));
 }
 
 /**
@@ -229,8 +342,25 @@ export async function resolveCommandDriver(
  */
 export async function runSequentialProgram<T>(
   producer: AnyDriver,
+  migrationDriver: BoundMigrationDriver,
   body: (recording: AnyDriver) => Promise<T>
 ): Promise<T> {
+  let recoveryStatements: readonly string[] = [];
+  if (migrationDriver.target.dialect === "mysql") {
+    const recovery: unknown = Reflect.get(
+      migrationDriver,
+      MYSQL_DECIMAL_RECOVERY
+    );
+    if (!isMySQLDecimalRecoveryScope(recovery)) {
+      throw new MigrationError(
+        "This MySQL sequential migration program is not bound to its locked command's decimal-recovery scope.",
+        VibORMErrorCode.MIGRATION_INVALID_STATE,
+        { meta: { dialect: "mysql", type: "unbound-migration-command" } }
+      );
+    }
+    recoveryStatements = await recovery.take(producer);
+  }
+
   /**
    * The last statement that RAN TO COMPLETION.
    *
@@ -248,10 +378,67 @@ export async function runSequentialProgram<T>(
   });
 
   try {
+    for (const statement of recoveryStatements) {
+      await recording._executeRaw(statement);
+    }
     return await body(recording);
   } catch (cause) {
     throw partialProgramFailure(cause, committed);
   }
+}
+
+/**
+ * Gives one locked command one recoverable MySQL decimal-cleanup decision.
+ *
+ * The decision is lazy because apply must read and validate its authoritative
+ * journal before recovery may touch the estate. The first sequential program
+ * takes it after that preflight; later artifact/program segments in the same
+ * command get an empty plan. Proof failures leave the decision untaken and
+ * retain their exact migration-state diagnostics.
+ */
+function scopeMySQLDecimalRecovery(
+  migrationDriver: BoundMigrationDriver
+): BoundMigrationDriver {
+  if (migrationDriver.target.dialect !== "mysql") {
+    return migrationDriver;
+  }
+  if (migrationDriver.namespace === undefined) {
+    throw new MigrationError(
+      "This MySQL migration command has no resolved database for interrupted decimal-conversion recovery.",
+      VibORMErrorCode.MIGRATION_INVALID_STATE,
+      { meta: { dialect: "mysql", type: "unbound-database" } }
+    );
+  }
+  const namespace = migrationDriver.namespace;
+
+  let taken = false;
+  let planned: Promise<readonly string[]> | undefined;
+  const scope: MySQLDecimalRecoveryScope = {
+    async take(producer) {
+      if (taken) return [];
+      if (planned !== undefined) {
+        await planned;
+        return [];
+      }
+      planned = planInterruptedMySQLDecimalRecovery(
+        (sql, params) => producer._executeRaw(sql, params),
+        namespace,
+        (name) => migrationDriver.escapeIdentifier(name)
+      );
+      try {
+        const statements = await planned;
+        taken = true;
+        return statements;
+      } catch (error) {
+        planned = undefined;
+        throw error;
+      }
+    },
+  };
+  const command: BoundMigrationDriver = Object.create(migrationDriver);
+  Object.defineProperty(command, MYSQL_DECIMAL_RECOVERY, { value: scope });
+  Object.freeze(command);
+  return command;
 }
 
 /**

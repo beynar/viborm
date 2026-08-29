@@ -45,10 +45,10 @@ benchmark runner (tinybench: warmup, mean/p75/p99, relative comparison).
 - **`operation-pipeline-worker.mjs`** — measures one catalog stage and mode in
   one fresh process; invoke it through the coordinator, not directly.
 - **`operation-pipeline-compare.mjs`** — compares explicit clean baseline and
-  candidate worktrees. It runs five fresh child processes per checkout and
-  target, alternates checkout order, separates allocation, aggregate CPU, and
-  retained-heap modes, and reports median, MAD, min, max, bytes per operation,
-  and bytes per returned row.
+  candidate worktrees. Baseline/candidate targets run five alternating fresh
+  processes per checkout; candidate-only targets run five fresh candidate
+  processes. Allocation, aggregate CPU, and retained-heap modes report median,
+  MAD, min, max, bytes per operation, and bytes per returned row.
 - **`operation-pipeline-provider-fixtures.mjs`** — provider adapters for the
   generated `provider-*` workload matrix. The provider catalog remains
   exhaustive when a runtime or service leg cannot execute: unavailable legs
@@ -140,13 +140,16 @@ and dynamically loads each checkout's built package. This permits the fixed
 measurement surface without rewriting that historical worktree.
 
 ```sh
-# Run the complete checked-in matrix. Both SHA arguments must contain all 40
-# hexadecimal characters.
+# Run one explicit same-baseline workload set. Omitting --workloads selects the
+# whole catalog and is refused because provider transport and fixed decimal use
+# different evidence programs and baselines. Both SHA arguments must contain
+# all 40 hexadecimal characters.
 pnpm bench:operation-pipeline \
   --baseline-dir /absolute/path/to/baseline \
   --baseline-commit <full-baseline-sha> \
   --candidate-dir /absolute/path/to/candidate \
   --candidate-commit <full-candidate-sha> \
+  --workloads scalar-find-unique,scalar-find-many-20 \
   --output /absolute/path/to/report.json
 
 # Measure only the stage owned by one optimization.
@@ -169,11 +172,26 @@ pnpm bench:operation-pipeline \
   --candidate-dir /absolute/path/to/candidate \
   --candidate-commit <full-candidate-sha> \
   --providers sqlite3,libsql,pglite,planetscale \
-  --workloads provider-identity-1,provider-mixed-scalar-20 \
+  --workloads provider-identity-1,provider-wide-scalar-100 \
   --stages provider-execute,driver-wrapper,unowned-parse,provider-parse,full \
   --modes alloc,cpu,retained \
-  --target sqlite3/provider-mixed-scalar-20/driver-wrapper/cpu/cpuMicrosecondsPerOperation \
+  --target sqlite3/provider-wide-scalar-100/driver-wrapper/cpu/cpuMicrosecondsPerOperation \
   --output /absolute/path/to/provider-report.json
+
+# Fixed-decimal closure. The scalar control is measured baseline/candidate;
+# decimal workloads run on the candidate only because the baseline has no
+# fixed-decimal public API. Add mysql2 to --providers only when its disposable
+# Docker URL is available.
+pnpm bench:operation-pipeline \
+  --baseline-dir /absolute/path/to/1d796d4e-baseline \
+  --baseline-commit 1d796d4e01841becfbb2f6805668ef11d270aa0e \
+  --candidate-dir /absolute/path/to/candidate \
+  --candidate-commit <full-candidate-sha> \
+  --providers sqlite3,pglite \
+  --workloads provider-fixed-decimal-scalar-control,provider-fixed-decimal-row-1,provider-fixed-decimal-row-1000,provider-fixed-decimal-text-row-1,provider-fixed-decimal-text-row-1000,provider-fixed-decimal-floor-1,provider-fixed-decimal-floor-1000,provider-fixed-decimal-arithmetic,provider-fixed-decimal-aggregate,provider-fixed-decimal-list \
+  --stages full,decimal-construct \
+  --modes alloc,cpu,retained \
+  --output /absolute/path/to/fixed-decimal-report.json
 
 # Infrastructure check only. One short replicate; never valid as performance
 # evidence.
@@ -212,6 +230,49 @@ non-target noise cannot grant eligibility. Each targeted workload must also
 include both its full/allocation and full/CPU evidence pairs. Any significant
 measured regression or a full-operation regression above 10% blocks the keep
 gate.
+
+The fixed-decimal catalog marks its decimal workloads as `candidate-only`.
+Each of their five fresh-process replicates executes the candidate once and is
+reported under `candidateMeasurements`, with absolute allocation, CPU, wall,
+retained-heap, and RSS summaries but no invented baseline delta. A candidate-
+only workload cannot carry `--target`, `--ceiling`, `--budget`, or
+`--row-scaling` contracts. The non-decimal
+`provider-fixed-decimal-scalar-control` remains a normal alternating A/B
+comparison. Its catalog-owned full allocation and framework-CPU ceilings are
+3%, and each ceiling also requires the movement to remain inside 2×MAD.
+
+Fixed-decimal eligibility has one catalog-owned evaluator, separate from the
+generic budget and row-scaling CLI. At 1 and 1,000 rows it subtracts a
+shape-matched `id + string` full-operation control, the measured difference
+between their direct `provider-execute` legs, and a direct ORM-result `Decimal`
+constructor floor from the decimal full-operation cost. The provider delta
+removes only the physical INTEGER/NUMERIC-to-text work that exact transport
+requires. Allocation, CPU, and wall excess must stay within both 10% of the
+constructor floor and the additive MADs of all five measured arms. Released
+heap keeps the original full/text/constructor formula because its retained
+public-result lifetime is not comparable with an ephemeral provider result.
+When the floor is zero, the percentage term is omitted. Signed retained heap
+never uses a percentage and blocks only positive excess beyond the additive MAD
+bound. Peak RSS and peak-RSS growth are non-additive: each compares the decimal
+level with the larger control level and
+uses the MAD of that same selected control. The 1→1,000 scaling check applies
+the same bounds to the difference between the two excesses. Gates consume
+per-operation metrics; the report includes the derived per-row values. The
+constructor stage creates exactly the declared number of values through the
+constructor captured from an actual ORM result, from precomputed canonical
+strings. One pre-sized sink is allocated before timing and overwritten on each
+run, so every constructed value remains live through the checksum without
+charging a new result container to the constructor floor. It performs no
+database work inside timing. Retained mode keeps every measured decimal/text public
+result graph and every constructor-floor Decimal alive through its first forced
+collection, then releases those references and measures their collection.
+Missing or skipped fixed-decimal workloads, controls, floors, required modes,
+SQLite3, or PGlite
+evidence make the report ineligible, so the scalar control cannot authorize a
+keep by itself. Fixed-decimal eligibility requires `full` for logical and text
+operations, `provider-execute` for their allocation and CPU evidence, and
+`decimal-construct` for the floor. Other internal provider/parser stages remain
+optional directional evidence.
 
 `--budget provider/workload/stage/mode/metric/absolute/max` and
 `--budget provider/workload/stage/mode/metric/percent/max` are the two
@@ -258,6 +319,22 @@ payload; unavailable transport byte counts are omitted rather than estimated.
 The coordinator does not create, clean, or install a worktree. Dependency
 installation remains an explicit setup step; package rebuilding is deliberately
 owned by the coordinator so stale ignored output cannot become evidence.
+
+Run cross-provider evidence from the clean candidate checkout. That checkout
+can also be the `--candidate-dir`; only the baseline and candidate directories
+must differ. When the implementation still lives in a dirty branch, reproduce
+the complete candidate in a disposable linked worktree and create a local
+temporary commit there. Do not stage, switch, stash, or clean the dirty branch
+to satisfy the benchmark. Install the frozen dependencies in both evidence
+worktrees, and launch the command from the clean candidate worktree. Use the
+baseline declared by the evidence program: cross-provider result transport
+keeps `52eef9ebfc710407e1e5fe6042e2ed5a11adf19e`, while fixed decimal uses its
+exact pre-feature commit `1d796d4e01841becfbb2f6805668ef11d270aa0e`.
+A selection that mixes those programs is refused before build or measurement.
+The fixed-decimal program requires the two lockfiles to differ by exactly the
+pinned `decimal.js@10.6.0` importer, package, and snapshot entries; equality and
+every other delta are refused. The report records that exception as
+`fixed-decimal-dependency-only`.
 
 Composed relation and generated-reference writes currently expose no real
 plan-only seam from the built package: `prepare()` declines them and

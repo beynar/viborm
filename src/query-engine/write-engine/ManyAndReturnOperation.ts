@@ -42,6 +42,7 @@ import {
 } from "./OperationFragment";
 import { planningKey } from "./Part";
 import { StepScope } from "./StepScope";
+import { parseCapturedRowKeys } from "./series-result-read";
 import { isRecord, selectExecutionMode } from "./shared";
 
 type ExecutionMode = "transaction" | "batch";
@@ -406,8 +407,7 @@ export class ManyAndReturnOperation {
     return new ResultParser(
       this.engine,
       this.model,
-      this.engine.driver,
-      this.engine.decimalDecode
+      this.engine.driver
     ).parse<T>(this.kind as Operation, rows, this.args);
   }
 
@@ -418,7 +418,7 @@ export class ManyAndReturnOperation {
    */
   private capturedRows(
     known: Readonly<Record<string, unknown>>
-  ): Record<string, unknown>[] | undefined {
+  ): readonly Record<string, unknown>[] | undefined {
     if (!this.captureRead) {
       throw new QueryEngineError(
         `query-engine-v2 ${publicOperationName(this.kind)} with 'select' lost its capture plan.`
@@ -431,7 +431,7 @@ export class ManyAndReturnOperation {
       );
     }
     if (captured.length === 0) return undefined;
-    return captured as Record<string, unknown>[];
+    return parseCapturedRowKeys(this.engine, this.model, captured);
   }
 
   /**

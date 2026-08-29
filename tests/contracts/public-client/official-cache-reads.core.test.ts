@@ -1,6 +1,7 @@
 import { MemoryCache } from "@src/cache/drivers/memory";
 import type { CacheEntry } from "@src/cache/exports";
 import { cache } from "@src/cache/exports";
+import { createOfficialCacheNamespace } from "@src/cache/key";
 import { defaultOmit } from "@src/client/exports";
 import { CacheInvalidKeyError, ValidationError } from "@src/errors";
 import { createClient, s } from "@src/index";
@@ -32,6 +33,19 @@ const post = s
   })
   .map("official_cache_read_post");
 const schema = { author, post };
+
+/**
+ * The official namespace a PGlite client in schema `public` really builds.
+ *
+ * Both forgery tests below need a scope that is BYTE-IDENTICAL to the real one:
+ * that is what makes them proofs of a refusal rather than of a typo. The bytes
+ * alone are not enough to hold this file to the snapshot revision, because both
+ * refusals fire on the `viborm:cache` prefix and would keep passing after a
+ * bump — so the literal is tied to its owner by the equality below, and a
+ * revision that moves reds this file with the other four.
+ */
+const OFFICIAL_NAMESPACE =
+  "viborm:cache:r3:d:0070006f0073007400670072006500730071006c:k:007000750062006c00690063:u";
 const family = usePGliteSchemaFamily(schema);
 const nativeFamily = usePGliteSchemaFamily(schema, "atomicBatch");
 
@@ -508,13 +522,23 @@ describe("official cache reads", () => {
     expect(cacheDriver.sets).toHaveLength(2);
   });
 
+  test("the forged scopes below are the namespace this client really builds", () => {
+    // PGlite is the PostgreSQL dialect bound to schema `public`, unversioned.
+    expect(
+      createOfficialCacheNamespace({
+        version: undefined,
+        dialect: "postgresql",
+        namespace: "public",
+      })
+    ).toBe(OFFICIAL_NAMESPACE);
+  });
+
   test("refuses reflected structural cache scopes before backend work", async () => {
     const cacheDriver = new RecordingCache();
     const fakeScope: object = Reflect.construct(Object, []);
     Reflect.defineProperty(fakeScope, "namespace", {
       enumerable: true,
-      value:
-        "viborm:cache:r2:d:0070006f0073007400670072006500730071006c:k:007000750062006c00690063:u",
+      value: OFFICIAL_NAMESPACE,
     });
     const publicCalls = [
       () =>
@@ -575,8 +599,7 @@ describe("official cache reads", () => {
 
   test("reserves the official namespace on normal public cache calls", async () => {
     const cacheDriver = new RecordingCache();
-    const reservedKey =
-      "viborm:cache:r2:d:0070006f0073007400670072006500730071006c:k:007000750062006c00690063:u:author:findMany:forged";
+    const reservedKey = `${OFFICIAL_NAMESPACE}:author:findMany:forged`;
     const publicCalls = [
       () => cacheDriver._get(reservedKey),
       () => cacheDriver._set(reservedKey, 1, { ttl: 1000 }),

@@ -14,6 +14,13 @@ import { s } from "@schema";
  * SQLite/LibSQL (which store enums as text) answered it happily. Their
  * defaults differ so every seeded row has `status != reviewStatus`, leaving the
  * equality tests to create the one row where they agree.
+ *
+ * The three DECIMAL columns exist to pin the descriptor rule: `fee` and
+ * `discount` declare the SAME precision and scale and may be compared, while
+ * `rate` declares a different scale and may not. `rate`'s scale is what makes
+ * the pair incomparable rather than merely inconvenient — on a coefficient
+ * dialect a stored `120` is `1.20` in one column and `0.0120` in the other, so
+ * comparing the two columns would answer a different question per provider.
  */
 export const fieldRefSchema = (() => {
   const user = s
@@ -32,6 +39,9 @@ export const fieldRefSchema = (() => {
       slug: s.string().map("slug_column"),
       views: s.int().default(0),
       likes: s.int().default(0),
+      fee: s.decimal({ precision: 12, scale: 2 }).default("0"),
+      discount: s.decimal({ precision: 12, scale: 2 }).default("0"),
+      rate: s.decimal({ precision: 12, scale: 4 }).default("0"),
       status: s.enum(["draft", "review", "published"]).default("draft"),
       reviewStatus: s
         .enum(["draft", "review", "published"])

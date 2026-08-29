@@ -19,6 +19,7 @@ import type {
 import {
   destinationCastSchema,
   FOUND_AT,
+  OLD_AT,
   registerDestinationCastBehavior,
 } from "@tests/contracts/engine/write/destination-cast-behavior";
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
@@ -94,7 +95,7 @@ describe("U-E6.0 the emitted relation-key expression", () => {
           },
         },
       },
-      { "entry.find.rows": [{ id: "e-1" }] }
+      { "entry.find.rows": [{ id: "e-1", atRef: OLD_AT }] }
     );
     const arm = writeSteps(compiled.steps).find((step) =>
       ENTRY_UPDATE.test(sqlOf(step))
@@ -141,7 +142,7 @@ describe("U-E6.0 the emitted relation-key expression", () => {
           },
         },
       },
-      { "tick.find.rows": [{ id: "t-1" }] }
+      { "tick.find.rows": [{ id: "t-1", seqRef: 1 }] }
     );
     const arm = writeSteps(compiled.steps).find((step) =>
       TICK_UPDATE.test(sqlOf(step))
@@ -165,7 +166,7 @@ describe("U-E6.0 the emitted relation-key expression", () => {
           },
         },
       },
-      { "file.find.rows": [{ id: "f-1" }] }
+      { "file.find.rows": [{ id: "f-1", nameRef: "old" }] }
     );
     const arm = writeSteps(compiled.steps).find((step) =>
       FILE_UPDATE.test(sqlOf(step))
@@ -178,7 +179,7 @@ describe("U-E6.0 the emitted relation-key expression", () => {
 
 /** SQL-only: the lowering is a pure function of the adapter, and the three dialects
  *  disagree about the spelling, not about the plan. Same shape as the decimal FK
- *  harness in `tests/query-engine/decimal-relation-key-write.test.ts`. */
+ *  harness in `tests/contracts/engine/query/decimal-relation-key-write.test.ts`. */
 class SqlOnlyDriver extends Driver<null, null> {
   readonly adapter: DatabaseAdapter;
 

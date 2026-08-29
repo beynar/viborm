@@ -14,7 +14,11 @@ import {
 } from "@client/client";
 import type { Schema } from "@client/types";
 import { unsupportedGeospatial, unsupportedVector } from "@errors";
-import { Driver, type QueryExecutionContext } from "../driver";
+import {
+  Driver,
+  type DriverResultParser,
+  type QueryExecutionContext,
+} from "../driver";
 import { getExecutionTransactionPhases } from "../execution-context";
 import { normalizeProviderRowCount } from "../normalized-result";
 import {
@@ -42,6 +46,10 @@ interface BunSQL {
     sql: string,
     params?: unknown[]
   ): Promise<BunSQLResult<T>>;
+  array(
+    values: unknown[],
+    typeNameOrTypeID?: string
+  ): { readonly serializedValues: string };
   begin<T>(fn: (sql: BunSQLTransaction) => Promise<T>): Promise<T>;
   close(): Promise<void>;
   reserve(): Promise<BunSQLReservedConnection>;
@@ -53,8 +61,47 @@ interface BunSQLTransaction {
     sql: string,
     params?: unknown[]
   ): Promise<BunSQLResult<T>>;
+  array(
+    values: unknown[],
+    typeNameOrTypeID?: string
+  ): { readonly serializedValues: string };
   savepoint<T>(fn: (sql: BunSQLTransaction) => Promise<T>): Promise<T>;
 }
+
+/**
+ * Bun's `unsafe()` path does not invoke its array helper: a plain JavaScript
+ * array is bound as `Array#toString()`, which is not PostgreSQL array input
+ * syntax. The adapter has already validated ORM list members, so let Bun's own
+ * PostgreSQL encoder escape their flat scalar text and leave the statement's
+ * column context to infer the concrete array type.
+ *
+ * Verbatim raw execution deliberately bypasses this conversion. A verbatim
+ * caller owns the provider representation and receives Bun's ordinary
+ * `unsafe()` semantics; a tagged safe-raw fragment stays on typed execution.
+ */
+function normalizeBunSQLParams(
+  client: BunSQL | BunSQLTransaction,
+  params: unknown[]
+): unknown[] {
+  let normalized: unknown[] | undefined;
+  for (let index = 0; index < params.length; index += 1) {
+    const param = params[index];
+    if (!Array.isArray(param)) continue;
+    normalized ??= [...params];
+    normalized[index] = client.array(param, "TEXT").serializedValues;
+  }
+  return normalized ?? params;
+}
+
+/** Bun decodes PostgreSQL `integer[]` as `Int32Array`, not `Array`. */
+const bunSQLResultParser: DriverResultParser = {
+  parseField: (value, scalarType, next) => {
+    if (scalarType === "int" && value instanceof Int32Array) {
+      return next(Array.from(value), scalarType);
+    }
+    return next(value, scalarType);
+  },
+};
 
 /**
  * Bun's `ReservedSQL` is an `SQL` bound to one connection, plus `release()` —
@@ -103,6 +150,7 @@ export type BunSQLClientConfig<C extends DriverConfig> = BunSQLDriverOptions &
 
 export class BunSQLDriver extends Driver<BunSQL, BunSQLTransaction> {
   declare readonly adapter: DatabaseAdapter;
+  readonly result: DriverResultParser = bunSQLResultParser;
   readonly maxBindParametersPerStatement: number | undefined = 65_535;
 
   private readonly driverOptions: BunSQLDriverOptions;
@@ -180,7 +228,10 @@ export class BunSQLDriver extends Driver<BunSQL, BunSQLTransaction> {
     context?: QueryExecutionContext
   ): Promise<QueryResult<T>> {
     const operation = context?.operation ?? "execute";
-    const result = await client.unsafe<T>(sql, params);
+    const result = await client.unsafe<T>(
+      sql,
+      normalizeBunSQLParams(client, params)
+    );
     return {
       rows: result,
       rowCount: normalizeProviderRowCount(result.count, {

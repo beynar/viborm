@@ -4,7 +4,7 @@
  */
 
 import type { VibSchema } from "../types";
-import { toJsonSchema } from "./converters";
+import { toJsonSchemaForDirection } from "./converters";
 import type { JsonSchemaConverter, JsonSchemaOptions } from "./types";
 
 /**
@@ -20,15 +20,11 @@ export function createJsonSchemaConverter(
 ): JsonSchemaConverter {
   return {
     input(options: JsonSchemaOptions): Record<string, unknown> {
-      // For input type, we use the same conversion
-      // (VibORM doesn't have separate input/output transformations at schema level)
-      return toJsonSchema(schema, options.target) as Record<string, unknown>;
+      return toJsonSchemaForDirection(schema, options.target, "input");
     },
 
     output(options: JsonSchemaOptions): Record<string, unknown> {
-      // For output type, we use the same conversion
-      // (VibORM doesn't have separate input/output transformations at schema level)
-      return toJsonSchema(schema, options.target) as Record<string, unknown>;
+      return toJsonSchemaForDirection(schema, options.target, "output");
     },
   };
 }

@@ -12,6 +12,7 @@ import {
   ALL_MODES,
   ALL_PROVIDERS,
   ALLOCATION_SAMPLING_INTERVAL,
+  defaultMeasurementIterations,
   EXTENSION_ARMS,
   PROVIDERS,
   WORKLOADS,
@@ -178,12 +179,7 @@ function positiveInteger(name, fallback) {
   return value;
 }
 
-const scaleDivisor = Math.max(1, workload.rowsPerOperation / 20);
-const defaultIterations = smoke
-  ? 2
-  : mode === "retained"
-    ? Math.max(20, Math.floor(500 / scaleDivisor))
-    : Math.max(50, Math.floor(5000 / scaleDivisor));
+const defaultIterations = defaultMeasurementIterations(workload, mode, smoke);
 const iterations = positiveInteger(
   "VIBORM_BENCH_ITERATIONS",
   defaultIterations
@@ -271,32 +267,52 @@ async function measureCpu(runOne) {
   };
 }
 
-async function measureRetained(runOne) {
+async function measureRetained(runOne, fixedDecimalRetained) {
+  const retainedValues = fixedDecimalRetained
+    ? new Array(iterations * workload.rowsPerOperation)
+    : undefined;
+  let retainedValueCount = 0;
+  const retain = (value) => {
+    if (!retainedValues || retainedValueCount >= retainedValues.length) {
+      throw new Error("Fixed-decimal retained-result capacity was exceeded");
+    }
+    retainedValues[retainedValueCount] = value;
+    retainedValueCount++;
+  };
   globalThis.gc();
   globalThis.gc();
   const before = process.memoryUsage().heapUsed;
   const peakRssBefore = process.resourceUsage().maxRSS * 1024;
+  const measuredRun = fixedDecimalRetained
+    ? () => fixedDecimalRetained(retain)
+    : runOne;
   const checksum =
     stageKind === "sync"
-      ? runIterationsSync(runOne, iterations)
-      : await runIterationsAsync(runOne, iterations);
+      ? runIterationsSync(measuredRun, iterations)
+      : await runIterationsAsync(measuredRun, iterations);
   const beforeCollection = process.memoryUsage().heapUsed;
   globalThis.gc();
   globalThis.gc();
   const afterCollection = process.memoryUsage().heapUsed;
   const retainedBytes = afterCollection - before;
+  if (retainedValues) {
+    retainedValues.fill(undefined, 0, retainedValueCount);
+    globalThis.gc();
+    globalThis.gc();
+  }
+  const releasedBytes = retainedValues
+    ? Math.max(0, afterCollection - process.memoryUsage().heapUsed)
+    : Math.max(0, beforeCollection - afterCollection);
   return {
     checksum,
     retainedBytes,
     retainedBytesPerOperation: retainedBytes / iterations,
     retainedBytesPerRow:
       retainedBytes / (iterations * workload.rowsPerOperation),
-    releasedBytes: Math.max(0, beforeCollection - afterCollection),
-    releasedBytesPerOperation:
-      Math.max(0, beforeCollection - afterCollection) / iterations,
+    releasedBytes,
+    releasedBytesPerOperation: releasedBytes / iterations,
     releasedBytesPerRow:
-      Math.max(0, beforeCollection - afterCollection) /
-      (iterations * workload.rowsPerOperation),
+      releasedBytes / (iterations * workload.rowsPerOperation),
     peakRssBytes: process.resourceUsage().maxRSS * 1024,
     peakRssGrowthBytes: process.resourceUsage().maxRSS * 1024 - peakRssBefore,
   };
@@ -340,7 +356,7 @@ const measurement =
     ? await measureAllocation(runOne)
     : mode === "cpu"
       ? await measureCpu(runOne)
-      : await measureRetained(runOne);
+      : await measureRetained(runOne, harness.fixedDecimalRetained);
 if (harness.responseBytes) {
   const responseBytes = harness.responseBytes.read();
   measurement.responseBytes = responseBytes;

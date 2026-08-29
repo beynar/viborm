@@ -1,8 +1,8 @@
 // Model & Scalar Validation Rules
 
+import { validateSchema } from "../../../validation/primitives/helpers";
 import { isValidSchemaIdentifier } from "../../identifier";
 import type { Model, ModelState } from "../../model";
-import { validateSchema } from "../../../validation/primitives/helpers";
 import type { Schema, SchemaValidationIssue } from "../types";
 import { getScalars } from "./model-members";
 
@@ -223,11 +223,14 @@ export function validateFieldsSinglePass(
     if (!columnToFields.has(col)) columnToFields.set(col, []);
     columnToFields.get(col)!.push(fname);
 
-    // F004: Default type match
+    // F004: Default type match. A decimal literal crossed its complete field
+    // codec when `.default()` retained it, so this downstream boundary trusts
+    // that canonical output instead of applying a custom schema twice.
     if (
       st.hasDefault &&
       st.default !== undefined &&
-      typeof st.default !== "function"
+      typeof st.default !== "function" &&
+      st.type !== "decimal"
     ) {
       const result = validateSchema(scalar["~"].state.base, st.default);
       if (result.issues) {
@@ -370,16 +373,14 @@ export function indexNameUnique(
   return errors;
 }
 
-/** I003: Compound unique/id fields must exist */
-export function compoundFieldsExist(
+/** I003: Compound unique/id constraints must contain at least one field. */
+export function compoundConstraintsNonEmpty(
   _s: Schema,
   name: string,
   model: Model<any>
 ): SchemaValidationIssue[] {
   const errors: SchemaValidationIssue[] = [];
-  const fields = new Set(Object.keys(model["~"].state.scalars));
 
-  // Check compound ID fields
   const compoundIdFields = getCompoundIdFields(model);
   if (model["~"].state.compoundId && compoundIdFields.length === 0) {
     errors.push({
@@ -389,19 +390,6 @@ export function compoundFieldsExist(
       model: name,
     });
   }
-  for (const f of compoundIdFields) {
-    if (!fields.has(f)) {
-      errors.push({
-        code: "I003",
-        message: `Compound ID field '${f}' not in '${name}'`,
-        severity: "error",
-        model: name,
-        field: f,
-      });
-    }
-  }
-
-  // Check compound unique fields
   const compoundUniques = getCompoundUniques(model);
   for (const constraint of compoundUniques) {
     if (constraint.fields.length === 0) {
@@ -412,19 +400,62 @@ export function compoundFieldsExist(
         model: name,
       });
     }
-    for (const f of constraint.fields) {
-      if (!fields.has(f)) {
-        errors.push({
-          code: "I003",
-          message: `Compound unique field '${f}' not in '${name}'`,
-          severity: "error",
-          model: name,
-          field: f,
-        });
-      }
+  }
+
+  return errors;
+}
+
+/**
+ * I004: a fixed-decimal LIST is not a member of a key or an index (plan 2.1).
+ *
+ * The MODEL-level half of the exclusion. `.id()` and `.unique()` are refused on
+ * the declaration itself, where the chain writes them, but a compound key, a
+ * compound unique and an index name their members by string from the model, so
+ * the declaration never sees them and this is the only place they exist.
+ *
+ * Why a decimal list in particular: on two of three providers the column holds
+ * ONE JSON container, so an index or a key over it addresses a document by its
+ * spelling rather than by its members — and `["1.2"]` and `["1.20"]` are the
+ * same list. Other array scalars are not refused: PostgreSQL indexes native
+ * arrays meaningfully, and this program speaks only for the fixed decimal.
+ */
+export function decimalListsAreNotKeyMembers(
+  _s: Schema,
+  name: string,
+  model: Model<any>
+): SchemaValidationIssue[] {
+  const scalars = model["~"].state.scalars;
+  const isDecimalList = (field: string): boolean => {
+    const state = scalars[field]?.["~"].state;
+    return state?.type === "decimal" && state.array === true;
+  };
+
+  const positions: Array<{ field: string; position: string }> = [];
+  for (const index of model["~"].state.indexes) {
+    for (const field of index.fields) {
+      positions.push({ field, position: "an index" });
+    }
+  }
+  for (const field of getCompoundIdFields(model)) {
+    positions.push({ field, position: "a compound ID" });
+  }
+  for (const constraint of getCompoundUniques(model)) {
+    for (const field of constraint.fields) {
+      positions.push({ field, position: `unique '${constraint.name}'` });
     }
   }
 
+  const errors: SchemaValidationIssue[] = [];
+  for (const { field, position } of positions) {
+    if (!isDecimalList(field)) continue;
+    errors.push({
+      code: "I004",
+      message: `'${field}' in '${name}' is a fixed-decimal list, which cannot be a member of ${position}`,
+      severity: "error",
+      model: name,
+      field,
+    });
+  }
   return errors;
 }
 
@@ -440,5 +471,6 @@ export const modelRules = [
   indexFieldsExist,
   indexNameUnique,
   // Compound key checks
-  compoundFieldsExist,
+  compoundConstraintsNonEmpty,
+  decimalListsAreNotKeyMembers,
 ];

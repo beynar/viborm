@@ -67,17 +67,30 @@ export interface LiftedStatements {
  * nothing to lift or nothing to lift them out of, so every caller can run the
  * result unconditionally.
  */
+/**
+ * Whether this driver has no OUTSIDE to lift the pragmas to.
+ *
+ * A native batch is one round trip, so the pragma would have to travel inside
+ * it — the very thing that does not work. Lifting it would mean a separate
+ * statement on a connection the batch does not share, which is not something
+ * this repo can measure: D1 is the only batch-only SQLite driver and nothing in
+ * the estate exercises it. So that batch goes through untouched, exactly as it
+ * did before, and the hole stays open there and named.
+ *
+ * Exported because the hole is also a REFUSAL condition, not only a lifting
+ * one: a table recreation that has to preserve foreign keys cannot be admitted
+ * on a substrate where the disable is a no-op, so the SQLite driver asks this
+ * same question before it plans one (plan §7.4's D1 prerequisite).
+ */
+export function foreignKeyPragmasCannotBeLifted(driver: AnyDriver): boolean {
+  return driver.supportsBatch;
+}
+
 export function liftForeignKeyPragmas(
   driver: AnyDriver,
   statements: string[]
 ): LiftedStatements {
-  // A native batch is one round trip, so the pragma would have to travel inside
-  // it — the very thing that does not work. Lifting it would mean a separate
-  // statement on a connection the batch does not share, which is not something
-  // this repo can measure: D1 is the only batch-only SQLite driver and nothing
-  // in the estate exercises it. So that batch goes through untouched, exactly
-  // as it did before, and the hole stays open there and named.
-  if (driver.supportsBatch) {
+  if (foreignKeyPragmasCannotBeLifted(driver)) {
     return { bracket: null, statements };
   }
 

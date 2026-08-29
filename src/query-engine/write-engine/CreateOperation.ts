@@ -129,6 +129,7 @@ import {
   resolvePolymorphicStorageValue,
 } from "./relation-membership";
 import { StepScope } from "./StepScope";
+import { parseCapturedRows } from "./series-result-read";
 import {
   capturedSelectorWhere,
   createDataUniqueWhere,
@@ -465,9 +466,6 @@ export class CreateOperation {
   private readonly model: Model<any>;
   private readonly scope: StepScope;
   private readonly resultArgs: Record<string, unknown>;
-  /** Internal series members publish exact row keys, even when public decimal
-   * decoding deliberately requests the legacy lossy number representation. */
-  private readonly resultDecimalDecode: "string" | "number";
   private readonly root: RecordPlan;
   private readonly parsedSelect: Record<string, unknown> | undefined;
   private readonly parsedInclude: Record<string, unknown> | undefined;
@@ -551,9 +549,6 @@ export class CreateOperation {
     // X2), emits no terminal read, and folds the located parent's FK into its root
     // INSERT at compile.
     const nestedFresh = options.nestedFresh;
-    this.resultDecimalDecode = options.parsedRoot
-      ? "string"
-      : engine.decimalDecode;
     this.suppressTerminal = nestedFresh !== undefined;
     this.rootSkipDuplicates =
       options.parsedRoot?.skipDuplicates === true ||
@@ -981,8 +976,7 @@ export class CreateOperation {
     return new ResultParser(
       this.engine,
       this.model,
-      this.engine.driver,
-      this.resultDecimalDecode
+      this.engine.driver
     ).parse<T>("create", outputs.result, this.resultArgs);
   }
 
@@ -2894,11 +2888,22 @@ export class CreateOperation {
           effectiveScalarValues
         );
         return;
-      case "connect-probe":
-        this.requireConnectFound(arm.probeId, arm.relationRef, known);
+      case "connect-probe": {
+        const connectRows = this.requireConnectFound(
+          arm.probeId,
+          arm.relationRef,
+          known
+        );
+        const connectCapture = this.decodeParentHeldProbe(
+          arm.guard,
+          arm.probeId,
+          arm.relationRef,
+          known,
+          connectRows
+        );
         this.assignParentHeld(
           arm.assignment,
-          known,
+          connectCapture.known,
           "connect",
           insertData,
           polymorphicStorage,
@@ -2913,15 +2918,15 @@ export class CreateOperation {
               arm.guardId,
               this.parentHeldGuardProbe(
                 arm.guard,
-                arm.probeId,
                 arm.relationRef,
-                known
+                connectCapture.row
               ),
               arm.relationRef
             )
           );
         }
         return;
+      }
       case "create":
         this.emitBeforeParent(arm.before, undefined, known, guards, writes);
         this.assignParentHeld(
@@ -2942,9 +2947,16 @@ export class CreateOperation {
         // exactly what makes this a create.
         const found = Array.isArray(rows) && rows.length > 0;
         if (found) {
+          const foundCapture = this.decodeParentHeldProbe(
+            arm.guard,
+            arm.probeId,
+            arm.relationRef,
+            known,
+            rows
+          );
           this.assignParentHeld(
             arm.foundAssignment,
-            known,
+            foundCapture.known,
             "connectOrCreate",
             insertData,
             polymorphicStorage,
@@ -2959,9 +2971,8 @@ export class CreateOperation {
                 arm.guardId,
                 this.parentHeldGuardProbe(
                   arm.guard,
-                  arm.probeId,
                   arm.relationRef,
-                  known
+                  foundCapture.row
                 ),
                 nestedWriteFailure(
                   // V1's found-arm captured guard: the planning-seen target vanished
@@ -3078,16 +3089,14 @@ export class CreateOperation {
    */
   private parentHeldGuardProbe(
     guard: CapturedGuard,
-    probeId: string,
     relationRef: RelationRef,
-    known: Readonly<Record<string, unknown>>
+    capturedRow: Readonly<Record<string, unknown>> | undefined
   ): Sql {
     if (guard.kind === "precompiled") return guard.probe;
     const target = this.capturedConnectValues(
-      probeId,
       guard.fields,
       relationRef,
-      known
+      capturedRow
     );
     const childScope = createQueryScope(this.engine, relationRef.targetModel);
     return buildFind(
@@ -3099,6 +3108,31 @@ export class CreateOperation {
       },
       { limit: 1 }
     );
+  }
+
+  /** Decode the one probe shape whose values feed both an assignment and its pin. */
+  private decodeParentHeldProbe(
+    guard: CapturedGuard,
+    probeId: string,
+    relationRef: RelationRef,
+    known: Readonly<Record<string, unknown>>,
+    rows: readonly unknown[]
+  ): {
+    readonly known: Readonly<Record<string, unknown>>;
+    readonly row?: Readonly<Record<string, unknown>>;
+  } {
+    if (guard.kind === "precompiled") return { known };
+    const key = planningKey(probeId, "rows");
+    const capturedRows = parseCapturedRows(
+      this.engine,
+      relationRef.targetModel,
+      rows,
+      Object.fromEntries(guard.fields.map((field) => [field, true]))
+    );
+    return {
+      known: { ...known, [key]: capturedRows },
+      ...(capturedRows[0] ? { row: capturedRows[0] } : {}),
+    };
   }
 
   /** Emit a before-parent target record subtree ahead of the record INSERT,
@@ -3148,7 +3182,7 @@ export class CreateOperation {
     probeId: string,
     relationRef: RelationRef,
     known: Readonly<Record<string, unknown>>
-  ): void {
+  ): readonly unknown[] {
     const relationName = relationRef.name;
     const rows = known[planningKey(probeId, "rows")];
     if (!Array.isArray(rows)) {
@@ -3163,20 +3197,17 @@ export class CreateOperation {
         relationName
       );
     }
+    return rows;
   }
 
   private capturedConnectValues(
-    probeId: string,
     fields: readonly string[],
     relationRef: RelationRef,
-    known: Readonly<Record<string, unknown>>
+    row: Readonly<Record<string, unknown>> | undefined
   ): Readonly<Record<string, unknown>> {
-    this.requireConnectFound(probeId, relationRef, known);
-    const rows = known[planningKey(probeId, "rows")];
-    const row = Array.isArray(rows) ? rows[0] : undefined;
     const captured: Record<string, unknown> = {};
     for (const field of fields) {
-      if (!isRecord(row) || row[field] === undefined || row[field] === null) {
+      if (!row || row[field] === undefined || row[field] === null) {
         throw new NestedWriteError(
           `query-engine create connect probe for relation '${relationRef.name}' did not expose '${field}'.`,
           relationRef.name
@@ -4044,8 +4075,8 @@ function targetProducesKey(
   referencedField: string
 ): boolean {
   return (
-    targetModel["~"].state.scalars[referencedField]?.["~"].state
-      .autoGenerate?.kind === "increment"
+    targetModel["~"].state.scalars[referencedField]?.["~"].state.autoGenerate
+      ?.kind === "increment"
   );
 }
 

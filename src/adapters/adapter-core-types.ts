@@ -1,4 +1,22 @@
 import type { Sql } from "@sql";
+import type { DecimalDescriptor } from "@validation/primitives/decimal-codec";
+
+/**
+ * What an arithmetic assignment's TARGET COLUMN is, as a semantic fact the
+ * query engine knows and the adapter spells.
+ *
+ * The engine decides THAT a quantized decimal multiply happens; the adapter
+ * decides HOW it is written, which is why the descriptor travels here rather
+ * than a `CASE` expression being composed upstream. At most one member is ever
+ * populated — an integer column is not a decimal one — and an absent target is
+ * the ordinary numeric column every dialect multiplies natively.
+ */
+export interface ArithmeticTarget {
+  /** An `int`/`bigInt` column: division truncates toward zero. */
+  readonly integer?: boolean;
+  /** The exact decimal domain the result must land back inside. */
+  readonly decimal?: DecimalDescriptor;
+}
 
 /**
  * Logical cast types that adapters map to dialect-specific SQL types.
@@ -6,18 +24,20 @@ import type { Sql } from "@sql";
  * Instead of hardcoding SQL type names like "TEXT" or "VARCHAR",
  * use these logical types and let each adapter map to the correct syntax.
  *
- * `numeric` and `decimal` are DIFFERENT casts and must stay different. `numeric`
- * is the approximate/whatever-the-dialect-calls-a-number cast used for `number`;
- * `decimal` is the EXACT decimal domain of the `s.decimal()` storage column, and
- * it is the only one a decimal value may pass through. Spelling a decimal as
- * `numeric` is silent corruption on two of the three dialects: SQLite's NUMERIC
- * affinity turns the canonical TEXT spelling into a double, and MySQL's bare
- * `DECIMAL` means `DECIMAL(10,0)` — it rounds away EVERY fraction, so a key of
- * `9.5` lands as `10`. Each adapter maps `decimal` to the same type its
- * `literals.decimal` binds into, so a value reaches a decimal column the same
- * way whether it arrives as a literal or as a cast expression.
+ * `numeric` is the approximate/whatever-the-dialect-calls-a-number cast used
+ * for `number`; fixed decimals do not enter this type map. They need the field's
+ * exact descriptor, which a flat cast-name union cannot carry, and therefore use
+ * `DatabaseAdapter.expressions.decimalCast` instead. Spelling a fixed decimal
+ * as `numeric` is silent corruption on SQLite, whose NUMERIC affinity may put a
+ * fractional spelling through a double.
+ *
+ * This split also removes the old undeclared fallback domains: unconstrained
+ * PostgreSQL `NUMERIC` and MySQL `DECIMAL(65,30)`. A concrete decimal binds
+ * through `literals.decimal(canonical, descriptor)`; a deferred relation key
+ * casts through `decimalCast(expression, descriptor)`. Both consume the one
+ * descriptor from `s.decimal({ precision, scale })`.
  */
-export type CastType = "text" | "integer" | "boolean" | "numeric" | "decimal";
+export type CastType = "text" | "integer" | "boolean" | "numeric";
 
 /**
  * @internal Adapter-owned SQL for atomic batch reference storage.

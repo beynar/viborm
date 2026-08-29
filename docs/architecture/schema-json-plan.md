@@ -345,7 +345,7 @@ The agent loop: emit JSON → `parseSchema` → `createClient` → `push` →
 query — no TypeScript authoring, full validation and migration fidelity.
 The document is the project's first builder-level neutral schema
 description: the natural seed for a future `db pull` and for schema-diff
-tooling. Client config (`omit`, `decimal`, cache, extensions) is
+tooling. Client config (`omit`, cache, extensions) is
 deliberately NOT in the document — it describes the schema, not a client.
 
 ## 7. Maintainer rulings (2026-08-22)

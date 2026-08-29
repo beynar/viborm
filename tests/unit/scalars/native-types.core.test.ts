@@ -7,12 +7,6 @@ const NATIVE_TYPE_FACTORIES = [
   ["pg bit", () => PG.STRING.BIT(4), "pg", "bit(4)"],
   ["pg varbit", () => PG.STRING.VARBIT(), "pg", "varbit"],
   ["pg sized varbit", () => PG.STRING.VARBIT(9), "pg", "varbit(9)"],
-  ["pg decimal", () => PG.DECIMAL.DECIMAL(), "pg", "decimal"],
-  ["pg decimal precision", () => PG.DECIMAL.DECIMAL(12), "pg", "decimal(12)"],
-  ["pg decimal scale", () => PG.DECIMAL.DECIMAL(12, 4), "pg", "decimal(12,4)"],
-  ["pg numeric", () => PG.DECIMAL.NUMERIC(), "pg", "numeric"],
-  ["pg numeric precision", () => PG.DECIMAL.NUMERIC(12), "pg", "numeric(12)"],
-  ["pg numeric scale", () => PG.DECIMAL.NUMERIC(12, 4), "pg", "numeric(12,4)"],
   ["pg timestamp", () => PG.DATETIME.TIMESTAMP(), "pg", "timestamp"],
   [
     "pg timestamp precision",
@@ -34,32 +28,6 @@ const NATIVE_TYPE_FACTORIES = [
   ["mysql varchar", () => MYSQL.STRING.VARCHAR(42), "mysql", "VARCHAR(42)"],
   ["mysql char", () => MYSQL.STRING.CHAR(8), "mysql", "CHAR(8)"],
   ["mysql bit", () => MYSQL.STRING.BIT(4), "mysql", "BIT(4)"],
-  ["mysql decimal", () => MYSQL.DECIMAL.DECIMAL(), "mysql", "DECIMAL"],
-  [
-    "mysql decimal precision",
-    () => MYSQL.DECIMAL.DECIMAL(12),
-    "mysql",
-    "DECIMAL(12)",
-  ],
-  [
-    "mysql decimal scale",
-    () => MYSQL.DECIMAL.DECIMAL(12, 4),
-    "mysql",
-    "DECIMAL(12,4)",
-  ],
-  ["mysql numeric", () => MYSQL.DECIMAL.NUMERIC(), "mysql", "NUMERIC"],
-  [
-    "mysql numeric precision",
-    () => MYSQL.DECIMAL.NUMERIC(12),
-    "mysql",
-    "NUMERIC(12)",
-  ],
-  [
-    "mysql numeric scale",
-    () => MYSQL.DECIMAL.NUMERIC(12, 4),
-    "mysql",
-    "NUMERIC(12,4)",
-  ],
   ["mysql datetime", () => MYSQL.DATETIME.DATETIME(), "mysql", "DATETIME"],
   [
     "mysql datetime precision",
@@ -103,7 +71,21 @@ describe("native scalar types", () => {
       type: "INT UNSIGNED",
     });
     expect(MYSQL.BLOB.LONGBLOB).toEqual({ db: "mysql", type: "LONGBLOB" });
-    expect(SQLITE.DECIMAL.TEXT).toEqual({ db: "sqlite", type: "TEXT" });
     expect(SQLITE.BLOB.BLOB).toEqual({ db: "sqlite", type: "BLOB" });
+  });
+
+  it("publishes no decimal catalog on any dialect", () => {
+    // A fixed decimal's column type is DERIVED from `{ precision, scale }`:
+    // `NUMERIC(p,s)`, `DECIMAL(p,s)`, or a checked scaled `INTEGER`. A catalog
+    // beside it would be a second answer to what the column is — and the SQLite
+    // entry in particular offered `REAL` and `NUMERIC`, both of which put a
+    // fractional value in a double the moment it is stored.
+    expect("DECIMAL" in PG).toBe(false);
+    expect("DECIMAL" in MYSQL).toBe(false);
+    expect("DECIMAL" in SQLITE).toBe(false);
+    // The detector can fail: every other family is still reached this way.
+    expect("STRING" in PG).toBe(true);
+    expect("INT" in MYSQL).toBe(true);
+    expect("BLOB" in SQLITE).toBe(true);
   });
 });

@@ -1,12 +1,13 @@
 import { QueryEngineError } from "@errors";
 import type { Model } from "@schema/model";
+import type { PolymorphicStorageColumn } from "@schema/relation";
 import type { Sql } from "@sql";
 import { buildPrimaryKeyWhereUnique } from "../builders/correlation-utils";
 import { createQueryScope } from "../context/query-scope";
 import { buildFind, buildFindUnique } from "../operations";
 import type { QueryEngine } from "../query-engine";
 import { ResultParser } from "../result/ResultParser";
-import type { QueryScope } from "../types";
+import type { Operation, QueryScope } from "../types";
 import type { ExecutableOperation } from "./OperationExecutor";
 import {
   createFailureError,
@@ -107,10 +108,14 @@ export function parseSeriesResultReads(
 }
 
 /**
- * Decode row keys through the normal scalar-result boundary while forcing exact
- * decimal strings. These values address later SQL; the public legacy
- * `decimalDecode: "number"` conversion is presentation-only and must never choose
- * a row or its execution order.
+ * Decode row keys through the normal scalar-result boundary and keep the
+ * PRIVATE representation of each one.
+ *
+ * These values address later SQL and decide which member a returned row is, so
+ * they are the codec's canonical private text for a decimal — not the public
+ * `Decimal`, whose equality is reference identity and whose rendering an
+ * application's own Decimal.js configuration can move. A row key spelled by the
+ * public value would fail to match itself.
  */
 export function parseSeriesRowKeys(
   engine: QueryEngine,
@@ -118,30 +123,98 @@ export function parseSeriesRowKeys(
   operation: SeriesReturningOperation,
   rawRows: readonly unknown[]
 ): readonly Readonly<Record<string, unknown>>[] {
-  const select = Object.fromEntries(
-    buildTargetProjection(model).identityFields.map((field) => [field, true])
+  return decodeRowKeys(engine, model, operation, rawRows);
+}
+
+/**
+ * Decode the rows a write-engine PROBE captured into complete row keys.
+ *
+ * The same decode as {@link parseSeriesRowKeys}, for the other half of the
+ * engine. A planning probe publishes its rows exactly as the provider spelled
+ * them, and every captured member is then RE-ADDRESSED: it goes back into a
+ * `whereUnique`, a filter, or a junction insert through the ordinary
+ * where/values builder, which lowers a LOGICAL value. The two spellings are not
+ * the same value on every provider — a SQLite decimal column answers with its
+ * unscaled coefficient, so re-binding the captured spelling as a logical value
+ * addresses `captured x 10^scale`: a different row, silently. Decoding first
+ * makes the captured member the codec's canonical private text, which is what
+ * the whole identity estate (row-key tokens, equality, sorting, the where
+ * builder) is defined over.
+ *
+ * `findMany` is the shape every one of these probes has — `buildFind`/
+ * `buildFindUnique` over the target with the row-key `select` — and the raw
+ * output is a row array either way.
+ */
+export function parseCapturedRowKeys(
+  engine: QueryEngine,
+  model: Model<any>,
+  rawRows: readonly unknown[]
+): readonly Readonly<Record<string, unknown>>[] {
+  return decodeRowKeys(engine, model, "findMany", rawRows);
+}
+
+/**
+ * Decode every selected scalar a captured probe will consume again.
+ *
+ * A target projection can publish more than the row key: relation compilers also
+ * consume referenced fields and foreign-key members from that same physical row.
+ * Those values cross the same logical SQL boundary as a row key, so decoding only
+ * the key would still re-bind a SQLite decimal coefficient as a logical decimal.
+ * `select` is the probe's one declared public-field projection and therefore the
+ * one source of which model scalars are decoded and retained.
+ *
+ * Explicit internal columns carry their scalar beside their physical name.
+ * They have no public model field, so this owner asks the same ResultParser for
+ * their private captured representation directly. Every other extra provider
+ * column is discarded.
+ *
+ * The complete raw row set passes through ResultParser before any returned row is
+ * observable. The returned values are its private captures — canonical decimal
+ * text included — and never the public Decimal instances from the first tuple.
+ */
+export function parseCapturedRows(
+  engine: QueryEngine,
+  model: Model<any>,
+  rawRows: readonly unknown[],
+  select: Readonly<Record<string, unknown>>,
+  internalColumns: readonly PolymorphicStorageColumn[] = [],
+  fieldSources?: Readonly<Record<string, string>>
+): readonly Record<string, unknown>[] {
+  const fields = Object.entries(select).flatMap(([field, included]) =>
+    included === true ? [field] : []
   );
-  return parseExactSeriesRows(engine, model, operation, rawRows, select).map(
-    (row) => readRowKey(model, row)
+  const sources =
+    fieldSources ?? Object.fromEntries(fields.map((field) => [field, field]));
+  return new ResultParser(engine, model, engine.driver).parseCapturedProjection(
+    "findMany",
+    rawRows,
+    { select },
+    sources,
+    internalColumns
   );
 }
 
-function parseExactSeriesRows(
+function decodeRowKeys(
   engine: QueryEngine,
   model: Model<any>,
-  operation: SeriesReturningOperation,
-  rawRows: readonly unknown[],
-  select: Readonly<Record<string, unknown>>
+  operation: Operation,
+  rawRows: readonly unknown[]
 ): readonly Readonly<Record<string, unknown>>[] {
-  const values = new ResultParser(engine, model, engine.driver, "string").parse<
-    unknown[]
-  >(operation, [...rawRows], { select });
-  return values.map((value) => {
-    if (isRecord(value)) return value;
-    throw new QueryEngineError(
-      "query-engine-v2 record series row-key read did not decode to a row."
-    );
-  });
+  const identityFields = buildTargetProjection(model).identityFields;
+  const select = Object.fromEntries(
+    identityFields.map((field) => [field, true])
+  );
+  const keyRows = new ResultParser(
+    engine,
+    model,
+    engine.driver
+  ).parseCapturedProjection(
+    operation,
+    rawRows,
+    { select },
+    Object.fromEntries(identityFields.map((field) => [field, field]))
+  );
+  return keyRows.map((row) => readRowKey(model, row));
 }
 
 function parseResultReadChunk(
@@ -156,12 +229,11 @@ function parseResultReadChunk(
     );
   }
   const identityFields = buildTargetProjection(input.model).identityFields;
-  const [publicRows, exactRows] = new ResultParser(
+  const [publicRows, keyRows] = new ResultParser(
     input.engine,
     input.model,
-    input.engine.driver,
-    input.engine.decimalDecode
-  ).parseRowsWithExactFields<unknown[]>(
+    input.engine.driver
+  ).parseRowsWithRowKeys<unknown[]>(
     input.operation,
     rawRows,
     {
@@ -170,7 +242,7 @@ function parseResultReadChunk(
     },
     identityFields
   );
-  if (publicRows.length !== exactRows.length) {
+  if (publicRows.length !== keyRows.length) {
     throw new QueryEngineError(
       "query-engine-v2 record series final read decoded inconsistent row counts."
     );
@@ -183,14 +255,14 @@ function parseResultReadChunk(
       readonly row: Readonly<Record<string, unknown>>;
     }[]
   >();
-  for (const [index, exactKey] of exactRows.entries()) {
+  for (const [index, keyRow] of keyRows.entries()) {
     const publicRow = publicRows[index];
     if (!isRecord(publicRow)) {
       throw new QueryEngineError(
         "query-engine-v2 record series final read did not decode to a row."
       );
     }
-    const rowKey = readRowKey(input.model, exactKey);
+    const rowKey = readRowKey(input.model, keyRow);
     const token = rowKeyToken(input.model, rowKey);
     const bucket = rowsByToken.get(token);
     const indexed = { key: rowKey, row: publicRow };

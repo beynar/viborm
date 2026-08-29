@@ -46,7 +46,7 @@ import {
   finalMembershipWriteCondition,
 } from "./relation-membership";
 import { StepScope } from "./StepScope";
-import { parseSeriesRowKeys } from "./series-result-read";
+import { parseCapturedRows, parseSeriesRowKeys } from "./series-result-read";
 import { getStepModelName, isRecord, selectExecutionMode } from "./shared";
 import {
   buildTargetProjection,
@@ -396,7 +396,19 @@ export class NestedSelectedRecordSeries implements RecordSeriesOperation {
         `query-engine-v2 nested selected series for relation '${this.input.relationRef.name}' cannot re-pin an uncaptured target row.`
       );
     }
-    const captured = rows[0];
+    const rawCaptured = rows[0];
+    const captured = parseCapturedRows(
+      this.input.engine,
+      this.input.targetScope.model,
+      [rawCaptured],
+      targetProjectionSelect(compiler.targetProjection),
+      compiler.targetProjection.columns
+    )[0];
+    if (!captured) {
+      throw new QueryEngineError(
+        `query-engine-v2 nested selected series for relation '${this.input.relationRef.name}' cannot re-pin an uncaptured target row.`
+      );
+    }
     const capturedColumns = capturedTargetColumnPredicate(
       this.input.targetScope,
       compiler.targetProjection,

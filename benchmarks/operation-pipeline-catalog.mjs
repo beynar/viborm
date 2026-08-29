@@ -13,6 +13,23 @@ export const EXTENSION_ARMS = Object.freeze([
 ]);
 export const CROSS_PROVIDER_BASELINE_COMMIT =
   "52eef9ebfc710407e1e5fe6042e2ed5a11adf19e";
+export const FIXED_DECIMAL_BASELINE_COMMIT =
+  "1d796d4e01841becfbb2f6805668ef11d270aa0e";
+
+const EVIDENCE_PROGRAMS = Object.freeze({
+  "provider-transport": Object.freeze({
+    name: "provider-transport",
+    baselineCommit: CROSS_PROVIDER_BASELINE_COMMIT,
+    lockfileComparison: "identical",
+    requiredProviders: Object.freeze([]),
+  }),
+  "fixed-decimal": Object.freeze({
+    name: "fixed-decimal",
+    baselineCommit: FIXED_DECIMAL_BASELINE_COMMIT,
+    lockfileComparison: "fixed-decimal-dependency-only",
+    requiredProviders: Object.freeze(["sqlite3", "pglite"]),
+  }),
+});
 
 /**
  * The engines the CORE fixture can build.
@@ -95,6 +112,7 @@ export const PROVIDERS = Object.freeze({
 });
 
 export const ALL_PROVIDERS = Object.freeze(Object.keys(PROVIDERS));
+const FIXED_DECIMAL_PROVIDERS = Object.freeze(["sqlite3", "pglite", "mysql2"]);
 
 const stages = Object.freeze({
   allRead: Object.freeze(["prepare", "execute", "parse", "raw-parse", "full"]),
@@ -112,6 +130,7 @@ const stages = Object.freeze({
     "provider-parse",
     "full",
   ]),
+  decimalConstruct: Object.freeze(["decimal-construct"]),
   executionForms: Object.freeze([
     "direct",
     "prepared",
@@ -153,10 +172,47 @@ function workload(fixture, selectedStages, rowsPerOperation, options = {}) {
     substrate: options.substrate ?? "transactional",
     providers: options.providers ?? Object.freeze(["sqlite3"]),
     extensionProof: options.extensionProof === true,
+    comparison: options.comparison ?? "baseline-candidate",
+    ...(options.regressionCeilingPercent === undefined
+      ? {}
+      : { regressionCeilingPercent: options.regressionCeilingPercent }),
+    ...(options.evidenceProgram === undefined && fixture !== "provider-read"
+      ? {}
+      : {
+          evidenceProgram: options.evidenceProgram ?? "provider-transport",
+        }),
+    ...(options.fixedDecimalAttribution === undefined
+      ? {}
+      : {
+          fixedDecimalAttribution: Object.freeze(
+            options.fixedDecimalAttribution
+          ),
+        }),
     ...(options.providerShape
       ? { providerShape: Object.freeze(options.providerShape) }
       : {}),
   });
+}
+
+/** The one protocol owner of fresh-process iteration and warmup counts. */
+export function defaultMeasurementIterations(definition, mode, smoke) {
+  if (smoke) return 2;
+
+  const fixedDecimalRetained =
+    mode === "retained" && definition.evidenceProgram === "fixed-decimal";
+  const scaleDivisor = Math.max(1, definition.rowsPerOperation / 20);
+  let iterations;
+  if (fixedDecimalRetained) {
+    // Linked 1-row and 1,000-row retained/RSS arms must execute the same number
+    // of operations. Otherwise a process high-water level is row-scaled from
+    // unlike operation histories rather than from unlike result cardinality.
+    iterations = 20;
+  } else if (mode === "retained") {
+    iterations = Math.max(20, Math.floor(500 / scaleDivisor));
+  } else {
+    iterations = Math.max(50, Math.floor(5000 / scaleDivisor));
+  }
+  return iterations;
 }
 
 const providerWorkloads = Object.fromEntries([
@@ -166,6 +222,7 @@ const providerWorkloads = Object.fromEntries([
       workload("provider-read", stages.providerRead, rows, {
         providers: ALL_PROVIDERS,
         providerShape: { kind, rows },
+        ...(kind === "mixed-scalar" ? { comparison: "candidate-only" } : {}),
       }),
     ])
   ),
@@ -209,6 +266,75 @@ const providerWorkloads = Object.fromEntries([
     workload("provider-read", stages.executionForms, 1, {
       providers: ALL_PROVIDERS,
       providerShape: { kind: "execution", rows: 1 },
+    }),
+  ],
+  [
+    "provider-fixed-decimal-scalar-control",
+    workload("provider-read", stages.providerRead, 20, {
+      providers: FIXED_DECIMAL_PROVIDERS,
+      providerShape: { kind: "fixed-decimal-scalar-control", rows: 20 },
+      regressionCeilingPercent: 3,
+      evidenceProgram: "fixed-decimal",
+    }),
+  ],
+  ...[1, 1000].map((rows) => [
+    `provider-fixed-decimal-row-${rows}`,
+    workload("provider-read", stages.providerRead, rows, {
+      providers: FIXED_DECIMAL_PROVIDERS,
+      providerShape: { kind: "fixed-decimal-row", rows },
+      comparison: "candidate-only",
+      evidenceProgram: "fixed-decimal",
+      fixedDecimalAttribution: {
+        textControlWorkload: `provider-fixed-decimal-text-row-${rows}`,
+        constructorFloorWorkload: `provider-fixed-decimal-floor-${rows}`,
+      },
+    }),
+  ]),
+  ...[1, 1000].flatMap((rows) => [
+    [
+      `provider-fixed-decimal-text-row-${rows}`,
+      workload("provider-read", stages.providerRead, rows, {
+        providers: FIXED_DECIMAL_PROVIDERS,
+        providerShape: { kind: "fixed-decimal-text-row", rows },
+        comparison: "candidate-only",
+        evidenceProgram: "fixed-decimal",
+      }),
+    ],
+    [
+      `provider-fixed-decimal-floor-${rows}`,
+      workload("provider-read", stages.decimalConstruct, rows, {
+        providers: FIXED_DECIMAL_PROVIDERS,
+        providerShape: { kind: "fixed-decimal-floor", rows },
+        comparison: "candidate-only",
+        evidenceProgram: "fixed-decimal",
+      }),
+    ],
+  ]),
+  [
+    "provider-fixed-decimal-arithmetic",
+    workload("provider-read", stages.fullOnly, 1, {
+      providers: FIXED_DECIMAL_PROVIDERS,
+      providerShape: { kind: "fixed-decimal-arithmetic", rows: 1 },
+      comparison: "candidate-only",
+      evidenceProgram: "fixed-decimal",
+    }),
+  ],
+  [
+    "provider-fixed-decimal-aggregate",
+    workload("provider-read", stages.fullOnly, 1, {
+      providers: FIXED_DECIMAL_PROVIDERS,
+      providerShape: { kind: "fixed-decimal-aggregate", sourceRows: 1000 },
+      comparison: "candidate-only",
+      evidenceProgram: "fixed-decimal",
+    }),
+  ],
+  [
+    "provider-fixed-decimal-list",
+    workload("provider-read", stages.providerRead, 1, {
+      providers: FIXED_DECIMAL_PROVIDERS,
+      providerShape: { kind: "fixed-decimal-list", rows: 1 },
+      comparison: "candidate-only",
+      evidenceProgram: "fixed-decimal",
     }),
   ],
 ]);
@@ -310,3 +436,45 @@ export const WORKLOADS = Object.freeze({
     )
   ),
 });
+
+export function resolveEvidenceProgram(workloadNames, workloads = WORKLOADS) {
+  const names = new Set();
+  for (const workloadName of workloadNames ?? Object.keys(workloads)) {
+    const definition = workloads[workloadName];
+    if (!definition) throw new Error(`Unknown workload: ${workloadName}`);
+    if (!workloadName.startsWith("provider-")) continue;
+    if (!definition.evidenceProgram) {
+      throw new Error(`${workloadName} has no evidence program`);
+    }
+    names.add(definition.evidenceProgram);
+  }
+  if (names.size === 0) return undefined;
+  if (names.size !== 1) {
+    throw new Error(
+      `The selected provider workload set mixes evidence programs: ${[...names].join(", ")}`
+    );
+  }
+  const [name] = names;
+  const program = EVIDENCE_PROGRAMS[name];
+  if (!program) throw new Error(`Unknown evidence program: ${name}`);
+  return program;
+}
+
+export function assertEvidenceProgramCommits(
+  program,
+  { baselineCommit, candidateCommit, coordinatorCommit }
+) {
+  if (baselineCommit !== program.baselineCommit) {
+    throw new Error(
+      `The ${program.name} evidence program requires baseline ${program.baselineCommit}; received ${baselineCommit}`
+    );
+  }
+  if (
+    program.name === "fixed-decimal" &&
+    coordinatorCommit !== candidateCommit
+  ) {
+    throw new Error(
+      `Fixed-decimal evidence must run from candidate protocol commit ${candidateCommit}; coordinator is ${coordinatorCommit}`
+    );
+  }
+}
