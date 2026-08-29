@@ -122,6 +122,7 @@ function requireRuntimeAbsence(exportName, member) {
 
 requireRuntimeFunction(".", "defineExtension");
 for (const member of [
+  "getOperationPayloadSchema",
   "renderOperationResultType",
   "renderSchemaType",
   "validateOperationPayload",
@@ -296,7 +297,7 @@ typeConsumerImports.push(
   `import type { DatabaseAdapter as PackagedDatabaseAdapter } from ${JSON.stringify(adaptersRuntimeFile)};`,
   `import { Decimal as PackagedDecimal } from ${JSON.stringify(rootRuntimeFile)};`,
   `import type { ClientExtension as RootClientExtension, ExtendedClient as RootExtendedClient, VibORMClient as RootVibORMClient } from ${JSON.stringify(rootRuntimeFile)};`,
-  `import type { ClientExtension as ClientSubpathExtension, ExtendedClient as ClientSubpathExtendedClient, ValidatedOperationPayload as ClientValidatedOperationPayload } from ${JSON.stringify(clientRuntimeFile)};`,
+  `import type { ClientExtension as ClientSubpathExtension, ExtendedClient as ClientSubpathExtendedClient, OperationPayloadSchema as ClientOperationPayloadSchema, ValidatedOperationPayload as ClientValidatedOperationPayload } from ${JSON.stringify(clientRuntimeFile)};`,
   `import type { ObservationCompletion as RootObservationCompletion, ObservationUnit as RootObservationUnit, ObserveHandler as RootObserveHandler, StatementContext as RootStatementContext, StatementHandler as RootStatementHandler } from ${JSON.stringify(rootRuntimeFile)};`,
   `import type { ObservationCompletion as ClientObservationCompletion, ObservationUnit as ClientObservationUnit, ObserveHandler as ClientObserveHandler, StatementContext as ClientStatementContext, StatementHandler as ClientStatementHandler } from ${JSON.stringify(clientRuntimeFile)};`,
   'const rootExtension: RootClientExtension = { name: "root-type-smoke" };',
@@ -307,9 +308,11 @@ typeConsumerImports.push(
   'const extensionSmokeDefinition = { name: "package-type-smoke", client: () => ({ $packageTypeSmoke: () => 1 as const }) } as const;',
   "type RootExtendedClientSmoke = RootExtendedClient<typeof extensionSmokeBase, readonly [typeof extensionSmokeDefinition]>;",
   "type ClientSubpathExtendedClientSmoke = ClientSubpathExtendedClient<typeof extensionSmokeBase, readonly [typeof extensionSmokeDefinition]>;",
+  'type ClientOperationPayloadSchemaSmoke = ClientOperationPayloadSchema<"findMany", never>;',
   'type ClientValidatedPayloadSmoke = ClientValidatedOperationPayload<"findMany", never>;',
   "declare const rootExtendedClientSmoke: RootExtendedClientSmoke;",
   "declare const clientSubpathExtendedClientSmoke: ClientSubpathExtendedClientSmoke;",
+  "declare const clientOperationPayloadSchemaSmoke: ClientOperationPayloadSchemaSmoke;",
   "declare const clientValidatedPayloadSmoke: ClientValidatedPayloadSmoke;",
   "const rootObserver: RootObserveHandler = (unit: RootObservationUnit, proceed: () => Promise<RootObservationCompletion>) => proceed();",
   "const clientObserver: ClientObserveHandler = (unit: ClientObservationUnit, proceed: () => Promise<ClientObservationCompletion>) => proceed();",
@@ -320,6 +323,7 @@ typeConsumerImports.push(
   "void packagedDecimalValue;",
   "rootExtendedClientSmoke.$packageTypeSmoke();",
   "clientSubpathExtendedClientSmoke.$packageTypeSmoke();",
+  "void clientOperationPayloadSchemaSmoke;",
   "void clientValidatedPayloadSmoke;",
   "void rootObserver;",
   "void clientObserver;",

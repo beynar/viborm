@@ -7,7 +7,12 @@ import {
   createSchemaRegistry,
 } from "@validation/builder";
 import type { SchemaRegistryOperation } from "@validation/types";
-import type { Operations, Schema, ValidatedOperationPayload } from "./types";
+import type {
+  OperationPayloadSchema,
+  Operations,
+  Schema,
+  ValidatedOperationPayload,
+} from "./types";
 import { operationResultType, schemaType } from "./typescript-type-renderer";
 
 function publicOperationOrThrow(
@@ -91,6 +96,30 @@ function resultOperation(
     default:
       return operation;
   }
+}
+
+/** Return the canonical Standard Schema for one public operation payload. */
+export function getOperationPayloadSchema<
+  const S extends Schema,
+  ModelName extends Extract<keyof S, string>,
+  OperationName extends Operations,
+>(
+  schema: S,
+  modelName: ModelName,
+  operation: OperationName
+): OperationPayloadSchema<OperationName, S[ModelName]>;
+export function getOperationPayloadSchema<
+  const S extends Schema,
+  ModelName extends Extract<keyof S, string>,
+>(schema: S, modelName: ModelName, operation: unknown): unknown {
+  requireIdentifier(modelName, "model");
+  const validatedOperation = publicOperationOrThrow(
+    modelName,
+    requireIdentifier(operation, "operation")
+  );
+  return createSchemaRegistry(schema).proxy[modelName].args[
+    operationSchemaName(validatedOperation)
+  ];
 }
 
 /**

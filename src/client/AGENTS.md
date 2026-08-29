@@ -35,7 +35,7 @@ This works because:
 | `types.ts` | Operation routing, Payload/Result types | ~230 |
 | `client.ts` | ORM client with recursive proxies | ~700 |
 | `result-types.ts` | InferSelectInclude, result adaptation | ~375 |
-| `schema-introspection.ts` | Public payload validation and TypeScript rendering boundaries | ~150 |
+| `schema-introspection.ts` | Public payload-schema access, validation, and TypeScript rendering boundaries | ~200 |
 | `typescript-type-renderer.ts` | Runtime model/result metadata to TypeScript source | ~450 |
 
 ---
@@ -116,8 +116,10 @@ on nested relation nodes and row-returning bulk writes.
 
 ### Schema and operation introspection
 
-The package root and `viborm/client` expose three schema-bound utilities:
+The package root and `viborm/client` expose four schema-bound utilities:
 
+- `getOperationPayloadSchema(schema, model, operation)` returns the canonical
+  Standard Schema for that public operation, including `OrThrow` alias routing;
 - `validateOperationPayload(schema, model, operation, payload)` delegates to
   `SchemaRegistry` and returns the normalized operation-schema output;
 - `renderOperationResultType(schema, model, operation, payload)` validates one

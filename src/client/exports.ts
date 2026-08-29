@@ -33,6 +33,7 @@ export type {
   InferSelectInclude,
 } from "./result-types";
 export {
+  getOperationPayloadSchema,
   renderOperationResultType,
   renderSchemaType,
   validateOperationPayload,
@@ -44,6 +45,7 @@ export type {
   Client,
   MutationOperations,
   OperationPayload,
+  OperationPayloadSchema,
   OperationResult,
   Operations,
   Schema,

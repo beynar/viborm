@@ -144,6 +144,15 @@ type OperationSchemaName<O extends Operations> = O extends "findUniqueOrThrow"
     ? "findFirst"
     : O;
 
+/** The Standard Schema that owns one public operation's payload language. */
+export type OperationPayloadSchema<
+  O extends Operations,
+  M extends Model<any>,
+> = ModelArgsSchemas<M>[Extract<
+  OperationSchemaName<O>,
+  keyof ModelArgsSchemas<M>
+>];
+
 /** The normalized value produced by an operation payload schema. */
 export type ValidatedOperationPayload<
   O extends Operations,

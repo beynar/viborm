@@ -1,4 +1,5 @@
 import {
+  getOperationPayloadSchema,
   renderOperationResultType,
   renderSchemaType,
   validateOperationPayload,
@@ -51,6 +52,54 @@ function captureValidationError(run: () => unknown): ValidationError {
 }
 
 describe("schema operation introspection", () => {
+  test("exposes operation payload schemas and resolves public aliases", () => {
+    const findMany = getOperationPayloadSchema(schema, "user", "findMany");
+    const validated = findMany["~standard"].validate({ take: 2 });
+    expect(validated).toEqual({ value: { take: 2 } });
+
+    const inputSchema = findMany["~standard"].jsonSchema.input({
+      target: "draft-2020-12",
+    });
+    expect(inputSchema).toMatchObject({
+      $schema: "https://json-schema.org/draft/2020-12/schema",
+      type: "object",
+      additionalProperties: false,
+    });
+    expect(inputSchema.properties).toHaveProperty("where");
+
+    const findUnique = getOperationPayloadSchema(schema, "user", "findUnique");
+    const findUniqueOrThrow = getOperationPayloadSchema(
+      schema,
+      "user",
+      "findUniqueOrThrow"
+    );
+    expect(
+      findUniqueOrThrow["~standard"].jsonSchema.input({
+        target: "draft-2020-12",
+      })
+    ).toEqual(
+      findUnique["~standard"].jsonSchema.input({
+        target: "draft-2020-12",
+      })
+    );
+
+    const findFirst = getOperationPayloadSchema(schema, "user", "findFirst");
+    const findFirstOrThrow = getOperationPayloadSchema(
+      schema,
+      "user",
+      "findFirstOrThrow"
+    );
+    expect(
+      findFirstOrThrow["~standard"].jsonSchema.input({
+        target: "draft-2020-12",
+      })
+    ).toEqual(
+      findFirst["~standard"].jsonSchema.input({
+        target: "draft-2020-12",
+      })
+    );
+  });
+
   test("validates public operation spellings and returns normalized payloads", () => {
     expect(
       validateOperationPayload(schema, "user", "findMany", undefined)
@@ -89,6 +138,19 @@ describe("schema operation introspection", () => {
   });
 
   test("contains unknown model and operation names at the public boundary", () => {
+    const unknownSchemaModel = captureValidationError(() =>
+      Reflect.apply(getOperationPayloadSchema, undefined, [
+        schema,
+        "toString",
+        "findMany",
+      ])
+    );
+    expect(unknownSchemaModel.code).toBe(VibORMErrorCode.INVALID_INPUT);
+    expect(unknownSchemaModel.source).toEqual({
+      kind: "registry",
+      property: "toString",
+    });
+
     const unknownModel = captureValidationError(() =>
       Reflect.apply(validateOperationPayload, undefined, [
         schema,
