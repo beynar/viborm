@@ -38,7 +38,9 @@
 
 import { createClient } from "@client/client";
 import { VibORMErrorCode } from "@errors";
-import { apply, down, generate } from "@migrations";
+import { applyV1 as apply } from "@migrations/apply-v1";
+import { generateV1 as generate } from "@migrations/generate-v1";
+import { downV1 as down } from "@migrations/operators";
 import { s } from "@schema";
 import type { AnyDriver } from "@src/drivers/driver";
 import type { SQLite3Driver } from "@src/drivers/sqlite3";

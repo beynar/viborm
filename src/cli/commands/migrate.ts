@@ -5,7 +5,11 @@
 import { resolve } from "node:path";
 import { Command, InvalidArgumentError } from "commander";
 import type { StateSelector } from "../../migrations";
-import { createFsStorageWriter, createMigrationClient } from "../../migrations";
+import {
+  createFsStorageWriter,
+  createMigrationClient,
+  type WritableMigrations,
+} from "../../migrations";
 import { isSha256 } from "../../migrations/identity";
 import { failCli, loadConfig } from "../utils";
 
@@ -35,7 +39,7 @@ function printJson(value: unknown, json: boolean): void {
 async function withMigrations(
   dir: string | undefined,
   run: (
-    migrations: ReturnType<typeof createMigrationClient>,
+    migrations: WritableMigrations,
     client: { $disconnect(): Promise<void> }
   ) => Promise<void>
 ): Promise<void> {

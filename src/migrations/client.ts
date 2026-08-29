@@ -1,28 +1,40 @@
-/**
- * One migration client composition root. V1 nouns only.
- */
+/** One capability-sensitive migration client composition root. */
 
+import { errorCause } from "../drivers/shared/driver-options";
 import { MigrationError, VibORMErrorCode } from "../errors";
 import { type ApplyV1Result, applyV1 } from "./apply-v1";
 import { type CheckResult, checkEstate } from "./check";
 import { type GenerateV1Result, generateV1 } from "./generate-v1";
-import { loadMigrationGraph } from "./graph";
+import { loadMigrationGraph, resolveStateSelector } from "./graph";
+import { snapshotExactRecord } from "./input-boundary";
 import {
   baselineV1,
   downV1,
   logV1,
   resetV1,
   resolveV1,
+  type StatusV1Result,
   statusV1,
   verifyV1,
 } from "./operators";
+import {
+  type GraphResult,
+  type ListResult,
+  listMigrationStates,
+  migrationGraphResult,
+  type ShowResult,
+  showMigrationState,
+} from "./public-view";
 import type { MigrationClient } from "./push/planner";
 import { type PushResultFor, pushV1 } from "./push-v1";
 import type {
   MigrationStorageReader,
   MigrationStorageWriter,
 } from "./storage/contract";
-import { isMigrationStorageWriter } from "./storage/contract";
+import {
+  isMigrationStorageReader,
+  isMigrationStorageWriter,
+} from "./storage/contract";
 import type {
   ApplyV1Options,
   BaselineOptions,
@@ -36,95 +48,158 @@ import type {
   StateSelector,
 } from "./v1-types";
 
-export interface MigrationClientOptions {
-  storage?: MigrationStorageReader | MigrationStorageWriter;
+export interface MigrationClientOptions<
+  S extends MigrationStorageReader = MigrationStorageReader,
+> {
+  readonly storage: S;
 }
 
-export interface Migrations {
-  generate(options?: GenerateV1Options): Promise<GenerateV1Result>;
-  check(): Promise<CheckResult>;
-  list(): Promise<readonly { stateId: string; name: string }[]>;
-  show(selector: StateSelector): Promise<{ stateId: string; name: string }>;
-  graph(): Promise<{ roots: readonly string[]; leaves: readonly string[] }>;
-  status(): Promise<Awaited<ReturnType<typeof statusV1>>>;
-  verify(): Promise<{ ok: boolean }>;
-  log(): Promise<readonly LedgerEventV1[]>;
-  apply(options?: ApplyV1Options): Promise<ApplyV1Result>;
-  down(options?: DownV1Options): Promise<Awaited<ReturnType<typeof downV1>>>;
-  baseline(options: BaselineOptions): Promise<{ stateId: string }>;
-  resolve(
-    options: ResolveV1Options
-  ): Promise<{ outcome: ResolveV1Options["outcome"] }>;
-  reset(options?: ResetV1Options): Promise<Awaited<ReturnType<typeof resetV1>>>;
+type NoExtraMigrationClientOptionKeys<Given> = Record<
+  Exclude<keyof Given, "storage">,
+  never
+>;
+
+export type GenerateResult = GenerateV1Result;
+export type StatusResult = StatusV1Result;
+export interface VerifyResult {
+  readonly ok: boolean;
+}
+export type LogResult = readonly LedgerEventV1[];
+export type ApplyResult = ApplyV1Result;
+export interface DownResult {
+  readonly path: readonly string[];
+  readonly preview: boolean;
+}
+export interface BaselineResult {
+  readonly stateId: string;
+}
+export interface ResolveResult {
+  readonly outcome: ResolveV1Options["outcome"];
+}
+export interface ResetResult {
+  readonly preview: boolean;
+  readonly path: readonly string[];
+}
+export interface LiveMigrations {
+  log(): Promise<LogResult>;
   push<O extends PushOptionsV1>(
     options?: ExactPushOptions<O>
   ): Promise<PushResultFor<O>>;
 }
 
-function requireStorage(
-  storage: MigrationStorageReader | undefined
-): MigrationStorageReader {
-  if (!storage) {
-    throw new MigrationError(
-      "This command requires migration storage",
-      VibORMErrorCode.MIGRATION_STORAGE_REQUIRED
-    );
-  }
-  return storage;
+export interface ReadableMigrations extends LiveMigrations {
+  check(): Promise<CheckResult>;
+  list(): Promise<ListResult>;
+  show(selector: StateSelector): Promise<ShowResult>;
+  graph(): Promise<GraphResult>;
+  status(): Promise<StatusResult>;
+  verify(): Promise<VerifyResult>;
+  apply(options?: ApplyV1Options): Promise<ApplyResult>;
+  down(options?: DownV1Options): Promise<DownResult>;
+  baseline(options: BaselineOptions): Promise<BaselineResult>;
+  resolve(options: ResolveV1Options): Promise<ResolveResult>;
 }
 
-function requireWriter(
-  storage: MigrationStorageReader | undefined
-): MigrationStorageWriter {
-  const reader = requireStorage(storage);
-  if (!isMigrationStorageWriter(reader)) {
-    throw new MigrationError(
-      "This command requires a storage writer",
-      VibORMErrorCode.MIGRATION_STORAGE_REQUIRED
-    );
-  }
-  return reader;
+export interface WritableMigrations extends ReadableMigrations {
+  generate(options?: GenerateV1Options): Promise<GenerateResult>;
+  reset(options?: ResetV1Options): Promise<ResetResult>;
 }
 
+export function createMigrationClient<
+  Options extends MigrationClientOptions<MigrationStorageWriter>,
+>(
+  client: MigrationClient,
+  options: Options & NoExtraMigrationClientOptionKeys<Options>
+): WritableMigrations;
+export function createMigrationClient<
+  Options extends MigrationClientOptions<MigrationStorageReader>,
+>(
+  client: MigrationClient,
+  options: Options & NoExtraMigrationClientOptionKeys<Options>
+): ReadableMigrations;
 export function createMigrationClient(
   client: MigrationClient,
-  options: MigrationClientOptions = {}
-): Migrations {
-  const storage = options.storage;
-  return {
-    generate: (generateOptions) =>
-      generateV1(client, requireWriter(storage), generateOptions),
-    check: () => checkEstate(requireStorage(storage)),
-    list: async () => {
-      const graph = await loadMigrationGraph(requireStorage(storage));
-      return [...graph.states.values()].map((state) => ({
-        stateId: state.stateId,
-        name: state.name,
-      }));
-    },
-    show: async (selector) => {
-      const graph = await loadMigrationGraph(requireStorage(storage));
-      const { resolveStateSelector } = await import("./graph");
-      const id = resolveStateSelector(graph, selector);
-      const state = graph.states.get(id)!;
-      return { stateId: state.stateId, name: state.name };
-    },
-    graph: async () => {
-      const loaded = await loadMigrationGraph(requireStorage(storage));
-      return { roots: loaded.roots, leaves: loaded.leaves };
-    },
-    status: () => statusV1(client, requireStorage(storage)),
-    verify: () => verifyV1(client, requireStorage(storage)),
+  options?: undefined
+): LiveMigrations;
+export function createMigrationClient(
+  client: MigrationClient,
+  options?: MigrationClientOptions
+): LiveMigrations | ReadableMigrations | WritableMigrations {
+  const live: LiveMigrations = Object.freeze({
     log: () => logV1(client),
-    apply: (applyOptions) =>
-      applyV1(client, requireStorage(storage), applyOptions),
-    down: (downOptions) => downV1(client, requireStorage(storage), downOptions),
+    push<O extends PushOptionsV1>(
+      pushOptions?: ExactPushOptions<O>
+    ): Promise<PushResultFor<O>> {
+      return pushV1(client, pushOptions);
+    },
+  });
+  if (options === undefined) return live;
+  const record = snapshotExactRecord(
+    options,
+    ["storage"],
+    "migration client options",
+    refuseClientOptions
+  );
+  const storage = record.storage;
+  if (storage === undefined) {
+    return refuseClientOptions(
+      "migration client options must include storage when supplied"
+    );
+  }
+  let readableStorage: MigrationStorageReader;
+  try {
+    if (!isMigrationStorageReader(storage)) {
+      return refuseClientOptions(
+        "migration client storage must implement MigrationStorageReader"
+      );
+    }
+    readableStorage = storage;
+  } catch (failure) {
+    return refuseClientOptions(
+      "migration client storage could not be inspected",
+      errorCause(failure)
+    );
+  }
+
+  const readable: ReadableMigrations = Object.freeze({
+    ...live,
+    check: () => checkEstate(readableStorage),
+    list: async () =>
+      listMigrationStates(await loadMigrationGraph(readableStorage)),
+    show: async (selector) => {
+      const graph = await loadMigrationGraph(readableStorage);
+      return showMigrationState(graph, resolveStateSelector(graph, selector));
+    },
+    graph: async () =>
+      migrationGraphResult(await loadMigrationGraph(readableStorage)),
+    status: () => statusV1(client, readableStorage),
+    verify: () => verifyV1(client, readableStorage),
+    apply: (applyOptions) => applyV1(client, readableStorage, applyOptions),
+    down: (downOptions) => downV1(client, readableStorage, downOptions),
     baseline: (baselineOptions) =>
-      baselineV1(client, requireStorage(storage), baselineOptions),
+      baselineV1(client, readableStorage, baselineOptions),
     resolve: (resolveOptions) =>
-      resolveV1(client, requireStorage(storage), resolveOptions),
-    reset: (resetOptions) =>
-      resetV1(client, requireWriter(storage), resetOptions),
-    push: (pushOptions) => pushV1(client, pushOptions),
-  };
+      resolveV1(client, readableStorage, resolveOptions),
+  });
+  let writableStorage: MigrationStorageWriter;
+  try {
+    if (!isMigrationStorageWriter(readableStorage)) return readable;
+    writableStorage = readableStorage;
+  } catch (failure) {
+    return refuseClientOptions(
+      "migration client storage could not be inspected",
+      errorCause(failure)
+    );
+  }
+
+  return Object.freeze({
+    ...readable,
+    generate: (generateOptions) =>
+      generateV1(client, writableStorage, generateOptions),
+    reset: (resetOptions) => resetV1(client, writableStorage, resetOptions),
+  });
+}
+
+function refuseClientOptions(message: string, cause?: Error): never {
+  throw new MigrationError(message, VibORMErrorCode.INVALID_INPUT, { cause });
 }

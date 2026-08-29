@@ -13,8 +13,8 @@
 import { PGlite } from "@electric-sql/pglite";
 import { createClient } from "../src/client/client";
 import { PGliteDriver } from "../src/drivers/pglite";
-import { push as applyPush, previewPush } from "../src/migrations";
 import { createMigrationClient } from "../src/migrations/client";
+import { pushV1 as applyPush, previewPush } from "../src/migrations/push-v1";
 import { lenientResolver } from "../src/migrations/resolver";
 import { s } from "../src/schema";
 

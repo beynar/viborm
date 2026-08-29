@@ -16,7 +16,7 @@
  */
 import { createClient } from "@client/client";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { push } from "@migrations";
+import { pushV1 as push } from "@migrations/push-v1";
 import { s } from "@schema";
 import { bench, describe } from "vitest";
 

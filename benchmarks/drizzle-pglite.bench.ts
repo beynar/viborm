@@ -12,7 +12,7 @@
 import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite } from "@electric-sql/pglite";
-import { push } from "@migrations";
+import { pushV1 as push } from "@migrations/push-v1";
 import { s } from "@schema";
 import { desc, eq, relations } from "drizzle-orm";
 import { boolean, integer, pgTable, text } from "drizzle-orm/pg-core";

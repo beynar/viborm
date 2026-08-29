@@ -243,7 +243,23 @@ requireRuntimeFunction("./client", "defaultOmit");
 // live-capability admission decision, so the bundled surface must not carry it.
 requireRuntimeFunction("./migrations", "createMigrationClient");
 requireRuntimeFunction("./migrations", "createFsStorageWriter");
-requireRuntimeFunction("./migrations", "previewPush");
+requireRuntimeFunction("./migrations", "lenientResolver");
+for (const operation of [
+  "generate",
+  "checkEstate",
+  "apply",
+  "push",
+  "previewPush",
+  "status",
+  "verify",
+  "log",
+  "down",
+  "baseline",
+  "resolve",
+  "reset",
+]) {
+  requireRuntimeAbsence("./migrations", operation);
+}
 requireRuntimeAbsence("./migrations", "MigrationContext");
 requireRuntimeAbsence("./migrations", "squash");
 requireRuntimeAbsence("./migrations", "journal");

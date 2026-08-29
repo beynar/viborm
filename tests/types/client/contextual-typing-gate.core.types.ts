@@ -51,7 +51,6 @@ import {
   createClient as pgliteCreateClient,
 } from "@drivers/pglite";
 import { createMigrationClient } from "@migrations/client";
-import { push as applyPush } from "@src/migrations";
 import { createFsStorageWriter } from "@migrations/storage/fs";
 import { s } from "@schema";
 import { cache } from "@src/cache/exports";
@@ -1364,7 +1363,7 @@ describe("$transaction and push option bags are keyed", () => {
 
   const _applyPushOptionTypo = () =>
     // @ts-expect-error - "dryRnu" is not a push option
-    applyPush(client, { dryRun: true, dryRnu: true });
+    migrations.push({ dryRun: true, dryRnu: true });
 
   /**
    * applyPush / createMigrationClient().push are the migration entry points
@@ -1373,7 +1372,7 @@ describe("$transaction and push option bags are keyed", () => {
    */
   const _applyPushOptionTypoNonFresh = () =>
     // @ts-expect-error - "dryRnu" is not a push option, fresh literal or not
-    applyPush(client, nonFreshPushOptions);
+    migrations.push(nonFreshPushOptions);
 
   const _clientPushOptionTypo = () =>
     // @ts-expect-error - "dryRnu" is not a push option

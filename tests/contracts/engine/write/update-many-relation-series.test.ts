@@ -35,10 +35,10 @@ import {
   BatchOnlyPGliteDriver,
   usePGliteSchemaFamily,
 } from "@tests/fixtures/drivers/pglite";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { readTestTransactionOperation } from "@tests/fixtures/transaction-operation";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 /**
  * PACKAGE K — the record-series route for root `updateMany`, on PGlite.
@@ -336,7 +336,6 @@ describe("K2 — select keeps its typed refusal while count uses default batch",
       schema: updateManySeriesSchema,
       driver: new PGliteDriver({ client: database }),
     }) as any;
-    const { push } = await import("@migrations");
     await syncLiveSchema(setup);
     await setup.shelf.create({ data: { id: 1, room: "north" } });
     await setup.bin.createMany({
@@ -391,7 +390,6 @@ describe("K3/K6 — the statement list the series actually issues", () => {
       schema: updateManySeriesSchema,
       driver,
     }) as any;
-    const { push } = await import("@migrations");
     await syncLiveSchema(client);
     await seed(client);
     driver.statements.length = 0;
@@ -434,7 +432,6 @@ describe("K3/K6 — the statement list the series actually issues", () => {
       schema: updateManySeriesSchema,
       driver,
     }) as any;
-    const { push } = await import("@migrations");
     await syncLiveSchema(client);
     await seed(client);
     driver.statements.length = 0;
@@ -468,7 +465,6 @@ describe("K3/K6 — the statement list the series actually issues", () => {
       schema: updateManySeriesSchema,
       driver,
     }) as any;
-    const { push } = await import("@migrations");
     await syncLiveSchema(client);
     driver.statements.length = 0;
 
@@ -490,7 +486,6 @@ describe("K3/K6 — the statement list the series actually issues", () => {
       schema: updateManySeriesSchema,
       driver,
     }) as any;
-    const { push } = await import("@migrations");
     await syncLiveSchema(client);
     await seed(client);
     driver.statements.length = 0;
@@ -517,7 +512,6 @@ describe("K3/K6 — the statement list the series actually issues", () => {
       schema: updateManySeriesSchema,
       driver,
     }) as any;
-    const { push } = await import("@migrations");
     await syncLiveSchema(client);
     await client.shelf.create({ data: { id: 1, room: "north" } });
     await client.bin.create({ data: { id: 1, label: "one" } });
@@ -817,7 +811,6 @@ describe("K — a raceable member failure retries the whole series, CAPTURE incl
       schema: updateManySeriesSchema,
       driver,
     }) as any;
-    const { push } = await import("@migrations");
     await syncLiveSchema(client);
     await client.bin.create({ data: { id: 1, label: "one" } });
     await client.bin.create({ data: { id: 2, label: "two" } });

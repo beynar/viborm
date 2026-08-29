@@ -13,11 +13,12 @@ icon: cpu
 
 ## Available Drivers
 
-| Driver | Database | Native Enums | Native Arrays | Index Types |
-|--------|----------|--------------|---------------|-------------|
-| [PostgreSQL](/docs/migration/drivers/postgresql) | PostgreSQL | Yes | Yes | btree, hash, gin, gist |
-| [MySQL](/docs/migration/drivers/mysql) | MySQL | Yes (inline `ENUM`) | No (JSON) | btree, fulltext, spatial |
-| [SQLite](/docs/migration/drivers/sqlite) | SQLite, LibSQL | No (CHECK) | No (JSON) | btree |
+| Driver | Database | Native Enums | Native Arrays | Index Types | Effectful V1 commands |
+|--------|----------|--------------|---------------|-------------|-----------------------|
+| [PostgreSQL](/docs/migration/drivers/postgresql) | PostgreSQL | Yes | Yes | btree, hash, gin, gist | Providers with a proven pinned session |
+| [MySQL](/docs/migration/drivers/mysql) | MySQL | Yes (inline `ENUM`) | No (JSON) | btree, fulltext, spatial | MySQL2 with namespace attestation; stepwise DDL |
+| [SQLite](/docs/migration/drivers/sqlite) | SQLite3, Bun SQLite | No (CHECK) | No (JSON) | btree | Yes |
+| [SQLite](/docs/migration/drivers/sqlite#libsql--turso) | LibSQL / Turso | No (CHECK) | No (JSON) | btree | Refused until constraint alteration and reconstruction are proven |
 
 ## Driver Capabilities
 

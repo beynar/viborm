@@ -6,7 +6,9 @@
  */
 
 import { createClient } from "@client/client";
-import { createMigrationClient, generate, status } from "@migrations";
+import { createMigrationClient } from "@migrations";
+import { generateV1 as generate } from "@migrations/generate-v1";
+import { statusV1 as status } from "@migrations/operators";
 import type { MigrationClient } from "@migrations/push/planner";
 import { s } from "@schema";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";

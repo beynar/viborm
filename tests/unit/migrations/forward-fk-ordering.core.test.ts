@@ -21,7 +21,8 @@
  */
 
 import { createClient } from "@client/client";
-import { apply, generate } from "@migrations";
+import { applyV1 as apply } from "@migrations/apply-v1";
+import { generateV1 as generate } from "@migrations/generate-v1";
 import { s } from "@schema";
 import type { MigrationDriver } from "@src/migrations/drivers";
 import { libsqlMigrationDriver } from "@src/migrations/drivers/libsql";

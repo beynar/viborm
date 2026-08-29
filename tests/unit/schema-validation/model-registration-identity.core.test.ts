@@ -2,7 +2,8 @@ import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { createClient } from "@client/client";
 import { Driver } from "@drivers";
-import { generate, MemoryEstateStorage } from "@migrations";
+import { MemoryEstateStorage } from "@migrations";
+import { generateV1 as generate } from "@migrations/generate-v1";
 import { postgresMigrationDriver } from "@src/migrations/drivers/postgres";
 import { serializeModels } from "@src/migrations/serializer";
 import { type AnyModel, s } from "@src/schema";
@@ -183,9 +184,9 @@ describe("every effect-capable boundary refuses the rebind", () => {
       $schema: { beta: shared },
     };
 
-    await expect(
-      generate(client, storage, { name: "rebind" })
-    ).rejects.toThrow(REFUSAL);
+    await expect(generate(client, storage, { name: "rebind" })).rejects.toThrow(
+      REFUSAL
+    );
     expect(storage.accesses).toEqual([]);
     expect(await storage.listStates()).toEqual([]);
     expect(shared["~"].names.ts).toBe("alpha");
@@ -201,9 +202,9 @@ describe("every effect-capable boundary refuses the rebind", () => {
     };
 
     await expect(syncLiveSchema(client)).rejects.toThrow(REFUSAL);
-    await expect(syncLiveSchema(client, { skipValidation: true })).rejects.toThrow(
-      REFUSAL
-    );
+    await expect(
+      syncLiveSchema(client, { skipValidation: true })
+    ).rejects.toThrow(REFUSAL);
     expect(shared["~"].names.sql).toBe("alpha");
   });
 });

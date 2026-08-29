@@ -1,10 +1,26 @@
 import { sql } from "@sql";
 import {
   type ApplyOptions,
+  type ApplyResult,
+  type BaselineResult,
+  type CheckResult,
   createFsStorageWriter,
   createMigrationClient,
+  type DownResult,
   type GenerateOptions,
+  type GenerateResult,
+  type GraphResult,
+  type ListResult,
+  type LogResult,
+  type MigrationStorageReader,
+  type PushApplyResult,
   type PushOptions,
+  type PushPreview,
+  type ResetResult,
+  type ResolveResult,
+  type ShowResult,
+  type StatusResult,
+  type VerifyResult,
 } from "@src/migrations";
 
 declare const client: Parameters<typeof createMigrationClient>[0];
@@ -100,12 +116,78 @@ const migrations = createMigrationClient(client, {
   storage: createFsStorageWriter("./migrations"),
 });
 
+declare const reader: MigrationStorageReader;
+
+const liveMigrations = createMigrationClient(client);
+liveMigrations.push({ dryRun: true });
+liveMigrations.log();
+// @ts-expect-error -- estate operations are absent without storage
+liveMigrations.apply();
+// @ts-expect-error -- a supplied options object must carry storage
+createMigrationClient(client, {});
+
+const readableMigrations = createMigrationClient(client, { storage: reader });
+readableMigrations.apply();
+readableMigrations.graph();
+// @ts-expect-error -- generation requires a storage writer
+readableMigrations.generate();
+// @ts-expect-error -- reset requires a storage writer
+readableMigrations.reset();
+
+const _publicResultTypes = async () => {
+  const generated: GenerateResult = await migrations.generate();
+  const checked: CheckResult = await migrations.check();
+  const listed: ListResult = await migrations.list();
+  const shown: ShowResult = await migrations.show({ name: "init" });
+  const graph: GraphResult = await migrations.graph();
+  const status: StatusResult = await migrations.status();
+  const verified: VerifyResult = await migrations.verify();
+  const log: LogResult = await migrations.log();
+  const applied: ApplyResult = await migrations.apply();
+  const down: DownResult = await migrations.down();
+  const baseline: BaselineResult = await migrations.baseline({
+    to: { name: "init" },
+  });
+  const resolved: ResolveResult = await migrations.resolve({
+    outcome: "retry",
+  });
+  const reset: ResetResult = await migrations.reset();
+  const preview: PushPreview = await migrations.push({ dryRun: true });
+  const pushed: PushApplyResult = await migrations.push();
+  return {
+    generated,
+    checked,
+    listed,
+    shown,
+    graph,
+    status,
+    verified,
+    log,
+    applied,
+    down,
+    baseline,
+    resolved,
+    reset,
+    preview,
+    pushed,
+  };
+};
+
 const _storageDriverBesideReal = () =>
+  // @ts-expect-error -- the composition root takes `storage`, not `storageDriver`
   createMigrationClient(client, {
     storage: createFsStorageWriter("./migrations"),
-    // @ts-expect-error -- the composition root takes `storage`, not `storageDriver`
     storageDriver: createFsStorageWriter("./migrations"),
   });
+
+const heldMigrationClientOptions = {
+  storage: createFsStorageWriter("./migrations"),
+  storageDriver: createFsStorageWriter("./migrations"),
+};
+
+const _nonFreshStorageDriverBesideReal = () =>
+  // @ts-expect-error -- held option bags reject unknown keys structurally too
+  createMigrationClient(client, heldMigrationClientOptions);
 
 // @ts-expect-error -- squash is not a V1 operation
 const _noSquash = () => migrations.squash({ from: 0, to: 1 });
@@ -115,7 +197,9 @@ const _noPending = () => migrations.pending();
 const _noJournal = () => migrations.journal();
 
 type _removedVerbs = [
+  typeof _publicResultTypes,
   typeof _storageDriverBesideReal,
+  typeof _nonFreshStorageDriverBesideReal,
   typeof _noSquash,
   typeof _noPending,
   typeof _noJournal,

@@ -11,16 +11,15 @@ import { NeonHTTPDriver } from "@drivers/neon-http";
 import { PGliteDriver } from "@drivers/pglite";
 import { PlanetScaleDriver } from "@drivers/planetscale";
 import { VibORMErrorCode } from "@errors";
+import { createMigrationClient, type WritableMigrations } from "@migrations";
+import { applyV1 as apply } from "@migrations/apply-v1";
 import {
-  apply,
-  push as applyPush,
-  createMigrationClient,
-  down,
-  previewPush,
-  reset,
-  status,
-  verify,
-} from "@migrations";
+  downV1 as down,
+  statusV1 as status,
+  verifyV1 as verify,
+} from "@migrations/operators";
+import { pushV1 as applyPush, previewPush } from "@migrations/push-v1";
+import { resetV1 as reset } from "@migrations/reset-v1";
 import { s } from "@schema";
 import type { MigrationClient } from "@src/migrations/push/planner";
 import { describe, expect, it, vi } from "vitest";
@@ -46,26 +45,10 @@ describe("a transport with no interactive session is refused", () => {
   });
 
   it.each([
-    [
-      "apply()",
-      (migrations: ReturnType<typeof createMigrationClient>) =>
-        migrations.apply(),
-    ],
-    [
-      "down()",
-      (migrations: ReturnType<typeof createMigrationClient>) =>
-        migrations.down(),
-    ],
-    [
-      "reset()",
-      (migrations: ReturnType<typeof createMigrationClient>) =>
-        migrations.reset(),
-    ],
-    [
-      "verify()",
-      (migrations: ReturnType<typeof createMigrationClient>) =>
-        migrations.verify(),
-    ],
+    ["apply()", (migrations: WritableMigrations) => migrations.apply()],
+    ["down()", (migrations: WritableMigrations) => migrations.down()],
+    ["reset()", (migrations: WritableMigrations) => migrations.reset()],
+    ["verify()", (migrations: WritableMigrations) => migrations.verify()],
   ])("refuses %s with DRIVER_NOT_SUPPORTED before any provider call", async (_label, run) => {
     const driver = neonDriver();
     const executed = vi.spyOn(driver, "_executeRaw").mockImplementation(() => {

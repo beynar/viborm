@@ -15,21 +15,53 @@ icon: hard-drive
 | Writer | Storage | Best For |
 |--------|---------|----------|
 | [Filesystem](/docs/migration/storage/filesystem) | Local files | Development, CI/CD, version control |
+| `ObjectStoreEstateStorage` | Strongly consistent object store with conditional create | Shared remote estates |
+| `MemoryEstateStorage` | Process memory | Tests and storage conformance fixtures |
 
 ## Semantic Interface
 
 Storage is a reader/writer of content-addressed objects, not a path store:
 
 ```ts
-interface MigrationStorageWriter {
+interface MigrationStorageReader {
   readEstate(): Promise<Uint8Array | null>;
   listStates(): Promise<readonly string[]>;
+  listSnapshots(): Promise<readonly string[]>;
+  listSql(): Promise<readonly string[]>;
+  readState(id: string): Promise<Uint8Array | null>;
+  readSnapshot(hash: string): Promise<Uint8Array | null>;
+  readSql(hash: string): Promise<Uint8Array | null>;
+}
+
+interface MigrationStorageWriter extends MigrationStorageReader {
   publishEstate(bytes: Uint8Array): Promise<PublishResult>;
   publishSnapshot(hash: string, bytes: Uint8Array): Promise<PublishResult>;
   publishSql(hash: string, bytes: Uint8Array): Promise<PublishResult>;
   publishState(id: string, bytes: Uint8Array): Promise<PublishResult>;
 }
+
+interface PublishResult {
+  outcome: "created" | "identical";
+}
 ```
+
+Reader inventories and reads must be strongly consistent. Writer publication
+is conditional create: publishing identical bytes at the same identity is
+idempotent, while different bytes at that identity are corruption. The state
+manifest is published last and is the only visibility boundary for a new
+state.
+
+Eventually consistent or last-writer-wins storage cannot implement the writer
+contract directly. It needs an external single-writer or conditional
+publication owner. Workers KV is therefore refused as a writable estate;
+strongly consistent object storage with conditional writes can be used.
+
+Custom writable storage should run the exported
+`createStorageConformanceSuite()` against a fresh writer. The suite proves
+idempotent identical publication, corruption refusal, committed-manifest
+inventory, and immutable estate publication. It does not upgrade a storage
+service whose consistency or conditional-write contract is weaker than the
+interface promises.
 
 ## Directory Structure
 

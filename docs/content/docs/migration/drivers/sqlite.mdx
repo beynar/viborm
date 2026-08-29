@@ -208,7 +208,16 @@ WHERE json_each.value = 'admin';
 
 ## LibSQL / Turso
 
-The SQLite driver also works with LibSQL (Turso). The same limitations and features apply.
+LibSQL uses the SQLite-family snapshot, type mapping, introspection, and DDL
+renderer. That does **not** make its live execution guarantee equivalent to
+SQLite3 or Bun SQLite.
+
+V1 refuses effectful `apply`, `down`, `reset`, `verify`, and `push` on LibSQL.
+Its native constraint alteration does not validate existing rows, and safe
+table reconstruction has not been proven together with the migration lock,
+marker compare-and-swap, and final schema proof. Offline `generate` and
+`check`, database `status` and `log`, and `push({ dryRun: true })` remain
+available.
 
 ## Next Steps
 

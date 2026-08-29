@@ -14,7 +14,7 @@
 
 import { createClient } from "@client/client";
 import type { AnyDriver } from "@drivers";
-import { createMigrationClient } from "@migrations";
+import { createMigrationClient, type WritableMigrations } from "@migrations";
 import { s } from "@schema";
 import { sql } from "@sql";
 import { createInMemoryPGliteDriver } from "@tests/fixtures/drivers/pglite";
@@ -76,9 +76,7 @@ const TO_ONE_UP = [
   sql.raw(`DROP TABLE "content_subject_post"`),
 ];
 
-async function appliedNames(
-  migrations: ReturnType<typeof createMigrationClient>
-): Promise<string[]> {
+async function appliedNames(migrations: WritableMigrations): Promise<string[]> {
   const report = await migrations.status();
   if (!report.marker) return [];
   const listed = await migrations.list();

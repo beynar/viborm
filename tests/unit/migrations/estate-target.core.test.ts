@@ -8,28 +8,26 @@
 import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
-import {
-  apply,
-  push as applyPush,
-  createMigrationClient,
-  generate,
-  previewPush,
-  reset,
-  status,
-} from "@migrations";
+import { createMigrationClient } from "@migrations";
+import { applyV1 as apply } from "@migrations/apply-v1";
 import { getMigrationDriver } from "@migrations/drivers";
 import { libsqlMigrationDriver } from "@migrations/drivers/libsql";
 import { mysqlMigrationDriver } from "@migrations/drivers/mysql";
 import { postgresMigrationDriver } from "@migrations/drivers/postgres";
 import { sqlite3MigrationDriver } from "@migrations/drivers/sqlite";
+import { generateV1 as generate } from "@migrations/generate-v1";
+import { statusV1 as status } from "@migrations/operators";
 import { introspect } from "@migrations/push";
 import type { MigrationClient } from "@migrations/push/planner";
+import { pushV1 as applyPush } from "@migrations/push-v1";
+import { resetV1 as reset } from "@migrations/reset-v1";
 import {
   formatMigrationTarget,
   resolveMigrationEstate,
 } from "@migrations/target";
 import type { MigrationTarget } from "@migrations/types";
 import { s } from "@schema";
+import { sql } from "@sql";
 import { describe, expect, it } from "vitest";
 import {
   MemoryStorage,
@@ -523,15 +521,97 @@ describe("createMigrationClient accessors are estate-bound", () => {
     expect(await migrations.list()).toEqual([
       { stateId: published.stateId, name: "init" },
     ]);
-    expect(await migrations.show({ name: "init" })).toEqual({
+    const shown = await migrations.show({ name: "init" });
+    expect(shown).toMatchObject({
       stateId: published.stateId,
       name: "init",
+      snapshotHash: published.snapshotHash,
+      sqlHash: published.sqlHash,
+      root: true,
+      leaf: true,
     });
+    expect(shown.incoming).toHaveLength(1);
+    expect(shown.outgoing).toEqual([]);
+    for (const incoming of shown.incoming) {
+      expect(incoming).toMatchObject({
+        fromState: null,
+        toState: published.stateId,
+        operationCount: expect.any(Number),
+        stepCount: expect.any(Number),
+        rollback: { kind: "schema" },
+      });
+      expect("operations" in incoming).toBe(false);
+      expect(Object.isFrozen(incoming)).toBe(true);
+      expect(Object.isFrozen(incoming.rollback)).toBe(true);
+    }
+    expect(Object.isFrozen(shown)).toBe(true);
+    expect(Object.isFrozen(shown.incoming)).toBe(true);
+    expect(Object.isFrozen(shown.outgoing)).toBe(true);
+
+    const graph = await migrations.graph();
+    expect(graph).toMatchObject({
+      estateHash: published.estateHash,
+      target: { dialect: "postgresql", namespace: "alpha" },
+      roots: [published.stateId],
+      leaves: [published.stateId],
+      states: [
+        {
+          stateId: published.stateId,
+          name: "init",
+          snapshotHash: published.snapshotHash,
+          sqlHash: published.sqlHash,
+          root: true,
+          leaf: true,
+        },
+      ],
+      edges: shown.incoming,
+    });
+    expect(Object.isFrozen(graph)).toBe(true);
+    expect(Object.isFrozen(graph.target)).toBe(true);
+    expect(Object.isFrozen(graph.states)).toBe(true);
+    expect(Object.isFrozen(graph.edges)).toBe(true);
     await expect(migrations.show({ name: "fabricated" })).rejects.toMatchObject(
       {
         code: "V11002",
       }
     );
+  });
+
+  it("shows the reason an incoming edge is irreversible", async () => {
+    const storage = new MemoryStorage();
+    const migrations = createMigrationClient(
+      clientFor(pgEstateDriver("alpha")),
+      { storage }
+    );
+    const initial = await migrations.generate({ name: "init" });
+    if (initial.stateId === null) throw new Error("init was not published");
+    const manual = await migrations.generate({
+      name: "backfill",
+      from: initial.stateId,
+      manualMigration: {
+        transitions: [
+          {
+            from: initial.stateId,
+            execution: "transactional",
+            up: [sql`UPDATE "user" SET "email" = "email"`],
+            rollback: {
+              kind: "irreversible",
+              reason: "the original values were not retained",
+            },
+          },
+        ],
+      },
+    });
+
+    const shown = await migrations.show({ name: "backfill" });
+    expect(shown.stateId).toBe(manual.stateId);
+    expect(shown.incoming).toHaveLength(1);
+    expect(shown.incoming[0]?.rollback).toEqual({
+      kind: "irreversible",
+      reason: "the original values were not retained",
+      operationCount: 0,
+      stepCount: 0,
+    });
   });
 });
 
@@ -543,7 +623,7 @@ describe("public migration surface", () => {
     expect("squash" in surface).toBe(false);
     expect("pending" in surface).toBe(false);
     expect(typeof surface.createMigrationClient).toBe("function");
-    expect(typeof surface.previewPush).toBe("function");
-    expect(typeof previewPush).toBe("function");
+    expect("previewPush" in surface).toBe(false);
+    expect("push" in surface).toBe(false);
   });
 });

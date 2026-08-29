@@ -9,8 +9,8 @@
  */
 
 import { MigrationError, VibORMErrorCode } from "@errors";
-import { generate } from "@migrations";
 import { sqlite3MigrationDriver } from "@migrations/drivers/sqlite";
+import { generateV1 as generate } from "@migrations/generate-v1";
 import {
   serializeModels,
   serializeResolvedModels,

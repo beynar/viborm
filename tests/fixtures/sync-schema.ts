@@ -3,9 +3,8 @@
  * Additive empty-database setup does not need consent.
  */
 
-import { push as applyPush, previewPush } from "@migrations";
+import { addDropResolver, createMigrationClient } from "@migrations";
 import type { MigrationClient } from "@migrations/push/planner";
-import { addDropResolver } from "@migrations/resolver";
 import type { ResolveCallback } from "@migrations/types";
 
 interface SyncLiveSchemaOptions {
@@ -24,14 +23,16 @@ export async function syncLiveSchema(
     ? async (change) =>
         (await options.resolve?.(change)) ?? addDropResolver(change)
     : options.resolve;
-  const preview = await previewPush(client, {
+  const migrations = createMigrationClient(client);
+  const preview = await migrations.push({
+    dryRun: true,
     forceReset: options.forceReset,
     resolve,
     skipValidation: options.skipValidation,
   });
   const outcome = options.dryRun
     ? preview
-    : await applyPush(client, { consent: preview.consent });
+    : await migrations.push({ consent: preview.consent });
   return {
     ...outcome,
     applied: outcome.outcome === "applied",

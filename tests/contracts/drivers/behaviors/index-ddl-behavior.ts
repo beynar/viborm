@@ -35,7 +35,7 @@ import {
 } from "@client/client";
 import type { AnyDriver } from "@drivers";
 import { UniqueConstraintError } from "@errors";
-import { previewPush } from "@migrations";
+import { createMigrationClient } from "@migrations";
 import { s } from "@schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { afterEach, describe, expect, test } from "vitest";
@@ -578,7 +578,9 @@ export function runPartialIndexPredicateChurnBehavior({
       await syncLiveSchema(make(churnDeclaredSchema) as never);
 
       const unparseable = make(churnUnparseableSchema);
-      const second = await previewPush(unparseable as never);
+      const second = await createMigrationClient(unparseable as never).push({
+        dryRun: true,
+      });
 
       expect(indexOps(second.operations).map((op) => op.label)).toEqual([
         "dropIndex",

@@ -5,22 +5,39 @@
  */
 
 export { isMigrationError, MigrationError } from "../errors";
-export { applyV1 as apply } from "./apply-v1";
 export type { CheckFinding, CheckResult } from "./check";
-export { checkEstate } from "./check";
-export type { MigrationClientOptions, Migrations } from "./client";
+export type {
+  ApplyResult,
+  BaselineResult,
+  DownResult,
+  GenerateResult,
+  LiveMigrations,
+  LogResult,
+  MigrationClientOptions,
+  ReadableMigrations,
+  ResetResult,
+  ResolveResult,
+  StatusResult,
+  VerifyResult,
+  WritableMigrations,
+} from "./client";
 export { createMigrationClient } from "./client";
-export { generateV1 as generate } from "./generate-v1";
+export type {
+  GraphResult,
+  ListResult,
+  MigrationEdgeMetadata,
+  MigrationRollbackMetadata,
+  MigrationStateDetails,
+  MigrationStateListItem,
+  MigrationStateMetadata,
+  ShowResult,
+} from "./public-view";
+export type { PushApplyResult, PushPreview } from "./push-v1";
 export {
-  baselineV1 as baseline,
-  downV1 as down,
-  logV1 as log,
-  resetV1 as reset,
-  resolveV1 as resolve,
-  statusV1 as status,
-  verifyV1 as verify,
-} from "./operators";
-export { previewPush, pushV1 as push } from "./push-v1";
+  addDropResolver,
+  lenientResolver,
+  rejectAllResolver,
+} from "./resolver";
 export { createStorageConformanceSuite } from "./storage/conformance";
 export type {
   MigrationStorageReader,
@@ -46,10 +63,8 @@ export type {
   ManualTransitionInput,
   MigrationEstateDescriptorV1,
   MigrationStateManifestV1,
-  PushApplyResult,
   PushConsent,
   PushOptionsV1 as PushOptions,
-  PushPreview,
   ResetV1Options as ResetOptions,
   ResolveV1Options as ResolveOptions,
   StateSelector,

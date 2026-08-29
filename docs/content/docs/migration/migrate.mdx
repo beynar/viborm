@@ -9,7 +9,7 @@ icon: git-branch
 - **Production deployments** — the SQL you review is the SQL production executes
 - **Team collaboration** — Git branches can diverge and merge without renaming files
 - **CI/CD pipelines** — `check`, `status`, and `apply` have stable `--json` output
-- **Recoverable apply** — interrupted work has one detectable state, not a guessed journal
+- **Recoverable apply** — interrupted work has one detectable state, not a guessed final status
 
 `push` is a separate, history-free live sync. It never writes estate storage or the current-state marker. Use [Push](/docs/migration/push) for local prototyping; use migrate when the change must be history.
 
@@ -42,7 +42,9 @@ Production never evaluates migration TypeScript. It slices authenticated UTF-8 r
 
 ## Composition Root
 
-One client, one storage writer. There is no journal, no `$migrations` helper, and no `createFsStorageDriver`.
+One migration client binds the database client to one optional estate storage.
+There is no `$migrations` helper, migration manager, or
+`createFsStorageDriver`.
 
 <Tabs>
   <Tab title="CLI">
@@ -72,7 +74,44 @@ await migrations.apply();
   </Tab>
 </Tabs>
 
-`createMigrationClient` is the only composition root. Estate commands need a `MigrationStorageWriter` (or a reader for apply/status/check). `push` does not receive storage.
+`createMigrationClient` is the only execution composition root. Its methods
+reflect the supplied storage capability:
+
+| Client construction | Available operations |
+| --- | --- |
+| No storage | `push`, `log` |
+| `MigrationStorageReader` | The above plus `check`, `list`, `show`, `graph`, `status`, `verify`, `apply`, `down`, `baseline`, `resolve` |
+| `MigrationStorageWriter` | Every operation, including `generate` and `reset` |
+
+`log` reads the target database's append-only ledger. `push` is history-free.
+Neither operation reads estate storage.
+
+Every `viborm migrate` subcommand accepts `-d, --dir <dir>` and `--json`.
+There is no migration-wide `--verbose` or `--force` flag. The operation
+sections below list the remaining command-specific flags.
+
+### Named Client and Result Types
+
+The capability surfaces and operation results are exported for scripts and
+tooling that keep their types in a central module:
+
+```ts
+import type {
+  ApplyResult,
+  GenerateResult,
+  GraphResult,
+  LiveMigrations,
+  LogResult,
+  ReadableMigrations,
+  StatusResult,
+  WritableMigrations,
+} from "viborm/migrations";
+```
+
+Every operation has a named result: `GenerateResult`, `CheckResult`,
+`ListResult`, `ShowResult`, `GraphResult`, `StatusResult`, `VerifyResult`,
+`LogResult`, `ApplyResult`, `DownResult`, `BaselineResult`, `ResolveResult`,
+`ResetResult`, `PushPreview`, and `PushApplyResult`.
 
 ## Generate a State
 
@@ -126,15 +165,33 @@ Some work moves data, not just structure. VibORM refuses to invent that movement
 ```ts
 import { sql } from "viborm";
 
+const currentStateId = (
+  await migrations.show({ name: "legacy-subject" })
+).stateId;
+
 await migrations.generate({
   name: "subject-to-many",
   manualMigration: {
     transitions: [
       {
-        from: null,
+        from: currentStateId,
         execution: "stepwise",
+        originChecks: [
+          {
+            kind: "trusted-read",
+            query: sql`SELECT NOT EXISTS (
+              SELECT 1 FROM "content"
+              WHERE "subject_type" <> 'content.post.v1'
+            )`,
+            equals: true,
+          },
+        ],
         up: [
-          sql`CREATE TABLE "content_subject_post" (...);`,
+          sql`CREATE TABLE "content_subject_post" (
+                "contentId" text NOT NULL,
+                "postId" text NOT NULL,
+                PRIMARY KEY ("contentId", "postId")
+              );`,
           sql`INSERT INTO "content_subject_post" ("contentId", "postId")
                 SELECT "id", "subject_id" FROM "content"
                 WHERE "subject_type" = 'content.post.v1';`,
@@ -146,9 +203,29 @@ await migrations.generate({
         },
       },
     ],
+    destinationChecks: [
+      {
+        kind: "trusted-read",
+        query: sql`SELECT NOT EXISTS (
+          SELECT 1 FROM "content" AS c
+          WHERE c."subject_type" = 'content.post.v1'
+            AND NOT EXISTS (
+              SELECT 1 FROM "content_subject_post" AS j
+              WHERE j."contentId" = c."id"
+                AND j."postId" = c."subject_id"
+            )
+        )`,
+        equals: true,
+      },
+    ],
   },
 });
 ```
+
+This example uses PostgreSQL quoting. Adapt the SQL and physical scalar types
+to the target dialect. Each check must return exactly one row and one
+boolean-like column. An origin check proves the pre-transition fact; a
+destination check proves the post-transition fact.
 
 Rules, each a refusal rather than a warning:
 
@@ -188,12 +265,26 @@ for (const state of await migrations.list()) {
 }
 
 const shown = await migrations.show({ name: "add-users" });
-const { roots, leaves } = await migrations.graph();
+console.log(shown.snapshotHash, shown.sqlHash);
+console.log(shown.root, shown.leaf);
+console.log(shown.incoming, shown.outgoing);
+
+const graph = await migrations.graph();
+console.log(graph.estateHash, graph.target);
+console.log(graph.roots, graph.leaves);
+console.log(graph.states, graph.edges);
 ```
   </Tab>
 </Tabs>
 
 `show` and `apply({ to })` accept a full state id, an unambiguous prefix, or an unambiguous name. Ambiguous names or prefixes refuse. Numeric indexes are not selectors.
+
+`list` is the compact state-id/name view. `show` adds the snapshot and SQL
+identities, root/leaf flags, and incoming/outgoing edge metadata. `graph`
+returns the estate target, every state, and every edge. Edge metadata exposes
+the parent and child ids, transition hash, requested execution boundary,
+operation and step counts, origins, risks, and rollback kind. These are frozen
+descriptions, not executable plans or mutable manifest objects.
 
 ## Status, Verify, and Log
 
@@ -204,7 +295,7 @@ const { roots, leaves } = await migrations.graph();
 ```bash
 npx viborm migrate status --json
 npx viborm migrate verify --json
-npx viborm migrate log --json
+npx viborm migrate log --limit 20 --json
 ```
   </Tab>
   <Tab title="Migration Client">
@@ -225,9 +316,16 @@ const events = await migrations.log();
 |---------|------|-----------------|
 | `status` | no | Marker, pending path to the unique leaf, unfinished attempts. |
 | `verify` | yes | Live managed schema matches the marker's authenticated snapshot. |
-| `log` | no | Append-only ledger events. Missing bytes stay visible as findings. |
+| `log` | no | Authenticated database-ledger events, sorted by start time and event id. It does not inspect estate artifacts. |
+
+CLI `log --limit <n>` keeps the last `n` events after that stable ordering. The
+programmatic `log()` call returns the complete ledger so callers can slice or
+filter it themselves.
 
 There is no `pending()` method. Pending work is a field on `status()`.
+`log()` requires an existing, authentic control-table pair. When it is absent,
+`log()` throws `MIGRATION_NOT_FOUND`; it does not return an empty successful
+log.
 
 ## Apply
 
@@ -519,5 +617,10 @@ if (status.pending.length > 0) {
     title="Migration Drivers"
     description="Dialect DDL, probes, and atomicity"
     href="/docs/migration/drivers"
+  />
+  <Card
+    title="Compared with Prisma and Drizzle"
+    description="History, integrity, recovery, and workflow differences"
+    href="/docs/migration/comparison"
   />
 </CardGroup>

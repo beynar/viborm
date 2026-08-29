@@ -12,7 +12,7 @@ import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { push } from "@migrations";
+import { pushV1 as push } from "@migrations/push-v1";
 import { readTransactionOperation } from "@query-engine/transaction-operation";
 import { type Sql, sql } from "@sql";
 import { bench, describe } from "vitest";

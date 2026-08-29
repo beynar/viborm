@@ -14,13 +14,7 @@
 
 import type { QueryResult } from "@drivers/types";
 import { QueryError, VibORMErrorCode } from "@errors";
-import {
-  apply,
-  push as applyPush,
-  generate,
-  previewPush,
-  reset,
-} from "@migrations";
+import { applyV1 as apply } from "@migrations/apply-v1";
 import { canonicalizeJsonText } from "@migrations/canonical-json";
 import { markerFromPath } from "@migrations/control";
 import {
@@ -29,6 +23,7 @@ import {
 } from "@migrations/decimal";
 import { getMigrationDriver } from "@migrations/drivers";
 import { emptyManagedSnapshot } from "@migrations/empty-snapshot";
+import { generateV1 as generate } from "@migrations/generate-v1";
 import { planLiveNamespaceReset } from "@migrations/live-reset";
 import { downV1, resolveV1 } from "@migrations/operators";
 import {
@@ -36,6 +31,7 @@ import {
   withLockedMigrationProducer,
 } from "@migrations/pinned-session";
 import type { MigrationClient } from "@migrations/push/planner";
+import { pushV1 as applyPush, previewPush } from "@migrations/push-v1";
 import { resetV1 } from "@migrations/reset-v1";
 import { composeSqlBlob } from "@migrations/sql-blob";
 import {
@@ -61,6 +57,8 @@ import {
   pgEstateDriver,
   RecordingDriver,
 } from "./_estate";
+
+const reset = resetV1;
 
 const schema = {
   org: s.model({ id: s.string().id() }).map("ns_orgs"),

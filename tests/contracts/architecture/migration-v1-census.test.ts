@@ -50,14 +50,26 @@ describe("migration v1 public census", () => {
 
   test("public barrel exports the V1 nouns", () => {
     expect(typeof migrations.createMigrationClient).toBe("function");
-    expect(typeof migrations.generate).toBe("function");
-    expect(typeof migrations.apply).toBe("function");
-    expect(typeof migrations.push).toBe("function");
-    expect(typeof migrations.previewPush).toBe("function");
-    expect(typeof migrations.checkEstate).toBe("function");
     expect(typeof migrations.createFsStorageWriter).toBe("function");
-    expect(typeof migrations.status).toBe("function");
-    expect(typeof migrations.reset).toBe("function");
+    expect(typeof migrations.lenientResolver).toBe("function");
+    expect(typeof migrations.addDropResolver).toBe("function");
+    expect(typeof migrations.rejectAllResolver).toBe("function");
+    for (const operation of [
+      "generate",
+      "checkEstate",
+      "apply",
+      "push",
+      "previewPush",
+      "status",
+      "verify",
+      "log",
+      "down",
+      "baseline",
+      "resolve",
+      "reset",
+    ]) {
+      expect(operation in migrations).toBe(false);
+    }
   });
 
   test("V1 source forbids journal, delimiter, and path-level storage owners", () => {

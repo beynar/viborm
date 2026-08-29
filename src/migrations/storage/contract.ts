@@ -29,13 +29,46 @@ export interface MigrationStorageWriter extends MigrationStorageReader {
   publishState(id: Sha256, bytes: Uint8Array): Promise<PublishResult>;
 }
 
+const READER_METHODS = [
+  "readEstate",
+  "listStates",
+  "listSnapshots",
+  "listSql",
+  "readState",
+  "readSnapshot",
+  "readSql",
+] as const;
+
+const WRITER_METHODS = [
+  "publishEstate",
+  "publishSnapshot",
+  "publishSql",
+  "publishState",
+] as const;
+
+export function isMigrationStorageReader(
+  value: unknown
+): value is MigrationStorageReader {
+  return hasStorageMethods(value, READER_METHODS);
+}
+
 export function isMigrationStorageWriter(
   value: MigrationStorageReader
 ): value is MigrationStorageWriter {
-  return (
-    "publishEstate" in value &&
-    "publishSnapshot" in value &&
-    "publishSql" in value &&
-    "publishState" in value
+  return hasStorageMethods(value, WRITER_METHODS);
+}
+
+function hasStorageMethods(
+  value: unknown,
+  methods: readonly string[]
+): boolean {
+  if (
+    value === null ||
+    (typeof value !== "object" && typeof value !== "function")
+  ) {
+    return false;
+  }
+  return methods.every(
+    (method) => typeof Reflect.get(value, method) === "function"
   );
 }

@@ -153,8 +153,10 @@ identity mismatches. Do not cast `JSON.parse()` output to a snapshot,
 manifest, marker, or ledger event.
 
 `canonical-json.ts` alone produces and checks canonical JSON bytes.
-`v1-types.ts` defines the closed persisted and public shapes; it does not admit
-open `unknown` payload bags.
+`v1-types.ts` defines the closed persisted and operation-input shapes; it does
+not admit open `unknown` payload bags. `public-view.ts` is the sole projection
+from a trusted graph to frozen, non-executable `list`, `show`, and `graph`
+metadata.
 
 ### Exact SQL framing
 
@@ -418,7 +420,8 @@ dependency-safe clear are compiled before anything is dropped.
 | Operation execution order | `utils.ts` `sortOperations` |
 | Generated schema compile order | `utils.ts` `prepareSchemaProgram` |
 | RFC 8785 canonical JSON bytes | `canonical-json.ts` |
-| Closed V1 persisted/public shapes | `v1-types.ts` |
+| Closed V1 persisted and operation-input shapes | `v1-types.ts` |
+| Frozen non-executable graph views | `public-view.ts` |
 | Hostile artifact, marker, and ledger admission; derived hashes | `v1-parse.ts` |
 | SQL blob framing, range validation, and exact slicing | `sql-blob.ts` |
 | Semantic estate storage promises | `storage/contract.ts` |
@@ -435,7 +438,7 @@ dependency-safe clear are compiled before anything is dropped.
 | Status, verification, history display, rollback, baseline, recovery, and history-aware reset | `operators.ts` |
 | Push consent identity and history interlock | `push-v1.ts` |
 | History-free dialect-aware live planning/execution | `push/index.ts` |
-| Migration client composition | `client.ts` |
+| Capability-sensitive migration client composition | `client.ts` |
 | Package export boundary | `index.ts` |
 
 If a new check cannot be assigned to exactly one row, fix the ownership before
@@ -462,10 +465,16 @@ reset
 push
 ```
 
-`client.ts` is the one composition root. `index.ts` is the intentional package
-surface. `apply` targets a full state ID, unambiguous prefix, or unambiguous
-name; numeric positions have no meaning. `dryRun` is an option on the relevant
-operation, not a second execution API.
+`client.ts` is the one execution composition root. `index.ts` exports no direct
+operation functions. Without storage the client exposes only `push` and `log`;
+a `MigrationStorageReader` adds inspection and stored-history operations; a
+`MigrationStorageWriter` also adds `generate` and `reset`. The runtime object
+omits operations its inspected storage cannot perform, and the static type
+never promises an operation outside the storage capability the caller supplied.
+`apply` targets a full state ID, unambiguous prefix, or unambiguous name;
+numeric positions have no meaning. `dryRun` is an option on the relevant
+operation, not a second execution API. Resolver functions and storage
+constructors are utilities, not alternate execution roots.
 
 ## Forbidden architecture
 
@@ -514,7 +523,7 @@ journal migrator.
 | Change push consent or migration-marker coexistence | `push-v1.ts` | `control.ts`, `identity.ts` |
 | Change live push planning | `push/index.ts` | `push/planner.ts`, `differ.ts`; never estate storage |
 | Change target admission, qualification, locking, or clear behavior | `admission.ts`, `target.ts`, `pinned-session.ts`, or `live-reset.ts` respectively | bound migration drivers |
-| Change the programmatic operation surface | `client.ts` | `index.ts`; keep the noun list exact |
+| Change the programmatic operation surface | `client.ts` | `index.ts`, `public-view.ts`; keep the noun list and capability partition exact |
 
 ## Non-negotiable review questions
 

@@ -8,8 +8,10 @@
  * naming a database the server does not have.
  */
 
-import { createMigrationClient, previewPush, status } from "@migrations";
+import { createMigrationClient } from "@migrations";
+import { statusV1 as status } from "@migrations/operators";
 import type { MigrationClient } from "@migrations/push/planner";
+import { previewPush } from "@migrations/push-v1";
 import { s } from "@schema";
 import { describe, expect, it } from "vitest";
 import {

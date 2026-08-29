@@ -15,7 +15,7 @@ import {
 import { createClient } from "../src/drivers/pglite";
 import { instrumentation } from "../src/instrumentation/extension";
 
-import { push as applyPush } from "../src/migrations";
+import { pushV1 as applyPush } from "../src/migrations/push-v1";
 import { s } from "../src/schema";
 
 const user = s
