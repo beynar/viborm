@@ -38,12 +38,13 @@ import {
 import { serializeResolvedModels } from "./serializer";
 import { SqlAssembly } from "./sql-assembly";
 import { sliceDispatch } from "./sql-blob";
-import type {
-  DiffOperation,
-  ResolveCallback,
-  ResolveChange,
-  ResolveResult,
-  SchemaSnapshot,
+import {
+  type DiffOperation,
+  type ResolveCallback,
+  type ResolveChange,
+  type ResolveResult,
+  readEnumResolutionDecision,
+  type SchemaSnapshot,
 } from "./types";
 import type {
   AtomicityClass,
@@ -431,10 +432,11 @@ function closeResolution(
     return result;
   }
   if (result !== "enumMapped") invalidResolution(change);
-  if (change._mappings) {
-    return `map:${canonicalizeJsonText(canonicalValue(change._mappings))}`;
+  const decision = readEnumResolutionDecision(change);
+  if (decision?.kind === "mapValues") {
+    return `map:${canonicalizeJsonText(canonicalValue(decision.mappings))}`;
   }
-  if (change._useNullDefault) {
+  if (decision?.kind === "useNull") {
     if (!change.isNullable) {
       throw new MigrationError(
         "A non-nullable enum column cannot resolve removed values to NULL",
@@ -448,8 +450,10 @@ function closeResolution(
 
 function invalidResolution(change: ResolveChange): never {
   throw new MigrationError(
-    `Resolver returned an invalid decision for ${change.type}`,
-    VibORMErrorCode.INVALID_INPUT
+    `The resolve callback returned an invalid resolution result for a ${change.type} change. ` +
+      "Return one of the methods on the exact change object that was supplied; a result for another change kind cannot authorize this migration.",
+    VibORMErrorCode.MIGRATION_INVALID_STATE,
+    { meta: { type: "invalid-resolution-result" } }
   );
 }
 

@@ -40,6 +40,7 @@ import {
 import type { Sha256 } from "./identity";
 import {
   mayWrapTransaction,
+  runSequentialProgram,
   withLockedMigrationProducer,
 } from "./pinned-session";
 import { getPushMigrationDriver, type MigrationClient } from "./push/planner";
@@ -103,12 +104,14 @@ export async function applyV1(
         command,
         DEFAULT_CONTROL_BASE
       );
-      if (presence.kind === "missing-table") {
-        refusePartialControl(presence);
-        await ensureControlTables(pinned, command, DEFAULT_CONTROL_BASE);
-      }
-      const marker = await readMarker(pinned, command, DEFAULT_CONTROL_BASE);
-      const ledger = await readLedger(pinned, command, DEFAULT_CONTROL_BASE);
+      refusePartialControl(presence);
+      const controlsExist = presence.kind === "present";
+      const marker = controlsExist
+        ? await readMarker(pinned, command, DEFAULT_CONTROL_BASE)
+        : null;
+      const ledger = controlsExist
+        ? await readLedger(pinned, command, DEFAULT_CONTROL_BASE)
+        : [];
       refuseIncompatibleHistory(marker, ledger);
       const unfinished = unfinishedAttempts(ledger);
       if (unfinished.length > 0) {
@@ -129,7 +132,26 @@ export async function applyV1(
       const path = selectRoute(graph, origin, target, options.via);
       assertPathArtifacts(graph, origin, path);
       const statements = previewStatements(graph, origin, path);
-      await applyPathUnderLock(pinned, command, graph, marker, origin, path);
+      const run = async (
+        producer: Parameters<typeof ensureControlTables>[0]
+      ): Promise<void> => {
+        if (!controlsExist) {
+          await ensureControlTables(producer, command, DEFAULT_CONTROL_BASE);
+        }
+        await applyPathUnderLock(
+          producer,
+          command,
+          graph,
+          marker,
+          origin,
+          path
+        );
+      };
+      if (command.target.dialect === "mysql") {
+        await runSequentialProgram(pinned, command, run);
+      } else {
+        await run(pinned);
+      }
       return { outcome: "applied", path, statements };
     }
   );

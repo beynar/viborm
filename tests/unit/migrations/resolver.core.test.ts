@@ -21,6 +21,7 @@ import {
   createAmbiguousChange,
   createDestructiveChange,
   createEnumValueRemovalChange,
+  readEnumResolutionDecision,
 } from "@src/migrations/types";
 import { describe, expect, it } from "vitest";
 
@@ -415,7 +416,7 @@ describe("lenientResolver", () => {
 
     const result = await lenientResolver(change);
     expect(result).toBe("enumMapped");
-    expect(change._useNullDefault).toBe(true);
+    expect(readEnumResolutionDecision(change)).toEqual({ kind: "useNull" });
   });
 });
 
@@ -459,12 +460,12 @@ describe("addDropResolver", () => {
 
     const result = await addDropResolver(change);
     expect(result).toBe("enumMapped");
-    expect(change._useNullDefault).toBe(true);
+    expect(readEnumResolutionDecision(change)).toEqual({ kind: "useNull" });
   });
 });
 
 describe("EnumValueRemovalChange methods", () => {
-  it("mapValues should store mappings", async () => {
+  it("mapValues should record mappings", async () => {
     const change = createEnumValueRemovalChange({
       enumName: "Status",
       tableName: "orders",
@@ -481,13 +482,13 @@ describe("EnumValueRemovalChange methods", () => {
     });
 
     expect(result).toBe("enumMapped");
-    expect(change._mappings).toEqual({
-      PENDING: "INACTIVE",
-      DRAFT: null,
+    expect(readEnumResolutionDecision(change)).toEqual({
+      kind: "mapValues",
+      mappings: { PENDING: "INACTIVE", DRAFT: null },
     });
   });
 
-  it("useNull should set _useNullDefault flag", async () => {
+  it("useNull should record its decision", async () => {
     const change = createEnumValueRemovalChange({
       enumName: "Status",
       tableName: "orders",
@@ -501,7 +502,7 @@ describe("EnumValueRemovalChange methods", () => {
     const result = change.useNull();
 
     expect(result).toBe("enumMapped");
-    expect(change._useNullDefault).toBe(true);
+    expect(readEnumResolutionDecision(change)).toEqual({ kind: "useNull" });
   });
 
   it("reject should return reject", async () => {

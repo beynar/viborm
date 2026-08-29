@@ -21,17 +21,37 @@ import {
   previewPush,
   reset,
 } from "@migrations";
+import { canonicalizeJsonText } from "@migrations/canonical-json";
+import { markerFromPath } from "@migrations/control";
 import {
   decimalConversionConstraintName,
   mysqlDecimalFitsCatalogCheck,
 } from "@migrations/decimal";
 import { getMigrationDriver } from "@migrations/drivers";
+import { emptyManagedSnapshot } from "@migrations/empty-snapshot";
 import { planLiveNamespaceReset } from "@migrations/live-reset";
+import { downV1, resolveV1 } from "@migrations/operators";
 import {
   runSequentialProgram,
   withLockedMigrationProducer,
 } from "@migrations/pinned-session";
 import type { MigrationClient } from "@migrations/push/planner";
+import { resetV1 } from "@migrations/reset-v1";
+import { composeSqlBlob } from "@migrations/sql-blob";
+import {
+  encodeDispatchIdentity,
+  encodeEstateDescriptor,
+  encodeSnapshot,
+  encodeStateManifest,
+  encodeTransitionHash,
+  eventIdFor,
+} from "@migrations/v1-parse";
+import type {
+  LedgerEventV1,
+  MigrationDispatchV1,
+  MigrationMarkerV1,
+  MigrationParentTransitionV1,
+} from "@migrations/v1-types";
 import { s } from "@schema";
 import { describe, expect, it } from "vitest";
 import {
@@ -57,11 +77,20 @@ interface ServerOptions {
   readonly fails?: (sql: string) => boolean;
   readonly decimalConstraints?: readonly Record<string, unknown>[];
   readonly decimalColumns?: readonly Record<string, unknown>[];
+  readonly marker?: MigrationMarkerV1;
+  readonly ledger?: readonly LedgerEventV1[];
 }
+
+const MIGRATION_STATE_WRITE =
+  /^(?:INSERT INTO|UPDATE) (?:`[^`]+`\.)?`_viborm_migration_state`/i;
+const CREATED_TABLE =
+  /^CREATE TABLE(?: IF NOT EXISTS)? (?:`[^`]+`\.)?`([^`]+)`/i;
+const DROPPED_TABLE = /^DROP TABLE(?: IF EXISTS)? (?:`[^`]+`\.)?`([^`]+)`/i;
 
 function estateServer(
   options: ServerOptions = {}
 ): (sql: string, params: unknown[]) => unknown[] | Error {
+  const tables = new Set(options.tables ?? []);
   return (sql: string, params: unknown[]): unknown[] | Error => {
     if (sql.includes("@@SESSION.sql_mode")) {
       return [
@@ -72,30 +101,97 @@ function estateServer(
       ];
     }
     const catalog = controlCatalogAnswer(sql, params, {
-      state: false,
-      log: false,
+      state: tables.has("_viborm_migration_state"),
+      log: tables.has("_viborm_migration_log"),
     });
-    if (catalog) return catalog;
+    if (catalog) {
+      const table = String(params.at(-1) ?? "");
+      return table.endsWith("_state") || table.endsWith("_log")
+        ? catalog
+        : [{ exists: tables.has(table) ? 1 : 0 }];
+    }
     if (sql.includes("SCHEMATA")) {
       return [{ SCHEMA_NAME: "alpha" }];
+    }
+    if (
+      sql.includes("SELECT payload FROM") &&
+      sql.includes("_viborm_migration_state")
+    ) {
+      return options.marker
+        ? [{ payload: canonicalizeJsonText(options.marker) }]
+        : [];
+    }
+    if (
+      sql.includes("SELECT payload FROM") &&
+      sql.includes("_viborm_migration_log")
+    ) {
+      return (options.ledger ?? []).map((event) => ({
+        payload: canonicalizeJsonText(event),
+      }));
     }
     if (sql.includes("CHECK_CONSTRAINTS")) {
       return [...(options.decimalConstraints ?? [])];
     }
-    if (sql.includes("information_schema.COLUMNS")) {
+    if (
+      sql.includes("information_schema.COLUMNS") &&
+      !sql.includes("COLUMN_TYPE")
+    ) {
       return [...(options.decimalColumns ?? [])];
     }
     if (options.fails?.(sql)) {
       return new Error("lost connection to the server during query");
     }
+    if (MIGRATION_STATE_WRITE.test(sql)) {
+      return [{}];
+    }
+    const created = CREATED_TABLE.exec(sql);
+    if (created?.[1]) {
+      tables.add(created[1]);
+      return [];
+    }
+    const dropped = DROPPED_TABLE.exec(sql);
+    if (dropped?.[1]) {
+      tables.delete(dropped[1]);
+      return [];
+    }
     if (sql.includes("TABLE_NAME AS name")) {
-      return (options.tables ?? []).map((name) => ({ name }));
+      return [...tables].map((name) => ({ name }));
+    }
+    if (sql.includes("information_schema.COLUMNS")) {
+      return [...tables]
+        .filter((table) => !table.startsWith("_viborm_migration_"))
+        .map((TABLE_NAME) => ({
+          TABLE_NAME,
+          COLUMN_NAME: "id",
+          DATA_TYPE: "varchar",
+          COLUMN_TYPE: "varchar(191)",
+          IS_NULLABLE: "NO",
+          COLUMN_DEFAULT: null,
+          CHARACTER_MAXIMUM_LENGTH: 191,
+          NUMERIC_PRECISION: null,
+          NUMERIC_SCALE: null,
+          EXTRA: "",
+          COLUMN_COMMENT: "",
+        }));
+    }
+    if (sql.includes("CONSTRAINT_TYPE = 'PRIMARY KEY'")) {
+      return [...tables]
+        .filter((table) => !table.startsWith("_viborm_migration_"))
+        .map((TABLE_NAME) => ({
+          TABLE_NAME,
+          CONSTRAINT_NAME: "PRIMARY",
+          COLUMN_NAME: "id",
+          ORDINAL_POSITION: 1,
+        }));
+    }
+    if (sql.includes("information_schema.STATISTICS")) {
+      return [];
     }
     if (sql.includes("= 'FOREIGN KEY'")) {
       return [...(options.foreignKeys ?? [])];
     }
     if (sql.includes("information_schema.TABLES")) {
-      return (options.tables ?? []).map((TABLE_NAME) => ({ TABLE_NAME }));
+      return [...tables].map((TABLE_NAME) => ({ TABLE_NAME }));
     }
     return [];
   };
@@ -147,6 +243,141 @@ function foreignKeyRow(fk: {
     DELETE_RULE: "NO ACTION",
     UPDATE_RULE: "NO ACTION",
     ORDINAL_POSITION: 1,
+  };
+}
+
+function dispatchAt(
+  blob: ReturnType<typeof composeSqlBlob>,
+  index: number
+): MigrationDispatchV1 {
+  const range = blob.ranges[index]!;
+  return {
+    dispatchId: encodeDispatchIdentity(
+      blob.sqlHash,
+      range.offset,
+      range.length,
+      []
+    ),
+    sqlHash: blob.sqlHash,
+    offset: range.offset,
+    length: range.length,
+    parameters: [],
+  };
+}
+
+async function publishSequentialProgram() {
+  const storage = new MemoryStorage();
+  const estate = encodeEstateDescriptor({ dialect: "mysql" });
+  const snapshot = encodeSnapshot(emptyManagedSnapshot());
+  const forwardSql = "SELECT 'forward-v1-program'";
+  const rollbackSql = "SELECT 'rollback-v1-program'";
+  const blob = composeSqlBlob([forwardSql, rollbackSql]);
+  const parent: Omit<MigrationParentTransitionV1, "transitionHash"> = {
+    fromState: null,
+    originChecks: [],
+    requestedForwardBoundary: null,
+    operations: [
+      {
+        id: "forward:0",
+        label: "forward",
+        origin: "generated",
+        risk: "safe",
+        steps: [{ retry: "opaque", execute: dispatchAt(blob, 0) }],
+      },
+    ],
+    rollback: {
+      kind: "schema",
+      operations: [
+        {
+          id: "rollback:0",
+          label: "rollback",
+          origin: "generated",
+          risk: "destructive",
+          steps: [{ retry: "opaque", execute: dispatchAt(blob, 1) }],
+        },
+      ],
+    },
+  };
+  const transitionHash = encodeTransitionHash(parent);
+  const state = encodeStateManifest({
+    format: "1",
+    estateHash: estate.estateHash,
+    name: "sequential",
+    snapshotHash: snapshot.snapshotHash,
+    sqlHash: blob.sqlHash,
+    destinationChecks: [],
+    parents: [{ ...parent, transitionHash }],
+  });
+  await storage.publishEstate(estate.bytes);
+  await storage.publishSnapshot(snapshot.snapshotHash, snapshot.bytes);
+  await storage.publishSql(blob.sqlHash, blob.bytes);
+  await storage.publishState(state.stateId, state.bytes);
+  const marker = markerFromPath(
+    estate.estateHash,
+    snapshot.snapshotHash,
+    [{ stateId: state.stateId, transitionHash, baselineBoundary: false }],
+    1
+  );
+  return {
+    storage,
+    estateHash: estate.estateHash,
+    snapshotHash: snapshot.snapshotHash,
+    stateId: state.stateId,
+    marker,
+    forwardSql,
+    rollbackSql,
+  };
+}
+
+function startedEvent(
+  program: Awaited<ReturnType<typeof publishSequentialProgram>>
+): LedgerEventV1 {
+  const event = {
+    format: "1" as const,
+    attemptId: "a".repeat(64),
+    kind: "started" as const,
+    estateHash: program.estateHash,
+    snapshotHash: program.snapshotHash,
+    sqlHash: null,
+    fromState: null,
+    toState: program.stateId,
+    transitionHash: null,
+    direction: "forward" as const,
+    operationId: null,
+    dispatchId: null,
+    effectState: "none" as const,
+    startedAt: "2026-08-29T00:00:00.000Z",
+    finishedAt: null,
+    toolVersion: "v1",
+    failure: null,
+  };
+  return { ...event, eventId: eventIdFor(event) };
+}
+
+function interruptedDecimal(
+  options: Omit<ServerOptions, "decimalConstraints" | "decimalColumns"> = {}
+): ServerOptions & { readonly cleanup: string } {
+  const descriptor = { precision: 10, scale: 2 };
+  const constraint = decimalConversionConstraintName("scalar", descriptor);
+  return {
+    ...options,
+    decimalConstraints: [
+      {
+        TABLE_NAME: "ledger",
+        CONSTRAINT_NAME: constraint,
+        ENFORCED: "YES",
+        CHECK_CLAUSE: mysqlDecimalFitsCatalogCheck("`amount`", "DECIMAL(10,2)"),
+      },
+    ],
+    decimalColumns: [
+      {
+        TABLE_NAME: "ledger",
+        COLUMN_NAME: "amount",
+        DATA_TYPE: "decimal",
+        COLUMN_COMMENT: "",
+      },
+    ],
+    cleanup: `ALTER TABLE \`alpha\`.\`ledger\` DROP CHECK \`${constraint}\``,
   };
 }
 
@@ -350,6 +581,112 @@ describe("MySQL live DDL runs in no transaction at all", () => {
   });
 });
 
+describe("Migration V1 consumes MySQL decimal recovery before sequential effects", () => {
+  const controls = [
+    "_viborm_migration_state",
+    "_viborm_migration_log",
+  ] as const;
+
+  it("covers down rollback with the existing partial-effect reporter", async () => {
+    const program = await publishSequentialProgram();
+    const recovery = interruptedDecimal({
+      tables: controls,
+      marker: program.marker,
+      fails: (statement) => statement === program.rollbackSql,
+    });
+    const driver = mysqlEstate(recovery);
+
+    const failure = await downV1(clientFor(driver), program.storage, {
+      steps: 1,
+    }).catch((error: unknown) => error);
+
+    const cleanupIndex = driver.statements.indexOf(recovery.cleanup);
+    const rollbackIndex = driver.statements.indexOf(program.rollbackSql);
+    expect(cleanupIndex).toBeGreaterThanOrEqual(0);
+    expect(rollbackIndex).toBeGreaterThan(cleanupIndex);
+    expect(failure).toMatchObject({
+      code: VibORMErrorCode.MIGRATION_PARTIAL_EFFECT,
+    });
+    expect(messageOf(failure)).toContain(PARTIAL_COMMIT);
+    expect(messageOf(failure)).toContain(NO_ROLLBACK);
+  });
+
+  it("covers resolve retry with the existing partial-effect reporter", async () => {
+    const program = await publishSequentialProgram();
+    const recovery = interruptedDecimal({
+      tables: controls,
+      ledger: [startedEvent(program)],
+      fails: (statement) => statement === program.forwardSql,
+    });
+    const driver = mysqlEstate(recovery);
+
+    const failure = await resolveV1(clientFor(driver), program.storage, {
+      outcome: "retry",
+    }).catch((error: unknown) => error);
+
+    const cleanupIndex = driver.statements.indexOf(recovery.cleanup);
+    const forwardIndex = driver.statements.indexOf(program.forwardSql);
+    expect(cleanupIndex).toBeGreaterThanOrEqual(0);
+    expect(forwardIndex).toBeGreaterThan(cleanupIndex);
+    expect(failure).toMatchObject({
+      code: VibORMErrorCode.MIGRATION_PARTIAL_EFFECT,
+    });
+    expect(messageOf(failure)).toContain(PARTIAL_COMMIT);
+    expect(messageOf(failure)).toContain(NO_ROLLBACK);
+  });
+
+  it("cleans the recovery scope before resolve closes history", async () => {
+    const program = await publishSequentialProgram();
+    const recovery = interruptedDecimal({
+      tables: controls,
+      ledger: [startedEvent(program)],
+    });
+    const driver = mysqlEstate(recovery);
+
+    await expect(
+      resolveV1(clientFor(driver), program.storage, { outcome: "complete" })
+    ).resolves.toEqual({ outcome: "complete" });
+
+    const cleanupIndex = driver.statements.indexOf(recovery.cleanup);
+    const finishIndex = driver.statements.findIndex(
+      (statement) =>
+        statement.startsWith("INSERT INTO") &&
+        statement.includes("_viborm_migration_log")
+    );
+    expect(cleanupIndex).toBeGreaterThanOrEqual(0);
+    expect(finishIndex).toBeGreaterThan(cleanupIndex);
+  });
+
+  it("covers reset start, clear, and replay with one partial-effect reporter", async () => {
+    const program = await publishSequentialProgram();
+    const recovery = interruptedDecimal({
+      tables: controls,
+      fails: (statement) => statement === program.forwardSql,
+    });
+    const driver = mysqlEstate(recovery);
+
+    const failure = await resetV1(clientFor(driver), program.storage).catch(
+      (error: unknown) => error
+    );
+
+    const cleanupIndex = driver.statements.indexOf(recovery.cleanup);
+    const startedIndex = driver.statements.findIndex(
+      (statement) =>
+        statement.startsWith("INSERT INTO") &&
+        statement.includes("_viborm_migration_log")
+    );
+    const replayIndex = driver.statements.indexOf(program.forwardSql);
+    expect(cleanupIndex).toBeGreaterThanOrEqual(0);
+    expect(startedIndex).toBeGreaterThan(cleanupIndex);
+    expect(replayIndex).toBeGreaterThan(startedIndex);
+    expect(failure).toMatchObject({
+      code: VibORMErrorCode.MIGRATION_PARTIAL_EFFECT,
+    });
+    expect(messageOf(failure)).toContain(PARTIAL_COMMIT);
+    expect(messageOf(failure)).toContain(NO_ROLLBACK);
+  });
+});
+
 describe("a failed MySQL program reports the boundary it reached", () => {
   it("ordinary push names the last completed DDL statement", async () => {
     const driver = mysqlEstate({ fails: (sql) => sql.includes("ns_posts") });
@@ -372,7 +709,12 @@ describe("a failed MySQL program reports the boundary it reached", () => {
 
   it("force-reset names the last completed drop", async () => {
     const driver = mysqlEstate({
-      tables: ["_viborm_migration_state", "ns_orgs", "ns_posts"],
+      tables: [
+        "_viborm_migration_state",
+        "_viborm_migration_log",
+        "ns_orgs",
+        "ns_posts",
+      ],
       fails: (sql) => sql.includes("ns_posts`"),
     });
     const preview = await previewPush(clientFor(driver), { forceReset: true });
@@ -419,7 +761,7 @@ describe("a containment refusal is not a partial commit", () => {
 
   it("reset() preserves the inbound tracking-key refusal", async () => {
     const driver = mysqlEstate({
-      tables: ["_viborm_migration_state", "ns_orgs"],
+      tables: ["_viborm_migration_state", "_viborm_migration_log", "ns_orgs"],
       foreignKeys: [INBOUND_TRACKING_FK],
     });
     const storage = new MemoryStorage();
@@ -444,7 +786,7 @@ describe("a containment refusal is not a partial commit", () => {
 
   it("reset() preserves the cross-database refusal", async () => {
     const driver = mysqlEstate({
-      tables: ["_viborm_migration_state", "ns_orgs"],
+      tables: ["_viborm_migration_state", "_viborm_migration_log", "ns_orgs"],
       foreignKeys: [CROSS_DATABASE_FK],
     });
     const storage = new MemoryStorage();
@@ -472,7 +814,7 @@ describe("a containment refusal is not a partial commit", () => {
 
   it("force-reset preserves the inbound tracking-key refusal", async () => {
     const driver = mysqlEstate({
-      tables: ["_viborm_migration_state", "ns_orgs"],
+      tables: ["_viborm_migration_state", "_viborm_migration_log", "ns_orgs"],
       foreignKeys: [INBOUND_TRACKING_FK],
     });
 
@@ -494,7 +836,7 @@ describe("a containment refusal is not a partial commit", () => {
 
   it("force-reset preserves the cross-database refusal", async () => {
     const driver = mysqlEstate({
-      tables: ["_viborm_migration_state", "ns_orgs"],
+      tables: ["_viborm_migration_state", "_viborm_migration_log", "ns_orgs"],
       foreignKeys: [CROSS_DATABASE_FK],
     });
 

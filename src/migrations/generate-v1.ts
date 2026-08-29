@@ -31,7 +31,10 @@ import {
   resolveAmbiguousChanges,
   strictResolver,
 } from "./resolver";
-import { serializeResolvedModels } from "./serializer";
+import {
+  assertMigrationDecimalDomainsFitProvider,
+  serializeResolvedModels,
+} from "./serializer";
 import { SqlAssembly } from "./sql-assembly";
 import type { MigrationStorageWriter } from "./storage/contract";
 import { isMigrationStorageWriter } from "./storage/contract";
@@ -80,6 +83,7 @@ export async function generateV1(
     ? resolveSchemaOrThrow(client.$schema)
     : validateSchemaOrThrow(client.$schema);
   const driver = getPushMigrationDriver(client);
+  assertMigrationDecimalDomainsFitProvider(client.$schema, driver.dialect);
   let estateBytes = await storage.readEstate();
   if (!estateBytes) {
     const encoded = encodeEstateDescriptor(driver.target);
@@ -153,6 +157,7 @@ export async function generateV1(
       const diffed = await diff(current, desired);
       const resolved = await resolveAmbiguousChanges(
         diffed,
+        current,
         desired,
         options.resolve
           ? callbackAsResolver(options.resolve)

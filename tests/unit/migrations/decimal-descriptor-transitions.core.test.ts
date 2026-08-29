@@ -20,18 +20,44 @@ import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
 import type { SQLite3Driver } from "@drivers/sqlite3";
 import { PGlite } from "@electric-sql/pglite";
-import { push } from "@migrations";
+import { generate } from "@migrations";
 import { postgresDecimalFitsCheck } from "@migrations/decimal";
 import type { AlterColumnOperation } from "@migrations/drivers/base";
 import { mysqlMigrationDriver } from "@migrations/drivers/mysql";
-import { generate } from "@migrations/generate";
-import { invertOperations } from "@migrations/generate/down";
+import { loadMigrationGraph } from "@migrations/graph";
+import { invertOperations } from "@migrations/invert";
 import { introspect as introspectClient } from "@migrations/push";
+import { sliceDispatch } from "@migrations/sql-blob";
+import type { MigrationOperationV1 } from "@migrations/v1-types";
 import { s } from "@schema";
-import { createInMemoryLibSQLDriver } from "@tests/fixtures/drivers/libsql";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
+import { syncLiveSchema as push } from "@tests/fixtures/sync-schema";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ddlContext, MemoryStorage, mysqlEstateDriver } from "./_estate";
+
+async function readPublishedTransition(
+  storage: MemoryStorage,
+  stateId: string | null
+) {
+  if (stateId === null) throw new Error("missing generated state");
+  const graph = await loadMigrationGraph(storage);
+  const state = graph.states.get(stateId);
+  if (!state) throw new Error("generated state was not published");
+  const transition = state.parents[0];
+  const blob = graph.sql.get(state.sqlHash);
+  if (!(transition && blob))
+    throw new Error("generated transition is incomplete");
+  return { blob, transition };
+}
+
+function operationSql(
+  blob: Uint8Array,
+  operations: readonly MigrationOperationV1[]
+): string[] {
+  return operations.flatMap((operation) =>
+    operation.steps.map((step) => sliceDispatch(blob, step.execute))
+  );
+}
 
 const TABLE = "dec_tx";
 const MYSQL_LIST_NARROWING_REFUSAL =
@@ -74,9 +100,7 @@ function nullableListLedger(precision: number, scale: number) {
 // THE SQLITE FAMILY — rebuild and rescale the stored coefficient
 // =============================================================================
 
-type AnySqliteDriver =
-  | SQLite3Driver
-  | ReturnType<typeof createInMemoryLibSQLDriver>;
+type AnySqliteDriver = SQLite3Driver;
 
 /**
  * Every client in this file shares ONE driver and nothing disconnects until the
@@ -97,8 +121,6 @@ async function coefficients(driver: AnySqliteDriver): Promise<unknown[]> {
   const rows = await driver._executeRaw<{ amount: unknown }>(
     `SELECT "amount" FROM "${TABLE}" ORDER BY "id"`
   );
-  // The LibSQL driver runs with `intMode: "bigint"`, so the very same column
-  // arrives as a BigInt there and a number on better-sqlite3.
   return rows.rows.map((row) =>
     typeof row.amount === "bigint" ? Number(row.amount) : row.amount
   );
@@ -285,56 +307,59 @@ describe("MySQL: same-scale decimal-list transitions", () => {
   ])("generates widening with an irreversible down (dryRun=%s)", async (dryRun) => {
     const storage = new MemoryStorage();
     const driver = mysqlEstateDriver({ namespace: "ledger_test" });
-    await generate(
-      { $schema: listLedger(10, 2), $driver: driver },
-      { storageDriver: storage, name: "init" }
-    );
+    await generate({ $schema: listLedger(10, 2), $driver: driver }, storage, {
+      name: "init",
+    });
     storage.writes.length = 0;
 
     const widened = await generate(
       { $schema: listLedger(12, 2), $driver: driver },
-      { storageDriver: storage, name: "widen", dryRun }
+      storage,
+      { name: "widen", dryRun }
     );
 
-    expect(widened.sql).toHaveLength(3);
-    expect(widened.downSql).toEqual([]);
-    expect(widened.rollback).toEqual({
-      kind: "irreversible",
-      reason: expect.stringContaining(
-        "MySQL cannot automatically roll back the decimal-list widening"
-      ),
-    });
-    expect(widened.entry?.rollback).toEqual(widened.rollback);
-    expect(widened.written).toBe(!dryRun);
-    expect(storage.writes.some((path) => path.includes("meta/_down"))).toBe(
-      !dryRun
-    );
-    const downArtifact = [...storage.files.entries()].find(
-      ([path]) => path.includes("meta/_down") && path.includes("widen")
-    )?.[1];
-    expect(downArtifact?.includes("cannot automatically roll back")).toBe(
-      dryRun ? undefined : true
-    );
+    expect(widened.outcome).toBe(dryRun ? "preview" : "published");
+    expect(widened.sql.match(/ALTER TABLE/g)).toHaveLength(3);
+    expect(storage.writes.length === 0).toBe(dryRun);
+    if (!dryRun) {
+      const { transition } = await readPublishedTransition(
+        storage,
+        widened.stateId
+      );
+      expect(transition.rollback).toEqual({
+        kind: "irreversible",
+        reason: expect.stringContaining(
+          "MySQL cannot automatically roll back the decimal-list widening"
+        ),
+      });
+    }
   });
 
   it("keeps an ordinary scalar widening rollback automatic", async () => {
     const storage = new MemoryStorage();
     const driver = mysqlEstateDriver({ namespace: "ledger_test" });
-    await generate(
-      { $schema: ledger(10, 2), $driver: driver },
-      { storageDriver: storage, name: "init" }
-    );
+    await generate({ $schema: ledger(10, 2), $driver: driver }, storage, {
+      name: "init",
+    });
 
     const widened = await generate(
       { $schema: ledger(12, 2), $driver: driver },
-      { storageDriver: storage, name: "widen" }
+      storage,
+      { name: "widen" }
     );
 
-    expect(widened.rollback).toEqual({ kind: "automatic" });
-    expect(widened.downSql).toEqual([
-      "ALTER TABLE `dec_tx` ADD CONSTRAINT `viborm_decimal_s_10_2` CHECK (`amount` IS NULL OR `amount` = CAST(`amount` AS DECIMAL(10,2)));",
-      "ALTER TABLE `dec_tx` MODIFY COLUMN `amount` DECIMAL(10,2);",
-      "ALTER TABLE `dec_tx` DROP CHECK `viborm_decimal_s_10_2`;",
+    const { blob, transition } = await readPublishedTransition(
+      storage,
+      widened.stateId
+    );
+    expect(transition.rollback.kind).toBe("schema");
+    if (transition.rollback.kind !== "schema") {
+      throw new Error("expected an automatic schema rollback");
+    }
+    expect(operationSql(blob, transition.rollback.operations)).toEqual([
+      "ALTER TABLE `dec_tx` ADD CONSTRAINT `viborm_decimal_s_10_2` CHECK (`amount` IS NULL OR `amount` = CAST(`amount` AS DECIMAL(10,2)))",
+      "ALTER TABLE `dec_tx` MODIFY COLUMN `amount` DECIMAL(10,2)",
+      "ALTER TABLE `dec_tx` DROP CHECK `viborm_decimal_s_10_2`",
     ]);
   });
 });
@@ -408,7 +433,6 @@ describe("SQLite: lists convert member by member", () => {
 describe("SQLite family: a second push is empty", () => {
   for (const [name, make] of [
     ["sqlite3", createInMemorySQLite3Driver],
-    ["libsql", createInMemoryLibSQLDriver],
   ] as const) {
     it(`${name} converges after a fresh push and after a conversion`, async () => {
       const driver = make();

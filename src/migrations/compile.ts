@@ -70,30 +70,35 @@ export function compileGeneratedTransition(
     )
     .filter((operation) => operation.steps.length > 0);
   const inverse = invertOperations([...operations], currentSchema);
+  const irreversibleReason = inverse.operations
+    .map((operation) => driver.getIrreversibleRollbackReason(operation))
+    .find((reason) => reason !== undefined);
   const rollback: MigrationRollbackV1 =
     inverse.operations.length === 0 && operations.length === 0
       ? { kind: "schema", operations: [] }
-      : inverse.operations.length === 0
-        ? {
-            kind: "irreversible",
-            reason:
-              inverse.warnings[0] ??
-              "Generated operations have no automatic inverse",
-          }
-        : {
-            kind: "schema",
-            operations: inverse.operations.map((operation, index) =>
-              compileGeneratedOperation(
-                operation,
-                driver,
-                destination,
-                desiredSchema,
-                inverse.operations,
-                index,
-                assembly
-              )
-            ),
-          };
+      : irreversibleReason !== undefined
+        ? { kind: "irreversible", reason: irreversibleReason }
+        : inverse.operations.length === 0
+          ? {
+              kind: "irreversible",
+              reason:
+                inverse.warnings[0] ??
+                "Generated operations have no automatic inverse",
+            }
+          : {
+              kind: "schema",
+              operations: inverse.operations.map((operation, index) =>
+                compileGeneratedOperation(
+                  operation,
+                  driver,
+                  destination,
+                  desiredSchema,
+                  inverse.operations,
+                  index,
+                  assembly
+                )
+              ),
+            };
   return {
     operations: compiled,
     rollback,

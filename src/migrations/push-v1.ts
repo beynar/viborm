@@ -50,6 +50,7 @@ import {
   introspectManaged,
   type PlannedStatement,
 } from "./push-plan";
+import { assertMigrationDecimalDomainsFitProvider } from "./serializer";
 import { sliceDispatch } from "./sql-blob";
 import type {
   PushApplyResult as BasePushApplyResult,
@@ -102,8 +103,7 @@ export async function previewPush(
   options: PushPlanningOptions = {}
 ): Promise<PushPreview> {
   const parsed = parsePlanningOptions(options, true);
-  const relations = prepareSchema(client, parsed.skipValidation);
-  const driver = getPushMigrationDriver(client);
+  const { relations, driver } = prepareSchema(client, parsed.skipValidation);
   admitLiveMigrationCapability(
     driver,
     "read-only",
@@ -145,8 +145,7 @@ export async function pushV1(
     return previewPush(client, parsed);
   }
 
-  const relations = prepareSchema(client, parsed.skipValidation);
-  const driver = getPushMigrationDriver(client);
+  const { relations, driver } = prepareSchema(client, parsed.skipValidation);
 
   // A resolver may perform arbitrary user work. Run it only during an unlocked
   // read-only plan, then close its normalized answers for the locked replan.
@@ -203,8 +202,7 @@ async function applyWithConsent(
   consent: PushConsent
 ): Promise<PushApplyResult> {
   const skipValidation = consent.validation === "structural-only";
-  const relations = prepareSchema(client, skipValidation);
-  const driver = getPushMigrationDriver(client);
+  const { relations, driver } = prepareSchema(client, skipValidation);
   admitLiveMigrationCapability(
     driver,
     "effectful",
@@ -249,13 +247,17 @@ async function executeLockedPlan(
     executeAndAttest(producer, command, plan, plan.statements);
 
   if (
-    mayWrapTransaction(pinned, command.target.dialect, plan.atomicity === "transactional")
+    mayWrapTransaction(
+      pinned,
+      command.target.dialect,
+      plan.atomicity === "transactional"
+    )
   ) {
     const fingerprint = await executeTransactional(pinned, command, plan);
     return appliedResult(plan, fingerprint, "applied");
   }
   if (command.target.dialect === "mysql") {
-    await runSequentialProgram(pinned, async (producer) => {
+    await runSequentialProgram(pinned, command, async (producer) => {
       for (const statement of plan.statements) {
         await executeDispatch(producer, plan.sqlBlob, statement.dispatch);
       }
@@ -469,9 +471,15 @@ function publicPreview(plan: InternalPushPlan): PushPreview {
 function prepareSchema(
   client: MigrationClient,
   skipValidation: boolean
-): ResolvedRelationIndex {
+): {
+  readonly relations: ResolvedRelationIndex;
+  readonly driver: BoundMigrationDriver;
+} {
   hydrateSchemaNames(client.$schema);
-  return skipValidation
+  const relations = skipValidation
     ? resolveSchemaOrThrow(client.$schema)
     : validateSchemaOrThrow(client.$schema);
+  const driver = getPushMigrationDriver(client);
+  assertMigrationDecimalDomainsFitProvider(client.$schema, driver.dialect);
+  return { relations, driver };
 }

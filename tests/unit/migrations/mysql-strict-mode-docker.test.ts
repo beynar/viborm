@@ -27,7 +27,6 @@
 import { createClient } from "@client/client";
 import { MySQL2Driver } from "@drivers/mysql2";
 import { VibORMErrorCode } from "@errors";
-import { push } from "@migrations";
 import { decimalConversionConstraintName } from "@migrations/decimal";
 import { getMigrationDriver } from "@migrations/drivers";
 import { mysqlMigrationDriver } from "@migrations/drivers/mysql";
@@ -36,6 +35,7 @@ import {
   withLockedMigrationProducer,
 } from "@migrations/pinned-session";
 import { s } from "@schema";
+import { syncLiveSchema as push } from "@tests/fixtures/sync-schema";
 import { createConnection, type RowDataPacket } from "mysql2/promise";
 import { afterAll, describe, expect, it } from "vitest";
 import { ddlContext } from "./_estate";

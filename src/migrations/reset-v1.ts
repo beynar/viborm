@@ -43,6 +43,7 @@ import { domainHash, HASH_DOMAIN, type Sha256 } from "./identity";
 import { planLiveNamespaceReset } from "./live-reset";
 import {
   mayWrapTransaction,
+  runSequentialProgram,
   withLockedMigrationProducer,
 } from "./pinned-session";
 import { getPushMigrationDriver, type MigrationClient } from "./push/planner";
@@ -119,8 +120,11 @@ export async function resetV1(
           marker.snapshotHash === targetState.snapshotHash &&
           marker.estateHash === resetAttempt.estateHash &&
           marker.estateHash === graph.estateHash &&
-          (await fingerprintLive(await introspectManaged(pinned, command), command, pinned)) ===
-            (await fingerprintLive(expected, command, pinned))
+          (await fingerprintLive(
+            await introspectManaged(pinned, command),
+            command,
+            pinned
+          )) === (await fingerprintLive(expected, command, pinned))
         ) {
           const applied = {
             format: "1" as const,
@@ -206,33 +210,41 @@ export async function resetV1(
       const transactional =
         command.target.dialect !== "mysql" &&
         classes.every((item) => item === "transactional");
-      if (!resetAttempt) {
-        const started = {
-          format: "1" as const,
-          attemptId: resetPlanHash,
-          kind: "reset-started" as const,
-          estateHash: graph.estateHash,
-          snapshotHash: graph.states.get(target)!.snapshotHash,
-          sqlHash: null,
-          fromState: marker?.stateId ?? null,
-          toState: target,
-          transitionHash: null,
-          direction: "reset" as const,
-          operationId: null,
-          dispatchId: null,
-          effectState: "none" as const,
-          startedAt: new Date().toISOString(),
-          finishedAt: null,
-          toolVersion: "v1",
-          resetPlan: plan,
-          failure: null,
-        };
+      const started = resetAttempt
+        ? undefined
+        : {
+            format: "1" as const,
+            attemptId: resetPlanHash,
+            kind: "reset-started" as const,
+            estateHash: graph.estateHash,
+            snapshotHash: graph.states.get(target)!.snapshotHash,
+            sqlHash: null,
+            fromState: marker?.stateId ?? null,
+            toState: target,
+            transitionHash: null,
+            direction: "reset" as const,
+            operationId: null,
+            dispatchId: null,
+            effectState: "none" as const,
+            startedAt: new Date().toISOString(),
+            finishedAt: null,
+            toolVersion: "v1",
+            resetPlan: plan,
+            failure: null,
+          };
+      if (started && command.target.dialect !== "mysql") {
         await appendLedger(pinned, command, DEFAULT_CONTROL_BASE, {
           ...started,
           eventId: eventIdFor(started),
         });
       }
       const run = async (producer: Parameters<typeof appendLedger>[0]) => {
+        if (started && command.target.dialect === "mysql") {
+          await appendLedger(producer, command, DEFAULT_CONTROL_BASE, {
+            ...started,
+            eventId: eventIdFor(started),
+          });
+        }
         await executeResetClear(
           producer,
           command,
@@ -305,6 +317,8 @@ export async function resetV1(
       };
       if (mayWrapTransaction(pinned, command.target.dialect, transactional)) {
         await pinned.withTransaction((transaction) => run(transaction));
+      } else if (command.target.dialect === "mysql") {
+        await runSequentialProgram(pinned, command, run);
       } else {
         await run(pinned);
       }

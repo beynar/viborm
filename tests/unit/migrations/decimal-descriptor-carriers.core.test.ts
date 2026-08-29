@@ -24,7 +24,6 @@
 import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite } from "@electric-sql/pglite";
-import { push } from "@migrations";
 import { readMysqlDecimalListMarker } from "@migrations/decimal";
 import { getMigrationDriver } from "@migrations/drivers";
 import { mysqlMigrationDriver } from "@migrations/drivers/mysql";
@@ -37,8 +36,8 @@ import type {
   SchemaSnapshot,
 } from "@migrations/types";
 import { s } from "@schema";
-import { createInMemoryLibSQLDriver } from "@tests/fixtures/drivers/libsql";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
+import { syncLiveSchema as push } from "@tests/fixtures/sync-schema";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { d1EstateDriver, ddlContext, ddlContextFor } from "./_estate";
 
@@ -282,7 +281,6 @@ describe("the carrier survives every route that rewrites a column", () => {
   // route that is not this driver's own `CREATE TABLE`.
   for (const substrate of [
     { name: "sqlite3", create: createInMemorySQLite3Driver },
-    { name: "libsql", create: createInMemoryLibSQLDriver },
   ]) {
     it(`${substrate.name} keeps it readable across a nullability change`, async () => {
       const driver = substrate.create();
@@ -318,7 +316,6 @@ describe("the carrier survives every route that rewrites a column", () => {
 describe("a renamed table keeps and converts its decimal carrier", () => {
   for (const substrate of [
     { name: "sqlite3", create: createInMemorySQLite3Driver },
-    { name: "libsql", create: createInMemoryLibSQLDriver },
   ]) {
     it(`${substrate.name} applies the rename and descriptor change in one push`, async () => {
       const driver = substrate.create();

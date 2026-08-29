@@ -156,9 +156,11 @@ rolls back as one D1 batch.
 
 ### Migrations
 
-Schema `push` executes atomically through D1's native `batch()`. File-based
-`migrate apply` requires a callback transaction and rejects on D1 — apply
-migrations with `wrangler d1 migrations` instead.
+Migration V1 permits offline generation and read-only inspection on D1, but
+refuses every effectful `push`, `apply`, `down`, `reset`, and `verify` command
+before SQL. D1's native batch alone does not prove table recreation, foreign-key
+handling, migration locking, and marker compare-and-swap together. Apply live
+schema changes with `wrangler d1 migrations` instead.
 
 ## Capabilities
 

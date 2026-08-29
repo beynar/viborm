@@ -537,6 +537,20 @@ export class MySQLMigrationDriver
   }
 
   generateAlterColumn(op: AlterColumnOperation, context: DDLContext): string {
+    return this.alterColumnStatements(op, context).join(";\n");
+  }
+
+  override compileAlterColumn(
+    op: AlterColumnOperation,
+    context: DDLContext
+  ): readonly string[] {
+    return this.filterStatements(this.alterColumnStatements(op, context));
+  }
+
+  private alterColumnStatements(
+    op: AlterColumnOperation,
+    context: DDLContext
+  ): string[] {
     const { tableName, columnName, to } = op;
     const table = this.tableRef(tableName, context.destination);
 
@@ -551,8 +565,8 @@ export class MySQLMigrationDriver
 
     const bracket = this.decimalConversionBracket(op, table, context);
     return bracket === null
-      ? alter
-      : [bracket.validate, alter, bracket.release].join(";\n");
+      ? [alter]
+      : [bracket.validate, alter, bracket.release];
   }
 
   /**

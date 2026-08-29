@@ -39,6 +39,7 @@ import {
 import type { Sha256 } from "./identity";
 import {
   mayWrapTransaction,
+  runSequentialProgram,
   withLockedMigrationProducer,
 } from "./pinned-session";
 import { getPushMigrationDriver, type MigrationClient } from "./push/planner";
@@ -356,9 +357,7 @@ export async function downV1(
       );
       const statements = prepared.flatMap((item) =>
         item.rollback.operations.flatMap((operation) =>
-          operation.steps.map((step) =>
-            sliceDispatch(item.blob, step.execute)
-          )
+          operation.steps.map((step) => sliceDispatch(item.blob, step.execute))
         )
       );
       const run = async (producer: Parameters<typeof appendLedger>[0]) => {
@@ -382,6 +381,8 @@ export async function downV1(
             await assertForeignKeysIntact(transaction, lifted.bracket);
           })
         );
+      } else if (command.target.dialect === "mysql") {
+        await runSequentialProgram(pinned, command, run);
       } else {
         await run(pinned);
       }
@@ -478,7 +479,13 @@ export async function resolveV1(
             VibORMErrorCode.MIGRATION_INVALID_STATE
           );
         }
-        await finishResolve(pinned, command, graph, attempt, "applied", to);
+        const finish = (producer: Parameters<typeof appendLedger>[0]) =>
+          finishResolve(producer, command, graph, attempt, "applied", to);
+        if (command.target.dialect === "mysql") {
+          await runSequentialProgram(pinned, command, finish);
+        } else {
+          await finish(pinned);
+        }
         return { outcome: "complete" };
       }
       if (options.outcome === "rolled-back") {
@@ -491,14 +498,13 @@ export async function resolveV1(
             VibORMErrorCode.MIGRATION_INVALID_STATE
           );
         }
-        await finishResolve(
-          pinned,
-          command,
-          graph,
-          attempt,
-          "rolled-back",
-          from
-        );
+        const finish = (producer: Parameters<typeof appendLedger>[0]) =>
+          finishResolve(producer, command, graph, attempt, "rolled-back", from);
+        if (command.target.dialect === "mysql") {
+          await runSequentialProgram(pinned, command, finish);
+        } else {
+          await finish(pinned);
+        }
         return { outcome: "rolled-back" };
       }
       if (manualOpaque) {
@@ -528,25 +534,39 @@ export async function resolveV1(
         transition.operations,
         blob
       );
-      await executeOperations(pinned, blob, transition.operations, boundary);
-      if (!(await evaluateAllChecks(pinned, blob, state.destinationChecks))) {
-        throw new MigrationError(
-          "Retry did not reach the destination",
-          VibORMErrorCode.MIGRATION_DRIFT
+      const retry = async (producer: Parameters<typeof appendLedger>[0]) => {
+        await executeOperations(
+          producer,
+          blob,
+          transition.operations,
+          boundary
         );
+        if (
+          !(await evaluateAllChecks(producer, blob, state.destinationChecks))
+        ) {
+          throw new MigrationError(
+            "Retry did not reach the destination",
+            VibORMErrorCode.MIGRATION_DRIFT
+          );
+        }
+        const liveAfter = await introspectManaged(producer, command);
+        if (
+          !destSnapshot ||
+          (await fingerprintLive(liveAfter, command, producer)) !==
+            (await fingerprintLive(destSnapshot, command, producer))
+        ) {
+          throw new MigrationError(
+            "Retry did not reach the destination",
+            VibORMErrorCode.MIGRATION_DRIFT
+          );
+        }
+        await finishResolve(producer, command, graph, attempt, "applied", to);
+      };
+      if (command.target.dialect === "mysql") {
+        await runSequentialProgram(pinned, command, retry);
+      } else {
+        await retry(pinned);
       }
-      const liveAfter = await introspectManaged(pinned, command);
-      if (
-        !destSnapshot ||
-        (await fingerprintLive(liveAfter, command, pinned)) !==
-          (await fingerprintLive(destSnapshot, command, pinned))
-      ) {
-        throw new MigrationError(
-          "Retry did not reach the destination",
-          VibORMErrorCode.MIGRATION_DRIFT
-        );
-      }
-      await finishResolve(pinned, command, graph, attempt, "applied", to);
       return { outcome: "retry" };
     }
   );
@@ -802,10 +822,16 @@ async function executeRollbackEdge(
     nextPath,
     current.revision + 1
   );
-  await casMarker(producer, command, DEFAULT_CONTROL_BASE, {
-    revision: current.revision,
-    pathHash: current.pathHash,
-  }, next);
+  await casMarker(
+    producer,
+    command,
+    DEFAULT_CONTROL_BASE,
+    {
+      revision: current.revision,
+      pathHash: current.pathHash,
+    },
+    next
+  );
   const rolled = {
     format: "1" as const,
     attemptId,

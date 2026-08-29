@@ -5,14 +5,40 @@
 
 import { push as applyPush, previewPush } from "@migrations";
 import type { MigrationClient } from "@migrations/push/planner";
+import { addDropResolver } from "@migrations/resolver";
+import type { ResolveCallback } from "@migrations/types";
+
+interface SyncLiveSchemaOptions {
+  readonly dryRun?: boolean;
+  readonly force?: boolean;
+  readonly forceReset?: boolean;
+  readonly resolve?: ResolveCallback;
+  readonly skipValidation?: boolean;
+}
 
 export async function syncLiveSchema(
   client: MigrationClient,
-  options: { forceReset?: boolean; skipValidation?: boolean } = {}
+  options: SyncLiveSchemaOptions = {}
 ) {
+  const resolve: ResolveCallback | undefined = options.force
+    ? async (change) =>
+        (await options.resolve?.(change)) ?? addDropResolver(change)
+    : options.resolve;
   const preview = await previewPush(client, {
     forceReset: options.forceReset,
+    resolve,
     skipValidation: options.skipValidation,
   });
-  return applyPush(client, { consent: preview.consent });
+  const outcome = options.dryRun
+    ? preview
+    : await applyPush(client, { consent: preview.consent });
+  return {
+    ...outcome,
+    applied: outcome.outcome === "applied",
+    operations: outcome.operations.map((operation) => ({
+      ...operation,
+      type: operation.label,
+    })),
+    sql: outcome.statements.map((statement) => statement.sql),
+  };
 }

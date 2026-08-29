@@ -1,10 +1,10 @@
 import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite } from "@electric-sql/pglite";
-import { push } from "@migrations";
 import type { ResolveCallback, ResolveChange } from "@migrations/types";
 import { s } from "@schema";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
+import { syncLiveSchema as push } from "@tests/fixtures/sync-schema";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const INVALID_RESOLUTION_RESULT = /invalid resolution result/i;

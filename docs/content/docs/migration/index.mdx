@@ -100,16 +100,16 @@ Both push and migrate follow the same core process:
 ## Atomicity
 
 Migration atomicity is a DDL-specific guarantee and is not implied by support
-for client transactions. VibORM uses a real transaction or atomic batch where
-the database can honor it. D1 binding and Neon apply paths reject when that
-substrate is absent; MySQL-family DDL is the documented limited exception
-because its statements implicitly commit:
+for client transactions. VibORM admits effectful work only when the concrete
+provider proves its lock, marker compare-and-swap, and execution boundary.
+MySQL DDL is the documented stepwise exception because each statement commits:
 
 | Driver | `push` | `migrate apply` |
 |--------|--------|-----------------|
-| **PostgreSQL, SQLite family** | Transaction (all-or-nothing) | Transaction (all-or-nothing) |
-| **MySQL, PlanetScale** | Limited — DDL statements implicitly commit, so a failed run can leave earlier statements applied | Same limitation |
-| **D1 bindings, Neon HTTP** | Atomic batch | Rejects — requires callback transactions, which these drivers don't support |
+| **PGlite, pg, postgres.js, Bun SQL** | Transaction when every statement permits it | Same guarantee |
+| **SQLite3, Bun SQLite** | One writer boundary; transactional where supported | Same guarantee |
+| **MySQL2** | Stepwise — a failed run can leave earlier statements applied | Same limitation, with durable progress evidence |
+| **Neon HTTP, PlanetScale, D1, D1 HTTP, libSQL** | Effectful work refused; dry-run and read-only paths remain | Effectful work refused until the provider boundary is proven |
 
 On the atomic paths, a successful migration applies every statement and a
 failed one applies none. The portable API exposes no transaction isolation

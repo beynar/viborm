@@ -491,6 +491,23 @@ export class PostgresMigrationDriver extends MigrationDriver {
     return `ALTER TABLE ${this.qualify(op.from)} RENAME TO ${this.escapeIdentifier(op.to)}`;
   }
 
+  override compileRenameTable(
+    op: RenameTableOperation,
+    context: DDLContext
+  ): readonly string[] {
+    const statements = [this.generateRenameTable(op, context)];
+    const source = context.currentSchema?.tables.find(
+      (table) => table.name === op.from
+    );
+    const primaryKeyName = source?.primaryKey?.name;
+    if (primaryKeyName === `${op.from}_pkey`) {
+      statements.push(
+        `ALTER TABLE ${this.qualify(op.to)} RENAME CONSTRAINT ${this.escapeIdentifier(primaryKeyName)} TO ${this.escapeIdentifier(`${op.to}_pkey`)}`
+      );
+    }
+    return this.filterStatements(statements);
+  }
+
   // ===========================================================================
   // DDL GENERATION - Column Operations
   // ===========================================================================

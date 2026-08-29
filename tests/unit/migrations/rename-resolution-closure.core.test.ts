@@ -3,7 +3,7 @@ import {
   diff,
   isDestructiveOperation,
 } from "@migrations/differ";
-import { invertOperations } from "@migrations/generate/down";
+import { invertOperations } from "@migrations/invert";
 import {
   alwaysRenameResolver,
   resolveAmbiguousChanges,

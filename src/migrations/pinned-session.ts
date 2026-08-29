@@ -313,12 +313,12 @@ export async function resolveCommandDriver(
  *
  * The boundary is recorded by the producer the body runs on, not by the body:
  * apply's artifact and its tracking insert, push's DDL, force-reset's clear and
- * rebuild, down's group and reset's replay are five different programs, and
- * each of them would otherwise have to carry its own bookkeeping and its own
- * error. The view is built the way every other execution view in this layer is
- * — an `Object.create` over the producer restating one member — so the body
- * runs on the SAME physical session, the same reserved client, and the same
- * attestation it was handed.
+ * rebuild, down's group, resolve's completion, and reset's replay are six
+ * different programs. Each would otherwise have to carry its own bookkeeping
+ * and its own error. The view is built the way every other execution view in
+ * this layer is — an `Object.create` over the producer restating one member —
+ * so the body runs on the SAME physical session, the same reserved client, and
+ * the same attestation it was handed.
  *
  * The scope is the whole program the command commits to, deliberately: a report
  * covering only the clear would tell a `reset()` nothing about the replay that

@@ -420,12 +420,6 @@ export interface EnumValueRemovalChange {
 
   /** Reject this change and abort the operation */
   reject(): "reject";
-
-  /** Internal: stores the mapping result */
-  _mappings?: Record<string, string | null>;
-
-  /** Internal: flag indicating to use null as default */
-  _useNullDefault?: boolean;
 }
 
 /**
@@ -572,12 +566,10 @@ export function createEnumValueRemovalChange(props: {
       }
       Object.freeze(mappings);
       recordEnumResolutionDecision(change, { kind: "mapValues", mappings });
-      change._mappings = mappings;
       return "enumMapped";
     },
     useNull: () => {
       recordEnumResolutionDecision(change, { kind: "useNull" });
-      change._useNullDefault = true;
       return "enumMapped";
     },
     reject: () => "reject",

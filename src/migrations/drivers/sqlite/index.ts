@@ -847,6 +847,14 @@ export class SQLite3MigrationDriver extends MigrationDriver {
       return super.compileAlterColumn(op, context);
     }
 
+    return this.compileAlterColumnByRecreation(op, context);
+  }
+
+  /** SQLite's value-preserving ALTER COLUMN implementation. */
+  protected compileAlterColumnByRecreation(
+    op: AlterColumnOperation,
+    context: DDLContext
+  ): readonly string[] {
     // SQLite doesn't support ALTER COLUMN - need table recreation
     const currentTable = this.getCurrentTable(op.tableName, context);
     if (!currentTable) {

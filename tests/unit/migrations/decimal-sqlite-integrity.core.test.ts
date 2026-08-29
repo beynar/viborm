@@ -8,14 +8,15 @@
  */
 
 import { createClient } from "@client/client";
-import { push } from "@migrations";
 import { sqlite3MigrationDriver } from "@migrations/drivers/sqlite";
 import { sqliteDecimalCheck } from "@migrations/drivers/sqlite/decimal";
-import { invertOperations } from "@migrations/generate/down";
 import {
-  executeDDLStatements,
-  generateDDLStatements,
-} from "@migrations/push/executor";
+  assertForeignKeysIntact,
+  liftForeignKeyPragmas,
+  withForeignKeysLifted,
+} from "@migrations/foreign-keys";
+import { invertOperations } from "@migrations/invert";
+import { generateDDLStatements } from "@migrations/push/executor";
 import type {
   DiffOperation,
   ForeignKeyDef,
@@ -24,6 +25,7 @@ import type {
 } from "@migrations/types";
 import { s } from "@schema";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
+import { syncLiveSchema as push } from "@tests/fixtures/sync-schema";
 import { describe, expect, it } from "vitest";
 import { ddlContext } from "./_estate";
 
@@ -82,6 +84,21 @@ async function executeDdl(
   for (const statement of ddl.split(";\n")) {
     if (statement.trim()) await driver._executeRaw(statement);
   }
+}
+
+async function executeSchemaStatements(
+  driver: ReturnType<typeof createInMemorySQLite3Driver>,
+  statements: readonly string[]
+): Promise<void> {
+  const lifted = liftForeignKeyPragmas(driver, [...statements]);
+  await withForeignKeysLifted(driver, lifted.bracket, () =>
+    driver.withTransaction(async (transaction) => {
+      for (const statement of lifted.statements) {
+        await transaction._executeRaw(statement);
+      }
+      await assertForeignKeysIntact(transaction, lifted.bracket);
+    })
+  );
 }
 
 async function createSnapshotTables(
@@ -392,7 +409,7 @@ describe("SQLite decimal reconstruction integrity", () => {
       sqlite3MigrationDriver,
       before
     );
-    await executeDDLStatements(driver, sqlite3MigrationDriver, statements);
+    await executeSchemaStatements(driver, statements);
 
     expect(await foreignKeys(driver, "decimal_replay_child")).toEqual([
       {
@@ -456,7 +473,7 @@ describe("SQLite decimal reconstruction integrity", () => {
       sqlite3MigrationDriver,
       before
     );
-    await executeDDLStatements(driver, sqlite3MigrationDriver, statements);
+    await executeSchemaStatements(driver, statements);
 
     expect(await foreignKeys(driver, "table_replay_child")).toEqual([
       {
@@ -500,9 +517,8 @@ describe("SQLite decimal reconstruction integrity", () => {
       `INSERT INTO "decimal_replay_ledger" ("id","amount") VALUES ('row',120)`
     );
 
-    await executeDDLStatements(
+    await executeSchemaStatements(
       driver,
-      sqlite3MigrationDriver,
       generateDDLStatements(operations, sqlite3MigrationDriver, before)
     );
 
