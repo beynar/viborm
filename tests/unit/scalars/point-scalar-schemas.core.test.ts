@@ -1,380 +1,188 @@
-/**
- * Point Scalar Schema Type & Runtime Tests
- *
- * Systematically tests type inference AND runtime validation for all point scalar variants:
- * - Raw (required)
- * - Nullable (with default null)
- *
- * Note: Point scalars don't support the array() modifier.
- *
- * For each variant, tests:
- * - base: The element/scalar type
- * - create: Input type for creation + runtime validation
- * - update: Input type for updates + shorthand transforms
- * - filter: Input type for filtering + spatial operations
- */
-
 import type { ScalarState } from "@schema/scalars/common";
 import { point } from "@schema/scalars/point/scalar";
-import { type InferInput, parse } from "@validation";
+import {
+  type GeoArea,
+  type GeoPoint,
+  type InferInput,
+  parse,
+} from "@validation";
 import { type GetScalarSchemas, getScalarSchemas } from "@validation/scalars";
 import { describe, expect, expectTypeOf, test } from "vitest";
 
-type InferScalarInput<
-  State extends ScalarState,
-  Key extends keyof GetScalarSchemas<State>,
-> = InferInput<GetScalarSchemas<State>[Key]>;
 type InferPointInput<
   State extends ScalarState<"point">,
   Key extends keyof GetScalarSchemas<State>,
-> = InferScalarInput<State, Key>;
+> = InferInput<GetScalarSchemas<State>[Key]>;
 
-// =============================================================================
-// RAW POINT SCALAR (required, no modifiers)
-// =============================================================================
+const paris: GeoPoint = { longitude: 2.3522, latitude: 48.8566 };
 
-describe("Raw Point Scalar", () => {
+describe("GeoPoint scalar schemas", () => {
   const scalar = point();
   type State = (typeof scalar)["~"]["state"];
   const schemas = getScalarSchemas(scalar["~"].state);
 
-  describe("base", () => {
-    test("type: base is { x: number; y: number }", () => {
-      type Base = InferPointInput<State, "base">;
-      expectTypeOf<Base>().toEqualTypeOf<{ x: number; y: number }>();
-    });
+  test("refuses even an explicitly undefined runtime argument", () => {
+    expect(() => Reflect.apply(point, undefined, [undefined])).toThrow(
+      "s.point() takes no native type or options"
+    );
+  });
 
-    test("runtime: parses point object", () => {
-      const result1 = parse(schemas.base, { x: 10, y: 20 });
-      if (result1.issues) throw new Error("Expected success");
-      expect(result1.value).toEqual({ x: 10, y: 20 });
+  test("base and create use the one GeoPoint value", () => {
+    type Base = InferPointInput<State, "base">;
+    type Create = InferPointInput<State, "create">;
+    expectTypeOf<Base>().toEqualTypeOf<GeoPoint>();
+    expectTypeOf<Create>().toEqualTypeOf<GeoPoint>();
 
-      const result2 = parse(schemas.base, { x: 0.5, y: -0.3 });
-      if (result2.issues) throw new Error("Expected success");
-      expect(result2.value).toEqual({ x: 0.5, y: -0.3 });
+    const parsed = parse(schemas.create, paris);
+    if (parsed.issues) throw new Error("Expected a valid GeoPoint");
+    expect(parsed.value).toEqual(paris);
+    expect(parsed.value).not.toBe(paris);
+    expect(parse(schemas.create, undefined).issues).toBeDefined();
+    expect(parse(schemas.create, null).issues).toBeDefined();
+  });
 
-      const result3 = parse(schemas.base, { x: 0, y: 0 });
-      if (result3.issues) throw new Error("Expected success");
-      expect(result3.value).toEqual({ x: 0, y: 0 });
-    });
+  test("update accepts shorthand and set while retaining canonical output", () => {
+    type Update = InferPointInput<State, "update">;
+    expectTypeOf<GeoPoint>().toExtend<Update>();
+    expectTypeOf<{ set: GeoPoint }>().toExtend<Update>();
 
-    test("runtime: rejects non-object", () => {
-      expect(parse(schemas.base, 42).issues).toBeDefined();
-      expect(parse(schemas.base, "point").issues).toBeDefined();
-      expect(parse(schemas.base, null).issues).toBeDefined();
-      expect(parse(schemas.base, true).issues).toBeDefined();
-      expect(parse(schemas.base, [10, 20]).issues).toBeDefined();
-    });
-
-    test("runtime: rejects object missing x or y", () => {
-      expect(parse(schemas.base, { x: 10 }).issues).toBeDefined();
-      expect(parse(schemas.base, { y: 20 }).issues).toBeDefined();
-      expect(parse(schemas.base, {}).issues).toBeDefined();
-    });
-
-    test("runtime: rejects object with non-number x or y", () => {
-      expect(parse(schemas.base, { x: "10", y: 20 }).issues).toBeDefined();
-      expect(parse(schemas.base, { x: 10, y: "20" }).issues).toBeDefined();
-      expect(parse(schemas.base, { x: null, y: 20 }).issues).toBeDefined();
-      expect(parse(schemas.base, { x: 10, y: undefined }).issues).toBeDefined();
+    expect(parse(schemas.update, paris)).toEqual({ value: { set: paris } });
+    expect(parse(schemas.update, { set: paris })).toEqual({
+      value: { set: paris },
     });
   });
 
-  describe("create", () => {
-    test("type: create is required { x: number; y: number }", () => {
-      type Create = InferPointInput<State, "create">;
-      expectTypeOf<Create>().toEqualTypeOf<{ x: number; y: number }>();
+  test("filter admits equality, distance, area membership, and recursive not", () => {
+    type Filter = InferPointInput<State, "filter">;
+    const bounds: GeoArea = {
+      bounds: { south: 48, west: 1, north: 49, east: 3 },
+    };
+    expectTypeOf<GeoPoint>().toExtend<Filter>();
+    expectTypeOf<{ equals: GeoPoint }>().toExtend<Filter>();
+    expectTypeOf<{
+      distance: { to: GeoPoint; gte: number; lte: number };
+    }>().toExtend<Filter>();
+    expectTypeOf<{ within: GeoArea }>().toExtend<Filter>();
+    expectTypeOf<{ not: { within: GeoArea } }>().toExtend<Filter>();
+
+    expect(parse(schemas.filter, paris)).toEqual({
+      value: { equals: paris },
     });
-
-    test("runtime: accepts point object", () => {
-      const result1 = parse(schemas.create, { x: 10, y: 20 });
-      if (result1.issues) throw new Error("Expected success");
-      expect(result1.value).toEqual({ x: 10, y: 20 });
-
-      const result2 = parse(schemas.create, { x: -180, y: 90 });
-      if (result2.issues) throw new Error("Expected success");
-      expect(result2.value).toEqual({ x: -180, y: 90 });
+    expect(
+      parse(schemas.filter, {
+        distance: { to: paris, gte: 5000, lte: 10_000 },
+      })
+    ).toEqual({
+      value: { distance: { to: paris, gte: 5000, lte: 10_000 } },
     });
-
-    test("runtime: rejects undefined (required)", () => {
-      const result = parse(schemas.create, undefined);
-      expect(result.issues).toBeDefined();
+    expect(parse(schemas.filter, { within: bounds })).toEqual({
+      value: { within: bounds },
     });
-
-    test("runtime: rejects null", () => {
-      const result = parse(schemas.create, null);
-      expect(result.issues).toBeDefined();
-    });
-  });
-
-  describe("update", () => {
-    test("type: update accepts point shorthand", () => {
-      type Update = InferPointInput<State, "update">;
-      expectTypeOf<{ x: number; y: number }>().toExtend<Update>();
-    });
-
-    test("type: update accepts set operation", () => {
-      type Update = InferPointInput<State, "update">;
-      expectTypeOf<{ set: { x: number; y: number } }>().toExtend<Update>();
-    });
-
-    test("runtime: shorthand transforms to { set: value }", () => {
-      const result1 = parse(schemas.update, { x: 10, y: 20 });
-      if (result1.issues) throw new Error("Expected success");
-      expect(result1.value).toEqual({ set: { x: 10, y: 20 } });
-
-      const result2 = parse(schemas.update, { x: 0.5, y: -0.3 });
-      if (result2.issues) throw new Error("Expected success");
-      expect(result2.value).toEqual({ set: { x: 0.5, y: -0.3 } });
-    });
-
-    test("runtime: set operation passes through", () => {
-      const result = parse(schemas.update, { set: { x: 4, y: 5 } });
-      if (result.issues) throw new Error("Expected success");
-      expect(result.value).toEqual({ set: { x: 4, y: 5 } });
+    expect(parse(schemas.filter, { not: { within: bounds } })).toEqual({
+      value: { not: { within: bounds } },
     });
   });
 
-  describe("filter", () => {
-    test("type: filter accepts point shorthand", () => {
-      type Filter = InferPointInput<State, "filter">;
-      expectTypeOf<{ x: number; y: number }>().toExtend<Filter>();
-    });
-
-    test("type: filter accepts equals operation", () => {
-      type Filter = InferPointInput<State, "filter">;
-      expectTypeOf<{ equals: { x: number; y: number } }>().toExtend<Filter>();
-    });
-
-    test("type: filter rejects geospatial operations (engine throws on them)", () => {
-      type Filter = InferPointInput<State, "filter">;
-      expectTypeOf<{
-        intersects: { x: number; y: number };
-      }>().not.toExtend<Filter>();
-      expectTypeOf<{
-        within: { x: number; y: number };
-      }>().not.toExtend<Filter>();
-      expectTypeOf<{
-        dWithin: { geometry: { x: number; y: number }; distance: number };
-      }>().not.toExtend<Filter>();
-    });
-
-    test("runtime: shorthand transforms to { equals: value }", () => {
-      const result = parse(schemas.filter, { x: 10, y: 20 });
-      if (result.issues) throw new Error("Expected success");
-      expect(result.value).toEqual({ equals: { x: 10, y: 20 } });
-    });
-
-    test("runtime: equals filter passes through", () => {
-      const result = parse(schemas.filter, { equals: { x: 1, y: 2 } });
-      if (result.issues) throw new Error("Expected success");
-      expect(result.value).toEqual({ equals: { x: 1, y: 2 } });
-    });
-
-    test("runtime: spatial filters are rejected", () => {
-      expect(
-        parse(schemas.filter, { intersects: { x: 10, y: 20 } }).issues
-      ).toBeDefined();
-      expect(
-        parse(schemas.filter, { within: { x: 15, y: 25 } }).issues
-      ).toBeDefined();
+  test("distance requires a target and one finite non-negative comparison", () => {
+    for (const invalid of [
+      { distance: { to: paris } },
+      { distance: { lte: 10 } },
+      { distance: { to: paris, lte: -1 } },
+      { distance: { to: paris, lte: Number.POSITIVE_INFINITY } },
+      { distance: { to: paris, equals: 10 } },
+    ]) {
+      expect(parse(schemas.filter, invalid).issues).toBeDefined();
+    }
+    for (const comparison of ["lt", "lte", "gt", "gte"] as const) {
       expect(
         parse(schemas.filter, {
-          dWithin: { geometry: { x: 10, y: 20 }, distance: 1000 },
+          distance: { to: paris, [comparison]: 0 },
         }).issues
-      ).toBeDefined();
-    });
+      ).toBeUndefined();
+    }
+  });
 
-    test("runtime: not filter with shorthand", () => {
-      const result = parse(schemas.filter, { not: { x: 10, y: 20 } });
-      if (result.issues) throw new Error("Expected success");
-      expect(result.value).toEqual({ not: { equals: { x: 10, y: 20 } } });
-    });
+  test("retired spatial aliases stay absent", () => {
+    type Filter = InferPointInput<State, "filter">;
+    expectTypeOf<{ notWithin: GeoArea }>().not.toExtend<Filter>();
+    expectTypeOf<{ notNear: GeoPoint }>().not.toExtend<Filter>();
+    expectTypeOf<{ far: GeoPoint }>().not.toExtend<Filter>();
+    expectTypeOf<{ between: [GeoPoint, GeoPoint] }>().not.toExtend<Filter>();
+    expectTypeOf<{ intersects: GeoArea }>().not.toExtend<Filter>();
 
-    test("runtime: not filter with object", () => {
-      const result = parse(schemas.filter, {
-        not: { equals: { x: 5, y: 5 } },
-      });
-      if (result.issues) throw new Error("Expected success");
-      expect(result.value).toEqual({ not: { equals: { x: 5, y: 5 } } });
-    });
+    expect(
+      parse(schemas.filter, { notWithin: { bounds: {} } }).issues
+    ).toBeDefined();
   });
 });
 
-// =============================================================================
-// NULLABLE POINT SCALAR
-// =============================================================================
-
-describe("Nullable Point Scalar", () => {
-  const scalar = point().nullable();
-  type State = (typeof scalar)["~"]["state"];
-  const schemas = getScalarSchemas(scalar["~"].state);
-
-  describe("base", () => {
-    test("type: base is { x: number; y: number } | null", () => {
-      type Base = InferPointInput<State, "base">;
-      expectTypeOf<Base>().toEqualTypeOf<{ x: number; y: number } | null>();
-    });
-
-    test("runtime: parses point object", () => {
-      const result = parse(schemas.base, { x: 10, y: 20 });
-      if (result.issues) throw new Error("Expected success");
-      expect(result.value).toEqual({ x: 10, y: 20 });
-    });
-
-    test("runtime: parses null", () => {
-      const result = parse(schemas.base, null);
-      if (result.issues) throw new Error("Expected success");
-      expect(result.value).toBe(null);
-    });
-  });
-
-  describe("create", () => {
-    test("type: create is optional (has default null)", () => {
-      type Create = InferPointInput<State, "create">;
-      expectTypeOf<
-        { x: number; y: number } | null | undefined
-      >().toExtend<Create>();
-    });
-
-    test("runtime: accepts point object", () => {
-      const result = parse(schemas.create, { x: 10, y: 20 });
-      if (result.issues) throw new Error("Expected success");
-      expect(result.value).toEqual({ x: 10, y: 20 });
-    });
-
-    test("runtime: accepts null", () => {
-      const result = parse(schemas.create, null);
-      if (result.issues) throw new Error("Expected success");
-      expect(result.value).toBe(null);
-    });
-
-    test("runtime: undefined defaults to null", () => {
-      const result = parse(schemas.create, undefined);
-      if (result.issues) throw new Error("Expected success");
-      expect(result.value).toBe(null);
-    });
-  });
-
-  describe("update", () => {
-    test("type: update accepts null", () => {
-      type Update = InferPointInput<State, "update">;
-      expectTypeOf<null>().toExtend<Update>();
-      expectTypeOf<{
-        set: { x: number; y: number } | null;
-      }>().toExtend<Update>();
-    });
-
-    test("runtime: shorthand null transforms to { set: null }", () => {
-      const result = parse(schemas.update, null);
-      if (result.issues) throw new Error("Expected success");
-      expect(result.value).toEqual({ set: null });
-    });
-
-    test("runtime: shorthand point transforms to { set: value }", () => {
-      const result = parse(schemas.update, { x: 10, y: 20 });
-      if (result.issues) throw new Error("Expected success");
-      expect(result.value).toEqual({ set: { x: 10, y: 20 } });
-    });
-
-    test("runtime: set null passes through", () => {
-      const result = parse(schemas.update, { set: null });
-      if (result.issues) throw new Error("Expected success");
-      expect(result.value).toEqual({ set: null });
-    });
-
-    test("runtime: set point passes through", () => {
-      const result = parse(schemas.update, { set: { x: 4, y: 5 } });
-      if (result.issues) throw new Error("Expected success");
-      expect(result.value).toEqual({ set: { x: 4, y: 5 } });
-    });
-  });
-
-  describe("filter", () => {
-    test("type: filter accepts null", () => {
-      type Filter = InferPointInput<State, "filter">;
-      expectTypeOf<null>().toExtend<Filter>();
-      expectTypeOf<{ equals: null }>().toExtend<Filter>();
-    });
-
-    test("runtime: shorthand null transforms to { equals: null }", () => {
-      const result = parse(schemas.filter, null);
-      if (result.issues) throw new Error("Expected success");
-      expect(result.value).toEqual({ equals: null });
-    });
-
-    test("runtime: equals null passes through", () => {
-      const result = parse(schemas.filter, { equals: null });
-      if (result.issues) throw new Error("Expected success");
-      expect(result.value).toEqual({ equals: null });
-    });
-  });
-});
-
-// =============================================================================
-// DEFAULT VALUE BEHAVIOR
-// =============================================================================
-
-describe("Default Value Behavior", () => {
-  describe("static default value", () => {
-    const scalar = point().default({ x: 0, y: 0 });
+describe("GeoPoint scalar modifiers", () => {
+  test("nullable preserves GeoPoint and supplies null", () => {
+    const scalar = point().nullable();
     type State = (typeof scalar)["~"]["state"];
+    type Base = InferPointInput<State, "base">;
+    type Create = InferPointInput<State, "create">;
+    expectTypeOf<Base>().toEqualTypeOf<GeoPoint | null>();
+    expectTypeOf<Create>().toEqualTypeOf<GeoPoint | null | undefined>();
+
     const schemas = getScalarSchemas(scalar["~"].state);
-
-    test("type: create is optional", () => {
-      type Create = InferPointInput<State, "create">;
-      expectTypeOf<{ x: number; y: number } | undefined>().toExtend<Create>();
-    });
-
-    test("runtime: accepts value", () => {
-      const result = parse(schemas.create, { x: 10, y: 20 });
-      if (result.issues) throw new Error("Expected success");
-      expect(result.value).toEqual({ x: 10, y: 20 });
-    });
-
-    test("runtime: undefined uses default", () => {
-      const result = parse(schemas.create, undefined);
-      if (result.issues) throw new Error("Expected success");
-      expect(result.value).toEqual({ x: 0, y: 0 });
-    });
+    expect(parse(schemas.create, undefined)).toEqual({ value: null });
+    expect(parse(schemas.update, null)).toEqual({ value: { set: null } });
+    expect(parse(schemas.filter, null)).toEqual({ value: { equals: null } });
+    expect(
+      parse(schemas.filter, { distance: { to: null, lte: 1 } }).issues
+    ).toBeDefined();
+    expect(
+      parse(schemas.filter, { distance: { to: paris, lte: 1 } }).issues
+    ).toBeUndefined();
   });
 
-  describe("function default value", () => {
-    let callCount = 0;
-    const scalar = point().default(() => {
-      callCount++;
-      return { x: callCount * 10, y: callCount * 20 };
+  test("literal defaults are canonicalized at declaration and detached", () => {
+    const literal = { longitude: -180, latitude: -0 };
+    const scalar = point().default(literal);
+    expect(scalar["~"].state.default).toEqual({
+      longitude: 180,
+      latitude: 0,
     });
+    expect(scalar["~"].state.default).not.toBe(literal);
+
+    literal.longitude = 1;
     const schemas = getScalarSchemas(scalar["~"].state);
-
-    test("runtime: undefined calls default function", () => {
-      const before = callCount;
-      const result = parse(schemas.create, undefined);
-      if (result.issues) throw new Error("Expected success");
-      expect(result.value).toEqual({
-        x: (before + 1) * 10,
-        y: (before + 1) * 20,
-      });
+    expect(parse(schemas.create, undefined)).toEqual({
+      value: { longitude: 180, latitude: 0 },
     });
   });
-});
 
-// =============================================================================
-// MAP OPERATION
-// =============================================================================
-
-describe("Map Operation", () => {
-  const scalar = point().map("coordinates");
-  const state = scalar["~"].state;
-
-  test("state: columnName is stored", () => {
-    expect(state.columnName).toBe("coordinates");
+  test("function defaults cross the codec on each invocation", () => {
+    let calls = 0;
+    const scalar = point().default(() => ({
+      longitude: -180,
+      latitude: calls++ === 0 ? -0 : 10,
+    }));
+    const schemas = getScalarSchemas(scalar["~"].state);
+    expect(parse(schemas.create, undefined)).toEqual({
+      value: { longitude: 180, latitude: 0 },
+    });
+    expect(parse(schemas.create, undefined)).toEqual({
+      value: { longitude: 180, latitude: 10 },
+    });
   });
 
-  test("map can be chained with other modifiers", () => {
-    const scalar2 = point().map("location").nullable().default({ x: 0, y: 0 });
-    expect(scalar2["~"].state.columnName).toBe("location");
-    expect(scalar2["~"].state.nullable).toBe(true);
-    expect(scalar2["~"].state.hasDefault).toBe(true);
+  test("invalid literal defaults fail at s.point().default", () => {
+    expect(() => point().default({ longitude: 181, latitude: 0 })).toThrow(
+      "Validation failed for s.point"
+    );
+
+    const scalar = point();
+    expect(() => Reflect.apply(scalar.default, scalar, [null])).toThrow(
+      "Expected GeoPoint object"
+    );
+  });
+
+  test("map composes without adding a second point language", () => {
+    const scalar = point().map("location").nullable().default(paris);
+    expect(scalar["~"].state.columnName).toBe("location");
+    expect(scalar["~"].state.nullable).toBe(true);
+    expect(scalar["~"].state.hasDefault).toBe(true);
   });
 });

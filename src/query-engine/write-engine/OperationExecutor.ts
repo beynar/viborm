@@ -1,4 +1,5 @@
 // biome-ignore-all lint/style/useFilenamingConvention: OperationExecutor is the architecture name.
+import { getAdapterInternals } from "@adapters/adapter-internals";
 import type { AnyDriver, QueryExecutionContext, QueryResult } from "@drivers";
 import {
   assertStatementBindParameterCapacity,
@@ -280,6 +281,10 @@ export class OperationExecutor {
     this.runStatementAtomic = consumableResultCandidate
       ? this.runCandidateStatementAtomic
       : this.runBorrowedStatementAtomic;
+  }
+
+  private get batchRefs() {
+    return getAdapterInternals(this.engine.adapter).batchRefs;
   }
 
   execute<T>(
@@ -666,7 +671,7 @@ export class OperationExecutor {
     assertGeneratedOutputFragmentEligibility(
       compiled,
       driver,
-      this.engine.adapter.batchRefs.storeLastInsertId !== undefined,
+      this.batchRefs.storeLastInsertId !== undefined,
       operation.seriesRootConflict?.rootWriteId
     );
     return { operation, planning, compiled };
@@ -695,7 +700,7 @@ export class OperationExecutor {
     assertGeneratedOutputFragmentEligibility(
       fragment,
       driver,
-      this.engine.adapter.batchRefs.storeLastInsertId !== undefined,
+      this.batchRefs.storeLastInsertId !== undefined,
       prepared.operation.seriesRootConflict?.rootWriteId
     );
     return fragment;
@@ -829,7 +834,7 @@ export class OperationExecutor {
       segment = [];
       const generatedSegments = generatedOutputSegments(
         segmentFragment(ordinarySteps),
-        this.engine.adapter.batchRefs.storeLastInsertId !== undefined
+        this.batchRefs.storeLastInsertId !== undefined
       );
       const executionSegments = generatedSegments ?? [
         { steps: ordinarySteps, continuationGuards: [] },
@@ -1246,7 +1251,7 @@ export class OperationExecutor {
     }
     const generatedSegments = generatedOutputSegments(
       fragment,
-      this.engine.adapter.batchRefs.storeLastInsertId !== undefined
+      this.batchRefs.storeLastInsertId !== undefined
     );
     if (generatedSegments) {
       return this.runGeneratedOutputFallback<T>(
@@ -1432,7 +1437,7 @@ export class OperationExecutor {
         assertGeneratedOutputFragmentEligibility(
           fragment,
           driver,
-          this.engine.adapter.batchRefs.storeLastInsertId !== undefined
+          this.batchRefs.storeLastInsertId !== undefined
         );
       } catch (error) {
         throw attachProgress(error, progress, "planning");
@@ -1498,7 +1503,7 @@ export class OperationExecutor {
     }
     assertIndivisibleGeneratedOutput(
       fragment,
-      this.engine.adapter.batchRefs.storeLastInsertId !== undefined
+      this.batchRefs.storeLastInsertId !== undefined
     );
     const plan = this.compileToEntries(fragment);
     assertOperationPlanCapacity(
@@ -2039,8 +2044,7 @@ export class OperationExecutor {
         // A fragment result can read the provider's own insertId directly. Scratch is
         // required only when later SQL in this same atomic unit consumes the value.
         if (!consumedOutputs.has(`${step.id}.${output}`)) continue;
-        const storeLastInsertId =
-          this.engine.adapter.batchRefs.storeLastInsertId;
+        const storeLastInsertId = this.batchRefs.storeLastInsertId;
         // The shared-batch entrance and the default-operation segment planner
         // have already rejected or cut every unsupported cross-statement
         // dependency. An absent store here therefore means this insertId is only
@@ -2053,7 +2057,7 @@ export class OperationExecutor {
           values,
           step.id,
           output,
-          this.engine.adapter.batchRefs.read(batchId, key)
+          this.batchRefs.read(batchId, key)
         );
         batchEntries.push({
           statement: storeLastInsertId(batchId, key),
@@ -3229,10 +3233,14 @@ function buildBatchEntries(
 ): BatchEntry[] {
   if (!usesScratch) return entries;
   return [
-    ...adapter.batchRefs.setup(batchId).map((statement) => ({ statement })),
-    { statement: adapter.batchRefs.clear(batchId) },
+    ...getAdapterInternals(adapter)
+      .batchRefs.setup(batchId)
+      .map((statement) => ({
+        statement,
+      })),
+    { statement: getAdapterInternals(adapter).batchRefs.clear(batchId) },
     ...entries,
-    { statement: adapter.batchRefs.cleanup(batchId) },
+    { statement: getAdapterInternals(adapter).batchRefs.cleanup(batchId) },
   ];
 }
 

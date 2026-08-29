@@ -29,7 +29,10 @@
  * ones that know the projection tree and the `SET`.
  */
 
-import type { QueryParts } from "@adapters";
+import {
+  assembleAdapterSelect,
+  type QueryParts,
+} from "@adapters/adapter-internals";
 import { getColumnName } from "@schema/model";
 import { Sql, sql } from "@sql";
 import { buildSelectWithAliases } from "../builders/select-builder";
@@ -154,7 +157,7 @@ export function buildMutationProjectionFold(
   if (projection.lateralJoins.length > 0) {
     parts.joins = projection.lateralJoins;
   }
-  return sql`${cte} ${adapter.assemble.select(parts)}`;
+  return sql`${cte} ${assembleAdapterSelect(adapter, parts)}`;
 }
 
 /**

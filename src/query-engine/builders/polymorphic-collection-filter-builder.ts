@@ -6,6 +6,7 @@
  * a variant holds.
  */
 
+import { assembleAdapterSelect } from "@adapters/adapter-internals";
 import type { Model } from "@schema/model";
 import type { Sql } from "@sql";
 import { isRecord } from "@validation/value-guards";
@@ -76,7 +77,8 @@ export function buildPolymorphicCollectionFilterSql(
   ctx: QueryScope,
   relation: VariantJunctionCarrierSlot,
   filter: unknown,
-  parentAlias: string
+  parentAlias: string,
+  positivePolarity = true
 ): Sql {
   if (!isRecord(filter)) {
     throw new QueryEngineError(
@@ -102,13 +104,21 @@ export function buildPolymorphicCollectionFilterSql(
     }
     conditions.push(
       quantifier === "every"
-        ? buildEveryCondition(buildNestedWhere, ctx, arms, selected, tagged)
+        ? buildEveryCondition(
+            buildNestedWhere,
+            ctx,
+            arms,
+            selected,
+            tagged,
+            positivePolarity
+          )
         : buildExistenceCondition(
             buildNestedWhere,
             ctx,
             selected,
             tagged,
-            quantifier
+            quantifier,
+            quantifier === "some" ? positivePolarity : !positivePolarity
           )
     );
   }
@@ -126,7 +136,8 @@ function buildTargetPredicate(
   buildNestedWhere: BuildNestedWhere,
   ctx: QueryScope,
   arm: MemberArm,
-  tagged: Readonly<Record<string, unknown>>
+  tagged: Readonly<Record<string, unknown>>,
+  positivePolarity: boolean
 ): Sql | undefined {
   const nested = isRecord(tagged.is)
     ? tagged.is
@@ -139,7 +150,11 @@ function buildTargetPredicate(
     arm.targetModel,
     arm.traversal.targetAlias
   );
-  const predicate = buildNestedWhere(childCtx, nested);
+  const predicate = buildNestedWhere(
+    childCtx,
+    nested,
+    Object.hasOwn(tagged, "is") ? positivePolarity : !positivePolarity
+  );
   if (!predicate) return undefined;
   return Object.hasOwn(tagged, "is")
     ? predicate
@@ -156,11 +171,18 @@ function buildExistenceCondition(
   ctx: QueryScope,
   arm: MemberArm,
   tagged: Readonly<Record<string, unknown>>,
-  quantifier: "some" | "none"
+  quantifier: "some" | "none",
+  positivePolarity: boolean
 ): Sql {
   const { adapter } = ctx;
   const conditions: Sql[] = [...arm.traversal.conditions()];
-  const predicate = buildTargetPredicate(buildNestedWhere, ctx, arm, tagged);
+  const predicate = buildTargetPredicate(
+    buildNestedWhere,
+    ctx,
+    arm,
+    tagged,
+    positivePolarity
+  );
   if (predicate) conditions.push(predicate);
   const subquery = wrapMutationTarget(
     ctx,
@@ -203,7 +225,8 @@ function buildEveryCondition(
   ctx: QueryScope,
   arms: readonly MemberArm[],
   selected: MemberArm,
-  tagged: Readonly<Record<string, unknown>>
+  tagged: Readonly<Record<string, unknown>>,
+  positivePolarity: boolean
 ): Sql {
   const { adapter } = ctx;
   const conditions: Sql[] = [];
@@ -212,7 +235,8 @@ function buildEveryCondition(
     buildNestedWhere,
     ctx,
     selected,
-    tagged
+    tagged,
+    positivePolarity
   );
   if (predicate) {
     const [correlationCondition, joinCondition] =
@@ -322,11 +346,12 @@ export function buildPolymorphicCollectionCount(
       buildNestedWhere,
       ctx,
       selected,
-      where
+      where,
+      true
     );
     if (predicate) conditions.push(predicate);
     return adapter.subqueries.scalar(
-      adapter.assemble.select({
+      assembleAdapterSelect(adapter, {
         columns: adapter.aggregates.count(),
         from: selected.traversal.from(),
         where: adapter.operators.and(...conditions),
@@ -336,7 +361,7 @@ export function buildPolymorphicCollectionCount(
 
   const counts = arms.map((arm) =>
     adapter.subqueries.scalar(
-      adapter.assemble.select({
+      assembleAdapterSelect(adapter, {
         columns: adapter.aggregates.count(),
         from: adapter.identifiers.table(
           arm.membership.table,

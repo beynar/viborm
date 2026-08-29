@@ -35,10 +35,7 @@ const membershipSchema = {
     .map("cursor_order_memberships"),
 };
 
-type CursorClientConfig = VibORMConfig & {
-  schema: typeof cursorSchema;
-  driver: AnyDriver;
-};
+type CursorClientConfig = VibORMConfig<typeof cursorSchema>;
 
 type CursorClient = VibORMClient<CursorClientConfig>;
 

@@ -95,10 +95,7 @@ const schema = {
   constrainedInput,
 };
 
-type ImplicitReturningClientConfig = VibORMConfig & {
-  schema: typeof schema;
-  driver: AnyDriver;
-};
+type ImplicitReturningClientConfig = VibORMConfig<typeof schema>;
 
 type ImplicitReturningClient = VibORMClient<ImplicitReturningClientConfig>;
 

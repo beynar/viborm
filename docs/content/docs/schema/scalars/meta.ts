@@ -14,6 +14,7 @@ export default defineMeta({
     "json",
     "blob",
     "enum",
-    "vector"
+    "point",
+    "vector",
   ],
 });

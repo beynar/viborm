@@ -74,7 +74,7 @@ import {
   type RenameColumnOperation,
   type RenameTableOperation,
 } from "../base";
-import { getMySQLType } from "../type-mapping";
+import { getMySQLType, MYSQL_TYPE_DEFAULTS } from "../type-mapping";
 import type { MigrationCapabilities } from "../types";
 import { type CatalogReader, resolveCatalogNamespace } from "./catalog";
 import { introspect as introspectMySQL } from "./introspect";
@@ -84,6 +84,15 @@ import {
   mysqlReleaseLockStatement,
   mysqlSelectTargetStatement,
 } from "./pinned-session";
+
+const MYSQL_POINT_ATTRIBUTE_START = MYSQL_TYPE_DEFAULTS.point.indexOf(" ");
+const MYSQL_POINT_BASE_TYPE = MYSQL_TYPE_DEFAULTS.point.slice(
+  0,
+  MYSQL_POINT_ATTRIBUTE_START
+);
+const MYSQL_POINT_SRID_ATTRIBUTE = MYSQL_TYPE_DEFAULTS.point.slice(
+  MYSQL_POINT_ATTRIBUTE_START + 1
+);
 
 /**
  * `GET_LOCK`'s wait bound. A migration command that cannot take the lock within
@@ -372,6 +381,7 @@ export class MySQLMigrationDriver
     _context: DDLContext
   ): string {
     const parts: string[] = [this.escapeIdentifier(column.name)];
+    const isGeoPoint = column.type.toUpperCase() === MYSQL_TYPE_DEFAULTS.point;
 
     // Handle auto-increment (MySQL uses AUTO_INCREMENT keyword)
     if (column.autoIncrement) {
@@ -381,12 +391,18 @@ export class MySQLMigrationDriver
       parts.push(column.type);
       parts.push("AUTO_INCREMENT");
     } else {
-      parts.push(column.type);
+      parts.push(isGeoPoint ? MYSQL_POINT_BASE_TYPE : column.type);
     }
 
     // NOT NULL constraint
     if (!column.nullable) {
       parts.push("NOT NULL");
+    }
+
+    // MySQL's grammar places the SRID attribute after nullability:
+    // `POINT NOT NULL SRID 4326`, not `POINT SRID 4326 NOT NULL`.
+    if (isGeoPoint) {
+      parts.push(MYSQL_POINT_SRID_ATTRIBUTE);
     }
 
     // DEFAULT clause (skip for auto-increment columns and types that do not

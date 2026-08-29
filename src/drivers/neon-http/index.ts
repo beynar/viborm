@@ -18,7 +18,7 @@ import {
   type VibORMClient,
 } from "@client/client";
 import type { Schema } from "@client/types";
-import { QueryError, unsupportedGeospatial, unsupportedVector } from "@errors";
+import { QueryError, unsupportedVector } from "@errors";
 import type {
   NeonQueryFunction,
   NeonQueryFunctionInTransaction,
@@ -163,11 +163,9 @@ export class NeonHTTPDriver extends Driver<NeonQuery, NeonTx> {
     const namespace = resolveNamespaceOption(options);
     this.driverOptions = options;
 
-    const adapter = new PostgresAdapter(namespace);
+    const adapter = new PostgresAdapter(namespace, options.postgis === true);
     adapter.capabilities.supportsVector = options.pgvector === true;
-    adapter.capabilities.supportsGeospatial = options.postgis === true;
     if (!options.pgvector) adapter.vector = unsupportedVector;
-    if (!options.postgis) adapter.geospatial = unsupportedGeospatial;
     defineImmutableDriverFact(this, "adapter", adapter);
   }
 

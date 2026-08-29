@@ -5,7 +5,6 @@ import {
   buildPolymorphicMembershipPredicate,
   getPrimaryKeyFields,
 } from "../builders/correlation-utils";
-import { projectScalarForTransport } from "../builders/decimal-field";
 import type { PolymorphicStorageValue } from "../builders/polymorphic-mutation";
 import {
   type BoundPolymorphicMembership,
@@ -15,6 +14,7 @@ import {
   type OrdinaryChildHeldRelation,
   type PolymorphicChildHeldRelation,
 } from "../builders/relation-data-builder";
+import { projectScalarForTransport } from "../builders/scalar-transport";
 import type { QueryEngine } from "../query-engine";
 import type { QueryScope } from "../types";
 import { referenceScalarSql, referenceSql } from "./fragment-builders";

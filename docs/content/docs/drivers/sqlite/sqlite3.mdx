@@ -72,6 +72,14 @@ better-sqlite3 supports full transactions with savepoints for nested transaction
 - Full transaction support with savepoints
 - `RETURNING` clause support (SQLite 3.35+)
 
+## GeoPoint storage tier
+
+SQLite3 stores `s.point()` as checked canonical JSON text. Typed CRUD, exact
+coordinate equality, inclusive ordinary/antimeridian bounds, nullability,
+relations, transactions, and cache are supported. Polygon, distance,
+`_distance`, and spatial indexes are refused before provider execution. See
+[GeoPoint](/docs/schema/scalars/point).
+
 ## Limitations
 
 - SQLite dialect - no `LATERAL` joins, limited `FULL OUTER JOIN`

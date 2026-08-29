@@ -21,11 +21,7 @@ import {
   type VibORMClient,
 } from "@client/client";
 import type { Schema } from "@client/types";
-import {
-  TransactionError,
-  unsupportedGeospatial,
-  unsupportedVector,
-} from "@errors";
+import { TransactionError, unsupportedVector } from "@errors";
 import { Pool, type PoolClient, type PoolConfig, types as pgTypes } from "pg";
 import { Driver, type QueryExecutionContext } from "../driver";
 import { getExecutionTransactionPhases } from "../execution-context";
@@ -114,11 +110,9 @@ export class PgDriver extends Driver<Pool, PoolClient> {
       this.client = this.suppliedPool;
     }
 
-    const adapter = new PostgresAdapter(namespace);
+    const adapter = new PostgresAdapter(namespace, options.postgis === true);
     adapter.capabilities.supportsVector = options.pgvector === true;
-    adapter.capabilities.supportsGeospatial = options.postgis === true;
     if (!options.pgvector) adapter.vector = unsupportedVector;
-    if (!options.postgis) adapter.geospatial = unsupportedGeospatial;
     defineImmutableDriverFact(this, "adapter", adapter);
   }
 

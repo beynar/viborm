@@ -12,25 +12,12 @@
 export type { WaitUntilFn } from "./cache-contract";
 // Cache driver base
 export {
-  type AnyCacheDriver,
   CacheDriver,
   type CacheEntry,
-  type CacheExecutionOptions,
   type CacheSetOptions,
 } from "./driver";
 export { type CacheExtensionConfig, cache } from "./extension";
-// Cache utilities
-export { CACHE_PREFIX, generateCacheKey, generateCachePrefix } from "./key";
-// Cache schemas
 export type {
   CacheInvalidationOptions,
-  CacheInvalidationSchema,
   WithCacheOptions,
-  WithCacheSchema,
 } from "./schema";
-export {
-  cacheInvalidationSchema,
-  DEFAULT_CACHE_TTL,
-  withCacheSchema,
-} from "./schema";
-export { parseTTL } from "./ttl";

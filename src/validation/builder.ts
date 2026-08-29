@@ -19,6 +19,7 @@ import type {
   ResolvedSlot,
 } from "@schema/validation/relation-resolution";
 import { getModelSchemas, type ModelSchemas } from "./model";
+import { validateSchema } from "./primitives/helpers";
 import { getRelationsSchemas } from "./relations";
 import type { GetTargetSchemas } from "./relations/helpers";
 import { getPolymorphicRelationsSchemas } from "./relations/polymorphic";
@@ -31,7 +32,7 @@ import { isString } from "./value-guards";
 // =============================================================================
 
 class SchemaRegistry<S extends Record<string, AnyModel>>
-  implements SchemaRegistryLookup
+  implements SchemaRegistryLookup<S>
 {
   private readonly cache = new Map<AnyModel, ModelSchemas<AnyModel>>();
   private readonly schema: S;
@@ -54,7 +55,9 @@ class SchemaRegistry<S extends Record<string, AnyModel>>
       {},
       {
         get: (_target, prop) => {
-          if (!(isString(prop) && prop in schema && schema[prop])) {
+          if (
+            !(isString(prop) && Object.hasOwn(schema, prop) && schema[prop])
+          ) {
             const property = String(prop);
             throw new ValidationError({ kind: "registry", property }, [
               { path: property, message: `${property} does not exist` },
@@ -124,18 +127,32 @@ class SchemaRegistry<S extends Record<string, AnyModel>>
     modelName: string,
     operation: SchemaRegistryOperation,
     payload: unknown
-  ) => {
-    const model = this.schema[modelName];
+  ): Record<string, unknown> => {
+    const model = Object.hasOwn(this.schema, modelName)
+      ? this.schema[modelName]
+      : undefined;
     if (!model) {
+      const modelLabel = String(modelName);
       throw new ValidationError(
-        { kind: "operation", operation, model: modelName },
-        [{ path: modelName, message: `${modelName} does not exist` }],
-        { meta: { model: modelName } }
+        { kind: "operation", operation, model: modelLabel },
+        [{ path: modelLabel, message: `${modelLabel} does not exist` }],
+        { meta: { model: modelLabel } }
       );
     }
     const schemas = this.getModelSchemas(model);
+    if (!Object.hasOwn(schemas.args, operation)) {
+      throw new ValidationError(
+        { kind: "registry", model: modelName, property: String(operation) },
+        [
+          {
+            path: "operation",
+            message: `${String(operation)} does not exist`,
+          },
+        ]
+      );
+    }
     try {
-      const result = schemas.args[operation]["~standard"].validate(payload);
+      const result = validateSchema(schemas.args[operation], payload);
       if (result.issues) {
         const issues = result.issues.map((issue) => ({
           path: issue.path?.map((part) => part).join(".") ?? "",
@@ -145,7 +162,7 @@ class SchemaRegistry<S extends Record<string, AnyModel>>
           meta: { model: modelName },
         });
       }
-      return result.value;
+      return result.value ?? {};
     } catch (cause) {
       if (cause instanceof ValidationError) throw cause;
       throw new ValidationError(
@@ -180,14 +197,14 @@ export const createResolvedSchemaRegistry = <
 >(
   schema: S,
   index: ResolvedRelationIndex
-): SchemaRegistry<S> => {
+): SchemaRegistryLookup<S> => {
   return new SchemaRegistry(schema, index);
 };
 
 /** Public standalone boundary: prepare and resolve its own schema. */
 export const createSchemaRegistry = <S extends Record<string, Model<any>>>(
   schema: S
-): SchemaRegistry<S> => {
+): SchemaRegistryLookup<S> => {
   hydrateSchemaNames(schema);
   return createResolvedSchemaRegistry(schema, resolveSchemaOrThrow(schema));
 };

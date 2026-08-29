@@ -42,6 +42,13 @@ const user = s.model({
   email: s.string().unique(),
 });
 
+const indexedUser = s
+  .model({
+    id: s.string().id(),
+    email: s.string(),
+  })
+  .index(["email"]);
+
 function liveClient() {
   return createClient({
     schema: { user },
@@ -76,6 +83,22 @@ describe("migration v1 apply", () => {
     expect(again.outcome).toBe("noop");
     const verified = await migrations.verify();
     expect(verified.ok).toBe(true);
+    await client.$disconnect();
+  });
+
+  test("an ordinary non-unique index survives generated artifact admission and apply", async () => {
+    const storage = new MemoryEstateStorage();
+    const client = createClient({
+      schema: { user: indexedUser },
+      driver: createInMemorySQLite3Driver(),
+    });
+    const migrations = createMigrationClient(client, { storage });
+
+    await migrations.generate({ name: "indexed" });
+    await expect(migrations.apply()).resolves.toMatchObject({
+      outcome: "applied",
+    });
+    await expect(migrations.verify()).resolves.toEqual({ ok: true });
     await client.$disconnect();
   });
 

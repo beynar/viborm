@@ -33,6 +33,7 @@ import type { EnumSchema } from "./enum";
 import { enum_ } from "./enum";
 import type { ComputeEntriesFromObject } from "./from-object";
 import { fromObject } from "./from-object";
+import type { GeoPoint } from "./geo-point-codec";
 import type { IsoDateSchema, IsoTimeSchema, IsoTimestampSchema } from "./iso";
 import { isoDate, isoTime, isoTimestamp } from "./iso";
 import type { JsonSchema, JsonValue } from "./json";
@@ -334,13 +335,8 @@ export namespace V {
    * Type-level point schema (geographic coordinates).
    */
   export type Point<
-    Opts extends
-      | ScalarOptions<{ x: number; y: number }, any>
-      | undefined = undefined,
-  > = PointSchema<
-    ComputeInput<{ x: number; y: number }, Opts>,
-    ComputeOutput<{ x: number; y: number }, Opts>
-  >;
+    Opts extends ScalarOptions<GeoPoint, any> | undefined = undefined,
+  > = PointSchema<ComputeInput<GeoPoint, Opts>, ComputeOutput<GeoPoint, Opts>>;
 
   // =========================================================================
   // Composition Types

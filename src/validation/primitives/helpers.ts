@@ -414,10 +414,10 @@ export function createSchema<TInput, TOutput>(
 /**
  * Validate a value against a StandardSchema.
  */
-export function validateSchema<T>(
-  schema: StandardSchemaV1<unknown, T>,
+export function validateSchema<const S extends StandardSchemaV1>(
+  schema: S,
   value: unknown
-): ValidationResult<T> {
+): ValidationResult<StandardSchemaV1.InferOutput<S>> {
   const result = schema["~standard"].validate(value);
   if ("then" in result) {
     return fail("Async schemas are not supported");
@@ -425,5 +425,5 @@ export function validateSchema<T>(
   if (result.issues) {
     return standardSchemaFailure(result.issues);
   }
-  return ok((result as { value: T }).value);
+  return ok((result as { value: StandardSchemaV1.InferOutput<S> }).value);
 }

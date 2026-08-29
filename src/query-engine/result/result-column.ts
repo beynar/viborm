@@ -3,10 +3,10 @@ import { type AnyRelation, isVariantRelationState } from "@schema/relation";
 import type { Scalar } from "@schema/scalars";
 import {
   type AggregateResultName,
+  DISTANCE_RESULT_KEY,
   EMPTY_ROW_RESULT_KEY,
   getAggregateResultName,
   RELATION_COUNTS_RESULT_KEY,
-  VECTOR_DISTANCE_RESULT_KEY,
 } from "../result-aliases";
 import type {
   ExpectedAggregateResultShape,
@@ -17,7 +17,7 @@ import type {
 
 export type ResultColumn =
   | { readonly kind: "empty" }
-  | { readonly kind: "vectorDistance" }
+  | { readonly kind: "distance"; readonly scalar: Scalar | undefined }
   | {
       readonly kind: "scalar";
       readonly key: string;
@@ -57,7 +57,9 @@ export function classifyResultColumn(
   shape: ExpectedResultShape | undefined
 ): ResultColumn {
   if (key === EMPTY_ROW_RESULT_KEY) return { kind: "empty" };
-  if (key === VECTOR_DISTANCE_RESULT_KEY) return { kind: "vectorDistance" };
+  if (key === DISTANCE_RESULT_KEY) {
+    return { kind: "distance", scalar: shape?.distanceScalar };
+  }
 
   const scalars = model["~"].state.scalars;
   const scalar: Scalar | undefined = Object.hasOwn(scalars, key)

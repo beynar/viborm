@@ -3,13 +3,17 @@
  *
  * Tests the args schemas for aggregate operations:
  * - count
+ * - exist
  * - aggregate
  * - groupBy
  */
 
+import {
+  authorSchemas,
+  simpleSchemas,
+} from "@tests/unit/operation-schemas/fixtures";
 import { type InferInput, parse } from "@validation";
 import { describe, expect, expectTypeOf, test } from "vitest";
-import { authorSchemas, simpleSchemas } from "@tests/unit/operation-schemas/fixtures";
 
 // =============================================================================
 // COUNT ARGS
@@ -140,6 +144,35 @@ describe("Count Args - Simple Model Runtime", () => {
       expect(value.skip).toBe(10);
       expect(value.select).toEqual({ _all: true });
     }
+  });
+});
+
+// =============================================================================
+// EXIST ARGS
+// =============================================================================
+
+describe("Exist Args", () => {
+  const schema = simpleSchemas.args.exist;
+  type Input = Exclude<InferInput<typeof schema>, undefined>;
+
+  test("type: exposes only the optional where clause", () => {
+    expectTypeOf<Input>().toHaveProperty("where");
+    expectTypeOf<Input>().not.toHaveProperty("select");
+  });
+
+  test("runtime: accepts an omitted or filtered payload", () => {
+    expect(parse(schema, undefined).issues).toBeUndefined();
+    expect(parse(schema, {}).issues).toBeUndefined();
+    const filtered = parse(schema, { where: { active: true } });
+    expect(filtered.issues).toBeUndefined();
+    if (!filtered.issues && filtered.value) {
+      expect(filtered.value.where).toEqual({ active: { equals: true } });
+    }
+  });
+
+  test("runtime: rejects count-only clauses", () => {
+    expect(parse(schema, { select: { _all: true } }).issues).toBeDefined();
+    expect(parse(schema, { take: 1 }).issues).toBeDefined();
   });
 });
 

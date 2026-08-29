@@ -6,6 +6,7 @@
  */
 
 import type { Scalar, ScalarState } from "@schema/scalars";
+import { errorCause } from "../../../drivers/shared/driver-options";
 import { MigrationError, VibORMErrorCode } from "../../../errors";
 import { renderQualifiedIdentifier } from "../../../sql/identifiers";
 import {
@@ -13,7 +14,7 @@ import {
   decimalConversionRequired,
   postgresDecimalFitsCheck,
 } from "../../decimal";
-import type { ColumnDef, SchemaSnapshot } from "../../types";
+import type { ColumnDef, SchemaSnapshot, TableDef } from "../../types";
 import {
   type AddColumnOperation,
   type AddForeignKeyOperation,
@@ -36,10 +37,13 @@ import {
   type RenameColumnOperation,
   type RenameTableOperation,
 } from "../base";
-import { getPostgresType } from "../type-mapping";
+import { getPostgresType, PG_TYPE_DEFAULTS } from "../type-mapping";
 import type { MigrationCapabilities } from "../types";
 import { canonicalizeIndexPredicates } from "./canonicalize-index-predicate";
-import { introspectPostgresSchema } from "./introspect";
+import {
+  introspectPostgresSchema,
+  POSTGRES_MANAGED_TABLE_NAMES_QUERY,
+} from "./introspect";
 
 type RawExecutor = <T>(
   sql: string,
@@ -71,8 +75,55 @@ const NAMESPACE_EXISTS_QUERY =
  */
 const EXTENSION_TYPES_BY_CAPABILITY = {
   supportsVector: ["vector"],
-  supportsGeospatial: ["geometry", "geography"],
+  geoPoint: ["geometry", "geography"],
 } as const;
+
+const POSTGIS_PREFLIGHT_QUERY = `
+WITH postgis AS (
+  SELECT oid
+  FROM pg_catalog.pg_extension
+  WHERE extname = 'postgis'
+), required_objects(classid, objid) AS (
+  VALUES
+    ('pg_catalog.pg_type'::pg_catalog.regclass::pg_catalog.oid, pg_catalog.to_regtype('geometry')::pg_catalog.oid),
+    ('pg_catalog.pg_type'::pg_catalog.regclass::pg_catalog.oid, pg_catalog.to_regtype('geography')::pg_catalog.oid),
+    ('pg_catalog.pg_proc'::pg_catalog.regclass::pg_catalog.oid, pg_catalog.to_regprocedure('st_makepoint(double precision,double precision)')::pg_catalog.oid),
+    ('pg_catalog.pg_proc'::pg_catalog.regclass::pg_catalog.oid, pg_catalog.to_regprocedure('st_setsrid(geometry,integer)')::pg_catalog.oid),
+    ('pg_catalog.pg_proc'::pg_catalog.regclass::pg_catalog.oid, pg_catalog.to_regprocedure('st_x(geometry)')::pg_catalog.oid),
+    ('pg_catalog.pg_proc'::pg_catalog.regclass::pg_catalog.oid, pg_catalog.to_regprocedure('st_y(geometry)')::pg_catalog.oid),
+    ('pg_catalog.pg_proc'::pg_catalog.regclass::pg_catalog.oid, pg_catalog.to_regprocedure('st_geomfromgeojson(text)')::pg_catalog.oid),
+    ('pg_catalog.pg_proc'::pg_catalog.regclass::pg_catalog.oid, pg_catalog.to_regprocedure('st_intersects(geography,geography)')::pg_catalog.oid),
+    ('pg_catalog.pg_operator'::pg_catalog.regclass::pg_catalog.oid, pg_catalog.to_regoperator('&&(geography,geography)')::pg_catalog.oid)
+)
+SELECT (
+  EXISTS (SELECT 1 FROM postgis)
+  AND NOT EXISTS (
+    SELECT 1
+    FROM required_objects required
+    WHERE required.objid IS NULL
+      OR NOT EXISTS (
+        SELECT 1
+        FROM pg_catalog.pg_depend dependency
+        CROSS JOIN postgis
+        WHERE dependency.classid = required.classid
+          AND dependency.objid = required.objid
+          AND dependency.objsubid = 0
+          AND dependency.refclassid = 'pg_catalog.pg_extension'::pg_catalog.regclass
+          AND dependency.refobjid = postgis.oid
+          AND dependency.deptype = 'e'
+      )
+  )
+) AS ready
+`;
+
+function snapshotUsesGeoPoint(snapshot: SchemaSnapshot): boolean {
+  const physicalType = PG_TYPE_DEFAULTS.point.toLowerCase().replace(/\s+/g, "");
+  return snapshot.tables.some((table) =>
+    table.columns.some(
+      (column) => column.type.toLowerCase().replace(/\s+/g, "") === physicalType
+    )
+  );
+}
 
 export class PostgresMigrationDriver extends MigrationDriver {
   readonly dialect = "postgresql" as const;
@@ -224,8 +275,8 @@ export class PostgresMigrationDriver extends MigrationDriver {
         admitted.add(type);
       }
     }
-    if (capabilities?.supportsGeospatial) {
-      for (const type of EXTENSION_TYPES_BY_CAPABILITY.supportsGeospatial) {
+    if (this.executionDriver?.adapter.geoPoint) {
+      for (const type of EXTENSION_TYPES_BY_CAPABILITY.geoPoint) {
         admitted.add(type);
       }
     }
@@ -250,6 +301,41 @@ export class PostgresMigrationDriver extends MigrationDriver {
       namespace: this.requireEstateNamespace(),
       admittedExtensionTypes: this.admittedExtensionTypes(),
     });
+  }
+
+  override async preflightSchemaRequirements(
+    snapshots: readonly SchemaSnapshot[],
+    executeRaw: RawExecutor
+  ): Promise<void> {
+    if (!snapshots.some(snapshotUsesGeoPoint)) return;
+    if (!this.executionDriver?.adapter.geoPoint) {
+      throw new MigrationError(
+        "This migration requires PostGIS GeoPoint support, but the bound PostgreSQL adapter has no GeoPoint protocol. Construct the driver with `postgis: true` and ensure PostGIS is installed before applying it.",
+        VibORMErrorCode.DRIVER_NOT_SUPPORTED,
+        { meta: { dialect: this.dialect, feature: "GeoPoint" } }
+      );
+    }
+    let rows: readonly { ready?: unknown }[];
+    try {
+      rows = (await executeRaw<{ ready?: unknown }>(POSTGIS_PREFLIGHT_QUERY))
+        .rows;
+    } catch (failure) {
+      throw new MigrationError(
+        "PostGIS GeoPoint preflight could not prove the required extension, types, and functions before migration effects.",
+        VibORMErrorCode.MIGRATION_INVALID_STATE,
+        {
+          cause: errorCause(failure),
+          meta: { dialect: this.dialect, feature: "GeoPoint" },
+        }
+      );
+    }
+    if (rows.length !== 1 || rows[0]?.ready !== true) {
+      throw new MigrationError(
+        "PostGIS GeoPoint preflight did not prove the required extension, visible types, and exact function signatures. VibORM never installs PostGIS.",
+        VibORMErrorCode.MIGRATION_INVALID_STATE,
+        { meta: { dialect: this.dialect, feature: "GeoPoint" } }
+      );
+    }
   }
 
   /**
@@ -314,6 +400,15 @@ export class PostgresMigrationDriver extends MigrationDriver {
       dimension: scalarState.dimension,
       decimal: scalarState.decimal,
     });
+  }
+
+  override finalizeTable(table: TableDef): TableDef {
+    return {
+      ...table,
+      indexes: table.indexes.map((index) =>
+        index.type === "spatial" ? { ...index, type: "gist" as const } : index
+      ),
+    };
   }
 
   // getDefaultExpression is inherited from base class
@@ -626,12 +721,13 @@ export class PostgresMigrationDriver extends MigrationDriver {
 
   generateCreateIndex(op: CreateIndexOperation, _context: DDLContext): string {
     const { tableName, index } = op;
+    const physicalType = index.type === "spatial" ? "gist" : index.type;
 
     // Validate index type against capabilities
-    this.validateIndexType(index.type, index.name);
+    this.validateIndexType(physicalType, index.name);
 
     const unique = index.unique ? "UNIQUE " : "";
-    const indexType = index.type ? `USING ${index.type} ` : "";
+    const indexType = physicalType ? `USING ${physicalType} ` : "";
     const cols = index.columns.map((c) => this.escapeIdentifier(c)).join(", ");
     const where = index.where ? ` WHERE ${index.where}` : "";
     // PostgreSQL does not allow a schema on the index name in CREATE INDEX —
@@ -794,7 +890,7 @@ export class PostgresMigrationDriver extends MigrationDriver {
   // reset drops, and §4.2 admits no interpolated catalog operand.
   generateInventoryTables(): { sql: string; params: unknown[] } {
     return {
-      sql: "SELECT tablename AS name FROM pg_tables WHERE schemaname = $1 ORDER BY tablename",
+      sql: POSTGRES_MANAGED_TABLE_NAMES_QUERY,
       params: [this.requireEstateNamespace()],
     };
   }

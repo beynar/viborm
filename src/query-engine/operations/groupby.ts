@@ -5,15 +5,17 @@
  * Returns records grouped by specified fields with optional aggregates.
  */
 
+import {
+  assembleAdapterSelect,
+  type QueryParts,
+} from "@adapters/adapter-internals";
 import { type Sql, sql } from "@sql";
 import {
   buildAggregateColumn,
   buildCountAggregate,
 } from "../builders/aggregate-utils";
-import {
-  decimalDescriptorOf,
-  projectScalarForTransport,
-} from "../builders/decimal-field";
+import { decimalDescriptorOf } from "../builders/decimal-field";
+import { projectScalarForTransport } from "../builders/scalar-transport";
 import { buildSingleOrder } from "../builders/sort-order-builder";
 import { buildWhere } from "../builders/where-builder";
 import { getColumnName, getScalarFieldNames, getTableName } from "../context";
@@ -112,7 +114,7 @@ export function buildGroupBy(ctx: QueryScope, args: GroupByArgs): Sql {
     args.skip !== undefined ? adapter.literals.value(args.skip) : undefined;
 
   // Assemble query
-  const parts: Parameters<typeof adapter.assemble.select>[0] = {
+  const parts: QueryParts = {
     columns: sql.join(columns, ", "),
     from,
   };
@@ -124,7 +126,7 @@ export function buildGroupBy(ctx: QueryScope, args: GroupByArgs): Sql {
   if (limit) parts.limit = limit;
   if (offset) parts.offset = offset;
 
-  return adapter.assemble.select(parts);
+  return assembleAdapterSelect(adapter, parts);
 }
 
 function assertUnambiguousGroupByResult(

@@ -128,13 +128,19 @@ type ScalarTypeOf<S> = S extends {
   ? T
   : ScalarType;
 
+type ReferenceableScalarKeys<M> = {
+  [K in keyof ScalarsOf<M>]: ScalarTypeOf<ScalarsOf<M>[K]> extends "point"
+    ? never
+    : K;
+}[keyof ScalarsOf<M>];
+
 /**
  * One model's reference table — the type of `ctx.fields` inside an operand
  * callback: one reference per scalar field, and nothing else on it, so a
  * mistyped field name is a compile error before it is a runtime one.
  */
 export type ModelFieldRefs<TModelName extends string, M> = {
-  readonly [K in keyof ScalarsOf<M> & string]: FieldRef<
+  readonly [K in ReferenceableScalarKeys<M> & string]: FieldRef<
     TModelName,
     ScalarTypeOf<ScalarsOf<M>[K]>
   >;
@@ -166,25 +172,28 @@ export function createModelFieldRefs<
 >(modelName: TName, model: M): ModelFieldRefs<TName, M> {
   const cache = new Map<string, AnyFieldRef>();
   const scalars = model["~"].state.scalars;
+  const referenceableNames = Object.keys(scalars).filter(
+    (key) => scalars[key]!["~"].state.type !== "point"
+  );
+  const referenceableSet = new Set(referenceableNames);
   const table = new Proxy(Object.create(null) as Record<string, AnyFieldRef>, {
     get(_target, key) {
       if (typeof key !== "string") return undefined;
       const cached = cache.get(key);
       if (cached) return cached;
-      const scalar = Object.hasOwn(scalars, key) ? scalars[key] : undefined;
+      const scalar = referenceableSet.has(key) ? scalars[key] : undefined;
       if (!scalar) {
-        throw UNKNOWN_FIELD(modelName, key, Object.keys(scalars));
+        throw UNKNOWN_FIELD(modelName, key, referenceableNames);
       }
       const state = scalar["~"].state;
       const ref = createFieldRef(modelName, key, state.type, state.array);
       cache.set(key, ref);
       return ref;
     },
-    has: (_target, key) =>
-      typeof key === "string" && Object.hasOwn(scalars, key),
-    ownKeys: () => Object.keys(scalars),
+    has: (_target, key) => typeof key === "string" && referenceableSet.has(key),
+    ownKeys: () => referenceableNames,
     getOwnPropertyDescriptor: (_target, key) =>
-      typeof key === "string" && Object.hasOwn(scalars, key)
+      typeof key === "string" && referenceableSet.has(key)
         ? {
             enumerable: true,
             configurable: true,

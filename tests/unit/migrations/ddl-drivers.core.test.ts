@@ -3117,7 +3117,8 @@ describe("PostgreSQL DDL Generation", () => {
     it("should BIND the bound schema into the table inventory", () => {
       const inventory = boundDriver.generateInventoryTables();
 
-      expect(inventory.sql).toContain("pg_tables");
+      expect(inventory.sql).toContain("information_schema.tables");
+      expect(inventory.sql).toContain("pg_catalog.pg_depend");
       expect(inventory.sql).not.toContain("'billing'");
       expect(inventory.params).toEqual(["billing"]);
     });

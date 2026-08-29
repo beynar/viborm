@@ -11,10 +11,7 @@ import { manyToManySchema as schema } from "@tests/fixtures/many-to-many-schema"
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
-type ManyToManyClientConfig = VibORMConfig & {
-  schema: typeof schema;
-  driver: AnyDriver;
-};
+type ManyToManyClientConfig = VibORMConfig<typeof schema>;
 
 type ManyToManyClient = VibORMClient<ManyToManyClientConfig>;
 

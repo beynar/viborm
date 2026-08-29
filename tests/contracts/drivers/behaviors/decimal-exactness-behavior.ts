@@ -113,10 +113,7 @@ export function runDecimalExactnessBehavior({
     .map("decimal_exactness_ledger");
 
   const schema = { ledger };
-  type DecimalClientConfig = VibORMConfig & {
-    schema: typeof schema;
-    driver: AnyDriver;
-  };
+  type DecimalClientConfig = VibORMConfig<typeof schema>;
   type DecimalClient = VibORMClient<DecimalClientConfig>;
 
   /** The domain's two largest values, one unit in the last place apart. */

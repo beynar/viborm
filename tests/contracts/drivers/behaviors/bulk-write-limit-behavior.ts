@@ -48,10 +48,7 @@ const shipment = s
 
 const schema = { crate, depot, shipment };
 
-type LimitClientConfig = VibORMConfig & {
-  schema: typeof schema;
-  driver: AnyDriver;
-};
+type LimitClientConfig = VibORMConfig<typeof schema>;
 
 type LimitClient = VibORMClient<LimitClientConfig>;
 

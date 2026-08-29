@@ -36,10 +36,7 @@ const blobRow = s
 
 const schema = { blobRow };
 
-type BlobFilterClientConfig = VibORMConfig & {
-  schema: typeof schema;
-  driver: AnyDriver;
-};
+type BlobFilterClientConfig = VibORMConfig<typeof schema>;
 
 type BlobFilterClient = VibORMClient<BlobFilterClientConfig>;
 

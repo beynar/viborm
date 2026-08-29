@@ -10,10 +10,7 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { nestedWriteBehaviorSchema as schema } from "@tests/fixtures/nested-write-behavior-schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
-type NestedWriteClientConfig = VibORMConfig & {
-  schema: typeof schema;
-  driver: AnyDriver;
-};
+type NestedWriteClientConfig = VibORMConfig<typeof schema>;
 
 type NestedWriteClient = VibORMClient<NestedWriteClientConfig>;
 

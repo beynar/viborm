@@ -133,6 +133,21 @@ On the atomic paths, a successful migration applies every statement and a
 failed one applies none. The portable API exposes no transaction isolation
 options.
 
+## GeoPoint physical schema
+
+`s.point()` has one migration representation per dialect: PostGIS
+`geography(Point,4326)` with GiST, MySQL `POINT SRID 4326` with `SPATIAL INDEX`,
+or SQLite's checked `VIBORM_GEO_TEXT` carrier. Introspection proves the exact
+subtype, SRID, nullability, and legal index role; a generic JSON, geometry, or
+built-in PostgreSQL point column is not treated as equivalent.
+
+PostgreSQL generation records a PostGIS requirement without emitting `CREATE
+EXTENSION`. Before live push/apply/down/reset effects, the pinned migration
+session proves the exact PostGIS extension-owned types and functions that the
+runtime SQL uses. MySQL spatial indexes require one non-null point. SQLite
+refuses a spatial index before effects. See
+[GeoPoint migrations](/docs/schema/scalars/point#migrations).
+
 ## Next Steps
 
 <CardGroup>

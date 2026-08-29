@@ -79,10 +79,7 @@ const category = s
 
 const schema = { company, team, user, post, category };
 
-type NestedOrderByClientConfig = VibORMConfig & {
-  schema: typeof schema;
-  driver: AnyDriver;
-};
+type NestedOrderByClientConfig = VibORMConfig<typeof schema>;
 
 type NestedOrderByClient = VibORMClient<NestedOrderByClientConfig>;
 

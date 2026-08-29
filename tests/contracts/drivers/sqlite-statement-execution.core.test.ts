@@ -4,8 +4,8 @@ import { D1Driver } from "@drivers/d1";
 import { SQLite3Driver } from "@drivers/sqlite3";
 
 import { s } from "@schema";
-import { describe, expect, test, vi } from "vitest";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { describe, expect, test, vi } from "vitest";
 
 type BunSQLiteOptions = NonNullable<
   ConstructorParameters<typeof BunSQLiteDriver>[0]
@@ -341,11 +341,10 @@ describe("D1 statement execution", () => {
     }
   });
 
-  test("native batch keeps tagged, unsafe, and legacy raw result ordering", async () => {
+  test("native batch keeps tagged and unsafe raw result ordering", async () => {
     const { batch, driver, preparedSql } = createD1BatchDriver([
       { rows: [{ arm: "tagged" }], changes: 0 },
       { rows: [{ arm: "unsafe" }], changes: 0 },
-      { rows: [{ arm: "legacy" }], changes: 0 },
     ]);
     const client = createClient({ schema: {}, driver });
     const executeBatch = vi.spyOn(driver, "_executeBatch");
@@ -354,23 +353,13 @@ describe("D1 statement execution", () => {
       const results = await client.$transaction([
         client.$queryRaw<{ arm: string }>`SELECT ${"tagged"} AS arm`,
         client.$queryRawUnsafe<{ arm: string }>("SELECT ? AS arm", "unsafe"),
-        client.$queryRaw<{ arm: string }>("SELECT ? AS arm", ["legacy"]),
       ]);
 
-      expect(results).toEqual([
-        [{ arm: "tagged" }],
-        [{ arm: "unsafe" }],
-        [{ arm: "legacy" }],
-      ]);
-      expect(preparedSql).toEqual([
-        "SELECT ? AS arm",
-        "SELECT ? AS arm",
-        "SELECT ? AS arm",
-      ]);
+      expect(results).toEqual([[{ arm: "tagged" }], [{ arm: "unsafe" }]]);
+      expect(preparedSql).toEqual(["SELECT ? AS arm", "SELECT ? AS arm"]);
       expect(batch).toHaveBeenCalledOnce();
       const submitted = executeBatch.mock.calls[0]?.[0] ?? [];
       expect(submitted.map((query) => Object.keys(query))).toEqual([
-        ["sql", "params", "context"],
         ["sql", "params", "context"],
         ["sql", "params", "context"],
       ]);

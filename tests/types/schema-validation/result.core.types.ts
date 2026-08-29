@@ -1,29 +1,30 @@
-import { s } from "@src/schema";
 import {
   isSchemaValidationError,
-  SchemaValidationError,
+  type SchemaValidationError,
   type SchemaValidationIssue,
   type ValidationResult,
   validateSchema,
+  validateSchemaOrThrow,
 } from "@src/index";
+import { s } from "@src/schema";
 
 const schema = { user: s.model({ id: s.string().id() }) };
 const validationResult: ValidationResult = validateSchema(schema);
+const _throwResult: void = validateSchemaOrThrow(schema);
 
-const errorCount: number = validationResult.errors.length;
-const warningCount: number = validationResult.warnings.length;
-const firstIssue: SchemaValidationIssue | undefined =
+// @ts-expect-error - public validation does not accept custom rules
+validateSchema(schema, []);
+// @ts-expect-error - public throwing validation does not accept custom rules
+validateSchemaOrThrow(schema, []);
+
+const _errorCount: number = validationResult.errors.length;
+const _warningCount: number = validationResult.warnings.length;
+const _firstIssue: SchemaValidationIssue | undefined =
   validationResult.errors[0];
 
 declare const caught: unknown;
 if (isSchemaValidationError(caught)) {
   const typedError: SchemaValidationError = caught;
-  const code: "V4002" = typedError.code;
-  const issues: readonly SchemaValidationIssue[] = typedError.issues;
-  void code;
-  void issues;
+  const _code: "V4002" = typedError.code;
+  const _issues: readonly SchemaValidationIssue[] = typedError.issues;
 }
-
-void errorCount;
-void warningCount;
-void firstIssue;

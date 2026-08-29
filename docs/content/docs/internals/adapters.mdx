@@ -35,7 +35,9 @@ inserts use a duplicate-key no-op update. Both paths surface foreign-key,
 
 ## Adapter Interface
 
-Every adapter implements `DatabaseAdapter` (see `src/adapters/database-adapter.ts`) — a large interface organized into ~25 namespaced groups of pure, composable SQL-fragment functions:
+VibORM's stock adapters share `DatabaseAdapter` (see
+`src/adapters/database-adapter.ts`), a large dialect vocabulary organized into
+namespaced groups of pure, composable SQL-fragment functions:
 
 ```typescript
 interface DatabaseAdapter {
@@ -60,10 +62,17 @@ interface DatabaseAdapter {
   joins: { ... };                                         // JOIN fragments
   setOperations: { ... };                                 // UNION and friends
   vector: { ... };                                        // vector distance (pgvector, ...)
-  geospatial: { ... };                                    // point/geometry support
+  readonly geoPoint?: {                                   // exact EPSG:4326 point SQL
+    value: (...args) => Sql;
+    longitude: (point) => Sql;
+    latitude: (point) => Sql;
+    equals: (point, expected) => Sql;
+    withinBounds: (point, bounds) => Sql;
+    withinPolygon?: (point, polygon) => Sql;
+    distance?: (left, right) => Sql;
+  };
   result: { ... };                                        // result-shape hints
   lastInsertId: () => Sql;                                // lastval()/LAST_INSERT_ID()/...
-  batchRefs: BatchReferenceSqlAdapter;                    // atomic-batch temp refs
 
   capabilities: {
     supportsReturning: boolean;
@@ -75,6 +84,15 @@ interface DatabaseAdapter {
   };
 }
 ```
+
+Final select assembly and atomic-batch reference lowering use one private
+symbol-keyed adapter protocol. They are not part of `viborm/adapters` and cannot
+be supplied as a public trust token.
+
+External adapter customization extends `PostgresAdapter`, `MySQLAdapter`, or
+`SQLiteAdapter` and overrides the public dialect vocabulary. A from-scratch
+`DatabaseAdapter` implementation is not a supported V1 contract because those
+private select and batch seams can only be inherited from a stock adapter.
 
 Each group takes database-agnostic inputs and returns dialect-specific `Sql`
 fragments. The query engine composes fragments, but it does not inspect their

@@ -62,10 +62,6 @@ describe("native scalar types", () => {
 
   it("publishes representative fixed types for each dialect", () => {
     expect(PG.STRING.UUID).toEqual({ db: "pg", type: "uuid" });
-    expect(PG.POINT.GEOGRAPHY_POINT).toEqual({
-      db: "pg",
-      type: "geography(Point)",
-    });
     expect(MYSQL.INT.INT_UNSIGNED).toEqual({
       db: "mysql",
       type: "INT UNSIGNED",

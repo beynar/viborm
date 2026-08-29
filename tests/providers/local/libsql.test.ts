@@ -20,6 +20,11 @@ import {
   fkIndexUpgradeContract,
 } from "@tests/contracts/drivers/behaviors/fk-index-behavior";
 import { forwardFkOrderingContract } from "@tests/contracts/drivers/behaviors/forward-fk-ordering-behavior";
+import {
+  geoPointBatchContract,
+  geoPointContract,
+  setupGeoPointBehaviorSQLite,
+} from "@tests/contracts/drivers/behaviors/geopoint-behavior";
 import { implicitReturningContract } from "@tests/contracts/drivers/behaviors/implicit-returning-behavior";
 import {
   mappedIndexContract,
@@ -81,7 +86,7 @@ class BatchOnlyLibSQLDriver extends LibSQLDriver {
       const results: QueryResult<T>[] = [];
       for (const query of queries) {
         results.push(
-          await this.executeRaw<T>(transaction, query.sql, query.params)
+          await this.execute<T>(transaction, query.sql, query.params ?? [])
         );
       }
       return results;
@@ -102,6 +107,19 @@ describe("LibSQL Driver", () => {
       code: VibORMErrorCode.DRIVER_NOT_SUPPORTED,
     });
     await client.$disconnect();
+  });
+
+  geoPointContract.register({
+    driverName: "LibSQL",
+    createDriver: createInMemoryLibSQLDriver,
+    tier: "storage",
+    rawSelectSql:
+      'SELECT "location" FROM "geopoint_behavior_places" WHERE "id" = \'raw\'',
+    setup: setupGeoPointBehaviorSQLite,
+  });
+  geoPointBatchContract.register({
+    driverName: "LibSQL forced native batch",
+    createDriver: () => new BatchOnlyLibSQLDriver(),
   });
 });
 

@@ -17,7 +17,6 @@ import {
   type VectorSortOrderSchema,
   vectorSortOrderSchema,
 } from "@validation/model/core/orderby";
-import { createSchema, fail } from "../primitives/helpers";
 import v, { type V } from "../primitives/v";
 import type { VibSchema } from "../types";
 import type { SchemaGetter, TargetModel } from "./helpers";
@@ -158,10 +157,8 @@ type RuntimeToOneRelationOrderByEntry =
 const createToManyRelationOrderByFailureSchema = (
   relationName: string
 ): ToManyRelationOrderByFailureSchema => {
-  return createSchema<never, never>("relation_orderby_to_many", () =>
-    fail(
-      `Relation orderBy '${relationName}' cannot order through a to-many relation; use '_count'.`
-    )
+  return v.refused(
+    `Relation orderBy '${relationName}' cannot order through a to-many relation; use '_count'.`
   );
 };
 

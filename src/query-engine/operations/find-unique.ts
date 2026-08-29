@@ -5,6 +5,8 @@
  * Returns a single record by unique identifier or null.
  */
 
+import { assembleAdapterSelect } from "@adapters/adapter-internals";
+import type { QueryParts } from "@adapters/adapter-query-parts";
 import { type Sql, sql } from "@sql";
 import { buildSelectWithAliases } from "../builders/select-builder";
 import { buildWhereUnique } from "../builders/where-unique-builder";
@@ -63,7 +65,7 @@ export function buildFindUnique(
   const limit = sql`1`;
 
   // Assemble query parts
-  const parts: Parameters<typeof adapter.assemble.select>[0] = {
+  const parts: QueryParts = {
     columns,
     from,
   };
@@ -78,5 +80,5 @@ export function buildFindUnique(
     parts.forUpdate = true;
   }
 
-  return adapter.assemble.select(parts);
+  return assembleAdapterSelect(adapter, parts);
 }

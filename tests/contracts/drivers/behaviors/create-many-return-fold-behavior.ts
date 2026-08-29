@@ -52,9 +52,7 @@ const foldAutoRow = s
 
 const schema = { foldRow, foldAutoRow };
 
-type FoldClient = VibORMClient<
-  VibORMConfig & { schema: typeof schema; driver: AnyDriver }
->;
+type FoldClient = VibORMClient<VibORMConfig<typeof schema>>;
 
 type ExecuteSeam = (
   client: unknown,

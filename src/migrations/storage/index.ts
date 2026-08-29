@@ -8,7 +8,7 @@ export type {
   PublishResult,
 } from "./contract";
 export { isMigrationStorageWriter } from "./contract";
-export { createFsStorageWriter, FsEstateStorage } from "./fs-estate";
+export { createFsStorageWriter } from "./fs-estate";
 export { MemoryEstateStorage } from "./memory";
 export {
   MemoryConditionalObjectStore,

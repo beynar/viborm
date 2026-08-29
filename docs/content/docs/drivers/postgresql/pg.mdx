@@ -77,6 +77,25 @@ const client = createClient({
 });
 ```
 
+### With GeoPoint
+
+Install PostGIS in the target database, then opt the driver into the exact
+GeoPoint protocol:
+
+```typescript
+const client = createClient({
+  databaseUrl: process.env.DATABASE_URL,
+  postgis: true,
+  schema,
+});
+```
+
+VibORM does not install the extension. A schema containing `s.point()` is
+refused at client construction when `postgis` is absent. Live migrations also
+prove the exact PostGIS-owned geography type and functions before effects. The
+pg provider contract qualifies the full [GeoPoint](/docs/schema/scalars/point)
+tier, including GiST plans.
+
 ## Namespace
 
 `namespace` selects the PostgreSQL schema holding this driver's tables,

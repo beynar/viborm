@@ -35,7 +35,7 @@ These constraints shaped every architectural decision. When you wonder "why is t
 | **L6: Query Engine** | `src/query-engine/` | Query structure, logic | **Database SQL** | [query-engine/AGENTS.md](src/query-engine/AGENTS.md) |
 | **L7: Adapters** | `src/adapters/` | **Database-specific SQL** | Query logic | [adapters/AGENTS.md](src/adapters/AGENTS.md) |
 | **L8: Drivers** | `src/drivers/` | Connection, execution | Query building | — |
-| **L9: Client** | `src/client/` | Result types, proxies | Query construction | [client/AGENTS.md](src/client/AGENTS.md) |
+| **L9: Client** | `src/client/` | Result types, proxies, schema/operation introspection | Query construction | [client/AGENTS.md](src/client/AGENTS.md) |
 | **L10: Cache** | `src/cache/` | Query caching, invalidation | Query execution | [cache/AGENTS.md](src/cache/AGENTS.md) |
 | **L11: Instrumentation** | `src/instrumentation/` | Tracing, logging | Query logic | [instrumentation/AGENTS.md](src/instrumentation/AGENTS.md) |
 | **L12: Migrations** | `src/migrations/` | Schema sync, migration files, DDL | Schema definition | [migrations/AGENTS.md](src/migrations/AGENTS.md) |
@@ -280,6 +280,29 @@ strings. Raw SQL stays physical and receives no descriptor-aware scaling.
 `tests/contracts/architecture/decimal-language-census.test.ts` guards the six
 retired language shapes across shipped source. Behavior tests own exact
 provider answers; the census owns the absence of a second language.
+
+### Rule 9: One GeoPoint language
+
+`s.point()` and `v.point()` share the one exact `{ longitude, latitude }`
+value vocabulary owned by `src/validation/primitives/geo-values.ts`. The
+import-free leaf also owns the query-only `GeoBounds`, `GeoPolygon`, and
+`GeoArea` shapes. `geo-point-codec.ts` alone interprets point values, while
+`geo-area-codec.ts` alone interprets bounds and polygon topology. Do not
+add `x`/`y`, `lat`/`lng`, GeoJSON, configurable SRID, native point overrides,
+ORM point arrays, generic geometry operations, or a second validator.
+
+`DatabaseAdapter.geoPoint` is the sole physical SQL protocol. Construction
+snapshots it as one frozen, non-writable fact; optional polygon/distance member
+presence proves the tier. Query code decides equality, bounds, polygon,
+distance, and projection structure; the adapter alone spells provider SQL.
+PostgreSQL uses fixed EPSG:4326 PostGIS, MySQL uses fixed SRID 4326, and SQLite
+uses the checked canonical JSON carrier. Raw SQL remains physical.
+
+Migration drivers alone own the three physical types, legal spatial indexes,
+introspection, and PostGIS preflight. PostgreSQL never installs PostGIS. Full
+provider claims require executed provider evidence; PlanetScale stays preview
+until its hosted DDL/function/migration contract is proven. The shipped-source
+GeoPoint census owns absence of retired and duplicate languages.
 
 ---
 

@@ -195,6 +195,17 @@ export abstract class MigrationDriver {
   ): Promise<SchemaSnapshot>;
 
   /**
+   * Proves external physical requirements encoded by authenticated snapshots.
+   * Dialects with no such requirement keep the no-op owner here.
+   */
+  async preflightSchemaRequirements(
+    _snapshots: readonly SchemaSnapshot[],
+    _executeRaw: <T>(sql: string, params?: unknown[]) => Promise<{ rows: T[] }>
+  ): Promise<void> {
+    // Most dialects have no external schema requirement to prove.
+  }
+
+  /**
    * Returns this database's own spelling of each declared partial-index
    * predicate, so the differ can compare a declaration against what the catalog
    * gave back (Decision 7.4).

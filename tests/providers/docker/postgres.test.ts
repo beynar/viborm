@@ -18,6 +18,8 @@ import { bulkWriteLimitContract } from "@tests/contracts/drivers/behaviors/bulk-
 import { clientRawContract } from "@tests/contracts/drivers/behaviors/client-raw-behavior";
 import { decimalExactnessContract } from "@tests/contracts/drivers/behaviors/decimal-exactness-behavior";
 import { fieldReferenceContract } from "@tests/contracts/drivers/behaviors/field-reference-behavior";
+import { geoPointContract } from "@tests/contracts/drivers/behaviors/geopoint-behavior";
+import { geoPointPostgresIndexContract } from "@tests/contracts/drivers/behaviors/geopoint-postgres-index-behavior";
 import { listJsonFilterContract } from "@tests/contracts/drivers/behaviors/list-json-filter-behavior";
 import { nestedOrderByContract } from "@tests/contracts/drivers/behaviors/nested-orderby-behavior";
 import { nestedWriteAdvancedContract } from "@tests/contracts/drivers/behaviors/nested-write-advanced-behavior";
@@ -103,9 +105,30 @@ describeIf("postgres.js Driver", () => {
     const cleanupClient = PostgresCreateClient({
       schema: {},
       databaseUrl: TEST_CONNECTION_STRING,
+      postgis: true,
     });
     await syncLiveSchema(cleanupClient);
     await cleanupClient.$disconnect();
+  });
+
+  geoPointContract.register({
+    driverName: "postgres.js",
+    createDriver: () =>
+      new PostgresDriver({
+        databaseUrl: TEST_CONNECTION_STRING,
+        postgis: true,
+      }),
+    tier: "full",
+    rawSelectSql:
+      'SELECT "location" FROM "geopoint_behavior_places" WHERE "id" = \'raw\'',
+  });
+  geoPointPostgresIndexContract.register({
+    driverName: "postgres.js",
+    createDriver: () =>
+      new PostgresDriver({
+        databaseUrl: TEST_CONNECTION_STRING,
+        postgis: true,
+      }),
   });
 
   describe("Driver Creation", () => {

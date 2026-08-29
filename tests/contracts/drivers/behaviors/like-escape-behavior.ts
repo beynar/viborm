@@ -12,10 +12,7 @@ import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 const schema = windowUserPostSchema;
 
-type LikeEscapeClientConfig = VibORMConfig & {
-  schema: typeof schema;
-  driver: AnyDriver;
-};
+type LikeEscapeClientConfig = VibORMConfig<typeof schema>;
 
 type LikeEscapeClient = VibORMClient<LikeEscapeClientConfig>;
 

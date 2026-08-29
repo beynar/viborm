@@ -1,5 +1,8 @@
 import type { ScalarState } from "@schema/scalars/common";
 import { lazyScalarSchemas } from "../lazy";
+import { geoAreaSchema } from "../primitives/geo-area-codec";
+import { createSchema, fail, ok } from "../primitives/helpers";
+import { validateNumber } from "../primitives/number";
 import v, { type V } from "../primitives/v";
 import {
   buildNegatableFilterSchema,
@@ -10,12 +13,10 @@ import {
 // FILTER TYPES
 // =============================================================================
 
-// Geospatial operators (intersects/contains/within/crosses/overlaps/
-// touches/covers/dWithin) are deliberately absent: the query engine
-// rejects them, so the types must not offer them. The PG adapter
-// implementations stay reserved for a future opt-in.
 type PointFilterBase<S extends V.Schema> = {
   equals: S;
+  distance: ReturnType<typeof pointDistanceSchema>;
+  within: ReturnType<typeof geoAreaSchema>;
 };
 
 type PointFilterSchema<S extends V.Schema> = NegatableFilterSchema<
@@ -35,11 +36,36 @@ type PointUpdateSchema<S extends V.Schema> = V.Union<
 // SCHEMA BUILDERS
 // =============================================================================
 
+const meters = createSchema<number, number>("number", (value) => {
+  const result = validateNumber(value);
+  if (result.issues) return result;
+  return result.value < 0
+    ? fail("Distance comparisons must use non-negative meters")
+    : ok(result.value);
+});
+
+const pointDistanceSchema = () =>
+  v.object(
+    {
+      to: v.point(),
+      lt: meters,
+      lte: meters,
+      gt: meters,
+      gte: meters,
+    },
+    {
+      atLeast: ["to"],
+      requiresOneOf: [["lt", "lte", "gt", "gte"]],
+    }
+  );
+
 const buildPointFilterSchema = <S extends V.Schema>(
   schema: S
 ): PointFilterSchema<S> => {
   const filter = v.object({
     equals: schema,
+    distance: pointDistanceSchema(),
+    within: geoAreaSchema(),
   });
   return buildNegatableFilterSchema<S, PointFilterBase<S>>(filter, schema);
 };

@@ -5,6 +5,10 @@
  * Handles cursor-based pagination and distinct.
  */
 
+import {
+  assembleAdapterSelect,
+  type QueryParts,
+} from "@adapters/adapter-internals";
 import { type Sql, sql } from "@sql";
 import { buildDistinctColumns } from "../builders/distinct-builder";
 import { buildOrderByParts } from "../builders/orderby-builder";
@@ -128,7 +132,7 @@ export function buildFind(
     : undefined;
 
   // Assemble query parts
-  const parts: Parameters<typeof adapter.assemble.select>[0] = {
+  const parts: QueryParts = {
     columns,
     from,
   };
@@ -150,5 +154,5 @@ export function buildFind(
   if (offset) parts.offset = offset;
   if (args.forUpdate) parts.forUpdate = true;
 
-  return adapter.assemble.select(parts);
+  return assembleAdapterSelect(adapter, parts);
 }

@@ -25,6 +25,7 @@ import {
   decimalListDescriptorOfState,
 } from "./decimal-field";
 import { shouldOmitInsertValue } from "./generated-scalar";
+import { buildGeoPointValue } from "./geo-point-builder";
 import { planInsertRowShapes } from "./insert-row-shapes";
 import {
   type PolymorphicStorageValue,
@@ -299,6 +300,10 @@ export function buildScalarSqlValueForScalar(
     return ctx.adapter.literals.json(value);
   }
 
+  if (scalarType === "point") {
+    return buildGeoPointValue(ctx.adapter, value);
+  }
+
   // Datetime ISO strings need dialect-specific serialization (MySQL rejects 'Z')
   if (scalarType === "datetime" && typeof value === "string") {
     return ctx.adapter.literals.dateTime(value);
@@ -475,6 +480,9 @@ export function scalarValueLiteral(
   // JSON scalars store serialized JSON, primitives included (see buildScalarSqlValue)
   if (state?.type === "json" && value !== null && value !== undefined) {
     return ctx.adapter.literals.json(value);
+  }
+  if (state?.type === "point" && value !== null && value !== undefined) {
+    return buildGeoPointValue(ctx.adapter, value);
   }
   if (state?.type === "decimal" && value !== null && value !== undefined) {
     // `has: "1.2"` and one pushed element are MEMBERS of the container, spelled

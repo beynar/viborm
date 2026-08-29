@@ -27,14 +27,19 @@ import {
 import { type IdentityGuard, identityGuardFor } from "./scalar-identity-parser";
 import { parseFiniteProviderNumber } from "./scalar-structured-parser";
 
-function parseVectorDistanceValue(
+function parseDistanceValue(
   ctx: ResultParser,
   operation: Operation,
-  value: unknown
-): number {
+  value: unknown,
+  scalar: Scalar | undefined
+): number | null {
+  const state = scalar?.["~"].state;
+  if (value === null && state?.type === "point" && state.nullable === true) {
+    return null;
+  }
   const distance = parseFiniteProviderNumber(value);
   if (distance !== undefined) return distance;
-  return malformedResult(ctx, operation, "Cannot parse vector distance result");
+  return malformedResult(ctx, operation, "Cannot parse distance result");
 }
 
 export function parseResultDefault(
@@ -294,7 +299,7 @@ export function createRowParser(
   const identityEnabled = ctx.nativeScalarPassthrough;
   const identityGuards: IdentityGuard[] = new Array(len);
   let allIdentity = identityEnabled && len > 0;
-  let preservesKeys = true;
+  let mayReuseContainer = true;
 
   for (let i = 0; i < len; i++) {
     const key = keys[i]!;
@@ -302,7 +307,7 @@ export function createRowParser(
 
     if (column.kind === "empty") {
       allIdentity = false;
-      preservesKeys = false;
+      mayReuseContainer = false;
       steps[i] = (_result, value) => {
         if (parseSafeCountValue(value) !== 1) {
           malformedResult(
@@ -315,17 +320,26 @@ export function createRowParser(
       continue;
     }
 
-    if (column.kind === "vectorDistance") {
+    if (column.kind === "distance") {
       allIdentity = false;
-      preservesKeys = false;
+      mayReuseContainer = false;
       steps[i] = (result, value) => {
-        result._distance = parseVectorDistanceValue(ctx, operation, value);
+        result._distance = parseDistanceValue(
+          ctx,
+          operation,
+          value,
+          column.scalar
+        );
       };
       continue;
     }
 
     if (column.kind === "scalar") {
       const scalar = column.scalar;
+      // A point decode replaces the transport JSON carrier with a fresh
+      // GeoPoint. Keep the row on the copy policy so a malformed later row
+      // cannot leave an executor-proven or parser-owned source row mutated.
+      if (scalar["~"].state.type === "point") mayReuseContainer = false;
       const captureRowKey = rowKeys?.fields.has(key) === true;
       const guard = identityEnabled ? identityGuardFor(scalar) : undefined;
       if (guard) {
@@ -369,7 +383,7 @@ export function createRowParser(
 
     if (column.kind === "relationCounts") {
       allIdentity = false;
-      preservesKeys = false;
+      mayReuseContainer = false;
       const expectedRelations = column.relations;
       if (!(expectedRelations && expectedRelations.size > 0)) {
         malformedResult(
@@ -423,7 +437,7 @@ export function createRowParser(
 
     if (column.kind === "aggregate") {
       allIdentity = false;
-      preservesKeys = false;
+      mayReuseContainer = false;
       steps[i] = (result, value) => {
         result[column.name] = parsers.parseAggregate(
           operation,
@@ -461,7 +475,7 @@ export function createRowParser(
   if (!allIdentity) {
     return compiledRowParser(
       (row, parserOwnedResult) => buildRow(row, parserOwnedResult),
-      preservesKeys ? "reusable" : "copy"
+      mayReuseContainer ? "reusable" : "copy"
     );
   }
 

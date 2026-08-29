@@ -344,7 +344,7 @@ export function serializeResolvedModels(
       const declared: IndexDef = {
         name: indexName,
         columns,
-        unique: indexDef.options.unique,
+        unique: indexDef.options.unique ?? false,
         type: indexDef.options.type,
         where: indexDef.options.where,
       };

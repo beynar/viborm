@@ -35,6 +35,15 @@ type AnyVectorScalarKeys<M extends AnyModel> = {
       : never
     : never;
 }[keyof ModelScalars<M>];
+type AnyPointScalarKeys<M extends AnyModel> = {
+  [K in keyof ModelScalars<M>]: ScalarStateOf<
+    ModelScalars<M>[K]
+  >["type"] extends "point"
+    ? K extends string
+      ? K
+      : never
+    : never;
+}[keyof ModelScalars<M>];
 /**
  * Both halves of the select schema are keyed on {@link ProjectableScalarKeys},
  * so a model-level `.omit()`-ed scalar has no `select` entry at all: naming it
@@ -46,9 +55,13 @@ type VectorScalarKeys<M extends AnyModel> = Extract<
   ProjectableScalarKeys<M>,
   AnyVectorScalarKeys<M>
 >;
-type NonVectorScalarKeys<M extends AnyModel> = Exclude<
+type PointScalarKeys<M extends AnyModel> = Extract<
   ProjectableScalarKeys<M>,
-  AnyVectorScalarKeys<M>
+  AnyPointScalarKeys<M>
+>;
+type PlainScalarKeys<M extends AnyModel> = Exclude<
+  ProjectableScalarKeys<M>,
+  AnyVectorScalarKeys<M> | AnyPointScalarKeys<M>
 >;
 
 const scalarSelectSchema = v.boolean({ optional: true });
@@ -177,18 +190,37 @@ export const vectorDistanceSelectSchema = v.object(
 );
 export type VectorDistanceSelectSchema = typeof vectorDistanceSelectSchema;
 
+export const pointDistanceSelectSchema = v.object(
+  {
+    _distance: v.object(
+      {
+        to: v.point(),
+      },
+      { partial: false }
+    ),
+  },
+  { partial: false }
+);
+export type PointDistanceSelectSchema = typeof pointDistanceSelectSchema;
+
 const vectorScalarSelectSchema = v.union([
   scalarSelectSchema,
   vectorDistanceSelectSchema,
 ]);
 type VectorScalarSelectSchema = typeof vectorScalarSelectSchema;
+const pointScalarSelectSchema = v.union([
+  scalarSelectSchema,
+  pointDistanceSelectSchema,
+]);
+type PointScalarSelectSchema = typeof pointScalarSelectSchema;
 
 export type SelectSchema<
   M extends AnyModel,
   F extends ScalarSchemas<M>,
 > = V.Object<
-  V.FromKeys<NonVectorScalarKeys<M>[], typeof scalarSelectSchema>["entries"] &
+  V.FromKeys<PlainScalarKeys<M>[], typeof scalarSelectSchema>["entries"] &
     V.FromKeys<VectorScalarKeys<M>[], VectorScalarSelectSchema>["entries"] &
+    V.FromKeys<PointScalarKeys<M>[], PointScalarSelectSchema>["entries"] &
     V.FromObject<F["relations"], "select">["entries"] &
     V.FromObject<F["polymorphic"], "select">["entries"] & {
       _count: CountSchema<F>;
@@ -199,7 +231,8 @@ export type SelectSchema<
 const getScalarSelectEntries = <M extends AnyModel>(model: M) => {
   // Scalar fields: boolean selection, plus vector-only computed distance select
   const vectorScalarKeys: VectorScalarKeys<M>[] = [];
-  const nonVectorScalarKeys: NonVectorScalarKeys<M>[] = [];
+  const pointScalarKeys: PointScalarKeys<M>[] = [];
+  const plainScalarKeys: PlainScalarKeys<M>[] = [];
 
   const scalarKeys = projectableScalarNames(model) as ModelScalarKey<M>[];
   for (const fieldName of scalarKeys) {
@@ -208,19 +241,32 @@ const getScalarSelectEntries = <M extends AnyModel>(model: M) => {
       vectorScalarKeys.push(fieldName as VectorScalarKeys<M>);
       continue;
     }
-    nonVectorScalarKeys.push(fieldName as NonVectorScalarKeys<M>);
+    if (scalar["~"].state.type === "point") {
+      pointScalarKeys.push(fieldName as PointScalarKeys<M>);
+      continue;
+    }
+    plainScalarKeys.push(fieldName as PlainScalarKeys<M>);
   }
 
   const scalarEntries = v.fromKeys<
-    NonVectorScalarKeys<M>[],
+    PlainScalarKeys<M>[],
     typeof scalarSelectSchema
-  >(nonVectorScalarKeys, scalarSelectSchema);
+  >(plainScalarKeys, scalarSelectSchema);
   const vectorEntries = v.fromKeys<
     VectorScalarKeys<M>[],
     typeof vectorScalarSelectSchema
   >(vectorScalarKeys, vectorScalarSelectSchema);
 
-  return { ...scalarEntries.entries, ...vectorEntries.entries };
+  const pointEntries = v.fromKeys<
+    PointScalarKeys<M>[],
+    typeof pointScalarSelectSchema
+  >(pointScalarKeys, pointScalarSelectSchema);
+
+  return {
+    ...scalarEntries.entries,
+    ...vectorEntries.entries,
+    ...pointEntries.entries,
+  };
 };
 
 /**
@@ -245,8 +291,9 @@ const getScalarSelectEntries = <M extends AnyModel>(model: M) => {
  * (prisma 6.8.2, `prisma-client/generator-build`, `Model.argsTypes`).
  */
 export type ScalarSelectSchema<M extends AnyModel> = V.Object<
-  V.FromKeys<NonVectorScalarKeys<M>[], typeof scalarSelectSchema>["entries"] &
-    V.FromKeys<VectorScalarKeys<M>[], VectorScalarSelectSchema>["entries"]
+  V.FromKeys<PlainScalarKeys<M>[], typeof scalarSelectSchema>["entries"] &
+    V.FromKeys<VectorScalarKeys<M>[], VectorScalarSelectSchema>["entries"] &
+    V.FromKeys<PointScalarKeys<M>[], PointScalarSelectSchema>["entries"]
 >;
 
 export const getScalarSelectSchema = <M extends AnyModel>(

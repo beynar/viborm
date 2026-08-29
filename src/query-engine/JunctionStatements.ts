@@ -1,7 +1,7 @@
 // biome-ignore-all lint/style/useFilenamingConvention: Architecture names this compiler child JunctionStatements.
+import { assembleAdapterSelect } from "@adapters/adapter-internals";
 import { isSql, type Sql, sql } from "@sql";
 import { isRecord } from "@validation/value-guards";
-import { projectScalarForTransport } from "./builders/decimal-field";
 import {
   buildJunctionDeleteCondition,
   buildJunctionInsert,
@@ -22,6 +22,7 @@ import type {
   JunctionBoundRelation,
   JunctionSide,
 } from "./builders/relation-data-builder";
+import { projectScalarForTransport } from "./builders/scalar-transport";
 import { buildSelect } from "./builders/select-builder";
 import { buildSet } from "./builders/set-builder";
 import { buildWhere } from "./builders/where-builder";
@@ -235,7 +236,7 @@ export class JunctionStatements {
   ): Sql {
     const target = this.targetValue(junction, args);
     const source = junction.membership.source;
-    return this.ctx.adapter.assemble.select({
+    return assembleAdapterSelect(this.ctx.adapter, {
       columns: sql.join(
         source.members.map((member) => {
           // These owner values cross the driver and are then re-bound through
@@ -339,7 +340,7 @@ export class JunctionStatements {
         "Many-to-many membership read received an invalid additional column."
       );
     }
-    return this.ctx.adapter.assemble.select({
+    return assembleAdapterSelect(this.ctx.adapter, {
       columns: additionalColumns.length
         ? sql.join([selected, ...additionalColumns], ", ")
         : selected,
@@ -406,7 +407,7 @@ export class JunctionStatements {
         "Membership difference statement has no valid direction."
       );
     }
-    return this.ctx.adapter.assemble.select({
+    return assembleAdapterSelect(this.ctx.adapter, {
       columns: this.ctx.adapter.literals.value(1),
       from: this.ctx.adapter.identifiers.table(table),
       where,

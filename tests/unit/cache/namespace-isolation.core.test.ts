@@ -17,7 +17,6 @@
 import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
 import type { CacheEntry } from "@cache/driver";
-import { MemoryCache } from "@cache/drivers/memory";
 import { cache as cacheExtension } from "@cache/extension";
 import { createOfficialCacheNamespace } from "@cache/key";
 import { createClient } from "@client/client";
@@ -26,6 +25,7 @@ import { PGliteDriver } from "@drivers/pglite";
 import { PGlite } from "@electric-sql/pglite";
 import { instrumentation } from "@instrumentation/extension";
 import { s } from "@schema";
+import { ClockedMemoryCache } from "@tests/fixtures/clocked-memory-cache";
 import { createTestClock } from "@tests/fixtures/test-clock";
 import {
   afterAll,
@@ -55,7 +55,7 @@ type Tenant = (typeof TENANTS)[number];
  * key it wrote is gone. Asserting on the history alone would let a crossed
  * eviction pass unnoticed, which is precisely the defect under test.
  */
-class ObservableCache extends MemoryCache {
+class ObservableCache extends ClockedMemoryCache {
   readonly written: string[] = [];
   readonly clears: string[] = [];
   readonly deletes: string[] = [];
@@ -144,7 +144,7 @@ afterAll(async () => {
  */
 function tenants(version?: string | number) {
   const clock = createTestClock();
-  const backend = new ObservableCache({ clock });
+  const backend = new ObservableCache(clock);
   const background: Promise<unknown>[] = [];
   let finishedRevalidations = 0;
   const waiting: Array<{ target: number; resolve: () => void }> = [];
@@ -395,7 +395,7 @@ describe("the scope survives further extension", () => {
  * unless the clear boundary carries the component separator.
  */
 function siblingVersions(shortVersion: string, longVersion: string) {
-  const backend = new ObservableCache();
+  const backend = new ObservableCache(createTestClock());
   const background: Promise<unknown>[] = [];
   const clientFor = (version: string) =>
     createClient({
@@ -541,7 +541,7 @@ class TaggedMySQLDriver extends Driver<object, object> {
  */
 describe("a forged dialect cannot address another dialect's scope", () => {
   test("a PostgreSQL driver relabelled 'mysql' before cache() binds reads only its own scope", async () => {
-    const backend = new ObservableCache();
+    const backend = new ObservableCache(createTestClock());
     const background: Promise<unknown>[] = [];
     const settle = async () => {
       while (background.length > 0) await Promise.all(background.splice(0));

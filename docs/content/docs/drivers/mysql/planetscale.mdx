@@ -105,6 +105,15 @@ affected qualifier scope or bump `cache({ version })` before switching traffic.
 VibORM does not query the PlanetScale control plane or correlate routing
 aliases. See [Namespaces](/docs/drivers/namespaces).
 
+## GeoPoint preview
+
+PlanetScale uses the one MySQL GeoPoint SQL vocabulary. A deterministic SDK
+contract proves query text, bound coordinates, and response decoding. Hosted
+DDL, SRID/function behavior, spatial-index plans, and migration convergence
+were not executed for this release, so the provider is **GeoPoint preview** and
+does not inherit MySQL2's full-tier claim. No capability flag or alternate SQL
+path is added. See [GeoPoint provider tiers](/docs/schema/scalars/point#provider-tiers).
+
 ## Transactions & Batching
 
 PlanetScale transactions use one `@planetscale/database` Connection and force

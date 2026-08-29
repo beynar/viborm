@@ -37,6 +37,14 @@ Blob fields bind `Uint8Array` values directly to D1, and D1's byte-array
 results are normalized back to a plain `Uint8Array` — no Node `Buffer` or
 `nodejs_compat` flag involved.
 
+## GeoPoint storage tier
+
+D1 uses the checked SQLite GeoPoint JSON carrier. Typed CRUD, equality,
+inclusive ordinary/antimeridian bounds, nullability, native array batches,
+relations, extensions, and cache are covered by the Workers substrate.
+Polygon, distance, `_distance`, and spatial indexes refuse before a D1 call.
+See [GeoPoint](/docs/schema/scalars/point).
+
 ### wrangler.toml
 
 ```toml

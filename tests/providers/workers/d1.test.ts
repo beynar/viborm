@@ -14,6 +14,12 @@ import { s } from "@src/schema";
 import { string } from "@src/schema/scalars/string/scalar";
 import { parse } from "@src/validation";
 import { getScalarSchemas } from "@src/validation/scalars";
+import {
+  type GeoPointBehaviorClient,
+  geoPointBatchContract,
+  geoPointContract,
+  setupGeoPointBehaviorSQLite,
+} from "@tests/contracts/drivers/behaviors/geopoint-behavior";
 import Decimal from "decimal.js";
 
 declare module "cloudflare:test" {
@@ -29,6 +35,38 @@ const PAST_DOUBLE = "99999999999999.99";
 const PAST_DOUBLE_NEIGHBOUR = "99999999999999.98";
 const PAST_DOUBLE_COEFFICIENT = "9999999999999999";
 const CUID_PATTERN = /^[a-z][0-9a-z]{23}$/;
+
+const GEOPOINT_TABLES = [
+  "geopoint_behavior_markers",
+  "geopoint_behavior_stops",
+  "geopoint_behavior_articles",
+  "geopoint_behavior_videos",
+  "geopoint_behavior_routes",
+  "geopoint_behavior_places",
+] as const;
+
+async function setupD1GeoPoint(client: GeoPointBehaviorClient): Promise<void> {
+  for (const table of GEOPOINT_TABLES) {
+    await client.$executeRawUnsafe(`DROP TABLE IF EXISTS "${table}"`);
+  }
+  await setupGeoPointBehaviorSQLite(client);
+}
+
+geoPointContract.register({
+  driverName: "D1",
+  createDriver: () => new D1Driver({ database: env.DB }),
+  tier: "storage",
+  rawSelectSql:
+    "SELECT location FROM geopoint_behavior_places WHERE id = 'raw'",
+  setup: setupD1GeoPoint,
+  callbackTransactions: false,
+});
+
+geoPointBatchContract.register({
+  driverName: "D1",
+  createDriver: () => new D1Driver({ database: env.DB }),
+  setup: setupD1GeoPoint,
+});
 
 const decimalEvidence = s
   .model({

@@ -1,0 +1,77 @@
+---
+title: Package entry points
+description: The complete supported import map for VibORM V1
+icon: package
+---
+
+VibORM exposes a small set of intentional package entry points. Import from
+these paths, not from generated chunks or `src/` files.
+
+## Core
+
+| Entry point | Purpose |
+| --- | --- |
+| `viborm` | Schema builder, client, errors, extensions, SQL helpers, GeoPoint value types |
+| `viborm/schema` | Schema builder, scalar/model/relation types, native type catalogs |
+| `viborm/schema/json` | Parse, serialize, and annotate schema documents |
+| `viborm/client` | Client/result types, extension helpers, default omit, schema introspection |
+| `viborm/validation` | `v`, schema registry lookup, JSON Schema conversion, validation types |
+| `viborm/sql` | `Sql`, `sql`, `raw`, `join`, `empty`, and their value types |
+| `viborm/config` | `defineConfig` and config typing |
+
+There is no `viborm/query-engine` or `viborm/extensions` entry point. Operation
+programs, result parsers, relation-resolution state, and extension runners are
+internal.
+
+## Drivers and adapters
+
+| Entry point | Purpose |
+| --- | --- |
+| `viborm/driver` | Base `Driver`, exact driver contract types, mapped driver errors |
+| `viborm/adapters` | `DatabaseAdapter` and the three concrete dialect adapters |
+| `viborm/pg` | node-postgres driver and bound client factory |
+| `viborm/postgres` | postgres.js driver and bound client factory |
+| `viborm/pglite` | PGlite driver and bound client factory |
+| `viborm/neon-http` | Neon HTTP driver and bound client factory |
+| `viborm/bun-sql` | Bun SQL driver and bound client factory |
+| `viborm/mysql2` | MySQL2 driver and bound client factory |
+| `viborm/planetscale` | PlanetScale driver and bound client factory |
+| `viborm/sqlite3` | better-sqlite3 driver and bound client factory |
+| `viborm/libsql` | LibSQL/Turso driver and bound client factory |
+| `viborm/d1` | Cloudflare D1 driver and bound client factory |
+| `viborm/bun-sqlite` | Bun SQLite driver and bound client factory |
+
+`DatabaseAdapter` remains the advanced dialect vocabulary. External
+customization extends `PostgresAdapter`, `MySQLAdapter`, or `SQLiteAdapter`; a
+from-scratch `DatabaseAdapter` implementation is not a supported V1 contract.
+Final select assembly and batch-reference lowering are private symbol-keyed
+seams inherited from those stock adapters, not public methods to implement or
+override.
+
+## Extensions and services
+
+| Entry point | Purpose |
+| --- | --- |
+| `viborm/cache` | Official cache extension, `CacheDriver`, and public cache options |
+| `viborm/cache/memory` | `MemoryCache` |
+| `viborm/cache/cloudflare-kv` | `CloudflareKVCache` |
+| `viborm/instrumentation` | Official instrumentation extension, events, attributes, and span names |
+
+Cache-key construction and the memory-cache clock are private. Instrumentation
+does not export obsolete build/validate/parse spans or cache keys.
+
+## Migrations
+
+| Entry point | Purpose |
+| --- | --- |
+| `viborm/migrations` | Migration client, storage contracts, estate values, results, errors, resolvers |
+| `viborm/migrations/storage/fs` | `createFsStorageWriter` only |
+
+The filesystem storage class is private. Construct it through the factory so
+the package can preserve its storage contract without exposing implementation
+state.
+
+The package test builds and packs a fresh tarball, imports every runtime path,
+and inspects every declaration entry with the TypeScript compiler API. One
+checked-in manual golden owns the exact runtime names, declaration names and
+kinds, client capabilities, schema-builder keys, and retired absences.

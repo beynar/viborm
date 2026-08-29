@@ -7,6 +7,7 @@
  * - SQLite: No-op (uses database-level locking)
  */
 
+import { assembleAdapterSelect } from "@adapters/adapter-internals";
 import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
@@ -21,7 +22,7 @@ describe("FOR UPDATE SQL Generation", () => {
     const adapter: DatabaseAdapter = new PostgresAdapter();
 
     test("generates FOR UPDATE clause when forUpdate is true", () => {
-      const result = adapter.assemble.select({
+      const result = assembleAdapterSelect(adapter, {
         columns: sql`"id", "name"`,
         from: sql`"users" AS "t0"`,
         where: sql`"t0"."id" = $1`,
@@ -34,7 +35,7 @@ describe("FOR UPDATE SQL Generation", () => {
     });
 
     test("does not generate FOR UPDATE clause when forUpdate is false", () => {
-      const result = adapter.assemble.select({
+      const result = assembleAdapterSelect(adapter, {
         columns: sql`"id", "name"`,
         from: sql`"users" AS "t0"`,
         where: sql`"t0"."id" = $1`,
@@ -47,7 +48,7 @@ describe("FOR UPDATE SQL Generation", () => {
     });
 
     test("does not generate FOR UPDATE clause when forUpdate is undefined", () => {
-      const result = adapter.assemble.select({
+      const result = assembleAdapterSelect(adapter, {
         columns: sql`"id", "name"`,
         from: sql`"users" AS "t0"`,
         where: sql`"t0"."id" = $1`,
@@ -63,7 +64,7 @@ describe("FOR UPDATE SQL Generation", () => {
     const adapter: DatabaseAdapter = new MySQLAdapter();
 
     test("generates FOR UPDATE clause when forUpdate is true", () => {
-      const result = adapter.assemble.select({
+      const result = assembleAdapterSelect(adapter, {
         columns: sql`\`id\`, \`name\``,
         from: sql`\`users\` AS \`t0\``,
         where: sql`\`t0\`.\`id\` = ?`,
@@ -76,7 +77,7 @@ describe("FOR UPDATE SQL Generation", () => {
     });
 
     test("does not generate FOR UPDATE clause when forUpdate is false", () => {
-      const result = adapter.assemble.select({
+      const result = assembleAdapterSelect(adapter, {
         columns: sql`\`id\`, \`name\``,
         from: sql`\`users\` AS \`t0\``,
         where: sql`\`t0\`.\`id\` = ?`,
@@ -89,7 +90,7 @@ describe("FOR UPDATE SQL Generation", () => {
     });
 
     test("does not generate FOR UPDATE clause when forUpdate is undefined", () => {
-      const result = adapter.assemble.select({
+      const result = assembleAdapterSelect(adapter, {
         columns: sql`\`id\`, \`name\``,
         from: sql`\`users\` AS \`t0\``,
         where: sql`\`t0\`.\`id\` = ?`,
@@ -105,7 +106,7 @@ describe("FOR UPDATE SQL Generation", () => {
     const adapter: DatabaseAdapter = new SQLiteAdapter();
 
     test("does NOT generate FOR UPDATE clause (SQLite uses database-level locking)", () => {
-      const result = adapter.assemble.select({
+      const result = assembleAdapterSelect(adapter, {
         columns: sql`"id", "name"`,
         from: sql`"users" AS "t0"`,
         where: sql`"t0"."id" = ?`,
@@ -119,7 +120,7 @@ describe("FOR UPDATE SQL Generation", () => {
     });
 
     test("does not generate FOR UPDATE clause when forUpdate is false", () => {
-      const result = adapter.assemble.select({
+      const result = assembleAdapterSelect(adapter, {
         columns: sql`"id", "name"`,
         from: sql`"users" AS "t0"`,
         where: sql`"t0"."id" = ?`,
@@ -238,7 +239,7 @@ describe("Skip Duplicates SQL Generation", () => {
     const targetTable = adapter.identifiers.escape("targets");
     const region = adapter.identifiers.column("targets", "region");
     const code = adapter.identifiers.column("targets", "code");
-    const select = adapter.assemble.select({
+    const select = assembleAdapterSelect(adapter, {
       columns: sql`${"tenant"}, ${"owner"}, ${region}, ${code}`,
       from: targetTable,
       where: adapter.operators.and(

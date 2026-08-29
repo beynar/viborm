@@ -9,6 +9,7 @@
  * namespace is quoted ONCE per adapter, never once per statement.
  */
 
+import { getAdapterInternals } from "@adapters/adapter-internals";
 import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
@@ -203,12 +204,14 @@ describe("statement-local names are never qualified", () => {
       new MySQLAdapter("billing"),
       new SQLiteAdapter(),
     ]) {
-      const setup = adapter.batchRefs.setup("batch-1");
+      const setup = getAdapterInternals(adapter).batchRefs.setup("batch-1");
       for (const statement of setup) {
         expect(statement.toStatement()).not.toContain("billing");
       }
       expect(
-        adapter.batchRefs.read("batch-1", "key").toStatement()
+        getAdapterInternals(adapter)
+          .batchRefs.read("batch-1", "key")
+          .toStatement()
       ).not.toContain("billing");
     }
   });

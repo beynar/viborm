@@ -152,12 +152,14 @@ function buildModel(
   }
   for (const [position, index] of (document.indexes ?? []).entries()) {
     const indexPath = pointer(path, "indexes", String(position));
-    const options = {
+    const indexOptions = {
       ...(index.name === undefined ? {} : { name: index.name }),
       ...(index.unique === undefined ? {} : { unique: index.unique }),
       ...(index.type === undefined ? {} : { type: index.type }),
     };
-    model = call(indexPath, () => model.index(index.fields, options));
+    model = call(indexPath, () =>
+      Reflect.apply(model.index, model, [index.fields, indexOptions])
+    );
   }
   for (const [position, compound] of (document.ids ?? []).entries()) {
     const idPath = pointer(path, "ids", String(position));
@@ -278,7 +280,9 @@ function createScalar(
   }
   if (document.type !== "enum") {
     const factory = SCALAR_FACTORIES[document.type];
-    return call(path, () => factory(document.native));
+    return call(path, () =>
+      document.native === undefined ? factory() : factory(document.native)
+    );
   }
   const definition = resolveEnum(document, schema, path);
   const scalar = call(path, () =>

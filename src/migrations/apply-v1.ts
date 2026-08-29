@@ -33,6 +33,7 @@ import {
   loadMigrationGraph,
   type MigrationGraph,
   parentTransition,
+  requireStateSnapshot,
   resolveStateSelector,
   selectRoute,
 } from "./graph";
@@ -121,6 +122,18 @@ export async function applyV1(
         );
       }
       const origin = marker?.stateId ?? null;
+      const path =
+        origin === target
+          ? []
+          : selectRoute(graph, origin, target, options.via);
+      assertPathArtifacts(graph, origin, path);
+      await command.preflightSchemaRequirements(
+        [
+          requireStateSnapshot(graph, origin),
+          ...path.map((stateId) => requireStateSnapshot(graph, stateId)),
+        ],
+        (sql, params) => pinned._executeRaw(sql, params)
+      );
       if (marker) {
         await assertNoDrift(pinned, command, graph, marker);
       } else {
@@ -129,8 +142,6 @@ export async function applyV1(
       if (origin === target) {
         return { outcome: "noop", path: [], statements: [] };
       }
-      const path = selectRoute(graph, origin, target, options.via);
-      assertPathArtifacts(graph, origin, path);
       const statements = previewStatements(graph, origin, path);
       const run = async (producer: Parameters<typeof appendLedger>[0]) => {
         await applyPathUnderLock(

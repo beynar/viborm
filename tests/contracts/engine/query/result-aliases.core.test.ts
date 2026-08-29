@@ -1,10 +1,10 @@
 import { COUNT_RESULT_KEY } from "@adapters/shared/result-parsing";
 import {
+  DISTANCE_RESULT_KEY,
   EMPTY_ROW_RESULT_KEY,
   getAggregateResultKey,
   getAggregateResultName,
   RELATION_COUNTS_RESULT_KEY,
-  VECTOR_DISTANCE_RESULT_KEY,
 } from "@query-engine/result-aliases";
 import {
   isValidSchemaIdentifier,
@@ -16,7 +16,7 @@ const AGGREGATE_NAMES = ["_count", "_avg", "_sum", "_min", "_max"] as const;
 const PRIVATE_RESULT_KEY_PATTERN = /^0viborm_/;
 const PRIVATE_RESULT_KEYS = [
   COUNT_RESULT_KEY,
-  VECTOR_DISTANCE_RESULT_KEY,
+  DISTANCE_RESULT_KEY,
   RELATION_COUNTS_RESULT_KEY,
   EMPTY_ROW_RESULT_KEY,
   ...AGGREGATE_NAMES.map(getAggregateResultKey),

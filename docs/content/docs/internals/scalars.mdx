@@ -54,7 +54,7 @@ The key insight: **immutability enables type tracking**. If we mutated the scala
 | `s.json<T>()` | JSON/JSONB | `T` |
 | `s.enum(values)` | ENUM/VARCHAR | `values[number]` |
 | `s.blob()` | BLOB/BYTEA | `Uint8Array` |
-| `s.point()` | POINT | `{ x, y }` |
+| `s.point()` | provider GeoPoint representation | `{ longitude, latitude }` |
 | `s.vector(dim)` | VECTOR | `number[]` |
 
 The validation codec declares the one structural decimal descriptor shape.

@@ -38,10 +38,7 @@ const post = s.model({
 
 const schema = { user, post };
 
-type ParityClientConfig = VibORMConfig & {
-  schema: typeof schema;
-  driver: AnyDriver;
-};
+type ParityClientConfig = VibORMConfig<typeof schema>;
 
 type ParityClient = VibORMClient<ParityClientConfig>;
 

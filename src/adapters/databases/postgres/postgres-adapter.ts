@@ -4,10 +4,17 @@ import {
   decimalColumnType,
   encodePhysicalDecimal,
 } from "@validation/primitives/decimal-codec";
+import { GEO_POINT_EARTH_RADIUS_METERS } from "@validation/primitives/geo-area-codec";
 import { createIdentifierQuoter } from "../../../sql/identifiers";
 import type { ArithmeticTarget } from "../../adapter-core-types";
+import { installAdapterInternals } from "../../adapter-internals";
 import { installAdapterNamespace } from "../../adapter-namespace";
-import type { DatabaseAdapter, QueryParts } from "../../database-adapter";
+import type { QueryParts } from "../../adapter-query-parts";
+import {
+  type DatabaseAdapter,
+  type GeoPointSql,
+  installGeoPointSql,
+} from "../../database-adapter";
 import { createOnConflictBatchRefs } from "../../shared/batch-refs";
 import {
   type ExactIntegerArithmetic,
@@ -15,6 +22,11 @@ import {
   logicalDecimalDivide,
   logicalDecimalMultiply,
 } from "../../shared/decimal-arithmetic";
+import {
+  createGeoPointCoordinatePredicates,
+  geoBoundsIndexPolygons,
+  geoPolygonJson,
+} from "../../shared/geo-point";
 import { convertBigIntToNumber } from "../../shared/result-parsing";
 import {
   assembleDistinctOnEmulation,
@@ -87,12 +99,18 @@ export class PostgresAdapter implements DatabaseAdapter {
    * `public` schema, whatever a connection's `search_path` says.
    */
   declare readonly namespace: string;
+  readonly geoPoint: GeoPointSql | undefined;
 
-  constructor(namespace = "public") {
+  constructor(namespace = "public", postgis = false) {
     installAdapterNamespace(this, namespace, "postgresql");
     // Reads the installed value, so it cannot be a field initializer: those run
     // before the constructor body.
     this.identifiers = createIdentifiers(quoteIdent, this.namespace);
+    installGeoPointSql(this, postgis ? this.createGeoPointSql() : undefined);
+    installAdapterInternals(this, {
+      batchRefs: this.#batchRefs,
+      select: this.#assemble.select,
+    });
   }
 
   // ============================================================
@@ -425,7 +443,7 @@ export class PostgresAdapter implements DatabaseAdapter {
   // ASSEMBLE (Build complete SQL statements)
   // ============================================================
 
-  assemble = {
+  readonly #assemble = {
     select: (parts: QueryParts): Sql => {
       // DISTINCT ON requires ORDER BY to lead with the distinct columns, which
       // would override the user's ordering — emulate via ROW_NUMBER() instead
@@ -505,9 +523,6 @@ export class PostgresAdapter implements DatabaseAdapter {
     supportsFullOuterJoin: true,
     supportsLateralJoins: true,
     supportsVector: false,
-    // PostGIS is an installed extension; the pg-family drivers flip this and
-    // replace `geospatial` together when `postgis` is enabled.
-    supportsGeospatial: false,
     supportsUpsertWhere: true, // PostgreSQL supports WHERE in ON CONFLICT
     supportsTargetedUpsert: true, // ON CONFLICT (cols) arbitrates on those cols
     supportsMutationTargetInSubquery: true,
@@ -516,7 +531,7 @@ export class PostgresAdapter implements DatabaseAdapter {
 
   lastInsertId = (): Sql => sql.raw`lastval()`;
 
-  batchRefs = createOnConflictBatchRefs({
+  readonly #batchRefs = createOnConflictBatchRefs({
     table: sql.raw`"__viborm_batch_refs"`,
     batchIdColumn: sql.raw`"batch_id"`,
     keyColumn: sql.raw`"ref_key"`,
@@ -538,37 +553,50 @@ export class PostgresAdapter implements DatabaseAdapter {
   };
 
   // ============================================================
-  // GEOSPATIAL (PostGIS)
+  // GEOPOINT (PostGIS)
   // ============================================================
 
-  geospatial = {
-    point: (lng: Sql, lat: Sql): Sql =>
-      sql`ST_SetSRID(ST_MakePoint(${lng}, ${lat}), 4326)`,
-
-    equals: (geom1: Sql, geom2: Sql): Sql => sql`ST_Equals(${geom1}, ${geom2})`,
-
-    intersects: (geom1: Sql, geom2: Sql): Sql =>
-      sql`ST_Intersects(${geom1}, ${geom2})`,
-
-    contains: (geom1: Sql, geom2: Sql): Sql =>
-      sql`ST_Contains(${geom1}, ${geom2})`,
-
-    within: (geom1: Sql, geom2: Sql): Sql => sql`ST_Within(${geom1}, ${geom2})`,
-
-    crosses: (geom1: Sql, geom2: Sql): Sql =>
-      sql`ST_Crosses(${geom1}, ${geom2})`,
-
-    overlaps: (geom1: Sql, geom2: Sql): Sql =>
-      sql`ST_Overlaps(${geom1}, ${geom2})`,
-
-    touches: (geom1: Sql, geom2: Sql): Sql =>
-      sql`ST_Touches(${geom1}, ${geom2})`,
-
-    covers: (geom1: Sql, geom2: Sql): Sql => sql`ST_Covers(${geom1}, ${geom2})`,
-
-    dWithin: (geom1: Sql, geom2: Sql, distance: Sql): Sql =>
-      sql`ST_DWithin(${geom1}::geography, ${geom2}::geography, ${distance})`,
-  };
+  private createGeoPointSql(): GeoPointSql {
+    const longitude = (point: Sql): Sql => sql`ST_X(${point}::geometry)`;
+    const latitude = (point: Sql): Sql => sql`ST_Y(${point}::geometry)`;
+    return {
+      value: (pointLongitude, pointLatitude) =>
+        sql`ST_SetSRID(ST_MakePoint(${pointLongitude}, ${pointLatitude}), 4326)::geography`,
+      longitude,
+      latitude,
+      ...createGeoPointCoordinatePredicates(
+        longitude,
+        latitude,
+        this.operators,
+        (point, bounds) => {
+          const polygons = geoBoundsIndexPolygons(bounds);
+          if (polygons.length === 0) return;
+          return this.operators.or(
+            ...polygons.map(
+              (polygon) =>
+                sql`${point} && ST_SetSRID(ST_GeomFromGeoJSON(${polygon}), 4326)::geography`
+            )
+          );
+        }
+      ),
+      withinPolygon: (point, polygon) => {
+        const geography = sql`ST_SetSRID(ST_GeomFromGeoJSON(${geoPolygonJson(
+          polygon
+        )}), 4326)::geography`;
+        return sql`ST_Intersects(${geography}, ${point})`;
+      },
+      distance: (left, right) => {
+        const leftLongitude = sql`RADIANS(ST_X(${left}::geometry))`;
+        const leftLatitude = sql`RADIANS(ST_Y(${left}::geometry))`;
+        const rightLongitude = sql`RADIANS(ST_X(${right}::geometry))`;
+        const rightLatitude = sql`RADIANS(ST_Y(${right}::geometry))`;
+        const haversine = sql`POWER(SIN((${rightLatitude} - ${leftLatitude}) / 2), 2) + COS(${leftLatitude}) * COS(${rightLatitude}) * POWER(SIN((${rightLongitude} - ${leftLongitude}) / 2), 2)`;
+        // PostgreSQL's LEAST/GREATEST ignore NULL operands. The explicit arm is
+        // what keeps a nullable source point's distance NULL rather than zero.
+        return sql`CASE WHEN ${left} IS NULL OR ${right} IS NULL THEN NULL ELSE CAST(${GEO_POINT_EARTH_RADIUS_METERS} AS double precision) * 2 * ASIN(SQRT(LEAST(1, GREATEST(0, ${haversine})))) END`;
+      },
+    };
+  }
 
   // ============================================================
   // RESULT PARSING

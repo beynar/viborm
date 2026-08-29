@@ -25,7 +25,6 @@ import {
   unfinishedAttempts,
 } from "./control";
 import type { BoundMigrationDriver } from "./drivers";
-import { emptyManagedSnapshot } from "./empty-snapshot";
 import {
   evaluateAllChecks,
   executeExactSql,
@@ -35,6 +34,7 @@ import {
   loadMigrationGraph,
   type MigrationGraph,
   parentTransition,
+  requireStateSnapshot,
   resolveStateSelector,
   selectRoute,
 } from "./graph";
@@ -112,18 +112,18 @@ export async function resetV1(
       if (!resetAttempt) {
         refuseIncompatibleHistory(marker, ledger);
       }
+      const targetSnapshot = requireStateSnapshot(graph, target);
+      await command.preflightSchemaRequirements(
+        [
+          requireStateSnapshot(graph, marker?.stateId ?? null),
+          ...path.map((stateId) => requireStateSnapshot(graph, stateId)),
+        ],
+        (sql, params) => pinned._executeRaw(sql, params)
+      );
       if (resetAttempt && storedResetPlan && marker) {
         const targetState = graph.states.get(target);
-        const expected =
-          targetState === undefined
-            ? undefined
-            : (graph.snapshots.get(targetState.snapshotHash) ??
-              (targetState.snapshotHash === graph.emptySnapshotHash
-                ? emptyManagedSnapshot()
-                : undefined));
         if (
           targetState &&
-          expected &&
           resetMarkerProvesApplied(
             marker,
             graph,
@@ -135,7 +135,7 @@ export async function resetV1(
             await introspectManaged(pinned, command),
             command,
             pinned
-          )) === (await fingerprintLive(expected, command, pinned))
+          )) === (await fingerprintLive(targetSnapshot, command, pinned))
         ) {
           const applied = {
             format: "1" as const,

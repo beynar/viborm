@@ -12,6 +12,7 @@ import {
 } from "@validation/primitives/decimal-codec";
 import { MigrationError, VibORMErrorCode } from "../../errors";
 import { SQLITE_DECIMAL_LIST_TYPE } from "../decimal";
+import { SQLITE_GEO_POINT_TYPE } from "./sqlite/geo-point";
 
 // =============================================================================
 // TYPE MAPPING CONSTANTS
@@ -35,7 +36,7 @@ export const PG_TYPE_DEFAULTS = {
   json: PG.JSON.JSONB.type,
   blob: PG.BLOB.BYTEA.type,
   vector: "vector",
-  point: PG.POINT.POINT.type,
+  point: "geography(Point,4326)",
   enum: PG.STRING.TEXT.type,
 } as const;
 
@@ -55,7 +56,7 @@ export const SQLITE_TYPE_DEFAULTS = {
   json: "JSON", // SQLite JSON functions work with TEXT but JSON is more semantic
   blob: SQLITE.BLOB.BLOB.type,
   vector: "JSON", // Store as JSON array in SQLite
-  point: "JSON", // Store as JSON object in SQLite
+  point: SQLITE_GEO_POINT_TYPE,
   enum: SQLITE.STRING.TEXT.type,
 } as const;
 
@@ -78,7 +79,7 @@ export const MYSQL_TYPE_DEFAULTS = {
   json: "JSON",
   blob: "BLOB",
   vector: "JSON", // No native vector support, use JSON
-  point: "POINT", // MySQL has native POINT type
+  point: "POINT SRID 4326",
   enum: "TEXT", // Default for unspecified enums; usually use inline ENUM()
 } as const;
 
@@ -206,8 +207,9 @@ export function getSQLiteType(context: ScalarTypeContext): string {
       return SQLITE_TYPE_DEFAULTS.string;
     case "json":
     case "vector":
-    case "point":
       return "JSON";
+    case "point":
+      return SQLITE_TYPE_DEFAULTS.point;
     case "int":
     case "bigint":
     case "boolean":

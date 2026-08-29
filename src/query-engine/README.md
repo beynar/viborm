@@ -209,8 +209,8 @@ Use `prepare()` or await the returned `PendingOperation` for general operations.
 ## Lifecycle compatibility
 
 `PendingOperation` is exported from the package root and `viborm/client`.
-`QueryMetadata<T>` remains a deprecated type-only alias during its compatibility
-window; no runtime metadata object exists.
+Operation metadata stays private to the execution pipeline; no public metadata
+carrier or query-engine package entry point exists.
 
 Use direct owner imports inside the repository. There is no query-engine barrel
 or bare `@query-engine` alias; the scoped `@query-engine/*` path mapping remains.

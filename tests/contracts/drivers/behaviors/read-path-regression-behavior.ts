@@ -56,10 +56,7 @@ const post = s
 
 const schema = { user, post };
 
-type NamedClientConfig = VibORMConfig & {
-  schema: typeof schema;
-  driver: AnyDriver;
-};
+type NamedClientConfig = VibORMConfig<typeof schema>;
 type NamedClient = VibORMClient<NamedClientConfig>;
 
 // =============================================================================
@@ -120,10 +117,7 @@ const tag = s
 
 const m2mSchema = { post: taggedPost, tag };
 
-type ManyToManyClientConfig = VibORMConfig & {
-  schema: typeof m2mSchema;
-  driver: AnyDriver;
-};
+type ManyToManyClientConfig = VibORMConfig<typeof m2mSchema>;
 type ManyToManyClient = VibORMClient<ManyToManyClientConfig>;
 
 // =============================================================================
@@ -155,10 +149,7 @@ const emptyProjectionSchema = {
   child: emptyProjectionChild,
 };
 
-type EmptyProjectionClientConfig = VibORMConfig & {
-  schema: typeof emptyProjectionSchema;
-  driver: AnyDriver;
-};
+type EmptyProjectionClientConfig = VibORMConfig<typeof emptyProjectionSchema>;
 type EmptyProjectionClient = VibORMClient<EmptyProjectionClientConfig>;
 
 export interface ReadPathRegressionBehaviorOptions {

@@ -1,3 +1,4 @@
+import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { D1Driver } from "@drivers/d1";
@@ -10,17 +11,19 @@ import {
 } from "@query-engine/result/ResultParser";
 import { buildExpectedResultShape } from "@query-engine/result/result-shape";
 import {
+  DISTANCE_RESULT_KEY,
   EMPTY_ROW_RESULT_KEY,
   getAggregateResultKey,
   RELATION_COUNTS_RESULT_KEY,
-  VECTOR_DISTANCE_RESULT_KEY,
 } from "@query-engine/result-aliases";
 import type { Operation } from "@query-engine/types";
 import { s } from "@schema";
 import { parserFor, prepareSchema } from "@tests/fixtures/query-scope";
+import { isRecord } from "@validation/value-guards";
 import { describe, expect, test, vi } from "vitest";
 
 const EXPECTED_COLUMNS_PATTERN = /requested result columns/i;
+const POINT_ERROR_PATTERN = /point/i;
 
 const models = (() => {
   const root = s.model({
@@ -55,9 +58,29 @@ prepareSchema(models);
 const shapeModels = {
   empty: s.model({}),
   doc: s.model({ embedding: s.vector().dimension(3) }),
+  pointDoc: s.model({ location: s.point() }),
 };
 
 prepareSchema(shapeModels);
+
+const pointRelationModels = (() => {
+  const root = s.model({
+    id: s.string().id(),
+    children: s.toMany(() => child),
+  });
+  const child = s.model({
+    id: s.string().id(),
+    rootId: s.string(),
+    location: s.point(),
+    parent: s
+      .toOne(() => root)
+      .fields("rootId")
+      .references("id"),
+  });
+  return { root, child };
+})();
+
+prepareSchema(pointRelationModels);
 
 function sqliteParser(driver?: D1Driver) {
   return parserFor(
@@ -138,6 +161,24 @@ describe("consumable root row contracts", () => {
     expect(first.enabled).toBe(1);
   });
 
+  test("does not mutate a prior consumable point row when a later point is malformed", () => {
+    const first = {
+      location: '{"longitude":2.3522,"latitude":48.8566}',
+    };
+    const raw = [first, { location: '{"longitude":2.3522}' }];
+
+    expect(() =>
+      parseConsumableResult(
+        parserFor(new SQLiteAdapter(), shapeModels.pointDoc),
+        "findMany",
+        raw,
+        { select: { location: true } },
+        raw
+      )
+    ).toThrow(POINT_ERROR_PATTERN);
+    expect(first.location).toBe('{"longitude":2.3522,"latitude":48.8566}');
+  });
+
   test("copies a relation-count carrier instead of reusing it", () => {
     const row = {
       id: "root-1",
@@ -178,7 +219,7 @@ describe("consumable root row contracts", () => {
   });
 
   test("copies and renames the vector-distance carrier", () => {
-    const row = { [VECTOR_DISTANCE_RESULT_KEY]: "0.25" };
+    const row = { [DISTANCE_RESULT_KEY]: "0.25" };
     const raw = [row];
 
     const parsed = parseConsumableResult<Array<{ _distance: number }>>(
@@ -195,7 +236,7 @@ describe("consumable root row contracts", () => {
 
     expect(parsed[0]).not.toBe(row);
     expect(parsed).toEqual([{ _distance: 0.25 }]);
-    expect(row).toEqual({ [VECTOR_DISTANCE_RESULT_KEY]: "0.25" });
+    expect(row).toEqual({ [DISTANCE_RESULT_KEY]: "0.25" });
   });
 
   test("copies and renames an aggregate carrier", () => {
@@ -302,6 +343,50 @@ describe("consumable root row contracts", () => {
       expect(parsed[0]).toBe(root);
       expect(parsed[0]?.rankedChildren[0]).toBe(jsonOwnedRow);
       expect(parsed[0]?.rankedChildren[0]?.rank).toBe(7);
+    } finally {
+      parseSpy.mockRestore();
+    }
+  });
+
+  test("does not mutate a prior JSON-owned point row when a later point is malformed", () => {
+    let firstOwnedRow: Record<string, unknown> | undefined;
+    let firstOwnedPoint: unknown;
+    const originalParse = JSON.parse;
+    const parseSpy = vi.spyOn(JSON, "parse").mockImplementation((text) => {
+      const parsed: unknown = originalParse(text);
+      if (Array.isArray(parsed) && parsed.length === 2 && isRecord(parsed[0])) {
+        firstOwnedRow = parsed[0];
+        firstOwnedPoint = firstOwnedRow?.location;
+      }
+      return parsed;
+    });
+
+    try {
+      expect(() =>
+        parseResult(
+          parserFor(new MySQLAdapter(), pointRelationModels.root),
+          "findMany",
+          [
+            {
+              id: "root-1",
+              children: JSON.stringify([
+                {
+                  id: "child-1",
+                  rootId: "root-1",
+                  location: { longitude: 2.3522, latitude: 48.8566 },
+                },
+                {
+                  id: "child-2",
+                  rootId: "root-1",
+                  location: { longitude: 2.3522 },
+                },
+              ]),
+            },
+          ],
+          { include: { children: true } }
+        )
+      ).toThrow(POINT_ERROR_PATTERN);
+      expect(firstOwnedRow?.location).toBe(firstOwnedPoint);
     } finally {
       parseSpy.mockRestore();
     }

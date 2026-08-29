@@ -114,6 +114,31 @@ order; a producer that sorts keys destroys it.
 | `withoutTimezone` | `.withoutTimezone()` — `datetime` and `time` |
 | `precision`, `scale` | the required fixed-decimal descriptor — `type: "decimal"` only |
 
+`point` is the fixed GeoPoint scalar. It accepts `nullable`, `column`, and a
+literal default with exactly `longitude` and `latitude`. It has no `native`,
+`array`, `id`, or `unique` spelling. A spatial index is declared at the model:
+
+```json
+{
+  "version": 1,
+  "models": {
+    "place": {
+      "fields": {
+        "id": { "type": "string", "id": true },
+        "location": { "type": "point" }
+      },
+      "indexes": [
+        { "fields": ["location"], "type": "spatial" }
+      ]
+    }
+  }
+}
+```
+
+The same definition-time rules as TypeScript apply: exactly one non-null point,
+no `unique` or `where`, and no ordinary index. Query-only `GeoArea` values do
+not appear in the schema document.
+
 The key set is the same for every type; whether a given type HAS a modifier is
 decided by the scalar itself. `{ "type": "json", "array": true }` is refused
 because `s.json()` has no `.array()`, and the error says so.
@@ -150,7 +175,7 @@ closed catalog **per dialect**, and the catalog is the set of values the
 [native type constants](/docs/schema/native-types) themselves produce:
 
 ```text
-pg      text   varchar(191)  double precision  timestamptz  geometry(Point)
+pg      text   varchar(191)  double precision  timestamptz
 mysql   TEXT   VARCHAR(191)  TINYINT UNSIGNED  BIGINT UNSIGNED
 sqlite  TEXT   INTEGER       REAL             BLOB
 ```

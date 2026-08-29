@@ -73,10 +73,7 @@ const chapter = s
 
 const schema = { author, post, tag, shelf, chapter };
 
-type NestedPaginationConfig = VibORMConfig & {
-  schema: typeof schema;
-  driver: AnyDriver;
-};
+type NestedPaginationConfig = VibORMConfig<typeof schema>;
 
 type NestedPaginationClient = VibORMClient<NestedPaginationConfig>;
 

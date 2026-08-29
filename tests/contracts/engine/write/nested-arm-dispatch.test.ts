@@ -291,7 +291,7 @@ function runSuite(
 
     const membership = async () =>
       (
-        (await client.$queryRaw(
+        (await client.$queryRawUnsafe(
           'SELECT "teamId", "tagId" FROM "tag_team" ORDER BY "teamId", "tagId"'
         )) as { teamId: string; tagId: string }[]
       ).map((row) => `${row.teamId}/${row.tagId}`);
@@ -372,7 +372,7 @@ function runSuite(
       await corrupted.org.update(
         armUpdate({ tags: { connect: [{ id: "g1" }] } }, { slug: "team-1" })
       );
-      const rows = (await corrupted.$queryRaw(
+      const rows = (await corrupted.$queryRawUnsafe(
         'SELECT "teamId", "tagId" FROM "tag_team"'
       )) as { teamId: string }[];
       expect(rows.map((row) => row.teamId)).toEqual(["tDecoy"]);
@@ -429,15 +429,12 @@ function runSuite(
         },
         "w9",
       ],
-    ])(
-      "parent-held %s folds into the selected arm root",
-      async (_label, payload, ownerId) => {
-        await run({ owner: payload });
-        expect(
-          (await client.team.findUnique({ where: { id: "t1" } })).ownerId
-        ).toBe(ownerId);
-      }
-    );
+    ])("parent-held %s folds into the selected arm root", async (_label, payload, ownerId) => {
+      await run({ owner: payload });
+      expect(
+        (await client.team.findUnique({ where: { id: "t1" } })).ownerId
+      ).toBe(ownerId);
+    });
 
     test("parent-held update and upsert target the selected arm's relation", async () => {
       await client.team.update({
@@ -822,7 +819,7 @@ function runSuite(
     // -----------------------------------------------------------------------
 
     const junction = async () =>
-      (await client.$queryRaw(
+      (await client.$queryRawUnsafe(
         'SELECT "teamId", "tagId" FROM "tag_team" ORDER BY "teamId", "tagId"'
       )) as { teamId: string; tagId: string }[];
 
@@ -958,7 +955,7 @@ function runSuite(
         })
       ).toEqual([{ id: "t1" }, { id: "tMoved" }]);
       expect(
-        await corrupted.$queryRaw(
+        await corrupted.$queryRawUnsafe(
           'SELECT "teamId", "tagId" FROM "tag_team" ORDER BY "teamId", "tagId"'
         )
       ).toEqual([{ teamId: "tMoved", tagId: "g1" }]);
@@ -1097,7 +1094,7 @@ function runJunctionResidue(
       return {
         error: (error as Error | undefined)?.constructor.name,
         writes: driver.statements.filter((sql) => !sql.startsWith("SELECT")),
-        junction: await client.$queryRaw('SELECT * FROM "tag_team"'),
+        junction: await client.$queryRawUnsafe('SELECT * FROM "tag_team"'),
         teams: await client.team.findMany({
           orderBy: { id: "asc" },
           select: { id: true },

@@ -35,7 +35,6 @@ export {
 // Span names and attributes
 export {
   ATTR_CACHE_DRIVER,
-  ATTR_CACHE_KEY,
   ATTR_CACHE_RESULT,
   ATTR_CACHE_TTL,
   // OTel standard attributes
@@ -62,7 +61,6 @@ export {
   ATTR_VIBORM_WRITE_MEMBER_PATH,
   ATTR_VIBORM_WRITE_STATEMENT_COUNT,
   // Span names
-  SPAN_BUILD,
   SPAN_CACHE_CLEAR,
   SPAN_CACHE_DELETE,
   // Cache spans and attributes
@@ -73,10 +71,8 @@ export {
   SPAN_DISCONNECT,
   SPAN_EXECUTE,
   SPAN_OPERATION,
-  SPAN_PARSE,
   SPAN_RECORD_SERIES_SEGMENT,
   SPAN_TRANSACTION,
-  SPAN_VALIDATE,
   type VibORMSpanName,
 } from "./spans";
 // Tracer wrapper

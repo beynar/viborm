@@ -562,6 +562,7 @@ const entry = s.model({
   secret: s.string(),
   views: s.int(),
   category: s.string(),
+  location: s.point().nullable(),
   authorId: s.string(),
   author: s
     .toOne(() => author)
@@ -571,7 +572,7 @@ const entry = s.model({
 const integratedSchema = { author, entry };
 
 class RequestTransformDriver extends Driver<object, object> {
-  readonly adapter: DatabaseAdapter = new PostgresAdapter();
+  readonly adapter: DatabaseAdapter = new PostgresAdapter("public", true);
   override readonly supportsTransactions = false;
   override readonly supportsBatch = true;
 
@@ -626,6 +627,32 @@ afterEach(async () => {
 });
 
 describe("public request-transform integration", () => {
+  test("protects a GeoPoint distance projection through an extension", async () => {
+    let sawDetachedSelect = false;
+    const client = integratedClient().$extends({
+      name: "point-distance-projection",
+      request: {
+        entry: {
+          findMany({ input }) {
+            sawDetachedSelect = !Object.hasOwn(input, "select");
+            return {};
+          },
+        },
+      },
+    });
+
+    await expect(
+      client.entry.findMany({
+        select: {
+          location: {
+            _distance: { to: { longitude: 2.3522, latitude: 48.8566 } },
+          },
+        },
+      })
+    ).resolves.toEqual([]);
+    expect(sawDetachedSelect).toBe(true);
+  });
+
   test("stays lazy and resolves one application-ordered patch chain once", async () => {
     const calls: string[] = [];
     const base = integratedClient();

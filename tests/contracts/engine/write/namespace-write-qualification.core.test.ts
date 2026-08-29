@@ -10,6 +10,7 @@
  * Structural only: the mock driver opens no provider resource.
  */
 
+import { getAdapterInternals } from "@adapters/adapter-internals";
 import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
@@ -617,11 +618,15 @@ describe("the batch reference temp table is never qualified", () => {
   test("setup, store, read and cleanup name it bare", () => {
     const adapter: AnyDriver["adapter"] = new PostgresAdapter("billing");
     const statements = [
-      ...adapter.batchRefs.setup("b1"),
-      adapter.batchRefs.store("b1", "k", adapter.literals.value(1)),
-      adapter.batchRefs.read("b1", "k"),
-      adapter.batchRefs.clear("b1"),
-      adapter.batchRefs.cleanup("b1"),
+      ...getAdapterInternals(adapter).batchRefs.setup("b1"),
+      getAdapterInternals(adapter).batchRefs.store(
+        "b1",
+        "k",
+        adapter.literals.value(1)
+      ),
+      getAdapterInternals(adapter).batchRefs.read("b1", "k"),
+      getAdapterInternals(adapter).batchRefs.clear("b1"),
+      getAdapterInternals(adapter).batchRefs.cleanup("b1"),
     ];
     for (const statement of statements) {
       expect(statement.toStatement("$n")).toContain('"__viborm_batch_refs"');

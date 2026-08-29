@@ -58,6 +58,42 @@ const scalarModel = s.model({
   point: s.point(),
   customJson: s.json().schema(countingJsonSchema),
 });
+const pointDistanceModel = s.model({
+  id: s.string().id(),
+  location: s.point(),
+  optionalLocation: s.point().nullable(),
+});
+
+const pointTrip = s.model({
+  id: s.string().id(),
+  stops: s.toMany(() => pointStop),
+});
+const pointStop = s.model({
+  id: s.string().id(),
+  tripId: s.string(),
+  location: s.point(),
+  optionalLocation: s.point().nullable(),
+  trip: s
+    .toOne(() => pointTrip)
+    .fields("tripId")
+    .references("id"),
+});
+const pointArticle = s.model({
+  id: s.string().id(),
+  location: s.point(),
+  markers: s.toMany(() => pointMarker).name("cacheDistanceTarget"),
+});
+const pointVideo = s.model({
+  id: s.string().id(),
+  location: s.point(),
+  markers: s.toMany(() => pointMarker).name("cacheDistanceTarget"),
+});
+const pointMarker = s.model({
+  id: s.string().id(),
+  target: s
+    .toOne({ article: () => pointArticle, video: () => pointVideo })
+    .name("cacheDistanceTarget"),
+});
 
 const author = s.model({
   id: s.string().id(),
@@ -97,7 +133,19 @@ const feed = s.model({
   ),
 });
 
-const models = { scalarModel, author, post, video, feed };
+const models = {
+  scalarModel,
+  pointDistanceModel,
+  pointArticle,
+  pointMarker,
+  pointStop,
+  pointTrip,
+  pointVideo,
+  author,
+  post,
+  video,
+  feed,
+};
 prepareSchema(models);
 
 function codecFor(
@@ -245,7 +293,7 @@ describe("compiled detached cache result codec", () => {
       jsonValue,
       vector: [1, -0, 3.5],
       bytes: new Uint8Array([0, 128, 255]),
-      point: { x: -0, y: 2.5 },
+      point: { longitude: -180, latitude: -0 },
       customJson: { accepted: true },
     };
     const order = Object.keys(row);
@@ -273,6 +321,9 @@ describe("compiled detached cache result codec", () => {
     expect(kvRow.bytes).toEqual(new Uint8Array([0, 128, 255]));
     expect(kvRow.bytes).not.toBe(row.bytes);
     expect(kvRow.bytes).not.toBe(secondRow.bytes);
+    expect(kvRow.point).toEqual({ longitude: 180, latitude: 0 });
+    expect(kvRow.point).not.toBe(row.point);
+    expect(kvRow.point).not.toBe(secondRow.point);
     expect(kvRow.jsonValue).not.toBe(jsonValue);
     expect(kvRow.jsonValue).not.toBe(secondRow.jsonValue);
 
@@ -710,6 +761,88 @@ describe("compiled detached cache result codec", () => {
     expect(
       Object.is(requireRecord(requireRows(distanceResult)[0])._distance, -0)
     ).toBe(true);
+
+    const nullablePointDistance = codecFor(pointDistanceModel, "findMany", {
+      select: {
+        optionalLocation: {
+          _distance: { to: { longitude: 2.3522, latitude: 48.8566 } },
+        },
+      },
+    });
+    expect(
+      nullablePointDistance.materialize(
+        portableSnapshot(
+          nullablePointDistance.snapshot([
+            { _distance: null },
+            { _distance: 12.5 },
+          ])
+        )
+      )
+    ).toEqual([{ _distance: null }, { _distance: 12.5 }]);
+
+    const requiredPointDistance = codecFor(pointDistanceModel, "findMany", {
+      select: {
+        location: {
+          _distance: { to: { longitude: 2.3522, latitude: 48.8566 } },
+        },
+      },
+    });
+    expectBoundary(
+      () => requiredPointDistance.snapshot([{ _distance: null }]),
+      "snapshot"
+    );
+
+    const nestedPointDistance = codecFor(pointTrip, "findMany", {
+      select: {
+        stops: {
+          select: {
+            optionalLocation: {
+              _distance: { to: { longitude: 2.3522, latitude: 48.8566 } },
+            },
+          },
+        },
+      },
+    });
+    const nestedPointValue = [{ stops: [{ _distance: null }] }];
+    expect(
+      nestedPointDistance.materialize(
+        portableSnapshot(nestedPointDistance.snapshot(nestedPointValue))
+      )
+    ).toEqual(nestedPointValue);
+
+    const variantPointDistance = codecFor(pointMarker, "findMany", {
+      select: {
+        target: {
+          article: {
+            select: {
+              location: {
+                _distance: { to: { longitude: 2.3522, latitude: 48.8566 } },
+              },
+            },
+          },
+          video: {
+            select: {
+              location: {
+                _distance: { to: { longitude: 2.3522, latitude: 48.8566 } },
+              },
+            },
+          },
+        },
+      },
+    });
+    const variantPointValue = [
+      {
+        target: {
+          type: "article",
+          data: { _distance: 4.5 },
+        },
+      },
+    ];
+    expect(
+      variantPointDistance.materialize(
+        portableSnapshot(variantPointDistance.snapshot(variantPointValue))
+      )
+    ).toEqual(variantPointValue);
 
     const aggregate = codecFor(scalarModel, "aggregate", {
       _count: { _all: true },

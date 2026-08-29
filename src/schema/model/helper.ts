@@ -64,10 +64,40 @@ export type DecimalListScalarKeys<T extends ModelShape> = {
     : never;
 }[keyof T];
 
+/** GeoPoint keys have value semantics but no portable key/order semantics. */
+export type PointScalarKeys<T extends ModelShape> = {
+  [K in keyof T]: T[K] extends Scalar
+    ? T[K]["~"]["state"]["type"] extends "point"
+      ? ToString<K>
+      : never
+    : never;
+}[keyof T];
+
+export type NonNullablePointScalarKeys<T extends ModelShape> = {
+  [K in keyof T]: T[K] extends Scalar
+    ? T[K]["~"]["state"]["type"] extends "point"
+      ? T[K]["~"]["state"]["nullable"] extends true
+        ? never
+        : ToString<K>
+      : never
+    : never;
+}[keyof T];
+
+export type NonPointScalarKeys<T extends ModelShape> = Exclude<
+  ScalarKeys<T>,
+  string extends keyof T ? never : PointScalarKeys<T>
+>;
+
 /** Scalar keys except fixed-decimal lists, which cannot be physical keys. */
 export type NonDecimalListScalarKeys<T extends ModelShape> = Exclude<
   ScalarKeys<T>,
   string extends keyof T ? never : DecimalListScalarKeys<T>
+>;
+
+/** Scalar keys admitted in IDs, unique constraints, and foreign-key identity. */
+export type PortableKeyScalarKeys<T extends ModelShape> = Exclude<
+  NonDecimalListScalarKeys<T>,
+  string extends keyof T ? never : PointScalarKeys<T>
 >;
 
 /** Extract relation keys from ModelState */

@@ -16,19 +16,9 @@
  * ```
  */
 
-import type { Clock, ClockTimer } from "../../clock";
+import type { ClockTimer } from "../../clock";
+import { CacheConfigurationError } from "../../errors";
 import { CacheDriver, type CacheEntry } from "../driver";
-
-/** Construction options. `clock` is an internal test seam, not public API. */
-export interface MemoryCacheOptions {
-  /**
-   * Source of time for entry freshness and eviction. Defaults to the host
-   * clock; a test passes a virtual one so a TTL can pass without a sleep.
-   *
-   * @internal
-   */
-  clock?: Clock;
-}
 
 /**
  * In-memory cache implementation
@@ -37,8 +27,13 @@ export class MemoryCache extends CacheDriver {
   private readonly store = new Map<string, CacheEntry>();
   private readonly timers = new Map<string, ClockTimer>();
 
-  constructor(options: MemoryCacheOptions = {}) {
-    super("memory", options.clock);
+  constructor(...extra: never[]) {
+    super("memory");
+    if (extra.length !== 0) {
+      throw new CacheConfigurationError(
+        "MemoryCache does not accept construction options."
+      );
+    }
   }
 
   protected async get<T>(key: string): Promise<CacheEntry<T> | null> {

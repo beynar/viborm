@@ -82,6 +82,14 @@ Bun 1.1.14 or newer is required: on older builds the statement has no
 `safeIntegers`, and viborm refuses the read with a `FeatureNotSupportedError`
 rather than hand back a rounded value.
 
+## GeoPoint storage tier
+
+The real Bun runtime contract qualifies typed GeoPoint CRUD, equality,
+inclusive bounds, callback and array transactions, nested and variant
+relations, cache, extensions, and raw boundaries over the checked SQLite JSON
+carrier. Polygon, distance, `_distance`, and spatial indexes are refused before
+execution. See [GeoPoint](/docs/schema/scalars/point).
+
 ## Transactions
 
 Bun SQLite supports full transactions with savepoints for nested transactions — see [Transactions](/docs/client/transactions).

@@ -43,10 +43,7 @@ const counter = s
 
 const schema = { author, book, counter };
 
-type OrderingArrayCreateClientConfig = VibORMConfig & {
-  schema: typeof schema;
-  driver: AnyDriver;
-};
+type OrderingArrayCreateClientConfig = VibORMConfig<typeof schema>;
 
 type OrderingArrayCreateClient = VibORMClient<OrderingArrayCreateClientConfig>;
 

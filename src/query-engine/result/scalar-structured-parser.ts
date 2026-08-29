@@ -1,5 +1,9 @@
 import { tryParseJsonString } from "@adapters/shared/result-parsing";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
+import {
+  type GeoPoint,
+  validateGeoPoint,
+} from "@validation/primitives/geo-point-codec";
 import type { Operation } from "../types";
 import { malformedScalarValue } from "./result-parser-contract";
 
@@ -54,44 +58,21 @@ export function parseVectorValue(
   return result;
 }
 
-const POINT_TEXT_REGEX = /^\(([^,()]+),([^,()]+)\)$/;
-
 export function parsePointValue(
   value: unknown,
   provider: string,
   operation: Operation
-): { x: number; y: number } {
-  if (typeof value === "string") {
-    const match = POINT_TEXT_REGEX.exec(value);
-    const x = match ? parseFiniteProviderNumber(match[1]) : undefined;
-    const y = match ? parseFiniteProviderNumber(match[2]) : undefined;
-    if (x !== undefined && y !== undefined) return { x, y };
-    return malformedScalarValue(
-      provider,
-      operation,
-      "point",
-      "the value is not canonical PostgreSQL point text"
-    );
-  }
-
-  if (
-    !isPlainJsonRecord(value) ||
-    Reflect.ownKeys(value).length !== 2 ||
-    !Object.hasOwn(value, "x") ||
-    !Object.hasOwn(value, "y") ||
-    typeof value.x !== "number" ||
-    !Number.isFinite(value.x) ||
-    typeof value.y !== "number" ||
-    !Number.isFinite(value.y)
-  ) {
-    return malformedScalarValue(
-      provider,
-      operation,
-      "point",
-      "the value is not an exact finite { x, y } object"
-    );
-  }
-  return { x: value.x, y: value.y };
+): GeoPoint {
+  const transport =
+    typeof value === "string" ? tryParseJsonString(value) : value;
+  const decoded = validateGeoPoint(transport);
+  if (!decoded.issues) return decoded.value;
+  return malformedScalarValue(
+    provider,
+    operation,
+    "point",
+    decoded.issues[0]?.message ?? "the value is not a canonical GeoPoint"
+  );
 }
 
 export function parseJsonValueWithSchema(

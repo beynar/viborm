@@ -60,6 +60,7 @@ const JSON_FILTER_OPERATORS = new Set([
   "array_starts_with",
   "array_ends_with",
 ]);
+const POINT_FILTER_OPERATORS = new Set(["equals", "not", "distance", "within"]);
 
 const COMPARISON_SCALAR_TYPES: Set<ScalarType> = new Set([
   "int",
@@ -101,6 +102,10 @@ function isSupportedScalarFilterOperator(
 
   if (scalarState.type === "json") {
     return JSON_FILTER_OPERATORS.has(operation);
+  }
+
+  if (scalarState.type === "point") {
+    return POINT_FILTER_OPERATORS.has(operation);
   }
 
   if (COMPARISON_SCALAR_TYPES.has(scalarState.type)) {

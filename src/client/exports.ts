@@ -32,6 +32,12 @@ export type {
   GroupByResultType,
   InferSelectInclude,
 } from "./result-types";
+export {
+  getOperationPayloadSchema,
+  renderOperationResultType,
+  renderSchemaType,
+  validateOperationPayload,
+} from "./schema-introspection";
 // Client types
 export type {
   CacheableOperations,
@@ -39,7 +45,9 @@ export type {
   Client,
   MutationOperations,
   OperationPayload,
+  OperationPayloadSchema,
   OperationResult,
   Operations,
   Schema,
+  ValidatedOperationPayload,
 } from "./types";

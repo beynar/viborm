@@ -72,6 +72,20 @@ export function checkStoredReference(
       });
       continue;
     }
+    if (local["~"].state.type === "point") {
+      // Only the local member belongs here. A referenced GeoPoint cannot be an
+      // addressable key, which is already owned by I005 and FK005.
+      legal = false;
+      issues.push({
+        code: "FK011",
+        message: `FK '${foreignField}' in '${relationName}' is a GeoPoint, which cannot be a foreign-key member`,
+        severity: "error",
+        model: modelName,
+        relation: relationName,
+        field: foreignField,
+        repair: `Store relation identity in a portable scalar key on '${modelName}'`,
+      });
+    }
     if (local["~"].state.nullable) nullableForeignFields.push(foreignField);
     const referencedField = references[position]!;
     const remote = targetScalars[referencedField];

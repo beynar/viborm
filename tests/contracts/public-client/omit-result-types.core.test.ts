@@ -52,6 +52,15 @@ const vaulted = s
 
 type VaultedModel = typeof vaulted;
 
+// @ts-expect-error - the retired public merged-args generic is internal now
+type _RetiredMergedArgs = OperationResult<
+  "findMany",
+  AuthorModel,
+  Record<never, never>,
+  undefined,
+  { select: { id: true } }
+>;
+
 describe("query-level omit at the top level", () => {
   test("a true flag removes the key", () => {
     type Result = OperationResult<
@@ -135,30 +144,6 @@ describe("query-level omit at the top level", () => {
       }
     >;
     expectTypeOf<Result>().toEqualTypeOf<{ id: string; email: string }[]>();
-  });
-
-  test("the exported fifth generic remains a complete args override", () => {
-    type Result = OperationResult<
-      "findMany",
-      AuthorModel,
-      { select: { id: true } },
-      undefined,
-      { select: { email: true } }
-    >;
-    expectTypeOf<Result>().toEqualTypeOf<{ email: string }[]>();
-  });
-
-  test("an explicit fifth generic remains already-effective beside a client default", () => {
-    type Result = OperationResult<
-      "findMany",
-      AuthorModel,
-      { select: { id: true } },
-      { passwordHash: true },
-      Record<never, never>
-    >;
-    expectTypeOf<Result>().toEqualTypeOf<
-      { id: string; email: string; passwordHash: string }[]
-    >();
   });
 });
 

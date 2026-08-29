@@ -7,7 +7,7 @@
 import type { Sql } from "@sql";
 import { isRecord } from "@validation/value-guards";
 import { QueryEngineError, type QueryScope } from "../types";
-import { buildVectorDistanceExpression } from "./vector-distance-builder";
+import { buildDistanceExpression } from "./distance-builder";
 
 type SortableScalarState = {
   type: string;
@@ -19,13 +19,13 @@ type SortOrderField = {
   scalarState: SortableScalarState | undefined;
 };
 
-function buildVectorDistanceOrder(
+function buildDistanceOrder(
   ctx: QueryScope,
   column: Sql,
   value: unknown,
   field: SortOrderField | undefined
 ): Sql {
-  const distance = buildVectorDistanceExpression(
+  const distance = buildDistanceExpression(
     ctx,
     column,
     value,
@@ -34,6 +34,17 @@ function buildVectorDistanceOrder(
   );
 
   const sort = isRecord(value) ? value.sort : undefined;
+  if (field?.scalarState?.type === "point") {
+    if (sort === undefined || sort === "asc") {
+      return ctx.adapter.orderBy.nullsLast(distance, "asc");
+    }
+    if (sort === "desc") {
+      return ctx.adapter.orderBy.nullsLast(distance, "desc");
+    }
+    throw new QueryEngineError(
+      "GeoPoint distance orderBy sort must be 'asc' or 'desc'."
+    );
+  }
   if (sort === undefined || sort === "asc") {
     return ctx.adapter.orderBy.asc(distance);
   }
@@ -62,7 +73,7 @@ export function buildSingleOrder(
 
   if (isRecord(value)) {
     if (value._distance !== undefined) {
-      return buildVectorDistanceOrder(ctx, column, value._distance, field);
+      return buildDistanceOrder(ctx, column, value._distance, field);
     }
 
     const sort = value.sort;

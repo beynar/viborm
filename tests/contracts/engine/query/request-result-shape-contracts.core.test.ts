@@ -7,11 +7,12 @@ import { Driver } from "@drivers";
 import { QueryEngineError, ValidationError } from "@errors";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { parseResult } from "@query-engine/result/ResultParser";
+import { buildExpectedResultShape } from "@query-engine/result/result-shape";
 import {
+  DISTANCE_RESULT_KEY,
   EMPTY_ROW_RESULT_KEY,
   getAggregateResultKey,
   RELATION_COUNTS_RESULT_KEY,
-  VECTOR_DISTANCE_RESULT_KEY,
 } from "@query-engine/result-aliases";
 import { type Model, s } from "@schema";
 import { parserFor, prepareSchema } from "@tests/fixtures/query-scope";
@@ -517,7 +518,7 @@ describe("request-aware result shapes", () => {
   test("rejects private carriers that were not requested", () => {
     const rows = [
       { [getAggregateResultKey("_count")]: 1 },
-      { [VECTOR_DISTANCE_RESULT_KEY]: 1 },
+      { [DISTANCE_RESULT_KEY]: 1 },
       { [RELATION_COUNTS_RESULT_KEY]: { children: 1 } },
     ];
     for (const row of rows) {
@@ -532,7 +533,7 @@ describe("request-aware result shapes", () => {
   test("rejects private carrier names during client hydration", () => {
     const invalidParent = s.model({
       id: s.string().id(),
-      [VECTOR_DISTANCE_RESULT_KEY]: s.toMany(() => invalidChild),
+      [DISTANCE_RESULT_KEY]: s.toMany(() => invalidChild),
     });
     const invalidChild = s.model({
       id: s.string().id(),
@@ -730,6 +731,25 @@ describe("request-aware result shapes", () => {
         },
       })
     ).toThrow("cannot be selected together");
+  });
+
+  test("retains the scalar that owns a computed distance", () => {
+    const shape = buildExpectedResultShape(
+      models.vectorCollision,
+      "findMany",
+      {
+        select: {
+          embedding: {
+            _distance: { to: [1, 2], metric: "l2" },
+          },
+        },
+      },
+      registry.relations
+    );
+
+    expect(shape?.distanceScalar).toBe(
+      models.vectorCollision["~"].state.scalars.embedding
+    );
   });
 
   test("rejects only nullable-vector distance selection", () => {

@@ -70,12 +70,27 @@ type RawExecutor = <T>(
 // SQL QUERIES
 // =============================================================================
 
-const TABLES_QUERY = `
-SELECT table_name
-FROM information_schema.tables
-WHERE table_schema = $1
-  AND table_type = 'BASE TABLE'
-ORDER BY table_name;
+export const POSTGRES_MANAGED_TABLE_NAMES_QUERY = `
+SELECT tables.table_name, tables.table_name AS name
+FROM information_schema.tables tables
+JOIN pg_catalog.pg_class relation
+  ON relation.relname = tables.table_name
+JOIN pg_catalog.pg_namespace relation_namespace
+  ON relation_namespace.oid = relation.relnamespace
+  AND relation_namespace.nspname = tables.table_schema
+WHERE tables.table_schema = $1
+  AND tables.table_type = 'BASE TABLE'
+  AND NOT EXISTS (
+    SELECT 1
+    FROM pg_catalog.pg_depend dependency
+    JOIN pg_catalog.pg_extension extension
+      ON extension.oid = dependency.refobjid
+    WHERE dependency.classid = 'pg_catalog.pg_class'::pg_catalog.regclass
+      AND dependency.objid = relation.oid
+      AND dependency.refclassid = 'pg_catalog.pg_extension'::pg_catalog.regclass
+      AND dependency.deptype = 'e'
+  )
+ORDER BY tables.table_name;
 `;
 
 /**
@@ -130,6 +145,16 @@ LEFT JOIN pg_catalog.pg_namespace ext_ns
   ON ext_ns.oid = ext.extnamespace
 WHERE c.table_schema = $1
   AND t.table_type = 'BASE TABLE'
+  AND NOT EXISTS (
+    SELECT 1
+    FROM pg_catalog.pg_depend relation_dependency
+    JOIN pg_catalog.pg_extension relation_extension
+      ON relation_extension.oid = relation_dependency.refobjid
+    WHERE relation_dependency.classid = 'pg_catalog.pg_class'::pg_catalog.regclass
+      AND relation_dependency.objid = cls.oid
+      AND relation_dependency.refclassid = 'pg_catalog.pg_extension'::pg_catalog.regclass
+      AND relation_dependency.deptype = 'e'
+  )
 ORDER BY c.table_name, c.ordinal_position;
 `;
 
@@ -381,10 +406,31 @@ function formatColumnType(
   col: PgColumn,
   scope: PostgresIntrospectionScope
 ): string {
+  const extensionType = baseTypeName(col.udt_name);
+  if (
+    col.type_extension === "postgis" &&
+    (extensionType === "geometry" || extensionType === "geography") &&
+    !scope.admittedExtensionTypes.has(extensionType)
+  ) {
+    throw new MigrationError(
+      `Column "${col.table_name}"."${col.column_name}" uses PostGIS ${extensionType}, but this PostgreSQL adapter has no GeoPoint protocol. ` +
+        "Migration introspection refuses to erase its subtype and SRID into a bare extension type; construct the driver with `postgis: true` or use a client that does not manage this estate.",
+      VibORMErrorCode.DRIVER_NOT_SUPPORTED,
+      {
+        meta: {
+          dialect: "postgresql",
+          table: col.table_name,
+          column: col.column_name,
+          type: extensionType,
+          feature: "GeoPoint",
+        },
+      }
+    );
+  }
   if (
     col.type_extension !== null &&
     col.type_extension_schema !== null &&
-    scope.admittedExtensionTypes.has(baseTypeName(col.udt_name))
+    scope.admittedExtensionTypes.has(extensionType)
   ) {
     return stripExtensionSchema(col.formatted_type, col.type_extension_schema);
   }
@@ -668,7 +714,7 @@ export async function introspectPostgresSchema(
     uniqueConstraintsResult,
     enumsResult,
   ] = await Promise.all([
-    executeRaw<PgTable>(TABLES_QUERY, namespace),
+    executeRaw<PgTable>(POSTGRES_MANAGED_TABLE_NAMES_QUERY, namespace),
     executeRaw<PgColumn>(COLUMNS_QUERY, namespace),
     executeRaw<PgPrimaryKey>(PRIMARY_KEYS_QUERY, namespace),
     executeRaw<PgIndex>(INDEXES_QUERY, namespace),

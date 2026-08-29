@@ -5,7 +5,7 @@ import {
   buildPrimaryKeyWhereUnique,
   getPrimaryKeyFields,
 } from "../builders/correlation-utils";
-import { projectScalarForTransport } from "../builders/decimal-field";
+import { projectScalarForTransport } from "../builders/scalar-transport";
 import { buildScalarSqlValueForScalar } from "../builders/values-builder";
 import { buildFindUnique } from "../operations/find-unique";
 import { getPrimaryKeyValuesFromRecord } from "../operations/mutation-identity";

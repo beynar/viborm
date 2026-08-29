@@ -5,16 +5,17 @@ import {
   isVariantRelationState,
   slotMayBeEmpty,
 } from "@schema/relation";
+import type { Scalar } from "@schema/scalars";
 import type { ResolvedRelationIndex } from "@schema/validation/relation-resolution";
 import { isRecord } from "@validation/value-guards";
 import { getDefaultScalarFieldNames } from "../context";
 import { getGroupByFields } from "../operations/groupby-fields";
 import {
   type AggregateResultName,
+  DISTANCE_RESULT_KEY,
   EMPTY_ROW_RESULT_KEY,
   getAggregateResultKey,
   RELATION_COUNTS_RESULT_KEY,
-  VECTOR_DISTANCE_RESULT_KEY,
 } from "../result-aliases";
 import {
   type ExpectedAggregateResultShape,
@@ -59,7 +60,8 @@ function createShape(
   relations = new Map<string, ExpectedRelationResultShape>(),
   aggregates = new Map<string, ExpectedAggregateResultShape>(),
   relationCounts = new Set<string>(),
-  polymorphic = new Map<string, ExpectedPolymorphicResultShape>()
+  polymorphic = new Map<string, ExpectedPolymorphicResultShape>(),
+  distanceScalar?: Scalar
 ): ExpectedResultShape {
   if (new Set(rawKeys).size !== rawKeys.length) {
     throw new QueryEngineError(
@@ -69,6 +71,7 @@ function createShape(
   return {
     carrier: "rows",
     rawKeys,
+    ...(distanceScalar ? { distanceScalar } : {}),
     relations,
     polymorphic,
     aggregates,
@@ -102,17 +105,18 @@ function buildModelShape(
   const relations = new Map<string, ExpectedRelationResultShape>();
   const polymorphic = new Map<string, ExpectedPolymorphicResultShape>();
   const selectedOutputKeys = new Set<string>();
-  const scalars = model["~"].state.scalars;
+  const scalars: Record<string, Scalar> = model["~"].state.scalars;
   const modelRelations = model["~"].state.relations;
   const selectValue = getOwnValue(args, "select");
   const includeValue = getOwnValue(args, "include");
   const select = isRecord(selectValue) ? selectValue : undefined;
   const include = isRecord(includeValue) ? includeValue : undefined;
-  let hasVectorDistance = false;
+  let hasDistance = false;
+  let distanceScalar: Scalar | undefined;
 
   if (select) {
     for (const [fieldName, value] of Object.entries(select)) {
-      const scalar = getOwnValue(scalars, fieldName);
+      const scalar: Scalar | undefined = getOwnValue(scalars, fieldName);
       if (!scalar) continue;
       if (value === true) {
         rawKeys.push(fieldName);
@@ -120,13 +124,14 @@ function buildModelShape(
         continue;
       }
       if (isRecord(value) && Object.hasOwn(value, "_distance")) {
-        if (hasVectorDistance) {
+        if (hasDistance) {
           throw new QueryEngineError(
-            "Vector distance select supports only one _distance field per select."
+            "Distance select supports only one _distance field per select."
           );
         }
-        hasVectorDistance = true;
-        rawKeys.push(VECTOR_DISTANCE_RESULT_KEY);
+        hasDistance = true;
+        distanceScalar = scalar;
+        rawKeys.push(DISTANCE_RESULT_KEY);
       }
     }
   } else {
@@ -154,9 +159,9 @@ function buildModelShape(
     index
   );
 
-  if (hasVectorDistance && selectedOutputKeys.has("_distance")) {
+  if (hasDistance && selectedOutputKeys.has("_distance")) {
     throw new QueryEngineError(
-      "A vector distance result cannot be selected together with a model field named '_distance'."
+      "A distance result cannot be selected together with a model field named '_distance'."
     );
   }
   addSelectedRelations(
@@ -225,7 +230,8 @@ function buildModelShape(
     relations,
     new Map(),
     relationCounts,
-    polymorphic
+    polymorphic,
+    distanceScalar
   );
 }
 

@@ -16,6 +16,7 @@ import type {
   UniqueConstraintDef,
 } from "../../types";
 import { readSqliteDecimalConstraint } from "./decimal";
+import { readSqliteGeoPointColumn, SQLITE_GEO_POINT_TYPE } from "./geo-point";
 import { skipSqlNonStructuralRegion } from "./sql-lexing";
 import type {
   SqliteColumn,
@@ -225,9 +226,16 @@ export async function introspect(
       const pk = int(col.pk);
       const type = col.type || "TEXT";
       const nullable = int(col.notnull) === 0 && pk === 0;
+      const isGeoPoint = readSqliteGeoPointColumn(
+        tableSql,
+        { name: col.name, type, nullable },
+        escapeIdentifier
+      );
       columns.push({
         name: col.name,
-        type: `${type}${sqliteEnumCheckSuffix(tableSql, col.name) ?? ""}`,
+        type: isGeoPoint
+          ? SQLITE_GEO_POINT_TYPE
+          : `${type}${sqliteEnumCheckSuffix(tableSql, col.name) ?? ""}`,
         nullable,
         default: col.dflt_value ?? undefined,
         autoIncrement: pk === 1 && hasAutoincrement,

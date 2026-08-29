@@ -2,13 +2,13 @@
  * The acceptance corpus: every schema-declaring code fence in the schema docs,
  * transliterated to a document.
  *
- * `docs/content/docs/schema/**` holds 160 fences (145 `ts`, 8 `sql`, 3 `json`,
- * 3 `text`, 1 `mermaid`). 38 of them spell `s.model(`; the other 122 are
+ * `docs/content/docs/schema/**` holds 173 fences (157 `ts`, 8 `sql`, 4 `json`,
+ * 3 `text`, 1 `mermaid`). 39 of them spell `s.model(`; the other 134 are
  * queries, results, error output or scalar snippets with no schema to state.
  * The 3 `json` fences are documents rather than declarations: the suite runs
- * them directly instead of transliterating them. Of those 38:
+ * them directly instead of transliterating them. Of those 39:
  *
- *  - 35 are here, each as the fence's own declarations plus the JSON twin;
+ *  - 36 are here, each as the fence's own declarations plus the JSON twin;
  *  - `index.mdx` fence #1 is prose — `s.model({ ... })` with a literal ellipsis
  *    — and declares nothing to transliterate;
  *  - `model.mdx` fences #0 and #8 carry `.default(() => new Date())`, the
@@ -1485,6 +1485,30 @@ export const docsFenceCorpus: DocsFenceCase[] = [
           fields: {
             id: ID,
             status: { type: "enum", enum: "status", default: "PENDING" },
+          },
+        },
+      },
+    },
+  },
+  {
+    id: "scalars/point.mdx#0",
+    coded: () => ({
+      place: s.model({
+        id: s.string().id(),
+        name: s.string(),
+        location: s.point(),
+        entrance: s.point().nullable(),
+      }),
+    }),
+    document: {
+      version: 1,
+      models: {
+        place: {
+          fields: {
+            id: ID,
+            name: STRING,
+            location: { type: "point" },
+            entrance: { type: "point", nullable: true },
           },
         },
       },

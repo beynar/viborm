@@ -746,7 +746,6 @@ describe("raw write-outcome classification", () => {
       "method",
       "captured",
       "parse",
-      "warnLegacyString",
       "resolved",
       "observationCommitCertainty",
     ];

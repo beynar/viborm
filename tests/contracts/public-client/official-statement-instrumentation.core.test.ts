@@ -658,8 +658,8 @@ describe("official statement instrumentation", () => {
         });
 
       await client.$queryRawUnsafe("SELECT 1");
-      await client.$queryRaw("SELECT 2");
-      await waitFor(() => logs.events.length === 3);
+      await client.$queryRawUnsafe("SELECT 2");
+      await waitFor(() => logs.events.length === 2);
 
       expect(transforms).toBe(0);
       expect(statementUnits).toBe(2);
@@ -670,7 +670,6 @@ describe("official statement instrumentation", () => {
       expect(logs.events.map(({ level }) => level).sort()).toEqual([
         "query",
         "query",
-        "warning",
       ]);
     } finally {
       await recorder.dispose();

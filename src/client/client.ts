@@ -52,7 +52,6 @@ import {
   TransactionWriteOutcomes,
 } from "@extensions/query";
 import { applyRequestTransforms } from "@extensions/request";
-import type { InstrumentationContext } from "@instrumentation";
 import {
   createCacheExecutionOptions,
   executeCachedResultOperation,
@@ -83,15 +82,14 @@ import {
   type OfficialDefaultOmitExtension,
   type OfficialDefaultOmitRequestContribution,
 } from "./default-omit-extension";
+import { assertGeoPointFieldsFitAdapter } from "./geo-point-provider-limit";
 import {
   applyClientOmit,
   type ClientOmitResolver,
   createClientOmitResolver,
 } from "./omit";
 import {
-  createLegacyRawWarner,
   createRawSurface,
-  type LegacyRawWarner,
   RAW_METHOD_NAMES,
   type RawOperation,
   type RawSurface,
@@ -105,8 +103,6 @@ interface OfficialReadCache {
   >;
   readonly options: CacheExecutionOptions;
 }
-
-const ignoreLegacyRawWarning: LegacyRawWarner = () => undefined;
 
 /**
  * Create a recursive proxy for model operations
@@ -443,10 +439,6 @@ export class VibORM<C extends VibORMConfig> {
   private readonly schema: C["schema"];
   private readonly engine: QueryEngine;
   private readonly relations: ResolvedRelationIndex;
-  /** Lazily adds one deprecation sink for each official instrumentation context. */
-  private extensionRawWarners:
-    | WeakMap<InstrumentationContext, LegacyRawWarner>
-    | undefined;
   /** One resolved declarative omit per authenticated capability on this client. */
   private extensionOmitResolvers:
     | WeakMap<object, Readonly<{ resolver: ClientOmitResolver | undefined }>>
@@ -465,23 +457,7 @@ export class VibORM<C extends VibORMConfig> {
    * transaction-bound scope inside an interactive transaction.
    */
   private rawSurface(engine: QueryEngine): RawSurface {
-    const instrumentation = engine.instrumentation;
-    let warnLegacyString = ignoreLegacyRawWarning;
-    if (instrumentation !== undefined) {
-      const warners =
-        this.extensionRawWarners ?? (this.extensionRawWarners = new WeakMap());
-      const existing = warners.get(instrumentation);
-      if (existing !== undefined) {
-        warnLegacyString = existing;
-      } else {
-        warnLegacyString = createLegacyRawWarner(instrumentation);
-        warners.set(instrumentation, warnLegacyString);
-      }
-    }
-    return createRawSurface({
-      engine,
-      warnLegacyString,
-    });
+    return createRawSurface({ engine });
   }
 
   /**
@@ -1242,6 +1218,7 @@ export class VibORM<C extends VibORMConfig> {
       // a definition error, and the caller learns it at the line that bound the
       // schema rather than at the first UPDATE that could not compute inside it.
       assertDecimalDomainsFitProvider(config.schema, config.driver.dialect);
+      assertGeoPointFieldsFitAdapter(config.schema, config.driver.adapter);
       // ONE resolution for the whole client lifecycle: the gate's index goes
       // straight into the constructor, so the registry and query scopes are
       // composed over the same object (§11.4.10).

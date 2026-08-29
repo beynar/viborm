@@ -41,6 +41,12 @@ export type {
 export { createClient } from "./client/client.js";
 export type { RawOperation } from "./client/raw.js";
 export {
+  getOperationPayloadSchema,
+  renderOperationResultType,
+  renderSchemaType,
+  validateOperationPayload,
+} from "./client/schema-introspection.js";
+export {
   type ClientExtension,
   defineExtension,
   type ObservationCompletion,
@@ -80,8 +86,15 @@ export {
   type JsonNullKind,
   JsonNullSentinel,
 } from "./schema/json-null.js";
-// The JSON write-position value type (no bare top-level `null` — use a sentinel)
-export type { InputJsonValue, JsonValue } from "./validation/index.js";
+// Public logical values. GeoArea is query-only; only GeoPoint is stored.
+export type {
+  GeoArea,
+  GeoBounds,
+  GeoPoint,
+  GeoPolygon,
+  InputJsonValue,
+  JsonValue,
+} from "./validation/index.js";
 
 // =============================================================================
 // RAW SQL
@@ -135,16 +148,6 @@ export {
 } from "./errors.js";
 
 // =============================================================================
-// QUERY ENGINE TYPES (for advanced usage)
-// =============================================================================
-
-export type {
-  QueryMetadata,
-  RawQueryResult,
-  ResultParser,
-} from "./query-engine/types.js";
-
-// =============================================================================
 // SCHEMA UTILITIES
 // =============================================================================
 
@@ -155,13 +158,11 @@ export type {
   SchemaValidationIssue,
   Severity,
   ValidationResult,
-  ValidationRule,
 } from "./schema/validation/index.js";
 // Schema validation
 export {
   isSchemaValidationError,
   SchemaValidationError,
-  SchemaValidator,
   validateSchema,
   validateSchemaOrThrow,
 } from "./schema/validation/index.js";

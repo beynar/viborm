@@ -1,9 +1,6 @@
 import { s } from "@schema";
-import {
-  SchemaValidationError,
-  validateSchema,
-  validateSchemaOrThrow,
-} from "@schema/validation";
+import { SchemaValidationError, validateSchema } from "@schema/validation";
+import { validateResolvedSchemaOrThrow } from "@schema/validation/validator";
 import { describe, expect, it } from "vitest";
 
 const MONEY = { precision: 12, scale: 2 };
@@ -72,11 +69,13 @@ describe("fixed-decimal foreign-key domains", () => {
 
   it("refuses a later compound member mismatch instead of publishing topology", () => {
     const schema = compoundDecimalReference({ precision: 13, scale: 2 });
-    let publication: ReturnType<typeof validateSchemaOrThrow> | undefined;
+    let publication:
+      | ReturnType<typeof validateResolvedSchemaOrThrow>
+      | undefined;
     let refusal: unknown;
 
     try {
-      publication = validateSchemaOrThrow(schema);
+      publication = validateResolvedSchemaOrThrow(schema);
     } catch (error) {
       refusal = error;
     }

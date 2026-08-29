@@ -1,27 +1,65 @@
 import type { Sql } from "@sql";
 import type { DecimalDescriptor } from "@validation/primitives/decimal-codec";
-import type { DatabaseAdapterCapabilities } from "./adapter-capabilities";
 import type {
-  ArithmeticTarget,
-  BatchReferenceSqlAdapter,
-  CastType,
-} from "./adapter-core-types";
-import type { QueryParts } from "./adapter-query-parts";
+  GeoBounds,
+  GeoPoint,
+  GeoPolygon,
+} from "@validation/primitives/geo-values";
+import type { DatabaseAdapterCapabilities } from "./adapter-capabilities";
+import type { ArithmeticTarget, CastType } from "./adapter-core-types";
 import type { AdapterResultParser } from "./adapter-result-parser";
 
 export type { DatabaseAdapterCapabilities } from "./adapter-capabilities";
 export type {
   ArithmeticTarget,
-  BatchReferenceSqlAdapter,
   CastType,
 } from "./adapter-core-types";
-export type {
-  DeleteParts,
-  InsertParts,
-  QueryParts,
-  UpdateParts,
-} from "./adapter-query-parts";
 export type { AdapterResultParser } from "./adapter-result-parser";
+
+/** The one physical SQL vocabulary for a logical EPSG:4326 GeoPoint. */
+export interface GeoPointSql {
+  /** Construct a stored point from already-bound longitude and latitude. */
+  readonly value: (longitude: Sql, latitude: Sql) => Sql;
+  /** Project the logical longitude from a stored point. */
+  readonly longitude: (point: Sql) => Sql;
+  /** Project the logical latitude from a stored point. */
+  readonly latitude: (point: Sql) => Sql;
+  /** Exact canonical coordinate equality. */
+  readonly equals: (point: Sql, expected: GeoPoint) => Sql;
+  /** Inclusive coordinate bounds, including antimeridian-crossing bounds. */
+  readonly withinBounds: (point: Sql, bounds: GeoBounds) => Sql;
+  /** Inclusive geographic polygon membership on full-tier providers. */
+  readonly withinPolygon?: (point: Sql, polygon: GeoPolygon) => Sql;
+  /** Fixed-radius spherical distance in meters on full-tier providers. */
+  readonly distance?: (left: Sql, right: Sql) => Sql;
+}
+
+/** Install the adapter's settled GeoPoint protocol as one immutable fact. */
+export function installGeoPointSql(
+  adapter: object,
+  geoPoint: GeoPointSql | undefined
+): void {
+  let installed: GeoPointSql | undefined;
+  if (geoPoint) {
+    const withinPolygon = geoPoint.withinPolygon;
+    const distance = geoPoint.distance;
+    installed = Object.freeze<GeoPointSql>({
+      value: geoPoint.value,
+      longitude: geoPoint.longitude,
+      latitude: geoPoint.latitude,
+      equals: geoPoint.equals,
+      withinBounds: geoPoint.withinBounds,
+      ...(withinPolygon ? { withinPolygon } : {}),
+      ...(distance ? { distance } : {}),
+    });
+  }
+  Object.defineProperty(adapter, "geoPoint", {
+    value: installed,
+    writable: false,
+    enumerable: true,
+    configurable: false,
+  });
+}
 
 /**
  * DatabaseAdapter Interface
@@ -519,15 +557,6 @@ export interface DatabaseAdapter {
   };
 
   /**
-   * ASSEMBLE
-   * Build complete SQL statements from parts
-   */
-  assemble: {
-    /** Assemble a complete SELECT query from parts */
-    select: (parts: QueryParts) => Sql;
-  };
-
-  /**
    * CTE
    * Common Table Expressions
    */
@@ -627,14 +656,6 @@ export interface DatabaseAdapter {
   lastInsertId: () => Sql;
 
   /**
-   * BATCH REFS
-   * @internal Temp/reference storage used by atomic batch plans to pass
-   * generated values between statements without exposing dialect-specific SQL
-   * to query-engine or user APIs.
-   */
-  batchRefs: BatchReferenceSqlAdapter;
-
-  /**
    * JOINS
    * Join operations
    */
@@ -701,38 +722,10 @@ export interface DatabaseAdapter {
   };
 
   /**
-   * GEOSPATIAL
-   * Geospatial operations (PostGIS)
-   *
-   * Matches filter schema: { equals, intersects, contains, within, crosses, overlaps, touches, covers, dWithin }
-   * Drivers that don't support geospatial operations can override
-   * this property with an object that throws FeatureNotSupportedError.
-   *
-   * Reserved — the query engine does not call these yet; geospatial filters
-   * are rejected in the where-builder today.
+   * Exact EPSG:4326 point SQL. Absence means this adapter has no physical
+   * GeoPoint tier; optional members distinguish the full polygon/distance tier.
    */
-  geospatial: {
-    /** Create a point from longitude/latitude: ST_SetSRID(ST_MakePoint(lng, lat), 4326) */
-    point: (lng: Sql, lat: Sql) => Sql;
-    /** ST_Equals: geometries are spatially equal */
-    equals: (geom1: Sql, geom2: Sql) => Sql;
-    /** ST_Intersects: geometries share any space */
-    intersects: (geom1: Sql, geom2: Sql) => Sql;
-    /** ST_Contains: geom1 completely contains geom2 */
-    contains: (geom1: Sql, geom2: Sql) => Sql;
-    /** ST_Within: geom1 is completely within geom2 */
-    within: (geom1: Sql, geom2: Sql) => Sql;
-    /** ST_Crosses: geometries cross each other */
-    crosses: (geom1: Sql, geom2: Sql) => Sql;
-    /** ST_Overlaps: geometries overlap */
-    overlaps: (geom1: Sql, geom2: Sql) => Sql;
-    /** ST_Touches: geometries touch at boundary */
-    touches: (geom1: Sql, geom2: Sql) => Sql;
-    /** ST_Covers: geom1 covers geom2 (no points of geom2 outside geom1) */
-    covers: (geom1: Sql, geom2: Sql) => Sql;
-    /** ST_DWithin: geometries are within specified distance (meters for geography) */
-    dWithin: (geom1: Sql, geom2: Sql, distance: Sql) => Sql;
-  };
+  readonly geoPoint?: GeoPointSql;
 
   result: AdapterResultParser;
 }

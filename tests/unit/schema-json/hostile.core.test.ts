@@ -501,6 +501,24 @@ describe("modifier legality", () => {
       issues(refusal(withUserField({ type: "point", unique: true })))
     ).toEqual(["[J007] /models/user/fields/probe/unique"]);
     expect(
+      issues(refusal(withUserField({ type: "point", dimension: 2 })))
+    ).toEqual(["[J007] /models/user/fields/probe/dimension"]);
+    expect(
+      issues(
+        refusal(
+          withUserField({
+            type: "point",
+            native: { db: "pg", type: "point" },
+          })
+        )
+      )
+    ).toEqual(["[J007] /models/user/fields/probe/native"]);
+    expect(
+      issues(
+        refusal(withUserField({ type: "point", generate: { kind: "uuid" } }))
+      )
+    ).toEqual(["[J007] /models/user/fields/probe/generate"]);
+    expect(
       issues(
         refusal(withUserField({ type: "string", generate: { kind: "now" } }))
       )
@@ -1284,11 +1302,12 @@ describe("native types", () => {
     // 115 -> 99 and 91 -> 77 when the three decimal native-type catalogs were
     // deleted: a fixed decimal's column type is DERIVED from its declared
     // precision and scale on every dialect, so there is no native override to
-    // name (`s.decimal` publishes none).
-    expect(produced).toHaveLength(99);
+    // name (`s.decimal` publishes none). The fixed GeoPoint language then
+    // removed PostgreSQL's three configurable point spellings.
+    expect(produced).toHaveLength(96);
     expect(new Set(produced.map((n) => `${n.db} ${n.type}`))).toHaveProperty(
       "size",
-      77
+      74
     );
 
     for (const native of produced) {

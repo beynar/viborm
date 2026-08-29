@@ -1,5 +1,5 @@
 import { MemoryCache } from "@src/cache/drivers/memory";
-import { type CacheExecutionOptions, cache } from "@src/cache/exports";
+import { cache } from "@src/cache/exports";
 import {
   createClient as createPGliteClient,
   PGliteDriver,
@@ -17,16 +17,6 @@ const schema = { user };
 const cacheDriver = new MemoryCache();
 const base = createClient({ schema, driver: new PGliteDriver() });
 
-const _publicExecutionOptions: CacheExecutionOptions = {
-  bypass: false,
-  swr: false,
-  ttlMs: 1000,
-  // @ts-expect-error - official cache scope is not a public execution option
-  keyScope: {
-    namespace:
-      "viborm:cache:r3:d:0070006f0073007400670072006500730071006c:k:007000750062006c00690063:u",
-  },
-};
 const _forgedScope = {
   namespace:
     "viborm:cache:r3:d:0070006f0073007400670072006500730071006c:k:007000750062006c00690063:u",

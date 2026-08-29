@@ -24,7 +24,6 @@ import {
 } from "@src/instrumentation/context";
 import {
   ATTR_CACHE_DRIVER,
-  ATTR_CACHE_KEY,
   ATTR_CACHE_RESULT,
   ATTR_CACHE_TTL,
   ATTR_DB_COLLECTION,
@@ -40,14 +39,14 @@ import {
   ATTR_VIBORM_WRITE_COMPLETED_MEMBERS,
   ATTR_VIBORM_WRITE_MEMBER_PATH,
   ATTR_VIBORM_WRITE_STATEMENT_COUNT,
-  SPAN_BUILD,
   SPAN_CACHE_GET,
   SPAN_CACHE_SET,
+  SPAN_CONNECT,
+  SPAN_DISCONNECT,
   SPAN_EXECUTE,
   SPAN_OPERATION,
-  SPAN_PARSE,
   SPAN_RECORD_SERIES_SEGMENT,
-  SPAN_VALIDATE,
+  SPAN_TRANSACTION,
 } from "@src/instrumentation/spans";
 import { getNoopTracer } from "@src/instrumentation/tracer";
 import type {
@@ -96,7 +95,7 @@ describe("createInstrumentationContext — tracer", () => {
   it("snapshots flags, handlers, and ignore patterns before caller mutation", async () => {
     const originalHandler = vi.fn();
     const replacementHandler = vi.fn();
-    const pattern = /^viborm\.validate$/g;
+    const pattern = /^viborm\.connect$/g;
     const config: InstrumentationConfig = {
       diagnostics: { includeParams: true },
       tracing: { includeParams: true, ignoreSpanTypes: [pattern] },
@@ -110,7 +109,7 @@ describe("createInstrumentationContext — tracer", () => {
     pattern.lastIndex = 4;
 
     ctx.logger?.query({ timestamp: new Date() });
-    await ctx.tracer.startActiveSpan({ name: SPAN_VALIDATE }, () => undefined);
+    await ctx.tracer.startActiveSpan({ name: SPAN_CONNECT }, () => undefined);
 
     expect(ctx.config.diagnostics).toEqual({
       includeParams: true,
@@ -118,7 +117,7 @@ describe("createInstrumentationContext — tracer", () => {
     });
     expect(originalHandler).toHaveBeenCalledOnce();
     expect(replacementHandler).not.toHaveBeenCalled();
-    expect(recorder.find(SPAN_VALIDATE)).toBeUndefined();
+    expect(recorder.find(SPAN_CONNECT)).toBeUndefined();
     const tracing = ctx.config.tracing;
     if (!tracing || tracing === true) {
       throw new Error("expected a resolved tracing snapshot");
@@ -162,7 +161,7 @@ describe("createInstrumentationContext — tracer", () => {
       },
     });
     const patterns: Array<string | RegExp> = [
-      SPAN_VALIDATE,
+      SPAN_CONNECT,
       new UnreadablePattern("execute"),
     ];
     Object.defineProperty(patterns, "2", {
@@ -181,7 +180,7 @@ describe("createInstrumentationContext — tracer", () => {
 
     expect(ctx.logger).toBeUndefined();
     expect(ctx.config.tracing).toMatchObject({
-      ignoreSpanTypes: [SPAN_VALIDATE],
+      ignoreSpanTypes: [SPAN_CONNECT],
     });
   });
 
@@ -213,20 +212,23 @@ describe("createInstrumentationContext — tracer", () => {
 
   it("tracing object forwards ignoreSpanTypes (matching span not recorded)", async () => {
     const ctx = createInstrumentationContext({
-      tracing: { ignoreSpanTypes: [SPAN_VALIDATE] },
+      tracing: { ignoreSpanTypes: [SPAN_CONNECT] },
     });
     const value = await ctx.tracer.startActiveSpan(
-      { name: SPAN_VALIDATE },
+      { name: SPAN_CONNECT },
       () => "ran"
     );
     // Callback still runs...
     expect(value).toBe("ran");
     // ...but the ignored span is not recorded.
-    expect(recorder.find(SPAN_VALIDATE)).toBeUndefined();
+    expect(recorder.find(SPAN_CONNECT)).toBeUndefined();
     // A non-ignored span from the SAME wrapper IS recorded, proving the wrapper
-    // is otherwise live (SPAN_BUILD is used by no other test here).
-    await ctx.tracer.startActiveSpan({ name: SPAN_BUILD }, () => undefined);
-    expect(recorder.find(SPAN_BUILD)).toBeDefined();
+    // is otherwise live (SPAN_DISCONNECT is used by no other test here).
+    await ctx.tracer.startActiveSpan(
+      { name: SPAN_DISCONNECT },
+      () => undefined
+    );
+    expect(recorder.find(SPAN_DISCONNECT)).toBeDefined();
   });
 });
 
@@ -336,10 +338,10 @@ describe("instrumentation predicates", () => {
 describe("span + attribute constants", () => {
   it("span names carry their documented viborm.* values", () => {
     expect(SPAN_OPERATION).toBe("viborm.operation");
-    expect(SPAN_VALIDATE).toBe("viborm.validate");
-    expect(SPAN_BUILD).toBe("viborm.build");
+    expect(SPAN_CONNECT).toBe("viborm.connect");
+    expect(SPAN_DISCONNECT).toBe("viborm.disconnect");
     expect(SPAN_EXECUTE).toBe("viborm.execute");
-    expect(SPAN_PARSE).toBe("viborm.parse");
+    expect(SPAN_TRANSACTION).toBe("viborm.transaction");
     expect(SPAN_CACHE_GET).toBe("viborm.cache.get");
     expect(SPAN_CACHE_SET).toBe("viborm.cache.set");
     expect(SPAN_RECORD_SERIES_SEGMENT).toBe(
@@ -355,7 +357,6 @@ describe("span + attribute constants", () => {
     expect(ATTR_DB_DRIVER).toBe("db.system.driver");
     expect(ATTR_DB_QUERY_PARAMETER_PREFIX).toBe("db.query.parameter");
     expect(ATTR_CACHE_DRIVER).toBe("cache.driver");
-    expect(ATTR_CACHE_KEY).toBe("cache.key");
     expect(ATTR_CACHE_RESULT).toBe("cache.result");
     expect(ATTR_CACHE_TTL).toBe("cache.ttl");
     expect(ATTR_VIBORM_WRITE_ATOMICITY).toBe("viborm.write.atomicity");
@@ -380,10 +381,10 @@ describe("span + attribute constants", () => {
   it("all span-name constants are distinct (no accidental collisions)", () => {
     const names = [
       SPAN_OPERATION,
-      SPAN_VALIDATE,
-      SPAN_BUILD,
+      SPAN_CONNECT,
+      SPAN_DISCONNECT,
       SPAN_EXECUTE,
-      SPAN_PARSE,
+      SPAN_TRANSACTION,
       SPAN_CACHE_GET,
       SPAN_CACHE_SET,
     ];

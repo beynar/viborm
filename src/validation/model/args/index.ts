@@ -7,9 +7,11 @@ import type { ScalarSchemas } from "../index";
 import {
   type AggregateArgs,
   type CountArgs,
+  type ExistArgs,
   type GroupByArgs,
   getAggregateArgs,
   getCountArgs,
+  getExistArgs,
   getGroupByArgs,
 } from "./aggregate";
 import {
@@ -44,6 +46,7 @@ export {
   getAggregateArgs,
   getAggregateScalarSchemas,
   getCountArgs,
+  getExistArgs,
   getGroupByArgs,
 } from "./aggregate";
 // Find exports
@@ -71,6 +74,7 @@ export type ArgsSchemas<M extends AnyModel, F extends ScalarSchemas<M>> = {
   deleteMany: DeleteManyArgs<M, F>;
   upsert: UpsertArgs<M, F>;
   count: CountArgs<M, F>;
+  exist: ExistArgs<M, F>;
   aggregate: AggregateArgs<M, F>;
   groupBy: GroupByArgs<M, F>;
 };
@@ -96,6 +100,7 @@ export const getArgsSchemas = <M extends AnyModel, F extends ScalarSchemas<M>>(
     deleteMany: () => getDeleteManyArgs(model, core),
     upsert: () => getUpsertArgs(model, core),
     count: () => getCountArgs(model, core),
+    exist: () => getExistArgs(core),
     aggregate: () => getAggregateArgs(model, core),
     groupBy: () => getGroupByArgs(model, _fieldSchemas, core),
   });

@@ -24,6 +24,7 @@ import { getMigrationDriver } from "@migrations/drivers";
 import { introspect as introspectClient } from "@migrations/push";
 import { PG, s } from "@schema";
 import { createControlTableSQL } from "@src/migrations/control";
+import { diff } from "@src/migrations/differ";
 import { postgresMigrationDriver } from "@src/migrations/drivers/postgres";
 import type { DiffOperation, SchemaSnapshot } from "@src/migrations/types";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -51,9 +52,8 @@ const tenant = getMigrationDriver(pgEstateDriver("tenant_b"));
  * still a type VibORM cannot round-trip.
  */
 function extensionCapableEstate(namespace: string) {
-  const adapter = new PostgresAdapter(namespace);
+  const adapter = new PostgresAdapter(namespace, true);
   adapter.capabilities.supportsVector = true;
-  adapter.capabilities.supportsGeospatial = true;
   return getMigrationDriver(new RecordingDriver("postgresql", "pg", adapter));
 }
 
@@ -399,7 +399,8 @@ describe("control and inventory statements name the estate", () => {
 
   it("binds the estate's schema into both inventories, with no public fallback", () => {
     const tables = billing.generateInventoryTables();
-    expect(tables.sql).toContain("schemaname = $1");
+    expect(tables.sql).toContain("tables.table_schema = $1");
+    expect(tables.sql).toContain("pg_catalog.pg_depend");
     expect(tables.sql).not.toContain("'billing'");
     expect(tables.params).toEqual(["billing"]);
 
@@ -599,6 +600,14 @@ describe("introspection is relative to the estate's schema", () => {
       expect(statement.sql).not.toContain("'public'");
       expect(statement.sql).not.toContain("'billing'");
     }
+    for (const query of ["tables", "columns"] as const) {
+      const statement = executor.asked.get(query);
+      expect(statement?.sql).toContain("pg_catalog.pg_depend");
+      expect(statement?.sql).toContain(
+        "refclassid = 'pg_catalog.pg_extension'::pg_catalog.regclass"
+      );
+      expect(statement?.sql).toContain("deptype = 'e'");
+    }
   });
 
   it("keeps the built-in type reading every existing snapshot holds", async () => {
@@ -746,6 +755,64 @@ describe("introspection is relative to the estate's schema", () => {
     expect(snapshot.tables[0]?.columns.map((column) => column.type)).toEqual([
       "vector(3)",
       "geometry(Point,4326)",
+    ]);
+  });
+
+  it.each([
+    ["wrong geography subtype", "geography", "geography(LineString,4326)"],
+    ["wrong geography SRID", "geography", "geography(Point,3857)"],
+    ["geometry instead of geography", "geometry", "geometry(Point,4326)"],
+  ])("preserves a %s so the differ repairs it", async (_case, udtName, formattedType) => {
+    const executor = catalogExecutor({
+      tables: [{ table_name: "points" }],
+      columns: [
+        {
+          ...BUILT_IN_COLUMN,
+          table_name: "points",
+          column_name: "location",
+          data_type: "USER-DEFINED",
+          udt_schema: "public",
+          udt_name: udtName,
+          is_nullable: "NO",
+          column_default: null,
+          numeric_precision: null,
+          numeric_scale: null,
+          formatted_type: formattedType,
+          type_extension: "postgis",
+          type_extension_schema: "public",
+        },
+      ],
+    });
+    const current = await extensionCapableEstate("billing").introspect(
+      executor.execute
+    );
+    const desired: SchemaSnapshot = {
+      tables: [
+        {
+          name: "points",
+          columns: [
+            {
+              name: "location",
+              type: "geography(Point,4326)",
+              nullable: false,
+              autoIncrement: false,
+            },
+          ],
+          indexes: [],
+          foreignKeys: [],
+          uniqueConstraints: [],
+        },
+      ],
+    };
+
+    expect(current.tables[0]?.columns[0]?.type).toBe(formattedType);
+    expect((await diff(current, desired)).operations).toEqual([
+      expect.objectContaining({
+        type: "alterColumn",
+        columnName: "location",
+        from: expect.objectContaining({ type: formattedType }),
+        to: expect.objectContaining({ type: "geography(Point,4326)" }),
+      }),
     ]);
   });
 

@@ -16,7 +16,6 @@ export {
   QueryError,
   TransactionError,
   UniqueConstraintError,
-  unsupportedGeospatial,
   unsupportedVector,
   VibORMError as DriverError,
 } from "@errors";
@@ -67,6 +66,5 @@ export { SQLite3Driver } from "./sqlite3";
 export type {
   BatchQuery,
   Dialect,
-  LogFunction,
   QueryResult,
 } from "./types";

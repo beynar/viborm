@@ -12,6 +12,9 @@ import {
   type Config,
   Client as PlanetScaleClient,
 } from "@planetscale/database";
+import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
+import { s } from "@schema";
+import { createSchemaRegistry } from "@validation";
 import { describe, expect, test, vi } from "vitest";
 
 async function captureQueryError(
@@ -205,6 +208,55 @@ describe("provider row-count normalization", () => {
     )._executeRaw("INSERT INTO t VALUES (1)");
 
     expect(result.insertId).toBe(9_007_199_254_740_993n);
+  });
+
+  test("PlanetScale preview sends GeoPoint SQL through its SDK formatter", async () => {
+    const location = { longitude: 12.5, latitude: -7.25 };
+    const locationText = JSON.stringify(location);
+    const encodedLocation = btoa(locationText);
+    const response = createPlanetScaleFetch({
+      result: {
+        fields: [{ name: "location", type: "VARCHAR" }],
+        rows: [
+          { lengths: [String(locationText.length)], values: encodedLocation },
+        ],
+      },
+    });
+    let requestBody: unknown;
+    const fetch: NonNullable<Config["fetch"]> = async (input, init) => {
+      requestBody = init?.body;
+      return response(input, init);
+    };
+    const place = s.model({
+      id: s.string().id(),
+      location: s.point(),
+    });
+    const driver = new PlanetScaleDriver({
+      databaseUrl: "https://user:password@geopoint-preview.test/database",
+      options: { fetch },
+    });
+    const models = { place };
+    const registry = createModelRegistry(models, createSchemaRegistry(models));
+    const query = new QueryEngine(driver, registry).build(place, "findMany", {
+      where: { location: { equals: location } },
+      select: { location: true },
+    });
+
+    try {
+      await expect(driver._execute(query)).resolves.toMatchObject({
+        rows: [{ location: locationText }],
+      });
+    } finally {
+      await driver.disconnect();
+    }
+
+    if (typeof requestBody !== "string") {
+      throw new Error("Expected the PlanetScale SDK request body");
+    }
+    const request = JSON.parse(requestBody);
+    expect(request.query).toBe(
+      "SELECT JSON_OBJECT('longitude', ST_Longitude(`t0`.`location`), 'latitude', ST_Latitude(`t0`.`location`)) AS `location` FROM `place` AS `t0` WHERE (ST_Longitude(`t0`.`location`) = 12.5 AND ST_Latitude(`t0`.`location`) = -7.25)"
+    );
   });
 
   test("PlanetScale validates the wrapped response text consumer path", async () => {

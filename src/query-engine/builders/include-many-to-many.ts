@@ -1,3 +1,4 @@
+import { assembleAdapterSelect } from "@adapters/adapter-internals";
 import { type Sql, sql } from "@sql";
 import { createChildScope } from "../context";
 import type { QueryScope, RelationRef } from "../types";
@@ -213,7 +214,7 @@ function guardJunctionIntegrity(
   const { adapter } = ctx;
   const [correlationCondition, joinCondition] = traversal.conditions();
   const membershipCount = adapter.subqueries.scalar(
-    adapter.assemble.select({
+    assembleAdapterSelect(adapter, {
       columns: adapter.aggregates.count(),
       from: adapter.identifiers.table(
         membership.table,
@@ -223,7 +224,7 @@ function guardJunctionIntegrity(
     })
   );
   const orphanCount = adapter.subqueries.scalar(
-    adapter.assemble.select({
+    assembleAdapterSelect(adapter, {
       columns: adapter.aggregates.count(),
       from: buildPolymorphicMemberOuterFrom(
         ctx,

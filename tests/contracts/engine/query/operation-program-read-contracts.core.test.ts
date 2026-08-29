@@ -3,13 +3,7 @@ import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { COUNT_RESULT_KEY } from "@adapters/shared/result-parsing";
 import { type Dialect, Driver } from "@drivers";
 import type { QueryResult } from "@drivers/types";
-import {
-  SPAN_BUILD,
-  SPAN_EXECUTE,
-  SPAN_OPERATION,
-  SPAN_PARSE,
-  SPAN_VALIDATE,
-} from "@instrumentation/spans";
+import { SPAN_EXECUTE, SPAN_OPERATION } from "@instrumentation/spans";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { getAggregateResultKey } from "@query-engine/result-aliases";
 import { hydrateSchemaNames, s } from "@schema";
@@ -135,15 +129,7 @@ describe("read result and lifecycle contracts", () => {
         recorder
           .spans()
           .map(({ name }) => name)
-          .filter((name) =>
-            [
-              SPAN_OPERATION,
-              SPAN_VALIDATE,
-              SPAN_BUILD,
-              SPAN_EXECUTE,
-              SPAN_PARSE,
-            ].includes(name)
-          )
+          .filter((name) => [SPAN_OPERATION, SPAN_EXECUTE].includes(name))
       ).toEqual([SPAN_EXECUTE, SPAN_OPERATION]);
 
       const executions = driver.executionCount;

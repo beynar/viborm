@@ -29,6 +29,10 @@ import {
   fkIndexUpgradeContract,
 } from "@tests/contracts/drivers/behaviors/fk-index-behavior";
 import { forwardFkOrderingContract } from "@tests/contracts/drivers/behaviors/forward-fk-ordering-behavior";
+import {
+  geoPointBatchContract,
+  geoPointContract,
+} from "@tests/contracts/drivers/behaviors/geopoint-behavior";
 import { implicitReturningContract } from "@tests/contracts/drivers/behaviors/implicit-returning-behavior";
 import {
   mappedIndexContract,
@@ -85,10 +89,10 @@ import {
   createSQLite3UserPostClient,
   setupSQLite3UserPostDatabase,
 } from "@tests/fixtures/drivers/sqlite3";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { seedWindowUserPosts } from "@tests/fixtures/user-post-seed";
 import type Database from "better-sqlite3";
 import { vi } from "vitest";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 class BatchOnlySQLite3Driver extends SQLite3Driver {
   override readonly supportsTransactions = false;
@@ -101,7 +105,7 @@ class BatchOnlySQLite3Driver extends SQLite3Driver {
     return this.transaction(client, async (tx) => {
       const results: QueryResult<T>[] = [];
       for (const query of queries) {
-        results.push(await this.executeRaw<T>(tx, query.sql, query.params));
+        results.push(await this.execute<T>(tx, query.sql, query.params ?? []));
       }
       return results;
     });
@@ -119,6 +123,18 @@ function createBatchOnlySQLite3Driver(): SQLite3Driver {
 // =============================================================================
 
 describe("SQLite3 Driver", () => {
+  geoPointContract.register({
+    driverName: "SQLite3",
+    createDriver: createInMemorySQLite3Driver,
+    tier: "storage",
+    rawSelectSql:
+      'SELECT "location" FROM "geopoint_behavior_places" WHERE "id" = \'raw\'',
+  });
+  geoPointBatchContract.register({
+    driverName: "SQLite3 forced native batch",
+    createDriver: createBatchOnlySQLite3Driver,
+  });
+
   describe("Vector Support", () => {
     test("throws FeatureNotSupported for vector distance orderBy", async () => {
       const schema = {

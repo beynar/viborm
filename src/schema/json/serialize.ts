@@ -251,7 +251,9 @@ function serializeScalar(
     // is untrusted. Emitting a value that gate would refuse would write a
     // document this parser cannot read back — a round trip that loses a schema —
     // so the same rule refuses it here, by name.
-    if (document.type === "decimal") {
+    if (document.type === "point") {
+      refusePointState(path, "native", issues);
+    } else if (document.type === "decimal") {
       addIssue(
         issues,
         pointer(path, "native"),
@@ -272,11 +274,20 @@ function serializeScalar(
       );
     }
   }
-  if (state.array) document.array = true;
+  if (state.array) {
+    if (document.type === "point") refusePointState(path, "array", issues);
+    else document.array = true;
+  }
   if (state.nullable) document.nullable = true;
-  if (state.isId) document.id = true;
+  if (state.isId) {
+    if (document.type === "point") refusePointState(path, "id", issues);
+    else document.id = true;
+  }
   // `.id()` implies uniqueness; only a standalone `.unique()` is a declaration.
-  if (state.isUnique && !state.isId) document.unique = true;
+  if (state.isUnique && !state.isId) {
+    if (document.type === "point") refusePointState(path, "unique", issues);
+    else document.unique = true;
+  }
   // `withTimezone` starts `false` for every scalar and `true` for the two whose
   // factories set it, so the modifier's PRESENCE is what tells a declaration
   // apart from a state that never had the fact.
@@ -286,15 +297,25 @@ function serializeScalar(
   ) {
     document.withoutTimezone = true;
   }
-  if (state.dimension !== undefined) document.dimension = state.dimension;
+  if (state.dimension !== undefined) {
+    if (document.type === "point") {
+      refusePointState(path, "dimension", issues);
+    } else {
+      document.dimension = state.dimension;
+    }
+  }
   if (state.columnName !== undefined) document.column = state.columnName;
   if (state.autoGenerate !== undefined) {
-    document.generate = { kind: state.autoGenerate.kind };
-    if (state.autoGenerate.prefix !== undefined) {
-      document.generate.prefix = state.autoGenerate.prefix;
-    }
-    if (state.autoGenerate.length !== undefined) {
-      document.generate.length = state.autoGenerate.length;
+    if (document.type === "point") {
+      refusePointState(path, "generate", issues);
+    } else {
+      document.generate = { kind: state.autoGenerate.kind };
+      if (state.autoGenerate.prefix !== undefined) {
+        document.generate.prefix = state.autoGenerate.prefix;
+      }
+      if (state.autoGenerate.length !== undefined) {
+        document.generate.length = state.autoGenerate.length;
+      }
     }
   }
   if (state.schema !== undefined) {
@@ -308,6 +329,19 @@ function serializeScalar(
   const literal = serializeDefault(state, path, issues);
   if (literal !== undefined) document.default = literal;
   return document;
+}
+
+function refusePointState(
+  path: string,
+  key: string,
+  issues: DocumentIssues
+): void {
+  addIssue(
+    issues,
+    pointer(path, key),
+    "J009",
+    `A GeoPoint cannot carry a '${key}' declaration`
+  );
 }
 
 /**

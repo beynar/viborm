@@ -40,6 +40,22 @@ export const vectorDistanceOrderSchema = v.object(
 );
 export type VectorDistanceOrderSchema = typeof vectorDistanceOrderSchema;
 
+export const pointDistanceOrderSchema = v.object(
+  {
+    _distance: v.object(
+      {
+        to: v.point(),
+        sort: orderEnum,
+      },
+      { partial: false }
+    ),
+    sort: forbiddenOrderByKeySchema("sort"),
+    nulls: forbiddenOrderByKeySchema("nulls"),
+  },
+  { atLeast: ["_distance"] }
+);
+export type PointDistanceOrderSchema = typeof pointDistanceOrderSchema;
+
 export const vectorSortOrderSchema = v.union([
   sortOrderSchema,
   vectorDistanceOrderSchema,
@@ -63,12 +79,21 @@ type ModelDecimalListScalarKeys<M extends AnyModel> = Extract<
 >;
 export type OrderableScalarKeys<M extends AnyModel> = Exclude<
   ModelScalarKey<M>,
-  ModelDecimalListScalarKeys<M>
+  ModelDecimalListScalarKeys<M> | PointScalarKeys<M>
 >;
 type VectorScalarKeys<M extends AnyModel> = {
   [K in keyof ModelScalars<M>]: ScalarStateOf<
     ModelScalars<M>[K]
   >["type"] extends "vector"
+    ? K extends string
+      ? K
+      : never
+    : never;
+}[keyof ModelScalars<M>];
+type PointScalarKeys<M extends AnyModel> = {
+  [K in keyof ModelScalars<M>]: ScalarStateOf<
+    ModelScalars<M>[K]
+  >["type"] extends "point"
     ? K extends string
       ? K
       : never
@@ -81,7 +106,7 @@ type NonVectorScalarKeys<M extends AnyModel> = Exclude<
 
 /** A decimal list has equality semantics, but no portable numeric ordering. */
 export const isOrderableScalarState = (state: ScalarState): boolean =>
-  state.type !== "decimal" || state.array !== true;
+  state.type !== "point" && (state.type !== "decimal" || state.array !== true);
 
 export const decimalListOrderByRefusalSchema = v.refused(
   "A decimal list cannot be used for numeric ordering."
@@ -110,6 +135,7 @@ export type OrderBySchema<
 > = V.Object<
   V.FromKeys<NonVectorScalarKeys<M>[], SortOrderSchema>["entries"] &
     V.FromKeys<VectorScalarKeys<M>[], VectorSortOrderSchema>["entries"] &
+    V.FromKeys<PointScalarKeys<M>[], PointDistanceOrderSchema>["entries"] &
     V.FromKeys<
       ModelDecimalListScalarKeys<M>[],
       DecimalListOrderByRefusalSchema
@@ -125,6 +151,7 @@ export const getOrderBySchema = <
   fieldSchemas: F
 ): OrderBySchema<M, F> => {
   const vectorScalarKeys: VectorScalarKeys<M>[] = [];
+  const pointScalarKeys: PointScalarKeys<M>[] = [];
   const nonVectorScalarKeys: NonVectorScalarKeys<M>[] = [];
   const decimalListScalarKeys: ModelDecimalListScalarKeys<M>[] = [];
 
@@ -143,6 +170,10 @@ export const getOrderBySchema = <
       vectorScalarKeys.push(fieldName as VectorScalarKeys<M>);
       continue;
     }
+    if (state.type === "point") {
+      pointScalarKeys.push(fieldName as PointScalarKeys<M>);
+      continue;
+    }
     nonVectorScalarKeys.push(fieldName as NonVectorScalarKeys<M>);
   }
 
@@ -154,6 +185,10 @@ export const getOrderBySchema = <
     VectorScalarKeys<M>[],
     typeof vectorSortOrderSchema
   >(vectorScalarKeys, vectorSortOrderSchema);
+  const pointEntries = v.fromKeys<
+    PointScalarKeys<M>[],
+    PointDistanceOrderSchema
+  >(pointScalarKeys, pointDistanceOrderSchema);
   const decimalListEntries = v.fromKeys<
     ModelDecimalListScalarKeys<M>[],
     DecimalListOrderByRefusalSchema
@@ -171,6 +206,7 @@ export const getOrderBySchema = <
   return v.object({
     ...scalarEntries.entries,
     ...vectorEntries.entries,
+    ...pointEntries.entries,
     ...decimalListEntries.entries,
     ...relationEntries.entries,
     ...polymorphicEntries.entries,

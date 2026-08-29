@@ -5,6 +5,17 @@
 
 import { ValidationError } from "@errors";
 import type { DecimalSchema } from "../primitives/decimal";
+import {
+  GEO_BOUNDS_KEYS,
+  GEO_POLYGON_MIN_RING_POINTS,
+} from "../primitives/geo-area-codec";
+import {
+  GEO_LATITUDE_MAX,
+  GEO_LATITUDE_MIN,
+  GEO_LONGITUDE_MAX,
+  GEO_LONGITUDE_MIN,
+  GEO_POINT_KEYS,
+} from "../primitives/geo-point-codec";
 import type { ExactlyOneSchema } from "../scalars/decimal";
 import type { VibSchema } from "../types";
 import { isFunction, isString } from "../value-guards";
@@ -27,6 +38,50 @@ const WRAPPER_TYPES = new Set(["array", "nullable", "optional", "lazyRef"]);
 const DECIMAL_INPUT_PATTERN = "^[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)$";
 const DECIMAL_OUTPUT_PATTERN =
   "^(?:0|-?(?:[1-9]\\d*(?:\\.\\d*[1-9])?|0\\.\\d*[1-9]))$";
+
+function geoPointJsonSchema(): JsonSchema {
+  return {
+    type: "object",
+    properties: {
+      [GEO_POINT_KEYS[0]]: {
+        type: "number",
+        minimum: GEO_LONGITUDE_MIN,
+        maximum: GEO_LONGITUDE_MAX,
+      },
+      [GEO_POINT_KEYS[1]]: {
+        type: "number",
+        minimum: GEO_LATITUDE_MIN,
+        maximum: GEO_LATITUDE_MAX,
+      },
+    },
+    required: [...GEO_POINT_KEYS],
+    additionalProperties: false,
+  };
+}
+
+function geoBoundsJsonSchema(): JsonSchema {
+  const latitude = {
+    type: "number" as const,
+    minimum: GEO_LATITUDE_MIN,
+    maximum: GEO_LATITUDE_MAX,
+  };
+  const longitude = {
+    type: "number" as const,
+    minimum: GEO_LONGITUDE_MIN,
+    maximum: GEO_LONGITUDE_MAX,
+  };
+  return {
+    type: "object",
+    properties: {
+      [GEO_BOUNDS_KEYS[0]]: latitude,
+      [GEO_BOUNDS_KEYS[1]]: longitude,
+      [GEO_BOUNDS_KEYS[2]]: latitude,
+      [GEO_BOUNDS_KEYS[3]]: longitude,
+    },
+    required: [...GEO_BOUNDS_KEYS],
+    additionalProperties: false,
+  };
+}
 
 type ConvertibleExactOneSchema = ExactlyOneSchema<
   Record<
@@ -476,14 +531,45 @@ function convertSchemaBody(
     }
 
     case "point":
-      jsonSchema.type = "object";
-      jsonSchema.properties = {
-        x: { type: "number" },
-        y: { type: "number" },
-      };
-      jsonSchema.required = ["x", "y"];
-      jsonSchema.additionalProperties = false;
+      Object.assign(jsonSchema, geoPointJsonSchema());
       break;
+
+    case "geo_area": {
+      const ring: JsonSchema = {
+        type: "array",
+        items: geoPointJsonSchema(),
+        minItems: GEO_POLYGON_MIN_RING_POINTS,
+      };
+      jsonSchema.oneOf = [
+        {
+          type: "object",
+          properties: {
+            bounds: {
+              ...geoBoundsJsonSchema(),
+            },
+          },
+          required: ["bounds"],
+          additionalProperties: false,
+        },
+        {
+          type: "object",
+          properties: {
+            polygon: {
+              type: "object",
+              properties: {
+                outer: ring,
+                holes: { type: "array", items: ring },
+              },
+              required: ["outer"],
+              additionalProperties: false,
+            },
+          },
+          required: ["polygon"],
+          additionalProperties: false,
+        },
+      ];
+      break;
+    }
 
     case "transform": {
       // Transform wraps another schema - use the wrapped schema for JSON representation

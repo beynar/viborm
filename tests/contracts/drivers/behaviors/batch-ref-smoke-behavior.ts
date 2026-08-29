@@ -1,3 +1,4 @@
+import { getAdapterInternals } from "@adapters/adapter-internals";
 import type { Driver } from "@drivers";
 import { sql } from "@sql";
 import { defineContract } from "@tests/contracts/contract";
@@ -15,7 +16,8 @@ export function runBatchRefSmokeBehavior<TDriver extends Driver<any, any>>({
   describe(`${driverName} batch refs`, () => {
     test("stores and reads an exact reference inside one batch", async () => {
       const driver = createDriver();
-      const storeLastInsertId = driver.adapter.batchRefs.storeLastInsertId;
+      const storeLastInsertId = getAdapterInternals(driver.adapter).batchRefs
+        .storeLastInsertId;
       const batchId = `smoke_${driverName.replace(/[^a-z0-9]/gi, "_")}`;
       const tableName = "__viborm_batch_ref_smoke_users";
       const createTable =
@@ -37,17 +39,25 @@ export function runBatchRefSmokeBehavior<TDriver extends Driver<any, any>>({
               )}) VALUES (${"Ada"})`,
               storeLastInsertId(batchId, "user_id"),
             ]
-          : [driver.adapter.batchRefs.store(batchId, "user_id", sql`${1}`)];
-        const setup = driver.adapter.batchRefs.setup(batchId);
+          : [
+              getAdapterInternals(driver.adapter).batchRefs.store(
+                batchId,
+                "user_id",
+                sql`${1}`
+              ),
+            ];
+        const setup = getAdapterInternals(driver.adapter).batchRefs.setup(
+          batchId
+        );
         const statements = [
           ...setup,
-          driver.adapter.batchRefs.clear(batchId),
+          getAdapterInternals(driver.adapter).batchRefs.clear(batchId),
           ...publication,
-          sql`SELECT ${driver.adapter.batchRefs.read(
+          sql`SELECT ${getAdapterInternals(driver.adapter).batchRefs.read(
             batchId,
             "user_id"
           )} AS ${driver.adapter.identifiers.escape("id")}`,
-          driver.adapter.batchRefs.cleanup(batchId),
+          getAdapterInternals(driver.adapter).batchRefs.cleanup(batchId),
           sql`DROP TABLE IF EXISTS ${driver.adapter.identifiers.escape(
             tableName
           )}`,

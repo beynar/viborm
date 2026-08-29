@@ -124,6 +124,21 @@ domains before assignment. Raw SQL deliberately sees the provider
 representation, including SQLite's scaled coefficient, and owns its session
 mode.
 
+### Rule 7: GeoPoint Is One Settled Protocol
+
+`DatabaseAdapter.geoPoint` is the sole GeoPoint SQL vocabulary: value,
+longitude, latitude, equality, inclusive bounds, and optional polygon/distance.
+`installGeoPointSql` snapshots and freezes that exact object and installs the
+adapter property non-writable. Absence means no point definition support;
+presence of the optional members proves the full query tier. Do not add a
+geospatial capability boolean, mutable member, strategy, generic geometry, or
+second parser.
+
+The query engine chooses the operation and passes trusted codec values. The
+adapter alone spells PostgreSQL/PostGIS, MySQL SRID 4326, or SQLite JSON SQL.
+All coordinates and polygon JSON are bound. PostgreSQL/MySQL spatial predicates
+may only be conservative index prefilters before exact public semantics.
+
 ---
 
 ## Database Capability Matrix

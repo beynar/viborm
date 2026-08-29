@@ -16,7 +16,11 @@ import type {
 } from "@schema/relation/static-membership";
 import type { ScalarState } from "@schema/scalars";
 import type { Prettify } from "@validation";
-import type { ModelCoreInput, ModelOperationInput } from "@validation/model";
+import type {
+  ModelArgsSchemas,
+  ModelOperationInput,
+  ModelOperationOutput,
+} from "@validation/model";
 import type { DecimalUpdateOperationKeys } from "@validation/scalars";
 import type { CacheInvalidationOptions } from "../cache/schema";
 import type { VibORMConfig } from "./client";
@@ -131,14 +135,35 @@ export type OperationPayload<
                             : O extends "updateMany"
                               ? ModelOperationInput<M, "updateMany">
                               : O extends "exist"
-                                ? // Optional like the runtime (count
-                                  // schema): exist() with no filter
-                                  // reports whether any row exists.
-                                    | {
-                                        where?: ModelCoreInput<M, "where">;
-                                      }
-                                    | undefined
+                                ? ModelOperationInput<M, "exist">
                                 : never;
+
+type OperationSchemaName<O extends Operations> = O extends "findUniqueOrThrow"
+  ? "findUnique"
+  : O extends "findFirstOrThrow"
+    ? "findFirst"
+    : O;
+
+/** The Standard Schema that owns one public operation's payload language. */
+export type OperationPayloadSchema<
+  O extends Operations,
+  M extends Model<any>,
+> = ModelArgsSchemas<M>[Extract<
+  OperationSchemaName<O>,
+  keyof ModelArgsSchemas<M>
+>];
+
+/** The normalized value produced by an operation payload schema. */
+export type ValidatedOperationPayload<
+  O extends Operations,
+  M extends Model<any>,
+> = Exclude<
+  ModelOperationOutput<
+    M,
+    Extract<OperationSchemaName<O>, keyof ModelArgsSchemas<M>>
+  >,
+  undefined
+>;
 
 /**
  * IMPLICIT RETURNING (maintainer decision D-1: `createManyAndReturn` /
@@ -333,9 +358,8 @@ type ResolvedOperationResultOmit<Args, DefaultOmit, Merged> =
  * unconfigured client and behaves exactly as it did before. It is merged only
  * into the unselected result world. A selected world ignores the client
  * default but still applies the query's own `omit`, matching `rewriteNode`.
- * `Merged` remains the public full-args override that predates client-level
- * omit; its private marker default lets the implementation distinguish an
- * omitted fifth argument from an explicit effective args type.
+ * The private merged-args marker distinguishes ordinary public arguments from
+ * the effective argument shape carried by one concrete client.
  */
 type OperationResultWithClientDefaults<
   O extends Operations,
@@ -400,29 +424,13 @@ type OperationResultWithClientDefaults<
                     : never
   : never;
 
-/**
- * Public operation result helper. Its fifth generic remains the historical
- * complete effective-args override; nested client defaults are internal to a
- * concrete `Client<C>` and do not change this standalone contract.
- */
+/** Public operation result helper for one operation and its declared args. */
 export type OperationResult<
   O extends Operations,
   M extends Model<any>,
   Args,
   DefaultOmit = undefined,
-  Merged = DefaultOperationResultArgs,
-  ResultArgs = ResolvedOperationResultArgs<Args, Merged>,
-  UnselectedOmit = ResolvedOperationResultOmit<Args, DefaultOmit, Merged>,
-> = OperationResultWithClientDefaults<
-  O,
-  M,
-  Args,
-  DefaultOmit,
-  never,
-  Merged,
-  ResultArgs,
-  UnselectedOmit
->;
+> = OperationResultWithClientDefaults<O, M, Args, DefaultOmit, never>;
 
 /** One concrete client's result, including its top-level and relation defaults. */
 export type ClientOperationResult<
@@ -821,6 +829,168 @@ type DirectDecimalUpdateGuard<
     ? DirectDecimalUpdateClauseGuard<Arg, M, "update">
     : unknown;
 
+type GeoPointStateOf<Field> = Field extends {
+  readonly "~": {
+    readonly state: infer State extends ScalarState<"point">;
+  };
+}
+  ? State
+  : never;
+
+type DirectGeoPointScalarKeys<State extends ModelState> = {
+  [Key in keyof State["scalars"]]: [
+    GeoPointStateOf<State["scalars"][Key]>,
+  ] extends [never]
+    ? never
+    : Key;
+}[keyof State["scalars"]];
+
+type NoExtraRecognizedKeys<
+  Given,
+  Allowed extends PropertyKey,
+  Recognized extends PropertyKey = Allowed,
+> = Given extends readonly unknown[]
+  ? unknown
+  : Given extends object
+    ? string extends keyof Given
+      ? unknown
+      : [Extract<keyof Given, Recognized>] extends [never]
+        ? unknown
+        : Record<Exclude<keyof Given, Allowed>, never>
+    : unknown;
+
+type GeoPointValueGuard<Given> = NoExtraRecognizedKeys<
+  Given,
+  "longitude" | "latitude"
+>;
+
+type GeoBoundsValueGuard<Given> = NoExtraRecognizedKeys<
+  Given,
+  "south" | "west" | "north" | "east"
+>;
+
+type GeoPolygonValueGuard<Given> = Given extends object
+  ? NoExtraRecognizedKeys<Given, "outer" | "holes"> &
+      ("outer" extends keyof Given
+        ? {
+            outer?: Given["outer"] extends readonly (infer Point)[]
+              ? readonly GeoPointValueGuard<Point>[]
+              : unknown;
+          }
+        : unknown) &
+      ("holes" extends keyof Given
+        ? {
+            holes?: NonNullable<Given["holes"]> extends readonly (infer Ring)[]
+              ? readonly (Ring extends readonly (infer Point)[]
+                  ? readonly GeoPointValueGuard<Point>[]
+                  : unknown)[]
+              : unknown;
+          }
+        : unknown)
+  : unknown;
+
+type GeoAreaValueGuard<Given> = Given extends object
+  ? NoExtraRecognizedKeys<Given, "bounds" | "polygon"> &
+      ("bounds" extends keyof Given
+        ? "polygon" extends keyof Given
+          ? { polygon?: never }
+          : unknown
+        : unknown) &
+      ("bounds" extends keyof Given
+        ? { bounds?: GeoBoundsValueGuard<Given["bounds"]> }
+        : unknown) &
+      ("polygon" extends keyof Given
+        ? { polygon?: GeoPolygonValueGuard<Given["polygon"]> }
+        : unknown)
+  : unknown;
+
+type GeoDistanceValueGuard<Given> = Given extends object
+  ? NoExtraRecognizedKeys<Given, "to" | "lt" | "lte" | "gt" | "gte"> &
+      ("to" extends keyof Given
+        ? { to?: GeoPointValueGuard<Given["to"]> }
+        : unknown)
+  : unknown;
+
+type GeoPointFilterValueGuard<Given> = Given extends object
+  ? [Extract<keyof Given, "equals" | "within" | "distance" | "not">] extends [
+      never,
+    ]
+    ? GeoPointValueGuard<Given>
+    : NoExtraRecognizedKeys<Given, "equals" | "within" | "distance" | "not"> &
+        ("equals" extends keyof Given
+          ? { equals?: GeoPointValueGuard<Given["equals"]> }
+          : unknown) &
+        ("within" extends keyof Given
+          ? { within?: GeoAreaValueGuard<Given["within"]> }
+          : unknown) &
+        ("distance" extends keyof Given
+          ? { distance?: GeoDistanceValueGuard<Given["distance"]> }
+          : unknown) &
+        ("not" extends keyof Given
+          ? { not?: GeoPointFilterValueGuard<Given["not"]> }
+          : unknown)
+  : unknown;
+
+type GeoPointWriteValueGuard<Given> = Given extends object
+  ? "set" extends keyof Given
+    ? NoExtraRecognizedKeys<Given, "set"> & {
+        set?: GeoPointValueGuard<Given["set"]>;
+      }
+    : GeoPointValueGuard<Given>
+  : unknown;
+
+type UsedGeoPointKeys<Row, PointKeys extends PropertyKey> = Extract<
+  SpelledClauseKeys<Row>,
+  PointKeys
+>;
+
+type GeoPointRowGuard<
+  Given,
+  PointKeys extends PropertyKey,
+  Mode extends "filter" | "write",
+  Row = Given extends readonly (infer Member)[] ? Member : Given,
+> = [UsedGeoPointKeys<Row, PointKeys>] extends [never]
+  ? unknown
+  : Row extends object
+    ? {
+        [Key in UsedGeoPointKeys<Row, PointKeys>]?: Mode extends "filter"
+          ? GeoPointFilterValueGuard<ValueAt<Row, Key>>
+          : GeoPointWriteValueGuard<ValueAt<Row, Key>>;
+      }
+    : unknown;
+
+type DirectGeoPointClauseGuard<
+  Arg,
+  Clause extends PropertyKey,
+  PointKeys extends PropertyKey,
+  Mode extends "filter" | "write",
+> = Clause extends keyof Arg
+  ? {
+      [Key in Clause]?: GeoPointRowGuard<
+        NonNullable<Arg[Key]>,
+        PointKeys,
+        Mode
+      >;
+    }
+  : unknown;
+
+type DirectGeoPointGuard<
+  O extends Operations,
+  Arg,
+  M extends Model<any>,
+  PointKeys extends PropertyKey = M extends Model<infer State>
+    ? DirectGeoPointScalarKeys<State>
+    : never,
+> = [PointKeys] extends [never]
+  ? unknown
+  : DirectGeoPointClauseGuard<Arg, "where", PointKeys, "filter"> &
+      (O extends "create" | "createMany" | "update" | "updateMany"
+        ? DirectGeoPointClauseGuard<Arg, "data", PointKeys, "write">
+        : O extends "upsert"
+          ? DirectGeoPointClauseGuard<Arg, "create", PointKeys, "write"> &
+              DirectGeoPointClauseGuard<Arg, "update", PointKeys, "write">
+          : unknown);
+
 type NoExtraOperationKeys<
   O extends Operations,
   Arg,
@@ -836,7 +1006,8 @@ type NoExtraOperationKeys<
   ClauseGuard<Arg, Payload, "cache"> &
   DirectPolymorphicProjectionGuard<Arg, M, "select"> &
   DirectPolymorphicProjectionGuard<Arg, M, "include"> &
-  DirectDecimalUpdateGuard<O, Arg, M>;
+  DirectDecimalUpdateGuard<O, Arg, M> &
+  DirectGeoPointGuard<O, Arg, M>;
 
 /**
  * Operation type - returns PendingOperation which implements PromiseLike

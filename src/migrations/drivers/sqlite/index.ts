@@ -41,6 +41,7 @@ import {
 import { getSQLiteType } from "../type-mapping";
 import type { MigrationCapabilities } from "../types";
 import { sqliteDecimalCheck, sqliteDecimalCopyExpression } from "./decimal";
+import { SQLITE_GEO_POINT_TYPE, sqliteGeoPointCheck } from "./geo-point";
 import { introspect } from "./introspect";
 
 /**
@@ -268,6 +269,12 @@ export class SQLite3MigrationDriver extends MigrationDriver {
 
     if (column.default !== undefined) {
       parts.push(`DEFAULT ${column.default}`);
+    }
+
+    if (column.type.toUpperCase() === SQLITE_GEO_POINT_TYPE) {
+      parts.push(
+        sqliteGeoPointCheck(column, (name) => this.escapeIdentifier(name))
+      );
     }
 
     // The reserved decimal CHECK is a DERIVED render of the column's own

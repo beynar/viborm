@@ -468,7 +468,7 @@ describe("model and field rules", () => {
   });
 
   it.each([
-    "0viborm_vector_distance",
+    "0viborm_distance",
     "0viborm_relation_counts",
   ])("errors F001 when a relation uses private carrier name %j", (name) => {
     const parent = s.model({

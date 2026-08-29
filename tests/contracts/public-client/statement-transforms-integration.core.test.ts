@@ -207,7 +207,7 @@ describe("integrated statement transforms", () => {
     expect(submitted[4]?.sql).toBe(unsafeExecuteSql);
   });
 
-  test("transforms tagged raw and preserves unsafe and legacy strings byte-for-byte", async () => {
+  test("transforms tagged raw and preserves unsafe strings byte-for-byte", async () => {
     const { client, database, driver } = transactionFamily();
     await client.author.create({ data: { id: "a1", name: "Ada" } });
     const calls: StatementCall[] = [];
@@ -217,7 +217,6 @@ describe("integrated statement transforms", () => {
     const providerQuery = vi.spyOn(database, "query");
     const executeRaw = vi.spyOn(driver, "_executeRaw");
     const unsafeSql = "SELECT 'unsafe-direct' AS value";
-    const legacySql = "SELECT 'legacy-direct' AS value";
     const unsafeExecuteSql =
       'UPDATE "author" SET "name" = \'unsafe-direct\' WHERE "id" = \'a1\'';
 
@@ -227,9 +226,6 @@ describe("integrated statement transforms", () => {
     await expect(
       derived.$queryRawUnsafe<{ value: string }>(unsafeSql)
     ).resolves.toEqual([{ value: "unsafe-direct" }]);
-    await expect(
-      derived.$queryRaw<{ value: string }>(legacySql)
-    ).resolves.toEqual([{ value: "legacy-direct" }]);
     const safeExecuteProviderIndex = providerQuery.mock.calls.length;
     await expect(
       derived.$executeRaw`UPDATE "author" SET "name" = ${"safe-direct"} WHERE "id" = ${"a1"}`
@@ -243,8 +239,7 @@ describe("integrated statement transforms", () => {
     expect(
       String(providerQuery.mock.calls[safeExecuteProviderIndex]?.[0])
     ).toContain("/* raw */");
-    expect(executeRaw.mock.calls.at(-3)?.[0]).toBe(unsafeSql);
-    expect(executeRaw.mock.calls.at(-2)?.[0]).toBe(legacySql);
+    expect(executeRaw.mock.calls.at(-2)?.[0]).toBe(unsafeSql);
     expect(executeRaw.mock.calls.at(-1)?.[0]).toBe(unsafeExecuteSql);
   });
 

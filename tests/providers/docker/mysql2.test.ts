@@ -14,11 +14,12 @@ import { MySQL2Driver } from "@drivers/mysql2";
 import { instrumentation } from "@instrumentation/extension";
 import { createMigrationClient, MemoryEstateStorage } from "@migrations";
 import { introspect } from "@migrations/push";
+import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import {
+  DISTANCE_RESULT_KEY,
   EMPTY_ROW_RESULT_KEY,
   getAggregateResultKey,
   RELATION_COUNTS_RESULT_KEY,
-  VECTOR_DISTANCE_RESULT_KEY,
 } from "@query-engine/result-aliases";
 import { s } from "@schema";
 import { sql } from "@sql";
@@ -35,6 +36,8 @@ import { distinctSkipWindowContract } from "@tests/contracts/drivers/behaviors/d
 import { fieldReferenceContract } from "@tests/contracts/drivers/behaviors/field-reference-behavior";
 import { fkIndexContract } from "@tests/contracts/drivers/behaviors/fk-index-behavior";
 import { forwardFkOrderingContract } from "@tests/contracts/drivers/behaviors/forward-fk-ordering-behavior";
+import { geoPointContract } from "@tests/contracts/drivers/behaviors/geopoint-behavior";
+import { geoPointMigrationLifecycleContract } from "@tests/contracts/drivers/behaviors/geopoint-migration-lifecycle-behavior";
 import { implicitReturningContract } from "@tests/contracts/drivers/behaviors/implicit-returning-behavior";
 import {
   mappedIndexContract,
@@ -92,8 +95,10 @@ import { runUpdateFamilyBehavior } from "@tests/contracts/engine/write/update-fa
 import { runUpdateNestedUpsertBehavior } from "@tests/contracts/engine/write/update-nested-upsert-behavior";
 import { runUpsertFamilyBehavior } from "@tests/contracts/engine/write/upsert-family-behavior";
 import { MySQL2BatchForcedDriver } from "@tests/fixtures/drivers/batch-forced-mysql2";
-import type { Pool as MySQLPool } from "mysql2/promise";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { createSchemaRegistry } from "@validation";
+import { validateGeoPolygon } from "@validation/primitives/geo-area-codec";
+import type { Pool as MySQLPool } from "mysql2/promise";
 
 const TEST_CONNECTION_STRING = process.env.MYSQL_TEST_CONNECTION_STRING;
 const describeIf = TEST_CONNECTION_STRING ? describe : describe.skip;
@@ -124,6 +129,15 @@ const planProbe = s
 
 const planProbeSchema = { planProbe };
 
+const geoPointPlanPlace = s
+  .model({
+    id: s.string().id(),
+    location: s.point(),
+  })
+  .index(["location"], { type: "spatial" })
+  .map("geopoint_plan_places");
+const geoPointPlanSchema = { place: geoPointPlanPlace };
+
 type PlanProbeClient = {
   $executeRawUnsafe: (sql: string, ...values: unknown[]) => Promise<unknown>;
   $queryRawUnsafe: <T>(sql: string, ...values: unknown[]) => Promise<T[]>;
@@ -140,6 +154,20 @@ describeIf("MySQL2 Driver", () => {
     await client.$disconnect();
   });
 
+  geoPointContract.register({
+    driverName: "MySQL2",
+    createDriver: createMySQL2Driver,
+    tier: "full",
+    rawSelectSql:
+      "SELECT `location` FROM `geopoint_behavior_places` WHERE `id` = 'raw'",
+  });
+  geoPointMigrationLifecycleContract.register({
+    driverName: "MySQL2",
+    createDriver: createMySQL2Driver,
+    physicalType: "POINT SRID 4326",
+    physicalIndexType: "spatial",
+  });
+
   test("creates driver with connection string", async () => {
     const driver = createMySQL2Driver();
     expect(driver.dialect).toBe("mysql");
@@ -151,7 +179,7 @@ describeIf("MySQL2 Driver", () => {
     const driver = createMySQL2Driver();
     const aliases = [
       COUNT_RESULT_KEY,
-      VECTOR_DISTANCE_RESULT_KEY,
+      DISTANCE_RESULT_KEY,
       RELATION_COUNTS_RESULT_KEY,
       EMPTY_ROW_RESULT_KEY,
       getAggregateResultKey("_count"),
@@ -171,6 +199,141 @@ describeIf("MySQL2 Driver", () => {
       expect(Object.keys(result.rows[0] ?? {})).toEqual(aliases);
     } finally {
       await driver.disconnect();
+    }
+  });
+
+  test("includes antimeridian polygon boundaries and excludes its hole", async () => {
+    const polygon = validateGeoPolygon({
+      outer: [
+        { longitude: 170, latitude: -10 },
+        { longitude: -170, latitude: -10 },
+        { longitude: -170, latitude: 10 },
+        { longitude: 170, latitude: 10 },
+      ],
+      holes: [
+        [
+          { longitude: 175, latitude: -2 },
+          { longitude: -175, latitude: -2 },
+          { longitude: -175, latitude: 2 },
+          { longitude: 175, latitude: 2 },
+        ],
+      ],
+    });
+    if (polygon.issues) throw new Error("Expected a valid polygon fixture");
+
+    const driver = createMySQL2Driver();
+    const geoPoint = driver.adapter.geoPoint;
+    if (!geoPoint?.withinPolygon) {
+      throw new Error("Expected MySQL GeoPoint polygon support");
+    }
+    const cases: readonly (readonly [number, number, number])[] = [
+      [179, 5, 1],
+      [0, 0, 0],
+      [179, 0, 0],
+      [170, 0, 1],
+      [175, 0, 1],
+    ];
+
+    try {
+      for (const [longitude, latitude, expected] of cases) {
+        const storedPoint = geoPoint.value(sql`${longitude}`, sql`${latitude}`);
+        const membership = geoPoint.withinPolygon(storedPoint, polygon.value);
+        const result = await driver._execute<{ inside: number }>(
+          sql`SELECT ${membership} AS inside`
+        );
+        expect(result.rows[0]?.inside).toBe(expected);
+      }
+
+      for (const [longitude, expected] of [
+        [175, 1],
+        [-175, 1],
+        [0, 0],
+      ] as const) {
+        const storedPoint = geoPoint.value(sql`${longitude}`, sql`${0}`);
+        const membership = geoPoint.withinBounds(storedPoint, {
+          south: -10,
+          west: 170,
+          north: 10,
+          east: -170,
+        });
+        const result = await driver._execute<{ inside: number }>(
+          sql`SELECT ${membership} AS inside`
+        );
+        expect(result.rows[0]?.inside).toBe(expected);
+      }
+    } finally {
+      await driver.disconnect();
+    }
+  });
+
+  test("uses the GeoPoint spatial index only for positive indexable predicates", async () => {
+    const driver = createMySQL2Driver();
+    const client = createClient({ schema: geoPointPlanSchema, driver });
+    try {
+      await syncLiveSchema(client);
+      await client.place.createMany({
+        data: Array.from({ length: 5000 }, (_, index) => ({
+          id: `place-${index}`,
+          location: {
+            longitude: (index % 358) - 179,
+            latitude: ((index * 7) % 178) - 89,
+          },
+        })),
+      });
+
+      const registry = createModelRegistry(
+        geoPointPlanSchema,
+        createSchemaRegistry(geoPointPlanSchema)
+      );
+      const engine = new QueryEngine(driver, registry);
+      const paris = { longitude: 2.3522, latitude: 48.8566 };
+      const polygon = {
+        outer: [
+          { longitude: 1, latitude: 47 },
+          { longitude: 3, latitude: 47 },
+          { longitude: 3, latitude: 49 },
+          { longitude: 1, latitude: 49 },
+        ],
+      };
+
+      const explain = async (where: unknown) => {
+        const statement = engine.build(geoPointPlanPlace, "findMany", {
+          where,
+          select: { id: true },
+        });
+        const result = await driver._execute<{ EXPLAIN: string }>(
+          sql`EXPLAIN FORMAT=JSON ${statement}`
+        );
+        const document = JSON.parse(result.rows[0]?.EXPLAIN ?? "null");
+        return document.query_block?.table;
+      };
+
+      for (const where of [
+        {
+          location: {
+            within: {
+              bounds: { south: 47, west: 1, north: 49, east: 3 },
+            },
+          },
+        },
+        { location: { within: { polygon } } },
+        { location: { distance: { to: paris, lte: 100_000 } } },
+      ]) {
+        await expect(explain(where)).resolves.toMatchObject({
+          access_type: "range",
+          key: "geopoint_plan_places_location_idx",
+        });
+      }
+
+      for (const where of [
+        { location: { distance: { to: paris, gte: 100_000 } } },
+        { NOT: { location: { distance: { to: paris, lte: 100_000 } } } },
+      ]) {
+        const table = await explain(where);
+        expect(table?.key).not.toBe("geopoint_plan_places_location_idx");
+      }
+    } finally {
+      await client.$disconnect();
     }
   });
 

@@ -2,4 +2,4 @@
  * Filesystem estate storage factory.
  */
 
-export { createFsStorageWriter, FsEstateStorage } from "./fs-estate";
+export { createFsStorageWriter } from "./fs-estate";

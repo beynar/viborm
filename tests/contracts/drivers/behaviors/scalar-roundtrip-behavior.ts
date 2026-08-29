@@ -49,10 +49,7 @@ const reading = s
 
 const schema = { measurement, reading };
 
-type ScalarRoundtripClientConfig = VibORMConfig & {
-  schema: typeof schema;
-  driver: AnyDriver;
-};
+type ScalarRoundtripClientConfig = VibORMConfig<typeof schema>;
 
 type ScalarRoundtripClient = VibORMClient<ScalarRoundtripClientConfig>;
 
@@ -391,10 +388,7 @@ const fullItem = s
 
 const fullSchema = { record: fullRecord, item: fullItem };
 
-type FullClientConfig = VibORMConfig & {
-  schema: typeof fullSchema;
-  driver: AnyDriver;
-};
+type FullClientConfig = VibORMConfig<typeof fullSchema>;
 type FullClient = VibORMClient<FullClientConfig>;
 
 type FullValues = {

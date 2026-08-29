@@ -1,4 +1,5 @@
 // biome-ignore-all lint/style/useFilenamingConvention: UpsertOperation is the architecture name.
+import { getAdapterInternals } from "@adapters/adapter-internals";
 import { QueryEngineError } from "@errors";
 import type { Model } from "@schema/model";
 import { slotMayBeEmpty } from "@schema/relation";
@@ -1349,7 +1350,7 @@ export class UpsertOperation {
     const capture =
       this.engine.adapter.capabilities.supportsReturning &&
       (this.mode === "transaction" ||
-        !this.engine.adapter.batchRefs.storeLastInsertId);
+        !getAdapterInternals(this.engine.adapter).batchRefs.storeLastInsertId);
     return {
       statement: capture
         ? buildCreate(parent, {

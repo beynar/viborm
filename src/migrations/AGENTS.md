@@ -30,6 +30,15 @@ with the exact closed typed-parameter tuples authenticated by each dispatch ID.
 lock, executes the accepted in-memory program, and proves the destination. It
 never reads or writes estate storage and never changes the marker or ledger.
 
+GeoPoint changes only dialect-owned physical schema decisions. PostgreSQL uses
+`geography(Point,4326)` plus GiST and proves the exact PostGIS extension-owned
+types/functions before the first live-command effect; it never installs the
+extension. MySQL uses `POINT SRID 4326` and one-field non-null spatial indexes.
+SQLite uses the reserved `VIBORM_GEO_TEXT` type plus its exact canonical JSON
+CHECK and refuses spatial indexes. Introspection recognizes only those exact
+forms. Offline artifacts carry the logical snapshot requirement; they never
+infer it by parsing SQL.
+
 ## Domain model
 
 Use these terms exactly:

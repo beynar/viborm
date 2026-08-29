@@ -304,19 +304,19 @@ describe("`__proto__` is data", () => {
 });
 
 describe("values the document cannot hold", () => {
-  /**
-   * A prototype-carrying object is a fact the document has no way to state: its
-   * class, its accessors and its non-enumerable state would all be dropped, and
-   * a round trip would hand back a different value. Named, never dropped.
-   */
+  /** A class instance carries prototype state that a JSON document cannot state. */
   it("names the field whose default carries a prototype", () => {
     class Coordinate {
-      x = 1;
-      y = 2;
+      longitude = 1;
+      latitude = 2;
     }
-    expect(
-      issues(serializeRefusal(model(s.point().default(new Coordinate()))))
-    ).toEqual(["[J009] /models/user/fields/probe/default"]);
+    const scalar = s.json();
+    const withPrototypeDefault = Reflect.apply(scalar.default, scalar, [
+      new Coordinate(),
+    ]);
+    expect(issues(serializeRefusal(model(withPrototypeDefault)))).toEqual([
+      "[J009] /models/user/fields/probe/default",
+    ]);
   });
 
   // An invalid Date has no ISO spelling at all: `toISOString` throws on it.
